@@ -76,9 +76,6 @@ pub struct TopKMetrics {
     pub num_batches: usize,
     /// Number of times the collection strategy was switched.
     pub strategy_switches: usize,
-    /// Number of (batch_doc, child_doc) comparisons performed during
-    /// merge-join intersection (Batches mode only).
-    pub total_comparisons: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,7 +294,6 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                     child,
                     &mut batch,
                     &mut self.heap,
-                    &mut self.metrics,
                     can_trim_deep_results,
                 )?;
             } else {
@@ -706,7 +702,6 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
     child: &mut C,
     batch: &mut impl ScoreBatch,
     heap: &mut TopKHeap<'index, O>,
-    metrics: &mut TopKMetrics,
     can_trim_deep_results: bool,
 ) -> Result<(), RQEIteratorError> {
     child.rewind();
@@ -721,7 +716,6 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
     let mut child_doc = first.doc_id;
 
     loop {
-        metrics.total_comparisons += 1;
         match batch_doc.cmp(&child_doc) {
             Ordering::Equal => {
                 // Capture the matching child data only if the heap retains it,

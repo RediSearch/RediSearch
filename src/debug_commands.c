@@ -1032,9 +1032,18 @@ DEBUG_COMMAND(DumpPhoneticHash) {
 
   PhoneticManager_ExpandPhonetics(NULL, term_c, len, &primary, &secondary);
 
+  // A term with no phonetic code (digits, for one) leaves the code NULL.
   RedisModule_ReplyWithArray(ctx, 2);
-  RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
-  RedisModule_ReplyWithStringBuffer(ctx, secondary, strlen(secondary));
+  if (primary) {
+    RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
+  } else {
+    RedisModule_ReplyWithNull(ctx);
+  }
+  if (secondary) {
+    RedisModule_ReplyWithStringBuffer(ctx, secondary, strlen(secondary));
+  } else {
+    RedisModule_ReplyWithNull(ctx);
+  }
 
   rm_free(primary);
   rm_free(secondary);

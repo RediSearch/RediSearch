@@ -35,6 +35,7 @@
 #include "byte_offsets.h"
 #include "doc_table.h"
 #include "geometry_index.h"
+#include "geometry/geometry_api.h"
 #include "index_result_rs.h"
 #include "info/index_error.h"
 #include "query_error.h"
@@ -180,8 +181,8 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
  * This update's value for schema field `f_idx`, or NULL when this version of the document
  * carries none.
  *
- * `VectorIndex_RemoveOrKeepId` walks the schema while the preprocessed values are indexed by
- * document field, so the mapping is resolved here.
+ * `VectorIndex_RemoveOrKeepId` and `GeometryIndex_RemoveOrKeepId` walk the schema while the
+ * preprocessed values are indexed by document field, so the mapping is resolved here.
  */
 static const FieldIndexerData *fieldValue(const RSAddDocumentCtx *aCtx,
                                                   const t_fieldIndex f_idx) {
@@ -240,14 +241,54 @@ static void VectorIndex_RemoveOrKeepId(const IndexSpec *spec, t_docId oldDocId,
   }
 }
 
+/**
+ * Whether GEOSHAPE field `fs`'s old entry can be moved. An unverified mark is resolved by
+ * comparing the stored shape with the new value.
+ */
+static bool checkGeometryUnchanged(const RSAddDocumentCtx *aCtx, const FieldSpec *fs,
+                                   const GeometryIndex *idx, t_docId oldDocId) {
+  const ChangedFieldInd mark = AddDocumentCtx_FieldChange(aCtx, fs->index);
+  if (mark == ChangedFieldInd_VerifiedYes) {
+    return false;
+  }
+  const FieldIndexerData *fdata = fieldValue(aCtx, fs->index);
+  if (fdata && !fdata->isMulti && fdata->format == GEOMETRY_FORMAT_WKT && fdata->str &&
+      (mark == ChangedFieldInd_VerifiedNo ||
+       GeometryIndex_HoldsGeom(idx, oldDocId, fdata->format, fdata->str, fdata->strlen))) {
+    aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedNo;
+    return true;
+  }
+  aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
+  return false;
+}
+
+/**
+ * Drop the replaced document's entry from every GEOSHAPE field of `spec`, or keep it for
+ * `geometryIndexer` to move.
+ */
+static void GeometryIndex_RemoveOrKeepId(const IndexSpec *spec, t_docId oldDocId,
+                                         const RSAddDocumentCtx *aCtx) {
+  for (int i = 0; i < spec->numFields; ++i) {
+    FieldSpec *fs = &spec->fields[i];
+    if (!(fs->types & INDEXFLD_T_GEOMETRY)) continue;
+    GeometryIndex *idx = OpenGeometryIndex(fs, DONT_CREATE_INDEX);
+    if (!idx) {
+      if (aCtx && aCtx->fieldChanges) aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
+      continue;
+    }
+    if (checkGeometryUnchanged(aCtx, fs, idx, oldDocId)) continue;
+    GeometryApi_Get(idx)->delGeom(idx, oldDocId);
+  }
+}
+
 // Contract documented on the declaration in indexer_internal.h.
-void Indexer_HandleReplacedDocVectorAndGeometry(IndexSpec *spec, t_docId oldDocId,
+void Indexer_HandleReplacedDocVectorAndGeometry(const IndexSpec *spec, t_docId oldDocId,
                                                 const RSAddDocumentCtx *aCtx) {
   if (spec->flags & Index_HasVecSim) {
     VectorIndex_RemoveOrKeepId(spec, oldDocId, aCtx);
   }
   if (spec->flags & Index_HasGeometry) {
-    GeometryIndex_RemoveId(spec, oldDocId);
+    GeometryIndex_RemoveOrKeepId(spec, oldDocId, aCtx);
   }
 }
 
@@ -398,9 +439,9 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 }
 
 /**
- * Delete the old-doc VecSim entry of every VECTOR field, from `fromField` onward, that
- * was marked to keep for the relabel. Called when that applier is not going to run this
- * pass due to error path
+ * Delete the old-doc VecSim or geometry entry of every VECTOR or GEOSHAPE field, from
+ * `fromField` onward, that was marked to keep for the relabel. Called when that applier is not
+ * going to run this pass due to error path
  */
 static void revertPendingRelabels(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
                                          size_t fromField) {
@@ -408,14 +449,22 @@ static void revertPendingRelabels(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
   const Document *doc = aCtx->doc;
   for (size_t ii = fromField; ii < doc->numFields; ++ii) {
     const FieldSpec *fs = aCtx->fspecs + ii;
-    if (fs->types != INDEXFLD_T_VECTOR ||
-        aCtx->fieldChanges[fs->index] != ChangedFieldInd_VerifiedNo) {
+    const bool isVector = fs->types == INDEXFLD_T_VECTOR;
+    const bool isGeometry = fs->types & INDEXFLD_T_GEOMETRY;
+    if (!(isVector || isGeometry) || aCtx->fieldChanges[fs->index] != ChangedFieldInd_VerifiedNo) {
       continue;
     }
-    // ctx is NULL because we don't create the index here, matching `VectorIndex_RemoveOrKeepId`.
-    VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[fs->index], DONT_CREATE_INDEX);
-    if (vecsim) {
-      VecSimIndex_DeleteVector(vecsim, aCtx->oldDocId);
+    if (isVector) {
+      // ctx is NULL because we don't create the index here, matching `VectorIndex_RemoveOrKeepId`.
+      VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[fs->index], DONT_CREATE_INDEX);
+      if (vecsim) {
+        VecSimIndex_DeleteVector(vecsim, aCtx->oldDocId);
+      }
+    } else {
+      GeometryIndex *idx = OpenGeometryIndex(&spec->fields[fs->index], DONT_CREATE_INDEX);
+      if (idx) {
+        GeometryApi_Get(idx)->delGeom(idx, aCtx->oldDocId);
+      }
     }
     aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
   }
@@ -429,7 +478,7 @@ static void revertPendingRelabels(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
  *
  * On the first add failure, marks `ACTX_F_ERRORED` and bails. Earlier fields
  * stay fully applied; later fields are skipped entirely -- including their
- * appliers, so any pending vector relabel from `ii` onward is abandoned
+ * appliers, so any pending relabel from `ii` onward is abandoned
  * instead of left stranded
  */
 static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {

@@ -61,11 +61,6 @@ typedef struct ThinVec_c_void__u16 SmallThinVec_c_void;
 #endif /* SMALLTHINVEC_C_VOID_DEFINED */
 
 /**
- * Callback type for passing to [`TrieMap_IterateRange`].
- */
-typedef void (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
-
-/**
  * Callback type for passing to [`TrieMap_Add`].
  */
 typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
@@ -267,32 +262,6 @@ void TrieMap_Free(struct TrieMap *t, freeCB func);
  * - `t` must not be freed while the iterator lives.
  */
 struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
-
-/**
- * Iterate the trie within the specified key range.
- *
- * If `minLen` is 0, `min` is regarded as an empty string. It `minlen` is -1, the itaration starts from the beginning of the trie.
- * If `maxLen` is 0, `max` is regarded as an empty string. If `maxlen` is -1, the iteration goes to the end of the trie.
- * `includeMin` and `includeMax` determine whether the min and max values are included in the iteration.
- *
- * The passed [`TrieMapRangeCallback`] function is called for each key found,
- * passing the key and its length, the value, and the `ctx` pointer passed to this
- * function.
- *
- * Panics in case the passed callback is NULL.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `trie` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `min` can be NULL only if `minlen == 0` or `minlen == -1`. It is not necessarily NULL-terminated.
- * - `minlen` can be 0. If so, `min` is regarded as an empty string.
- * - `max` can be NULL only if `maxlen == 0` or `maxlen == -1`. It is not necessarily NULL-terminated.
- * - `maxlen` can be 0. If so, `max` is regarded as an empty string.
- * - `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
- *
- * [`NewTrieMap`]: crate::NewTrieMap
- */
-void TrieMap_IterateRange(const struct TrieMap *trie, const char *min, int minlen, bool includeMin, const char *max, int maxlen, bool includeMax, TrieMapRangeCallback callback, void *ctx);
 
 /**
  * Iterate over the trie entries that match the given predicate.

@@ -9,6 +9,8 @@ import math
 import random
 import time
 
+import numpy as np
+
 from RLTest import Env
 from common import *
 from includes import *
@@ -346,7 +348,7 @@ def test_create():
         conn.execute_command('FT.CREATE', 'idx2', 'SCHEMA', 'v_FLAT', 'VECTOR', 'FLAT', '8', 'TYPE', data_type,
                              'DIM', '1024', 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', '10')
 
-        expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024, 'SHARED_MEMORY', dummy_val]
+        expected_HNSW = ['ALGORITHM', 'TIERED', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'MANAGEMENT_LAYER_MEMORY', dummy_val, 'BACKGROUND_INDEXING', 0, 'TIERED_BUFFER_LIMIT', 1024, 'FRONTEND_INDEX', ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024], 'BACKEND_INDEX', ['ALGORITHM', 'HNSW', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'COSINE', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'MAX_LEVEL', -1, 'ENTRYPOINT', -1, 'EPSILON', '0.01', 'NUMBER_OF_MARKED_DELETED', 0], 'TIERED_HNSW_SWAP_JOBS_THRESHOLD', 1024, 'TIERED_HNSW_DEFRAG_RUNS', 0, 'TIERED_HNSW_DEFRAG_TIME_NS', 0, 'SHARED_MEMORY', dummy_val]
         expected_FLAT = ['ALGORITHM', 'FLAT', 'TYPE', data_type, 'DIMENSION', 1024, 'METRIC', 'L2', 'IS_MULTI_VALUE', 0, 'IS_DISK', 0, 'INDEX_SIZE', 0, 'INDEX_LABEL_COUNT', 0, 'MEMORY', dummy_val, 'LAST_SEARCH_MODE', 'EMPTY_MODE', 'BLOCK_SIZE', 1024, 'SHARED_MEMORY', dummy_val]
 
         # SVS-VAMANA only supports FLOAT32 and FLOAT16 data types
@@ -365,6 +367,7 @@ def test_create():
                                                       'MAX_CANDIDATE_POOL_SIZE', 600, 'PRUNE_TO', 28, 'USE_SEARCH_HISTORY', 1, 'NUM_THREADS', 1, 'LAST_RESERVED_NUM_THREADS', 1,
                                                       'NUMBER_OF_MARKED_DELETED', 0, 'SEARCH_WINDOW_SIZE', 10, 'SEARCH_BUFFER_CAPACITY', 10, 'LEANVEC_DIMENSION', 0, 'EPSILON', 0.01],
                                                       'TIERED_SVS_TRAINING_THRESHOLD', 1024, 'TIERED_SVS_UPDATE_THRESHOLD', 1024, 'TIERED_SVS_THREADS_RESERVE_TIMEOUT', 5000,
+                                                      'TIERED_SVS_DEFRAG_RUNS', 0, 'TIERED_SVS_DEFRAG_TIME_NS', 0,
                                                       'SHARED_MEMORY', dummy_val]
 
         for _ in env.reloadingIterator():
@@ -471,6 +474,8 @@ def test_create_multiple_vector_fields():
 
     # Insert one vector only to each index, validate it was inserted only to the right index.
     conn.execute_command('HSET', 'a', 'v', 'aaaaaaaa')
+    # A vector being ingested into HNSW is briefly counted in both tiers.
+    drain_workers(env)
     info_data = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v"))
     env.assertEqual(info_data['INDEX_SIZE'], 1)
     info_data = to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", "idx", "v_flat"))
@@ -771,7 +776,8 @@ def test_search_errors():
 
 
 def test_with_fields():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    # No workers at all, so the reload indexes vectors synchronously.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -960,9 +966,27 @@ def test_hybrid_query_with_text_vamana_adhoc_bf():
     execute_hybrid_query(env, f'(other)=>[KNN {k} @v $vec_param]', query_data, 't', hybrid_mode='HYBRID_ADHOC_BF', limit = k).equal(expected_res[:k*2+1])
 
 
-@skip_until("2026-10-12", reason="MOD-18890: investigating intermittent SVS-VAMANA BATCHES recall misses")
+def check_vamana_batches(env, text_filter, k, query_data, dim, data_type, expected_res, doc_vector=None):
+    """Run the explicit BATCHES hybrid query and assert its result. On a mismatch, first log whether
+    the missing docs are reachable some other way."""
+    query = f'({text_filter})=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]'
+    actual_res = env.cmd('FT.SEARCH', 'idx', query, 'SORTBY', '__v_score',
+                         'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                         'RETURN', 2, '__v_score', 't', 'LIMIT', 0, k)
+    if actual_res != expected_res:
+        log_unreachable_results(env, text_filter, k, query_data, dim, data_type, expected_res, actual_res,
+                                doc_vector=doc_vector)
+    execute_hybrid_query(env, query, query_data, 't', hybrid_mode='HYBRID_BATCHES', limit=k).equal(expected_res)
+
+
 def test_hybrid_query_with_text_vamana_batches():
-    """Validate explicit SVS-VAMANA BATCHES queries before and after vector relabeling."""
+    """Validate explicit SVS-VAMANA BATCHES queries over a text filter, before and after some
+    documents change their text.
+
+    The vectors are random. Points on a single line (e.g. [i, i]) are a degenerate input for a
+    Vamana graph: it can end up with regions the search cannot reach from its entry point, and then
+    even a query with a doc's own vector does not return it. The expected results are the exact
+    (ADHOC_BF) ones."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 WORKERS 8')
     conn = getConnectionByEnv(env)
     dim = 2
@@ -970,60 +994,41 @@ def test_hybrid_query_with_text_vamana_batches():
     data_type = 'FLOAT32'
     create_vector_index(env, dim, datatype=data_type, alg='SVS-VAMANA',
                         additional_schema_args=['t', 'TEXT'])
-    relabel_supported = all(run_command_on_all_shards(
-        env, debug_cmd(), 'VECSIM_RELABEL_SUPPORTED', DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME))
 
-    load_vectors_with_texts_into_redis(conn, DEFAULT_FIELD_NAME, dim, index_size, data_type)
+    vectors = np.random.default_rng(1234).random((index_size, dim), dtype=np.float32)
+    pipe = conn.pipeline(transaction=False)
+    for doc_id, vector in enumerate(vectors, start=1):
+        pipe.execute_command('HSET', doc_id, DEFAULT_FIELD_NAME, vector.tobytes(), 't', 'text value')
+    pipe.execute()
     start_time = time.time()
-    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
+    # Wait for every vector to reach the SVS backend before querying, not only for training to end.
+    wait_for_background_indexing(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME,
+                                 backend_index_size=index_size)
     env.debugPrint("wait_for_background_indexing took {} seconds".format(
         time.time() - start_time), force=True)
-    backend_size = get_tiered_backend_debug_info(
-        env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE']
-    env.debugPrint(f"svs index size: {backend_size}", force=True)
 
     k = 12
-    query_data = create_np_array_typed([1] * dim, data_type)
-    expected_res = [k]
-    for doc_id in range(1, k + 1):
-        expected_res.append(str(doc_id))
-        expected_res.append(['__v_score', str(dim * (doc_id - 1) ** 2), 't', 'text value'])
+    query_data = np.array([0.5] * dim, dtype=np.float32)
+
+    def doc_vector(doc_id):
+        return vectors[int(doc_id) - 1]
+
+    def exact(text_filter):
+        return env.cmd('FT.SEARCH', 'idx', f'({text_filter})=>[KNN {k} @v $vec_param HYBRID_POLICY ADHOC_BF]',
+                       'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(),
+                       'RETURN', 2, '__v_score', 't', 'LIMIT', 0, k)
 
     # Query the initial corpus before any document has been updated.
-    execute_hybrid_query(
-        env,
-        f'(@t:(text value))=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]',
-        query_data, 't', hybrid_mode='HYBRID_BATCHES', limit=k,
-    ).equal(expected_res)
+    check_vamana_batches(env, '@t:(text value)', k, query_data, dim, data_type, exact('@t:(text value)'),
+                         doc_vector=doc_vector)
 
-    def vector_ops():
-        infos = run_command_on_all_shards(env, 'INFO', 'MODULES')
-        return (sum(int(info['search_total_indexing_ops_vector_fields']) for info in infos),
-                sum(int(info.get('search_total_relabel_ops_vector_fields', 0)) for info in infos))
-
-    updated_doc_ids = [10 * i for i in range(1, int(index_size / 10) + 1)]
-    if relabel_supported:
-        indexing_before, relabel_before = vector_ops()
+    # Move every 10th document to another text.
     for i in range(1, int(index_size / 10) + 1):
         conn.execute_command('HSET', 10 * i, 't', 'other')
     verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
 
-    if relabel_supported:
-        indexing_after, relabel_after = vector_ops()
-        env.assertEqual(indexing_after, indexing_before,
-                        message='text-only updates re-indexed SVS vectors')
-        env.assertEqual(relabel_after - relabel_before, len(updated_doc_ids))
-
-    expected_res = [k]
-    for doc_id in updated_doc_ids[:k]:
-        expected_res.append(str(doc_id))
-        expected_res.append(['__v_score', str(dim * (doc_id - 1) ** 2), 't', 'other'])
-
-    execute_hybrid_query(
-        env,
-        f'(other)=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]',
-        query_data, 't', hybrid_mode='HYBRID_BATCHES', limit=k,
-    ).equal(expected_res)
+    check_vamana_batches(env, 'other', k, query_data, dim, data_type, exact('other'),
+                         doc_vector=doc_vector)
 
     # Expect empty score for the intersection (disjoint sets of results)
     # The hybrid policy changes to ad hoc after the first batch
@@ -1036,7 +1041,9 @@ def test_hybrid_query_with_text_vamana_batches():
 
 def test_hybrid_query_batches_mode_with_text():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
+    # The expected results at the default EF_RUNTIME rely on overwritten vectors leaving the graph at
+    # once, which only in-place writes do while the GC is held off.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 MIN_MAINTENANCE_WORKERS 0')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -1113,7 +1120,9 @@ def test_hybrid_query_batches_mode_with_text():
 
 def test_hybrid_query_batches_mode_with_tags():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000')
+    # The expected results rely on overwritten vectors leaving the graph at once, which only in-place
+    # writes do while the GC is held off.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 MIN_MAINTENANCE_WORKERS 0')
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -1129,6 +1138,8 @@ def test_hybrid_query_batches_mode_with_tags():
         vector = create_np_array_typed([i]*dim, data_type)
         p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid', 'text', 'text')
     p.execute()
+    # The hybrid-policy heuristics depend on how vectors split between the flat buffer and HNSW.
+    drain_workers(env)
 
     query_data = create_np_array_typed([index_size/2]*dim, data_type)
 
@@ -1146,6 +1157,7 @@ def test_hybrid_query_batches_mode_with_tags():
     for i in range(1, int(index_size/5) + 1):
         vector = create_np_array_typed([5*i]*dim, data_type)
         conn.execute_command('HSET', 5*i, 'v', vector.tobytes(), 'tags', 'different, tag')
+    drain_workers(env)
 
     expected_res = [10]
     # Expect to get result which are around index_size/2 that divide by 5, closer results
@@ -1199,6 +1211,8 @@ def test_hybrid_query_with_numeric():
         vector = create_np_array_typed([i]*dim, data_type)
         p.execute_command('HSET', i, 'v', vector.tobytes(), 'num', i)
     p.execute()
+    # The hybrid-policy heuristics depend on how vectors split between the flat buffer and HNSW.
+    drain_workers(env)
 
     query_data = create_np_array_typed([index_size]*dim, data_type)
     expected_res = [10]
@@ -1251,6 +1265,8 @@ def test_hybrid_query_with_geo():
         vector = create_np_array_typed([i/100]*dim, data_type)
         p.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i/100)+","+str(i/100))
     p.execute()
+    # A vector being ingested into HNSW is briefly counted in both tiers.
+    drain_workers(env)
     if not env.isCluster():
         env.assertEqual(get_vecsim_index_size(env, 'idx', 'v'), index_size)
 
@@ -1291,6 +1307,8 @@ def test_hybrid_query_batches_mode_with_complex_queries():
         further_vector = create_np_array_typed([i]*dimension, data_type)
         p.execute_command('HSET', i, 'v', further_vector.tobytes(), 'num', i, 't1', 'text value', 't2', 'hybrid query')
     p.execute()
+    # The hybrid-policy heuristics depend on how vectors split between the flat buffer and HNSW.
+    drain_workers(env)
     expected_res_1 = [2, '1', '5']
     # Search for the "close_vector" that some the vector in the index contain. The batch of vectors should start with
     # ids 1, 4. The intersection "child iterator" has two children - intersection iterator (@t2:(hybrid query))
@@ -1332,6 +1350,8 @@ def test_hybrid_query_non_vector_score():
     for i in range(1, 11):
         vector = np.float32([10*i for j in range(dimension)])
         conn.execute_command('HSET', 10*i, 'v', vector.tobytes(), 't', 'other')
+    # The hybrid-policy heuristics depend on how vectors split between the flat buffer and HNSW.
+    drain_workers(env)
 
     query_data = np.float32([qty for j in range(dimension)])
 
@@ -1499,7 +1519,8 @@ def test_hybrid_query_scorer_slop_ranking():
 
 @skip(cluster=False)
 def test_single_entry():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    # No workers at all, so the reload indexes vectors synchronously.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
     # This test should test 3 shards with only one entry. 2 shards should return an empty response to the coordinator.
     # Execution should finish without failure.
     conn = getConnectionByEnv(env)
@@ -1517,7 +1538,8 @@ def test_single_entry():
 
 
 def test_hybrid_query_adhoc_bf_mode():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    # No workers at all, so the reload indexes vectors synchronously.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -2125,7 +2147,8 @@ class TestIndexMultiValueJsonReload:
 
     def __init__(self):
         skipTest(no_json=True)
-        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+        # No workers at all, so DEBUG RELOAD rebuilds the SVS graph synchronously (see _check_svs).
+        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
         self.dim = 4
         self.per_doc = 5
         # Scale factor to avoid FLOAT16/BFLOAT16 overflow: using 1/8 keeps values and distances within
@@ -2212,7 +2235,7 @@ class TestIndexMultiValueJsonReload:
         # Use enough vectors to trigger the SVS backend (Vamana graph) build. SEARCH_WINDOW_SIZE = n
         # keeps the search effectively exhaustive, so KNN/range results stay exact regardless of graph
         # connectivity; CONSTRUCTION_WINDOW_SIZE keeps the index default. Under coverage with
-        # MIN_OPERATION_WORKERS 0 the graph is rebuilt synchronously during DEBUG RELOAD, so each data
+        # no workers the graph is rebuilt synchronously during DEBUG RELOAD, so each data
         # type runs as its own test to keep that rebuild within a single per-test timeout (MOD-15571).
         n = 250 * self.env.shardsCount
         self._check_algo('svs', 'SVS-VAMANA', data_t, n,
@@ -2338,6 +2361,8 @@ def test_range_query_basic_random_vectors():
                dim, 'DISTANCE_METRIC', 'COSINE', 'M', '4', 'EF_CONSTRUCTION', '4', 'EPSILON', '0.001').ok()
 
     query_data = load_vectors_to_redis(env, n, 0, dim)
+    # Epsilon only affects the HNSW tier, so both queries must see the same tier split.
+    drain_workers(env)
 
     radius = 0.23
     res_default_epsilon = conn.execute_command('FT.SEARCH', 'idx', '@vector:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:dist}',
@@ -2748,8 +2773,16 @@ def test_score_name_long_field_name():
 
 @skip(cluster=True)
 def test_tiered_index_gc():
+    _tiered_index_gc('WORKERS 2')
+
+@skip(cluster=True)
+def test_tiered_index_gc_maintenance_worker():
+    # At the default WORKERS 0 the maintenance worker runs the repair jobs.
+    _tiered_index_gc('WORKERS 0')
+
+def _tiered_index_gc(workers_args):
     N = 100
-    env = Env(moduleArgs=f'WORKERS 2 FORK_GC_RUN_INTERVAL 1000000000000 FORK_GC_CLEAN_THRESHOLD {N}')
+    env = Env(moduleArgs=f'{workers_args} FORK_GC_RUN_INTERVAL 1000000000000 FORK_GC_CLEAN_THRESHOLD {N}')
     conn = getConnectionByEnv(env)
     dim = 16
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
@@ -2878,7 +2911,9 @@ def test_vector_only_update_no_reindex():
 
 
 @skip(cluster=True)
-def test_switch_write_mode_multiple_indexes(env):
+def test_switch_write_mode_multiple_indexes():
+    # Tests the in-place <-> async switch, so WORKERS 0 must leave the pool empty.
+    env = Env(moduleArgs='MIN_MAINTENANCE_WORKERS 0')
     conn = getConnectionByEnv(env)
     dim = 32
     n_indexes = 100

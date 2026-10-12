@@ -145,6 +145,8 @@ IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, 
     return NULL;
   }
 
+  SearchDisk_ActivateUsage(sp);
+
   if (!(sp->flags & Index_SkipInitialScan)) {
     IndexSpec_ScanAndReindex(ctx, spec_ref);
   }
@@ -168,6 +170,7 @@ void Indexes_RemoveSpecFromGlobals(StrongRef spec_ref, bool removeActive) {
   // is already in flight, which frees it itself. GCContext_BeginDrop tells us which.
   GCContext *gc = spec->gc;
   const bool ownGCAfterUnlink = gc && GCContext_BeginDrop(gc);
+  if (spec->diskSpec) SearchDisk_CloseIndexOnMainThread(RSDummyContext, spec);
   // Remove spec from the global index registry (by name and by specId)
   dictDelete(specDict_g, spec->specName);
   dictDelete(specIdDict_g, (void *)(uintptr_t)spec->specId);
@@ -375,6 +378,7 @@ int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp) {
     quiesceSpecIfWindowOpen(sp);
     dictAdd(specDict_g, (void *)sp->specName, spec_ref.rm);
     dictAdd(specIdDict_g, (void *)(uintptr_t)sp->specId, spec_ref.rm);
+    SearchDisk_ActivateUsage(sp);
 
     for (int i = 0; i < sp->numFields; i++) {
       FieldsGlobalStats_UpdateStats(sp->fields + i, 1);

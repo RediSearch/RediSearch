@@ -13,7 +13,7 @@
 
 #include <spec.h>
 #include <search_ctx.h>
-#include "sortable.h"
+#include "sorting_vector.h"
 #include "util/arr.h"
 
 #include "rlookup_ffi.h"

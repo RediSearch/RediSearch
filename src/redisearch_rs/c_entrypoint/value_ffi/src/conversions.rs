@@ -12,11 +12,12 @@ use crate::util::{expect_value, try_value};
 use libc::size_t;
 use std::ffi::{c_char, c_double};
 use value::Value;
-use value::util::{num_to_str, str_to_float};
+use value::util::num_to_str;
 
-/// Convert the [`RSValue`] to a number. Returns `true` when this value is a number
-/// or a numeric string that can be converted and writes the number to `d`. If
-/// the value cannot be converted `false` is returned and nothing is written to `d`.
+/// Convert the [`RSValue`] to a number, as [`Value::to_number`] does. Returns `true`
+/// when this value is a number or a numeric string that can be converted and writes
+/// the number to `d`. If the value cannot be converted `false` is returned and
+/// nothing is written to `d`.
 ///
 /// # Safety
 ///
@@ -34,14 +35,7 @@ pub unsafe extern "C" fn RSValue_ToNumber(value: *const RSValue, d: *mut c_doubl
         return false;
     };
 
-    let value = value.fully_dereferenced_ref_and_trio();
-
-    let Some(num) = (match value {
-        Value::Number(n) => Some(*n),
-        Value::String(string) => str_to_float(string.as_bytes()),
-        Value::RedisString(string) => str_to_float(string.as_bytes()),
-        _ => None,
-    }) else {
+    let Some(num) = value.to_number() else {
         return false;
     };
 

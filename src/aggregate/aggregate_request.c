@@ -122,17 +122,7 @@ void initializeAREQ(AREQ *req) {
   RSSearchOptions_Init(&req->searchopts);
 }
 
-static void ReturnedField_Free(ReturnedField *field) {
-  rm_free(field->highlightSettings.openTag);
-  rm_free(field->highlightSettings.closeTag);
-  rm_free(field->summarizeSettings.separator);
-}
-
 void FieldList_Free(FieldList *fields) {
-  for (size_t ii = 0; ii < fields->numFields; ++ii) {
-    ReturnedField_Free(fields->fields + ii);
-  }
-  ReturnedField_Free(&fields->defaultField);
   rm_free(fields->fields);
 }
 
@@ -159,12 +149,8 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, con
 static void FieldList_RestrictReturn(FieldList *fields) {
   size_t oix = 0;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
-    if (fields->fields[ii].explicitReturn == 0) {
-      ReturnedField_Free(fields->fields + ii);
-    } else if (ii != oix) {
+    if (fields->fields[ii].explicitReturn) {
       fields->fields[oix++] = fields->fields[ii];
-    } else {
-      ++oix;
     }
   }
   fields->numFields = oix;
@@ -833,34 +819,63 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   return REDISMODULE_OK;
 }
 
-static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCursor *args) {
+// Next reducer argument, without the leading '@'s, which may not appear in an alias.
+static const char *reducerAliasArg(ArgsCursor *ac, size_t *len) {
+  const char *s = AC_GetStringNC(ac, len);
+  while (*s == '@') {
+    ++s;
+    --*len;
+  }
+  return s;
+}
 
-  sds out = sdsnew("__generated_alias");
-  out = sdscat(out, func);
-  // only put parentheses if we actually have args
-  char buf[255];
+// ASCII-only on purpose: generated aliases are client-visible names and have always kept non-ASCII
+// bytes as they are.
+static void lowerAscii(char *s, size_t len) {
+  for (size_t i = 0; i < len; ++i) {
+    unsigned char c = (unsigned char)s[i];
+    s[i] = (unsigned char)(c - 'A') < 26 ? (char)(c | 0x20) : (char)c;
+  }
+}
+
+static char *getReducerAlias(const char *func, const ArgsCursor *args) {
+  static const char prefix[] = "__generated_alias";
+  const size_t prefixLen = sizeof(prefix) - 1;
+  const size_t funcLen = strlen(func);
+
+  // The arguments are comma-separated: count one byte per argument, the last one for the NUL.
+  size_t total = prefixLen + funcLen + 1;
   ArgsCursor tmp = *args;
   while (!AC_IsAtEnd(&tmp)) {
     size_t l;
-    const char *s = AC_GetStringNC(&tmp, &l);
-    while (*s == '@') {
-      // Don't allow the leading '@' to be included as an alias!
-      ++s;
-      --l;
-    }
-    out = sdscatlen(out, s, l);
-    if (!AC_IsAtEnd(&tmp)) {
-      out = sdscat(out, ",");
-    }
+    reducerAliasArg(&tmp, &l);
+    total += l + 1;
+  }
+  if (!AC_IsAtEnd(args)) {
+    --total;
   }
 
-  // only put parentheses if we actually have args
-  sdstolower(out);
+  char *out = rm_malloc(total);
+  char *pos = out;
+  memcpy(pos, prefix, prefixLen);
+  pos += prefixLen;
+  memcpy(pos, func, funcLen);
+  pos += funcLen;
+  tmp = *args;
+  while (!AC_IsAtEnd(&tmp)) {
+    size_t l;
+    const char *s = reducerAliasArg(&tmp, &l);
+    memcpy(pos, s, l);
+    pos += l;
+    if (!AC_IsAtEnd(&tmp)) {
+      *pos++ = ',';
+    }
+  }
+  *pos = '\0';
+  RS_ASSERT(pos == out + total - 1);
 
-  // duplicate everything. yeah this is lame but this function is not in a tight loop
-  char *dup = rm_strndup(out, sdslen(out));
-  sdsfree(out);
-  return dup;
+  lowerAscii(out, total - 1);
+  return out;
 }
 
 static void groupStepFree(PLN_BaseStep *base) {
@@ -869,7 +884,9 @@ static void groupStepFree(PLN_BaseStep *base) {
     size_t nreducers = array_len(g->reducers);
     for (size_t ii = 0; ii < nreducers; ++ii) {
       PLN_Reducer *gr = g->reducers + ii;
-      rm_free(gr->alias);
+      if (gr->ownsAlias) {
+        rm_free((void *)gr->alias);
+      }
       rm_free(gr->inputAlias);
     }
     array_free(g->reducers);
@@ -923,9 +940,11 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     }
   }
   if (alias == NULL) {
-    gr->alias = getReducerAlias(gstp, name, &gr->args);
+    gr->alias = getReducerAlias(name, &gr->args);
+    gr->ownsAlias = true;
   } else {
-    gr->alias = rm_strdup(alias);
+    gr->alias = alias;
+    gr->ownsAlias = false;
   }
   gr->isHidden = 0; // By default, reducers are not hidden
   gr->isLocal = false;
@@ -1018,16 +1037,15 @@ static void freeFilterStep(PLN_BaseStep *bstp) {
   if (fstp->parsedExpr) {
     ExprAST_Free(fstp->parsedExpr);
   }
-  HiddenString_Free(fstp->expr, true);
-  rm_free((void *)fstp->base.alias);
+  HiddenString_Free(fstp->expr, false);
   rm_free(bstp);
 }
 
-PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString* expr, int mode) {
+PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, size_t len, int mode) {
   PLN_MapFilterStep *stp = rm_calloc(1, sizeof(*stp));
   stp->base.dtor = freeFilterStep;
   stp->base.type = mode;
-  stp->expr = HiddenString_Duplicate(expr);
+  stp->expr = NewHiddenString(expr, len, false);
   return stp;
 }
 
@@ -1041,22 +1059,19 @@ static int handleApplyOrFilter(AGGPlan *plan, ArgsCursor *ac, QueryError *status
     return REDISMODULE_ERR;
   }
 
-  HiddenString* expression = NewHiddenString(expr, exprLen, false);
-  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, isApply ? PLN_T_APPLY : PLN_T_FILTER);
-  HiddenString_Free(expression, false);
+  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, exprLen, isApply ? PLN_T_APPLY : PLN_T_FILTER);
   AGPLN_AddStep(plan, &stp->base);
 
   if (isApply) {
     if (AC_AdvanceIfMatch(ac, "AS")) {
       const char *alias;
-      size_t aliasLen;
-      if (AC_GetString(ac, &alias, &aliasLen, 0) != AC_OK) {
+      if (AC_GetString(ac, &alias, NULL, 0) != AC_OK) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "AS needs argument");
         goto error;
       }
-      stp->base.alias = rm_strndup(alias, aliasLen);
+      stp->base.alias = alias;
     } else {
-      stp->base.alias = rm_strndup(expr, exprLen);
+      stp->base.alias = expr;
     }
   }
   return REDISMODULE_OK;
@@ -1087,6 +1102,10 @@ static int handleLoad(AGGPlan *plan, uint32_t *reqflags, ArgsCursor *ac, QueryEr
     REQFLAGS_AddFlags(reqflags, QEXEC_AGG_LOAD_ALL);
   } else if (rc != AC_OK) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for LOAD: %s", AC_Strerror(rc));
+    return REDISMODULE_ERR;
+  }
+
+  if (PLNLoadStep_ValidateArgs(&loadfields, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1127,6 +1146,7 @@ bool RunInThread(RedisModuleCtx *ctx) {
 }
 
 static void initAREQRequest(AREQ *req, RedisModuleString **argv, uint32_t argc) {
+  req->internalRespSchema = false;
   QueryRequest_Init(&req->base, QUERY_REQUEST_KIND_AREQ, &RSGlobalConfig.requestConfigParams,
                     &RSGlobalConfig.timeoutConfigParams, argv, argc);
   QueryRequest_SetEndProcRef(&req->base, &req->pipeline.qctx.endProc);
@@ -1333,6 +1353,12 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
   if (parseAggPlan(&papCtx, &ac, isDiskIndex, status) != REDISMODULE_OK) {
     goto error;
   }
+
+  // Finalize the format after parsing metadata options and retain it across cursor reads.
+  req->internalRespSchema =
+      req->base.reqConfig.internalRespSchemaEnabled && IsInternal(req) && IsAggregate(req) &&
+      !(AREQ_RequestFlags(req) & (QEXEC_F_SEND_SCORES | QEXEC_F_SENDRAWIDS | QEXEC_F_SEND_PAYLOADS |
+                                  QEXEC_F_SEND_SORTKEYS | QEXEC_F_REQUIRED_FIELDS));
 
   // DIALECT 4 enables the query optimizer (QEXEC_OPTIMIZE), which is unsupported
   // on disk.

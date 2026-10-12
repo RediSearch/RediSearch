@@ -17,7 +17,6 @@ from vecsim_utils import *
 from common import (
     getConnectionByEnv,
     skip,
-    skip_until,
     assertInfoField,
     index_info,
     to_dict,
@@ -34,6 +33,7 @@ from common import (
     wait_for_condition,
     skipIfNoEnableAssert,
     paused_workers,
+    drain_workers,
     verify_command_OK_on_all_shards,
 )
 
@@ -178,10 +178,11 @@ def test_rdb_load_trained_svs_vamana():
 
     # Insert more vectors to trigger training
     populate_with_vectors(env, num_docs=num_docs - (training_threshold - 1), dim=dim, datatype=data_type, initial_doc_id=training_threshold)
+    drain_workers(env)
 
     for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
         shard_keys = con.execute_command('DBSIZE')
-        # We are in writeInPlace mode, so once the index is trained, all vectors are transferred to the backend index in place.
+        # Once the index is trained, all vectors are transferred to the backend index.
         env.assertEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"shard_id: {i}, datatype: {data_type}, shard_keys: {shard_keys}, after adding {num_docs} vectors")
         env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
         env.assertEqual(get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
@@ -542,25 +543,12 @@ def test_svs_shared_threadpool_memory_info():
 
 
 func_gen = lambda tn, comp, dt, dist, wr: lambda: queries_sanity(tn, comp, dt, dist, wr)
-# (compression_type, data_type, workers) tuples that are flaky on the coverage lane and are
-# temporarily skipped via skip_until. Only applied when running under coverage; see MOD-18468.
-# The key deliberately excludes the metric: the async full-precision FLOAT16 variants time out
-# in wait_for_background_indexing under coverage regardless of metric, and which of COSINE/L2/IP
-# trips on a given nightly run varies.
-QUERIES_SANITY_SKIP_UNTIL = {
-    ('NO_COMPRESSION', 'FLOAT16', 4): ('2026-10-09', 'Flaky test under coverage, see MOD-18468'),
-} if CODE_COVERAGE else {}
 for workers in [0, 4]:
     name_suffix = "_async" if workers else ""
     # Create SVS VAMANA index with all compression flavors
     # for non intel machines, we only test NO_COMPRESSION and any compression type (will result in GlobalSQ8)
     compression_types = SVS_COMPRESSION_TYPES if is_intel_opt_enabled() and EXTENDED_PYTESTS else ['NO_COMPRESSION', 'LVQ8']
     for compression_type in compression_types:
-        # Full-precision synchronous (WORKERS 0) Vamana construction over this test's large
-        # windows overruns the per-test timeout under coverage instrumentation (MOD-12324).
-        # The async and compressed variants stay in budget; the full matrix still runs standalone.
-        if CODE_COVERAGE and workers == 0 and compression_type == 'NO_COMPRESSION':
-            continue
         for data_type in VECSIM_SVS_DATA_TYPES:
             metrics = VECSIM_DISTANCE_METRICS if EXTENDED_PYTESTS else ['IP']
             for metric in metrics:
@@ -570,10 +558,6 @@ for workers in [0, 4]:
                 # In cluster mode, the same training work is multiplied across shards and can
                 # exceed the coverage job budget without adding meaningful distributed coverage.
                 test_func = skip(cluster=True)(test_func)
-                skip_spec = QUERIES_SANITY_SKIP_UNTIL.get((compression_type, data_type, workers))
-                if skip_spec is not None:
-                    skip_date, skip_reason = skip_spec
-                    test_func = skip_until(skip_date, reason=skip_reason)(test_func)
                 globals()[test_name] = test_func
 
 '''
@@ -750,6 +734,7 @@ def test_drop_index_memory():
     # create index and measure memory. Expect it to increase by at least the size in bytes of vectors
     create_vector_index(env, dim, alg='SVS-vamana')
     waitForIndex(env, DEFAULT_INDEX_NAME)
+    drain_workers(env)
     env.assertEqual(get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], num_docs)
     env.assertGreater(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], 0)
 
@@ -933,15 +918,24 @@ def test_gc():
 @skip(cluster=True)
 def test_gc_no_workers():
     num_workers = 0
+    # No maintenance workers either, so GC runs in place.
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+                         f' MIN_MAINTENANCE_WORKERS 0 _FREE_RESOURCE_ON_THREAD FALSE')
     gc_test_common(env, num_workers, ['NO_COMPRESSION'])
+
+@skip(cluster=True)
+def test_gc_maintenance_worker():
+    # At the default WORKERS 0 GC jobs go to the single maintenance worker.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS 0'
+                         ' _FREE_RESOURCE_ON_THREAD FALSE')
+    gc_test_common(env, 1, ['NO_COMPRESSION'])
 
 @skip(cluster=True)
 def test_gc_no_workers_compressed():
     num_workers = 0
+    # No maintenance workers either, so GC runs in place.
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+                         f' MIN_MAINTENANCE_WORKERS 0 _FREE_RESOURCE_ON_THREAD FALSE')
     gc_test_common(env, num_workers, _gc_compressed_types())
 
 @skip(cluster=True)

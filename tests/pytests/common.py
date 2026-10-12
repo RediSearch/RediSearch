@@ -361,9 +361,16 @@ def getWorkersThpoolNumThreads(env):
     return env.cmd(debug_cmd(), "WORKERS", "n_threads")
 
 def set_workers(env, workers):
-    """Set the worker thread count and verify that the change took effect."""
+    """Set the worker thread count and verify that the change took effect. The pool never shrinks
+    below MIN_MAINTENANCE_WORKERS."""
     verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
-    env.assertEqual(getWorkersThpoolNumThreadsFromAllShards(env), [workers] * env.shardsCount)
+    res = env.cmd(config_cmd(), 'GET', 'MIN_MAINTENANCE_WORKERS')
+    floor = int(res['MIN_MAINTENANCE_WORKERS'] if isinstance(res, dict) else res[0][1])
+    expected = [max(int(workers), floor)] * env.shardsCount
+    # A shrink to the floor waits for the queued jobs, so it may land a little later.
+    with TimeLimit(30, 'workers pool did not reach its size'):
+        while getWorkersThpoolNumThreadsFromAllShards(env) != expected:
+            time.sleep(0.05)
 
 @contextmanager
 def paused_workers(env):
@@ -629,6 +636,12 @@ def run_command_on_all_shards(env, *args):
 def verify_command_OK_on_all_shards(env, *args):
     res = run_command_on_all_shards(env, *args)
     env.assertEqual(res, ['OK'] * env.shardsCount)
+
+def drain_workers(env):
+    """Wait on every shard until queued worker jobs are done. Vector writes are asynchronous
+    whenever the workers pool is not empty, which includes WORKERS 0 by default
+    (MIN_MAINTENANCE_WORKERS), so call this before asserting on HNSW-side state."""
+    verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
 
 def create_diverged_index(env, idx='idx'):
     """Create `idx` on every shard with a schema no other shard has, and return the
@@ -1021,6 +1034,12 @@ def to_dict(res):
         raise ValueError(f"to_dict expects even-length array (key-value pairs), got {len(res)} elements")
     d = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     return d
+
+def get_internal_id(env, key, idx='idx'):
+    """Returns the internal doc id of `key` in `idx`. A full reindex goes through the REPLACE
+    path, which deletes the old doc-table entry and assigns a new, larger id, so a changed id
+    shows that the document was reindexed."""
+    return to_dict(env.cmd(debug_cmd(), 'DOCINFO', idx, key, 'REVEAL'))['internal_id']
 
 def to_list(input_dict: dict):
     return [item for pair in input_dict.items() for item in pair]

@@ -1389,7 +1389,7 @@ TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
 
 // NOTE: Invalid parameter values of EF_RUNTIME EPSILON_STRING are NOT validated during parsing.
 // The validation happens during query execution in the flow:
-// QAST_Iterate() → Query_EvalNode() → NewVectorIterator() → VecSim_ResolveQueryParams()
+// QAST_Iterate() → NewVectorIterator() → VecSim_ResolveQueryParams()
 // These validation tests should be in execution tests, not parsing tests.
 
 TEST_F(ParseHybridTest, testCombineRRFInvalidConstantValue) {
@@ -1639,6 +1639,13 @@ TEST_F(ParseHybridTest, testLoadInsufficientFields) {
   // Test LOAD with insufficient fields for specified count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "LOAD", "3", "@title");
   testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Not enough arguments for LOAD");
+}
+
+TEST_F(ParseHybridTest, testLoadMissingAsArgument) {
+  // The sliced LOAD arguments end with a dangling `AS`. The distributed planner
+  // walks this slice before the pipeline validates it, so parsing must reject it.
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "LOAD", "2", "@title", "AS");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "LOAD path AS name - must be accompanied with NAME");
 }
 
 // ============================================================================

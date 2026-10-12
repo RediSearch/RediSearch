@@ -355,10 +355,10 @@ typedef struct RSAddDocumentCtx {
   // Scratch space used by per-type field preprocessors (see the source)
   struct FieldIndexerData *fdatas;
 
-  /** Whether each VECTOR field's value was changed by this update.
+  /** Whether each VECTOR or GEOSHAPE field's value was changed by this update.
    *  Schema-indexed rather than living in `fdatas` because
    *  `Indexer_HandleReplacedDocVectorAndGeometry` walks the schema, not the document: a
-   *  vector field absent from this version of the document still has an old entry to
+   *  field absent from this version of the document still has an old entry to
    *  drop, and would not be reachable through a document-field-indexed array.
    */
   ChangedFieldInd *fieldChanges;
@@ -397,8 +397,8 @@ static inline ChangedFieldInd AddDocumentCtx_FieldChange(const RSAddDocumentCtx 
 }
 
 /**
- * Whether field `f_idx`'s existing vector entry is to be moved onto this update's new doc-id,
- * rather than re-added.
+ * Whether field `f_idx`'s existing vector or geometry entry is to be moved onto this update's
+ * new doc-id, rather than re-added.
  */
 bool AddDocumentCtx_ShouldRelabelField(const RSAddDocumentCtx *aCtx, t_fieldIndex f_idx);
 

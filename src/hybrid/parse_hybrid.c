@@ -599,14 +599,8 @@ static void copyCursorConfig(CursorConfig *dest, const CursorConfig *src) {
 // Helper function to copy hybrid request configuration to a single subquery
 static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
                                       ParseHybridCommandCtx *parsedCmdCtx,
-                                      RSSearchOptions *mergeSearchopts,
                                       uint32_t mergeReqflags, size_t maxHybridResults,
                                       ProfileOptions profileOptions) {
-  // Copy parameters if they exist
-  if (mergeSearchopts->params) {
-    subqueryRequest->searchopts.params = Param_DictClone(mergeSearchopts->params);
-  }
-
   // Copy cursor configuration and flags if cursor is enabled
   if (mergeReqflags & QEXEC_F_IS_CURSOR) {
     // We need to turn on the cursor flag so the cursor id will be sent back when reading from the cursor
@@ -927,13 +921,14 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Copy hybrid request configuration to each subquery
   copyHybridConfigToSubquery(searchRequest, parsedCmdCtx,
-                            &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
+                            *mergeReqflags, maxHybridResults, profileOptions);
   copyHybridConfigToSubquery(vectorRequest, parsedCmdCtx,
-                            &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
+                            *mergeReqflags, maxHybridResults, profileOptions);
 
-  // Clean up merge search options after copying
+  // Each subquery frees its own params dict, so one gets a clone and the other takes the original.
   if (mergeSearchopts.params) {
-    Param_DictFree(mergeSearchopts.params);
+    searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
+    vectorRequest->searchopts.params = mergeSearchopts.params;
     mergeSearchopts.params = NULL;
   }
 

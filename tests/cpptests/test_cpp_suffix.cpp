@@ -17,7 +17,6 @@
 
 #include <string>
 #include <string_view>
-#include <vector>
 
 // Suffix_ChooseToken (char) and Suffix_ChooseToken_rune (rune) pick the literal
 // token of a wildcard "contains" pattern used to narrow the suffix-trie scan.
@@ -41,9 +40,9 @@ static RuneChoice chooseRune(std::string_view pattern) {
   runeBuf buf;
   size_t rlen;
   rune *runes = runeBufFill(pattern.data(), n, &buf, &rlen);
-  std::vector<size_t> idx(rlen + 1), len(rlen + 1);
-  int res = Suffix_ChooseToken_rune(runes, rlen, idx.data(), len.data());
-  size_t chosenLen = res == REDISEARCH_UNINITIALIZED ? 0 : len[res];
+  size_t idx, len = 0;
+  int res = Suffix_ChooseToken_rune(runes, rlen, &idx, &len);
+  size_t chosenLen = res == REDISEARCH_UNINITIALIZED ? 0 : len;
   runeBufFree(&buf);
   return {res, chosenLen};
 }
@@ -51,9 +50,8 @@ static RuneChoice chooseRune(std::string_view pattern) {
 static int chooseTokenRune(std::string_view pattern) { return chooseRune(pattern).tokenOrdinal; }
 
 static int chooseTokenChar(std::string_view pattern) {
-  size_t n = pattern.size();
-  std::vector<size_t> idx(n + 1), len(n + 1);
-  return Suffix_ChooseToken(pattern.data(), n, idx.data(), len.data());
+  size_t idx, len;
+  return Suffix_ChooseToken(pattern.data(), pattern.size(), &idx, &len);
 }
 
 // A '?' in the first token must not prevent a token from being chosen. Before
@@ -280,6 +278,63 @@ TEST_F(SuffixTrieLongTermTest, suffixesPastTheKeyLengthCapAreSkipped) {
   // First suffix under the cap, and the shortest one.
   EXPECT_TRUE(suffixIndexed(t, runes, rlen, kLongTermLen - TRIE_INITIAL_STRING_LEN + 1));
   EXPECT_TRUE(suffixIndexed(t, runes, rlen, rlen - 1));
+
+  runeBufFree(&buf);
+  TrieType_Free(t);
+}
+
+// The wildcard paths' scratch space must not grow with the pattern: a pattern
+// this long used to put 16 bytes per character on the stack, far past the
+// default 8 MiB thread stack.
+
+class SuffixLongWildcardPatternTest : public ::testing::Test {};
+
+static constexpr size_t kLongPatternLen = 1 << 20;
+
+// Anchors on "ell"; the trailing run of '*' only makes the pattern long.
+static std::string longWildcardPattern() {
+  return "*ell" + std::string(kLongPatternLen, '*');
+}
+
+TEST_F(SuffixLongWildcardPatternTest, suffixTrieMapListHandlesLongPattern) {
+  TrieMap *tm = NewTrieMap();
+  addSuffixTrieMap(tm, "hello", 5);
+  std::string pattern = longWildcardPattern();
+  struct timespec timeout = {};
+
+  arrayof(char *) arr =
+      GetList_SuffixTrieMap_Wildcard(tm, pattern.data(), pattern.size(), timeout, 100, true);
+  ASSERT_NE((void *)arr, BAD_POINTER);
+  ASSERT_NE(arr, nullptr);
+  ASSERT_EQ(array_len(arr), 1u);
+  EXPECT_STREQ(arr[0], "hello");
+
+  array_free(arr);
+  TrieMap_Free(tm, suffixTrieMap_freeCallback);
+}
+
+TEST_F(SuffixLongWildcardPatternTest, suffixTrieIterateHandlesLongPattern) {
+  Trie *t = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+  addSuffixTrie(t, "hello", 5);
+  std::string pattern = longWildcardPattern();
+  int hits = 0;
+  TimeoutConfig timeoutConfig = {};
+  timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+  QueryRequestTimeout timeout = {};
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  runeBuf buf;
+  size_t rlen = 0;
+  SuffixCtx ctx = {};
+  ctx.trie = t;
+  ctx.rune = runeBufFill(pattern.data(), pattern.size(), &buf, &rlen);
+  ctx.runelen = rlen;
+  ctx.type = SUFFIX_TYPE_WILDCARD;
+  ctx.callback = countSuffixHit;
+  ctx.cbCtx = &hits;
+  ctx.timeout = &timeout;
+
+  EXPECT_EQ(Suffix_IterateWildcard(&ctx), 1);
+  EXPECT_EQ(hits, 1);
 
   runeBufFree(&buf);
   TrieType_Free(t);

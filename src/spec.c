@@ -417,13 +417,13 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   return overhead;
 }
 
-size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
-  size_t vector_overhead) {
+static size_t indexSpecTotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
+                                     size_t vector_overhead, bool info, size_t disk_memory) {
   size_t res = 0;
 
   // For disk indexes, add storage + in-memory components.
   if (sp->diskSpec) {
-    res += SearchDisk_CollectIndexMetrics(sp->diskSpec);
+    res += info ? disk_memory : SearchDisk_CollectIndexMetrics(sp->diskSpec);
   }
 
   res += sp->docs.memsize;
@@ -436,6 +436,15 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_
   res += sp->stats.termsSize;
   res += vector_overhead;
   return res;
+}
+
+size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
+                               size_t vector_overhead) {
+  return indexSpecTotalMemUsage(sp, tags_overhead, text_overhead, vector_overhead, false, 0);
+}
+
+size_t IndexSpec_TotalMemUsageForInfo(IndexSpec *sp, size_t vector_overhead, size_t disk_memory) {
+  return indexSpecTotalMemUsage(sp, 0, 0, vector_overhead, true, disk_memory);
 }
 
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
@@ -1933,7 +1942,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
   return IndexError_ErrorCount(&sp->stats.indexError);
 }
 
-size_t IndexSpec_TotalBlockCount(IndexSpec *sp) {
+size_t IndexSpec_TotalBlockCount(const IndexSpec *sp) {
   return sp->diskSpec ? SearchDisk_GetInvertedIndexTotalBlocks(sp->diskSpec)
       : __atomic_load_n(&sp->stats.totalInvertedIndexBlocks, __ATOMIC_RELAXED);
 }
@@ -3491,6 +3500,24 @@ int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, Q
 }
 
 
+// The legacy upgrade deletes each spec's key by the name it was saved under, INDEX_SPEC_KEY_FMT in
+// db 0. A spec loaded from any other key would stay in the keyspace after the upgrade, holding a
+// value that the type's save callback cannot write.
+static bool legacySpecKeyIsExpected(RedisModuleIO *rdb, const char *specName) {
+  const RedisModuleString *key = RedisModule_GetKeyNameFromIO(rdb);
+  if (!key) {
+    // Not loaded into the keyspace, so nothing is left behind.
+    return true;
+  }
+  size_t keyLen;
+  const char *keyStr = RedisModule_StringPtrLen(key, &keyLen);
+  const size_t prefixLen = strlen(INDEX_SPEC_KEY_PREFIX);
+  const size_t nameLen = strlen(specName);
+  return RedisModule_GetDbIdFromIO(rdb) == 0 && keyLen == prefixLen + nameLen &&
+         !memcmp(keyStr, INDEX_SPEC_KEY_PREFIX, prefixLen) &&
+         !memcmp(keyStr + prefixLen, specName, nameLen);
+}
+
 void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (encver < LEGACY_INDEX_MIN_VERSION || encver > LEGACY_INDEX_MAX_VERSION) {
     return NULL;
@@ -3506,6 +3533,12 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
   RS_LOG_ASSERT(!SearchDisk_IsEnabled(), "Legacy indexes are not supported on disk");
   char *legacyName = RedisModule_LoadStringBuffer(rdb, NULL);
+  if (!legacySpecKeyIsExpected(rdb, legacyName)) {
+    RedisModule_LogIOError(rdb, "warning",
+                           "Refusing a legacy index that is not stored under its index key in db 0");
+    RedisModule_Free(legacyName);
+    return NULL;
+  }
 
   RedisModuleCtx *ctx = RedisModule_GetContextFromIO(rdb);
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
@@ -3828,10 +3861,10 @@ int CompareVersions(Version v1, Version v2) {
 
 
 /**
- * Mark each VECTOR field whose value this update may not have touched, so the
- * indexer moves its existing entry onto the new doc-id instead of deleting and
- * re-adding the blob. `alterAddedFieldsStart` is `RS_INVALID_FIELD_INDEX` except for
- * `IndexSpec_UpdateDocForAlter`.
+ * Mark each VECTOR or GEOSHAPE field whose value this update may not have touched, so the
+ * indexer moves its existing entry onto the new doc-id instead of deleting and re-adding it.
+ * GEOSHAPE fields are marked only on an FT.ALTER backfill. `alterAddedFieldsStart` is
+ * `RS_INVALID_FIELD_INDEX` except for `IndexSpec_UpdateDocForAlter`.
  */
 static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
                                           RedisModuleString **changedFields,
@@ -3840,15 +3873,18 @@ static void AddDocumentCtx_MarkForRelabel(RSAddDocumentCtx *aCtx, const IndexSpe
   if (!RSGlobalConfig.optimizePartialUpdate) {
     return;
   }
-  if (!(spec->flags & Index_HasVecSim)) {
+  if (!(spec->flags & (Index_HasVecSim | Index_HasGeometry))) {
     return;
   }
 
   const Document *doc = aCtx->doc;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     const FieldSpec *fs = aCtx->fspecs + ii;
+    const FieldType as = doc->fields[ii].indexAs;
+    const bool alterGeometry =
+        (as & INDEXFLD_T_GEOMETRY) && alterAddedFieldsStart != RS_INVALID_FIELD_INDEX;
     if (!fs->fieldName || !FieldSpec_IsIndexable(fs) ||
-        !(doc->fields[ii].indexAs & INDEXFLD_T_VECTOR)) {
+        !((as & INDEXFLD_T_VECTOR) || alterGeometry)) {
       continue;
     }
     ChangedFieldInd mark = ChangedFieldInd_Unverified;

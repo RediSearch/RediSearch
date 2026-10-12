@@ -99,6 +99,8 @@ typedef struct {
 typedef struct {
   // Default dialect level used throughout database lifetime.
   unsigned int dialectVersion;
+  // Snapshot enablement before worker dispatch; internal opt-in is parsed separately.
+  bool internalRespSchemaEnabled;
   // reply with time on profile
   bool printProfileClock;
   // BM25STD.TANH factor
@@ -152,6 +154,7 @@ typedef struct {
   // MT configuration
   size_t numWorkerThreads;
   size_t minOperationWorkers;
+  size_t minMaintenanceWorkers;
   size_t tieredVecSimIndexBufferLimit;
   size_t highPriorityBiasNum;
 
@@ -417,6 +420,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
+#define MIN_MAINTENANCE_WORKERS 1
 #define DEFAULT_INDEXING_MEMORY_LIMIT 100
 #define DEFAULT_BM25STD_TANH_FACTOR 4
 #define BM25STD_TANH_FACTOR_MAX 10000
@@ -439,9 +443,11 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB 3
 #define DISK_WBM_BUDGET_PER_INDEX_MAX_MB (SIZE_MAX / (1024 * 1024))
 #define DEFAULT_DISK_MAX_OPEN_FILES 200
-// Smallest accepted positive cap. SpeedB's SanitizeOptions already clamps below this to 20, so reject it directly here
-// instead of letting the requested and effective caps diverge.
-#define DISK_MAX_OPEN_FILES_MIN 20
+// Smallest accepted positive cap. Admission reserves the cap per index, but SpeedB keeps more open: its table cache
+// (cap - 10 readers) is split into 64 shards that each round up to whole readers, so caps 20-74 keep up to 64 SSTs open
+// and caps 75-138 up to 128, plus fixed files and a directory handle per column family. 138 is the top of a rounding
+// step, where the reservation is closest to what an index can hold.
+#define DISK_MAX_OPEN_FILES_MIN 138
 #define DEFAULT_DISK_ASYNC_READ_POOL_SIZE 16
 #define DISK_ASYNC_READ_POOL_SIZE_MAX 1024
 #define DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR 1
@@ -467,6 +473,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
     .numWorkerThreads = 0, /* overwritten at runtime by GetDefaultWorkerThreads() */ \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                              \
+    .minMaintenanceWorkers = MIN_MAINTENANCE_WORKERS,                          \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                        \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,               \
     .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                          \

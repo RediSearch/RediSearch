@@ -1936,6 +1936,8 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   }
   invoked = 1;
 
+  SearchDisk_StopMetrics();
+
   // First free all indexes
   Indexes_Free(ctx, specDict_g, false);
   dictRelease(specDict_g);
@@ -1944,6 +1946,8 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   // Let the workers finish BEFORE we call CursorList_Destroy, since it frees a global
   // data structure that is accessed upon releasing the spec (and running thread might hold
   // a reference to the spec bat this time).
+  // A paused pool (a debug state) would never drain, and destroying it waits for its jobs.
+  if (workerThreadPool_isPaused()) workersThreadPool_resume();
   workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
 
@@ -1960,6 +1964,8 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   CleanPool_ThreadPoolDestroy();
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
+  // Index destructors and background work may still need the disk context until pools drain.
+  SearchDisk_Close(ctx);
 
   // Only after every pool whose cycles register in BlockedQueries has stopped
   // (the workers pool above and the coordinator pool just now): no new cycle
@@ -5116,7 +5122,9 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // cluster set commands
   SearchCommand clusterSetCommands[] = {
-    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERSET",     SafeCmd(SetClusterCommand),     IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
+    // On OSS the coordinator authenticates to every CLUSTERSET endpoint with the cluster's internal
+    // secret, so only internal connections may set the topology.
+    DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERSET",     SafeCmd(SetClusterCommand),     IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, !IsEnterprise()),
     DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand), IsEnterprise() ? "readonly deny-script " CMD_PROXY_FILTERED               : "readonly deny-script",               SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
     DEFINE_COMMAND(REDISEARCH_MODULE_NAME ".CLUSTERINFO",    SafeCmd(ClusterInfoCommand),    IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script", SetDontCacheInfo, SET_COMMAND_INFO, "", true, noKeyArgs, false),
   };

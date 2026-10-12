@@ -259,8 +259,8 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 %type verbatim { QueryNode * }
 %destructor verbatim { QueryNode_Free($$); }
 
-%type termlist { QueryNode * }
-%destructor termlist { QueryNode_Free($$); }
+%type tag_termlist { QueryNode * }
+%destructor tag_termlist { QueryNode_Free($$); }
 
 %type union { QueryNode *}
 %destructor union { QueryNode_Free($$); }
@@ -456,17 +456,17 @@ text_expr(A) ::= LP text_expr(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
-  const char *value = rm_strndup(C.s, C.len);
+  const char *value = C.s;
   size_t value_len = C.len;
   if (C.type == QT_PARAM_TERM) {
     size_t found_value_len;
-    const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
+    const char *found_value = Param_DictGet(ctx->opts->params, C.s, C.len, &found_value_len, ctx->status);
     if (found_value) {
-      rm_free((char*)value);
-      value = rm_strndup(found_value, found_value_len);
+      value = found_value;
       value_len = found_value_len;
     }
   }
+  value = rm_strndup(value, value_len);
   A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = value, .vallen = value_len };
 }
 
@@ -567,13 +567,14 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
   A = B;
 }
 
-termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
+// Tag evaluation normalizes the words once, per the field's case sensitivity.
+tag_termlist(A) ::= param_term_case(B) param_term_case(C). [TERMLIST]  {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
 
-termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
+tag_termlist(A) ::= tag_termlist(B) param_term_case(C) . [TERMLIST] {
   A = B;
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
@@ -762,7 +763,7 @@ tag_list(A) ::= verbatim(B) . [TAGLIST] {
   QueryNode_AddChild(A, B);
 }
 
-tag_list(A) ::= termlist(B) . [TAGLIST] {
+tag_list(A) ::= tag_termlist(B) . [TAGLIST] {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, B);
 }
@@ -782,7 +783,7 @@ tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
   A = B;
 }
 
-tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR tag_termlist(C) . [TAGLIST] {
   QueryNode_AddChild(B, C);
   A = B;
 }

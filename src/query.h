@@ -73,11 +73,6 @@ typedef struct QueryAST {
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
                const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status);
 
-// Opaque handle to the Rust-side evaluator-config snapshot (`query_eval::Config`).
-typedef struct EvalConfig EvalConfig;
-
-QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *evalConfig);
-
 /**
  * Blocked-client timeout probe used by Rust query iterators.
  *
@@ -113,14 +108,6 @@ void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options);
 
 /** Set a filter node on the AST, handling different node types appropriately */
 void SetFilterNode(QueryAST *q, QueryNode *filterNode);
-
-/**
- * Remove tag escape sequences and optionally lowercase a string.
- * @param pstr pointer to the string (may be reallocated if lowercasing produces a longer result)
- * @param len pointer to the string length (updated on output)
- * @param caseSensitive if non-zero, skip lowercasing
- */
-void tag_strtolower(char **pstr, size_t *len, int caseSensitive);
 
 /**
  * Expand the query using a pre-registered expander. Query expansion possibly

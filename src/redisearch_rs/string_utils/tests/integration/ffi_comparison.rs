@@ -45,15 +45,6 @@ fn with_module_buffer(bytes: &[u8], f: impl FnOnce(&mut *mut c_char, &mut usize)
     result
 }
 
-/// C `tag_strtolower`.
-pub fn tag_strtolower(bytes: &[u8], case_sensitive: bool) -> Vec<u8> {
-    with_module_buffer(bytes, |ptr, len| {
-        // SAFETY: `*ptr` is a NUL-terminated module allocation of `*len`
-        // content bytes, which the call may free and replace.
-        unsafe { ffi::tag_strtolower(ptr, len, i32::from(case_sensitive)) }
-    })
-}
-
 /// C `unicode_tolower`.
 pub fn unicode_tolower(bytes: &[u8]) -> Vec<u8> {
     with_module_buffer(bytes, |ptr, len| {
