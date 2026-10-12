@@ -1133,6 +1133,16 @@ def testToStrOfLoadedFieldAsGroupKey(env):
     env.assertEqual(keys, sorted(value.encode() for value in values),
                     message='to_str group key does not match the loaded field value')
 
+def testTimefmtFormatFromLoadedField(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT')
+    conn.execute_command('HSET', 'doc1', 't', 'hello', 'ts', 0, 'fmt', '%Y')
+
+    for fmt in ('@fmt', 'to_str(@fmt)'):
+        res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@ts', '@fmt',
+                      'APPLY', f'timefmt(@ts, {fmt})', 'AS', 'year')
+        env.assertEqual(res[1][res[1].index('year') + 1], '1970', message=fmt)
+
 def testLoadAll(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')

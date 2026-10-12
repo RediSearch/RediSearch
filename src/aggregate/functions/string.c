@@ -140,14 +140,9 @@ int func_to_str(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *result) {
 
   switch (RSValue_Type(v)) {
     case RSValueType_String:
+    case RSValueType_RedisString:
       RSValue_MakeReference(result, v);
       break;
-    case RSValueType_RedisString: {
-      size_t sz;
-      const char *str = RSValue_StringPtrLen(v, &sz);
-      RSValue_SetString(result, rm_strndup(str, sz), sz);
-      break;
-    }
     case RSValueType_Number: {
       char tmpbuf[32];
       size_t len = RSValue_NumToString(v, tmpbuf, sizeof(tmpbuf));
