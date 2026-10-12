@@ -122,17 +122,7 @@ void initializeAREQ(AREQ *req) {
   RSSearchOptions_Init(&req->searchopts);
 }
 
-static void ReturnedField_Free(ReturnedField *field) {
-  rm_free(field->highlightSettings.openTag);
-  rm_free(field->highlightSettings.closeTag);
-  rm_free(field->summarizeSettings.separator);
-}
-
 void FieldList_Free(FieldList *fields) {
-  for (size_t ii = 0; ii < fields->numFields; ++ii) {
-    ReturnedField_Free(fields->fields + ii);
-  }
-  ReturnedField_Free(&fields->defaultField);
   rm_free(fields->fields);
 }
 
@@ -159,12 +149,8 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, con
 static void FieldList_RestrictReturn(FieldList *fields) {
   size_t oix = 0;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
-    if (fields->fields[ii].explicitReturn == 0) {
-      ReturnedField_Free(fields->fields + ii);
-    } else if (ii != oix) {
+    if (fields->fields[ii].explicitReturn) {
       fields->fields[oix++] = fields->fields[ii];
-    } else {
-      ++oix;
     }
   }
   fields->numFields = oix;
