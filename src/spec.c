@@ -2516,15 +2516,10 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
     case DocumentType_Hash:
       fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
       break;
-    case DocumentType_Json: {
-      RedisModuleString *err_msg = NULL;
-      fs->compiledPath = pathParse(fs->fieldPath, &err_msg);
-      if (err_msg) {
-        RedisModule_FreeString(RSDummyContext, err_msg);
-      }
+    case DocumentType_Json:
+      fs->compiledPath = japi->pathParseNoErrorMsg(HiddenString_GetUnsafe(fs->fieldPath, NULL));
       fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP;
       break;
-    }
     case DocumentType_Unsupported:
       RS_ABORT("shouldn't get here");
       break;

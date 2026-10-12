@@ -224,7 +224,7 @@ TEST_F(JSONPathIndexingTest, invalidFieldPathIsCompiledOnceAtCreation) {
     EXPECT_EQ(JSON_GetWithCompiledPath(&doc, spec->fields[0].compiledPath), nullptr);
   }
   EXPECT_EQ(parses, 1);
-  EXPECT_EQ(errorMessageParses, 1);
+  EXPECT_EQ(errorMessageParses, 0);
   EXPECT_EQ(compiledGets, 0);
   EXPECT_EQ(stringGets, 0);
 }
@@ -348,7 +348,7 @@ TEST_F(JSONPathIndexingTest, schemaValidationReusesCreationHandles) {
                            "DISTANCE_METRIC", "L2"});
   ASSERT_NE(spec, nullptr);
   EXPECT_EQ(parses, 2);
-  EXPECT_EQ(errorMessageParses, 2);
+  EXPECT_EQ(errorMessageParses, 0);
   EXPECT_NE(spec->fields[0].compiledPath, nullptr);
   EXPECT_NE(spec->fields[1].compiledPath, nullptr);
 }
