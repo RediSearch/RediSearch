@@ -141,7 +141,7 @@ class TestAggregate():
         _test_withcount(self.env, cmd)
 
         # Same as above, but for the approximate COUNT_DISTINCTISH reducer. COUNT_DISTINCTISH
-        # is a HyperLogLog estimate (HLL_PRECISION_BITS == 8, i.e. 256 registers, so a
+        # is a HyperLogLog estimate (8 bits, i.e. 256 registers, so a
         # standard error of ~1/sqrt(256) == ~6.5% per estimate), and its exact value depends
         # on the hash function used internally; allow ~3 standard errors of slack and just
         # check that it is close to the exact count above.
