@@ -699,19 +699,18 @@ pub struct LoadIndividualKeysOptions {
 
 /// Compile paths for one JSON loader. With no keys, compile the document root.
 ///
-/// Returns null when the RedisJSON API does not support compiled-path evaluation.
+/// Returns null when the RedisJSON API is unavailable.
 /// Free the returned cache with [`JsonPathCache_Free`].
 ///
 /// # Safety
 ///
-/// 1. The RedisJSON module must be initialized and `ctx` must be a [valid] Redis context.
+/// 1. The RedisJSON module must be initialized.
 /// 2. When `nkeys` is nonzero, `keys` must point to `nkeys` [valid], non-null lookup keys
-///    that remain valid throughout this call.
+///    whose path bytes remain [valid] until the returned cache is freed.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn JsonPathCache_New(
-    ctx: *mut redis_module::RedisModuleCtx,
     keys: *const *const ffi::RLookupKey,
     nkeys: size_t,
 ) -> *mut JsonPathCache {
@@ -719,21 +718,9 @@ pub unsafe extern "C" fn JsonPathCache_New(
     let Some(api) = (unsafe { RedisJsonApi::get() }) else {
         return ptr::null_mut();
     };
-    // SAFETY: ensured by caller (1.).
-    if unsafe { RedisJsonApi::version() } < 9 {
-        return ptr::null_mut();
-    }
-    let vtable = api.vtable();
-    // SAFETY: the negotiated API includes the V9 entry.
-    let get_with_path = unsafe { &raw const (*vtable.as_ptr()).getWithPath };
-    // SAFETY: the pointer refers to an initialized entry in the API table.
-    if unsafe { get_with_path.read() }.is_none() {
-        return ptr::null_mut();
-    }
-
     let cache = if nkeys == 0 {
-        // SAFETY: ensured by caller (1.).
-        unsafe { JsonPathCache::new(ctx, &api, std::iter::once(Some(redis_json_api::JSON_ROOT))) }
+        // SAFETY: the root path is static.
+        unsafe { JsonPathCache::new(&api, std::iter::once(Some(redis_json_api::JSON_ROOT))) }
     } else {
         // SAFETY: ensured by caller (2.).
         let keys = unsafe { slice::from_raw_parts(keys, nkeys) };
@@ -742,8 +729,8 @@ pub unsafe extern "C" fn JsonPathCache_New(
             let key = unsafe { &*key.cast::<RLookupKey<'_>>() };
             key.path().as_deref()
         });
-        // SAFETY: ensured by caller (1.).
-        unsafe { JsonPathCache::new(ctx, &api, paths) }
+        // SAFETY: ensured by caller (2.).
+        unsafe { JsonPathCache::new(&api, paths) }
     };
     Box::into_raw(Box::new(cache))
 }

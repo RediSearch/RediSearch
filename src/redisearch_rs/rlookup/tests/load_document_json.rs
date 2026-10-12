@@ -335,10 +335,9 @@ fn borrow_loads_field_like_open() {
     redis_mock::init_redis_module_mock();
     with_json_api(Some(json!({ "name": "alice" })), |japi, ctx| {
         // `borrow` resolves the pinned handle through the C helper
-        // `JSON_GetJsonFromHandleCompat`, which dispatches on the *global*
+        // `JSON_GetJsonFromHandle`, which uses the *global*
         // `japi`/`japi_ver` rather than this handle's vtable. Point those globals
-        // at the mock vtable (advertised as V8, so the helper uses the mock's
-        // `getJsonFromHandle` slot) for the duration of the test, then restore.
+        // at the mock vtable for the duration of the test, then restore.
         // Safety: the test is single-threaded and the mock vtable is 'static.
         let (saved_api, saved_ver) = unsafe { (ffi::japi, ffi::japi_ver) };
         unsafe {

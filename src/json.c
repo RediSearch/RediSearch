@@ -69,17 +69,11 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
     return 0;
 }
 
-RedisJSON JSON_GetJsonFromHandleCompat(RedisModuleKey *key) {
+RedisJSON JSON_GetJsonFromHandle(RedisModuleKey *key) {
   if (!japi || !key) {
     return NULL;
   }
-  // getJsonFromHandle is a V8 addition; only read that vtable slot when the
-  // acquired API is V8+. On V7, fall back to the module value after confirming
-  // the key holds JSON.
-  if (japi_ver >= 8) {
-    return japi->getJsonFromHandle(key);
-  }
-  return japi->isJSON(key) ? RedisModule_ModuleTypeGetValue(key) : NULL;
+  return japi->getJsonFromHandle(key);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

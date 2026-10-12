@@ -999,7 +999,7 @@ typedef struct {
   LoadFieldProfile *profileFields;
   // Owned; NULL when loading all fields.
   struct HashFieldNames *fieldNames;
-  // Query-scoped RedisJSON paths. NULL for HASH and RedisJSON versions before V9.
+  // Query-scoped RedisJSON paths. NULL for HASH.
   struct JsonPathCache *pathCache;
   QueryError status;
 } RPLoader;
@@ -1152,7 +1152,7 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
   }
 
   if (sctx && sctx->spec && isSpecJson(sctx->spec)) {
-    self->pathCache = JsonPathCache_New(RSDummyContext, self->keys, self->nkeys);
+    self->pathCache = JsonPathCache_New(self->keys, self->nkeys);
   }
   self->lk = lk;
 }

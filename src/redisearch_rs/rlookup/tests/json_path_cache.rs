@@ -26,6 +26,22 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 const MULTI: u8 = ffi::APIVERSION_RETURN_MULTI_CMP_FIRST as u8;
 const PRE_MULTI: u8 = MULTI - 1;
 
+#[test]
+fn parses_without_a_redis_context_or_error_string() {
+    reset_json_api_calls();
+    with_json_api(None, |api, _ctx| {
+        let invalid_utf8 = CStr::from_bytes_with_nul(b"$\xff\0").unwrap();
+        for path in [c"$[", invalid_utf8] {
+            // SAFETY: the path bytes remain alive throughout this call; parsing fails.
+            assert!(unsafe { redis_json_api::JsonPath::parse_no_error_msg(path, &api) }.is_none());
+        }
+        let calls = json_api_calls();
+        assert_eq!(calls.path_parse_no_error_msg, 2);
+        assert_eq!(calls.path_parse, 0);
+        assert_eq!(calls.path_free, 0);
+    });
+}
+
 fn key_name() -> RedisString {
     // SAFETY: the initialized mock copies these static bytes and ignores the context.
     unsafe { RedisString::from_raw_parts(None, c"doc:1".as_ptr(), 5) }
@@ -115,9 +131,9 @@ fn compiles_once_reuses_across_documents_and_frees_on_drop() {
     redis_mock::init_redis_module_mock();
     reset_json_api_calls();
     let paths = [Some(c"$.name"), Some(c"$.price")];
-    with_json_api(None, |api, ctx| {
-        // SAFETY: the mock context is live and its vtable implements V9.
-        let cache = unsafe { JsonPathCache::new(ctx.as_ptr(), &api, paths.into_iter()) };
+    with_json_api(None, |api, _ctx| {
+        // SAFETY: the mock implements V10 and the path bytes outlive the cache.
+        let cache = unsafe { JsonPathCache::new(&api, paths.into_iter()) };
         for (name, price) in [("a", 10), ("b", 20), ("c", 30)] {
             let row = load_fields(
                 json!({"name": name, "price": price}),
@@ -134,7 +150,7 @@ fn compiles_once_reuses_across_documents_and_frees_on_drop() {
         let calls = json_api_calls();
         assert_eq!(
             (
-                calls.path_parse,
+                calls.path_parse_no_error_msg,
                 calls.get_with_path,
                 calls.get,
                 calls.path_free
@@ -158,9 +174,9 @@ fn empty_entries_preserve_positions_and_malformed_paths_fall_back() {
         Some(c"$.price"),
         Some(c"$.missing"),
     ];
-    with_json_api(None, |api, ctx| {
-        // SAFETY: the mock context is live and its vtable implements V9.
-        let cache = unsafe { JsonPathCache::new(ctx.as_ptr(), &api, paths.into_iter()) };
+    with_json_api(None, |api, _ctx| {
+        // SAFETY: the mock implements V10 and the path bytes outlive the cache.
+        let cache = unsafe { JsonPathCache::new(&api, paths.into_iter()) };
         let row = load_fields(json!({"price": 42}), &paths, Some(&cache), PRE_MULTI);
         assert!(row[0].is_none());
         assert_eq!(
@@ -171,8 +187,13 @@ fn empty_entries_preserve_positions_and_malformed_paths_fall_back() {
         assert_eq!(row[3].as_ref().unwrap().as_num(), Some(42.0));
         assert!(row[4].is_none());
         let calls = json_api_calls();
+        assert_eq!(calls.path_parse, 0);
         assert_eq!(
-            (calls.path_parse, calls.get_with_path, calls.get),
+            (
+                calls.path_parse_no_error_msg,
+                calls.get_with_path,
+                calls.get
+            ),
             (3, 2, 1)
         );
         drop(cache);
@@ -198,9 +219,9 @@ fn cached_and_uncached_fields_preserve_scalar_and_multi_value_results() {
         (json!({"tags": []}), vec![Some(c"$.tags")]),
     ];
     for (doc, paths) in cases {
-        with_json_api(None, |api, ctx| {
-            // SAFETY: the mock context is live and its vtable implements V9.
-            let cache = unsafe { JsonPathCache::new(ctx.as_ptr(), &api, paths.iter().copied()) };
+        with_json_api(None, |api, _ctx| {
+            // SAFETY: the mock implements V10 and the path bytes outlive the cache.
+            let cache = unsafe { JsonPathCache::new(&api, paths.iter().copied()) };
             for version in [PRE_MULTI, MULTI] {
                 let cached = load_fields(doc.clone(), &paths, Some(&cache), version);
                 let uncached = load_fields(doc.clone(), &paths, None, version);
@@ -220,9 +241,9 @@ fn cached_and_uncached_fields_preserve_scalar_and_multi_value_results() {
 fn root_load_uses_compiled_path_and_preserves_whole_document() {
     redis_mock::init_redis_module_mock();
     reset_json_api_calls();
-    with_json_api(None, |api, ctx| {
-        // SAFETY: the mock context is live and its vtable implements V9.
-        let cache = unsafe { JsonPathCache::new(ctx.as_ptr(), &api, [Some(c"$")].into_iter()) };
+    with_json_api(None, |api, _ctx| {
+        // SAFETY: the mock implements V10 and the path bytes outlive the cache.
+        let cache = unsafe { JsonPathCache::new(&api, [Some(c"$")].into_iter()) };
         for version in [PRE_MULTI, MULTI] {
             let doc = json!({"name": "alice", "price": 12});
             assert_eq!(
@@ -232,7 +253,11 @@ fn root_load_uses_compiled_path_and_preserves_whole_document() {
         }
         let calls = json_api_calls();
         assert_eq!(
-            (calls.path_parse, calls.get_with_path, calls.get),
+            (
+                calls.path_parse_no_error_msg,
+                calls.get_with_path,
+                calls.get
+            ),
             (1, 2, 2)
         );
     });
@@ -248,8 +273,8 @@ fn cached_root_load_preserves_errors_without_writing_a_value() {
         (Some(json!([])), LoadAllError::JsonRootMissing),
     ] {
         with_json_api(doc, |api, ctx| {
-            // SAFETY: the mock context is live, its vtable implements V9, and the path is static.
-            let cache = unsafe { JsonPathCache::new(ctx.as_ptr(), &api, [Some(c"$")].into_iter()) };
+            // SAFETY: the mock implements V10 and the path is static.
+            let cache = unsafe { JsonPathCache::new(&api, [Some(c"$")].into_iter()) };
             for cached in [false, true] {
                 let mut format = JsonDocumentFormat::new(ctx, &api, MULTI);
                 if cached {
@@ -272,11 +297,7 @@ fn cached_root_load_preserves_errors_without_writing_a_value() {
 }
 
 unsafe extern "C" {
-    fn JsonPathCache_New(
-        ctx: *mut redis_module::RedisModuleCtx,
-        keys: *const *const ffi::RLookupKey,
-        nkeys: usize,
-    ) -> *mut c_void;
+    fn JsonPathCache_New(keys: *const *const ffi::RLookupKey, nkeys: usize) -> *mut c_void;
     fn JsonPathCache_Free(cache: *mut c_void);
 }
 
@@ -287,9 +308,9 @@ struct ApiGlobals {
 
 impl ApiGlobals {
     fn save() -> Self {
-        // SAFETY: only the compatibility test in this binary changes these globals.
+        // SAFETY: only the FFI constructor test in this binary changes these globals.
         let api = unsafe { ffi::japi };
-        // SAFETY: only the compatibility test in this binary changes these globals.
+        // SAFETY: only the FFI constructor test in this binary changes these globals.
         let version = unsafe { ffi::japi_ver };
         Self { api, version }
     }
@@ -306,10 +327,10 @@ impl Drop for ApiGlobals {
 
 #[test]
 #[cfg_attr(miri, ignore)] // The exported cache constructor calls foreign C APIs.
-fn ffi_constructor_checks_version_and_function_before_compiling() {
+fn ffi_constructor_compiles_root_and_fields_and_frees_handles() {
     redis_mock::init_redis_module_mock();
     reset_json_api_calls();
-    with_json_api(None, |api, ctx| {
+    with_json_api(None, |api, _ctx| {
         // SAFETY: the mock vtable is initialized and copying its function pointers is safe.
         let mut table = unsafe { api.vtable().as_ptr().read() };
         let _restore = ApiGlobals::save();
@@ -317,40 +338,10 @@ fn ffi_constructor_checks_version_and_function_before_compiling() {
         unsafe {
             ffi::japi = &raw mut table;
         }
-        for version in [7, 8] {
-            // SAFETY: only this test changes the negotiated version.
-            unsafe {
-                ffi::japi_ver = version;
-            }
-            // SAFETY: live mock context; zero keys requests root loading.
-            let cache = unsafe { JsonPathCache_New(ctx.as_ptr(), ptr::null(), 0) };
-            assert!(cache.is_null());
-            assert_eq!(
-                load_fields(
-                    json!({"name": "alice"}),
-                    &[Some(c"$.name")],
-                    None,
-                    PRE_MULTI
-                )[0]
-                .as_ref()
-                .unwrap()
-                .as_str_bytes(),
-                Some(b"alice".as_slice())
-            );
-        }
-        // SAFETY: the stack vtable is exclusively owned by this test.
-        unsafe {
-            ffi::japi_ver = 9;
-        }
-        let get_with_path = table.getWithPath.take();
-        // SAFETY: live mock context; zero keys requests root loading.
-        assert!(unsafe { JsonPathCache_New(ctx.as_ptr(), ptr::null(), 0) }.is_null());
-        assert_eq!(json_api_calls().path_parse, 0);
-        table.getWithPath = get_with_path;
-        // SAFETY: publish the restored table before calling the constructor again.
-        unsafe { ffi::japi = &raw mut table };
-        // SAFETY: live V9 mock, now with a compiled-path callback.
-        let cache = unsafe { JsonPathCache_New(ctx.as_ptr(), ptr::null(), 0) };
+        // SAFETY: only this test changes the negotiated version.
+        unsafe { ffi::japi_ver = redis_json_api::LATEST_API_VERSION };
+        // SAFETY: the initialized V10 mock is live; zero keys requests root loading.
+        let cache = unsafe { JsonPathCache_New(ptr::null(), 0) };
         assert!(!cache.is_null());
         // SAFETY: the returned cache is live and only borrowed for this root load.
         let value = load_root(
@@ -367,7 +358,10 @@ fn ffi_constructor_checks_version_and_function_before_compiling() {
         // SAFETY: the destructor explicitly accepts null.
         unsafe { JsonPathCache_Free(ptr::null_mut()) };
         assert_eq!(
-            (json_api_calls().path_parse, json_api_calls().path_free),
+            (
+                json_api_calls().path_parse_no_error_msg,
+                json_api_calls().path_free
+            ),
             (1, 1)
         );
 
@@ -385,8 +379,8 @@ fn ffi_constructor_checks_version_and_function_before_compiling() {
                     .cast_const()
             })
             .collect();
-        // SAFETY: V9 mock; all lookup keys and the pointer array outlive this call.
-        let cache = unsafe { JsonPathCache_New(ctx.as_ptr(), keys.as_ptr(), keys.len()) };
+        // SAFETY: V10 mock; all lookup keys and the pointer array outlive this call.
+        let cache = unsafe { JsonPathCache_New(keys.as_ptr(), keys.len()) };
         assert!(!cache.is_null());
         // SAFETY: the cache is live and its entries match `paths` in load order.
         let row = load_fields(
@@ -404,7 +398,11 @@ fn ffi_constructor_checks_version_and_function_before_compiling() {
         unsafe { JsonPathCache_Free(cache) };
         let calls = json_api_calls();
         assert_eq!(
-            (calls.path_parse, calls.get_with_path, calls.path_free),
+            (
+                calls.path_parse_no_error_msg,
+                calls.get_with_path,
+                calls.path_free
+            ),
             (2, 2, 2)
         );
     });

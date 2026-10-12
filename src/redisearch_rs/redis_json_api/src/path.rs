@@ -31,6 +31,25 @@ impl Drop for JsonPath {
 }
 
 impl JsonPath {
+    /// Parses a path without allocating a Redis error string or requiring the Redis lock.
+    /// Returns `None` if the path cannot be compiled.
+    ///
+    /// # Safety
+    ///
+    /// The bytes of `path` must remain [valid] until the returned path is dropped.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub unsafe fn parse_no_error_msg(path: &CStr, api: &RedisJsonApi) -> Option<Self> {
+        let path_parse = vtable_fn!(api, pathParseNoErrorMsg);
+        // SAFETY: `path` is null-terminated and the caller keeps its bytes alive.
+        let ptr = NonNull::new(unsafe { path_parse(path.as_ptr()) }.cast_mut())?;
+        Some(Self {
+            ptr,
+            free: vtable_fn!(api, pathFree),
+            api: *api,
+        })
+    }
+
     /// Parses a JSON path expression.
     ///
     /// Returns the parsed path on success, or an error message on failure.

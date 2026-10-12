@@ -33,20 +33,18 @@ impl JsonPathCache {
     ///
     /// # Safety
     ///
-    /// `ctx` must be a [valid] Redis module context.
-    /// The negotiated API must support V9 and provide `getWithPath`.
+    /// The path bytes must remain [valid] until this cache is dropped.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn new<'p>(
-        ctx: *mut redis_module::RedisModuleCtx,
         api: &RedisJsonApi,
         paths: impl Iterator<Item = Option<&'p CStr>>,
     ) -> Self {
         let paths = paths
             .map(|path| {
                 let path = path.filter(|path| path.to_bytes().starts_with(b"$"))?;
-                // SAFETY: the caller guarantees a valid context.
-                unsafe { JsonPath::parse(path, ctx, api) }.ok()
+                // SAFETY: the caller keeps the path bytes alive throughout the cache's lifetime.
+                unsafe { JsonPath::parse_no_error_msg(path, api) }
             })
             .collect();
         Self { paths }
@@ -117,7 +115,7 @@ impl<'a> JsonDocumentFormat<'a> {
         path: &JsonPath,
     ) -> Result<SharedValue, LoadAllError> {
         let json_root = self.open_key(key_name).ok_or(LoadAllError::OpenKeyFailed)?;
-        // SAFETY: the cache requires V9; it owns the path throughout iteration.
+        // SAFETY: the cache owns the path throughout iteration.
         self.load_root_from_iter(unsafe { json_root.get_with_path(path) })
     }
 
@@ -226,7 +224,7 @@ impl JsonFieldLoader<'_> {
         dst_row: &mut RLookupRow,
         path: &JsonPath,
     ) -> Result<(), LoadFieldError> {
-        // SAFETY: the cache requires V9; it owns the path throughout iteration.
+        // SAFETY: the cache owns the path throughout iteration.
         let iter = unsafe { self.value.get_with_path(path) };
         self.load_field_from_iter(key, dst_row, iter)
     }

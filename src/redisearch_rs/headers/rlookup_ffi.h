@@ -17,8 +17,6 @@ typedef struct QueryError QueryError;
  */
 typedef struct RSValue RSValue;
 
-typedef struct RedisModuleCtx RedisModuleCtx;
-
 typedef struct RedisModuleKey RedisModuleKey;
 
 /**
@@ -152,18 +150,18 @@ void JsonPathCache_Free(struct JsonPathCache *paths);
 /**
  * Compile paths for one JSON loader. With no keys, compile the document root.
  *
- * Returns null when the RedisJSON API does not support compiled-path evaluation.
+ * Returns null when the RedisJSON API is unavailable.
  * Free the returned cache with [`JsonPathCache_Free`].
  *
  * # Safety
  *
- * 1. The RedisJSON module must be initialized and `ctx` must be a [valid] Redis context.
+ * 1. The RedisJSON module must be initialized.
  * 2. When `nkeys` is nonzero, `keys` must point to `nkeys` [valid], non-null lookup keys
- *    that remain valid throughout this call.
+ *    whose path bytes remain [valid] until the returned cache is freed.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct JsonPathCache *JsonPathCache_New(struct RedisModuleCtx *ctx, const RLookupKey *const *keys, size_t nkeys);
+struct JsonPathCache *JsonPathCache_New(const RLookupKey *const *keys, size_t nkeys);
 
 /**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.

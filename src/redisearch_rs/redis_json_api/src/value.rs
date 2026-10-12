@@ -269,7 +269,7 @@ impl<'a> JsonValueRef<'a> {
     ///
     /// # Safety
     ///
-    /// The negotiated API must support V9. The compiled `path` must remain [valid]
+    /// The compiled `path` must remain [valid]
     /// until the returned iterator is dropped.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

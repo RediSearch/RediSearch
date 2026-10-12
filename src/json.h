@@ -18,7 +18,7 @@ extern "C" {
 
 extern RedisJSONAPI *japi;
 extern int japi_ver;
-#define RedisJSONAPI_MIN_API_VER 7
+#define RedisJSONAPI_MIN_API_VER 10
 
 #define JSON_ROOT "$"
 
@@ -47,16 +47,12 @@ void JSONIterable_Clean(JSONIterable *iterable); // Like free, but does not free
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange);
 
-/* Get the RedisJSON root from an already-open RedisModuleKey handle, handling
- * both the V8+ `getJsonFromHandle` API and the V7 `isJSON` +
- * `RedisModule_ModuleTypeGetValue` fallback. The V8-only vtable slot is only
- * read when the acquired RedisJSON API is V8 or later, so this is safe to call
- * against a genuine V7 provider.
+/* Get the RedisJSON root from an already-open RedisModuleKey handle.
  *
  * Returns NULL if RedisJSON is not loaded, the key is NULL, or it does not
  * hold JSON. The caller owns the key handle and must keep it open while using
  * the returned root. */
-RedisJSON JSON_GetJsonFromHandleCompat(RedisModuleKey *key);
+RedisJSON JSON_GetJsonFromHandle(RedisModuleKey *key);
 
 int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int apiVersion, RSValue **rsv);
 

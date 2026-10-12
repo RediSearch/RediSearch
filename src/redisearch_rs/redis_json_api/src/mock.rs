@@ -18,6 +18,7 @@ use std::ptr::{self, NonNull};
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct JsonApiCalls {
     pub path_parse: usize,
+    pub path_parse_no_error_msg: usize,
     pub path_free: usize,
     pub get: usize,
     pub get_with_path: usize,
@@ -25,7 +26,7 @@ pub struct JsonApiCalls {
 
 thread_local! {
     static API_CALLS: Cell<JsonApiCalls> = const { Cell::new(JsonApiCalls {
-        path_parse: 0, path_free: 0, get: 0, get_with_path: 0,
+        path_parse: 0, path_parse_no_error_msg: 0, path_free: 0, get: 0, get_with_path: 0,
     }) };
 }
 
@@ -131,6 +132,7 @@ static VTABLE: ffi::RedisJSONAPI = ffi::RedisJSONAPI {
     getArray: None,
     getJsonFromHandle: Some(get_json_from_handle),
     getWithPath: Some(get_with_path),
+    pathParseNoErrorMsg: Some(path_parse_no_error_msg),
 };
 
 /// View a `RedisJSON` handle as the `serde_json::Value` node it points at.
@@ -222,9 +224,19 @@ unsafe extern "C" fn path_parse(
     ptr::null()
 }
 
+unsafe extern "C" fn path_parse_no_error_msg(path: *const c_char) -> ffi::JSONPath {
+    record_call(|calls| calls.path_parse_no_error_msg += 1);
+    // SAFETY: the API caller supplies a live, null-terminated path.
+    let path = unsafe { CStr::from_ptr(path) };
+    path.to_str()
+        .ok()
+        .and_then(MockPath::parse)
+        .map_or(ptr::null(), |path| Box::into_raw(Box::new(path)).cast())
+}
+
 unsafe extern "C" fn path_free(path: ffi::JSONPath) {
     record_call(|calls| calls.path_free += 1);
-    // SAFETY: the API caller transfers a handle returned by `path_parse` exactly once.
+    // SAFETY: the API caller transfers a handle returned by either mock path parser exactly once.
     drop(unsafe { Box::from_raw(path.cast::<MockPath>().cast_mut()) });
 }
 
