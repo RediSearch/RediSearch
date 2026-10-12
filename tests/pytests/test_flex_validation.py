@@ -589,8 +589,9 @@ def test_flex_disk_hnsw_rerank_rdb_roundtrip(env):
 @with_simulate_in_flex(True, module_args='WORKERS 2')
 def test_flex_hybrid_rejects_nonblocking_contexts(env):
     """Simulated Flex rejects hybrid loader execution in MULTI and Lua across entry points."""
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'HNSW', 8,
-               'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2', 'RERANK', 'TRUE').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'HNSW', 10,
+               'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2', 'M', 16,
+               'RERANK', 'TRUE').ok()
     blob = create_np_array_typed([1.0, 0.0], 'FLOAT32').tobytes()
     env.expect('HSET', 'doc:1', 't', 'hello', 'v', blob).equal(2)
     args = ['idx', 'SEARCH', 'hello', 'VSIM', '@v', '$b', 'KNN', 2, 'K', 1,
