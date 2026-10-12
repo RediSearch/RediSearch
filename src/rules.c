@@ -115,6 +115,14 @@ static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *p
   rule->lang_field = args->lang_field ? rm_strdup(args->lang_field) : NULL;
   rule->score_field = args->score_field ? rm_strdup(args->score_field) : NULL;
   rule->payload_field = args->payload_field ? rm_strdup(args->payload_field) : NULL;
+  if (rule->type == DocumentType_Json) {
+    if (rule->lang_field) {
+      rule->compiled_lang_path = japi->pathParseNoErrorMsg(rule->lang_field);
+    }
+    if (rule->score_field) {
+      rule->compiled_score_path = japi->pathParseNoErrorMsg(rule->score_field);
+    }
+  }
 
   if (args->score_default) {
     double score;
@@ -317,7 +325,7 @@ done:
   return lang;
 }
 
-RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, SchemaRule *rule, RedisJSON jsonRoot,
+RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonRoot,
                                const char *kname) {
   int rv = REDISMODULE_ERR;
   JSONResultsIterator jsonIter = NULL;
@@ -335,7 +343,7 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, SchemaRule *rule, RedisJSON 
     goto done;
   }
 
-  jsonIter = JSON_GetWithCachedPath(jsonRoot, rule->lang_field, &rule->compiled_lang_path);
+  jsonIter = JSON_GetWithCompiledPath(jsonRoot, rule->compiled_lang_path);
   if (!jsonIter) {
     goto done;
   }
@@ -390,7 +398,7 @@ done:
   return score;
 }
 
-double SchemaRule_JsonScore(RedisModuleCtx *ctx, SchemaRule *rule, RedisJSON jsonRoot,
+double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonRoot,
                             const char *kname) {
   double score = rule->score_default;
   JSONResultsIterator jsonIter = NULL;
@@ -405,7 +413,7 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, SchemaRule *rule, RedisJSON jso
     goto done;
   }
 
-  jsonIter = JSON_GetWithCachedPath(jsonRoot, rule->score_field, &rule->compiled_score_path);
+  jsonIter = JSON_GetWithCompiledPath(jsonRoot, rule->compiled_score_path);
   if (jsonIter == NULL) {
     goto done;
   }

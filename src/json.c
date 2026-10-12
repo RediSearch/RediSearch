@@ -34,42 +34,6 @@ struct RedisModuleCtx;
 RedisJSONAPI *japi = NULL;
 int japi_ver = 0;
 
-// String-based fallback for APIs without compiled-path evaluation.
-static JSONResultsIterator getWithStringPath(RedisJSON root, const char *path,
-                                             JSONPath *compiledPath) {
-  REDISMODULE_NOT_USED(compiledPath);
-  return japi->get(root, path);
-}
-
-// RedisJSON's path parser rejects the same invalid/projection expressions as get.
-static JSONResultsIterator getWithCompiledPath(RedisJSON root, const char *path,
-                                               JSONPath *compiledPath) {
-  if (!*compiledPath) {
-    RedisModuleString *err_msg = NULL;
-    *compiledPath = japi->pathParse(path, RSDummyContext, &err_msg);
-    if (err_msg) {
-      RedisModule_FreeString(RSDummyContext, err_msg);
-    }
-    if (!*compiledPath) {
-      return NULL;
-    }
-  }
-  return japi->getWithPath(root, *compiledPath);
-}
-
-// Resolve compatibility once instead of branching for each indexed field.
-static struct {
-  JSONResultsIterator (*getWithCachedPath)(RedisJSON root, const char *path,
-                                           JSONPath *compiledPath);
-} json_api_compat = {
-    .getWithCachedPath = getWithStringPath,
-};
-
-JSONResultsIterator JSON_GetWithCachedPath(RedisJSON root, const char *path,
-                                           JSONPath *compiledPath) {
-  return json_api_compat.getWithCachedPath(root, path, compiledPath);
-}
-
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 void ModuleChangeHandler(struct RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
@@ -94,8 +58,6 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
       japi = RedisModule_GetSharedAPI(ctx, ver);
       if (japi) {
         japi_ver = i;
-        json_api_compat.getWithCachedPath =
-            i >= 9 && japi->getWithPath ? getWithCompiledPath : getWithStringPath;
         RedisModule_Log(ctx, "notice", "Acquired RedisJSON_V%d API", i);
         return 1;
       }
@@ -112,6 +74,10 @@ RedisJSON JSON_GetJsonFromHandle(RedisModuleKey *key) {
     return NULL;
   }
   return japi->getJsonFromHandle(key);
+}
+
+JSONResultsIterator JSON_GetWithCompiledPath(RedisJSON root, JSONPath path) {
+  return path ? japi->getWithPath(root, path) : NULL;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1175,13 +1141,13 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   return rv;
 }
 
-void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName) {
-  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL_PATH,
-                         "Invalid JSONPath", " '%s' in attribute '%s' in index '%s'",
-                         HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
-  RedisModule_FreeString(RSDummyContext, err_msg);
+void JSONParse_error(QueryError *status, const HiddenString *path, const HiddenString *fieldName,
+                     const HiddenString *indexName) {
+  QueryError_SetWithUserDataFmt(
+      status, QUERY_ERROR_CODE_INVAL_PATH, "Invalid JSONPath",
+      " '%s' in attribute '%s' in index '%s'", HiddenString_GetUnsafe(path, NULL),
+      HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
 }
-
 
 #ifdef ENABLE_ASSERT
 #include "json_test_api.h"

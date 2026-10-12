@@ -23,7 +23,7 @@
 
 namespace {
 
-// Literal path-to-value fixtures test the adapter's arguments and ownership, not JSON parsing.
+// Literal path-to-value fixtures test cached evaluation and ownership, not JSON parsing.
 class JSONPathIndexingTest : public ::testing::Test {
  protected:
   struct Value {
@@ -39,30 +39,18 @@ class JSONPathIndexingTest : public ::testing::Test {
   inline static JSONPathIndexingTest *current = nullptr;
   RedisModuleCtx *ctx = nullptr;
   RedisJSONAPI api = {};
-  void *provider = nullptr;
-  int version = 9;
-  std::unique_ptr<unsigned char[]> prefix;
   Root *root = nullptr;
   std::set<const std::string *> paths;
   std::set<const Iterator *> iterators;
   std::map<JSONPath, int> frees;
-  int parses = 0, stringGets = 0, compiledGets = 0, errorFrees = 0;
-  RedisModuleString *parseError = nullptr;
+  int parses = 0, errorMessageParses = 0, stringGets = 0, compiledGets = 0;
   std::vector<StrongRef> specs;
   RedisJSONAPI *savedApi = nullptr;
   int savedVersion = 0;
-  decltype(RedisModule_GetSharedAPI) savedGetSharedAPI = nullptr;
-  decltype(RedisModule_FreeString) savedFreeString = nullptr;
 
-  static void *getSharedAPI(RedisModuleCtx *, const char *name) {
-    return name == "RedisJSON_V" + std::to_string(current->version) ? current->provider : nullptr;
-  }
-
-  static JSONPath parse(const char *path, RedisModuleCtx *ctx, RedisModuleString **error) {
+  static JSONPath parse(const char *path) {
     ++current->parses;
     if (!strcmp(path, "$.invalid[")) {
-      *error = RedisModule_CreateString(ctx, "invalid path", 12);
-      current->parseError = *error;
       return nullptr;
     }
     auto *compiled = new std::string(path);
@@ -75,14 +63,6 @@ class JSONPathIndexingTest : public ::testing::Test {
     ASSERT_EQ(current->paths.erase(compiled), 1u);
     ++current->frees[path];
     delete compiled;
-  }
-
-  static void freeString(RedisModuleCtx *ctx, RedisModuleString *str) {
-    if (str == current->parseError) {
-      ++current->errorFrees;
-      current->parseError = nullptr;
-    }
-    current->savedFreeString(ctx, str);
   }
 
   static JSONResultsIterator evaluate(RedisJSON json, const std::string &path) {
@@ -145,13 +125,17 @@ class JSONPathIndexingTest : public ::testing::Test {
     ctx = RedisModule_GetThreadSafeContext(nullptr);
     savedApi = japi;
     savedVersion = japi_ver;
-    savedGetSharedAPI = RedisModule_GetSharedAPI;
-    savedFreeString = RedisModule_FreeString;
-    RedisModule_GetSharedAPI = getSharedAPI;
-    RedisModule_FreeString = freeString;
     api.get = get;
     api.getWithPath = getWithPath;
-    api.pathParse = parse;
+    api.pathParse = [](const char *path, RedisModuleCtx *ctx, RedisModuleString **error) {
+      ++current->errorMessageParses;
+      JSONPath compiled = parse(path);
+      if (!compiled) {
+        *error = RedisModule_CreateString(ctx, "invalid path", 12);
+      }
+      return compiled;
+    };
+    api.pathParseNoErrorMsg = parse;
     api.pathFree = freePath;
     api.pathIsSingle = [](JSONPath) { return 1; };
     api.pathHasDefinedOrder = [](JSONPath) { return 1; };
@@ -164,7 +148,8 @@ class JSONPathIndexingTest : public ::testing::Test {
       return static_cast<const Value *>(json)->string ? JSONType_String : JSONType_Double;
     };
     api.getJsonFromHandle = [](RedisModuleKey *) -> RedisJSON { return current->root; };
-    acquire(9);
+    japi = &api;
+    japi_ver = 10;
   }
 
   void TearDown() override {
@@ -173,31 +158,10 @@ class JSONPathIndexingTest : public ::testing::Test {
     EXPECT_TRUE(iterators.empty());
     for (auto *path : paths) delete path;
     for (auto *iter : iterators) delete iter;
-    if (parseError) RedisModule_FreeString(ctx, parseError);
-    // Restore the private dispatch through negotiation as well as the public globals.
-    version = savedApi ? savedVersion : 7;
-    provider = savedApi ? savedApi : &api;
-    EXPECT_EQ(GetJSONAPIs(ctx, 0), 1);
     japi = savedApi;
     japi_ver = savedVersion;
-    RedisModule_GetSharedAPI = savedGetSharedAPI;
-    RedisModule_FreeString = savedFreeString;
     RedisModule_FreeThreadSafeContext(ctx);
     current = nullptr;
-  }
-
-  void acquire(int requestedVersion, bool compiled = true) {
-    version = requestedVersion;
-    api.getWithPath = compiled ? getWithPath : nullptr;
-    size_t size = version == 7   ? offsetof(RedisJSONAPI, getJsonFromHandle)
-                  : version == 8 ? offsetof(RedisJSONAPI, getWithPath)
-                                 : sizeof(api);
-    // Older providers really end at their version's prefix, including under ASan.
-    prefix = std::make_unique<unsigned char[]>(size);
-    memcpy(prefix.get(), &api, size);
-    provider = prefix.get();
-    ASSERT_EQ(GetJSONAPIs(ctx, 0), 1);
-    ASSERT_EQ(japi_ver, version);
   }
 
   IndexSpec *createSpec(std::vector<const char *> args) {
@@ -234,42 +198,33 @@ TEST_F(JSONPathIndexingTest, compiledEvaluationMatchesStringAndReusesPathAcrossR
   Root first = {{"$.nested.price", {{10}}}, {"$.items[*]", {{1}, {2}}}};
   Root second = {{"$.nested.price", {{20}}}, {"$.items[*]", {}}, {"$.missing", {{5}}}};
   for (const char *path : {"$.nested.price", "$.items[*]", "$.missing"}) {
-    JSONPath compiled = nullptr;
+    JSONPath compiled = japi->pathParseNoErrorMsg(path);
+    ASSERT_NE(compiled, nullptr);
     for (const Root *doc : {&first, &second}) {
       auto legacy = japi->get(doc, path);
-      auto cached = JSON_GetWithCachedPath(doc, path, &compiled);
+      auto cached = JSON_GetWithCompiledPath(doc, compiled);
       EXPECT_NE(legacy, cached);
       EXPECT_EQ(numbers(legacy), numbers(cached));
     }
     japi->pathFree(compiled);
   }
   EXPECT_EQ(parses, 3);
+  EXPECT_EQ(errorMessageParses, 0);
   EXPECT_EQ(compiledGets, 6);
   EXPECT_EQ(stringGets, 6);
 }
 
-TEST_F(JSONPathIndexingTest, olderApisAndMissingV9CallbackUseStringEvaluation) {
-  Root doc = {{"$.price", {{12}}}};
-  for (int supportedVersion : {7, 8, 9}) {
-    acquire(supportedVersion, false);
-    JSONPath compiled = nullptr;
-    EXPECT_EQ(numbers(JSON_GetWithCachedPath(&doc, "$.price", &compiled)), std::vector<double>{12});
-    EXPECT_EQ(compiled, nullptr);
-  }
-  EXPECT_EQ(parses, 0);
-  EXPECT_EQ(compiledGets, 0);
-  EXPECT_EQ(stringGets, 3);
-}
-
-TEST_F(JSONPathIndexingTest, failedCompilationReleasesErrorAndRetries) {
+TEST_F(JSONPathIndexingTest, invalidFieldPathIsCompiledOnceAtCreation) {
+  auto *spec = createSpec({"ON", "JSON", "SCHEMA", "$.invalid[", "NUMERIC"});
+  ASSERT_NE(spec, nullptr);
+  EXPECT_EQ(parses, 1);
+  EXPECT_EQ(spec->fields[0].compiledPath, nullptr);
   Root doc;
-  JSONPath compiled = nullptr;
   for (int attempt = 0; attempt < 2; ++attempt) {
-    EXPECT_EQ(JSON_GetWithCachedPath(&doc, "$.invalid[", &compiled), nullptr);
-    EXPECT_EQ(compiled, nullptr);
+    EXPECT_EQ(JSON_GetWithCompiledPath(&doc, spec->fields[0].compiledPath), nullptr);
   }
-  EXPECT_EQ(parses, 2);
-  EXPECT_EQ(errorFrees, 2);
+  EXPECT_EQ(parses, 1);
+  EXPECT_EQ(errorMessageParses, 1);
   EXPECT_EQ(compiledGets, 0);
   EXPECT_EQ(stringGets, 0);
 }
@@ -278,7 +233,9 @@ TEST_F(JSONPathIndexingTest, schemaLoaderAndAlterProbeReuseIndependentFieldHandl
   auto *spec = createSpec({"ON", "JSON", "SCHEMA", "$.price", "AS", "first", "NUMERIC", "$.price",
                            "AS", "second", "NUMERIC"});
   ASSERT_NE(spec, nullptr);
-  parses = 0;  // Schema validation parses are unrelated to indexing reuse.
+  EXPECT_EQ(parses, 2);
+  ASSERT_NE(spec->fields[0].compiledPath, nullptr);
+  ASSERT_NE(spec->fields[1].compiledPath, nullptr);
   Root doc = {{"$.price", {{10}}}};
   root = &doc;
   RMCK::RString keyName("json_cache_doc");
@@ -309,7 +266,9 @@ TEST_F(JSONPathIndexingTest, rulePathsReuseHandlesAndPreserveValuesAndDefaults) 
   auto *spec = createSpec({"ON", "JSON", "LANGUAGE_FIELD", "$.lang", "SCORE_FIELD", "$.score",
                            "LANGUAGE", "english", "SCORE", "0.5", "SCHEMA", "$.price", "NUMERIC"});
   ASSERT_NE(spec, nullptr);
-  parses = 0;
+  EXPECT_EQ(parses, 3);
+  ASSERT_NE(spec->rule->compiled_lang_path, nullptr);
+  ASSERT_NE(spec->rule->compiled_score_path, nullptr);
   Root first = {{"$.lang", {{0, "italian"}}}, {"$.score", {{0.8}}}};
   Root second = {{"$.lang", {{0, "french"}}}, {"$.score", {{0.2}}}};
   EXPECT_EQ(SchemaRule_JsonLang(ctx, spec->rule, &first, "first"), RS_LANG_ITALIAN);
@@ -322,7 +281,7 @@ TEST_F(JSONPathIndexingTest, rulePathsReuseHandlesAndPreserveValuesAndDefaults) 
     EXPECT_EQ(SchemaRule_JsonLang(ctx, spec->rule, doc, "defaults"), RS_LANG_ENGLISH);
     EXPECT_DOUBLE_EQ(SchemaRule_JsonScore(ctx, spec->rule, doc, "defaults"), 0.5);
   }
-  EXPECT_EQ(parses, 2);
+  EXPECT_EQ(parses, 3);
   EXPECT_EQ(compiledGets, 8);
   EXPECT_EQ(stringGets, 0);
   EXPECT_NE(spec->rule->compiled_lang_path, spec->rule->compiled_score_path);
@@ -332,7 +291,7 @@ TEST_F(JSONPathIndexingTest, snapshotsAndAlterPreserveLiveOwnershipUntilSpecClea
   auto *spec = createSpec({"ON", "JSON", "SCHEMA", "$.price", "NUMERIC"});
   ASSERT_NE(spec, nullptr);
   Root doc = {{"$.price", {{10}}}};
-  numbers(JSON_GetWithCachedPath(&doc, "$.price", &spec->fields[0].compiledPath));
+  numbers(JSON_GetWithCompiledPath(&doc, spec->fields[0].compiledPath));
   JSONPath owned = spec->fields[0].compiledPath;
   int previousFrees = frees[owned];  // An allocator may reuse a schema-validation handle's address.
   IndexSpec_RefreshSpecCache(spec);
@@ -346,7 +305,8 @@ TEST_F(JSONPathIndexingTest, snapshotsAndAlterPreserveLiveOwnershipUntilSpecClea
   QueryError error = QueryError_Default();
   ASSERT_EQ(IndexSpec_AddFields(specs.back(), spec, ctx, &ac, &error), 1);
   EXPECT_EQ(spec->fields[0].compiledPath, owned);
-  EXPECT_EQ(spec->fields[1].compiledPath, nullptr);
+  EXPECT_NE(spec->fields[1].compiledPath, nullptr);
+  EXPECT_EQ(parses, 2);
   auto fresh = std::unique_ptr<IndexSpecCache, decltype(&IndexSpecCache_Decref)>(
       IndexSpec_GetSpecCache(spec), IndexSpecCache_Decref);
   EXPECT_EQ(fresh->nfields, 2);
@@ -356,7 +316,7 @@ TEST_F(JSONPathIndexingTest, snapshotsAndAlterPreserveLiveOwnershipUntilSpecClea
   fresh.reset();
   EXPECT_EQ(frees[owned], previousFrees);
   int before = parses;
-  EXPECT_EQ(numbers(JSON_GetWithCachedPath(&doc, "$.price", &spec->fields[0].compiledPath)),
+  EXPECT_EQ(numbers(JSON_GetWithCompiledPath(&doc, spec->fields[0].compiledPath)),
             std::vector<double>{10});
   EXPECT_EQ(parses, before);
   Indexes_RemoveSpecFromGlobals(specs.back(), false);
@@ -366,18 +326,31 @@ TEST_F(JSONPathIndexingTest, snapshotsAndAlterPreserveLiveOwnershipUntilSpecClea
   QueryError_ClearError(&error);
 }
 
-TEST_F(JSONPathIndexingTest, unusedJsonAndHashOwnersHaveNoCompiledHandlesToFree) {
+TEST_F(JSONPathIndexingTest, unusedJsonPathsAreOwnedAndHashFieldsHaveNoCompiledPaths) {
   for (const char *type : {"JSON", "HASH"}) {
+    int before = parses;
     auto *spec = createSpec({"ON", type, "SCHEMA", "$.price", "NUMERIC"});
     ASSERT_NE(spec, nullptr);
-    EXPECT_EQ(spec->fields[0].compiledPath, nullptr);
+    bool isJson = !strcmp(type, "JSON");
+    EXPECT_EQ(parses, before + (isJson ? 1 : 0));
+    EXPECT_EQ(spec->fields[0].compiledPath != nullptr, isJson);
     EXPECT_EQ(spec->rule->compiled_lang_path, nullptr);
     EXPECT_EQ(spec->rule->compiled_score_path, nullptr);
-    size_t before = frees.size();
     Indexes_RemoveSpecFromGlobals(specs.back(), false);
     specs.pop_back();
-    EXPECT_EQ(frees.size(), before);
+    EXPECT_TRUE(paths.empty());
   }
+}
+
+TEST_F(JSONPathIndexingTest, schemaValidationReusesCreationHandles) {
+  auto *spec = createSpec({"ON", "JSON", "SCHEMA", "$.title", "AS", "title", "TEXT", "$.vector",
+                           "AS", "vector", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "2",
+                           "DISTANCE_METRIC", "L2"});
+  ASSERT_NE(spec, nullptr);
+  EXPECT_EQ(parses, 2);
+  EXPECT_EQ(errorMessageParses, 2);
+  EXPECT_NE(spec->fields[0].compiledPath, nullptr);
+  EXPECT_NE(spec->fields[1].compiledPath, nullptr);
 }
 
 }  // namespace

@@ -89,11 +89,11 @@ void SchemaRule_Free(SchemaRule *);
 
 RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                                const char *kname);
-RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, SchemaRule *rule, RedisJSON jsonKey,
+RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonKey,
                                const char *keyName);
 double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisModuleKey *key,
                             const char *kname);
-double SchemaRule_JsonScore(RedisModuleCtx *ctx, SchemaRule *rule, RedisJSON jsonKey,
+double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonKey,
                             const char *keyName);
 RedisModuleString *SchemaRule_HashPayload(RedisModuleCtx *rctx, const SchemaRule *rule,
                                           RedisModuleKey *key, const char *kname);
