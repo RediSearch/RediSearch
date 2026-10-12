@@ -40,7 +40,6 @@
 #include "module.h"
 #include "aggregate/reply_empty.h"
 #include "profile/profile.h"
-#include "search_disk.h"
 #include "search_disk_utils.h"
 #include "VecSim/vec_sim_common.h"
 #include "aggregate/aggregate_plan.h"
@@ -1211,10 +1210,7 @@ static blockedClientHybridCtx *blockedClientHybridCtx_New(HybridRequest *hreq,
 // caller still owns both.
 static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hybridParams, RedisModuleCtx *ctx,
                     RedisSearchCtx *sctx, QueryError* status, bool internal) {
-  const bool denyBlocking = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_DENY_BLOCKING;
-  const bool runInThread =
-      RunInThread(ctx) && !(SearchDisk_IsEnabledForValidation() && denyBlocking);
-  if (runInThread) {
+  if (RunInThread(ctx)) {
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 

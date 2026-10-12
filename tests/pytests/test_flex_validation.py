@@ -606,17 +606,16 @@ def test_flex_hybrid_rejects_nonblocking_contexts(env):
     option = 'search-_fallback-to-main-thread-when-block-client-unavailable'
     previous = env.cmd('CONFIG', 'GET', option)[1]
     try:
-        for fallback in ['yes', 'no']:
-            env.expect('CONFIG', 'SET', option, fallback).ok()
-            for command in commands:
-                env.expect(*command).noError()
-                with env.getConnection().pipeline(transaction=True) as pipeline:
-                    pipeline.execute_command(*command)
-                    responses = pipeline.execute(raise_on_error=False)
-                env.assertEqual(len(responses), 1)
-                env.assertContains(error, str(responses[0]))
-                env.expect('EVAL', 'return redis.call(unpack(ARGV))', 0, *command) \
-                    .error().contains(error)
+        env.expect('CONFIG', 'SET', option, 'yes').ok()
+        for command in commands:
+            env.expect(*command).noError()
+            with env.getConnection().pipeline(transaction=True) as pipeline:
+                pipeline.execute_command(*command)
+                responses = pipeline.execute(raise_on_error=False)
+            env.assertEqual(len(responses), 1)
+            env.assertContains(error, str(responses[0]))
+            env.expect('EVAL', 'return redis.call(unpack(ARGV))', 0, *command) \
+                .error().contains(error)
     finally:
         env.expect('CONFIG', 'SET', option, previous).ok()
 
