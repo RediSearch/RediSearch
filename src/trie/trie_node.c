@@ -585,29 +585,6 @@ TrieNode *TrieNode_Get(TrieNode *n, const rune *str, t_len len, bool exact, int 
   return NULL;
 }
 
-bool TrieNode_IsFullOnPath(TrieNode *n, const rune *str, t_len len) {
-  const TrieSortMode mode = n ? n->sortMode : Trie_Sort_Lex;
-  t_len offset = 0;
-  while (n) {
-    t_len localOffset = 0;
-    while (offset < len && localOffset < n->len && str[offset] == n->str[localOffset]) {
-      offset++;
-      localOffset++;
-    }
-    // Ending inside or at the end of this node splits or marks it, which adds no child here.
-    if (offset == len || localOffset < n->len) {
-      return false;
-    }
-    TrieNode *child = (mode == Trie_Sort_Lex) ? __trieNode_findChild_lex(n, str[offset])
-                                              : __trieNode_findChild_score(n, str[offset]);
-    if (!child) {
-      return n->numChildren == UINT16_MAX;
-    }
-    n = child;
-  }
-  return false;
-}
-
 /* Optimize the node and its children:
  *   1. If a child should be deleted - delete it and reduce the child count
  *   2. If a child has a single child - merge them

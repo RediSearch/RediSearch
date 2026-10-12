@@ -4259,8 +4259,13 @@ bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t te
   // Decrement the numDocs count for this term in the trie
   // If numDocs reaches 0, the node will be deleted
   TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
-  // Only a missing representable term is fatal; UNSUPPORTED (never insertable) is a no-op.
-  RS_ASSERT(result != TRIE_DECR_NOT_FOUND);
+  // Not fatal: a term refused at a full trie node is indexed but was never in the trie, and nothing
+  // left in the trie can tell it apart from a term that went missing.
+  if (result == TRIE_DECR_NOT_FOUND) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Disk compaction: a term of index '%s' is missing from the terms trie",
+                    IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+  }
   return result == TRIE_DECR_DELETED;
 }
 
