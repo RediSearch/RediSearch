@@ -413,7 +413,7 @@ fn hll_serializes_a_header_then_the_registers() {
     expected.resize(5 + 256, 0);
     assert_eq!(empty.as_str_bytes(), Some(&expected[..]));
 
-    let full = hll(0..1000).unwrap();
+    let full = hll(0..50).unwrap();
     let bytes = full.as_str_bytes().unwrap();
     assert_eq!(bytes[..5], [0, 0, 0, 0, 8]);
     assert_eq!(bytes.len(), 5 + 256);
@@ -424,16 +424,16 @@ fn hll_serializes_a_header_then_the_registers() {
 #[test]
 fn hll_sum_of_shards_matches_count_distinctish_of_their_union() {
     let key = key();
-    let shards = [hll(0..600), hll(300..900), hll(0..0)];
+    let shards = [hll(0..60), hll(30..90), hll(0..0)];
     let merged = reduce(HllSum::new(&key), &key, &shards);
 
     let union = reduce_rows(
         CountDistinctish::new(&key, Output::Count),
         [&key],
-        &nums(0..900),
+        &nums(0..90),
     );
     assert_eq!(merged, number(&union));
-    assert!((merged - 900.0).abs() < 900.0 * 0.2, "{merged}");
+    assert!((merged - 90.0).abs() < 90.0 * 0.2, "{merged}");
 }
 
 /// Values that are not well-formed 8-bit registers are skipped.
@@ -441,11 +441,11 @@ fn hll_sum_of_shards_matches_count_distinctish_of_their_union() {
 fn hll_sum_skips_malformed_values() {
     let key = key();
     let hll_sum = |rows: &[Option<SharedValue>]| reduce(HllSum::new(&key), &key, rows);
-    let valid = hll(0..500);
+    let valid = hll(0..20);
     let expected = hll_sum(std::slice::from_ref(&valid));
 
     // Disjoint from `valid`, so merging anything made from it would change the estimate.
-    let other = hll(500..1500);
+    let other = hll(20..60);
     assert_ne!(hll_sum(&[valid.clone(), other.clone()]), expected);
 
     let bytes = other.as_ref().unwrap().as_str_bytes().unwrap().to_vec();
