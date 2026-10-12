@@ -47,6 +47,7 @@ bool extractTotalResults(MRReply *rep, MRCommand *cmd, long long *out_total) {
   } else {
     // RESP2: [results, cursor] or [results, cursor, profile]
     MRReply *results = MRReply_ArrayElement(rep, 0);
+    if (isRespSchemaReply(results)) results = MRReply_ArrayElement(results, 1);
     if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 0) {
       // First element is total_results
       MRReply *totalReply = MRReply_ArrayElement(results, 0);

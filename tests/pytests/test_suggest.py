@@ -398,3 +398,16 @@ def testSuggestGetOverMaxPrefixLength(env):
         env.assertTrue(False)
     except Exception as e:
         env.assertContains('Invalid query', str(e))
+
+def testSuggestSplitKeepsHigherScoreFirst(env):
+    # Both entries rank 1.0 for prefix "bc" once divided by sqrt(1 + suffix length),
+    # so the one visited first wins MAX 1. The second insert splits "bcaaa" at "bc";
+    # its higher raw score must put its branch first.
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    env.assertEqual(1, conn.execute_command('FT.SUGADD', 'sug', 'bcaaa', '2'))
+    env.assertEqual(2, conn.execute_command('FT.SUGADD', 'sug', 'bczzzzzzzz', '3'))
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'bc', 'MAX', '1')
+    env.assertEqual(res, ['bczzzzzzzz'])

@@ -266,7 +266,7 @@ def testMetadataLastFieldDeletion(env):
 def testMetadataOnlyUpdatesPreserveIndexes():
     """Metadata-only Hash notifications retain document IDs, postings, and vector entries."""
     # Synchronous HNSW writes make backend deletion and indexing counters deterministic.
-    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0')
+    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
     conn = getConnectionByEnv(env)
     env.assertEqual(env.cmd(debug_cmd(), 'HASH_SUBKEY_NOTIFICATIONS'), 1)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCORE', '0.25',
