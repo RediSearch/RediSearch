@@ -714,7 +714,7 @@ int TrieNode_Delete(TrieNode *n, const rune *str, t_len len, TrieFreeCallback fr
       for (; i < n->numChildren; i++) {
         rune ckey = __trieNode_LoadChildKey(n, i);
         if (str[offset] == ckey) {
-          nextChild = TrieNode_Children(n)[i];;
+          nextChild = TrieNode_Children(n)[i];
           break;
         }
       }
