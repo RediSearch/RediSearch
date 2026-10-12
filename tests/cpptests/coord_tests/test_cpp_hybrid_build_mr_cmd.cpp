@@ -135,7 +135,7 @@ struct TestParamsDict {
     QueryError status = QueryError_Default();
     for (size_t i = 0; i + 1 < kv.size(); i += 2) {
       values.push_back(RedisModule_CreateString(NULL, kv[i + 1].data(), kv[i + 1].size()));
-      Param_DictAdd(d, kv[i].c_str(), values.back(), &status);
+      Param_DictAdd(d, kv[i].c_str(), kv[i].size(), values.back(), &status);
       expectedPairs.emplace_back(kv[i], kv[i + 1]);
     }
   }
@@ -662,6 +662,17 @@ TEST_F(HybridBuildMRCommandTest, testCommandWithParams) {
     const std::vector<const char*> baseArgs = {
         "FT.HYBRID", "test_idx", "SEARCH", "@title:($param1)", "VSIM", "@vector_field", "$BLOB"};
     const std::vector<std::string> paramsKV = {"param1", "hello", "BLOB", TEST_BLOB_DATA};
+    testCommandTransformationWithoutIndexSpecWithParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
+    testCommandTransformationWithIndexSpecAndParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
+}
+
+// Parameter names are binary-safe: a name with an embedded NUL is forwarded in full and does not
+// collide with its prefix.
+TEST_F(HybridBuildMRCommandTest, testCommandWithBinaryParamName) {
+    const std::vector<const char*> baseArgs = {
+        "FT.HYBRID", "test_idx", "SEARCH", "hello", "VSIM", "@vector_field", "$BLOB"};
+    const std::vector<std::string> paramsKV = {std::string("blob\0suffix", 11), TEST_BLOB_DATA,
+                                               "blob", "other"};
     testCommandTransformationWithoutIndexSpecWithParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
     testCommandTransformationWithIndexSpecAndParams(baseArgs, paramsKV, /*timeoutMS=*/-1);
 }

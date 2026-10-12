@@ -347,8 +347,8 @@ static void MRCommand_appendParams(MRCommand *xcmd, dict *params) {
   dictIterator *it = dictGetIterator(params);
   const dictEntry *entry;
   while ((entry = dictNext(it))) {
-    const char *name = dictGetKey(entry);
-    MRCommand_Append(xcmd, name, strlen(name));
+    const CharBuf *name = dictGetKey(entry);
+    MRCommand_Append(xcmd, name->buf, name->len);
     const RedisModuleString *value = dictGetVal(entry);
     size_t valueLen;
     const char *valueData = RedisModule_StringPtrLen(value, &valueLen);
