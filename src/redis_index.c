@@ -142,8 +142,9 @@ void SearchCtx_UpdateCurrentTime(RedisSearchCtx *sctx) {
 
 void SearchCtx_CleanUp(RedisSearchCtx *sctx) {
   // Release the per-query disk snapshot (no-op when NULL). Must happen after every
-  // iterator built from `sctx` has been freed; the OSS query pipeline tears down
-  // iterators before reaching SearchCtx_CleanUp/SearchCtx_Free.
+  // iterator built from `sctx` has been freed; the OSS query pipeline tears down iterators
+  // before reaching SearchCtx_CleanUp/SearchCtx_Free. Also called early, once a subquery is
+  // fully depleted, so a parked cursor does not pin the snapshot.
   if (sctx->diskSnapshot) {
     SearchDisk_FreeSnapshot(sctx->diskSnapshot);
     sctx->diskSnapshot = NULL;

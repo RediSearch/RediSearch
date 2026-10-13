@@ -439,6 +439,12 @@ RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *ind
  */
 void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
 
+/**
+ * @brief Number of snapshots created by `SearchDisk_CreateSnapshot` and not yet released
+ * by `SearchDisk_FreeSnapshot`, across all indexes.
+ */
+size_t SearchDisk_GetLiveSnapshotCount(void);
+
 // DocTable API wrappers
 
 /**
