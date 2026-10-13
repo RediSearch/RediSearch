@@ -101,22 +101,14 @@ impl<'a> JsonDocumentFormat<'a> {
         }
     }
 
-    fn load_root_without_path_cache(
-        &self,
-        key_name: &RedisString,
-    ) -> Result<SharedValue, LoadAllError> {
+    fn load_root(&self, key_name: &RedisString) -> Result<SharedValue, LoadAllError> {
         let json_root = self.open_key(key_name).ok_or(LoadAllError::OpenKeyFailed)?;
-        self.load_root_from_iter(json_root.get(JSON_ROOT))
-    }
-
-    fn load_root_with_path(
-        &self,
-        key_name: &RedisString,
-        path: &JsonPath,
-    ) -> Result<SharedValue, LoadAllError> {
-        let json_root = self.open_key(key_name).ok_or(LoadAllError::OpenKeyFailed)?;
-        // SAFETY: the cache owns the path throughout iteration.
-        self.load_root_from_iter(unsafe { json_root.get_with_path(path) })
+        let iter = match self.path_cache.and_then(|cache| cache.get(0)) {
+            // SAFETY: the cache owns the path throughout iteration.
+            Some(path) => unsafe { json_root.get_with_path(path) },
+            None => json_root.get(JSON_ROOT),
+        };
+        self.load_root_from_iter(iter)
     }
 
     fn load_root_from_iter(
@@ -180,10 +172,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         dst_row: &mut RLookupRow,
         key_name: &RedisString,
     ) -> Result<(), LoadAllError> {
-        let value = match self.path_cache.and_then(|cache| cache.get(0)) {
-            Some(path) => self.load_root_with_path(key_name, path)?,
-            None => self.load_root_without_path_cache(key_name)?,
-        };
+        let value = self.load_root(key_name)?;
 
         let rlk = if let Some(rlk) = rlookup.find_key_by_name(JSON_ROOT) {
             rlk.into_current().unwrap()
