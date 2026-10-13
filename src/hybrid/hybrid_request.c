@@ -93,7 +93,7 @@ void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
     }
     depleter->upstream = NULL;
     qctx->rootProc = depleter;
-    SearchCtx_ReleaseDiskSnapshot(sctx);
+    SearchCtx_CleanUp(sctx);
   }
 }
 

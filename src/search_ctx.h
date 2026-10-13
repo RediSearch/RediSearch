@@ -101,12 +101,6 @@ int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status);
 // `dst` must not have a snapshot yet.
 void SearchCtx_ShareDiskSnapshot(RedisSearchCtx *dst, const RedisSearchCtx *src);
 
-// Drop this context's reference to its disk snapshot (the snapshot itself is freed with the last
-// reference). A no-op without one. Every iterator and async read built from the context must
-// already be freed. Also what SearchCtx_CleanUp does, for callers that finish with the snapshot
-// before the context.
-void SearchCtx_ReleaseDiskSnapshot(RedisSearchCtx *sctx);
-
 // Context destruction never releases a spec lock: a cursor sweep can destroy
 // an idle request while the same thread holds a different request's lock.
 void SearchCtx_CleanUp(RedisSearchCtx * sctx);
