@@ -243,9 +243,7 @@ SynonymMapResult SynonymMap_Update(SynonymMap* smap, const CharBuf* synonyms, si
       }
     } else {
       CharBuf key = {.buf = lowered[i], .len = sdslen(lowered[i])};
-      if (dictFind(pending_new, &key) == NULL) {
-        dictAdd(pending_new, &key, NULL);
-      }
+      dictAdd(pending_new, &key, NULL);
     }
   }
   if (ret == SYNONYM_MAP_OK &&
