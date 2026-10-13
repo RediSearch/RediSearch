@@ -8,6 +8,7 @@
 */
 #include "test_util.h"
 #include "synonym_map.h"
+#include "spec.h"
 #include "rmutil/alloc.h"
 
 int testSynonymMapAddGetId() {
@@ -55,7 +56,7 @@ int testSynonymUpdate() {
   ASSERT(ret_id = SynonymMap_GetIdsBySynonym_cstr(smap, "val4"));
   ASSERT_STRING_EQ(ret_id->groupIds[0], "~g1");
 
-  ASSERT(SynonymMap_Update(smap, update_values, 4, "g1") == SYNONYM_MAP_OK);
+  ASSERT(SynonymMap_Add(smap, "g1", update_values, 4) == SYNONYM_MAP_OK);
 
   ASSERT(ret_id = SynonymMap_GetIdsBySynonym_cstr(smap, "val5"));
   ASSERT_STRING_EQ(ret_id->groupIds[0], "~g1");
@@ -131,7 +132,7 @@ int testSynonymLookupLongToken() {
   ASSERT(term);
   ASSERT_STRING_EQ(term->groupIds[0], "~g2");
   SynonymMap* snapshot = SynonymMap_GetReadOnlyCopy(smap);
-  ASSERT(SynonymMap_Update(smap, long_values, 1, "g3") == SYNONYM_MAP_OK);
+  ASSERT(SynonymMap_Add(smap, "g3", long_values, 1) == SYNONYM_MAP_OK);
   ASSERT(array_len(SynonymMap_GetIdsBySynonym(smap, token, len)->groupIds) == 2);
   SynonymMap_Free(smap);
   term = SynonymMap_GetIdsBySynonym(snapshot, token, len);
@@ -143,6 +144,36 @@ int testSynonymLookupLongToken() {
   RETURN_TEST_SUCCESS;
 }
 
+int testSynonymUpdateBuffers() {
+  SynonymMap* smap = SynonymMap_New(false);
+  char token[] = {'V', 'A', 'L'};
+  const CharBuf terms[] = {
+      {.buf = token, .len = sizeof(token)},
+      {.buf = "Ⱥ", .len = sizeof("Ⱥ") - 1},
+      {.buf = "K", .len = sizeof("K") - 1},
+      {.buf = "VAL\0ignored", .len = sizeof("VAL\0ignored") - 1},
+      {.buf = "\0ignored", .len = sizeof("\0ignored") - 1},
+      {.buf = "", .len = 0},
+  };
+  ASSERT(SynonymMap_Update(smap, terms, sizeof(terms) / sizeof(*terms), "g1") == SYNONYM_MAP_OK);
+  ASSERT(token[0] == 'V');
+  ASSERT(dictSize(smap->h_table) == 4);
+  const char* expected[] = {"val", "ⱥ", "k", ""};
+  for (size_t i = 0; i < sizeof(expected) / sizeof(*expected); ++i) {
+    TermData* term = SynonymMap_GetIdsBySynonym_cstr(smap, expected[i]);
+    ASSERT(term);
+    ASSERT_STRING_EQ(term->term, expected[i]);
+    ASSERT(sdslen(term->term) == strlen(expected[i]));
+    ASSERT(array_len(term->groupIds) == 1);
+    ASSERT_STRING_EQ(term->groupIds[0], "~g1");
+  }
+  ASSERT(SynonymMap_Update(smap, terms, 1, "g2") == SYNONYM_MAP_OK);
+  ASSERT(array_len(SynonymMap_GetIdsBySynonym_cstr(smap, "val")->groupIds) == 2);
+  ASSERT(SynonymMap_Update(smap, NULL, 0, "unused") == SYNONYM_MAP_OK);
+  SynonymMap_Free(smap);
+  RETURN_TEST_SUCCESS;
+}
+
 TEST_MAIN({
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
@@ -151,4 +182,5 @@ TEST_MAIN({
   TESTFUNC(testSynonymGetReadOnlyCopy);
   TESTFUNC(testSynonymLookupBuffer);
   TESTFUNC(testSynonymLookupLongToken);
+  TESTFUNC(testSynonymUpdateBuffers);
 });

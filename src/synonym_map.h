@@ -21,6 +21,8 @@
 extern "C" {
 #endif
 
+struct CharBuf;
+
 #define SYNONYM_PREFIX_CHAR '~'
 
 typedef enum {
@@ -87,14 +89,15 @@ SynonymMapResult SynonymMap_Add(SynonymMap* smap, const char* groupId, const cha
 /**
  * Updating an already existing synonym group
  * smap - the synonym map
- * synonyms - char* array contains the terms to add to the synonym map
- * size - char* array size
+ * synonyms - borrowed buffers containing the terms; no NUL terminator is required
+ * size - number of buffers
  * id - the synonym group id to update
  * Returns SYNONYM_MAP_OK on success,
  * SYNONYM_MAP_ERR_MAX_GROUP_IDS if the maximum number of group ids is reached
  * SYNONYM_MAP_ERR_MAX_TERMS if the maximum number of terms is reached
  */
-SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, const char* groupId);
+SynonymMapResult SynonymMap_Update(SynonymMap* smap, const struct CharBuf* synonyms, size_t size,
+                                   const char* groupId);
 
 /**
  * Return all the ids of a given term

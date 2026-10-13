@@ -6,7 +6,7 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 from includes import *
-from common import getConnectionByEnv, waitForIndex, toSortedFlatList
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList, skip
 
 def testBasicSynonymsUseCase(env):
     env.expect(
@@ -100,6 +100,19 @@ def testSynonymDump(env):
     res = env.cmd('ft.syndump', 'idx')
     res = {res[i] : res[i + 1] for i in range(0,len(res),2)}
     env.assertEqual(res, {'boy': ['id1'], 'tree': ['id3'], 'wood': ['id3'], 'child': ['id1', 'id2'], 'baby': ['id2'], 'offspring': ['id1']})
+
+@skip(cluster=True)
+def testSynonymUpdateLengthAwareNormalization(env):
+    """Preserve NUL truncation, Unicode byte-length changes, and duplicate merging."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect('FT.SYNUPDATE', 'idx', 'g1', 'SKIPINITIALSCAN',
+               'ASCII', 'Ⱥ', 'K', 'VAL\0ignored', 'VAL', '\0ignored', '').ok()
+    expected_terms = ['ascii', 'ⱥ', 'k', 'val', '']
+    env.expect('FT.SYNUPDATE', 'idx', 'g2', 'SKIPINITIALSCAN', *expected_terms).ok()
+    for _ in env.reloadingIterator():
+        dump = env.cmd('FT.SYNDUMP', 'idx')
+        dump = {dump[i]: dump[i + 1] for i in range(0, len(dump), 2)}
+        env.assertEqual(dump, {term: ['g1', 'g2'] for term in expected_terms})
 
 def testSynonymUpdateWorngArity(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
