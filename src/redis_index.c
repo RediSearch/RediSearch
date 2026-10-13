@@ -234,8 +234,8 @@ int Redis_LegacyDeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   return res;
 }
 
-int Redis_UnlinkKeyC(RedisModuleCtx *ctx, char *cstr) {
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "UNLINK", "c!", cstr);
+int Redis_UnlinkKey(RedisModuleCtx *ctx, const char *key, size_t len) {
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "UNLINK", "b!", key, len);
   RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
