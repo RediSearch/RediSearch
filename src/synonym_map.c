@@ -40,12 +40,6 @@ static dictType synonymDictType = {
     .keyDestructor = synonymKeyFree,
 };
 
-// Transfers ownership of term only on DICT_OK; the caller retains it on failure.
-static int synonymMapAddTerm(SynonymMap* smap, TermData* term) {
-  CharBuf key = {.buf = term->term, .len = sdslen(term->term)};
-  return dictAdd(smap->h_table, &key, term);
-}
-
 static TermData* TermData_New(sds term) {
   TermData* t_data = rm_malloc(sizeof(TermData));
   t_data->term = term;
@@ -60,6 +54,16 @@ static void TermData_Free(TermData* t_data) {
   }
   array_free(t_data->groupIds);
   rm_free(t_data);
+}
+
+// Consumes term on both success and failure.
+static int synonymMapAddTerm(SynonymMap* smap, TermData* term) {
+  CharBuf key = {.buf = term->term, .len = sdslen(term->term)};
+  int ret = dictAdd(smap->h_table, &key, term);
+  if (ret != DICT_OK) {
+    TermData_Free(term);
+  }
+  return ret;
 }
 
 static bool TermData_IdExists(TermData* t_data, const char* id) {
@@ -255,7 +259,8 @@ SynonymMapResult SynonymMap_Update(SynonymMap* smap, const CharBuf* synonyms, si
       sdsfree(lowered[i]);
     } else {
       termData = TermData_New(lowered[i]);
-      synonymMapAddTerm(smap, termData);
+      int ret = synonymMapAddTerm(smap, termData);
+      RS_LOG_ASSERT_ALWAYS(ret == DICT_OK, "SynonymMap_Update: insertion failed after lookup");
     }
     SynonymMapResult r = TermData_AddId(termData, groupId);
     RS_LOG_ASSERT(r == SYNONYM_MAP_OK,
@@ -290,7 +295,8 @@ TermData** SynonymMap_DumpAllTerms(SynonymMap* smap, size_t* size) {
 }
 
 static void SynonymMap_CopyEntry(SynonymMap* smap, TermData* t_data) {
-  synonymMapAddTerm(smap, TermData_Copy(t_data));
+  int ret = synonymMapAddTerm(smap, TermData_Copy(t_data));
+  RS_LOG_ASSERT_ALWAYS(ret == DICT_OK, "SynonymMap_CopyEntry: insertion failed for unique term");
 }
 
 static SynonymMap* SynonymMap_GenerateReadOnlyCopy(SynonymMap* smap) {
@@ -383,9 +389,7 @@ void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver) {
     }
     TermData* t_data = TermData_RdbLoad(rdb, encver);
     if (t_data == NULL) goto cleanup;
-    if (synonymMapAddTerm(smap, t_data) != DICT_OK) {
-      TermData_Free(t_data);
-    }
+    synonymMapAddTerm(smap, t_data);
   }
   return smap;
 
