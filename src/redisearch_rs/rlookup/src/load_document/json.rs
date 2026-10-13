@@ -84,10 +84,19 @@ impl<'a> JsonDocumentFormat<'a> {
         }
     }
 
-    /// Uses a query-owned [`JsonPathCache`] for field or root loading.
-    pub const fn with_path_cache(mut self, path_cache: &'a JsonPathCache) -> Self {
-        self.path_cache = Some(path_cache);
-        self
+    /// Creates a document format that uses `path_cache` for field or root loading.
+    pub const fn new_with_path_cache(
+        ctx: NonNull<redis_module::RedisModuleCtx>,
+        japi: &'a RedisJsonApi,
+        api_version: u8,
+        path_cache: &'a JsonPathCache,
+    ) -> Self {
+        Self {
+            ctx,
+            japi,
+            api_version,
+            path_cache: Some(path_cache),
+        }
     }
 
     fn open_key(&self, key_name: &RedisString) -> Option<JsonValueRef<'a>> {

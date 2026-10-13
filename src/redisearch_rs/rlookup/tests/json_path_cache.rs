@@ -51,7 +51,7 @@ fn load_fields(
                 }
             }
         }
-        let format = JsonDocumentFormat::new(ctx, &api, version).with_path_cache(cache);
+        let format = JsonDocumentFormat::new_with_path_cache(ctx, &api, version, cache);
         let name = key_name();
         let loader = format.open(&name).unwrap();
         let mut row = RLookupRow::new();
@@ -64,7 +64,7 @@ fn load_fields(
 
 fn load_root(doc: JsonValue, cache: &JsonPathCache, version: u8) -> SharedValue {
     with_json_api(Some(doc), |api, ctx| {
-        let format = JsonDocumentFormat::new(ctx, &api, version).with_path_cache(cache);
+        let format = JsonDocumentFormat::new_with_path_cache(ctx, &api, version, cache);
         let mut lookup = RLookup::new();
         let mut row = RLookupRow::new();
         format.load_all(&mut lookup, &mut row, &key_name()).unwrap();
@@ -196,10 +196,11 @@ fn cached_root_load_preserves_errors_without_writing_a_value() {
             // SAFETY: the mock implements V10 and the path is static.
             let cache = unsafe { JsonPathCache::new(&api, [Some(c"$")].into_iter()) };
             for cached in [false, true] {
-                let mut format = JsonDocumentFormat::new(ctx, &api, MULTI);
-                if cached {
-                    format = format.with_path_cache(&cache);
-                }
+                let format = if cached {
+                    JsonDocumentFormat::new_with_path_cache(ctx, &api, MULTI, &cache)
+                } else {
+                    JsonDocumentFormat::new(ctx, &api, MULTI)
+                };
                 let mut lookup = RLookup::new();
                 let mut row = RLookupRow::new();
                 let error = format

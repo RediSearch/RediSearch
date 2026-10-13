@@ -833,11 +833,16 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
                 return redis_module::REDISMODULE_ERR as i32;
             };
 
-            let mut format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
             // SAFETY: ensured by caller (5.).
-            if let Some(path_cache) = unsafe { opts.path_cache.as_ref() } {
-                format = format.with_path_cache(path_cache);
-            }
+            let format = match unsafe { opts.path_cache.as_ref() } {
+                Some(path_cache) => JsonDocumentFormat::new_with_path_cache(
+                    ctx,
+                    &japi,
+                    search_ctx.apiVersion,
+                    path_cache,
+                ),
+                None => JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion),
+            };
 
             DocumentLoader::new(dst_row, ctx, dmd, format).load_all(lookup)
         }
@@ -970,11 +975,16 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
                 return redis_module::REDISMODULE_ERR as i32;
             };
 
-            let mut format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
             // SAFETY: ensured by caller (7.).
-            if let Some(path_cache) = unsafe { opts.path_cache.as_ref() } {
-                format = format.with_path_cache(path_cache);
-            }
+            let format = match unsafe { opts.path_cache.as_ref() } {
+                Some(path_cache) => JsonDocumentFormat::new_with_path_cache(
+                    ctx,
+                    &japi,
+                    search_ctx.apiVersion,
+                    path_cache,
+                ),
+                None => JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion),
+            };
 
             DocumentLoader::new(dst_row, ctx, dmd, format)
                 .force_load(opts.force_load)
