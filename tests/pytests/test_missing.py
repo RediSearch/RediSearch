@@ -750,10 +750,13 @@ def test_doc_with_only_sortable_noindex_values(env):
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable_noindex', 'DESC', 'LIMIT', '0', '1',
                'RETURN', '1', 'sortable_noindex').equal([3, 'doc:2', ['sortable_noindex', 'x']])
 
-    # Rewriting an indexed document into a sortable-only one keeps it in the index.
-    conn.execute_command('DEL', 'doc:1')
+    # Updating an indexed document in place into a sortable-only one keeps it in the index.
     conn.execute_command('HSET', 'doc:1', 'sortable_noindex', 'y')
+    conn.execute_command('HDEL', 'doc:1', 'indexed')
     env.assertEqual(int(index_info(env, 'idx')['num_docs']), 3)
+    env.expect('FT.SEARCH', 'idx', '@indexed:{red}', 'NOCONTENT', 'DIALECT', '2').equal([0])
+    res = conn.execute_command('FT.SEARCH', 'idx', 'ismissing(@indexed)', 'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(sorted(res[1:]), ['doc:1', 'doc:2', 'doc:3'])
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable_noindex', 'DESC', 'LIMIT', '0', '1',
                'RETURN', '1', 'sortable_noindex').equal([3, 'doc:1', ['sortable_noindex', 'y']])
 
