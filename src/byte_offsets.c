@@ -105,7 +105,7 @@ RSByteOffsets *LoadByteOffsets(Buffer *buf) {
 int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
                          RSByteOffsetIterator *iter) {
   const RSByteOffsetField *offField = NULL;
-  // Each field owns one offset per position in its range (asserted when the document is indexed)
+  // Locate the field using the RSByteOffsetField offset-range contract.
   uint32_t offsetsStart = 0;
   for (size_t ii = 0; ii < offsets->numFields; ++ii) {
     if (offsets->fields[ii].fieldId == fieldId) {
