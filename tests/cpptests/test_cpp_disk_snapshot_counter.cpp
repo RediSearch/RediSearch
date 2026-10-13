@@ -9,6 +9,7 @@
 #include "gtest/gtest.h"
 #include "common.h"
 extern "C" {
+#include "search_ctx.h"
 #include "search_disk.h"
 extern RedisSearchDiskAPI* disk;
 }
@@ -65,5 +66,49 @@ TEST_F(DiskSnapshotCounterTest, FreeingNullIsNotCounted) {
   SearchDisk_FreeSnapshot(nullptr);
   EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
   SearchDisk_FreeSnapshot(snapshot);
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+}
+
+TEST_F(DiskSnapshotCounterTest, SnapshotRefFreesOnLastRelease) {
+  DiskSnapshotRef* ref = DiskSnapshotRef_New(SearchDisk_CreateSnapshot(index));
+  DiskSnapshotRef_Retain(ref);
+  DiskSnapshotRef_Retain(ref);
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
+
+  DiskSnapshotRef_Release(ref);
+  DiskSnapshotRef_Release(ref);
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
+  DiskSnapshotRef_Release(ref);
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+}
+
+TEST_F(DiskSnapshotCounterTest, ContextsShareOneSnapshotAndReleaseIndependently) {
+  RedisSearchCtx first = SEARCH_CTX_STATIC(nullptr, nullptr);
+  RedisSearchCtx second = SEARCH_CTX_STATIC(nullptr, nullptr);
+  first.diskSnapshot = SearchDisk_CreateSnapshot(index);
+  first.diskSnapshotRef = DiskSnapshotRef_New(first.diskSnapshot);
+
+  SearchCtx_ShareDiskSnapshot(&second, &first);
+  EXPECT_EQ(second.diskSnapshot, first.diskSnapshot);
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
+
+  // The first context going away must not pull the snapshot out from under the second.
+  SearchCtx_CleanUp(&first);
+  EXPECT_EQ(first.diskSnapshot, nullptr);
+  EXPECT_NE(second.diskSnapshot, nullptr);
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
+
+  SearchCtx_CleanUp(&second);
+  EXPECT_EQ(second.diskSnapshot, nullptr);
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+}
+
+TEST_F(DiskSnapshotCounterTest, SharingWithoutASnapshotLeavesTheContextWithout) {
+  RedisSearchCtx first = SEARCH_CTX_STATIC(nullptr, nullptr);
+  RedisSearchCtx second = SEARCH_CTX_STATIC(nullptr, nullptr);
+
+  SearchCtx_ShareDiskSnapshot(&second, &first);
+  EXPECT_EQ(second.diskSnapshot, nullptr);
+  EXPECT_EQ(second.diskSnapshotRef, nullptr);
   EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
 }

@@ -505,6 +505,35 @@ size_t SearchDisk_GetLiveSnapshotCount(void) {
     return atomic_load(&liveSnapshots);
 }
 
+struct DiskSnapshotRef {
+    atomic_size_t refs;
+    RedisSearchDiskSnapshot *snapshot;
+};
+
+DiskSnapshotRef *DiskSnapshotRef_New(RedisSearchDiskSnapshot *snapshot) {
+    RS_ASSERT(snapshot);
+    DiskSnapshotRef *ref = rm_malloc(sizeof(*ref));
+    atomic_init(&ref->refs, 1);
+    ref->snapshot = snapshot;
+    return ref;
+}
+
+DiskSnapshotRef *DiskSnapshotRef_Retain(DiskSnapshotRef *ref) {
+    RS_ASSERT(ref);
+    const size_t prev = atomic_fetch_add_explicit(&ref->refs, 1, memory_order_relaxed);
+    RS_ASSERT(prev > 0);
+    return ref;
+}
+
+void DiskSnapshotRef_Release(DiskSnapshotRef *ref) {
+    RS_ASSERT(ref);
+    // Release/acquire so the last owner sees every earlier owner's reads finished before freeing.
+    if (atomic_fetch_sub_explicit(&ref->refs, 1, memory_order_acq_rel) == 1) {
+        SearchDisk_FreeSnapshot(ref->snapshot);
+        rm_free(ref);
+    }
+}
+
 void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
     RS_ASSERT(disk && index && stats);
     disk->index.runGC(index, stats);

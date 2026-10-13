@@ -122,14 +122,25 @@ int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
   }
   // Disk is enabled and this index is disk-backed, so the backend must be up.
   RS_ASSERT(SearchDisk_IsInitialized());
-  sctx->diskSnapshot = SearchDisk_CreateSnapshot(sp->diskSpec);
-  if (!sctx->diskSnapshot) {
+  RedisSearchDiskSnapshot *snapshot = SearchDisk_CreateSnapshot(sp->diskSpec);
+  if (!snapshot) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
                                      "Failed to create disk snapshot for index '%s'",
                                      IndexSpec_FormatName(sp, false));
     return REDISMODULE_ERR;
   }
+  sctx->diskSnapshotRef = DiskSnapshotRef_New(snapshot);
+  sctx->diskSnapshot = snapshot;
   return REDISMODULE_OK;
+}
+
+void SearchCtx_ShareDiskSnapshot(RedisSearchCtx *dst, const RedisSearchCtx *src) {
+  RS_ASSERT(dst && src && !dst->diskSnapshot);
+  if (!src->diskSnapshotRef) {
+    return;
+  }
+  dst->diskSnapshotRef = DiskSnapshotRef_Retain(src->diskSnapshotRef);
+  dst->diskSnapshot = src->diskSnapshot;
 }
 
 RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL) {
@@ -144,7 +155,12 @@ void SearchCtx_CleanUp(RedisSearchCtx *sctx) {
   // Release the per-query disk snapshot (no-op when NULL). Must happen after every
   // iterator built from `sctx` has been freed; the OSS query pipeline tears down
   // iterators before reaching SearchCtx_CleanUp/SearchCtx_Free.
-  if (sctx->diskSnapshot) {
+  if (sctx->diskSnapshotRef) {
+    DiskSnapshotRef_Release(sctx->diskSnapshotRef);
+    sctx->diskSnapshotRef = NULL;
+    sctx->diskSnapshot = NULL;
+  } else if (sctx->diskSnapshot) {
+    // Installed directly rather than through SearchCtx_TakeDiskSnapshot, so this context owns it.
     SearchDisk_FreeSnapshot(sctx->diskSnapshot);
     sctx->diskSnapshot = NULL;
   }
