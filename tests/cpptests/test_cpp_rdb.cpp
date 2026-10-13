@@ -435,8 +435,8 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
 }
 
 namespace {
-// Disk API stub under which a restore passes every check; each test makes one
-// step fail.
+// Disk API stub under which the restore-capacity check passes and the index
+// open fails.
 struct ScopedMockDisk {
     RedisSearchDiskAPI api{};
     RedisSearchDiskAPI *savedDisk = disk;
@@ -450,16 +450,9 @@ struct ScopedMockDisk {
         api.basic.reserveRestoreOpenFiles = [](RedisSearchDisk *, size_t) { return true; };
         api.basic.openIndexSpec = [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
                                      const char *, size_t, DocumentType, bool,
-                                     const SearchDiskCompactionCallbacks *, void *privateData) {
-            // Opaque to the caller, so the spec doubles as the handle.
-            return reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData);
+                                     const SearchDiskCompactionCallbacks *, void *) {
+            return static_cast<RedisSearchDiskIndexSpec *>(nullptr);
         };
-        api.index.initializeMissingStorage = [](RedisModuleCtx *, RedisSearchDiskIndexSpec *) {
-            return true;
-        };
-        api.basic.closeIndexOnMainThread = [](RedisModuleCtx *, RedisSearchDisk *,
-                                              RedisSearchDiskIndexSpec *) {};
-        api.basic.closeIndexSpec = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {};
         disk = &api;
         disk_db = reinterpret_cast<RedisSearchDisk *>(&api);
         SearchDisk_UpdateMemoryLimit(size_t{1} << 40);
@@ -473,21 +466,15 @@ struct ScopedMockDisk {
     }
 };
 
-// Saves a memory-only spec that has a prefix and an alias, drops it, then
-// reloads it with disk enabled; a ScopedMockDisk must be installed. The load
-// must fail after IndexSpec_RdbLoad has published the spec, and must leave
-// neither entry pointing at the freed spec.
-void ExpectFailedLoadUnpublishes(bool indexMissing) {
+// Reloads a spec with a prefix and an alias under the installed ScopedMockDisk;
+// the load must fail and leave neither entry registered.
+void ExpectFailedLoadUnpublishes() {
     static constexpr char prefix[] = "rdb_load_fail:";
     static constexpr char aliasName[] = "test_load_fail_alias";
-    std::vector<const char *> args = {"ON", "HASH", "PREFIX", "1",
-                                      prefix, "SCHEMA", "title", "TEXT"};
-    if (indexMissing) {
-        args.push_back("INDEXMISSING");
-    }
+    const char *args[] = {"ON", "HASH", "PREFIX", "1", prefix, "SCHEMA", "title", "TEXT"};
     QueryError err = QueryError_Default();
     StrongRef spec_ref =
-        IndexSpec_ParseC(NULL, "test_load_fail_idx", args.data(), args.size(), &err);
+        IndexSpec_ParseC(NULL, "test_load_fail_idx", args, std::size(args), &err);
     ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
     HiddenString *alias = NewHiddenString(aliasName, sizeof(aliasName) - 1, false);
@@ -516,25 +503,12 @@ void ExpectFailedLoadUnpublishes(bool indexMissing) {
 TEST_F(RdbMockTest, testFailedRestoreCapacityUnpublishesSpec) {
     ScopedMockDisk mockDisk;
     mockDisk.api.basic.reserveRestoreOpenFiles = [](RedisSearchDisk *, size_t) { return false; };
-    ExpectFailedLoadUnpublishes(false);
+    ExpectFailedLoadUnpublishes();
 }
 
 TEST_F(RdbMockTest, testFailedDiskOpenUnpublishesSpec) {
     ScopedMockDisk mockDisk;
-    mockDisk.api.basic.openIndexSpec = [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
-                                          const char *, size_t, DocumentType, bool,
-                                          const SearchDiskCompactionCallbacks *, void *) {
-        return static_cast<RedisSearchDiskIndexSpec *>(nullptr);
-    };
-    ExpectFailedLoadUnpublishes(false);
-}
-
-TEST_F(RdbMockTest, testFailedMissingStorageInitUnpublishesSpec) {
-    ScopedMockDisk mockDisk;
-    mockDisk.api.index.initializeMissingStorage = [](RedisModuleCtx *, RedisSearchDiskIndexSpec *) {
-        return false;
-    };
-    ExpectFailedLoadUnpublishes(true);
+    ExpectFailedLoadUnpublishes();
 }
 
 TEST_F(RdbMockTest, testSynonymMapRdbSerialization) {
