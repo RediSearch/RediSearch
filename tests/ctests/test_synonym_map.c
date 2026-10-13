@@ -13,10 +13,16 @@
 
 int testSynonymMapAddGetId() {
   SynonymMap* smap = SynonymMap_New(false);
-  const char* values1[] = {"val1", "val2", "val3", "val4"};
-  const char* values2[] = {"val5", "val6", "val7", "val8"};
-  ASSERT(SynonymMap_Add(smap, "g1", values1, 4) == SYNONYM_MAP_OK);
-  ASSERT(SynonymMap_Add(smap, "g2", values2, 4) == SYNONYM_MAP_OK);
+  const CharBuf values1[] = {{.buf = "val1", .len = sizeof("val1") - 1},
+                             {.buf = "val2", .len = sizeof("val2") - 1},
+                             {.buf = "val3", .len = sizeof("val3") - 1},
+                             {.buf = "val4", .len = sizeof("val4") - 1}};
+  const CharBuf values2[] = {{.buf = "val5", .len = sizeof("val5") - 1},
+                             {.buf = "val6", .len = sizeof("val6") - 1},
+                             {.buf = "val7", .len = sizeof("val7") - 1},
+                             {.buf = "val8", .len = sizeof("val8") - 1}};
+  ASSERT(SynonymMap_Update(smap, values1, 4, "g1") == SYNONYM_MAP_OK);
+  ASSERT(SynonymMap_Update(smap, values2, 4, "g2") == SYNONYM_MAP_OK);
   TermData* ret_id;
 
   ASSERT(ret_id = SynonymMap_GetIdsBySynonym_cstr(smap, "val1"));
@@ -42,9 +48,15 @@ int testSynonymMapAddGetId() {
 
 int testSynonymUpdate() {
   SynonymMap* smap = SynonymMap_New(false);
-  const char* values[] = {"val1", "val2", "val3", "val4"};
-  const char* update_values[] = {"val5", "val6", "val7", "val8"};
-  ASSERT(SynonymMap_Add(smap, "g1", values, 4) == SYNONYM_MAP_OK);
+  const CharBuf values[] = {{.buf = "val1", .len = sizeof("val1") - 1},
+                            {.buf = "val2", .len = sizeof("val2") - 1},
+                            {.buf = "val3", .len = sizeof("val3") - 1},
+                            {.buf = "val4", .len = sizeof("val4") - 1}};
+  const CharBuf update_values[] = {{.buf = "val5", .len = sizeof("val5") - 1},
+                                   {.buf = "val6", .len = sizeof("val6") - 1},
+                                   {.buf = "val7", .len = sizeof("val7") - 1},
+                                   {.buf = "val8", .len = sizeof("val8") - 1}};
+  ASSERT(SynonymMap_Update(smap, values, 4, "g1") == SYNONYM_MAP_OK);
   TermData* ret_id;
 
   ASSERT(ret_id = SynonymMap_GetIdsBySynonym_cstr(smap, "val1"));
@@ -56,7 +68,7 @@ int testSynonymUpdate() {
   ASSERT(ret_id = SynonymMap_GetIdsBySynonym_cstr(smap, "val4"));
   ASSERT_STRING_EQ(ret_id->groupIds[0], "~g1");
 
-  ASSERT(SynonymMap_Add(smap, "g1", update_values, 4) == SYNONYM_MAP_OK);
+  ASSERT(SynonymMap_Update(smap, update_values, 4, "g1") == SYNONYM_MAP_OK);
 
   ASSERT(ret_id = SynonymMap_GetIdsBySynonym_cstr(smap, "val5"));
   ASSERT_STRING_EQ(ret_id->groupIds[0], "~g1");
@@ -73,20 +85,32 @@ int testSynonymUpdate() {
 
 int testSynonymGetReadOnlyCopy() {
   SynonymMap* smap = SynonymMap_New(false);
-  const char* values1[] = {"val1", "val2", "val3", "val4"};
-  const char* values2[] = {"val5", "val6", "val7", "val8"};
-  const char* values3[] = {"val9", "val10", "val11", "val12"};
-  const char* values4[] = {"val13", "val14", "val15", "val16"};
-  ASSERT(SynonymMap_Add(smap, "g1", values1, 4) == SYNONYM_MAP_OK);
-  ASSERT(SynonymMap_Add(smap, "g2", values2, 4) == SYNONYM_MAP_OK);
-  ASSERT(SynonymMap_Add(smap, "g3", values3, 4) == SYNONYM_MAP_OK);
+  const CharBuf values1[] = {{.buf = "val1", .len = sizeof("val1") - 1},
+                             {.buf = "val2", .len = sizeof("val2") - 1},
+                             {.buf = "val3", .len = sizeof("val3") - 1},
+                             {.buf = "val4", .len = sizeof("val4") - 1}};
+  const CharBuf values2[] = {{.buf = "val5", .len = sizeof("val5") - 1},
+                             {.buf = "val6", .len = sizeof("val6") - 1},
+                             {.buf = "val7", .len = sizeof("val7") - 1},
+                             {.buf = "val8", .len = sizeof("val8") - 1}};
+  const CharBuf values3[] = {{.buf = "val9", .len = sizeof("val9") - 1},
+                             {.buf = "val10", .len = sizeof("val10") - 1},
+                             {.buf = "val11", .len = sizeof("val11") - 1},
+                             {.buf = "val12", .len = sizeof("val12") - 1}};
+  const CharBuf values4[] = {{.buf = "val13", .len = sizeof("val13") - 1},
+                             {.buf = "val14", .len = sizeof("val14") - 1},
+                             {.buf = "val15", .len = sizeof("val15") - 1},
+                             {.buf = "val16", .len = sizeof("val16") - 1}};
+  ASSERT(SynonymMap_Update(smap, values1, 4, "g1") == SYNONYM_MAP_OK);
+  ASSERT(SynonymMap_Update(smap, values2, 4, "g2") == SYNONYM_MAP_OK);
+  ASSERT(SynonymMap_Update(smap, values3, 4, "g3") == SYNONYM_MAP_OK);
 
   SynonymMap* read_only_copy1 = SynonymMap_GetReadOnlyCopy(smap);
   SynonymMap* read_only_copy2 = SynonymMap_GetReadOnlyCopy(smap);
 
   ASSERT(read_only_copy1 == read_only_copy2);
 
-  ASSERT(SynonymMap_Add(smap, "g4", values4, 4) == SYNONYM_MAP_OK);
+  ASSERT(SynonymMap_Update(smap, values4, 4, "g4") == SYNONYM_MAP_OK);
 
   SynonymMap* read_only_copy3 = SynonymMap_GetReadOnlyCopy(smap);
 
@@ -101,8 +125,10 @@ int testSynonymGetReadOnlyCopy() {
 
 int testSynonymLookupBuffer() {
   SynonymMap* smap = SynonymMap_New(false);
-  const char* values[] = {"val", "value", ""};
-  ASSERT(SynonymMap_Add(smap, "g1", values, 3) == SYNONYM_MAP_OK);
+  const CharBuf values[] = {{.buf = "val", .len = sizeof("val") - 1},
+                            {.buf = "value", .len = sizeof("value") - 1},
+                            {.buf = "", .len = sizeof("") - 1}};
+  ASSERT(SynonymMap_Update(smap, values, 3, "g1") == SYNONYM_MAP_OK);
   const char token[] = {'v', 'a', 'l'};
   TermData* term = SynonymMap_GetIdsBySynonym(smap, token, sizeof(token));
   ASSERT(term);
@@ -122,17 +148,17 @@ int testSynonymLookupLongToken() {
   memset(token, 'x', len);
   token[len] = '\0';
   SynonymMap* smap = SynonymMap_New(false);
-  const char* values[] = {"short"};
-  ASSERT(SynonymMap_Add(smap, "g1", values, 1) == SYNONYM_MAP_OK);
+  const CharBuf values[] = {{.buf = "short", .len = sizeof("short") - 1}};
+  ASSERT(SynonymMap_Update(smap, values, 1, "g1") == SYNONYM_MAP_OK);
   ASSERT(!SynonymMap_GetIdsBySynonym(smap, token, len));
 
-  const char* long_values[] = {token};
-  ASSERT(SynonymMap_Add(smap, "g2", long_values, 1) == SYNONYM_MAP_OK);
+  const CharBuf long_values[] = {{.buf = token, .len = len}};
+  ASSERT(SynonymMap_Update(smap, long_values, 1, "g2") == SYNONYM_MAP_OK);
   TermData* term = SynonymMap_GetIdsBySynonym(smap, token, len);
   ASSERT(term);
   ASSERT_STRING_EQ(term->groupIds[0], "~g2");
   SynonymMap* snapshot = SynonymMap_GetReadOnlyCopy(smap);
-  ASSERT(SynonymMap_Add(smap, "g3", long_values, 1) == SYNONYM_MAP_OK);
+  ASSERT(SynonymMap_Update(smap, long_values, 1, "g3") == SYNONYM_MAP_OK);
   ASSERT(array_len(SynonymMap_GetIdsBySynonym(smap, token, len)->groupIds) == 2);
   SynonymMap_Free(smap);
   term = SynonymMap_GetIdsBySynonym(snapshot, token, len);

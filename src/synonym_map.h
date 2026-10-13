@@ -76,17 +76,6 @@ void SynonymMap_Free(SynonymMap* smap);
 SynonymMapResult SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, size_t size, const char* groupId);
 
 /**
- * Add new synonym group
- * smap - the synonym map
- * synonyms - char* array contains the terms to add to the synonym map
- * size - char* array size
- * Returns SYNONYM_MAP_OK on success,
- * SYNONYM_MAP_ERR_MAX_TERMS if the maximum number of terms is reached,
- * SYNONYM_MAP_ERR_MAX_GROUP_IDS if the maximum number of group ids is reached
- */
-SynonymMapResult SynonymMap_Add(SynonymMap* smap, const char* groupId, const char** synonyms, size_t size);
-
-/**
  * Updating an already existing synonym group
  * smap - the synonym map
  * synonyms - borrowed buffers containing the terms; no NUL terminator is required

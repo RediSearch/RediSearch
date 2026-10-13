@@ -439,14 +439,22 @@ TEST_F(RdbMockTest, testSynonymMapRdbSerialization) {
     });
 
     // Add terms to synonym groups
-    const char *group1_terms[] = {"hello", "hi", "greetings"};
-    const char *group2_terms[] = {"bye", "goodbye", "farewell"};
+    const CharBuf group1_terms[] = {
+        {.buf = const_cast<char *>("hello"), .len = sizeof("hello") - 1},
+        {.buf = const_cast<char *>("hi"), .len = sizeof("hi") - 1},
+        {.buf = const_cast<char *>("greetings"), .len = sizeof("greetings") - 1}};
+    const CharBuf group2_terms[] = {
+        {.buf = const_cast<char *>("bye"), .len = sizeof("bye") - 1},
+        {.buf = const_cast<char *>("goodbye"), .len = sizeof("goodbye") - 1},
+        {.buf = const_cast<char *>("farewell"), .len = sizeof("farewell") - 1}};
     // hello and bye belong to multiple groups
-    const char *group3_terms[] = {"hello", "bye"};
+    const CharBuf group3_terms[] = {
+        {.buf = const_cast<char *>("hello"), .len = sizeof("hello") - 1},
+        {.buf = const_cast<char *>("bye"), .len = sizeof("bye") - 1}};
 
-    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Add(smap, "greet", group1_terms, 3));
-    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Add(smap, "part", group2_terms, 3));
-    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Add(smap, "common", group3_terms, 2));
+    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Update(smap, group1_terms, 3, "greet"));
+    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Update(smap, group2_terms, 3, "part"));
+    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Update(smap, group3_terms, 2, "common"));
 
     // Verify the synonym map has the expected terms
     TermData *td = SynonymMap_GetIdsBySynonym_cstr(smap, "hello");

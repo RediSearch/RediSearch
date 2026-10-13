@@ -196,17 +196,6 @@ SynonymMapResult SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString**
   return ret;
 }
 
-SynonymMapResult SynonymMap_Add(SynonymMap* smap, const char* groupId, const char** synonyms,
-                                size_t size) {
-  CharBuf* terms = rm_malloc(sizeof(*terms) * size);
-  for (size_t i = 0; i < size; ++i) {
-    terms[i] = (CharBuf){.buf = (char*)synonyms[i], .len = strlen(synonyms[i])};
-  }
-  SynonymMapResult ret = SynonymMap_Update(smap, terms, size, groupId);
-  rm_free(terms);
-  return ret;
-}
-
 SynonymMapResult SynonymMap_Update(SynonymMap* smap, const CharBuf* synonyms, size_t size,
                                    const char* groupId) {
   RS_LOG_ASSERT(!smap->is_read_only, "SynonymMap should not be read only");
