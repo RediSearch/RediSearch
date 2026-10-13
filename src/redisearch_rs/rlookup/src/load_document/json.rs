@@ -198,10 +198,6 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
 }
 
 impl FieldLoader for JsonFieldLoader<'_> {
-    fn load_field(&self, key: &RLookupKey, dst_row: &mut RLookupRow) -> Result<(), LoadFieldError> {
-        self.load_field_without_path_cache(key, dst_row)
-    }
-
     fn load_field_at(
         &self,
         index: usize,

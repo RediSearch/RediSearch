@@ -166,19 +166,13 @@ pub trait DocumentFormat {
 
 /// A type that knows how to load individual fields from an open document.
 pub trait FieldLoader {
-    fn load_field(&self, kk: &RLookupKey, dst_row: &mut RLookupRow) -> Result<(), LoadFieldError>;
-
     /// Loads the key at its position in the query's requested field list.
-    ///
-    /// Formats without positional state use the default [`Self::load_field`] implementation.
     fn load_field_at(
         &self,
-        _index: usize,
+        index: usize,
         kk: &RLookupKey,
         dst_row: &mut RLookupRow,
-    ) -> Result<(), LoadFieldError> {
-        self.load_field(kk, dst_row)
-    }
+    ) -> Result<(), LoadFieldError>;
 }
 
 impl<'env, 'a, F: DocumentFormat> DocumentLoader<'env, 'a, F> {
@@ -390,18 +384,10 @@ mod tests {
             row: &mut RLookupRow,
         ) -> Result<(), LoadFieldError> {
             self.0.loaded_indices.borrow_mut().push(index);
-            self.load_field(key, row)
-        }
-
-        fn load_field(
-            &self,
-            kk: &RLookupKey,
-            _dst_row: &mut RLookupRow,
-        ) -> Result<(), LoadFieldError> {
             self.0
                 .loaded
                 .borrow_mut()
-                .push(kk.name().as_ref().to_owned());
+                .push(key.name().as_ref().to_owned());
             Ok(())
         }
     }
