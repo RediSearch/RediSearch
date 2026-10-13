@@ -80,16 +80,21 @@ TEST_F(DiskSnapshotCounterTest, FreeingNullIsNotCounted) {
   EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
 }
 
+// A StrongRef over a snapshot must free it through SearchDisk_FreeSnapshot on the last release.
+static void freeSnapshot(void* snapshot) {
+  SearchDisk_FreeSnapshot(reinterpret_cast<RedisSearchDiskSnapshot*>(snapshot));
+}
+
 TEST_F(DiskSnapshotCounterTest, SnapshotRefFreesOnLastRelease) {
-  DiskSnapshotRef* ref = DiskSnapshotRef_New(SearchDisk_CreateSnapshot(index));
-  DiskSnapshotRef_Retain(ref);
-  DiskSnapshotRef_Retain(ref);
+  StrongRef ref = StrongRef_New(SearchDisk_CreateSnapshot(index), freeSnapshot);
+  StrongRef second = StrongRef_Clone(ref);
+  StrongRef third = StrongRef_Clone(ref);
   EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
 
-  DiskSnapshotRef_Release(ref);
-  DiskSnapshotRef_Release(ref);
+  StrongRef_Release(ref);
+  StrongRef_Release(second);
   EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
-  DiskSnapshotRef_Release(ref);
+  StrongRef_Release(third);
   EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
 }
 
@@ -97,7 +102,7 @@ TEST_F(DiskSnapshotCounterTest, ContextsShareOneSnapshotAndReleaseIndependently)
   RedisSearchCtx first = SEARCH_CTX_STATIC(nullptr, nullptr);
   RedisSearchCtx second = SEARCH_CTX_STATIC(nullptr, nullptr);
   first.diskSnapshot = SearchDisk_CreateSnapshot(index);
-  first.diskSnapshotRef = DiskSnapshotRef_New(first.diskSnapshot);
+  first.diskSnapshotRef = StrongRef_New(first.diskSnapshot, freeSnapshot);
 
   SearchCtx_ShareDiskSnapshot(&second, &first);
   EXPECT_EQ(second.diskSnapshot, first.diskSnapshot);
@@ -120,20 +125,21 @@ TEST_F(DiskSnapshotCounterTest, SharingWithoutASnapshotLeavesTheContextWithout) 
 
   SearchCtx_ShareDiskSnapshot(&second, &first);
   EXPECT_EQ(second.diskSnapshot, nullptr);
-  EXPECT_EQ(second.diskSnapshotRef, nullptr);
+  EXPECT_EQ(second.diskSnapshotRef.rm, nullptr);
   EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
 }
 
 TEST_F(DiskSnapshotCounterTest, ConcurrentReleasesFreeTheSnapshotExactlyOnce) {
   constexpr int kOwners = 8;
-  DiskSnapshotRef* ref = DiskSnapshotRef_New(SearchDisk_CreateSnapshot(index));
+  StrongRef ref = StrongRef_New(SearchDisk_CreateSnapshot(index), freeSnapshot);
+  std::vector<StrongRef> refs{ref};
   for (int i = 1; i < kOwners; i++) {
-    DiskSnapshotRef_Retain(ref);
+    refs.push_back(StrongRef_Clone(ref));
   }
 
   std::vector<std::thread> owners;
-  for (int i = 0; i < kOwners; i++) {
-    owners.emplace_back([ref] { DiskSnapshotRef_Release(ref); });
+  for (StrongRef owned : refs) {
+    owners.emplace_back([owned] { StrongRef_Release(owned); });
   }
   for (auto& t : owners) {
     t.join();

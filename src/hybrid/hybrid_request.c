@@ -76,7 +76,7 @@ void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
   for (size_t i = 0; i < req->nrequests; i++) {
     AREQ *areq = req->requests[i];
     RedisSearchCtx *sctx = AREQ_SearchCtx(areq);
-    if (!sctx->diskSnapshotRef) {
+    if (!sctx->diskSnapshotRef.rm) {
       continue;
     }
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);

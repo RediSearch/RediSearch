@@ -107,6 +107,10 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   return NewSearchCtxCEx(ctx, indexName, resetTTL, 0);
 }
 
+static void freeDiskSnapshot(void *snapshot) {
+  SearchDisk_FreeSnapshot((RedisSearchDiskSnapshot *)snapshot);
+}
+
 int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
   // One snapshot per sctx lifetime. Every caller funnels through this at
   // iterator-construction time; reaching it twice on the same sctx would mean
@@ -129,7 +133,7 @@ int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
                                      IndexSpec_FormatName(sp, false));
     return REDISMODULE_ERR;
   }
-  sctx->diskSnapshotRef = DiskSnapshotRef_New(snapshot);
+  sctx->diskSnapshotRef = StrongRef_New(snapshot, freeDiskSnapshot);
   sctx->diskSnapshot = snapshot;
   return REDISMODULE_OK;
 }
@@ -138,12 +142,13 @@ void SearchCtx_ShareDiskSnapshot(RedisSearchCtx *dst, const RedisSearchCtx *src)
   RS_ASSERT(dst && src && !dst->diskSnapshot);
   // A snapshot installed without a ref cannot be shared, and skipping it would leave `dst`
   // without one. Sharing across indexes would hand one index's snapshot to another's iterators.
-  RS_ASSERT(!src->diskSnapshot || src->diskSnapshotRef);
+  RS_ASSERT(!src->diskSnapshot || src->diskSnapshotRef.rm);
   RS_ASSERT(dst->spec == src->spec);
-  if (!src->diskSnapshotRef) {
+  if (!src->diskSnapshotRef.rm) {
     return;
   }
-  dst->diskSnapshotRef = DiskSnapshotRef_Retain(src->diskSnapshotRef);
+  dst->diskSnapshotRef = StrongRef_Clone(src->diskSnapshotRef);
+  RS_ASSERT(dst->diskSnapshotRef.rm);
   dst->diskSnapshot = src->diskSnapshot;
 }
 
@@ -156,13 +161,13 @@ void SearchCtx_UpdateCurrentTime(RedisSearchCtx *sctx) {
 }
 
 void SearchCtx_CleanUp(RedisSearchCtx *sctx) {
-  // Release the per-query disk snapshot reference (no-op when NULL). Must happen after every
+  // Release the per-query disk snapshot reference (no-op when none). Must happen after every
   // iterator built from `sctx` has been freed; the OSS query pipeline tears down iterators
   // before reaching SearchCtx_CleanUp/SearchCtx_Free. Also called early, once a subquery is
   // fully depleted, so a parked cursor does not pin the snapshot.
-  if (sctx->diskSnapshotRef) {
-    DiskSnapshotRef_Release(sctx->diskSnapshotRef);
-    sctx->diskSnapshotRef = NULL;
+  if (sctx->diskSnapshotRef.rm) {
+    StrongRef_Release(sctx->diskSnapshotRef);
+    sctx->diskSnapshotRef = INVALID_STRONG_REF;
     sctx->diskSnapshot = NULL;
   } else if (sctx->diskSnapshot) {
     // Installed directly rather than through SearchCtx_TakeDiskSnapshot, so this context owns it.

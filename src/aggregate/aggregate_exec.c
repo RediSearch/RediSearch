@@ -1557,7 +1557,7 @@ static bool isReleasedHybridDepleter(AREQ *req) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   return (IsHybridSearchSubquery(req) || IsHybridVectorSubquery(req)) &&
          (root->type == RP_DEPLETER || root->type == RP_SAFE_DEPLETER) && root == qctx->endProc &&
-         !root->upstream && sctx->spec->diskSpec && !sctx->diskSnapshotRef;
+         !root->upstream && sctx->spec->diskSpec && !sctx->diskSnapshotRef.rm;
 }
 #endif
 
