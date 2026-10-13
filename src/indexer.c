@@ -634,11 +634,11 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   RSAddDocumentCtx *firstZeroId = aCtx;
   RedisSearchCtx ctx = *aCtx->sctx;
 
-  if (ACTX_IS_INDEXED(aCtx) || aCtx->stateFlags & (ACTX_F_ERRORED)) {
-    // Document is complete or errored. No need for further processing.
-    if (!(aCtx->stateFlags & ACTX_F_EMPTY)) {
-      return;
-    }
+  // A document without indexable fields is trivially "indexed", but must still get a doc id (which
+  // also stores its sorting vector), so only documents with indexable fields stop here.
+  if ((aCtx->stateFlags & ACTX_F_INDEXABLES) &&
+      (ACTX_IS_INDEXED(aCtx) || (aCtx->stateFlags & ACTX_F_ERRORED))) {
+    return;
   }
 
   if (!ctx.spec) {
