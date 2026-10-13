@@ -53,19 +53,19 @@ extern "C" {
 //
 // Each subquery's search context holds its own reference, since a subquery cursor can outlive
 // the request, and the last one released frees the snapshot.
-static int HybridRequest_TakeSharedDiskSnapshot(HybridRequest *req) {
-    if (req->nrequests == 0) {
-        return REDISMODULE_OK;
-    }
-    AREQ *first = req->requests[0];
-    RedisSearchCtx *firstSctx = AREQ_SearchCtx(first);
-    if (SearchCtx_TakeDiskSnapshot(firstSctx, &first->base.reply.err) != REDISMODULE_OK) {
-        return REDISMODULE_ERR;
-    }
-    for (size_t i = 1; i < req->nrequests; i++) {
-        SearchCtx_ShareDiskSnapshot(AREQ_SearchCtx(req->requests[i]), firstSctx);
-    }
+int HybridRequest_TakeSharedDiskSnapshot(HybridRequest *req) {
+  if (req->nrequests == 0) {
     return REDISMODULE_OK;
+  }
+  AREQ *first = req->requests[0];
+  RedisSearchCtx *firstSctx = AREQ_SearchCtx(first);
+  if (SearchCtx_TakeDiskSnapshot(firstSctx, &first->base.reply.err) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  for (size_t i = 1; i < req->nrequests; i++) {
+    SearchCtx_ShareDiskSnapshot(AREQ_SearchCtx(req->requests[i]), firstSctx);
+  }
+  return REDISMODULE_OK;
 }
 
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground) {

@@ -8,10 +8,16 @@
 */
 #include "gtest/gtest.h"
 #include "common.h"
+#include <thread>
+#include <vector>
 extern "C" {
+#include "hybrid/hybrid_request.h"
+#include "obfuscation/hidden.h"
 #include "search_ctx.h"
 #include "search_disk.h"
+#include "spec.h"
 extern RedisSearchDiskAPI* disk;
+extern RedisSearchDisk* disk_db;
 }
 
 class DiskSnapshotCounterTest : public ::testing::Test {
@@ -110,5 +116,94 @@ TEST_F(DiskSnapshotCounterTest, SharingWithoutASnapshotLeavesTheContextWithout) 
   SearchCtx_ShareDiskSnapshot(&second, &first);
   EXPECT_EQ(second.diskSnapshot, nullptr);
   EXPECT_EQ(second.diskSnapshotRef, nullptr);
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+}
+
+TEST_F(DiskSnapshotCounterTest, ConcurrentReleasesFreeTheSnapshotExactlyOnce) {
+  constexpr int kOwners = 8;
+  DiskSnapshotRef* ref = DiskSnapshotRef_New(SearchDisk_CreateSnapshot(index));
+  for (int i = 1; i < kOwners; i++) {
+    DiskSnapshotRef_Retain(ref);
+  }
+
+  std::vector<std::thread> owners;
+  for (int i = 0; i < kOwners; i++) {
+    owners.emplace_back([ref] { DiskSnapshotRef_Release(ref); });
+  }
+  for (auto& t : owners) {
+    t.join();
+  }
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+}
+
+// A two-subquery hybrid request on a disk-backed index, with just enough state for
+// HybridRequest_TakeSharedDiskSnapshot: the subqueries' search contexts and their errors.
+class HybridSharedSnapshotTest : public DiskSnapshotCounterTest {
+ protected:
+  bool savedFlex = false;
+  RedisSearchDisk* savedDiskDb = nullptr;
+  IndexSpec spec{};
+  AREQ first{};
+  AREQ second{};
+  AREQ* subqueries[2] = {&first, &second};
+  RedisSearchCtx firstCtx = SEARCH_CTX_STATIC(nullptr, &spec);
+  RedisSearchCtx secondCtx = SEARCH_CTX_STATIC(nullptr, &spec);
+  HybridRequest hybrid{};
+
+  void SetUp() override {
+    DiskSnapshotCounterTest::SetUp();
+    savedFlex = isFlex;
+    savedDiskDb = disk_db;
+    isFlex = true;
+    disk_db = reinterpret_cast<RedisSearchDisk*>(&sentinel);
+    spec.diskSpec = index;
+    spec.specName = NewHiddenString("idx", 3, true);
+    first.sctx = &firstCtx;
+    second.sctx = &secondCtx;
+    first.base.reply.err = QueryError_Default();
+    second.base.reply.err = QueryError_Default();
+    hybrid.requests = subqueries;
+    hybrid.nrequests = 2;
+  }
+
+  void TearDown() override {
+    QueryError_ClearError(&first.base.reply.err);
+    QueryError_ClearError(&second.base.reply.err);
+    HiddenString_Free(spec.specName, true);
+    isFlex = savedFlex;
+    disk_db = savedDiskDb;
+    DiskSnapshotCounterTest::TearDown();
+  }
+};
+
+TEST_F(HybridSharedSnapshotTest, SubqueriesShareOneLiveSnapshotUntilTheLastIsDone) {
+  ASSERT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_OK);
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
+  ASSERT_NE(firstCtx.diskSnapshot, nullptr);
+  EXPECT_EQ(secondCtx.diskSnapshot, firstCtx.diskSnapshot);
+
+  // A subquery cursor can outlive the request, so each context must keep the snapshot alive.
+  SearchCtx_CleanUp(&firstCtx);
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
+  EXPECT_NE(secondCtx.diskSnapshot, nullptr);
+  SearchCtx_CleanUp(&secondCtx);
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+}
+
+TEST_F(HybridSharedSnapshotTest, FailureLeavesNoSnapshotAndIsReportedOnTheFirstSubquery) {
+  failNextCreate = true;
+  EXPECT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_ERR);
+  EXPECT_TRUE(QueryError_HasError(&first.base.reply.err));
+  EXPECT_FALSE(QueryError_HasError(&second.base.reply.err));
+  EXPECT_EQ(firstCtx.diskSnapshot, nullptr);
+  EXPECT_EQ(secondCtx.diskSnapshot, nullptr);
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+}
+
+TEST_F(HybridSharedSnapshotTest, IndexWithoutDiskBackingTakesNoSnapshot) {
+  spec.diskSpec = nullptr;
+  ASSERT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_OK);
+  EXPECT_EQ(firstCtx.diskSnapshot, nullptr);
+  EXPECT_EQ(secondCtx.diskSnapshot, nullptr);
   EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
 }

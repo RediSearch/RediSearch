@@ -136,6 +136,10 @@ int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
 
 void SearchCtx_ShareDiskSnapshot(RedisSearchCtx *dst, const RedisSearchCtx *src) {
   RS_ASSERT(dst && src && !dst->diskSnapshot);
+  // A snapshot installed without a ref cannot be shared, and skipping it would leave `dst`
+  // without one. Sharing across indexes would hand one index's snapshot to another's iterators.
+  RS_ASSERT(!src->diskSnapshot || src->diskSnapshotRef);
+  RS_ASSERT(dst->spec == src->spec);
   if (!src->diskSnapshotRef) {
     return;
   }

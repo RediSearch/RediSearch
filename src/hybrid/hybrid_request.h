@@ -159,6 +159,16 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t a
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground);
 
 /**
+ * Take one disk snapshot for the whole request and share it with every subquery's search
+ * context. Called by HybridRequest_BuildDepletionPipeline; exposed so it can be tested without
+ * building the pipelines.
+ *
+ * @return REDISMODULE_ERR if a snapshot is needed but cannot be taken, the error being set on the
+ *         first subquery
+ */
+int HybridRequest_TakeSharedDiskSnapshot(HybridRequest *req);
+
+/**
  * Open the score key in the tail lookup for writing the final score.
  * If a score alias is provided, create a new key with that alias.
  * Otherwise, use the default score key.
