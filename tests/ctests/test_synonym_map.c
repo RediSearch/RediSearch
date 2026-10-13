@@ -115,12 +115,9 @@ int testSynonymLookupBuffer() {
   RETURN_TEST_SUCCESS;
 }
 
-int testSynonymLookupLongToken() {
-  const size_t len = 16 * 1024 * 1024;
-  char* token = rm_malloc(len + 1);
-  memset(token, 'x', len);
-  token[len] = '\0';
-  SynonymMap* smap = SynonymMap_New(false);
+static int checkSynonymLookupLongToken(SynonymMap** map, SynonymMap** copy, char* token,
+                                       size_t len) {
+  SynonymMap* smap = *map;
   const char* values[] = {"short"};
   ASSERT(SynonymMap_Add(smap, "g1", values, 1) == SYNONYM_MAP_OK);
   ASSERT(!SynonymMap_GetIdsBySynonym(smap, token, len));
@@ -130,17 +127,30 @@ int testSynonymLookupLongToken() {
   TermData* term = SynonymMap_GetIdsBySynonym(smap, token, len);
   ASSERT(term);
   ASSERT_STRING_EQ(term->groupIds[0], "~g2");
-  SynonymMap* snapshot = SynonymMap_GetReadOnlyCopy(smap);
+  SynonymMap* snapshot = *copy = SynonymMap_GetReadOnlyCopy(smap);
   ASSERT(SynonymMap_Update(smap, long_values, 1, "g3") == SYNONYM_MAP_OK);
   ASSERT(array_len(SynonymMap_GetIdsBySynonym(smap, token, len)->groupIds) == 2);
   SynonymMap_Free(smap);
+  *map = NULL;
   term = SynonymMap_GetIdsBySynonym(snapshot, token, len);
   ASSERT(term);
   ASSERT(array_len(term->groupIds) == 1);
   ASSERT_STRING_EQ(term->groupIds[0], "~g2");
-  SynonymMap_Free(snapshot);
-  rm_free(token);
   RETURN_TEST_SUCCESS;
+}
+
+int testSynonymLookupLongToken() {
+  const size_t len = 16 * 1024 * 1024;
+  char* token = rm_malloc(len + 1);
+  memset(token, 'x', len);
+  token[len] = '\0';
+  SynonymMap* smap = SynonymMap_New(false);
+  SynonymMap* snapshot = NULL;
+  int result = checkSynonymLookupLongToken(&smap, &snapshot, token, len);
+  if (snapshot) SynonymMap_Free(snapshot);
+  if (smap) SynonymMap_Free(smap);
+  rm_free(token);
+  return result;
 }
 
 TEST_MAIN({

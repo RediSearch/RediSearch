@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include <inttypes.h>
-#include <limits.h>
 #include <string.h>
 
 #include "spec.h"
@@ -23,18 +22,6 @@
 #define INITIAL_CAPACITY 2
 #define SYNONYM_PREFIX "~%s"
 
-static uint64_t synonymKeyHash(const void* key) {
-  const CharBuf* term = key;
-  // The dict hash API accepts an int; equality still compares the entire key.
-  return dictGenHashFunction(term->buf, term->len > INT_MAX ? INT_MAX : term->len);
-}
-
-static int synonymKeyCompare(void* privdata, const void* key1, const void* key2) {
-  const CharBuf* term1 = key1;
-  const CharBuf* term2 = key2;
-  return term1->len == term2->len && memcmp(term1->buf, term2->buf, term1->len) == 0;
-}
-
 static void* synonymKeyDup(void* privdata, const void* key) {
   CharBuf* copy = rm_malloc(sizeof(*copy));
   // TermData owns the bytes. Only the descriptor belongs to the dictionary.
@@ -47,15 +34,16 @@ static void synonymKeyFree(void* privdata, void* key) {
 }
 
 static dictType synonymDictType = {
-    .hashFunction = synonymKeyHash,
+    .hashFunction = CharBuf_HashFunction,
     .keyDup = synonymKeyDup,
-    .keyCompare = synonymKeyCompare,
+    .keyCompare = CharBuf_KeyCompare,
     .keyDestructor = synonymKeyFree,
 };
 
-static void synonymMapAddTerm(SynonymMap* smap, TermData* term) {
+// Transfers ownership of term only on DICT_OK; the caller retains it on failure.
+static int synonymMapAddTerm(SynonymMap* smap, TermData* term) {
   CharBuf key = {.buf = term->term, .len = sdslen(term->term)};
-  dictAdd(smap->h_table, &key, term);
+  return dictAdd(smap->h_table, &key, term);
 }
 
 static TermData* TermData_New(sds term) {

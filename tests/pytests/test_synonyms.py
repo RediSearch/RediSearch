@@ -6,7 +6,8 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 from includes import *
-from common import getConnectionByEnv, waitForIndex, toSortedFlatList
+from RLTest import Env
+from common import getConnectionByEnv, waitForIndex, toSortedFlatList, skip
 
 def testBasicSynonymsUseCase(env):
     env.expect(
@@ -200,3 +201,39 @@ def testDoubleDefinition(env):
     env.expect('FT.SYNUPDATE idx foo bar').ok()
     # Ensure it's only added once
     env.expect('FT.SYNDUMP idx').equal(['bar', ['foo']])
+
+
+@skip(cluster=True)
+def testSynonymLongTokenWorkers():
+    """Large document and query tokens must not exhaust thread stacks during synonym lookup."""
+    env = Env(moduleArgs='WORKERS 2 TIMEOUT 0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM').ok()
+    token = 'x' * (16 * 1024 * 1024)
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc', 't', token + ' short')
+    # SYNUPDATE reindexes the existing document on the background scanner.
+    env.expect('FT.SYNUPDATE', 'idx', 'g', 'short', 'alias').ok()
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', 'alias', 'NOCONTENT').equal([1, 'doc'])
+    env.expect('FT.SEARCH', 'idx', token, 'NOCONTENT').equal([1, 'doc'])
+
+
+@skip(cluster=True)
+def testSynonymEmbeddedNul(env):
+    """Token normalization preserves synonym matches before length-aware lookup."""
+    conn = getConnectionByEnv(env)
+    for language in ('english', 'chinese'):
+        idx = 'idx_' + language
+        doc = 'doc_' + language
+        env.expect('FT.CREATE', idx, 'PREFIX', 1, doc, 'LANGUAGE', language,
+                   'SCHEMA', 't', 'TEXT', 'NOSTEM').ok()
+        env.expect('FT.SYNUPDATE', idx, 'g', 'val', 'alias').ok()
+        conn.execute_command('HSET', doc, 't', 'val\0ignored')
+        for dialect in (1, 2, 3, 4):
+            env.expect('FT.SEARCH', idx, 'alias', 'NOCONTENT',
+                       'DIALECT', dialect).equal([1, doc])
+            env.expect('FT.SEARCH', idx, 'val\0ignored', 'NOCONTENT',
+                       'DIALECT', dialect).equal([1, doc])
+            if dialect >= 2:
+                env.expect('FT.SEARCH', idx, '$term', 'PARAMS', 2, 'term', 'val\0ignored',
+                           'NOCONTENT', 'DIALECT', dialect).equal([1, doc])
