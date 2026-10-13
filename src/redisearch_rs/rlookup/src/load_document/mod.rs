@@ -381,7 +381,7 @@ mod tests {
             &self,
             index: usize,
             key: &RLookupKey,
-            row: &mut RLookupRow,
+            _row: &mut RLookupRow,
         ) -> Result<(), LoadFieldError> {
             self.0.loaded_indices.borrow_mut().push(index);
             self.0
