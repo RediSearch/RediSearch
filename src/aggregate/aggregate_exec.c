@@ -1558,7 +1558,10 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
     return;
   }
 
-  RS_ASSERT(qctx->rootProc->type == RP_INDEX);
+  // A depleted hybrid subquery has had its upstream released, which leaves its depleter as the
+  // root; the drain only reads from `endProc`, so it needs no iterator.
+  RS_ASSERT(qctx->rootProc->type == RP_INDEX || qctx->rootProc->type == RP_DEPLETER ||
+            qctx->rootProc->type == RP_SAFE_DEPLETER);
 
   AREQ_DrainStoredResultsAfterTimeout(req);
 }

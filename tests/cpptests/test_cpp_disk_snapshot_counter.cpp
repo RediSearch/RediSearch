@@ -14,6 +14,8 @@ extern "C" {
 #include "hybrid/hybrid_request.h"
 #include "obfuscation/hidden.h"
 #include "result_processor.h"
+#include "search_result_ffi.h"
+#include "sorting_vector_ffi.h"
 #include "search_ctx.h"
 #include "search_disk.h"
 #include "spec.h"
@@ -367,12 +369,14 @@ TEST_F(HybridStartCursorsTest, SuccessfulDepletionReleasesUpstreamAndSnapshotBef
   EXPECT_EQ(second.base.cursorInfo.disposition, CURSOR_DISPOSITION_PAUSE);
 }
 
-TEST_F(HybridStartCursorsTest, PartialTimeoutUnderReturnPolicyStillReleases) {
+TEST_F(HybridStartCursorsTest, PartialTimeoutUnderReturnPolicyKeepsTheChainForTheTeardown) {
+  // In-flight disk reads are drained when the iterators are freed, which must not delay the reply.
   upstreamRc = RS_RESULT_TIMEDOUT;
   hybrid.base.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
   ASSERT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
-  EXPECT_TRUE(released());
-  EXPECT_EQ(freedIds, (std::vector<int>{1, 0, 11, 10}));
+  EXPECT_FALSE(released());
+  EXPECT_TRUE(freedIds.empty());
+  EXPECT_EQ(first.base.cursorInfo.disposition, CURSOR_DISPOSITION_PAUSE);
 }
 
 TEST_F(HybridStartCursorsTest, TimeoutUnderFailPolicyKeepsTheChainForTheTeardown) {
@@ -399,4 +403,45 @@ TEST_F(HybridStartCursorsTest, TimeoutAfterDepletionLeavesATrimmedChainThatTears
   EXPECT_EQ(first.base.cursorInfo.disposition, CURSOR_DISPOSITION_FREE);
 
   // TearDown frees only the depleters left behind; each must be freed exactly once.
+}
+
+// Rows buffered by the depleters must stay readable after the iterators and the snapshot they were
+// read from are gone: they own their document metadata and carry no borrowed index result.
+TEST_F(HybridStartCursorsTest, BufferedRowsAreReadableAfterTheEarlyRelease) {
+  static int rowsLeft;
+  rowsLeft = 3;
+  for (int q = 0; q < 2; q++) {
+    upstream[q][0].base.Next = [](ResultProcessor*, SearchResult* res) {
+      if (rowsLeft == 0) {
+        return static_cast<int>(RS_RESULT_EOF);
+      }
+      RSDocumentMetadata* dmd = reinterpret_cast<RSDocumentMetadata*>(rm_calloc(1, sizeof(*dmd)));
+      dmd->ref_count = 1;
+      dmd->sortVector = RSSortingVector_Empty();
+      dmd->id = rowsLeft--;
+      SearchResult_SetDocId(res, dmd->id);
+      SearchResult_SetDocumentMetadata(res, dmd);
+      return static_cast<int>(RS_RESULT_OK);
+    };
+    // The middle processor passes rows through from the root.
+    upstream[q][1].base.Next = [](ResultProcessor* rp, SearchResult* res) {
+      return rp->upstream->Next(rp->upstream, res);
+    };
+  }
+  ASSERT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
+  ASSERT_TRUE(released());
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+
+  ResultProcessor* depleter = first.pipeline.qctx.endProc;
+  for (t_docId expected : {3, 2, 1}) {
+    SearchResult res = SearchResult_New();
+    ASSERT_EQ(depleter->Next(depleter, &res), RS_RESULT_OK);
+    EXPECT_EQ(SearchResult_GetDocId(&res), expected);
+    ASSERT_NE(SearchResult_GetDocumentMetadata(&res), nullptr);
+    EXPECT_EQ(SearchResult_GetDocumentMetadata(&res)->id, expected);
+    SearchResult_Destroy(&res);
+  }
+  SearchResult res = SearchResult_New();
+  EXPECT_EQ(depleter->Next(depleter, &res), RS_RESULT_EOF);
+  SearchResult_Destroy(&res);
 }

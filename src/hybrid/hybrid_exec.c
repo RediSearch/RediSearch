@@ -863,7 +863,11 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
 
     // Depletion is over, so the buffered rows no longer need the iterators or the snapshot they
     // were read from. Release them now rather than for as long as the cursors stay parked.
-    HybridRequest_ReleaseDepletedUpstream(req);
+    // A partial (timed-out) depletion may leave disk reads in flight, which freeing the iterators
+    // would wait out before the reply; leave that to the cursor's teardown.
+    if (!depletionTimedOut) {
+      HybridRequest_ReleaseDepletedUpstream(req);
+    }
 
     // Only publish cursors after depletion has completed. A timeout that
     // races past this check is benign: the timeout reply exposes no IDs, and
