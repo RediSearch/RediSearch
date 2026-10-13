@@ -174,8 +174,9 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     aCtx->sv = RSSortingVector_New(sp->numSortableFields);
   }
 
-  int empty = (RSSortingVector_Length(&aCtx->sv) == 0) && !hasTextFields && !hasOtherFields;
-  if (empty) {
+  // Sortable values alone do not make a document non-empty: an empty document must still reach the
+  // indexer to get a doc id, which is also where its sorting vector is stored.
+  if (!hasTextFields && !hasOtherFields) {
     aCtx->stateFlags |= ACTX_F_EMPTY;
   }
 
