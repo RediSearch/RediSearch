@@ -13,6 +13,7 @@
 extern "C" {
 #include "hybrid/hybrid_request.h"
 #include "obfuscation/hidden.h"
+#include "result_processor.h"
 #include "search_ctx.h"
 #include "search_disk.h"
 #include "spec.h"
@@ -206,4 +207,88 @@ TEST_F(HybridSharedSnapshotTest, IndexWithoutDiskBackingTakesNoSnapshot) {
   EXPECT_EQ(firstCtx.diskSnapshot, nullptr);
   EXPECT_EQ(secondCtx.diskSnapshot, nullptr);
   EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+}
+
+// Stand-in result processors that record when they are freed and how many snapshots were still
+// alive at that moment, to pin the order the teardown must keep.
+struct FakeRP {
+  ResultProcessor base;
+  int id;
+};
+static std::vector<int> freedIds;
+static std::vector<size_t> liveSnapshotsWhenFreed;
+
+static void fakeRPFree(ResultProcessor* rp) {
+  freedIds.push_back(reinterpret_cast<FakeRP*>(rp)->id);
+  liveSnapshotsWhenFreed.push_back(SearchDisk_GetLiveSnapshotCount());
+}
+
+class HybridReleaseUpstreamTest : public HybridSharedSnapshotTest {
+ protected:
+  FakeRP chains[2][3]{};  // per subquery: [0] root, [1] middle, [2] depleter
+
+  void SetUp() override {
+    HybridSharedSnapshotTest::SetUp();
+    freedIds.clear();
+    liveSnapshotsWhenFreed.clear();
+    AREQ* subs[2] = {&first, &second};
+    for (int q = 0; q < 2; q++) {
+      QueryProcessingCtx* qctx = &subs[q]->pipeline.qctx;
+      *qctx = {};
+      for (int i = 0; i < 3; i++) {
+        chains[q][i].id = q * 10 + i;
+        chains[q][i].base.Free = fakeRPFree;
+        chains[q][i].base.type = i == 2 ? RP_DEPLETER : RP_INDEX;
+        QITR_PushRP(qctx, &chains[q][i].base);
+      }
+    }
+  }
+};
+
+TEST_F(HybridReleaseUpstreamTest, FreesUpstreamBeforeTheSnapshotAndKeepsTheDepleter) {
+  ASSERT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_OK);
+  HybridRequest_ReleaseDepletedUpstream(&hybrid);
+
+  // The middle and root processors go, downstream first, while the snapshot is still alive.
+  // The shared snapshot is only freed once the second subquery drops its reference.
+  EXPECT_EQ(freedIds, (std::vector<int>{1, 0, 11, 10}));
+  EXPECT_EQ(liveSnapshotsWhenFreed, (std::vector<size_t>{1, 1, 1, 1}));
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+  EXPECT_EQ(firstCtx.diskSnapshot, nullptr);
+  EXPECT_EQ(secondCtx.diskSnapshot, nullptr);
+
+  // What is left is the depleter alone, so the request's own teardown frees just that.
+  for (AREQ* sub : {&first, &second}) {
+    QueryProcessingCtx* qctx = &sub->pipeline.qctx;
+    EXPECT_EQ(qctx->endProc, qctx->rootProc);
+    EXPECT_EQ(qctx->endProc->type, RP_DEPLETER);
+    EXPECT_EQ(qctx->endProc->upstream, nullptr);
+  }
+  freedIds.clear();
+  QITR_FreeChain(&first.pipeline.qctx);
+  QITR_FreeChain(&second.pipeline.qctx);
+  EXPECT_EQ(freedIds, (std::vector<int>{2, 12}));
+}
+
+TEST_F(HybridReleaseUpstreamTest, ProfileModeKeepsTheChainAndTheSnapshot) {
+  hybrid.reqflags |= QEXEC_F_PROFILE;
+  ASSERT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_OK);
+  HybridRequest_ReleaseDepletedUpstream(&hybrid);
+
+  EXPECT_TRUE(freedIds.empty());
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
+  EXPECT_NE(firstCtx.diskSnapshot, nullptr);
+  EXPECT_NE(first.pipeline.qctx.endProc->upstream, nullptr);
+
+  SearchCtx_CleanUp(&firstCtx);
+  SearchCtx_CleanUp(&secondCtx);
+}
+
+TEST_F(HybridReleaseUpstreamTest, IndexWithoutDiskBackingIsLeftAlone) {
+  spec.diskSpec = nullptr;
+  ASSERT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_OK);
+  HybridRequest_ReleaseDepletedUpstream(&hybrid);
+
+  EXPECT_TRUE(freedIds.empty());
+  EXPECT_NE(first.pipeline.qctx.endProc->upstream, nullptr);
 }

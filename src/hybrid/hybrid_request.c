@@ -68,6 +68,35 @@ int HybridRequest_TakeSharedDiskSnapshot(HybridRequest *req) {
   return REDISMODULE_OK;
 }
 
+void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
+  // Profile output reads per-processor stats from the whole chain until the reply is sent.
+  if (IsProfile(req)) {
+    return;
+  }
+  for (size_t i = 0; i < req->nrequests; i++) {
+    AREQ *areq = req->requests[i];
+    RedisSearchCtx *sctx = AREQ_SearchCtx(areq);
+    if (!sctx->diskSnapshotRef) {
+      continue;
+    }
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
+    ResultProcessor *depleter = qctx->endProc;
+    RS_ASSERT(depleter && (depleter->type == RP_DEPLETER || depleter->type == RP_SAFE_DEPLETER));
+
+    // Free from the depleter upstream, as QITR_FreeChain does: the iterators and the async read
+    // pool they feed must be gone before the snapshot they read from is released.
+    ResultProcessor *rp = depleter->upstream;
+    while (rp) {
+      ResultProcessor *next = rp->upstream;
+      rp->Free(rp);
+      rp = next;
+    }
+    depleter->upstream = NULL;
+    qctx->rootProc = depleter;
+    SearchCtx_ReleaseDiskSnapshot(sctx);
+  }
+}
+
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines

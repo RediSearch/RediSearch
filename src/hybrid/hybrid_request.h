@@ -169,6 +169,17 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
 int HybridRequest_TakeSharedDiskSnapshot(HybridRequest *req);
 
 /**
+ * Once every subquery has been fully depleted, free each one's result-processor chain below its
+ * depleter and drop its disk snapshot reference, so a parked cursor serving buffered rows pins no
+ * snapshot. Does nothing for in-memory indexes and in profile mode, which reads per-processor
+ * stats at reply time. Later teardown (AREQ_Free) walks only what is left of the chain.
+ *
+ * Call only after depletion has finished on every subquery, with no depleting thread still
+ * reading from the chain.
+ */
+void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req);
+
+/**
  * Open the score key in the tail lookup for writing the final score.
  * If a score alias is provided, create a new key with that alias.
  * Otherwise, use the default score key.
