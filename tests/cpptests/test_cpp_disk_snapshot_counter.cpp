@@ -19,6 +19,8 @@ extern "C" {
 #include "spec.h"
 extern RedisSearchDiskAPI* disk;
 extern RedisSearchDisk* disk_db;
+int HybridRequest_StartCursors(HybridRequest* req, RedisModuleCtx* replyCtx, QueryError* status,
+                               bool backgroundDepletion);
 }
 
 class DiskSnapshotCounterTest : public ::testing::Test {
@@ -291,4 +293,110 @@ TEST_F(HybridReleaseUpstreamTest, IndexWithoutDiskBackingIsLeftAlone) {
 
   EXPECT_TRUE(freedIds.empty());
   EXPECT_NE(first.pipeline.qctx.endProc->upstream, nullptr);
+}
+
+// Drives HybridRequest_StartCursors with real foreground depleters over stand-in upstreams, to
+// pin which outcomes of depletion release the snapshot and which leave it for the teardown.
+class HybridStartCursorsTest : public HybridSharedSnapshotTest {
+ protected:
+  static int upstreamRc;
+  static QueryRequestTimeout* timeoutToTrip;  // marked timed out from inside the upstream read
+  FakeRP upstream[2][2]{};                    // per subquery: [0] root, [1] middle
+  QueryError status = QueryError_Default();
+
+  static int fakeNext(ResultProcessor*, SearchResult*) {
+    if (timeoutToTrip) {
+      QueryRequestTimeout_MarkTimedOut(timeoutToTrip);
+    }
+    return upstreamRc;
+  }
+
+  void SetUp() override {
+    HybridSharedSnapshotTest::SetUp();
+    freedIds.clear();
+    liveSnapshotsWhenFreed.clear();
+    upstreamRc = RS_RESULT_EOF;
+    timeoutToTrip = nullptr;
+    TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = TimeoutPolicy_Fail};
+    QueryRequestTimeout_Init(&hybrid.base.timeout, &timeoutConfig);
+    QueryRequestTimeout_BeginCycle(&hybrid.base.timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    hybrid.base.replyDeferred = true;  // the reply callback replies, not StartCursors
+
+    AREQ* subs[2] = {&first, &second};
+    for (int q = 0; q < 2; q++) {
+      QueryProcessingCtx* qctx = &subs[q]->pipeline.qctx;
+      *qctx = {};
+      for (int i = 0; i < 2; i++) {
+        upstream[q][i].id = q * 10 + i;
+        upstream[q][i].base.Free = fakeRPFree;
+        upstream[q][i].base.Next = fakeNext;
+        upstream[q][i].base.type = RP_INDEX;
+        QITR_PushRP(qctx, &upstream[q][i].base);
+      }
+      QITR_PushRP(qctx, RPDepleter_New());
+      qctx->timeoutPolicy = TimeoutPolicy_Fail;
+    }
+    ASSERT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_OK);
+  }
+
+  void TearDown() override {
+    // What AREQ_Free does to the pipelines, then to the contexts.
+    QITR_FreeChain(&first.pipeline.qctx);
+    QITR_FreeChain(&second.pipeline.qctx);
+    SearchCtx_CleanUp(&firstCtx);
+    SearchCtx_CleanUp(&secondCtx);
+    QueryError_ClearError(&status);
+    EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+    HybridSharedSnapshotTest::TearDown();
+  }
+
+  bool released() const {
+    return firstCtx.diskSnapshot == nullptr && secondCtx.diskSnapshot == nullptr;
+  }
+};
+int HybridStartCursorsTest::upstreamRc = RS_RESULT_EOF;
+QueryRequestTimeout* HybridStartCursorsTest::timeoutToTrip = nullptr;
+
+TEST_F(HybridStartCursorsTest, SuccessfulDepletionReleasesUpstreamAndSnapshotBeforePublishing) {
+  ASSERT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
+  EXPECT_TRUE(released());
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
+  EXPECT_EQ(freedIds, (std::vector<int>{1, 0, 11, 10}));
+  EXPECT_EQ(liveSnapshotsWhenFreed, (std::vector<size_t>{1, 1, 1, 1}));
+  EXPECT_EQ(first.base.cursorInfo.disposition, CURSOR_DISPOSITION_PAUSE);
+  EXPECT_EQ(second.base.cursorInfo.disposition, CURSOR_DISPOSITION_PAUSE);
+}
+
+TEST_F(HybridStartCursorsTest, PartialTimeoutUnderReturnPolicyStillReleases) {
+  upstreamRc = RS_RESULT_TIMEDOUT;
+  hybrid.base.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
+  ASSERT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
+  EXPECT_TRUE(released());
+  EXPECT_EQ(freedIds, (std::vector<int>{1, 0, 11, 10}));
+}
+
+TEST_F(HybridStartCursorsTest, TimeoutUnderFailPolicyKeepsTheChainForTheTeardown) {
+  upstreamRc = RS_RESULT_TIMEDOUT;
+  EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_ERR);
+  EXPECT_FALSE(released());
+  EXPECT_TRUE(freedIds.empty());
+}
+
+TEST_F(HybridStartCursorsTest, DepletionErrorKeepsTheChainForTheTeardown) {
+  upstreamRc = RS_RESULT_ERROR;
+  EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_ERR);
+  EXPECT_FALSE(released());
+  EXPECT_TRUE(freedIds.empty());
+}
+
+TEST_F(HybridStartCursorsTest, TimeoutAfterDepletionLeavesATrimmedChainThatTearsDownCleanly) {
+  // The blocked-client timeout fires while depleting: depletion itself succeeds and releases,
+  // then the publication check fails and the container frees the subqueries.
+  timeoutToTrip = &hybrid.base.timeout;
+  EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_ERR);
+  EXPECT_TRUE(released());
+  EXPECT_EQ(freedIds, (std::vector<int>{1, 0, 11, 10}));
+  EXPECT_EQ(first.base.cursorInfo.disposition, CURSOR_DISPOSITION_FREE);
+
+  // TearDown frees only the depleters left behind; each must be freed exactly once.
 }
