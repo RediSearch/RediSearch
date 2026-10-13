@@ -213,9 +213,7 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
       RedisModule_Free(key);
       goto cleanup;
     }
-    if (Trie_Size(val)) {
-      dictAdd(spellCheckDicts, key, val);
-    } else {
+    if (!Trie_Size(val) || dictAdd(spellCheckDicts, key, val) != DICT_OK) {
       TrieType_Free(val);
     }
     RedisModule_Free(key);
