@@ -1159,6 +1159,22 @@ TEST_F(QueryTest, testParamTermCaseBinaryValue) {
   RedisModule_FreeString(NULL, rvalue);
 }
 
+// The parser reads only `len` bytes: a number at the very end must not run on into the bytes that
+// follow the query in a larger buffer.
+TEST_F(QueryTest, testNumberAtEndOfQueryNotTerminated) {
+  const char buf[] = "@n>=512345";
+  RedisSearchCtx sctx = {0};
+  RSSearchOptions opts = {0};
+  QueryAST ast = {0};
+  QueryError err = QueryError_Default();
+  ASSERT_EQ(REDISMODULE_OK, QAST_Parse(&ast, &sctx, &opts, buf, 5, 2, &err))
+      << QueryError_GetUserError(&err);
+  ASSERT_EQ(QN_NUMERIC, ast.root->type);
+  ASSERT_EQ(5.0, ast.root->nn.nf->min);
+  QAST_Destroy(&ast);
+  QueryError_ClearError(&err);
+}
+
 // Lookups take the name by length: query tokens are not NUL-terminated, and
 // long names must resolve too.
 TEST_F(QueryTest, testParamDictGetByLength) {
