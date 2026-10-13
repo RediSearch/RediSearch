@@ -288,7 +288,11 @@ def do_burst_threads_sanity(algo, data_type, test_name):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', algo, str(6+len(additional_params[algo])),
                 'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2', *additional_params[algo]).ok()
     query_vec = load_vectors_to_redis(env, n_vectors, 0, dim, data_type)
+    drain_workers(env)
     n_local_vectors = get_vecsim_debug_dict(env, 'idx', 'vector')['INDEX_LABEL_COUNT']
+    if algo == 'HNSW':
+        # The maintenance worker ingests the initial load: one insert job per vector.
+        expected_total_jobs = n_local_vectors
 
     res_before = env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
                                         '__vector_score', 'RETURN', 1, '__vector_score', 'LIMIT', 0, k,
@@ -309,7 +313,7 @@ def do_burst_threads_sanity(algo, data_type, test_name):
         env.assertEqual(debug_info['INDEX_LABEL_COUNT'], n_local_vectors)
         env.assertEqual(getWorkersThpoolStats(env)['totalPendingJobs'], 0)
         if algo == 'HNSW':
-            # Expect that 0 jobs was done before reloading, and another n_vector insert jobs during the reloading.
+            # Expect n_vector insert jobs for the initial load, and another n_vector during the reloading.
             env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], expected_total_jobs)
         # Run the same KNN query and see that we are getting the same results after the reload
         res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN $K @vector $vec_param]', 'SORTBY',
@@ -647,7 +651,8 @@ def test_change_workers_number():
 
     # On start up the threadpool is not initialized. We can change the value of requested threads
     # without actually creating the threads.
-    env = initEnv(moduleArgs='WORKERS 1')
+    # No maintenance workers, so that WORKERS 0 empties the pool.
+    env = initEnv(moduleArgs='WORKERS 1 MIN_MAINTENANCE_WORKERS 0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
     check_threads(env, expected_num_threads_alive=0, expected_n_threads=1)
 
@@ -765,7 +770,8 @@ def test_workers_reduction_sequence():
         time.sleep(0.5)
 
     time.sleep(5)
-    check_threads(env, 0, 0)
+    # WORKERS 0 keeps the maintenance worker.
+    check_threads(env, 1, 1)
 
 
 def test_workers_zero_to_nonzero():
@@ -773,10 +779,10 @@ def test_workers_zero_to_nonzero():
     Test that increasing workers from 0 to a higher value also works correctly.
     This tests the reverse direction to ensure the connection pool expansion works.
     """
-    # Start with WORKERS=0
+    # Start with WORKERS=0; the pool holds only the (lazily started) maintenance worker.
     env = Env(moduleArgs='WORKERS 0', enableDebugCommand=True)
 
-    check_threads(env, 0, 0)
+    check_threads(env, 0, 1)
     # Create index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'text', 'TEXT').ok()
 

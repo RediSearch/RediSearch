@@ -383,6 +383,7 @@ Invoke [/investigate-flaky-test](.skills/investigate-flaky-test/SKILL.md) to inv
 Invoke [/check-flow-coverage](.skills/check-flow-coverage/SKILL.md) to check which source lines are not covered by Python flow tests.
 Invoke [/improve-flow-coverage](.skills/improve-flow-coverage/SKILL.md) to find and close flow test coverage gaps for C source files.
 Invoke [/verify](.skills/verify/SKILL.md) to verify the correctness of your work before wrapping up.
+Invoke [/drive-redisearch](.skills/drive-redisearch/SKILL.md) to run the built module in a live redis-server (standalone or cluster), drive it with `FT.*` commands, and capture evidence.
 Invoke [/build](.skills/build/SKILL.md) to compile and verify the build.
 Invoke [/lint](.skills/lint/SKILL.md) to check code quality and formatting.
 Invoke [/jj-fix-conflicts](.skills/jj-fix-conflicts/SKILL.md) to resolve conflicts in jj changes.

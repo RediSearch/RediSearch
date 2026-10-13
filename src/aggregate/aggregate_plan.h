@@ -133,11 +133,12 @@ typedef struct {
   /* Group step single reducer, a function and its args */
   struct PLN_Reducer {
     const char *name;  // Name of function
-    char *alias;       // Output key
+    const char *alias; // Output key
     char *inputAlias;  // Optional input key
+    ArgsCursor args;
+    bool ownsAlias;    // Whether `alias` is a heap copy rather than borrowed
     bool isHidden;     // If the output key is hidden. Used by the coordinator
     bool isLocal;      // Whether this reducer runs locally (on the coordinator side)
-    ArgsCursor args;
   } * reducers;
   int idx;
   // Whether we should fail if a key is not prefixed with an @ sign
@@ -162,12 +163,14 @@ arrayof(const char*) PLNGroupStep_GetProperties(const PLN_GroupStep *gstp);
  * @param gstp the group step
  * @param name the name of the reducer
  * @param ac arguments to the reducer; if an alias is used, it is provided
- *  here as well.
+ *  here as well. The reducer borrows the `AS` alias, so its string must outlive the plan.
  */
 int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
                             QueryError *status);
 
-PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString *expr, int mode);
+/* The step borrows `expr` (NUL-terminated at `len`) and the `base.alias` its caller sets, so both
+ * must outlive the plan: the request's held argv, or the distribute step's allocator. */
+PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, size_t len, int mode);
 
 /**
  * Clone a LOAD step for use in individual AREQ pipelines.
@@ -200,7 +203,7 @@ typedef struct PLN_Reducer PLN_Reducer;
  * @param gstp the group step
  * @param name the name of the reducer
  * @param ac arguments to the reducer; if an alias is used, it is provided
- *  here as well.
+ *  here as well. The reducer borrows the `AS` alias, so its string must outlive the plan.
  */
 PLN_Reducer *PLNGroupStep_FindReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac);
 

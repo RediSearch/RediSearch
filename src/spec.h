@@ -296,6 +296,9 @@ typedef struct CharBuf {
   size_t len;
 } CharBuf;
 
+uint64_t CharBuf_HashFunction(const void *key);
+int CharBuf_KeyCompare(void *privdata, const void *key1, const void *key2);
+
 // What FT.DROP / FT.DROPINDEX did with this index's documents, and hence what
 // teardown still owes the keyspace. Set by DropIndexCommand before the spec is
 // unlinked, and reset to IndexDrop_None once the cleanup it implies has run, so

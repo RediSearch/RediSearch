@@ -8,35 +8,52 @@
 */
 #include "param.h"
 
+#include <string.h>
+
 #include "query_error_ffi.h"
 #include "rmalloc.h"
 #include "redismodule.h"
+#include "spec.h"
 
-void Param_FreeInternal(Param *param) {
-  if (param->name) {
-    rm_free((void *)param->name);
-    param->name = NULL;
-  }
+// The dict owns only the CharBuf of each key; its bytes are borrowed like the values.
+static void *borrowedKeyDup(void *privdata, const void *key) {
+  CharBuf *cb = rm_malloc(sizeof(*cb));
+  *cb = *(const CharBuf *)key;
+  return cb;
 }
+
+static void borrowedKeyDestructor(void *privdata, void *key) {
+  rm_free(key);
+}
+
+// CharBuf keys let lookups use names that point into the query, which are not NUL-terminated.
+static dictType dictTypeBorrowedParams = {
+  .hashFunction = CharBuf_HashFunction,
+  .keyDup = borrowedKeyDup,
+  .valDup = NULL,
+  .keyCompare = CharBuf_KeyCompare,
+  .keyDestructor = borrowedKeyDestructor,
+  .valDestructor = NULL,
+};
 
 dict *Param_DictCreate() {
-  return dictCreate(&dictTypeHeapStrings, NULL);
+  return dictCreate(&dictTypeBorrowedParams, NULL);
 }
 
-int Param_DictAdd(dict *d, const char *name, const char *value, size_t value_len, QueryError *status) {
-  RedisModuleString *rms_value = RedisModule_CreateString(NULL, value, value_len);
-  int res = dictAdd(d, (void*)name, (void*)rms_value);
+int Param_DictAdd(dict *d, const char *name, size_t name_len, RedisModuleString *value, QueryError *status) {
+  CharBuf key = {.buf = (char *)name, .len = name_len};
+  int res = dictAdd(d, &key, value);
   if (res == DICT_ERR) {
-    RedisModule_FreeString(NULL, rms_value);
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ADD_ARGS, "Duplicate parameter", " `%s`", name);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ADD_ARGS, "Duplicate parameter", " `%.*s`", (int)name_len, name);
   }
   return res;
 }
 
-const char *Param_DictGet(dict *d, const char *name, size_t *value_len, QueryError *status) {
-  RedisModuleString *rms_val = d ? dictFetchValue(d, name) : NULL;
+const char *Param_DictGet(dict *d, const char *name, size_t name_len, size_t *value_len, QueryError *status) {
+  CharBuf key = {.buf = (char *)name, .len = name_len};
+  RedisModuleString *rms_val = d ? dictFetchValue(d, &key) : NULL;
   if (!rms_val) {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PARAM, "Parameter not found", " `%s`", name);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_NO_PARAM, "Parameter not found", " `%.*s`", (int)name_len, name);
     return NULL;
   }
   const char *val = RedisModule_StringPtrLen(rms_val, value_len);
@@ -44,13 +61,6 @@ const char *Param_DictGet(dict *d, const char *name, size_t *value_len, QueryErr
 }
 
 void Param_DictFree(dict *d) {
-  dictIterator* iter = dictGetIterator(d);
-  dictEntry* entry = NULL;
-  while ((entry = dictNext(iter))) {
-    RedisModuleString *data = dictGetVal(entry);
-    RedisModule_FreeString(NULL, data);
-  }
-  dictReleaseIterator(iter);
   dictRelease(d);
 }
 
@@ -60,26 +70,11 @@ dict *Param_DictClone(dict *source) {
   }
 
   dict *clone = Param_DictCreate();
-  if (!clone) {
-    return NULL;
-  }
-
+  dictExpand(clone, dictSize(source));
   dictIterator *iter = dictGetIterator(source);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
-    const char *key = dictGetKey(entry);
-    RedisModuleString *value = dictGetVal(entry);
-
-    // Clone the RedisModuleString value
-    size_t value_len;
-    const char *value_str = RedisModule_StringPtrLen(value, &value_len);
-    RedisModuleString *cloned_value = RedisModule_CreateString(NULL, value_str, value_len);
-
-    // Add to the cloned dict
-    if (dictAdd(clone, (void*)key, (void*)cloned_value) == DICT_ERR) {
-      // If add fails, free the cloned value and continue
-      RedisModule_FreeString(NULL, cloned_value);
-    }
+    dictAdd(clone, dictGetKey(entry), dictGetVal(entry));
   }
   dictReleaseIterator(iter);
 

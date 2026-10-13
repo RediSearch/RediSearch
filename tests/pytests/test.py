@@ -4312,6 +4312,7 @@ def cluster_set_test(env: Env):
         env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', 5)
         env.cmd(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER')
         verify_shard_init(env)
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
 
     password = env.password + "@" if env.password else ""
 
@@ -4467,6 +4468,7 @@ def test_multiple_slot_ranges_per_shard(env: Env):
 @skip(cluster=False) # this test is only relevant on cluster
 def test_cluster_set_multiple_slots(env: Env):
     env.cmd(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER')
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
     num_slots = 16384
     ranges_per_shard = 2
     slot_range_size = math.ceil(num_slots / (env.shardsCount * ranges_per_shard))
@@ -4507,6 +4509,7 @@ def test_cluster_set_multiple_slots(env: Env):
 @skip(cluster=False) # this test is only relevant on cluster
 def test_cluster_set_myself_excluded(env: Env):
     env.cmd(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER')
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
     env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', 1)
 
     # Set two shards, one with all the slots, and one without any slots
@@ -4559,6 +4562,8 @@ def test_cluster_set_myself_excluded(env: Env):
 
 @skip(cluster=True) # only parsing errors are tested, no need for an actual cluster
 def test_cluster_set_errors(env: Env):
+    if not RS_TEST_ENTERPRISE:
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
 
     # Check general values parsing
     env.expect('SEARCH.CLUSTERSET').error().contains('Missing value for MYID')

@@ -1099,6 +1099,7 @@ def test_mod_4375(env):
 def test_mod_6557(env: Env):
   # Set validation timeout to 1ms so that we won't wait for the invalid topology to be validated
   env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
+  env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
   # Set topology to an invalid one (assuming port 9 is not open)
   env.expect('SEARCH.CLUSTERSET',
              'MYID',
@@ -1795,10 +1796,11 @@ def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
     post_count = query_success_count[0]
     env.debugPrint(f"Query success count after config change: {post_count}", force=True)
     env.assertGreater(post_count, pre_count, message="Queries should continue running after config change")
+    # WORKERS 0 keeps the maintenance worker.
     with TimeLimit(10):
-        while (getWorkersThpoolStats(env)['numThreadsAlive'] != 0 or getWorkersThpoolNumThreads(env) != 0):
+        while (getWorkersThpoolStats(env)['numThreadsAlive'] != 1 or getWorkersThpoolNumThreads(env) != 1):
             time.sleep(0.1)
-    check_threads(env, 0, 0)
+    check_threads(env, 1, 1)
 
     # Verify the config change took effect
     # Critical test: Verify Redis is still responsive
@@ -1831,7 +1833,7 @@ def test_mod_11658_avoid_deadlock_while_reducing_num_workers():
     final_search = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '5')
     env.assertTrue(final_search[0] > 0, message="Search should return results at end of test")
 
-    check_threads(env, 0, 0)
+    check_threads(env, 1, 1)
 
 @skip(cluster=False)
 def test_mod_12493(env:Env):
@@ -1930,6 +1932,7 @@ def test_mod_14112(env: Env):
   env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
   # Set validation timeout to 1ms so that we won't wait for the invalid topology to be validated
   env.expect(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', '1').ok()
+  env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
   # Set topology to an invalid one (assuming port 9 is not open)
   env.expect('SEARCH.CLUSTERSET',
              'MYID',

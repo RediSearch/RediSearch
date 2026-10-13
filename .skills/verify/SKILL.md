@@ -137,6 +137,12 @@ failure there and a clean run in the fixed checkout, then clean up with
 ./build.sh RUN_PYTEST ENABLE_ASSERT=1
 ```
 
+### Showing behavior on a live server
+
+Test suites prove what they assert. To show a user-visible change working on a real
+redis-server, or to reproduce a report by hand, follow
+[/drive-redisearch](../drive-redisearch/SKILL.md).
+
 ## Quick Verification
 
 For minor Rust-only changes (subshell keeps the chain readable — one cwd hop, three commands):

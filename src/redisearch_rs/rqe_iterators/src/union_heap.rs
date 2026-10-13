@@ -13,6 +13,7 @@ use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref};
 use rqe_core::DocId;
 
+use crate::union::restore_gathered_metrics;
 use crate::utils::DocIdMinHeap;
 use crate::{IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome};
 use index_spec::IndexSpecReadGuard;
@@ -552,6 +553,10 @@ where
             return Ok(RQEValidateStatus::Ok);
         }
 
+        // A move to another document publishes that document's metrics, drained
+        // afresh by the rebuild; staying put has to restore these.
+        let gathered = std::mem::take(&mut self.result.metrics);
+
         self.rebuild_heap();
         self.num_active = self.heap.len();
 
@@ -607,6 +612,7 @@ where
                     "staying put must leave the position untouched",
                 );
 
+                restore_gathered_metrics::<QUICK_EXIT>(&mut self.result, gathered);
                 return Ok(RQEValidateStatus::Ok);
             }
 
@@ -635,6 +641,7 @@ where
                     "staying put must leave the position untouched",
                 );
 
+                restore_gathered_metrics::<QUICK_EXIT>(&mut self.result, gathered);
                 return Ok(RQEValidateStatus::Ok);
             }
 
@@ -665,6 +672,7 @@ where
 
         // Return MOVED only if lastDocId changed
         if self.last_doc_id() == original_last_doc_id {
+            restore_gathered_metrics::<QUICK_EXIT>(&mut self.result, gathered);
             return Ok(RQEValidateStatus::Ok);
         }
 

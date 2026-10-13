@@ -36,6 +36,7 @@
 #include "query.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
+#include "query_flags.h"
 #include "query_request.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
@@ -166,8 +167,12 @@ static int VectorQuery_ValidateDiskHybridPolicy(const QueryEvalCtx *q, const Vec
   }
 
   if (!VectorQuery_HasParam(vq, VECSIM_HYBRID_POLICY, sizeof(VECSIM_HYBRID_POLICY) - 1)) {
-    QueryError_SetError(q->status, QUERY_ERROR_CODE_INVAL,
-                        "Redis Flex pre-filtered vector queries currently require explicit HYBRID_POLICY");
+    const char *policy = q->reqFlags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY
+                             ? "FILTER ... POLICY"
+                             : "HYBRID_POLICY";
+    QueryError_SetWithoutUserDataFmt(
+        q->status, QUERY_ERROR_CODE_INVAL,
+        "Redis Flex pre-filtered vector queries currently require explicit %s", policy);
     return REDISMODULE_ERR;
   }
 
@@ -275,7 +280,7 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
     return 0;
   }
   size_t val_len;
-  const char *val = Param_DictGet(paramsDict, params.params[index].value, &val_len, status);
+  const char *val = Param_DictGet(paramsDict, params.params[index].value, params.params[index].valLen, &val_len, status);
   if (!val) {
     return -1;
   }

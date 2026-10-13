@@ -172,6 +172,21 @@ static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
   return REDISMODULE_OK;
 }
 
+static int parseRerankClause(ArgsCursor *ac, VectorQuery *vq, bool *hasRerank, QueryError *status) {
+  if (*hasRerank) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate RERANK argument");
+    return REDISMODULE_ERR;
+  }
+  if (CheckEnd(ac, "RERANK", status) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  }
+  size_t valueLen;
+  const char *value = AC_GetStringNC(ac, &valueLen);
+  addVectorQueryParam(vq, VECSIM_RERANK, sizeof(VECSIM_RERANK) - 1, value, valueLen);
+  *hasRerank = true;
+  return REDISMODULE_OK;
+}
+
 static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
   // VSIM @vectorfield vector KNN ...
   //                              ^
@@ -190,6 +205,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   }
 
   bool hasEF = false;
+  bool hasRerank = false;
   bool hasShardKRatio = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
@@ -230,6 +246,11 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       // Add directly to VectorQuery params
       addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
       hasEF = true;
+
+    } else if (AC_AdvanceIfMatch(ac, "RERANK")) {
+      if (parseRerankClause(ac, vq, &hasRerank, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
 
     } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
       if (hasShardKRatio) {
@@ -274,6 +295,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
 
   bool hasRadius = false;
   bool hasEpsilon = false;
+  bool hasRerank = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
   for (int i=0; i<argumentCount; i+=2) {
@@ -313,6 +335,11 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       // Add directly to VectorQuery params
       addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, valueLen);
       hasEpsilon = true;
+
+    } else if (AC_AdvanceIfMatch(ac, "RERANK")) {
+      if (parseRerankClause(ac, vq, &hasRerank, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
 
     } else {
       const char *current;
@@ -533,17 +560,8 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
 final:
-  // No explicit FILTER: the sub-request has no query argument, and AREQ_Query
-  // defaults to matching everything ("*").
-  // For RANGE queries without explicit FILTER, we also set skipFilterIntegration
-  // so the vector node becomes the root directly (no PHRASE/intersection needed).
-  // This preserves BY_SCORE ordering from the iterator.
   if (vreq->base.args.queryOffset == QUERY_OFFSET_NONE) {
-    // For RANGE without explicit filter, skip the filter integration
-    // so the vector node is the root and returns results sorted by score.
-    if (vq->type == VECSIM_QT_RANGE) {
-      pvd->skipFilterIntegration = true;
-    }
+    pvd->skipFilterIntegration = true;
   }
 
   // Set vector data in VectorQuery based on type (KNN vs RANGE)
@@ -599,14 +617,8 @@ static void copyCursorConfig(CursorConfig *dest, const CursorConfig *src) {
 // Helper function to copy hybrid request configuration to a single subquery
 static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
                                       ParseHybridCommandCtx *parsedCmdCtx,
-                                      RSSearchOptions *mergeSearchopts,
                                       uint32_t mergeReqflags, size_t maxHybridResults,
                                       ProfileOptions profileOptions) {
-  // Copy parameters if they exist
-  if (mergeSearchopts->params) {
-    subqueryRequest->searchopts.params = Param_DictClone(mergeSearchopts->params);
-  }
-
   // Copy cursor configuration and flags if cursor is enabled
   if (mergeReqflags & QEXEC_F_IS_CURSOR) {
     // We need to turn on the cursor flag so the cursor id will be sent back when reading from the cursor
@@ -927,13 +939,14 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Copy hybrid request configuration to each subquery
   copyHybridConfigToSubquery(searchRequest, parsedCmdCtx,
-                            &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
+                            *mergeReqflags, maxHybridResults, profileOptions);
   copyHybridConfigToSubquery(vectorRequest, parsedCmdCtx,
-                            &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
+                            *mergeReqflags, maxHybridResults, profileOptions);
 
-  // Clean up merge search options after copying
+  // Each subquery frees its own params dict, so one gets a clone and the other takes the original.
   if (mergeSearchopts.params) {
-    Param_DictFree(mergeSearchopts.params);
+    searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
+    vectorRequest->searchopts.params = mergeSearchopts.params;
     mergeSearchopts.params = NULL;
   }
 

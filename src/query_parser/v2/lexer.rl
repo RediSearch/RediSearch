@@ -78,10 +78,8 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
 
     if(is_attr) {
       tok.s++;
-      // Remove trailing spaces from attribute
-      while (isspace(*(tok.s + tok.len - 1))) {
-        --tok.len;
-      }
+      // `te` is one past the match, so the length above also covers the next character.
+      tok.len = te - tok.s;
       RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
     } else {
       char *ne = (char*)te;
