@@ -35,6 +35,31 @@
 #include "util/references.h"
 #include "util/timeout.h"
 
+/** Debug-only shift applied to `RedisSearchCtx::currentTime`. See `SearchCtx_SetMockQueryTimeOffsetMS`. */
+static int64_t mockQueryTimeOffsetMS = 0;
+
+void SearchCtx_SetMockQueryTimeOffsetMS(int64_t offsetMS) {
+  __atomic_store_n(&mockQueryTimeOffsetMS, offsetMS, __ATOMIC_RELAXED);
+}
+
+int64_t SearchCtx_GetMockQueryTimeOffsetMS(void) {
+  return __atomic_load_n(&mockQueryTimeOffsetMS, __ATOMIC_RELAXED);
+}
+
+/** Apply the debug offset to an already-stamped wall-clock instant. */
+static inline void applyMockQueryTimeOffset(struct timespec *current) {
+  const int64_t offsetMS = __atomic_load_n(&mockQueryTimeOffsetMS, __ATOMIC_RELAXED);
+  if (offsetMS == 0) {
+    return;
+  }
+  int64_t ns = (int64_t)current->tv_sec * 1000000000LL + current->tv_nsec + offsetMS * 1000000LL;
+  if (ns < 0) {
+    ns = 0;
+  }
+  current->tv_sec = ns / 1000000000LL;
+  current->tv_nsec = ns % 1000000000LL;
+}
+
 static inline void updateTime(struct timespec *currentTime) {
   if (RS_IsMock) return;
 #ifdef CLOCK_REALTIME_COARSE
@@ -43,6 +68,8 @@ static inline void updateTime(struct timespec *currentTime) {
   // In some mac systems CLOCK_REALTIME_COARSE is not defined, we fallback to CLOCK_REALTIME
   clock_gettime(CLOCK_REALTIME, currentTime);
 #endif
+
+  applyMockQueryTimeOffset(currentTime);
 }
 
 /**
