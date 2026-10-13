@@ -11,7 +11,7 @@ use redis_json_api::mock::{json_api_calls, reset_json_api_calls, with_json_api};
 use redis_module::RedisString;
 use rlookup::{
     DocumentFormat, FieldLoader, JsonDocumentFormat, JsonPathCache, LoadAllError, RLookup,
-    RLookupKeyFlags, RLookupRow,
+    RLookupKey, RLookupKeyFlags, RLookupRow,
 };
 use serde_json::{Value as JsonValue, json};
 use std::{
@@ -164,7 +164,7 @@ fn compiles_once_reuses_across_documents_and_frees_on_drop() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // RedisModule_CreateString crosses the C FFI boundary.
-fn empty_entries_preserve_positions_and_malformed_paths_fall_back() {
+fn empty_entries_preserve_positions_and_malformed_paths_are_not_retried() {
     redis_mock::init_redis_module_mock();
     reset_json_api_calls();
     let paths = [
@@ -194,7 +194,7 @@ fn empty_entries_preserve_positions_and_malformed_paths_fall_back() {
                 calls.get_with_path,
                 calls.get
             ),
-            (3, 2, 1)
+            (3, 2, 0)
         );
         drop(cache);
         assert_eq!(json_api_calls().path_free, 2);
@@ -297,7 +297,7 @@ fn cached_root_load_preserves_errors_without_writing_a_value() {
 }
 
 unsafe extern "C" {
-    fn JsonPathCache_New(keys: *const *const ffi::RLookupKey, nkeys: usize) -> *mut c_void;
+    fn JsonPathCache_New(keys: *const *const RLookupKey, nkeys: usize) -> *mut c_void;
     fn JsonPathCache_Free(cache: *mut c_void);
 }
 
@@ -375,7 +375,6 @@ fn ffi_constructor_compiles_root_and_fields_and_frees_handles() {
                     .get_key_load_ptr(path, path, RLookupKeyFlags::empty())
                     .unwrap()
                     .as_ptr()
-                    .cast::<ffi::RLookupKey>()
                     .cast_const()
             })
             .collect();

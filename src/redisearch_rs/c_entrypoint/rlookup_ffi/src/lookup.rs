@@ -705,13 +705,13 @@ pub struct LoadIndividualKeysOptions {
 /// # Safety
 ///
 /// 1. The RedisJSON module must be initialized.
-/// 2. When `nkeys` is nonzero, `keys` must point to `nkeys` [valid], non-null lookup keys
+/// 2. When `nkeys` is nonzero, `keys` must point to `nkeys` [valid], non-null [`RLookupKey`]s
 ///    whose path bytes remain [valid] until the returned cache is freed.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn JsonPathCache_New(
-    keys: *const *const ffi::RLookupKey,
+    keys: *const *const RLookupKey,
     nkeys: size_t,
 ) -> *mut JsonPathCache {
     // SAFETY: ensured by caller (1.).
@@ -725,8 +725,8 @@ pub unsafe extern "C" fn JsonPathCache_New(
         // SAFETY: ensured by caller (2.).
         let keys = unsafe { slice::from_raw_parts(keys, nkeys) };
         let paths = keys.iter().map(|&key| {
-            // SAFETY: caller (2.); the generated bindings match the Rust lookup-key layout.
-            let key = unsafe { &*key.cast::<RLookupKey<'_>>() };
+            // SAFETY: caller (2.).
+            let key = unsafe { key.as_ref() }.expect("Key must not be null");
             key.path().as_deref()
         });
         // SAFETY: ensured by caller (2.).

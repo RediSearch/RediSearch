@@ -156,7 +156,7 @@ void JsonPathCache_Free(struct JsonPathCache *paths);
  * # Safety
  *
  * 1. The RedisJSON module must be initialized.
- * 2. When `nkeys` is nonzero, `keys` must point to `nkeys` [valid], non-null lookup keys
+ * 2. When `nkeys` is nonzero, `keys` must point to `nkeys` [valid], non-null [`RLookupKey`]s
  *    whose path bytes remain [valid] until the returned cache is freed.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

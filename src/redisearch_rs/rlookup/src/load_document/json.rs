@@ -29,7 +29,7 @@ pub struct JsonPathCache {
 }
 
 impl JsonPathCache {
-    /// Compiles JSON paths, leaving sentinels and malformed paths on the string-loading path.
+    /// Compiles JSON paths, leaving empty entries for sentinels and malformed paths.
     ///
     /// # Safety
     ///
@@ -210,14 +210,28 @@ impl FieldLoader for JsonFieldLoader<'_> {
         key: &RLookupKey,
         dst_row: &mut RLookupRow,
     ) -> Result<(), LoadFieldError> {
-        match self.path_cache.and_then(|cache| cache.get(index)) {
-            Some(path) => self.load_field_with_path(key, dst_row, path),
+        match self.path_cache {
+            Some(cache) => self.load_field_with_path_cache(index, key, dst_row, cache),
             None => self.load_field_without_path_cache(key, dst_row),
         }
     }
 }
 
 impl JsonFieldLoader<'_> {
+    fn load_field_with_path_cache(
+        &self,
+        index: usize,
+        key: &RLookupKey,
+        dst_row: &mut RLookupRow,
+        cache: &JsonPathCache,
+    ) -> Result<(), LoadFieldError> {
+        match cache.get(index) {
+            Some(path) => self.load_field_with_path(key, dst_row, path),
+            // Failed compilation must not be retried for every document.
+            None => self.load_document_key(key, dst_row),
+        }
+    }
+
     fn load_field_with_path(
         &self,
         key: &RLookupKey,
@@ -240,21 +254,21 @@ impl JsonFieldLoader<'_> {
             None => return Ok(()),
         };
 
-        // A path starting with `$` is a JSONPath expression to evaluate against the document.
-        // Anything else is a sentinel — currently only `__key`, which resolves to the document key.
-        // For per-field loads, "field absent" is not an error — we just leave it unset
-        // and continue. Only hard failures bubble up as `Err`.
-        let val = if path.to_bytes().starts_with(JSON_ROOT.to_bytes()) {
-            return self.load_field_from_iter(key, dst_row, self.value.get(path));
-        } else if path == UNDERSCORE_KEY {
-            SharedValue::new_string(self.key_name.to_vec())
+        if path.to_bytes().starts_with(JSON_ROOT.to_bytes()) {
+            self.load_field_from_iter(key, dst_row, self.value.get(path))
         } else {
-            // Path is neither a JSONPath nor a recognized sentinel — nothing to load.
-            return Ok(());
-        };
+            self.load_document_key(key, dst_row)
+        }
+    }
 
-        dst_row.write_key(key, val);
-
+    fn load_document_key(
+        &self,
+        key: &RLookupKey,
+        dst_row: &mut RLookupRow,
+    ) -> Result<(), LoadFieldError> {
+        if key.path().as_deref() == Some(UNDERSCORE_KEY) {
+            dst_row.write_key(key, SharedValue::new_string(self.key_name.to_vec()));
+        }
         Ok(())
     }
 
