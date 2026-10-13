@@ -6,9 +6,9 @@ auto-merge, or bypass branch rules. Required CI and the merge queue still apply.
 
 ## Components
 
-- `.github/workflows/task-fast-track.yml` is the only trigger: a manual Actions run
+- `.github/workflows/flow-fast-track.yml` is the only trigger: a manual Actions run
   taking a PR number. Run it from the default branch.
-- `.github/workflows/flow-fast-track.yml` is the reusable orchestration. It serializes
+- `.github/workflows/task-fast-track.yml` is the reusable implementation. It serializes
   requests for the same PR and creates a write token only after validation succeeds.
 - `approval.py validate` reads GitHub and Jira and records a decision, including its
   reason, ticket, requester, title, target branch, and head SHA.
