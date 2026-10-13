@@ -445,24 +445,6 @@ void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
  */
 size_t SearchDisk_GetLiveSnapshotCount(void);
 
-/**
- * @brief Reference-counted owner of a disk snapshot, so several users can share one.
- *
- * The snapshot is released through `SearchDisk_FreeSnapshot` by whoever drops the last
- * reference. Every user must therefore free the iterators and pools that borrow the snapshot
- * before releasing its own reference.
- */
-typedef struct DiskSnapshotRef DiskSnapshotRef;
-
-/** Wrap `snapshot` (non-NULL) in a handle holding one reference, and take ownership of it. */
-DiskSnapshotRef *DiskSnapshotRef_New(RedisSearchDiskSnapshot *snapshot);
-
-/** Take another reference. Returns `ref`. Safe to call from any thread. */
-DiskSnapshotRef *DiskSnapshotRef_Retain(DiskSnapshotRef *ref);
-
-/** Drop one reference; the last one frees the snapshot. Safe to call from any thread. */
-void DiskSnapshotRef_Release(DiskSnapshotRef *ref);
-
 // DocTable API wrappers
 
 /**

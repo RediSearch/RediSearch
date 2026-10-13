@@ -15,6 +15,7 @@
 #include "rmutil/rm_assert.h"
 #include "search_disk_api.h"
 #include "spec.h"
+#include "util/references.h"
 #include <time.h>
 
 #ifdef __cplusplus
@@ -22,7 +23,6 @@ extern "C" {
 #endif
 
 struct QueryRequestTimeout;
-struct DiskSnapshotRef;
 
 #if defined(__FreeBSD__)
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
@@ -51,7 +51,7 @@ typedef struct RedisSearchCtx {
   // Owning reference to `diskSnapshot`, released by SearchCtx_CleanUp. Contexts of one hybrid
   // request hold separate references to a single shared snapshot. Appended after
   // `diskSnapshot` so the layout the disk backend reads is unchanged.
-  struct DiskSnapshotRef *diskSnapshotRef;
+  StrongRef diskSnapshotRef;
 } RedisSearchCtx;
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
@@ -73,7 +73,7 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .currentTime = { 0, 0 },
                           .timeout = NULL,
                           .diskSnapshot = NULL,
-                          .diskSnapshotRef = NULL,};
+                          .diskSnapshotRef = INVALID_STRONG_REF,};
   return sctx;
 }
 
