@@ -59,6 +59,7 @@ class DiskOpenFieldsTest : public ::testing::Test {
   // The spec's field count seen by each openFields call.
   static inline std::vector<size_t> numFieldsAtOpen;
   static inline bool openFieldsResult = true;
+  static inline bool initMissingResult = true;
   static inline int closeOnMainThreadCalls = 0;
   static inline int closeIndexSpecCalls = 0;
   static inline int rdbStateToken = 0;
@@ -70,6 +71,7 @@ class DiskOpenFieldsTest : public ::testing::Test {
     openCalls.clear();
     numFieldsAtOpen.clear();
     openFieldsResult = true;
+    initMissingResult = true;
     closeOnMainThreadCalls = closeIndexSpecCalls = 0;
 
     api.basic.updateMemoryLimit = [](RedisSearchDisk *, size_t, size_t) { return true; };
@@ -100,7 +102,7 @@ class DiskOpenFieldsTest : public ::testing::Test {
     api.index.markToBeDeleted = [](RedisSearchDiskIndexSpec *) {};
     api.index.initializeMissingStorage = [](RedisModuleCtx *, RedisSearchDiskIndexSpec *) {
       events.emplace_back("initializeMissingStorage");
-      return true;
+      return initMissingResult;
     };
     api.index.openFields = [](RedisModuleCtx *, RedisSearchDiskIndexSpec *index,
                               const SearchDiskFieldOpen *fields, size_t n) {
@@ -193,7 +195,8 @@ TEST_F(DiskOpenFieldsTest, CreateWithSchemaErrorOpensNoField) {
   EXPECT_TRUE(openCalls.empty());
 }
 
-TEST_F(DiskOpenFieldsTest, CreateWithMoreThanSixteenFieldsPassesEveryField) {
+// Wide enough to outgrow the hook's on-stack descriptor buffer.
+TEST_F(DiskOpenFieldsTest, CreateWithWideSchemaPassesEveryField) {
   std::vector<std::string> names;
   for (int i = 0; i < 20; ++i) names.push_back("f" + std::to_string(i));
   std::vector<const char *> schema;
@@ -218,17 +221,51 @@ TEST_F(DiskOpenFieldsTest, AlterOpensOnlyAddedFields) {
   ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
   openCalls.clear();
   events.clear();
+  numFieldsAtOpen.clear();
 
-  ASSERT_TRUE(alter(sp, withVector({"price", "NUMERIC"}, "v"), &err))
+  ASSERT_TRUE(alter(sp, withVector({"price", "NUMERIC", "more", "TAG"}, "v"), &err))
       << QueryError_GetUserError(&err);
 
   EXPECT_EQ(events, std::vector<std::string>{"openFields"});
   ASSERT_EQ(openCalls.size(), 1u);
-  EXPECT_EQ(numFieldsAtOpen.back(), 4u);
+  EXPECT_EQ(numFieldsAtOpen, std::vector<size_t>{5});
   EXPECT_EQ(openCalls[0], (std::vector<Desc>{
                               {2, INDEXFLD_T_NUMERIC, 0},
-                              {3, INDEXFLD_T_VECTOR, 4 * sizeof(float)},
+                              {3, INDEXFLD_T_TAG, 0},
+                              {4, INDEXFLD_T_VECTOR, 4 * sizeof(float)},
                           }));
+  EXPECT_NE(field(sp, "more")->tagOpts.tagIndex, nullptr);
+}
+
+TEST_F(DiskOpenFieldsTest, FailedMissingStorageInitFailsAlterBeforeOpeningFields) {
+  QueryError err = QueryError_Default();
+  IndexSpec *sp = create("open_fields_alter_missing_fail", {"title", "TEXT"}, &err);
+  ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+  events.clear();
+  openCalls.clear();
+
+  initMissingResult = false;
+  EXPECT_FALSE(alter(sp, {"tags", "TAG", "INDEXMISSING"}, &err));
+  EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_DISK_CREATION);
+  QueryError_ClearError(&err);
+
+  EXPECT_EQ(events, std::vector<std::string>{"initializeMissingStorage"});
+  EXPECT_TRUE(openCalls.empty());
+  EXPECT_EQ(sp->numFields, 1);
+  EXPECT_FALSE(IndexSpec_HasIndexMissing(sp));
+}
+
+TEST_F(DiskOpenFieldsTest, FailedMissingStorageInitFailsCreate) {
+  initMissingResult = false;
+  QueryError err = QueryError_Default();
+  EXPECT_EQ(create("open_fields_create_missing_fail", {"tags", "TAG", "INDEXMISSING"}, &err),
+            nullptr);
+  EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_DISK_CREATION);
+  QueryError_ClearError(&err);
+
+  EXPECT_TRUE(openCalls.empty());
+  EXPECT_EQ(StrongRef_Get(Indexes_LoadIndexSpecUnsafe("open_fields_create_missing_fail")), nullptr);
+  EXPECT_EQ(closeOnMainThreadCalls, 1);
 }
 
 TEST_F(DiskOpenFieldsTest, AlterAddingIndexMissingInitializesMissingStorageFirst) {
@@ -310,6 +347,7 @@ class DiskOpenFieldsLoadTest : public DiskOpenFieldsTest {
     ASSERT_NE(loaded, nullptr) << QueryError_GetUserError(&err);
     events.clear();
     openCalls.clear();
+    closeOnMainThreadCalls = closeIndexSpecCalls = 0;
   }
 
   void TearDown() override {
@@ -331,7 +369,8 @@ const std::vector<Desc> kLoadedFields = {
 };
 
 TEST_F(DiskOpenFieldsLoadTest, RdbLoadOpensAllFieldsOnce) {
-  saveAndLoad("open_fields_rdb", withVector({"title", "TEXT", "tags", "TAG", "INDEXMISSING"}, "v"));
+  ASSERT_NO_FATAL_FAILURE(saveAndLoad(
+      "open_fields_rdb", withVector({"title", "TEXT", "tags", "TAG", "INDEXMISSING"}, "v")));
 
   QueryError err = QueryError_Default();
   ASSERT_EQ(IndexSpec_RdbLoadOpenDisk(RSDummyContext, loaded, false, &err), REDISMODULE_OK)
@@ -344,9 +383,24 @@ TEST_F(DiskOpenFieldsLoadTest, RdbLoadOpensAllFieldsOnce) {
   EXPECT_EQ(loaded->fields[2].vectorOpts.diskCtx.storage, loaded->diskSpec);
 }
 
-TEST_F(DiskOpenFieldsLoadTest, SstLoadOpensAllFieldsOnce) {
-  // Without vector fields: their eager creation on this path is out of scope here.
-  saveAndLoad("open_fields_sst", {"title", "TEXT", "tags", "TAG", "INDEXMISSING"});
+TEST_F(DiskOpenFieldsLoadTest, RdbLoadFailsWhenOpeningFieldsFails) {
+  ASSERT_NO_FATAL_FAILURE(saveAndLoad("open_fields_rdb_fail", {"title", "TEXT", "tags", "TAG"}));
+
+  openFieldsResult = false;
+  QueryError err = QueryError_Default();
+  EXPECT_EQ(IndexSpec_RdbLoadOpenDisk(RSDummyContext, loaded, false, &err), REDISMODULE_ERR);
+  EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_DISK_CREATION);
+  QueryError_ClearError(&err);
+
+  EXPECT_EQ(openCalls.size(), 1u);
+  EXPECT_EQ(closeOnMainThreadCalls, 1);
+}
+
+// Loads through the non-SST path and plants the pending state, so vector fields, which SST load
+// creates up front, are left out.
+TEST_F(DiskOpenFieldsLoadTest, SstOpenOpensNonVectorFieldsOnce) {
+  ASSERT_NO_FATAL_FAILURE(
+      saveAndLoad("open_fields_sst", {"title", "TEXT", "tags", "TAG", "INDEXMISSING"}));
   loaded->pendingDiskRdbState = reinterpret_cast<RedisSearchDiskRdbState *>(&rdbStateToken);
 
   ASSERT_TRUE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));

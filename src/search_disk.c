@@ -449,7 +449,8 @@ bool SearchDisk_InitializeMissingStorage(RedisModuleCtx *ctx, RedisSearchDiskInd
 
 bool SearchDisk_OpenFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
                            const SearchDiskFieldOpen *fields, size_t numFields) {
-  RS_ASSERT(disk);
+  RS_ASSERT(disk && index && (fields || numFields == 0));
+  RS_ASSERT(disk->index.openFields);
   return disk->index.openFields(ctx, index, fields, numFields);
 }
 
