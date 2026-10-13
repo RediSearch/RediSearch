@@ -98,10 +98,57 @@ int testSynonymGetReadOnlyCopy() {
   RETURN_TEST_SUCCESS
 }
 
+int testSynonymLookupBuffer() {
+  SynonymMap* smap = SynonymMap_New(false);
+  const char* values[] = {"val", "value", ""};
+  ASSERT(SynonymMap_Add(smap, "g1", values, 3) == SYNONYM_MAP_OK);
+  const char token[] = {'v', 'a', 'l'};
+  TermData* term = SynonymMap_GetIdsBySynonym(smap, token, sizeof(token));
+  ASSERT(term);
+  ASSERT_STRING_EQ(term->groupIds[0], "~g1");
+  ASSERT(SynonymMap_GetIdsBySynonym(smap, "value suffix", 5));
+  ASSERT(!SynonymMap_GetIdsBySynonym(smap, token, 2));
+  ASSERT(SynonymMap_GetIdsBySynonym(smap, token, 0));
+  const char embedded_nul[] = {'v', 'a', 'l', '\0', 'x'};
+  ASSERT(!SynonymMap_GetIdsBySynonym(smap, embedded_nul, sizeof(embedded_nul)));
+  SynonymMap_Free(smap);
+  RETURN_TEST_SUCCESS;
+}
+
+int testSynonymLookupLongToken() {
+  const size_t len = 16 * 1024 * 1024;
+  char* token = rm_malloc(len + 1);
+  memset(token, 'x', len);
+  token[len] = '\0';
+  SynonymMap* smap = SynonymMap_New(false);
+  const char* values[] = {"short"};
+  ASSERT(SynonymMap_Add(smap, "g1", values, 1) == SYNONYM_MAP_OK);
+  ASSERT(!SynonymMap_GetIdsBySynonym(smap, token, len));
+
+  const char* long_values[] = {token};
+  ASSERT(SynonymMap_Add(smap, "g2", long_values, 1) == SYNONYM_MAP_OK);
+  TermData* term = SynonymMap_GetIdsBySynonym(smap, token, len);
+  ASSERT(term);
+  ASSERT_STRING_EQ(term->groupIds[0], "~g2");
+  SynonymMap* snapshot = SynonymMap_GetReadOnlyCopy(smap);
+  ASSERT(SynonymMap_Update(smap, long_values, 1, "g3") == SYNONYM_MAP_OK);
+  ASSERT(array_len(SynonymMap_GetIdsBySynonym(smap, token, len)->groupIds) == 2);
+  SynonymMap_Free(smap);
+  term = SynonymMap_GetIdsBySynonym(snapshot, token, len);
+  ASSERT(term);
+  ASSERT(array_len(term->groupIds) == 1);
+  ASSERT_STRING_EQ(term->groupIds[0], "~g2");
+  SynonymMap_Free(snapshot);
+  rm_free(token);
+  RETURN_TEST_SUCCESS;
+}
+
 TEST_MAIN({
   // LOGGING_INIT(L_INFO);
   RMUTil_InitAlloc();
   TESTFUNC(testSynonymMapAddGetId);
   TESTFUNC(testSynonymUpdate);
   TESTFUNC(testSynonymGetReadOnlyCopy);
+  TESTFUNC(testSynonymLookupBuffer);
+  TESTFUNC(testSynonymLookupLongToken);
 });
