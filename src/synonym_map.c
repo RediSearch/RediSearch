@@ -383,7 +383,9 @@ void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver) {
     }
     TermData* t_data = TermData_RdbLoad(rdb, encver);
     if (t_data == NULL) goto cleanup;
-    synonymMapAddTerm(smap, t_data);
+    if (synonymMapAddTerm(smap, t_data) != DICT_OK) {
+      TermData_Free(t_data);
+    }
   }
   return smap;
 

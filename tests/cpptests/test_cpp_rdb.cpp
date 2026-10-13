@@ -627,6 +627,45 @@ TEST_F(RdbMockTest, testSynonymMapRdbLoadValidGroupIds) {
     EXPECT_EQ(2, array_len(td->groupIds));
 }
 
+TEST_F(RdbMockTest, testSynonymMapRdbLoadDuplicateTerms) {
+  for (int encver : {INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID, INDEX_CURRENT_VERSION}) {
+    SCOPED_TRACE(encver);
+    std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(),
+                                                                 RMCK_FreeRdbIO);
+    ASSERT_NE(io, nullptr);
+    const bool integerGroups = encver <= INDEX_MIN_WITH_SYNONYMS_INT_GROUP_ID;
+    if (integerGroups) RMCK_SaveUnsigned(io.get(), 0);
+    RMCK_SaveUnsigned(io.get(), 3);
+    const char *terms[] = {"duplicate", "duplicate", "unique"};
+    const char *groups[] = {"1", "2", "3"};
+    for (size_t i = 0; i < std::size(terms); ++i) {
+      if (integerGroups) RMCK_SaveUnsigned(io.get(), 0);
+      RMCK_SaveStringBuffer(io.get(), terms[i], strlen(terms[i]) + 1);
+      RMCK_SaveUnsigned(io.get(), 1);
+      if (integerGroups) {
+        RMCK_SaveUnsigned(io.get(), i + 1);
+      } else {
+        RMCK_SaveStringBuffer(io.get(), groups[i], 1);
+      }
+    }
+    io->read_pos = 0;
+    std::unique_ptr<SynonymMap, decltype(&SynonymMap_Free)> smap(
+        static_cast<SynonymMap *>(SynonymMap_RdbLoad(io.get(), encver)), SynonymMap_Free);
+    ASSERT_NE(smap, nullptr);
+    EXPECT_EQ(RMCK_IsIOError(io.get()), 0);
+    EXPECT_EQ(dictSize(smap->h_table), 2);
+    // Preserve the first duplicate's IDs and continue loading the following term.
+    TermData *duplicate = SynonymMap_GetIdsBySynonym_cstr(smap.get(), "duplicate");
+    ASSERT_NE(duplicate, nullptr);
+    ASSERT_EQ(array_len(duplicate->groupIds), 1);
+    EXPECT_STREQ(duplicate->groupIds[0], "~1");
+    TermData *unique = SynonymMap_GetIdsBySynonym_cstr(smap.get(), "unique");
+    ASSERT_NE(unique, nullptr);
+    ASSERT_EQ(array_len(unique->groupIds), 1);
+    EXPECT_STREQ(unique->groupIds[0], "~3");
+  }
+}
+
 TEST_F(RdbMockTest, testStopWordListRdbRoundTrip) {
     // A stopword list is written as a count followed by the already-folded
     // keys, and read back without folding again — so a round trip is only an
