@@ -17,6 +17,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 
 
 LABEL = "ai-fast-track"
@@ -134,6 +135,37 @@ def validate(github, jira, repository, pr_number, requester):
         return Decision(False, "Malformed API response or input", **decision)
 
 
+def reviews_for_pr(github, path):
+    """Iterate every review, including entries outside the first API page."""
+    page = 1
+    while True:
+        reviews = github.request(f"{path}/reviews?per_page=100&page={page}")
+        yield from reviews
+        if len(reviews) < 100:
+            return
+        page += 1
+
+
+def reconcile_submission(github, path, bot_login, head_sha, submission_marker):
+    """Best-effort revocation when the POST response cannot establish its outcome."""
+    found = False
+    try:
+        for review in reviews_for_pr(github, path):
+            if (review["user"]["login"] == bot_login
+                    and review["commit_id"] == head_sha
+                    and submission_marker in (review["body"] or "")):
+                found = True
+                if review["state"] == "APPROVED":
+                    github.request(f"{path}/reviews/{review['id']}/dismissals", "PUT", {
+                        "message": "Fast-track submission outcome was ambiguous; revoking this attempt."
+                    })
+    except Exception:
+        raise Rejected("Approval submission and reconciliation failed; inspect PR reviews manually") from None
+    if not found:
+        raise Rejected("Approval submission uncertain; no matching review visible yet; inspect PR reviews manually")
+    raise Rejected("Approval submission failed; matching review reconciled; request approval again")
+
+
 def approve(github, jira, decision, bot_login, run_url):
     """Revalidate authority and approve only the recorded revision."""
     if not decision.eligible:
@@ -144,22 +176,18 @@ def approve(github, jira, decision, bot_login, run_url):
         raise Rejected("Approval App must not be the PR author")
     path = f"/repos/{decision.repository}/pulls/{decision.pr_number}"
     latest = None
-    page = 1
-    while True:
-        reviews = github.request(f"{path}/reviews?per_page=100&page={page}")
-        for review in reviews:
-            if review["user"]["login"] == bot_login and review["state"] != "COMMENTED":
-                if latest is None or review["id"] > latest["id"]:
-                    latest = review
-        if len(reviews) < 100:
-            break
-        page += 1
+    for review in reviews_for_pr(github, path):
+        if review["user"]["login"] == bot_login and review["state"] != "COMMENTED":
+            if latest is None or review["id"] > latest["id"]:
+                latest = review
     # Pagination may take time; refresh external authority after it completes.
     fresh = validate(github, jira, decision.repository, decision.pr_number, decision.requester)
     if not fresh.eligible:
         raise Rejected(fresh.reason)
     if fresh != decision:
         raise Rejected("Validated PR changed; request approval again")
+    if latest:
+        latest = github.request(f"{path}/reviews/{latest['id']}")
     if (latest and latest["state"] == "APPROVED"
             and latest["commit_id"] == decision.head_sha
             and MARKER in (latest["body"] or "")
@@ -173,11 +201,12 @@ def approve(github, jira, decision, bot_login, run_url):
     snapshot = snapshot[:4] + (snapshot[4].casefold(),) + snapshot[5:]
     if snapshot != expected:
         raise Rejected("PR changed before approval; request approval again")
-    review = github.request(path + "/reviews", "POST", {
+    submission_marker = f"<!-- fast-track-submission:{uuid.uuid4()} -->"
+    payload = {
         "event": "APPROVE",
         "commit_id": decision.head_sha,
         "body": (
-            f"{MARKER}\nPolicy approval: Jira `{LABEL}` (not a code review).\n\n"
+            f"{MARKER}\n{submission_marker}\nPolicy approval: Jira `{LABEL}` (not a code review).\n\n"
             f"Ticket: {decision.ticket}\n"
             f"{JIRA_URL}/browse/{decision.ticket}\n\n"
             f"Requested by: @{decision.requester}\n"
@@ -185,7 +214,13 @@ def approve(github, jira, decision, bot_login, run_url):
             f"Workflow: {run_url}\n\n"
             "CI and merge-queue requirements remain in force."
         ),
-    })
+    }
+    try:
+        review = github.request(path + "/reviews", "POST", payload)
+        if not isinstance(review.get("id"), int):
+            raise Rejected("Malformed approval response")
+    except Exception:
+        reconcile_submission(github, path, bot_login, decision.head_sha, submission_marker)
     # The reviews API has no compare-and-swap. Compensate if the PR changes
     # during submission; branch rules also require approval of the latest push.
     try:

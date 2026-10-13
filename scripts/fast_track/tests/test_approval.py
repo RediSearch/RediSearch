@@ -66,7 +66,9 @@ class FakeAPI:
         if "/reviews?" in path:
             page = int(path.rsplit("=", 1)[1])
             self.on_review_page(page)
-            return self.reviews[(page - 1) * 100:page * 100]
+            return copy.deepcopy(self.reviews[(page - 1) * 100:page * 100])
+        if path.startswith(PATH + "/reviews/"):
+            return copy.deepcopy(next(r for r in self.reviews if r["id"] == int(path.rsplit("/", 1)[1])))
         raise AssertionError(path)
 
 
@@ -187,6 +189,75 @@ class ApprovalTests(unittest.TestCase):
                     self.run_approval(decision)
                 self.assertEqual(pages, [1, 2])
                 self.assertEqual(self.writes(), [])
+
+    def test_dismissal_during_validation_refreshes_duplicate_state(self):
+        self.github.reviews = [{"id": 1, "user": {"login": BOT}, "state": "APPROVED",
+                                "commit_id": SHA, "body": f"{MARKER}\nTicket: MOD-123\n"}]
+        decision = self.decision()
+        original = self.jira.request
+
+        def dismiss_while_validating(*args, **kwargs):
+            self.github.reviews[0]["state"] = "DISMISSED"
+            return original(*args, **kwargs)
+
+        with patch.object(self.jira, "request", side_effect=dismiss_while_validating):
+            self.run_approval(decision)
+        self.assertEqual([method for _, method, _ in self.writes()], ["POST"])
+
+    def test_ambiguous_submission_revokes_only_this_attempt(self):
+        for failure in ("connection", "malformed"):
+            with self.subTest(failure=failure):
+                self.setUp()
+                decision = self.decision()
+                original = self.github.request
+
+                def lose_response(path, method="GET", body=None):
+                    if method == "POST":
+                        original(path, method, body)
+                        self.github.reviews = [
+                            {"id": i, "user": {"login": "someone"}, "state": "COMMENTED"}
+                            for i in range(100)
+                        ] + [
+                            {"id": 100, "user": {"login": BOT}, "state": "APPROVED",
+                             "commit_id": SHA, "body": MARKER},
+                            {"id": 999, "user": {"login": BOT}, "state": "APPROVED",
+                             "commit_id": SHA, "body": body["body"]},
+                        ]
+                        if failure == "connection":
+                            raise Rejected("Response lost")
+                        return {}
+                    return original(path, method, body)
+
+                with patch.object(self.github, "request", side_effect=lose_response):
+                    with self.assertRaisesRegex(Rejected, "matching review reconciled"):
+                        self.run_approval(decision)
+                self.assertEqual([path for path, method, _ in self.writes() if method == "PUT"],
+                                 [PATH + "/reviews/999/dismissals"])
+
+    def test_ambiguous_submission_reports_failed_reconciliation(self):
+        for cleanup in ("unavailable", "no_review", "dismissal_failed"):
+            with self.subTest(cleanup=cleanup):
+                self.setUp()
+                decision = self.decision()
+                original = self.github.request
+                submitted = False
+
+                def fail_submission(path, method="GET", body=None):
+                    nonlocal submitted
+                    if method == "POST":
+                        submitted = True
+                        self.github.reviews = [{"id": 999, "user": {"login": BOT},
+                            "state": "APPROVED", "commit_id": SHA, "body": body["body"]}]
+                        if cleanup == "no_review":
+                            self.github.reviews = []
+                        raise Rejected("Response lost")
+                    if submitted and (cleanup == "unavailable" or method == "PUT"):
+                        raise Rejected("Cleanup unavailable")
+                    return original(path, method, body)
+
+                with patch.object(self.github, "request", side_effect=fail_submission):
+                    with self.assertRaisesRegex(Rejected, "inspect PR reviews manually"):
+                        self.run_approval(decision)
 
     def test_approval_records_exact_head_and_audit(self):
         self.run_approval()

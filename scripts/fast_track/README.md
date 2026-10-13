@@ -34,12 +34,21 @@ The automation verifies the declared association, not whether the code actually
 solves the ticket. Jira permissions controlling who can set the label are part of
 the policy's trust boundary.
 
-Missing or malformed data, permission failures, and unavailable APIs fail closed.
+Before submission, missing or malformed data, permission failures, and unavailable
+APIs fail closed.
 Changing the ticket, head, target, author, or ready/open state during validation
 invalidates the request. The approval phase refreshes Jira eligibility and requester permissions after
 review pagination, then checks the PR again immediately before posting.
 An active policy approval by this App for the same ticket and head is a no-op;
-a dismissed or old-head approval does not prevent a new request.
+a dismissed or old-head approval does not prevent a new request. The selected
+review is fetched again after eligibility validation before returning a no-op.
+
+Each submission carries a unique attempt marker. If the POST response is lost or
+malformed, the client searches all review pages for that marker, App identity, and
+head SHA and attempts to dismiss matching approvals. It never retries the POST.
+Reconciliation is best effort: if GitHub is unavailable or the review is not yet
+visible, the run fails with an explicit instruction to inspect PR reviews manually.
+A failed run alone does not guarantee that GitHub created no approval.
 
 GitHub's review API accepts a commit SHA but has no atomic conditional approval.
 The workflow rechecks after posting and attempts to dismiss its review if the PR
@@ -91,7 +100,8 @@ Run the credential-free tests from the repository root:
 python3 -m unittest discover -s scripts/fast_track/tests -v
 ```
 
-The existing Actions audit job also runs them. Tests cover authorization, exact
+The existing Actions audit job also runs them, after zizmor has scanned the
+checkout so PR-controlled tests cannot rewrite the audit input. Tests cover authorization, exact
 label matching, ambiguous tickets, unavailable APIs, repeated requests, paginated
 reviews, head changes, and compensating dismissal.
 
