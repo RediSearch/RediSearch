@@ -32,6 +32,9 @@ jobs:
           # exactly what zizmor's own artipacked audit warns about.
           persist-credentials: false
 
+      - name: Test fast-track approval policy
+        run: python3 -m unittest discover -s scripts/fast_track/tests -v
+
       - name: Run zizmor
         uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
         with:
