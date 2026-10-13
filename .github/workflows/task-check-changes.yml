@@ -75,6 +75,7 @@ jobs:
           files: |
                 .github/workflows/**
                 .github/actions/**
+                .github/scripts/**
       - name: Check if code was changed
         id: check-code
         uses: redislabsdev/redisearch-ci-common/.github/actions/changed-paths@v1
