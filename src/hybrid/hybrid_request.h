@@ -159,18 +159,8 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t a
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground);
 
 /**
- * Take one disk snapshot for the whole request and share it with every subquery's search
- * context. Called by HybridRequest_BuildDepletionPipeline; exposed so it can be tested without
- * building the pipelines.
- *
- * @return REDISMODULE_ERR if a snapshot is needed but cannot be taken, the error being set on the
- *         first subquery
- */
-int HybridRequest_TakeSharedDiskSnapshot(HybridRequest *req);
-
-/**
  * Once every subquery has been fully depleted, free each one's result-processor chain below its
- * depleter and drop its disk snapshot reference, so a parked cursor serving buffered rows pins no
+ * depleter and drop its disk snapshot, so a parked cursor serving buffered rows pins no
  * snapshot. Does nothing for in-memory indexes and in profile mode, which reads per-processor
  * stats at reply time. Later teardown (AREQ_Free) walks only what is left of the chain.
  *

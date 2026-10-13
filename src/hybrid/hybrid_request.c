@@ -44,30 +44,6 @@
 extern "C" {
 #endif
 
-// Pin one disk view for every subquery to the same point in time as the in-memory trie/stats
-// that QAST_Iterate is about to consult, so the subqueries cannot observe different writes.
-// Callers hold the spec read lock at this point (matching AREQ_Execute_Callback /
-// HREQ_Execute_Callback). Fails if the snapshot can't be taken on a disk index — falling back
-// to live reads is unsafe because the parent unlock is unconditional and subsequent depleter /
-// cursor reads would race with GC.
-//
-// Each subquery's search context holds its own reference, since a subquery cursor can outlive
-// the request, and the last one released frees the snapshot.
-int HybridRequest_TakeSharedDiskSnapshot(HybridRequest *req) {
-  if (req->nrequests == 0) {
-    return REDISMODULE_OK;
-  }
-  AREQ *first = req->requests[0];
-  RedisSearchCtx *firstSctx = AREQ_SearchCtx(first);
-  if (SearchCtx_TakeDiskSnapshot(firstSctx, &first->base.reply.err) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
-  }
-  for (size_t i = 1; i < req->nrequests; i++) {
-    SearchCtx_ShareDiskSnapshot(AREQ_SearchCtx(req->requests[i]), firstSctx);
-  }
-  return REDISMODULE_OK;
-}
-
 void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
   // Profile output reads per-processor stats from the whole chain until the reply is sent.
   if (IsProfile(req)) {
@@ -76,7 +52,7 @@ void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
   for (size_t i = 0; i < req->nrequests; i++) {
     AREQ *areq = req->requests[i];
     RedisSearchCtx *sctx = AREQ_SearchCtx(areq);
-    if (!sctx->diskSnapshotRef.rm) {
+    if (!sctx->diskSnapshot) {
       continue;
     }
     QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
@@ -106,16 +82,30 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
       sync_ref = DepleterSync_New(req->nrequests, !req->sctx->spec->diskSpec);
     }
 
-    rc = HybridRequest_TakeSharedDiskSnapshot(req);
+    // Each subquery takes its own disk snapshot below. They observe the same state only because
+    // the caller holds one spec read lock across this whole loop, so no write can land between
+    // two subqueries' snapshots.
+    RS_ASSERT(!req->sctx->spec->diskSpec || IndexSpec_IsReadLocked(req->sctx->spec));
 
     // Build individual pipelines for each search request
-    for (size_t i = 0; rc == REDISMODULE_OK && i < req->nrequests; i++) {
+    for (size_t i = 0; i < req->nrequests; i++) {
         AREQ *areq = req->requests[i];
 
         const bool isProfile = IsProfile(areq);
         if (isProfile) {
           // Set initClock right before parsing this specific subquery
           rs_wall_clock_init(&areq->profileClocks.initClock);
+        }
+
+        // Pin the per-subquery disk view to the same point in time as the in-memory
+        // trie/stats that QAST_Iterate is about to consult. Callers hold the spec read
+        // lock at this point (matching AREQ_Execute_Callback / HREQ_Execute_Callback).
+        // Aborts the hybrid pipeline if any subquery on a disk index can't take a
+        // snapshot — falling back to live reads is unsafe because the parent unlock
+        // is unconditional and subsequent depleter / cursor reads would race with GC.
+        if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &areq->base.reply.err) != REDISMODULE_OK) {
+            rc = REDISMODULE_ERR;
+            break;
         }
 
         // Parse subquery: Convert AST to iterator tree

@@ -15,7 +15,6 @@
 #include "rmutil/rm_assert.h"
 #include "search_disk_api.h"
 #include "spec.h"
-#include "util/references.h"
 #include <time.h>
 
 #ifdef __cplusplus
@@ -46,12 +45,8 @@ typedef struct RedisSearchCtx {
   // Per-query disk snapshot (optional, NULL when no snapshot has been taken or when the
   // backing index has no disk component). Used by the disk-iterator construction paths
   // so all iterators created during one query observe a consistent on-disk view.
-  // Iterators borrow it; the snapshot itself is owned through `diskSnapshotRef`.
+  // Owned by the query setup that took the snapshot; iterators borrow it.
   RedisSearchDiskSnapshot *diskSnapshot;
-  // Owning reference to `diskSnapshot`, released by SearchCtx_CleanUp. Contexts of one hybrid
-  // request hold separate references to a single shared snapshot. Appended after
-  // `diskSnapshot` so the layout the disk backend reads is unchanged.
-  StrongRef diskSnapshotRef;
 } RedisSearchCtx;
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
@@ -72,8 +67,7 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .spec = sp,
                           .currentTime = { 0, 0 },
                           .timeout = NULL,
-                          .diskSnapshot = NULL,
-                          .diskSnapshotRef = INVALID_STRONG_REF,};
+                          .diskSnapshot = NULL,};
   return sctx;
 }
 
@@ -95,11 +89,6 @@ typedef struct QueryError QueryError;
 // the underlying `SearchDisk_CreateSnapshot` returned NULL. Callers must abort
 // the query in that case rather than fall back to live disk reads.
 int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status);
-
-// Make `dst` read from the snapshot `src` already holds, taking its own reference so each
-// context can be freed independently. A no-op when `src` has no snapshot (non-disk index).
-// `dst` must not have a snapshot yet.
-void SearchCtx_ShareDiskSnapshot(RedisSearchCtx *dst, const RedisSearchCtx *src);
 
 // Context destruction never releases a spec lock: a cursor sweep can destroy
 // an idle request while the same thread holds a different request's lock.

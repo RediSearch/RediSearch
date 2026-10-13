@@ -8,7 +8,6 @@
 */
 #include "gtest/gtest.h"
 #include "common.h"
-#include <thread>
 #include <vector>
 extern "C" {
 #include "hybrid/hybrid_request.h"
@@ -18,7 +17,6 @@ extern "C" {
 #include "sorting_vector_ffi.h"
 #include "search_ctx.h"
 #include "search_disk.h"
-#include "spec.h"
 extern RedisSearchDiskAPI* disk;
 extern RedisSearchDisk* disk_db;
 int HybridRequest_StartCursors(HybridRequest* req, RedisModuleCtx* replyCtx, QueryError* status,
@@ -80,76 +78,9 @@ TEST_F(DiskSnapshotCounterTest, FreeingNullIsNotCounted) {
   EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
 }
 
-// A StrongRef over a snapshot must free it through SearchDisk_FreeSnapshot on the last release.
-static void freeSnapshot(void* snapshot) {
-  SearchDisk_FreeSnapshot(reinterpret_cast<RedisSearchDiskSnapshot*>(snapshot));
-}
-
-TEST_F(DiskSnapshotCounterTest, SnapshotRefFreesOnLastRelease) {
-  StrongRef ref = StrongRef_New(SearchDisk_CreateSnapshot(index), freeSnapshot);
-  StrongRef second = StrongRef_Clone(ref);
-  StrongRef third = StrongRef_Clone(ref);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
-
-  StrongRef_Release(ref);
-  StrongRef_Release(second);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
-  StrongRef_Release(third);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
-}
-
-TEST_F(DiskSnapshotCounterTest, ContextsShareOneSnapshotAndReleaseIndependently) {
-  RedisSearchCtx first = SEARCH_CTX_STATIC(nullptr, nullptr);
-  RedisSearchCtx second = SEARCH_CTX_STATIC(nullptr, nullptr);
-  first.diskSnapshot = SearchDisk_CreateSnapshot(index);
-  first.diskSnapshotRef = StrongRef_New(first.diskSnapshot, freeSnapshot);
-
-  SearchCtx_ShareDiskSnapshot(&second, &first);
-  EXPECT_EQ(second.diskSnapshot, first.diskSnapshot);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
-
-  // The first context going away must not pull the snapshot out from under the second.
-  SearchCtx_CleanUp(&first);
-  EXPECT_EQ(first.diskSnapshot, nullptr);
-  EXPECT_NE(second.diskSnapshot, nullptr);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
-
-  SearchCtx_CleanUp(&second);
-  EXPECT_EQ(second.diskSnapshot, nullptr);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
-}
-
-TEST_F(DiskSnapshotCounterTest, SharingWithoutASnapshotLeavesTheContextWithout) {
-  RedisSearchCtx first = SEARCH_CTX_STATIC(nullptr, nullptr);
-  RedisSearchCtx second = SEARCH_CTX_STATIC(nullptr, nullptr);
-
-  SearchCtx_ShareDiskSnapshot(&second, &first);
-  EXPECT_EQ(second.diskSnapshot, nullptr);
-  EXPECT_EQ(second.diskSnapshotRef.rm, nullptr);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
-}
-
-TEST_F(DiskSnapshotCounterTest, ConcurrentReleasesFreeTheSnapshotExactlyOnce) {
-  constexpr int kOwners = 8;
-  StrongRef ref = StrongRef_New(SearchDisk_CreateSnapshot(index), freeSnapshot);
-  std::vector<StrongRef> refs{ref};
-  for (int i = 1; i < kOwners; i++) {
-    refs.push_back(StrongRef_Clone(ref));
-  }
-
-  std::vector<std::thread> owners;
-  for (StrongRef owned : refs) {
-    owners.emplace_back([owned] { StrongRef_Release(owned); });
-  }
-  for (auto& t : owners) {
-    t.join();
-  }
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
-}
-
-// A two-subquery hybrid request on a disk-backed index, with just enough state for
-// HybridRequest_TakeSharedDiskSnapshot: the subqueries' search contexts and their errors.
-class HybridSharedSnapshotTest : public DiskSnapshotCounterTest {
+// A two-subquery hybrid request on a disk-backed index, with just enough state to take each
+// subquery's own snapshot as HybridRequest_BuildDepletionPipeline does.
+class HybridSnapshotTest : public DiskSnapshotCounterTest {
  protected:
   bool savedFlex = false;
   RedisSearchDisk* savedDiskDb = nullptr;
@@ -177,6 +108,16 @@ class HybridSharedSnapshotTest : public DiskSnapshotCounterTest {
     hybrid.nrequests = 2;
   }
 
+  int takeSnapshots() {
+    for (AREQ* sub : subqueries) {
+      if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(sub), &sub->base.reply.err) !=
+          REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
+    }
+    return REDISMODULE_OK;
+  }
+
   void TearDown() override {
     QueryError_ClearError(&first.base.reply.err);
     QueryError_ClearError(&second.base.reply.err);
@@ -186,38 +127,6 @@ class HybridSharedSnapshotTest : public DiskSnapshotCounterTest {
     DiskSnapshotCounterTest::TearDown();
   }
 };
-
-TEST_F(HybridSharedSnapshotTest, SubqueriesShareOneLiveSnapshotUntilTheLastIsDone) {
-  ASSERT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_OK);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
-  ASSERT_NE(firstCtx.diskSnapshot, nullptr);
-  EXPECT_EQ(secondCtx.diskSnapshot, firstCtx.diskSnapshot);
-
-  // A subquery cursor can outlive the request, so each context must keep the snapshot alive.
-  SearchCtx_CleanUp(&firstCtx);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
-  EXPECT_NE(secondCtx.diskSnapshot, nullptr);
-  SearchCtx_CleanUp(&secondCtx);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
-}
-
-TEST_F(HybridSharedSnapshotTest, FailureLeavesNoSnapshotAndIsReportedOnTheFirstSubquery) {
-  failNextCreate = true;
-  EXPECT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_ERR);
-  EXPECT_TRUE(QueryError_HasError(&first.base.reply.err));
-  EXPECT_FALSE(QueryError_HasError(&second.base.reply.err));
-  EXPECT_EQ(firstCtx.diskSnapshot, nullptr);
-  EXPECT_EQ(secondCtx.diskSnapshot, nullptr);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
-}
-
-TEST_F(HybridSharedSnapshotTest, IndexWithoutDiskBackingTakesNoSnapshot) {
-  spec.diskSpec = nullptr;
-  ASSERT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_OK);
-  EXPECT_EQ(firstCtx.diskSnapshot, nullptr);
-  EXPECT_EQ(secondCtx.diskSnapshot, nullptr);
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
-}
 
 // Stand-in result processors that record when they are freed and how many snapshots were still
 // alive at that moment, to pin the order the teardown must keep.
@@ -233,12 +142,12 @@ static void fakeRPFree(ResultProcessor* rp) {
   liveSnapshotsWhenFreed.push_back(SearchDisk_GetLiveSnapshotCount());
 }
 
-class HybridReleaseUpstreamTest : public HybridSharedSnapshotTest {
+class HybridReleaseUpstreamTest : public HybridSnapshotTest {
  protected:
   FakeRP chains[2][3]{};  // per subquery: [0] root, [1] middle, [2] depleter
 
   void SetUp() override {
-    HybridSharedSnapshotTest::SetUp();
+    HybridSnapshotTest::SetUp();
     freedIds.clear();
     liveSnapshotsWhenFreed.clear();
     AREQ* subs[2] = {&first, &second};
@@ -256,13 +165,14 @@ class HybridReleaseUpstreamTest : public HybridSharedSnapshotTest {
 };
 
 TEST_F(HybridReleaseUpstreamTest, FreesUpstreamBeforeTheSnapshotAndKeepsTheDepleter) {
-  ASSERT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_OK);
+  ASSERT_EQ(takeSnapshots(), REDISMODULE_OK);
   HybridRequest_ReleaseDepletedUpstream(&hybrid);
 
   // The middle and root processors go, downstream first, while the snapshot is still alive.
-  // The shared snapshot is only freed once the second subquery drops its reference.
+  // Each subquery frees its own snapshot, so the other one is still alive while the first
+  // subquery's chain is freed.
   EXPECT_EQ(freedIds, (std::vector<int>{1, 0, 11, 10}));
-  EXPECT_EQ(liveSnapshotsWhenFreed, (std::vector<size_t>{1, 1, 1, 1}));
+  EXPECT_EQ(liveSnapshotsWhenFreed, (std::vector<size_t>{2, 2, 1, 1}));
   EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
   EXPECT_EQ(firstCtx.diskSnapshot, nullptr);
   EXPECT_EQ(secondCtx.diskSnapshot, nullptr);
@@ -282,11 +192,11 @@ TEST_F(HybridReleaseUpstreamTest, FreesUpstreamBeforeTheSnapshotAndKeepsTheDeple
 
 TEST_F(HybridReleaseUpstreamTest, ProfileModeKeepsTheChainAndTheSnapshot) {
   hybrid.reqflags |= QEXEC_F_PROFILE;
-  ASSERT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_OK);
+  ASSERT_EQ(takeSnapshots(), REDISMODULE_OK);
   HybridRequest_ReleaseDepletedUpstream(&hybrid);
 
   EXPECT_TRUE(freedIds.empty());
-  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 1u);
+  EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 2u);
   EXPECT_NE(firstCtx.diskSnapshot, nullptr);
   EXPECT_NE(first.pipeline.qctx.endProc->upstream, nullptr);
 
@@ -296,7 +206,7 @@ TEST_F(HybridReleaseUpstreamTest, ProfileModeKeepsTheChainAndTheSnapshot) {
 
 TEST_F(HybridReleaseUpstreamTest, IndexWithoutDiskBackingIsLeftAlone) {
   spec.diskSpec = nullptr;
-  ASSERT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_OK);
+  ASSERT_EQ(takeSnapshots(), REDISMODULE_OK);
   HybridRequest_ReleaseDepletedUpstream(&hybrid);
 
   EXPECT_TRUE(freedIds.empty());
@@ -305,7 +215,7 @@ TEST_F(HybridReleaseUpstreamTest, IndexWithoutDiskBackingIsLeftAlone) {
 
 // Drives HybridRequest_StartCursors with real foreground depleters over stand-in upstreams, to
 // pin which outcomes of depletion release the snapshot and which leave it for the teardown.
-class HybridStartCursorsTest : public HybridSharedSnapshotTest {
+class HybridStartCursorsTest : public HybridSnapshotTest {
  protected:
   static int upstreamRc;
   static QueryRequestTimeout* timeoutToTrip;  // marked timed out from inside the upstream read
@@ -320,7 +230,7 @@ class HybridStartCursorsTest : public HybridSharedSnapshotTest {
   }
 
   void SetUp() override {
-    HybridSharedSnapshotTest::SetUp();
+    HybridSnapshotTest::SetUp();
     freedIds.clear();
     liveSnapshotsWhenFreed.clear();
     upstreamRc = RS_RESULT_EOF;
@@ -344,7 +254,7 @@ class HybridStartCursorsTest : public HybridSharedSnapshotTest {
       QITR_PushRP(qctx, RPDepleter_New());
       qctx->timeoutPolicy = TimeoutPolicy_Fail;
     }
-    ASSERT_EQ(HybridRequest_TakeSharedDiskSnapshot(&hybrid), REDISMODULE_OK);
+    ASSERT_EQ(takeSnapshots(), REDISMODULE_OK);
   }
 
   void TearDown() override {
@@ -355,7 +265,7 @@ class HybridStartCursorsTest : public HybridSharedSnapshotTest {
     SearchCtx_CleanUp(&secondCtx);
     QueryError_ClearError(&status);
     EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
-    HybridSharedSnapshotTest::TearDown();
+    HybridSnapshotTest::TearDown();
   }
 
   bool released() const {
@@ -370,7 +280,7 @@ TEST_F(HybridStartCursorsTest, SuccessfulDepletionReleasesUpstreamAndSnapshotBef
   EXPECT_TRUE(released());
   EXPECT_EQ(SearchDisk_GetLiveSnapshotCount(), 0u);
   EXPECT_EQ(freedIds, (std::vector<int>{1, 0, 11, 10}));
-  EXPECT_EQ(liveSnapshotsWhenFreed, (std::vector<size_t>{1, 1, 1, 1}));
+  EXPECT_EQ(liveSnapshotsWhenFreed, (std::vector<size_t>{2, 2, 1, 1}));
   EXPECT_EQ(first.base.cursorInfo.disposition, CURSOR_DISPOSITION_PAUSE);
   EXPECT_EQ(second.base.cursorInfo.disposition, CURSOR_DISPOSITION_PAUSE);
 }
