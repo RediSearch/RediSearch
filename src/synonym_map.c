@@ -260,7 +260,7 @@ SynonymMapResult SynonymMap_Update(SynonymMap* smap, const CharBuf* synonyms, si
     } else {
       termData = TermData_New(lowered[i]);
       int ret = synonymMapAddTerm(smap, termData);
-      RS_LOG_ASSERT_ALWAYS(ret == DICT_OK, "SynonymMap_Update: insertion failed after lookup");
+      RS_LOG_ASSERT(ret == DICT_OK, "SynonymMap_Update: insertion failed after lookup");
     }
     SynonymMapResult r = TermData_AddId(termData, groupId);
     RS_LOG_ASSERT(r == SYNONYM_MAP_OK,
@@ -296,7 +296,7 @@ TermData** SynonymMap_DumpAllTerms(SynonymMap* smap, size_t* size) {
 
 static void SynonymMap_CopyEntry(SynonymMap* smap, TermData* t_data) {
   int ret = synonymMapAddTerm(smap, TermData_Copy(t_data));
-  RS_LOG_ASSERT_ALWAYS(ret == DICT_OK, "SynonymMap_CopyEntry: insertion failed for unique term");
+  RS_LOG_ASSERT(ret == DICT_OK, "SynonymMap_CopyEntry: insertion failed for unique term");
 }
 
 static SynonymMap* SynonymMap_GenerateReadOnlyCopy(SynonymMap* smap) {
