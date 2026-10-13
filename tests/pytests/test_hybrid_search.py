@@ -163,7 +163,7 @@ def test_hybrid_rerank_rejected_on_ram_indexes(env):
     conn = env.getConnection()
     blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
     conn.execute_command('HSET', 'flat:1', 'description', 'shoes', 'embedding', blob)
-    error = 'SEARCH_OPTION_INVALID Invalid option (Error parsing vector similarity parameters)'
+    error = 'SEARCH_OPTION_INVALID Invalid option (RERANK is only valid for disk-based HNSW indexes)'
 
     for index, field in [('idx_hnsw', 'embedding_hnsw'), ('idx_flat', 'embedding')]:
         for value in ['TRUE', 'FALSE', 'true', 'fAlSe', 'MAYBE']:
