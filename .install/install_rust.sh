@@ -250,7 +250,7 @@ if ! cargo_llvm_cov_ok; then
     if [[ "$OS_TYPE" == 'Darwin' ]]; then
         _sh "echo '$cargo_llvm_cov_sha256  $cargo_llvm_cov_archive' | shasum --algorithm 256 --check"
     else
-        _sh "echo '$cargo_llvm_cov_sha256  $cargo_llvm_cov_archive' | sha256sum --check"
+        _sh "echo '$cargo_llvm_cov_sha256  $cargo_llvm_cov_archive' | sha256sum -c"
     fi
     _sh "tar --extract --gzip --file \"$cargo_llvm_cov_archive\" --directory \"$cargo_home_bin_dir\""
     _sh "rm -f \"$cargo_llvm_cov_archive\""
