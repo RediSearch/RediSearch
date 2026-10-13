@@ -196,8 +196,7 @@ SynonymMapResult SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString**
   return ret;
 }
 
-SynonymMapResult SynonymMap_Update(SynonymMap* smap, const CharBuf* synonyms, size_t size,
-                                   const char* groupId) {
+SynonymMapResult SynonymMap_Update(SynonymMap* smap, const CharBuf* synonyms, size_t size, const char* groupId) {
   RS_LOG_ASSERT(!smap->is_read_only, "SynonymMap should not be read only");
 
   if (size == 0) {
