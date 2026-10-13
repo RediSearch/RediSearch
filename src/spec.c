@@ -3323,6 +3323,15 @@ static void IndexSpec_NormalizeStorageFlagsOnLoad(IndexFlags *flags) {
   }
 }
 
+void IndexSpec_RdbLoadDiscard(StrongRef spec_ref) {
+  // SchemaRule_RdbLoad and the alias loop publish the spec in the global prefix
+  // trie and alias table as non-owning copies of spec_ref. Unregister before the
+  // last reference goes, or the next matching write dereferences a freed spec.
+  SchemaPrefixes_RemoveSpec(spec_ref);
+  IndexSpec_ClearAliases(spec_ref);
+  StrongRef_Release(spec_ref);
+}
+
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   IndexSpec *sp = NULL;
   StrongRef spec_ref = {0};
@@ -3459,12 +3468,7 @@ cleanup:
     // Idempotent — no-op if the open never registered on this path.
     SearchDisk_CloseIndexOnMainThread(ctx, sp);
   }
-  // SchemaRule_RdbLoad and the alias loop publish the spec in the global prefix
-  // trie and alias table as non-owning copies of spec_ref. Unregister before the
-  // last reference goes, or the next matching write dereferences a freed spec.
-  SchemaPrefixes_RemoveSpec(spec_ref);
-  IndexSpec_ClearAliases(spec_ref);
-  StrongRef_Release(spec_ref);
+  IndexSpec_RdbLoadDiscard(spec_ref);
   goto cleanup_no_index;
 cleanup_name:
   // specName is handed to the spec only in initializeIndexSpec.

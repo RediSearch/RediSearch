@@ -829,6 +829,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
 // Open the non-SST on-disk index for a spec parsed by IndexSpec_RdbLoad, once the
 // caller has resolved sp->isDuplicate. No-op for SST/memory/duplicate specs.
 int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, QueryError *status);
+// Discard a spec returned by IndexSpec_RdbLoad that will not be registered:
+// withdraw it from the global prefix trie and alias table, then release it.
+void IndexSpec_RdbLoadDiscard(StrongRef spec_ref);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags);
 
 // Per-spec callbacks for the IndexSpecType module type. IndexSpec_LegacyRdbLoad
