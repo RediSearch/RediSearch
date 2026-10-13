@@ -36,7 +36,8 @@ the policy's trust boundary.
 
 Missing or malformed data, permission failures, and unavailable APIs fail closed.
 Changing the ticket, head, target, author, or ready/open state during validation
-invalidates the request. The approval phase checks again immediately before posting.
+invalidates the request. The approval phase refreshes Jira eligibility and requester permissions after
+review pagination, then checks the PR again immediately before posting.
 An active policy approval by this App for the same ticket and head is a no-op;
 a dismissed or old-head approval does not prevent a new request.
 
@@ -59,8 +60,7 @@ are governed by the existing stale-review rules and need a new manual request.
    secret `FAST_TRACK_APP_PRIVATE_KEY` containing the dedicated App's complete PEM
    private key. No GitHub Actions environment is required.
 3. Set repository variable `FAST_TRACK_APP_CLIENT_ID` to the App's client ID.
-   This variable is already configured for the initial rollout; only the private
-   key remains to be supplied.
+   Both the variable and private key are configured for the initial rollout.
 4. Reuse repository secrets `JIRA_USER_EMAIL` and `JIRA_API_TOKEN`. The caller
    explicitly passes these and the App key to the reusable workflow. No new Jira
    secrets or OAuth setup are needed. The Jira credentials authenticate as Alon
@@ -110,3 +110,12 @@ Existing Jira credentials were verified on 2026-10-13 by a
 [read-only CI probe](https://github.com/RediSearch/RediSearch/actions/runs/38407737529):
 authentication, reading MOD issue labels, and finding an `ai-fast-track` ticket
 all succeeded. This verified Jira access only, not the approval App integration.
+
+The dedicated `redisearch-ai-auto-approval-agent` was verified on 2026-10-13 in a
+[controlled CI probe](https://github.com/RediSearch/RediSearch/actions/runs/38418045371)
+on [draft PR #11892](https://github.com/RediSearch/RediSearch/pull/11892) targeting
+`master`. With only the repository-scoped pull-request write token, it created
+review `5505586125` and dismissed it; an independent API read confirmed `DISMISSED`.
+No ruleset or App permissions were changed. The probe ran on `ubuntu-slim`.
+This verifies approval and compensating dismissal under the current ruleset, not
+an end-to-end invocation of the manual fast-track workflow or merge eligibility.

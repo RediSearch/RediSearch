@@ -142,11 +142,6 @@ def approve(github, jira, decision, bot_login, run_url):
         raise Rejected("Expected a dedicated GitHub App bot identity")
     if bot_login.casefold() == decision.requester.casefold():
         raise Rejected("Approval App must not be the PR author")
-    fresh = validate(github, jira, decision.repository, decision.pr_number, decision.requester)
-    if not fresh.eligible:
-        raise Rejected(fresh.reason)
-    if fresh != decision:
-        raise Rejected("Validated PR changed; request approval again")
     path = f"/repos/{decision.repository}/pulls/{decision.pr_number}"
     latest = None
     page = 1
@@ -159,6 +154,12 @@ def approve(github, jira, decision, bot_login, run_url):
         if len(reviews) < 100:
             break
         page += 1
+    # Pagination may take time; refresh external authority after it completes.
+    fresh = validate(github, jira, decision.repository, decision.pr_number, decision.requester)
+    if not fresh.eligible:
+        raise Rejected(fresh.reason)
+    if fresh != decision:
+        raise Rejected("Validated PR changed; request approval again")
     if (latest and latest["state"] == "APPROVED"
             and latest["commit_id"] == decision.head_sha
             and MARKER in (latest["body"] or "")

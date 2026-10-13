@@ -44,6 +44,7 @@ class FakeAPI:
         self.change_at = None
         self.change = lambda pr: pr["head"].update(sha="b" * 40)
         self.error = None
+        self.on_review_page = lambda page: None
 
     def request(self, path, method="GET", body=None):
         self.calls.append((path, method, body))
@@ -64,6 +65,7 @@ class FakeAPI:
             return copy.deepcopy(self.issue)
         if "/reviews?" in path:
             page = int(path.rsplit("=", 1)[1])
+            self.on_review_page(page)
             return self.reviews[(page - 1) * 100:page * 100]
         raise AssertionError(path)
 
@@ -160,6 +162,31 @@ class ApprovalTests(unittest.TestCase):
         with self.assertRaises(Rejected):
             self.run_approval(decision)
         self.assertEqual(self.writes(), [])
+
+    def test_external_authority_revoked_during_pagination(self):
+        for revoke in ("label", "permission"):
+            with self.subTest(revoke=revoke):
+                self.setUp()
+                decision = self.decision()
+                self.github.reviews = [
+                    {"id": i, "user": {"login": "someone"}, "state": "COMMENTED"}
+                    for i in range(100)
+                ]
+                pages = []
+
+                def change_authority(page):
+                    pages.append(page)
+                    if page == 2:
+                        if revoke == "label":
+                            self.jira.issue["fields"]["labels"] = []
+                        else:
+                            self.github.permission = "read"
+
+                self.github.on_review_page = change_authority
+                with self.assertRaises(Rejected):
+                    self.run_approval(decision)
+                self.assertEqual(pages, [1, 2])
+                self.assertEqual(self.writes(), [])
 
     def test_approval_records_exact_head_and_audit(self):
         self.run_approval()
