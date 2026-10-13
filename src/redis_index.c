@@ -107,10 +107,6 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   return NewSearchCtxCEx(ctx, indexName, resetTTL, 0);
 }
 
-static void freeDiskSnapshot(void *snapshot) {
-  SearchDisk_FreeSnapshot((RedisSearchDiskSnapshot *)snapshot);
-}
-
 int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
   // One snapshot per sctx lifetime. Every caller funnels through this at
   // iterator-construction time; reaching it twice on the same sctx would mean
@@ -126,30 +122,14 @@ int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
   }
   // Disk is enabled and this index is disk-backed, so the backend must be up.
   RS_ASSERT(SearchDisk_IsInitialized());
-  RedisSearchDiskSnapshot *snapshot = SearchDisk_CreateSnapshot(sp->diskSpec);
-  if (!snapshot) {
+  sctx->diskSnapshot = SearchDisk_CreateSnapshot(sp->diskSpec);
+  if (!sctx->diskSnapshot) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC,
                                      "Failed to create disk snapshot for index '%s'",
                                      IndexSpec_FormatName(sp, false));
     return REDISMODULE_ERR;
   }
-  sctx->diskSnapshotRef = StrongRef_New(snapshot, freeDiskSnapshot);
-  sctx->diskSnapshot = snapshot;
   return REDISMODULE_OK;
-}
-
-void SearchCtx_ShareDiskSnapshot(RedisSearchCtx *dst, const RedisSearchCtx *src) {
-  RS_ASSERT(dst && src && !dst->diskSnapshot);
-  // A snapshot installed without a ref cannot be shared, and skipping it would leave `dst`
-  // without one. Sharing across indexes would hand one index's snapshot to another's iterators.
-  RS_ASSERT(!src->diskSnapshot || src->diskSnapshotRef.rm);
-  RS_ASSERT(dst->spec == src->spec);
-  if (!src->diskSnapshotRef.rm) {
-    return;
-  }
-  dst->diskSnapshotRef = StrongRef_Clone(src->diskSnapshotRef);
-  RS_ASSERT(dst->diskSnapshotRef.rm);
-  dst->diskSnapshot = src->diskSnapshot;
 }
 
 RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, bool resetTTL) {
@@ -164,12 +144,7 @@ void SearchCtx_CleanUp(RedisSearchCtx *sctx) {
   // Release the per-query disk snapshot (no-op when NULL). Must happen after every
   // iterator built from `sctx` has been freed; the OSS query pipeline tears down
   // iterators before reaching SearchCtx_CleanUp/SearchCtx_Free.
-  if (sctx->diskSnapshotRef.rm) {
-    StrongRef_Release(sctx->diskSnapshotRef);
-    sctx->diskSnapshotRef = INVALID_STRONG_REF;
-    sctx->diskSnapshot = NULL;
-  } else if (sctx->diskSnapshot) {
-    // Installed directly rather than through SearchCtx_TakeDiskSnapshot, so this context owns it.
+  if (sctx->diskSnapshot) {
     SearchDisk_FreeSnapshot(sctx->diskSnapshot);
     sctx->diskSnapshot = NULL;
   }
