@@ -126,6 +126,7 @@ typedef struct {
   void *reducer;
   bool queryOOM;
   bool timedOut;
+  RSTimeoutPolicy timeoutPolicy;
   // Captured before dispatch so CONFIG SET cannot change serialization placement.
   bool serializeInReplyCallback;
 
@@ -149,7 +150,7 @@ int ProfileCommandHandlerImp(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
 void ScheduleContextCleanup(RedisModuleCtx *thctx, struct RedisSearchCtx *sctx);
 
-bool should_return_error(QueryErrorCode errCode);
+bool should_return_error(QueryErrorCode errCode, RSTimeoutPolicy timeoutPolicy);
 
 bool QueryMemoryGuard(RedisModuleCtx *ctx);
 
