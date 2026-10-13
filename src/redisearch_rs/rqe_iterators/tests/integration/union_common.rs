@@ -1039,6 +1039,151 @@ macro_rules! union_common_tests {
             );
         }
 
+        /// Children whose union stays on doc 100 when the last one aborts: a
+        /// scored child carrying a metric, a sibling on the same document, and a
+        /// doomed child ahead of the union.
+        fn children_settling_back_onto_100() -> Vec<Box<dyn RQEIterator<'static>>> {
+            let scored = rqe_iterators::metric::MetricSortedById::new(vec![100u64], vec![0.5]);
+            let sibling: Mock<'static, 2> = Mock::new([100, 200]);
+            sibling
+                .data()
+                .set_revalidate_result(MockRevalidateResult::Ok);
+            let doomed: Mock<'static, 2> = Mock::new([150, 300]);
+            doomed
+                .data()
+                .set_revalidate_result(MockRevalidateResult::Abort);
+            vec![Box::new(scored), Box::new(sibling), Box::new(doomed)]
+        }
+
+        /// A union moves its children's metrics into its aggregate when it builds
+        /// it, so the children hold none afterwards. A revalidation that settles
+        /// the union back onto the same document must keep the metrics already
+        /// gathered there, or a parent that later publishes this result loses
+        /// e.g. a vector distance.
+        #[track_caller]
+        fn assert_settling_back_keeps_the_metrics<'index>(union: &mut impl RQEIterator<'index>) {
+            let first = union.read().expect("read failed").expect("doc 100");
+            assert_eq!(first.doc_id, 100);
+            assert_eq!(
+                first.metrics.len(),
+                1,
+                "the aggregate gathered the scored child's metric",
+            );
+
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            assert!(matches!(
+                union.revalidate(&*mock_ctx.spec_read()),
+                Ok(RQEValidateStatus::Ok)
+            ));
+            let current = union.current().expect("still on doc 100");
+            assert_eq!(current.doc_id, 100);
+            assert_eq!(
+                current.metrics.len(),
+                1,
+                "the metric must survive the settle",
+            );
+        }
+
+        #[test]
+        fn revalidate_settling_back_onto_the_same_document_keeps_the_metrics() {
+            assert_settling_back_keeps_the_metrics(&mut ContractChecker::new($UnionFull::new(
+                children_settling_back_onto_100(),
+            )));
+        }
+
+        #[test]
+        fn quick_revalidate_settling_back_onto_the_same_document_keeps_the_metrics() {
+            assert_settling_back_keeps_the_metrics(&mut ContractChecker::new($UnionQuick::new(
+                children_settling_back_onto_100(),
+            )));
+        }
+
+        /// A quick union reports one child's metrics. Here two scored children sit
+        /// on doc 100 and the first read picks `first_scored`; the aborted child's
+        /// removal can reorder the survivors so that the re-settle picks
+        /// `second_scored` instead, whose metric is still its own. The union must
+        /// keep publishing the metric it gathered, not both.
+        #[test]
+        fn quick_revalidate_settling_back_onto_another_scored_backer_keeps_one_childs_metrics() {
+            let doomed: Mock<'static, 2> = Mock::new([150, 300]);
+            doomed
+                .data()
+                .set_revalidate_result(MockRevalidateResult::Abort);
+            let first_scored =
+                rqe_iterators::metric::MetricSortedById::new(vec![100u64], vec![0.5]);
+            let second_scored =
+                rqe_iterators::metric::MetricSortedById::new(vec![100u64], vec![0.25]);
+            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
+                Box::new(doomed),
+                Box::new(first_scored),
+                Box::new(second_scored),
+            ];
+            let mut union = ContractChecker::new($UnionQuick::new(children));
+
+            let first = union.read().expect("read failed").expect("doc 100");
+            assert_eq!(first.doc_id, 100);
+            assert_eq!(first.metrics.len(), 1);
+            let gathered = first.metrics.get(0).expect("one metric").value();
+
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            assert!(matches!(
+                union.revalidate(&*mock_ctx.spec_read()),
+                Ok(RQEValidateStatus::Ok)
+            ));
+            let current = union.current().expect("still on doc 100");
+            assert_eq!(current.doc_id, 100);
+            assert_eq!(
+                current.metrics.len(),
+                1,
+                "a quick union publishes a single child's metrics",
+            );
+            assert_eq!(current.metrics.get(0).expect("one metric").value(), gathered);
+        }
+
+        /// The metrics a quick union gathered also survive the settle that seeks a
+        /// lagging sibling back onto the union's document, not only the one that
+        /// finds a child already sitting there.
+        ///
+        /// The union delivers doc 20 from child0 while child1 is stranded on 15,
+        /// then child0 moves off 20; child1 is seeked onto it and backs it from
+        /// there. The metric is placed on the union's result directly: the mock
+        /// children carry none, and what the settle sets aside is the union's own.
+        #[test]
+        fn quick_revalidate_seeking_a_lagger_back_onto_the_document_keeps_the_metrics() {
+            let child0: Mock<'static, 3> = Mock::new([10, 20, 40]);
+            let child1: Mock<'static, 3> = Mock::new([15, 20, 25]);
+            let mut data0 = child0.data();
+            let children: Vec<Box<dyn RQEIterator<'static>>> =
+                vec![Box::new(child0), Box::new(child1)];
+            let mut union = ContractChecker::new($UnionQuick::new(children));
+
+            assert_eq!(union.read().expect("read failed").expect("doc 10").doc_id, 10);
+            let outcome = union.skip_to(20).expect("skip_to failed");
+            assert!(matches!(outcome, Some(SkipToOutcome::Found(_))));
+            assert_eq!(
+                union.inner().child_at(1).expect("child1 is still there").last_doc_id(),
+                15,
+                "child1 must be stranded behind the union for the settle to seek it",
+            );
+            union
+                .current()
+                .expect("on doc 20")
+                .metrics
+                .push_without_key(0.5);
+
+            data0.set_revalidate_result(MockRevalidateResult::Move);
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            assert!(matches!(
+                union.revalidate(&*mock_ctx.spec_read()),
+                Ok(RQEValidateStatus::Ok)
+            ));
+
+            let current = union.current().expect("still on doc 20");
+            assert_eq!(current.doc_id, 20);
+            assert_eq!(current.metrics.len(), 1, "the metric must survive the settle");
+            assert_eq!(current.metrics.get(0).expect("one metric").value(), 0.5);
+        }
+
         /// Only the `QUICK_EXIT` variants are instantiated: a lagging *live* sibling
         /// is quick mode's own doing (the early return on an exact match). A full
         /// union's children only get behind it by breaking the contract, which it
