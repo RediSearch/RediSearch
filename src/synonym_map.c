@@ -173,27 +173,18 @@ void SynonymMap_Free(SynonymMap* smap) {
   rm_free(smap);
 }
 
-static const char** SynonymMap_RedisStringArrToArr(RedisModuleString** synonyms, size_t size) {
-  const char** arr = rm_malloc(sizeof(char*) * size);
+SynonymMapResult SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms,
+                                           size_t size, const char* groupId) {
+  CharBuf* terms = rm_malloc(sizeof(*terms) * size);
   for (size_t i = 0; i < size; ++i) {
-    arr[i] = RedisModule_StringPtrLen(synonyms[i], NULL);
+    terms[i].buf = (char*)RedisModule_StringPtrLen(synonyms[i], &terms[i].len);
   }
-  return arr;
-}
-
-SynonymMapResult SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString** synonyms, size_t size,
-                               const char* groupId) {
-  const char** arr = SynonymMap_RedisStringArrToArr(synonyms, size);
-  SynonymMapResult ret = SynonymMap_Update(smap, arr, size, groupId);
-  rm_free(arr);
+  SynonymMapResult ret = SynonymMap_Update(smap, terms, size, groupId);
+  rm_free(terms);
   return ret;
 }
 
-SynonymMapResult SynonymMap_Add(SynonymMap* smap, const char* groupId, const char** synonyms, size_t size) {
-  return SynonymMap_Update(smap, synonyms, size, groupId);
-}
-
-SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, const char* groupId) {
+SynonymMapResult SynonymMap_Update(SynonymMap* smap, const CharBuf* synonyms, size_t size, const char* groupId) {
   RS_LOG_ASSERT(!smap->is_read_only, "SynonymMap should not be read only");
 
   if (size == 0) {
@@ -205,24 +196,30 @@ SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size
   // unchanged.
   sds* lowered = rm_malloc(sizeof(*lowered) * size);
   for (size_t i = 0; i < size; i++) {
-    char* s = rm_strdup(synonyms[i]);
-    size_t len = strlen(s);
-    char* dst = unicode_tolower(s, &len);
-    if (dst) {
-      rm_free(s);
-      s = dst;
-    } else {
-      s[len] = '\0';
+    size_t len = synonyms[i].len;
+    // SYNUPDATE has historically treated each term as a C string.
+    const char* nul = memchr(synonyms[i].buf, '\0', len);
+    if (nul) {
+      len = nul - synonyms[i].buf;
     }
-    lowered[i] = sdsnewlen(s, len);
-    rm_free(s);
+    sds term = sdsnewlen(synonyms[i].buf, len);
+    char* dst = unicode_tolower(term, &len);
+    if (dst) {
+      sdsfree(term);
+      term = sdsnewlen(dst, len);
+      rm_free(dst);
+    } else {
+      sdssetlen(term, len);
+      term[len] = '\0';
+    }
+    lowered[i] = term;
   }
 
   SynonymMapResult ret = SYNONYM_MAP_OK;
 
   // Validation pass. Track distinct new terms via a temporary dict so we
   // don't over-count duplicates within the input batch.
-  dict* pending_new = dictCreate(&dictTypeHeapStrings, NULL);
+  dict* pending_new = dictCreate(&synonymDictType, NULL);
   for (size_t i = 0; i < size; i++) {
     TermData* termData = SynonymMap_GetIdsBySynonym(smap, lowered[i], sdslen(lowered[i]));
     if (termData) {
@@ -232,8 +229,9 @@ SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size
         ret = SYNONYM_MAP_ERR_MAX_GROUP_IDS;
         break;
       }
-    } else if (dictFind(pending_new, lowered[i]) == NULL) {
-      dictAdd(pending_new, lowered[i], NULL);
+    } else {
+      CharBuf key = {.buf = lowered[i], .len = sdslen(lowered[i])};
+      dictAdd(pending_new, &key, NULL);
     }
   }
   if (ret == SYNONYM_MAP_OK &&

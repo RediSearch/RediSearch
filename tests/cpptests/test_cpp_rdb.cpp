@@ -12,6 +12,7 @@
 #include "common.h"
 #include "redismock/redismock.h"
 #include "synonym_map.h"
+#include "../charbuf_test_utils.h"
 #include "trie/trie.h"
 #include <algorithm>
 #include <array>
@@ -520,14 +521,14 @@ TEST_F(RdbMockTest, testSynonymMapRdbSerialization) {
     });
 
     // Add terms to synonym groups
-    const char *group1_terms[] = {"hello", "hi", "greetings"};
-    const char *group2_terms[] = {"bye", "goodbye", "farewell"};
+    const CharBuf group1_terms[] = {CB_LIT("hello"), CB_LIT("hi"), CB_LIT("greetings")};
+    const CharBuf group2_terms[] = {CB_LIT("bye"), CB_LIT("goodbye"), CB_LIT("farewell")};
     // hello and bye belong to multiple groups
-    const char *group3_terms[] = {"hello", "bye"};
+    const CharBuf group3_terms[] = {CB_LIT("hello"), CB_LIT("bye")};
 
-    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Add(smap, "greet", group1_terms, 3));
-    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Add(smap, "part", group2_terms, 3));
-    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Add(smap, "common", group3_terms, 2));
+    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Update(smap, group1_terms, 3, "greet"));
+    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Update(smap, group2_terms, 3, "part"));
+    ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Update(smap, group3_terms, 2, "common"));
 
     // Verify the synonym map has the expected terms
     TermData *td = SynonymMap_GetIdsBySynonym_cstr(smap, "hello");
