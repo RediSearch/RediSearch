@@ -22,6 +22,30 @@
 #define INITIAL_CAPACITY 2
 #define SYNONYM_PREFIX "~%s"
 
+static void* synonymKeyDup(void* privdata, const void* key) {
+  CharBuf* copy = rm_malloc(sizeof(*copy));
+  // TermData owns the bytes. Only the descriptor belongs to the dictionary.
+  *copy = *(const CharBuf*)key;
+  return copy;
+}
+
+static void synonymKeyFree(void* privdata, void* key) {
+  rm_free(key);
+}
+
+static dictType synonymDictType = {
+    .hashFunction = CharBuf_HashFunction,
+    .keyDup = synonymKeyDup,
+    .keyCompare = CharBuf_KeyCompare,
+    .keyDestructor = synonymKeyFree,
+};
+
+// Transfers ownership of term only on DICT_OK; the caller retains it on failure.
+static int synonymMapAddTerm(SynonymMap* smap, TermData* term) {
+  CharBuf key = {.buf = term->term, .len = sdslen(term->term)};
+  return dictAdd(smap->h_table, &key, term);
+}
+
 static TermData* TermData_New(sds term) {
   TermData* t_data = rm_malloc(sizeof(TermData));
   t_data->term = term;
@@ -120,7 +144,7 @@ cleanup:
 
 SynonymMap* SynonymMap_New(bool is_read_only) {
   SynonymMap* smap = rm_new(SynonymMap);
-  smap->h_table = dictCreate(&dictTypeHeapStrings, NULL);
+  smap->h_table = dictCreate(&synonymDictType, NULL);
   smap->is_read_only = is_read_only;
   smap->read_only_copy = NULL;
   smap->ref_count = 1;
@@ -200,7 +224,7 @@ SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size
   // don't over-count duplicates within the input batch.
   dict* pending_new = dictCreate(&dictTypeHeapStrings, NULL);
   for (size_t i = 0; i < size; i++) {
-    TermData* termData = dictFetchValue(smap->h_table, lowered[i]);
+    TermData* termData = SynonymMap_GetIdsBySynonym(smap, lowered[i], sdslen(lowered[i]));
     if (termData) {
       // Existing term gains one group id iff it doesn't already have it.
       if (!TermData_IdExists(termData, groupId) &&
@@ -228,12 +252,12 @@ SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size
 
   // Apply pass. Validation guarantees TermData_AddId cannot fail here.
   for (size_t i = 0; i < size; i++) {
-    TermData* termData = dictFetchValue(smap->h_table, lowered[i]);
+    TermData* termData = SynonymMap_GetIdsBySynonym(smap, lowered[i], sdslen(lowered[i]));
     if (termData) {
       sdsfree(lowered[i]);
     } else {
       termData = TermData_New(lowered[i]);
-      dictAdd(smap->h_table, termData->term, termData);
+      synonymMapAddTerm(smap, termData);
     }
     SynonymMapResult r = TermData_AddId(termData, groupId);
     RS_LOG_ASSERT(r == SYNONYM_MAP_OK,
@@ -249,10 +273,8 @@ SynonymMapResult SynonymMap_Update(SynonymMap* smap, const char** synonyms, size
 }
 
 TermData* SynonymMap_GetIdsBySynonym(SynonymMap* smap, const char* synonym, size_t len) {
-  char syn[len + 1];
-  memcpy(syn, synonym, len);
-  syn[len] = '\0';
-  return dictFetchValue(smap->h_table, syn);
+  const CharBuf key = {.buf = (char*)synonym, .len = len};
+  return dictFetchValue(smap->h_table, &key);
 }
 
 TermData** SynonymMap_DumpAllTerms(SynonymMap* smap, size_t* size) {
@@ -269,8 +291,8 @@ TermData** SynonymMap_DumpAllTerms(SynonymMap* smap, size_t* size) {
   return dump;
 }
 
-static void SynonymMap_CopyEntry(SynonymMap* smap, const char* key, TermData* t_data) {
-  dictAdd(smap->h_table, (char*)key, TermData_Copy(t_data));
+static void SynonymMap_CopyEntry(SynonymMap* smap, TermData* t_data) {
+  synonymMapAddTerm(smap, TermData_Copy(t_data));
 }
 
 static SynonymMap* SynonymMap_GenerateReadOnlyCopy(SynonymMap* smap) {
@@ -279,9 +301,8 @@ static SynonymMap* SynonymMap_GenerateReadOnlyCopy(SynonymMap* smap) {
   dictIterator* iter = dictGetIterator(smap->h_table);
   dictEntry* entry = NULL;
   while ((entry = dictNext(iter))) {
-    char* key = dictGetKey(entry);
     TermData* val = dictGetVal(entry);
-    SynonymMap_CopyEntry(read_only_smap, key, val);
+    SynonymMap_CopyEntry(read_only_smap, val);
   }
   dictReleaseIterator(iter);
   return read_only_smap;
@@ -363,9 +384,8 @@ void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver) {
       uint64_t unudes = LoadUnsigned_IOError(rdb, goto cleanup);
     }
     TermData* t_data = TermData_RdbLoad(rdb, encver);
-    if (t_data == NULL)
-      goto cleanup;
-    dictAdd(smap->h_table, t_data->term, t_data);
+    if (t_data == NULL) goto cleanup;
+    synonymMapAddTerm(smap, t_data);
   }
   return smap;
 
