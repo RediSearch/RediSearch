@@ -812,6 +812,9 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
 
     let ctx = NonNull::new(search_ctx.redisCtx).unwrap();
 
+    // SAFETY: ensured by caller (5.).
+    let cache = unsafe { opts.cache.as_ref() };
+
     let res = match dmd.type_() {
         DocumentType::Hash => {
             let format = HashDocumentFormat::new(ctx, opts.force_string);
@@ -829,8 +832,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
                 return redis_module::REDISMODULE_ERR as i32;
             };
 
-            // SAFETY: ensured by caller (5.).
-            let Some(LoaderCache::Json(path_cache)) = (unsafe { opts.cache.as_ref() }) else {
+            let Some(LoaderCache::Json(path_cache)) = cache else {
                 panic!("JSON loading requires a JSON cache");
             };
             let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion, path_cache);
@@ -942,11 +944,13 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
     let profile = (!opts.profile_fields.is_null())
         .then(|| unsafe { slice::from_raw_parts_mut(opts.profile_fields, opts.nkeys) });
 
+    // SAFETY: ensured by caller (6.).
+    let cache = unsafe { opts.cache.as_ref() };
+
     let res = match dmd.type_() {
         DocumentType::Hash => {
             let format = HashDocumentFormat::new(ctx, opts.force_string);
-            // SAFETY: ensured by caller (6.)
-            let format = match unsafe { opts.cache.as_ref() } {
+            let format = match cache {
                 Some(LoaderCache::Hash(names)) => format.with_field_names(names),
                 None => format,
                 Some(LoaderCache::Json(_)) => panic!("Hash loading requires a Hash cache"),
@@ -967,8 +971,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
                 return redis_module::REDISMODULE_ERR as i32;
             };
 
-            // SAFETY: ensured by caller (6.).
-            let Some(LoaderCache::Json(path_cache)) = (unsafe { opts.cache.as_ref() }) else {
+            let Some(LoaderCache::Json(path_cache)) = cache else {
                 panic!("JSON loading requires a JSON cache");
             };
             let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion, path_cache);
