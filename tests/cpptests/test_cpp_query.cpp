@@ -160,7 +160,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   QueryAST ast = {0};
   QueryError iterErr = QueryError_Default();
   // Set up params for the pre-filtered KNN query.
-  opts.params = Param_DictCreate();
+  opts.params = Param_DictCreate(1);
   ASSERT_NE(opts.params, nullptr);
   RedisModuleString *blob = RedisModule_CreateString(NULL, "abcdefghijklmnop", 16);
   ASSERT_EQ(Param_DictAdd(opts.params, "BLOB", 4, blob, &iterErr),
@@ -193,7 +193,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   QueryAST ast_missing_attrs = {0};
   QueryError iterErrMissingAttrs = QueryError_Default();
   // Set up params for query-attributes syntax without HYBRID_POLICY.
-  opts_missing_attrs.params = Param_DictCreate();
+  opts_missing_attrs.params = Param_DictCreate(1);
   ASSERT_NE(opts_missing_attrs.params, nullptr);
   RedisModuleString *missingAttrsBlob = RedisModule_CreateString(NULL, "abcdefghijklmnop", 16);
   ASSERT_EQ(Param_DictAdd(opts_missing_attrs.params, "BLOB", 4, missingAttrsBlob,
@@ -235,7 +235,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   QueryAST ast_attrs = {0};
   QueryError iterErrAttrs = QueryError_Default();
   // Set up params for query-attributes syntax with HYBRID_POLICY.
-  opts_attrs.params = Param_DictCreate();
+  opts_attrs.params = Param_DictCreate(1);
   ASSERT_NE(opts_attrs.params, nullptr);
   RedisModuleString *attrsBlob = RedisModule_CreateString(NULL, "abcdefghijklmnop", 16);
   ASSERT_EQ(Param_DictAdd(opts_attrs.params, "BLOB", 4, attrsBlob, &iterErrAttrs),
@@ -1122,7 +1122,7 @@ TEST_F(QueryTest, testWildcard) {
 // AddressSanitizer — while also asserting the value is preserved intact.
 TEST_F(QueryTest, testParamTermCaseBinaryValue) {
   QueryError err = QueryError_Default();
-  dict *params = Param_DictCreate();
+  dict *params = Param_DictCreate(1);
 
   // 'a', interior NUL, then a long tail. rm_strdup would stop at the NUL and
   // allocate only 2 bytes while still reporting the full length.
@@ -1159,11 +1159,27 @@ TEST_F(QueryTest, testParamTermCaseBinaryValue) {
   RedisModule_FreeString(NULL, rvalue);
 }
 
+// The parser reads only `len` bytes: a number at the very end must not run on into the bytes that
+// follow the query in a larger buffer.
+TEST_F(QueryTest, testNumberAtEndOfQueryNotTerminated) {
+  const char buf[] = "@n>=512345";
+  RedisSearchCtx sctx = {0};
+  RSSearchOptions opts = {0};
+  QueryAST ast = {0};
+  QueryError err = QueryError_Default();
+  ASSERT_EQ(REDISMODULE_OK, QAST_Parse(&ast, &sctx, &opts, buf, 5, 2, &err))
+      << QueryError_GetUserError(&err);
+  ASSERT_EQ(QN_NUMERIC, ast.root->type);
+  ASSERT_EQ(5.0, ast.root->nn.nf->min);
+  QAST_Destroy(&ast);
+  QueryError_ClearError(&err);
+}
+
 // Lookups take the name by length: query tokens are not NUL-terminated, and
 // long names must resolve too.
 TEST_F(QueryTest, testParamDictGetByLength) {
   QueryError err = QueryError_Default();
-  dict *params = Param_DictCreate();
+  dict *params = Param_DictCreate(2);
   const std::string longName(100, 'n');
   RedisModuleString *shortValue = RedisModule_CreateString(NULL, "v1", 2);
   RedisModuleString *longValue = RedisModule_CreateString(NULL, "v2", 2);

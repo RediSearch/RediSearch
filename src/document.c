@@ -174,11 +174,6 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     aCtx->sv = RSSortingVector_New(sp->numSortableFields);
   }
 
-  int empty = (RSSortingVector_Length(&aCtx->sv) == 0) && !hasTextFields && !hasOtherFields;
-  if (empty) {
-    aCtx->stateFlags |= ACTX_F_EMPTY;
-  }
-
   if ((aCtx->options & DOCUMENT_ADD_NOSAVE) == 0 && numTextIndexable &&
       (sp->flags & Index_StoreByteOffsets)) {
     if (!aCtx->byteOffsets) {

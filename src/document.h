@@ -317,9 +317,6 @@ struct FieldIndexerData;
 // The content has sortable fields
 #define ACTX_F_SORTABLES 0x10
 
-// Document is entirely empty (no sortables, indexables)
-#define ACTX_F_EMPTY 0x40
-
 #define ACTX_F_NOFREEDOC 0x80
 
 /** Context used when indexing documents */
