@@ -31,6 +31,9 @@ typedef struct LoadAllKeysOptions {
   const RSDocumentMetadata *dmd;
   bool force_string;
   struct QueryError *status;
+  /**
+   * Required root [`JsonPathCache`] for JSON documents; null for hashes.
+   */
   const struct JsonPathCache *path_cache;
 } LoadAllKeysOptions;
 
@@ -59,7 +62,8 @@ typedef struct LoadIndividualKeysOptions {
    */
   const struct HashFieldNames *field_names;
   /**
-   * Optional query-owned [`JsonPathCache`] aligned with `keys`.
+   * Required [`JsonPathCache`] for JSON documents, aligned with the selected keys;
+   * null for hashes.
    */
   const struct JsonPathCache *path_cache;
 } LoadIndividualKeysOptions;
@@ -619,7 +623,7 @@ struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  *    `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
  * 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
  *    be a valid [`DocumentType`].
- * 5. `(*opts).path_cache` must be null or a [valid] pointer returned by
+ * 5. For JSON documents, `(*opts).path_cache` must be a [valid], non-null pointer returned by
  *    [`JsonPathCache_New`] for root loading and kept alive for this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -642,7 +646,7 @@ int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, 
  *    pointer to a properly initialized key that outlives this call.
  * 6. `(*opts).field_names` must be null or a pointer returned by [`HashFieldNames_New`] that
  *    has not been freed, and no other thread may access it for the duration of this call.
- * 7. `(*opts).path_cache` must be null or a [valid] pointer returned by
+ * 7. For JSON documents, `(*opts).path_cache` must be a [valid], non-null pointer returned by
  *    [`JsonPathCache_New`] for these keys in the same order, kept alive for this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

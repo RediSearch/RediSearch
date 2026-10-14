@@ -129,7 +129,7 @@ typedef uint32_t RLookup_Opt;
 typedef struct HashFieldNames HashFieldNames;
 
 /**
- * Owns the compiled [`JsonPath`]s for one query loader, in field-load order.
+ * Owns the compiled [`JsonPath`]s for one load operation, in field-load order.
  */
 typedef struct JsonPathCache JsonPathCache;
 

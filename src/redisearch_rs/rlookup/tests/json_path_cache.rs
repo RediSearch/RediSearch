@@ -51,7 +51,7 @@ fn load_fields(
                 }
             }
         }
-        let format = JsonDocumentFormat::new_with_path_cache(ctx, &api, version, cache);
+        let format = JsonDocumentFormat::new(ctx, &api, version, cache);
         let name = key_name();
         let loader = format.open(&name).unwrap();
         let mut row = RLookupRow::new();
@@ -64,7 +64,7 @@ fn load_fields(
 
 fn load_root(doc: JsonValue, cache: &JsonPathCache, version: u8) -> SharedValue {
     with_json_api(Some(doc), |api, ctx| {
-        let format = JsonDocumentFormat::new_with_path_cache(ctx, &api, version, cache);
+        let format = JsonDocumentFormat::new(ctx, &api, version, cache);
         let mut lookup = RLookup::new();
         let mut row = RLookupRow::new();
         format.load_all(&mut lookup, &mut row, &key_name()).unwrap();
@@ -117,7 +117,7 @@ fn compiles_once_reuses_across_documents_and_frees_on_drop() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // RedisModule_CreateString crosses the C FFI boundary.
-fn empty_entries_preserve_positions_and_malformed_paths_are_not_retried() {
+fn cache_entries_preserve_positions_and_malformed_paths_are_not_retried() {
     redis_mock::init_redis_module_mock();
     reset_json_api_calls();
     let paths = [
@@ -195,24 +195,18 @@ fn cached_root_load_preserves_errors_without_writing_a_value() {
         with_json_api(doc, |api, ctx| {
             // SAFETY: the mock implements V10 and the path is static.
             let cache = unsafe { JsonPathCache::new(&api, [Some(c"$")].into_iter()) };
-            for cached in [false, true] {
-                let format = if cached {
-                    JsonDocumentFormat::new_with_path_cache(ctx, &api, MULTI, &cache)
-                } else {
-                    JsonDocumentFormat::new(ctx, &api, MULTI)
-                };
-                let mut lookup = RLookup::new();
-                let mut row = RLookupRow::new();
-                let error = format
-                    .load_all(&mut lookup, &mut row, &key_name())
-                    .unwrap_err();
-                assert_eq!(
-                    std::mem::discriminant(&error),
-                    std::mem::discriminant(&expected),
-                    "cached={cached}: expected {expected:?}, got {error:?}"
-                );
-                assert!(lookup.find_key_by_name(c"$").is_none());
-            }
+            let format = JsonDocumentFormat::new(ctx, &api, MULTI, &cache);
+            let mut lookup = RLookup::new();
+            let mut row = RLookupRow::new();
+            let error = format
+                .load_all(&mut lookup, &mut row, &key_name())
+                .unwrap_err();
+            assert_eq!(
+                std::mem::discriminant(&error),
+                std::mem::discriminant(&expected),
+                "expected {expected:?}, got {error:?}"
+            );
+            assert!(lookup.find_key_by_name(c"$").is_none());
         });
     }
 }

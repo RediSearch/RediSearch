@@ -670,6 +670,7 @@ pub struct LoadAllKeysOptions {
     pub dmd: *const ffi::RSDocumentMetadata,
     pub force_string: bool,
     pub status: *mut OpaqueQueryError,
+    /// Required root [`JsonPathCache`] for JSON documents; null for hashes.
     pub path_cache: *const JsonPathCache,
 }
 
@@ -693,7 +694,8 @@ pub struct LoadIndividualKeysOptions {
     /// processes (see [`HashFieldNames_New`]). Null makes each load build its
     /// field names afresh.
     pub field_names: *const HashFieldNames,
-    /// Optional query-owned [`JsonPathCache`] aligned with `keys`.
+    /// Required [`JsonPathCache`] for JSON documents, aligned with the selected keys;
+    /// null for hashes.
     pub path_cache: *const JsonPathCache,
 }
 
@@ -782,7 +784,7 @@ pub unsafe extern "C" fn HashFieldNames_Free(names: *mut HashFieldNames) {
 ///    `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
 /// 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
 ///    be a valid [`DocumentType`].
-/// 5. `(*opts).path_cache` must be null or a [valid] pointer returned by
+/// 5. For JSON documents, `(*opts).path_cache` must be a [valid], non-null pointer returned by
 ///    [`JsonPathCache_New`] for root loading and kept alive for this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -834,15 +836,9 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
             };
 
             // SAFETY: ensured by caller (5.).
-            let format = match unsafe { opts.path_cache.as_ref() } {
-                Some(path_cache) => JsonDocumentFormat::new_with_path_cache(
-                    ctx,
-                    &japi,
-                    search_ctx.apiVersion,
-                    path_cache,
-                ),
-                None => JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion),
-            };
+            let path_cache =
+                unsafe { opts.path_cache.as_ref() }.expect("JSON loading requires a path cache");
+            let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion, path_cache);
 
             DocumentLoader::new(dst_row, ctx, dmd, format).load_all(lookup)
         }
@@ -889,7 +885,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
 ///    pointer to a properly initialized key that outlives this call.
 /// 6. `(*opts).field_names` must be null or a pointer returned by [`HashFieldNames_New`] that
 ///    has not been freed, and no other thread may access it for the duration of this call.
-/// 7. `(*opts).path_cache` must be null or a [valid] pointer returned by
+/// 7. For JSON documents, `(*opts).path_cache` must be a [valid], non-null pointer returned by
 ///    [`JsonPathCache_New`] for these keys in the same order, kept alive for this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -976,15 +972,9 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
             };
 
             // SAFETY: ensured by caller (7.).
-            let format = match unsafe { opts.path_cache.as_ref() } {
-                Some(path_cache) => JsonDocumentFormat::new_with_path_cache(
-                    ctx,
-                    &japi,
-                    search_ctx.apiVersion,
-                    path_cache,
-                ),
-                None => JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion),
-            };
+            let path_cache =
+                unsafe { opts.path_cache.as_ref() }.expect("JSON loading requires a path cache");
+            let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion, path_cache);
 
             DocumentLoader::new(dst_row, ctx, dmd, format)
                 .force_load(opts.force_load)
