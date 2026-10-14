@@ -62,11 +62,12 @@ guaranteed main thread — closes and frees it. Coordinator SEARCH serializes it
 reduced rows into that same buffer from the reducer and moves them in its reply
 callback.
 
-The API is unreleased. Search rejects loading when either API is absent, and the
-shared CI dependency builds upstream commit `021fdb3a63d884c7952c3fdc59017710caa4d66d`,
+The API is merged into Redis `unstable` but not yet released. Search rejects loading when
+either API is absent, and the shared CI dependency builds the upstream merge commit
+`d003e19b00d41cf1916ae80398a6deb6dff54f69`,
 including PR, merge-queue, and periodic validation, manual tests, and benchmarks.
-There is no fallback for older cores. Upstream approval, merge, and a supported
-packaged core version remain prerequisites for landing this change.
+There is no fallback for older cores. A supported packaged core version remains a
+prerequisite for landing this change.
 
 ## Lifetime and timeout ownership
 
