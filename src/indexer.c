@@ -112,7 +112,7 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   // Text fields carrying a field-level expiration for this document; a posting's
   // inline expiration bit is set when its field mask overlaps this one. Read back
-  // from the doc table because `doAssignIds` moved `doc->fieldExpirations` there.
+  // from the doc table because `assignDocId` moved `doc->fieldExpirations` there.
   const t_fieldMask expiringTextFields = docExpiringTextFieldMask(spec, aCtx->doc->docId);
   size_t prevNumTerms = spec->stats.scoring.numTerms;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
@@ -292,7 +292,7 @@ static RSDocumentMetadata *newDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx 
   Document *doc = aCtx->doc;
 
   // Existing key -> docId mapping (memory-mode analogue of the disk oldDocId
-  // lookup in doAssignIds).
+  // lookup in DiskIndexer_StageDocument).
   uint64_t oldDocId = 0;
   actxDocIdMetaGet(aCtx, sctx, &oldDocId);
   aCtx->oldDocId = oldDocId;
@@ -341,58 +341,51 @@ static RSDocumentMetadata *newDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx 
 }
 
 /**
- * Performs bulk document ID assignment to all items in the queue.
- * If one item cannot be assigned an ID, it is marked as being errored.
+ * Assigns the document its ID. On failure the document is marked as errored.
  *
  * Disk mode delegates to `DiskIndexer_StageDocument`; memory mode assigns the
  * doc-id and applies all RAM mutations inline here.
  *
  * This function also sets the document's sorting vector, if present.
  */
-static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
+static void assignDocId(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
-  for (; cur; cur = cur->next) {
-    if (cur->stateFlags & ACTX_F_ERRORED) {
-      continue;
+  RS_ASSERT(aCtx->doc);
+  RS_LOG_ASSERT(!aCtx->doc->docId, "docId must be 0");
+  if (SearchDisk_IsEnabled()) {
+    DiskIndexer_StageDocument(aCtx, ctx);
+  } else {
+    bool updated = false;
+    RSDocumentMetadata *md = newDocumentId(ctx, aCtx,
+                                            aCtx->options & DOCUMENT_ADD_REPLACE, &updated);
+    if (!md) {
+      aCtx->stateFlags |= ACTX_F_ERRORED;
+      return;
     }
 
-    RS_ASSERT(cur->doc);
-    if (SearchDisk_IsEnabled()) {
-      DiskIndexer_StageDocument(cur, ctx);
-    } else {
-      RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
-      bool updated = false;
-      RSDocumentMetadata *md = newDocumentId(ctx, cur,
-                                              cur->options & DOCUMENT_ADD_REPLACE, &updated);
-      if (!md) {
-        cur->stateFlags |= ACTX_F_ERRORED;
-        continue;
-      }
+    md->maxTermFreq = aCtx->fwIdx->maxTermFreq;
+    md->docLen = aCtx->fwIdx->totalFreq;
+    Indexer_AddNewDocStats(spec, md->docLen);
 
-      md->maxTermFreq = cur->fwIdx->maxTermFreq;
-      md->docLen = cur->fwIdx->totalFreq;
-      Indexer_AddNewDocStats(spec, md->docLen);
-
-      if (RSSortingVector_Length(&cur->sv)) {
-        DocTable_SetSortingVector(&spec->docs, md, cur->sv);
-        cur->sv = RSSortingVector_Empty();
-      }
-
-      if (cur->byteOffsets) {
-        ByteOffsetWriter_Move(&cur->offsetsWriter, cur->byteOffsets);
-        DocTable_SetByteOffsets(md, cur->byteOffsets);
-        cur->byteOffsets = NULL;
-      }
-      Document* doc = cur->doc;
-      const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || FieldExpirations_Len(&doc->fieldExpirations) > 0;
-      if (hasExpiration) {
-        DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime,
-                                  DocTable_TakeFieldExpirations(&doc->fieldExpirations));
-      }
-      DMD_Return(md);
-
-      handle_gc(spec, updated);
+    if (RSSortingVector_Length(&aCtx->sv)) {
+      DocTable_SetSortingVector(&spec->docs, md, aCtx->sv);
+      aCtx->sv = RSSortingVector_Empty();
     }
+
+    if (aCtx->byteOffsets) {
+      ByteOffsetWriter_Move(&aCtx->offsetsWriter, aCtx->byteOffsets);
+      DocTable_SetByteOffsets(md, aCtx->byteOffsets);
+      aCtx->byteOffsets = NULL;
+    }
+    Document* doc = aCtx->doc;
+    const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || FieldExpirations_Len(&doc->fieldExpirations) > 0;
+    if (hasExpiration) {
+      DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime,
+                                DocTable_TakeFieldExpirations(&doc->fieldExpirations));
+    }
+    DMD_Return(md);
+
+    handle_gc(spec, updated);
   }
 }
 
@@ -570,8 +563,8 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
  * atomic chunk (see `indexText` and `bulkIndexFields`). A later field's
  * failure cannot orphan an earlier field's writes.
  *
- * Doc-table scoring-stat deltas + GC are applied inline in `makeDocumentId` /
- * `doAssignIds`, so there is no `applyDocTable` step here.
+ * Doc-table scoring-stat deltas + GC are applied inline in `assignDocId`, so
+ * there is no `applyDocTable` step here.
  */
 static void indexDocumentMemory(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
                                 FieldExpirationSlice fes) {
@@ -589,7 +582,6 @@ static void indexDocumentMemory(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
  * mode-specific pipeline.
  */
 static void Indexer_Process(RSAddDocumentCtx *aCtx) {
-  RSAddDocumentCtx *firstZeroId = aCtx;
   RedisSearchCtx ctx = *aCtx->sctx;
 
   // A document without indexable fields is trivially "indexed", but must still get a doc id (which
@@ -607,30 +599,13 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
 
   Document *doc = aCtx->doc;
 
-  /**
-   * Document ID & sorting-vector assignment:
-   * In order to hold the GIL for as short a time as possible, we assign
-   * document IDs in bulk. We begin using the first document ID that is assumed
-   * to be zero.
-   *
-   * When merging multiple document IDs, the merge stage scans through the chain
-   * of proposed documents and selects the first document in the chain missing an
-   * ID - the subsequent documents should also all be missing IDs. If none of
-   * the documents are missing IDs then the firstZeroId document is NULL and
-   * no ID assignment takes place.
-   *
-   * Assigning IDs in bulk speeds up indexing of smaller documents by about
-   * 10% overall.
-   */
-  if (firstZeroId != NULL && firstZeroId->doc->docId == 0) {
-    doAssignIds(firstZeroId, &ctx);
-  }
+  assignDocId(aCtx, &ctx);
 
   if (SearchDisk_IsEnabled()) {
     DiskIndexer_IndexDocument(aCtx, &ctx);
   } else {
     // `doc->fieldExpirations` ownership has already been moved into the TTL
-    // table by `doAssignIds` on success. On failure (e.g. `makeDocumentId`
+    // table by `assignDocId` on success. On failure (e.g. `newDocumentId`
     // returned NULL), the array stays attached to `doc` so `Document_Free`
     // can release it.
     struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);

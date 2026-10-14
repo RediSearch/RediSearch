@@ -321,7 +321,6 @@ struct FieldIndexerData;
 
 /** Context used when indexing documents */
 typedef struct RSAddDocumentCtx {
-  struct RSAddDocumentCtx *next;  // Next context in the queue
   Document *doc;                   // Document which is being indexed
   RedisSearchCtx *sctx;
 

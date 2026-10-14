@@ -206,7 +206,6 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->totalTokens = 0;
   aCtx->docFlags = 0;
   aCtx->sctx = NULL;
-  aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;
   aCtx->disk.batch = NULL;

@@ -1070,7 +1070,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
   // first-field-TTL branches below hand this handle to IndexSpec_UpdateDoc, which
   // publishes DocIdMeta through it. A document with no entry yet takes a first
   // metadata attach via RM_SetKeyMeta, which requires REDISMODULE_WRITE and would
-  // otherwise fail the publish assert in makeDocumentId and abort the server.
+  // otherwise fail the publish assert in newDocumentId and abort the server.
   RedisModuleKey *k =
       RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS | REDISMODULE_WRITE);
   RS_ASSERT(k);

@@ -189,7 +189,7 @@ static bool commitDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
 }
 
 /**
- * Disk-mode counterpart to memory-mode `makeDocumentId` / `doAssignIds`:
+ * Disk-mode counterpart to memory-mode `newDocumentId` / `assignDocId`:
  * publishes the key→docId mapping in Redis (`DocIdMeta_Set`) and folds the
  * scoring-stat deltas captured by `DiskIndexer_StageDocument`. Called by
  * `DiskIndexer_IndexDocument` after `commitDocument` reports a successful commit.
@@ -202,8 +202,7 @@ static bool commitDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
  * from a well-defined state.
  *
  * Memory mode applies the equivalent scoring-stat deltas inline in
- * `makeDocumentId` / `doAssignIds` so that the doc-table and stats stay in
- * sync between consecutive `Indexer_Process` calls within a chain.
+ * `newDocumentId` / `assignDocId`.
  */
 static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
