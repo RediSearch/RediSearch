@@ -49,9 +49,7 @@
 #include "synonym_map.h"
 #include "ttl_table.h"
 #include "ttl_table_rs.h"
-#include "util/block_alloc.h"
 #include "util/dict/dict.h"
-#include "util/khtable.h"
 #include "varint_ffi.h"
 
 extern RedisModuleCtx *RSDummyContext;
@@ -77,46 +75,6 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEnt
     spec->stats.offsetVecsSize += VVW_GetByteLength(entry->vw);
     spec->stats.offsetVecRecords += VVW_GetCount(entry->vw);
   }
-}
-
-// Number of terms for each block-allocator block
-#define TERMS_PER_BLOCK 128
-
-// Effectively limits the maximum number of documents whose terms can be merged
-#define MAX_BULK_DOCS 1024
-
-// Entry for the merged dictionary
-typedef struct mergedEntry {
-  KHTableEntry base;        // Base structure
-  ForwardIndexEntry *head;  // First document containing the term
-  ForwardIndexEntry *tail;  // Last document containing the term
-} mergedEntry;
-
-// Boilerplate hashtable compare function
-static int mergedCompare(const KHTableEntry *ent, const void *s, size_t n, uint32_t h) {
-  mergedEntry *e = (mergedEntry *)ent;
-  // 0 return value means "true"
-  return !(e->head->hash == h && e->head->len == n && memcmp(e->head->term, s, n) == 0);
-}
-
-// Boilerplate hash retrieval function. Used for rebalancing the table
-static uint32_t mergedHash(const KHTableEntry *ent) {
-  mergedEntry *e = (mergedEntry *)ent;
-  return e->head->hash;
-}
-
-// Boilerplate dict entry allocator
-static KHTableEntry *mergedAlloc(void *ctx) {
-  return BlkAlloc_Alloc(ctx, sizeof(mergedEntry), sizeof(mergedEntry) * TERMS_PER_BLOCK);
-}
-
-// This function used for debugging, and returns how many items are actually in the list
-static size_t countMerged(mergedEntry *ent) {
-  size_t n = 0;
-  for (ForwardIndexEntry *cur = ent->head; cur; cur = cur->next) {
-    n++;
-  }
-  return n;
 }
 
 // Build the mask of this document's TEXT fields that carry a field-level
