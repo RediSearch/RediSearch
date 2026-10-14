@@ -42,7 +42,7 @@ static int timeFormat(ExprEval *ctx, RSValue **argv, size_t argc, RSValue *resul
   char *buf = NULL;
 
   if (argc == 2) {
-    VALIDATE_ARG_TYPE("time", argv, 1, RSValueType_String);
+    VALIDATE_ARG_ISSTRING("time", argv, 1);
     fmt = RSValue_StringPtrLen(argv[1], NULL);
   }
   // Get the format

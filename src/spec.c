@@ -2535,35 +2535,6 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   return fs;
 }
 
-uint64_t CharBuf_HashFunction(const void *key) {
-  const CharBuf *cb = key;
-  return RS_dictGenHashFunction(cb->buf, cb->len);
-}
-
-void *CharBuf_KeyDup(void *privdata, const void *key) {
-  const CharBuf *cb = key;
-  CharBuf *newcb = rm_malloc(sizeof(*newcb));
-  newcb->len = cb->len;
-  newcb->buf = rm_malloc(cb->len);
-  memcpy(newcb->buf, cb->buf, cb->len);
-  return newcb;
-}
-
-int CharBuf_KeyCompare(void *privdata, const void *key1, const void *key2) {
-  const CharBuf *cb1 = key1;
-  const CharBuf *cb2 = key2;
-  if (cb1->len != cb2->len) {
-    return 0;
-  }
-  return (memcmp(cb1->buf, cb2->buf, cb1->len) == 0);
-}
-
-void CharBuf_KeyDestructor(void *privdata, void *key) {
-  CharBuf *cb = key;
-  rm_free(cb->buf);
-  rm_free(cb);
-}
-
 void InvIndFreeCb(void *privdata, void *val) {
   InvertedIndex *idx = val;
   InvertedIndex_Free(idx);
@@ -3323,6 +3294,15 @@ static void IndexSpec_NormalizeStorageFlagsOnLoad(IndexFlags *flags) {
   }
 }
 
+void IndexSpec_RdbLoadDiscard(StrongRef spec_ref) {
+  // SchemaRule_RdbLoad and the alias loop publish the spec in the global prefix
+  // trie and alias table as non-owning copies of spec_ref. Unregister before the
+  // last reference goes, or the next matching write dereferences a freed spec.
+  SchemaPrefixes_RemoveSpec(spec_ref);
+  IndexSpec_ClearAliases(spec_ref);
+  StrongRef_Release(spec_ref);
+}
+
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   IndexSpec *sp = NULL;
   StrongRef spec_ref = {0};
@@ -3459,12 +3439,7 @@ cleanup:
     // Idempotent — no-op if the open never registered on this path.
     SearchDisk_CloseIndexOnMainThread(ctx, sp);
   }
-  // SchemaRule_RdbLoad and the alias loop publish the spec in the global prefix
-  // trie and alias table as non-owning copies of spec_ref. Unregister before the
-  // last reference goes, or the next matching write dereferences a freed spec.
-  SchemaPrefixes_RemoveSpec(spec_ref);
-  IndexSpec_ClearAliases(spec_ref);
-  StrongRef_Release(spec_ref);
+  IndexSpec_RdbLoadDiscard(spec_ref);
   goto cleanup_no_index;
 cleanup_name:
   // specName is handed to the spec only in initializeIndexSpec.

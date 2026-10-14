@@ -9,7 +9,6 @@
 #include "test_util.h"
 #include "synonym_map.h"
 #include "../charbuf_test_utils.h"
-#include "spec.h"
 #include "rmutil/alloc.h"
 
 int testSynonymMapAddGetId() {
