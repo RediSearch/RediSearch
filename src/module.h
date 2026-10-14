@@ -49,7 +49,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 extern redisearch_thpool_t *depleterPool;
 
 int IsMaster();
-bool IsEnterprise();
+bool RS_IsEnterpriseServer(void);
 
 size_t GetNumShards_UnSafe();
 
@@ -64,9 +64,6 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 // Indicates that RediSearch_Init was called
 extern int RS_Initialized;
-
-// Coordinator thread pool id; -1 until RediSearch_InitModuleInternal runs.
-extern int DIST_THREADPOOL;
 
 #define RS_AutoMemory(ctx)                      \
 do {                                            \

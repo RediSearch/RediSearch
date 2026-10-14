@@ -254,6 +254,8 @@ jobs:
     # instrumented builds (coverage, sanitize) run noticeably slower, so give
     # them an extra shard (4) to keep per-shard wall time down; basic-test
     # stays at 3.
+    # The coverage shard count feeds codecov.notify.after_n_builds in
+    # .github/codecov.yml; keep them in sync.
     strategy:
       matrix:
         shard: ${{ fromJSON(inputs.job-type == 'basic-test' && '[1, 2, 3]' || '[1, 2, 3, 4]') }}

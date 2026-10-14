@@ -4990,9 +4990,8 @@ class TestCoordinatorTimeout:
             # thread; emptying the coord cursor list now only marks it for
             # deletion. Wholesale `DELETE_LOCAL_COORD_CURSORS` rather than
             # `FT.CURSOR DEL idx <cid>`: DEL routes through the same paused
-            # DIST_THREADPOOL via `ConcurrentSearch_HandleRedisCommandEx` in
-            # `CursorCommand`, so the DEL would itself block forever waiting
-            # for the pool. The debug command runs synchronously on the Redis
+            # coordinator pool in `CursorCommand`, so the DEL would itself
+            # block waiting for the pool. The debug command runs synchronously on the Redis
             # main thread, bypassing the pool; fanned out per-shard since the
             # coord-side cursor lives on whichever shard handled the AGGREGATE.
             run_command_on_all_shards(env, debug_cmd(), 'DELETE_LOCAL_COORD_CURSORS')
@@ -5062,9 +5061,8 @@ class TestCoordinatorTimeout:
             # Purge the cursor while it is still idle on the coord and the BG
             # worker is queued. Wholesale `DELETE_LOCAL_COORD_CURSORS` rather
             # than `FT.CURSOR DEL idx <cid>` because DEL also routes through
-            # the paused DIST_THREADPOOL (`ConcurrentSearch_HandleRedisCommandEx`
-            # in `CursorCommand`) and would block forever; the debug command
-            # runs synchronously on the main thread.
+            # the paused coordinator pool in `CursorCommand` and would block
+            # forever; the debug command runs synchronously on the main thread.
             run_command_on_all_shards(env, debug_cmd(), 'DELETE_LOCAL_COORD_CURSORS')
             # Fire the BC timeout *before* resuming coord threads so the
             # timer (main thread) wins the race against the BG worker.
@@ -6429,6 +6427,31 @@ class TestReturnStrictWorkerTransitions:
         self._set_workers(1)
         self._timeout_return_strict_cursor_while_workers_paused(
             cursor_id, 'RETURN_STRICT after WORKERS 1 -> 0 -> 1')
+
+    def test_cursor_keeps_request_config_after_global_changes(self):
+        """Cursor reads retain their policy across global changes and an inline read."""
+        skipTest(cluster=True)
+        self._set_workers(1)
+        previous = self.env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        previous_timeout = self.env.cmd('CONFIG', 'GET', 'search-timeout')['search-timeout']
+        previous_dialect = self.env.cmd('CONFIG', 'GET', 'search-default-dialect')['search-default-dialect']
+        cursor_id = self._create_cursor()
+        try:
+            self.env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
+            self.env.expect('CONFIG', 'SET', 'search-timeout', '0').ok()
+            self.env.expect('CONFIG', 'SET', 'search-default-dialect', '1').ok()
+            self._set_workers(0)
+            result, next_cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor_id, 'COUNT', '2')
+            self.env.assertEqual(next_cursor, cursor_id, message=result)
+            self.env.assertEqual(result.get('warning', []), [], message=result)
+
+            self._set_workers(1)
+            self._timeout_return_strict_cursor_while_workers_paused(
+                cursor_id, 'request snapshot after global changes and inline read')
+        finally:
+            self.env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous).ok()
+            self.env.expect('CONFIG', 'SET', 'search-timeout', previous_timeout).ok()
+            self.env.expect('CONFIG', 'SET', 'search-default-dialect', previous_dialect).ok()
 
     def test_cursor_restores_timeout_after_workers_restart(self):
         """A foreground cap must not replace the timeout cached for later worker reads."""

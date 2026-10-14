@@ -145,6 +145,8 @@ IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, 
     return NULL;
   }
 
+  SearchDisk_ActivateUsage(sp);
+
   if (!(sp->flags & Index_SkipInitialScan)) {
     IndexSpec_ScanAndReindex(ctx, spec_ref);
   }
@@ -168,6 +170,7 @@ void Indexes_RemoveSpecFromGlobals(StrongRef spec_ref, bool removeActive) {
   // is already in flight, which frees it itself. GCContext_BeginDrop tells us which.
   GCContext *gc = spec->gc;
   const bool ownGCAfterUnlink = gc && GCContext_BeginDrop(gc);
+  if (spec->diskSpec) SearchDisk_CloseIndexOnMainThread(RSDummyContext, spec);
   // Remove spec from the global index registry (by name and by specId)
   dictDelete(specDict_g, spec->specName);
   dictDelete(specIdDict_g, (void *)(uintptr_t)spec->specId);
@@ -281,11 +284,11 @@ static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool u
   // IndexSpec core. It also gates the non-SST on-disk index open below.
   sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
   if (SearchDisk_IsEnabled() && !sp->isDuplicate && !SearchDisk_CanRestoreIndex(status)) {
-    StrongRef_Release(sp->own_ref);
+    IndexSpec_RdbLoadDiscard(sp->own_ref);
     return NULL;
   }
   if (IndexSpec_RdbLoadOpenDisk(RedisModule_GetContextFromIO(rdb), sp, useSst, status) != REDISMODULE_OK) {
-    StrongRef_Release(sp->own_ref);
+    IndexSpec_RdbLoadDiscard(sp->own_ref);
     return NULL;
   }
   return sp;
@@ -375,6 +378,7 @@ int Indexes_StoreSpecAfterRdbLoad(IndexSpec *sp) {
     quiesceSpecIfWindowOpen(sp);
     dictAdd(specDict_g, (void *)sp->specName, spec_ref.rm);
     dictAdd(specIdDict_g, (void *)(uintptr_t)sp->specId, spec_ref.rm);
+    SearchDisk_ActivateUsage(sp);
 
     for (int i = 0; i < sp->numFields; i++) {
       FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
@@ -465,7 +469,7 @@ void Indexes_Propagate(RedisModuleCtx *ctx) {
     RS_ASSERT(sp != NULL);
     RedisModuleString *serialized = IndexSpec_Serialize(sp);
     RS_ASSERT(serialized != NULL);
-    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, CMD_FOR_ENV(RS_RESTORE_IF_NX), "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
+    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, CMD_FOR_COORDINATOR(RS_RESTORE_IF_NX), "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(ctx, "warning", "Failed to propagate index '%s' during slot migration. errno: %d", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), errno);
     }

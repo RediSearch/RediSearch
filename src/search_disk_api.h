@@ -212,7 +212,7 @@ typedef struct BasicDiskAPI {
    *       a background thread (the StrongRef destructor) and cannot make Redis module
    *       API calls from there.
    */
-  void (*closeIndexOnMainThread)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+  void (*closeIndexOnMainThread)(RedisModuleCtx *ctx, RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   /**
    * @brief Save the index spec's disk-related state to RDB.
    *
@@ -1021,7 +1021,20 @@ typedef struct PerFieldCfDiskMetrics {
   uint64_t estimate_num_keys;  // estimated number of keys in the field's CF
 } PerFieldCfDiskMetrics;
 
+/* Numeric cached values; reading these never collects native properties. */
+typedef struct CachedIndexMetrics {
+  uint64_t memory;
+  uint64_t disk_usage;
+  uint64_t blocks;
+} CachedIndexMetrics;
+
 typedef struct MetricsDiskAPI {
+  /* Stop and join collection before index teardown; idempotent, main thread only. */
+  void (*stopMetrics)(RedisSearchDisk *disk);
+  void (*activateTarget)(RedisSearchDiskIndexSpec *index);
+  uint64_t (*getCachedTotalDiskUsage)(RedisSearchDisk *disk);
+  /* Also stages the per-component INFO snapshot for the existing outputInfoMetrics callback. */
+  CachedIndexMetrics (*readCachedIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   /**
    * @brief Collect metrics for an index and store them in the disk context
    *

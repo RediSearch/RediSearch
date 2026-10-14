@@ -465,9 +465,16 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     ForwardIndexTokenizerCtx tokCtx;
     ByteOffsetWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
+    uint32_t offsetsBefore = 0;
     if (aCtx->byteOffsets) {
       curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1);
-      curOffsetWriter = &aCtx->offsetsWriter;
+      offsetsBefore = ByteOffsetWriter_Count(&aCtx->offsetsWriter);
+      // A multi-value field's byte offsets are relative to each value's own string, and its
+      // positions can have gaps (see multiTextOffsetDelta below) RSByteOffsetIterator cannot
+      // step over, so such a field stores no offsets even when MULTI_TEXT_SLOP is 0 or 1.
+      if (valueCount == 1) {
+        curOffsetWriter = &aCtx->offsetsWriter;
+      }
     }
 
     uint32_t options = TOKENIZE_DEFAULT_OPTIONS;
@@ -513,7 +520,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       }
       uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;
 
-      if (curOffsetField) {
+      if (curOffsetWriter) {
         curOffsetField->lastTokPos = lastTokPos;
       }
       aCtx->totalTokens = lastTokPos;
@@ -523,6 +530,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     }
     // Decrease the last increment
     aCtx->tokenizer->ctx.lastOffset -= multiTextOffsetDelta;
+    // Enforce the RSByteOffsetField offset-range contract.
+    RS_ASSERT(!curOffsetField || ByteOffsetWriter_Count(&aCtx->offsetsWriter) - offsetsBefore ==
+                                     curOffsetField->lastTokPos - curOffsetField->firstTokPos + 1);
   }
 
   return 0;
@@ -622,6 +632,13 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   const GeometryApi *api = GeometryApi_Get(rt);
   RedisModuleString *errMsg;
   if (!fdata->isMulti) {
+    if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index)) {
+      if (GeometryIndex_RelabelField(rt, aCtx->oldDocId, aCtx->doc->docId)) {
+        return 0;
+      }
+      // Refused: the old entry is gone. Insert and count it as indexed.
+      aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
+    }
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "Error indexing geoshape", ": %s",
                              RedisModule_StringPtrLen(errMsg, NULL));
@@ -922,7 +939,11 @@ FIELD_BULK_APPLIER(geometryApplier) {
   // TODO: when geometry lands on the per-document disk write batch, move the
   // R-tree mutation here. Today `geometryIndexer` does the insert inline and
   // asserts disk-mode is disabled.
-  (void)aCtx; (void)field; (void)fs; (void)fdata;
+  (void)field;
+  (void)fdata;
+  if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index)) {
+    return;
+  }
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEOMETRY, 1);
 }
 

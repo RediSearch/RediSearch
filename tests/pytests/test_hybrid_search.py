@@ -97,6 +97,49 @@ def test_hybrid_knn_invalid_syntax():
         'PARAMS', '2', 'BLOB', b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"
     ).error().contains('Invalid argument count: expected an unsigned integer')
 
+@skip(cluster=True)
+def test_hybrid_ram_nonblocking_contexts(env):
+    """RAM hybrid queries retain their results in MULTI/EXEC and Lua."""
+    setup_basic_index_hnsw(env)
+    blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    command = ['FT.HYBRID', 'idx_hnsw', 'SEARCH', 'shoes', 'VSIM',
+               '@embedding_hnsw', '$BLOB', 'KNN', 2, 'K', 2, 'PARAMS', 2, 'BLOB', blob]
+    expected = get_results_from_hybrid_response(env.cmd(*command))
+    with env.getConnection().pipeline(transaction=True) as pipeline:
+        pipeline.execute_command(*command)
+        responses = pipeline.execute()
+        env.assertEqual(len(responses), 1)
+        env.assertEqual(get_results_from_hybrid_response(responses[0]), expected)
+    lua_response = env.cmd('EVAL', 'return redis.call(unpack(ARGV))', 0, *command)
+    env.assertEqual(get_results_from_hybrid_response(lua_response), expected)
+    env.expect(*command, 'WITHCURSOR').error().contains('WITHCURSOR: Unknown argument')
+
+
+@skip(cluster=True)
+def test_hybrid_knn_implicit_filter_matches_wildcard(env):
+    """Bare RAM KNN preserves wildcard-filter results, ordering, scores, and profiling."""
+    blob = np.array([0.0, 0.0], dtype=np.float32).tobytes()
+    for algorithm in ['FLAT', 'HNSW']:
+        index = algorithm.lower()
+        env.expect('FT.CREATE', index, 'PREFIX', 1, f'{index}:', 'SCHEMA', 't', 'TEXT',
+                   'v', 'VECTOR', algorithm, 6, 'TYPE', 'FLOAT32', 'DIM', 2,
+                   'DISTANCE_METRIC', 'L2').ok()
+        keys = [f'{index}:{i}' for i in range(1, 4)]
+        for i, key in enumerate(keys, 1):
+            vector = np.array([float(i), 0.0], dtype=np.float32).tobytes()
+            env.expect('HSET', key, 't', 'hello', 'v', vector).equal(2)
+        args = [index, 'SEARCH', 'hello', 'VSIM', '@v', '$b', 'KNN', 2, 'K', 3]
+        params = ['PARAMS', 2, 'b', blob]
+        expected = get_results_from_hybrid_response(
+            env.cmd('FT.HYBRID', *args, 'FILTER', 1, '*', *params))
+        actual = get_results_from_hybrid_response(env.cmd('FT.HYBRID', *args, *params))
+        env.assertEqual(actual, expected)
+        env.assertEqual(list(actual[0]), keys)
+        profile = env.cmd('FT.PROFILE', index, 'HYBRID', 'QUERY', *args[1:], *params)
+        env.assertEqual(get_results_from_hybrid_response(profile), expected)
+        env.assertContains('STANDARD_KNN', str(profile))
+
+
 def test_invalid_ef_runtime():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     setup_basic_index_hnsw(env)
@@ -108,6 +151,34 @@ def test_invalid_ef_runtime():
             'KNN', 4, 'K', 15, 'EF_RUNTIME', invalid_value,
             'PARAMS', '2', 'BLOB',  b"\x9a\x99\x99\x3f\xcd\xcc\x4c\x3e"
         ).error().contains('Invalid EF_RUNTIME value')
+
+@skip(cluster=True)
+def test_hybrid_rerank_rejected_on_ram_indexes(env):
+    """RAM indexes reject RERANK with the same error as FT.SEARCH, even for invalid values."""
+    setup_basic_index_hnsw(env)
+    env.expect(
+        'FT.CREATE', 'idx_flat', 'PREFIX', 1, 'flat:', 'SCHEMA', 'description', 'TEXT',
+        'embedding', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2,
+        'DISTANCE_METRIC', 'L2').ok()
+    conn = env.getConnection()
+    blob = np.array([1.2, 0.2]).astype(np.float32).tobytes()
+    conn.execute_command('HSET', 'flat:1', 'description', 'shoes', 'embedding', blob)
+    error = 'SEARCH_OPTION_INVALID Invalid option (RERANK is only valid for disk-based HNSW indexes)'
+
+    for index, field in [('idx_hnsw', 'embedding_hnsw'), ('idx_flat', 'embedding')]:
+        for value in ['TRUE', 'FALSE', 'true', 'fAlSe', 'MAYBE']:
+            for clause, argument in [('KNN', 'K'), ('RANGE', 'RADIUS')]:
+                env.expect(
+                    'FT.HYBRID', index, 'SEARCH', 'shoes', 'VSIM', f'@{field}', '$BLOB',
+                    clause, 4, argument, 1, 'rErAnK', value,
+                    'PARAMS', 2, 'BLOB', blob).error().contains(error)
+                query = (f'*=>[KNN 1 @{field} $BLOB]=>{{$RERANK: {value};}}'
+                         if clause == 'KNN' else
+                         f'@{field}:[VECTOR_RANGE 1 $BLOB]=>{{$RERANK: {value};}}')
+                env.expect(
+                    'FT.SEARCH', index, query, 'PARAMS', 2,
+                    'BLOB', blob, 'DIALECT', 2).error().contains(error)
+
 
 def test_invalid_epsilon():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')

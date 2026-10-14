@@ -68,7 +68,7 @@ const TAG_SULTANA: &[u8] = b"sultana";
 // buffer is rewritten in place rather than replaced.
 const TAG_CAFE: &[u8] = "café".as_bytes();
 // doc 16 -- `İ` (U+0130, 2 bytes) lowers to `i` + U+0307 (3 bytes), so the
-// result outgrows its buffer and `tag_strtolower` replaces it.
+// result outgrows its buffer and `normalize_tag` replaces it.
 const TAG_DOTTED: &[u8] = "i\u{307}stanbul".as_bytes();
 // doc 17 -- an ASCII control byte, not a letter, so a case-insensitive lookup
 // takes `unicode_tolower`'s in-place fast path rather than the reallocating
@@ -89,9 +89,8 @@ const TIMEOUT_VALUES: u32 = 500;
 /// back can tell all three apart.
 const NODE_WEIGHT: f64 = 5.0;
 
-/// A `CLOCK_MONOTONIC` deadline one second after boot: in the past for any
-/// process that can run this test, and not the `{0, 0}` that
-/// `TrieMapIterator_SetTimeout` reads as *unlimited*.
+/// A `CLOCK_MONOTONIC_RAW` deadline one second after boot: in the past for any
+/// process that can run this test.
 const EXPIRED_DEADLINE: ffi::timespec = ffi::timespec {
     tv_sec: 1,
     tv_nsec: 0,
@@ -148,16 +147,10 @@ enum TagField {
     NoIndex,
 }
 
-/// A child of the tag node, one variant per node type
-/// `query_EvalSingleTagNode` accepts.
+/// A child of the tag node, one variant per node type a tag node admits.
 enum Child {
     /// A plain `@tag:{value}` term.
     Token(&'static [u8]),
-    /// The same, with the token buffer owned by the Redis allocator rather
-    /// than the Rust one, so `tag_strtolower` may free and replace it. Used
-    /// only by the lengthening-multibyte row; see
-    /// [`MockQueryNode::with_redis_token`].
-    RedisToken(&'static [u8]),
     /// A `@tag:{pat*}` expansion. `prefix`/`suffix` are the anchoring flags the
     /// parser sets from where the `*`s sit: `suffix` off is `TAG_PREFIX_MODE`
     /// (`pat*`), `suffix` alone is `TAG_SUFFIX_MODE` (`*pat`), and both is
@@ -173,6 +166,13 @@ enum Child {
     WildcardQuery(&'static [u8]),
     /// A `@tag:{multi word value}` phrase, whose children are always tokens.
     Phrase(&'static [&'static [u8]]),
+    /// A `@tag:>{bound}` range, and its `>=`, `<` and `<=` spellings. Each side
+    /// is `None` when unbounded, otherwise the bound and whether it is included:
+    /// `>` is an excluded `begin`, `<=` an included `end`.
+    LexRange {
+        begin: Option<(&'static [u8], bool)>,
+        end: Option<(&'static [u8], bool)>,
+    },
 }
 
 /// What deadline the search context carries while the node is evaluated.
@@ -194,7 +194,7 @@ enum Timeout {
     ExpiredButSkipped,
 }
 
-/// The two request flags `query_EvalSingleTagNode` reads as "this is a hybrid
+/// The two request flags tag evaluation reads as "this is a hybrid
 /// subquery". They are alternatives, never both set at once.
 enum Hybrid {
     /// `QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY`.
@@ -414,31 +414,55 @@ fn index_value_raw(
 /// Build the [`MockQueryNode`] for one [`Child`], pushing any nested nodes it
 /// must keep alive (a [`Child::Phrase`]'s own token children) onto
 /// `grandchildren`.
-fn build_child(child: &Child, grandchildren: &mut Vec<MockQueryNode>) -> MockQueryNode {
+///
+/// Every token comes from [`MockQueryNode::with_redis_token`], as invariant (5)
+/// of [`QueryNodeMut::new`] requires.
+fn build_child(
+    child: &Child,
+    grandchildren: &mut Vec<MockQueryNode>,
+    bounds: &mut Vec<CString>,
+) -> MockQueryNode {
     match *child {
-        Child::Token(value) => MockQueryNode::with_token(TokenNodeType::Token, value),
-        Child::RedisToken(value) => MockQueryNode::with_redis_token(TokenNodeType::Token, value),
+        Child::Token(value) => MockQueryNode::with_redis_token(TokenNodeType::Token, value),
         Child::Prefix {
             pattern,
             prefix,
             suffix,
         } => {
-            let mut node = MockQueryNode::with_token(TokenNodeType::Prefix, pattern);
+            let mut node = MockQueryNode::with_redis_token(TokenNodeType::Prefix, pattern);
             node.set_prefix_mode(prefix, suffix);
             node
         }
         Child::WildcardQuery(pattern) => {
-            MockQueryNode::with_token(TokenNodeType::WildcardQuery, pattern)
+            MockQueryNode::with_redis_token(TokenNodeType::WildcardQuery, pattern)
         }
         Child::Phrase(tokens) => {
             let mut node = MockQueryNode::new(QueryNodeType::Phrase);
             let mut ptrs = Vec::new();
             for &token in tokens {
-                let child = MockQueryNode::with_token(TokenNodeType::Token, token);
+                let child = MockQueryNode::with_redis_token(TokenNodeType::Token, token);
                 ptrs.push(child.as_ptr());
                 grandchildren.push(child);
             }
             node.set_children(&ptrs);
+            node
+        }
+        Child::LexRange { begin, end } => {
+            // The node reads each bound as a NUL-terminated string and never
+            // rewrites it, so `bounds` owns them for as long as the node lives.
+            let mut keep = |side: Option<(&'static [u8], bool)>| match side {
+                None => (std::ptr::null_mut(), false),
+                Some((value, included)) => {
+                    let value = CString::new(value).expect("a test bound holds no interior NUL");
+                    let ptr = value.as_ptr().cast_mut();
+                    bounds.push(value);
+                    (ptr, included)
+                }
+            };
+            let (begin_ptr, include_begin) = keep(begin);
+            let (end_ptr, include_end) = keep(end);
+            let mut node = MockQueryNode::new(QueryNodeType::LexRange);
+            node.set_lex_range(begin_ptr, include_begin, end_ptr, include_end);
             node
         }
     }
@@ -536,6 +560,8 @@ struct TagFixture {
     /// The node's children, and the phrase children's own token nodes, kept
     /// alive because the node holds raw pointers to them.
     _children: Vec<MockQueryNode>,
+    /// The lex-range children's bound strings, kept alive for the same reason.
+    _bounds: Vec<CString>,
     /// The field spec the node names, added to `_context`'s spec by [`new`](Self::new).
     /// For every [`TagField`] but [`TagField::NoIndex`] its `tagOpts.tagIndex`
     /// is a `TagIndex` this fixture created; `_context`'s own teardown frees
@@ -634,10 +660,11 @@ impl TagFixture {
         }
 
         let mut grandchildren = Vec::new();
+        let mut bounds = Vec::new();
         let mut children: Vec<MockQueryNode> = opts
             .children
             .iter()
-            .map(|child| build_child(child, &mut grandchildren))
+            .map(|child| build_child(child, &mut grandchildren, &mut bounds))
             .collect();
         let child_ptrs: Vec<*mut ffi::RSQueryNode> =
             children.iter().map(MockQueryNode::as_ptr).collect();
@@ -656,6 +683,7 @@ impl TagFixture {
             _context: context,
             node,
             _children: children,
+            _bounds: bounds,
             field_spec,
         }
     }
@@ -676,7 +704,9 @@ impl TagFixture {
     /// the iterator, frees it on drop, and borrows the fixture for as long as
     /// it lives -- so a test reading the query status must drop it first.
     fn eval(&mut self) -> Option<ContractChecker<EvalResult<'_>>> {
-        // SAFETY: `self.node` is a valid, live `RSQueryNode` for the call.
+        // SAFETY: `self.node` is a valid, live `RSQueryNode`, exclusively borrowed
+        // for the call. Its children come from `build_child`, which satisfies
+        // invariants (3)-(5).
         let node_ref = unsafe { QueryNodeMut::new(self.node.as_non_null()) };
         let evaluated = eval_node(&mut self.ctx, node_ref, Config::default())?;
         Some(ContractChecker::new(evaluated.into_boxed()))
@@ -712,6 +742,154 @@ impl Drop for TagFixture {
 // ---------------------------------------------------------------------------
 // Index, children and union shape
 // ---------------------------------------------------------------------------
+
+/// `apple`, `apricot`, `banana`, `red apple` is the indexed order, so a bound
+/// of `banana` sits between `apricot` and `banana` itself.
+#[test]
+fn eval_tag_lex_range_excludes_an_excluded_bound() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::LexRange {
+            begin: Some((TAG_APRICOT, false)),
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("banana and red apple are above apricot");
+    // `banana` is docs 3 and 4, `red apple` doc 5.
+    assert_eq!(drain_doc_ids(&mut it), vec![3, 4, 5]);
+}
+
+#[test]
+fn eval_tag_lex_range_includes_an_included_bound() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::LexRange {
+            begin: Some((TAG_APRICOT, true)),
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("apricot and above are in range");
+    assert_eq!(drain_doc_ids(&mut it), vec![2, 3, 4, 5]);
+}
+
+#[test]
+fn eval_tag_lex_range_bounds_the_upper_side() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::LexRange {
+            begin: None,
+            end: Some((TAG_APRICOT, false)),
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("apple is below apricot");
+    assert_eq!(drain_doc_ids(&mut it), vec![1, 2]);
+}
+
+/// Both sides bounded is what two intersected clauses reduce to per child.
+#[test]
+fn eval_tag_lex_range_bounds_both_sides() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::LexRange {
+            begin: Some((TAG_APPLE, false)),
+            end: Some((TAG_BANANA, true)),
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("apricot and banana are in range");
+    assert_eq!(drain_doc_ids(&mut it), vec![2, 3, 4]);
+}
+
+/// An unbounded range covers every value, the empty one included.
+#[test]
+fn eval_tag_lex_range_unbounded_covers_every_value() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("every value is in range");
+    assert_eq!(drain_doc_ids(&mut it), vec![1, 2, 3, 4, 5]);
+}
+
+/// A bound is compared against the values as they were indexed, so on a
+/// case-insensitive field it is folded the same way they were.
+#[test]
+fn eval_tag_lex_range_folds_the_bound_when_the_field_does() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::LexRange {
+            begin: Some((b"APRICOT", true)),
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("APRICOT folds to apricot");
+    assert_eq!(drain_doc_ids(&mut it), vec![2, 3, 4, 5]);
+}
+
+/// With `CASESENSITIVE` the bound keeps its case, and ASCII uppercase sorts
+/// below every lowercase value, so an upper bound of `APRICOT` excludes them
+/// all. The range still builds a union, an empty one, as a prefix that matches
+/// nothing does.
+#[test]
+fn eval_tag_lex_range_keeps_the_bound_case_when_the_field_does() {
+    let mut fixture = TagFixture::new(TagOptions {
+        case_sensitive: true,
+        children: vec![Child::LexRange {
+            begin: None,
+            end: Some((b"APRICOT", true)),
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("an empty range is still a union");
+    assert_eq!(
+        drain_doc_ids(&mut it),
+        Vec::<DocId>::new(),
+        "an uppercase bound sorts below every indexed value"
+    );
+}
+
+/// An escaped separator is part of the bound, as it is part of a tag token.
+#[test]
+fn eval_tag_lex_range_unescapes_the_bound() {
+    let mut fixture = TagFixture::new(TagOptions {
+        values: values(&[(b"red apple", &[1]), (b"zebra", &[2])]),
+        children: vec![Child::LexRange {
+            begin: Some((b"red\\ apple", true)),
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("the bound unescapes to `red apple`, which is indexed");
+    assert_eq!(drain_doc_ids(&mut it), vec![1, 2]);
+}
+
+/// The cap bounds how many readers one range opens, and the truncation is
+/// reported rather than silently dropping values.
+#[test]
+fn eval_tag_lex_range_stops_at_the_expansion_cap() {
+    let mut fixture = TagFixture::new(TagOptions {
+        max_prefix_expansions: Some(2),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("the first two values are admitted");
+    // `apple` (docs 1, 2) and `apricot` (docs 2, 3) are the two lowest values.
+    assert_eq!(drain_doc_ids(&mut it), vec![1, 2, 3]);
+    drop(it);
+    assert!(
+        fixture.reached_max_prefix_expansions(),
+        "a capped range must say so"
+    );
+}
 
 #[test]
 fn eval_tag_without_a_tag_index_yields_nothing() {
@@ -1001,8 +1179,8 @@ fn eval_tag_hybrid_prefix_expansion_zeroes_the_sub_union_not_its_readers() {
     let doc2 = matches.iter().find(|m| m.doc_id == 2).unwrap();
     assert_eq!(
         doc2.weight, 0.0,
-        "query_EvalSingleTagNode zeroes the weight it passes into \
-         Query_EvalTagPrefixNode, which becomes the expansion sub-union's own weight"
+        "a hybrid subquery zeroes the weight of the prefix expansion, \
+         which becomes the expansion sub-union's own weight"
     );
     assert_eq!(
         doc2.records,
@@ -1067,7 +1245,7 @@ fn eval_tag_prefix_child_expansions_quick_exit() {
 
 #[test]
 fn eval_tag_prefix_expansion_reader_revalidates_against_the_matched_value() {
-    // `Query_EvalTagPrefixNode` must open the reader on the concrete
+    // The prefix expansion must open the reader on the concrete
     // trie-matched value (`apple`), not the query pattern (`ap`): `apple` is
     // the only value in `idx->values`, so a reader bound to the pattern
     // instead would fail to find itself and abort on the very first
@@ -1086,7 +1264,9 @@ fn eval_tag_prefix_expansion_reader_revalidates_against_the_matched_value() {
     // `TagFixture::eval` inlined by hand: it takes `&mut self` wholesale,
     // which would conflict with `spec`'s borrow of `fixture._context` above,
     // even though the two never touch the same field.
-    // SAFETY: `fixture.node` is a valid, live `RSQueryNode` for the call.
+    // SAFETY: `fixture.node` is a valid, live `RSQueryNode`, exclusively borrowed
+    // for the call. Its only child comes from `build_child`, which satisfies
+    // invariants (3)-(5).
     let node_ref = unsafe { QueryNodeMut::new(fixture.node.as_non_null()) };
     let evaluated =
         eval_node(&mut fixture.ctx, node_ref, Config::default()).expect("apple matches");
@@ -1157,7 +1337,7 @@ fn eval_tag_prefix_child_honours_a_raised_minimum() {
 
 #[test]
 fn eval_tag_prefix_child_checks_the_minimum_after_escape_removal() {
-    // `tag_strtolower`'s escape-removal loop runs before the length is
+    // `normalize_tag`'s escape removal runs before the length is
     // compared against `minTermPrefix`, so the two-byte raw pattern `\*`
     // normalizes to the one-byte literal `*` first. A port that compared the
     // raw (pre-escape) length instead would wrongly let this expand.
@@ -1413,11 +1593,11 @@ fn eval_tag_lowercases_the_query_on_a_case_insensitive_field() {
     assert_eq!(drain_doc_ids(&mut it), vec![1, 2]);
 }
 
-// `tag_strtolower` is called once per branch, not once ahead of the dispatch:
-// `Query_EvalTagPrefixNode` and `Query_EvalTagWildcardNode` each call it on
-// their own pattern, and the phrase case calls it on each child before the
-// join. [`eval_tag_lowercases_the_query_on_a_case_insensitive_field`]
-// above only exercises the `Token` branch's call -- every other pattern used
+// `normalize_tag` is called once per branch, not once ahead of the dispatch:
+// the prefix and wildcard expansions each call it on their own pattern, and
+// the phrase case calls it on each child before the join.
+// [`eval_tag_lowercases_the_query_on_a_case_insensitive_field`] above only
+// exercises the `Token` branch's call -- every other pattern used
 // so far is already lowercase, so a port that dropped lowering from one of
 // the other three would still pass unnoticed. The three tests below give
 // each branch a query that only matches if its own lowering runs, plus a
@@ -1526,12 +1706,12 @@ fn eval_tag_multibyte_query_lowered_into_a_longer_buffer() {
     values.push((TAG_DOTTED.to_vec(), vec![16]));
     let mut fixture = TagFixture::new(TagOptions {
         values,
-        children: vec![Child::RedisToken("İSTANBUL".as_bytes())],
+        children: vec![Child::Token("İSTANBUL".as_bytes())],
         ..TagOptions::default()
     });
     let mut it = fixture
         .eval()
-        .expect("the lookup must use the replacement buffer tag_strtolower installs");
+        .expect("the lookup must use the replacement buffer normalize_tag installs");
     assert_eq!(drain_doc_ids(&mut it), vec![16]);
 }
 
@@ -1818,16 +1998,16 @@ fn eval_tag_prefix_expansion_at_the_cap_warns_only_if_more_remained() {
     drop(it);
     assert!(
         !fixture.reached_max_prefix_expansions(),
-        "hasNext must be false once the scan is exactly exhausted at the cap"
+        "no value may remain once the scan is exactly exhausted at the cap"
     );
 }
 
 #[test]
 fn eval_tag_prefix_expansion_skips_a_readerless_term_without_spending_the_cap() {
     // `apogee` sorts before `apple` and carries no documents; the
-    // brute-force loop's `if (!ret) continue;` skips it without incrementing
-    // `itsSz`, so the cap slot goes to `apple` instead -- and since nothing
-    // else matches, the scan exhausts (`hasNext` false) rather than stopping
+    // brute-force scan skips a value that opens no reader without counting it
+    // against the cap, so the cap slot goes to `apple` instead -- and since
+    // nothing else matches, the scan exhausts rather than stopping
     // at the cap, so no warning fires either.
     let values = values(&[(TAG_APPLE, &[1, 2]), (TAG_NO_DOCS, &[])]);
     let mut fixture = TagFixture::new(TagOptions {
@@ -1870,13 +2050,13 @@ fn eval_tag_prefix_expansion_cap_grows_the_iterator_array() {
 
 #[test]
 fn eval_tag_suffix_trie_expansion_stops_at_the_cap() {
-    // The cap in `Query_EvalTagPrefixNode`'s suffix-trie branch counts
+    // The cap in the prefix expansion's suffix-trie branch counts
     // admitted *terms*, not matched doc ids, so doc count and term count
     // must not be conflated. `GetList_SuffixTrieMap` does not pin which of
     // the shared "na" node's two terms (`TAG_BANANA`, `TAG_SULTANA`) the cap
     // admits, so both get exactly one doc here, keeping `ids.len() == 1`
     // true however the pick falls -- while `TAG_BANANA`'s standalone "nana"
-    // node is still left over to make `hasNext` (and the warning) fire.
+    // node is still left over to make the warning fire.
     let values = values(&[(TAG_BANANA, &[3]), (TAG_SULTANA, &[14])]);
     let mut fixture = TagFixture::new(TagOptions {
         values,
@@ -1940,9 +2120,9 @@ fn eval_tag_wildcard_expansion_stops_at_the_cap() {
 #[test]
 fn eval_tag_wildcard_expansion_at_the_cap_warns_only_if_more_remained() {
     // `ap*` matches exactly `TAG_APPLE` and `TAG_APRICOT` -- unlike the
-    // truncating case above, `TrieMapIterator_Next` finding nothing left
-    // runs *before* the cap is re-tested, so `hasNext` is false and no
-    // warning fires even though the scan ended exactly at the cap.
+    // truncating case above, the values scan runs dry *before* the cap is
+    // re-tested, so no warning fires even though the scan ended exactly at
+    // the cap.
     let mut fixture = TagFixture::new(TagOptions {
         children: vec![Child::WildcardQuery(b"ap*")],
         max_prefix_expansions: Some(2),
@@ -1953,7 +2133,7 @@ fn eval_tag_wildcard_expansion_at_the_cap_warns_only_if_more_remained() {
     drop(it);
     assert!(
         !fixture.reached_max_prefix_expansions(),
-        "hasNext must be false once the scan is exactly exhausted at the cap"
+        "no value may remain once the scan is exactly exhausted at the cap"
     );
 }
 
@@ -1983,7 +2163,7 @@ fn eval_tag_wildcard_suffix_trie_expansion_stops_at_the_cap() {
     // Both `TAG_SULTANA` and `TAG_BANANA` share the "ana" suffix-trie node
     // matched by `*an*`; `_getWildcardArray`'s own (off-by-one) cap check
     // lets both through into its result array, but the node's own
-    // `itsSz >= maxPrefixExpansions` check then admits only the array's
+    // expansion cap then admits only the array's
     // first term as a reader. Which term comes first is an insertion-order
     // detail `_getWildcardArray` doesn't pin, so both get exactly one doc:
     // whichever the cap admits, `ids.len()` stays 1, pinning "one term
@@ -2007,11 +2187,10 @@ fn eval_tag_wildcard_suffix_trie_expansion_at_the_cap_warns_only_if_more_remaine
     // `*banana*` has exactly one suffix-trie match -- unlike `*apple*`,
     // which would also match [`TAG_PHRASE`] via the shared "apple" suffix
     // node -- so `_getWildcardArray`'s own (off-by-one) cap check never
-    // comes into play. The consuming `for` loop exits on `i < array_len(arr)`
-    // going false, not by re-testing `itsSz >= cap` (which only runs at the
-    // *top* of an iteration, and there is no next one once the array is
-    // exhausted), so the scan ending exactly at the cap sets no warning
-    // here either, mirroring the brute-force controls above.
+    // comes into play. Consuming the array stops once it is exhausted, and
+    // the cap is only re-tested before admitting another term, so the scan
+    // ending exactly at the cap sets no warning here either, mirroring the
+    // brute-force controls above.
     let mut fixture = TagFixture::new(TagOptions {
         field: TagField::IndexedWithSuffixTrie,
         children: vec![Child::WildcardQuery(b"*banana*")],

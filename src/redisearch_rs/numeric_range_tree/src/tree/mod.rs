@@ -324,6 +324,12 @@ impl NumericRangeTree {
         crate::IndexedReversePreOrderDfsIterator::new(self)
     }
 
+    /// Returns an iterator over all nodes in the tree, alongside their indices, that
+    /// yields each node after its descendants.
+    pub fn indexed_post_order_iter(&self) -> crate::IndexedPostOrderDfsIterator<'_> {
+        crate::IndexedPostOrderDfsIterator::new(self)
+    }
+
     /// Calculate the total memory usage of the tree, in bytes.
     pub const fn mem_usage(&self) -> usize {
         std::mem::size_of::<Self>()

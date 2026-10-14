@@ -240,6 +240,10 @@ jobs:
           coverage: ${{ inputs.coverage }}
           redis-cache-platform-id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
 
+      - name: Setup LCOV
+        if: inputs.coverage
+        uses: ./.github/actions/setup-lcov
+
       # Build RedisJSON once and cache it, restoring on subsequent runs with the
       # same key. Produces bin/rejson.so and exports REJSON_PATH, which the
       # flow-test and flaky-test-enumeration steps reuse instead of rebuilding.
@@ -604,6 +608,39 @@ jobs:
           echo "Flow tests (coordinator): ${{ steps.coordinator_tests.outcome }}"
           echo "Rust tests (MIRI): ${{ steps.rust_unit_tests_miri.outcome }}"
           exit 1
+
+      - name: Summarize branch coverage
+        if: >-
+          inputs.coverage &&
+          !inputs.skip-tests &&
+          (inputs.standalone || inputs.coordinator || inputs.unit-tests)
+        env:
+          INCLUDE_COORDINATOR: ${{ inputs.coordinator }}
+          INCLUDE_RUST_UNIT: ${{ inputs.unit-tests && inputs.rust-unit-tests }}
+          INCLUDE_STANDALONE: ${{ inputs.standalone }}
+          INCLUDE_UNIT: ${{ inputs.unit-tests }}
+        run: |
+          reports=()
+          if [[ "$INCLUDE_STANDALONE" == "true" ]]; then
+            reports+=(
+              --lcov "C standalone flow" bin/flow_standalone.info
+              --lcov "Rust standalone flow" bin/rust_flow_standalone.info
+            )
+          fi
+          if [[ "$INCLUDE_COORDINATOR" == "true" ]]; then
+            reports+=(
+              --lcov "C coordinator flow" bin/flow_coordinator.info
+              --lcov "Rust coordinator flow" bin/rust_flow_coordinator.info
+            )
+          fi
+          if [[ "$INCLUDE_UNIT" == "true" ]]; then
+            reports+=(--lcov "C unit" bin/unit.info)
+          fi
+          if [[ "$INCLUDE_RUST_UNIT" == "true" ]]; then
+            reports+=(--cobertura "Rust unit" bin/rust_cov.xml)
+          fi
+          python3 .github/scripts/coverage_summary.py "${reports[@]}"
+
       - name: Import Codecov GPG public key
         if: inputs.coverage
         run: gpg --import .github/codecov_gpg.pub
@@ -611,7 +648,7 @@ jobs:
         if: inputs.coverage && inputs.standalone && inputs.coordinator
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_standalone.info,bin/flow_coordinator.info
+          files: bin/flow_standalone.info,bin/flow_coordinator.info,bin/rust_flow_standalone.info,bin/rust_flow_coordinator.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
@@ -620,7 +657,7 @@ jobs:
         if: inputs.coverage && inputs.standalone && !inputs.coordinator
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_standalone.info
+          files: bin/flow_standalone.info,bin/rust_flow_standalone.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
@@ -629,7 +666,7 @@ jobs:
         if: inputs.coverage && !inputs.standalone && inputs.coordinator
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_coordinator.info
+          files: bin/flow_coordinator.info,bin/rust_flow_coordinator.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
@@ -638,7 +675,7 @@ jobs:
         if: inputs.coverage && inputs.unit-tests
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/unit.info,bin/rust_cov.info
+          files: bin/unit.info,bin/rust_cov.xml
           disable_search: true
           flags: unit
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}

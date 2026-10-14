@@ -10,6 +10,7 @@
 
 #include <uv.h>
 #include <openssl/ssl.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <sys/time.h>
 
@@ -499,11 +500,23 @@ cleanup:
 static int MRConn_SendAuth(MRConn *conn) {
   RS_ASSERT(conn->state == MRConn_Authenticating || conn->state == MRConn_ReAuth);
 
-  if (!IsEnterprise()) {
+  if (!RS_UsesProxyCoordination()) {
     // Take the GIL before calling the internal function getter
     RedisModule_ThreadSafeContextLock(RSDummyContext);
-    size_t len;
+    size_t len = 0;
     const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
+    if (!internal_secret) {
+      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+      // Redis has no internal secret outside cluster mode, which cannot change at runtime, so
+      // warn once rather than on every reconnect attempt.
+      static atomic_flag warned = ATOMIC_FLAG_INIT;
+      if (!atomic_flag_test_and_set(&warned)) {
+        CONN_LOG_WARNING(conn, "Cannot authenticate: no internal secret (cluster mode is disabled)");
+      } else {
+        CONN_LOG(conn, "Cannot authenticate: no internal secret (cluster mode is disabled)");
+      }
+      return REDIS_ERR;
+    }
     // Create a local copy of the secret so we can release the GIL.
     int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, NULL,
         "AUTH %s %b", INTERNALAUTH_USERNAME, internal_secret, len);
@@ -612,12 +625,34 @@ static int checkTLS(RedisModuleString **client_key, RedisModuleString **client_c
   return ret;
 }
 
+/* Serves MREndpointTLS_LegacyFromLocalConfig only. The `tls-port` fallback is legacy Enterprise
+ * logic: `tls-cluster` should always be `yes` when `tls-port` is set, but dual port is not expected
+ * there, so `tls-port` alone also means the cluster ports are TLS. Elsewhere, `tls-port` says
+ * nothing about the cluster ports; a new path that must read the config live should check only
+ * `tls-cluster`, and preferably take the port type from the topology instead. */
+static bool legacyEnterpriseConfigUsesTLS(void) {
+  RedisModuleCtx *ctx = RSDummyContext;
+  RedisModule_ThreadSafeContextLock(ctx);
+  bool tls = getRedisConfigBool(ctx, "tls-cluster", false) || getRedisConfigNumeric(ctx, "tls-port", 0) != 0;
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  return tls;
+}
+
+static bool MRConn_UsesTLS(const MRConn *conn) {
+  switch (conn->ep.tls) {
+    case MREndpointTLS_Off: return false;
+    case MREndpointTLS_On: return true;
+    case MREndpointTLS_LegacyFromLocalConfig: return legacyEnterpriseConfigUsesTLS();
+  }
+  RS_ABORT("Unknown MREndpointTLS");
+}
+
 /* If TLS is configured for the cluster, build an SSL context and bind it to
  * the given hiredis async context. Returns REDIS_OK on success (including
  * "TLS not configured", which is a no-op) and REDIS_ERR on any setup failure;
  * a warning is logged on failure. The caller owns the ac on failure. */
 static int MRConn_InitTLS(MRConn *conn) {
-  if (conn->ep.isTls == false) {
+  if (!MRConn_UsesTLS(conn)) {
     return REDIS_OK;
   }
 
@@ -689,9 +724,9 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     return;
   }
 
-  // Authenticate on OSS always (as an internal connection), or on Enterprise if
-  // a password is set to the `default` ACL user.
-  if (!IsEnterprise() || conn->ep.password) {
+  // Without a proxy, authenticate as an internal connection. With a proxy,
+  // authenticate when the topology supplies a password.
+  if (!RS_UsesProxyCoordination() || conn->ep.password) {
     MRConn_SwitchState(conn, MRConn_Authenticating);
   } else {
     MRConn_SwitchState(conn, MRConn_Connected);

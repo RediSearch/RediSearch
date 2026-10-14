@@ -102,9 +102,6 @@ void QueryNode_Free(QueryNode *n) {
   }
 
   if (n->params) {
-    for (size_t ii = 0; ii < QueryNode_NumParams(n); ++ii) {
-      Param_FreeInternal(&n->params[ii]);
-    }
     array_free(n->params);
     n->params = NULL;
   }
@@ -364,7 +361,7 @@ _Static_assert(sizeof(QueryLexRangeNode) <= sizeof(QueryPrefixNode),
 QueryNode *NewLexRangeNode_WithParams(QueryParseCtx *q, QueryToken *bound, bool lower,
                                       bool inclusive) {
   QueryNode *ret = NewQueryNode(QN_LEXRANGE);
-  // The other side stays NULL, which both evaluators read as "no limit".
+  // The other side stays NULL, which the evaluator reads as "no limit".
   char **target = lower ? &ret->lxrng.begin : &ret->lxrng.end;
   if (lower) {
     ret->lxrng.includeBegin = inclusive;
@@ -372,8 +369,8 @@ QueryNode *NewLexRangeNode_WithParams(QueryParseCtx *q, QueryToken *bound, bool 
     ret->lxrng.includeEnd = inclusive;
   }
 
-  // The bound keeps the case-preserving type the grammar gave it, for
-  // `tag_strtolower` to normalize at evaluation. `QueryParam_SetParam` resolves a
+  // The bound keeps the case-preserving type the grammar gave it, for the tag
+  // evaluator to normalize at evaluation. `QueryParam_SetParam` resolves a
   // literal in place and returns false, leaving an unused PARAM_NONE slot that
   // must not survive: `QueryNode_AddChildren` retags every slot of a tag child
   // as PARAM_TERM_CASE, and resolving one with no name dereferences NULL.
@@ -595,339 +592,6 @@ bool QueryIterator_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout) {
   return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
 }
 
-/**
- * Converts a given string to lowercase and handles escape sequences.
- *
- * This function processes the input string and converts it to lowercase
- * if `caseSensitive` is false.
- * If no memory allocation is needed for lowerconversion, the string is modified
- * in place.
- * If memory allocation is needed, the original string is freed and replaced
- * with the new lowercase string.
- * It also handles escape sequences by removing the backslash character if it
- * precedes a punctuation or whitespace character.
- *
- * @param pstr A pointer to the input string.
- * @param len A pointer to the length of the input string. The length is updated
- * to reflect any changes made to the string.
- * @param caseSensitive A flag indicating whether the conversion to lowercase
- * should be performed. If true, the string remains case-sensitive.
- */
-void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
-  size_t length = *len;
-  char *str = *pstr;
-  char *origStr = str;
-  char *p = str;
-
-  while (*p) {
-    if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
-      ++p;
-      --length;
-    }
-    *str++ = *p++;
-  }
-  *str = '\0';
-
-  if (!caseSensitive) {
-    char *dst = unicode_tolower(origStr, &length);
-    if (dst) {
-        rm_free(origStr);
-        *pstr = dst;
-    } else {
-      // No memory allocation, just ensure null termination
-      origStr[length] = '\0';
-    }
-  }
-  *len = length;
-}
-
-static bool shouldCheckClockTimeout(const QueryEvalCtx *q) {
-  return q->sctx->timeout &&
-         q->sctx->timeout->kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
-}
-
-/* Collects one reader per tag value a lex-range walk visits. */
-typedef struct {
-  QueryEvalCtx *q;
-  TagIndex *idx;
-  QueryIterator **its;
-  size_t nits;
-  size_t cap;
-  t_fieldIndex fieldIndex;
-} TagRangeCtx;
-
-// Returns true to stop the walk, per `TrieMapRangeCallback`.
-static bool tagRangeIterCb(const char *r, size_t n, void *p, void *invidx) {
-  TagRangeCtx *ctx = p;
-  QueryEvalCtx *q = ctx->q;
-
-  // Both limits end the walk: an unbounded range over a high-cardinality tag
-  // field is unbounded work, so declining to open a reader is not enough.
-  if (ctx->nits >= q->config->maxPrefixExpansions) {
-    QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
-    return true;
-  }
-  // The exact check, not the amortized one: that shares a counter with the
-  // result-processor loop and zeroes it on every detection, so consuming a
-  // timeout here would buy the pipeline another 100 reads before it looks at the
-  // clock again, and a union short enough to reach EOF inside that window would
-  // be reported as a complete result. The walk is bounded by the expansion cap,
-  // so the clock reads it costs are bounded too.
-  if (q->sctx->timeout && QueryRequestTimeout_IsTimedOutExact(q->sctx->timeout)) {
-    return true;
-  }
-
-  // Unit weight: the enclosing union applies the node's weight once, as it does
-  // for the prefix and wildcard expansions.
-  QueryIterator *ir = TagIndex_GetIteratorFromTrieMapValue(ctx->idx, q->sctx, r, n, invidx, 1,
-                                                           ctx->fieldIndex, q->status);
-  if (!ir) {
-    return false;
-  }
-
-  ctx->its[ctx->nits++] = ir;
-  if (ctx->nits == ctx->cap) {
-    ctx->cap *= 2;
-    ctx->its = rm_realloc(ctx->its, ctx->cap * sizeof(*ctx->its));
-  }
-  return false;
-}
-
-/* Walk the tag index's value trie between the node's bounds, unioning the
- * readers.
- *
- * `fieldIndex` is passed in rather than read from `qn->opts.fieldIndex`, which
- * the parser never sets on a tag child: the default 0 would silently query the
- * spec's first field. */
-static QueryIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
-                                                double weight, t_fieldIndex fieldIndex,
-                                                bool caseSensitive) {
-  RS_ASSERT(qn->type == QN_LEXRANGE);
-  if (!idx) return NULL;
-
-  // Normalize the bounds the way the indexed values were.
-  if (qn->lxrng.begin) {
-    size_t beginLen = strlen(qn->lxrng.begin);
-    tag_strtolower(&(qn->lxrng.begin), &beginLen, caseSensitive);
-  }
-  if (qn->lxrng.end) {
-    size_t endLen = strlen(qn->lxrng.end);
-    tag_strtolower(&(qn->lxrng.end), &endLen, caseSensitive);
-  }
-
-  TagRangeCtx ctx = {
-      .q = q,
-      .idx = idx,
-      .cap = 8,
-      .nits = 0,
-      .fieldIndex = fieldIndex,
-  };
-  ctx.its = rm_malloc(ctx.cap * sizeof(*ctx.its));
-
-  const char *begin = qn->lxrng.begin, *end = qn->lxrng.end;
-  // -1 is unbounded; 0 is the empty string, a legitimate bound of its own.
-  int nbegin = begin ? (int)strlen(begin) : -1, nend = end ? (int)strlen(end) : -1;
-
-  TagIndex_IterateRangeValues(idx, begin, nbegin, qn->lxrng.includeBegin, end, nend,
-                              qn->lxrng.includeEnd, tagRangeIterCb, &ctx);
-
-  return NewUnionIterator(ctx.its, ctx.nits, true, weight, QN_LEXRANGE, NULL, q->config);
-}
-
-/* Evaluate a tag prefix by expanding it with a lookup on the tag index */
-static QueryIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn, double weight,
-                                              int withSuffixTrie, t_fieldIndex fieldIndex,
-                                              bool caseSensitive) {
-  // only called from QN_PREFIX dispatch
-  RS_ASSERT(qn->type == QN_PREFIX);
-  RSToken *tok = &qn->pfx.tok;
-
-  tag_strtolower(&(tok->str), &tok->len, caseSensitive);
-
-  // we allow a minimum of 2 letters in the prefix by default (configurable)
-  if (tok->len < q->config->minTermPrefix) {
-    return NULL;
-  }
-  if (!idx) return NULL;
-
-  size_t itsSz = 0, itsCap = 8;
-  QueryIterator **its = rm_calloc(itsCap, sizeof(*its));
-
-  if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
-    tag_iter_mode iter_mode = TAG_PREFIX_MODE;
-    if (qn->pfx.suffix) {
-      if (qn->pfx.prefix) { // contains mode
-        iter_mode = TAG_CONTAINS_MODE;
-      } else {
-        iter_mode = TAG_SUFFIX_MODE;
-      }
-    }
-    TrieMapIterator *it = TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, iter_mode);
-    // TrieMap_IterateWithFilter only returns NULL on allocation failure
-    RS_ASSERT(it);
-    if (shouldCheckClockTimeout(q)) {
-      TrieMapIterator_SetTimeout(it, *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout));
-    }
-
-    // an upper limit on the number of expansions is enforced to avoid stuff like "*"
-    char *s;
-    tm_len_t sl;
-    void *ptr;
-
-    // Find all completions of the prefix
-    int hasNext;
-    while ((hasNext = TrieMapIterator_Next(it, &s, &sl, &ptr)) &&
-           (itsSz < q->config->maxPrefixExpansions)) {
-      QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, s, sl, 1, fieldIndex, q->status);
-      if (!ret) continue;
-
-      // Add the reader to the iterator array
-      its[itsSz++] = ret;
-      if (itsSz == itsCap) {
-        itsCap *= 2;
-        its = rm_realloc(its, itsCap * sizeof(*its));
-      }
-    }
-
-    if (hasNext && itsSz == q->config->maxPrefixExpansions) {
-      QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
-    }
-
-    TrieMapIterator_Free(it);
-  } else {  // TAG field has suffix triemap
-    bool skipClockChecks = !shouldCheckClockTimeout(q);
-    struct timespec timeout = skipClockChecks ? (struct timespec){0}
-                                              : *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout);
-    arrayof(char **) arr = TagIndex_GetSuffixMatches(idx, tok->str, tok->len, qn->pfx.prefix,
-                                                     timeout, skipClockChecks);
-    if (!arr) {
-      rm_free(its);
-      return NULL;
-    }
-    for (int i = 0; i < array_len(arr) && itsSz < q->config->maxPrefixExpansions; ++i) {
-      size_t iarrlen = array_len(arr);
-      for (int j = 0; j < array_len(arr[i]); ++j) {
-        size_t jarrlen = array_len(arr[i]);
-        if (itsSz >= q->config->maxPrefixExpansions) {
-          QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
-          break;
-        }
-        QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, arr[i][j], strlen(arr[i][j]), 1, fieldIndex, q->status);
-        if (!ret) continue;
-
-        // Add the reader to the iterator array
-        its[itsSz++] = ret;
-        if (itsSz == itsCap) {
-          itsCap *= 2;
-          its = rm_realloc(its, itsCap * sizeof(*its));
-        }
-      }
-    }
-    array_free(arr);
-  }
-
-  return NewUnionIterator(its, itsSz, true, weight, QN_PREFIX, qn->pfx.tok.str, q->config);
-}
-
-/* Evaluate a tag prefix by expanding it with a lookup on the tag index */
-static QueryIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
-                     QueryNode *qn, double weight,
-                     t_fieldIndex fieldIndex, bool caseSensitive) {
-  RS_ASSERT(qn->type == QN_WILDCARD_QUERY);
-  if (!idx) return NULL;
-
-  RSToken *tok = &qn->verb.tok;
-
-  tag_strtolower(&(tok->str), &tok->len, caseSensitive);
-
-  tok->len = Wildcard_RemoveEscape(tok->str, tok->len);
-
-  size_t itsSz = 0, itsCap = 8;
-  QueryIterator **its = rm_malloc(itsCap * sizeof(*its));
-
-  // An empty pattern matches exactly the empty tag value (indexed under INDEXEMPTY),
-  // like the empty-string tag query; skip the suffix-trie and brute-force scans
-  if (tok->len == 0) {
-    QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, "", 0, 1, fieldIndex, q->status);
-    if (ret) {
-      its[itsSz++] = ret;
-    }
-    return NewUnionIterator(its, itsSz, true, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
-  }
-
-  bool fallbackBruteForce = false;
-  if (TagIndex_HasSuffix(idx)) {
-    // with suffix
-    bool skipClockChecks = !shouldCheckClockTimeout(q);
-    struct timespec timeout = skipClockChecks ? (struct timespec){0}
-                                              : *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout);
-    arrayof(char *) arr = TagIndex_GetSuffixWildcardMatches(
-        idx, tok->str, tok->len, timeout, q->config->maxPrefixExpansions,
-        skipClockChecks);
-    if (!arr) {
-      // No matching terms
-      rm_free(its);
-      return NULL;
-    } else if (arr == BAD_POINTER) {
-      // The wildcard pattern does not include tokens that can be used with suffix trie
-      fallbackBruteForce = true;
-    } else {
-      for (int i = 0; i < array_len(arr); ++i) {
-        if (itsSz >= q->config->maxPrefixExpansions) {
-          QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
-          break;
-        }
-        QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, arr[i], strlen(arr[i]), 1, fieldIndex, q->status);
-        if (!ret) continue;
-
-          // Add the reader to the iterator array
-        its[itsSz++] = ret;
-        if (itsSz == itsCap) {
-          itsCap *= 2;
-          its = rm_realloc(its, itsCap * sizeof(*its));
-        }
-      }
-      array_free(arr);
-    }
-  }
-
-  if (!TagIndex_HasSuffix(idx) || fallbackBruteForce) {
-    // brute force wildcard query
-    TrieMapIterator *it =
-        TagIndex_IterateValuesWithFilter(idx, tok->str, tok->len, TAG_WILDCARD_MODE);
-    if (shouldCheckClockTimeout(q)) {
-      TrieMapIterator_SetTimeout(it, *QueryRequestTimeout_GetClockDeadline(q->sctx->timeout));
-    }
-
-    char *s;
-    tm_len_t sl;
-    void *ptr;
-
-    // Find all completions of the prefix
-    int hasNext;
-    while ((hasNext = TrieMapIterator_Next(it, &s, &sl, &ptr)) &&
-           (itsSz < q->config->maxPrefixExpansions)) {
-      QueryIterator *ret = TagIndex_OpenReader(idx, q->sctx, s, sl, 1, fieldIndex, q->status);
-      if (!ret) continue;
-
-      // Add the reader to the iterator array
-      its[itsSz++] = ret;
-      if (itsSz == itsCap) {
-        itsCap *= 2;
-        its = rm_realloc(its, itsCap * sizeof(*its));
-      }
-    }
-
-    if (hasNext && itsSz == q->config->maxPrefixExpansions) {
-      QueryError_SetReachedMaxPrefixExpansionsWarning(q->status);
-    }
-
-    TrieMapIterator_Free(it);
-  }
-
-  return NewUnionIterator(its, itsSz, true, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
-}
-
 // Appends the words of `phrase` joined by single spaces, writing the `emptyWord` argument in
 // place of any zero-length word.
 static sds tagPhraseAppendValue(sds buf, const QueryNode *phrase, const char *emptyWord) {
@@ -938,121 +602,6 @@ static sds tagPhraseAppendValue(sds buf, const QueryNode *phrase, const char *em
     buf = word->tn.len ? sdscatlen(buf, word->tn.str, word->tn.len) : sdscat(buf, emptyWord);
   }
   return buf;
-}
-
-static QueryIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
-                                              double weight, const FieldSpec *fs) {
-  QueryIterator *ret = NULL;
-  int caseSensitive = fs->tagOpts.tagFlags & TagField_CaseSensitive;
-
-  // For hybrid queries, use weight 0.0 to disable tag scoring
-  // Use IsHybrid-like logic adapted for QueryEvalCtx
-  bool is_hybrid = (q->reqFlags & QEXEC_F_IS_HYBRID_SEARCH_SUBQUERY) ||
-                  (q->reqFlags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY);
-  double effective_weight = is_hybrid ? 0.0 : weight;
-
-  switch (n->type) {
-    case QN_TOKEN: {
-      tag_strtolower(&(n->tn.str), &n->tn.len, caseSensitive);
-      ret = TagIndex_OpenReader(idx, q->sctx, n->tn.str, n->tn.len, effective_weight, fs->index, q->status);
-      break;
-    }
-    case QN_PREFIX:
-      return Query_EvalTagPrefixNode(q, idx, n, effective_weight,
-                         FieldSpec_HasSuffixTrie(fs), fs->index, caseSensitive);
-
-    case QN_WILDCARD_QUERY:
-      return Query_EvalTagWildcardNode(q, idx, n, effective_weight, fs->index,
-                                       caseSensitive);
-
-    case QN_LEXRANGE:
-      return Query_EvalTagLexRangeNode(q, idx, n, effective_weight, fs->index, caseSensitive);
-
-    case QN_PHRASE: {
-      for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
-        tag_strtolower(&(n->children[i]->tn.str), &n->children[i]->tn.len, caseSensitive);
-      }
-
-      sds s = tagPhraseAppendValue(sdsempty(), n, "");
-
-      ret = TagIndex_OpenReader(idx, q->sctx, s, sdslen(s), effective_weight, fs->index, q->status);
-      sdsfree(s);
-      break;
-    }
-
-    default:  // LCOV_EXCL_START — only TOKEN, PREFIX, WILDCARD_QUERY, LEXRANGE, PHRASE reach tag
-              // eval
-      RS_ABORT("Invalid tag query node type");
-      return NULL;
-  } // LCOV_EXCL_STOP
-
-  return ret;
-}
-
-static QueryIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_ASSERT(qn->type == QN_TAG);
-  QueryTagNode *node = &qn->tag;
-
-  // FieldSpec* captured back then could no longer be trusted.
-  RS_ASSERT(node->fieldIndex < q->sctx->spec->numFields);
-  const FieldSpec *fs = q->sctx->spec->fields + node->fieldIndex;
-
-  // Open the TagIndex - in disk mode it contains sentinel values for tag enumeration
-  // In memory mode it contains InvertedIndex pointers
-  TagIndex *idx = TagIndex_Open(fs);
-  if (!idx) {
-    // There are no documents to traverse.
-    return NULL;
-  }
-
-  if (QueryNode_NumChildren(qn) == 1) {
-    // a union stage with one child is the same as the child, so we just return it
-    return query_EvalSingleTagNode(q, idx, qn->children[0], qn->opts.weight, fs);
-  }
-
-  // recursively eval the children
-  QueryIterator **iters = rm_malloc(QueryNode_NumChildren(qn) * sizeof(QueryIterator *));
-  for (size_t i = 0; i < QueryNode_NumChildren(qn); i++) {
-    iters[i] = query_EvalSingleTagNode(q, idx, qn->children[i], qn->opts.weight, fs);
-  }
-  // We want to get results with all the matching children (`quickExit == false`), unless:
-  // 1. We are a `Not` sub-tree, so we only care about the set of IDs
-  // 2. The node's weight is 0, which means the sub-tree is not relevant for scoring.
-  bool quickExit = q->inNotSubTree || qn->opts.weight == 0;
-  return NewUnionIterator(iters, QueryNode_NumChildren(qn), quickExit, qn->opts.weight, QN_TAG, NULL, q->config);
-}
-
-QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *evalConfig) {
-  switch (n->type) {
-    case QN_IDS:
-    case QN_WILDCARD:
-    case QN_NULL:
-    case QN_MISSING:
-    case QN_OPTIONAL:
-    case QN_NOT:
-    case QN_PHRASE:
-    case QN_UNION:
-    case QN_NUMERIC:
-    case QN_GEO:
-    case QN_TOKEN:
-    case QN_GEOMETRY:
-    case QN_PREFIX:
-    case QN_WILDCARD_QUERY:
-    case QN_FUZZY:
-    case QN_VECTOR:
-      // These node types have been ported to Rust.
-      return Query_EvalNode_Rs(q, n, evalConfig);
-    case QN_TAG:
-      return Query_EvalTagNode(q, n);
-    // A lex range only ever hangs off a tag node, which evaluates its own
-    // children, so reaching it here is a bug.
-    case QN_LEXRANGE:  // LCOV_EXCL_LINE
-    case QN_MAX: // LCOV_EXCL_LINE — exhaustive switch: all valid QN types handled above
-      RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE
-  }
-
-  RS_ABORT("Invalid query node type"); // LCOV_EXCL_LINE — unreachable: all valid node types handled in switch
-  return NULL; // LCOV_EXCL_LINE
 }
 
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
@@ -1584,7 +1133,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           for (size_t i = 0; i < array_len(qs->params); i++) {
             if (qs->params[i].type != PARAM_NONE &&
                 qs->params[i].target == &qs->vn.vq->knn.vector) {
-              s = sdscatprintf(s, "`$%s` ", qs->params[i].name);
+              s = sdscatprintf(s, "`$%.*s` ", (int)qs->params[i].len, qs->params[i].name);
               break;
             }
           }
@@ -1597,7 +1146,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           for (size_t i = 0; i < array_len(qs->params); i++) {
             if (qs->params[i].type != PARAM_NONE &&
                 qs->params[i].target == &qs->vn.vq->range.vector) {
-              s = sdscatprintf(s, " `$%s` ", qs->params[i].name);
+              s = sdscatprintf(s, " `$%.*s` ", (int)qs->params[i].len, qs->params[i].name);
               break;
             }
           }

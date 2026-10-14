@@ -301,7 +301,6 @@ enum Phase {
 pub struct TopKMetrics {
     pub num_batches: usize,
     pub strategy_switches: usize,
-    pub total_comparisons: usize,
 }
 ```
 

@@ -489,6 +489,7 @@ if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
 fi
 if [[ "${DRY_RUN:-0}" == 1 ]]; then
     if ! _llvm_check_ok; then
+        _dry_dependency_status llvm install-required "major $LLVM_VER"
         # LLVM's install is a multi-branch, per-OS fallback (native pkgs →
         # apt.llvm.org → official tarball, plus PATH linking) with runtime
         # decisions no static print can reproduce correctly on every OS. So emit
@@ -497,8 +498,11 @@ if [[ "${DRY_RUN:-0}" == 1 ]]; then
         # can't consume the rest of a pasted dry-run.
         _llvm_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/install_llvm.sh"
         _dry_line "bash \"${_llvm_script}\" ${MODE} < /dev/null"
-    elif [[ -f /etc/alpine-release ]] && command -v apk >/dev/null 2>&1; then
-        install_alpine_static_llvm_libs "$(_alpine_installed_llvm_major)"
+    else
+        _dry_dependency_status llvm satisfied
+        if [[ -f /etc/alpine-release ]] && command -v apk >/dev/null 2>&1; then
+            install_alpine_static_llvm_libs "$(_alpine_installed_llvm_major)"
+        fi
     fi
     return 0 2>/dev/null || exit 0
 fi

@@ -526,7 +526,7 @@ def testTagParameterBoundIsUnescapedLikeATagToken(env):
     """A TAG parameter is read as query-syntax text, backslashes and all, and a
     range bound agrees with an exact match about that.
 
-    `tag_strtolower` runs the escape-removal pass on both, so the parameter
+    The tag evaluator runs the escape-removal pass on both, so the parameter
     `a\\!` names the indexed value `a!` rather than the literal `a\\!`. That is
     arguably the wrong reading of a parameter, but it is TAG-wide rather than
     specific to ranges, so this pins the two constructs agreeing rather than
@@ -550,8 +550,8 @@ def testTagParameterBoundIsUnescapedLikeATagToken(env):
 def testInteriorNulTruncatesCaseSensitiveTagBound(env):
     """The same truncation on a CASESENSITIVE TAG field.
 
-    `tag_strtolower` folds case and reports the truncated length together; with
-    folding skipped, the length has to come from the truncated content instead.
+    A bound is read up to its first NUL whether or not the field folds case, so
+    skipping the fold must not change where the bound ends.
     """
     enable_unstable_features(env)
     conn = create_index(env, 'tg', 'TAG', 'CASESENSITIVE')

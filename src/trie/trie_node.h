@@ -28,6 +28,7 @@ typedef uint16_t t_len;
 #define TRIE_OK_NEW                1   /* Successfully added a new entry */
 #define TRIE_OK_UPDATED            0   /* Entry already existed, score/payload updated */
 #define TRIE_ERR_PAYLOAD_OVERFLOW -1   /* Payload too large or allocation overflow */
+#define TRIE_ERR_TOO_MANY_CHILDREN -2  /* A node on the path already has the most children t_len holds */
 
 typedef enum {
   Trie_Sort_Lex = 0,
@@ -75,6 +76,8 @@ typedef enum {
  *   TRIE_OK_NEW (1)                - String was added (new entry)
  *   TRIE_OK_UPDATED (0)            - String already existed, score/payload updated
  *   TRIE_ERR_PAYLOAD_OVERFLOW (-1) - Payload too large or allocation overflow
+ *   TRIE_ERR_TOO_MANY_CHILDREN (-2) - The string needs a new child under a full node; the trie is
+ *                                     left unchanged
  *
  * Note: The return value is used by Trie_InsertRune to update the Trie size
  * member (incremented only when TRIE_OK_NEW is returned).

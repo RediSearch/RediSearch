@@ -109,7 +109,7 @@ impl Drop for MockQueryNode {
         // an `RSToken` here too -- the same invariant that constructor's own
         // SAFETY comment establishes at construction time. `tok.str_` is
         // whatever that field addresses now, not necessarily the buffer
-        // `with_redis_token` allocated: a callee such as `tag_strtolower` may
+        // `with_redis_token` allocated: a callee such as `RSTokenMut::normalize_tag` may
         // have freed that one and written back a replacement, but only ever
         // one it obtained from the same `RedisModule_Alloc`/`RedisModule_Free`
         // pair -- so at most one live Redis-allocator allocation is addressed
@@ -253,6 +253,30 @@ impl MockQueryNode {
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             (*union_ptr.cast::<ffi::QueryFuzzyNode>()).maxDist = max_dist;
+        }
+    }
+
+    /// Set the bounds of the lex-range-node union variant.
+    ///
+    /// A null pointer leaves that side unbounded, which zero-initialising the
+    /// node already does, so only a bounded side needs setting.
+    pub fn set_lex_range(
+        &mut self,
+        begin: *mut std::ffi::c_char,
+        include_begin: bool,
+        end: *mut std::ffi::c_char,
+        include_end: bool,
+    ) {
+        self.debug_assert_type(QueryNodeType::LexRange);
+        // SAFETY: `self.node` is valid and exclusively owned; the node type is
+        // LexRange, per the assertion above, so the `lxrng` variant is active.
+        unsafe {
+            let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
+            let lxrng = &mut *union_ptr.cast::<ffi::QueryLexRangeNode>();
+            lxrng.begin = begin;
+            lxrng.includeBegin = include_begin;
+            lxrng.end = end;
+            lxrng.includeEnd = include_end;
         }
     }
 

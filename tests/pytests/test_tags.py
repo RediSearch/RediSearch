@@ -336,6 +336,63 @@ def testTagCaseSensitive(env):
         .equal([1, 'doc3', ['t', 'f o']])
 
 @skip(cluster=True)
+def testTagMultiWordTermCaseAndEscapes(env):
+    """A multi-word tag term is one tag value: it keeps its case and is unescaped once."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'cs', 'PREFIX', '1', 'cs:', 'SCHEMA', 't', 'TAG', 'CASESENSITIVE').ok()
+    env.expect('FT.CREATE', 'ci', 'PREFIX', '1', 'ci:', 'SCHEMA', 't', 'TAG').ok()
+    conn.execute_command('HSET', 'cs:upper', 't', 'Foo Bar')
+    conn.execute_command('HSET', 'cs:lower', 't', 'foo bar')
+    conn.execute_command('HSET', 'ci:backslash', 't', r'x\- y')
+    conn.execute_command('HSET', 'ci:plain', 't', 'x- y')
+    conn.execute_command('HSET', 'ci:lower', 't', 'foo bar')
+
+    def ids(*args):
+        res = env.cmd('FT.SEARCH', *args, 'NOCONTENT')
+        return sorted(res[1:])
+
+    for dialect in range(1, set_max_dialect(env) + 1):
+        for query in ['@t:{Foo Bar}', '@t:{Baz|Foo Bar}']:
+            env.assertEqual(ids('cs', query, 'DIALECT', dialect), ['cs:upper'], message=f'{query} DIALECT {dialect}')
+            env.assertEqual(ids('cs', query.lower(), 'DIALECT', dialect), ['cs:lower'],
+                            message=f'{query.lower()} DIALECT {dialect}')
+        for query in ['@t:{FOO BAR}', '@t:{BAZ|FOO BAR}']:
+            env.assertEqual(ids('ci', query, 'DIALECT', dialect), ['ci:lower'], message=f'{query} DIALECT {dialect}')
+        env.assertEqual(ids('ci', r'@t:{x\\\- y}', 'DIALECT', dialect), ['ci:backslash'], message=f'DIALECT {dialect}')
+        env.assertEqual(ids('ci', r'@t:{x\- y}', 'DIALECT', dialect), ['ci:plain'], message=f'DIALECT {dialect}')
+
+    for dialect in range(2, set_max_dialect(env) + 1):
+        env.assertEqual(ids('cs', '@t:{$a $b}', 'PARAMS', '4', 'a', 'Foo', 'b', 'Bar', 'DIALECT', dialect), ['cs:upper'],
+                        message=f'DIALECT {dialect}')
+        env.assertEqual(ids('ci', '@t:{$a $b}', 'PARAMS', '4', 'a', 'FOO', 'b', 'BAR', 'DIALECT', dialect), ['ci:lower'],
+                        message=f'DIALECT {dialect}')
+
+    # Lowercasing a case-insensitive value at query time must agree with indexing, beyond ASCII.
+    conn.execute_command('HSET', 'ci:unicode', 't', 'äbc déf')
+    env.assertEqual(ids('ci', '@t:{ÄBC Déf}', 'DIALECT', 2), ['ci:unicode'])
+
+    # Dialect 1 drops a stopword inside a multi-word tag value.
+    conn.execute_command('HSET', 'ci:stop', 't', 'foo bar baz')
+    env.assertEqual(ids('ci', '@t:{foo bar the baz}', 'DIALECT', 1), ['ci:stop'])
+
+    # Explain shows the evaluated value: case kept on a CASESENSITIVE field, escapes removed.
+    env.expect('FT.EXPLAIN', 'cs', r'@t:{Foo Bar|x\- y}', 'DIALECT', 2).equal('TAG:@t {\n  Foo Bar\n  x- y\n}\n')
+
+    # Profile reports the same evaluated values as the iterator terms.
+    conn.execute_command('HSET', 'cs:dash', 't', 'x- y')
+    res = env.cmd('FT.PROFILE', 'cs', 'SEARCH', 'QUERY', r'@t:{Foo Bar|x\- y}', 'NOCONTENT', 'DIALECT', 2)
+
+    def terms(node):
+        if isinstance(node, dict):
+            node = [x for kv in node.items() for x in kv]
+        if not isinstance(node, list):
+            return []
+        found = [node[i + 1] for i in range(len(node) - 1) if node[i] == 'Term']
+        return found + [t for child in node for t in terms(child)]
+
+    env.assertEqual(sorted(terms(res)), ['Foo Bar', 'x- y'])
+
+@skip(cluster=True)
 def testTagGCClearEmpty(env):
 
     conn = getConnectionByEnv(env)
@@ -1087,7 +1144,7 @@ def testTagWildcardWithSuffixTrieNoMatch():
 def testTagSuffixMaxExpansionsWithSuffixTrie():
     """Tag suffix query on WITHSUFFIXTRIE field hits max prefix expansion
     limit when there are more matching terms than allowed (covers the suffix
-    trie branch of Query_EvalTagPrefixNode)."""
+    trie branch of the tag prefix expansion)."""
     env = Env(moduleArgs='DEFAULT_DIALECT 2', protocol=3)
     conn = getConnectionByEnv(env)
 
@@ -1229,8 +1286,8 @@ def testTagInvalidUtf8LoweringOverflow(env):
     `nu_utf8_read` reads as a multi-byte UTF-8 lead must not overflow past
     its allocation during `unicode_tolower`'s lowering.
 
-    Covers the token, prefix, and wildcard branches, which each reach
-    `tag_strtolower` independently in `src/query.c`. See
+    Covers the token, prefix, and wildcard branches, which each normalize
+    their token independently during tag evaluation. See
     `_assertSurvivesInvalidUtf8TagToken` for the overflow mechanism.
     """
     conn = getConnectionByEnv(env)
@@ -1241,9 +1298,9 @@ def testTagInvalidUtf8LoweringOverflow(env):
     # byte off the very first position, off the ASCII-only fast path that
     # ASCII-only tokens like `hello` above would take.
     _assertSurvivesInvalidUtf8TagToken(env, conn, b'@t:{caf' + _INVALID_UTF8_LEAD + b'}')
-    # Prefix token, through Query_EvalTagPrefixNode.
+    # Prefix token, through the tag prefix expansion.
     _assertSurvivesInvalidUtf8TagToken(env, conn, b'@t:{caf' + _INVALID_UTF8_LEAD + b'*}')
-    # Wildcard token, through Query_EvalTagWildcardNode. `w'...'` needs DIALECT 2.
+    # Wildcard token, through the tag wildcard expansion. `w'...'` needs DIALECT 2.
     _assertSurvivesInvalidUtf8TagToken(env, conn, b"@t:{w'caf" + _INVALID_UTF8_LEAD + b"*'}",
                                         dialect='2')
 

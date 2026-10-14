@@ -167,6 +167,15 @@ VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fs, bool create_if_
  */
 bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId newDocId);
 
+#ifdef ENABLE_ASSERT
+// Test seam, compiled in assert-enabled builds only (ENABLE_ASSERT): replaces the VecSim call
+// inside VectorIndex_RelabelField, so unit tests can reach refusal codes the FLAT and HNSW
+// backends never return (e.g. Unsupported). NULL restores VecSim.
+typedef VecSimRelabelCode (*VectorIndex_RelabelFn)(VecSimIndex *index, size_t oldLabel,
+                                                   size_t newLabel);
+void VectorIndex_SetRelabelFnForTests(VectorIndex_RelabelFn fn);
+#endif
+
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
@@ -209,21 +218,5 @@ void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
 void VecSimLogCallback(void *ctx, const char *level, const char *message);
 
 bool VecSim_CallTieredIndexesGC(WeakRef spRef);
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// Builds a lazily-evaluated vector range iterator from already-resolved query parameters. The
-// underlying VecSim range query runs on the iterator's first read (see MOD-16437). Used by the
-// range branch of NewVectorIterator and by unit tests. The timeout is required and must outlive
-// the iterator. See the definition for ownership details.
-QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const void *vector,
-                                                    double radius, VecSimQueryParams qParams,
-                                                    VecSimQueryReply_Order order, bool yields_metric,
-                                                    QueryRequestTimeout *timeout);
-#ifdef __cplusplus
-}
-#endif
 
 #endif // VECTOR_INDEX_H__

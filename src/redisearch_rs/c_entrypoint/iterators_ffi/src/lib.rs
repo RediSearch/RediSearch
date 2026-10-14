@@ -16,7 +16,6 @@ pub mod intersection;
 pub mod inverted_index;
 pub mod metric;
 pub mod not;
-pub mod optional;
 pub mod profile;
 mod profile_print;
 pub mod union;

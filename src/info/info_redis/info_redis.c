@@ -91,7 +91,7 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   GetFormattedRedisVersion(ver, sizeof(ver));
   RedisModule_InfoAddFieldCString(ctx, "redis_version", ver);
   // Redis Enterprise version
-  if (IsEnterprise()) {
+  if (RS_IsEnterpriseServer()) {
     GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
     RedisModule_InfoAddFieldCString(ctx, "redis_enterprise_version", ver);
   }
@@ -435,14 +435,12 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
                                    RSGlobalConfig.iteratorsConfigParams.minStemLength);
   RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions",
                                    RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions);
-  RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms",
-                                   RSGlobalConfig.requestConfigParams.queryTimeoutMS);
-  RedisModule_InfoAddFieldCString(ctx, "timeout_policy",
-																	(char *)TimeoutPolicy_ToString(RSGlobalConfig.requestConfigParams.timeoutPolicy));
+  RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.timeoutConfigParams.queryTimeoutMS);
+  RedisModule_InfoAddFieldCString(ctx, "timeout_policy", TimeoutPolicy_ToString(RSGlobalConfig.timeoutConfigParams.timeoutPolicy));
   RedisModule_InfoAddFieldCString(ctx, "oom_policy",
                                   (char *)OomPolicy_ToString(RSGlobalConfig.requestConfigParams.oomPolicy));
-  RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorMaxIdle);
+  RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorConfigParams.chunkSize);
+  RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorConfigParams.maxIdle);
 
   RedisModule_InfoAddFieldLongLong(ctx, "max_doc_table_size", RSGlobalConfig.maxDocTableSize);
   RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.maxSearchResults);

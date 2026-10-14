@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include "op_block_client.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -1031,9 +1032,18 @@ DEBUG_COMMAND(DumpPhoneticHash) {
 
   PhoneticManager_ExpandPhonetics(NULL, term_c, len, &primary, &secondary);
 
+  // A term with no phonetic code (digits, for one) leaves the code NULL.
   RedisModule_ReplyWithArray(ctx, 2);
-  RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
-  RedisModule_ReplyWithStringBuffer(ctx, secondary, strlen(secondary));
+  if (primary) {
+    RedisModule_ReplyWithStringBuffer(ctx, primary, strlen(primary));
+  } else {
+    RedisModule_ReplyWithNull(ctx);
+  }
+  if (secondary) {
+    RedisModule_ReplyWithStringBuffer(ctx, secondary, strlen(secondary));
+  } else {
+    RedisModule_ReplyWithNull(ctx);
+  }
 
   rm_free(primary);
   rm_free(secondary);
@@ -1167,6 +1177,18 @@ DEBUG_COMMAND(DiskFlush) {
   SearchDisk_Flush(sp->diskSpec);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
+}
+
+// FT.DEBUG DISK_LIVE_SNAPSHOTS
+// Number of disk snapshots currently alive, so tests can assert they are released.
+DEBUG_COMMAND(DiskLiveSnapshots) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  return RedisModule_ReplyWithLongLong(ctx, (long long)SearchDisk_GetLiveSnapshotCount());
 }
 
 // FT.DEBUG DISK_FLUSH_NOWAIT <index>
@@ -1331,8 +1353,7 @@ DEBUG_COMMAND(GCWaitForAllJobs) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, GCForceInvokeReply, NULL, NULL, 0);
-  RedisModule_BlockedClientMeasureTimeStart(bc);
+  RedisModuleBlockedClient *bc = OpBlockClient_Block(ctx, GCForceInvokeReply);
   GCContext_WaitForAllOperations(bc);
   return REDISMODULE_OK;
 }
@@ -2188,20 +2209,7 @@ DEBUG_COMMAND(RSShardedHybridCommand_Debug) {
     return RedisModule_WrongArity(ctx);
   }
   // Skip _FT.DEBUG prefix — argv now starts at FT.HYBRID / _FT.HYBRID
-  ++argv; --argc;
-
-  QueryError status = QueryError_Default();
-  HybridDebugParams params = parseHybridDebugParamsCount(argv, argc, &status);
-  if (QueryError_HasError(&status)) {
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-  if (parseHybridDebugParams(&params, &status) != REDISMODULE_OK) {
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-
-  // Strip debug params from argc so hybridCommandHandler sees a normal command
-  int stripped_argc = argc - (int)params.debug_params_count - 2;
-  return hybridCommandHandler(ctx, argv, stripped_argc, true, EXEC_NO_FLAGS, &params);
+  return DEBUG_hybridCommandHandler(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(HybridCommand_DebugWrapper) {
@@ -2214,8 +2222,7 @@ DEBUG_COMMAND(HybridCommand_DebugWrapper) {
   }
 
   if (GetNumShards_UnSafe() == 1) {
-    // Single shard — use standalone handler (skip _FT.DEBUG)
-    return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
+    return DEBUG_hybridCommandHandler(ctx, ++argv, --argc, false);
   }
 
   return DistHybridCommandInternal(ctx, ++argv, --argc, true, false /* isProfile */);
@@ -3486,7 +3493,7 @@ DEBUG_COMMAND(ioRuntimePendingRequests) {
 
 /**
  * FT.DEBUG QUERY_CONTROLLER SET_CURSOR_READ_SIZE <N>
- * Override RSGlobalConfig.cursorReadSize at runtime. Returns the previous
+ * Override RSGlobalConfig.cursorConfigParams.chunkSize at runtime. Returns the previous
  * value so the caller can restore it. N must be >= 1.
  */
 DEBUG_COMMAND(setCursorReadSize) {
@@ -3501,8 +3508,8 @@ DEBUG_COMMAND(setCursorReadSize) {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_CURSOR_READ_SIZE'");
   }
 
-  long long previous = RSGlobalConfig.cursorReadSize;
-  RSGlobalConfig.cursorReadSize = n;
+  long long previous = RSGlobalConfig.cursorConfigParams.chunkSize;
+  RSGlobalConfig.cursorConfigParams.chunkSize = n > UINT32_MAX ? UINT32_MAX : (uint32_t)n;
   return RedisModule_ReplyWithLongLong(ctx, previous);
 }
 #endif
@@ -3914,6 +3921,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"DISK_FLUSH", DiskFlush},
                                {"DISK_FLUSH_NOWAIT", DiskFlushNoWait},
+                               {"DISK_LIVE_SNAPSHOTS", DiskLiveSnapshots},
                                {"DISK_PAUSE_BG_WORK", DiskPauseBackgroundWork},
                                {"DISK_RESUME_BG_WORK", DiskResumeBackgroundWork},
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},
@@ -4005,20 +4013,20 @@ int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int RegisterDebugCommands(RedisModuleCommand *debugCommand) {
   for (DebugCommandType *c = &commands[0]; c->name != NULL; c++) {
     int rc = RedisModule_CreateSubcommand(debugCommand, c->name, c->callback,
-              IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+              RS_IsEnterpriseServer() ? "readonly " CMD_PROXY_FILTERED : "readonly",
               RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
   }
 #ifdef ENABLE_ASSERT
   for (DebugCommandType *c = &assertOnlyCommands[0]; c->name != NULL; c++) {
     int rc = RedisModule_CreateSubcommand(debugCommand, c->name, c->callback,
-              IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+              RS_IsEnterpriseServer() ? "readonly " CMD_PROXY_FILTERED : "readonly",
               RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
   }
 #endif
   return RedisModule_CreateSubcommand(debugCommand, "HELP", DebugHelpCommand,
-          IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+          RS_IsEnterpriseServer() ? "readonly " CMD_PROXY_FILTERED : "readonly",
           RS_DEBUG_FLAGS);
 }
 

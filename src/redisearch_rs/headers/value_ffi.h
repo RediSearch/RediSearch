@@ -956,9 +956,10 @@ const char *RSValue_StringPtrLen(const struct RSValue *value, size_t *len_ptr);
 const char *RSValue_String_Get(const struct RSValue *value, uint32_t *lenp);
 
 /**
- * Convert the [`RSValue`] to a number. Returns `true` when this value is a number
- * or a numeric string that can be converted and writes the number to `d`. If
- * the value cannot be converted `false` is returned and nothing is written to `d`.
+ * Convert the [`RSValue`] to a number, as [`Value::to_number`] does. Returns `true`
+ * when this value is a number or a numeric string that can be converted and writes
+ * the number to `d`. If the value cannot be converted `false` is returned and
+ * nothing is written to `d`.
  *
  * # Safety
  *

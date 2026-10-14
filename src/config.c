@@ -96,6 +96,7 @@ configPair_t __configPairs[] = {
   {"MAXPREFIXEXPANSIONS",             "search-max-prefix-expansions"},
   {"MAXSEARCHRESULTS",                "search-max-search-results"},
   {"_MAX_FOREGROUND_TIMEOUT_LIMIT",   "search-_max-foreground-timeout-limit"},
+  {"MIN_MAINTENANCE_WORKERS",         "search-min-maintenance-workers"},
   {"MIN_OPERATION_WORKERS",           "search-min-operation-workers"},
   {"MIN_PHONETIC_TERM_LEN",           "search-min-phonetic-term-len"},
   {"MINPREFIX",                       "search-min-prefix"},
@@ -187,19 +188,30 @@ static int set_uint_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-// Like set_uint_numeric_config but accepts values above UINT32_MAX (clamping with a warning).
-// Used for fields that were previously long long and may have larger values persisted in RDB.
-static int set_uint_clamped_numeric_config(const char *name, long long val,
-                                           void *privdata, RedisModuleString **err) {
-  REDISMODULE_NOT_USED(err);
+// Preserve the accepted range of settings whose storage narrowed from long long.
+static uint32_t clampUint32Config(const char *name, long long val) {
   if (val > UINT32_MAX) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "%s value %lld exceeds maximum (%u), clamping",
-                    name, val, UINT32_MAX);
-    val = UINT32_MAX;
+    RedisModule_Log(RSDummyContext, "warning", "%s value %lld exceeds maximum (%u), clamping", name, val, UINT32_MAX);
+    return UINT32_MAX;
   }
-  *(unsigned int *)privdata = (unsigned int) val;
+  return (uint32_t)val;
+}
+
+static int set_uint_clamped_numeric_config(const char *name, long long val, void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(err);
+  *(unsigned int *)privdata = clampUint32Config(name, val);
   return REDISMODULE_OK;
+}
+
+static int set_uint32_clamped_numeric_config(const char *name, long long val, void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(err);
+  *(uint32_t *)privdata = clampUint32Config(name, val);
+  return REDISMODULE_OK;
+}
+
+static long long get_uint32_numeric_config(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  return *(uint32_t *)privdata;
 }
 
 static long long get_uint_numeric_config(const char *name, void *privdata) {
@@ -659,13 +671,13 @@ CONFIG_SETTER(setTimeout) {
       newTimeoutMS, config->maxForegroundTimeoutLimitMS,
       config->maxForegroundTimeoutLimitMS);
   }
-  config->requestConfigParams.queryTimeoutMS = newTimeoutMS;
+  config->timeoutConfigParams.queryTimeoutMS = newTimeoutMS;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getTimeout) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->requestConfigParams.queryTimeoutMS);
+  return sdscatprintf(ss, "%lld", config->timeoutConfigParams.queryTimeoutMS);
 }
 
 // _MAX_FOREGROUND_TIMEOUT_LIMIT
@@ -750,8 +762,6 @@ CONFIG_SETTER(setMinOperationWorkers) {
     return errorTooManyThreads(status);
   }
   config->minOperationWorkers = newNumThreads;
-  // Will only change the number of workers if we are in an event,
-  // and `numWorkerThreads` is less than `minOperationWorkers`.
   workersThreadPool_SetNumWorkers();
   return REDISMODULE_OK;
 }
@@ -761,8 +771,8 @@ CONFIG_GETTER(getMinOperationWorkers) {
   return sdscatprintf(ss, "%lu", config->minOperationWorkers);
 }
 
-// min-operation-workers
-static int set_min_operation_workers(const char *name,
+// Shared by search-min-operation-workers and search-min-maintenance-workers.
+static int set_min_workers(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   if (val > MAX_WORKER_THREADS) {
@@ -772,15 +782,31 @@ static int set_min_operation_workers(const char *name,
     return REDISMODULE_ERR;
   }
   *(size_t *)privdata = (size_t) val;
-  // Will only change the number of workers if we are in an event,
-  // and `numWorkerThreads` is less than `minOperationWorkers`.
   workersThreadPool_SetNumWorkers();
   return REDISMODULE_OK;
 }
 
-static long long get_min_operation_workers(const char *name, void *privdata) {
+static long long get_min_workers(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long) (*(size_t *)privdata);
+}
+
+// MIN_MAINTENANCE_WORKERS
+CONFIG_SETTER(setMinMaintenanceWorkers) {
+  size_t newNumThreads;
+  int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newNumThreads > MAX_WORKER_THREADS) {
+    return errorTooManyThreads(status);
+  }
+  config->minMaintenanceWorkers = newNumThreads;
+  workersThreadPool_SetNumWorkers();
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getMinMaintenanceWorkers) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->minMaintenanceWorkers);
 }
 
 static inline int errorMemoryLimitG100(QueryError *status) {
@@ -852,7 +878,7 @@ size_t numWorkerThreads_config = 0;
 
 // WORKER_THREADS
 CONFIG_SETTER(setDeprWorkThreads) {
-  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS, MIN_OPERATION_WORKERS and MIN_MAINTENANCE_WORKERS instead");
   size_t newNumThreads;
   int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
@@ -865,7 +891,7 @@ CONFIG_SETTER(setDeprWorkThreads) {
 }
 
 CONFIG_GETTER(getDeprWorkThreads) {
-  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS, MIN_OPERATION_WORKERS and MIN_MAINTENANCE_WORKERS instead");
   sds ss = sdsempty();
   size_t numThreads;
   switch (mt_mode_config) {
@@ -884,7 +910,7 @@ CONFIG_GETTER(getDeprWorkThreads) {
 
 // MT_MODE
 CONFIG_SETTER(setMtMode) {
-  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS, MIN_OPERATION_WORKERS and MIN_MAINTENANCE_WORKERS instead");
   const char *mt_mode;
   int acrc = AC_GetString(ac, &mt_mode, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
@@ -913,7 +939,7 @@ static inline const char *MTMode_ToString(enum MTMode mt_mode) {
 }
 
 CONFIG_GETTER(getMtMode) {
-  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS, MIN_OPERATION_WORKERS and MIN_MAINTENANCE_WORKERS instead");
   return sdsnew(MTMode_ToString(mt_mode_config));
 }
 
@@ -1032,12 +1058,12 @@ CONFIG_SETTER(setOnTimeout) {
     QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid ON_TIMEOUT value");
     return REDISMODULE_ERR;
   }
-  config->requestConfigParams.timeoutPolicy = top;
+  config->timeoutConfigParams.timeoutPolicy = top;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getOnTimeout) {
-  return sdsnew(TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
+  return sdsnew(TimeoutPolicy_ToString(config->timeoutConfigParams.timeoutPolicy));
 }
 
 // on-timeout
@@ -1122,13 +1148,18 @@ CONFIG_GETTER(getMinUnionIteratorHeap) {
 
 // CURSOR_MAX_IDLE
 CONFIG_SETTER(setCursorMaxIdle) {
-  int acrc = AC_GetLongLong(ac, &config->cursorMaxIdle, AC_F_GE1);
+  long long value;
+  int acrc = AC_GetLongLong(ac, &value, AC_F_GE1);
+  if (acrc != AC_OK) {
+    RETURN_STATUS(acrc);
+  }
+  config->cursorConfigParams.maxIdle = clampUint32Config("CURSOR_MAX_IDLE", value);
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getCursorMaxIdle) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lld", config->cursorMaxIdle);
+  return sdscatprintf(ss, "%u", config->cursorConfigParams.maxIdle);
 }
 
 // FORK_GC_CLEAN_NUMERIC_EMPTY_NODES
@@ -1692,23 +1723,31 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMinOperationWorkers,
          .getValue = getMinOperationWorkers,
         },
+        {.name = "MIN_MAINTENANCE_WORKERS",
+         .helpText = "Minimum number of worker threads, keeping background index maintenance (such "
+                     "as vector graph repair) off the main thread. While WORKERS is 0 these threads "
+                     "run no queries. 0 makes vector writes run in place on the main thread when "
+                     "WORKERS is 0. Default is " STRINGIFY(MIN_MAINTENANCE_WORKERS),
+         .setValue = setMinMaintenanceWorkers,
+         .getValue = getMinMaintenanceWorkers,
+        },
         {.name = "WORKER_THREADS",
-         .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
+         .helpText = "Deprecated, see WORKERS, MIN_OPERATION_WORKERS and MIN_MAINTENANCE_WORKERS",
          .setValue = setDeprWorkThreads,
          .getValue = getDeprWorkThreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "MT_MODE",
-         .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
+         .helpText = "Deprecated, see WORKERS, MIN_OPERATION_WORKERS and MIN_MAINTENANCE_WORKERS",
          .setValue = setMtMode,
          .getValue = getMtMode,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
         .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
-                    " HNSW index, so that if we are using WORKERS for indexing, and the"
-                    " number of vectors waiting in the buffer to be indexed exceeds this limit,"
-                    " we insert new vectors directly into HNSW",
+                    " HNSW index, so that when vectors are indexed in the background (the"
+                    " workers pool is not empty), and the number of vectors waiting in the buffer"
+                    " to be indexed exceeds this limit, we insert new vectors directly into HNSW",
         .setValue = setTieredIndexBufferLimit,
         .getValue = getTieredIndexBufferLimit,
         .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
@@ -1867,7 +1906,8 @@ RSConfigOptions RSGlobalConfigOptions = {
          .getValue = get_EnableUnstableFeatures},
         {.name = "OPTIMIZE_PARTIAL_UPDATE",
          .helpText = "When enabled (default), an update that leaves a VECTOR field's value"
-                     " unchanged moves the field's existing index entry onto the document's new"
+                     " unchanged, or an FT.ALTER backfill that leaves a GEOSHAPE field's value"
+                     " unchanged, moves the field's existing index entry onto the document's new"
                      " doc-id instead of deleting and re-adding it.",
          .setValue = set_OptimizePartialUpdate,
          .getValue = get_OptimizePartialUpdate},
@@ -1946,8 +1986,17 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
   RSGlobalConfigTriggers[numTriggers++] = trigger;
 }
 
-// Upgrade deprecated configurations if needed.
-// Unless MT_MODE is OFF, only the relevant configuration is set, while the other keeps its default value.
+static void disableMaintenanceWorkers(const char *mt_mode) {
+  RSGlobalConfig.minMaintenanceWorkers = 0;
+  RedisModule_Log(RSDummyContext, "warning",
+                  "Setting `MIN_MAINTENANCE_WORKERS` to 0 due to explicit `%s`, "
+                  "overriding the default of " STRINGIFY(MIN_MAINTENANCE_WORKERS), mt_mode);
+}
+
+// Upgrade deprecated configurations if needed. A configuration set explicitly by module
+// arguments always wins. MT_MODE_FULL sets only WORKERS and MT_MODE_ONLY_ON_OPERATIONS only
+// MIN_OPERATION_WORKERS; both keep the maintenance workers, which run no queries while WORKERS
+// is 0. MT_MODE_OFF disables all three.
 void UpgradeDeprecatedMTConfigs() {
   RSConfigVar *mtMode = findConfigVar(&RSGlobalConfigOptions, "MT_MODE");
   RSConfigVar *workerThreads = findConfigVar(&RSGlobalConfigOptions, "WORKER_THREADS");
@@ -1967,8 +2016,10 @@ void UpgradeDeprecatedMTConfigs() {
 
   RSConfigVar *workers = findConfigVar(&RSGlobalConfigOptions, "WORKERS");
   RSConfigVar *minOperationWorkers = findConfigVar(&RSGlobalConfigOptions, "MIN_OPERATION_WORKERS");
+  RSConfigVar *minMaintenanceWorkers = findConfigVar(&RSGlobalConfigOptions, "MIN_MAINTENANCE_WORKERS");
   bool explicit_workers = workers->flags & RSCONFIGVAR_F_MODIFIED;
   bool explicit_minOperationWorkers = minOperationWorkers->flags & RSCONFIGVAR_F_MODIFIED;
+  bool explicit_minMaintenanceWorkers = minMaintenanceWorkers->flags & RSCONFIGVAR_F_MODIFIED;
 
   // Set the new configurations based on the deprecated ones.
   // We know that at least one of the deprecated configurations was set.
@@ -1983,6 +2034,9 @@ void UpgradeDeprecatedMTConfigs() {
         RedisModule_Log(RSDummyContext, "warning",
                         "Setting `MIN_OPERATION_WORKERS` to 0 due to explicit `MT_MODE_OFF`, "
                         "overriding the default of " STRINGIFY(MIN_OPERATION_WORKERS));
+      }
+      if (!explicit_minMaintenanceWorkers) {
+        disableMaintenanceWorkers("MT_MODE_OFF");
       }
       break;
     case MT_MODE_FULL:
@@ -2027,11 +2081,11 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "prefix min length: %u, ", config->iteratorsConfigParams.minTermPrefix);
   ss = sdscatprintf(ss, "min word length to stem: %u, ", config->iteratorsConfigParams.minStemLength);
   ss = sdscatprintf(ss, "prefix max expansions: %u, ", config->iteratorsConfigParams.maxPrefixExpansions);
-  ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->requestConfigParams.queryTimeoutMS);
-  ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->requestConfigParams.timeoutPolicy));
+  ss = sdscatprintf(ss, "query timeout (ms): %lld, ", config->timeoutConfigParams.queryTimeoutMS);
+  ss = sdscatprintf(ss, "timeout policy: %s, ", TimeoutPolicy_ToString(config->timeoutConfigParams.timeoutPolicy));
   ss = sdscatprintf(ss, "oom policy: %s, ", OomPolicy_ToString(config->requestConfigParams.oomPolicy));
-  ss = sdscatprintf(ss, "cursor read size: %lld, ", config->cursorReadSize);
-  ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
+  ss = sdscatprintf(ss, "cursor read size: %u, ", config->cursorConfigParams.chunkSize);
+  ss = sdscatprintf(ss, "cursor max idle (ms): %u, ", config->cursorConfigParams.maxIdle);
   ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
   ss = sdscatprintf(ss, "max number of search results: ");
   ss = (config->maxSearchResults == MAX_SEARCH_REQUEST_RESULTS)
@@ -2171,7 +2225,7 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 
 
 size_t GetDefaultWorkerThreads(void) {
-  if (IsEnterprise()) return 0;  // Keep default 0 for Redis Enterprise
+  if (RS_IsEnterpriseServer()) return 0;  // Keep default 0 for Redis Enterprise
   long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
   if (nprocs <= 0) {
     RedisModule_Log(RSDummyContext, "warning",
@@ -2318,8 +2372,8 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-cursor-max-idle", DEFAULT_MAX_CURSOR_IDLE,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.cursorMaxIdle)
+      LLONG_MAX, get_uint32_numeric_config, set_uint32_clamped_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.cursorConfigParams.maxIdle)
     )
   )
 
@@ -2338,9 +2392,19 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-min-operation-workers", MIN_OPERATION_WORKERS,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
-      MAX_WORKER_THREADS, get_min_operation_workers,
-      set_min_operation_workers, NULL,
+      MAX_WORKER_THREADS, get_min_workers,
+      set_min_workers, NULL,
       (void *)&(RSGlobalConfig.minOperationWorkers)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-min-maintenance-workers", MIN_MAINTENANCE_WORKERS,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      MAX_WORKER_THREADS, get_min_workers,
+      set_min_workers, NULL,
+      (void *)&(RSGlobalConfig.minMaintenanceWorkers)
     )
   )
 
@@ -2395,7 +2459,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       SearchDisk_IsEnabled() ? DEFAULT_QUERY_TIMEOUT_MS_FLEX : DEFAULT_QUERY_TIMEOUT_MS,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_long_numeric_config, set_long_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.requestConfigParams.queryTimeoutMS)
+      (void *)&(RSGlobalConfig.timeoutConfigParams.queryTimeoutMS)
     )
   )
 
@@ -2473,7 +2537,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-_bg-index-oom-pause-time",
-      IsEnterprise() ? DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY : 0,
+      RS_IsEnterpriseServer() ? DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY : 0,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
       UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry)
@@ -2562,7 +2626,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       on_timeout_vals, on_timeout_enums, 3,
       get_on_timeout, set_on_timeout, NULL,
-      (void*)&RSGlobalConfig.requestConfigParams.timeoutPolicy
+      (void*)&RSGlobalConfig.timeoutConfigParams.timeoutPolicy
     )
   )
 
@@ -2648,6 +2712,11 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       (void *)&(RSGlobalConfig.invertedIndexRawDocidEncoding)
     )
   )
+
+  RM_TRY(RedisModule_RegisterBoolConfig(
+      ctx, "search-internal-resp-schema", 0, REDISMODULE_CONFIG_UNPREFIXED, get_bool_config,
+      set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.requestConfigParams.internalRespSchemaEnabled)))
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(

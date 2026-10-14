@@ -2368,7 +2368,7 @@ void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters) {
 * waiting for depletion to finish:
 * 0. Some sanity checks, will return an error if it detected an invalid state
 * 1. It will start a thread for every safe depleter
-* 2. Wait for all the threads to take their own read lock and then unlock the lock it held - we assume the lock was taken in the query thread
+* 2. When take_index_lock is set, transfer the caller's read lock to the depleters.
 * 3. If any depleter failed to acquire its lock, drain the group and return
 *    RS_RESULT_ERROR — the failure is fatal and the caller aborts before any
 *    reply, and an error return must not leave background threads writing
@@ -2377,13 +2377,14 @@ void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters) {
 * for its own completion, so consumers observe results in completion order.
 */
 int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status) {
-  RS_ASSERT(lockedCtx != NULL && IndexSpec_IsReadLocked(lockedCtx->spec));
+  RS_ASSERT(lockedCtx != NULL);
   DepleterSync *sync = NULL;
   // Verify we are in a sane state before starting the depletion process
   if (!verifyInvariants(safeDepleters, &sync)) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE, "Failed to start background depletion");
     return RS_RESULT_ERROR;
   }
+  RS_ASSERT(!sync->take_index_lock || IndexSpec_IsReadLocked(lockedCtx->spec));
 
   // TODO: Check timeout before attempting to start threads
   // This would lead to returning an error from one of the shards, maybe failing the entire command
