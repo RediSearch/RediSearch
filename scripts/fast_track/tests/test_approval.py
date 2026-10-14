@@ -356,6 +356,23 @@ class ApprovalTests(unittest.TestCase):
                 self.run_approval()
                 self.assertEqual(len(self.writes()), 1)
 
+    def test_cli_rejects_noncanonical_pr_numbers_before_api_calls(self):
+        for number in ["+42", "042", " 42", "42\n", "4_2", "42.0", "４２", "0", "-42", ""]:
+            with self.subTest(number=number), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                env = {"GH_TOKEN": "test", "JIRA_EMAIL": "test", "JIRA_API_TOKEN": "test",
+                       "GITHUB_REPOSITORY": REPO, "PR_NUMBER": number, "REQUESTER": "alice",
+                       "GITHUB_OUTPUT": str(root / "output"),
+                       "GITHUB_STEP_SUMMARY": str(root / "summary")}
+                with patch.dict(os.environ, env), patch("sys.argv", ["approval.py", "validate",
+                           "--decision", str(root / "decision")]), patch(
+                           "scripts.fast_track.approval.API", side_effect=[self.github, self.jira]), patch(
+                           "sys.stdout", new_callable=io.StringIO):
+                    self.assertEqual(main(), 1)
+                self.assertEqual(self.github.calls, [])
+                self.assertEqual(self.jira.calls, [])
+                self.assertFalse((root / "decision").exists())
+
     def test_cli_denial_writes_decision_and_output(self):
         self.jira.issue["fields"]["labels"] = []
         with tempfile.TemporaryDirectory() as directory:
