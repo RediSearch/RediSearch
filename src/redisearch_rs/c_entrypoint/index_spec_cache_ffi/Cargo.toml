@@ -1,0 +1,32 @@
+[package]
+name = "index_spec_cache_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+# This crate has no tests nor benches.
+# Compiling a no-op bench/test binary can cause linking issues with C.
+test = false
+bench = false
+
+[features]
+unittest = []
+
+[build-dependencies]
+build_utils = { path = "../../build_utils" }
+
+[dependencies]
+ffi.workspace = true
+index_spec_cache.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+# Crate required to invoke C symbols
+index_spec_cache_ffi = { path = ".", features = ["unittest"] }
+redisearch_rs = { path = "../redisearch_rs", features = ["mock_allocator"] }
+redis_mock.workspace = true

@@ -12,15 +12,17 @@
 extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
+use index_spec_cache::CachedField;
 use proptest::prelude::{Strategy, any};
 use proptest::proptest;
 use redis_module::{KeyType, RedisString};
 use rlookup::{
-    DocumentFormat, FieldSpecBuilder, FieldSpecType, HashDocumentFormat, IndexSpecCache,
-    LoadFieldError, RLookup, RLookupKeyFlag, RLookupKeyFlags, RLookupRow,
+    DocumentFormat, FieldSpecType, HashDocumentFormat, IndexSpecCache, LoadFieldError, RLookup,
+    RLookupKeyFlag, RLookupKeyFlags, RLookupRow,
 };
 use std::ffi::CString;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
 /// Build a [`redis_mock::TestContext`] with the given key type and
 /// `(field, value)` pairs (which back `RedisModule_ScanKey` iteration).
@@ -314,9 +316,10 @@ fn load_all_coerces_numeric_keys_unless_force_string() {
     // mask and the Rust `GET_KEY_FLAGS` mask strip it. The flag is only ever applied
     // from the schema, so the coercion branch is driven through a numeric field spec.
     let numeric_spec_cache = || {
-        IndexSpecCache::from_fields([FieldSpecBuilder::new(fields[0].0.as_c_str())
-            .with_types(FieldSpecType::Numeric.into())
-            .finish()])
+        Arc::new(IndexSpecCache::new(
+            [CachedField::new(fields[0].0.as_bytes()).with_types(FieldSpecType::Numeric as u32)],
+            [],
+        ))
     };
 
     // force_string = false: a Numeric key coerces the value to a number.
@@ -511,11 +514,10 @@ mod load_field {
             let format = HashDocumentFormat::new(ctx, false);
             let key_name = make_redis_string(&CString::new("doc:1").unwrap());
             let mut rlookup = RLookup::new();
-            rlookup.set_cache(Some(IndexSpecCache::from_fields([FieldSpecBuilder::new(
-                c"n",
-            )
-            .with_types(FieldSpecType::Numeric.into())
-            .finish()])));
+            rlookup.set_cache(Some(Arc::new(IndexSpecCache::new(
+                [CachedField::new(b"n").with_types(FieldSpecType::Numeric as u32)],
+                [],
+            ))));
             let key = rlookup
                 .get_key_load(c"n", c"n", RLookupKeyFlags::empty())
                 .unwrap();

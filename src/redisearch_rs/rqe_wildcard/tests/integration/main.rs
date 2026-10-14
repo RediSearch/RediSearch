@@ -17,6 +17,7 @@ extern crate fnv_ffi as _;
 extern crate fork_gc_ffi as _;
 extern crate geo_ffi as _;
 extern crate idf_ffi as _;
+extern crate index_spec_cache_ffi as _;
 extern crate inverted_index_ffi as _;
 extern crate iterators_ffi as _;
 extern crate metrics_ffi as _;

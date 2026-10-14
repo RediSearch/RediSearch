@@ -10,6 +10,17 @@
 #include "search_result_rs.h"
 #include "rlookup.h"
 
+/**
+ * An immutable snapshot of an index schema's fields and of its rule's
+ * special field names (language, score and payload).
+ *
+ * The index and every query that resolves fields against it share the
+ * snapshot as an [`Arc`](std::sync::Arc). The index builds a new snapshot
+ * whenever its fields or those names change instead of modifying the shared
+ * one, so a running query keeps the schema it started with.
+ */
+typedef struct IndexSpecCache IndexSpecCache;
+
 typedef struct QueryError QueryError;
 
 /**
@@ -370,7 +381,11 @@ void RLookup_DisableOptions(struct RLookup *lookup, uint32_t options);
 void RLookup_EnableOptions(struct RLookup *lookup, uint32_t options);
 
 /**
- * Find a field in the index spec cache of the lookup.
+ * Find a full-text field in the index spec cache of the lookup.
+ *
+ * Returns `true` and writes the field's full-text field id to `ft_id` if the
+ * first field named `name` is a full-text field. Otherwise returns `false` and
+ * leaves `ft_id` untouched.
  *
  * # Safety
  *
@@ -382,10 +397,12 @@ void RLookup_EnableOptions(struct RLookup *lookup, uint32_t options);
  *     1. The entire memory range of this cstr must be contained within a single allocation!
  *     2. `name` must be non-null even for a zero-length cstr.
  * 4. The nul terminator must be within `isize::MAX` from `name`
+ * 5. `ft_id` must be a [valid], non-null, properly aligned pointer for
+ *    writes.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-const FieldSpec *RLookup_FindFieldInSpecCache(const struct RLookup *lookup, const char *name);
+bool RLookup_FindTextFieldInSpecCache(const struct RLookup *lookup, const char *name, uint16_t *ft_id);
 
 /**
  * Get an RLookup key for a given name.
@@ -657,30 +674,22 @@ struct RLookup RLookup_New(void);
 void RLookup_Seal(struct RLookup *lookup);
 
 /**
- * Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
+ * Sets the [`IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an
  * alternate source for lookups whose fields are absent.
  *
- * Takes ownership of one reference to the cache: the lookup releases it
- * (via `IndexSpecCache_Decref`) when the cache is replaced or the lookup is
- * cleaned up, so the caller must not release that reference themselves.
+ * Takes over the handle `spcache`: the lookup releases it when it is cleaned
+ * up, so the caller must not release it themselves.
  *
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- * 2. `spcache` must be a [valid] pointer to a [`ffi::IndexSpecCache`], and
- *    the caller must transfer an owned reference to it (see above).
- * 3. For as long as the lookup holds the cache, the [`ffi::IndexSpecCache`]
- *    being pointed to, and everything reachable through it, MUST NOT get
- *    mutated: its `fields` pointer MUST point to a valid array of `nfields`
- *    `FieldSpec`s (or be null with `nfields == 0`), every pointer nested in
- *    those entries (e.g. `fieldName`) MUST stay valid with string fields
- *    NUL-terminated, and each special document-field name (`lang_field`,
- *    `score_field`, `payload_field`) MUST be null or a valid, NUL-terminated
- *    string.
+ * 2. `spcache` must be null or an [`IndexSpecCache`] handle that has not
+ *    been released: one strong reference of an [`Arc`], as described in
+ *    the `index_spec_cache_ffi` crate.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookup_SetCache(struct RLookup *lookup, IndexSpecCache *spcache);
+void RLookup_SetCache(struct RLookup *lookup, const struct IndexSpecCache *spcache);
 
 /**
  * Writes a key to the row but increments the value reference count before writing it thus having shared ownership.

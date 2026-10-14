@@ -21,6 +21,7 @@ pub use fnv_ffi as fnv;
 pub use fork_gc_ffi as fork_gc;
 pub use geo_ffi as geo;
 pub use idf_ffi as idf;
+pub use index_spec_cache_ffi as index_spec_cache;
 pub use inverted_index_ffi as inverted_index;
 pub use iterators_ffi as iterators;
 pub use metrics_ffi as metrics;

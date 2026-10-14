@@ -21,8 +21,9 @@ extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 #[cfg(any(test, feature = "unittest"))]
-pub use bindings::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
-pub use bindings::{IndexSpec, IndexSpecCache, SchemaRule};
+pub use bindings::{FieldSpecType, FieldSpecTypes};
+pub use bindings::{IndexSpec, SchemaRule};
+pub use index_spec_cache::IndexSpecCache;
 pub use load_document::{
     DocumentFormat, DocumentLoader, FieldLoader, HashDocumentFormat, HashFieldNames,
     JsonDocumentFormat, LoadAllError, LoadFieldError, LoadFieldProfile,

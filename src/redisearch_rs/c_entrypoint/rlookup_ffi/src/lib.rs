@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod lookup;
+pub mod lookup;
 pub mod row;
 
 pub use rlookup::{RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags};

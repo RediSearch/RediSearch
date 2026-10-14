@@ -31,6 +31,7 @@ workspace = true
 
 [dependencies]
 document.workspace = true
+index_spec_cache.workspace = true
 query_types.workspace = true
 query_term.workspace = true
 redis-module.workspace = true

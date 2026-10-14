@@ -45,6 +45,7 @@ pub mod context;
 // name these Rust-defined types. Consumers import them from their owning crate
 // directly rather than through this crate.
 use document::DocumentType;
+use index_spec_cache::IndexSpecCache;
 use query_term::{RSQueryTerm, RSTokenFlags};
 use query_types::{QASTValidationFlagsSet, QueryNodeOptions, QueryNodeType};
 use rqe_iterator_type::IteratorType;

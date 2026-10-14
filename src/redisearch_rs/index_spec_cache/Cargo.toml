@@ -9,8 +9,4 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-ffi.workspace = true
-field_spec.workspace = true
-redis-module.workspace = true
-rm_array.workspace = true
 workspace_hack.workspace = true

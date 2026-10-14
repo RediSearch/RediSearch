@@ -44,6 +44,7 @@ fnv_ffi = { path = "../c_entrypoint/fnv_ffi" }
 fork_gc_ffi = { path = "../c_entrypoint/fork_gc_ffi" }
 geo_ffi = { path = "../c_entrypoint/geo_ffi" }
 idf_ffi = { path = "../c_entrypoint/idf_ffi" }
+index_spec_cache_ffi = { path = "../c_entrypoint/index_spec_cache_ffi" }
 inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi" }
 iterators_ffi = { path = "../c_entrypoint/iterators_ffi" }
 metrics_ffi = { path = "../c_entrypoint/metrics_ffi" }

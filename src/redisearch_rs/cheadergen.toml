@@ -58,6 +58,12 @@ typedef uint64_t t_fieldMask;
 [header.fork_gc_ffi]
 includes = ["fork_gc.h", "search_ctx.h"]
 
+[header.index_spec_cache_ffi]
+after_includes = """
+// Defined in field_spec.h.
+typedef struct FieldSpec FieldSpec;
+"""
+
 [header.inverted_index]
 # `index_result_rs.h` carries the types historically defined in this header
 # (RSIndexResult and friends, now in their own crate). Pull it in so C

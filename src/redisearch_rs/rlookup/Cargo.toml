@@ -41,7 +41,6 @@ sorting_vector.workspace = true
 value = { workspace = true }
 
 # Crate required to invoke C symbols
-field_spec = { workspace = true, features = ["unittest"] }
 rlookup = { path = ".", features = ["unittest"] }
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
 redis_mock.workspace = true
@@ -52,7 +51,7 @@ serde_json = { workspace = true }
 build_utils.workspace = true
 
 [features]
-unittest = ["field_spec/unittest"]
+unittest = []
 
 [lints]
 workspace = true

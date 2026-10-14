@@ -482,7 +482,7 @@ ResultProcessor *processLoadStep(PLN_LoadStep *loadStep, RLookup *lookup,
  * their relevance scores, providing the foundation for subsequent aggregation and filtering stages.
  */
 void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, QueryError *status) {
-  IndexSpecCache *cache = IndexSpec_GetSpecCache(params->common.sctx->spec);
+  const IndexSpecCache *cache = IndexSpec_GetSpecCache(params->common.sctx->spec);
   RS_LOG_ASSERT(cache, "IndexSpec_GetSpecCache failed")
   RLookup *first = AGPLN_GetLookup(&pipeline->ap, NULL, AGPLN_GETLOOKUP_FIRST);
 
