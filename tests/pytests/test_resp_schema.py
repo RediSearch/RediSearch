@@ -291,7 +291,13 @@ def test_resp_schema_profile_and_timeout():
             command = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@id', 'LIMIT', 0, 60]
             reply = runDebugQueryCommandTimeoutAfterN(env, command, 5, internal_only=True)
             result = rows(env, reply)
-            env.assertEqual(len(result), 5 if protocol == 3 else 60)
+            if protocol == 3:
+                # Drain admits other ready shard batches without waiting for them.
+                env.assertGreaterEqual(len(result), 5, message=result)
+                env.assertLessEqual(len(result), 5 * len(shards), message=result)
+            else:
+                env.assertEqual(len(result), 60)
+            env.assertEqual(len({row['id'] for row in result}), len(result), message=result)
             for row in result:
                 env.assertEqual(set(row), {'id'})
             if protocol == 3:
@@ -369,9 +375,11 @@ def test_resp_schema_buffered_timeout():
                         chunk = payload(env, reply)
                         env.assertEqual(chunk[0], TAG)
                         decoded = decode_schema(env, chunk)
-                        env.assertEqual(decoded, [{'id': '0'},
-                                                  {'id': '1', 'optional': 'value'},
-                                                  {'id': '2'}])
+                        # The safe loader has loaded the entire batch before the pause;
+                        # Drain recovers its remainder after the three stored rows.
+                        env.assertEqual(decoded, [
+                            {'id': str(i), **({'optional': 'value'} if i % 2 else {})}
+                            for i in range(6)])
                         if protocol == 3:
                             env.assertEqual(reply['warning'], ['Timeout limit was reached'])
                     finally:
