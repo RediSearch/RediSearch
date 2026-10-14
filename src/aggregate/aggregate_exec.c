@@ -1086,6 +1086,13 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
  void sendChunk_ReplyOnly_EmptyResults(RedisModuleCtx *ctx, AREQ *req) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   QueryError *err = AREQ_QueryProcessingCtx(req)->err;
+  bool preparationPrefixWarning =
+      req->profilePreparation && QueryError_HasReachedMaxPrefixExpansionsWarning(err);
+  if (preparationPrefixWarning) {
+    QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_REACHED_MAX_PREFIX_EXPANSIONS, 1,
+                                           !IsInternal(req));
+    ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_MAX_PREFIX_EXPANSIONS);
+  }
 
   if (reply->resp3) {
 
@@ -1132,6 +1139,10 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
       const char *warning = !IsInternal(req) ? QUERY_WOOM_COORD : QUERY_WOOM_SHARD;
       RedisModule_Reply_SimpleString(reply, warning);
       ProfileWarnings_Add(&req->profileCtx.warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
+    }
+
+    if (preparationPrefixWarning) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
 
     if (req->stateflags & QEXEC_S_ASM_TRIMMING_DELAY_TIMEOUT) {
@@ -1297,6 +1308,8 @@ void AREQ_ReplyOrStoreError(AREQ *req, RedisModuleCtx *ctx, QueryError *status) 
 
 void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   AREQ *req = blockedClientReqCtx_getRequest(BCRctx);
+  ProfilePreparation *profilePreparation = req->profilePreparation;
+  bool pipelineReady = false;
   // The lock state must be clean from the previous cycle before this one may take it.
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
@@ -1308,25 +1321,27 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     return;
   }
 
+  if (profilePreparation && !ProfilePreparation_TryStart(profilePreparation)) {
+    blockedClientReqCtx_destroy(BCRctx);
+    return;
+  }
+
   if (IsProfile(req)) {
     req->profileClocks.profileQueueTime = rs_wall_clock_elapsed_ns(&req->profileClocks.initClock);
   }
 
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
   QueryError status = QueryError_Default();
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
 
   StrongRef execution_ref = IndexSpecRef_Promote(BCRctx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
     QueryError_SetCode(&status, QUERY_ERROR_CODE_DROPPED_BACKGROUND);
-    AREQ_ReplyOrStoreError(req, outctx, &status);
-    RedisModule_FreeThreadSafeContext(outctx);
-    blockedClientReqCtx_destroy(BCRctx);
-    return;
+    goto error;
   }
 
   // Cursors are created with a thread-safe context, so we don't want to replace it
-  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   if (!(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR)) {
     sctx->redisCtx = outctx;
   }
@@ -1335,7 +1350,11 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   // Sync point (debug): pause before acquiring the spec read lock.
   // Unlike BeforeFirstRead, this does NOT hold any lock, so the main thread
   // can still acquire the spec write lock (e.g. for HSET / indexing).
-  SyncPoint_Wait(SYNC_POINT_BEFORE_SPEC_LOCK);
+  if (profilePreparation) {
+    SyncPoint_WaitUntil(SYNC_POINT_BEFORE_SPEC_LOCK, areq_timed_out, req);
+  } else {
+    SyncPoint_Wait(SYNC_POINT_BEFORE_SPEC_LOCK);
+  }
 #endif
 
   // Lock spec. Should be released on the BG thread by every downstream path.
@@ -1345,6 +1364,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     RedisSearchCtx_UnlockSpec(sctx);
     goto error;
   }
+  pipelineReady = true;
 
   // For disk indexes, release the spec lock immediately after iterator creation.
   // This is fine, since the disk iterators use snapshots. This allows the main
@@ -1361,8 +1381,17 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   // Sync point (debug): pause after iterators are created and snapshot is established.
   // For disk indexes, the lock is already released at this point.
   // For RAM indexes, the lock is still held.
-  SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_CREATE);
+  if (profilePreparation) {
+    SyncPoint_WaitUntil(SYNC_POINT_AFTER_ITERATOR_CREATE, areq_timed_out, req);
+  } else {
+    SyncPoint_Wait(SYNC_POINT_AFTER_ITERATOR_CREATE);
+  }
 #endif
+
+  if (profilePreparation && !ProfilePreparation_TryExecute(profilePreparation)) {
+    RedisSearchCtx_UnlockSpec(sctx);
+    goto cleanup;
+  }
 
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
     RedisModule_Reply _reply = RedisModule_NewReply(outctx), *reply = &_reply;
@@ -1385,15 +1414,30 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   goto cleanup;
 
 error:
-  AREQ_ReplyOrStoreError(req, outctx, &status);
-  // Both jumps here explicitly unlocked, and `req` is still owned by BCRctx.
-  // The success paths are checked inside AREQ_Execute / runCursor, where the
-  // request is still alive (it may already be freed once we reach `cleanup`).
+  if (profilePreparation && !ProfilePreparation_TryExecute(profilePreparation)) {
+    QueryError_ClearError(&status);
+  } else {
+    AREQ_ReplyOrStoreError(req, outctx, &status);
+  }
   RedisSearchCtx_AssertLockNotHeld(AREQ_SearchCtx(req));
 
 cleanup:
   RedisModule_FreeThreadSafeContext(outctx);
-  IndexSpecRef_Release(execution_ref);
+  if (execution_ref.rm) {
+    IndexSpecRef_Release(execution_ref);
+  }
+  if (profilePreparation) {
+    // The blocked-client reference keeps the request alive while MT prints it.
+    if (blockedClientReqCtx_getRequest(BCRctx)) {
+      if (QueryError_HasReachedMaxPrefixExpansionsWarning(&status)) {
+        QueryError_SetReachedMaxPrefixExpansionsWarning(&req->storedReplyState.err);
+      }
+      if (QueryError_HasQueryOOMWarning(&status)) {
+        QueryError_SetQueryOOMWarning(&req->storedReplyState.err);
+      }
+    }
+    ProfilePreparation_Publish(profilePreparation, pipelineReady);
+  }
   blockedClientReqCtx_destroy(BCRctx);
 }
 
@@ -1522,6 +1566,11 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     req->profileClocks.profileParseTime = rs_wall_clock_diff_ns(&req->profileClocks.initClock, &parseClock) - req->profileClocks.profileQueueTime;
   }
 
+#ifdef ENABLE_ASSERT
+  if (req->profilePreparation) {
+    SyncPoint_WaitUntil(SYNC_POINT_PROFILE_BEFORE_PIPELINE_BUILD, areq_timed_out, req);
+  }
+#endif
   rc = AREQ_BuildPipeline(req, status);
 
   if (is_profile) {
@@ -1665,6 +1714,36 @@ static int QueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **arg
   QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !IsInternal(req));
   RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
 
+  return REDISMODULE_OK;
+}
+
+static int QueryTimeoutProfileCallback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  BlockedQueryNode *node = RedisModule_GetBlockedClientPrivateData(ctx);
+  RS_ASSERT(node && node->privdata);
+  AREQ *req = node->privdata;
+  AREQ_SetTimedOut(req);
+
+  bool pipelineReady;
+  if (!ProfilePreparation_ClaimTimeout(req->profilePreparation, &pipelineReady)) {
+    return QueryTimeoutFailCallback(ctx, argv, argc);
+  }
+
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  // Setup errors can leave an unwrapped, incomplete processor chain. Only a
+  // successfully built pipeline can be traversed by the profile printer.
+  ResultProcessor *root = qctx->rootProc;
+  ResultProcessor *end = qctx->endProc;
+  if (!pipelineReady) {
+    qctx->rootProc = qctx->endProc = NULL;
+  }
+  if (!req->profileClocks.profileQueueTime) {
+    req->profileClocks.profileQueueTime = rs_wall_clock_elapsed_ns(&req->profileClocks.initClock);
+  }
+  QueryError_SetCode(&req->storedReplyState.err, QUERY_ERROR_CODE_TIMED_OUT);
+  qctx->err = &req->storedReplyState.err;
+  sendChunk_ReplyOnly_EmptyResults(ctx, req);
+  qctx->rootProc = root;
+  qctx->endProc = end;
   return REDISMODULE_OK;
 }
 
@@ -2007,6 +2086,11 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       blockClientCtx.disconnectCallback = QueryDisconnectCallback;
       if (policy == TimeoutPolicy_Fail) {
         blockClientCtx.timeoutCallback = QueryTimeoutFailCallback;
+        if (IsProfile(r) && !IsInternal(r) && !IsCoordinator(r) && !IsHybrid(r) && !IsCursor(r) &&
+            GetNumShards_UnSafe() == 1) {
+          r->profilePreparation = ProfilePreparation_New();
+          blockClientCtx.timeoutCallback = QueryTimeoutProfileCallback;
+        }
       } else {
         r->syncCtx.requiresAggregateResultsSync = true;
         blockClientCtx.timeoutCallback = QueryTimeoutReturnStrictCallback;

@@ -1,0 +1,10 @@
+---
+source: rqe_iterators/tests/integration/profile_print.rs
+expression: reply
+---
+{
+  "Type": "TEXT",
+  "Term": b"hello",
+  "Number of reading operations": 1,
+  "Estimated number of matches": 1
+}
