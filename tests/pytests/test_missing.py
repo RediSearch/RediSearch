@@ -773,3 +773,65 @@ def test_alter_add_sortable_noindex_field_indexes_existing_docs(env):
     env.assertEqual(int(index_info(env, 'idx')['num_docs']), 2)
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable_noindex', 'DESC', 'LIMIT', '0', '1',
                'RETURN', '1', 'sortable_noindex').equal([2, 'doc:2', ['sortable_noindex', 'x']])
+
+# JSON shapes a multi-value field can take, by key suffix.
+JSON_MULTI_VALUE_MISSING_DOCS = {
+    'missing': {'other': 'x'},
+    'null': {'f': None},
+    'empty_str': {'f': ''},
+    'empty_arr': {'f': []},
+    'all_nulls': {'f': [None, None]},
+    'non_empty': {'f': ['foo', 'bar']},
+}
+
+# Path -> docs matching `ismissing`. `$.f` yields one result even for `null`
+# and `[]`, so the field counts as present. `$.f[*]` yields zero results for
+# scalars and `[]`, which makes the field missing.
+JSON_MULTI_VALUE_EXPECTED_MISSING = {
+    '$.f': {'missing'},
+    '$.f[*]': {'missing', 'null', 'empty_str', 'empty_arr'},
+}
+
+@skip(cluster=True, no_json=True)
+def testJsonMultiValueMissing():
+    """Pins which JSON multi-value shapes (`null`, `""`, `[]`, all-null arrays)
+    INDEXMISSING treats as missing, for each path form, field type and SORTABLE
+    (which builds a multi-value sort key)."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    for path, expected in JSON_MULTI_VALUE_EXPECTED_MISSING.items():
+        for field_type in ('TAG', 'TEXT', 'NUMERIC'):
+            for options in ([], ['SORTABLE']):
+                case = f'{path} {field_type} {options}'
+                env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA',
+                           path, 'AS', 'f', field_type, 'INDEXMISSING', *options).ok()
+                for suffix, doc in JSON_MULTI_VALUE_MISSING_DOCS.items():
+                    conn.execute_command('JSON.SET', f'doc:{suffix}', '$', json.dumps(doc))
+
+                res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@f)', 'NOCONTENT', 'LIMIT', '0', '100')
+                env.assertEqual(res[0], len(expected), message=f'{case}: {res}')
+                env.assertEqual(set(res[1:]), {f'doc:{s}' for s in expected}, message=case)
+                env.flush()
+
+@skip(cluster=True, no_json=True)
+def testJsonEmptyArraySortableIndexingFailure():
+    """SORTABLE on a `$.f` path builds its sort key from the array's first
+    element, so `[]` fails to index. A failed document is not reported as
+    missing either."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+
+    for field_type in ('TAG', 'TEXT'):
+        env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA',
+                   '$.f', 'AS', 'f', field_type, 'INDEXMISSING', 'SORTABLE').ok()
+        conn.execute_command('JSON.SET', 'doc:empty_arr', '$', '{"f": []}')
+
+        info = index_info(env, 'idx')
+        env.assertEqual(info['hash_indexing_failures'], 1, message=field_type)
+        env.assertEqual(to_dict(info['Index Errors'])['last indexing error key'],
+                        'doc:empty_arr', message=field_type)
+        env.expect('FT.SEARCH', 'idx', 'ismissing(@f)', 'NOCONTENT').equal([0])
+        env.flush()
