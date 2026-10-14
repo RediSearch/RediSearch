@@ -287,7 +287,8 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
 
   // Keep hold of the new fields.
   Document_MakeStringsOwner(aCtx->doc);
-  AddDocumentCtx_SetDocument(aCtx, sctx->spec);
+  int rc = AddDocumentCtx_SetDocument(aCtx, sctx->spec);
+  RS_LOG_ASSERT(rc == 0, "SetDocument cannot fail on a document reloaded from the schema");
   return 0;
 }
 
