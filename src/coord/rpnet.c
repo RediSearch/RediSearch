@@ -404,11 +404,6 @@ static int getNextReplyMode(RPNet *nc, bool draining) {
                   : deadline || abortFlag
                       ? MRIterator_NextWithTimeout(nc->it, deadline, abortFlag, &popTimedOut)
                       : MRIterator_Next(nc->it);
-  if (nc->profileBreakdown) {
-    accumulateSince(&nc->breakdown.waitTime, &waitStart);
-    if (root) nc->breakdown.replies++;
-  }
-
   if (!root && access && !draining && !QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
 #ifdef ENABLE_ASSERT
     SyncPoint_WaitUntil(SYNC_POINT_RPNET_EMPTY_OWNED_POP, areq_timed_out, nc->areq);
@@ -426,6 +421,11 @@ static int getNextReplyMode(RPNet *nc, bool draining) {
     // Completion is published after the final enqueue. The first pop may have
     // preceded that enqueue, so only a pop after completion can establish EOF.
     root = MRIterator_TryNext(nc->it);
+  }
+
+  if (nc->profileBreakdown) {
+    accumulateSince(&nc->breakdown.waitTime, &waitStart);
+    if (root) nc->breakdown.replies++;
   }
 
   if (root == NULL) {
