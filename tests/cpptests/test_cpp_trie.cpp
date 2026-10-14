@@ -22,6 +22,8 @@
 #include <functional>
 #include <cstdint>
 #include <vector>
+#include <algorithm>
+#include <utility>
 
 class TrieTest : public ::testing::Test {};
 
@@ -1218,6 +1220,51 @@ TEST_F(TrieTest, testSearchTrimDropsTail) {
   Vector_Free(res);
 
   TrieType_Free(t);
+}
+
+// FT.SUGGET hands strToSingleCodepointFoldedRunes a Redis string's exact byte
+// length, and FT.SUGADD/SUGDEL do the same with strToRunes. A multi-byte lead
+// byte at the end must not make a decoder read past that length, so the result
+// cannot depend on the bytes that follow it.
+TEST_F(TrieTest, testRuneDecodeStaysWithinLength) {
+  typedef std::vector<rune> (*Decoder)(const char *, size_t);
+  const std::pair<const char *, Decoder> decoders[] = {
+      {"strToSingleCodepointFoldedRunes",
+       [](const char *s, size_t n) {
+         size_t rlen = 0;
+         rune *r = strToSingleCodepointFoldedRunes(s, n, &rlen);
+         std::vector<rune> out(r, r + rlen);
+         rm_free(r);
+         return out;
+       }},
+      {"strToRunes",
+       [](const char *s, size_t n) {
+         std::vector<rune> out(n);
+         out.resize(std::min(strToRunes(s, n, out.data(), n), n));
+         return out;
+       }},
+      {"strToLowerRunes",
+       [](const char *s, size_t n) {
+         size_t rlen = 0;
+         rune *r = strToLowerRunes(s, n, &rlen);
+         std::vector<rune> out(r, r + rlen);
+         rm_free(r);
+         return out;
+       }},
+  };
+
+  // The leads of a 2-, 3- and 4-byte sequence, each cut off after "ab".
+  for (char lead : {'\xC3', '\xE4', '\xF0'}) {
+    const std::string input = std::string("ab") + lead;
+    // The same input followed by zeros, or by the rest of U+1F600.
+    const std::string zeroed = input + std::string(3, '\0');
+    const std::string continued = input + "\x9F\x98\x80";
+    for (const auto &[name, decode] : decoders) {
+      EXPECT_EQ(decode(zeroed.data(), input.size()), decode(continued.data(), input.size()))
+          << name << " read past the supplied length (trailing lead byte 0x" << std::hex
+          << (int)(unsigned char)lead << ")";
+    }
+  }
 }
 
 namespace {
