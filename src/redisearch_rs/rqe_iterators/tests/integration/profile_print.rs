@@ -24,7 +24,7 @@ fn init() -> Replier {
     // function pointers with mock implementations that record replies
     // without ever dereferencing the `RedisModuleCtx` pointer, so a
     // dangling non-null address is safe here.
-    unsafe { Replier::new(std::ptr::dangling_mut::<RedisModuleCtx>()) }
+    unsafe { Replier::new(std::ptr::NonNull::<RedisModuleCtx>::dangling()) }
 }
 
 /// Capture a single reply from a closure.

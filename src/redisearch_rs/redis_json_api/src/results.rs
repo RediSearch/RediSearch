@@ -85,17 +85,17 @@ impl<'a> ResultsIter<'a> {
     #[inline]
     pub unsafe fn serialize(
         &self,
-        ctx: *mut redis_module::RedisModuleCtx,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
     ) -> Result<RedisString, SerializeError> {
         let get_json_from_iter = vtable_fn!(self.api, getJSONFromIter);
         let mut str: *mut redis_module::RedisModuleString = std::ptr::null_mut();
 
         // Safety: `ptr` and `ctx` are valid by construction/caller guarantee
-        let status = unsafe { get_json_from_iter(self.ptr.as_ptr(), ctx, &mut str) };
+        let status = unsafe { get_json_from_iter(self.ptr.as_ptr(), ctx.as_ptr(), &mut str) };
 
         if status == redis_module::REDISMODULE_OK as i32 {
             Ok(RedisString::from_redis_module_string(
-                ctx.cast(),
+                ctx.as_ptr().cast(),
                 str.cast(),
             ))
         } else {
@@ -116,11 +116,9 @@ impl<'a> LendingIterator for ResultsIter<'a> {
         // Safety: `ptr` is valid by construction.
         let raw = unsafe { (self.next)(self.ptr.as_ptr()) };
 
-        if raw.is_null() {
-            None
-        } else {
-            // Safety: we obtained the `raw` from calling `next`.
-            Some(unsafe { JsonValueRef::from_raw(raw, self.api) })
-        }
+        let raw = NonNull::new(raw.cast_mut())?;
+
+        // Safety: we obtained the `raw` from calling `next`.
+        Some(unsafe { JsonValueRef::from_raw(raw, self.api) })
     }
 }

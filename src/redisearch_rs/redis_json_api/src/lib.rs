@@ -32,7 +32,7 @@ mod value;
 
 use ffi::RedisJSONAPI as RedisJsonApiVTable;
 use redis_module::{RedisString, key::KeyFlags};
-use std::{error::Error, ffi::CStr, fmt, ptr::NonNull};
+use std::{error::Error, ffi::CStr, fmt, ptr, ptr::NonNull};
 
 pub use key_values::KeyValuesIterator;
 pub use path::JsonPath;
@@ -116,19 +116,15 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key(
         &self,
-        ctx: *mut redis_module::RedisModuleCtx,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
         key_name: &RedisString,
     ) -> Option<JsonValueRef<'_>> {
         let open_key = vtable_fn!(self, openKey);
 
         // Safety: ensured by caller (1.)
-        let ptr = unsafe { open_key(ctx, key_name.inner.cast()) };
+        let ptr = unsafe { open_key(ctx.as_ptr(), key_name.inner.cast()) };
 
-        if ptr.is_null() {
-            None
-        } else {
-            Some(JsonValueRef { ptr, api: self })
-        }
+        NonNull::new(ptr.cast_mut()).map(|ptr| JsonValueRef { ptr, api: self })
     }
 
     /// Opens a readable JSON key with the specified name.
@@ -140,19 +136,15 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key_from_str(
         &self,
-        ctx: *mut redis_module::RedisModuleCtx,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
         key_name: &CStr,
     ) -> Option<JsonValueRef<'_>> {
         let open_key_from_str = vtable_fn!(self, openKeyFromStr);
 
         // Safety: ensured by caller (1.)
-        let ptr = unsafe { open_key_from_str(ctx, key_name.as_ptr()) };
+        let ptr = unsafe { open_key_from_str(ctx.as_ptr(), key_name.as_ptr()) };
 
-        if ptr.is_null() {
-            None
-        } else {
-            Some(JsonValueRef { ptr, api: self })
-        }
+        NonNull::new(ptr.cast_mut()).map(|ptr| JsonValueRef { ptr, api: self })
     }
 
     /// Opens a readable JSON key with the specified name and flags.
@@ -166,7 +158,7 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key_with_flags(
         &self,
-        ctx: *mut redis_module::RedisModuleCtx,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
         key_name: &RedisString,
         flags: KeyFlags,
     ) -> Option<JsonValueRef<'_>> {
@@ -175,22 +167,18 @@ impl RedisJsonApi {
         // Safety: ensured by caller (1.)
         let ptr = unsafe {
             open_key_with_flags(
-                ctx,
+                ctx.as_ptr(),
                 key_name.inner.cast(),
                 flags.bits() | redis_module::raw::REDISMODULE_READ as i32,
             )
         };
 
-        if ptr.is_null() {
-            None
-        } else {
-            Some(JsonValueRef { ptr, api: self })
-        }
+        NonNull::new(ptr.cast_mut()).map(|ptr| JsonValueRef { ptr, api: self })
     }
 
     /// Gets the JSON root from an already-open [`RedisModuleKey`] handle.
     ///
-    /// Returns `None` if the key is `NULL`, is not a module type, or does not hold JSON.
+    /// Returns `None` if the key is absent, is not a module type, or does not hold JSON.
     /// The caller owns the key handle and must keep it open while the returned
     /// [`JsonValueRef`] is in use.
     ///
@@ -199,21 +187,19 @@ impl RedisJsonApi {
     ///
     /// # Safety
     ///
-    /// 1. `redis_key` must be a valid, open `RedisModuleKey` handle (or NULL).
+    /// 1. `redis_key`, when present, must be a valid, open `RedisModuleKey` handle.
     ///
     /// [`RedisModuleKey`]: redis_module::RedisModuleKey
     pub unsafe fn open_from_handle(
         &self,
-        redis_key: *mut redis_module::RedisModuleKey,
+        redis_key: Option<NonNull<redis_module::RedisModuleKey>>,
     ) -> Option<JsonValueRef<'_>> {
+        let redis_key = redis_key.map_or(ptr::null_mut(), NonNull::as_ptr);
+
         // Safety: ensured by caller (1.); the helper tolerates a NULL/non-JSON key.
         let ptr = unsafe { ffi::JSON_GetJsonFromHandleCompat(redis_key) };
 
-        if ptr.is_null() {
-            None
-        } else {
-            Some(JsonValueRef { ptr, api: self })
-        }
+        NonNull::new(ptr.cast_mut()).map(|ptr| JsonValueRef { ptr, api: self })
     }
 
     pub const fn vtable(&self) -> NonNull<RedisJsonApiVTable> {
