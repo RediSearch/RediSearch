@@ -84,8 +84,7 @@ SynonymMapResult SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString**
  * SYNONYM_MAP_ERR_MAX_GROUP_IDS if the maximum number of group ids is reached
  * SYNONYM_MAP_ERR_MAX_TERMS if the maximum number of terms is reached
  */
-SynonymMapResult SynonymMap_Update(SynonymMap* smap, const CharBuf* synonyms, size_t size,
-                                   const char* groupId);
+SynonymMapResult SynonymMap_Update(SynonymMap* smap, const CharBuf* synonyms, size_t size, const char* groupId);
 
 /**
  * Return all the ids of a given term
