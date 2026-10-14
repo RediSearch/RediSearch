@@ -2243,6 +2243,7 @@ dependencies = [
  "bumpalo",
  "ffi",
  "global_config",
+ "hash32",
  "hyperloglog",
  "indexmap",
  "itertools 0.15.0",
