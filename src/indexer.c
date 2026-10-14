@@ -433,7 +433,6 @@ static void revertPendingRelabels(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
  * instead of left stranded
  */
 static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-  if (aCtx->stateFlags & ACTX_F_OTHERINDEXED) return;
   if (aCtx->stateFlags & ACTX_F_ERRORED) {
     revertPendingRelabels(aCtx, sctx->spec, 0);
     return;
@@ -456,7 +455,6 @@ static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     }
     IndexerBulkApply(aCtx, doc->fields + ii, fs, fdata);
   }
-  aCtx->stateFlags |= ACTX_F_OTHERINDEXED;
 }
 
 static void reopenCb(void *arg) {}

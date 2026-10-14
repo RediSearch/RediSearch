@@ -135,7 +135,7 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
  * `commitDocument` will abort the batch.
  */
 static void bulkStageFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-  if (aCtx->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_ERRORED)) return;
+  if (aCtx->stateFlags & ACTX_F_ERRORED) return;
 
   const Document *doc = aCtx->doc;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
@@ -152,7 +152,6 @@ static void bulkStageFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       return;
     }
   }
-  aCtx->stateFlags |= ACTX_F_OTHERINDEXED;
 }
 
 /**
