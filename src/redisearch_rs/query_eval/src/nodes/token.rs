@@ -105,7 +105,9 @@ fn open_term_reader<'index>(
         )
     };
 
-    Some(Evaluated::RustLeaf(Box::new(iter)))
+    Some(Evaluated::RustLeaf(
+        rqe_iterators::TypeErasedRQEIterator::new(Box::new(iter)),
+    ))
 }
 
 /// Search-on-disk evaluation of a `QN_TOKEN` node.
