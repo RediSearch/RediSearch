@@ -246,8 +246,12 @@ def main():
     jira = API(JIRA_URL, f"Basic {credentials}")
     try:
         if args.phase == "validate":
+            # The workflow concurrency key uses this spelling, before int conversion.
+            pr_number = os.environ["PR_NUMBER"]
+            if not re.fullmatch(r"[1-9][0-9]*", pr_number):
+                raise Rejected("PR number must be positive decimal digits without leading zeros")
             decision = validate(github, jira, os.environ["GITHUB_REPOSITORY"],
-                                int(os.environ["PR_NUMBER"]), os.environ["REQUESTER"])
+                                int(pr_number), os.environ["REQUESTER"])
             args.decision.write_text(json.dumps(asdict(decision)), encoding="utf-8")
             with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
                 output.write(f"eligible={str(decision.eligible).lower()}\n")
