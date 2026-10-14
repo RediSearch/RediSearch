@@ -143,10 +143,11 @@ TEST_F(OwnedRPNetTest, DrainConsumesSchemaRowsAndPreservesProfileBreakdown) {
   attachIterator();
   net->cmd.forCursor = true;
   net->profileBreakdown = true;
-  push("*2\r\n*3\r\n$16\r\n__resp_schema_v1\r\n*3\r\n:2\r\n"
-       "*2\r\n$-1\r\n*1\r\n$3\r\none\r\n"
-       "*2\r\n$1\r\n1\r\n*1\r\n$3\r\ntwo\r\n"
-       "*1\r\n$5\r\nfield\r\n:0\r\n");
+  push(
+      "*2\r\n*3\r\n$16\r\n__resp_schema_v1\r\n*3\r\n:2\r\n"
+      "*2\r\n$-1\r\n*1\r\n$3\r\none\r\n"
+      "*2\r\n$1\r\n1\r\n*1\r\n$3\r\ntwo\r\n"
+      "*1\r\n$5\r\nfield\r\n:0\r\n");
   ASSERT_EQ(RP_DRAIN_OK, net->base.Drain(&net->base, &row));
   expectValue("one");
   SearchResult_Clear(&row);
@@ -162,9 +163,10 @@ TEST_F(OwnedRPNetTest, DrainConsumesSchemaRowsAndPreservesProfileBreakdown) {
 
 TEST_F(OwnedRPNetTest, DrainRejectsMalformedSchemaBeforeYieldingRows) {
   attachIterator();
-  push("*2\r\n*3\r\n$16\r\n__resp_schema_v1\r\n*2\r\n:1\r\n"
-       "*2\r\n$2\r\n11\r\n*1\r\n$3\r\none\r\n"
-       "*1\r\n$5\r\nfield\r\n:0\r\n");
+  push(
+      "*2\r\n*3\r\n$16\r\n__resp_schema_v1\r\n*2\r\n:1\r\n"
+      "*2\r\n$2\r\n11\r\n*1\r\n$3\r\none\r\n"
+      "*1\r\n$5\r\nfield\r\n:0\r\n");
   EXPECT_EQ(RP_DRAIN_ERROR, net->base.Drain(&net->base, &row));
   EXPECT_EQ(QUERY_ERROR_CODE_GENERIC, QueryError_GetCode(&request->base.reply.err));
 }
