@@ -18,6 +18,22 @@
 #include "libnu/strings.h"
 #include "libnu/utf8.h"
 
+/* nu_utf8_read sizes a sequence from its lead byte alone and has no end bound,
+ * so a lead byte among the last three bytes makes it read past the buffer.
+ * Such a sequence is decoded from a zero-padded copy instead. The bytes past
+ * `end` read as 0, as the first of them does in a NUL-terminated string, so
+ * every sequence that fits decodes exactly as before. */
+static const char *utf8ReadBounded(const char *p, const char *end, uint32_t *codepoint) {
+  size_t avail = end - p;
+  if (avail >= 4) {
+    return nu_utf8_read(p, codepoint);
+  }
+  char padded[4] = {0};
+  memcpy(padded, p, avail);
+  size_t consumed = nu_utf8_read(padded, codepoint) - padded;
+  return consumed < avail ? p + consumed : end;
+}
+
 static uint32_t __fold(uint32_t runelike) {
   uint32_t lowered = 0;
   const char *map = 0;
@@ -68,9 +84,25 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
 
 rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
 
-  // determine the length of the folded string
-  ssize_t rlen = nu_strtransformnlen(str, utf8_len, nu_utf8_read,
-                                     nu_tolower, nu_casemap_read);
+  const char *end = str + utf8_len;
+  // determine the length of the lowered string
+  ssize_t rlen = 0;
+  for (const char *p = str; p < end;) {
+    uint32_t codepoint;
+    p = utf8ReadBounded(p, end, &codepoint);
+    if (codepoint == 0) {
+      break;
+    }
+    const char *map = nu_tolower(codepoint);
+    if (map == NULL) {
+      rlen++;
+      continue;
+    }
+    uint32_t mu;
+    while ((map = nu_casemap_read(map, &mu)), mu != 0) {
+      rlen++;
+    }
+  }
   if (rlen > MAX_RUNE_STR_LEN) {
     *unicode_len = 0;
     return NULL;
@@ -80,9 +112,9 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
   const char *encoded_char = str;
   uint32_t codepoint;
   unsigned i = 0;
-  while (encoded_char < str + utf8_len) {
+  while (encoded_char < end) {
     // Read unicode codepoint from utf8 string
-    encoded_char = nu_utf8_read(encoded_char, &codepoint);
+    encoded_char = utf8ReadBounded(encoded_char, end, &codepoint);
     // Transform unicode codepoint to lower case
     const char *map = nu_tolower(codepoint);
 
@@ -107,19 +139,25 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
 
 rune *strToSingleCodepointFoldedRunes(const char *str, size_t utf8_len, size_t *len) {
 
-  ssize_t rlen = nu_strnlen(str, utf8_len, nu_utf8_read);
+  const char *end = str + utf8_len;
+  ssize_t rlen = 0;
+  for (const char *p = str; p < end; rlen++) {
+    uint32_t codepoint;
+    p = utf8ReadBounded(p, end, &codepoint);
+    if (codepoint == 0) {
+      break;
+    }
+  }
   if (rlen > MAX_RUNE_STR_LEN) {
     if (len) *len = 0;
     return NULL;
   }
 
-  uint32_t decoded[rlen + 1];
-  decoded[rlen] = 0;
-  nu_readnstr(str, utf8_len, decoded, nu_utf8_read);
-
   rune *ret = rm_calloc(rlen + 1, sizeof(rune));
+  const char *p = str;
   for (int i = 0; i < rlen; i++) {
-    uint32_t runelike = decoded[i];
+    uint32_t runelike;
+    p = utf8ReadBounded(p, end, &runelike);
     ret[i] = (rune)__fold(runelike);
   }
   if (len) *len = rlen;
@@ -132,7 +170,7 @@ size_t strToRunes(const char *src, size_t slen, rune *out, size_t outcap) {
   size_t nout = 0;
   while (src < end) {
     uint32_t cp;
-    src = nu_utf8_read(src, &cp);
+    src = utf8ReadBounded(src, end, &cp);
     if (cp == 0) {
       break;
     }
