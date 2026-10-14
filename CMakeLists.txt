@@ -309,8 +309,8 @@ if(APPLE)
     endif()
     if(NOT OPENSSL_ROOT_DIR)
         foreach(_openssl_prefix
-            "/opt/homebrew/opt/openssl@3"
-            "/usr/local/opt/openssl@3"
+            "/opt/homebrew/opt/openssl@4"
+            "/usr/local/opt/openssl@4"
             "/opt/homebrew/opt/openssl"
             "/usr/local/opt/openssl")
             if(EXISTS "${_openssl_prefix}")
