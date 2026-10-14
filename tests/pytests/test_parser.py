@@ -8,6 +8,7 @@
 from includes import *
 from common import *
 from RLTest import Env
+import struct
 
 def test_and_or_v1():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
@@ -856,6 +857,28 @@ def test_explain_with_inkeys(env):
 
     res = env.cmd('FT.EXPLAIN', 'idx', 'hello', 'INKEYS', '2', 'doc1', 'doc2')
     env.assertContains('IDS', res)
+
+def test_escaped_field_names(env):
+    # Field names are unescaped for the lookup without changing the client's query text.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'field.with,punct', 'TEXT',
+               'v-ec', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    blob = struct.pack('2f', 1.0, 2.0)
+    conn.execute_command('HSET', '{doc}:1', 'field.with,punct', 'punt', 'v-ec', blob)
+
+    res = env.cmd('FT.SEARCH', 'idx', r'@field\.with\,punct:(punt)', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:1'])
+
+    # The default score field is named after the unescaped vector field.
+    res = env.cmd('FT.SEARCH', 'idx', r'*=>[KNN 1 @v\-ec $b]', 'PARAMS', '2', 'b', blob,
+                  'RETURN', '1', '__v-ec_score')
+    env.assertEqual(res, [1, '{doc}:1', ['__v-ec_score', '0']])
+
+    # On a cluster the coordinator parses the KNN query too; the shards must still see the escaped name.
+    res = env.cmd('FT.AGGREGATE', 'idx', r'*=>[KNN 1 @v\-ec $b]', 'PARAMS', '2', 'b', blob,
+                  'LOAD', '1', '@__key')
+    env.assertEqual(res[0], 1, message=res)
+    env.assertEqual(to_dict(res[1]), {'__key': '{doc}:1', '__v-ec_score': '0'})
 
 @skip(cluster=True)
 def test_quoted_param_and_exact_tokens(env):

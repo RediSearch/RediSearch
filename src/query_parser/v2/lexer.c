@@ -85,7 +85,7 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
       RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
     } else {
       char *ne = (char*)te;
-      tok.numval = fast_float_strtod(tok.s, &ne);
+      tok.numval = fast_float_strtod_n(tok.s, te, &ne);
       RSQuery_Parse_v2(pParser, NUMBER, tok, q);
     }
     if (!QPCTX_ISOK(q)) {
@@ -1121,7 +1121,7 @@ _eof_trans:
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
-    tok.numval = fast_float_strtod(tok.s, &ne);
+    tok.numval = fast_float_strtod_n(tok.s, te, &ne);
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, SIZE, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -1135,7 +1135,7 @@ _eof_trans:
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
-    tok.numval = fast_float_strtod(tok.s, &ne);
+    tok.numval = fast_float_strtod_n(tok.s, te, &ne);
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, NUMBER, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -1336,7 +1336,7 @@ _eof_trans:
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
-    tok.numval = fast_float_strtod(tok.s, &ne);
+    tok.numval = fast_float_strtod_n(tok.s, te, &ne);
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, NUMBER, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -1452,7 +1452,7 @@ _eof_trans:
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
-    tok.numval = fast_float_strtod(tok.s, &ne);
+    tok.numval = fast_float_strtod_n(tok.s, te, &ne);
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, SIZE, tok, q);
     if (!QPCTX_ISOK(q)) {
@@ -1465,7 +1465,7 @@ _eof_trans:
     tok.s = ts;
     tok.len = te-ts;
     char *ne = (char*)te;
-    tok.numval = fast_float_strtod(tok.s, &ne);
+    tok.numval = fast_float_strtod_n(tok.s, te, &ne);
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, NUMBER, tok, q);
     if (!QPCTX_ISOK(q)) {
