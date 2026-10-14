@@ -6,7 +6,7 @@ on:
       pr_number:
         description: 'PR number to evaluate (must be your PR)'
         required: true
-        type: number
+        type: string
 
 permissions: {}
 
