@@ -77,9 +77,16 @@ jobs:
         run: ./install_script.sh sudo
       - name: Setup tests dependencies
         run: .install/test_deps/common_installations.sh sudo
+      # Boost is only needed by newer refs; 2.6.x has no install_boost.sh.
+      # Skip when absent so historical refs that predate it still build.
       - name: Install Boost
         working-directory: .install
-        run: ./install_boost.sh
+        run: |
+          if [ -f ./install_boost.sh ]; then
+            ./install_boost.sh
+          else
+            echo "::notice::install_boost.sh not present at this ref; skipping Boost install"
+          fi
       # The local composite action `./.github/actions/setup-sccache` is a
       # recent master addition. Two gotchas with historical refs:
       #   1. Older refs (e.g. 2.10 / 8.4) don't have action.yml at all.
