@@ -12,6 +12,7 @@
 #include "common.h"
 #include "redismock/redismock.h"
 #include "synonym_map.h"
+#include "../charbuf_test_utils.h"
 #include "trie/trie.h"
 #include <algorithm>
 #include <array>
@@ -439,18 +440,10 @@ TEST_F(RdbMockTest, testSynonymMapRdbSerialization) {
     });
 
     // Add terms to synonym groups
-    const CharBuf group1_terms[] = {
-        {.buf = const_cast<char *>("hello"), .len = sizeof("hello") - 1},
-        {.buf = const_cast<char *>("hi"), .len = sizeof("hi") - 1},
-        {.buf = const_cast<char *>("greetings"), .len = sizeof("greetings") - 1}};
-    const CharBuf group2_terms[] = {
-        {.buf = const_cast<char *>("bye"), .len = sizeof("bye") - 1},
-        {.buf = const_cast<char *>("goodbye"), .len = sizeof("goodbye") - 1},
-        {.buf = const_cast<char *>("farewell"), .len = sizeof("farewell") - 1}};
+    const CharBuf group1_terms[] = {CB_LIT("hello"), CB_LIT("hi"), CB_LIT("greetings")};
+    const CharBuf group2_terms[] = {CB_LIT("bye"), CB_LIT("goodbye"), CB_LIT("farewell")};
     // hello and bye belong to multiple groups
-    const CharBuf group3_terms[] = {
-        {.buf = const_cast<char *>("hello"), .len = sizeof("hello") - 1},
-        {.buf = const_cast<char *>("bye"), .len = sizeof("bye") - 1}};
+    const CharBuf group3_terms[] = {CB_LIT("hello"), CB_LIT("bye")};
 
     ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Update(smap, group1_terms, 3, "greet"));
     ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Update(smap, group2_terms, 3, "part"));
