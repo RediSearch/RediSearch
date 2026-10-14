@@ -301,10 +301,6 @@ void Document_Free(Document *doc);
 struct ForwardIndex;
 struct FieldIndexerData;
 
-// The context has had its forward entries merged in the merge table. We can
-// skip merging its tokens
-#define ACTX_F_TEXTINDEXED 0x01
-
 // The context has had an error and should not be processed further
 #define ACTX_F_ERRORED 0x02
 

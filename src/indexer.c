@@ -461,11 +461,6 @@ static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
 static void reopenCb(void *arg) {}
 
-// Routines for the merged hash table
-#define ACTX_IS_INDEXED(actx)                                           \
-  (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
-   (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED))
-
 // Compute absent fields from the cached INDEXMISSING field indexes.
 // Expiration handling stays in the RAM caller.
 dict *Indexer_GetDocumentMissingFields(const IndexSpec *spec, const Document *doc) {
@@ -577,19 +572,14 @@ static void indexDocumentMemory(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
 }
 
 /**
- * Per-document indexing entry point. Performs the shared prelude (state
- * guards, doc-id assignment, field-expiration setup) and dispatches to the
+ * Per-document indexing entry point. Performs the shared prelude (doc-id
+ * assignment, field-expiration setup) and dispatches to the
  * mode-specific pipeline.
  */
 static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   RedisSearchCtx ctx = *aCtx->sctx;
 
-  // A document without indexable fields is trivially "indexed", but must still get a doc id (which
-  // also stores its sorting vector), so only documents with indexable fields stop here.
-  if ((aCtx->stateFlags & ACTX_F_INDEXABLES) &&
-      (ACTX_IS_INDEXED(aCtx) || (aCtx->stateFlags & ACTX_F_ERRORED))) {
-    return;
-  }
+  RS_LOG_ASSERT(!(aCtx->stateFlags & ACTX_F_ERRORED), "document reached the indexer already errored");
 
   if (!ctx.spec) {
     QueryError_SetCode(&aCtx->status, QUERY_ERROR_CODE_NO_INDEX);

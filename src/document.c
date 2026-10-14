@@ -85,7 +85,6 @@ static void freeDocumentContext(void *p) {
 static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   Document *doc = aCtx->doc;
   aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
-  aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
   aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
 
   aCtx->fspecs = rm_realloc(aCtx->fspecs, sizeof(*aCtx->fspecs) * doc->numFields);
@@ -156,12 +155,6 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     aCtx->stateFlags |= ACTX_F_INDEXABLES;
   } else {
     aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
-  }
-
-  if (!hasTextFields) {
-    aCtx->stateFlags |= ACTX_F_TEXTINDEXED;
-  } else {
-    aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
   }
 
   if (!hasOtherFields) {
