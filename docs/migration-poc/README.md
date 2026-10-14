@@ -1,9 +1,9 @@
 # AI-assisted C-to-Rust migration POC
 
 Draft for review. Four [case definitions](../../cases/qint/manifest.md) now exist
-under `cases/`: qint, varint, geo, and inverted-index-switch. Qint snapshot
-preparation and its original focused C test passed on 2026-10-08; no AI migration
-attempt has run yet. Model-backed runner integration remains pending.
+under `cases/`: qint, varint, geo, and inverted-index-switch. Assisted attempts have run for all four cases. As of 2026-10-12,
+the three VM cases remain unaccepted; focused successes are not full acceptance.
+An unattended model runner remains pending.
 Human setup and review guide; not required agent context. The migration runner
 supplies the [shared prompt](../migration/prompt.txt), a filled
 [run definition](../migration/run-template.md), and pinned skills explicitly.
@@ -12,7 +12,11 @@ Confluence to the repository files instead of maintaining duplicate instructions
 
 Migration and POC evaluation are separate workflows. See the
 [common layout and runner controls](../migration/runner-setup.md) and
-[manual post-run evaluation guide](evaluation-guide.md).
+[manual post-run evaluation guide](evaluation-guide.md). Use the
+[fresh-context comparison prompt](comparison-prompt.md) only after its handoff gate
+is satisfied. The [CLI launcher](cli-review.md) runs those reviews in separate
+contexts; [metrics](metrics.md) documents what can be measured. [Attempt lessons](attempt-lessons.md) link observed problems to guidance
+and future regression checks; these are reviewer materials, not author inputs.
 
 ## Files and responsibilities
 

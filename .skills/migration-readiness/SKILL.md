@@ -36,6 +36,13 @@ decisions after investigation. Keep independent work moving.
 5. Resolve routine questions from repository guidance and comparable approved
    migrations. Flag only unresolved material decisions; record evidence and options.
 
+Assess what the existing design does well before replacing it. Use the
+[compatibility checklist](../port-c-module/references/compatibility.md) to identify
+caller-facing guarantees and their enforcement. Evaluate correctness, API fit,
+test coverage, and performance separately: a benefit in one area does not justify
+replacing the whole implementation. Record whether selective adoption can deliver
+the benefit while retaining useful contracts and coverage.
+
 ## Propose the scope before implementation
 
 Analyze the specified starting SHA with matching source, generated headers, and

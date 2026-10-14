@@ -39,6 +39,10 @@ relationships are deduplicated. Unknown analysis is not a zero-dependency result
   its edges exist. Shared infrastructure can connect otherwise separable work.
 - Compare smaller changes against one connected migration using boundary/adapter
   work, validation cost, reviewability, performance risk, and likely rework.
+- Identify inline C operations in frequently executed loops. Replacing them with
+  C-to-Rust calls may add overhead even when the Rust function is faster alone.
+  Benchmark the calling code early; use the result to decide whether that code
+  should move to Rust in the same change.
 - Use the dependency map to order prerequisites and identify independent tasks.
   Multiple consumers can make a small utility high-impact.
 - Map consumers to behavior requirements and integration/flow tests manually.

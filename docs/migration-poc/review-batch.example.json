@@ -1,0 +1,8 @@
+{
+  "cases": [
+    {"name": "qint", "status": "incomplete"},
+    {"name": "varint", "status": "incomplete"},
+    {"name": "geo", "status": "incomplete"},
+    {"name": "inverted-index-switch", "status": "incomplete"}
+  ]
+}

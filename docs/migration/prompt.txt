@@ -119,9 +119,11 @@ Implement and validate:
 - Apply the permitted rust-review guidance to Rust code and code-review guidance
   to changed C interfaces. Use local source/diff review only; do not invoke modes
   that fetch PRs or future revisions. Automated review is not final approval.
-- Use the configured test-writing, test-running, coverage, and benchmark skills
-  selected by the migration validation guidance. Resolve their commands against
-  the starting SHA; newer general guidance does not authorize later source access.
+- Apply `.skills/port-c-module/references/validation.md` when selecting checks
+  and interpreting results. It covers test setup, comparable builds, performance
+  through calling code and acceptance evidence. Select relevant testing and
+  benchmark skills from its links and resolve commands against the starting SHA.
+  Newer guidance does not authorize later source access.
 - Use the validation plan's commands and scripts for both local runs
   and CI. CI is the automation environment, not a separate test definition.
 - Use staged validation with fixed final acceptance criteria:
@@ -203,6 +205,11 @@ Maintain batch findings and handle replies:
 
 Respect run limits:
 - Save progress and evidence at checkpoints.
+- Keep an iteration ledger in author outputs: one stable ID per edit-and-check
+  cycle, with case, kind (implementation/repair/optimization/validation), outcome,
+  and evidence path. Allocate the ID before work; retain interrupted cycles.
+  Link resolved defects to passing checks. Shell commands and test counts are
+  not iteration or fix counts. This is telemetry, not a batch finding.
 - Report measured spending, token usage, runtime, and retries against
   configured limits, including usage across subagents.
 - Report remaining work and likely overruns. Label estimates with their
@@ -226,6 +233,13 @@ Deliver:
 - Batch report with externally relevant findings, decisions, limitations,
   and release-note candidates; link the work plan and validation/repair history.
 - Spending, token usage, runtime, retries, and remaining-work estimates.
+
+A failed check or saved checkpoint is not a stopping condition. Continue eligible
+repairs, investigations and validation while resources remain. Before ending an
+incomplete attempt, identify the actual stop reason: a reached limit, unavailable
+required access, a human decision blocking all useful remaining work, or an explicit
+user stop. List the next actions and why each cannot proceed. Do not imply that
+work continues on the VM unless a specific running job/controller is verified.
 
 Save the final candidate and evidence, then end this attempt as ready for review
 or incomplete. Final review is a separate workflow; do not merge. Complete

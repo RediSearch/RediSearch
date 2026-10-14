@@ -16,6 +16,21 @@ Use evidence-backed pass/fail/incomplete findings; do not require a universal
 per-stage numerical score. Record costs of additional reviews/models and whether
 they found actionable defects.
 
+### Completion gate
+
+For the planned final comparison, the author must have completed repairs, resolved
+external blockers, and met the recorded acceptance matrix. Approved behavior changes
+need tests and proposed release notes. Non-blocking deferred items remain visible.
+An exhausted budget or saved patch is an incomplete attempt, not completion. An
+incomplete attempt can be reviewed for diagnosis only if explicitly requested; do
+not present that as the final comparison.
+
+Freeze the exact candidate (including new files), build artifacts and evidence.
+Fill the [stand-alone comparison prompt](comparison-prompt.md) with exact identities
+and approved requirements. Use a new chat without authoring history. First review
+the code independently, then reconcile author findings and prior reviews. Preserve
+both conclusions so earlier verdicts do not substitute for independent inspection.
+
 ### Reference-comparison checkpoint
 
 Save the candidate identity and scope proposal before comparison. Have the manual

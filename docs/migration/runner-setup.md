@@ -83,7 +83,13 @@ After preparation:
 3. Supply the snapshot and reviewed guidance to the restricted runner. Do not mount
    the trusted checkout, credentials, or evaluator storage. Enforce network/tool
    restrictions separately and test them from inside the agent environment.
-4. Configure aggregate limits and output collection, then launch the migration.
+4. After copying to the execution host, verify every exported tracked file's
+   contents, mode and symlink target against the prepared snapshot, including
+   expanded submodules and dot-directories. A matching Git HEAD is insufficient:
+   transport can omit working-tree files. Repair transport omissions before launch
+   and retain verification evidence. This check is a runner requirement, not yet
+   an implemented transport verifier.
+5. Configure aggregate limits and output collection, then launch the migration.
 
 This script isolates Git contents; it does not sandbox the process that uses them.
 Its fixture checks can be rerun with:
@@ -149,8 +155,20 @@ automated reviewers/subagents. Preserve counters on resume. Skills report usage 
 cannot themselves provide enforcement. All migration workers share the source/access
 boundary and use separate build outputs when running concurrently.
 
+Retain per-session model usage events and an author iteration ledger. Attribute
+usage to the case and phase; keep migration and final-review costs separate.
+Record unknown usage as unknown, including possible usage on interrupted turns.
+Cached input tokens are included in input totals, not additional tokens. Keep
+command timing separate from elapsed run time, decision waits and VM billing.
+
 The migration performs readiness, scope proposal, implementation, validation, and
 bounded repair. Automated review can support those steps without a target solution.
+Record a job/controller ID, heartbeat, current task, next eligible task and stop
+reason. A VM lifetime is separate from a task timeout and from agent runtime: extending
+the VM does not resume the agent. For supervised attempts, the supervising agent
+continues selecting work; a finite test queue cannot repair failures on its own.
+If no controller remains active, report that plainly and preserve a resume record.
+
 At completion or a limit, save candidate identity, evidence, and status (ready for
 review or incomplete). Freeze `author/` artifacts before final review. A waiting
 batch decision can resume the same active attempt with preserved counters; final

@@ -142,6 +142,11 @@ Run focused checks while repairing, broader checks at component checkpoints,
 and required CI against the final candidate before acceptance. Record exact
 revision/patch identity and explain differences from the C baseline.
 
+At each checkpoint, select the next eligible repair or check. An unresolved finding
+blocks only its dependent tasks. Do not end merely because a report was saved or
+one check failed; record the actual limit, access constraint or decision preventing
+further useful work. A live VM does not establish a running migration controller.
+
 Deliver the patch, short design rationale, behavior-to-test mapping, evidence,
 and remaining findings. Prepare for independent review; obey applicable repository
 review gates. Freeze the candidate and end the attempt as ready for review or

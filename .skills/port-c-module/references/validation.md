@@ -50,7 +50,7 @@ working directory, dependencies, environment, timeout, expected test selection,
 pass criteria, checkpoint, and evidence path. Verify selection actually executes
 tests. A build-only run is not a test pass.
 
-- **Baseline:** run focused existing tests on C before edits; retain failures.
+- **Baseline:** run focused existing tests on the implementation being replaced before edits; retain failures.
 - **Function change or repair:** compile affected code; run the reproducer,
   affected unit tests, and relevant new tests.
 - **Component checkpoint:** run all unit tests for the migrated component and
@@ -81,16 +81,26 @@ checks, and agreed latency/throughput/memory tolerances. Use coverage to find ga
 not as a sole quality score. Where valuable, seed a representative defect in a
 disposable copy to check that selected tests detect it; do not modify the candidate
 or baseline evidence. Benchmark equivalent workloads under comparable conditions.
-Record named benchmark workloads, C baseline, build flags, hardware/environment,
-metrics, repetitions/noise handling, and agreed latency/throughput/memory thresholds.
-A benchmark completing successfully does not itself establish a performance pass.
-Do not weaken workloads or move thresholds after seeing results. Reuse established
-limits; absent those, require no demonstrated regression against C under comparable
-conditions. Define repetitions and noise handling before candidate comparison;
-measurement noise is not an allowed regression budget. Investigate inconclusive
-results within run limits and report incomplete if required evidence remains missing.
-Request a decision only for an unresolved tradeoff, a proposed tolerated regression,
-or evidence that cannot be obtained within permitted resources.
+Record workloads, baseline SHA, effective build settings, environment, metrics,
+repetitions/noise handling and thresholds. Compare against the implementation
+being replaced. Before adopting the result in today's codebase, compare against
+the exact implementation and callers it would replace there. Keep that comparison
+outside the historical migration run's starting-SHA knowledge boundary.
+
+Measure relevant operations and input sizes separately. Include real callers and
+representative component or end-to-end workloads before claiming a product gain;
+adapters, copying and allocation can reverse an isolated function's improvement.
+Report timing variability and regressions for each workload. Claim an overall
+speedup only when the weighting reflects expected use. Fewer allocations do not
+prove lower memory use; measure the bytes allocated or retained, as appropriate.
+
+A completed benchmark is not a performance pass. Do not remove hard workloads or
+relax thresholds after seeing results. Add checks for newly discovered risks and
+rerun both implementations. Reuse established limits; otherwise require no
+demonstrated regression under comparable conditions. Noise is not a regression
+allowance. Investigate inconclusive results within run limits and report missing
+evidence as incomplete. Request a decision only for unresolved tradeoffs, a
+proposed tolerated regression, or evidence unavailable within permitted resources.
 
 Preserve existing behavioral coverage and add tests for migration risks and
 uncovered cases. Do not delete, skip, or weaken tests to make the migration pass.
@@ -98,13 +108,37 @@ If an implementation-specific test becomes obsolete, explain why and provide
 equivalent behavioral coverage. Changing expected external behavior requires
 an explicit decision.
 
-On failure, inspect saved logs once and classify: introduced regression, baseline
-failure, environment problem, flaky/timeout result, or unknown. Repair clear
-in-scope failures within retry limits. Investigate uncertain causes; do not alter
-expectations merely to pass. Keep timed-out, skipped, and unavailable checks visible.
+On failure, inspect saved logs before rerunning checks. Classify the cause:
+introduced regression, baseline failure, environment problem, flaky/timeout result,
+or unknown. Repair clear, in-scope failures within retry limits. Investigate uncertain
+causes; do not alter expectations merely to pass. Keep timed-out, skipped, and
+unavailable checks visible.
+
+Use the repository's test runner with its required working directory, fixtures,
+environment and process isolation; direct binary execution may omit them. Verify
+selected tests exist at the starting SHA. If another service interferes, isolate
+the test environment and rerun baseline and candidate. Do not stop unrelated
+services or weaken assertions.
 
 Capture exit status and logs without masking failures through shell pipelines.
 Record starting SHA, candidate commit or base-plus-patch digest (including new
 files), dependencies, toolchain, flags, and test selection. Rerun affected checks
 after edits. Run build/test/lint sequentially within a workspace. Parallel workers,
 if configured, need separate build outputs; benchmarks need uncontended resources.
+
+Check the profiles and flags actually used in build output/configuration, not
+folder names. Ensure flag changes take effect. Run correctness tests with the
+required assertions enabled; benchmark both implementations with equivalent
+production settings. Record measured binary hashes and reject comparisons with
+mismatched settings.
+
+Before changing tests that check struct sizes, alignment or field offsets,
+determine whether they protect a required C/Rust interface or persisted format.
+Keep those guarantees tested. If a test checks only a private implementation
+detail that no longer applies, explain why and retain independent checks of the
+behavior and memory accounting it was meant to protect. Do not copy the candidate's
+reported values into expected results merely to pass.
+
+A failure reproduced on the unchanged baseline is not automatically a migration
+regression, but it still needs a documented disposition before acceptance. Report
+executed passes and failures separately from skipped and unavailable checks.

@@ -1,11 +1,14 @@
 ---
 name: run-rust-benchmarks
-description: Run Rust benchmarks and compare performance with the C implementation. Use this when you work on migrating C code to Rust and want to ensure performance is not regressed.
+description: Run Rust benchmarks against the implementation being replaced. Use for C-to-Rust migrations or performance comparisons of alternative Rust implementations.
 ---
 
 # Rust Benchmarks Skill
 
-Run Rust benchmarks and compare performance with the C implementation.
+Run Rust benchmarks against the relevant C or Rust baseline. Use the
+[performance comparison guidance](../port-c-module/references/validation.md#define-acceptance-before-evaluating-results)
+to select equivalent workloads, include caller adaptation costs, and distinguish
+microbenchmark evidence from production performance.
 
 ## Arguments
 - `<crate>`: Run the given benchmark crate (e.g., `/run-rust-benchmarks rqe_iterators_bencher`)
@@ -24,8 +27,8 @@ Arguments provided: `$ARGUMENTS`
      ```bash
      cargo bench --manifest-path src/redisearch_rs/Cargo.toml -p <crate_name> <bench_name>
      ```
-2. **Run benchmarks only once.** If the output is too large or truncated, extract the timing data from the saved output file rather than re-running the benchmarks.
-3. Once the benchmarks are complete, generate a summary comparing the average run times between the Rust and C implementations.
+2. Run the planned repetitions and save their output. If displayed output is truncated, read the saved log rather than rerunning merely to recover output.
+3. Summarize timings and variability by operation and workload against the pinned baseline. Include regressions and inconclusive results; do not infer an overall winner from an unweighted average.
 4. Ask the user: "Would you like a copyable markdown version for your PR description?" If yes, re-emit the summary table inside a fenced ` ```markdown ` code block so it can be pasted directly.
 
 ## Common Benchmark Commands
