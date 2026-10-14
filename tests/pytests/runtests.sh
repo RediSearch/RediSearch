@@ -617,6 +617,12 @@ elif [[ $REDIS_STANDALONE == 0 ]]; then
 	# Increase timeout (to 5 min) for tests with coordinator to avoid cluster fail when it take more time for
 	# passing PINGs between shards
 	extra_rltest_args="--env oss-cluster --shards-count $SHARDS --cluster_node_timeout 300000"
+	# Redis refuses a cluster bus without TLS unless this is waived (redis/redis#15722), and the
+	# test clusters run on a trusted local bus. Probe the binary: older Redis lacks the option.
+	if grep -aq 'cluster-bus-port-protected-mode' "$(command -v "$REDIS_SERVER")" &&
+		[[ $RLTEST_ARGS != *cluster_bus_port_protected_mode* ]]; then
+		extra_rltest_args+=" --cluster_bus_port_protected_mode no"
+	fi
 fi
 
 { (MODARGS="${MODARGS};" RLTEST_ARGS="$RLTEST_ARGS $extra_rltest_args" \
