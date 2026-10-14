@@ -53,6 +53,16 @@ static size_t unescapen(char *s, size_t sz) {
   return (size_t)(dst - s);
 }
 
+// Unescape a field name into a parse-owned copy: the query text belongs to the caller.
+static void unescapeFieldName(QueryParseCtx *ctx, QueryToken *tok) {
+  if (memchr(tok->s, '\\', tok->len)) {
+    char *unescaped = rm_strndup(tok->s, tok->len);
+    tok->len = unescapen(unescaped, tok->len);
+    tok->s = unescaped;
+    array_ensure_append_1(ctx->unescapedNames, unescaped);
+  }
+}
+
 // reduce B and C to a single intersection node
 // if one of them is a phrase node, we will use it as the base node and add the other as a child.
 // if some of them is Null, we will return the other one.
@@ -1980,13 +1990,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 44: /* modifier ::= MODIFIER */
 {
-  // Unescape into a copy: the query text belongs to the caller.
-  if (memchr(yymsp[0].minor.yy0.s, '\\', yymsp[0].minor.yy0.len)) {
-    char *unescaped = rm_strndup(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
-    yymsp[0].minor.yy0.len = unescapen(unescaped, yymsp[0].minor.yy0.len);
-    yymsp[0].minor.yy0.s = unescaped;
-    array_ensure_append_1(ctx->unescapedNames, unescaped);
-  }
+  unescapeFieldName(ctx, &yymsp[0].minor.yy0);
   yylhsminor.yy150.tok = yymsp[0].minor.yy0;
   if (ctx->sctx->spec) {
     yylhsminor.yy150.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
@@ -1999,6 +2003,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 45: /* modifierlist ::= modifier OR term */
 {
+  unescapeFieldName(ctx, &yymsp[0].minor.yy0);
   if (ctx->sctx->spec) {
     if (!FIELD_IS(yymsp[-2].minor.yy150.fs, INDEXFLD_T_FULLTEXT)) {
       REPORT_WRONG_FIELD_TYPE(yymsp[-2].minor.yy150, SPEC_TEXT_STR);
@@ -2028,6 +2033,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 46: /* modifierlist ::= modifierlist OR term */
 {
+  unescapeFieldName(ctx, &yymsp[0].minor.yy0);
   if (ctx->sctx->spec) {
     FieldName second = { .tok = yymsp[0].minor.yy0, .fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len) };
     if (!second.fs) {

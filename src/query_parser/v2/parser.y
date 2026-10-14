@@ -96,6 +96,16 @@ static size_t unescapen(char *s, size_t sz) {
   return (size_t)(dst - s);
 }
 
+// Unescape a field name into a parse-owned copy: the query text belongs to the caller.
+static void unescapeFieldName(QueryParseCtx *ctx, QueryToken *tok) {
+  if (memchr(tok->s, '\\', tok->len)) {
+    char *unescaped = rm_strndup(tok->s, tok->len);
+    tok->len = unescapen(unescaped, tok->len);
+    tok->s = unescaped;
+    array_ensure_append_1(ctx->unescapedNames, unescaped);
+  }
+}
+
 // reduce B and C to a single intersection node
 // if one of them is a phrase node, we will use it as the base node and add the other as a child.
 // if some of them is Null, we will return the other one.
@@ -634,13 +644,7 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
 /////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
-  // Unescape into a copy: the query text belongs to the caller.
-  if (memchr(B.s, '\\', B.len)) {
-    char *unescaped = rm_strndup(B.s, B.len);
-    B.len = unescapen(unescaped, B.len);
-    B.s = unescaped;
-    array_ensure_append_1(ctx->unescapedNames, unescaped);
-  }
+  unescapeFieldName(ctx, &B);
   A.tok = B;
   if (ctx->sctx->spec) {
     A.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
@@ -651,6 +655,7 @@ modifier(A) ::= MODIFIER(B) . {
 }
 
 modifierlist(A) ::= modifier(B) OR term(C). {
+  unescapeFieldName(ctx, &C);
   if (ctx->sctx->spec) {
     if (!FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
       REPORT_WRONG_FIELD_TYPE(B, SPEC_TEXT_STR);
@@ -679,6 +684,7 @@ modifierlist(A) ::= modifier(B) OR term(C). {
 
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
+  unescapeFieldName(ctx, &C);
   if (ctx->sctx->spec) {
     FieldName second = { .tok = C, .fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, C.s, C.len) };
     if (!second.fs) {
