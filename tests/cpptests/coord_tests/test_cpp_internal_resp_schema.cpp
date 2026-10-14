@@ -133,6 +133,7 @@ TEST(InternalRespSchema, MalformedChunkReportsErrorThroughGetNextReply) {
       req.base.reply.err = QueryError_Default();
       req.pipeline.qctx.err = &req.base.reply.err;
       decoder.nc.areq = &req;
+      decoder.nc.base.parent = &req.pipeline.qctx;
       decoder.nc.drainOnly = true;
       IORuntimeCtx runtime = {};
       runtime.queue = RQ_New(1, 0);
