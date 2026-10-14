@@ -529,28 +529,6 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
   A->opts.flags |= QueryNode_Verbatim;
 }
 
-text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
-  // Quoted/verbatim string should not be handled as parameters
-  // Also need to add the leading '$' which was consumed by the lexer
-  char *s = rm_malloc(B.len + 1);
-  *s = '$';
-  memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
-  rm_free(s);
-  A->opts.flags |= QueryNode_Verbatim;
-}
-
-text_expr(A) ::= SQUOTE ATTRIBUTE(B) SQUOTE. [TERMLIST] {
-  // Single quoted/verbatim string should not be handled as parameters
-  // Also need to add the leading '$' which was consumed by the lexer
-  char *s = rm_malloc(B.len + 1);
-  *s = '$';
-  memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
-  rm_free(s);
-  A->opts.flags |= QueryNode_Verbatim;
-}
-
 text_expr(A) ::= param_term(B) . [LOWEST]  {
   if (B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len)) {
     A = NULL;
