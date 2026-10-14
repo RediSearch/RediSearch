@@ -8,7 +8,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "search_result_rs.h"
+#include "document_rs.h"
 #include "rlookup.h"
+
+/**
+ * Owns the format-specific cache for one loader. C only holds an opaque pointer.
+ */
+typedef struct LoaderCache LoaderCache;
 
 typedef struct QueryError QueryError;
 
@@ -32,9 +38,9 @@ typedef struct LoadAllKeysOptions {
   bool force_string;
   struct QueryError *status;
   /**
-   * Required root [`JsonPathCache`] for JSON documents; null for hashes.
+   * Loader-owned [`LoaderCache`]; required for JSON root loading, null for hashes.
    */
-  const struct JsonPathCache *path_cache;
+  const struct LoaderCache *cache;
 } LoadAllKeysOptions;
 
 typedef struct LoadIndividualKeysOptions {
@@ -56,16 +62,10 @@ typedef struct LoadIndividualKeysOptions {
    */
   struct LoadFieldProfile *profile_fields;
   /**
-   * Optional [`HashFieldNames`] shared by every document this loader
-   * processes (see [`HashFieldNames_New`]). Null makes each load build its
-   * field names afresh.
+   * Loader-owned [`LoaderCache`] matching the document type. JSON paths must be
+   * aligned with the selected keys. Null makes hash loading build field names afresh.
    */
-  const struct HashFieldNames *field_names;
-  /**
-   * Required [`JsonPathCache`] for JSON documents, aligned with the selected keys;
-   * null for hashes.
-   */
-  const struct JsonPathCache *path_cache;
+  const struct LoaderCache *cache;
 } LoadIndividualKeysOptions;
 
 /**
@@ -124,48 +124,34 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Free a cache created by [`HashFieldNames_New`]. Null is a no-op.
+ * Free a cache returned by [`LoaderCache_New`]. Null is a no-op.
  *
  * # Safety
  *
- * 1. `names` must be null or a pointer returned by [`HashFieldNames_New`]. Each non-null
- *    pointer may be passed here exactly once, by exactly one thread, with no load in
- *    progress on it and no `LoadIndividualKeysOptions` referencing it used afterwards.
- */
-void HashFieldNames_Free(struct HashFieldNames *names);
-
-/**
- * Create an empty [`HashFieldNames`] cache. Free it with [`HashFieldNames_Free`].
- */
-struct HashFieldNames *HashFieldNames_New(void);
-
-/**
- * Free a cache returned by [`JsonPathCache_New`]. Null is a no-op.
- *
- * # Safety
- *
- * `paths` must be null or a [valid] pointer returned by [`JsonPathCache_New`]. A non-null
+ * `cache` must be null or a [valid] pointer returned by [`LoaderCache_New`]. A non-null
  * cache must be freed exactly once, with no load in progress and no subsequent uses.
+ * Hash caches must not be accessed concurrently.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void JsonPathCache_Free(struct JsonPathCache *paths);
+void LoaderCache_Free(struct LoaderCache *cache);
 
 /**
- * Compile paths for one JSON loader. With no keys, compile the document root.
+ * Create the format-specific cache for one loader. With no keys, JSON loads the root
+ * and hashes need no cache.
  *
  * Returns null when the RedisJSON API is unavailable.
- * Free the returned cache with [`JsonPathCache_Free`].
+ * Free the returned cache with [`LoaderCache_Free`].
  *
  * # Safety
  *
- * 1. The RedisJSON module must be initialized.
- * 2. When `nkeys` is nonzero, `keys` must point to `nkeys` [valid], non-null [`RLookupKey`]s
+ * 1. For JSON, the RedisJSON module must be initialized.
+ * 2. For JSON with nonzero `nkeys`, `keys` must point to `nkeys` [valid], non-null [`RLookupKey`]s
  *    whose path bytes remain [valid] until the returned cache is freed.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct JsonPathCache *JsonPathCache_New(const RLookupKey *const *keys, size_t nkeys);
+struct LoaderCache *LoaderCache_New(enum DocumentType doc_type, const RLookupKey *const *keys, size_t nkeys);
 
 /**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
@@ -623,8 +609,8 @@ struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
  *    `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
  * 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
  *    be a valid [`DocumentType`].
- * 5. For JSON documents, `(*opts).path_cache` must be a [valid], non-null pointer returned by
- *    [`JsonPathCache_New`] for root loading and kept alive for this call.
+ * 5. `(*opts).cache` must be null or a [valid] pointer returned by [`LoaderCache_New`]
+ *    for the document type and kept alive for this call. JSON requires a non-null root cache.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -644,10 +630,9 @@ int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, 
  * 5. If `(*opts).nkeys > 0`, `(*opts).keys` must be a [valid], non-null pointer to `nkeys`
  *    consecutive `*const ffi::RLookupKey`, each of which must itself be a [valid], non-null
  *    pointer to a properly initialized key that outlives this call.
- * 6. `(*opts).field_names` must be null or a pointer returned by [`HashFieldNames_New`] that
- *    has not been freed, and no other thread may access it for the duration of this call.
- * 7. For JSON documents, `(*opts).path_cache` must be a [valid], non-null pointer returned by
- *    [`JsonPathCache_New`] for these keys in the same order, kept alive for this call.
+ * 6. `(*opts).cache` must be null or a [valid] pointer returned by [`LoaderCache_New`]
+ *    for the document type and kept alive for this call. JSON requires a non-null cache
+ *    for these keys in the same order. No other thread may access a hash cache during this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */

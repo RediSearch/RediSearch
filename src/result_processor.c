@@ -997,10 +997,8 @@ typedef struct {
   // Per-key load profiling buffer (nkeys entries), allocated only for
   // `FT.PROFILE ... LOAD`; NULL otherwise. Populated by the Rust loader.
   LoadFieldProfile *profileFields;
-  // Owned; NULL when loading all fields.
-  struct HashFieldNames *fieldNames;
-  // Query-scoped RedisJSON paths. NULL for HASH.
-  struct JsonPathCache *pathCache;
+  // Owned format-specific cache; NULL for whole-document HASH loading.
+  struct LoaderCache *cache;
   QueryError status;
 } RPLoader;
 
@@ -1043,7 +1041,7 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
         .dmd = dmd,
         .force_string = true,
         .status = &self->status,
-        .path_cache = self->pathCache,
+        .cache = self->cache,
     };
     ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
@@ -1057,8 +1055,7 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
         .cached_only = false,
         .status = &self->status,
         .profile_fields = self->profileFields,
-        .field_names = self->fieldNames,
-        .path_cache = self->pathCache,
+        .cache = self->cache,
     };
     ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
@@ -1123,8 +1120,7 @@ static void rploaderFreeInternal(ResultProcessor *base) {
   QueryError_ClearError(&lc->status);
   rm_free(lc->keys);
   rm_free(lc->profileFields);
-  HashFieldNames_Free(lc->fieldNames);
-  JsonPathCache_Free(lc->pathCache);
+  LoaderCache_Free(lc->cache);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1144,16 +1140,14 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     if (withProfile) {
       self->profileFields = rm_calloc(nkeys, sizeof(*self->profileFields));
     }
-    self->fieldNames = HashFieldNames_New();
     self->load_all = false;
   } else {
     self->load_all = true;
-    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED); // TODO: turn on only for HASH specs
+    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED);  // TODO: turn on only for HASH specs
   }
 
-  if (sctx && sctx->spec && isSpecJson(sctx->spec)) {
-    self->pathCache = JsonPathCache_New(self->keys, self->nkeys);
-  }
+  DocumentType type = sctx && sctx->spec ? sctx->spec->rule->type : DocumentType_Hash;
+  self->cache = LoaderCache_New(type, self->keys, self->nkeys);
   self->lk = lk;
 }
 
