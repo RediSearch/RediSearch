@@ -37,6 +37,14 @@ on:
         type: string
         default: master
         description: "branch to use for rejson"
+      instance_ami_x86_64:
+        type: string
+        description: "Optional: override the bench-server/client AMI for x86_64 jobs (TF_VAR_instance_ami). Empty = setup default. Needed for modules that require a newer Redis than the default image (e.g. 8.8 needs Redis >= 8.8; ami-0970faf3f922aa7f4 is Redis 8.10.1)."
+        default: ""
+      instance_ami_aarch64:
+        type: string
+        description: "Optional: same as instance_ami_x86_64 for aarch64 jobs (ami-0dddec0ead0d58069 is Redis 8.10.1)."
+        default: ""
   workflow_call:
     inputs:
       extended:
@@ -69,6 +77,12 @@ on:
         type: boolean
         default: false
         description: "if true, will notify failure on slack"
+      instance_ami_x86_64:
+        type: string
+        default: ""
+      instance_ami_aarch64:
+        type: string
+        default: ""
 
 jobs:
   # Build RediSearch ONCE per-arch. Every benchmark job below downloads the
@@ -110,6 +124,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   # aarch64 sibling of benchmark-search-oss-standalone. Targets the
   # oss-standalone-redisearch-m7-aarch64 terraform dir (m7g.8xlarge DB +
@@ -137,6 +153,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch-aarch64.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch-aarch64.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   benchmark-search-oss-standalone-threads-6:
     # TODO: Temporarily disabled - Redis becomes unavailable after ~3 hours of data loading.
@@ -159,6 +177,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   benchmark-vecsim-oss-standalone:
     if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',vecsim,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone') }}
@@ -180,6 +200,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   benchmark-vecsim-oss-standalone-threads-6:
     if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',vecsim,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone-threads-6') }}
@@ -201,6 +223,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   benchmark-search-oss-cluster-02-primaries:
     if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries') }}
@@ -222,6 +246,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   # Mirror of oss-cluster-02-primaries that pins WORKERS=0 — isolates the
   # search-workers dispatch overhead introduced when PR #8876 flipped the
@@ -246,6 +272,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   benchmark-search-oss-cluster-04-primaries:
     if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries')) }}
@@ -267,6 +295,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   benchmark-search-oss-cluster-04-primaries-threads-6:
     # Re-enabled for targeted HFE write/read concurrent runs — the
@@ -292,6 +322,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   benchmark-search-oss-cluster-08-primaries:
     if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries')) }}
@@ -313,6 +345,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   benchmark-msmarco-oss-cluster-08-primaries-250gb-threads-8:
     if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',msmarco,')) && (inputs.allowed_setup == 'oss-cluster-08-primaries-250gb-threads-8') }}
@@ -328,6 +362,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   benchmark-search-oss-cluster-16-primaries:
     if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries')) }}
@@ -349,6 +385,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   benchmark-search-oss-cluster-20-primaries:
     if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-20-primaries')) }}
@@ -370,6 +408,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   benchmark-search-oss-cluster-24-primaries:
     if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',search,')) && (inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-24-primaries')) }}
@@ -391,6 +431,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   benchmark-hybrid-oss-standalone:
     if: ${{ (inputs.benchmark_groups == '' || contains(format(',{0},', inputs.benchmark_groups), ',hybrid,')) && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone') }}
@@ -412,6 +454,8 @@ jobs:
       github_sha_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.resolved_sha || '' }}
       github_branch_override: ${{ inputs.git_ref != '' && needs.build-redisearch.outputs.branch_label || '' }}
       test_regex: ${{ inputs.test_regex }}
+      instance_ami_x86_64: ${{ inputs.instance_ami_x86_64 }}
+      instance_ami_aarch64: ${{ inputs.instance_ami_aarch64 }}
 
   notify-failure:
     needs:

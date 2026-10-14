@@ -51,6 +51,14 @@ on:
         type: string
         default: ""
         description: "Optional: override the branch label tagged on RTS. Useful for historical-ref runs to keep them out of master's regular series. Empty = use github.head_ref or github.ref_name."
+      instance_ami_x86_64:
+        type: string
+        default: ""
+        description: "Optional: override the terraform `instance_ami` (via TF_VAR_instance_ami) for x86_64 runs. Empty = keep the setup's default AMI. Use when the module under test needs a newer Redis than the default bench-server image."
+      instance_ami_aarch64:
+        type: string
+        default: ""
+        description: "Optional: same as instance_ami_x86_64, applied when arch is aarch64."
       test_regex:
         type: string
         default: ""
@@ -201,6 +209,8 @@ jobs:
           GITHUB_SHA_OVERRIDE: ${{ inputs.github_sha_override }}
           GITHUB_BRANCH_OVERRIDE: ${{ inputs.github_branch_override }}
           TEST_REGEX: ${{ inputs.test_regex }}
+          INSTANCE_AMI_X86_64: ${{ inputs.instance_ami_x86_64 }}
+          INSTANCE_AMI_AARCH64: ${{ inputs.instance_ami_aarch64 }}
           PERFORMANCE_RTS_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
           PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
           PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
@@ -210,6 +220,16 @@ jobs:
           extra_args=()
           if [ -n "${TEST_REGEX}" ]; then
             extra_args+=(--test-regex "${TEST_REGEX}")
+          fi
+          # Optional AMI override. Only export when set: an empty TF_VAR_instance_ami
+          # would blank the terraform default instead of leaving it alone.
+          case "$ARCH" in
+            x86_64) instance_ami="${INSTANCE_AMI_X86_64}" ;;
+            aarch64) instance_ami="${INSTANCE_AMI_AARCH64}" ;;
+            *) instance_ami="" ;;
+          esac
+          if [ -n "${instance_ami}" ]; then
+            export TF_VAR_instance_ami="${instance_ami}"
           fi
           redisbench-admin run-remote \
               --module_path "../../$MODULE_PATH" \
