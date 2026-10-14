@@ -284,11 +284,11 @@ static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool u
   // IndexSpec core. It also gates the non-SST on-disk index open below.
   sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
   if (SearchDisk_IsEnabled() && !sp->isDuplicate && !SearchDisk_CanRestoreIndex(status)) {
-    StrongRef_Release(sp->own_ref);
+    IndexSpec_RdbLoadDiscard(sp->own_ref);
     return NULL;
   }
   if (IndexSpec_RdbLoadOpenDisk(RedisModule_GetContextFromIO(rdb), sp, useSst, status) != REDISMODULE_OK) {
-    StrongRef_Release(sp->own_ref);
+    IndexSpec_RdbLoadDiscard(sp->own_ref);
     return NULL;
   }
   return sp;

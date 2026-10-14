@@ -203,6 +203,8 @@ jobs:
           image-built: ${{ inputs.image-built }}
           san: ${{ inputs.san }}
           install-script: 'true'
+          rust-test-deps: ${{ inputs.coverage }}
+          github-token: ${{ github.token }}
           python-test-deps: 'true'
           sanitizer-setup: 'true'
           # Flow tests only need the ASAN symbolizer, not CC/CXX/LD pinned to clang.
@@ -210,6 +212,10 @@ jobs:
           # No compilation happens in this job, Redis included: the Redis build
           # job ships its install tree as an artifact and we unpack it below.
           build-redis: 'false'
+
+      - name: Setup LCOV
+        if: inputs.coverage
+        uses: ./.github/actions/setup-lcov
 
       - name: Set Artifact Names
         id: artifact-names
@@ -568,6 +574,16 @@ jobs:
           echo "Flow tests (standalone): ${{ steps.standalone_tests.outcome }}"
           echo "Flow tests (coordinator): ${{ steps.coordinator_tests.outcome }}"
           exit 1
+
+      - name: Summarize branch coverage
+        if: inputs.coverage
+        env:
+          TEST_MODE: ${{ inputs.test-mode }}
+        run: |
+          python3 .github/scripts/coverage_summary.py \
+            --lcov "C ${TEST_MODE} flow" "bin/flow_${TEST_MODE}.info" \
+            --lcov "Rust ${TEST_MODE} flow" "bin/rust_flow_${TEST_MODE}.info"
+
       - name: Import Codecov GPG public key
         if: inputs.coverage
         run: gpg --import .github/codecov_gpg.pub
@@ -575,7 +591,7 @@ jobs:
         if: inputs.coverage && inputs.test-mode == 'standalone'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_standalone.info
+          files: bin/flow_standalone.info,bin/rust_flow_standalone.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
@@ -584,7 +600,7 @@ jobs:
         if: inputs.coverage && inputs.test-mode == 'coordinator'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_coordinator.info
+          files: bin/flow_coordinator.info,bin/rust_flow_coordinator.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}

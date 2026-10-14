@@ -1548,6 +1548,19 @@ void AREQ_SetCanYieldPartialResults(AREQ *req) {
       pipelineCanYieldPartialResults(req);
 }
 
+#ifdef ENABLE_ASSERT
+// Whether `req` is a hybrid subquery whose upstream was released after depletion, leaving its
+// depleter as the only processor.
+static bool isReleasedHybridDepleter(AREQ *req) {
+  QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(req);
+  ResultProcessor *root = qctx->rootProc;
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  return (IsHybridSearchSubquery(req) || IsHybridVectorSubquery(req)) &&
+         (root->type == RP_DEPLETER || root->type == RP_SAFE_DEPLETER) && root == qctx->endProc &&
+         !root->upstream && sctx->spec->diskSpec && !sctx->diskSnapshot;
+}
+#endif
+
 // Drain any queued partial results into `base.reply.results` on the main
 // thread after the background pipeline has aborted. Shard pipelines need no
 // root-specific pre-drain setup (unlike the coordinator's RPNet drainOnly
@@ -1558,7 +1571,10 @@ static void drainPartialResultsAfterTimeout(AREQ *req) {
     return;
   }
 
-  RS_ASSERT(qctx->rootProc->type == RP_INDEX);
+  // The only non-index root is a depleted disk hybrid subquery whose upstream was released by
+  // HybridRequest_ReleaseDepletedUpstream: its depleter is then the whole pipeline and its
+  // snapshot reference is gone. The drain only reads from `endProc`, so it needs no iterator.
+  RS_ASSERT(qctx->rootProc->type == RP_INDEX || isReleasedHybridDepleter(req));
 
   AREQ_DrainStoredResultsAfterTimeout(req);
 }

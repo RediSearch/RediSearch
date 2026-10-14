@@ -11,6 +11,7 @@
 #include "common.h"
 #include "indexes.h"
 #include "synonym_map.h"
+#include "../charbuf_test_utils.h"
 #include "util/hash/hash.h"
 
 #include <initializer_list>
@@ -83,11 +84,8 @@ TEST_F(SchemaFingerprintTest, StopwordsContentSensitiveOrderInsensitive) {
 TEST_F(SchemaFingerprintTest, SynonymMapOrderIndependent) {
   SynonymMap *a = SynonymMap_New(false);
   SynonymMap *b = SynonymMap_New(false);
-  const CharBuf wheels[] = {
-      {.buf = const_cast<char *>("car"), .len = sizeof("car") - 1},
-      {.buf = const_cast<char *>("automobile"), .len = sizeof("automobile") - 1}};
-  const CharBuf speed[] = {{.buf = const_cast<char *>("fast"), .len = sizeof("fast") - 1},
-                           {.buf = const_cast<char *>("quick"), .len = sizeof("quick") - 1}};
+  const CharBuf wheels[] = {CB_LIT("car"), CB_LIT("automobile")};
+  const CharBuf speed[] = {CB_LIT("fast"), CB_LIT("quick")};
   SynonymMap_Update(a, wheels, 2, "g1");
   SynonymMap_Update(a, speed, 2, "g2");
   SynonymMap_Update(b, speed, 2, "g2");
@@ -255,8 +253,7 @@ TEST_F(SchemaFingerprintTest, EmptySynonymMapMatchesAbsentMap) {
   IndexSpec_InitializeSynonym(sp);
   ASSERT_TRUE(sp->flags & Index_HasSmap);
   ASSERT_EQ(absent, fp(sp));
-  const CharBuf terms[] = {{.buf = const_cast<char *>("hello"), .len = sizeof("hello") - 1},
-                           {.buf = const_cast<char *>("hi"), .len = sizeof("hi") - 1}};
+  const CharBuf terms[] = {CB_LIT("hello"), CB_LIT("hi")};
   SynonymMap_Update(sp->smap, terms, 2, "group");
   ASSERT_NE(absent, fp(sp));
 }

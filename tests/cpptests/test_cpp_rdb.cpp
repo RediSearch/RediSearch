@@ -12,6 +12,7 @@
 #include "common.h"
 #include "redismock/redismock.h"
 #include "synonym_map.h"
+#include "../charbuf_test_utils.h"
 #include "trie/trie.h"
 #include <algorithm>
 #include <array>
@@ -25,6 +26,9 @@ extern "C" {
 #include "indexes.h"
 #include "query_error_ffi.h"
 #include "rules.h"
+#include "alias.h"
+#include "triemap_ffi.h"
+#include "search_disk.h"
 #include "stopwords.h"
 #include "doc_table.h"
 #include "sorting_vector_ffi.h"
@@ -33,6 +37,7 @@ extern "C" {
 // Forward declarations for RDB functions
 extern int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 extern void Spec_AddToDict(RefManager *rm);  // Helper to add spec to global dict
+extern RedisSearchDiskAPI *disk;
 }
 
 
@@ -430,6 +435,83 @@ TEST_F(RdbMockTest, testDuplicateIndexRdbLoad) {
     Indexes_RemoveSpecFromGlobals(loaded_spec_ref, false);
 }
 
+namespace {
+// Disk API stub under which the restore-capacity check passes and the index
+// open fails.
+struct ScopedMockDisk {
+    RedisSearchDiskAPI api{};
+    RedisSearchDiskAPI *savedDisk = disk;
+    RedisSearchDisk *savedDb = disk_db;
+    bool savedFlex = isFlex;
+
+    ScopedMockDisk() {
+        api.basic.close = [](RedisModuleCtx *, RedisSearchDisk *) {};
+        api.metrics.stopMetrics = [](RedisSearchDisk *) {};
+        api.basic.updateMemoryLimit = [](RedisSearchDisk *, size_t, size_t) { return true; };
+        api.basic.reserveRestoreOpenFiles = [](RedisSearchDisk *, size_t) { return true; };
+        api.basic.openIndexSpec = [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
+                                     const char *, size_t, DocumentType, bool,
+                                     const SearchDiskCompactionCallbacks *, void *) {
+            return static_cast<RedisSearchDiskIndexSpec *>(nullptr);
+        };
+        disk = &api;
+        disk_db = reinterpret_cast<RedisSearchDisk *>(&api);
+        SearchDisk_UpdateMemoryLimit(size_t{1} << 40);
+    }
+
+    ~ScopedMockDisk() {
+        SearchDisk_Close(nullptr);
+        disk = savedDisk;
+        disk_db = savedDb;
+        isFlex = savedFlex;
+    }
+};
+
+// Reloads a spec with a prefix and an alias under the installed ScopedMockDisk;
+// the load must fail and leave neither entry registered.
+void ExpectFailedLoadUnpublishes() {
+    static constexpr char prefix[] = "rdb_load_fail:";
+    static constexpr char aliasName[] = "test_load_fail_alias";
+    const char *args[] = {"ON", "HASH", "PREFIX", "1", prefix, "SCHEMA", "title", "TEXT"};
+    QueryError err = QueryError_Default();
+    StrongRef spec_ref =
+        IndexSpec_ParseC(NULL, "test_load_fail_idx", args, std::size(args), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+
+    HiddenString *alias = NewHiddenString(aliasName, sizeof(aliasName) - 1, false);
+    std::unique_ptr<HiddenString, void (*)(HiddenString *)> aliasPtr(
+        alias, [](HiddenString *s) { HiddenString_Free(s, false); });
+    ASSERT_EQ(REDISMODULE_OK, IndexAlias_Add(alias, spec_ref, 0, &err));
+
+    RedisModuleIO *io = RMCK_CreateRdbIO();
+    std::unique_ptr<RedisModuleIO, void (*)(RedisModuleIO *)> ioPtr(io, RMCK_FreeRdbIO);
+    RMCK_SaveUnsigned(io, 1);
+    IndexSpec_RdbSave(io, (IndexSpec *)StrongRef_Get(spec_ref), 0);
+    ASSERT_EQ(0, RMCK_IsIOError(io));
+
+    Indexes_RemoveSpecFromGlobals(spec_ref, false);
+    io->read_pos = 0;
+
+    isFlex = true;
+    EXPECT_EQ(REDISMODULE_ERR,
+              Indexes_RdbLoad(io, INDEX_CURRENT_VERSION, REDISMODULE_AUX_BEFORE_RDB));
+
+    EXPECT_EQ(TRIEMAP_NOTFOUND, TrieMap_Find(SchemaPrefixes_g, prefix, sizeof(prefix) - 1));
+    EXPECT_EQ(nullptr, IndexAlias_Get(alias).rm);
+}
+}  // namespace
+
+TEST_F(RdbMockTest, testFailedRestoreCapacityUnpublishesSpec) {
+    ScopedMockDisk mockDisk;
+    mockDisk.api.basic.reserveRestoreOpenFiles = [](RedisSearchDisk *, size_t) { return false; };
+    ExpectFailedLoadUnpublishes();
+}
+
+TEST_F(RdbMockTest, testFailedDiskOpenUnpublishesSpec) {
+    ScopedMockDisk mockDisk;
+    ExpectFailedLoadUnpublishes();
+}
+
 TEST_F(RdbMockTest, testSynonymMapRdbSerialization) {
     // Create a SynonymMap and add some terms
     SynonymMap *smap = SynonymMap_New(false);
@@ -439,18 +521,10 @@ TEST_F(RdbMockTest, testSynonymMapRdbSerialization) {
     });
 
     // Add terms to synonym groups
-    const CharBuf group1_terms[] = {
-        {.buf = const_cast<char *>("hello"), .len = sizeof("hello") - 1},
-        {.buf = const_cast<char *>("hi"), .len = sizeof("hi") - 1},
-        {.buf = const_cast<char *>("greetings"), .len = sizeof("greetings") - 1}};
-    const CharBuf group2_terms[] = {
-        {.buf = const_cast<char *>("bye"), .len = sizeof("bye") - 1},
-        {.buf = const_cast<char *>("goodbye"), .len = sizeof("goodbye") - 1},
-        {.buf = const_cast<char *>("farewell"), .len = sizeof("farewell") - 1}};
+    const CharBuf group1_terms[] = {CB_LIT("hello"), CB_LIT("hi"), CB_LIT("greetings")};
+    const CharBuf group2_terms[] = {CB_LIT("bye"), CB_LIT("goodbye"), CB_LIT("farewell")};
     // hello and bye belong to multiple groups
-    const CharBuf group3_terms[] = {
-        {.buf = const_cast<char *>("hello"), .len = sizeof("hello") - 1},
-        {.buf = const_cast<char *>("bye"), .len = sizeof("bye") - 1}};
+    const CharBuf group3_terms[] = {CB_LIT("hello"), CB_LIT("bye")};
 
     ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Update(smap, group1_terms, 3, "greet"));
     ASSERT_EQ(SYNONYM_MAP_OK, SynonymMap_Update(smap, group2_terms, 3, "part"));

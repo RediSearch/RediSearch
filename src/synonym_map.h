@@ -14,14 +14,13 @@
 #include "redismodule.h"
 #include "util/arr.h"
 #include "util/strconv.h"
+#include "util/charbuf.h"
 #include <stdbool.h>
 #include "hiredis/sds.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-struct CharBuf;
 
 #define SYNONYM_PREFIX_CHAR '~'
 
@@ -85,7 +84,7 @@ SynonymMapResult SynonymMap_UpdateRedisStr(SynonymMap* smap, RedisModuleString**
  * SYNONYM_MAP_ERR_MAX_GROUP_IDS if the maximum number of group ids is reached
  * SYNONYM_MAP_ERR_MAX_TERMS if the maximum number of terms is reached
  */
-SynonymMapResult SynonymMap_Update(SynonymMap* smap, const struct CharBuf* synonyms, size_t size,
+SynonymMapResult SynonymMap_Update(SynonymMap* smap, const CharBuf* synonyms, size_t size,
                                    const char* groupId);
 
 /**
