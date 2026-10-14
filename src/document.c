@@ -84,7 +84,6 @@ static void freeDocumentContext(void *p) {
 
 static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   Document *doc = aCtx->doc;
-  aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
 
   aCtx->fspecs = rm_realloc(aCtx->fspecs, sizeof(*aCtx->fspecs) * doc->numFields);
   aCtx->fdatas = rm_realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
@@ -152,6 +151,8 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
   if (hasTextFields || hasOtherFields) {
     aCtx->stateFlags |= ACTX_F_INDEXABLES;
+  } else {
+    aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
   }
 
   if ((aCtx->stateFlags & ACTX_F_SORTABLES) && RSSortingVector_Length(&aCtx->sv) == 0) {
