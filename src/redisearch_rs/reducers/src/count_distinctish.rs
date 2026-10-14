@@ -11,48 +11,17 @@
 //! the coordinator splits it into, `HLL` on the shards and `HLL_SUM` merging
 //! their registers.
 
-use std::hash::{DefaultHasher, Hasher};
-
 use hyperloglog::HyperLogLog8;
 use rlookup::{RLookupKey, RLookupRow};
-use value::{SharedValue, Value};
+use value::SharedValue;
 
 use crate::accumulator::Accumulator;
 
 /// Mixed into every value's hash. Shards, and server versions, must agree on it
 /// for `HLL_SUM` to merge their registers.
-pub const STABLE_SEED: u64 = 0x5f61767a;
+const STABLE_SEED: u64 = 0x5f61767a;
 
-type Hll = HyperLogLog8<Value, StableHasher>;
-
-/// [`value::hash::hash_stable`] with [`STABLE_SEED`], its two halves XOR-ed into
-/// 32 bits: the hash every version's per-shard registers are built from.
-pub struct StableHasher(DefaultHasher);
-
-impl Default for StableHasher {
-    fn default() -> Self {
-        let mut hasher = DefaultHasher::new();
-        hasher.write_u64(STABLE_SEED);
-        Self(hasher)
-    }
-}
-
-impl Hasher for StableHasher {
-    fn write(&mut self, bytes: &[u8]) {
-        self.0.write(bytes);
-    }
-
-    fn finish(&self) -> u64 {
-        u64::from(hash32::Hasher::finish32(self))
-    }
-}
-
-impl hash32::Hasher for StableHasher {
-    fn finish32(&self) -> u32 {
-        let hash = self.0.finish();
-        (hash as u32) ^ ((hash >> 32) as u32)
-    }
-}
+type Hll = HyperLogLog8<()>;
 
 /// A rank is at most the number of hash bits left after the register index, plus one.
 const MAX_REGISTER: u8 = 32 - Hll::bits() + 1;
@@ -92,7 +61,8 @@ impl Accumulator for CountDistinctish<'_> {
 
     fn add(&self, hll: &mut Hll, row: &RLookupRow<'_>) {
         if let Some(value) = row.get(self.key).filter(|value| !value.is_null_static()) {
-            hll.add(value);
+            let hash = value::hash::hash_stable(value, STABLE_SEED);
+            hll.add_precomputed_hash((hash as u32) ^ ((hash >> 32) as u32));
         }
     }
 

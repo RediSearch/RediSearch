@@ -66,13 +66,6 @@ pub fn hash_value<H: Hasher>(value: &Value, hasher: &mut H) {
     }
 }
 
-/// Hashes like [`hash_value`], so a [`Value`] can be fed to any [`Hasher`].
-impl Hash for Value {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        hash_value(self, state);
-    }
-}
-
 /// Per-process random keys used to seed [`hash`]'s hasher.
 ///
 /// Generated once from OS randomness on first use. Without a secret,
