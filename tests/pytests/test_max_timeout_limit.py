@@ -209,18 +209,22 @@ class TestMaxForegroundTimeoutLimit:
         skipTest(cluster=True)
         self._reset(workers=0, timeout=100, limit=1000)
         env = self.env
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
         blob = np.array([0.0, 0.0]).astype(np.float32).tobytes()
-        result = env.cmd('FT.HYBRID', 'idx', 'SEARCH', '*',
-                         'VSIM', '@v', '$BLOB', 'PARAMS', 2, 'BLOB', blob,
-                         'TIMEOUT', 5000, 'WITHCURSOR', 'COUNT', 1)
-        cursors = {name: result[name] for name in ('SEARCH', 'VSIM')}
+        cursors = {}
         try:
+            result = env.cmd('_FT.HYBRID', 'idx', 'SEARCH', '*',
+                             'VSIM', '@v', '$BLOB', 'PARAMS', 2, 'BLOB', blob,
+                             'TIMEOUT', 5000, 'WITHCURSOR', 'COUNT', 1,
+                             '_COORD_DISPATCH_TIME', 1000000)
+            cursors = {name: result[name] for name in ('SEARCH', 'VSIM')}
             for name in cursors:
                 for _ in range(2):
                     env.assertNotEqual(cursors[name], 0, message=result)
                     rows, cursors[name] = env.cmd('FT.CURSOR', 'READ', 'idx', cursors[name])
                     env.assertContains(CAP_WARNING, _get_warnings(rows), message=rows)
         finally:
+            env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT', 'unmark')
             for cursor in cursors.values():
                 if cursor:
                     env.expect('FT.CURSOR', 'DEL', 'idx', cursor).ok()
