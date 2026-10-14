@@ -4,7 +4,7 @@ on:
     inputs:
       pr_number:
         required: true
-        type: number
+        type: string
 permissions: {}
 jobs:
   probe:
