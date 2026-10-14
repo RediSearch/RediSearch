@@ -11,7 +11,9 @@
 
 use rqe_iterators::{c2rust::CRQEIterator, union_opaque::build_union};
 
-use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, eval_child_iterator};
+use crate::{
+    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_child_iterator,
+};
 
 /// `QN_UNION` — a logical OR over its children (matches any document matched by
 /// at least one child).
@@ -25,6 +27,7 @@ pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     mut node: QueryNodeMut<'_>,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> Evaluated<'index> {
     // Parsers and expanders always create unions with 2+ children.
     debug_assert!(
@@ -48,7 +51,7 @@ pub(crate) fn eval<'index>(
         .map(|i| {
             let mut child = node.child_mut(i);
             child.and_field_mask(node_mask);
-            eval_child_iterator(ctx, child, config)
+            eval_child_iterator(ctx, child, config, offsets)
         })
         .collect();
 

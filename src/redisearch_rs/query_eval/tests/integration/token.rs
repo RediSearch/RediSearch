@@ -23,7 +23,9 @@ use ffi::{
 };
 use index_result::{RSIndexResult, RSOffsetSlice};
 use query::mock::{MockQueryNode, TokenNodeType};
-use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
+use query_eval::{
+    Config, EvalResult, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_node,
+};
 use query_term::RSQueryTerm;
 use rqe_core::{FieldMask, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, RQEIterator};
@@ -106,7 +108,13 @@ impl TokenFixture {
     fn eval(&mut self) -> Option<EvalResult<'_>> {
         // SAFETY: `self.node` is a valid, live `RSQueryNode` for the call.
         let node_ref = unsafe { QueryNodeMut::new(self.node.as_non_null()) };
-        eval_node(&mut self.ctx, node_ref, Config::default()).map(|e| e.into_boxed())
+        eval_node(
+            &mut self.ctx,
+            node_ref,
+            Config::default(),
+            OffsetRequirement::Automatic,
+        )
+        .map(|e| e.into_boxed())
     }
 }
 

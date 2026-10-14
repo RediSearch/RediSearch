@@ -19,7 +19,9 @@
 #![cfg(not(miri))]
 
 use ffi::IndexFlags_Index_StoreFreqs;
-use query_eval::{Config, QueryEvalContext, QueryIteratorTree, QueryNodeMut, eval_node};
+use query_eval::{
+    Config, OffsetRequirement, QueryEvalContext, QueryIteratorTree, QueryNodeMut, eval_node,
+};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 use rqe_iterators_test_utils::ContractChecker;
@@ -43,9 +45,14 @@ fn eval_missing_returns_iterator_over_missing_docs() {
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     let mut it = ContractChecker::new(
-        eval_node(&mut ctx, node, Config::default())
-            .expect("field has missing values, so should not be None")
-            .into_boxed(),
+        eval_node(
+            &mut ctx,
+            node,
+            Config::default(),
+            OffsetRequirement::Automatic,
+        )
+        .expect("field has missing values, so should not be None")
+        .into_boxed(),
     );
 
     assert_eq!(it.type_(), IteratorType::InvIdxMissing);
@@ -71,7 +78,13 @@ fn eval_missing_no_values_returns_none() {
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     assert!(
-        eval_node(&mut ctx, node, Config::default()).is_none(),
+        eval_node(
+            &mut ctx,
+            node,
+            Config::default(),
+            OffsetRequirement::Automatic
+        )
+        .is_none(),
         "no missing values for the field, so eval should return None"
     );
 }

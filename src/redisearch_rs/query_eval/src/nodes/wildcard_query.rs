@@ -18,7 +18,7 @@ use rqe_iterators::union_opaque::build_union_with_q_str;
 use string_utils::runes::runes_to_bytes;
 
 use crate::{
-    Config, Evaluated, QueryEvalContext, QueryNodeMut, expansion::Expansion,
+    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeMut, expansion::Expansion,
     expansion_needs_offsets,
 };
 
@@ -42,6 +42,7 @@ pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     mut node: QueryNodeMut<'_>,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> Option<Evaluated<'index>> {
     // Read the header first: the token handle below borrows the node exclusively
     // until the very end, where the profiling query string is read through it, so
@@ -52,7 +53,7 @@ pub(crate) fn eval<'index>(
     let node_field_mask = node.opts().field_mask;
     let weight = node.opts().weight;
     let is_disk = !ctx.spec().diskSpec.is_null();
-    let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config);
+    let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config, offsets);
     let field_mask = node_field_mask & ctx.opts().fieldmask;
 
     // Before anything reads the token: it doubles as the union's profiling query

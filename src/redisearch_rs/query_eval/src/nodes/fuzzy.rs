@@ -18,7 +18,7 @@ use rs_token::RSTokenRefNulTerminated;
 use string_utils::runes::runes_to_bytes;
 
 use crate::{
-    Config, Evaluated, QueryEvalContext, QueryNodeRef, expansion::Expansion,
+    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeRef, expansion::Expansion,
     expansion_needs_offsets,
 };
 
@@ -52,13 +52,14 @@ pub(crate) fn eval<'index>(
     tok: RSTokenRefNulTerminated,
     max_dist: i32,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> Option<Evaluated<'index>> {
     // The reader field mask narrows the node's mask to the query-wide one.
     let node_field_mask = node.opts().field_mask;
     let weight = node.opts().weight;
     let field_mask = node_field_mask & ctx.opts().fieldmask;
     let is_disk = !ctx.spec().diskSpec.is_null();
-    let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config);
+    let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config, offsets);
     // Read with every other use of `ctx`, because `Expansion` borrows it mutably
     // for the rest of the expansion.
     let api_version = ctx.sctx().apiVersion;

@@ -176,10 +176,16 @@ pub struct QueryIteratorTree<'index> {
 impl<'index> QueryIteratorTree<'index> {
     /// Build the executable iterator tree for a parsed query AST.
     ///
-    /// Evaluates `root` via [`eval_node`], substituting an [`Empty`] iterator
-    /// when it yields none.
+    /// Evaluates `root` via [`eval_node`], with no enclosing phrase to impose an
+    /// [`OffsetRequirement`], substituting an [`Empty`] iterator when it yields
+    /// none.
     pub fn new(ctx: &'index mut QueryEvalContext, root: QueryNodeMut<'_>, config: Config) -> Self {
-        Self::from_root(into_child_iterator(eval_node(ctx, root, config)))
+        Self::from_root(into_child_iterator(eval_node(
+            ctx,
+            root,
+            config,
+            OffsetRequirement::Automatic,
+        )))
     }
 
     const fn from_root(root: CRQEIterator) -> Self {
@@ -235,6 +241,20 @@ impl<'index> QueryIteratorTree<'index> {
     }
 }
 
+/// Whether the term readers of a subtree must read offsets whatever the scorer.
+///
+/// Evaluation starts at [`Automatic`](Self::Automatic), and a phrase that
+/// filters by term position promotes its descendants to
+/// [`Required`](Self::Required). Only [`expansion_needs_offsets`] consults it.
+#[expect(rustdoc::private_intra_doc_links)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OffsetRequirement {
+    /// The node's own options and the scorer decide.
+    Automatic,
+    /// An enclosing phrase filters by term position.
+    Required,
+}
+
 /// Evaluate a single query node, producing the corresponding iterator.
 ///
 /// Returns `None` when the node produces no results.
@@ -246,10 +266,16 @@ impl<'index> QueryIteratorTree<'index> {
 /// that reads a payload out of the node (e.g. a token handle) keeps it
 /// shared-borrowed, and can therefore neither mutate it nor hand it on to a
 /// callee that might.
+///
+/// `offsets` is the requirement imposed by the node's ancestors; leaves pass it
+/// to [`expansion_needs_offsets`], and phrases may tighten it for their
+/// children.
+#[expect(rustdoc::private_intra_doc_links)]
 pub fn eval_node<'index>(
     ctx: &'index mut QueryEvalContext,
     node: QueryNodeMut<'_>,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> Option<Evaluated<'index>> {
     match node.as_enum() {
         QueryNode::Null => Some(null::eval()),
@@ -258,21 +284,23 @@ pub fn eval_node<'index>(
         QueryNode::Missing { field_index } => {
             missing::eval(ctx, field_index).map(Evaluated::RustLeaf)
         }
-        QueryNode::Optional => Some(optional::eval(ctx, node, config)),
+        QueryNode::Optional => Some(optional::eval(ctx, node, config, offsets)),
         QueryNode::Not => Some(not::eval(ctx, node, config)),
-        QueryNode::Phrase { exact } => phrase::eval(ctx, node, exact, config),
-        QueryNode::Union => Some(union::eval(ctx, node, config)),
+        QueryNode::Phrase { exact } => phrase::eval(ctx, node, exact, config, offsets),
+        QueryNode::Union => Some(union::eval(ctx, node, config, offsets)),
         QueryNode::Numeric { nf } => numeric::eval(ctx, nf, config),
         QueryNode::Geo { gf } => geo::eval(ctx, gf, config),
-        QueryNode::Token { tok } => token::eval(ctx, &node, tok, config),
+        QueryNode::Token { tok } => token::eval(ctx, &node, tok, config, offsets),
         QueryNode::Geometry { geomq } => geometry::eval(ctx, geomq),
         QueryNode::Vector { vq } => vector::eval(ctx, node, vq, config),
-        QueryNode::Prefix { tok, mode } => prefix::eval(ctx, &node, tok, mode, config),
-        QueryNode::Fuzzy { tok, max_dist } => fuzzy::eval(ctx, &node, tok, max_dist, config),
+        QueryNode::Prefix { tok, mode } => prefix::eval(ctx, &node, tok, mode, config, offsets),
+        QueryNode::Fuzzy { tok, max_dist } => {
+            fuzzy::eval(ctx, &node, tok, max_dist, config, offsets)
+        }
         QueryNode::Tag { field_index } => tag::eval(ctx, node, field_index, config),
         // Binds nothing, so the node stays free to be passed on by value —
         // evaluation rewrites its token.
-        QueryNode::WildcardQuery { .. } => wildcard_query::eval(ctx, node, config),
+        QueryNode::WildcardQuery { .. } => wildcard_query::eval(ctx, node, config, offsets),
     }
 }
 
@@ -282,8 +310,9 @@ fn eval_child_iterator(
     ctx: &mut QueryEvalContext,
     child: QueryNodeMut<'_>,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> CRQEIterator {
-    into_child_iterator(eval_node(&mut *ctx, child, config))
+    into_child_iterator(eval_node(&mut *ctx, child, config, offsets))
 }
 
 /// Lower an evaluated node into an owning [`CRQEIterator`], for use as a child
@@ -306,12 +335,15 @@ fn into_child_iterator(evaluated: Option<Evaluated<'_>>) -> CRQEIterator {
 }
 
 /// Whether a term disk reader must carry term offsets: required when the node
-/// forces slop/in-order matching, or when the effective scorer needs positions.
+/// forces slop/in-order matching ([`slop_forces_offsets`]), when an enclosing
+/// phrase does so on its behalf ([`OffsetRequirement::Required`]), or when the
+/// effective scorer needs positions.
 /// Used only on the disk path.
 fn expansion_needs_offsets(
     ctx: &mut QueryEvalContext,
     opts: &QueryNodeOptions,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> bool {
     // The query's own scorer wins; a query that sets none falls back to the
     // configured default, while a custom (non built-in) scorer conservatively
@@ -321,7 +353,8 @@ fn expansion_needs_offsets(
         RequestedScorer::Custom(_) => None,
         RequestedScorer::BuiltIn(scorer) => Some(scorer),
     };
-    slop_forces_offsets(opts.max_slop, opts.in_order)
+    offsets == OffsetRequirement::Required
+        || slop_forces_offsets(opts.max_slop, opts.in_order)
         || scorer.is_none_or(BuiltInScorer::needs_offsets)
 }
 

@@ -17,7 +17,10 @@ use rqe_iterators::{
     intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator},
 };
 
-use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, eval_child_iterator, eval_node};
+use crate::{
+    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_child_iterator,
+    eval_node,
+};
 
 /// `QN_PHRASE` — an ordered/unordered conjunction of child terms.
 ///
@@ -39,6 +42,7 @@ pub(crate) fn eval<'index>(
     mut node: QueryNodeMut<'_>,
     exact: bool,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> Option<Evaluated<'index>> {
     let num_children = node.num_children();
     let node_mask = node.opts().field_mask;
@@ -46,7 +50,7 @@ pub(crate) fn eval<'index>(
     if num_children == 1 {
         let mut child = node.child_mut(0);
         child.and_field_mask(node_mask);
-        return eval_node(ctx, child, config);
+        return eval_node(ctx, child, config, offsets);
     }
 
     let weight = node.opts().weight;
@@ -65,12 +69,20 @@ pub(crate) fn eval<'index>(
         (max_slop, in_order)
     };
 
+    // Children don't carry the phrase's slop/order, so the position filter
+    // needs them to read offsets regardless of scorer; see `OffsetRequirement`.
+    let child_offsets = if max_slop.is_some() || in_order {
+        OffsetRequirement::Required
+    } else {
+        offsets
+    };
+
     // Recursively evaluate every child, narrowing its field mask first.
     let mut children = Vec::with_capacity(num_children);
     for i in 0..num_children {
         let mut child = node.child_mut(i);
         child.and_field_mask(node_mask);
-        children.push(eval_child_iterator(ctx, child, config));
+        children.push(eval_child_iterator(ctx, child, config, child_offsets));
     }
 
     let result_ptr = match new_intersection_iterator(children) {
