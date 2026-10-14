@@ -72,14 +72,11 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
       tok.sign = *start2 == '-' ? -1 : 1;
       ++start2;
     }
-    tok.s = start2;
-    int is_attr = (*(tok.s) == '$') ? 1 : 0;
-    tok.len = (te - start2) + 1 - is_attr;
+    int is_attr = (*start2 == '$') ? 1 : 0;
+    tok.s = start2 + is_attr;
+    tok.len = te - tok.s;
 
     if(is_attr) {
-      tok.s++;
-      // `te` is one past the match, so the length above also covers the next character.
-      tok.len = te - tok.s;
       RSQuery_Parse_v2(pParser, ATTRIBUTE, tok, q);
     } else {
       char *ne = (char*)te;
