@@ -74,8 +74,11 @@ def test_owned_hybrid_timeout_preserves_completed_input_window():
         for row in rows:
             env.assertContains(row, expected['results'], message=result)
         unfinished = ['VSIM', 'SEARCH'][completed]
-        env.assertEqual(result['warnings'], [f'Timeout limit was reached ({unfinished})'],
-                        message=result)
+        # The other producer may publish its complete window before recovery.
+        # It must not turn the already completed input into a timeout source.
+        env.assertContains(result['warnings'],
+                           [[f'Timeout limit was reached ({unfinished})'],
+                            ['Timeout limit was reached (POST PROCESSING)']], message=result)
     finally:
         for point in points:
             env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
