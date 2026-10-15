@@ -22,6 +22,9 @@ static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, siz
     }
     BlkAllocBlock *curNext = cur->next;
     if (reuse && cur->capacity <= maxBlockSize) {
+      // getNewBlock only looks at the head of the free list, which is as good a fit as any only while
+      // every recycled block has the same capacity.
+      RS_LOG_ASSERT(!blocks->avail || blocks->avail->capacity == cur->capacity, "recycled blocks must share one capacity");
       cur->next = blocks->avail;
       blocks->avail = cur;
     } else {
@@ -53,8 +56,7 @@ void BlkAlloc_Clear(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, size_t
 
 static BlkAllocBlock *getNewBlock(BlkAlloc *alloc, size_t blockSize) {
   BlkAllocBlock *block = NULL;
-  // Only the head is considered so that allocation never walks the free list. Callers recycle
-  // blocks of a single size, which makes the head as good a fit as any.
+  // Only the head is considered so that allocation never walks the free list (see freeCommon).
   if (alloc->avail && alloc->avail->capacity >= blockSize) {
     block = alloc->avail;
     alloc->avail = block->next;
