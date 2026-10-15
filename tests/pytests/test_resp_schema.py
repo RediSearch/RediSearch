@@ -292,14 +292,15 @@ def test_resp_schema_profile_and_timeout():
             reply = runDebugQueryCommandTimeoutAfterN(env, command, 5, internal_only=True)
             result = rows(env, reply)
             if protocol == 3:
-                # Drain admits other ready shard batches without waiting for them.
+                # Ready shard batches may include rows beyond the debug Next limit.
                 env.assertGreaterEqual(len(result), 5, message=result)
-                env.assertLessEqual(len(result), 5 * len(shards), message=result)
+                env.assertLessEqual(len(result), 60, message=result)
             else:
                 env.assertEqual(len(result), 60)
             env.assertEqual(len({row['id'] for row in result}), len(result), message=result)
             for row in result:
                 env.assertEqual(set(row), {'id'})
+                env.assertContains(int(row['id']), range(60), message=row)
             if protocol == 3:
                 VerifyTimeoutWarningResp3(env, reply)
 
@@ -375,8 +376,7 @@ def test_resp_schema_buffered_timeout():
                         chunk = payload(env, reply)
                         env.assertEqual(chunk[0], TAG)
                         decoded = decode_schema(env, chunk)
-                        # The safe loader has loaded the entire batch before the pause;
-                        # Drain recovers its remainder after the three stored rows.
+                        # The loaded batch is ready even though only three rows were stored.
                         env.assertEqual(decoded, [
                             {'id': str(i), **({'optional': 'value'} if i % 2 else {})}
                             for i in range(6)])
