@@ -3097,7 +3097,8 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
          // The publication handoff protects last_rc; never inspect a running
          // producer merely to discover whether it timed out.
          RPStatus terminal = ((RPSafeDepleter *)producer)->last_rc;
-         if (terminal == RS_RESULT_TIMEDOUT || terminal == RS_RESULT_ERROR) {
+         if (terminal == RS_RESULT_EOF || terminal == RS_RESULT_TIMEDOUT ||
+             terminal == RS_RESULT_ERROR) {
            self->upstreamReturnCodes[i] = terminal;
            if (terminal == RS_RESULT_ERROR) return RP_DRAIN_ERROR;
          }
