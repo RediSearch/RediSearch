@@ -869,41 +869,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     return rc;
   }
 
-  // If the queue is not full - we just push the result into it
-  if (self->pq->count < self->pq->size) {
-
-    // The pooled result currently borrows `it->current` from the source
-    // iterator; the next Read() overwrites that slot, so the borrow would
-    // dangle once the SearchResult lives in the heap across reads. Preserve it
-    // as an owned deep copy when something downstream needs it, otherwise drop
-    // the borrow.
-    SearchResult_BufferIndexResult(rp, self->pooledResult);
-    mmh_insert(self->pq, self->pooledResult);
-    if (SearchResult_GetScore(self->pooledResult) < rp->parent->minScore) {
-      rp->parent->minScore = SearchResult_GetScore(self->pooledResult);
-    }
-    // we need to allocate a new result for the next iteration
-    self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
-    *self->pooledResult = SearchResult_New();
-  } else {
-    // find the min result
-    SearchResult *minh = mmh_peek_min(self->pq);
-
-    // update the min score. Irrelevant to SORTBY mode but hardly costs anything...
-    if (SearchResult_GetScore(minh) > rp->parent->minScore) {
-      rp->parent->minScore = SearchResult_GetScore(minh);
-    }
-
-    // if needed - pop it and insert a new result
-    if (self->cmp(self->pooledResult, minh, self->cmpCtx) > 0) {
-      // Preserve or drop the borrowed RSIndexResult before the SearchResult
-      // enters the heap; see the matching insert path above for the rationale.
-      SearchResult_BufferIndexResult(rp, self->pooledResult);
-      self->pooledResult = mmh_exchange_min(self->pq, self->pooledResult);
-    }
-    // clear the result in preparation for the next iteration
-    SearchResult_Clear(self->pooledResult);
-  }
+  rpsortAccumulate(rp);
   return RESULT_QUEUED;
 }
 
