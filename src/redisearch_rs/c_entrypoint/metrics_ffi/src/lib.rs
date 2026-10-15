@@ -125,27 +125,31 @@ pub unsafe extern "C" fn MetricsVec_AsSlice(metrics: *const MetricsVec) -> Metri
     vec.as_metrics_slice()
 }
 
-/// Finds the first metric whose key matches `key` (pointer equality) and
-/// replaces its value.
+/// Sets the value carried under `key`, appending a new entry if none carries it yet.
+///
+/// See [`MetricsVec::upsert_with_key`] for which metrics belong here rather than in
+/// [`ResultMetrics_Add`].
 ///
 /// # Safety
 ///
 /// 1. `metrics` must point to a valid `MetricsVec` (e.g. `&result.metrics`).
-/// 2. `key` must point to a valid `RLookupKey`. Compared by pointer identity.
+/// 2. `key` must be non-null and point to a valid `RLookupKey` that outlives the
+///    collection, since a key not already present is stored rather than ignored.
+///    Compared by pointer identity. Unlike [`ResultMetrics_Add`], null is not accepted:
+///    a caller holding an optional key must check it first.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn MetricsVec_UpdateValue(
-    metrics: *mut MetricsVec,
+pub unsafe extern "C" fn MetricsVec_UpsertValue<'a>(
+    metrics: *mut MetricsVec<'a>,
     key: *const RLookupKey,
     new_value: f64,
 ) {
     debug_assert!(!metrics.is_null(), "metrics must not be null");
     debug_assert!(!key.is_null(), "key must not be null");
 
-    // SAFETY: caller guarantees validity (1) and (2).
+    // SAFETY: caller guarantees validity (1).
     let vec = unsafe { &mut *metrics };
-    // SAFETY: caller guarantees `key` is valid and non-null (2); checked by debug_assert above.
+    // SAFETY: caller guarantees `key` is valid, non-null and outlives the collection (2);
+    // non-null is checked by the debug_assert above.
     let key = unsafe { &*key };
-    if let Some(entry) = vec.find_by_key_mut(key) {
-        entry.set_value(new_value);
-    }
+    vec.upsert_with_key(key, new_value);
 }
