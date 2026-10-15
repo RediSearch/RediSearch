@@ -58,15 +58,17 @@ unsafe fn free_iterators_array(its: *mut *mut QueryIterator) {
 ///
 /// # Safety
 ///
-/// 1. `its` must be a valid non-null pointer to an array of `num`
+/// 1. `its` must be a [valid] non-null pointer to an array of `num`
 ///    `QueryIterator*` values, allocated with the Redis allocator (`rm_malloc`).
 ///    Ownership is transferred to this function.
-/// 2. Every non-null pointer in `its` must be a valid `QueryIterator` whose
+/// 2. Every non-null pointer in `its` must be a [valid] `QueryIterator` whose
 ///    callbacks are set.
 /// 3. Null entries in `its` are treated as empty iterators.
-/// 4. `config` must be a valid non-null pointer to an [`IteratorsConfig`].
-/// 5. `q_str` must be null or a valid, NUL-terminated C string that outlives
+/// 4. `config` must be a [valid] non-null pointer to an [`IteratorsConfig`].
+/// 5. `q_str` must be null or a [valid], NUL-terminated C string that outlives
 ///    the returned iterator — the requirement of [`build_union`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewUnionIterator(
     its: *mut *mut QueryIterator,
@@ -135,8 +137,10 @@ pub unsafe extern "C" fn NewUnionIterator(
 ///
 /// # Safety
 ///
-/// 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+/// 1. `it` must be a [valid] non-null pointer to a non-reduced union iterator
 ///    created via [`NewUnionIterator`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrimUnionIterator(it: *mut QueryIterator, limit: usize, asc: bool) {
     debug_assert!(!it.is_null());

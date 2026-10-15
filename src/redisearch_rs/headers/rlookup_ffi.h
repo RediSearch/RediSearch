@@ -240,7 +240,7 @@ void RLookupRow_Reset(struct RLookupRow *row);
  *
  * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
  * 2. `sv` must be either null or a [valid] pointer to an [`sorting_vector::RSSortingVector`].
- *    The pointed-to vector must remain valid for the lifetime of the row.
+ *    The pointed-to vector must remain [valid] for the lifetime of the row.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -591,7 +591,7 @@ bool RLookup_HasIndexSpecCache(const struct RLookup *lookup);
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- * 2. The returned iterator must only be used as long as the `lookup` remains valid.
+ * 2. The returned iterator must only be used as long as the `lookup` remains [valid].
  * 3. `lookup` must not be mutated until the returned iterator is exhausted.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -655,7 +655,7 @@ int RLookup_LoadDocumentIndividual(struct RLookup *lookup, struct RLookupRow *ds
  *     1. The entire memory range of this `CStr` must be contained within a single allocation!
  *     2. `key` must be non-null even for a zero-length cstr.
  * 7. The nul terminator must be within `isize::MAX` from `key`
- * 8. `open_key`, if non-null, must be a valid, already-open `redis_module::RedisModuleKey` handle for
+ * 8. `open_key`, if non-null, must be a [valid], already-open `redis_module::RedisModuleKey` handle for
  *    `key` that outlives this call. It is borrowed, not closed here. Pass null to open by name.
  * 9. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
  *
@@ -697,11 +697,11 @@ void RLookup_Seal(struct RLookup *lookup);
  *    the caller must transfer an owned reference to it (see above).
  * 3. For as long as the lookup holds the cache, the [`ffi::IndexSpecCache`]
  *    being pointed to, and everything reachable through it, MUST NOT get
- *    mutated: its `fields` pointer MUST point to a valid array of `nfields`
+ *    mutated: its `fields` pointer MUST point to a [valid] array of `nfields`
  *    `FieldSpec`s (or be null with `nfields == 0`), every pointer nested in
- *    those entries (e.g. `fieldName`) MUST stay valid with string fields
+ *    those entries (e.g. `fieldName`) MUST stay [valid] with string fields
  *    NUL-terminated, and each special document-field name (`lang_field`,
- *    `score_field`, `payload_field`) MUST be null or a valid, NUL-terminated
+ *    `score_field`, `payload_field`) MUST be null or a [valid], NUL-terminated
  *    string.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -744,9 +744,11 @@ void RLookup_WriteOwnKey(const RLookupKey *key, struct RLookupRow *row, struct R
  *
  * # Safety
  *
- * 1. `keys` must point to an array of at least `nkeys` valid, non-null `RLookupKey` pointers.
- * 2. `h1` and `h2` must be valid, non-null pointers to a `SearchResult`.
- * 3. `qerr`, when non-null, must be a valid, writable pointer to a `QueryError`.
+ * 1. `keys` must point to an array of at least `nkeys` [valid], non-null `RLookupKey` pointers.
+ * 2. `h1` and `h2` must be [valid], non-null pointers to a `SearchResult`.
+ * 3. `qerr`, when non-null, must be a [valid], writable pointer to a `QueryError`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int SearchResult_CmpByFields(const RLookupKey *const *keys, size_t nkeys, const struct SearchResult *h1, const struct SearchResult *h2, uint64_t ascend_map, struct QueryError *qerr);
 

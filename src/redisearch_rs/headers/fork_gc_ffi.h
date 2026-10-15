@@ -53,11 +53,13 @@ extern "C" {
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ * 1. `gc` must point to a [valid] [`ffi::ForkGC`], with no other reference to it
  *    alive for the duration of this call.
- * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
- * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 2. `sctx` must point to a [valid] [`ffi::RedisSearchCtx`].
+ * 3. `sctx.spec` must be a non-null pointer to a [valid] [`ffi::IndexSpec`].
  * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx);
 
@@ -75,11 +77,13 @@ void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx);
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ * 1. `gc` must point to a [valid] [`ffi::ForkGC`], with no other reference to it
  *    alive for the duration of this call.
- * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
- * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 2. `sctx` must point to a [valid] [`ffi::RedisSearchCtx`].
+ * 3. `sctx.spec` must be a non-null pointer to a [valid] [`ffi::IndexSpec`].
  * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx);
 
@@ -97,11 +101,13 @@ void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx);
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ * 1. `gc` must point to a [valid] [`ffi::ForkGC`], with no other reference to it
  *    alive for the duration of this call.
- * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
- * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 2. `sctx` must point to a [valid] [`ffi::RedisSearchCtx`].
+ * 3. `sctx.spec` must be a non-null pointer to a [valid] [`ffi::IndexSpec`].
  * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx);
 
@@ -120,11 +126,13 @@ void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx);
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ * 1. `gc` must point to a [valid] [`ffi::ForkGC`], with no other reference to it
  *    alive for the duration of this call.
- * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
- * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 2. `sctx` must point to a [valid] [`ffi::RedisSearchCtx`].
+ * 3. `sctx.spec` must be a non-null pointer to a [valid] [`ffi::IndexSpec`].
  * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx);
 
@@ -150,8 +158,10 @@ void FGC_freeBuffer(void *buf, size_t len);
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ * 1. `gc` must point to a [valid] [`ffi::ForkGC`], with no other reference to it
  *    alive for the duration of this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 enum FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
 
@@ -167,8 +177,10 @@ enum FGCError FGC_parentHandleExistingDocs(ForkGC *gc);
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ * 1. `gc` must point to a [valid] [`ffi::ForkGC`], with no other reference to it
  *    alive for the duration of this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 enum FGCError FGC_parentHandleMissingDocs(ForkGC *gc);
 
@@ -184,8 +196,10 @@ enum FGCError FGC_parentHandleMissingDocs(ForkGC *gc);
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ * 1. `gc` must point to a [valid] [`ffi::ForkGC`], with no other reference to it
  *    alive for the duration of this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 enum FGCError FGC_parentHandleNumeric(ForkGC *gc);
 
@@ -201,8 +215,10 @@ enum FGCError FGC_parentHandleNumeric(ForkGC *gc);
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ * 1. `gc` must point to a [valid] [`ffi::ForkGC`], with no other reference to it
  *    alive for the duration of this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 enum FGCError FGC_parentHandleTerms(ForkGC *gc);
 
@@ -222,10 +238,12 @@ enum FGCError FGC_parentHandleTerms(ForkGC *gc);
  *
  * # Safety
  *
- * 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an
+ * 1. `fgc` must point to a [valid] `ForkGC` whose `pipe_read_fd` is an
  *    open, readable file descriptor.
  * 2. `buf` and `len` must point to writable `void*` and `size_t`
  *    locations respectively.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int FGC_recvBuffer(ForkGC *fgc, void * *buf, size_t *len);
 
@@ -238,9 +256,11 @@ int FGC_recvBuffer(ForkGC *fgc, void * *buf, size_t *len);
  *
  * # Safety
  *
- * 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an open,
+ * 1. `fgc` must point to a [valid] `ForkGC` whose `pipe_read_fd` is an open,
  *    readable file descriptor.
  * 2. `buf` must point to a writable region of at least `len` bytes.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
 
@@ -253,11 +273,13 @@ int FGC_recvFixed(ForkGC *fgc, void *buf, size_t len);
  *
  * # Safety
  *
- * 1. `fgc` must point to a valid `ForkGC` whose `pipe_write_fd` is an open,
+ * 1. `fgc` must point to a [valid] `ForkGC` whose `pipe_write_fd` is an open,
  *    writable file descriptor.
  * 2. If `len > 0`, `buff` must point to a readable region of at least
  *    `len` bytes. When `len == 0`, `buff` is unused and may be anything
  *    (including NULL).
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len);
 
@@ -269,10 +291,12 @@ void FGC_sendBuffer(ForkGC *fgc, const void *buff, size_t len);
  *
  * # Safety
  *
- * 1. `fgc` must point to a valid `ForkGC` whose `pipe_write_fd` is an open,
+ * 1. `fgc` must point to a [valid] `ForkGC` whose `pipe_write_fd` is an open,
  *    writable file descriptor.
  * 2. `buff` must point to a readable region of at least `len` bytes.
  * 3. `len` must be greater than zero.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len);
 
@@ -285,8 +309,10 @@ void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len);
  *
  * # Safety
  *
- * 1. `fgc` must point to a valid `ForkGC` whose `pipe_write_fd` is an open,
+ * 1. `fgc` must point to a [valid] `ForkGC` whose `pipe_write_fd` is an open,
  *    writable file descriptor.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void FGC_sendTerminator(ForkGC *fgc);
 
@@ -300,11 +326,13 @@ void FGC_sendTerminator(ForkGC *fgc);
  *
  * # Safety
  *
- * 1. `fgc` must point to a valid `ForkGC` whose `pipe_read_fd` is an open,
+ * 1. `fgc` must point to a [valid] `ForkGC` whose `pipe_read_fd` is an open,
  *    readable file descriptor.
  * 2. `field_name` and `field_name_len` must point to writable `char*` and
  *    `size_t` locations respectively.
  * 3. `id_ptr` must point to a writable `uint64_t` location.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 enum FGCError recvFieldHeader(ForkGC *fgc, char * *field_name, size_t *field_name_len, uint64_t *id_ptr);
 

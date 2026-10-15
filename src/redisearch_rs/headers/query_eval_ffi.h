@@ -34,24 +34,26 @@ extern "C" {
  *
  * # Safety
  *
- * 1. `qast` must be a non-null pointer to a valid [`QueryAST`] whose `root` is
- *    a valid [`RSQueryNode`](ffi::RSQueryNode); it (and its
- *    `metricRequests`/`config` fields) must stay valid and exclusively borrowed
+ * 1. `qast` must be a non-null pointer to a [valid] [`QueryAST`] whose `root` is
+ *    a [valid] [`RSQueryNode`](ffi::RSQueryNode); it (and its
+ *    `metricRequests`/`config` fields) must stay [valid] and exclusively borrowed
  *    for the duration of the call. The root's subtree must also satisfy
  *    invariants (4) and (5) of [`QueryNodeMut::new`], since evaluation
  *    rewrites tokens in place.
- * 2. `opts` must be a non-null pointer to a valid [`RSSearchOptions`].
- * 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
- *    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec). `sctx` and the
- *    request timeout reached through `sctx.timeout` must stay valid at stable
+ * 2. `opts` must be a non-null pointer to a [valid] [`RSSearchOptions`].
+ * 3. `sctx` must be a non-null pointer to a [valid] [`RedisSearchCtx`] whose
+ *    `spec` is a [valid], non-null [`IndexSpec`](ffi::IndexSpec). `sctx` and the
+ *    request timeout reached through `sctx.timeout` must stay [valid] at stable
  *    addresses for the lifetime of the returned iterator. Timeout source
  *    changes and deadline writes may occur only between iterator probes;
  *    only the blocked-client flag may change concurrently.
- * 4. `status` must be a non-null pointer to a valid [`QueryError`].
+ * 4. `status` must be a non-null pointer to a [valid] [`QueryError`].
  *
  * Together these are exactly the invariants documented on
- * [`QueryEvalContext::new`] for the assembled context, which remains valid for
+ * [`QueryEvalContext::new`] for the assembled context, which remains [valid] for
  * the lifetime of the returned iterator.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
 
