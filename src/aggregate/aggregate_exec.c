@@ -44,6 +44,7 @@
 #include "module.h"
 #include "result_processor.h"
 #include "pipeline_execution.h"
+#include "coord/rpnet.h"
 #include "profile/options.h"
 #include "reply_empty.h"
 #include "search_disk.h"
@@ -1677,6 +1678,10 @@ static void drainAndReplyOwned(PipelineAccess *access, void *data) {
   }
 
   AREQ *req = reply->request;
+  if (reply->coordinator && qctx->rootProc && qctx->rootProc->type == RP_NETWORK) {
+    RPNet *net = (RPNet *)qctx->rootProc;
+    if (net->it) MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(net->it));
+  }
   ChunkReplyState *stored = &req->base.reply;
   AREQ_SearchCtx(req)->redisCtx = NULL;
   // A completed EOF or fatal error takes precedence over a later timeout.
@@ -1703,6 +1708,10 @@ void AREQ_ReplyOwnedTimeout(RedisModuleCtx *ctx, AREQ *req, RedisModuleString **
                              .cursorRead = cursorRead,
                              .coordinator = coordinator};
   PipelineExecution_RunDrain(req->base.execution, drainAndReplyOwned, &reply);
+  if (coordinator) {
+    // Cleanup only: reply/recovery never waits for this worker to run.
+    QueryRequestAsyncState_WakeAbortChannel(&req->base.async);
+  }
 }
 
 // Timeout callback for AREQ execution in Run in Threads mode.

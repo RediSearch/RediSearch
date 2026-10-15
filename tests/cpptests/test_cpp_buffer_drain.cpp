@@ -123,6 +123,10 @@ class OwnedBufferDrainTest : public ::testing::Test {
 };
 
 TEST_F(OwnedBufferDrainTest, UnstartedAccumulatorsDoNotPullSource) {
+  source.Drain = [](ResultProcessor *base, SearchResult *) {
+    ++static_cast<OwnedBufferSource *>(base)->drainCalls;
+    return RP_DRAIN_EOF;
+  };
   for (auto *processor :
        {RPSorter_NewByScore(3, nullptr), RPMaxScoreNormalizer_New(key), RPDepleter_New()}) {
     attach(processor);
@@ -131,6 +135,28 @@ TEST_F(OwnedBufferDrainTest, UnstartedAccumulatorsDoNotPullSource) {
     EXPECT_EQ(processor->type == RP_SORTER || processor->type == RP_DEPLETER ? 1 : 0,
               source.drainCalls);
     source.drainCalls = 0;
+    rp->Free(rp);
+    rp = nullptr;
+  }
+}
+
+TEST_F(OwnedBufferDrainTest, EmptyAccumulatorRecoveryIsCompositional) {
+  for (auto *processor : {RPSorter_NewByScore(3, nullptr), RPDepleter_New()}) {
+    source.drainCalls = 0;
+    source.Drain = [](ResultProcessor *base, SearchResult *result) {
+      auto *self = static_cast<OwnedBufferSource *>(base);
+      if (self->drainCalls++) return RP_DRAIN_EOF;
+      SearchResult_SetScore(result, 5);
+      return RP_DRAIN_OK;
+    };
+    attach(processor);
+    ASSERT_EQ(RP_DRAIN_OK, rp->Drain(rp, &row));
+    EXPECT_EQ(5, SearchResult_GetScore(&row));
+    SearchResult_Clear(&row);
+    EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &row));
+    EXPECT_EQ(RP_DRAIN_EOF, rp->Drain(rp, &row));
+    EXPECT_EQ(2, source.drainCalls);
+    EXPECT_EQ(0, source.nextCalls);
     rp->Free(rp);
     rp = nullptr;
   }
