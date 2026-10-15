@@ -78,7 +78,8 @@ void serializePublishedResults_hybrid(HybridRequest *hreq, RedisModule_Reply *re
                                       const bool *published);
 
 // Caller marks the request and every producer timeout before acquiring the tail.
-void HREQ_ReplyOwnedTimeout(RedisModuleCtx *ctx, HybridRequest *hreq);
+// False means no pipeline was published; caller replies using construction-safe metadata.
+bool HREQ_ReplyOwnedTimeout(RedisModuleCtx *ctx, HybridRequest *hreq);
 // Pipelines are complete, but no producer job has been dispatched yet.
 void HREQ_EnableProducerOwnership(HybridRequest *hreq);
 

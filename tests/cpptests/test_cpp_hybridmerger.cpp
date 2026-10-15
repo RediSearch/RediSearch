@@ -377,8 +377,8 @@ TEST_F(HybridMergerTest, DrainPreservesCompletedUnvisitedProducerStatus) {
   QueryProcessingCtx producerContext = {};
   QueryProcessingCtx tailContext = {};
   MockUpstream input(0, {1}, {1});
-  auto *producer = RPSafeDepleter_New(DepleterSync_New(1, false), GetDummySearchCtx(),
-                                     depleterPool);
+  auto *producer =
+      RPSafeDepleter_New(DepleterSync_New(1, false), GetDummySearchCtx(), depleterPool);
   input.parent = &producerContext;
   producer->upstream = &input;
   producer->parent = &producerContext;
