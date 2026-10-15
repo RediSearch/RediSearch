@@ -54,6 +54,9 @@ typedef struct ForwardIndex {
   Stemmer *stemmer;
   SynonymMap *smap;
   BlkAlloc terms;
+  // Holds exactly the entries of `hits`: nothing else allocates from it, every entry is linked into its
+  // bucket on allocation and never unlinked before reset, and its `hash` is the one it was bucketed by.
+  // Iterating and clearing walk these blocks instead of the buckets, so both depend on it.
   BlkAlloc entries;
   mempool_t *vvwPool;
 
