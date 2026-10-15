@@ -11,8 +11,15 @@
 
 #include <stdlib.h>
 #include <stdbool.h>
+#include "util/rs_atomic.h"
+#ifndef __cplusplus
 #include <stdatomic.h>
+#endif
 #include <time.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct MRChannel MRChannel;
 MRChannel *MR_NewChannel();
@@ -27,12 +34,18 @@ void *MRChannel_Pop(MRChannel *chan);
 // Thread-safe pop that returns NULL immediately when the channel is empty.
 void *MRChannel_TryPop(MRChannel *chan);
 
+// Wait for readable input or a one-shot unblock without removing an item. An
+// ownership waiter must not steal rows from a drainer before gaining admission.
+// Cancellation is checked before sleeping and on natural wakes; no wake is required
+// for another consumer to drain. The caller retains the channel for the whole wait.
+void MRChannel_WaitReadable(MRChannel *chan, const RS_Atomic(bool) * cancel);
+
 /* Pop an item, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or abort
  * flag (re-checked on each wait entry; pair with MRChannel_WakeAbort). `timedOut`
  * set if deadline expired. At least one of `abstime` / `abortFlag` must be non-NULL;
  * callers wanting an indefinite blocking pop should use MRChannel_Pop. */
 void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstime,
-                               atomic_bool *abortFlag, bool *timedOut);
+                               RS_Atomic(bool) * abortFlag, bool *timedOut);
 
 /* Wake any thread currently blocked in MRChannel_PopWithTimeout so it re-evaluates
  * its abort flag. Safe to call even if no reader is blocked. */
@@ -49,3 +62,7 @@ size_t MRChannel_Size(MRChannel *chan);
 
 // Free the channel. Assumes the caller has already emptied the channel.
 void MRChannel_Free(MRChannel *chan);
+
+#ifdef __cplusplus
+}
+#endif

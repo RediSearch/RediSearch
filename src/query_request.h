@@ -32,6 +32,7 @@ typedef struct ResultProcessor ResultProcessor;
 typedef struct SearchResult SearchResult;
 struct Cursor;
 struct MRChannel;
+struct PipelineExecution;
 
 #define QUERY_OFFSET_NONE UINT32_MAX
 
@@ -350,6 +351,9 @@ typedef struct QueryRequest {
   ChunkReplyState reply;
   QueryRequestTimeout timeout;
   QueryRequestAsyncState async;
+  // Optional STRICT domain, published before dispatch and freed after all cycle
+  // borrowers finish. Disk and not-yet-migrated drivers retain legacy sync.
+  struct PipelineExecution *execution;
   /**
    * Transitional reference to the legacy QueryProcessingCtx.endProc slot.
    * The extra indirection makes changes to that slot immediately visible here,
