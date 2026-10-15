@@ -4107,7 +4107,11 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   RSTimeoutPolicy policy = hreq->base.timeout.config.timeoutPolicy;
   if (policy == TimeoutPolicy_ReturnStrict) {
-    hreq->base.execution = PipelineExecution_New(&hreq->base.timeout);
+    if (!SearchDisk_IsEnabled()) {
+      hreq->base.execution = PipelineExecution_New(&hreq->base.timeout);
+    } else {
+      hreq->base.async.requiresAggregateResultsSync = true;
+    }
   }
 
   RedisModuleCmdFunc reply_cb = NULL, timeout_cb = NULL;
