@@ -11,11 +11,11 @@
 
 use ref_mode::{SharedPtr, Suspended};
 
-use std::{ffi::c_char, mem, ptr};
+use std::{ffi::c_char, ptr};
 
-use index_result::{
-    RSAggregateResult, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSQueryTerm, RSTermRecord,
-};
+#[cfg(doc)]
+use index_result::RSOffsetVector;
+use index_result::{RSAggregateResult, RSIndexResult, RSOffsetSlice, RSQueryTerm, RSTermRecord};
 use inverted_index::{FieldMask, NumericFilter};
 
 pub use inverted_index::{
@@ -660,55 +660,6 @@ pub unsafe extern "C" fn RSOffsetVector_SetData(
         unsafe { SharedPtr::<Suspended, _>::from_non_null(nn).into_active() }
     });
     offsets.len = len;
-}
-
-/// Free the data inside an offset vector.
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
-/// - The data pointer of `offsets` had been allocated via the global allocator
-///   and points to an array matching the length of `offsets`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSOffsetVector_FreeData(offsets: *mut RSOffsetVector) {
-    debug_assert!(!offsets.is_null(), "offsets must not be null");
-
-    // SAFETY: Caller is to ensure `offsets` is non-null and point to a valid RSOffsetVector.
-    let offsets = unsafe { &mut *offsets };
-
-    // Replace with empty; the old value is dropped, freeing the data.
-    let old = mem::replace(offsets, RSOffsetVector::empty());
-    drop(old);
-}
-
-/// Copy the data from one offset vector to another.
-///
-/// Deep copies the data array from `src` to `dest`.
-/// It's up to the caller to free the copied array using [`RSOffsetVector_FreeData`].
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `dest` must point to a valid [`RSOffsetVector`] and cannot be NULL.
-/// - `src` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
-///   and cannot be NULL.
-/// - `src` data should point to a valid array of `src.len` offsets.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSOffsetVector_CopyData(
-    dest: *mut RSOffsetVector,
-    src: *const RSOffsetSlice,
-) {
-    debug_assert!(!dest.is_null(), "offsets must not be null");
-    debug_assert!(!src.is_null(), "offsets must not be null");
-
-    // SAFETY: Caller is to ensure `src` is non-null and point to a valid offset vector.
-    let src = unsafe { &*src };
-    // SAFETY: Caller is to ensure `dest` is non-null and point to a valid RSOffsetVector.
-    let dest = unsafe { &mut *dest };
-
-    // Assign the new owned copy; the old value is auto-dropped, freeing old data.
-    *dest = src.to_owned();
 }
 
 /// Retrieve the number of offsets in an offset vector.

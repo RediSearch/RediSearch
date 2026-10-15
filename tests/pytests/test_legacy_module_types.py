@@ -226,8 +226,8 @@ def _module_sint(value):
 
 
 def _byte_offsets(fields, data, data_len=None):
-    """Serialize byte offsets the way RSByteOffsets_Serialize does. `data_len` overrides the length
-    prefix so the blob can claim more data than it carries."""
+    """Serialize byte offsets the way the 1.x RSByteOffsets_Serialize did. `data_len` overrides the
+    length prefix so the blob can claim more data than it carries."""
     blob = bytes([len(fields)])
     for field_id, first, last in fields:
         blob += bytes([field_id]) + struct.pack('>II', first, last)

@@ -9,6 +9,7 @@
 #ifndef __FORWARD_INDEX_H__
 #define __FORWARD_INDEX_H__
 #include "redisearch.h"
+#include "inverted_index.h"
 #include "util/block_alloc.h"
 #include "util/khtable.h"
 #include "util/mempool.h"

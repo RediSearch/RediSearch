@@ -32,7 +32,7 @@
 #include "module.h"
 #include "util/workers.h"
 #include "VecSim/vec_sim.h"
-#include "byte_offsets.h"
+#include "byte_offsets_ffi.h"
 #include "doc_table.h"
 #include "geometry_index.h"
 #include "geometry/geometry_api.h"
@@ -421,7 +421,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
       }
 
       if (cur->byteOffsets) {
-        ByteOffsetWriter_Move(&cur->offsetsWriter, cur->byteOffsets);
+        RSByteOffsets_TakeFromWriter(cur->byteOffsets, cur->offsetsWriter.vw);
         DocTable_SetByteOffsets(md, cur->byteOffsets);
         cur->byteOffsets = NULL;
       }

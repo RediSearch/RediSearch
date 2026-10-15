@@ -124,20 +124,6 @@ size_t VVW_GetCount(const struct VarintVectorWriter *writer);
 void VVW_Reset(struct VarintVectorWriter *writer);
 
 /**
- * Take ownership of the byte buffer stored in the vector.
- * After this call, `len` will be set to the length of the byte buffer while `writer`
- * will be left holding a fresh empty buffer.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
- * 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
- * 3. `len` cannot be NULL and the caller must have exclusive access to it.
- */
-uint8_t *VVW_TakeByteData(struct VarintVectorWriter *writer, size_t *len);
-
-/**
  * Resize the vector, dropping any excess capacity.
  *
  * # Safety

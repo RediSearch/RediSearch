@@ -16,7 +16,7 @@
 #include "stemmer.h"
 #include "redisearch.h"
 #include "stopwords.h"
-#include "byte_offsets.h"
+#include "byte_offsets_ffi.h"
 
 /**
  *
@@ -62,7 +62,7 @@ typedef struct {
   RSOffsetIterator *offsetIter;
   RSQueryTerm *curMatchRec;
   uint32_t curTokPos;
-  uint32_t curByteOffset;
+  TokenByteOffset curByteToken;
   FragmentTerm tmpTerm;
 } FragmentTermIterator;
 

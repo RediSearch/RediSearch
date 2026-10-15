@@ -37,32 +37,6 @@ typedef struct AggregateRecordsSlice {
   size_t len;
 } AggregateRecordsSlice;
 
-#ifndef RSOFFSETVECTOR_DEFINED
-#define RSOFFSETVECTOR_DEFINED
-/**
- * Borrowed view of the encoded offsets of a term in a document. You can read the offsets by
- * iterating over it with RSIndexResult_IterateOffsets.
- *
- * This is a borrowed, `Copy` type — it does not own the data and will not free it on drop.
- * Use [`RSOffsetVector`] for owned offset data.
- *
- * The `R: Ref` parameter selects between [`Active<'index>`] mode (the data
- * pointer is a valid `&'index [u8]`) and [`ref_mode::Suspended`] mode (the
- * data pointer may be stale).
- *
- * `data` is `Option<SharedPtr<R, u8>>` so the empty slice can be represented
- * with a null pointer. Thanks to `NonNull`'s niche, the in-memory layout
- * is still a bare `*const u8` followed by a `u32`.
- */
-typedef struct RSOffsetVector {
-  /**
-   * Pointer to the borrowed offset data, or `None` for the empty slice.
-   */
-  SharedPtr_Active__u8 data;
-  uint32_t len;
-} RSOffsetVector;
-#endif /* RSOFFSETVECTOR_DEFINED */
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -372,34 +346,6 @@ RSIndexResult *NewVirtualResult(double weight, t_fieldMask field_mask);
  * - `filter` must point to a valid `NumericFilter` and cannot be NULL.
  */
 bool NumericFilter_Match(const struct NumericFilter *filter, double value);
-
-/**
- * Copy the data from one offset vector to another.
- *
- * Deep copies the data array from `src` to `dest`.
- * It's up to the caller to free the copied array using [`RSOffsetVector_FreeData`].
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `dest` must point to a valid [`RSOffsetVector`] and cannot be NULL.
- * - `src` must point to a valid offset vector (either [`RSOffsetSlice`] or [`RSOffsetVector`])
- *   and cannot be NULL.
- * - `src` data should point to a valid array of `src.len` offsets.
- */
-void RSOffsetVector_CopyData(RSOffsetVector *dest, const RSOffsetSlice *src);
-
-/**
- * Free the data inside an offset vector.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `offsets` must point to a valid [`RSOffsetVector`] and cannot be NULL.
- * - The data pointer of `offsets` had been allocated via the global allocator
- *   and points to an array matching the length of `offsets`.
- */
-void RSOffsetVector_FreeData(RSOffsetVector *offsets);
 
 /**
  * Retrieve the offsets array from an offset vector.

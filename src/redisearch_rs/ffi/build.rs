@@ -536,8 +536,8 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `FieldExpirationPredicate` is taken by value in TTL table function
     // signatures (src/ttl_table.h).
     "field.h",
-    // `RSOffsetVector` is embedded by value in `RSByteOffsets`
-    // (src/byte_offsets.h) — the struct body is required.
+    // `NumericFilter` is embedded by value in `LegacyNumericFilter`
+    // (src/numeric_filter.h) — the struct body is required.
     "inverted_index.h",
     // Required by `inverted_index.h`.
     "index_result_rs.h",

@@ -86,6 +86,7 @@ exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" \
     --skip-empty \
     --exclude=redisearch_rs \
     --exclude=c_ffi_utils \
+    --package=byte_offsets \
     --package=document \
     --package=field \
     --package=index_result \
