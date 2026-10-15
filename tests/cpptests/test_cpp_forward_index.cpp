@@ -11,6 +11,7 @@
 #include "forward_index.h"
 #include "fnv_ffi.h"
 #include "spec.h"
+#include "indexes.h"
 
 #include <deque>
 #include <string>
@@ -196,4 +197,34 @@ TEST_F(ForwardIndexTest, presizeIgnoresNonTextFieldsAndIsCapped) {
   ASSERT_EQ(tagIdx->hits->numBuckets, textIdx->hits->numBuckets);
   ForwardIndexFree(tagIdx);
   ForwardIndexFree(textIdx);
+}
+
+TEST_F(ForwardIndexTest, documentContextPoolFreesContextsPastItsCap) {
+  static const char *args[] = {"SCHEMA", "t", "TEXT"};
+  QueryError err = QueryError_Default();
+  StrongRef ref = IndexSpec_ParseC(NULL, "fwidx_pool", args, sizeof(args) / sizeof(*args), &err);
+  ASSERT_TRUE(QueryError_IsOk(&err)) << QueryError_GetUserError(&err);
+  IndexSpec *sp = (IndexSpec *)StrongRef_Get(ref);
+
+  // More contexts in flight than the pool keeps, released twice so pooled contexts are also reused.
+  constexpr size_t numContexts = 40;
+  for (int round = 0; round < 2; ++round) {
+    std::vector<Document> docs(numContexts);
+    std::vector<RSAddDocumentCtx *> ctxs;
+    for (size_t i = 0; i < numContexts; ++i) {
+      std::string key = "doc" + std::to_string(i);
+      Document_Init(&docs[i], RedisModule_CreateString(NULL, key.c_str(), key.size()), 1, RS_LANG_ENGLISH, DocumentType_Hash);
+      docs[i].flags = DOCUMENT_F_OWNSTRINGS;
+      Document_AddFieldC(&docs[i], "t", "hello world", strlen("hello world"), INDEXFLD_T_FULLTEXT);
+      RSAddDocumentCtx *aCtx = NewAddDocumentCtx(sp, &docs[i], &err);
+      ASSERT_NE(aCtx, nullptr) << QueryError_GetUserError(&err);
+      aCtx->stateFlags |= ACTX_F_NOFREEDOC;
+      ctxs.push_back(aCtx);
+    }
+    for (size_t i = 0; i < numContexts; ++i) {
+      AddDocumentCtx_Free(ctxs[i]);
+      Document_Free(&docs[i]);
+    }
+  }
+  Indexes_RemoveSpecFromGlobals(ref, false);
 }

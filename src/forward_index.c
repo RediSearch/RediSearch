@@ -149,7 +149,16 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   return idx;
 }
 
+static size_t countEntries(const ForwardIndex *idx) {
+  size_t n = 0;
+  for (const BlkAllocBlock *block = idx->entries.root; block; block = block->next) {
+    n += block->numUsed / sizeof(khIdxEntry);
+  }
+  return n;
+}
+
 void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
+  RS_LOG_ASSERT(countEntries(idx) == idx->hits->numItems, "entry blocks must hold exactly the table's entries");
   // The entries and term copies scale with the number of unique terms, as does the table, so its size
   // alone tells whether the previous document left too much behind.
   if (idx->hits->numBuckets > FORWARD_INDEX_MAX_RETAINED_BUCKETS) {
