@@ -406,7 +406,9 @@ class OwnedSafeLoaderDrainTest : public OwnedLoaderDrainTest {
 
   void SetUp() override {
     OwnedLoaderDrainTest::SetUp();
-    QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+    const TimeoutConfig config = {.queryTimeoutMS = 1000,
+                                 .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+    QueryRequestTimeout_Init(&timeout, &config);
     QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     sctx.timeout = &timeout;
     qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
@@ -444,6 +446,11 @@ TEST_F(OwnedSafeLoaderDrainTest, DrainsOnlyLoadedRemainderWithoutRefillOrReload)
   EXPECT_EQ(2, source.nextCalls);
   EXPECT_EQ(2, source.cursor);
   EXPECT_EQ(1, third->ref_count);
+  SetLoadersForBG(&qctx);
+  qctx.resultLimit = 1;
+  ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &row));
+  expectValue(key, "three");
+  EXPECT_EQ(3, source.nextCalls);
 }
 
 TEST_F(OwnedSafeLoaderDrainTest, UnfinishedBatchRemainsNonDrainableAndIsFreed) {
