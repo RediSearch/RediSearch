@@ -39,6 +39,10 @@ typedef struct ForwardIndexEntry {
   bool staged;
 } ForwardIndexEntry;
 
+// A forward index is reused across documents. Once a document grows its term table past this many
+// buckets, the next reset releases the table and everything sized with it instead of keeping it.
+#define FORWARD_INDEX_MAX_RETAINED_BUCKETS (1 << 14)
+
 // the quantizationn factor used to encode normalized (0..1) frequencies in the index
 #define FREQ_QUANTIZE_FACTOR 0xFFFF
 
@@ -74,9 +78,8 @@ static inline void ForwardIndexTokenizerCtx_Init(ForwardIndexTokenizerCtx *ctx, 
 }
 
 typedef struct {
-  KHTable *hits;
-  KHTableEntry *curEnt;
-  uint32_t curBucketIdx;
+  const BlkAllocBlock *block;
+  size_t offset;
 } ForwardIndexIterator;
 
 int forwardIndexTokenFunc(ForwardIndexTokenizerCtx *tokCtx, const Token *tokInfo);
