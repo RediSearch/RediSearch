@@ -50,15 +50,9 @@ void HybridRequest_StartCursor(HybridRequest *req, RedisModuleCtx *ctx, arrayof(
 
 void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearchCtx *sctx);
 
-void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit, cachedVars cv);
+void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limit);
 
 void sendChunk_ReplyOnly_HybridEmptyResults(RedisModule_Reply *reply, QueryError *err);
-
-/**
- * Store pipeline results for reply_callback path (FAIL policy with workers).
- * Called after pipeline execution to store results for serialization on the main thread.
- */
-void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cachedVars cv);
 
 /**
  * Helper for error handling in coordinator HREQ execution.
@@ -68,10 +62,10 @@ void HREQ_StoreResults(HybridRequest *hreq, SearchResult **results, int rc, cach
 void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError *status);
 
 /**
- * Serialize results from stored state (reply_callback path for FAIL policy).
- * Called by DistHybridReplyCallback on the main thread after background thread stored results.
+ * The reply phase: commit (or discard) the stored cycle into `reply`. Runs inline after the
+ * results were stored when nothing defers the reply, or from the main-thread reply callback.
  */
-void serializeStoredResults_hybrid(HybridRequest *hreq, RedisModule_Reply *reply);
+void HREQ_ReplyWithStoredResults(HybridRequest *hreq, RedisModule_Reply *reply);
 
 /**
  * Link RETURN_STRICT safe-loader synchronization contexts into the HYBRID tail

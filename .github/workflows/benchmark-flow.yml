@@ -246,7 +246,8 @@ jobs:
         if: github.event.number && steps.benchmark-filter.outputs.skip != 'true'
         env:
           PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
-          PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
+          # Slack notifications are disabled on this branch: the webhook send fails and
+          # redisbench-admin 0.12.38 crashes in its error handler, failing a completed run.
           COMPARISON_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
           BASELINE_BRANCH: ${{ inputs.base_branch || github.event.pull_request.base.ref }}
           PULL_REQUEST: ${{ github.event.number }}
