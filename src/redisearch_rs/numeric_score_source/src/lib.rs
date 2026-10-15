@@ -26,10 +26,12 @@ extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 pub mod range_iterator;
+pub mod reducer;
 pub mod score_batch;
 pub mod source;
 
 pub use range_iterator::NumericRangeIterator;
+pub use reducer::{NewNumericTopK, new_numeric_top_k};
 pub use score_batch::NumericScoreBatch;
 pub use source::{AllValid, DocValidity, NumericScoreSource};
 
@@ -46,12 +48,15 @@ use top_k::{RuntimeOrder, TopKIterator, TopKMetrics, TopKMode, TopKSourceProfile
 
 /// A [`TopKIterator`] parameterised over [`NumericScoreSource`].
 ///
-/// Construct one with [`new_numeric_top_k_unfiltered`] or
-/// [`new_numeric_top_k_filtered`].
+/// Production code constructs one with [`new_numeric_top_k`], which picks
+/// between [`new_numeric_top_k_unfiltered`] and [`new_numeric_top_k_filtered`].
 ///
 /// `I` is the filter child iterator type, defaulting to the production
 /// [`CRQEIterator`]; the iterator implements [`ProfilePrint`] whenever `I` does.
 /// An unfiltered iterator carries no child, so `I` is then an unused phantom.
+///
+/// The sort direction is a query parameter, so the heap's ordering is
+/// [`RuntimeOrder`].
 pub type NumericTopKIterator<
     'index,
     V = AllValid,

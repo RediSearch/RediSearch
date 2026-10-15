@@ -21,14 +21,16 @@ use inverted_index::NumericFilter;
 use numeric_range_tree::test_utils::build_tree;
 use numeric_range_tree::{NumericRangeTree, RangeWindow};
 use numeric_score_source::{
-    DocValidity, NumericScoreSource, new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
+    AllValid, DocValidity, NewNumericTopK, NumericScoreSource, new_numeric_top_k,
+    new_numeric_top_k_filtered, new_numeric_top_k_unfiltered,
 };
 use redis_mock::reply::{ReplyValue, capture_replies};
 use redis_reply::{RedisModuleCtx, Replier};
 use rqe_core::DocId;
 use rqe_iterators::utils::DeadlineTimeoutChecker;
 use rqe_iterators::{
-    ExpirationChecker, IdList, RQEIterator, RQEIteratorError,
+    Empty, ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorError, Wildcard,
+    c2rust::CRQEIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{NoTimeoutChecker, TimeoutContext},
 };
@@ -769,7 +771,7 @@ impl TimeoutContext for TimeoutOnce {
     }
 }
 
-/// Collect an unfiltered top-k iterator to exhaustion into `(doc_id, score)`.
+/// Collect a top-k iterator to exhaustion into `(doc_id, score)`.
 fn drain_top_k<'a, V, E, T, I>(
     it: &mut numeric_score_source::NumericTopKIterator<'a, V, E, T, I>,
 ) -> Vec<(DocId, f64)>
@@ -784,6 +786,111 @@ where
         got.push((result.doc_id, result.as_numeric().expect("numeric result")));
     }
     got
+}
+
+/// Build a descending numeric top-k through [`new_numeric_top_k`].
+fn build_top_k<'t, V, E, T>(
+    tree: &'t NumericRangeTree,
+    k: usize,
+    num_docs: usize,
+    validity: V,
+    expiration: E,
+    timeout: T,
+    child: Option<CRQEIterator>,
+) -> NewNumericTopK<'t, V, E, T>
+where
+    V: DocValidity + 't,
+    E: ExpirationChecker + 't,
+    T: TimeoutContext + 't,
+{
+    new_numeric_top_k(
+        tree,
+        full_range(),
+        false,
+        k,
+        num_docs,
+        validity,
+        expiration,
+        timeout,
+        child,
+    )
+}
+
+#[test]
+fn factory_unfiltered_drops_deleted_and_field_expired_docs() {
+    // No child and a wildcard child both scan the range alone. Docs 1 and 3 hold
+    // the two highest values, but doc 1 is deleted and doc 3's field has expired.
+    let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0), (4, 2.0), (5, 3.0)]);
+    for child in [
+        None,
+        Some(CRQEIterator::from_rust_leaf(Wildcard::new(5, 1.0))),
+    ] {
+        let deleted = DeletedDocs::from_iter([1]);
+        let expired = ExpiredDocs::from_iter([3]);
+        let built = build_top_k(&tree, 3, 5, deleted, expired, NoTimeoutChecker, child);
+        let NewNumericTopK::Unfiltered(mut it) = built else {
+            panic!("expected an unfiltered top-k");
+        };
+        assert_eq!(drain_top_k(&mut it), vec![(5, 3.0), (4, 2.0), (2, 1.0)]);
+    }
+}
+
+#[test]
+fn factory_filtered_sizes_window_and_drops_deleted_and_field_expired_docs() {
+    // The child matches 4 of 16 docs, all in the low leaf, so the initial window
+    // must cover k * 16 / 4 + 1 = 9 docs: both leaves, reached without an
+    // expansion. Of the two best matches, doc 4 is deleted and doc 3's field has
+    // expired.
+    let tree = split_tree();
+    let child = Some(CRQEIterator::from_rust_leaf(IdList::<true>::new(vec![
+        1u64, 2, 3, 4,
+    ])));
+    let deleted = DeletedDocs::from_iter([4]);
+    let expired = ExpiredDocs::from_iter([3]);
+    let num_docs = 2 * SPLIT_LEAF_DOCS;
+    let built = build_top_k(
+        &tree,
+        2,
+        num_docs,
+        deleted,
+        expired,
+        NoTimeoutChecker,
+        child,
+    );
+    let NewNumericTopK::Filtered(mut it) = built else {
+        panic!("expected a filtered top-k");
+    };
+    assert_eq!(drain_top_k(&mut it), vec![(2, 2.0), (1, 1.0)]);
+    assert_eq!(it.metrics().strategy_switches, 0);
+}
+
+#[test]
+fn factory_empty_child_or_zero_k_reduces_to_empty() {
+    let tree = tree_from(&[(1, 5.0), (2, 1.0)]);
+    let empty = Some(CRQEIterator::from_rust_leaf(Empty));
+    let built = build_top_k(&tree, 2, 2, AllValid, NoOpChecker, NoTimeoutChecker, empty);
+    assert!(matches!(built, NewNumericTopK::ReducedEmpty));
+
+    let child = Some(CRQEIterator::from_rust_leaf(IdList::<true>::new(vec![
+        1u64, 2,
+    ])));
+    let built = build_top_k(&tree, 0, 2, AllValid, NoOpChecker, NoTimeoutChecker, child);
+    assert!(matches!(built, NewNumericTopK::ReducedEmpty));
+}
+
+#[test]
+fn factory_passes_the_query_deadline_to_both_constructions() {
+    let tree = tree_from(&[(1, 5.0), (2, 1.0), (3, 4.0)]);
+    let child = Some(CRQEIterator::from_rust_leaf(IdList::<true>::new(vec![
+        1u64, 3,
+    ])));
+    for child in [None, child] {
+        let built = build_top_k(&tree, 2, 3, AllValid, NoOpChecker, expired_clock(), child);
+        let (NewNumericTopK::Unfiltered(mut it) | NewNumericTopK::Filtered(mut it)) = built else {
+            panic!("expected a non-empty top-k");
+        };
+        assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    }
 }
 
 #[test]
