@@ -248,6 +248,11 @@ Published ownership moves synchronization to admission and wait boundaries and
 preserves exclusive mutation. Its principal audit burden is wait publication and
 denied-resume cleanup.
 
+Transport waits must also release worker resources after timeout even if no
+further reply arrives. The existing registered channel may be signaled for
+background cleanup after owned recovery; this signal never grants execution
+ownership, and the timeout callback does not wait for the worker to wake or fold.
+
 The October 4 comparison used equivalent release builds on master `6bc5765abf`,
 four rotating rounds, and an identical-baseline control. Across 480 normal-path
 samples, median per-shape CPU/query deltas were +0.32% FAIL, +0.81% RETURN,

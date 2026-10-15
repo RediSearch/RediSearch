@@ -1443,7 +1443,12 @@ static RPDrainStatus rpSafeLoaderDrain(ResultProcessor *rp, SearchResult *result
     SetResult(row, result_output);
     return RP_DRAIN_OK;
   }
-  // Do not reset into accumulation or a plain loader: recovery ends at this batch.
+  // Keep Drain at this batch, but make the next cursor's mode transition safe.
+  self->buffer_results_count = 0;
+  self->curr_result_index = 0;
+  self->last_buffered_rc = RS_RESULT_OK;
+  self->loaded = false;
+  rp->Next = self->becomePlainLoader ? rploaderNext : rpSafeLoaderNext_Accumulate;
   return RP_DRAIN_EOF;
 }
 
@@ -1878,6 +1883,7 @@ typedef struct {
   rs_wall_clock suspendedAt;
   rs_wall_clock_ns_t suspendedTime;
   bool suspended;
+  uint64_t resultCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
@@ -3091,7 +3097,8 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
          // The publication handoff protects last_rc; never inspect a running
          // producer merely to discover whether it timed out.
          RPStatus terminal = ((RPSafeDepleter *)producer)->last_rc;
-         if (terminal == RS_RESULT_TIMEDOUT || terminal == RS_RESULT_ERROR) {
+         if (terminal == RS_RESULT_EOF || terminal == RS_RESULT_TIMEDOUT ||
+             terminal == RS_RESULT_ERROR) {
            self->upstreamReturnCodes[i] = terminal;
            if (terminal == RS_RESULT_ERROR) return RP_DRAIN_ERROR;
          }

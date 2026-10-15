@@ -21,6 +21,7 @@
 #include "hiredis/sds.h"
 #include "doc_table.h"
 #include "pipeline_execution.h"
+#include "module.h"
 
 #include <future>
 #include <vector>
@@ -370,6 +371,38 @@ TEST_F(HybridMergerTest, DrainUsesOnlyUpstreamDrainAndRespectsRrfWindow) {
   SearchResult_Destroy(&row);
   CleanupDummyLookupContext(lookup);
   QITR_FreeChain(&qctx);
+}
+
+TEST_F(HybridMergerTest, DrainPreservesCompletedUnvisitedProducerStatus) {
+  QueryProcessingCtx producerContext = {};
+  QueryProcessingCtx tailContext = {};
+  MockUpstream input(0, {1}, {1});
+  auto *producer = RPSafeDepleter_New(DepleterSync_New(1, false), GetDummySearchCtx(),
+                                     depleterPool);
+  input.parent = &producerContext;
+  producer->upstream = &input;
+  producer->parent = &producerContext;
+  producerContext.endProc = producer;
+  RPSafeDepleter_StartDepletion(producer);
+  RPSafeDepleter_WaitForCompletion(producer);
+  ASSERT_TRUE(RPSafeDepleter_HasPublishedOutput(producer));
+  producer->parent = &tailContext;
+  auto *inputs = array_new(ResultProcessor *, 1);
+  array_append(inputs, producer);
+  auto *lookup = CreateDummyLookupContext(1);
+  RPStatus codes[] = {RS_RESULT_TIMEDOUT};
+  auto *merger = RPHybridMerger_New(GetDummySearchCtx(), HybridScoringContext_NewRRF(60, 1, true),
+                                    inputs, 1, nullptr, nullptr, codes, lookup, nullptr);
+  QITR_PushRP(&tailContext, merger);
+  auto row = SearchResult_New();
+  EXPECT_EQ(RP_DRAIN_OK, merger->Drain(merger, &row));
+  EXPECT_EQ(RS_RESULT_EOF, codes[0]);
+  SearchResult_Clear(&row);
+  EXPECT_EQ(RP_DRAIN_EOF, merger->Drain(merger, &row));
+  SearchResult_Destroy(&row);
+  CleanupDummyLookupContext(lookup);
+  QITR_FreeChain(&tailContext);
+  producer->Free(producer);
 }
 
 TEST_F(HybridMergerTest, DrainPreservesEntrySelectedWhenNextTimesOut) {
