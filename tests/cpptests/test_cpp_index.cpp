@@ -126,16 +126,19 @@ TEST_P(IndexFlagsTest, testRWFlags) {
     h.fieldMask = 1;
     h.freq = (1 + i % 100) / (float)101;
 
-    h.vw = NewVarintVectorWriter(8);
+    VarintVectorWriter *vw = NewVarintVectorWriter(8);
     for (int n = 0; n < i % 4; n++) {
-      VVW_Write(h.vw, n);
+      VVW_Write(vw, n);
     }
-    VVW_Truncate(h.vw);
+    VVW_Truncate(vw);
+    h.offsets = VVW_GetByteData(vw);
+    h.offsetsLen = VVW_GetByteLength(vw);
+    h.numOffsets = VVW_GetCount(vw);
 
     InvertedIndex_WriteForwardIndexEntry(idx, &h, false);
 
     // printf("doc %d, score %f offset %zd\n", h.docId, h.docScore, w->bw.buf->offset);
-    VVW_Free(h.vw);
+    VVW_Free(vw);
   }
 
   ASSERT_EQ(200, InvertedIndex_NumDocs(idx));
@@ -985,11 +988,14 @@ TEST_F(IndexTest, testIndexFlags) {
   h.docId = 1234;
   h.fieldMask = 0x01;
   h.freq = 1;
-  h.vw = NewVarintVectorWriter(8);
+  VarintVectorWriter *vw = NewVarintVectorWriter(8);
   for (int n = 0; n < 10; n++) {
-    VVW_Write(h.vw, n);
+    VVW_Write(vw, n);
   }
-  VVW_Truncate(h.vw);
+  VVW_Truncate(vw);
+  h.offsets = VVW_GetByteData(vw);
+  h.offsetsLen = VVW_GetByteLength(vw);
+  h.numOffsets = VVW_GetCount(vw);
 
   uint32_t flags = INDEX_DEFAULT_FLAGS;
   size_t index_memsize;
@@ -1044,7 +1050,7 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(75, sz);
   InvertedIndex_Free(w);
 
-  VVW_Free(h.vw);
+  VVW_Free(vw);
 }
 
 TEST_F(IndexTest, testDocTablePayloadSlotLifecycle) {

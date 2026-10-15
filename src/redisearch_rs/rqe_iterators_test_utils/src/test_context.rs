@@ -905,7 +905,12 @@ impl TestContext {
             term: term.as_ptr(),
             len: term.to_bytes().len() as u32,
             hash: 0,
-            vw: vw.cast(), // Cast varint::VectorWriter* to ffi::VarintVectorWriter*
+            // SAFETY: `vw` comes from `NewVarintVectorWriter` and stays alive until the write below.
+            offsets: unsafe { varint_ffi::VVW_GetByteData(vw) },
+            // SAFETY: as above.
+            offsetsLen: unsafe { varint_ffi::VVW_GetByteLength(vw) } as u32,
+            // SAFETY: as above.
+            numOffsets: unsafe { varint_ffi::VVW_GetCount(vw) } as u32,
             staged: false,
         };
 

@@ -44,13 +44,16 @@ InvertedIndex *createPopulateTermsInvIndex(int size, int idStep, int start_with)
         h.term = "hello";
         h.len = 5;
 
-        h.vw = NewVarintVectorWriter(8);
+        VarintVectorWriter *vw = NewVarintVectorWriter(8);
         for (int n = idStep; n < idStep + i % 4; n++) {
-            VVW_Write(h.vw, n);
+            VVW_Write(vw, n);
         }
 
+        h.offsets = VVW_GetByteData(vw);
+        h.offsetsLen = VVW_GetByteLength(vw);
+        h.numOffsets = VVW_GetCount(vw);
         InvertedIndex_WriteForwardIndexEntry(idx, &h, false);
-        VVW_Free(h.vw);
+        VVW_Free(vw);
 
         id += idStep;
     }

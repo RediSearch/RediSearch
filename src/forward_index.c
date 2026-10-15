@@ -25,15 +25,18 @@
 typedef struct {
   KHTableEntry khBase;
   ForwardIndexEntry ent;
+  // 1-based indexes into ForwardIndex.positions of this term's first and last position; 0 when none.
+  uint32_t firstPos;
+  uint32_t lastPos;
 } khIdxEntry;
 
 #define ENTRIES_PER_BLOCK 32
 #define ENTRIES_BLOCK_SIZE (ENTRIES_PER_BLOCK * sizeof(khIdxEntry))
 #define TERM_BLOCK_SIZE 128
 
-// Offset writers keep their capacity across reuse, so only small ones are pooled, and only so many.
-#define MAX_RETAINED_VVW_BYTES 1024
-#define MAX_POOLED_VVWS 1024
+// Past this many positions, the positions log and the encoded offsets sized for it are released on reset.
+#define MAX_RETAINED_POSITIONS (1 << 16)
+#define MAX_VARINT_LEN 5
 // Initial table size cap; larger documents grow the table on demand. Kept well under
 // FORWARD_INDEX_MAX_RETAINED_BUCKETS so a freshly sized table is never released on its first reset.
 #define MAX_PRESIZED_TERMS (FORWARD_INDEX_MAX_RETAINED_BUCKETS / 4)
@@ -83,14 +86,6 @@ static size_t estimtateTermCount(const Document *doc) {
   return MIN(nChars / CHARS_PER_TERM, MAX_PRESIZED_TERMS);
 }
 
-static void *vvwAlloc(void) {
-  return NewVarintVectorWriter(64);
-}
-
-static void vvwFree(void *p) {
-  VVW_Free(p);
-}
-
 static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
   idx->idxFlags = idxFlags;
   idx->maxTermFreq = 0;
@@ -117,31 +112,30 @@ static void initStorage(ForwardIndex *idx, const Document *doc) {
   BlkAlloc_Init(&idx->entries);
   KHTable_Init(idx->hits, &procs, &idx->entries, estimtateTermCount(doc));
   RS_LOG_ASSERT(idx->hits->numBuckets <= FORWARD_INDEX_MAX_RETAINED_BUCKETS, "presized table must be retainable");
-  mempool_options options = {.initialCap = 64, .maxCap = MAX_POOLED_VVWS, .alloc = vvwAlloc, .free = vvwFree};
-  idx->vvwPool = mempool_new(&options);
+  idx->positions = NULL;
+  idx->numPositions = 0;
+  idx->positionsCap = 0;
+  Buffer_Init(&idx->encodedOffsets, 0);
+  idx->offsetsEncoded = false;
 }
 
 // Unlinks the entry from its bucket, so clearing the table costs O(entries) rather than O(buckets).
 static void clearEntry(void *elem, void *arg) {
   ForwardIndex *idx = arg;
   khIdxEntry *ent = elem;
-  ForwardIndexEntry *fwEnt = &ent->ent;
-  idx->hits->buckets[fwEnt->hash % idx->hits->numBuckets] = NULL;
-  if (fwEnt->vw) {
-    if (VVW_GetByteLength(fwEnt->vw) > MAX_RETAINED_VVW_BYTES) {
-      VVW_Free(fwEnt->vw);
-    } else {
-      mempool_release(idx->vvwPool, fwEnt->vw);
-    }
-    fwEnt->vw = NULL;
-  }
+  idx->hits->buckets[ent->ent.hash % idx->hits->numBuckets] = NULL;
+}
+
+static void freePositions(ForwardIndex *idx) {
+  rm_free(idx->positions);
+  Buffer_Free(&idx->encodedOffsets);
 }
 
 static void freeStorage(ForwardIndex *idx) {
-  BlkAlloc_FreeAll(&idx->entries, clearEntry, idx, sizeof(khIdxEntry));
+  BlkAlloc_FreeAll(&idx->entries, NULL, NULL, 0);
   BlkAlloc_FreeAll(&idx->terms, NULL, NULL, 0);
   KHTable_Free(idx->hits);
-  mempool_destroy(idx->vvwPool);
+  freePositions(idx);
 }
 
 ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
@@ -155,8 +149,8 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
 }
 
 void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
-  // The entries, term copies and offset writers all scale with the number of unique terms, as does the
-  // table, so its size alone tells whether the previous document left too much behind.
+  // The entries and term copies scale with the number of unique terms, as does the table, so its size
+  // alone tells whether the previous document left too much behind.
   if (idx->hits->numBuckets > FORWARD_INDEX_MAX_RETAINED_BUCKETS) {
     freeStorage(idx);
     initStorage(idx, doc);
@@ -164,6 +158,16 @@ void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
     BlkAlloc_Clear(&idx->terms, NULL, NULL, 0, TERM_BLOCK_SIZE);
     BlkAlloc_Clear(&idx->entries, clearEntry, idx, sizeof(khIdxEntry), ENTRIES_BLOCK_SIZE);
     idx->hits->numItems = 0;
+    // The encoded offsets buffer only grows to a multiple of the largest positions log since the last
+    // release, so bounding the log bounds both.
+    if (idx->positionsCap > MAX_RETAINED_POSITIONS) {
+      freePositions(idx);
+      idx->positions = NULL;
+      idx->positionsCap = 0;
+      Buffer_Init(&idx->encodedOffsets, 0);
+    }
+    idx->numPositions = 0;
+    idx->offsetsEncoded = false;
   }
   if (idx->smap) {
     SynonymMap_Free(idx->smap);
@@ -206,6 +210,26 @@ static khIdxEntry *makeEntry(ForwardIndex *idx, const char *s, size_t n, uint32_
   return (khIdxEntry *)bb;
 }
 
+// Positions are logged in token order and linked per term, so each term's positions can be encoded in
+// token order without keeping a separate buffer per term.
+static void appendPosition(ForwardIndex *idx, khIdxEntry *kh, uint32_t pos) {
+  RS_LOG_ASSERT(!idx->offsetsEncoded, "positions added after the offsets were encoded");
+  RS_ASSERT(idx->numPositions < UINT32_MAX);
+  if (idx->numPositions == idx->positionsCap) {
+    idx->positionsCap = idx->positionsCap ? idx->positionsCap * 2 : 64;
+    idx->positions = rm_realloc(idx->positions, idx->positionsCap * sizeof(*idx->positions));
+  }
+  uint32_t ix = ++idx->numPositions;
+  idx->positions[ix - 1] = (ForwardIndexPosition){.pos = pos, .next = 0};
+  if (kh->lastPos) {
+    idx->positions[kh->lastPos - 1].next = ix;
+  } else {
+    kh->firstPos = ix;
+  }
+  kh->lastPos = ix;
+  kh->ent.numOffsets++;
+}
+
 #define TOKOPT_F_STEM 0x01
 #define TOKOPT_F_COPYSTR 0x02
 #define TOKOPT_F_SUFFIX_TRIE 0x04
@@ -233,13 +257,11 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
     h->len = tokLen;
     h->freq = 0;
     h->staged = false;
-
-    if (hasOffsets(idx)) {
-      h->vw = mempool_get(idx->vvwPool);
-      VVW_Reset(h->vw);
-    } else {
-      h->vw = NULL;
-    }
+    h->offsets = NULL;
+    h->offsetsLen = 0;
+    h->numOffsets = 0;
+    kh->firstPos = 0;
+    kh->lastPos = 0;
   }
 
   h->fieldMask |= ((t_fieldMask)1) << fieldId;
@@ -255,10 +277,9 @@ static void ForwardIndex_HandleToken(ForwardIndex *idx, const char *tok, size_t 
     // Account for this term as part of the document's length.
     idx->totalFreq += MAX(1, (uint32_t)score);
   }
-  if (h->vw) {
-    VVW_Write(h->vw, pos);
+  if (hasOffsets(idx)) {
+    appendPosition(idx, kh, pos);
   }
-
 }
 
 /**
@@ -332,13 +353,12 @@ AddRecordOutcome InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, Forwar
                        .hasFieldExpiration = hasFieldExpiration,
                        .metrics = MetricsVec_New()};
 
-  if (ent->vw) {
-    // VVW_GetByteData returns `const uint8_t *`; the Rust side stores
-    // it as a `NonNull<u8>` (cheadergen emits the field as `uint8_t *`).
+  if (ent->offsets) {
+    // The Rust side stores this as a `NonNull<u8>` (cheadergen emits the field as `uint8_t *`).
     // We never write through this pointer; the cast is purely a typing
     // adjustment to satisfy the strict C compiler.
-    rec.data.term.borrowed.offsets.data = (uint8_t *)VVW_GetByteData(ent->vw);
-    rec.data.term.borrowed.offsets.len = VVW_GetByteLength(ent->vw);
+    rec.data.term.borrowed.offsets.data = (uint8_t *)ent->offsets;
+    rec.data.term.borrowed.offsets.len = ent->offsetsLen;
   }
   return InvertedIndex_WriteEntryGeneric(idx, &rec);
 }
@@ -353,9 +373,40 @@ ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, u
   }
 }
 
+static void encodeOffsets(ForwardIndex *idx) {
+  if (idx->offsetsEncoded) {
+    return;
+  }
+  idx->offsetsEncoded = true;
+  Buffer *buf = &idx->encodedOffsets;
+  buf->offset = 0;
+  // Reserving the worst case keeps the buffer from moving, so the entries can point into it.
+  Buffer_Reserve(buf, idx->numPositions * MAX_VARINT_LEN);
+  BufferWriter bw = NewBufferWriter(buf);
+  const char *data = buf->data;
+  for (const BlkAllocBlock *block = idx->entries.root; block; block = block->next) {
+    for (size_t off = 0; off < block->numUsed; off += sizeof(khIdxEntry)) {
+      khIdxEntry *kh = (khIdxEntry *)(block->data + off);
+      if (!kh->firstPos) {
+        continue;
+      }
+      size_t start = Buffer_Offset(buf);
+      uint32_t last = 0;
+      for (uint32_t p = kh->firstPos; p; p = idx->positions[p - 1].next) {
+        WriteVarint(idx->positions[p - 1].pos - last, &bw);
+        last = idx->positions[p - 1].pos;
+      }
+      kh->ent.offsets = (const uint8_t *)buf->data + start;
+      kh->ent.offsetsLen = Buffer_Offset(buf) - start;
+    }
+  }
+  RS_LOG_ASSERT(buf->data == data, "encoded offsets moved after entries pointed into them");
+}
+
 // Entries are visited in their allocation blocks rather than through the buckets, so iterating costs
 // O(entries) regardless of the table's size.
 ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i) {
+  encodeOffsets(i);
   return (ForwardIndexIterator){.block = i->entries.root, .offset = 0};
 }
 

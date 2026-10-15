@@ -13,6 +13,7 @@
 #include "util/khtable.h"
 #include "util/mempool.h"
 #include "varint_ffi.h"
+#include "buffer.h"
 #include "tokenize.h"
 #include "document.h"
 
@@ -32,7 +33,11 @@ typedef struct ForwardIndexEntry {
   const char *term;
   uint32_t len;
   uint32_t hash;
-  VarintVectorWriter *vw;
+  // Varint-encoded deltas of the term's positions, set by ForwardIndex_Iterate and valid until the next
+  // reset. NULL when the index stores no term offsets.
+  const uint8_t *offsets;
+  uint32_t offsetsLen;
+  uint32_t numOffsets;
   // Disk-mode-only: per-term flag set when staging the term on a disk write
   // batch succeeded, consumed by the matching apply step to decide whether
   // to bump the in-memory term trie. Unused in memory mode.
@@ -46,6 +51,12 @@ typedef struct ForwardIndexEntry {
 // the quantizationn factor used to encode normalized (0..1) frequencies in the index
 #define FREQ_QUANTIZE_FACTOR 0xFFFF
 
+typedef struct {
+  uint32_t pos;
+  // 1-based index of the same term's next position; 0 at its last.
+  uint32_t next;
+} ForwardIndexPosition;
+
 typedef struct ForwardIndex {
   KHTable *hits;
   uint32_t maxTermFreq;
@@ -55,7 +66,12 @@ typedef struct ForwardIndex {
   SynonymMap *smap;
   BlkAlloc terms;
   BlkAlloc entries;
-  mempool_t *vvwPool;
+  // Every token position of the document, in token order.
+  ForwardIndexPosition *positions;
+  size_t numPositions;
+  size_t positionsCap;
+  Buffer encodedOffsets;
+  bool offsetsEncoded;
 
 } ForwardIndex;
 
@@ -88,6 +104,8 @@ void ForwardIndexFree(ForwardIndex *idx);
 void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags);
 
 ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags);
+// Iterates the entries in insertion order. The first call after tokenizing encodes every entry's offsets,
+// so no more tokens may be added afterwards.
 ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i);
 ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter);
 

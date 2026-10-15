@@ -74,8 +74,8 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEnt
 
   /* Record the space saved for offset vectors */
   if (spec->flags & Index_StoreTermOffsets) {
-    spec->stats.offsetVecsSize += VVW_GetByteLength(entry->vw);
-    spec->stats.offsetVecRecords += VVW_GetCount(entry->vw);
+    spec->stats.offsetVecsSize += entry->offsetsLen;
+    spec->stats.offsetVecRecords += entry->numOffsets;
   }
 }
 

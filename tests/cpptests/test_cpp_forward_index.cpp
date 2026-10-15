@@ -91,7 +91,7 @@ TEST_F(ForwardIndexTest, iteratesEachEntryOnceInInsertionOrderAcrossRehash) {
     ForwardIndexEntry *e = find(idx, i);
     ASSERT_NE(e, nullptr);
     ASSERT_EQ(e->freq, 2);
-    ASSERT_EQ(VVW_GetCount(e->vw), 2);
+    ASSERT_EQ(e->numOffsets, 2);
   }
   ForwardIndexFree(idx);
 }
@@ -106,7 +106,7 @@ TEST_F(ForwardIndexTest, resetForgetsPreviousEntries) {
   ForwardIndex_Reset(idx, &doc.doc, Index_StoreTermOffsets);
   ASSERT_EQ(idx->hits->numBuckets, buckets);  // small enough to be kept
   ASSERT_EQ(idx->hits->numItems, 0);
-  ASSERT_TRUE(iterate(idx).empty());
+  ASSERT_EQ(idx->entries.root, nullptr);
   for (size_t i = 0; i < 5000; ++i) {
     ASSERT_EQ(find(idx, i), nullptr) << termAt(i);
   }
@@ -118,7 +118,7 @@ TEST_F(ForwardIndexTest, resetForgetsPreviousEntries) {
     ASSERT_EQ(got[i], termAt(4990 + i));
     ForwardIndexEntry *e = find(idx, 4990 + i);
     ASSERT_EQ(e->freq, 3);
-    ASSERT_EQ(VVW_GetCount(e->vw), 3);
+    ASSERT_EQ(e->numOffsets, 3);
   }
   ForwardIndexFree(idx);
 }
@@ -131,26 +131,55 @@ TEST_F(ForwardIndexTest, resetReleasesTableGrownByLargeDocument) {
 
   ForwardIndex_Reset(idx, &small.doc, Index_StoreTermOffsets);
   ASSERT_LE(idx->hits->numBuckets, FORWARD_INDEX_MAX_RETAINED_BUCKETS);
-  ASSERT_TRUE(iterate(idx).empty());
+  ASSERT_EQ(idx->entries.root, nullptr);
 
   addTerms(idx, 0, 10);
   ASSERT_EQ(iterate(idx).size(), 10);
   ForwardIndexFree(idx);
 }
 
-TEST_F(ForwardIndexTest, offsetsAreFreshAfterReusingLargeWriters) {
+TEST_F(ForwardIndexTest, offsetsAreEncodedPerTermAfterReleasingLargePositionsLog) {
   TestDoc doc(100);
   ForwardIndex *idx = NewForwardIndex(&doc.doc, Index_StoreTermOffsets);
-  addTerms(idx, 0, 4, 10000);
-  ASSERT_EQ(VVW_GetCount(find(idx, 0)->vw), 10000);
+  addTerms(idx, 0, 4, 20000);
+  iterate(idx);
+  ASSERT_EQ(find(idx, 0)->numOffsets, 20000);
 
   ForwardIndex_Reset(idx, &doc.doc, Index_StoreTermOffsets);
-  addTerms(idx, 0, 8, 2);
-  for (size_t i = 0; i < 8; ++i) {
-    VarintVectorWriter *vw = find(idx, i)->vw;
-    ASSERT_EQ(VVW_GetCount(vw), 2);
-    ASSERT_EQ(VVW_GetByteLength(vw), 2);  // positions 1..16 delta-encode to one byte each
+  ASSERT_EQ(idx->positionsCap, 0);  // released, not kept for the next document
+
+  // Interleave the terms so that each term's positions are scattered across the log.
+  ForwardIndexTokenizerCtx ctx;
+  ForwardIndexTokenizerCtx_Init(&ctx, idx, NULL, NULL, 0, 1);
+  for (uint32_t pos = 1; pos <= 16; ++pos) {
+    const std::string &term = termAt((pos - 1) % 8);
+    Token tok = {};
+    tok.tok = term.c_str();
+    tok.tokLen = term.size();
+    tok.pos = pos;
+    forwardIndexTokenFunc(&ctx, &tok);
   }
+  iterate(idx);
+  for (size_t i = 0; i < 8; ++i) {
+    ForwardIndexEntry *e = find(idx, i);
+    ASSERT_EQ(e->numOffsets, 2);
+    // Positions i+1 and i+9, delta-encoded as single-byte varints.
+    ASSERT_EQ(std::vector<uint8_t>(e->offsets, e->offsets + e->offsetsLen), (std::vector<uint8_t>{uint8_t(i + 1), 8}));
+  }
+  ForwardIndexFree(idx);
+}
+
+TEST_F(ForwardIndexTest, noOffsetsWithoutStoreTermOffsets) {
+  TestDoc doc(100);
+  ForwardIndex *idx = NewForwardIndex(&doc.doc, 0);
+  addTerms(idx, 0, 10, 3);
+  iterate(idx);
+  for (size_t i = 0; i < 10; ++i) {
+    ForwardIndexEntry *e = find(idx, i);
+    ASSERT_EQ(e->offsets, nullptr);
+    ASSERT_EQ(e->numOffsets, 0);
+  }
+  ASSERT_EQ(idx->numPositions, 0);
   ForwardIndexFree(idx);
 }
 

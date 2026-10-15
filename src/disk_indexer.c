@@ -114,9 +114,9 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
        entry = ForwardIndexIterator_Next(&it)) {
     const uint8_t *offsets = NULL;
     size_t offsetsLen = 0;
-    if ((spec->flags & Index_StoreTermOffsets) && entry->vw) {
-      offsets = VVW_GetByteData(entry->vw);
-      offsetsLen = VVW_GetByteLength(entry->vw);
+    if ((spec->flags & Index_StoreTermOffsets) && entry->offsets) {
+      offsets = entry->offsets;
+      offsetsLen = entry->offsetsLen;
     }
     entry->staged = SearchDisk_IndexTerm(spec->diskSpec, aCtx->disk.batch,
                                          entry->term, entry->len, aCtx->doc->docId,
