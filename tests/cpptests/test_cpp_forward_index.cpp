@@ -12,6 +12,7 @@
 #include "fnv_ffi.h"
 #include "spec.h"
 #include "indexes.h"
+#include "util/mempool/mempool.h"
 
 #include <deque>
 #include <string>
@@ -152,6 +153,24 @@ TEST_F(ForwardIndexTest, offsetsAreFreshAfterReusingLargeWriters) {
     ASSERT_EQ(VVW_GetCount(vw), 2);
     ASSERT_EQ(VVW_GetByteLength(vw), 2);  // positions 1..16 delta-encode to one byte each
   }
+  ForwardIndexFree(idx);
+}
+
+TEST_F(ForwardIndexTest, resetPoolsOnlySmallWritersUpToTheCap) {
+  TestDoc doc(100);
+  ForwardIndex *idx = NewForwardIndex(&doc.doc, Index_StoreTermOffsets);
+  // Term 0's writer grows past the size limit; terms 1..2 stay small.
+  addTerms(idx, 0, 1, 2000);
+  addTerms(idx, 1, 2);
+  ASSERT_GT(VVW_GetByteLength(find(idx, 0)->vw), 1024);
+  ForwardIndex_Reset(idx, &doc.doc, Index_StoreTermOffsets);
+  ASSERT_EQ(mempool_size(idx->vvwPool), 2);
+
+  // More writers than the pool keeps, without growing the table past its limit.
+  addTerms(idx, 0, 4000);
+  ForwardIndex_Reset(idx, &doc.doc, Index_StoreTermOffsets);
+  ASSERT_LE(idx->hits->numBuckets, FORWARD_INDEX_MAX_RETAINED_BUCKETS);
+  ASSERT_EQ(mempool_size(idx->vvwPool), 1024);
   ForwardIndexFree(idx);
 }
 
