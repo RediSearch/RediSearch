@@ -1932,6 +1932,7 @@ dependencies = [
  "global_config",
  "query_eval",
  "rqe_iterators",
+ "slots_tracker",
  "workspace_hack",
 ]
 
