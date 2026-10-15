@@ -1798,6 +1798,7 @@ typedef struct {
   ResultProcessor base;
   rs_wall_clock_ns_t profileTime;
   uint64_t profileCount;
+  uint64_t resultCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
@@ -1808,6 +1809,7 @@ static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   int rc = base->upstream->Next(base->upstream, r);
   self->profileTime += rs_wall_clock_elapsed_ns(&start);
   self->profileCount++;
+  self->resultCount += rc == RS_RESULT_OK;
   return rc;
 }
 
@@ -1818,6 +1820,7 @@ static RPDrainStatus rpprofileDrain(ResultProcessor *base, SearchResult *r) {
   RPDrainStatus rc = base->upstream->Drain(base->upstream, r);
   self->profileTime += rs_wall_clock_elapsed_ns(&start);
   self->profileCount++;
+  self->resultCount += rc == RP_DRAIN_OK;
   return rc;
 }
 
@@ -1858,6 +1861,11 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
 void RPProfile_IncrementCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   self->profileCount++;
+  self->resultCount++;
+}
+
+uint64_t RPProfile_GetResultCount(ResultProcessor *rp) {
+  return ((RPProfile *)rp)->resultCount;
 }
 
 void Profile_AddRPs(QueryProcessingCtx *qctx) {
