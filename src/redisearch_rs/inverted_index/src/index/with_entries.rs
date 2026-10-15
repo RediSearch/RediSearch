@@ -158,6 +158,30 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
 
         info
     }
+
+    /// Reclaim deleted documents from the tail block, if it has just filled. See
+    /// [`InvertedIndex::maybe_repair_tail_block`].
+    ///
+    /// Keeps [`number_of_entries`](Self::number_of_entries) in step, exactly as
+    /// [`apply_gc`](Self::apply_gc) does — the inline and fork paths must not disagree
+    /// about how many entries this index holds.
+    pub fn maybe_repair_tail_block(
+        &mut self,
+        min_reclaim_pct: u8,
+        probe_stride: u16,
+        doc_exist: impl Fn(DocId) -> bool,
+    ) -> std::io::Result<Option<GcApplyInfo>> {
+        let Some(info) =
+            self.index
+                .maybe_repair_tail_block(min_reclaim_pct, probe_stride, doc_exist)?
+        else {
+            return Ok(None);
+        };
+
+        self.number_of_entries -= info.entries_removed;
+
+        Ok(Some(info))
+    }
 }
 
 impl<E: NumericEncoder> EntriesTrackingIndex<E> {
