@@ -263,6 +263,10 @@ bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, 
 
 bool SearchDisk_InitializeMissingStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
 
+/** See IndexDiskAPI.openFields. */
+bool SearchDisk_OpenFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                           const SearchDiskFieldOpen *fields, size_t numFields);
+
 /** Stage absent INDEXMISSING fields in the document batch; false requires aborting it.
  * The field-index array is borrowed only for the call. See IndexDiskAPI.indexMissingFields. */
 bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
