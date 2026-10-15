@@ -123,7 +123,7 @@ fn box_reduced<'index, E: ExpirationChecker + 'index>(
         // other alias yet, satisfying 1 and 2.
         unsafe { patch_vtable(ptr, |h| h.SkipTo = None) }
     };
-    match reduced {
+    let iterator = match reduced {
         NewVectorTopK::ReducedEmpty => RQEIteratorWrapper::boxed_new(rqe_iterators::Empty),
         NewVectorTopK::Unfiltered(it) => {
             let ptr = RQEIteratorWrapper::boxed_new(it);
@@ -137,5 +137,6 @@ fn box_reduced<'index, E: ExpirationChecker + 'index>(
             clear_skip_to(ptr);
             ptr
         }
-    }
+    };
+    iterator.as_ptr()
 }

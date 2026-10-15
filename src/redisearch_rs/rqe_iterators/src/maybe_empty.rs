@@ -9,6 +9,8 @@
 
 //! Helper wrapping either [`Empty`] or the provided [`RQEIterator`].
 
+use std::ptr::NonNull;
+
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
@@ -228,7 +230,7 @@ where
         if let MaybeEmptyOption::Some(it) = inner {
             // SAFETY: `it` is a valid `&mut I` aliased to nothing else;
             // the function leaves the slot in a valid `I::Suspended` state.
-            unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut I) };
+            unsafe { crate::boxed::suspend_child_slot_in_place(NonNull::from(it)) };
         }
         // SAFETY: the `Some` child (if any) now holds `I::Suspended` and
         // `None(Empty)` is `I`-free, so the allocation is a valid
@@ -286,7 +288,7 @@ where
                 // payload. On Unchanged/Moved the helper rewrites the slot as a
                 // valid `S::Resumed<'a>`; on Aborted/Err it consumes the child,
                 // leaving the payload uninitialised (handled below).
-                match unsafe { resume_child_slot_in_place(child as *mut S, guard) } {
+                match unsafe { resume_child_slot_in_place(NonNull::from(child), guard) } {
                     Ok(ResumeSlotOutcome::Unchanged) => ChildResume::Active { moved: false },
                     Ok(ResumeSlotOutcome::Moved) => ChildResume::Active { moved: true },
                     Ok(ResumeSlotOutcome::Aborted) => ChildResume::Aborted,

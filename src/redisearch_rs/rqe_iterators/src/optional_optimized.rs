@@ -14,6 +14,8 @@
 //! `spec.existingDocs` to visit only real document IDs, yielding real or virtual
 //! results accordingly.
 
+use std::ptr::NonNull;
+
 use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
@@ -485,11 +487,15 @@ where
         // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned, initialised,
         // exclusively owned); `&raw mut` forms a field pointer to `wcii`.
         let wcii = unsafe { &raw mut (*raw).wcii };
+        // SAFETY: `wcii` is a field pointer derived from the non-null `raw`, so it is non-null too.
+        let wcii = unsafe { NonNull::new_unchecked(wcii) };
         // SAFETY: `wcii` points at a valid, owned `W`; the helper dispatches its
         // `suspend` and reinitialises the slot as a valid `W::Suspended`.
         unsafe { suspend_child_slot_in_place(wcii) };
         // SAFETY: `&raw mut` forms a field pointer to `child`.
         let child = unsafe { &raw mut (*raw).child };
+        // SAFETY: `child` is a field pointer derived from the non-null `raw`, so it is non-null too.
+        let child = unsafe { NonNull::new_unchecked(child) };
         // SAFETY: `child` points at a valid, owned `MaybeEmpty<I>`; the helper
         // dispatches its `suspend` and reinitialises the slot as a valid
         // `MaybeEmpty<I::Suspended>`.

@@ -120,5 +120,7 @@ pub unsafe extern "C" fn QAST_Iterate(
     // The returned handle is heap-allocated and self-owning; erasing its borrow
     // of the transient `qectx` is sound because the index data it reads
     // (reachable via `sctx`/`spec`) and request timeout outlive it (precondition 3).
-    qast_iterate(&mut ctx, node, config).into_c_iterator()
+    qast_iterate(&mut ctx, node, config)
+        .into_c_iterator()
+        .as_ptr()
 }

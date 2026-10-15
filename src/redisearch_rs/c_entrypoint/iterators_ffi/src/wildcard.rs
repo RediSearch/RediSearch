@@ -19,7 +19,7 @@ pub extern "C" fn NewWildcardIterator_NonOptimized(
     weight: f64,
 ) -> *mut QueryIterator {
     let it = NewWildcardIterator::NotOptimized(Wildcard::new(max_id, weight));
-    RQEIteratorWrapper::boxed_new(it)
+    RQEIteratorWrapper::boxed_new(it).as_ptr()
 }
 
 /// Returns `true` if `it` is a wildcard iterator (either optimized or non-optimized).

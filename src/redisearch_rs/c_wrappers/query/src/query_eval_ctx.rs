@@ -372,7 +372,7 @@ impl QueryEvalContext {
         &mut self,
         id: MetricRequestId,
         key_ptr: *mut *mut RLookupKey<'a>,
-    ) -> *mut RLookupKeyHandle<'a> {
+    ) -> NonNull<RLookupKeyHandle<'a>> {
         debug_assert!(
             !key_ptr.is_null(),
             "a bound metric request must have a key slot"
@@ -412,13 +412,12 @@ impl QueryEvalContext {
         // SAFETY: the size is non-zero and well within `isize::MAX`.
         let handle = NonNull::new(unsafe { alloc(size_of::<RLookupKeyHandle<'a>>()) })
             .expect("RedisModule_Alloc returned NULL")
-            .cast::<RLookupKeyHandle<'a>>()
-            .as_ptr();
+            .cast::<RLookupKeyHandle<'a>>();
         // SAFETY: `handle` is a fresh, suitably aligned allocation of the right
         // size, so writing the whole value initialises it — both fields, since
         // the allocator does not zero.
         unsafe {
-            handle.write(RLookupKeyHandle {
+            handle.as_ptr().write(RLookupKeyHandle {
                 key_ptr,
                 is_valid: true,
             });
@@ -429,7 +428,7 @@ impl QueryEvalContext {
         let request = unsafe { head.add(idx) };
         // SAFETY: `request` points at that live, initialised element, which
         // nothing else aliases (invariant (3) of `new`).
-        unsafe { (*request).key_handle = handle };
+        unsafe { (*request).key_handle = handle.as_ptr() };
 
         handle
     }
