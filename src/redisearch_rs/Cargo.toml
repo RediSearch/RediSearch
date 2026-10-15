@@ -15,6 +15,7 @@ members = [
     "inverted_index",
     "inverted_index_bencher",
     "nul_terminated_bytes",
+    "over_aligned_alloc",
     "numeric_range_tree",
     "thin_vec",
     "qint",
@@ -137,6 +138,7 @@ index_result = { path = "./index_result" }
 index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
 nul_terminated_bytes = { path = "./nul_terminated_bytes" }
+over_aligned_alloc = { path = "./over_aligned_alloc" }
 numeric_range_tree = { path = "./numeric_range_tree" }
 numeric_score_source = { path = "./numeric_score_source" }
 redis_reply = { path = "./redis_reply" }
