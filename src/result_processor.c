@@ -1883,7 +1883,6 @@ typedef struct {
   rs_wall_clock suspendedAt;
   rs_wall_clock_ns_t suspendedTime;
   bool suspended;
-  uint64_t resultCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
