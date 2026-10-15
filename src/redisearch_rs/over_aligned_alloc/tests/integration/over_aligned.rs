@@ -10,6 +10,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use over_aligned_alloc::{MAX_INNER_ALIGN, OverAligned};
 
@@ -19,25 +20,53 @@ const MISALIGN_OFFSET: usize = MAX_INNER_ALIGN;
 /// Alignment of the system block behind every [`Misaligning`] allocation.
 const MISALIGN_BASE: usize = 2 * MAX_INNER_ALIGN;
 
+/// A call that reached [`Misaligning`], with its arguments and result, as addresses.
+#[derive(Debug, PartialEq)]
+enum Call {
+    Alloc {
+        layout: Layout,
+        result: usize,
+    },
+    AllocZeroed {
+        layout: Layout,
+        result: usize,
+    },
+    Realloc {
+        block: usize,
+        layout: Layout,
+        new_size: usize,
+        result: usize,
+    },
+    Dealloc {
+        block: usize,
+        layout: Layout,
+    },
+}
+
 /// An inner allocator that honors [`MAX_INNER_ALIGN`] and nothing more: every
 /// address it returns is a multiple of [`MAX_INNER_ALIGN`] but of no larger power of
 /// two, like a `malloc` that happens to be maximally unlucky.
 ///
 /// It records every live allocation with its layout, so a test can check that
-/// each block comes back with the layout it was allocated with.
+/// each block comes back with the layout it was allocated with, and logs every
+/// call, so a test can check exactly what the adapter forwarded.
 #[derive(Default)]
 struct Misaligning {
     live: Mutex<HashMap<usize, Layout>>,
+    calls: Mutex<Vec<Call>>,
     /// Fail every allocation, to model the inner allocator running out of memory.
-    exhausted: bool,
+    exhausted: AtomicBool,
 }
 
 impl Misaligning {
     fn exhausted() -> Self {
-        Self {
-            exhausted: true,
-            ..Self::default()
-        }
+        let inner = Self::default();
+        inner.set_exhausted(true);
+        inner
+    }
+
+    fn set_exhausted(&self, exhausted: bool) {
+        self.exhausted.store(exhausted, Ordering::Relaxed);
     }
 
     fn system_layout(layout: Layout) -> Layout {
@@ -47,17 +76,23 @@ impl Misaligning {
     fn live_count(&self) -> usize {
         self.live.lock().unwrap().len()
     }
-}
 
-// SAFETY: blocks come from `System` with enough room past the offset for
-// `layout.size()` bytes, and are returned to it with the same layout.
-unsafe impl GlobalAlloc for Misaligning {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+    /// The calls logged since the last time this was called.
+    fn take_calls(&self) -> Vec<Call> {
+        std::mem::take(&mut self.calls.lock().unwrap())
+    }
+
+    fn log(&self, call: Call) {
+        self.calls.lock().unwrap().push(call);
+    }
+
+    /// Allocate a misaligned block for `layout`, or null when exhausted.
+    fn allocate(&self, layout: Layout) -> *mut u8 {
         assert!(
             layout.align() <= MAX_INNER_ALIGN,
             "OverAligned asked the inner allocator for {layout:?}"
         );
-        if self.exhausted {
+        if self.exhausted.load(Ordering::Relaxed) {
             return std::ptr::null_mut();
         }
         // SAFETY: the system layout has a non-zero size.
@@ -69,13 +104,70 @@ unsafe impl GlobalAlloc for Misaligning {
         block
     }
 
-    unsafe fn dealloc(&self, block: *mut u8, layout: Layout) {
+    /// Free a block from [`Self::allocate`], checking it comes back with its layout.
+    ///
+    /// # Safety
+    ///
+    /// `block` must be a live block from [`Self::allocate`].
+    unsafe fn free(&self, block: *mut u8, layout: Layout) {
         let recorded = self.live.lock().unwrap().remove(&block.addr());
         assert_eq!(recorded, Some(layout), "freed with a different layout");
         // SAFETY: `block` was placed MISALIGN_OFFSET bytes into a system block.
         let base = unsafe { block.sub(MISALIGN_OFFSET) };
         // SAFETY: that system block was allocated with this layout.
         unsafe { System.dealloc(base, Self::system_layout(layout)) };
+    }
+}
+
+// SAFETY: blocks come from `System` with enough room past the offset for
+// `layout.size()` bytes, and are returned to it with the same layout.
+unsafe impl GlobalAlloc for Misaligning {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let block = self.allocate(layout);
+        self.log(Call::Alloc {
+            layout,
+            result: block.addr(),
+        });
+        block
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        let block = self.allocate(layout);
+        if !block.is_null() {
+            // SAFETY: the block is valid for `layout.size()` bytes.
+            unsafe { block.write_bytes(0, layout.size()) };
+        }
+        self.log(Call::AllocZeroed {
+            layout,
+            result: block.addr(),
+        });
+        block
+    }
+
+    unsafe fn realloc(&self, block: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        let new_block = self.allocate(Layout::from_size_align(new_size, layout.align()).unwrap());
+        if !new_block.is_null() {
+            // SAFETY: both blocks are live and valid for the smaller size.
+            unsafe { std::ptr::copy_nonoverlapping(block, new_block, layout.size().min(new_size)) };
+            // SAFETY: `block` is live with `layout`, per the caller's contract.
+            unsafe { self.free(block, layout) };
+        }
+        self.log(Call::Realloc {
+            block: block.addr(),
+            layout,
+            new_size,
+            result: new_block.addr(),
+        });
+        new_block
+    }
+
+    unsafe fn dealloc(&self, block: *mut u8, layout: Layout) {
+        // SAFETY: per the caller's contract.
+        unsafe { self.free(block, layout) };
+        self.log(Call::Dealloc {
+            block: block.addr(),
+            layout,
+        });
     }
 }
 
@@ -152,21 +244,65 @@ fn over_aligned_layouts_get_aligned_usable_blocks() {
     assert_eq!(alloc.0.live_count(), 0);
 }
 
+/// Layouts the inner allocator honors must reach it exactly as the caller made
+/// them, through every entry point, with the inner allocator's pointers handed
+/// back untouched: no padding, no header, no extra calls.
 #[test]
 fn inner_alignments_are_forwarded_unchanged() {
     let alloc = OverAligned(Misaligning::default());
     for align in [1, 8, MAX_INNER_ALIGN] {
-        let layout = layout(24, align);
-        // SAFETY: non-zero size; freed below with the same layout.
-        let block = unsafe { alloc.alloc(layout) };
-        // A forwarded block is exactly what the inner allocator recorded, with
-        // no padding added.
+        let small = layout(24, align);
+        let grown = layout(100, align);
+
+        // SAFETY: non-zero size; reallocated and freed below.
+        let block = unsafe { alloc.alloc(small) };
         assert_eq!(
-            alloc.0.live.lock().unwrap().get(&block.addr()),
-            Some(&layout)
+            alloc.0.take_calls(),
+            [Call::Alloc {
+                layout: small,
+                result: block.addr()
+            }]
         );
-        // SAFETY: allocated above with `layout`.
-        unsafe { alloc.dealloc(block, layout) };
+
+        // SAFETY: non-zero size; freed below with the same layout.
+        let zeroed = unsafe { alloc.alloc_zeroed(small) };
+        assert_eq!(
+            alloc.0.take_calls(),
+            [Call::AllocZeroed {
+                layout: small,
+                result: zeroed.addr()
+            }]
+        );
+
+        // SAFETY: `block` is live with `small`, and the new size is non-zero.
+        let regrown = unsafe { alloc.realloc(block, small, grown.size()) };
+        assert_eq!(
+            alloc.0.take_calls(),
+            [Call::Realloc {
+                block: block.addr(),
+                layout: small,
+                new_size: grown.size(),
+                result: regrown.addr(),
+            }]
+        );
+
+        // SAFETY: `regrown` is live with `grown`.
+        unsafe { alloc.dealloc(regrown, grown) };
+        // SAFETY: `zeroed` is live with `small`.
+        unsafe { alloc.dealloc(zeroed, small) };
+        assert_eq!(
+            alloc.0.take_calls(),
+            [
+                Call::Dealloc {
+                    block: regrown.addr(),
+                    layout: grown
+                },
+                Call::Dealloc {
+                    block: zeroed.addr(),
+                    layout: small
+                },
+            ]
+        );
     }
     assert_eq!(alloc.0.live_count(), 0);
 }
@@ -224,6 +360,28 @@ fn inner_exhaustion_is_reported_as_null() {
         let zeroed = unsafe { alloc.alloc_zeroed(layout) };
         assert!(zeroed.is_null(), "{layout:?}");
     }
+}
+
+#[test]
+fn failed_over_aligned_realloc_keeps_the_original_block() {
+    let alloc = OverAligned(Misaligning::default());
+    let original = layout(40, 64);
+    // SAFETY: non-zero size; freed below with the same layout.
+    let block = unsafe { alloc.alloc(original) };
+    // SAFETY: the block is valid for `original.size()` bytes.
+    unsafe { fill(block, original.size()) };
+
+    alloc.0.set_exhausted(true);
+    // SAFETY: `block` is live with `original`, and the new size is non-zero.
+    let moved = unsafe { alloc.realloc(block, original, 4000) };
+    assert!(moved.is_null());
+    alloc.0.set_exhausted(false);
+
+    // SAFETY: a failed realloc leaves `block` live with its contents.
+    unsafe { assert_filled(block, original.size()) };
+    // SAFETY: `block` is still live with `original`.
+    unsafe { alloc.dealloc(block, original) };
+    assert_eq!(alloc.0.live_count(), 0);
 }
 
 #[test]

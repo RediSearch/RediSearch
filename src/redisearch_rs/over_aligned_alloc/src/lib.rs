@@ -32,6 +32,16 @@ const _: () = assert!(
     "the header must fit in the padding before an over-aligned block"
 );
 
+/// Abort on a broken allocator invariant.
+///
+/// A global allocator must not unwind, and a panic would also re-enter the
+/// allocator to format its message, so neither `panic!` nor `debug_assert!` is
+/// safe here.
+#[cold]
+fn invariant_violated() -> ! {
+    std::process::abort()
+}
+
 /// Wraps an allocator that honors alignments up to [`MAX_INNER_ALIGN`], so that
 /// every alignment is honored.
 ///
@@ -66,9 +76,14 @@ impl<A> OverAligned<A> {
         // so the offset is a multiple of MAX_INNER_ALIGN in
         // [HEADER_SIZE, layout.align()]: the header fits below the block, and the
         // block ends within the `size + align` bytes of `base`.
+        if cfg!(debug_assertions) && !base.addr().is_multiple_of(MAX_INNER_ALIGN) {
+            invariant_violated();
+        }
         let aligned = (base.addr() + HEADER_SIZE).next_multiple_of(layout.align());
         let offset = aligned - base.addr();
-        debug_assert!(offset >= HEADER_SIZE && offset <= layout.align());
+        if cfg!(debug_assertions) && !(HEADER_SIZE..=layout.align()).contains(&offset) {
+            invariant_violated();
+        }
         // SAFETY: `offset <= layout.align()`, so the pointer stays inside the
         // inner block, per the bound above.
         let block = unsafe { base.add(offset) };
@@ -137,8 +152,11 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for OverAligned<A> {
             // since `alloc` forwards exactly these layouts.
             return unsafe { self.0.dealloc(block, layout) };
         }
-        let padded = Self::padded_layout(layout)
-            .expect("the padded layout was computed when `block` was allocated");
+        // `alloc` only hands out an over-aligned block after computing this
+        // padded layout for the same `layout`, so it cannot fail here.
+        let Some(padded) = Self::padded_layout(layout) else {
+            invariant_violated();
+        };
         // SAFETY: `block` was returned by `alloc` for this over-aligned `layout`,
         // so it was produced by `place`.
         let header = unsafe { Self::header(block) };
