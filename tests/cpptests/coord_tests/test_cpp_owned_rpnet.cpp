@@ -254,6 +254,7 @@ TEST_F(OwnedRPNetTest, TimeoutRecoveryFinishesBeforeNetworkInputArrives) {
 
 TEST_F(OwnedRPNetTest, NaturalWakeResumesSameFrameBeforeConsumingReply) {
   attachIterator();
+  net->profileBreakdown = true;
   constexpr const char *point = "RpnetWaitingForReply";
   ASSERT_TRUE(SyncPoint_Arm(point));
   OwnedNetStep step{AREQ_QueryProcessingCtx(request), &net->base, &row};
@@ -267,9 +268,31 @@ TEST_F(OwnedRPNetTest, NaturalWakeResumesSameFrameBeforeConsumingReply) {
   EXPECT_TRUE(reached);
   EXPECT_EQ(1, step.calls);
   EXPECT_EQ(RS_RESULT_OK, step.result);
+  EXPECT_EQ(1, net->breakdown.replies);
+  EXPECT_EQ(1, net->breakdown.fields);
   EXPECT_EQ(1, AREQ_QueryProcessingCtx(request)->totalResults);
   expectValue("one");
   EXPECT_EQ(RP_DRAIN_EOF, net->base.Drain(&net->base, &row));
+  EXPECT_EQ(0, MRIterator_GetChannelSize(net->it));
+}
+
+TEST_F(OwnedRPNetTest, CleanupWakeReleasesIdleWaiterWithoutAReply) {
+  attachIterator();
+  MRChannel *channel = MRIterator_GetChannel(net->it);
+  QueryRequestAsyncState_RegisterAbortWakeChannel(&request->base.async, channel);
+  auto *flag = QueryRequestTimeout_GetBlockedClientFlag(&request->base.timeout);
+  std::promise<void> entering;
+  auto waiter = std::async(std::launch::async, [&] {
+    entering.set_value();
+    MRChannel_WaitReadable(channel, flag);
+  });
+  entering.get_future().wait();
+  QueryRequestTimeout_MarkTimedOut(&request->base.timeout);
+  QueryRequestAsyncState_WakeAbortChannel(&request->base.async);
+  const auto done = waiter.wait_for(1s);
+  if (done != std::future_status::ready) MRChannel_Unblock(channel);
+  waiter.get();
+  EXPECT_EQ(std::future_status::ready, done);
   EXPECT_EQ(0, MRIterator_GetChannelSize(net->it));
 }
 
