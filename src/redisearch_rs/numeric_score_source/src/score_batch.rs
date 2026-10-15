@@ -7,69 +7,119 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! [`NumericScoreBatch`] — a [`ScoreBatch`] over a drained numeric iterator.
+//! [`NumericScoreBatch`] — a [`ScoreBatch`] over a chunk of value-ordered ranges.
+//!
+//! [`ScoreBatch`]: top_k::ScoreBatch
 
+use index_result::RSIndexResult;
+use inverted_index::{FilterNumericReader, IndexReader, NumericFilter};
+use numeric_range_tree::{NumericIndexReader, NumericRange};
 use rqe_core::DocId;
 use rqe_iterators::RQEIteratorError;
-use top_k::ScoreBatch;
 
-/// A [`ScoreBatch`] backed by a doc-id-ordered `Vec<(DocId, f64)>`.
-///
-/// Doc IDs must be strictly increasing, so [`skip_to`](ScoreBatch::skip_to) can
-/// `partition_point`; this is asserted in debug builds.
-pub struct NumericScoreBatch {
-    items: Vec<(DocId, f64)>,
-    pos: usize,
+/// The records of a chunk of ranges, merged lazily in doc-id order, so a
+/// seek skips the index blocks that hold no candidate. A multivalue doc's
+/// entries are folded onto its best score.
+pub struct NumericScoreBatch<'index> {
+    cursors: Vec<RangeCursor<'index>>,
+    /// Cursors on the doc id yielded last move on at the next read, straight
+    /// to its target.
+    last: DocId,
+    ascending: bool,
+    multivalued: bool,
 }
 
-impl NumericScoreBatch {
-    /// Create a batch from `(doc_id, score)` pairs sorted strictly ascending by
-    /// `doc_id`.
-    pub(crate) fn new(items: Vec<(DocId, f64)>) -> Self {
-        debug_assert!(
-            items.windows(2).all(|w| w[0].0 < w[1].0),
-            "NumericScoreBatch: doc IDs must be strictly increasing"
-        );
-        Self { items, pos: 0 }
+struct RangeCursor<'index> {
+    reader: FilterNumericReader<NumericIndexReader<'index>>,
+    record: RSIndexResult<'index>,
+}
+
+impl<'index> NumericScoreBatch<'index> {
+    /// Open a reader on each of `ranges`, keeping only records `filter` admits.
+    pub(crate) fn new(
+        ranges: &[&'index NumericRange],
+        filter: NumericFilter,
+        multivalued: bool,
+    ) -> Self {
+        let cursors = ranges
+            .iter()
+            .map(|range| RangeCursor {
+                reader: FilterNumericReader::new(filter, range.reader()),
+                record: RSIndexResult::build_numeric(0.0).build(),
+            })
+            .collect();
+        Self {
+            cursors,
+            last: 0,
+            ascending: filter.ascending,
+            multivalued,
+        }
     }
 
-    /// Drop records for which `keep` returns `Ok(false)`, preserving the strictly
-    /// increasing doc-id order, and return the filtered batch. Called before the
-    /// batch is read, so `pos` stays at `0`.
-    ///
-    /// `keep` is fallible so it can poll the query deadline per record. The first
-    /// [`Err`] is returned and short-circuits the scan.
-    pub(crate) fn retain(
-        mut self,
-        mut keep: impl FnMut(DocId, f64) -> Result<bool, RQEIteratorError>,
-    ) -> Result<Self, RQEIteratorError> {
-        debug_assert_eq!(self.pos, 0, "retain must run before the batch is read");
-        // Two-pointer compaction so the first `Err` exits immediately instead of
-        // scanning the rest of the batch as `Vec::retain` would.
-        let mut write = 0;
-        for read in 0..self.items.len() {
-            let item = self.items[read];
-            if keep(item.0, item.1)? {
-                self.items[write] = item;
-                write += 1;
+    /// Yield the first `(doc_id, score)` with `doc_id >= target`, or `Ok(None)`
+    /// once every range is exhausted.
+    #[inline(always)]
+    pub(crate) fn read(&mut self, target: DocId) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
+        let target = target.max(self.last + 1);
+        let mut min: Option<(DocId, usize)> = None;
+        let mut i = 0;
+        while i < self.cursors.len() {
+            let cursor = &mut self.cursors[i];
+            if cursor.record.doc_id < target
+                && !cursor.reader.seek_record(target, &mut cursor.record)?
+            {
+                self.cursors.swap_remove(i);
+                continue;
+            }
+            let doc_id = cursor.record.doc_id;
+            if min.is_none_or(|(min_id, _)| doc_id < min_id) {
+                min = Some((doc_id, i));
+            }
+            i += 1;
+        }
+        let Some((doc_id, at)) = min else {
+            return Ok(None);
+        };
+        self.last = doc_id;
+        let score = if self.multivalued {
+            self.consume(doc_id)?
+        } else {
+            self.cursors[at]
+                .record
+                .as_numeric()
+                .expect("numeric range yields numeric records")
+        };
+        Ok(Some((doc_id, score)))
+    }
+
+    /// Move every cursor past `doc_id`, returning its best score.
+    fn consume(&mut self, doc_id: DocId) -> Result<f64, RQEIteratorError> {
+        let ascending = self.ascending;
+        let mut best: Option<f64> = None;
+        let mut i = 0;
+        while i < self.cursors.len() {
+            let cursor = &mut self.cursors[i];
+            let mut live = true;
+            while live && cursor.record.doc_id == doc_id {
+                let score = cursor
+                    .record
+                    .as_numeric()
+                    .expect("numeric range yields numeric records");
+                best = Some(best.map_or(score, |best| {
+                    if ascending {
+                        best.min(score)
+                    } else {
+                        best.max(score)
+                    }
+                }));
+                live = cursor.reader.next_record(&mut cursor.record)?;
+            }
+            if live {
+                i += 1;
+            } else {
+                self.cursors.swap_remove(i);
             }
         }
-        self.items.truncate(write);
-        Ok(self)
-    }
-}
-
-impl ScoreBatch for NumericScoreBatch {
-    fn next(&mut self) -> Option<(DocId, f64)> {
-        let item = self.items.get(self.pos).copied();
-        if item.is_some() {
-            self.pos += 1;
-        }
-        item
-    }
-
-    fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)> {
-        self.pos += self.items[self.pos..].partition_point(|(id, _)| *id < target);
-        self.next()
+        Ok(best.expect("`doc_id` is the record of some cursor"))
     }
 }
