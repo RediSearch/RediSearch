@@ -32,7 +32,6 @@ fn initial_state() {
     assert_eq!(profile.counters().skip_to, 0);
     assert_eq!(profile.counters().eof, false);
     assert_eq!(profile.wall_time_ns(), 0);
-    assert_eq!(profile.estimated(), 10);
 }
 
 #[test]

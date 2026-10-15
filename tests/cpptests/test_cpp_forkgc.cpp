@@ -22,7 +22,6 @@
 #include "redis_index.h"
 #include "index_utils.h"
 #include "notifications.h"
-#include "iterators_ffi.h"
 extern "C" {
 #include "util/dict.h"
 }
@@ -122,60 +121,6 @@ protected:
   }
 };
 
-TEST_F(FGCTest, profilePrintAfterTermCollected) {
-  RediSearch_CreateTextField(ism, "text");
-  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc", "text", "hello"));
-  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc"));
-
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
-  RSToken token = {};
-  token.str = const_cast<char *>("hello");
-  token.len = strlen(token.str);
-  RedisSearchCtx_LockSpecRead(&sctx);
-  QueryIterator *iter = Redis_OpenReader(&sctx, &token, 0, &sctx.spec->docs, RS_FIELDMASK_ALL, 1.0);
-  ASSERT_NE(iter, nullptr);
-  Profile_AddIters(&iter);
-  RedisSearchCtx_UnlockSpec(&sctx);
-
-  // Reproduce the timeout handoff: GC frees the leaf index before MT prints
-  // the prepared, unstarted iterator tree.
-  runGC();
-  ASSERT_EQ(Redis_OpenInvertedIndex(sctx.spec, "hello", 5, false, nullptr), nullptr);
-
-  struct CapturedReply {
-    bool isEstimate = false;
-    std::vector<long long> estimates;
-  } captured;
-  auto savedMap = RedisModule_ReplyWithMap;
-  auto savedMapLength = RedisModule_ReplySetMapLength;
-  auto savedString = RedisModule_ReplyWithSimpleString;
-  auto savedBuffer = RedisModule_ReplyWithStringBuffer;
-  auto savedInteger = RedisModule_ReplyWithLongLong;
-  RedisModule_ReplyWithMap = [](RedisModuleCtx *, long) { return REDISMODULE_OK; };
-  RedisModule_ReplySetMapLength = [](RedisModuleCtx *, long) {};
-  RedisModule_ReplyWithSimpleString = [](RedisModuleCtx *replyCtx, const char *value) {
-    auto *capture = reinterpret_cast<CapturedReply *>(replyCtx);
-    capture->isEstimate = strcmp(value, "Estimated number of matches") == 0;
-    return REDISMODULE_OK;
-  };
-  RedisModule_ReplyWithStringBuffer = [](RedisModuleCtx *, const char *, size_t) {
-    return REDISMODULE_OK;
-  };
-  RedisModule_ReplyWithLongLong = [](RedisModuleCtx *replyCtx, long long value) {
-    auto *capture = reinterpret_cast<CapturedReply *>(replyCtx);
-    if (capture->isEstimate) capture->estimates.push_back(value);
-    return REDISMODULE_OK;
-  };
-  // The reply API stubs only use this pointer as the capture sink.
-  Profile_PrintIterators(reinterpret_cast<RedisModuleCtx *>(&captured), iter, false, false);
-  RedisModule_ReplyWithMap = savedMap;
-  RedisModule_ReplySetMapLength = savedMapLength;
-  RedisModule_ReplyWithSimpleString = savedString;
-  RedisModule_ReplyWithStringBuffer = savedBuffer;
-  RedisModule_ReplyWithLongLong = savedInteger;
-  iter->Free(iter);
-  ASSERT_EQ(captured.estimates, std::vector<long long>({1}));
-}
 
 /**
  * This test purpose is to validate inverted indexes size statistics are updated correctly by the gc.

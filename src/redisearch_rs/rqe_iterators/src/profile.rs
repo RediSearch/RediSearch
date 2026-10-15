@@ -65,10 +65,6 @@ pub struct RawProfile<Rf: Ref, I> {
     counters: ProfileCounters,
     /// Time spent in child iterator operations.
     wall_time: Duration,
-    /// The child's [`RQEIterator::num_estimated`], captured at construction
-    /// under the spec lock. Stored profile replies use this value because GC
-    /// may free the underlying index before the main thread prints them.
-    estimated: usize,
     _marker: std::marker::PhantomData<Rf>,
 }
 
@@ -79,16 +75,12 @@ pub type Profile<'index, I> = RawProfile<Active<'index>, I>;
 impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
     /// Creates a new Profile iterator wrapping the given child iterator.
     ///
-    /// The counters are initialized to zero and wall time starts at 0. The
-    /// child's [`RQEIterator::num_estimated`] is captured into
-    /// [`estimated`](Self::estimated) while the caller holds the spec lock.
+    /// The counters are initialized to zero and wall time starts at 0.
     pub fn new(child: I) -> Self {
-        let estimated = child.num_estimated();
         Self {
             child,
             counters: ProfileCounters::default(),
             wall_time: Duration::ZERO,
-            estimated,
             _marker: std::marker::PhantomData,
         }
     }
@@ -110,12 +102,6 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
     #[inline]
     pub const fn wall_time_ns(&self) -> u64 {
         self.wall_time.as_nanos() as u64
-    }
-
-    /// Returns the construction-time estimate captured by [`Self::new`].
-    #[inline]
-    pub const fn estimated(&self) -> usize {
-        self.estimated
     }
 }
 
@@ -194,7 +180,7 @@ where
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let counters = self.counters();
-        let mut child_ctx = ctx.with_counters(counters, self.wall_time_ns(), self.estimated);
+        let mut child_ctx = ctx.with_counters(counters, self.wall_time_ns());
         self.child().print_profile(map, &mut child_ctx);
     }
 }
