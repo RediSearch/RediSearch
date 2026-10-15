@@ -174,7 +174,7 @@ jobs:
         run: eval "$POST_SETUP_SCRIPT"
 
       - name: Full checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
 
@@ -234,7 +234,7 @@ jobs:
           echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
 
       - name: Download build artifact
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.artifact-name }}
           # bin.tar.gz lands in the working directory; unpacked in the next step.
@@ -253,7 +253,7 @@ jobs:
           find bin -name 'redisearch.so' -o -name 'redisearch.dylib' 2>/dev/null
 
       - name: Download Redis artifact
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.redis-artifact-name }}
           # redis-install.tar.gz lands in the working directory; unpacked next.
@@ -291,7 +291,7 @@ jobs:
 
       - name: Download RedisJSON artifact
         if: ${{ inputs.rejson }}
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.rejson-artifact-name }}
           # rejson.tar.gz lands in the working directory; unpacked next.
@@ -369,7 +369,7 @@ jobs:
         # GitHub Actions and workflows should be pinned to a commit hash" rule is
         # a hard gate on any line a PR touches, so these do not get the moving-tag
         # exemption that .github/zizmor.yml grants redislabsdev/*.
-        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1.0.2
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-filter@ab30f69694cb672ca6f681f9301470bfd688a8f0 # v1.0.10
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           tests: ${{ steps.enumerate.outputs.specs }}
@@ -472,7 +472,7 @@ jobs:
         # Pinned to the commit SHA that `v1` points to — see the flaky-filter step
         # above for why these two keep the hash while other redislabsdev/* refs
         # stay on the tag.
-        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@47d296844ebbfab8d6923a8d57deadd1aacc9f29 # v1.0.2
+        uses: redislabsdev/redisearch-ci-common/.github/actions/flaky-record-results@ab30f69694cb672ca6f681f9301470bfd688a8f0 # v1.0.10
         with:
           redis-url: ${{ secrets.FLAKY_TESTS_REDIS_URL }}
           failed-file: ${{ inputs.test-mode == 'standalone' && '.failed_standalone.txt' || '.failed_coordinator.txt' }}
@@ -506,7 +506,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Flow Test Logs ${{ steps.artifact-names.outputs.name }}
           path: |
@@ -558,7 +558,7 @@ jobs:
             steps.standalone_tests.outcome == 'failure' ||
             steps.coordinator_tests.outcome == 'failure'
           )
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Failed Test Logs ${{ steps.artifact-names.outputs.name }}
           path: failed-test-logs/
@@ -589,7 +589,7 @@ jobs:
         run: gpg --import .github/codecov_gpg.pub
       - name: Upload flow coverage (standalone)
         if: inputs.coverage && inputs.test-mode == 'standalone'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v6.0.2 NOSONAR
         with:
           files: bin/flow_standalone.info,bin/rust_flow_standalone.info
           disable_search: true
@@ -598,7 +598,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload flow coverage (coordinator)
         if: inputs.coverage && inputs.test-mode == 'coordinator'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v6.0.2 NOSONAR
         with:
           files: bin/flow_coordinator.info,bin/rust_flow_coordinator.info
           disable_search: true
