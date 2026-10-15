@@ -414,6 +414,11 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     ///
     /// On failure, the implementation populates `status` (when present) with the cause before
     /// returning `Err`.
+    ///
+    /// The returned iterator must answer [`RQEIterator::last_doc_id`] and
+    /// [`RQEIterator::num_estimated`] from cached state, without touching `index`: while the
+    /// iterator is suspended (see [`DiskWildcardSuspended`](wildcard::DiskWildcardSuspended)),
+    /// these are called with the index spec lock released.
     fn new_wildcard_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
