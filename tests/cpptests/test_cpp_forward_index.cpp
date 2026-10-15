@@ -156,21 +156,21 @@ TEST_F(ForwardIndexTest, offsetsAreFreshAfterReusingLargeWriters) {
   ForwardIndexFree(idx);
 }
 
-TEST_F(ForwardIndexTest, resetPoolsOnlySmallWritersUpToTheCap) {
+TEST_F(ForwardIndexTest, resetPoolsEverySmallWriter) {
   TestDoc doc(100);
   ForwardIndex *idx = NewForwardIndex(&doc.doc, Index_StoreTermOffsets);
   // Term 0's writer grows past the size limit; terms 1..2 stay small.
   addTerms(idx, 0, 1, 2000);
   addTerms(idx, 1, 2);
-  ASSERT_GT(VVW_GetByteLength(find(idx, 0)->vw), 1024);
+  ASSERT_GT(VVW_GetByteLength(find(idx, 0)->vw), 256);
   ForwardIndex_Reset(idx, &doc.doc, Index_StoreTermOffsets);
   ASSERT_EQ(mempool_size(idx->vvwPool), 2);
 
-  // More writers than the pool keeps, without growing the table past its limit.
+  // Every writer of a document that keeps its table is pooled, so the next such document allocates none.
   addTerms(idx, 0, 4000);
   ForwardIndex_Reset(idx, &doc.doc, Index_StoreTermOffsets);
   ASSERT_LE(idx->hits->numBuckets, FORWARD_INDEX_MAX_RETAINED_BUCKETS);
-  ASSERT_EQ(mempool_size(idx->vvwPool), 1024);
+  ASSERT_EQ(mempool_size(idx->vvwPool), 4000);
   ForwardIndexFree(idx);
 }
 

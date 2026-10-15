@@ -31,9 +31,10 @@ typedef struct {
 #define ENTRIES_BLOCK_SIZE (ENTRIES_PER_BLOCK * sizeof(khIdxEntry))
 #define TERM_BLOCK_SIZE 128
 
-// Offset writers keep their capacity across reuse, so only small ones are pooled, and only so many.
-#define MAX_RETAINED_VVW_BYTES 1024
-#define MAX_POOLED_VVWS 1024
+// Offset writers keep their capacity across reuse, so only small ones are pooled. Their number is bounded by
+// the retained table, since a document with more unique terms than it holds releases the pool on reset.
+#define MAX_RETAINED_VVW_BYTES 256
+#define MAX_POOLED_VVWS FORWARD_INDEX_MAX_RETAINED_BUCKETS
 // Initial table size cap; larger documents grow the table on demand. Kept well under
 // FORWARD_INDEX_MAX_RETAINED_BUCKETS so a freshly sized table is never released on its first reset.
 #define MAX_PRESIZED_TERMS (FORWARD_INDEX_MAX_RETAINED_BUCKETS / 4)
