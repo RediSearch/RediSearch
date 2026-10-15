@@ -773,7 +773,7 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   return ret;
 }
 
-static RPDrainStatus rpsortDrain(ResultProcessor *rp, SearchResult *r) {
+static RPDrainStatus rpsortDrain_Yield(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
   SearchResult *best = mmh_pop_max(self->pq);
   if (!best) {
@@ -797,6 +797,61 @@ static void rpsortFree(ResultProcessor *rp) {
 
 #define RESULT_QUEUED RS_RESULT_MAX + 1
 
+static void rpsortAccumulate(ResultProcessor *rp) {
+  RPSorter *self = (RPSorter *)rp;
+
+  // If the queue is not full - we just push the result into it
+  if (self->pq->count < self->pq->size) {
+
+    // The pooled result currently borrows `it->current` from the source
+    // iterator; the next Read() overwrites that slot, so the borrow would
+    // dangle once the SearchResult lives in the heap across reads. Preserve it
+    // as an owned deep copy when something downstream needs it, otherwise drop
+    // the borrow.
+    SearchResult_BufferIndexResult(rp, self->pooledResult);
+    mmh_insert(self->pq, self->pooledResult);
+    if (SearchResult_GetScore(self->pooledResult) < rp->parent->minScore) {
+      rp->parent->minScore = SearchResult_GetScore(self->pooledResult);
+    }
+    // we need to allocate a new result for the next iteration
+    self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+    *self->pooledResult = SearchResult_New();
+  } else {
+    // find the min result
+    SearchResult *minh = mmh_peek_min(self->pq);
+
+    // update the min score. Irrelevant to SORTBY mode but hardly costs anything...
+    if (SearchResult_GetScore(minh) > rp->parent->minScore) {
+      rp->parent->minScore = SearchResult_GetScore(minh);
+    }
+
+    // if needed - pop it and insert a new result
+    if (self->cmp(self->pooledResult, minh, self->cmpCtx) > 0) {
+      // Preserve or drop the borrowed RSIndexResult before the SearchResult
+      // enters the heap; see the matching insert path above for the rationale.
+      SearchResult_BufferIndexResult(rp, self->pooledResult);
+      self->pooledResult = mmh_exchange_min(self->pq, self->pooledResult);
+    }
+    // clear the result in preparation for the next iteration
+    SearchResult_Clear(self->pooledResult);
+  }
+}
+
+static RPDrainStatus rpsortDrain_Accum(ResultProcessor *rp, SearchResult *r) {
+  RPSorter *self = (RPSorter *)rp;
+  if (!self->pq->count) {
+    RPDrainStatus status;
+    while ((status = rp->upstream->Drain(rp->upstream, self->pooledResult)) == RP_DRAIN_OK) {
+      rpsortAccumulate(rp);
+    }
+    if (status != RP_DRAIN_EOF) return status;
+  }
+  // Recovery must finish selecting top-K before publishing its first row.
+  rp->Next = rpsortNext_Yield;
+  rp->Drain = rpsortDrain_Yield;
+  return rpsortDrain_Yield(rp, r);
+}
+
 static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r, PipelineAccess *access) {
   RPSorter *self = (RPSorter *)rp;
 
@@ -807,6 +862,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r, PipelineAc
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
     rp->Next = rpsortNext_Yield;
+    rp->Drain = rpsortDrain_Yield;
     return rpsortNext_Yield(rp, r);
   } else if (rc == RS_RESULT_TIMEDOUT) {
     RSTimeoutPolicy policy = rp->parent->timeoutPolicy;
@@ -940,7 +996,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   *ret->pooledResult = SearchResult_New();
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
-  ret->base.Drain = rpsortDrain;
+  ret->base.Drain = rpsortDrain_Accum;
   ret->base.type = RP_SORTER;
   return &ret->base;
 }
@@ -1444,7 +1500,12 @@ static RPDrainStatus rpSafeLoaderDrain(ResultProcessor *rp, SearchResult *result
     SetResult(row, result_output);
     return RP_DRAIN_OK;
   }
-  // Do not reset into accumulation or a plain loader: recovery ends at this batch.
+  // Keep Drain at this batch, but make the next cursor's mode transition safe.
+  self->buffer_results_count = 0;
+  self->curr_result_index = 0;
+  self->last_buffered_rc = RS_RESULT_OK;
+  self->loaded = false;
+  rp->Next = self->becomePlainLoader ? rploaderNext : rpSafeLoaderNext_Accumulate;
   return RP_DRAIN_EOF;
 }
 
@@ -1881,6 +1942,7 @@ typedef struct {
   rs_wall_clock suspendedAt;
   rs_wall_clock_ns_t suspendedTime;
   bool suspended;
+  uint64_t resultCount;
 } RPProfile;
 
 static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
@@ -1900,6 +1962,7 @@ static int rpprofileNext(ResultProcessor *base, SearchResult *r) {
   self->profileTime += rs_wall_clock_diff_ns(&start, &end);
   self->suspended = false;
   self->profileCount++;
+  self->resultCount += rc == RS_RESULT_OK;
   return rc;
 }
 
@@ -1910,6 +1973,7 @@ static RPDrainStatus rpprofileDrain(ResultProcessor *base, SearchResult *r) {
   RPDrainStatus rc = base->upstream->Drain(base->upstream, r);
   self->profileTime += rs_wall_clock_elapsed_ns(&start);
   self->profileCount++;
+  self->resultCount += rc == RP_DRAIN_OK;
   return rc;
 }
 
@@ -1950,6 +2014,11 @@ uint64_t RPProfile_GetCount(ResultProcessor *rp) {
 void RPProfile_IncrementCount(ResultProcessor *rp) {
   RPProfile *self = (RPProfile *)rp;
   self->profileCount++;
+  self->resultCount++;
+}
+
+uint64_t RPProfile_GetResultCount(ResultProcessor *rp) {
+  return ((RPProfile *)rp)->resultCount;
 }
 
 void Profile_ResumeRPs(QueryProcessingCtx *qctx) {
@@ -2067,6 +2136,7 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
 
 static RPDrainStatus RPMaxScoreNormalizer_Drain(ResultProcessor *rp, SearchResult *r) {
   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+  rp->Next = RPMaxScoreNormalizer_Yield;
   if (array_len(self->pool) == 0) {
     return RP_DRAIN_EOF;
   }
@@ -3455,6 +3525,11 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
 
 static RPDrainStatus RPDepleter_Drain(ResultProcessor *base, SearchResult *r) {
   RPDepleter *self = (RPDepleter *)base;
+  if (!array_len(self->results)) {
+    RPDrainStatus status = base->upstream->Drain(base->upstream, r);
+    if (status == RP_DRAIN_EOF) base->Drain = RPDrain_EOF;
+    return status;
+  }
   if (self->cur_idx >= array_len(self->results)) {
     return RP_DRAIN_EOF;
   }
