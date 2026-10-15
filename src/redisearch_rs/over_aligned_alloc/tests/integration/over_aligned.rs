@@ -171,6 +171,12 @@ unsafe impl GlobalAlloc for Misaligning {
     }
 }
 
+/// Wrap `inner` with the default inner alignment, which a bare `OverAligned(..)`
+/// expression cannot infer.
+fn over_aligned(inner: Misaligning) -> OverAligned<Misaligning> {
+    OverAligned(inner)
+}
+
 fn layout(size: usize, align: usize) -> Layout {
     Layout::from_size_align(size, align).unwrap()
 }
@@ -222,7 +228,7 @@ fn inner_allocator_never_over_aligns() {
 
 #[test]
 fn over_aligned_layouts_get_aligned_usable_blocks() {
-    let alloc = OverAligned(Misaligning::default());
+    let alloc = over_aligned(Misaligning::default());
     // Keep every block live at once, so the fills would collide if blocks overlapped.
     let blocks: Vec<_> = over_aligned_layouts()
         .map(|layout| {
@@ -249,7 +255,7 @@ fn over_aligned_layouts_get_aligned_usable_blocks() {
 /// back untouched: no padding, no header, no extra calls.
 #[test]
 fn inner_alignments_are_forwarded_unchanged() {
-    let alloc = OverAligned(Misaligning::default());
+    let alloc = over_aligned(Misaligning::default());
     for align in [1, 8, MAX_INNER_ALIGN] {
         let small = layout(24, align);
         let grown = layout(100, align);
@@ -309,7 +315,7 @@ fn inner_alignments_are_forwarded_unchanged() {
 
 #[test]
 fn alloc_zeroed_zeroes_over_aligned_blocks() {
-    let alloc = OverAligned(Misaligning::default());
+    let alloc = over_aligned(Misaligning::default());
     for layout in over_aligned_layouts() {
         // SAFETY: non-zero size; freed below with the same layout.
         let block = unsafe { alloc.alloc_zeroed(layout) };
@@ -325,7 +331,7 @@ fn alloc_zeroed_zeroes_over_aligned_blocks() {
 
 #[test]
 fn realloc_keeps_contents_and_alignment() {
-    let alloc = OverAligned(Misaligning::default());
+    let alloc = over_aligned(Misaligning::default());
     for align in [MAX_INNER_ALIGN, 32, 4096] {
         let mut current = layout(40, align);
         // SAFETY: non-zero size.
@@ -352,7 +358,7 @@ fn realloc_keeps_contents_and_alignment() {
 
 #[test]
 fn inner_exhaustion_is_reported_as_null() {
-    let alloc = OverAligned(Misaligning::exhausted());
+    let alloc = over_aligned(Misaligning::exhausted());
     for layout in over_aligned_layouts() {
         // SAFETY: non-zero size; nothing to free when the result is null.
         assert!(unsafe { alloc.alloc(layout) }.is_null(), "{layout:?}");
@@ -364,7 +370,7 @@ fn inner_exhaustion_is_reported_as_null() {
 
 #[test]
 fn failed_over_aligned_realloc_keeps_the_original_block() {
-    let alloc = OverAligned(Misaligning::default());
+    let alloc = over_aligned(Misaligning::default());
     let original = layout(40, 64);
     // SAFETY: non-zero size; freed below with the same layout.
     let block = unsafe { alloc.alloc(original) };
@@ -386,7 +392,7 @@ fn failed_over_aligned_realloc_keeps_the_original_block() {
 
 #[test]
 fn oversized_padding_is_reported_as_null() {
-    let alloc = OverAligned(Misaligning::default());
+    let alloc = over_aligned(Misaligning::default());
     // Valid on its own, but adding the alignment as padding overflows `isize::MAX`.
     let huge = layout(isize::MAX as usize - 31, 32);
     // SAFETY: non-zero size; nothing to free when the result is null.
@@ -401,7 +407,7 @@ fn boxed_over_aligned_value_is_aligned() {
     #[repr(align(32))]
     struct Avx2Sized([u8; 32]);
 
-    let alloc = OverAligned(Misaligning::default());
+    let alloc = over_aligned(Misaligning::default());
     let layout = Layout::new::<Avx2Sized>();
     // SAFETY: non-zero size; freed below with the same layout.
     let block = unsafe { alloc.alloc(layout) }.cast::<Avx2Sized>();

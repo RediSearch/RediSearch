@@ -18,7 +18,7 @@
 use std::alloc::{GlobalAlloc, Layout};
 use std::ptr;
 
-/// The largest alignment the inner allocator of an [`OverAligned`] must honor.
+/// The default inner alignment of an [`OverAligned`].
 ///
 /// This is `max_align_t` on every platform the module ships on, which is all
 /// `malloc` promises. Layouts asking for more are served by over-allocating.
@@ -26,11 +26,6 @@ pub const MAX_INNER_ALIGN: usize = 16;
 
 /// Size of the back-pointer stored just below every over-aligned block.
 const HEADER_SIZE: usize = size_of::<*mut u8>();
-
-const _: () = assert!(
-    HEADER_SIZE <= MAX_INNER_ALIGN,
-    "the header must fit in the padding before an over-aligned block"
-);
 
 /// Abort on a broken allocator invariant.
 ///
@@ -42,25 +37,60 @@ fn invariant_violated() -> ! {
     std::process::abort()
 }
 
-/// Wraps an allocator that honors alignments up to [`MAX_INNER_ALIGN`], so that
+/// Wraps an allocator that honors alignments up to `INNER_ALIGN`, so that
 /// every alignment is honored.
 ///
-/// A layout whose alignment is at most [`MAX_INNER_ALIGN`] goes straight to the
+/// A layout whose alignment is at most `INNER_ALIGN` goes straight to the
 /// inner allocator. A larger one is served from an inner block padded by the
 /// alignment: the returned pointer is the first suitably aligned address with
 /// room below it to store the inner block's address, which deallocation reads
 /// back.
 ///
+/// ```text
+/// inner block, allocated with size `layout.size() + layout.align()`
+/// and alignment `INNER_ALIGN`:
+///
+/// base                            block (aligned to `layout.align()`)
+///  │                               │
+///  ▼                               ▼
+///  ┌─────────────────┬─────────────┬───────────────────────┬─────────┐
+///  │     padding     │   header    │  caller's `size` bytes│  slack  │
+///  └─────────────────┴─────────────┴───────────────────────┴─────────┘
+///                     ╰─ holds `base`, ends exactly at `block`
+///  ╰─ offset ∈ [HEADER_SIZE, layout.align()] ─╯
+///     (padding is empty when offset == HEADER_SIZE)
+/// ```
+///
+/// `dealloc` reads the header just below `block` to recover `base` and frees
+/// the whole inner block.
+///
 /// The inner allocator must return memory aligned to
-/// `min(layout.align(), MAX_INNER_ALIGN)`; nothing else is assumed of it.
-pub struct OverAligned<A>(pub A);
+/// `min(layout.align(), INNER_ALIGN)`; nothing else is assumed of it.
+///
+/// `INNER_ALIGN` must be a power of two no smaller than the size of a pointer,
+/// so the header fits in the padding; this is checked at compile time.
+pub struct OverAligned<A, const INNER_ALIGN: usize = MAX_INNER_ALIGN>(pub A);
 
-impl<A> OverAligned<A> {
+impl<A, const INNER_ALIGN: usize> OverAligned<A, INNER_ALIGN> {
+    /// Compile-time check of the `INNER_ALIGN` contract, forced by every
+    /// over-aligned code path.
+    const VALID: () = {
+        assert!(
+            INNER_ALIGN.is_power_of_two(),
+            "INNER_ALIGN must be a power of two"
+        );
+        assert!(
+            HEADER_SIZE <= INNER_ALIGN,
+            "the header must fit in the padding before an over-aligned block"
+        );
+    };
+
     /// The layout requested from the inner allocator to serve the over-aligned
     /// `layout`, or `None` if its size overflows.
     fn padded_layout(layout: Layout) -> Option<Layout> {
+        let () = Self::VALID;
         let size = layout.size().checked_add(layout.align())?;
-        Layout::from_size_align(size, MAX_INNER_ALIGN).ok()
+        Layout::from_size_align(size, INNER_ALIGN).ok()
     }
 
     /// Carve an aligned block out of `base`, a block allocated with
@@ -68,15 +98,15 @@ impl<A> OverAligned<A> {
     ///
     /// # Safety
     ///
-    /// `base` must be non-null, aligned to [`MAX_INNER_ALIGN`], and valid for
+    /// `base` must be non-null, aligned to [`INNER_ALIGN`], and valid for
     /// writes of `Self::padded_layout(layout).size()` bytes; `layout.align()`
-    /// must exceed [`MAX_INNER_ALIGN`].
+    /// must exceed [`INNER_ALIGN`].
     unsafe fn place(base: *mut u8, layout: Layout) -> *mut u8 {
-        // `base` is a multiple of MAX_INNER_ALIGN and so is the rounded address,
-        // so the offset is a multiple of MAX_INNER_ALIGN in
+        // `base` is a multiple of INNER_ALIGN and so is the rounded address,
+        // so the offset is a multiple of INNER_ALIGN in
         // [HEADER_SIZE, layout.align()]: the header fits below the block, and the
         // block ends within the `size + align` bytes of `base`.
-        if cfg!(debug_assertions) && !base.addr().is_multiple_of(MAX_INNER_ALIGN) {
+        if cfg!(debug_assertions) && !base.addr().is_multiple_of(INNER_ALIGN) {
             invariant_violated();
         }
         let aligned = (base.addr() + HEADER_SIZE).next_multiple_of(layout.align());
@@ -91,7 +121,7 @@ impl<A> OverAligned<A> {
         let header = unsafe { Self::header(block) };
         // SAFETY: the header slot lies in `[base, block)` because
         // `offset >= HEADER_SIZE`, and it is pointer-aligned because `block` is
-        // aligned to `layout.align() > MAX_INNER_ALIGN >= HEADER_SIZE`.
+        // aligned to `layout.align() > INNER_ALIGN >= HEADER_SIZE`.
         unsafe { header.write(base) };
         block
     }
@@ -112,9 +142,9 @@ impl<A> OverAligned<A> {
 // inner allocator directly or from a padded inner block via `place`, and every
 // pointer is returned to the inner allocator with the layout it was allocated
 // with, so the inner allocator's guarantees carry over.
-unsafe impl<A: GlobalAlloc> GlobalAlloc for OverAligned<A> {
+unsafe impl<A: GlobalAlloc, const INNER_ALIGN: usize> GlobalAlloc for OverAligned<A, INNER_ALIGN> {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if layout.align() <= MAX_INNER_ALIGN {
+        if layout.align() <= INNER_ALIGN {
             // SAFETY: the caller's contract for `layout` is forwarded unchanged,
             // and the inner allocator honors this alignment by the type contract.
             return unsafe { self.0.alloc(layout) };
@@ -128,12 +158,12 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for OverAligned<A> {
             return base;
         }
         // SAFETY: `base` came from the inner allocator for `padded`, so it is
-        // aligned to MAX_INNER_ALIGN and valid for `padded.size()` bytes.
+        // aligned to INNER_ALIGN and valid for `padded.size()` bytes.
         unsafe { Self::place(base, layout) }
     }
 
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        if layout.align() <= MAX_INNER_ALIGN {
+        if layout.align() <= INNER_ALIGN {
             // SAFETY: as in `alloc`.
             return unsafe { self.0.alloc_zeroed(layout) };
         }
@@ -147,7 +177,7 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for OverAligned<A> {
     }
 
     unsafe fn dealloc(&self, block: *mut u8, layout: Layout) {
-        if layout.align() <= MAX_INNER_ALIGN {
+        if layout.align() <= INNER_ALIGN {
             // SAFETY: `block` was allocated by the inner allocator with `layout`,
             // since `alloc` forwards exactly these layouts.
             return unsafe { self.0.dealloc(block, layout) };
@@ -167,7 +197,7 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for OverAligned<A> {
     }
 
     unsafe fn realloc(&self, block: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        if layout.align() <= MAX_INNER_ALIGN {
+        if layout.align() <= INNER_ALIGN {
             // SAFETY: the caller's contract is forwarded unchanged; the new
             // layout keeps the same, inner-supported alignment.
             return unsafe { self.0.realloc(block, layout, new_size) };
