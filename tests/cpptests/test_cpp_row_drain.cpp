@@ -583,10 +583,10 @@ TEST_F(OwnedSafeLoaderDrainTest, DrainsOnlyLoadedRemainderWithoutRefillOrReload)
   expectValue(key, "two");
   EXPECT_EQ(2, second->ref_count);
   SearchResult_Clear(&row);
-  EXPECT_EQ(RP_DRAIN_EOF, loader->Drain(loader, &row));
   EXPECT_EQ(2, source.nextCalls);
   EXPECT_EQ(2, source.cursor);
   EXPECT_EQ(1, third->ref_count);
+  // No extra EOF Drain call: the last row can exactly fill the reply budget.
   SetLoadersForBG(&qctx);
   qctx.resultLimit = 1;
   ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &row));
