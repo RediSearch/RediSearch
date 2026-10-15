@@ -267,6 +267,8 @@ ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx);
 
 rs_wall_clock_ns_t RPProfile_GetTime(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
+// Successful rows across Next and Drain; terminal calls are excluded.
+uint64_t RPProfile_GetResultCount(ResultProcessor *rp);
 void RPProfile_IncrementCount(ResultProcessor *rp);
 
 void Profile_AddRPs(QueryProcessingCtx *qctx);

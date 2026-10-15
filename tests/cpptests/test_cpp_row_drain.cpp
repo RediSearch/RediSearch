@@ -104,8 +104,9 @@ class OwnedRowDrainTest : public ::testing::Test {
     return rp;
   }
 
-  RSExpr *expression(const char *text) {
-    auto *hidden = NewHiddenString(text, strlen(text), false);
+  template <size_t N>
+  RSExpr *expression(const char (&text)[N]) {
+    auto *hidden = NewHiddenString(text, N - 1, false);
     auto *ast = ExprAST_Parse(hidden, &error);
     HiddenString_Free(hidden, false);
     EXPECT_NE(nullptr, ast);
@@ -166,7 +167,9 @@ TEST_F(OwnedRowDrainTest, ProfileCountsScopedWaitAsOneNextCall) {
   };
   auto *profile = append(RPProfile_New(qctx.endProc, &qctx));
   QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+  const TimeoutConfig config = {.queryTimeoutMS = 1000,
+                               .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+  QueryRequestTimeout_Init(&timeout, &config);
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   auto *execution = PipelineExecution_New(&timeout);
   EXPECT_TRUE(PipelineExecution_RunNext(
@@ -181,6 +184,23 @@ TEST_F(OwnedRowDrainTest, ProfileCountsScopedWaitAsOneNextCall) {
       profile));
   PipelineExecution_Free(execution);
   EXPECT_EQ(1, RPProfile_GetCount(profile));
+}
+
+TEST_F(OwnedRowDrainTest, ProfileCountsOnlyRowsAcrossTimeoutAndDrain) {
+  source.count = 4;
+  source.nextStop = 2;
+  auto *profile = append(RPProfile_New(qctx.endProc, &qctx));
+  for (unsigned i = 0; i < 2; ++i) {
+    ASSERT_EQ(RS_RESULT_OK, profile->Next(profile, &row));
+    SearchResult_Clear(&row);
+  }
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, profile->Next(profile, &row));
+  for (unsigned i = 0; i < 2; ++i) {
+    ASSERT_EQ(RP_DRAIN_OK, profile->Drain(profile, &row));
+    SearchResult_Clear(&row);
+  }
+  EXPECT_EQ(RP_DRAIN_EOF, profile->Drain(profile, &row));
+  EXPECT_EQ(4, RPProfile_GetResultCount(profile));
 }
 
 TEST_F(OwnedRowDrainTest, FilterProjectPagerAndProfileComposeWithoutNext) {
@@ -331,8 +351,9 @@ class OwnedLoaderDrainTest : public ::testing::Test {
     RMCK::flushdb(ctx);
   }
 
-  RSDocumentMetadata *document(const char *name, const char *value) {
-    auto *dmd = DocTable_Put(&spec.docs, name, strlen(name), 1, Document_DefaultFlags, nullptr, 0,
+  template <size_t N>
+  RSDocumentMetadata *document(const char (&name)[N], const char *value) {
+    auto *dmd = DocTable_Put(&spec.docs, name, N - 1, 1, Document_DefaultFlags, nullptr, 0,
                              DocumentType_Hash);
     DMD_Return(dmd);
     if (value) EXPECT_TRUE(RMCK::hset(ctx, name, "field", value));
@@ -418,7 +439,9 @@ class OwnedSafeLoaderDrainTest : public OwnedLoaderDrainTest {
 
   void SetUp() override {
     OwnedLoaderDrainTest::SetUp();
-    QueryRequestTimeout_Init(&timeout, TimeoutPolicy_ReturnStrict, 1000);
+    const TimeoutConfig config = {.queryTimeoutMS = 1000,
+                                 .timeoutPolicy = TimeoutPolicy_ReturnStrict};
+    QueryRequestTimeout_Init(&timeout, &config);
     QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     sctx.timeout = &timeout;
     qctx.timeoutPolicy = TimeoutPolicy_ReturnStrict;
@@ -564,6 +587,11 @@ TEST_F(OwnedSafeLoaderDrainTest, DrainsOnlyLoadedRemainderWithoutRefillOrReload)
   EXPECT_EQ(2, source.nextCalls);
   EXPECT_EQ(2, source.cursor);
   EXPECT_EQ(1, third->ref_count);
+  SetLoadersForBG(&qctx);
+  qctx.resultLimit = 1;
+  ASSERT_EQ(RS_RESULT_OK, loader->Next(loader, &row));
+  expectValue(key, "three");
+  EXPECT_EQ(3, source.nextCalls);
 }
 
 TEST_F(OwnedSafeLoaderDrainTest, UnfinishedBatchRemainsNonDrainableAndIsFreed) {

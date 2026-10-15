@@ -106,6 +106,9 @@ impl Counter {
 ///    locally but must return timeout if readmission fails; successful results and
 ///    EOF require ownership. No other executor accesses the in-flight `res`.
 /// 3. The chain and output allocations outlive this call, including a parked wait.
+/// 4. If upstream has type [`ffi::ResultProcessorType_RP_PROFILE`], the header's parent names an aligned,
+///    live [`ffi::QueryProcessingCtx`]. Its end-processor slot contains an aligned,
+///    live [`ffi::ResultProcessor`] of that type, accessible under the same execution ownership.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe extern "C" fn counter_next(ptr: *mut Header, res: *mut SearchResult) -> libc::c_int {
@@ -131,10 +134,14 @@ unsafe extern "C" fn counter_next(ptr: *mut Header, res: *mut SearchResult) -> l
                     // SAFETY: invariants 1 and 2; a profiled chain installs the
                     // parent and final profile wrapper before execution.
                     let parent = unsafe { (*ptr).parent };
+                    assert!(!parent.is_null() && parent.is_aligned());
                     // SAFETY: the live parent is exclusively accessible after EOF.
                     let end_slot = unsafe { (*parent).endProc.get() };
                     // SAFETY: the slot contains the installed final profile wrapper.
                     let end = unsafe { *end_slot };
+                    assert!(!end.is_null() && end.is_aligned());
+                    // SAFETY: invariant 4 guarantees a live processor at this address.
+                    assert_eq!(unsafe { (*end).type_ }, ffi::ResultProcessorType_RP_PROFILE);
                     // SAFETY: the final processor is a live profile wrapper.
                     unsafe { ffi::RPProfile_IncrementCount(end) };
                 }
