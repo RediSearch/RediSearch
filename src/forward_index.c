@@ -148,6 +148,7 @@ ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
   ForwardIndex *idx = rm_malloc(sizeof(ForwardIndex));
   idx->hits = rm_calloc(1, sizeof(*idx->hits));
   idx->stemmer = NULL;
+  idx->smap = NULL;
   idx->totalFreq = 0;
   initStorage(idx, doc);
   ForwardIndex_InitCommon(idx, doc, idxFlags);
