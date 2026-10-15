@@ -11,6 +11,7 @@
 
 use std::{
     ffi::{CStr, c_void},
+    ops::Bound,
     ptr::NonNull,
     time::Instant,
 };
@@ -27,7 +28,11 @@ use rqe_iterators::{
     union_opaque::{build_union, build_union_with_q_str},
     utils::duration_from_redis_timespec,
 };
-use trie_rs::{TrieMap, TrieMapOpaque, iter::PatternMode};
+use string_utils::{tag::unescape, unicode::tolower_bytes};
+use trie_rs::{
+    TrieMap, TrieMapOpaque,
+    iter::{PatternMode, RangeBoundary, RangeFilter, RangeLendingIter},
+};
 
 use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, into_child_iterator};
 
@@ -187,7 +192,19 @@ fn eval_child<'index>(
         QueryNodeType::Phrase => {
             eval_phrase(ctx, index, child, effective_weight, field, case_sensitive)
         }
-        _ => unreachable!("tag child grammar admits only token, prefix, wildcard and phrase nodes"),
+        QueryNodeType::LexRange => eval_lex_range(
+            ctx,
+            index,
+            child,
+            effective_weight,
+            field,
+            case_sensitive,
+            max_prefix_expansions,
+            config,
+        ),
+        _ => unreachable!(
+            "tag child grammar admits only token, prefix, wildcard, phrase and lex range nodes"
+        ),
     }
 }
 
@@ -323,6 +340,108 @@ fn eval_prefix<'index>(
         )
     };
     Some(Evaluated::RustCompound(iter))
+}
+
+/// Evaluate a `@tag:>{bound}` child, and its `>=`, `<` and `<=` spellings, as a
+/// union of every indexed value inside the range.
+#[expect(clippy::too_many_arguments)]
+fn eval_lex_range<'index>(
+    ctx: &'index mut QueryEvalContext,
+    index: TagIndexRef,
+    child: QueryNodeMut<'_>,
+    effective_weight: f64,
+    field: &ffi::FieldSpec,
+    case_sensitive: bool,
+    max_prefix_expansions: usize,
+    config: Config,
+) -> Option<Evaluated<'index>> {
+    let QueryNode::LexRange { begin, end } = child.as_enum() else {
+        unreachable!("lex range evaluation requires a lex range node")
+    };
+
+    // Compare against the values as they were indexed, which is what
+    // `RSTokenMut::normalize_tag` arranges for a tag token. A bound is a plain
+    // string rather than a token, so it takes the same two passes directly. Both
+    // outlive the filter that borrows them.
+    let begin = normalize_bound(begin, case_sensitive);
+    let end = normalize_bound(end, case_sensitive);
+
+    let children = collect_range_readers(
+        ctx,
+        index,
+        RangeFilter {
+            min: range_boundary(&begin),
+            max: range_boundary(&end),
+        },
+        field.index,
+        max_prefix_expansions,
+    );
+    let iter = build_union(
+        children,
+        true,
+        config.min_union_iter_heap,
+        QueryNodeType::LexRange,
+        effective_weight,
+    );
+    Some(Evaluated::RustCompound(iter))
+}
+
+/// Normalize one bound the way tag indexing normalized the values it is compared
+/// against: escape removal, then case folding unless the field is CASESENSITIVE.
+fn normalize_bound(bound: Bound<&CStr>, case_sensitive: bool) -> Bound<Vec<u8>> {
+    fn normalize(value: &CStr, case_sensitive: bool) -> Vec<u8> {
+        let unescaped = unescape(value.to_bytes());
+        if case_sensitive {
+            unescaped.into_owned()
+        } else {
+            tolower_bytes(&unescaped).into_owned()
+        }
+    }
+
+    match bound {
+        Bound::Unbounded => Bound::Unbounded,
+        Bound::Included(value) => Bound::Included(normalize(value, case_sensitive)),
+        Bound::Excluded(value) => Bound::Excluded(normalize(value, case_sensitive)),
+    }
+}
+
+/// The trie's boundary for a normalized bound. `None` leaves that side open,
+/// which an empty bound does not: `""` is a value of its own.
+fn range_boundary(bound: &Bound<Vec<u8>>) -> Option<RangeBoundary<'_>> {
+    match bound {
+        Bound::Unbounded => None,
+        Bound::Included(value) => Some(RangeBoundary::included(value)),
+        Bound::Excluded(value) => Some(RangeBoundary::excluded(value)),
+    }
+}
+
+/// Open one reader per value the range covers, up to the expansion cap.
+///
+/// Unlike a pattern walk, the range descent yields only keys it matches, so the
+/// number of values visited is the number of readers opened and the cap bounds
+/// the work on its own. The request deadline is left to the pipeline, as it is
+/// for every other node.
+fn collect_range_readers(
+    ctx: &mut QueryEvalContext,
+    index: TagIndexRef,
+    filter: RangeFilter<'_>,
+    field_index: ffi::t_fieldIndex,
+    max_prefix_expansions: usize,
+) -> Vec<CRQEIterator> {
+    let values = index.values().range_iter(filter);
+    let mut values = RangeLendingIter::from(values);
+
+    let mut children = Vec::new();
+    while let Some((value, _)) = values.next() {
+        if children.len() == max_prefix_expansions {
+            ctx.status()
+                .warnings_mut()
+                .set_reached_max_prefix_expansions();
+            break;
+        }
+        children.extend(open_reader_child(ctx, index, value, field_index));
+    }
+    children
 }
 
 /// Evaluate a `@tag:{w'pattern'}` child as a union of every value matching the pattern.

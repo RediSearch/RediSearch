@@ -78,6 +78,11 @@ static void QueryGeometryNode_Free(QueryGeometryNode *geom) {
   }
 }
 
+static void QueryLexRangeNode_Free(QueryLexRangeNode *lx) {
+  if (lx->begin) rm_free(lx->begin);
+  if (lx->end) rm_free(lx->end);
+}
+
 static void QueryVectorNode_Free(QueryVectorNode *vn) {
   if (vn->vq) {
     VectorQuery_Free(vn->vq);
@@ -121,6 +126,9 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_FUZZY:
       QueryTokenNode_Free(&n->fz.tok);
+      break;
+    case QN_LEXRANGE:
+      QueryLexRangeNode_Free(&n->lxrng);
       break;
     case QN_VECTOR:
       QueryVectorNode_Free(&n->vn);
@@ -341,6 +349,36 @@ QueryNode *NewGeofilterNode(QueryParam *p) {
 QueryNode *NewMissingNode(const FieldSpec *field) {
   QueryNode *ret = NewQueryNode(QN_MISSING);
   ret->miss.fieldIndex = field ? field->index : RS_INVALID_FIELD_INDEX;
+  return ret;
+}
+
+/* The lex-range payload is gated behind ENABLE_UNSTABLE_FEATURES, so it must not
+ * grow the node that every ordinary query allocates. Keep it within the largest
+ * union member that predates it. */
+_Static_assert(sizeof(QueryLexRangeNode) <= sizeof(QueryPrefixNode),
+               "QueryLexRangeNode must not enlarge the query-node union");
+
+QueryNode *NewLexRangeNode_WithParams(QueryParseCtx *q, QueryToken *bound, bool lower,
+                                      bool inclusive) {
+  QueryNode *ret = NewQueryNode(QN_LEXRANGE);
+  // The other side stays NULL, which the evaluator reads as "no limit".
+  char **target = lower ? &ret->lxrng.begin : &ret->lxrng.end;
+  if (lower) {
+    ret->lxrng.includeBegin = inclusive;
+  } else {
+    ret->lxrng.includeEnd = inclusive;
+  }
+
+  // The bound keeps the case-preserving type the grammar gave it, for the tag
+  // evaluator to normalize at evaluation. `QueryParam_SetParam` resolves a
+  // literal in place and returns false, leaving an unused PARAM_NONE slot that
+  // must not survive: `QueryNode_AddChildren` retags every slot of a tag child
+  // as PARAM_TERM_CASE, and resolving one with no name dereferences NULL.
+  QueryNode_InitParams(ret, 1);
+  if (!QueryNode_SetParam(q, &ret->params[0], target, NULL, bound)) {
+    array_free(ret->params);
+    ret->params = NULL;
+  }
   return ret;
 }
 
@@ -680,6 +718,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion
     case QN_PHRASE:
     case QN_NOT:
     case QN_PREFIX:
+    case QN_LEXRANGE:
     case QN_FUZZY:
     case QN_OPTIONAL:
     case QN_IDS:
@@ -816,6 +855,8 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
             res = validateQueryNotDisk("TAG prefix/suffix/infix", status);
           } else if (child->type == QN_WILDCARD_QUERY) {
             res = validateQueryNotDisk("TAG wildcard", status);
+          } else if (child->type == QN_LEXRANGE) {
+            res = validateQueryNotDisk("TAG lexrange", status);
           }
           if (res == REDISMODULE_ERR) {
             return res;
@@ -851,6 +892,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_PREFIX:
     case QN_WILDCARD_QUERY:
     case QN_FUZZY:
+    case QN_LEXRANGE:
     case QN_NOT:
     case QN_OPTIONAL:
     case QN_GEO:
@@ -907,9 +949,8 @@ void QueryNode_AddChildren(QueryNode *n, QueryNode **children, size_t nchildren)
   if (n->type == QN_TAG) {
     for (size_t ii = 0; ii < nchildren; ++ii) {
       QueryNode *child = children[ii];
-      if (child->type == QN_TOKEN || child->type == QN_PHRASE ||
-          child->type == QN_PREFIX ||
-          child->type == QN_WILDCARD_QUERY) {
+      if (child->type == QN_TOKEN || child->type == QN_PHRASE || child->type == QN_PREFIX ||
+          child->type == QN_LEXRANGE || child->type == QN_WILDCARD_QUERY) {
         n->children = array_ensure_append(n->children, children + ii, 1, QueryNode *);
         for(size_t jj = 0; jj < QueryNode_NumParams(child); ++jj) {
           Param *p = child->params + jj;
@@ -1016,6 +1057,14 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
                                         qs->pfx.prefix ? "*" : "");
       break;
 
+    case QN_LEXRANGE:
+      // Bracket for inclusive, parenthesis for exclusive, as in numeric ranges.
+      s = sdscatprintf(s, "LEXRANGE{%s%s...%s%s}",
+                       qs->lxrng.begin ? (qs->lxrng.includeBegin ? "[" : "(") : "",
+                       qs->lxrng.begin ? qs->lxrng.begin : "-inf",
+                       qs->lxrng.end ? (qs->lxrng.includeEnd ? "[" : "(") : "",
+                       qs->lxrng.end ? qs->lxrng.end : "+inf");
+      break;
 
     case QN_NOT:
       s = sdscat(s, "NOT{\n");

@@ -203,6 +203,11 @@ pub fn eval_node<'index>(
         QueryNode::Prefix { tok, mode } => prefix::eval(ctx, &node, tok, mode, config),
         QueryNode::Fuzzy { tok, max_dist } => fuzzy::eval(ctx, &node, tok, max_dist, config),
         QueryNode::Tag { field_index } => tag::eval(ctx, node, field_index, config),
+        // A lex range only ever hangs off a tag node, whose evaluator dispatches
+        // its own children, so reaching it from here is a bug.
+        QueryNode::LexRange { .. } => {
+            unreachable!("a lex range is evaluated as a child of a tag node")
+        }
         // Binds nothing, so the node stays free to be passed on by value —
         // evaluation rewrites its token.
         QueryNode::WildcardQuery { .. } => wildcard_query::eval(ctx, node, config),
