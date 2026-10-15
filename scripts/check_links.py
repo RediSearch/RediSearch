@@ -25,6 +25,8 @@ from urllib.parse import urlparse, urlunparse
 # Only external-URL checks need these, so --local-only runs on a bare Python.
 try:
     import requests
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
     from bs4 import BeautifulSoup
 except ImportError:
     requests = None
@@ -50,6 +52,15 @@ class LinkChecker:
             if requests is None:
                 sys.exit("Checking external URLs needs scripts/requirements-linkcheck.txt; pass --local-only to skip them")
             self.session = requests.Session()
+            # Hosting outages are not broken links; retry transient GET failures
+            # before falling back, without accepting persistent errors or missing pages.
+            adapter = HTTPAdapter(max_retries=Retry(
+                total=2, backoff_factor=0.5,
+                status_forcelist=(429, 500, 502, 503, 504),
+                allowed_methods=frozenset({'GET'}), raise_on_status=False,
+                respect_retry_after_header=False))
+            self.session.mount('https://', adapter)
+            self.session.mount('http://', adapter)
             user_agent = config.get('user_agent', 'Mozilla/5.0 (compatible; RediSearch-LinkChecker/1.0)')
             self.session.headers.update({'User-Agent': user_agent})
         self.checked_urls: Set[str] = set()
