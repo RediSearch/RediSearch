@@ -1713,6 +1713,27 @@ def testSortByNumericField(env):
         'FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@n', 'ASC')
     env.assertEqual(res, [3, ['n', '123'], ['n', '678'], ['n', '1023']])
 
+
+@skip(cluster=True)
+def testAggregateNumericSortByDialect4(env):
+    """Exercise numeric aggregate sorting without an explicit LIMIT under dialect 4."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'f', 'TEXT', 'n', 'NUMERIC', 'm', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc:1', 'f', 'x', 'n', 1, 'm', 1)
+    conn.execute_command('HSET', 'doc:2', 'f', 'x', 'n', 1, 'm', 3)
+    conn.execute_command('HSET', 'doc:3', 'f', 'x', 'n', 2, 'm', 2)
+
+    env.expect('FT.AGGREGATE', 'idx', 'x',
+               'SORTBY', '2', '@n', 'ASC', 'DIALECT', '4').equal(
+        [3, ['n', '1'], ['n', '1'], ['n', '2']])
+    env.expect('FT.AGGREGATE', 'idx', 'x',
+               'SORTBY', '2', '@n', 'DESC', 'DIALECT', '4').equal(
+        [3, ['n', '2'], ['n', '1'], ['n', '1']])
+    env.expect('FT.AGGREGATE', 'idx', 'x',
+               'SORTBY', '4', '@n', 'ASC', '@m', 'DESC', 'DIALECT', '4').equal(
+        [3, ['n', '1', 'm', '3'], ['n', '1', 'm', '1'], ['n', '2', 'm', '2']])
+
 @skip(cluster=False)
 def testErrorStatsResp2():
     '''Test that using RESP2 double results are affecting errorstats,
