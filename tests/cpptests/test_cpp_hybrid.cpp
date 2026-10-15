@@ -53,7 +53,7 @@ TEST_F(HybridRequestBasicTest, RecoverySerializationKeepsUnpublishedDiagnosticsU
     auto *producer = RPSafeDepleter_New(DepleterSync_New(1, false), sctx, depleterPool);
     QITR_PushRP(&hidden->pipeline.qctx, producer);
     request->reqflags |= QEXEC_F_PROFILE;
-    request->reqConfig.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+    request->base.timeout.config.timeoutPolicy = TimeoutPolicy_ReturnStrict;
     static bool profileCalled;
     profileCalled = false;
     request->profile = [](RedisModule_Reply *reply, HybridRequest *request, const bool *published) {
