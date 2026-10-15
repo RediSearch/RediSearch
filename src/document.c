@@ -178,7 +178,9 @@ bool AddDocumentCtx_ShouldRelabelField(const RSAddDocumentCtx *aCtx, t_fieldInde
 RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *status) {
 
   if (!actxPool_g) {
+    // Bounded because each pooled context keeps its forward index alive.
     mempool_options mopts = {.initialCap = 16,
+                             .maxCap = 16,
                              .alloc = allocDocumentContext,
                              .free = freeDocumentContext};
     mempool_test_set_global(&actxPool_g, &mopts);
