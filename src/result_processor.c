@@ -1430,6 +1430,16 @@ static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_outp
   return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
 }
 
+// Drain remains an EOF barrier for this batch; only the next cursor cycle may refill it.
+static void rpSafeLoader_FinishDrainedBatch(RPSafeLoader *self) {
+  self->buffer_results_count = 0;
+  self->curr_result_index = 0;
+  self->last_buffered_rc = RS_RESULT_OK;
+  self->loaded = false;
+  self->base_loader.base.Next =
+      self->becomePlainLoader ? rploaderNext : rpSafeLoaderNext_Accumulate;
+}
+
 static RPDrainStatus rpSafeLoaderDrain(ResultProcessor *rp, SearchResult *result_output) {
   RPSafeLoader *self = (RPSafeLoader *)rp;
   if (!self->loaded) {
@@ -1441,14 +1451,13 @@ static RPDrainStatus rpSafeLoaderDrain(ResultProcessor *rp, SearchResult *result
       continue;
     }
     SetResult(row, result_output);
+    if (self->curr_result_index == self->buffer_results_count) {
+      rpSafeLoader_FinishDrainedBatch(self);
+    }
     return RP_DRAIN_OK;
   }
   // Keep Drain at this batch, but make the next cursor's mode transition safe.
-  self->buffer_results_count = 0;
-  self->curr_result_index = 0;
-  self->last_buffered_rc = RS_RESULT_OK;
-  self->loaded = false;
-  rp->Next = self->becomePlainLoader ? rploaderNext : rpSafeLoaderNext_Accumulate;
+  rpSafeLoader_FinishDrainedBatch(self);
   return RP_DRAIN_EOF;
 }
 
