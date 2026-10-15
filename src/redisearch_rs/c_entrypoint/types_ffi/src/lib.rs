@@ -553,8 +553,7 @@ pub unsafe extern "C" fn AggregateResult_AddChild(
     } else {
         // SAFETY: Caller is to ensure that `child` is a valid, non-null pointer to an `RSIndexResult`
         let child = unsafe { &mut *child };
-        let drained_metrics = std::mem::take(&mut child.metrics);
-        parent.push_borrowed(child, drained_metrics);
+        parent.push_borrowed(child);
     }
 }
 
