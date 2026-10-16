@@ -29,7 +29,7 @@ class JSONPathIndexingTest : public ::testing::Test {
     double number = 0;
     const char *string = nullptr;
   };
-  using Root = std::map<std::string, std::vector<Value>>;
+  using Root = std::map<std::string, Value>;
   struct Iterator {
     std::vector<const Value *> values;
     size_t position = 0;
@@ -67,9 +67,7 @@ class JSONPathIndexingTest : public ::testing::Test {
     auto *iter = new Iterator;
     auto found = doc->find(path);
     if (found != doc->end()) {
-      for (const auto &value : found->second) {
-        iter->values.push_back(&value);
-      }
+      iter->values.push_back(&found->second);
     }
     current->iterators.insert(iter);
     return iter;
@@ -176,7 +174,7 @@ class JSONPathIndexingTest : public ::testing::Test {
   }
 };
 
-TEST_F(JSONPathIndexingTest, invalidJsonPathProducesNoValueAndHashFieldsDoNotCompilePaths) {
+TEST_F(JSONPathIndexingTest, invalidJsonPathProducesNoValue) {
   auto *jsonSpec = createSpec({"ON", "JSON", "SCHEMA", "$.invalid[", "NUMERIC"});
   ASSERT_NE(jsonSpec, nullptr);
   Root doc;
@@ -192,7 +190,9 @@ TEST_F(JSONPathIndexingTest, invalidJsonPathProducesNoValueAndHashFieldsDoNotCom
   Document_Free(&loaded);
   QueryError_ClearError(&error);
   RedisModule_CloseKey(key);
+}
 
+TEST_F(JSONPathIndexingTest, hashFieldsDoNotCompileJsonPaths) {
   const int parsesBeforeHash = parses;
   auto *hashSpec = createSpec({"ON", "HASH", "SCHEMA", "price", "NUMERIC"});
   ASSERT_NE(hashSpec, nullptr);
@@ -205,13 +205,13 @@ TEST_F(JSONPathIndexingTest, schemaFieldsLoadThroughUpdatesAndAlter) {
   ASSERT_NE(spec, nullptr);
   EXPECT_EQ(parses, 2);
 
-  Root doc = {{"$.price", {{10}}}, {"$.extra", {{30}}}};
+  Root doc = {{"$.price", {10}}, {"$.extra", {30}}};
   root = &doc;
   RMCK::RString keyName("json_cache_doc");
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
   for (double price : {10, 20}) {
-    doc["$.price"][0].number = price;
+    doc["$.price"].number = price;
     EXPECT_EQ(Document_ProbeFieldsPresent(spec, key, DocumentType_Json, 0, 2),
               DOCUMENT_FIELDS_PRESENT);
     Document loaded = {};
@@ -256,15 +256,15 @@ TEST_F(JSONPathIndexingTest, languageAndScoreValuesAndDefaultsArePreserved) {
                            "LANGUAGE", "english", "SCORE", "0.5", "SCHEMA", "$.price", "NUMERIC"});
   ASSERT_NE(spec, nullptr);
   EXPECT_EQ(parses, 3);
-  Root first = {{"$.lang", {{0, "italian"}}}, {"$.score", {{0.8}}}};
-  Root second = {{"$.lang", {{0, "french"}}}, {"$.score", {{0.2}}}};
+  Root first = {{"$.lang", {0, "italian"}}, {"$.score", {0.8}}};
+  Root second = {{"$.lang", {0, "french"}}, {"$.score", {0.2}}};
   EXPECT_EQ(SchemaRule_JsonLang(ctx, spec->rule, &first, "first"), RS_LANG_ITALIAN);
   EXPECT_DOUBLE_EQ(SchemaRule_JsonScore(ctx, spec->rule, &first, "first"), 0.8);
   EXPECT_EQ(SchemaRule_JsonLang(ctx, spec->rule, &second, "second"), RS_LANG_FRENCH);
   EXPECT_DOUBLE_EQ(SchemaRule_JsonScore(ctx, spec->rule, &second, "second"), 0.2);
 
   Root absent;
-  Root wrongTypes = {{"$.lang", {{7}}}, {"$.score", {{0, "wrong"}}}};
+  Root wrongTypes = {{"$.lang", {7}}, {"$.score", {0, "wrong"}}};
   for (auto *doc : {&absent, &wrongTypes}) {
     EXPECT_EQ(SchemaRule_JsonLang(ctx, spec->rule, doc, "defaults"), RS_LANG_ENGLISH);
     EXPECT_DOUBLE_EQ(SchemaRule_JsonScore(ctx, spec->rule, doc, "defaults"), 0.5);
