@@ -3297,11 +3297,9 @@ void IndexSpec_RdbLoadDiscard(StrongRef spec_ref) {
 
 // RDB stores path strings, so recreate runtime handles after the rule identifies JSON fields.
 static void compileLoadedJsonPaths(IndexSpec *sp) {
-  if (isSpecJson(sp)) {
-    for (size_t i = 0; i < sp->numFields; ++i) {
-      FieldSpec *fs = &sp->fields[i];
-      fs->compiledPath = japi->pathParseNoErrorMsg(HiddenString_GetUnsafe(fs->fieldPath, NULL));
-    }
+  for (size_t i = 0; i < sp->numFields; ++i) {
+    FieldSpec *fs = &sp->fields[i];
+    fs->compiledPath = japi->pathParseNoErrorMsg(HiddenString_GetUnsafe(fs->fieldPath, NULL));
   }
 }
 
@@ -3368,7 +3366,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load schema rule");
     goto cleanup;
   }
-  compileLoadedJsonPaths(sp);
+  if (isSpecJson(sp)) {
+    compileLoadedJsonPaths(sp);
+  }
   // The cache was built before the rule loaded; fill in its rule names.
   IndexSpecCache_CopyRuleFields(sp->spcache, sp->rule);
 
