@@ -7,7 +7,7 @@ older revision supports the same flags:
 | Check | Starting point | Working directory |
 | --- | --- | --- |
 | Build | `./build.sh DEBUG=1` | Repository root |
-| Rust crate tests | `cargo nextest run --manifest-path src/redisearch_rs/Cargo.toml -p <crate>` | Repository root |
+| Rust crate tests | `cargo nextest run -p <crate>` | `src/redisearch_rs` |
 | C/C++ tests | `./build.sh RUN_UNIT_TESTS ENABLE_ASSERT=1`; see [filters](../../run-c-unit-tests/SKILL.md) | Repository root |
 | Flow tests | `./build.sh RUN_PYTEST ENABLE_ASSERT=1 TEST='<file>:<function>'`; see [runner](../../run-python-tests/SKILL.md) | Repository root |
 | Formatting and lint | `make fmt CHECK=1`, then `make lint` | Repository root |
@@ -43,12 +43,21 @@ must pass at final acceptance; selection does not authorize dropping mandatory g
 Record why a check is inapplicable; inability to run it is an evidence gap, not an
 exclusion. Never relax the final matrix merely to fit the remaining budget.
 
+Read the starting revision's PR workflow and the jobs it calls, including their
+conditions and defaults. A target such as `make lint` may cover only part of its
+CI job. Record required configurations and dependencies before implementation;
+keep optional or scheduled checks separate. Validate generated-file consistency
+against the candidate before regeneration, including new files.
+
 ## Define acceptance before evaluating results
 
 For each selected check record its requirement/risk, exact command or CI job,
 working directory, dependencies, environment, timeout, expected test selection,
 pass criteria, checkpoint, and evidence path. Verify selection actually executes
 tests. A build-only run is not a test pass.
+Preflight shared binaries and tool components before dependent jobs, including
+inside the test sandbox. Fetch dependencies before entering an offline namespace;
+record a failed prerequisite as unavailable validation, not a failed test.
 
 - **Baseline:** run focused existing tests on the implementation being replaced before edits; retain failures.
 - **Function change or repair:** compile affected code; run the reproducer,
@@ -81,6 +90,9 @@ checks, and agreed latency/throughput/memory tolerances. Use coverage to find ga
 not as a sole quality score. Where valuable, seed a representative defect in a
 disposable copy to check that selected tests detect it; do not modify the candidate
 or baseline evidence. Benchmark equivalent workloads under comparable conditions.
+Match input layouts and allocation policies in microbenchmark harnesses, or explain
+the intended caller difference. Keep the C oracle's headers and libraries separate
+from the migrated implementation.
 Record workloads, baseline SHA, effective build settings, environment, metrics,
 repetitions/noise handling and thresholds. Compare against the implementation
 being replaced. Before adopting the result in today's codebase, compare against
@@ -93,6 +105,8 @@ adapters, copying and allocation can reverse an isolated function's improvement.
 Report timing variability and regressions for each workload. Claim an overall
 speedup only when the weighting reflects expected use. Fewer allocations do not
 prove lower memory use; measure the bytes allocated or retained, as appropriate.
+When accounting changes, use independent allocation or process measurements;
+reported totals alone cannot establish a real memory reduction.
 
 A completed benchmark is not a performance pass. Do not remove hard workloads or
 relax thresholds after seeing results. Add checks for newly discovered risks and
@@ -116,9 +130,16 @@ unavailable checks visible.
 
 Use the repository's test runner with its required working directory, fixtures,
 environment and process isolation; direct binary execution may omit them. Verify
-selected tests exist at the starting SHA. If another service interferes, isolate
+selected tests exist at the starting SHA. Smoke-test the final runner configuration,
+including optional modules and fixtures, before launching a broad suite.
+If another service interferes, isolate
 the test environment and rerun baseline and candidate. Do not stop unrelated
 services or weaken assertions.
+
+When invoking underlying test tools directly, preserve the wrapper's module
+arguments, runtime defaults and dependency selection. Check these before treating
+a failure on both C and Rust as a legacy defect. A shared setup mistake can make
+both implementations fail.
 
 Capture exit status and logs without masking failures through shell pipelines.
 Record starting SHA, candidate commit or base-plus-patch digest (including new
@@ -131,6 +152,17 @@ folder names. Ensure flag changes take effect. Run correctness tests with the
 required assertions enabled; benchmark both implementations with equivalent
 production settings. Record measured binary hashes and reject comparisons with
 mismatched settings.
+
+Run Cargo from the Rust workspace so its `.cargo/config` is loaded. Build any C
+libraries required by Rust tests or benchmarks, and pass the matching build
+directory when needed. Building the production module may omit those targets.
+
+After changing code, tests or build flags, verify that the build refreshed the
+intended test target. A successful command can leave an older executable in place
+when cached configuration excludes that target. Record the tested executable's
+identity and confirm that the expected tests ran.
+For mixed C/Rust builds, check the linked Rust archive too: invoking CMake alone
+may reuse an archive that the repository's build wrapper normally rebuilds and copies.
 
 Before changing tests that check struct sizes, alignment or field offsets,
 determine whether they protect a required C/Rust interface or persisted format.

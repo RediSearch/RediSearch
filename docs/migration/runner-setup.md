@@ -169,6 +169,11 @@ the VM does not resume the agent. For supervised attempts, the supervising agent
 continues selecting work; a finite test queue cannot repair failures on its own.
 If no controller remains active, report that plainly and preserve a resume record.
 
+Order queued jobs using saved completion records; an absent process or service is
+not evidence that its work finished. Distinguish ordering from prerequisites that
+must succeed. Serialize builds and benchmarks with a shared resource lock, and
+retain but exclude measurements affected by overlapping work.
+
 At completion or a limit, save candidate identity, evidence, and status (ready for
 review or incomplete). Freeze `author/` artifacts before final review. A waiting
 batch decision can resume the same active attempt with preserved counters; final

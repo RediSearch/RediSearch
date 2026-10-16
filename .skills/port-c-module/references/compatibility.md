@@ -50,3 +50,7 @@ between writes, empty indexes, GC, deletion, and repopulation. A cached setting 
 lazy allocation can change assumptions in surviving C callers. Existing migrated
 Rust is a useful reference, not proof of correctness. Verify observable accounting
 against actual allocations and capacity, not only against its own reported totals.
+
+When replacing binary I/O with a serializer, measure underlying read/write calls
+as well as encoded size. Preserve message boundaries: buffered reads must not
+consume following fields owned by C or wait for bytes outside the current message.
