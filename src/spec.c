@@ -3645,7 +3645,9 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     StrongRef_Release(spec_ref);
     return NULL;
   }
-  compileLoadedJsonPaths(sp);
+  if (isSpecJson(sp)) {
+    compileLoadedJsonPaths(sp);
+  }
   // The cache was built before the rule was created; fill in its rule names.
   IndexSpecCache_CopyRuleFields(sp->spcache, sp->rule);
 
