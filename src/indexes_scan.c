@@ -38,6 +38,7 @@
 #include "debug_commands.h"
 #include "util/arr/arr.h"
 #include "doc_table.h"
+#include "doc_id_meta.h"
 #include "document_rs.h"
 #include "field_spec.h"
 #include "info/index_error.h"
@@ -177,11 +178,17 @@ static void IndexScanner_ScanKeyForSpec(RedisModuleCtx *ctx, const IndexesScanne
       shouldIndex && selective &&
       Document_ProbeFieldsPresent(sp, key, type, scanner->addedFields.start,
                                   scanner->addedFields.end) == DOCUMENT_FIELDS_ABSENT;
+  bool alreadyIndexed = false;
+  if (shouldIndex && scanner->skipIndexedKeys) {
+    uint64_t docId = 0;
+    alreadyIndexed =
+        DocIdMeta_GetWithOpenKey(key, sp->specId, &docId) == REDISMODULE_OK && docId != 0;
+  }
   // The reindex (IndexSpec_UpdateDoc or IndexSpec_UpdateDocForAlter) can update key metadata
   // and must retain its own key-opening behavior, so the read-only handle is closed rather than
   // passed through.
   RedisModule_CloseKey(key);
-  if (shouldIndex && !skipUnchanged) {
+  if (shouldIndex && !skipUnchanged && !alreadyIndexed) {
     if (selective) {
       IndexSpec_UpdateDocForAlter(sp, ctx, keyname, type, scanner->addedFields.start);
     } else {
@@ -428,7 +435,8 @@ end:
 
 //---------------------------------------------------------------------------------------------
 
-static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange addedFields) {
+static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange addedFields,
+                                          bool skipIndexedKeys) {
   if (!reindexPool) {
     reindexPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
   }
@@ -452,6 +460,7 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange a
   // replace sp->scanner, but the freshly-constructed scanner returned here is always the one
   // that ends up running, so there is nothing to preserve from a prior scanner's range.
   scanner->addedFields = addedFields;
+  scanner->skipIndexedKeys = skipIndexedKeys;
 
   // Route disk indexes to the AsyncScan driver; RAM keeps the synchronous scan
   // (in-RAM key loads are cheap and gain nothing from offloading the read). The
@@ -476,7 +485,15 @@ void ReindexPool_ThreadPoolDestroy() {
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef spec_ref) {
   size_t nkeys = RedisModule_DbSize(ctx);
   if (nkeys > 0) {
-    IndexSpec_ScanAndReindexAsync(spec_ref, (AddedFieldsRange){0});
+    IndexSpec_ScanAndReindexAsync(spec_ref, (AddedFieldsRange){0}, false);
+  }
+}
+
+// Assumes that the spec is in a safe state to set a scanner on it (write lock or main thread)
+void IndexSpec_ScanAndReindexInitial(RedisModuleCtx *ctx, StrongRef spec_ref) {
+  size_t nkeys = RedisModule_DbSize(ctx);
+  if (nkeys > 0) {
+    IndexSpec_ScanAndReindexAsync(spec_ref, (AddedFieldsRange){0}, true);
   }
 }
 
@@ -513,7 +530,7 @@ void IndexSpec_ScanAndReindexForAlter(RedisModuleCtx *ctx, StrongRef spec_ref,
     range.start = addedFieldsStart;
     range.end = sp->numFields;
   }
-  IndexSpec_ScanAndReindexAsync(spec_ref, range);
+  IndexSpec_ScanAndReindexAsync(spec_ref, range, false);
 }
 
 // only used on "RDB load finished" event (before the server is ready to accept commands)

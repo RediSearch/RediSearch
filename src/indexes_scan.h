@@ -27,6 +27,12 @@ extern "C" {
 // or main thread).
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
 
+// Same as IndexSpec_ScanAndReindex, for the initial scan of a newly created index. The sync
+// scan skips a key that already has a doc id in this spec: its keyspace notification indexed it
+// while the scan was running. Callers that must reindex documents that are already indexed
+// (e.g. FT.SYNUPDATE) use IndexSpec_ScanAndReindex instead.
+void IndexSpec_ScanAndReindexInitial(RedisModuleCtx *ctx, StrongRef ref);
+
 // Schedules indexing for a successful ALTER. addedFieldsStart is the schema size before
 // that command added its fields. When safe, skips documents with none of those fields;
 // otherwise schedules the same full scan as IndexSpec_ScanAndReindex.

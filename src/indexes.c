@@ -148,7 +148,7 @@ IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, 
   SearchDisk_ActivateUsage(sp);
 
   if (!(sp->flags & Index_SkipInitialScan)) {
-    IndexSpec_ScanAndReindex(ctx, spec_ref);
+    IndexSpec_ScanAndReindexInitial(ctx, spec_ref);
   }
   return sp;
 }

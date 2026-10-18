@@ -84,6 +84,11 @@ typedef struct IndexesScanner {
   // non-empty only for a scan scheduled through IndexSpec_ScanAndReindexForAlter (see
   // indexes_scan.h) that was able to stay selective.
   AddedFieldsRange addedFields;
+  // True for the initial scan of a new index: a key that already has a doc id in this spec was
+  // indexed by its keyspace notification while the scan was running, so the sync scan skips it
+  // instead of replacing it under a new doc id. False for an ALTER scan, which must reindex
+  // documents that are already indexed.
+  bool skipIndexedKeys;
   WeakRef spec_ref;
   char *spec_name_for_logs;
   size_t scannedKeys;
