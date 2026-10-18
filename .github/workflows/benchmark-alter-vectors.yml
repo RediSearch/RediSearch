@@ -1,0 +1,190 @@
+name: FT.ALTER Vector Comparison
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/benchmark-alter-vectors.yml
+      - tests/benchmarks/scripts/benchmark_alter_vectors.py
+      - tests/benchmarks/scripts/summarize_alter_vectors.py
+      - tests/benchmarks/scripts/test_summarize_alter_vectors.py
+  workflow_dispatch:
+    inputs:
+      baseline_sha:
+        description: Search baseline commit (full SHA)
+        type: string
+        default: 6fa99d7e9eee0b60fc59117c7120feb66972bf5e
+      candidate_sha:
+        description: Search candidate commit (full SHA)
+        type: string
+        default: af82b359e2a293a1824d4dc32f841e7c440d5f30
+      documents:
+        description: Documents per fresh-process trial
+        type: string
+        default: '100000'
+      dimensions:
+        description: Vector dimensions
+        type: string
+        default: '128'
+      repetitions:
+        description: Paired repetitions per case
+        type: string
+        default: '3'
+      writer_rate:
+        description: Target writes per second for the concurrent case (positive)
+        type: string
+        default: '10'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alter-vectors-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    name: Build and compare pinned Search revisions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    env:
+      BASELINE_SHA: ${{ inputs.baseline_sha || '6fa99d7e9eee0b60fc59117c7120feb66972bf5e' }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha || 'af82b359e2a293a1824d4dc32f841e7c440d5f30' }}
+      DOCUMENTS: ${{ inputs.documents || '100000' }}
+      DIMENSIONS: ${{ inputs.dimensions || '128' }}
+      REPETITIONS: ${{ inputs.repetitions || '3' }}
+      WRITER_RATE: ${{ inputs.writer_rate || '10' }}
+      ARTIFACT_DIR: ${{ github.workspace }}/alter-vector-results
+    steps:
+      - name: Checkout benchmark driver and workflow
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Validate parameters
+        run: |
+          [[ "$BASELINE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          for value in "$DOCUMENTS" "$DIMENSIONS" "$REPETITIONS" "$WRITER_RATE"; do
+            [[ "$value" =~ ^[1-9][0-9]*$ ]] || exit 1
+          done
+          mkdir -p "$ARTIFACT_DIR"
+          git rev-parse HEAD > "$ARTIFACT_DIR/driver-source-sha.txt"
+
+      - name: Checkout pinned baseline source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ env.BASELINE_SHA }}
+          path: search-source
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Verify summary validation
+        run: |
+          python3 -m unittest discover \
+            -s tests/benchmarks/scripts -p test_summarize_alter_vectors.py
+
+      - name: Install build prerequisites
+        working-directory: search-source/.install
+        run: ./install_script.sh sudo
+
+      - name: Install Rust and test tools
+        uses: ./.github/actions/retry-command
+        with:
+          command: ./.install/test_deps/common_installations.sh sudo
+          working_directory: search-source
+          github_token: ${{ github.token }}
+
+      - name: Install Boost
+        working-directory: search-source/.install
+        run: ./install_boost.sh
+
+      - name: Build baseline release
+        working-directory: search-source
+        run: |
+          test "$(git rev-parse HEAD)" = "$BASELINE_SHA"
+          ./build.sh 2>&1 | tee "$ARTIFACT_DIR/before-build.log" | tail -60
+          cp bin/linux-x64-release/search-community/redisearch.so "$ARTIFACT_DIR/before.so"
+          { git rev-parse HEAD; git submodule status --recursive; cc --version; rustc --version; } \
+            > "$ARTIFACT_DIR/before-manifest.txt"
+
+      - name: Build candidate release
+        working-directory: search-source
+        run: |
+          git fetch --no-recurse-submodules origin "$CANDIDATE_SHA"
+          git switch --detach "$CANDIDATE_SHA"
+          git submodule update --init --recursive
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          ./build.sh 2>&1 | tee "$ARTIFACT_DIR/after-build.log" | tail -60
+          cp bin/linux-x64-release/search-community/redisearch.so "$ARTIFACT_DIR/after.so"
+          { git rev-parse HEAD; git submodule status --recursive; cc --version; rustc --version; } \
+            > "$ARTIFACT_DIR/after-manifest.txt"
+
+      - name: Build pinned compatible Redis
+        uses: ./.github/actions/build-redis
+        with:
+          ref: d3abc02fed6664cc0afaf9ffe4e172a99e274f44
+          build_tls: 'false'
+          cache_platform_id: ubuntu-24.04
+
+      - name: Prepare immutable benchmark runtime
+        run: |
+          python3 -m venv .alter-bench-venv
+          .alter-bench-venv/bin/pip install 'redis==5.3.1' 'numpy==2.4.6'
+          cp "$REDIS_SERVER" "$ARTIFACT_DIR/redis-server"
+          cp tests/benchmarks/scripts/benchmark_alter_vectors.py "$ARTIFACT_DIR/"
+          cp tests/benchmarks/scripts/summarize_alter_vectors.py "$ARTIFACT_DIR/"
+          { uname -a; lscpu; "$REDIS_SERVER" --version; .alter-bench-venv/bin/pip freeze; } \
+            > "$ARTIFACT_DIR/environment.txt"
+          cd "$ARTIFACT_DIR"
+          sha256sum before.so after.so redis-server benchmark_alter_vectors.py \
+            summarize_alter_vectors.py > SHA256SUMS
+
+      - name: Run identical-binary control
+        run: |
+          cd "$ARTIFACT_DIR"
+          sha256sum -c SHA256SUMS
+          uptime > load-start.txt
+          "$GITHUB_WORKSPACE/.alter-bench-venv/bin/python" benchmark_alter_vectors.py \
+            --redis-server ./redis-server \
+            --module control_A=./before.so --module control_B=./before.so \
+            --documents "$DOCUMENTS" --dim "$DIMENSIONS" \
+            --writer-rates 0 --repetitions "$REPETITIONS" \
+            --output control.jsonl 2>&1 | tee control.log | tail -3
+
+      - name: Run paired before/after comparison
+        run: |
+          cd "$ARTIFACT_DIR"
+          sha256sum -c SHA256SUMS
+          "$GITHUB_WORKSPACE/.alter-bench-venv/bin/python" benchmark_alter_vectors.py \
+            --redis-server ./redis-server \
+            --module before=./before.so --module after=./after.so \
+            --documents "$DOCUMENTS" --dim "$DIMENSIONS" \
+            --writer-rates 0 "$WRITER_RATE" --repetitions "$REPETITIONS" \
+            --output comparison.jsonl 2>&1 | tee comparison.log | tail -3
+          uptime > load-end.txt
+
+      - name: Publish comparison summary
+        run: |
+          .alter-bench-venv/bin/python tests/benchmarks/scripts/summarize_alter_vectors.py \
+            --comparison "$ARTIFACT_DIR/comparison.jsonl" \
+            --control "$ARTIFACT_DIR/control.jsonl" \
+            --expected-repetitions "$REPETITIONS" --expected-writer-rates 0 "$WRITER_RATE" \
+            --output "$ARTIFACT_DIR/SUMMARY.md"
+          cat "$ARTIFACT_DIR/SUMMARY.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload raw records, binaries, and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: alter-vector-comparison-${{ github.run_id }}-${{ github.run_attempt }}
+          path: alter-vector-results/
+          if-no-files-found: warn
+          retention-days: 14

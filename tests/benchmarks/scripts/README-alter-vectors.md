@@ -93,8 +93,32 @@ deltas for older/gate-disabled modules.
 
 ## Repository benchmark integration
 
-The driver lives alongside the repository's other benchmark scripts and can run as
-a direct CI step against downloaded release artifacts. It is not a redisbench-admin
+The driver lives alongside the repository's other benchmark scripts. The
+`FT.ALTER Vector Comparison` workflow builds a pinned baseline and candidate, then
+runs the control and comparison sequentially on one Ubuntu 24.04 runner. It publishes
+a job summary and an artifact containing binaries, hashes, manifests, build logs,
+and raw JSONL. Build and benchmark phases are sequential.
+
+PRs modifying the workflow, driver, or summary scripts trigger the default comparison
+automatically: the immediate parent of PR #11691 versus its merged revision, 100K
+documents, 128 dimensions, three repetitions, and zero/10 writes per second. Manual
+dispatch allows compatible Search revisions and dataset parameters to be selected
+once the workflow is registered on the default branch:
+
+```bash
+gh workflow run benchmark-alter-vectors.yml --ref master \
+  -f baseline_sha=6fa99d7e9eee0b60fc59117c7120feb66972bf5e \
+  -f candidate_sha=af82b359e2a293a1824d4dc32f841e7c440d5f30 \
+  -f documents=100000 -f dimensions=128 -f repetitions=3 -f writer_rate=10
+```
+
+The summary validates complete pairs, the planned repetition/rate counts, and matching
+runtime/configuration before reporting medians. Its A/A control covers the no-write
+case; it is not a noise bound for all loads. The benchmark machine differs from the
+original dorer-intel run, whose [report and raw data](../results/mod18278-pr11691-20261018/README.md)
+are retained separately.
+
+This is a direct CI job, not a redisbench-admin
 YAML tool: that runner dispatches to supported tool adapters, and FT.ALTER command
 latency alone does not capture background scan duration. Integrating these JSONL
 metrics into the standard runner and its comparison/export pipeline requires a
