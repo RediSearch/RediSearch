@@ -5,10 +5,14 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
+import os
+import tempfile
+
 from common import *
 
 """
-Tests for search-disk-drop-read-cache and search-disk-use-direct-reads module configs.
+Tests for the search-disk-drop-read-cache, search-disk-use-direct-reads and
+search-disk-statistics module configs.
 
 These configs control SpeedB OS page-cache behaviour for disk indexes:
   - search-disk-drop-read-cache: whether to drop the OS read cache after each read
@@ -93,4 +97,32 @@ def test_disk_config_startup_both():
         ['search-disk-drop-read-cache', 'yes'])
     env.expect('CONFIG', 'GET', 'search-disk-use-direct-reads').equal(
         ['search-disk-use-direct-reads', 'yes'])
+    env.stop()
+
+
+@skip(cluster=True, redis_less_than="8.8")
+def test_disk_statistics_config_defaults_to_no_and_is_hidden():
+    env = Env(noDefaultModuleArgs=True)
+    if env.env == 'existing-env':
+        env.skip()
+    env.expect('CONFIG', 'GET', 'search-disk-statistics').equal(['search-disk-statistics', 'no'])
+    env.assertNotContains('search-disk-statistics', env.cmd('CONFIG', 'GET', '*'))
+
+
+@skip(cluster=True, redis_less_than="8.8")
+def test_disk_statistics_config_is_immutable(env):
+    env.expect('CONFIG', 'SET', 'search-disk-statistics', 'yes').error()
+    env.expect('CONFIG', 'GET', 'search-disk-statistics').equal(['search-disk-statistics', 'no'])
+
+
+@skip(cluster=True, redis_less_than="8.8")
+def test_disk_statistics_config_set_at_load_time():
+    # No legacy module-argument alias; load-time values come from the config file.
+    conf_path = os.path.join(tempfile.mkdtemp(), 'disk_statistics.conf')
+    with open(conf_path, 'w') as f:
+        f.write('search-disk-statistics yes\n')
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=conf_path)
+    if env.env == 'existing-env':
+        env.skip()
+    env.expect('CONFIG', 'GET', 'search-disk-statistics').equal(['search-disk-statistics', 'yes'])
     env.stop()
