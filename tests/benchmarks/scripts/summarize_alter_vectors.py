@@ -62,7 +62,7 @@ def identity(record):
                 or not all(isinstance(arg, str) for arg in module["args"])):
             raise ValueError("malformed runtime module")
         normalized.append({k: v for k, v in module.items()
-                           if k != "path" or module["name"] != "search"})
+                           if module["name"] != "search" or k not in ("path", "ver")})
     names = [module["name"] for module in modules]
     if names.count("search") != 1 or len(names) != len(set(names)):
         raise ValueError("runtime modules must include one search module and unique names")
@@ -71,9 +71,14 @@ def identity(record):
     )
 
 
+def search_version(record):
+    return next(module["ver"] for module in record["modules"] if module["name"] == "search")
+
+
 def read_trials(path, labels):
     trials = {}
     hashes = {}
+    versions = {}
     runtime = None
     with Path(path).open(encoding="utf-8") as source:
         for line_number, line in enumerate(source, 1):
@@ -93,6 +98,10 @@ def read_trials(path, labels):
                 if runtime is not None and current_runtime != runtime:
                     raise ValueError("mixed benchmark configuration/runtime")
                 runtime = current_runtime
+                version = search_version(record)
+                if label in versions and versions[label] != version:
+                    raise ValueError(f"mixed Search module versions for {label}")
+                versions[label] = version
                 digest = record.get("module_sha256")
                 if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
                     raise ValueError("module_sha256 must be a lowercase SHA-256 digest")
@@ -153,6 +162,9 @@ def summarize(comparison, control, expected_repetitions=None, expected_writer_ra
         raise ValueError("incomplete series: writer rates differ from expected")
     if set(aa_hashes.values()) != {hashes["before"]}:
         raise ValueError("A/A controls must use the exact same module hash as before")
+    baseline_version = search_version(main["before", 0, repetitions[0]])
+    if any(search_version(record) != baseline_version for record in aa.values()):
+        raise ValueError("A/A controls Search version must match before")
     configuration = next(iter(main.values()))
     lines = [
         "# ALTER vector benchmark", "",

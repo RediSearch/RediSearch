@@ -114,6 +114,38 @@ class SummaryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "main/control benchmark configuration/runtime differ"):
             self.report()
 
+    def test_candidate_search_version_can_differ(self):
+        for row in self.comparison:
+            if row["label"] == "after":
+                row["modules"][0]["ver"] = 1000000
+        self.assertIn("| 0 | 3 | 20.000000 | 20.000000 | +0.00%", self.report())
+
+    def test_search_version_must_be_stable_per_label(self):
+        for rows, label in ((self.comparison, "before"), (self.comparison, "after"),
+                            (self.control, "control_A"), (self.control, "control_B")):
+            with self.subTest(label=label):
+                row = next(row for row in rows if row["label"] == label)
+                row["modules"][0]["ver"] += 1
+                with self.assertRaisesRegex(ValueError, f"mixed Search module versions for {label}"):
+                    self.report()
+                row["modules"][0]["ver"] -= 1
+
+    def test_control_search_version_must_match_baseline(self):
+        for row in self.control:
+            row["modules"][0]["ver"] = 1000000
+        with self.assertRaisesRegex(ValueError, "controls Search version must match before"):
+            self.report()
+
+    def test_other_module_version_cannot_differ(self):
+        for row in self.comparison + self.control:
+            row["modules"].append({"name": "ReJSON", "ver": 20000,
+                                   "path": "/json.so", "args": []})
+        for row in self.comparison:
+            if row["label"] == "after":
+                row["modules"][1]["ver"] += 1
+        with self.assertRaisesRegex(ValueError, "mixed benchmark configuration/runtime"):
+            self.report()
+
     def test_module_identity(self):
         self.comparison[0]["module_sha256"] = "c" * 64
         with self.assertRaisesRegex(ValueError, "mixed module hashes"):
