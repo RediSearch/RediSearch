@@ -2451,10 +2451,11 @@ static void initializeFieldSpec(FieldSpec *fs, t_fieldIndex index) {
 
 // The keys of an SST load keep their DocIdMeta, which is keyed by the specIds of
 // the process that saved them, so the spec must keep its saved specId for those
-// entries to resolve. Advancing the counter past it keeps later ids unique, so an
-// id it cannot advance past (or the never-assigned 0) means a corrupt RDB.
+// entries to resolve. Advancing the counter past it keeps later ids unique. A real
+// counter never nears INT64_MAX, so an id above it (or the never-assigned 0) means
+// a corrupt RDB, and capping there keeps the counter far from wrapping.
 static bool adoptSavedSpecId(IndexSpec *sp, uint64_t savedSpecId) {
-  if (savedSpecId == 0 || savedSpecId == UINT64_MAX) {
+  if (savedSpecId == 0 || savedSpecId > INT64_MAX) {
     return false;
   }
   sp->specId = savedSpecId;
