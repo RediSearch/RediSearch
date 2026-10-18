@@ -211,6 +211,9 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
     if (forgetDocIDMetadata) continue;
 
     // Skip entries belonging to indexes that are no longer in specIdDict_g (O(1) lookup).
+    // The specIds are the saving process's. They only name the same index here when this
+    // process adopted them (an SST load, see IndexSpec_RdbLoad). Keys imported by slot
+    // migration would carry another shard's specIds, which may name a different index.
     if (!isSpecValid(specId)) {
       continue;
     }
