@@ -81,7 +81,8 @@ differences to the optimization.
   trials as equivalent write workloads; reduce the target to a sustainable rate
   if the question requires a matched achieved rate.
 - CPU deltas cover the Redis process during the scan and writer shutdown; memory
-  reports before/after usage and the process peak, including initial dataset load.
+  reports Redis allocator-accounted usage and `used_memory_peak`, including initial
+  dataset load. Process RSS is not measured.
 
 Without concurrent writes, the driver asserts the expected insert/relabel counts
 for the selected gate setting. After timing, it checks the document count, indexing
