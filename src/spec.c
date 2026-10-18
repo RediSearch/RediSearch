@@ -2449,18 +2449,19 @@ static void initializeFieldSpec(FieldSpec *fs, t_fieldIndex index) {
   fs->indexError = IndexError_Init();
 }
 
-void IndexSpec_AssignFreshSpecId(IndexSpec *sp) {
-  sp->specId = nextSpecId_g++;
-}
-
 // The keys of an SST load keep their DocIdMeta, which is keyed by the specIds of
 // the process that saved them, so the spec must keep its saved specId for those
-// entries to resolve. Advancing the counter past it keeps later ids unique.
-static void adoptSavedSpecId(IndexSpec *sp, uint64_t savedSpecId) {
+// entries to resolve. Advancing the counter past it keeps later ids unique, so an
+// id it cannot advance past (or the never-assigned 0) means a corrupt RDB.
+static bool adoptSavedSpecId(IndexSpec *sp, uint64_t savedSpecId) {
+  if (savedSpecId == 0 || savedSpecId == UINT64_MAX) {
+    return false;
+  }
   sp->specId = savedSpecId;
   if (nextSpecId_g <= savedSpecId) {
     nextSpecId_g = savedSpecId + 1;
   }
+  return true;
 }
 
 // Helper function for initializing an index spec
@@ -2476,7 +2477,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   // an index is dropped and recreated with the same name, the new incarnation
   // has a different ID. An SST load replaces it with the saved one (see
   // adoptSavedSpecId).
-  IndexSpec_AssignFreshSpecId(sp);
+  sp->specId = nextSpecId_g++;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
@@ -3426,7 +3427,10 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     RS_ASSERT(encver >= INDEX_DISK_VERSION);
     RS_ASSERT(disk_db);
     if (encver >= INDEX_SST_SPEC_ID_VERSION) {
-      adoptSavedSpecId(sp, LoadUnsigned_IOError(rdb, goto cleanup));
+      if (!adoptSavedSpecId(sp, LoadUnsigned_IOError(rdb, goto cleanup))) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid saved index id");
+        goto cleanup;
+      }
     }
     // Symmetric with IndexSpec_RdbSave: whether the source node was mid
     // background-indexing. Consumed at Indexes_FinishSSTReplication to restart

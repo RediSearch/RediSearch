@@ -791,14 +791,6 @@ void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive);
  */
 void IndexSpec_PruneDocIdMetaOnDrop(RedisModuleCtx *ctx, IndexSpec *sp);
 
-/**
- * Give `sp` a fresh specId, unused by any spec created or loaded so far in this
- * process. For a spec whose RDB-carried specId cannot be adopted (see
- * IndexSpec_RdbLoad); the DocIdMeta entries the keys carry for the old id are
- * then orphaned and the index behaves as if they were missing.
- */
-void IndexSpec_AssignFreshSpecId(IndexSpec *sp);
-
 /*
  * Free an indexSpec. For LLAPI
  */
