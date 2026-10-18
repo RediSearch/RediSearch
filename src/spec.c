@@ -2449,6 +2449,20 @@ static void initializeFieldSpec(FieldSpec *fs, t_fieldIndex index) {
   fs->indexError = IndexError_Init();
 }
 
+void IndexSpec_AssignFreshSpecId(IndexSpec *sp) {
+  sp->specId = nextSpecId_g++;
+}
+
+// The keys of an SST load keep their DocIdMeta, which is keyed by the specIds of
+// the process that saved them, so the spec must keep its saved specId for those
+// entries to resolve. Advancing the counter past it keeps later ids unique.
+static void adoptSavedSpecId(IndexSpec *sp, uint64_t savedSpecId) {
+  sp->specId = savedSpecId;
+  if (nextSpecId_g <= savedSpecId) {
+    nextSpecId_g = savedSpecId + 1;
+  }
+}
+
 // Helper function for initializing an index spec
 // Solves issues where a field is initialized in index creation but not when loading from RDB
 static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFlags flags,
@@ -2460,9 +2474,9 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
   // Assign a unique specId from the global counter. This ensures that even if
   // an index is dropped and recreated with the same name, the new incarnation
-  // has a different ID. The specId is not persisted — on RDB load, each spec
-  // gets a fresh sequential ID.
-  sp->specId = nextSpecId_g++;
+  // has a different ID. An SST load replaces it with the saved one (see
+  // adoptSavedSpecId).
+  IndexSpec_AssignFreshSpecId(sp);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->suffix = NULL;
   sp->suffixMask = (t_fieldMask)0;
@@ -3269,6 +3283,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
   if (sp->diskSpec && storeDiskRdbData) {
+    RedisModule_SaveUnsigned(rdb, sp->specId);
     // Persist whether the source node was mid background-indexing, so the
     // loading node (replica / hot-restart) can restart the async scan and
     // finish a partially populated index. A scan actively in progress or a
@@ -3410,6 +3425,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     // even for duplicates. We just won't use it in the duplicate case.
     RS_ASSERT(encver >= INDEX_DISK_VERSION);
     RS_ASSERT(disk_db);
+    if (encver >= INDEX_SST_SPEC_ID_VERSION) {
+      adoptSavedSpecId(sp, LoadUnsigned_IOError(rdb, goto cleanup));
+    }
     // Symmetric with IndexSpec_RdbSave: whether the source node was mid
     // background-indexing. Consumed at Indexes_FinishSSTReplication to restart
     // the async scan and backfill the remaining documents.

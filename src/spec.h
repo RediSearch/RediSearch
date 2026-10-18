@@ -224,7 +224,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 28
+#define INDEX_CURRENT_VERSION 29
+#define INDEX_SST_SPEC_ID_VERSION 29
 #define INDEX_HNSW_QUANT_VERSION 28
 #define INDEX_VECTOR_RERANK_VERSION 27
 #define INDEX_DISK_VERSION 26
@@ -789,6 +790,14 @@ void IndexSpec_Unlink(StrongRef spec_ref, bool removeActive);
  * DocTable is freed, from the Redis command path using a valid command context.
  */
 void IndexSpec_PruneDocIdMetaOnDrop(RedisModuleCtx *ctx, IndexSpec *sp);
+
+/**
+ * Give `sp` a fresh specId, unused by any spec created or loaded so far in this
+ * process. For a spec whose RDB-carried specId cannot be adopted (see
+ * IndexSpec_RdbLoad); the DocIdMeta entries the keys carry for the old id are
+ * then orphaned and the index behaves as if they were missing.
+ */
+void IndexSpec_AssignFreshSpecId(IndexSpec *sp);
 
 /*
  * Free an indexSpec. For LLAPI
