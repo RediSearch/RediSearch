@@ -283,6 +283,14 @@ static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool u
   // Duplicate detection is a registry read, so it lives here rather than in the
   // IndexSpec core. It also gates the non-SST on-disk index open below.
   sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
+  // An SST load adopts the saved specId. The load drops every spec first and one
+  // process never saves two specs under the same id, so a clash means a corrupt
+  // RDB. Loading anyway would point the keys' DocIdMeta at the wrong index.
+  if (!sp->isDuplicate && dictFetchValue(specIdDict_g, (void *)(uintptr_t)sp->specId) != NULL) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Saved index id is already in use");
+    IndexSpec_RdbLoadDiscard(sp->own_ref);
+    return NULL;
+  }
   if (SearchDisk_IsEnabled() && !sp->isDuplicate && !SearchDisk_CanRestoreIndex(status)) {
     IndexSpec_RdbLoadDiscard(sp->own_ref);
     return NULL;
