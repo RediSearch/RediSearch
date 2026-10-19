@@ -247,6 +247,7 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
 // Seeding precedes registry insertion; only visible indexes contribute to quota accounting.
 void SearchDisk_ActivateUsage(IndexSpec *spec) {
   if (disk_db && spec && spec->diskSpec) {
+    RS_ASSERT(specDict_g && StrongRef_Get((StrongRef){dictFetchValue(specDict_g, spec->specName)}) == spec);
     disk->metrics.activateTarget(spec->diskSpec);
   }
 }
