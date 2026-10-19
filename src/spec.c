@@ -2449,6 +2449,23 @@ static void initializeFieldSpec(FieldSpec *fs, t_fieldIndex index) {
   fs->indexError = IndexError_Init();
 }
 
+// An SST load keeps each key's DocIdMeta, whose entries are keyed by the specIds of
+// the process that saved them. The loaded spec must therefore keep its saved specId,
+// or its keys' entries would not be found. Moving the counter past the adopted id
+// keeps the ids of indexes created later unique.
+// Returns false for an id no real save produces: 0 is never assigned, and a counter
+// never gets near INT64_MAX. Rejecting larger ids also keeps the counter from wrapping.
+static bool adoptSavedSpecId(IndexSpec *sp, uint64_t savedSpecId) {
+  if (savedSpecId == 0 || savedSpecId > INT64_MAX) {
+    return false;
+  }
+  sp->specId = savedSpecId;
+  if (nextSpecId_g <= savedSpecId) {
+    nextSpecId_g = savedSpecId + 1;
+  }
+  return true;
+}
+
 // Helper function for initializing an index spec
 // Solves issues where a field is initialized in index creation but not when loading from RDB
 static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFlags flags,
@@ -2460,8 +2477,8 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
   // Assign a unique specId from the global counter. This ensures that even if
   // an index is dropped and recreated with the same name, the new incarnation
-  // has a different ID. The specId is not persisted — on RDB load, each spec
-  // gets a fresh sequential ID.
+  // has a different ID. An SST load replaces it with the saved one (see
+  // adoptSavedSpecId).
   sp->specId = nextSpecId_g++;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->suffix = NULL;
@@ -3269,6 +3286,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
   if (sp->diskSpec && storeDiskRdbData) {
+    RedisModule_SaveUnsigned(rdb, sp->specId);
     // Persist whether the source node was mid background-indexing, so the
     // loading node (replica / hot-restart) can restart the async scan and
     // finish a partially populated index. A scan actively in progress or a
@@ -3410,6 +3428,23 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     // even for duplicates. We just won't use it in the duplicate case.
     RS_ASSERT(encver >= INDEX_DISK_VERSION);
     RS_ASSERT(disk_db);
+    if (encver >= INDEX_SST_SPEC_ID_VERSION) {
+      if (!adoptSavedSpecId(sp, LoadUnsigned_IOError(rdb, goto cleanup))) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid saved index id");
+        goto cleanup;
+      }
+    } else {
+      // Not fatal: the index keeps a fresh id, as before encver 29. The keys' DocIdMeta
+      // may then name another index, which a recreated index can still hit if the saving
+      // process used its new id, hence the hint to check the count and retry.
+      RedisModule_Log(RSDummyContext, "warning",
+                      "Index '%s' was loaded from an RDB without its saved index id (encver %d). "
+                      "Updates to documents indexed before the load may be counted as new "
+                      "documents, and queries that load fields may skip them. To recover, drop "
+                      "the index without DD and recreate it. Once it finishes indexing, if "
+                      "num_docs is below the number of matching keys, repeat.",
+                      IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), encver);
+    }
     // Symmetric with IndexSpec_RdbSave: whether the source node was mid
     // background-indexing. Consumed at Indexes_FinishSSTReplication to restart
     // the async scan and backfill the remaining documents.
