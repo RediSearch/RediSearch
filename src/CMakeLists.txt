@@ -48,7 +48,15 @@ if(HAS_WNO_ERROR_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
 endif()
 
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
+# The coverage report excludes VectorSimilarity, and instrumenting it slows SVS index builds enough
+# to time out vector tests on the coverage lane.
+set(SAVED_C_FLAGS "${CMAKE_C_FLAGS}")
+set(SAVED_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+string(REPLACE "--coverage" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+string(REPLACE "--coverage" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 add_subdirectory(${root}/deps/VectorSimilarity ${CMAKE_CURRENT_BINARY_DIR}/VectorSimilarity)
+set(CMAKE_C_FLAGS "${SAVED_C_FLAGS}")
+set(CMAKE_CXX_FLAGS "${SAVED_CXX_FLAGS}")
 
 # Workaround: fmt 11.2.0 is missing <cstdlib> include, which is needed for clang 21+ on macOS
 # This was fixed in fmt 12.0.0, but that requires patching several levels upstream.
@@ -82,7 +90,6 @@ file(GLOB SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/hybrid/parse/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/ext/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/fork_gc/*.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/hll/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/query_parser/v1/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/query_parser/v2/*.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/util/*.c"

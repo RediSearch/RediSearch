@@ -15,6 +15,7 @@ members = [
     "inverted_index",
     "inverted_index_bencher",
     "nul_terminated_bytes",
+    "over_aligned_alloc",
     "numeric_range_tree",
     "thin_vec",
     "qint",
@@ -47,6 +48,7 @@ members = [
     "tools/license_header_linter",
     "tools/ffi_geiger",
     "tools/safety_report",
+    "tools/migration_stats",
     "tracing_assert",
     "tracing_redismodule",
     "trie_bencher",
@@ -119,6 +121,7 @@ c_trie = { path = "./c_wrappers/c_trie" }
 document = { path = "./document" }
 dict = { path = "./c_wrappers/dict" }
 document_metadata = { path = "./c_wrappers/document_metadata" }
+fat_array = { path = "./c_wrappers/fat_array" }
 ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
 field_spec = { path = "./c_wrappers/field_spec" }
@@ -135,6 +138,7 @@ index_result = { path = "./index_result" }
 index_spec_cache = { path = "./c_wrappers/index_spec_cache" }
 inverted_index = { path = "./inverted_index" }
 nul_terminated_bytes = { path = "./nul_terminated_bytes" }
+over_aligned_alloc = { path = "./over_aligned_alloc" }
 numeric_range_tree = { path = "./numeric_range_tree" }
 numeric_score_source = { path = "./numeric_score_source" }
 redis_reply = { path = "./redis_reply" }
@@ -197,6 +201,7 @@ cheadergen = { version = "0.3.2" }
 # `default-features = false` drops the `clock` feature, whose `iana-time-zone`
 # dependency we do not need: timestamps are formatted as UTC, never local time.
 chrono = { version = "0.4", default-features = false, features = ["std", "now"] }
+clap = { version = "4.6.1", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 crc32fast = "1.5.0"
 criterion = { version = "0.8.1", features = ["html_reports"] }
 csv = "1.4.0"
@@ -214,6 +219,7 @@ libc = "0.2.180"
 nix = { version = "0.26", default-features = false, features = ["poll"] }
 memchr = "2.7.6"
 pin-project = "1.1.10"
+plotters = { version = "0.3.7", default-features = false, features = ["svg_backend", "line_series"] }
 pretty_assertions = "1.4.1"
 proc-macro2 = "1"
 proptest = { version = "1.9.0", default-features = false }

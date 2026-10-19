@@ -99,7 +99,11 @@ def get_vecsim_index_size(env, index_key, field_name):
 def get_redisearch_vector_index_memory(env, index_key):
     return float(index_info(env, index_key)["vector_index_sz_mb"])
 
-def wait_for_background_indexing(env, index_name, field_name, message=''):
+def wait_for_background_indexing(env, index_name, field_name, message='', backend_index_size=None):
+    # backend_index_size: when given, keep waiting until the backend (e.g. SVS) index sizes,
+    # summed over all shards, equal it. "Trained" alone does not guarantee that every vector has
+    # already been moved out of the flat buffer to the backend, so callers that query right after
+    # loading can pass the number of vectors they inserted to make sure everything is flushed.
     index_sizes = [0] * env.shardsCount
     flat_index_sizes = [0] * env.shardsCount
     backend_index_sizes = [0] * env.shardsCount
@@ -109,7 +113,8 @@ def wait_for_background_indexing(env, index_name, field_name, message=''):
 
     try:
         with TimeLimit(250):
-            while not all(is_trained):
+            while not all(is_trained) or (
+                    backend_index_size is not None and sum(backend_index_sizes) != backend_index_size):
                 # 'BACKGROUND_INDEXING' == 0 means training is done
                 for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
                     tiered_info = get_tiered_debug_info(con, index_name, field_name)
@@ -185,3 +190,55 @@ def assert_knn_page_live(env, k, query_vec, deleted_docs, message='',
     env.assertEqual(len(set(returned)), len(returned), message=f"{message}: duplicate docs: {res}")
     env.assertEqual(deleted_docs.intersection(returned), set(),
                     message=f"{message}: deleted docs were returned: {res}")
+
+
+def log_unreachable_results(env, text_filter, k, query_data, dim, data_type, expected_res, actual_res,
+                            doc_vector=None):
+    """Print whether the docs a hybrid query should have returned, but did not, can be found some
+    other way: exact search, unfiltered graph search, larger batches, or their own vector. This
+    tells a lost document apart from a wrong BATCHES iteration. Index and field are 'idx' and 'v',
+    as in execute_hybrid_query."""
+    from common import create_np_array_typed
+
+    def doc_ids(res):
+        return [res[i] for i in range(1, len(res), 2)]
+
+    def search(query, vec, limit):
+        return doc_ids(env.cmd('FT.SEARCH', 'idx', query, 'SORTBY', '__v_score',
+                               'PARAMS', 2, 'vec_param', vec.tobytes(),
+                               'RETURN', 1, '__v_score', 'LIMIT', 0, limit))
+
+    expected_ids, actual_ids = doc_ids(expected_res), doc_ids(actual_res)
+    missing = [d for d in expected_ids if d not in actual_ids]
+    unexpected = [d for d in actual_ids if d not in expected_ids]
+    out = [f"returned {len(actual_ids)} docs; missing {len(missing)} of the {len(expected_ids)} expected: "
+           f"{missing}; unexpected: {unexpected}"]
+
+    probes = [
+        ("exact search (ADHOC_BF)", f'({text_filter})=>[KNN {k} @v $vec_param HYBRID_POLICY ADHOC_BF]', k),
+        ("unfiltered graph KNN", f'*=>[KNN {k} @v $vec_param]', k),
+        ("BATCHES, BATCH_SIZE 1000", f'({text_filter})=>[KNN {k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 1000]', k),
+        (f"BATCHES, BATCH_SIZE 10, k={5 * k}", f'({text_filter})=>[KNN {5 * k} @v $vec_param HYBRID_POLICY BATCHES BATCH_SIZE 10]', 5 * k),
+    ]
+    for name, query, limit in probes:
+        ids = search(query, query_data, limit)
+        found = [d for d in missing if d in ids]
+        out.append(f"{name}: finds {len(found)}/{len(missing)} of the missing docs; "
+                   f"first {len(expected_ids)}: {ids[:len(expected_ids)]}")
+
+    # Can the graph reach each missing doc from its own vector?
+    not_found_by_own_vector = []
+    for d in missing:
+        own = doc_vector(d) if doc_vector else create_np_array_typed([int(d)] * dim, data_type)
+        top = search('*=>[KNN 1 @v $vec_param]', own, 1)
+        if top != [d]:
+            not_found_by_own_vector.append((d, top))
+    out.append(f"missing docs NOT found by their own vector (unfiltered KNN 1), as (doc, got): "
+               f"{not_found_by_own_vector}")
+
+    for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
+        tiered = get_tiered_debug_info(con, 'idx', 'v')
+        backend = to_dict(tiered['BACKEND_INDEX'])
+        out.append(f"shard {i}: index size {tiered['INDEX_SIZE']}, flat {to_dict(tiered['FRONTEND_INDEX'])['INDEX_SIZE']}, "
+                   f"backend {backend['INDEX_SIZE']}, backend marked deleted {backend.get('NUMBER_OF_MARKED_DELETED')}")
+    env.debugPrint("reachability of the missing docs:\n    " + "\n    ".join(out), force=True)

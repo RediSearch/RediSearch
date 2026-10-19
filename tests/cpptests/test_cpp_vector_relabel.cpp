@@ -30,7 +30,10 @@ extern "C" {
 #include "vector_index.h"
 #include "redis_index.h"
 #include "vector_compare/vector_compare.h"
+#include "info/global_stats.h"
 }
+
+#include "partial_update_fixture.h"
 
 #include <algorithm>
 #include <array>
@@ -41,6 +44,9 @@ extern "C" {
 extern "C" int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                                    DocumentType type, RedisModuleKey *openKey,
                                    RedisModuleString **changedFields, size_t numChangedFields);
+extern "C" int IndexSpec_UpdateDocForAlter(IndexSpec *spec, RedisModuleCtx *ctx,
+                                           RedisModuleString *key, DocumentType type,
+                                           t_fieldIndex addedFieldsStart);
 
 // FLOAT32 DIM 4 -- the blob is 16 bytes, matching expBlobSize.
 static const char *const kVecA = "aaaabbbbccccdddd";
@@ -51,32 +57,32 @@ static const char *const kVecB = "eeeeffffgggghhhh";
 // magnitudes but puts it 0.94 away under cosine. Use it wherever direction matters.
 static const char *const kVecC = "ddddccccbbbbaaaa";
 
-class VectorRelabelTest : public ::testing::Test {
-protected:
-  RedisModuleCtx *ctx = nullptr;
-  IndexSpec *spec = nullptr;
-  std::string indexName;
+#ifdef ENABLE_ASSERT
+// Installed through VectorIndex_SetRelabelFnForTests: refuses the next `relabelRefusalsLeft`
+// relabels with Unsupported, which no FLAT or HNSW index returns on its own, then defers to
+// VecSim. The seam exists in assert-enabled builds only (ENABLE_ASSERT); the tests that use it
+// skip elsewhere.
+static int relabelRefusalsLeft = 0;
+static VecSimRelabelCode refuseThenDelegate(VecSimIndex *index, size_t oldLabel, size_t newLabel) {
+  if (relabelRefusalsLeft > 0) {
+    --relabelRefusalsLeft;
+    return VecSimRelabel_Unsupported;
+  }
+  return VecSimIndex_RelabelVector(index, oldLabel, newLabel);
+}
+#endif
 
-  bool previousOptimizePartialUpdate = false;
-
-  void SetUp() override {
-    ctx = RedisModule_GetThreadSafeContext(nullptr);
-    RMCK::flushdb(ctx);
-    static int counter = 0;
-    indexName = "relabelidx" + std::to_string(++counter);
-    // Relabeling is gated behind OPTIMIZE_PARTIAL_UPDATE (on by default). Forced here so a
-    // config change elsewhere can't disable it out from under these tests; restored in
-    // TearDown, which runs even when an assertion fails, so no state leaks to other tests.
-    previousOptimizePartialUpdate = RSGlobalConfig.optimizePartialUpdate;
-    RSGlobalConfig.optimizePartialUpdate = true;
+class VectorRelabelTest : public PartialUpdateTest {
+ protected:
+  VectorRelabelTest() : PartialUpdateTest("relabelidx") {
   }
 
   void TearDown() override {
-    RSGlobalConfig.optimizePartialUpdate = previousOptimizePartialUpdate;
-    if (ctx) {
-      RedisModule_FreeThreadSafeContext(ctx);
-      ctx = nullptr;
-    }
+#ifdef ENABLE_ASSERT
+    VectorIndex_SetRelabelFnForTests(nullptr);
+    relabelRefusalsLeft = 0;
+#endif
+    PartialUpdateTest::TearDown();
   }
 
   // `vectorAlias` is the AS alias for the vector field, or nullptr for none. The
@@ -116,14 +122,6 @@ protected:
     return openVectorIndex(ctx, (FieldSpec *)fs, DONT_CREATE_INDEX);
   }
 
-  t_docId docIdOf(const char *key) {
-    uint64_t docId = 0;
-    if (DocIdMeta_Get(ctx, RMCK::RString(key), spec->specId, &docId) != REDISMODULE_OK) {
-      return 0;
-    }
-    return (t_docId)docId;
-  }
-
   // A label holds `blob` iff the distance to itself is 0. An absent label yields
   // NaN, which is how these tests tell "moved" from "still there".
   bool labelHolds(t_docId label, const char *blob) {
@@ -155,14 +153,21 @@ protected:
     return std::isnan(VecSimIndex_GetDistanceFrom_Unsafe(idx, label, kVecA));
   }
 
-  // Index `key` for the first time, with no change set.
-  t_docId indexFresh(const char *key, const char *title, const char *blob) {
-    RMCK::hset(ctx, key, "title", title);
-    RMCK::hset(ctx, key, "vec", blob, false);
+  // Write `fields` (name, value) to `key` and index it with no change set.
+  t_docId indexFields(const char *key,
+                      std::initializer_list<std::pair<const char *, const char *>> fields) {
+    for (const auto &[name, value] : fields) {
+      RMCK::hset(ctx, key, name, value);
+    }
     EXPECT_EQ(IndexSpec_UpdateDoc(spec, ctx, RMCK::RString(key), DocumentType_Hash, nullptr,
                                   nullptr, 0),
               REDISMODULE_OK);
     return docIdOf(key);
+  }
+
+  // Index `key` for the first time, with no change set.
+  t_docId indexFresh(const char *key, const char *title, const char *blob) {
+    return indexFields(key, {{"title", title}, {"vec", blob}});
   }
 
   // Re-index `key`, declaring exactly `changed` as the modified fields.
@@ -185,16 +190,12 @@ protected:
   }
   // A schema with two vector fields on different backends. Relabeling is decided
   // per field, so the interesting case is one vector changing while the other does
-  // not; the single-vector helpers above cannot express it.
-  void createTwoVectorIndex() {
-    QueryError err = QueryError_Default();
-    RMCK::ArgvList args(ctx, "FT.CREATE", indexName.c_str(), "ON", "HASH", "SCHEMA", "title",
-                        "TEXT", "v_flat", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "4",
-                        "DISTANCE_METRIC", "L2", "v_hnsw", "VECTOR", "HNSW", "6", "TYPE",
-                        "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2");
-    spec = Indexes_CreateNewSpec(ctx, args, args.size(), &err);
-    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-    ASSERT_TRUE(spec != nullptr);
+  // not; the single-vector helpers above cannot express it. `more` is appended to the schema.
+  template <typename... Args>
+  void createTwoVectorIndex(Args... more) {
+    createSchema("title", "TEXT", "v_flat", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "4",
+                 "DISTANCE_METRIC", "L2", "v_hnsw", "VECTOR", "HNSW", "6", "TYPE", "FLOAT32", "DIM",
+                 "4", "DISTANCE_METRIC", "L2", more...);
   }
 
   VecSimIndex *vecsimNamed(const std::string &field) {
@@ -217,6 +218,84 @@ protected:
   bool namedLabelAbsent(const std::string &field, t_docId label) {
     VecSimIndex *idx = vecsimNamed(field);
     return !idx || std::isnan(VecSimIndex_GetDistanceFrom_Unsafe(idx, label, kVecA));
+  }
+
+  template <typename... Args>
+  void createSchema(Args... schema) {
+    QueryError err = QueryError_Default();
+    RMCK::ArgvList args(ctx, "FT.CREATE", indexName.c_str(), "ON", "HASH", "SCHEMA", schema...);
+    spec = Indexes_CreateNewSpec(ctx, args, args.size(), &err);
+    ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+    ASSERT_TRUE(spec != nullptr);
+  }
+
+  // Each ALTER test declares its full schema up front and simulates the ALTER by naming the
+  // first field it "added": that is exactly what the scanner hands IndexSpec_UpdateDocForAlter.
+  void createAlterIndex() {  // title TEXT, vec VECTOR FLAT (pre-existing), extra TAG (added)
+    createSchema("title", "TEXT", "vec", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "4",
+                 "DISTANCE_METRIC", "L2", "extra", "TAG");
+  }
+  void createAddedVectorIndex() {  // title TEXT, v_old VECTOR FLAT, v_new VECTOR FLAT (added)
+    createSchema("title", "TEXT", "v_old", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "4",
+                 "DISTANCE_METRIC", "L2", "v_new", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM",
+                 "4", "DISTANCE_METRIC", "L2");
+  }
+  t_fieldIndex fieldIndex(const std::string &name) {
+    for (size_t i = 0; i < spec->numFields; ++i) {
+      if (!HiddenString_CompareC(spec->fields[i].fieldName, name.c_str(), name.size())) {
+        return spec->fields[i].index;
+      }
+    }
+    ADD_FAILURE() << "no field " << name;
+    return RS_INVALID_FIELD_INDEX;
+  }
+  t_docId reindexForAlter(const char *key, const char *firstAddedField) {
+    EXPECT_EQ(IndexSpec_UpdateDocForAlter(spec, ctx, RMCK::RString(key), DocumentType_Hash,
+                                          fieldIndex(firstAddedField)),
+              REDISMODULE_OK);
+    return docIdOf(key);
+  }
+  // Give doc:1 a value for `extra` and reindex it as the backfill of the ALTER that added it.
+  t_docId backfillExtra() {
+    RMCK::hset(ctx, "doc:1", "extra", "x");
+    return reindexForAlter("doc:1", "extra");
+  }
+  // doc:1 on createTwoVectorIndex: v_flat holds kVecA and v_hnsw kVecC.
+  t_docId indexTwoVectorDoc() {
+    return indexFields("doc:1", {{"title", "hello"}, {"v_flat", kVecA}, {"v_hnsw", kVecC}});
+  }
+  // Both vectors of indexTwoVectorDoc are now under `neu`, and neither under `old`.
+  void expectBothVectorsMovedTo(t_docId old, t_docId neu) {
+    EXPECT_TRUE(namedLabelHolds("v_flat", neu, kVecA));
+    EXPECT_TRUE(namedLabelHolds("v_hnsw", neu, kVecC));
+    EXPECT_TRUE(namedLabelAbsent("v_flat", old));
+    EXPECT_TRUE(namedLabelAbsent("v_hnsw", old));
+  }
+  // The single vector field holds `blob` under `neu`, and nothing under `old`.
+  void expectVectorMovedTo(t_docId old, t_docId neu, const char *blob) {
+    EXPECT_TRUE(labelAbsent(old));
+    EXPECT_TRUE(labelHolds(neu, blob));
+  }
+  // createAddedVectorIndex after the ALTER that added v_new: v_old's kVecA and v_new's kVecC are
+  // both under `neu`, with nothing left under `old` and a single v_new entry.
+  void expectAddedVectorEndState(t_docId old, t_docId neu) {
+    EXPECT_TRUE(namedLabelAbsent("v_old", old));
+    EXPECT_TRUE(namedLabelHolds("v_old", neu, kVecA));
+    EXPECT_TRUE(namedLabelAbsent("v_new", old));
+    EXPECT_TRUE(namedLabelHolds("v_new", neu, kVecC));
+    EXPECT_EQ(VecSimIndex_IndexSize(vecsimNamed("v_new")), 1u);
+  }
+  struct VectorOps {
+    size_t indexed, relabeled;
+  };
+  static VectorOps vectorOps() {
+    return {RSGlobalStats.fieldsStats.vectorTotalDocsIndexed,
+            RSGlobalStats.fieldsStats.vectorTotalDocsRelabeled};
+  }
+  void expectOpsSince(const VectorOps &before, size_t indexed, size_t relabeled) {
+    const VectorOps now = vectorOps();
+    EXPECT_EQ(now.indexed - before.indexed, indexed);
+    EXPECT_EQ(now.relabeled - before.relabeled, relabeled);
   }
 };
 
@@ -675,4 +754,218 @@ TEST_F(VectorRelabelTest, perFieldRelabelWithTwoVectorFields) {
   EXPECT_TRUE(namedLabelAbsent("v_hnsw", first));
   EXPECT_EQ(VecSimIndex_IndexSize(vecsimNamed("v_flat")), 1u);
   EXPECT_EQ(VecSimIndex_IndexSize(vecsimNamed("v_hnsw")), 1u);
+}
+
+// FT.ALTER's headline case: a selective backfill compares the pre-existing vector, finds it
+// unchanged, and moves it onto the document's new doc-id instead of deleting and re-adding it.
+TEST_F(VectorRelabelTest, alterRelabelsPreexistingVector) {
+  createAlterIndex();
+  t_docId old = indexFresh("doc:1", "hello", kVecA);
+  ASSERT_NE(old, 0);
+  const VectorOps before = vectorOps();
+
+  t_docId neu = backfillExtra();
+
+  EXPECT_GT(neu, old);
+  expectVectorMovedTo(old, neu, kVecA);
+  expectOpsSince(before, 0, 1);
+  EXPECT_EQ(VecSimIndex_IndexSize(vecsim()), 1u);
+}
+
+// Pins master's behaviour on lossy storage (HNSW SQ8): the comparison cannot confirm even an
+// unchanged vector, so a selective ALTER backfill deletes and re-adds it rather than moving it
+// unverified. The training threshold is never reached, so the vector stays unquantized in the
+// flat buffer, where labelHolds can still read it exactly.
+TEST_F(VectorRelabelTest, alterReinsertsPreexistingLossyVector) {
+  createSchema("title", "TEXT", "vec", "VECTOR", "HNSW", "10", "TYPE", "FLOAT32", "DIM", "4",
+               "DISTANCE_METRIC", "L2", "COMPRESSION", "SQ8", "TRAINING_THRESHOLD", "1024", "extra",
+               "TAG");
+  t_docId old = indexFresh("doc:1", "hello", kVecA);
+  ASSERT_NE(old, 0);
+  ASSERT_FALSE(VectorIndex_HoldsVectors(vecsim(), old, kVecA, 1))
+      << "premise: the comparison cannot confirm a vector on this index";
+  const VectorOps before = vectorOps();
+
+  t_docId neu = backfillExtra();
+
+  expectVectorMovedTo(old, neu, kVecA);
+  expectOpsSince(before, 1, 0);
+}
+
+// A field the ALTER itself added is inserted normally -- there is nothing pre-existing to move
+// -- while an untouched pre-existing vector field on the same document is still relabeled.
+// Master gives (1, 1) too; alterAddedVectorFieldIsNeverRelabeled is the case that differs.
+TEST_F(VectorRelabelTest, alterAddedVectorFieldIsInsertedNormally) {
+  createAddedVectorIndex();
+  t_docId old = indexFields("doc:1", {{"title", "hello"}, {"v_old", kVecA}});
+  ASSERT_NE(old, 0);
+  RMCK::hset(ctx, "doc:1", "v_new", kVecC);
+  const VectorOps before = vectorOps();
+
+  t_docId neu = reindexForAlter("doc:1", "v_new");
+
+  expectAddedVectorEndState(old, neu);
+  expectOpsSince(before, 1, 1);
+}
+
+// A field the ALTER added is inserted without a comparison even when it already has an entry under
+// the old doc-id, as a write during the scan leaves it (here: the document was indexed with both
+// fields). That entry is deleted and the value re-added, while the pre-existing field is compared
+// and relabeled. Without the added-field mark both would be compared and relabeled, (0, 2).
+TEST_F(VectorRelabelTest, alterAddedVectorFieldIsNeverRelabeled) {
+  createAddedVectorIndex();
+  t_docId old = indexFields("doc:1", {{"title", "hello"}, {"v_old", kVecA}, {"v_new", kVecC}});
+  ASSERT_NE(old, 0);
+  ASSERT_TRUE(namedLabelHolds("v_new", old, kVecC));
+  const VectorOps before = vectorOps();
+
+  t_docId neu = reindexForAlter("doc:1", "v_new");
+
+  expectAddedVectorEndState(old, neu);
+  expectOpsSince(before, 1, 1);
+}
+
+// Every field in the added range is treated as added, not only the first: the ALTER added
+// `extra TAG v_new VECTOR`, so v_new is second in the range, and is still inserted without a
+// comparison although it has an entry under the old doc-id. If only the first added field were
+// marked, v_new would be compared and relabeled too, (0, 2).
+TEST_F(VectorRelabelTest, alterAddedVectorAfterNonVectorFieldIsNeverRelabeled) {
+  createSchema("title", "TEXT", "v_old", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "4",
+               "DISTANCE_METRIC", "L2", "extra", "TAG", "v_new", "VECTOR", "FLAT", "6", "TYPE",
+               "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2");
+  t_docId old = indexFields(
+      "doc:1", {{"title", "hello"}, {"v_old", kVecA}, {"extra", "x"}, {"v_new", kVecC}});
+  ASSERT_NE(old, 0);
+  ASSERT_TRUE(namedLabelHolds("v_new", old, kVecC));
+  const VectorOps before = vectorOps();
+
+  t_docId neu = reindexForAlter("doc:1", "extra");
+
+  expectAddedVectorEndState(old, neu);
+  expectOpsSince(before, 1, 1);
+}
+
+// Every pre-existing vector field is relabeled, not just the first one the mark loop visits.
+TEST_F(VectorRelabelTest, alterRelabelsEachPreexistingVectorField) {
+  createTwoVectorIndex("extra", "TAG");
+  t_docId old = indexTwoVectorDoc();
+  ASSERT_NE(old, 0);
+  const VectorOps before = vectorOps();
+
+  t_docId neu = backfillExtra();
+
+  expectBothVectorsMovedTo(old, neu);
+  expectOpsSince(before, 0, 2);
+}
+
+// The missing-entry case: the entry to move was never there, e.g. a field added with
+// SKIPINITIALSCAN that no write has reached yet. The comparison finds nothing, so the document's
+// current value is inserted rather than left unindexed. No relabel is attempted, so VecSim's
+// OldLabelMissing refusal is not reached.
+TEST_F(VectorRelabelTest, alterMissingOldEntryInsertsCurrentValue) {
+  createAlterIndex();
+  t_docId old = indexFresh("doc:1", "hello", kVecA);
+  ASSERT_NE(old, 0);
+  VecSimIndex_DeleteVector(vecsim(), old);
+  const VectorOps before = vectorOps();
+
+  t_docId neu = backfillExtra();
+
+  expectVectorMovedTo(old, neu, kVecA);
+  expectOpsSince(before, 1, 0);
+}
+
+// Per-field fallback: one field's old entry is missing but the other is not, so one field is
+// inserted and the other relabeled within the same update.
+TEST_F(VectorRelabelTest, alterMissingEntryOnOneOfTwoFields) {
+  createTwoVectorIndex("extra", "TAG");
+  t_docId old = indexTwoVectorDoc();
+  ASSERT_NE(old, 0);
+  VecSimIndex_DeleteVector(vecsimNamed("v_flat"), old);
+  const VectorOps before = vectorOps();
+
+  t_docId neu = backfillExtra();
+
+  expectBothVectorsMovedTo(old, neu);
+  expectOpsSince(before, 1, 1);
+}
+
+// The kill switch: with OPTIMIZE_PARTIAL_UPDATE off, the ALTER backfill must not relabel an
+// unchanged pre-existing vector either -- AddDocumentCtx_MarkForRelabel returns before it ever
+// looks at alterAddedFieldsStart.
+TEST_F(VectorRelabelTest, alterRespectsOptimizePartialUpdate) {
+  RSGlobalConfig.optimizePartialUpdate = false;  // restored by TearDown
+
+  createAlterIndex();
+  t_docId old = indexFresh("doc:1", "hello", kVecA);
+  ASSERT_NE(old, 0);
+  const VectorOps before = vectorOps();
+
+  t_docId neu = backfillExtra();
+
+  expectVectorMovedTo(old, neu, kVecA);
+  expectOpsSince(before, 1, 0);
+}
+
+// Mirrors earlierFieldFailureAbandonsPendingRelabel for the ALTER-aware entry point: a GEOSHAPE
+// field ordered before VECTOR fails validation in geometryIndexer, which runs after the
+// pre-existing vector was already compared and kept for the relabel. The old label must not be
+// stranded under a doc-id nothing else refers to.
+TEST_F(VectorRelabelTest, alterErrorBeforeVectorFieldLeavesNoStrandedEntry) {
+  createSchema("title", "TEXT", "geom", "GEOSHAPE", "FLAT", "vec", "VECTOR", "FLAT", "6", "TYPE",
+               "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2", "extra", "TAG");
+  t_docId old = indexFields(
+      "doc:1",
+      {{"title", "hello"}, {"geom", "POLYGON((1 1, 1 100, 100 100, 100 1, 1 1))"}, {"vec", kVecA}});
+  ASSERT_NE(old, 0);
+  ASSERT_TRUE(labelHolds(old, kVecA));
+
+  // Too few points -- valid WKT syntax, but geometryIndexer rejects the geometry itself.
+  RMCK::hset(ctx, "doc:1", "geom", "POLYGON((1 1, 1 100, 1 1))");
+  backfillExtra();
+
+  EXPECT_TRUE(labelAbsent(old));
+}
+
+// The relabel-unsupported case: a backend that cannot relabel (e.g. SVS built without
+// replace_external_id) refuses the move, and the caller must fall back to delete + insert
+// without leaving a second entry behind.
+TEST_F(VectorRelabelTest, alterUnsupportedRelabelFallsBackToInsert) {
+#ifndef ENABLE_ASSERT
+  GTEST_SKIP() << "needs the ENABLE_ASSERT relabel seam";
+#else
+  VectorIndex_SetRelabelFnForTests(refuseThenDelegate);
+  relabelRefusalsLeft = 1;
+  createAlterIndex();
+  t_docId old = indexFresh("doc:1", "hello", kVecA);
+  ASSERT_NE(old, 0);
+  const VectorOps before = vectorOps();
+
+  t_docId neu = backfillExtra();
+
+  expectVectorMovedTo(old, neu, kVecA);
+  expectOpsSince(before, 1, 0);
+  EXPECT_EQ(relabelRefusalsLeft, 0);
+  EXPECT_EQ(VecSimIndex_IndexSize(vecsim()), 1u);
+#endif
+}
+
+// Per-field fallback on refusal: one field's relabel is refused and the other's succeeds within
+// the same update. The expectations hold whichever of the two is refused.
+TEST_F(VectorRelabelTest, alterUnsupportedOnOneOfTwoFields) {
+#ifndef ENABLE_ASSERT
+  GTEST_SKIP() << "needs the ENABLE_ASSERT relabel seam";
+#else
+  VectorIndex_SetRelabelFnForTests(refuseThenDelegate);
+  relabelRefusalsLeft = 1;
+  createTwoVectorIndex("extra", "TAG");
+  t_docId old = indexTwoVectorDoc();
+  ASSERT_NE(old, 0);
+  const VectorOps before = vectorOps();
+
+  t_docId neu = backfillExtra();
+
+  expectOpsSince(before, 1, 1);
+  expectBothVectorsMovedTo(old, neu);
+#endif
 }

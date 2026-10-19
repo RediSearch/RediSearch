@@ -19,7 +19,8 @@ Features:
 - Adds 4 NUMERIC fields (n_uniform, n_uniform_small, n_cat, doc_len)
 - Adds 2 GEO fields (g_uniform, g_cluster) and writes the GEO queries' match
   counts to <dataset-name>.query_match_counts.md
-- Deterministic tag/numeric assignment via CRC32 hash, geo via BLAKE2b
+- Optionally adds 3 TAG fields missing from ~1/50/99% of docs (--missing-fields)
+- Deterministic tag/numeric/missing-field assignment via CRC32 hash, geo via BLAKE2b
 - Buffered I/O for fast disk writes
 
 Usage:
@@ -34,6 +35,13 @@ Usage:
         --shards-dir ./extracted/msmarco_v2_doc \\
         --sample-pct 50 \\
         --doc-format json \\
+        --output-dir ./output
+
+    # HASH dataset with the INDEXMISSING fields and ismissing() query files
+    python3 generate_msmarco_dataset.py \\
+        --shards-dir ./extracted/msmarco_v2_doc \\
+        --sample-pct 50 \\
+        --missing-fields \\
         --output-dir ./output
 """
 
@@ -281,6 +289,32 @@ def generate_geo_fields_for_doc(doc_id: str) -> Tuple[str, str]:
     return g_uniform, g_cluster
 
 
+# =============================================================================
+# MISSING FIELDS (--missing-fields, for INDEXMISSING / ismissing() benchmarks)
+# =============================================================================
+
+# Field name -> percentage of documents that HAVE the field. Each name is the
+# share of documents the field is missing from, which is what ismissing()
+# matches.
+MISSING_FIELDS = {"m01": 99, "m50": 50, "m99": 1}
+MISSING_FIELD_VALUE = "y"
+MISSING_FIELD_SUFFIXES = {name: f":{name}".encode('utf-8') for name in MISSING_FIELDS}
+
+
+def generate_missing_fields_for_doc(doc_id: str) -> List[str]:
+    """
+    Names of the MISSING_FIELDS present in a document.
+
+    Each field is decided by its own suffix hash, so whether a document has one
+    field says nothing about the others.
+    """
+    base_hash = zlib.crc32(doc_id.encode('utf-8'))
+    return [
+        name for name, present_pct in MISSING_FIELDS.items()
+        if zlib.crc32(MISSING_FIELD_SUFFIXES[name], base_hash) % 100 < present_pct
+    ]
+
+
 def escape_redis_string(s: str) -> str:
     """Escape special characters for Redis protocol (HSET field values)."""
     if s is None:
@@ -373,8 +407,9 @@ def generate_setup_commands_from_shards(
     sample_pct: int = 100,
     key_prefix: str = "doc:",
     doc_format: str = "hash",
+    missing_fields: bool = False,
     geo_docs: Optional["GeoDocs"] = None
-) -> Tuple[int, dict]:
+) -> Tuple[int, dict, dict]:
     """
     Generate SETUP.csv file with HSET or JSON.SET commands from tar shards.
     Includes 64 tags with varying cardinality.
@@ -390,11 +425,13 @@ def generate_setup_commands_from_shards(
             In "json" mode the same fields are stored under a single JSON
             document; ``tags`` stays a single comma-separated scalar string
             (never a JSON array) to honor the no-multivalue constraint.
-        geo_docs: If given, records every emitted doc's GEO values, in file
-            order, for count_geo_matches.
+        missing_fields: Also write the MISSING_FIELDS present in each document
+            (see generate_missing_fields_for_doc).
+        geo_docs: If given, collects each emitted doc's GEO values for the
+            query match counts (see write_geo_match_counts).
 
     Returns:
-        Tuple of (doc_count, tag_stats dict)
+        Tuple of (doc_count, tag_stats dict, missing field -> docs missing it)
     """
     print(f"Generating SETUP commands ({doc_format.upper()}) with 64 tags...")
     print(f"  Sample percentage: {sample_pct}%")
@@ -412,6 +449,7 @@ def generate_setup_commands_from_shards(
 
     doc_count = 0
     tag_counts = {f"t{i:02d}": 0 for i in range(64)}
+    missing_counts = {name: 0 for name in MISSING_FIELDS} if missing_fields else {}
 
     # Use larger buffer (64MB) for faster disk writes
     BUFFER_SIZE = 64 * 1024 * 1024
@@ -448,6 +486,11 @@ def generate_setup_commands_from_shards(
                 if tag in tag_counts:
                     tag_counts[tag] += 1
 
+            present_fields = generate_missing_fields_for_doc(doc_id) if missing_fields else []
+            for name in missing_counts:
+                if name not in present_fields:
+                    missing_counts[name] += 1
+
             # Build Redis key
             doc_key = f"{key_prefix}{doc_id}"
 
@@ -458,7 +501,7 @@ def generate_setup_commands_from_shards(
                 # HASH dataset (JSON TAG fields otherwise default to no separator).
                 # json_dumps handles escaping; normalize_text only strips
                 # newlines/CR so the indexed text matches the HASH dataset.
-                json_doc = json_dumps({
+                json_doc = {
                     "doc_id": doc_id,
                     "url": normalize_text(doc.get("url", "")),
                     "title": normalize_text(doc.get("title", "")),
@@ -470,12 +513,13 @@ def generate_setup_commands_from_shards(
                     "n_uniform_small": n_uniform_small,
                     "n_cat": n_cat,
                     "doc_len": doc_len,
-                    # JSON GEO fields index a "lon,lat" string.
                     "g_uniform": g_uniform,
                     "g_cluster": g_cluster,
-                })
+                }
+                for name in present_fields:
+                    json_doc[name] = MISSING_FIELD_VALUE
                 writer.writerow([
-                    "WRITE", "W1", "1", "JSON.SET", doc_key, "$", json_doc
+                    "WRITE", "W1", "1", "JSON.SET", doc_key, "$", json_dumps(json_doc)
                 ])
             else:
                 # Extract fields
@@ -485,7 +529,7 @@ def generate_setup_commands_from_shards(
                 body = escape_redis_string(doc.get("body", ""))
 
                 # Write HSET command row
-                writer.writerow([
+                row = [
                     "WRITE", "W1", "1", "HSET", doc_key,
                     "doc_id", doc_id,
                     "url", url,
@@ -499,12 +543,15 @@ def generate_setup_commands_from_shards(
                     "doc_len", doc_len,
                     "g_uniform", g_uniform,
                     "g_cluster", g_cluster
-                ])
+                ]
+                for name in present_fields:
+                    row += [name, MISSING_FIELD_VALUE]
+                writer.writerow(row)
 
             doc_count += 1
 
     print(f"✓ Generated {doc_count:,} SETUP commands with tags")
-    return doc_count, tag_counts
+    return doc_count, tag_counts, missing_counts
 
 
 # =============================================================================
@@ -595,6 +642,16 @@ NUMERIC_QUERY_GROUPS = {
 BENCHMARK_QUERIES.update(NUMERIC_QUERY_GROUPS)
 # Combined pool (ad-hoc runs; CI uses the per-group workloads above).
 BENCHMARK_QUERIES["numeric"] = [q for qs in NUMERIC_QUERY_GROUPS.values() for q in qs]
+
+# ismissing() queries. They match nothing unless the dataset was generated with
+# --missing-fields, and ismissing() only parses under DIALECT 2, so they stay
+# out of BENCHMARK_QUERIES and its "all" pool. One query per group, for the
+# reason given on NUMERIC_QUERY_GROUPS.
+MISSING_QUERY_GROUPS = {
+    "missing-low": ["ismissing(@m01)"],
+    "missing-mid": ["ismissing(@m50)"],
+    "missing-high": ["ismissing(@m99)"],
+}
 
 
 @dataclass(frozen=True)
@@ -850,7 +907,7 @@ def generate_query_commands(
 
     Args:
         output_file: Path to output CSV file
-        query_category: Category of queries (baseline, phrase, and, or, not, tag, all)
+        query_category: A BENCHMARK_QUERIES or MISSING_QUERY_GROUPS key, or "all"
         index_name: RediSearch index name
         num_queries: Number of queries to generate (cycles through available queries)
 
@@ -860,6 +917,7 @@ def generate_query_commands(
     print(f"Generating {query_category} query commands...")
 
     # Get queries for this category
+    extra_args = []
     if query_category == "all":
         queries = []
         for cat, cat_queries in BENCHMARK_QUERIES.items():
@@ -869,6 +927,10 @@ def generate_query_commands(
             queries.extend(cat_queries)
     elif query_category in BENCHMARK_QUERIES:
         queries = BENCHMARK_QUERIES[query_category]
+    elif query_category in MISSING_QUERY_GROUPS:
+        queries = MISSING_QUERY_GROUPS[query_category]
+        # Per row rather than DEFAULT_DIALECT, so the workload needs no config.
+        extra_args = ["DIALECT", "2"]
     else:
         print(f"  Warning: Unknown query category '{query_category}'")
         return 0
@@ -891,7 +953,7 @@ def generate_query_commands(
             # NOCONTENT avoids loading field values from keyspace
             writer.writerow([
                 "READ", "R1", "1", "FT.SEARCH", index_name,
-                query_text, "NOCONTENT", "LIMIT", "0", "10"
+                query_text, "NOCONTENT", "LIMIT", "0", "10", *extra_args
             ])
             query_count += 1
 
@@ -930,6 +992,18 @@ def print_tag_stats(tag_counts: dict, doc_count: int):
     total_tag_assignments = sum(tag_counts.values())
     avg_tags_per_doc = total_tag_assignments / doc_count if doc_count > 0 else 0
     print(f"\nAverage tags per document: {avg_tags_per_doc:.2f}")
+
+
+def print_missing_stats(missing_counts: dict, doc_count: int):
+    """Print how many documents each missing field is absent from."""
+    if not missing_counts:
+        return
+    print("\n" + "="*70)
+    print("MISSING FIELD STATISTICS (docs that ismissing() matches)")
+    print("="*70)
+    for name, count in missing_counts.items():
+        pct = (count / doc_count * 100) if doc_count > 0 else 0
+        print(f"  {name}: {count:,} docs ({pct:.1f}%)")
 
 
 def main():
@@ -1005,6 +1079,12 @@ def main():
              "'json' emits JSON.SET commands (default: hash)"
     )
     parser.add_argument(
+        "--missing-fields",
+        action="store_true",
+        help="Add the m01/m50/m99 TAG fields, each missing from ~1/50/99%% of "
+             "documents, and the missing-* ismissing() query files"
+    )
+    parser.add_argument(
         "--num-queries",
         type=int,
         default=100000,
@@ -1018,13 +1098,15 @@ def main():
 
     args = parser.parse_args()
 
-    # Auto-generate dataset name if not provided. The JSON dataset gets its own
-    # prefix (…-msmarco-json-documents) so it lives under a separate S3 path and
-    # does not collide with the HASH dataset.
+    # Auto-generate dataset name if not provided. The JSON and missing-fields
+    # datasets get their own prefixes (…-msmarco-json-documents,
+    # …-msmarco-missing-documents) so they live under separate S3 paths and do
+    # not collide with the plain HASH dataset.
     if args.dataset_name is None:
         doc_suffix = f"{args.doc_limit // 1000000}M" if args.doc_limit >= 1000000 else f"{args.doc_limit // 1000}K"
         format_infix = "json-" if args.doc_format == "json" else ""
-        args.dataset_name = f"{doc_suffix}-msmarco-{format_infix}documents"
+        missing_infix = "missing-" if args.missing_fields else ""
+        args.dataset_name = f"{doc_suffix}-msmarco-{format_infix}{missing_infix}documents"
 
     # Create output directory
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -1039,12 +1121,13 @@ def main():
     print(f"  Output name prefix: {args.dataset_name}")
     print(f"  Key prefix: {args.key_prefix}")
     print(f"  Document format: {args.doc_format.upper()}")
+    print(f"  Missing fields: {', '.join(MISSING_FIELDS) if args.missing_fields else 'no'}")
     print(f"{'='*70}\n")
 
     # Generate SETUP commands with tags
     setup_file = args.output_dir / f"{args.dataset_name}.redisearch.commands.SETUP.csv"
-    geo_docs = None if args.skip_queries else GeoDocs()
-    doc_count, tag_counts = generate_setup_commands_from_shards(
+    geo_docs = GeoDocs()
+    doc_count, tag_counts, missing_counts = generate_setup_commands_from_shards(
         shards_dir=args.shards_dir,
         tar_path=args.tar_path,
         output_file=setup_file,
@@ -1052,11 +1135,13 @@ def main():
         sample_pct=args.sample_pct,
         key_prefix=args.key_prefix,
         doc_format=args.doc_format,
+        missing_fields=args.missing_fields,
         geo_docs=geo_docs
     )
 
     # Print tag statistics
     print_tag_stats(tag_counts, doc_count)
+    print_missing_stats(missing_counts, doc_count)
 
     # Generate query commands
     geo_in_band = True
@@ -1065,8 +1150,9 @@ def main():
         # Both HASH and JSON index tags (tags TAG SEPARATOR ","), so every query
         # category — including tag predicates — is valid for both formats.
         query_categories = ["baseline", "phrase", "and", "or", "not", "tag",
-                            "numeric", *NUMERIC_QUERY_GROUPS,
-                            "geo", *GEO_QUERY_GROUPS, "all"]
+                            "numeric", *NUMERIC_QUERY_GROUPS, *GEO_QUERY_GROUPS, "geo", "all"]
+        if args.missing_fields:
+            query_categories += MISSING_QUERY_GROUPS
         for category in query_categories:
             query_file = args.output_dir / f"{args.dataset_name}.redisearch.commands.BENCH.QUERY_{category}.csv"
             generate_query_commands(query_file, category, args.index_name, args.num_queries)
@@ -1087,31 +1173,40 @@ def main():
 
     print(f"\nSchema for FT.CREATE:")
     if args.doc_format == "json":
+        schema_lines = [
+            "$.url       AS url       TEXT",
+            "$.title     AS title     TEXT",
+            "$.headings  AS headings  TEXT",
+            "$.body      AS body      TEXT",
+            '$.tags            AS tags            TAG SEPARATOR ","',
+            "$.n_uniform       AS n_uniform       NUMERIC",
+            "$.n_uniform_small AS n_uniform_small NUMERIC",
+            "$.n_cat           AS n_cat           NUMERIC",
+            "$.doc_len         AS doc_len         NUMERIC",
+            "$.g_uniform       AS g_uniform       GEO",
+            "$.g_cluster       AS g_cluster       GEO",
+        ]
+        if args.missing_fields:
+            schema_lines += [f"$.{name} AS {name} TAG INDEXMISSING" for name in MISSING_FIELDS]
         print(f"  FT.CREATE {args.index_name} ON JSON PREFIX 1 {args.key_prefix} SCHEMA \\")
-        print(f"    $.url       AS url       TEXT \\")
-        print(f"    $.title     AS title     TEXT \\")
-        print(f"    $.headings  AS headings  TEXT \\")
-        print(f"    $.body      AS body      TEXT \\")
-        print(f'    $.tags            AS tags            TAG SEPARATOR "," \\')
-        print(f"    $.n_uniform       AS n_uniform       NUMERIC \\")
-        print(f"    $.n_uniform_small AS n_uniform_small NUMERIC \\")
-        print(f"    $.n_cat           AS n_cat           NUMERIC \\")
-        print(f"    $.doc_len         AS doc_len         NUMERIC \\")
-        print(f"    $.g_uniform       AS g_uniform       GEO \\")
-        print(f"    $.g_cluster       AS g_cluster       GEO")
     else:
+        schema_lines = [
+            "url TEXT",
+            "title TEXT",
+            "headings TEXT",
+            "body TEXT",
+            'tags TAG SEPARATOR ","',
+            "n_uniform NUMERIC",
+            "n_uniform_small NUMERIC",
+            "n_cat NUMERIC",
+            "doc_len NUMERIC",
+            "g_uniform GEO",
+            "g_cluster GEO",
+        ]
+        if args.missing_fields:
+            schema_lines += [f"{name} TAG INDEXMISSING" for name in MISSING_FIELDS]
         print(f"  FT.CREATE {args.index_name} ON HASH PREFIX 1 {args.key_prefix} SCHEMA \\")
-        print(f"    url TEXT \\")
-        print(f"    title TEXT \\")
-        print(f"    headings TEXT \\")
-        print(f"    body TEXT \\")
-        print(f'    tags TAG SEPARATOR "," \\')
-        print(f"    n_uniform NUMERIC \\")
-        print(f"    n_uniform_small NUMERIC \\")
-        print(f"    n_cat NUMERIC \\")
-        print(f"    doc_len NUMERIC \\")
-        print(f"    g_uniform GEO \\")
-        print(f"    g_cluster GEO")
+    print(" \\\n".join(f"    {line}" for line in schema_lines))
     # tags is stored as a comma-separated scalar string in both HASH and JSON and
     # indexed as TAG. JSON TAG fields default to no separator, so the explicit
     # SEPARATOR "," is required for JSON to split the scalar identically to HASH.

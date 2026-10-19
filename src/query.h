@@ -46,9 +46,8 @@ typedef struct QueryAST {
   // array of additional metrics names in the AST.
   MetricRequest *metricRequests;
 
-  // Copied query and length, because it seems we modify the string
-  // in the parser (FIXME). Thus, if the original query is const
-  // then it explodes
+  // Owned copy of a dialect 1 query, whose parser unescapes field names in place. NULL for later
+  // dialects, which parse the caller's string directly.
   char *query;
   size_t nquery;
 
@@ -65,18 +64,14 @@ typedef struct QueryAST {
  * @param dst the AST structure to populate
  * @param sctx the context - this is never written to or retained
  * @param sopts options modifying parsing behavior
- * @param qstr the query string
+ * @param qstr the query string; it need not be NUL-terminated. From dialect 2 on, parameter names
+ *        in the AST point into it, so it must outlive `dst`.
  * @param len the length of the query string
  * @param dialectVersion parse the query according to the given dialect version
  * @param status error details set here.
  */
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
                const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status);
-
-// Opaque handle to the Rust-side evaluator-config snapshot (`query_eval::Config`).
-typedef struct EvalConfig EvalConfig;
-
-QueryIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n, const EvalConfig *evalConfig);
 
 /**
  * Blocked-client timeout probe used by Rust query iterators.
@@ -113,14 +108,6 @@ void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options);
 
 /** Set a filter node on the AST, handling different node types appropriately */
 void SetFilterNode(QueryAST *q, QueryNode *filterNode);
-
-/**
- * Remove tag escape sequences and optionally lowercase a string.
- * @param pstr pointer to the string (may be reallocated if lowercasing produces a longer result)
- * @param len pointer to the string length (updated on output)
- * @param caseSensitive if non-zero, skip lowercasing
- */
-void tag_strtolower(char **pstr, size_t *len, int caseSensitive);
 
 /**
  * Expand the query using a pre-registered expander. Query expansion possibly

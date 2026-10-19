@@ -23,12 +23,19 @@ fi
 
 export HOMEBREW_NO_AUTO_UPDATE=1
 
-_run brew update
+# Homebrew builds no bottles for Intel macOS 26 (Tier 3), so after an update every
+# new formula version compiles from source (coreutils, openssl, wget: ~13 min).
+# The runner image's formula index still maps to existing bottles.
+if [[ "${GITHUB_ACTIONS:-}" == true && "$(uname -m)" == x86_64 ]]; then
+    echo "Skipping brew update: no Intel bottles for updated formulae"
+else
+    _run brew update
+fi
 brew_install coreutils
 brew_install make
-# Pin the major version: the unversioned `openssl` formula now resolves to
-# OpenSSL 4, which deprecates APIs Redis's tls.c uses and breaks its -Werror build.
-brew_install openssl@3
+# Pin the major version so the module and the CI-built Redis link the same
+# OpenSSL as the Homebrew Redis package, which ships against openssl@4.
+brew_install openssl@4
 brew_install wget
 # Source (not subprocess) so its list/dry-run DEPS_* records reach the parent
 # install_script.sh — a subprocess's records would vanish on exit, dropping

@@ -329,7 +329,11 @@ result takes an explicit re-cast of the pointer.
 **Call it last** — after the child walk, after any side-table rebuild, with no
 `&mut` taken to a child afterwards: each entry is a shared reborrow whose tag a
 later `read`, `skip_to`, `iter_mut` or `swap_remove` pops. `&mut` to the
-composite itself is fine.
+composite itself is fine. A path that goes on to rebuild the aggregate itself
+after touching children (a union's settle) cannot honour that, so on that path
+clear the records instead of rebuilding them: the composite then never holds
+an entry the later step leaves stale, and the clear is as sound to re-narrow as
+a rebuild.
 
 **Act on the outcome**, behind a `#[must_use]` type phrased as the composite
 means it — a union needs one child behind its document, an intersection needs
@@ -450,5 +454,18 @@ teardown. Any bespoke in-place transition code must reproduce this.
 - `maybe_empty.rs` — wrapper with **no result of its own**: `#[repr(C)]`
   `MaybeEmptyOption` newtype, child-abort propagation, delegating suspended
   accessors.
+- `union_flat.rs` and `union_heap.rs` — worked examples of a **many-child**
+  composite: the walk over every child slot, compaction over aborted ones, and
+  a settle step shared with the legacy `revalidate` so the two paths cannot
+  drift. Both use the helpers in `union.rs`: a `FreeSuspendedShell` RAII guard
+  owning the half-transitioned buffer (the region boundaries live in the
+  guard, so the teardown reads them rather than being handed indices), and a
+  `rebuild_borrowed_entries` that recomputes the contributor set instead of
+  matching entries by address, in an order each union picks. Flat offers its
+  children in slot order, which is how its read path picks them; the heap's
+  read path picks from the heap instead, so it offers the heap's contributors
+  first and, in `QUICK_EXIT` mode, finds the backer it reported by address
+  (`previous_backer`) — the one place an address is compared, never
+  dereferenced.
 - `numeric.rs`, `term.rs` — newtype-over-inner leaves that cite the inner's
   invariant.

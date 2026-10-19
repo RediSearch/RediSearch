@@ -17,6 +17,16 @@ from test_blocked_client_timeout import wait_for_blocked_query_client
 # EnterpriseStandaloneEnvBase (not RLTest.Env) so this still gets enterprise
 # topology seeding (see common.py) when it defines its own Env subclass.
 class CrashingEnv(EnterpriseStandaloneEnvBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The crash report's memory test is Redis's, not what these tests
+        # assert on, and under ASan it produces sanitizer reports of its own:
+        # a stack-buffer-overflow from walking process memory maps, and an
+        # abort from joining the main thread when the crash is on another
+        # thread.
+        for conn in shardsConnections(self):
+            conn.execute_command('CONFIG', 'SET', 'crash-memcheck-enabled', 'no')
+
     def getEnvByName(self):
         env = super().getEnvByName()
         # In cluster mode only the first shard is crashed (the tests use it as

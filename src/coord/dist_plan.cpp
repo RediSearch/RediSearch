@@ -41,7 +41,7 @@
 // (`ReducerDistCtx::alloc`).
 #define DIST_REDUCER_BLOCK_SIZE ((size_t)128)
 
-static char *getLastAlias(const PLN_GroupStep *gstp) {
+static const char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;
 }
 
@@ -61,6 +61,14 @@ static const char *distAllocU64Str(BlkAlloc *alloc, uint64_t v) {
   size_t len = (size_t)n + 1;
   auto p = (char *)BlkAlloc_Alloc(alloc, len, std::max(len, DIST_REDUCER_BLOCK_SIZE));
   memcpy(p, buf, len);
+  return p;
+}
+
+// Copy `s` into the distribute step's allocator, which outlives the plan steps that borrow from it.
+static const char *distAllocStr(BlkAlloc *alloc, const char *s, size_t len) {
+  auto p = (char *)BlkAlloc_Alloc(alloc, len + 1, std::max(len + 1, DIST_REDUCER_BLOCK_SIZE));
+  memcpy(p, s, len);
+  p[len] = '\0';
   return p;
 }
 
@@ -95,7 +103,14 @@ struct ReducerDistCtx {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
-    array_tail(gstp->reducers).isLocal = (gstp == this->localGroup);
+    PLN_Reducer *added = &array_tail(gstp->reducers);
+    // The arguments here are assembled from other steps' strings rather than the held argv, so
+    // the reducer keeps its own copy instead of depending on their teardown order.
+    if (!added->ownsAlias) {
+      added->alias = rm_strdup(added->alias);
+      added->ownsAlias = true;
+    }
+    added->isLocal = (gstp == this->localGroup);
     if (alias) {
       *alias = getLastAlias(gstp);
     }
@@ -363,12 +378,12 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   }
   array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
   std::string ss = std::string("(@") + localSumSumAlias + "/@" + localCountSumAlias + ")";
-  HiddenString *expr = NewHiddenString(ss.c_str(), ss.length(), false);
-  PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
-  HiddenString_Free(expr, false);
+  PLN_MapFilterStep *applyStep =
+      PLNMapFilterStep_New(distAllocStr(rdctx->alloc, ss.c_str(), ss.length()), ss.length(), PLN_T_APPLY);
   applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
                              // are not allowed to override aliases
-  applyStep->base.alias = rm_strdup(src->alias);
+  // `src` belongs to the original group step, which the distribute step keeps until the plan is freed.
+  applyStep->base.alias = src->alias;
 
   RS_ASSERT(rdctx->currentLocal);
   AGPLN_AddAfter(rdctx->localPlan, rdctx->currentLocal, &applyStep->base);
@@ -675,10 +690,8 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
         while (!AC_IsAtEnd(&ac)) {
           const char *name = AC_GetStringNC(&ac, NULL);
 
-          // Check for AS alias
-          if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
-            RS_ASSERT(!AC_IsAtEnd(&ac));
-            name = AC_GetStringNC(&ac, NULL); // structure is validated earlier, can safely assume it's not at the end
+          if (AC_NumRemaining(&ac) >= 2 && AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
+            name = AC_GetStringNC(&ac, NULL);
           }
           name = stripAtPrefix(name);
           RLookup_GetKey_Write(lookup, name, RLOOKUP_F_NOFLAGS);

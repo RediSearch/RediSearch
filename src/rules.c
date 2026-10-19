@@ -115,6 +115,14 @@ static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *p
   rule->lang_field = args->lang_field ? rm_strdup(args->lang_field) : NULL;
   rule->score_field = args->score_field ? rm_strdup(args->score_field) : NULL;
   rule->payload_field = args->payload_field ? rm_strdup(args->payload_field) : NULL;
+  if (rule->type == DocumentType_Json) {
+    if (rule->lang_field) {
+      rule->compiled_lang_path = japi->pathParseNoErrorMsg(rule->lang_field);
+    }
+    if (rule->score_field) {
+      rule->compiled_score_path = japi->pathParseNoErrorMsg(rule->score_field);
+    }
+  }
 
   if (args->score_default) {
     double score;
@@ -247,6 +255,12 @@ void SchemaRule_FilterFields(IndexSpec *spec) {
 }
 
 void SchemaRule_Free(SchemaRule *rule) {
+  if (rule->compiled_lang_path) {
+    japi->pathFree(rule->compiled_lang_path);
+  }
+  if (rule->compiled_score_path) {
+    japi->pathFree(rule->compiled_score_path);
+  }
   rm_free((void *)rule->lang_field);
   rm_free((void *)rule->score_field);
   rm_free((void *)rule->payload_field);
@@ -311,8 +325,8 @@ done:
   return lang;
 }
 
-RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
-                               RedisJSON jsonRoot, const char *kname) {
+RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonRoot,
+                               const char *kname) {
   int rv = REDISMODULE_ERR;
   JSONResultsIterator jsonIter = NULL;
   RSLanguage lang = rule->lang_default;
@@ -329,7 +343,7 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  jsonIter = japi->get(jsonRoot, rule->lang_field);
+  jsonIter = JSON_GetWithCompiledPath(jsonRoot, rule->compiled_lang_path);
   if (!jsonIter) {
     goto done;
   }
@@ -384,8 +398,8 @@ done:
   return score;
 }
 
-double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
-                                RedisJSON jsonRoot, const char *kname) {
+double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonRoot,
+                            const char *kname) {
   double score = rule->score_default;
   JSONResultsIterator jsonIter = NULL;
   RedisJSON scoreJson = NULL;
@@ -399,7 +413,7 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  jsonIter = japi->get(jsonRoot, rule->score_field);
+  jsonIter = JSON_GetWithCompiledPath(jsonRoot, rule->compiled_score_path);
   if (jsonIter == NULL) {
     goto done;
   }
@@ -441,7 +455,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   uint64_t exist = 0;
   uint64_t nprefixes_u64 = 0;
   double score_default = 0.0;
-  RSLanguage lang_default = DEFAULT_LANGUAGE;
+  uint64_t lang_default_u64 = DEFAULT_LANGUAGE;
   bool index_all = false;
   SchemaRule *rule = NULL;
   IndexSpec *sp = NULL;
@@ -489,7 +503,14 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
     args.payload_field = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
   score_default = LoadDouble_IOError(rdb, goto cleanup);
-  lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
+  lang_default_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+  if (lang_default_u64 >= RS_LANG_UNSUPPORTED) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                     "RDB Load: Invalid default language (%llu)",
+                                     (unsigned long long)lang_default_u64);
+    ret = REDISMODULE_ERR;
+    goto cleanup;
+  }
   if (encver >= INDEX_INDEXALL_VERSION) {
     index_all = LoadUnsigned_IOError(rdb, goto cleanup);
   }
@@ -500,7 +521,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
     goto cleanup;
   }
   rule->score_default = score_default;
-  rule->lang_default = lang_default;
+  rule->lang_default = (RSLanguage)lang_default_u64;
   rule->index_all = index_all;
 
   // No need to validate the reference here, since we are loading it from the RDB

@@ -40,6 +40,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "VecSimQueryReply_GetIterator",
             "VecSimQueryReply_IteratorFree",
             "VecSimQueryReply_IteratorNext",
+            "VecSimQueryReply_Len",
             "VecSimQueryResult_GetId",
             "VecSimQueryResult_GetScore",
         ],
@@ -67,6 +68,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "VecSimIndex_IndexSize",
             "VecSimIndex_New",
             "VecSimIndex_PreferAdHocSearch",
+            "VecSimIndex_RangeQuery",
             "VecSimIndex_TopKQuery",
             "VecSimParams_GetQueryBlobSize",
             "VecSimTieredIndex_AcquireSharedLocks",
@@ -198,7 +200,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/json.h",
-        fns: &["JSON_GetJsonFromHandleCompat"],
+        fns: &["JSON_GetJsonFromHandle"],
         types: &[],
         vars: &["RedisJSONAPI_MIN_API_VER", "japi", "japi_ver"],
     },
@@ -227,12 +229,14 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/query.h",
-        fns: &[
-            "Query_EvalNode",
-            "QueryIterator_IsBlockedClientTimedOut",
-            "tag_strtolower",
-        ],
-        types: &["QueryAST", "QueryEvalCtx"],
+        fns: &["QueryIterator_IsBlockedClientTimedOut"],
+        types: &["QueryAST"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/query_ctx.h",
+        fns: &[],
+        types: &["QueryEvalCtx"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -387,8 +391,12 @@ const HEADERS: &[HeaderAllowlist] = &[
             "TagIndex_Commit",
             "TagIndex_Ensure",
             "TagIndex_Free",
+            "TagIndex_GetSuffixMatches",
+            "TagIndex_GetSuffixWildcardMatches",
+            "TagIndex_HasSuffix",
             "TagIndex_Index",
             "TagIndex_OpenIndex",
+            "TagIndex_OpenReader",
         ],
         types: &[],
         vars: &[],
@@ -402,7 +410,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/trie/rune_util.h",
         fns: &["runesToStr", "strToLowerRunes", "strToRunes"],
-        types: &[],
+        types: &["rune"],
         vars: &["MAX_RUNE_STR_LEN"],
     },
     HeaderAllowlist {
@@ -442,7 +450,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "array_len_func",
             "array_new_sz",
         ],
-        types: &[],
+        types: &["array_hdr_t"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -471,7 +479,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/util/strconv.h",
-        fns: &["unicode_tolower_fn"],
+        fns: &["nu_utf8_read_fn", "nu_utf8_write_fn", "unicode_tolower_fn"],
         types: &[],
         vars: &[],
     },

@@ -37,6 +37,7 @@
 #include "query_error_ffi.h"
 #include "result_processor.h"
 #include "rmalloc.h"
+#include "op_block_client.h"
 #include "rmr/command.h"
 #include "rmr/conn.h"
 #include "rmr/node.h"
@@ -565,14 +566,12 @@ static void uvReplyClusterInfo(void *p) {
   MR_ReplyClusterInfo(ctx, ioRuntime->topo);
   IORuntimeCtx_RequestCompleted(ioRuntime);
   RedisModule_FreeThreadSafeContext(ctx);
-  RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, NULL);
+  OpBlockClient_Unblock(bc);
   rm_free(replyClusterInfoCtx);
 }
 
 void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-  RedisModule_BlockedClientMeasureTimeStart(bc);
+  RedisModuleBlockedClient *bc = OpBlockClient_Block(ctx, NULL);
   struct ReplyClusterInfoCtx *replyClusterInfoCtx = rm_new(struct ReplyClusterInfoCtx);
   size_t idx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g);
   replyClusterInfoCtx->bc = bc;
@@ -949,7 +948,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   return channelSize > 0;
 }
 
-MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *config) {
+static MRIterator *createIterator(MRCommand cmd, const MRIteratorConfig *config) {
   // successCB is required: the per-reply path dereferences it.
   RS_ASSERT(config && config->successCB);
   MRIterator *ret = rm_new(MRIterator);
@@ -980,11 +979,21 @@ MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *conf
     .len = 1,
   };
   *ret->cbxs = (MRIteratorCallbackCtx){
-    .cmd = MRCommand_Copy(cmd),
+    .cmd = cmd,
     .it = ret,
     .privateData = config->cbPrivateData,
   };
   return ret;
+}
+
+MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *config) {
+  return createIterator(MRCommand_Copy(cmd), config);
+}
+
+MRIterator *MR_CreateIteratorTakingCmd(MRCommand *cmd, const MRIteratorConfig *config) {
+  MRIterator *it = createIterator(*cmd, config);
+  *cmd = (MRCommand){0};
+  return it;
 }
 
 void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *)) {

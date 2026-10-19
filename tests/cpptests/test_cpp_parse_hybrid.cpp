@@ -118,14 +118,14 @@ class ParseHybridTest : public ::testing::Test {
    * @param args The command arguments to parse
    * @return REDISMODULE_OK if parsing succeeded, REDISMODULE_ERR otherwise
    */
-  int parseCommandInternal(RMCK::ArgvList& args) {
+  int parseCommandInternal(RMCK::ArgvList& args, bool internal = false) {
     QueryError status = QueryError_Default();
     ArgsCursor ac = {0};
     if (!hybridRequest) {
       recreateHybridRequest(args);
     }
     HybridRequest_InitArgsCursor(hybridRequest, &ac, args.size());
-    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
+    int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, internal, EXEC_NO_FLAGS);
     EXPECT_TRUE(QueryError_IsOk(&status)) << "Parse failed: " << QueryError_GetDisplayableError(&status, false);
     return rc;
   }
@@ -136,19 +136,24 @@ class ParseHybridTest : public ::testing::Test {
     if (hybridRequest) {
       HybridRequest_Free(hybridRequest);
     }
+    if (hybridParams.scoringCtx) {
+      HybridScoringContext_Free(hybridParams.scoringCtx);
+    }
+    hybridParams = {};
     hybridRequest =
         MakeDefaultHybridRequest(NewSearchCtxC(ctx, index_name.c_str(), true), args, args.size());
     result.search = hybridRequest->requests[0];
     result.vector = hybridRequest->requests[1];
     result.tailPlan = &hybridRequest->tailPipeline->ap;
     result.hybridParams = &hybridParams;
-    result.reqConfig = &hybridRequest->reqConfig;
-    result.cursorConfig = &hybridRequest->cursorConfig;
+    result.reqConfig = &hybridRequest->base.reqConfig;
+    result.timeoutConfig = &hybridRequest->base.timeout.config;
+    result.cursorConfig = &hybridRequest->base.cursorConfig;
     result.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
   }
 
   // Helper function to test error cases with less boilerplate
-  void testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail);
+  void testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail, bool internal = false);
 
 };
 
@@ -156,6 +161,11 @@ class ParseHybridTest : public ::testing::Test {
   ASSERT_EQ(parseCommandInternal(args), REDISMODULE_OK) << "parseCommandInternal failed"; \
 } while(0)
 
+TEST_F(ParseHybridTest, RejectsPublicCursor) {
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
+                      "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "WITHCURSOR: Unknown argument");
+}
 
 #define assertLinearScoringCtx(Weight0, Weight1, Window) do { \
   ASSERT_EQ(result.hybridParams->scoringCtx->scoringType, HYBRID_SCORING_LINEAR); \
@@ -183,12 +193,12 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.search->base.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.vector->base.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
 
   // Verify dialect is set to default
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.vector->base.reqConfig.dialectVersion, 2);
 }
 
 TEST_F(ParseHybridTest, testValidInputWithParams) {
@@ -203,12 +213,12 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.search->base.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.vector->base.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
 
   // Verify dialect is set to default
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.vector->base.reqConfig.dialectVersion, 2);
 }
 
 TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
@@ -221,12 +231,12 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set correctly
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 240);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 240);
+  ASSERT_EQ(result.search->base.timeout.config.queryTimeoutMS, 240);
+  ASSERT_EQ(result.vector->base.timeout.config.queryTimeoutMS, 240);
 
   // Verify dialect is set correctly
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 2);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 2);
+  ASSERT_EQ(result.vector->base.reqConfig.dialectVersion, 2);
 }
 
 TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
@@ -237,8 +247,8 @@ TEST_F(ParseHybridTest, testConfigOOMFailPolicyPropagation) {
 
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Fail);
-  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Fail);
-  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Fail);
+  ASSERT_EQ(result.vector->base.reqConfig.oomPolicy, OomPolicy_Fail);
+  ASSERT_EQ(result.search->base.reqConfig.oomPolicy, OomPolicy_Fail);
 }
 
 TEST_F(ParseHybridTest, testConfigOOMReturnPolicyPropagation) {
@@ -249,8 +259,8 @@ TEST_F(ParseHybridTest, testConfigOOMReturnPolicyPropagation) {
 
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Return);
-  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Return);
-  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Return);
+  ASSERT_EQ(result.vector->base.reqConfig.oomPolicy, OomPolicy_Return);
+  ASSERT_EQ(result.search->base.reqConfig.oomPolicy, OomPolicy_Return);
 }
 
 TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
@@ -261,36 +271,53 @@ TEST_F(ParseHybridTest, testConfigOOMIgnorePolicyPropagation) {
   recreateHybridRequest(args);
   parseCommand(args);
   ASSERT_EQ(result.reqConfig->oomPolicy, OomPolicy_Ignore);
-  ASSERT_EQ(result.vector->reqConfig.oomPolicy, OomPolicy_Ignore);
-  ASSERT_EQ(result.search->reqConfig.oomPolicy, OomPolicy_Ignore);
+  ASSERT_EQ(result.vector->base.reqConfig.oomPolicy, OomPolicy_Ignore);
+  ASSERT_EQ(result.search->base.reqConfig.oomPolicy, OomPolicy_Ignore);
 }
 
 TEST_F(ParseHybridTest, testConfigSnapshotUsedForParseDefaults) {
   // Absent TIMEOUT/DIALECT must default to the request's construction-time
   // snapshot, not to RSGlobalConfig at parse time — parsing may run on a
   // background thread after the request was dispatched with its snapshot.
-  long long savedTimeout = RSGlobalConfig.requestConfigParams.queryTimeoutMS;
+  long long savedTimeout = RSGlobalConfig.timeoutConfigParams.queryTimeoutMS;
   unsigned int savedDialect = RSGlobalConfig.requestConfigParams.dialectVersion;
-  RSGlobalConfig.requestConfigParams.queryTimeoutMS = 1234;
+  RSGlobalConfig.timeoutConfigParams.queryTimeoutMS = 1234;
   RSGlobalConfig.requestConfigParams.dialectVersion = 4;
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
                       "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
   recreateHybridRequest(args);
   // Simulate FT.CONFIG SET landing between dispatch and the background parse.
-  RSGlobalConfig.requestConfigParams.queryTimeoutMS = 5678;
+  RSGlobalConfig.timeoutConfigParams.queryTimeoutMS = 5678;
   RSGlobalConfig.requestConfigParams.dialectVersion = 2;
 
   parseCommand(args);
 
-  ASSERT_EQ(result.reqConfig->queryTimeoutMS, 1234);
-  ASSERT_EQ(result.search->reqConfig.queryTimeoutMS, 1234);
-  ASSERT_EQ(result.vector->reqConfig.queryTimeoutMS, 1234);
+  EXPECT_NE(result.timeoutConfig, &result.search->base.timeout.config);
+  EXPECT_NE(result.timeoutConfig, &result.vector->base.timeout.config);
+  ASSERT_EQ(result.timeoutConfig->queryTimeoutMS, 1234);
+  ASSERT_EQ(result.search->base.timeout.config.queryTimeoutMS, 1234);
+  ASSERT_EQ(result.vector->base.timeout.config.queryTimeoutMS, 1234);
   ASSERT_EQ(result.reqConfig->dialectVersion, 4);
-  ASSERT_EQ(result.search->reqConfig.dialectVersion, 4);
-  ASSERT_EQ(result.vector->reqConfig.dialectVersion, 4);
+  ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 4);
+  ASSERT_EQ(result.vector->base.reqConfig.dialectVersion, 4);
 
-  RSGlobalConfig.requestConfigParams.queryTimeoutMS = savedTimeout;
+  RSGlobalConfig.timeoutConfigParams.queryTimeoutMS = savedTimeout;
   RSGlobalConfig.requestConfigParams.dialectVersion = savedDialect;
+}
+
+TEST_F(ParseHybridTest, testCursorSettingsOwnedByEachSubquery) {
+  RMCK::ArgvList args(ctx, "_FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB",
+                     "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR", "COUNT", "42", "MAXIDLE", "1000");
+  ASSERT_EQ(parseCommandInternal(args, true), REDISMODULE_OK);
+
+  EXPECT_EQ(hybridRequest->base.cursorConfig.chunkSize, 42);
+  EXPECT_EQ(hybridRequest->base.cursorConfig.maxIdle, 1000);
+  hybridRequest->base.cursorConfig = {2000, 84};
+  for (const AREQ *subquery : {result.search, result.vector}) {
+    EXPECT_TRUE(subquery->reqflags & QEXEC_F_IS_CURSOR);
+    EXPECT_EQ(subquery->base.cursorConfig.chunkSize, 42);
+    EXPECT_EQ(subquery->base.cursorConfig.maxIdle, 1000);
+  }
 }
 
 TEST_F(ParseHybridTest, testWithCombineLinear) {
@@ -802,6 +829,99 @@ TEST_F(ParseHybridTest, testVsimKNNWithEFRuntime) {
   ASSERT_TRUE(foundEfRuntime);
 }
 
+TEST_F(ParseHybridTest, testVsimRerankForwarding) {
+  for (const char* clause : {"KNN", "RANGE"}) {
+    for (const char* value : {"TRUE", "FALSE", "true", "fAlSe", "MAYBE", ""}) {
+      SCOPED_TRACE(std::string(clause) + " RERANK " + value);
+      const bool isKnn = strcmp(clause, "KNN") == 0;
+      RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM",
+                          "@vector", "$BLOB", clause, "4", isKnn ? "K" : "RADIUS", "1", "rErAnK",
+                          value, "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+      recreateHybridRequest(args);
+      parseCommand(args);
+
+      QueryNode* vn = result.vector->ast.root;
+      ASSERT_NE(vn, nullptr);
+      ASSERT_EQ(vn->type, QN_VECTOR);
+      VectorQuery* vq = vn->vn.vq;
+      ASSERT_EQ(vq->type, isKnn ? VECSIM_QT_KNN : VECSIM_QT_RANGE);
+      ASSERT_EQ(array_len(vq->params.params), 1);
+      const auto& param = vq->params.params[0];
+      ASSERT_STREQ(param.name, "RERANK");
+      ASSERT_EQ(param.nameLen, sizeof("RERANK") - 1);
+      ASSERT_STREQ(param.value, value);
+      ASSERT_EQ(param.valLen, strlen(value));
+    }
+  }
+}
+
+TEST_F(ParseHybridTest, testVsimRerankWithRuntimeOptionAndFilter) {
+  for (const char* clause : {"KNN", "RANGE"}) {
+    const bool isKnn = strcmp(clause, "KNN") == 0;
+    RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
+                        "$BLOB", clause, "6", "RERANK", "FALSE", isKnn ? "EF_RUNTIME" : "EPSILON",
+                        isKnn ? "80" : "0.01", isKnn ? "K" : "RADIUS", "1", "FILTER", "1",
+                        "@title:hello", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+    recreateHybridRequest(args);
+    parseCommand(args);
+
+    QueryNode* vn = result.vector->ast.root;
+    ASSERT_NE(vn, nullptr);
+    if (vn->type == QN_PHRASE) {
+      vn = findVectorNodeChild(vn);
+    }
+    ASSERT_NE(vn, nullptr);
+    ASSERT_EQ(vn->type, QN_VECTOR);
+    VectorQuery* vq = vn->vn.vq;
+    ASSERT_EQ(array_len(vq->params.params), 2);
+    ASSERT_STREQ(vq->params.params[0].name, "RERANK");
+    ASSERT_STREQ(vq->params.params[0].value, "FALSE");
+    ASSERT_STREQ(vq->params.params[1].name, isKnn ? "EF_RUNTIME" : "EPSILON");
+    ASSERT_STREQ(vq->params.params[1].value, isKnn ? "80" : "0.01");
+  }
+}
+
+TEST_F(ParseHybridTest, testVsimRerankOmitted) {
+  for (const char* clause : {"KNN", "RANGE"}) {
+    const bool isKnn = strcmp(clause, "KNN") == 0;
+    RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
+                        "$BLOB", clause, "2", isKnn ? "K" : "RADIUS", "1", "PARAMS", "2", "BLOB",
+                        TEST_BLOB_DATA);
+    recreateHybridRequest(args);
+    parseCommand(args);
+
+    QueryNode* vn = result.vector->ast.root;
+    ASSERT_NE(vn, nullptr);
+    ASSERT_EQ(vn->type, QN_VECTOR);
+    ASSERT_EQ(array_len(vn->vn.vq->params.params), 0);
+  }
+}
+
+TEST_F(ParseHybridTest, testVsimRerankStructuralErrors) {
+  for (const char* clause : {"KNN", "RANGE"}) {
+    const bool isKnn = strcmp(clause, "KNN") == 0;
+    RMCK::ArgvList duplicate(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM",
+                             "@vector", "$BLOB", clause, "6", isKnn ? "K" : "RADIUS", "1", "RERANK",
+                             "TRUE", "rerank", "FALSE", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
+    testErrorCode(duplicate, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate RERANK argument");
+
+    RMCK::ArgvList missing(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM",
+                           "@vector", "$BLOB", clause, "4", isKnn ? "K" : "RADIUS", "1", "RERANK");
+    testErrorCode(missing, QUERY_ERROR_CODE_PARSE_ARGS, "Missing argument value for RERANK");
+
+    RMCK::ArgvList oddCount(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM",
+                            "@vector", "$BLOB", clause, "3", isKnn ? "K" : "RADIUS", "1", "RERANK",
+                            "TRUE");
+    testErrorCode(oddCount, QUERY_ERROR_CODE_SYNTAX,
+                  "Invalid argument count: 3 (must be a positive even number for key/value pairs)");
+
+    RMCK::ArgvList truncated(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM",
+                             "@vector", "$BLOB", clause, "6", isKnn ? "K" : "RADIUS", "1", "RERANK",
+                             "TRUE");
+    testErrorCode(truncated, QUERY_ERROR_CODE_SYNTAX, "Expected arguments 6, but 4 were provided");
+  }
+}
+
 TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   // Parse hybrid request
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "KNN", "2", "K", "5", "PARAMS", "2", "BLOB", TEST_BLOB_DATA);
@@ -835,9 +955,7 @@ TEST_F(ParseHybridTest, testVsimBasicKNNNoFilter) {
   ASSERT_EQ(vq->knn.k, 5);
   ASSERT_EQ(vq->knn.order, BY_SCORE);
 
-  // Verify wildcard query is the child of the vector querynode
-  ASSERT_TRUE(vn->children != NULL);
-  ASSERT_EQ(vn->children[0]->type, QN_WILDCARD);
+  ASSERT_EQ(QueryNode_NumChildren(vn), 0);
 }
 
 TEST_F(ParseHybridTest, testVsimKNNWithYieldDistanceOnly) {
@@ -1117,14 +1235,14 @@ TEST_F(ParseHybridTest, testVsimInvalidFilterWeight) {
 }
 
 // Helper function to test error cases with less boilerplate
-void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail) {
+void ParseHybridTest::testErrorCode(RMCK::ArgvList& args, QueryErrorCode expected_code, const char* expected_detail, bool internal) {
   QueryError status = QueryError_Default();
 
   // Create a fresh sctx for this test
   ArgsCursor ac = {0};
   recreateHybridRequest(args);
   HybridRequest_InitArgsCursor(hybridRequest, &ac, args.size());
-  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, false, EXEC_NO_FLAGS);
+  int rc = parseHybridCommand(ctx, &ac, hybridRequest->sctx, &result, &status, internal, EXEC_NO_FLAGS);
   ASSERT_TRUE(rc == REDISMODULE_ERR) << "parsing error: " << QueryError_GetUserError(&status);
   ASSERT_EQ(QueryError_GetCode(&status), expected_code) << "parsing error: " << QueryError_GetUserError(&status);
 
@@ -1371,7 +1489,7 @@ TEST_F(ParseHybridTest, testVsimRangeWithEFRuntime) {
 
 // NOTE: Invalid parameter values of EF_RUNTIME EPSILON_STRING are NOT validated during parsing.
 // The validation happens during query execution in the flow:
-// QAST_Iterate() → Query_EvalNode() → NewVectorIterator() → VecSim_ResolveQueryParams()
+// QAST_Iterate() → NewVectorIterator() → VecSim_ResolveQueryParams()
 // These validation tests should be in execution tests, not parsing tests.
 
 TEST_F(ParseHybridTest, testCombineRRFInvalidConstantValue) {
@@ -1573,14 +1691,14 @@ TEST_F(ParseHybridTest, testParamsSpecifiedMultipleTimes) {
 // WITHCURSOR callback error tests
 TEST_F(ParseHybridTest, testWithCursorInvalidMaxIdle) {
   // Test WITHCURSOR with invalid MAXIDLE value (zero)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR", "MAXIDLE", "0");
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for MAXIDLE: Value is outside acceptable bounds");
+  RMCK::ArgvList args(ctx, "_FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR", "MAXIDLE", "0");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for MAXIDLE: Value is outside acceptable bounds", true);
 }
 
 TEST_F(ParseHybridTest, testWithCursorInvalidCount) {
   // Test WITHCURSOR with invalid COUNT value (zero)
-  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR", "COUNT", "0");
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for COUNT: Value is outside acceptable bounds");
+  RMCK::ArgvList args(ctx, "_FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR", "COUNT", "0");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments for COUNT: Value is outside acceptable bounds", true);
 }
 
 // GROUPBY callback error tests
@@ -1621,6 +1739,13 @@ TEST_F(ParseHybridTest, testLoadInsufficientFields) {
   // Test LOAD with insufficient fields for specified count
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "LOAD", "3", "@title");
   testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "Not enough arguments for LOAD");
+}
+
+TEST_F(ParseHybridTest, testLoadMissingAsArgument) {
+  // The sliced LOAD arguments end with a dangling `AS`. The distributed planner
+  // walks this slice before the pipeline validates it, so parsing must reject it.
+  RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector", "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "LOAD", "2", "@title", "AS");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "LOAD path AS name - must be accompanied with NAME");
 }
 
 // ============================================================================
