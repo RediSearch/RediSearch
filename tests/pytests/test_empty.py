@@ -1490,6 +1490,14 @@ JSON_MULTI_VALUE_EXPECTED_EMPTY = {
     '$.f[*]': {'one_empty', 'all_empty', 'null_and_empty', 'mixed'},
 }
 
+# (path, field type, SORTABLE) -> docs that fail to index; absent keys mean none.
+# SORTABLE on `$.f` builds its sort key from the array's first element, so `[]`
+# fails.
+JSON_MULTI_VALUE_INDEXING_FAILURES = {
+    ('$.f', 'TAG', True): {'empty_arr'},
+    ('$.f', 'TEXT', True): {'empty_arr'},
+}
+
 @skip(cluster=True, no_json=True)
 def testJsonMultiValueEmpty():
     """Pins which JSON multi-value shapes INDEXEMPTY indexes as the empty value,
@@ -1509,6 +1517,12 @@ def testJsonMultiValueEmpty():
                            path, 'AS', 'f', field_type, 'INDEXEMPTY', *options).ok()
                 for suffix, doc in JSON_MULTI_VALUE_EMPTY_DOCS.items():
                     conn.execute_command('JSON.SET', f'doc:{suffix}', '$', json.dumps(doc))
+
+                # Docs that fail to index also look like non-matches.
+                failed = JSON_MULTI_VALUE_INDEXING_FAILURES.get(
+                    (path, field_type, bool(options)), set())
+                env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'],
+                                len(failed), message=case)
 
                 for query, expected in ((empty_query, expected_empty),
                                         (value_query, {'mixed', 'non_empty'})):
