@@ -15,7 +15,7 @@
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
     profile_print::{ProfilePrint, ProfilePrintCtx},
     union::{FreeSuspendedShell, repush_borrowed_entries},
@@ -566,48 +566,6 @@ where
         self.is_eof
     }
 
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let mut any_child_moved = false;
-        let mut max_child_doc_id: DocId = 0;
-        let mut moved_to_eof = false;
-
-        for child in &mut self.children {
-            match child.revalidate(spec)? {
-                RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
-                RQEValidateStatus::Moved { current } => {
-                    any_child_moved = true;
-                    match current {
-                        Some(result) => {
-                            // Child's last_doc_id is automatically updated by revalidate
-                            max_child_doc_id = max_child_doc_id.max(result.doc_id);
-                        }
-                        None => moved_to_eof = true,
-                    }
-                }
-                RQEValidateStatus::Ok => {}
-            }
-        }
-
-        if !any_child_moved || self.is_eof {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        if moved_to_eof {
-            self.is_eof = true;
-            return Ok(RQEValidateStatus::Moved { current: None });
-        }
-
-        match self.skip_to(max_child_doc_id)? {
-            Some(_) => Ok(RQEValidateStatus::Moved {
-                current: Some(&mut self.result),
-            }),
-            None => Ok(RQEValidateStatus::Moved { current: None }),
-        }
-    }
-
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Intersect
@@ -746,8 +704,8 @@ where
         let last_doc_id = self.last_doc_id;
         let raw = Box::into_raw(self);
 
-        // Resume every child in place, walking them as `revalidate` does. Slots
-        // never move, so the entries' addresses stay right, but their
+        // Resume every child in place; one aborting aborts the intersection.
+        // Slots never move, so the entries' addresses stay right, but their
         // provenance does not survive a child's transition: they are rebuilt or
         // cleared below, before the cast.
         let (base, len) = {
@@ -785,10 +743,10 @@ where
                 ResumeSlotOutcome::Unchanged => {}
                 ResumeSlotOutcome::Moved => {
                     any_child_moved = true;
-                    // `revalidate` reads the new position from its `Moved`
-                    // payload; here it is read off the resumed child. `at_eof()`
-                    // comes first: a child that ran past its end has no position
-                    // for `last_doc_id()` to report.
+                    // The slot helper hands back no result, so the position is
+                    // read off the resumed child. `at_eof()` comes first: a
+                    // child that ran past its end has no position for
+                    // `last_doc_id()` to report.
                     //
                     // SAFETY: the helper just rewrote the slot as a valid
                     // `S::Resumed<'a>`.
@@ -866,13 +824,12 @@ where
         // valid.
         let mut active = unsafe { Box::from_raw(raw.cast::<Intersection<'a, S::Resumed<'a>>>()) };
 
-        // From here on, mirror `revalidate` decision for decision.
+        // Nothing moved, or the intersection had already ended: no re-seek.
         if !any_child_moved || active.is_eof {
-            // One deliberate divergence: an incomplete aggregate — left by a
-            // child error mid-consensus, or emptied by a consumer — is no
-            // consensus, and with no re-seek to rebuild it, the resume aborts
-            // where `revalidate` would keep publishing it. At EOF nothing is
-            // published, so `Ok` stands.
+            // An incomplete aggregate — left by a child error mid-consensus, or
+            // emptied by a consumer — is no consensus, and with no re-seek to
+            // rebuild it, the resume aborts rather than publish it. At EOF
+            // nothing is published, so `Ok` stands.
             if rebuilt == Some(ConsensusRebuild::Incomplete) && !active.is_eof {
                 return Ok(ResumeOutcome::Aborted);
             }
