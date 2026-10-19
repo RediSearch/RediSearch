@@ -34,3 +34,8 @@ platforms = [
 # `workspace_hack`, which every crate builds.
 [traversal-excludes]
 workspace-members = ["migration_stats"]
+# hotpath's profiling code and dependencies are opt-in through cargo features;
+# unifying them here would compile them into every build.
+third-party = [
+    { name = "hotpath" },
+]

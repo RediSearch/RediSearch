@@ -5124,6 +5124,16 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
+#ifdef RS_HOTPATH
+  // Last, once loading can no longer fail: the profiler leaves a thread and an atexit
+  // handler running module code, which must not outlive a rejected, unloaded module.
+  RedisModuleString *logFile = getRedisConfigValue(ctx, "logfile");
+  RSHotpath_Init(logFile ? RedisModule_StringPtrLen(logFile, NULL) : NULL);
+  if (logFile) {
+    RedisModule_FreeString(ctx, logFile);
+  }
+#endif
+
   return REDISMODULE_OK;
 }
 

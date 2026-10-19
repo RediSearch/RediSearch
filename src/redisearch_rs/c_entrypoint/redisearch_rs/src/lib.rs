@@ -15,11 +15,15 @@
 /// Registers the Redis module allocator as the global allocator for the application.
 ///
 /// [`OverAligned`](over_aligned_alloc::OverAligned) serves the layouts the Redis
-/// allocator cannot align on its own.
+/// allocator cannot align on its own. [`hotpath::CountingAllocator`] is a pass-through
+/// unless the `hotpath-alloc` feature is enabled.
 #[cfg(not(feature = "mock_allocator"))]
 #[global_allocator]
-static REDIS_MODULE_ALLOCATOR: over_aligned_alloc::OverAligned<redis_module::alloc::RedisAlloc> =
-    over_aligned_alloc::OverAligned(redis_module::alloc::RedisAlloc);
+static REDIS_MODULE_ALLOCATOR: hotpath::CountingAllocator<
+    over_aligned_alloc::OverAligned<redis_module::alloc::RedisAlloc>,
+> = hotpath::CountingAllocator::with(over_aligned_alloc::OverAligned(
+    redis_module::alloc::RedisAlloc,
+));
 
 pub use fnv_ffi as fnv;
 pub use fork_gc_ffi as fork_gc;
