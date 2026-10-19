@@ -74,7 +74,7 @@ jobs:
     secrets: inherit
     with:
       job-type: basic-test
-      platform: ubuntu:latest
+      platform: ubuntu:noble
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
@@ -95,7 +95,7 @@ jobs:
     secrets: inherit
     with:
       job-type: coverage
-      platform: ubuntu:latest
+      platform: ubuntu:noble
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
@@ -117,7 +117,7 @@ jobs:
     secrets: inherit
     with:
       job-type: sanitize
-      platform: ubuntu:latest
+      platform: ubuntu:noble
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
@@ -152,7 +152,7 @@ jobs:
     uses: ./.github/workflows/task-miri.yml
     secrets: inherit
     with:
-      platform: ubuntu:latest
+      platform: ubuntu:noble
       architecture: x86_64
       partition: count:${{ matrix.shard }}/3
 
