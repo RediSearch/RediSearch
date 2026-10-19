@@ -246,12 +246,11 @@ where
             match child.read()? {
                 Some(child_result) => {
                     self.result.doc_id = child_result.doc_id;
-                    let drained_metrics = std::mem::take(&mut child_result.metrics);
                     let child_ptr: *const RSIndexResult<'index> = child_result;
                     // SAFETY: child_result and self.result are disjoint fields — no aliasing.
                     // The child is owned by self, so the 'index data remains valid.
                     let child_ref = unsafe { &*child_ptr };
-                    self.result.push_borrowed(child_ref, drained_metrics);
+                    self.result.push_borrowed(child_ref);
                     return Ok(Some(&mut self.result));
                 }
                 None => {

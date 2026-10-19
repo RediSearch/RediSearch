@@ -17,7 +17,7 @@
 //!
 //! [`RawAggregateResult::push_borrowed_ptr_from_ref`]: index_result::RawAggregateResult::push_borrowed_ptr_from_ref
 
-use index_result::{MetricsVec, RSIndexResult};
+use index_result::RSIndexResult;
 
 /// Hands `child`'s allocation through a by-value [`Box`], reproducing what
 /// transitioning a child does to it: the function-entry retag invalidates every
@@ -32,17 +32,13 @@ fn retag<T>(child: Box<T>) -> Box<T> {
 /// Borrows `child` into `parent`'s aggregate the way a composite iterator does:
 /// through a raw pointer, because the child is owned by a sibling field and the
 /// borrow checker cannot see that it outlives the aggregate.
-fn push_borrowed<'a>(
-    parent: &mut RSIndexResult<'a>,
-    child: &RSIndexResult<'a>,
-    metrics: MetricsVec<'a>,
-) {
+fn push_borrowed<'a>(parent: &mut RSIndexResult<'a>, child: &RSIndexResult<'a>) {
     let child: *const RSIndexResult<'a> = child;
     // SAFETY: every caller below keeps the child alive for as long as `parent`,
     // moving it only through the deliberate `retag` above (which preserves its
     // address).
     let child = unsafe { &*child };
-    parent.push_borrowed(child, metrics);
+    parent.push_borrowed(child);
 }
 
 /// The property the primitive exists for: after every child has been retagged,
@@ -65,10 +61,9 @@ fn rebuilt_entries_survive_the_children_being_retagged() {
     );
 
     let mut parent = RSIndexResult::build_intersect(2).build();
-    let mut metrics = MetricsVec::new();
-    metrics.push_without_key(0.5);
-    push_borrowed(&mut parent, &child0, metrics);
-    push_borrowed(&mut parent, &child1, MetricsVec::new());
+    parent.metrics.push_without_key(0.5);
+    push_borrowed(&mut parent, &child0);
+    push_borrowed(&mut parent, &child1);
 
     let (doc_id, freq, field_mask) = (parent.doc_id, parent.freq, parent.field_mask);
     assert_eq!(freq, 8, "the frequencies of both children accumulated");
@@ -120,8 +115,8 @@ fn rebuilt_entries_survive_the_children_being_retagged() {
     assert_eq!(
         parent.metrics.get(0).map(|m| m.value()),
         Some(0.5),
-        "the metrics moved out of the children when the aggregate was first \
-         built are still here — `reset_aggregate` would have lost them",
+        "the aggregate's own metrics are still here — `reset_aggregate` would \
+         have lost them",
     );
 }
 
@@ -134,8 +129,8 @@ fn a_rebuild_can_drop_a_child_by_not_pushing_it() {
     let departing = Box::new(RSIndexResult::build_numeric(2.0).doc_id(7).build());
 
     let mut parent = RSIndexResult::build_intersect(2).build();
-    push_borrowed(&mut parent, &survivor, MetricsVec::new());
-    push_borrowed(&mut parent, &departing, MetricsVec::new());
+    push_borrowed(&mut parent, &survivor);
+    push_borrowed(&mut parent, &departing);
 
     let mut suspended = parent.into_suspended();
     let survivor = retag(survivor);
