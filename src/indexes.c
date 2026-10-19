@@ -288,7 +288,7 @@ static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool u
   // RDB. Loading anyway would point the keys' DocIdMeta at the wrong index.
   if (!sp->isDuplicate && dictFetchValue(specIdDict_g, (void *)(uintptr_t)sp->specId) != NULL) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Saved index id is already in use");
-    IndexSpec_RdbLoadDiscard(sp->own_ref);
+    StrongRef_Release(sp->own_ref);
     return NULL;
   }
   if (SearchDisk_IsEnabled() && !sp->isDuplicate && !SearchDisk_CanRestoreIndex(status)) {
