@@ -1364,7 +1364,10 @@ void Indexes_EndLoading() {
 // that was staged in this round.
 void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
   RS_ASSERT(SearchDisk_IsEnabled());
-  dictIterator *iter = dictGetIterator(specDict_g);
+  // Safe iterator: the loop body may look up specDict_g, and an unsafe
+  // iterator lets those lookups advance a pending rehash, which makes the
+  // iterator skip specs or return them twice.
+  dictIterator *iter = dictGetSafeIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     StrongRef spec_ref = dictGetRef(entry);
@@ -1375,6 +1378,9 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     RS_ASSERT(!sp->diskRegistered);
     bool ok = IndexSpec_SSTRdbOpenAndApply(ctx, sp);
     RS_LOG_ASSERT_ALWAYS(ok, "SST replication: failed to open disk index for spec during LOADING_ENDED");
+    // The spec was published while diskSpec was still NULL, so its usage was
+    // not activated then.
+    SearchDisk_ActivateUsage(sp);
     // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
     // (diskSpec was NULL there); start it now that the disk handle exists.
     IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);
