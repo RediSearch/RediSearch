@@ -24,9 +24,7 @@
 use std::ptr::NonNull;
 
 use query_types::{QueryNodeOptions, scorers::slop_forces_offsets};
-use rqe_iterators::{
-    Empty, RQEIteratorPrintable, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
-};
+use rqe_iterators::{Empty, c2rust::CRQEIterator, interop::RQEIteratorWrapper};
 
 // The query wrapper types live in the `query` crate (`c_wrappers/query`), and
 // the scorer/expander name modules in `query_types`; both are re-exported here
@@ -51,7 +49,7 @@ use nodes::{
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
 /// both [`RQEIterator`](rqe_iterators::RQEIterator) and
 /// [`ProfilePrint`](rqe_iterators::profile_print::ProfilePrint).
-pub type EvalResult<'index> = Box<dyn RQEIteratorPrintable<'index> + 'index>;
+pub type EvalResult<'index> = rqe_iterators::TypeErasedRQEIterator<'index>;
 
 /// The outcome of evaluating a query node.
 ///
@@ -150,7 +148,9 @@ impl<'index> Evaluated<'index> {
                 // a C iterator constructor, `Evaluated::RustCompound` from
                 // `RQEIteratorWrapper::boxed_new_compound` — exactly the
                 // preconditions of `CRQEIterator::new`.
-                Box::new(unsafe { CRQEIterator::new(it) })
+                rqe_iterators::TypeErasedRQEIterator::new(Box::new(unsafe {
+                    CRQEIterator::new(it)
+                }))
             }
         }
     }
@@ -165,7 +165,9 @@ pub fn qast_iterate<'index>(
     root: QueryNodeMut<'_>,
     config: Config,
 ) -> Evaluated<'index> {
-    eval_node(ctx, root, config).unwrap_or_else(|| Evaluated::RustLeaf(Box::new(Empty)))
+    eval_node(ctx, root, config).unwrap_or_else(|| {
+        Evaluated::RustLeaf(rqe_iterators::TypeErasedRQEIterator::new(Box::new(Empty)))
+    })
 }
 
 /// Evaluate a single query node, producing the corresponding iterator.
