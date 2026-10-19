@@ -10,7 +10,7 @@
 use search_result::SearchResult;
 
 use crate::{Context, Error, ResultProcessor, ResultProcessorWrapper};
-use std::{pin::Pin, ptr::NonNull};
+use std::{pin::Pin, ptr::NonNull, sync::Mutex};
 
 /// Create a ResultProcessor from an `Iterator` for testing purposes
 pub fn from_iter<I>(i: I) -> IterResultProcessor<I::IntoIter>
@@ -18,24 +18,24 @@ where
     I: IntoIterator<Item = SearchResult<'static>>,
 {
     IterResultProcessor {
-        iter: i.into_iter(),
+        iter: Mutex::new(i.into_iter()),
     }
 }
 
 /// ResultProcessor that yields items from an inner `Iterator`
 #[derive(Debug)]
 pub struct IterResultProcessor<I> {
-    iter: I,
+    iter: Mutex<I>,
 }
 
 impl<I> ResultProcessor for IterResultProcessor<I>
 where
-    I: Iterator<Item = SearchResult<'static>>,
+    I: Iterator<Item = SearchResult<'static>> + Send,
 {
     const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX + 1;
 
-    fn next(&mut self, _cx: Context, out: &mut SearchResult<'_>) -> Result<Option<()>, Error> {
-        if let Some(res) = self.iter.next() {
+    fn next(&self, _cx: Context, out: &mut SearchResult<'_>) -> Result<Option<()>, Error> {
+        if let Some(res) = self.iter.lock().unwrap().next() {
             *out = res;
             Ok(Some(()))
         } else {
@@ -46,30 +46,30 @@ where
 
 /// A result processor that returns the provided result.
 pub struct ResultRP {
-    res: Option<Result<Option<()>, Error>>,
+    res: Mutex<Option<Result<Option<()>, Error>>>,
 }
 impl ResultRP {
     pub fn new_err(error: Error) -> Self {
         Self {
-            res: Some(Err(error)),
+            res: Mutex::new(Some(Err(error))),
         }
     }
     pub fn new_ok_some() -> Self {
         Self {
-            res: Some(Ok(Some(()))),
+            res: Mutex::new(Some(Ok(Some(())))),
         }
     }
     pub fn new_ok_none() -> Self {
         Self {
-            res: Some(Ok(None)),
+            res: Mutex::new(Some(Ok(None))),
         }
     }
 }
 impl ResultProcessor for ResultRP {
     const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
 
-    fn next(&mut self, _cx: Context, _res: &mut SearchResult) -> Result<Option<()>, Error> {
-        self.res.take().unwrap()
+    fn next(&self, _cx: Context, _res: &mut SearchResult) -> Result<Option<()>, Error> {
+        self.res.lock().unwrap().take().unwrap()
     }
 }
 
@@ -168,7 +168,7 @@ impl Chain {
             .totalResults = n;
     }
 
-    /// Return a [`Context`] and mutable reference to the inner [`ResultProcessor`] implementation
+    /// Return a [`Context`] and shared reference to the inner [`ResultProcessor`] implementation
     /// from the last result processor in the chain.
     ///
     /// The caller has to provide the expected type of the inner result processor through the `P` generic.
@@ -176,7 +176,7 @@ impl Chain {
     /// # Panics
     ///
     /// Panics if the last result processors inner implementation is not of the expected type.
-    pub fn last_as_context_and_inner<P>(&mut self) -> (Context<'_>, &mut P)
+    pub fn last_as_context_and_inner<P>(&mut self) -> (Context<'_>, &P)
     where
         P: ResultProcessor + 'static,
     {
@@ -191,13 +191,13 @@ impl Chain {
             ResultProcessorWrapper::<P>::debug_assert_same_type(*ptr);
         }
 
-        // Safety: The assert above ensures this is always of the right type
-        let result_processor =
-            unsafe { Pin::new_unchecked(ptr.cast::<ResultProcessorWrapper<P>>().as_mut()) };
-        let result_processor = result_processor.project();
-
-        let cx = Context::new(result_processor.header);
-        let result_processor = result_processor.result_processor;
+        // SAFETY: The assert above ensures this is always of the right type and
+        // the chain keeps the wrapper alive and pinned.
+        let result_processor = unsafe { ptr.cast::<ResultProcessorWrapper<P>>().as_ref() };
+        // SAFETY: A shared reference cannot move the header.
+        let header = unsafe { Pin::new_unchecked(&result_processor.header) };
+        let cx = Context::new(header);
+        let result_processor = &result_processor.result_processor;
 
         (cx, result_processor)
     }

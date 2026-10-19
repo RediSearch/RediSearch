@@ -140,6 +140,16 @@ typedef enum {
   RS_RESULT_MAX
 } RPStatus;
 
+/** Possible return values from Drain(). */
+typedef enum {
+  // Result is filled with valid data.
+  RP_DRAIN_OK = 0,
+  // Result is empty, and Drain will not return another result.
+  RP_DRAIN_EOF,
+  // Result production failed, and Drain will not return another result.
+  RP_DRAIN_ERROR,
+} RPDrainStatus;
+
 /**
  * Result processor structure. This should be "Subclassed" by the actual
  * implementations
@@ -164,6 +174,9 @@ typedef struct ResultProcessor {
    * Users can use SearchResult_Clear() to reset the structure without freeing
    * it.
    *
+   * `res` must point to initialized storage that is exclusively accessible for
+   * the duration of the call. A concurrent Drain call must use distinct storage.
+   *
    * The populated structure (if RS_RESULT_OK is returned) does contain references
    * to document data. Callers *MUST* ensure they are eventually freed.
    */
@@ -171,13 +184,36 @@ typedef struct ResultProcessor {
 
   /** Frees the processor and any internal data related to it. */
   void (*Free)(struct ResultProcessor *self);
+
+  /**
+   * Yield an available result with Next() ownership, without waiting for
+   * background progress. RETURN-STRICT may overlap one Next chain; RETURN
+   * drains after Next unwinds; FAIL never drains.
+   *
+   * The caller keeps the chain and payloads alive and supplies initialized,
+   * exclusive output storage distinct from Next's. Constructors must install
+   * a callback, using RPDrain_EOF when unsupported.
+   *
+   * Full ownership, synchronization and integration contract:
+   * docs/design/result-processor-drain.md.
+   */
+  RPDrainStatus (*Drain)(struct ResultProcessor *self, SearchResult *res);
 } ResultProcessor;
 
-/** `sctx` must carry the owning request's non-NULL timeout state. */
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
+/**
+ * Terminal Drain implementation for processors that cannot safely produce a
+ * result while Next is active.
+ *
+ * Used until a processor provides a custom Drain implementation.
+ */
+RPDrainStatus RPDrain_EOF(ResultProcessor *rp, SearchResult *res);
 
-ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
-                              const ScoringFunctionArgs *fnargs,
+/** `sctx` must carry the owning request's non-NULL timeout state. */
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr,
+                                     const RedisModuleSlotRangeArray *querySlots,
+                                     uint32_t slotsVersion, RedisSearchCtx *sctx);
+
+ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs, const ScoringFunctionArgs *fnargs,
                               const RLookupKey *rlk);
 
 ResultProcessor *RPMetricsLoader_New();
