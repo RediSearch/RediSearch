@@ -536,7 +536,7 @@ char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_f
  * @brief Debug: storage-engine stats text of a disk index, for FT.DEBUG DISK_STATS.
  *
  * @param withStatistics Also append the sections shared by every index (block cache and
- *        statistics enabled by search-disk-statistics)
+ *        statistics enabled by search-_disk-statistics)
  * @return sds text (release with sdsfree), or NULL if it could not be produced
  */
 char *SearchDisk_DebugDiskStats(RedisSearchDiskIndexSpec *handle, bool withStatistics);

@@ -12,7 +12,7 @@ from common import *
 
 """
 Tests for the search-disk-drop-read-cache, search-disk-use-direct-reads and
-search-disk-statistics module configs.
+search-_disk-statistics module configs.
 
 These configs control SpeedB OS page-cache behaviour for disk indexes:
   - search-disk-drop-read-cache: whether to drop the OS read cache after each read
@@ -105,32 +105,32 @@ def test_disk_statistics_config_defaults_to_no_and_is_hidden():
     env = Env(noDefaultModuleArgs=True)
     if env.env == 'existing-env':
         env.skip()
-    env.expect('CONFIG', 'GET', 'search-disk-statistics').equal(['search-disk-statistics', 'no'])
-    env.assertNotContains('search-disk-statistics', env.cmd('CONFIG', 'GET', '*'))
+    env.expect('CONFIG', 'GET', 'search-_disk-statistics').equal(['search-_disk-statistics', 'no'])
+    env.assertNotContains('search-_disk-statistics', env.cmd('CONFIG', 'GET', '*'))
 
 
 @skip(cluster=True, redis_less_than="8.8")
 def test_disk_statistics_config_is_immutable(env):
-    env.expect('CONFIG', 'SET', 'search-disk-statistics', 'yes').error()
-    env.expect('CONFIG', 'GET', 'search-disk-statistics').equal(['search-disk-statistics', 'no'])
+    env.expect('CONFIG', 'SET', 'search-_disk-statistics', 'yes').error()
+    env.expect('CONFIG', 'GET', 'search-_disk-statistics').equal(['search-_disk-statistics', 'no'])
 
 
 @skip(cluster=True, redis_less_than="8.8")
 def test_disk_statistics_config_set_at_load_time():
     conf_path = os.path.join(tempfile.mkdtemp(), 'disk_statistics.conf')
     with open(conf_path, 'w') as f:
-        f.write('search-disk-statistics yes\n')
+        f.write('search-_disk-statistics yes\n')
     env = Env(noDefaultModuleArgs=True, redisConfigFile=conf_path)
     if env.env == 'existing-env':
         env.skip()
-    env.expect('CONFIG', 'GET', 'search-disk-statistics').equal(['search-disk-statistics', 'yes'])
+    env.expect('CONFIG', 'GET', 'search-_disk-statistics').equal(['search-_disk-statistics', 'yes'])
     env.stop()
 
 
 @skip(cluster=True, redis_less_than="8.8")
 def test_disk_statistics_config_set_by_module_arg():
-    """search-disk-statistics=yes passed as a module argument is reflected in CONFIG GET."""
-    env = Env(moduleArgs='search-disk-statistics yes', noDefaultModuleArgs=True)
+    """search-_disk-statistics=yes passed as a module argument is reflected in CONFIG GET."""
+    env = Env(moduleArgs='search-_disk-statistics yes', noDefaultModuleArgs=True)
     if env.env == 'existing-env':
         env.skip()
-    env.expect('CONFIG', 'GET', 'search-disk-statistics').equal(['search-disk-statistics', 'yes'])
+    env.expect('CONFIG', 'GET', 'search-_disk-statistics').equal(['search-_disk-statistics', 'yes'])

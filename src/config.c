@@ -130,7 +130,7 @@ configPair_t __configPairs[] = {
   {"_SIMULATE_IN_FLEX",                "search-_simulate-in-flex"},
   {"search-disk-drop-read-cache",      "search-disk-drop-read-cache"},
   {"search-disk-use-direct-reads",     "search-disk-use-direct-reads"},
-  {"search-disk-statistics",           "search-disk-statistics"},
+  {"search-_disk-statistics",           "search-_disk-statistics"},
   {"search-_disk-async-read-pool-size",   "search-_disk-async-read-pool-size"},
   {"search-_disk-async-read-queue-factor", "search-_disk-async-read-queue-factor"},
 };
@@ -1577,7 +1577,7 @@ CONFIG_SETTER(setDiskUseDirectReads) {
 
 CONFIG_BOOLEAN_GETTER(getDiskUseDirectReads, diskUseDirectReads, 0)
 
-// Legacy module-ARGS setter for search-disk-statistics, so it can be set at
+// Legacy module-ARGS setter for search-_disk-statistics, so it can be set at
 // load time alongside the other module arguments.
 CONFIG_SETTER(setDiskStatistics) {
   const char *tf;
@@ -1985,7 +1985,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setDiskUseDirectReads,
          .getValue = getDiskUseDirectReads,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
-        {.name = "search-disk-statistics",
+        {.name = "search-_disk-statistics",
          .helpText = "Collect storage-engine statistics for disk indexes (yes/no, default no)",
          .setValue = setDiskStatistics,
          .getValue = getDiskStatistics,
@@ -2865,7 +2865,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(
-      ctx, "search-disk-statistics", 0,
+      ctx, "search-_disk-statistics", 0,
       REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.diskStatistics)
