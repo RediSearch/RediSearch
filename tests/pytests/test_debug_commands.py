@@ -77,6 +77,7 @@ class TestDebugCommands(object):
             "GC_FORCEBGINVOKE",
             "DISK_FLUSH",
             "DISK_FLUSH_NOWAIT",
+            "DISK_COMPACT",
             "DISK_LIVE_SNAPSHOTS",
             "DISK_PAUSE_BG_WORK",
             "DISK_RESUME_BG_WORK",
