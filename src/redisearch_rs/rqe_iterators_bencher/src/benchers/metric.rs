@@ -12,9 +12,11 @@
 use std::{hint::black_box, time::Duration};
 
 use criterion::{
-    BenchmarkGroup, Criterion,
+    Criterion,
     measurement::{Measurement, WallTime},
 };
+
+use crate::profiled::BenchmarkGroup;
 use rqe_iterators::{RQEIterator, metric::MetricSortedById};
 
 #[derive(Default)]

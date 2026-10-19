@@ -11,7 +11,9 @@
 
 use std::hint::black_box;
 
-use criterion::{BenchmarkGroup, Criterion, measurement::Measurement};
+use criterion::{Criterion, measurement::Measurement};
+
+use crate::profiled::BenchmarkGroup;
 use inverted_index::{doc_ids_only::DocIdsOnly, opaque::OpaqueEncoding};
 use rqe_iterators::{RQEIterator, SkipToOutcome, inverted_index::Missing};
 use rqe_iterators_test_utils::TestContext;

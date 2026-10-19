@@ -11,7 +11,9 @@
 
 use std::{hint::black_box, time::Duration};
 
-use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
+use criterion::{Criterion, measurement::WallTime};
+
+use crate::profiled::BenchmarkGroup;
 use rqe_iterators::{
     RQEIterator, empty::Empty, id_list::IdListSorted, not::Not, utils::NoTimeoutChecker,
 };

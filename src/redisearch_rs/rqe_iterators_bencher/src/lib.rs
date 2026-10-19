@@ -15,6 +15,7 @@
 
 pub mod benchers;
 pub mod ffi;
+pub mod profiled;
 
 // Some of the missing C symbols are actually Rust-provided.
 extern crate redisearch_rs;

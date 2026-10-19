@@ -9,7 +9,9 @@
 
 use std::hint::black_box;
 
-use criterion::{BenchmarkGroup, Criterion, measurement::Measurement};
+use criterion::{Criterion, measurement::Measurement};
+
+use crate::profiled::BenchmarkGroup;
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
 use inverted_index::IndexReader;

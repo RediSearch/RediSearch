@@ -22,7 +22,9 @@ pub mod wildcard;
 
 use std::time::Duration;
 
-use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
+use criterion::{Criterion, measurement::WallTime};
+
+use crate::profiled::BenchmarkGroup;
 
 /// Create a Criterion benchmark group configured with the given measurement and warm-up times.
 fn group<'a>(
@@ -31,7 +33,7 @@ fn group<'a>(
     measurement_time: Duration,
     warm_up_time: Duration,
 ) -> BenchmarkGroup<'a, WallTime> {
-    let mut group = c.benchmark_group(name);
+    let mut group = BenchmarkGroup::new(c.benchmark_group(name), name);
     group.measurement_time(measurement_time);
     group.warm_up_time(warm_up_time);
     group

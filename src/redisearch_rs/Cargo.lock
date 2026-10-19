@@ -2675,6 +2675,7 @@ dependencies = [
  "criterion",
  "ffi",
  "field",
+ "hotpath",
  "index_result",
  "inverted_index",
  "inverted_index_ffi",
