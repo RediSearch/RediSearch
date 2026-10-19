@@ -49,7 +49,7 @@ unsafe fn wrapper_mut<'index>(
         "expected a vector top-k iterator: unexpected type: {iterator_type}"
     );
     // SAFETY: guaranteed by 1 + 2 + 3.
-    unsafe { RQEIteratorWrapper::mut_ref_from_header_ptr(header.as_ptr()) }
+    unsafe { RQEIteratorWrapper::mut_ref_from_header_ptr(header) }
 }
 
 /// Return a pointer to the slot holding this iterator's vector-score

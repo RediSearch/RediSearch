@@ -31,10 +31,8 @@ use vector_score_source::{
 struct OwnedHeader(Option<NonNull<QueryIterator>>);
 
 impl OwnedHeader {
-    fn new(raw: *mut QueryIterator) -> Self {
-        Self(Some(
-            NonNull::new(raw).expect("boxed_new returns an owning pointer"),
-        ))
+    fn new(header: NonNull<QueryIterator>) -> Self {
+        Self(Some(header))
     }
 
     fn as_non_null(&self) -> NonNull<QueryIterator> {
