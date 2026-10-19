@@ -35,6 +35,26 @@ extern "C" {
 void AddToInfo_RustBacktrace(struct RedisModuleInfoCtx *ctx);
 
 /**
+ * Starts profiling the Rust code with hotpath.
+ *
+ * A no-op unless `redisearch_rs` is built with its `hotpath` feature. Redis
+ * exits through `exit()` and never drops `static` values, so the report is
+ * written from an `atexit` handler on a graceful shutdown. A crash or
+ * `SIGKILL` loses it; the live `hotpath console` TUI does not depend on it.
+ *
+ * `logfile` is the redis `logfile` config value, or null. The report is
+ * written next to the log file, with its `.log` extension replaced by
+ * `.hotpath.txt`; otherwise to stdout. `HOTPATH_OUTPUT_PATH` overrides both.
+ *
+ * Must be called at most once.
+ *
+ * # Safety
+ *
+ * `logfile` must either be null or point to a valid, null-terminated C string.
+ */
+void RSHotpath_Init(const char *logfile);
+
+/**
  * Initialize RediSearch's panic hook, without replacing the pre-existing panic hook (if any).
  *
  * Panic messages will be logged through `tracing` at the `ERROR` level, and

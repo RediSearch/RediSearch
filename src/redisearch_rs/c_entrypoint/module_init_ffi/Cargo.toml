@@ -10,8 +10,13 @@ publish.workspace = true
 # Compiling a no-op bench binary can cause linking issues with C.
 bench = false
 
+[features]
+hotpath = ["hotpath/hotpath", "dep:libc"]
+
 [dependencies]
 chrono.workspace = true
+hotpath.workspace = true
+libc = { workspace = true, optional = true }
 redis-module.workspace = true
 tracing = { workspace = true }
 tracing_redismodule.workspace = true

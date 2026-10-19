@@ -95,6 +95,10 @@ ifeq ($(RUST_DENY_WARNS),1)
 	BUILD_ARGS += RUST_DENY_WARNS=1
 endif
 
+ifneq ($(RUST_HOTPATH),)
+	BUILD_ARGS += RUST_HOTPATH=$(RUST_HOTPATH)
+endif
+
 # Test arguments
 ifneq ($(TEST),)
 	BUILD_ARGS += TEST=$(TEST)
@@ -165,6 +169,7 @@ Build:
     COV=1              Build with coverage instrumentation
     RUST_PROFILE=name  Rust profile to use (default: release)
     RUST_DYN_CRT=1     Use dynamic C runtime linking (for Alpine Linux)
+    RUST_HOTPATH=1     Profile the Rust code's timing and allocations with hotpath
     VERBOSE=1          Verbose build output
     LTO=1              Enable Rust/C LTO
     INLINE_LSE_ATOMICS=0|1
