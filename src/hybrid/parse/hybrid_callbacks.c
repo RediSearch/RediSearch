@@ -226,18 +226,19 @@ void handleParams(ArgParser *parser, const void *value, void *user_data) {
     }
 
     // Create parameter dictionary and populate
-    dict *params = Param_DictCreate();
+    dict *params = Param_DictCreate(paramsArgs->argc / 2);
     if (!params) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to create parameter dictionary");
         return;
     }
 
-    size_t value_len;
     int n = AC_NumArgs(paramsArgs);
     for (int i = 0; i < n; i += 2) {
-        const char *param = AC_GetStringNC(paramsArgs, NULL);
-        const char *value = AC_GetStringNC(paramsArgs, &value_len);
-        if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
+        size_t param_len;
+        const char *param = AC_GetStringNC(paramsArgs, &param_len);
+        RedisModuleString *value;
+        AC_GetRString(paramsArgs, &value, 0);
+        if (DICT_ERR == Param_DictAdd(params, param, param_len, value, status)) {
             Param_DictFree(params);  // Cleanup on error
             return;
         }
@@ -344,22 +345,19 @@ void handleApply(ArgParser *parser, const void *value, void *user_data) {
     const char *expr = *(const char**)value;
     size_t exprLen = strlen(expr);
 
-    HiddenString* expression = NewHiddenString(expr, exprLen, false);
-    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, PLN_T_APPLY);
-    HiddenString_Free(expression, false);
+    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, exprLen, PLN_T_APPLY);
     AGPLN_AddStep(ctx->plan, &stp->base);
 
     // Check for optional AS alias in remaining arguments
     if (AC_AdvanceIfMatch(ac, "AS")) {
         const char *alias;
-        size_t aliasLen;
-        if (AC_GetString(ac, &alias, &aliasLen, 0) != AC_OK) {
+        if (AC_GetString(ac, &alias, NULL, 0) != AC_OK) {
             QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "AS needs argument");
             goto error;
         }
-        stp->base.alias = rm_strndup(alias, aliasLen);
+        stp->base.alias = alias;
     } else {
-        stp->base.alias = rm_strndup(expr, exprLen);
+        stp->base.alias = expr;
     }
     return;
 
@@ -428,9 +426,7 @@ void handleFilter(ArgParser *parser, const void *value, void *user_data) {
     const char *expr = *(const char**)value;
     size_t exprLen = strlen(expr);
 
-    HiddenString* expression = NewHiddenString(expr, exprLen, false);
-    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, PLN_T_FILTER);
-    HiddenString_Free(expression, false);
+    PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, exprLen, PLN_T_FILTER);
     AGPLN_AddStep(ctx->plan, &stp->base);
 }
 

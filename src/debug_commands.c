@@ -1179,6 +1179,18 @@ DEBUG_COMMAND(DiskFlush) {
   return REDISMODULE_OK;
 }
 
+// FT.DEBUG DISK_LIVE_SNAPSHOTS
+// Number of disk snapshots currently alive, so tests can assert they are released.
+DEBUG_COMMAND(DiskLiveSnapshots) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+  return RedisModule_ReplyWithLongLong(ctx, (long long)SearchDisk_GetLiveSnapshotCount());
+}
+
 // FT.DEBUG DISK_FLUSH_NOWAIT <index>
 // Seal the index's memtables and schedule a flush without waiting for it.
 // Runs regardless of whether background work is enabled or disabled.
@@ -2197,20 +2209,7 @@ DEBUG_COMMAND(RSShardedHybridCommand_Debug) {
     return RedisModule_WrongArity(ctx);
   }
   // Skip _FT.DEBUG prefix — argv now starts at FT.HYBRID / _FT.HYBRID
-  ++argv; --argc;
-
-  QueryError status = QueryError_Default();
-  HybridDebugParams params = parseHybridDebugParamsCount(argv, argc, &status);
-  if (QueryError_HasError(&status)) {
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-  if (parseHybridDebugParams(&params, &status) != REDISMODULE_OK) {
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-
-  // Strip debug params from argc so hybridCommandHandler sees a normal command
-  int stripped_argc = argc - (int)params.debug_params_count - 2;
-  return hybridCommandHandler(ctx, argv, stripped_argc, true, EXEC_NO_FLAGS, &params);
+  return DEBUG_hybridCommandHandler(ctx, ++argv, --argc, true);
 }
 
 DEBUG_COMMAND(HybridCommand_DebugWrapper) {
@@ -2223,8 +2222,7 @@ DEBUG_COMMAND(HybridCommand_DebugWrapper) {
   }
 
   if (GetNumShards_UnSafe() == 1) {
-    // Single shard — use standalone handler (skip _FT.DEBUG)
-    return DEBUG_hybridCommandHandler(ctx, ++argv, --argc);
+    return DEBUG_hybridCommandHandler(ctx, ++argv, --argc, false);
   }
 
   return DistHybridCommandInternal(ctx, ++argv, --argc, true, false /* isProfile */);
@@ -3923,6 +3921,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"DISK_FLUSH", DiskFlush},
                                {"DISK_FLUSH_NOWAIT", DiskFlushNoWait},
+                               {"DISK_LIVE_SNAPSHOTS", DiskLiveSnapshots},
                                {"DISK_PAUSE_BG_WORK", DiskPauseBackgroundWork},
                                {"DISK_RESUME_BG_WORK", DiskResumeBackgroundWork},
                                {"GC_CLEAN_NUMERIC", GCCleanNumeric},
@@ -4014,20 +4013,20 @@ int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 int RegisterDebugCommands(RedisModuleCommand *debugCommand) {
   for (DebugCommandType *c = &commands[0]; c->name != NULL; c++) {
     int rc = RedisModule_CreateSubcommand(debugCommand, c->name, c->callback,
-              IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+              RS_IsEnterpriseServer() ? "readonly " CMD_PROXY_FILTERED : "readonly",
               RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
   }
 #ifdef ENABLE_ASSERT
   for (DebugCommandType *c = &assertOnlyCommands[0]; c->name != NULL; c++) {
     int rc = RedisModule_CreateSubcommand(debugCommand, c->name, c->callback,
-              IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+              RS_IsEnterpriseServer() ? "readonly " CMD_PROXY_FILTERED : "readonly",
               RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
   }
 #endif
   return RedisModule_CreateSubcommand(debugCommand, "HELP", DebugHelpCommand,
-          IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+          RS_IsEnterpriseServer() ? "readonly " CMD_PROXY_FILTERED : "readonly",
           RS_DEBUG_FLAGS);
 }
 

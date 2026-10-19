@@ -1664,6 +1664,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
+name = "over_aligned_alloc"
+version = "0.0.1"
+dependencies = [
+ "workspace_hack",
+]
+
+[[package]]
 name = "page_size"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2208,6 +2215,7 @@ dependencies = [
  "metrics_ffi",
  "module_init_ffi",
  "numeric_range_tree_ffi",
+ "over_aligned_alloc",
  "query_error_ffi",
  "query_eval_ffi",
  "query_term_ffi",
@@ -2243,6 +2251,7 @@ dependencies = [
  "bumpalo",
  "ffi",
  "global_config",
+ "hyperloglog",
  "indexmap",
  "itertools 0.15.0",
  "min-max-heap",
@@ -2691,9 +2700,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "log",
  "once_cell",
@@ -3179,6 +3188,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "cheadergen",
+ "ffi",
  "redis_mock",
  "redisearch_rs",
  "term_dictionary",

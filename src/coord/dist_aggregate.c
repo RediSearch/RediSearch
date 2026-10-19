@@ -275,10 +275,7 @@ void processResultFormat(uint32_t *flags, MRReply *map) {
 // fan-out (the caller dispatches via MR_StartIterator). Builds the per-iterator
 // context (optional WITHCOUNT barrier and optional KNN snapshot), wires the
 // abort-wake channel and FT.DEBUG handle, and points base.Next at rpnetNext.
-//
-// Returns RS_RESULT_OK on success, RS_RESULT_ERROR if the iterator could not be
-// created (in which case no callbacks are running and nc->it is left NULL).
-static int rpnetCreateIterator(RPNet *nc) {
+static void rpnetCreateIterator(RPNet *nc) {
   // Per-iterator context for privateData. Holds the WITHCOUNT running total and
   // an optional KNN snapshot.
   AggregateIteratorContext *iterCtx = rm_calloc(1, sizeof(AggregateIteratorContext));
@@ -314,21 +311,21 @@ static int rpnetCreateIterator(RPNet *nc) {
   MRIteratorCallback cb = nc->withCount ? withCountReplyCb : netCursorCallback;
   MRIteratorErrorCallback errCb = nc->withCount ? withCountErrorCb : NULL;
 
+  // The iterator takes the command's arguments; rpnet keeps reading only these reply-shape flags.
+  const MRCommand replyShape = {
+    .protocol = nc->cmd.protocol,
+    .forCursor = nc->cmd.forCursor,
+    .forProfiling = nc->cmd.forProfiling,
+  };
   // The iterator takes ownership of iterCtx and frees it via aggregateIteratorContext_Free.
-  MRIterator *it = MR_CreateIterator(&nc->cmd, &(MRIteratorConfig){
+  MRIterator *it = MR_CreateIteratorTakingCmd(&nc->cmd, &(MRIteratorConfig){
     .successCB = cb,
     .errorCB = errCb,
     .cbPrivateData = iterCtx,
     .cbPrivateDataDestructor = aggregateIteratorContext_Free,
     .commandModifier = cmdModifier,
   });
-
-  if (!it) {
-    // Iterator never created, so no callbacks are running and it did not take
-    // ownership of iterCtx; free it here.
-    aggregateIteratorContext_Free(iterCtx);
-    return RS_RESULT_ERROR;
-  }
+  nc->cmd = replyShape;
 
   nc->it = it;
   // Register the iterator's channel so the main-thread timeout callback can wake
@@ -341,7 +338,6 @@ static int rpnetCreateIterator(RPNet *nc) {
   DebugBgIterator_Set(it);
 #endif
   nc->base.Next = rpnetNext;
-  return RS_RESULT_OK;
 }
 
 static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
@@ -361,10 +357,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // pull the first reply. The async WITHCOUNT path creates the iterator eagerly
   // in RSExecDistAggregate before fanning out, so base.Next is already rpnetNext
   // by the time results are pulled and this function is never reached.
-  if (rpnetCreateIterator(nc) != RS_RESULT_OK) {
-    QueryError_SetCode(nc->base.parent->err, QUERY_ERROR_CODE_GENERIC);
-    return RS_RESULT_ERROR;
-  }
+  rpnetCreateIterator(nc);
   MR_StartIterator(nc->it, iterStartCb);
   return rpnetNext(rp, r);
 }
@@ -650,6 +643,8 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
   // lookup at execution time; changing an existing key panics in the Rust core.
   RLookup_Seal(rpRoot->lookup);
   rpRoot->areq = r;
+  // Only profiled requests pay for the wait/convert/free breakdown (see RPNet::breakdown).
+  rpRoot->profileBreakdown = (r->reqflags & QEXEC_F_PROFILE) != 0;
 
   // Store KNN scalar snapshot for SHARD_K_RATIO optimization (used by
   // rpnetNext_Start to build the iterator-owned AggregateKnnContext)
@@ -708,9 +703,17 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
     rpnet->drainOnly = true;
   }
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+    // Profile collection is outside the Network processor timer; retain its measured times.
+    const rs_wall_clock_ns_t waitTime = rpnet->breakdown.waitTime;
+    const rs_wall_clock_ns_t convertTime = rpnet->breakdown.convertTime;
+    const rs_wall_clock_ns_t freeTime = rpnet->breakdown.freeTime;
     do {
       MRReply_Free(rpnet->current.root);
+      RPNet_resetCurrent(rpnet);
     } while (getNextReply(rpnet) != RS_RESULT_EOF);
+    rpnet->breakdown.waitTime = waitTime;
+    rpnet->breakdown.convertTime = convertTime;
+    rpnet->breakdown.freeTime = freeTime;
   }
 
   size_t num_shards = MRIterator_GetNumShards(rpnet->it);
@@ -797,7 +800,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
     const char *query = AREQ_Query(r, &queryLen);
     if (strcasestr(query, "KNN")) {
       // For distributed aggregation, command type detection is automatic
-      knnCtx = prepareOptionalTopKCase(query, queryLen, argv, argc, dialect, status);
+      knnCtx = prepareOptionalTopKCase(query, queryLen, r->searchopts.params, dialect, status);
       *knnCtx_ptr = knnCtx;
       if (QueryError_HasError(status)) {
         return REDISMODULE_ERR;
@@ -916,10 +919,7 @@ static int dispatchAggregateDeferred(AREQ *r, DistQueryDispatchCtx *dispatch,
                 "Expected RP_NETWORK root for distributed aggregate");
   RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
 
-  if (rpnetCreateIterator(nc) != RS_RESULT_OK) {
-    QueryError_SetCode(status, QUERY_ERROR_CODE_GENERIC);
-    return REDISMODULE_ERR;
-  }
+  rpnetCreateIterator(nc);
   // Wire deferred-execution fields into the iterator's private data before
   // MR_StartIterator so the IO thread sees them when withCountReplyCb fires.
   AggregateIteratorContext *iterCtx =

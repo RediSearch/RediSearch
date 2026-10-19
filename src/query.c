@@ -97,9 +97,6 @@ void QueryNode_Free(QueryNode *n) {
   }
 
   if (n->params) {
-    for (size_t ii = 0; ii < QueryNode_NumParams(n); ++ii) {
-      Param_FreeInternal(&n->params[ii]);
-    }
     array_free(n->params);
     n->params = NULL;
   }
@@ -569,15 +566,24 @@ static sds tagPhraseAppendValue(sds buf, const QueryNode *phrase, const char *em
   return buf;
 }
 
+void QueryParseCtx_Cleanup(QueryParseCtx *q) {
+  array_free_ex(q->unescapedNames, rm_free(*(char **)ptr));
+  q->unescapedNames = NULL;
+}
+
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
                const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status) {
-  if (!dst->query) {
-    dst->query = rm_strndup(qstr, len);
-    dst->nquery = len;
+  if (dialectVersion < 2) {
+    if (!dst->query) {
+      dst->query = rm_strndup(qstr, len);
+      dst->nquery = len;
+    }
+    qstr = dst->query;
+    len = dst->nquery;
   }
   QueryParseCtx qpCtx = {// force multiline
-                         .raw = dst->query,
-                         .len = dst->nquery,
+                         .raw = qstr,
+                         .len = len,
                          .sctx = (RedisSearchCtx *)sctx,
                          .opts = sopts,
                          .status = status,
@@ -589,6 +595,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
     dst->root = RSQuery_ParseRaw_v2(&qpCtx);
   else
     dst->root = RSQuery_ParseRaw_v1(&qpCtx);
+  QueryParseCtx_Cleanup(&qpCtx);
 
 #ifdef PARSER_DEBUG
   if (qpCtx.trace_log != NULL) {
@@ -1087,7 +1094,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           for (size_t i = 0; i < array_len(qs->params); i++) {
             if (qs->params[i].type != PARAM_NONE &&
                 qs->params[i].target == &qs->vn.vq->knn.vector) {
-              s = sdscatprintf(s, "`$%s` ", qs->params[i].name);
+              s = sdscatprintf(s, "`$%.*s` ", (int)qs->params[i].len, qs->params[i].name);
               break;
             }
           }
@@ -1100,7 +1107,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           for (size_t i = 0; i < array_len(qs->params); i++) {
             if (qs->params[i].type != PARAM_NONE &&
                 qs->params[i].target == &qs->vn.vq->range.vector) {
-              s = sdscatprintf(s, " `$%s` ", qs->params[i].name);
+              s = sdscatprintf(s, " `$%.*s` ", (int)qs->params[i].len, qs->params[i].name);
               break;
             }
           }
