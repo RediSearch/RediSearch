@@ -23,7 +23,7 @@ on:
     - cron: "47 21 * * *"
 
 concurrency:
-  group: master-periodic-validation
+  group: macos-sdk-proof-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
