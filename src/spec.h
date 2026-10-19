@@ -644,8 +644,11 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 
 // Delete a document from the index by its docId directly, without needing
 // to look it up by key name. Removes the document from the DocTable but does
-// NOT clean up DocIdMeta on the key. This is called from the metadata unlink callback
+// NOT clean up DocIdMeta on the key. No-op if the docId is not present.
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
+
+// Same as IndexSpec_DeleteDocById, for a caller already holding the spec write lock.
+void IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId);
 
 // Resolve a key -> docId for this spec via the DocIdMeta key metadata (the
 // replacement for the former in-memory DocTable key trie). Returns 0 if the key
@@ -884,6 +887,10 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
+// Queue low-priority background work, behind index teardowns.
+void CleanPool_AddWork(void (*work)(void *), void *arg);
+// Block until every queued clean-pool job has finished.
+void CleanPool_Wait();
 size_t CleanInProgressOrPending();
 
 

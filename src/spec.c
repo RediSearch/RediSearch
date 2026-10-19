@@ -2045,6 +2045,14 @@ void removePendingIndexDrop() {
   __atomic_sub_fetch(&pendingIndexDropCount_g, 1, __ATOMIC_RELAXED);
 }
 
+void CleanPool_AddWork(void (*work)(void *), void *arg) {
+  redisearch_thpool_add_work(cleanPool, work, arg, THPOOL_PRIORITY_LOW);
+}
+
+void CleanPool_Wait() {
+  redisearch_thpool_wait(cleanPool);
+}
+
 size_t CleanInProgressOrPending() {
   return getPendingIndexDrop();
 }
@@ -4129,29 +4137,19 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-// Delete a document by its internal docId. The de-indexing entry point driven by
-// the DocIdMeta `unlink` callback on physical key removal (both modes). Acquires
-// the spec write lock; no-op if the docId is not present.
-void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
-  IndexSpec_IncrActiveWrites(spec);
-  IndexSpec_LockWrite(spec);
-
+void IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId) {
   uint32_t docLen = 0;
 
   if (SearchDisk_IsEnabled()) {
     RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
     if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
       // Document not found on disk
-      IndexSpec_DecrActiveWrites(spec);
-      IndexSpec_Unlock(spec);
       return;
     }
   } else {
     RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, docId);
     if (!md) {
       // Document not found in the in-memory table
-      IndexSpec_DecrActiveWrites(spec);
-      IndexSpec_Unlock(spec);
       return;
     }
     docLen = md->docLen;
@@ -4159,7 +4157,14 @@ void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
   }
 
   indexSpec_OnDocDeleted(spec, docId, docLen);
+}
 
+// The de-indexing entry point driven by the DocIdMeta `unlink` callback on physical key removal
+// (both modes).
+void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
+  IndexSpec_IncrActiveWrites(spec);
+  IndexSpec_LockWrite(spec);
+  IndexSpec_DeleteDocById_Unsafe(spec, docId);
   IndexSpec_DecrActiveWrites(spec);
   IndexSpec_Unlock(spec);
 }
