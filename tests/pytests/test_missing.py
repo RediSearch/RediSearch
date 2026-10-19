@@ -819,14 +819,15 @@ def testJsonMultiValueMissing():
                 case = f'{path} {field_type} {options}'
                 env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA',
                            path, 'AS', 'f', field_type, 'INDEXMISSING', *options).ok()
-                for suffix, doc in JSON_MULTI_VALUE_MISSING_DOCS.items():
-                    conn.execute_command('JSON.SET', f'doc:{suffix}', '$', json.dumps(doc))
-
-                # Docs that fail to index also look absent from the results.
+                # A doc that fails to index also looks absent, so check each insert.
                 failed = JSON_MULTI_VALUE_INDEXING_FAILURES.get(
                     (path, field_type, bool(options)), set())
-                env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'],
-                                len(failed), message=case)
+                failures = 0
+                for suffix, doc in JSON_MULTI_VALUE_MISSING_DOCS.items():
+                    conn.execute_command('JSON.SET', f'doc:{suffix}', '$', json.dumps(doc))
+                    total = index_info(env, 'idx')['hash_indexing_failures']
+                    env.assertEqual(total > failures, suffix in failed, message=f'{case} {suffix}')
+                    failures = total
 
                 res = env.cmd('FT.SEARCH', 'idx', 'ismissing(@f)', 'NOCONTENT', 'LIMIT', '0', '100')
                 env.assertEqual(res[0], len(expected), message=f'{case}: {res}')

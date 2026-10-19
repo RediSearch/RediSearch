@@ -1515,14 +1515,15 @@ def testJsonMultiValueEmpty():
                 case = f'{path} {field_type} {options}'
                 env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:', 'SCHEMA',
                            path, 'AS', 'f', field_type, 'INDEXEMPTY', *options).ok()
-                for suffix, doc in JSON_MULTI_VALUE_EMPTY_DOCS.items():
-                    conn.execute_command('JSON.SET', f'doc:{suffix}', '$', json.dumps(doc))
-
-                # Docs that fail to index also look like non-matches.
+                # A doc that fails to index also looks like a non-match, so check each insert.
                 failed = JSON_MULTI_VALUE_INDEXING_FAILURES.get(
                     (path, field_type, bool(options)), set())
-                env.assertEqual(index_info(env, 'idx')['hash_indexing_failures'],
-                                len(failed), message=case)
+                failures = 0
+                for suffix, doc in JSON_MULTI_VALUE_EMPTY_DOCS.items():
+                    conn.execute_command('JSON.SET', f'doc:{suffix}', '$', json.dumps(doc))
+                    total = index_info(env, 'idx')['hash_indexing_failures']
+                    env.assertEqual(total > failures, suffix in failed, message=f'{case} {suffix}')
+                    failures = total
 
                 for query, expected in ((empty_query, expected_empty),
                                         (value_query, {'mixed', 'non_empty'})):
