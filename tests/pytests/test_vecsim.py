@@ -3043,3 +3043,16 @@ def test_hybrid_adhoc_int8_uint8_cosine():
                         message=f'{data_type}: expected exact self-match distance to be 0. res = {res}')
 
         conn.execute_command('FLUSHALL')
+
+
+@skip(cluster=True)
+def testVectorDimensionSizeOverflow(env):
+    """Reject overflowing schema dimensions before VecSim estimates or allocates storage."""
+    for algorithm in ['FLAT', 'HNSW', 'SVS-VAMANA']:
+        for dim in [2**62, 2**62 + 1, 2**61]:
+            env.expect('FT.CREATE', 'overflow', 'SCHEMA', 'v', 'VECTOR', algorithm, 6,
+                       'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE') \
+                .error().contains('Invalid vector DIM: vector size is too large')
+    env.expect('FT.CREATE', 'valid', 'SCHEMA', 'v', 'VECTOR', 'FLAT', 6,
+               'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'COSINE').ok()
+    env.expect('FT.SEARCH', 'valid', '*').equal([0])

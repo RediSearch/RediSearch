@@ -14,6 +14,8 @@
 #include "query_ctx.h"
 #include "field_spec.h"
 
+int VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryError *status);
+
 #define VECSIM_TYPE_BFLOAT16 "BFLOAT16"
 #define VECSIM_TYPE_FLOAT16 "FLOAT16"
 #define VECSIM_TYPE_FLOAT32 "FLOAT32"

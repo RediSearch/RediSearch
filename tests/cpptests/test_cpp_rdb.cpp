@@ -1377,6 +1377,48 @@ TEST_F(RdbMockTest, testHnswSq8ParamsRdbRoundtripAndLegacyDefaults) {
   VecSimParams_Cleanup(&legacyParams);
 }
 
+TEST_F(RdbMockTest, testVectorDimensionOverflow) {
+  for (const char *algorithm : {"FLAT", "HNSW", "SVS-VAMANA"}) {
+    for (size_t dim : {SIZE_MAX / 4 + 2, SIZE_MAX / 8 + 1}) {
+      SCOPED_TRACE(::testing::Message() << algorithm << " dim=" << dim);
+      std::string dimension = std::to_string(dim);
+      std::array args{"SCHEMA",  "v",   "VECTOR",          algorithm,         "6",     "TYPE",
+                      "FLOAT32", "DIM", dimension.c_str(), "DISTANCE_METRIC", "COSINE"};
+      QueryError err = QueryError_Default();
+      StrongRef ref = IndexSpec_ParseC(nullptr, "overflow", args.data(), args.size(), &err);
+      EXPECT_EQ(nullptr, StrongRef_Get(ref));
+      EXPECT_STREQ("SEARCH_QUERY_BAD Invalid vector DIM: vector size is too large",
+                   QueryError_GetUserError(&err));
+      if (StrongRef_Get(ref)) StrongRef_Release(ref);
+      QueryError_ClearError(&err);
+    }
+  }
+}
+
+TEST_F(RdbMockTest, testLegacyVectorDimensionOverflow) {
+  for (auto algorithm : {VecSimAlgo_BF, VecSimAlgo_HNSWLIB}) {
+    for (int version : {1, 2}) {
+      RedisModuleIO *io = RMCK_CreateRdbIO();
+      RMCK_SaveUnsigned(io, algorithm);
+      RMCK_SaveUnsigned(io, VecSimType_FLOAT32);
+      RMCK_SaveUnsigned(io, SIZE_MAX / 4 + 2);
+      RMCK_SaveUnsigned(io, VecSimMetric_Cosine);
+      if (version == 2) RMCK_SaveUnsigned(io, 0);
+      RMCK_SaveUnsigned(io, 0);
+      RMCK_SaveUnsigned(io, algorithm == VecSimAlgo_BF ? 1024 : HNSW_DEFAULT_M);
+      if (algorithm == VecSimAlgo_HNSWLIB) {
+        RMCK_SaveUnsigned(io, HNSW_DEFAULT_EF_C);
+        RMCK_SaveUnsigned(io, HNSW_DEFAULT_EF_RT);
+      }
+      VecSimParams params = {};
+      EXPECT_EQ(REDISMODULE_ERR,
+                version == 1 ? VecSim_RdbLoad(io, &params) : VecSim_RdbLoad_v2(io, &params));
+      VecSimParams_Cleanup(&params);
+      RMCK_FreeRdbIO(io);
+    }
+  }
+}
+
 TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
   std::array args{
       "SCHEMA", "v", "VECTOR", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "64", "DISTANCE_METRIC", "L2",
@@ -1398,7 +1440,8 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
     VecSimMetric metric = VecSimMetric_L2;
     bool disk = false;
   };
-  const std::array<InvalidParams, 12> cases{{
+  const std::array<InvalidParams, 13> cases{{
+      {VecSimQuant_NONE, 0, VecSimType_FLOAT32, 0, SIZE_MAX / 4 + 2},
       {2, 0, VecSimType_FLOAT32, 0},
       {(uint64_t{1} << 32) + VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0},
       {VecSimQuant_SQ8, HNSW_QUANT_MAX_TRAINING_THRESHOLD + 1, VecSimType_FLOAT32, 0},

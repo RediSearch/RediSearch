@@ -179,6 +179,18 @@ static int VectorQuery_ValidateDiskHybridPolicy(const QueryEvalCtx *q, const Vec
   return REDISMODULE_OK;
 }
 
+int VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryError *status) {
+  size_t elementSize = VecSimType_sizeof(type);
+  // Leave room for normalization and storage metadata in downstream size calculations.
+  if (!elementSize || !dim || dim > SIZE_MAX / 2 / elementSize) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "Invalid vector DIM: vector size is too large");
+    return 0;
+  }
+  *size = dim * elementSize;
+  return 1;
+}
+
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   // FieldSpec* captured back then could no longer be trusted.
@@ -192,16 +204,20 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
   VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsim);
   size_t dim = info.dim;
   VecSimType type = info.type;
+  size_t blobSize;
+  if (!VectorIndex_GetBlobSize(dim, type, &blobSize, q->status)) {
+    return NULL;
+  }
 
   VecSimQueryParams qParams = {0};
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldSpec->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
-      if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
-        QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
-                                      "Error parsing vector similarity query: query vector blob size",
-                                      " (%zu) does not match index's expected size (%zu).",
-                                      vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
+      if (blobSize != vq->knn.vecLen) {
+        QueryError_SetWithUserDataFmt(
+            q->status, QUERY_ERROR_CODE_INVAL,
+            "Error parsing vector similarity query: query vector blob size",
+            " (%zu) does not match index's expected size (%zu).", vq->knn.vecLen, blobSize);
         return NULL;
       }
       if (VectorQuery_ValidateDiskHybridPolicy(q, vq, child_it) != REDISMODULE_OK) {
@@ -225,16 +241,16 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         return NULL;
       }
       RS_ASSERT(q->sctx->timeout);
-      return NewVectorTopKIterator(vecsim, vq->knn.vector, dim * VecSimType_sizeof(type), &qParams,
-                                   vq->knn.k, q->opts->flags & Search_CanSkipRichResults, child_it,
+      return NewVectorTopKIterator(vecsim, vq->knn.vector, blobSize, &qParams, vq->knn.k,
+                                   q->opts->flags & Search_CanSkipRichResults, child_it,
                                    q->sctx->timeout, q->sctx, &filterCtx);
     }
     case VECSIM_QT_RANGE: {
-      if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
-        QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
-                               "Error parsing vector similarity query: query vector blob size",
-                               " (%zu) does not match index's expected size (%zu).",
-                               vq->range.vecLen, (dim * VecSimType_sizeof(type)));
+      if (blobSize != vq->range.vecLen) {
+        QueryError_SetWithUserDataFmt(
+            q->status, QUERY_ERROR_CODE_INVAL,
+            "Error parsing vector similarity query: query vector blob size",
+            " (%zu) does not match index's expected size (%zu).", vq->range.vecLen, blobSize);
         return NULL;
       }
       if (vq->range.radius < 0) {

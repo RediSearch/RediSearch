@@ -623,6 +623,10 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
                                     ? params->algoParams.tieredParams.primaryIndexParams
                                     : params;
   HNSWParams *hnswParams = &primaryParams->algoParams.hnswParams;
+  size_t blobSize;
+  if (!VectorIndex_GetBlobSize(hnswParams->dim, hnswParams->type, &blobSize, status)) {
+    return 0;
+  }
   if (hnswParams->quantType != VecSimQuant_NONE && SearchDisk_IsEnabledForValidation()) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
                         "COMPRESSION is not supported for disk-based vector indexes");
@@ -654,6 +658,11 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
 }
 
 static int parseVectorField_validate_flat(VecSimParams *params, QueryError *status) {
+  size_t blobSize;
+  if (!VectorIndex_GetBlobSize(params->algoParams.bfParams.dim, params->algoParams.bfParams.type,
+                               &blobSize, status)) {
+    return 0;
+  }
   // BLOCK_SIZE is deprecated and not respected when set by user as of INDEX_VECSIM_SVS_VAMANA_VERSION.
   size_t elementSize = VecSimIndex_EstimateElementSize(params);
   // Calculating max block size (in # of vectors), according to memory limits
@@ -675,6 +684,11 @@ static int parseVectorField_validate_flat(VecSimParams *params, QueryError *stat
 }
 
 static int parseVectorField_validate_svs(VecSimParams *params, QueryError *status) {
+  size_t blobSize;
+  if (!VectorIndex_GetBlobSize(params->algoParams.svsParams.dim, params->algoParams.svsParams.type,
+                               &blobSize, status)) {
+    return 0;
+  }
   size_t elementSize = VecSimIndex_EstimateElementSize(params);
   // Calculating max block size (in # of vectors), according to memory limits
   size_t maxBlockSize = BLOCK_MEMORY_LIMIT / elementSize;
@@ -910,7 +924,10 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
   }
 
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = hnswParams->dim * VecSimType_sizeof(hnswParams->type);
+  if (!VectorIndex_GetBlobSize(hnswParams->dim, hnswParams->type, &fs->vectorOpts.expBlobSize,
+                               status)) {
+    return 0;
+  }
 
   return parseVectorField_validate_hnsw(&fs->vectorOpts.vecSimParams, status);
 }
@@ -987,7 +1004,10 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = params->algoParams.bfParams.dim * VecSimType_sizeof(params->algoParams.bfParams.type);
+  if (!VectorIndex_GetBlobSize(params->algoParams.bfParams.dim, params->algoParams.bfParams.type,
+                               &fs->vectorOpts.expBlobSize, status)) {
+    return 0;
+  }
 
   return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
@@ -1106,7 +1126,10 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
     return 0;
   }
   // Calculating expected blob size of a vector in bytes.
-  fs->vectorOpts.expBlobSize = params->algoParams.svsParams.dim * VecSimType_sizeof(params->algoParams.svsParams.type);
+  if (!VectorIndex_GetBlobSize(params->algoParams.svsParams.dim, params->algoParams.svsParams.type,
+                               &fs->vectorOpts.expBlobSize, status)) {
+    return 0;
+  }
 
   return parseVectorField_validate_svs(params, status);
 }
