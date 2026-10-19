@@ -126,9 +126,11 @@ def _geo_by_key(env, idx, field, cache):
     for doc in res['docs']:
         doc = {doc[i]: doc[i + 1] for i in range(0, len(doc), 2)}
         key = _key_of(env, idx, doc['id'], cache)
-        if key is not None:
-            env.assertNotContains(key, shapes, message=f'{idx}.{field}: {key} has two R-tree entries')
-            shapes[key] = doc['geoshape']
+        # Unlike the inverted indexes, the R-tree drops a replaced document's entry inline, so an
+        # id that no longer resolves is a stale entry, not content waiting for GC.
+        env.assertIsNotNone(key, message=f'{idx}.{field}: stale R-tree entry for id {doc["id"]}')
+        env.assertNotContains(key, shapes, message=f'{idx}.{field}: {key} has two R-tree entries')
+        shapes[key] = doc['geoshape']
     return shapes
 
 
@@ -160,6 +162,10 @@ def _queries(env, idx):
         'text': search('@title:alpha'),
         'tag': [search(f'@tag:{{tag{i}}}') for i in range(DOC_COUNT)],
         'numeric': search('@num:[100 110]'),
+        # The dump holds ids only, so exact values are probed one document at a time.
+        'numeric values': [search(f'@num:[{100 + i} {100 + i}]') for i in range(DOC_COUNT)],
+        # Phrases need the terms' positions, which neither the dump nor a single-term query shows.
+        'phrase': [search(f'@title:"alpha beta{i}"') for i in range(DOC_COUNT)],
         'geom': search('@geom:[WITHIN $q]', 'PARAMS', 2, 'q', WITHIN_ALL, 'DIALECT', 3),
         'geom2': search('@geom2:[WITHIN $q]', 'PARAMS', 2, 'q', WITHIN_ALL2, 'DIALECT', 3),
     }
@@ -222,6 +228,9 @@ def _check_equivalent(env, on):
         env.assertEqual(alt_queries[name], fresh_queries[name],
                         message=f'{on}: {name} query differs from a fresh index')
     env.assertEqual(alt_queries['all'][0], DOC_COUNT)
+    env.assertEqual(alt_queries['numeric values'],
+                    [[1, f'doc:{i}'] if 'num' in ADDED_FIELDS[i] else [0] for i in range(DOC_COUNT)])
+    env.assertEqual(alt_queries['phrase'], [[1, f'doc:{i}'] for i in range(DOC_COUNT)])
     env.assertEqual(alt_queries['knn vec'][0][0], DOC_COUNT)
     env.assertEqual(alt_queries['knn vec2'][4], [2, 'doc:4', 'doc:5'])
 

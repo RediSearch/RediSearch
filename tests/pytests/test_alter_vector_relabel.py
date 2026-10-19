@@ -115,9 +115,9 @@ def _assert_hits(env, ids, vec=_doc_vec, field='vec'):
 # title TEXT plus the pre-existing HNSW vector `vec`: the schema most tests ALTER.
 TITLE_AND_VEC = ('title', 'TEXT', 'vec', *_hnsw(DIM))
 
-def _start(*schema, on='HASH', module_args=MODULE_ARGS):
+def _start(*schema, on='HASH', module_args=MODULE_ARGS, **env_kwargs):
     """A fresh env and connection, with `idx` created over `schema`."""
-    env = Env(protocol=3, moduleArgs=module_args)
+    env = Env(protocol=3, moduleArgs=module_args, **env_kwargs)
     env.expect('FT.CREATE', 'idx', 'ON', on, 'SCHEMA', *schema).ok()
     return env, getConnectionByEnv(env)
 
@@ -500,7 +500,8 @@ def test_alter_relabels_svs_vector():
     env, conn = _start('title', 'TEXT', 'vec', *_svs())
     if not env.cmd(debug_cmd(), 'VECSIM_RELABEL_SUPPORTED', 'idx', 'vec'):
         raise SkipTest('the loaded SVS backend does not support vector relabeling')
-    _write_docs(env, conn, n)
+    # Each document's own `extra` value lets the ownership probes below filter down to it.
+    _write_docs(env, conn, n, added=lambda i: ('extra', f'k{i}'))
     env.assertGreater(get_tiered_backend_debug_info(env, 'idx', 'vec')['INDEX_SIZE'], 0,
                       message='the vectors never left the frontend')
     ids_before = {i: get_internal_id(env, f'doc:{i}') for i in range(n)}
@@ -515,14 +516,27 @@ def test_alter_relabels_svs_vector():
     page = _knn_ids(env, _doc_vec(0), n // 2)
     env.assertEqual(len(page), n // 2, message=page)
     env.assertEqual(len(set(page)), len(page), message=page)
+    # Counts alone would not notice vectors relabeled onto the wrong documents. A filtered KNN
+    # with the brute-force policy measures the distance to the one document's own vector, so it
+    # does not depend on the graph being reachable.
+    for i in [*range(0, n, 64), n - 1]:
+        query = f'(@extra:{{k{i}}})=>[KNN 1 @vec $b HYBRID_POLICY ADHOC_BF AS s]'
+        res = env.cmd('FT.SEARCH', 'idx', query, 'PARAMS', 2, 'b', _doc_vec(i), 'RETURN', 1, 's',
+                      'DIALECT', 2)
+        env.assertEqual([(r['id'], r['extra_attributes']['s']) for r in res['results']],
+                        [(f'doc:{i}', '0')], message=f'doc:{i} lost its own vector')
 
 
 @skip(cluster=True)
 def test_alter_relabels_hnsw_vector_with_no_worker_pool():
-    """With WORKERS 0, the test suite's default, HNSW is still a tiered index but has no pool to
-    move vectors out of the frontend: each write lands in the backend directly. The selective
-    ALTER backfill relabels those vectors the same way as when a pool moved them there."""
-    env, conn = _start(*TITLE_AND_VEC, module_args='WORKERS 0 FORK_GC_RUN_INTERVAL 50000')
+    """HNSW is a tiered index even with no worker pool, but then nothing moves vectors out of the
+    frontend: each write lands in the backend directly. The selective ALTER backfill relabels
+    those vectors the same way as when a pool moved them there. WORKERS 0 alone leaves the
+    maintenance-worker floor (one thread), so the floor is removed too."""
+    env, conn = _start(*TITLE_AND_VEC,
+                       module_args='WORKERS 0 MIN_OPERATION_WORKERS 0 FORK_GC_RUN_INTERVAL 50000',
+                       redisConfigFile=min_maintenance_workers_conf(0))
+    env.assertEqual(getWorkersThpoolNumThreads(env), 0)
     _write_docs(env, conn, 5)
     info = get_tiered_debug_info(env, 'idx', 'vec')
     env.assertEqual((to_dict(info['FRONTEND_INDEX'])['INDEX_SIZE'],

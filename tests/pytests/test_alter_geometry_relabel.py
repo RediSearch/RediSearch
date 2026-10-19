@@ -335,8 +335,8 @@ def _check_never_indexed_entry_is_inserted(rtree_exists):
     if rtree_exists:
         conn.execute_command('HSET', 'doc:9', 'title', 't', 'geom', SHAPES[3])
         env.assertEqual(list(_dump(env).values()), [_dump_shape(SHAPES[3])])
-    else:
-        env.assertEqual(_search(env, 'WITHIN', WITHIN_ALL), [])
+    # Nothing may query or dump the field here when the R-tree is meant to be absent: both open
+    # the R-tree and create it if missing.
     keys = _keys(range(3))
     ids_before = _ids(env, keys)
     ops_before = _geoshape_ops(env)
