@@ -100,6 +100,11 @@ static VectorIndex_RelabelFn relabelFnForTests = NULL;
 void VectorIndex_SetRelabelFnForTests(VectorIndex_RelabelFn fn) {
   relabelFnForTests = fn;
 }
+
+static VectorIndex_BasicInfoFn basicInfoFnForTests = NULL;
+void VectorIndex_SetBasicInfoFnForTests(VectorIndex_BasicInfoFn fn) {
+  basicInfoFnForTests = fn;
+}
 #endif
 
 bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId newDocId) {
@@ -201,7 +206,12 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
     return NULL;
   }
 
+#ifdef ENABLE_ASSERT
+  VecSimIndexBasicInfo info =
+      basicInfoFnForTests ? basicInfoFnForTests(vecsim) : VecSimIndex_BasicInfo(vecsim);
+#else
   VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsim);
+#endif
   size_t dim = info.dim;
   VecSimType type = info.type;
   size_t blobSize;

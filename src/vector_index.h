@@ -176,6 +176,9 @@ bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId new
 typedef VecSimRelabelCode (*VectorIndex_RelabelFn)(VecSimIndex *index, size_t oldLabel,
                                                    size_t newLabel);
 void VectorIndex_SetRelabelFnForTests(VectorIndex_RelabelFn fn);
+
+typedef VecSimIndexBasicInfo (*VectorIndex_BasicInfoFn)(VecSimIndex *index);
+void VectorIndex_SetBasicInfoFnForTests(VectorIndex_BasicInfoFn fn);
 #endif
 
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it);
