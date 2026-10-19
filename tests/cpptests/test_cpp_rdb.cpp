@@ -1594,6 +1594,48 @@ TEST_F(RdbMockTest, testLegacyRealPayloadStillConsumed) {
   }
 }
 
+TEST_F(RdbMockTest, testLegacyDocTableRejectsZeroCapacity) {
+  for (int encver :
+       {INDEX_MIN_COMPACTED_DOCTABLE_VERSION - 1, INDEX_MIN_COMPACTED_DOCTABLE_VERSION}) {
+    for (bool empty : {false, true}) {
+      SCOPED_TRACE(::testing::Message() << "encver=" << encver << " empty=" << empty);
+      RedisModuleIO *io = RMCK_CreateRdbIO();
+      ASSERT_NE(io, nullptr);
+      DocTable table = NewDocTable(4, 4);
+      RMCK_SaveUnsigned(io, empty ? 1 : 2);  // Size includes the unused document ID zero.
+      // Older encodings derive capacity from maxDocId, so zero exercises that path too.
+      RMCK_SaveUnsigned(io, !empty && encver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? 1 : 0);
+      if (encver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION) {
+        RMCK_SaveUnsigned(io, 0);
+      }
+      const size_t headerEnd = io->buffer.size();
+      if (!empty) {
+        RMCK_SaveStringBuffer(io, "doc", 3);
+        if (encver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION) {
+          RMCK_SaveUnsigned(io, 1);
+        }
+        RMCK_SaveUnsigned(io, Document_DefaultFlags);
+        RMCK_SaveUnsigned(io, 1);
+        RMCK_SaveUnsigned(io, 1);
+        RMCK_SaveDouble(io, 0.5);
+      }
+      io->read_pos = 0;
+      auto originalLoadFloat = RedisModule_LoadFloat;
+      RedisModule_LoadFloat = [](RedisModuleIO *rdb) {
+        return static_cast<float>(RMCK_LoadDouble(rdb));
+      };
+      int result = DocTable_LegacyRdbLoad(&table, io, encver);
+      RedisModule_LoadFloat = originalLoadFloat;
+      EXPECT_EQ(result, empty ? REDISMODULE_OK : REDISMODULE_ERR);
+      EXPECT_EQ(io->read_pos, headerEnd);
+      EXPECT_EQ(table.cap, 4);
+      EXPECT_EQ(table.buckets[0].root, nullptr);
+      DocTable_Free(&table);
+      RMCK_FreeRdbIO(io);
+    }
+  }
+}
+
 TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
   RedisModuleIO *io = RMCK_CreateRdbIO();
   ASSERT_NE(io, nullptr);
