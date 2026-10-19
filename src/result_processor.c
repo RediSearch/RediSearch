@@ -216,8 +216,7 @@ static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadat
 
   // Check query slots (internal command filtering)
   if (self->querySlots && (__atomic_load_n(&key_space_version, __ATOMIC_RELAXED) != self->keySpaceVersion)) {
-    int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
-    if (!SlotRangeArray_ContainsSlot(self->querySlots, slot)) {
+    if (!SlotRangeArray_ContainsSlot(self->querySlots, dmd->slot)) {
       return false;
     }
   }

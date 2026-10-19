@@ -877,6 +877,29 @@ void RMCK_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *
   RMCK_Free(slots);
 }
 
+// Same algorithm as Redis keyHashSlot: CRC16-XMODEM of the key, or of its first non-empty
+// {hashtag}, modulo 16384. Tests rely on the slot of a key matching what Redis computes.
+unsigned int RMCK_ClusterKeySlotC(const char *key, size_t keylen) {
+  size_t start = 0, len = keylen;
+  const char *open = static_cast<const char *>(memchr(key, '{', keylen));
+  if (open) {
+    size_t s = open - key + 1;
+    const char *close = static_cast<const char *>(memchr(key + s, '}', keylen - s));
+    if (close && close != key + s) {
+      start = s;
+      len = close - (key + s);
+    }
+  }
+  uint16_t crc = 0;
+  for (size_t i = start; i < start + len; ++i) {
+    crc ^= static_cast<uint16_t>(static_cast<unsigned char>(key[i])) << 8;
+    for (int b = 0; b < 8; ++b) {
+      crc = (crc & 0x8000) ? static_cast<uint16_t>((crc << 1) ^ 0x1021) : static_cast<uint16_t>(crc << 1);
+    }
+  }
+  return crc & 0x3FFF;
+}
+
 // ============================================================================
 // Configurable cluster topology mock
 // ----------------------------------------------------------------------------
@@ -1947,6 +1970,7 @@ static void registerApis() {
   REGISTER_API(ClusterGetLocalSlotRanges);
   REGISTER_API(GetClusterNodeSlotRanges);
   REGISTER_API(ClusterFreeSlotRanges);
+  REGISTER_API(ClusterKeySlotC);
   REGISTER_API(GetClusterNodesList);
   REGISTER_API(FreeClusterNodesList);
   REGISTER_API(GetClusterNodeInfo);

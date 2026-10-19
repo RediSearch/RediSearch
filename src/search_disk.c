@@ -518,7 +518,13 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {
     RS_ASSERT(disk && handle);
     RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
-    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time, snapshot);
+    if (!disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time, snapshot)) {
+        return false;
+    }
+    if (dmd->keyPtr) {
+        dmd->slot = (uint16_t)RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
+    }
+    return true;
 }
 
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
@@ -569,6 +575,7 @@ static RSDocumentMetadata* allocateDMD(const void* key_data, size_t key_len) {
         dmd->sortVector = RSSortingVector_Empty();
         dmd->ref_count = 1;
         dmd->keyPtr = sdsnewlen(key_data, key_len);
+        dmd->slot = (uint16_t)RedisModule_ClusterKeySlotC(key_data, key_len);
     }
     return dmd;
 }

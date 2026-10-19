@@ -17,6 +17,7 @@
 
 pub mod allocator;
 pub mod call;
+pub mod cluster;
 pub mod context;
 pub mod globals;
 pub mod key;
@@ -29,6 +30,7 @@ pub mod string_to_number;
 use std::ffi::{CString, c_char};
 
 use call::*;
+use cluster::*;
 
 // C variadic shims from `variadic_shims.c` (see build.rs).
 unsafe extern "C" {
@@ -150,6 +152,9 @@ pub fn init_redis_module_mock() {
         >(raw_ptr)
     };
     unsafe { redis_module::raw::RedisModule_CreateStringPrintf = Some(create_string_printf) };
+
+    // register cluster methods
+    unsafe { redis_module::raw::RedisModule_ClusterKeySlotC = Some(RedisModule_ClusterKeySlotC) };
 
     // register key methods
     unsafe { redis_module::raw::RedisModule_OpenKey = Some(RedisModule_OpenKey) };
