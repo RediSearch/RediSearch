@@ -1085,33 +1085,25 @@ static bool rejectForcedGCWhileBgWorkPaused(RedisModuleCtx *ctx, IndexSpec *sp) 
   return false;
 }
 
-// FT.DEBUG GC_FORCEINVOKE [TIMEOUT]
-DEBUG_COMMAND(GCForceInvoke) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc < 3 || argc > 4) {
-    return RedisModule_WrongArity(ctx);
-  }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
-  if (!sp) {
-    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
-  }
-
-  if (rejectForcedGCWhileBgWorkPaused(ctx, sp)) {
-    return REDISMODULE_OK;
-  }
-
+// Reads the optional TIMEOUT at argv[3] of a forced-GC command into `timeout`. Replies with
+// an error and returns false when it is invalid.
+static bool parseForcedGCTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                 const IndexSpec *sp, long long *timeout) {
   // Disk GC cycles (SpeedB compaction) take longer than fork GC, so disk
   // indexes get a higher default timeout.
-  long long timeout = sp->diskSpec ? 60000 : 30000;
+  *timeout = sp->diskSpec ? 60000 : 30000;
   if (argc == 4 &&
-      (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK || timeout < 0)) {
-    return RedisModule_ReplyWithError(ctx, "Invalid TIMEOUT value");
+      (RedisModule_StringToLongLong(argv[3], timeout) != REDISMODULE_OK || *timeout < 0)) {
+    RedisModule_ReplyWithError(ctx, "Invalid TIMEOUT value");
+    return false;
   }
+  return true;
+}
 
+// Runs a forced GC cycle on `sp`, then replies through `reply` (GCForceInvokeReply or a
+// command-specific variant), on the main thread.
+static int forceInvokeGC(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, IndexSpec *sp,
+                         long long timeout, RedisModuleCmdFunc reply) {
   // Indexes normally own a GCContext (`sp->gc`). Routing the forced invoke
   // through it runs the periodic callback with force=true, which for the disk
   // path performs the compaction *and* accumulates the per-cycle GC stats
@@ -1131,8 +1123,8 @@ DEBUG_COMMAND(GCForceInvoke) {
       forkWaitMs = timeout / 2 > 0 ? timeout / 2 : 1;
     }
     GCForcedRun forced = GCForcedRun_New(forkWaitMs, GC_FORCED_RUN_RETRY_INTERVAL_MS);
-    RedisModuleBlockedClient *bc = RedisModule_BlockClient(
-        ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, GCForcedRunOutcomeFree, timeout);
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, reply, GCForceInvokeReplyTimeout,
+                                                           GCForcedRunOutcomeFree, timeout);
     GCContext_ForceInvoke(sp->gc, bc, forced);
     return REDISMODULE_OK;
   } else if (sp->diskSpec) {
@@ -1141,9 +1133,35 @@ DEBUG_COMMAND(GCForceInvoke) {
     // the compaction inline and let the stats go nowhere.
     DiskGCRunStats stats = {0};
     SearchDisk_RunGC(sp->diskSpec, &stats);
-    return RedisModule_ReplyWithSimpleString(ctx, "DONE");
+    return reply(ctx, argv, argc);
   }
   return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
+}
+
+// FT.DEBUG GC_FORCEINVOKE [TIMEOUT]
+DEBUG_COMMAND(GCForceInvoke) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3 || argc > 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+
+  if (rejectForcedGCWhileBgWorkPaused(ctx, sp)) {
+    return REDISMODULE_OK;
+  }
+
+  long long timeout;
+  if (!parseForcedGCTimeout(ctx, argv, argc, sp, &timeout)) {
+    return REDISMODULE_OK;
+  }
+  return forceInvokeGC(ctx, argv, argc, sp, timeout, GCForceInvokeReply);
 }
 
 // FT.DEBUG DISK_FLUSH <index>
@@ -1215,6 +1233,68 @@ DEBUG_COMMAND(DiskFlushNoWait) {
   SearchDisk_FlushNoWait(sp->diskSpec);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
+}
+
+// Second half of DISK_COMPACT, run once its GC cycle has finished. The cycle writes its
+// deleted-ids cleanup to the doc table, so the doc-table and vector CFs are flushed and
+// compacted only now.
+static int DiskCompactReply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp || !sp->diskSpec) {
+    return RedisModule_ReplyWithError(ctx, "Index was dropped during DISK_COMPACT");
+  }
+  // Background work may have been paused while the GC cycle ran.
+  if (SearchDisk_IsBackgroundWorkPaused(sp->diskSpec)) {
+    return RedisModule_ReplyWithError(
+        ctx, "Background work was paused during DISK_COMPACT; use DISK_RESUME_BG_WORK first");
+  }
+  SearchDisk_Flush(sp->diskSpec);
+  if (!SearchDisk_CompactNonGcColumnFamilies(sp->diskSpec)) {
+    return RedisModule_ReplyWithError(ctx,
+                                      "Compaction of the doc-table or vector column "
+                                      "families did not complete; see the server log");
+  }
+  return GCForceInvokeReply(ctx, argv, argc);
+}
+
+// FT.DEBUG DISK_COMPACT <index> [TIMEOUT]
+// Flush every column family of the index, fully compact all of them, and reply DONE.
+// The inverted-index CFs are compacted by a forced GC cycle (as in GC_FORCEINVOKE, so TIMEOUT
+// means the same), since GC owns their compaction; the rest are compacted directly.
+DEBUG_COMMAND(DiskCompact) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3 || argc > 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
+  }
+
+  if (!sp->diskSpec) {
+    return RedisModule_ReplyWithError(ctx, "Index is not a disk index");
+  }
+
+  // The flush and both compactions wait on background work, so they would deadlock.
+  if (SearchDisk_IsBackgroundWorkPaused(sp->diskSpec)) {
+    return RedisModule_ReplyWithError(
+        ctx, "Cannot compact while background work is paused; use DISK_RESUME_BG_WORK first");
+  }
+
+  long long timeout;
+  if (!parseForcedGCTimeout(ctx, argv, argc, sp, &timeout)) {
+    return REDISMODULE_OK;
+  }
+
+  return forceInvokeGC(ctx, argv, argc, sp, timeout, DiskCompactReply);
 }
 
 // FT.DEBUG DISK_PAUSE_BG_WORK <index>
@@ -3921,6 +4001,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"DISK_FLUSH", DiskFlush},
                                {"DISK_FLUSH_NOWAIT", DiskFlushNoWait},
+                               {"DISK_COMPACT", DiskCompact},
                                {"DISK_LIVE_SNAPSHOTS", DiskLiveSnapshots},
                                {"DISK_PAUSE_BG_WORK", DiskPauseBackgroundWork},
                                {"DISK_RESUME_BG_WORK", DiskResumeBackgroundWork},

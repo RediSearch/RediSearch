@@ -608,6 +608,19 @@ typedef struct IndexDiskAPI {
   void (*flushNoWait)(RedisSearchDiskIndexSpec *index);
 
   /**
+   * @brief Fully compact every column family that `runGC` does not compact
+   *
+   * Covers the doc table and the vector column families. Test-support
+   * primitive. Blocks until the compactions finish.
+   *
+   * @param index Pointer to the disk index
+   * @return true if every compaction succeeded, false if any failed or was
+   *         cancelled (manual compactions are disabled inside a consistency
+   *         window)
+   */
+  bool (*compactNonGcColumnFamilies)(RedisSearchDiskIndexSpec *index);
+
+  /**
    * @brief Pause background flush and compaction work on the index's database.
    *
    * Reference-counted: each call must be balanced by continueBackgroundWork.
