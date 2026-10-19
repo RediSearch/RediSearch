@@ -1263,12 +1263,14 @@ def test_import_end_drains_with_event_workers():
     # Every job queued by the import ran exactly once.
     env.assertEqual(getWorkersThpoolStatsFromShard(dest)['totalJobsDone'], done + queued)
 
-    # The source trims the migrated slots after a delay, and that trim is an event of its own.
+    # The source trims the migrated slots after a delay, and that trim is an event of its own,
+    # reported by whichever of the active and background trim paths Redis took.
     with TimeLimit(30, 'the source did not trim the migrated slots'):
         while True:
             with open(log_path(source)) as f:
-                if 'Got ASM trim completed event' in f.read():
-                    break
+                log = f.read()
+            if 'Got ASM trim completed event' in log or 'Got ASM background trim event' in log:
+                break
             time.sleep(0.1)
     with TimeLimit(30, 'the shards did not settle on the maintenance floor'):
         while any(conn.execute_command(debug_cmd(), 'WORKERS', 'N_THREADS') != 1 or
@@ -1281,3 +1283,52 @@ def test_import_end_drains_with_event_workers():
         res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b AS score]', 'PARAMS', 2,
                       'b', vectors[key], 'RETURN', 1, 'score', 'DIALECT', 2)
         env.assertEqual((res[1], float(res[2][1])), (key, 0.0))
+
+def shard_docs_converge_to_dbsize(env, shards):
+    """Wait until every shard's indexes hold exactly the shard's keys, i.e. no trimmed key left a
+    document behind. FT.SEARCH cannot tell: queries filter out docs of slots the shard does not own."""
+    def check():
+        state = {}
+        for i, conn in enumerate(shards):
+            docs = conn.execute_command('INFO', 'MODULES')['search_total_num_docs_in_indexes']
+            state[i] = (docs, conn.execute_command('DBSIZE'))
+        return all(docs == keys for docs, keys in state.values()), state
+    wait_for_condition(check, 'indexed docs did not converge to DBSIZE')
+
+def trim_after_import_test(env: Env, trim_method: str = 'default', tracking: bool = False):
+    n_docs = 2000
+    create_and_populate_index(env, 'idx', n_docs)
+    shards = env.getOSSMasterNodesConnectionList()
+    for conn in shards:
+        conn.execute_command('DEBUG', 'ASM-TRIM-METHOD', trim_method)
+    shard1, shard2 = env.getConnection(1), env.getConnection(2)
+    # Redis falls back to per-key active trim while any client has tracking enabled.
+    tracker = None
+    if tracking:
+        tracker = Redis(port=shard2.connection_pool.connection_kwargs['port'], single_connection_client=True)
+        tracker.execute_command('CLIENT', 'TRACKING', 'ON')
+
+    keys_before = shard2.execute_command('DBSIZE')
+    wait_for_migration_complete(env, shard1, shard2)
+    env.assertLess(shard2.execute_command('DBSIZE'), keys_before)
+
+    shard_docs_converge_to_dbsize(env, shards)
+    # No doc lost and none counted twice across the shards.
+    env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([n_docs])
+    if tracker:
+        tracker.close()
+
+@skip(cluster=False, min_shards=2)
+def test_background_trim_removes_trimmed_docs():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    trim_after_import_test(env, 'bg')
+
+@skip(cluster=False, min_shards=2)
+def test_active_trim_removes_trimmed_docs():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    trim_after_import_test(env, 'active')
+
+@skip(cluster=False, min_shards=2)
+def test_tracking_client_trim_removes_trimmed_docs():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    trim_after_import_test(env, 'default', tracking=True)

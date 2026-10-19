@@ -71,7 +71,10 @@ static inline bool isSpecValid(uint64_t specId) {
   (REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOEFFECTS)
 #define KEY_OPEN_META_GET_FLAGS (REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS)
 
-/* Free callback - called when metadata needs to be freed */
+/* Free callback - called when metadata needs to be freed.
+ * Background slot trim calls it from a Redis BIO thread without the GIL, so it must only free the
+ * key's own dict: touching specs, the registries or a DocTable here would race the main thread.
+ * Those docs are removed by Indexes_DeleteSlots instead. */
 static void docIdMetaFree(const char *keyname, uint64_t meta) {
   REDISMODULE_NOT_USED(keyname);
   if (meta == 0) return;
