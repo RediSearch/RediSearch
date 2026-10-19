@@ -196,7 +196,7 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
     return 0;
   }
 
-  RS_LOG_ASSERT(RSSortingVector_Length(&v), "Sorting vector does not exist");  // tested in doAssignIds()
+  RS_LOG_ASSERT(RSSortingVector_Length(&v), "Sorting vector does not exist");  // tested in assignDocId()
 
   /* Set the new vector and the flags accordingly */
   dmd->sortVector = v;
