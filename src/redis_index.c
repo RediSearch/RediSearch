@@ -142,8 +142,9 @@ void SearchCtx_UpdateCurrentTime(RedisSearchCtx *sctx) {
 
 void SearchCtx_CleanUp(RedisSearchCtx *sctx) {
   // Release the per-query disk snapshot (no-op when NULL). Must happen after every
-  // iterator built from `sctx` has been freed; the OSS query pipeline tears down
-  // iterators before reaching SearchCtx_CleanUp/SearchCtx_Free.
+  // iterator built from `sctx` has been freed; the OSS query pipeline tears down iterators
+  // before reaching SearchCtx_CleanUp/SearchCtx_Free. Also called early, once a subquery is
+  // fully depleted, so a parked cursor does not pin the snapshot.
   if (sctx->diskSnapshot) {
     SearchDisk_FreeSnapshot(sctx->diskSnapshot);
     sctx->diskSnapshot = NULL;
@@ -234,8 +235,8 @@ int Redis_LegacyDeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   return res;
 }
 
-int Redis_UnlinkKeyC(RedisModuleCtx *ctx, char *cstr) {
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "UNLINK", "c!", cstr);
+int Redis_UnlinkKey(RedisModuleCtx *ctx, const char *key, size_t len) {
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "UNLINK", "b!", key, len);
   RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);

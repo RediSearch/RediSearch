@@ -283,12 +283,20 @@ static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool u
   // Duplicate detection is a registry read, so it lives here rather than in the
   // IndexSpec core. It also gates the non-SST on-disk index open below.
   sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
+  // An SST load adopts the saved specId. The load drops every spec first and one
+  // process never saves two specs under the same id, so a clash means a corrupt
+  // RDB. Loading anyway would point the keys' DocIdMeta at the wrong index.
+  if (!sp->isDuplicate && dictFetchValue(specIdDict_g, (void *)(uintptr_t)sp->specId) != NULL) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Saved index id is already in use");
+    IndexSpec_RdbLoadDiscard(sp->own_ref);
+    return NULL;
+  }
   if (SearchDisk_IsEnabled() && !sp->isDuplicate && !SearchDisk_CanRestoreIndex(status)) {
-    StrongRef_Release(sp->own_ref);
+    IndexSpec_RdbLoadDiscard(sp->own_ref);
     return NULL;
   }
   if (IndexSpec_RdbLoadOpenDisk(RedisModule_GetContextFromIO(rdb), sp, useSst, status) != REDISMODULE_OK) {
-    StrongRef_Release(sp->own_ref);
+    IndexSpec_RdbLoadDiscard(sp->own_ref);
     return NULL;
   }
   return sp;
@@ -469,7 +477,7 @@ void Indexes_Propagate(RedisModuleCtx *ctx) {
     RS_ASSERT(sp != NULL);
     RedisModuleString *serialized = IndexSpec_Serialize(sp);
     RS_ASSERT(serialized != NULL);
-    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, CMD_FOR_ENV(RS_RESTORE_IF_NX), "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
+    int rc = RedisModule_ClusterPropagateForSlotMigration(ctx, CMD_FOR_COORDINATOR(RS_RESTORE_IF_NX), "cls", SPEC_SCHEMA_STR, INDEX_CURRENT_VERSION, serialized);
     if (rc != REDISMODULE_OK) {
       RedisModule_Log(ctx, "warning", "Failed to propagate index '%s' during slot migration. errno: %d", IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), errno);
     }
@@ -1070,7 +1078,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
   // first-field-TTL branches below hand this handle to IndexSpec_UpdateDoc, which
   // publishes DocIdMeta through it. A document with no entry yet takes a first
   // metadata attach via RM_SetKeyMeta, which requires REDISMODULE_WRITE and would
-  // otherwise fail the publish assert in makeDocumentId and abort the server.
+  // otherwise fail the publish assert in newDocumentId and abort the server.
   RedisModuleKey *k =
       RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS | REDISMODULE_WRITE);
   RS_ASSERT(k);

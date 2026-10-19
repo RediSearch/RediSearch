@@ -141,7 +141,7 @@ class TestAggregate():
         _test_withcount(self.env, cmd)
 
         # Same as above, but for the approximate COUNT_DISTINCTISH reducer. COUNT_DISTINCTISH
-        # is a HyperLogLog estimate (HLL_PRECISION_BITS == 8, i.e. 256 registers, so a
+        # is a HyperLogLog estimate (8 bits, i.e. 256 registers, so a
         # standard error of ~1/sqrt(256) == ~6.5% per estimate), and its exact value depends
         # on the hash function used internally; allow ~3 standard errors of slack and just
         # check that it is close to the exact count above.
@@ -1114,6 +1114,35 @@ def testStrLen(env):
               ['t', '', 'length', '0']]
     env.assertEqual(toSortedFlatList(res), toSortedFlatList(exp))
 
+def testToStrOfLoadedFieldAsGroupKey(env):
+    # GROUPBY keeps each group key after it discards the row the key was computed from, and the
+    # row owns the HASH value that LOAD read.
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT')
+    # Longer than Redis embeds in a string object, so the bytes have an allocation of their own.
+    values = [f'value-{i:03d}'.ljust(64, 'x') for i in range(50)]
+    for i, value in enumerate(values):
+        conn.execute_command('HSET', f'doc{i}', 't', 'hello', 'f', value)
+
+    # Undecoded, because a key read from released memory need not be valid UTF-8.
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@f',
+                  'APPLY', 'to_str(@f)', 'AS', 'x',
+                  'GROUPBY', 1, '@x', 'REDUCE', 'COUNT', 0, 'AS', 'c',
+                  'LIMIT', 0, len(values), NEVER_DECODE=True)
+    keys = sorted(row[1] for row in res[1:])
+    env.assertEqual(keys, sorted(value.encode() for value in values),
+                    message='to_str group key does not match the loaded field value')
+
+def testTimefmtFormatFromLoadedField(env):
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT')
+    conn.execute_command('HSET', 'doc1', 't', 'hello', 'ts', 0, 'fmt', '%Y')
+
+    for fmt in ('@fmt', 'to_str(@fmt)'):
+        res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@ts', '@fmt',
+                      'APPLY', f'timefmt(@ts, {fmt})', 'AS', 'year')
+        env.assertEqual(res[1][res[1].index('year') + 1], '1970', message=fmt)
+
 def testLoadAll(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
@@ -1684,6 +1713,29 @@ def testSortByNumericField(env):
         'FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@n', 'ASC')
     env.assertEqual(res, [3, ['n', '123'], ['n', '678'], ['n', '1023']])
 
+
+@skip(cluster=True)
+def testAggregateNumericSortByAllDialects(env):
+    """Exercise numeric aggregate sorting without an explicit LIMIT."""
+    conn = getConnectionByEnv(env)
+    max_dialect = set_max_dialect(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'f', 'TEXT', 'n', 'NUMERIC', 'm', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc:1', 'f', 'x', 'n', 1, 'm', 1)
+    conn.execute_command('HSET', 'doc:2', 'f', 'x', 'n', 1, 'm', 3)
+    conn.execute_command('HSET', 'doc:3', 'f', 'x', 'n', 2, 'm', 2)
+
+    for dialect in range(1, max_dialect + 1):
+        env.expect('FT.AGGREGATE', 'idx', 'x',
+                   'SORTBY', '2', '@n', 'ASC', 'DIALECT', dialect).equal(
+            [3, ['n', '1'], ['n', '1'], ['n', '2']])
+        env.expect('FT.AGGREGATE', 'idx', 'x',
+                   'SORTBY', '2', '@n', 'DESC', 'DIALECT', dialect).equal(
+            [3, ['n', '2'], ['n', '1'], ['n', '1']])
+        env.expect('FT.AGGREGATE', 'idx', 'x',
+                   'SORTBY', '4', '@n', 'ASC', '@m', 'DESC', 'DIALECT', dialect).equal(
+            [3, ['n', '1', 'm', '3'], ['n', '1', 'm', '1'], ['n', '2', 'm', '2']])
+
 @skip(cluster=False)
 def testErrorStatsResp2():
     '''Test that using RESP2 double results are affecting errorstats,
@@ -1868,3 +1920,16 @@ def testFirstValueByPrefersNonNullSortKeyRegardlessOfRowOrder(env):
                           'REDUCE', 'FIRST_VALUE', 4, '@city', 'BY', '@pop', direction,
                           'AS', 'city')
             env.assertEqual(res, [1, ['city', 'known']], message=f'{prefix} {direction}')
+
+
+def test_generated_reducer_alias_case(env):
+    # Generated aliases drop the '@' and lower-case ASCII letters in the function and every argument.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'Price', 'NUMERIC', 'Ünï', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 'Price', '10', 'Ünï', '7')
+    res = env.cmd('FT.AGGREGATE', 'idx', '*', 'GROUPBY', '0',
+                  'REDUCE', 'MAX', '1', '@Price', 'REDUCE', 'Quantile', '2', '@Price', '0.5',
+                  'REDUCE', 'MAX', '1', '@Ünï')
+    env.assertEqual(to_dict(res[1]), {'__generated_aliasmaxprice': '10',
+                                      '__generated_aliasquantileprice,0.5': '10',
+                                      '__generated_aliasmaxÜnï': '7'})

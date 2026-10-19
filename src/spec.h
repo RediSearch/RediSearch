@@ -22,6 +22,7 @@
 #include "synonym_map.h"
 #include "field_spec.h"
 #include "util/dict.h"
+#include "util/charbuf.h"
 #include "util/rs_atomic.h"
 #include "util/references.h"
 #include "rules.h"
@@ -223,7 +224,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 28
+#define INDEX_CURRENT_VERSION 29
+#define INDEX_SST_SPEC_ID_VERSION 29
 #define INDEX_HNSW_QUANT_VERSION 28
 #define INDEX_VECTOR_RERANK_VERSION 27
 #define INDEX_DISK_VERSION 26
@@ -290,11 +292,6 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 // Forward declaration
 typedef struct InvertedIndex InvertedIndex;
 typedef const void* RedisSearchDiskIndexSpec;
-
-typedef struct CharBuf {
-  char *buf;
-  size_t len;
-} CharBuf;
 
 // What FT.DROP / FT.DROPINDEX did with this index's documents, and hence what
 // teardown still owes the keyspace. Set by DropIndexCommand before the spec is
@@ -826,6 +823,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
 // Open the non-SST on-disk index for a spec parsed by IndexSpec_RdbLoad, once the
 // caller has resolved sp->isDuplicate. No-op for SST/memory/duplicate specs.
 int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, QueryError *status);
+// Discard a spec returned by IndexSpec_RdbLoad that will not be registered:
+// withdraw it from the global prefix trie and alias table, then release it.
+void IndexSpec_RdbLoadDiscard(StrongRef spec_ref);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags);
 
 // Per-spec callbacks for the IndexSpecType module type. IndexSpec_LegacyRdbLoad

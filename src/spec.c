@@ -334,7 +334,7 @@ static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
   } else {
     // called on master shard for temporary indexes and deletes all documents by defaults
     // pass FT.DROPINDEX with "DD" flag to self.
-    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, CMD_FOR_ENV(RS_DROP_INDEX_CMD), "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
+    RedisModuleCallReply *rep = RedisModule_Call(RSDummyContext, CMD_FOR_COORDINATOR(RS_DROP_INDEX_CMD), "cc!", HiddenString_GetUnsafe(sp->specName, NULL), "DD");
     if (rep) {
       RedisModule_FreeCallReply(rep);
     }
@@ -2449,6 +2449,23 @@ static void initializeFieldSpec(FieldSpec *fs, t_fieldIndex index) {
   fs->indexError = IndexError_Init();
 }
 
+// An SST load keeps each key's DocIdMeta, whose entries are keyed by the specIds of
+// the process that saved them. The loaded spec must therefore keep its saved specId,
+// or its keys' entries would not be found. Moving the counter past the adopted id
+// keeps the ids of indexes created later unique.
+// Returns false for an id no real save produces: 0 is never assigned, and a counter
+// never gets near INT64_MAX. Rejecting larger ids also keeps the counter from wrapping.
+static bool adoptSavedSpecId(IndexSpec *sp, uint64_t savedSpecId) {
+  if (savedSpecId == 0 || savedSpecId > INT64_MAX) {
+    return false;
+  }
+  sp->specId = savedSpecId;
+  if (nextSpecId_g <= savedSpecId) {
+    nextSpecId_g = savedSpecId + 1;
+  }
+  return true;
+}
+
 // Helper function for initializing an index spec
 // Solves issues where a field is initialized in index creation but not when loading from RDB
 static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFlags flags,
@@ -2460,8 +2477,8 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
   // Assign a unique specId from the global counter. This ensures that even if
   // an index is dropped and recreated with the same name, the new incarnation
-  // has a different ID. The specId is not persisted — on RDB load, each spec
-  // gets a fresh sequential ID.
+  // has a different ID. An SST load replaces it with the saved one (see
+  // adoptSavedSpecId).
   sp->specId = nextSpecId_g++;
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->suffix = NULL;
@@ -2533,35 +2550,6 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
       break;
   }
   return fs;
-}
-
-uint64_t CharBuf_HashFunction(const void *key) {
-  const CharBuf *cb = key;
-  return RS_dictGenHashFunction(cb->buf, cb->len);
-}
-
-void *CharBuf_KeyDup(void *privdata, const void *key) {
-  const CharBuf *cb = key;
-  CharBuf *newcb = rm_malloc(sizeof(*newcb));
-  newcb->len = cb->len;
-  newcb->buf = rm_malloc(cb->len);
-  memcpy(newcb->buf, cb->buf, cb->len);
-  return newcb;
-}
-
-int CharBuf_KeyCompare(void *privdata, const void *key1, const void *key2) {
-  const CharBuf *cb1 = key1;
-  const CharBuf *cb2 = key2;
-  if (cb1->len != cb2->len) {
-    return 0;
-  }
-  return (memcmp(cb1->buf, cb2->buf, cb1->len) == 0);
-}
-
-void CharBuf_KeyDestructor(void *privdata, void *key) {
-  CharBuf *cb = key;
-  rm_free(cb->buf);
-  rm_free(cb);
 }
 
 void InvIndFreeCb(void *privdata, void *val) {
@@ -3298,6 +3286,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
   // We assume symmetry w.r.t this context flag. I.e., If it is not set, we
   // assume it was not set in when the RDB will be loaded as well
   if (sp->diskSpec && storeDiskRdbData) {
+    RedisModule_SaveUnsigned(rdb, sp->specId);
     // Persist whether the source node was mid background-indexing, so the
     // loading node (replica / hot-restart) can restart the async scan and
     // finish a partially populated index. A scan actively in progress or a
@@ -3321,6 +3310,15 @@ static void IndexSpec_NormalizeStorageFlagsOnLoad(IndexFlags *flags) {
     RedisModule_Log(RSDummyContext, "warning", "Ignoring %s because %s is set",
                     SPEC_SCHEMA_EXPANDABLE_STR, SPEC_NOFIELDS_STR);
   }
+}
+
+void IndexSpec_RdbLoadDiscard(StrongRef spec_ref) {
+  // SchemaRule_RdbLoad and the alias loop publish the spec in the global prefix
+  // trie and alias table as non-owning copies of spec_ref. Unregister before the
+  // last reference goes, or the next matching write dereferences a freed spec.
+  SchemaPrefixes_RemoveSpec(spec_ref);
+  IndexSpec_ClearAliases(spec_ref);
+  StrongRef_Release(spec_ref);
 }
 
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
@@ -3430,6 +3428,23 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     // even for duplicates. We just won't use it in the duplicate case.
     RS_ASSERT(encver >= INDEX_DISK_VERSION);
     RS_ASSERT(disk_db);
+    if (encver >= INDEX_SST_SPEC_ID_VERSION) {
+      if (!adoptSavedSpecId(sp, LoadUnsigned_IOError(rdb, goto cleanup))) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid saved index id");
+        goto cleanup;
+      }
+    } else {
+      // Not fatal: the index keeps a fresh id, as before encver 29. The keys' DocIdMeta
+      // may then name another index, which a recreated index can still hit if the saving
+      // process used its new id, hence the hint to check the count and retry.
+      RedisModule_Log(RSDummyContext, "warning",
+                      "Index '%s' was loaded from an RDB without its saved index id (encver %d). "
+                      "Updates to documents indexed before the load may be counted as new "
+                      "documents, and queries that load fields may skip them. To recover, drop "
+                      "the index without DD and recreate it. Once it finishes indexing, if "
+                      "num_docs is below the number of matching keys, repeat.",
+                      IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog), encver);
+    }
     // Symmetric with IndexSpec_RdbSave: whether the source node was mid
     // background-indexing. Consumed at Indexes_FinishSSTReplication to restart
     // the async scan and backfill the remaining documents.
@@ -3439,7 +3454,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
       TrieType_Free(sp->terms);
     }
     sp->terms = TrieType_GenericLoad(rdb, false, true, Trie_Sort_Lex);
-    RS_LOG_ASSERT(sp->terms, "Failed to load terms trie");
+    if (!sp->terms) {
+      goto cleanup;
+    }
 
     // Load disk metadata (max_doc_id, deleted_ids) into the spec. Stashed
     // here directly; consumed at LOADING_ENDED (SST flow) or freed by
@@ -3457,12 +3474,7 @@ cleanup:
     // Idempotent — no-op if the open never registered on this path.
     SearchDisk_CloseIndexOnMainThread(ctx, sp);
   }
-  // SchemaRule_RdbLoad and the alias loop publish the spec in the global prefix
-  // trie and alias table as non-owning copies of spec_ref. Unregister before the
-  // last reference goes, or the next matching write dereferences a freed spec.
-  SchemaPrefixes_RemoveSpec(spec_ref);
-  IndexSpec_ClearAliases(spec_ref);
-  StrongRef_Release(spec_ref);
+  IndexSpec_RdbLoadDiscard(spec_ref);
   goto cleanup_no_index;
 cleanup_name:
   // specName is handed to the spec only in initializeIndexSpec.
@@ -4293,8 +4305,13 @@ bool IndexSpec_DecrementTrieTermCount(IndexSpec* sp, const char* term, size_t te
   // Decrement the numDocs count for this term in the trie
   // If numDocs reaches 0, the node will be deleted
   TrieDecrResult result = Trie_DecrementNumDocs(sp->terms, term, term_len, doc_count_decrement);
-  // Only a missing representable term is fatal; UNSUPPORTED (never insertable) is a no-op.
-  RS_ASSERT(result != TRIE_DECR_NOT_FOUND);
+  // Not fatal: a term refused at a full trie node is indexed but was never in the trie, and nothing
+  // left in the trie can tell it apart from a term that went missing.
+  if (result == TRIE_DECR_NOT_FOUND) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Disk compaction: a term of index '%s' is missing from the terms trie",
+                    IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+  }
   return result == TRIE_DECR_DELETED;
 }
 

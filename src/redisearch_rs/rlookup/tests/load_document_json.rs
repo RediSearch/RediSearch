@@ -27,8 +27,8 @@ use proptest::proptest;
 use redis_json_api::mock::{with_json_api, with_json_api_broken_handle};
 use redis_module::RedisString;
 use rlookup::{
-    DocumentFormat, FieldLoader, JsonDocumentFormat, LoadAllError, RLookup, RLookupKeyFlags,
-    RLookupRow,
+    DocumentFormat, FieldLoader, JsonDocumentFormat, JsonPathCache, LoadAllError, RLookup,
+    RLookupKeyFlags, RLookupRow,
 };
 use serde_json::json;
 use std::ffi::{CStr, CString};
@@ -58,7 +58,9 @@ fn load_field_value(
 ) -> Option<SharedValue> {
     redis_mock::init_redis_module_mock();
     with_json_api(Some(doc), |japi, ctx| {
-        let format = JsonDocumentFormat::new(ctx, &japi, api_version);
+        // SAFETY: the path is static and outlives the cache.
+        let cache = unsafe { JsonPathCache::new(&japi, [Some(path)].into_iter()) };
+        let format = JsonDocumentFormat::new(ctx, &japi, api_version, &cache);
         let key_name = make_redis_string(c"doc:1");
 
         let mut rlookup = RLookup::new();
@@ -70,7 +72,7 @@ fn load_field_value(
         format
             .open(&key_name)
             .unwrap()
-            .load_field(key, &mut row)
+            .load_field_at(0, key, &mut row)
             .unwrap();
         row.get(key).cloned()
     })
@@ -84,7 +86,9 @@ fn load_all_dollar(
 ) -> Result<Option<SharedValue>, LoadAllError> {
     redis_mock::init_redis_module_mock();
     with_json_api(doc, |japi, ctx| {
-        let format = JsonDocumentFormat::new(ctx, &japi, api_version);
+        // SAFETY: the root path is static.
+        let cache = unsafe { JsonPathCache::new(&japi, [Some(c"$")].into_iter()) };
+        let format = JsonDocumentFormat::new(ctx, &japi, api_version, &cache);
         let key_name = make_redis_string(c"doc:1");
 
         let mut rlookup = RLookup::new();
@@ -185,7 +189,9 @@ fn load_all_writes_root_value() {
     // Reuse: a pre-registered `$` key is written in place, not duplicated.
     redis_mock::init_redis_module_mock();
     with_json_api(Some(json!("world")), |japi, ctx| {
-        let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI);
+        // SAFETY: the root path is static.
+        let cache = unsafe { JsonPathCache::new(&japi, [Some(c"$")].into_iter()) };
+        let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI, &cache);
         let key_name = make_redis_string(c"doc:1");
 
         let mut rlookup = RLookup::new();
@@ -235,7 +241,9 @@ proptest! {
     fn underscore_key_path_loads_key_name_as_string(key_name_bytes in any::<CString>()) {
         redis_mock::init_redis_module_mock();
         with_json_api(Some(json!({})), |japi, ctx| {
-            let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI);
+            // SAFETY: the sentinel is static.
+            let cache = unsafe { JsonPathCache::new(&japi, [Some(c"__key")].into_iter()) };
+            let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI, &cache);
             let key_name = make_redis_string(&key_name_bytes);
 
             let mut rlookup = RLookup::new();
@@ -244,7 +252,11 @@ proptest! {
                 .unwrap();
 
             let mut row = RLookupRow::new();
-            format.open(&key_name).unwrap().load_field(key, &mut row).unwrap();
+            format
+                .open(&key_name)
+                .unwrap()
+                .load_field_at(0, key, &mut row)
+                .unwrap();
 
             assert_eq!(
                 row.get(key).expect("__key must load the key name").as_str_bytes(),
@@ -335,10 +347,9 @@ fn borrow_loads_field_like_open() {
     redis_mock::init_redis_module_mock();
     with_json_api(Some(json!({ "name": "alice" })), |japi, ctx| {
         // `borrow` resolves the pinned handle through the C helper
-        // `JSON_GetJsonFromHandleCompat`, which dispatches on the *global*
+        // `JSON_GetJsonFromHandle`, which uses the *global*
         // `japi`/`japi_ver` rather than this handle's vtable. Point those globals
-        // at the mock vtable (advertised as V8, so the helper uses the mock's
-        // `getJsonFromHandle` slot) for the duration of the test, then restore.
+        // at the mock vtable for the duration of the test, then restore.
         // Safety: the test is single-threaded and the mock vtable is 'static.
         let (saved_api, saved_ver) = unsafe { (ffi::japi, ffi::japi_ver) };
         unsafe {
@@ -346,7 +357,9 @@ fn borrow_loads_field_like_open() {
             ffi::japi_ver = redis_json_api::LATEST_API_VERSION;
         }
 
-        let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI);
+        // SAFETY: the path is static.
+        let cache = unsafe { JsonPathCache::new(&japi, [Some(c"$.name")].into_iter()) };
+        let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI, &cache);
         let key_name = make_redis_string(c"doc:1");
 
         let load = |via_borrow: bool| {
@@ -363,7 +376,7 @@ fn borrow_loads_field_like_open() {
             } else {
                 format.open(&key_name).unwrap()
             };
-            loader.load_field(key, &mut row).unwrap();
+            loader.load_field_at(0, key, &mut row).unwrap();
             row.get(key).cloned()
         };
 
@@ -388,7 +401,9 @@ fn borrow_loads_field_like_open() {
 fn borrow_falls_back_to_open_by_name() {
     redis_mock::init_redis_module_mock();
     with_json_api_broken_handle(Some(json!({ "name": "alice" })), |japi, ctx| {
-        let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI);
+        // SAFETY: the path is static.
+        let cache = unsafe { JsonPathCache::new(&japi, [Some(c"$.name")].into_iter()) };
+        let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI, &cache);
         let key_name = make_redis_string(c"doc:1");
 
         let mut rlookup = RLookup::new();
@@ -403,7 +418,7 @@ fn borrow_falls_back_to_open_by_name() {
         format
             .borrow(open_key, &key_name)
             .expect("borrow should fall back to open-by-name")
-            .load_field(key, &mut row)
+            .load_field_at(0, key, &mut row)
             .unwrap();
 
         assert_eq!(row.get(key).unwrap().as_str_bytes(), Some(&b"alice"[..]));

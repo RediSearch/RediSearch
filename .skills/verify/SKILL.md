@@ -1,6 +1,6 @@
 ---
 name: verify
-description: Run full verification before committing or creating a PR. Use this when you want to create a PR.
+description: Run verification before committing or creating a PR, including dependency and bootstrap behavior when build or test prerequisites change.
 ---
 
 # Verify Skill
@@ -13,6 +13,9 @@ Use this skill to run comprehensive checks before finalizing changes.
 ## Instructions
 
 Determine which code was modified (C, Rust, or both) and run the appropriate checks.
+
+If dependencies, `.install/`, bootstrap targets, toolchain versions, or CI provisioning changed,
+first follow [Bootstrap and Dependency Changes](../build/SKILL.md#bootstrap-and-dependency-changes).
 
 ### If C code was modified
 
@@ -136,6 +139,12 @@ failure there and a clean run in the fixed checkout, then clean up with
 ```bash
 ./build.sh RUN_PYTEST ENABLE_ASSERT=1
 ```
+
+### Showing behavior on a live server
+
+Test suites prove what they assert. To show a user-visible change working on a real
+redis-server, or to reproduce a report by hand, follow
+[/drive-redisearch](../drive-redisearch/SKILL.md).
 
 ## Quick Verification
 

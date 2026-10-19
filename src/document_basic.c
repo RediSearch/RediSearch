@@ -282,7 +282,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
 
   // Fetch the JSON root straight off the open handle: RedisJSON validates it is a JSON
   // module type and returns the root without opening the key a second time by name.
-  jsonRoot = JSON_GetJsonFromHandleCompat(k);
+  jsonRoot = JSON_GetJsonFromHandle(k);
   if (!jsonRoot) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Key does not exist or is not a json", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
@@ -368,7 +368,7 @@ static DocumentFieldsProbeResult probeHashFieldsPresent(RedisModuleKey *key,
 static DocumentFieldsProbeResult probeJsonFieldsPresent(RedisModuleKey *key,
                                                         const FieldSpec *fields, t_fieldIndex start,
                                                         t_fieldIndex end) {
-  RedisJSON jsonRoot = JSON_GetJsonFromHandleCompat(key);
+  RedisJSON jsonRoot = JSON_GetJsonFromHandle(key);
   if (!jsonRoot) {
     return DOCUMENT_FIELDS_PROBE_FAILED;
   }

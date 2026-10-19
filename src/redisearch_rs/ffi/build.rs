@@ -200,7 +200,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/json.h",
-        fns: &["JSON_GetJsonFromHandleCompat"],
+        fns: &["JSON_GetJsonFromHandle"],
         types: &[],
         vars: &["RedisJSONAPI_MIN_API_VER", "japi", "japi_ver"],
     },
@@ -410,7 +410,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/trie/rune_util.h",
         fns: &["runesToStr", "strToLowerRunes", "strToRunes"],
-        types: &[],
+        types: &["rune"],
         vars: &["MAX_RUNE_STR_LEN"],
     },
     HeaderAllowlist {

@@ -861,6 +861,14 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
       }
     }
 
+    // Depletion is over, so the buffered rows no longer need the iterators or the snapshot they
+    // were read from. Release them now rather than for as long as the cursors stay parked.
+    // A partial (timed-out) depletion may leave disk reads in flight, which freeing the iterators
+    // would wait out before the reply; leave that to the cursor's teardown.
+    if (!depletionTimedOut) {
+      HybridRequest_ReleaseDepletedUpstream(req);
+    }
+
     // Only publish cursors after depletion has completed. A timeout that
     // races past this check is benign: the timeout reply exposes no IDs, and
     // the container's teardown frees a timed-out cycle's cursors whatever
@@ -919,7 +927,7 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     rs_wall_clock_init(&pipelineClock);
   }
 
-  // Background depleters acquire their own read locks before this thread releases its lock.
+  // In-memory background depleters acquire their own read locks before this thread unlocks.
   // Synchronous in-memory depletion keeps this thread's lock across all subqueries: reacquiring
   // the writer-preferring rwlock on this thread could deadlock against a queued GC writer.
   // Disk depletion uses the snapshot taken during the build and needs no spec lock.
@@ -941,6 +949,10 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     goto done;
   }
 
+  if (sctx->spec->diskSpec) {
+    IndexSpec_Unlock(sctx->spec);
+  }
+
   // Record pipeline build time if profiling is enabled
   if (isProfile) {
     hreq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&pipelineClock);
@@ -956,8 +968,6 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   if (suppressSubqueryUnlocks) {
     IndexSpec_SuppressUnlock(sctx->spec);
     unlockSuppressed = true;
-  } else if (!depleteInBackground) {
-    IndexSpec_Unlock(sctx->spec);
   }
 
   if (!isCursor) {
@@ -976,13 +986,12 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
         HybridRequest_LinkReturnStrictSafeLoaderSyncCtx(hreq);
       }
 #ifdef ENABLE_ASSERT
-      // Sync point (debug): pause while still holding the read lock, before
-      // the depleters race a queued writer for their own locks.
+      // On in-memory indexes, pause before depleters race a queued writer for their locks.
       SyncPoint_WaitUntil(SYNC_POINT_BEFORE_HYBRID_DEPLETION, hreq_timeout_or_pending_spec_writers, hreq);
 #endif
-      // Launch all background depletion up front; the caller holds the spec
-      // read lock, and StartAll releases it once every depleter has taken its
-      // own. Completion is the merger's business: each depleter's Next waits
+      // Launch all background depletion up front. On in-memory indexes, StartAll
+      // releases the caller's read lock once every depleter has taken its own.
+      // Completion is the merger's business: each depleter's Next waits
       // for its own buffer, so the merger consumes the sub-pipelines in
       // completion order, and the policy-dependent reply (partial results or
       // timeout error) is the pipeline's as usual. A lock failure is fatal
@@ -1260,6 +1269,10 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
     return REDISMODULE_OK;
   } else {
     // Single-threaded execution path
+    if (!SearchDisk_MarkUnsupportedArgumentIfDiskEnabled(
+            "FT.HYBRID in a context that cannot block (MULTI/EXEC or Lua scripts)", status)) {
+      return REDISMODULE_ERR;
+    }
     int rc = buildPipelineAndExecute(hreq, hybridParams, ctx, sctx, status, internal, false);
     if (rc == REDISMODULE_OK) {
       HybridRequest_Free(hreq);
@@ -1353,9 +1366,6 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.HYBRID")) {
-    return REDISMODULE_OK;
-  }
   QueryError status = QueryError_Default();
 
   // Memory guardrail

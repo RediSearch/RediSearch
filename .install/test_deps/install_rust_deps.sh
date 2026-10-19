@@ -90,7 +90,7 @@ binstall() {
 }
 
 # Tool required to compute test coverage for Rust code
-binstall cargo-llvm-cov@0.8.4
+binstall cargo-llvm-cov@"$(cat "$REPO_ROOT/.cargo-llvm-cov-version")"
 # Our preferred test runner, instead of the default `cargo test`.
 # The musl prebuilt is chosen for glibc independence; a host-target
 # prebuilt would be glibc-linked and defeat the purpose, so on fallback

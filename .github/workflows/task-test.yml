@@ -21,7 +21,7 @@ on:
       redis-ref:
         description: 'Redis git ref to use (e.g. "7.2.3", "unstable", or a commit sha)'
         type: string
-        default: 'd3abc02fed6664cc0afaf9ffe4e172a99e274f44'
+        default: '8bc1c4e147761e7c9d6ff1bb92248b9d4dda43ab'
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -240,6 +240,10 @@ jobs:
           coverage: ${{ inputs.coverage }}
           redis-cache-platform-id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
 
+      - name: Setup LCOV
+        if: inputs.coverage
+        uses: ./.github/actions/setup-lcov
+
       # Build RedisJSON once and cache it, restoring on subsequent runs with the
       # same key. Produces bin/rejson.so and exports REJSON_PATH, which the
       # flow-test and flaky-test-enumeration steps reuse instead of rebuilding.
@@ -280,6 +284,9 @@ jobs:
       - name: Validate glibc version
         if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
         uses: ./.github/actions/validate-glibc-version
+      - name: Validate OpenSSL linkage
+        if: runner.os == 'macOS'
+        uses: ./.github/actions/validate-openssl-linkage
       - name: Check disk space after build
         run: |
           echo "Disk space after build:"
@@ -377,9 +384,6 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           REDIS_STANDALONE: 0
-          # These test clusters use a trusted local bus without TLS. Unstable
-          # requires an explicit opt-out; older pinned Redis refs lack the option.
-          RLTEST_ARGS: ${{ inputs.redis-ref == 'unstable' && '--cluster_bus_port_protected_mode no' || '' }}
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
@@ -604,6 +608,39 @@ jobs:
           echo "Flow tests (coordinator): ${{ steps.coordinator_tests.outcome }}"
           echo "Rust tests (MIRI): ${{ steps.rust_unit_tests_miri.outcome }}"
           exit 1
+
+      - name: Summarize branch coverage
+        if: >-
+          inputs.coverage &&
+          !inputs.skip-tests &&
+          (inputs.standalone || inputs.coordinator || inputs.unit-tests)
+        env:
+          INCLUDE_COORDINATOR: ${{ inputs.coordinator }}
+          INCLUDE_RUST_UNIT: ${{ inputs.unit-tests && inputs.rust-unit-tests }}
+          INCLUDE_STANDALONE: ${{ inputs.standalone }}
+          INCLUDE_UNIT: ${{ inputs.unit-tests }}
+        run: |
+          reports=()
+          if [[ "$INCLUDE_STANDALONE" == "true" ]]; then
+            reports+=(
+              --lcov "C standalone flow" bin/flow_standalone.info
+              --lcov "Rust standalone flow" bin/rust_flow_standalone.info
+            )
+          fi
+          if [[ "$INCLUDE_COORDINATOR" == "true" ]]; then
+            reports+=(
+              --lcov "C coordinator flow" bin/flow_coordinator.info
+              --lcov "Rust coordinator flow" bin/rust_flow_coordinator.info
+            )
+          fi
+          if [[ "$INCLUDE_UNIT" == "true" ]]; then
+            reports+=(--lcov "C unit" bin/unit.info)
+          fi
+          if [[ "$INCLUDE_RUST_UNIT" == "true" ]]; then
+            reports+=(--cobertura "Rust unit" bin/rust_cov.xml)
+          fi
+          python3 .github/scripts/coverage_summary.py "${reports[@]}"
+
       - name: Import Codecov GPG public key
         if: inputs.coverage
         run: gpg --import .github/codecov_gpg.pub
@@ -611,7 +648,7 @@ jobs:
         if: inputs.coverage && inputs.standalone && inputs.coordinator
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_standalone.info,bin/flow_coordinator.info
+          files: bin/flow_standalone.info,bin/flow_coordinator.info,bin/rust_flow_standalone.info,bin/rust_flow_coordinator.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
@@ -620,7 +657,7 @@ jobs:
         if: inputs.coverage && inputs.standalone && !inputs.coordinator
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_standalone.info
+          files: bin/flow_standalone.info,bin/rust_flow_standalone.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
@@ -629,7 +666,7 @@ jobs:
         if: inputs.coverage && !inputs.standalone && inputs.coordinator
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_coordinator.info
+          files: bin/flow_coordinator.info,bin/rust_flow_coordinator.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
@@ -638,7 +675,7 @@ jobs:
         if: inputs.coverage && inputs.unit-tests
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/unit.info,bin/rust_cov.info
+          files: bin/unit.info,bin/rust_cov.xml
           disable_search: true
           flags: unit
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}

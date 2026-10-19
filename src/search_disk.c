@@ -479,9 +479,16 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
     return disk->index.newTagIterator(index, tok, fieldIndex, weight, sctx->diskSnapshot, status);
 }
 
+// Snapshots pin disk resources until freed, so tests need to see whether any outlived their query.
+static atomic_size_t liveSnapshots = 0;
+
 RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *index) {
     RS_ASSERT(disk && index);
-    return disk->index.createSnapshot(index);
+    RedisSearchDiskSnapshot *snapshot = disk->index.createSnapshot(index);
+    if (snapshot) {
+        atomic_fetch_add(&liveSnapshots, 1);
+    }
+    return snapshot;
 }
 
 void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot) {
@@ -490,6 +497,12 @@ void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot) {
     }
     RS_ASSERT(disk);
     disk->index.freeSnapshot(snapshot);
+    const size_t prev = atomic_fetch_sub(&liveSnapshots, 1);
+    RS_ASSERT(prev > 0);
+}
+
+size_t SearchDisk_GetLiveSnapshotCount(void) {
+    return atomic_load(&liveSnapshots);
 }
 
 void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
