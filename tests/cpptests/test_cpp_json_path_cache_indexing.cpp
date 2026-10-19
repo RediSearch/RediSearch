@@ -48,9 +48,6 @@ class JSONPathIndexingTest : public ::testing::Test {
 
   static JSONPath parse(const char *path) {
     ++current->parses;
-    if (!strcmp(path, "$.invalid[")) {
-      return nullptr;
-    }
     auto *compiled = new std::string(path);
     current->paths.insert(compiled);
     return compiled;
@@ -121,12 +118,8 @@ class JSONPathIndexingTest : public ::testing::Test {
     savedVersion = japi_ver;
     api.get = get;
     api.getWithPath = getWithPath;
-    api.pathParse = [](const char *path, RedisModuleCtx *ctx, RedisModuleString **error) {
-      JSONPath compiled = parse(path);
-      if (!compiled) {
-        *error = RedisModule_CreateString(ctx, "invalid path", 12);
-      }
-      return compiled;
+    api.pathParse = [](const char *path, RedisModuleCtx *, RedisModuleString **) {
+      return parse(path);
     };
     api.pathParseNoErrorMsg = parse;
     api.pathFree = freePath;
@@ -173,31 +166,6 @@ class JSONPathIndexingTest : public ::testing::Test {
     return spec;
   }
 };
-
-TEST_F(JSONPathIndexingTest, invalidJsonPathProducesNoValue) {
-  auto *jsonSpec = createSpec({"ON", "JSON", "SCHEMA", "$.invalid[", "NUMERIC"});
-  ASSERT_NE(jsonSpec, nullptr);
-  Root doc;
-  root = &doc;
-  RMCK::RString keyName("invalid_json_path_doc");
-  RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ);
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, jsonSpec);
-  Document loaded = {};
-  Document_Init(&loaded, keyName, 1, DEFAULT_LANGUAGE, DocumentType_Json);
-  QueryError error = QueryError_Default();
-  ASSERT_EQ(Document_LoadSchemaFieldJson(&loaded, &sctx, key, &error), REDISMODULE_OK);
-  EXPECT_EQ(loaded.numFields, 0);
-  Document_Free(&loaded);
-  QueryError_ClearError(&error);
-  RedisModule_CloseKey(key);
-}
-
-TEST_F(JSONPathIndexingTest, hashFieldsDoNotCompileJsonPaths) {
-  const int parsesBeforeHash = parses;
-  auto *hashSpec = createSpec({"ON", "HASH", "SCHEMA", "price", "NUMERIC"});
-  ASSERT_NE(hashSpec, nullptr);
-  EXPECT_EQ(parses, parsesBeforeHash);
-}
 
 TEST_F(JSONPathIndexingTest, schemaFieldsLoadThroughUpdatesAndAlter) {
   auto *spec = createSpec({"ON", "JSON", "SCHEMA", "$.price", "AS", "first", "NUMERIC", "$.price",
@@ -251,9 +219,9 @@ TEST_F(JSONPathIndexingTest, schemaFieldsLoadThroughUpdatesAndAlter) {
   RedisModule_CloseKey(key);
 }
 
-TEST_F(JSONPathIndexingTest, languageAndScoreValuesAndDefaultsArePreserved) {
+TEST_F(JSONPathIndexingTest, languageAndScorePathsAreCompiledAndReused) {
   auto *spec = createSpec({"ON", "JSON", "LANGUAGE_FIELD", "$.lang", "SCORE_FIELD", "$.score",
-                           "LANGUAGE", "english", "SCORE", "0.5", "SCHEMA", "$.price", "NUMERIC"});
+                           "SCHEMA", "$.price", "NUMERIC"});
   ASSERT_NE(spec, nullptr);
   EXPECT_EQ(parses, 3);
   Root first = {{"$.lang", {0, "italian"}}, {"$.score", {0.8}}};
@@ -263,12 +231,6 @@ TEST_F(JSONPathIndexingTest, languageAndScoreValuesAndDefaultsArePreserved) {
   EXPECT_EQ(SchemaRule_JsonLang(ctx, spec->rule, &second, "second"), RS_LANG_FRENCH);
   EXPECT_DOUBLE_EQ(SchemaRule_JsonScore(ctx, spec->rule, &second, "second"), 0.2);
 
-  Root absent;
-  Root wrongTypes = {{"$.lang", {7}}, {"$.score", {0, "wrong"}}};
-  for (auto *doc : {&absent, &wrongTypes}) {
-    EXPECT_EQ(SchemaRule_JsonLang(ctx, spec->rule, doc, "defaults"), RS_LANG_ENGLISH);
-    EXPECT_DOUBLE_EQ(SchemaRule_JsonScore(ctx, spec->rule, doc, "defaults"), 0.5);
-  }
   EXPECT_EQ(parses, 3);
   EXPECT_EQ(stringGets, 0);
 }

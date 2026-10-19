@@ -145,7 +145,7 @@ typedef struct FieldSpec {
   // The index error for this field
   IndexError indexError;
 
-  // Owned indexing path, compiled at creation/load; NULL for HASH, invalid paths, and snapshots.
+  // Owned indexing path; NULL for HASH, invalid paths, and snapshots.
   JSONPath compiledPath;
 } FieldSpec;
 
