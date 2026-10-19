@@ -298,7 +298,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
   for (; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
 
-    jsonIter = japi->get(jsonRoot, HiddenString_GetUnsafe(field->fieldPath, NULL));
+    jsonIter = JSON_GetWithCompiledPath(jsonRoot, field->compiledPath);
     // if field does not exist or is empty (can happen after JSON.DEL)
     if (!jsonIter) {
       continue;
@@ -373,10 +373,8 @@ static DocumentFieldsProbeResult probeJsonFieldsPresent(RedisModuleKey *key,
     return DOCUMENT_FIELDS_PROBE_FAILED;
   }
   for (t_fieldIndex i = start; i < end; ++i) {
-    // TODO: Add a JSON path-existence API to avoid temporary iterator allocations,
-    // and reuse parsed field paths to avoid parsing the same path for every JSON key.
-    JSONResultsIterator iter =
-        japi->get(jsonRoot, HiddenString_GetUnsafe(fields[i].fieldPath, NULL));
+    // TODO: Add a JSON path-existence API to avoid temporary iterator allocations.
+    JSONResultsIterator iter = JSON_GetWithCompiledPath(jsonRoot, fields[i].compiledPath);
     if (!iter) {
       continue;
     }

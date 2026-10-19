@@ -1209,7 +1209,17 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   return rc;
 }
 
-static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+// Field creation already parsed the path; validation only checks its result.
+static bool validateJsonFieldPath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
+  if (fs->compiledPath) {
+    return true;
+  }
+  JSONParse_error(status, fs->fieldPath, fs->fieldName, sp->specName);
+  return false;
+}
+
+static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, ArgsCursor *ac,
+                            QueryError *status) {
   // this is a vector field
   // init default type, size, distance metric and algorithm
 
@@ -1222,16 +1232,10 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   // If the index is on JSON and the given path is dynamic, create a multi-value index.
   bool multi = false;
   if (isSpecJson(sp)) {
-    RedisModuleString *err_msg;
-    JSONPath jsonPath = pathParse(fs->fieldPath, &err_msg);
-    if (!jsonPath) {
-      if (err_msg) {
-        JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
-      }
+    if (!validateJsonFieldPath(sp, fs, status)) {
       return 0;
     }
-    multi = !(japi->pathIsSingle(jsonPath));
-    japi->pathFree(jsonPath);
+    multi = !japi->pathIsSingle(fs->compiledPath);
   }
 
   // parse algorithm
@@ -1462,17 +1466,11 @@ static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs,
     return true;
   }
 
-  RedisModuleString *err_msg = NULL;
-  JSONPath jsonPath = pathParse(fs->fieldPath, &err_msg);
-  if (!jsonPath) {
-    if (err_msg) {
-      JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
-    }
+  if (!validateJsonFieldPath(sp, fs, status)) {
     return false;
   }
 
-  bool isSingle = japi->pathIsSingle(jsonPath);
-  japi->pathFree(jsonPath);
+  bool isSingle = japi->pathIsSingle(fs->compiledPath);
   if (!isSingle) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
                                      "Disk JSON index supports only single-value JSONPath fields");
@@ -1621,29 +1619,17 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
         }
       }
       fs->ftId = textId;
-      if isSpecJson(sp) {
+      if isSpecJson (sp) {
         if ((sp->flags & Index_HasFieldAlias) && (sp->flags & Index_StoreTermOffsets)) {
-          RedisModuleString *err_msg;
-          JSONPath jsonPath = pathParse(fs->fieldPath, &err_msg);
-          if (jsonPath && japi->pathHasDefinedOrder(jsonPath)) {
-            // Ordering is well defined
+          if (!validateJsonFieldPath(sp, fs, status)) {
+            goto reset;
+          }
+          if (japi->pathHasDefinedOrder(fs->compiledPath)) {
             fs->options &= ~FieldSpec_UndefinedOrder;
           } else {
-            // Mark FieldSpec
             fs->options |= FieldSpec_UndefinedOrder;
-            // Mark IndexSpec
             sp->flags |= Index_HasUndefinedOrder;
           }
-          if (jsonPath) {
-            japi->pathFree(jsonPath);
-          } else if (err_msg) {
-            JSONParse_error(status, err_msg, fs->fieldPath, fs->fieldName, sp->specName);
-            goto reset;
-          } /* else {
-            RedisModule_Log(RSDummyContext, "notice",
-                            "missing RedisJSON API to parse JSONPath '%s' in attribute '%s' in index '%s', assuming undefined ordering",
-                            fs->path, fs->name, sp->name);
-          } */
         }
       }
     }
@@ -2004,6 +1990,9 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec) {
     const FieldSpec* fs = spec->fields + ii;
     FieldSpec* field = ret->fields + ii;
     *field = *fs;
+    // The live field owns its compiled path for indexing and keeps it across snapshot rebuilds.
+    // Query loaders own their compiled paths, so this snapshot needs no indexing handle.
+    field->compiledPath = NULL;
     field->fieldName = HiddenString_Duplicate(fs->fieldName);
     // if name & path are pointing to the same string, copy only pointer
     if (fs->fieldName != fs->fieldPath) {
@@ -2542,9 +2531,12 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
   RS_LOG_ASSERT((sp->rule), "index w/o a rule?");
   switch (sp->rule->type) {
     case DocumentType_Hash:
-      fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP; break;
+      fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
+      break;
     case DocumentType_Json:
-      fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
+      fs->compiledPath = japi->pathParseNoErrorMsg(HiddenString_GetUnsafe(fs->fieldPath, NULL));
+      fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP;
+      break;
     case DocumentType_Unsupported:
       RS_ABORT("shouldn't get here");
       break;
@@ -3321,6 +3313,14 @@ void IndexSpec_RdbLoadDiscard(StrongRef spec_ref) {
   StrongRef_Release(spec_ref);
 }
 
+// RDB stores path strings, so recreate runtime handles after the rule identifies JSON fields.
+static void compileLoadedJsonPaths(IndexSpec *sp) {
+  for (size_t i = 0; i < sp->numFields; ++i) {
+    FieldSpec *fs = &sp->fields[i];
+    fs->compiledPath = japi->pathParseNoErrorMsg(HiddenString_GetUnsafe(fs->fieldPath, NULL));
+  }
+}
+
 IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryError *status) {
   IndexSpec *sp = NULL;
   StrongRef spec_ref = {0};
@@ -3383,6 +3383,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   if (SchemaRule_RdbLoad(spec_ref, rdb, encver, status) != REDISMODULE_OK) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to load schema rule");
     goto cleanup;
+  }
+  if (isSpecJson(sp)) {
+    compileLoadedJsonPaths(sp);
   }
   // The cache was built before the rule loaded; fill in its rule names.
   IndexSpecCache_CopyRuleFields(sp->spcache, sp->rule);
@@ -3676,6 +3679,9 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
                            formattedIndexName, QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
     StrongRef_Release(spec_ref);
     return NULL;
+  }
+  if (isSpecJson(sp)) {
+    compileLoadedJsonPaths(sp);
   }
   // The cache was built before the rule was created; fill in its rule names.
   IndexSpecCache_CopyRuleFields(sp->spcache, sp->rule);
