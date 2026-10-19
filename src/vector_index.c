@@ -179,16 +179,16 @@ static int VectorQuery_ValidateDiskHybridPolicy(const QueryEvalCtx *q, const Vec
   return REDISMODULE_OK;
 }
 
-int VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryError *status) {
+bool VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryError *status) {
   size_t elementSize = VecSimType_sizeof(type);
   // Leave room for normalization and storage metadata in downstream size calculations.
   if (!elementSize || !dim || dim > SIZE_MAX / 2 / elementSize) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
                         "Invalid vector DIM: vector size is too large");
-    return 0;
+    return false;
   }
   *size = dim * elementSize;
-  return 1;
+  return true;
 }
 
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
