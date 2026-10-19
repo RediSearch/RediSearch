@@ -5,8 +5,9 @@ Produce maintainable, idiomatic Rust that follows repository constraints,
 preserves required behavior, passes existing and added tests, and meets agreed
 performance and memory criteria. Include sound ownership and unsafe-code handling,
 appropriate interfaces, and no unresolved blocking quality issues. Do not weaken
-tests or benchmarks to obtain a pass. Report incomplete when required checks fail
-or cannot run; passing tests alone does not establish code quality.
+tests or benchmarks to obtain a pass. Report incomplete for unavailable required
+checks or unresolved failures. Explicitly accepted baseline limitations remain
+recorded failures; passing tests alone does not establish code quality.
 
 Use the common migration objective by default; do not ask the user to restate it.
 The essential task inputs are repository, starting SHA, and target functionality
@@ -159,6 +160,11 @@ Implement and validate:
   an explicit decision.
 - Report unavailable checks as incomplete. Do not weaken acceptance
   criteria or count skipped, empty, or flaky runs as passes.
+- Investigate failures on both C and Rust using the validation skill's baseline
+  comparison rules. Continue independent work. An evidenced, unchanged baseline
+  limitation may be carried forward under an authorized, recorded disposition;
+  retain the failed result and follow-up. Matching failures alone are not proof
+  of equivalence, and do not authorize weaker tests or unrelated fixes.
 
 Execution and access:
 - The authoring agent runs local checks in its assigned workspace and
@@ -246,4 +252,5 @@ or incomplete. Final review is a separate workflow; do not merge. Complete
 required CI validation before claiming readiness.
 Human decisions are required for flagged issues needing that authority,
 not for every routine choice. If required checks or decisions remain
-unresolved, report the candidate as incomplete.
+unresolved, report the candidate as incomplete. List accepted baseline limitations
+separately; acceptance with exceptions is not an all-green test result.

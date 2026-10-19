@@ -39,7 +39,8 @@ Derive the test/benchmark plan from the starting revision's code, consumers, tes
 build scripts, CI, and permitted skills. Users provide the target, not a complete
 list of checks. Select focused intermediate checks and add missing edge-case tests
 or benchmark workloads. All applicable existing/added tests and required CI gates
-must pass at final acceptance; selection does not authorize dropping mandatory gates.
+must pass at final acceptance, except explicitly accepted baseline limitations
+described below; selection does not authorize dropping mandatory gates.
 Record why a check is inapplicable; inability to run it is an evidence gap, not an
 exclusion. Never relax the final matrix merely to fit the remaining budget.
 
@@ -171,6 +172,14 @@ detail that no longer applies, explain why and retain independent checks of the
 behavior and memory accounting it was meant to protect. Do not copy the candidate's
 reported values into expected results merely to pass.
 
-A failure reproduced on the unchanged baseline is not automatically a migration
-regression, but it still needs a documented disposition before acceptance. Report
-executed passes and failures separately from skipped and unavailable checks.
+A failure on both implementations does not by itself establish equivalence. Compare
+its trigger, failure mode, frequency and impact under matched settings; investigate
+shared setup errors. A few intermittent results cannot establish equal reliability.
+
+Continue independent work while investigating. If evidence establishes an unchanged,
+out-of-scope baseline limitation, record the evidence and follow-up in a finding;
+apply an existing authorized baseline policy or request one scoped acceptance
+decision. An accepted baseline limitation need not block migration acceptance, but
+remains a failed check, not a pass. Do not disable the test, weaken its assertions,
+or include an unrelated fix without approval. A worsened failure, new unsafe
+behavior, or unresolved effect on migrated behavior remains an acceptance gap.

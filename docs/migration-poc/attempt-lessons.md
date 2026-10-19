@@ -114,6 +114,33 @@ the actual test environment before dependent jobs. Preserve the distinction
 between unavailable checks and executed failures. Evidence: `ci-parity/*/asan/`
 and `ci-parity/varint/coverage/rust.log` under `acceptance-20261014/`.
 
+The next checks confirmed that runner variables differ across historical revisions:
+qint's unit runner expects `BINROOT`, while later runners use `BINDIR`. Supplying
+the wrong variable made it try executing C++ source files. Activating the expected
+Python environment and passing the correct binary root made lint and ASan units
+pass. Index workspace Miri also passed after selecting the existing C benchmark
+libraries; the sanitizer module build had not produced those targets. Preflight
+the exact executable/library paths consumed by each command, not just the build's
+exit status. Evidence: `acceptance-20261014/qint-runner-repair3/` and
+`index-miri-prerequisites3/`.
+
+A varint coordinator expiration test failed on C in two of three runs and on Rust
+in all three. Its setup disabled active expiration through a cluster connection,
+leaving other shards with different settings. Disabling it on every shard made
+both implementations pass five paired runs with unchanged inputs and assertions.
+The fixture correction is applied; full normal and ASan coordinator reruns are
+pending. A small difference in failure counts is not proof that Rust is worse;
+check distributed setup before attributing it to the migration. Evidence:
+`acceptance-20261014/varint-expire-baseline3/` and `varint-expire-all-shards/`.
+
+Geo's remaining vector-only JSON test timed out in coverage mode on both original
+C and Rust. The test and vector-index C source are identical; the timeout occurs
+while inserting vectors, outside the migrated GEO operations. Carry this as an
+explicit baseline limitation under the user's policy, retaining the failed result
+and follow-up. This does not establish the exact cause or equal failure probability.
+Evidence: `acceptance-20261014/geo-coverage-baseline4/` and
+`geo-baseline-disposition.md`.
+
 Promote demonstrated, reusable lessons into the relevant skill reference. Keep
 case-specific evidence here, and have the prompt point to the rule rather than
 repeat it. Do not put future reference-PR solutions into historical author inputs.
