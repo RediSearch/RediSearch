@@ -306,10 +306,6 @@ static void SearchDisk_CompleteLogicalOpen(RedisSearchDiskIndexSpec *result, Ind
     // Open atomically registers with BigModule, so the spec needs a
     // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
     spec->diskRegistered = true;
-    dictEntry *entry = specDict_g ? dictFind(specDict_g, spec->specName) : NULL;
-    if (entry && StrongRef_Get(dictGetRef(entry)) == spec) {
-      disk->metrics.activateTarget(result);
-    }
     return;
   }
   if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {
