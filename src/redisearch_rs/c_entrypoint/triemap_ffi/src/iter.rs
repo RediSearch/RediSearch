@@ -41,8 +41,10 @@ pub struct TrieMapIterator<'tm> {
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+/// - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `t` must not be freed while the iterator lives.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Iterate<'tm>(t: *mut TrieMap) -> *mut TrieMapIterator<'tm> {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -72,12 +74,14 @@ pub unsafe extern "C" fn TrieMap_Iterate<'tm>(t: *mut TrieMap) -> *mut TrieMapIt
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+/// - `t` must point to a [valid] TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `t` must not be freed while the iterator lives.
-/// - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
+/// - `prefix` must point to a [valid] pointer to a byte sequence of length `prefix_len`,
 ///   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
-/// - `prefix` must stay valid and unmodified until the iterator is freed: the contains,
+/// - `prefix` must stay [valid] and unmodified until the iterator is freed: the contains,
 ///   suffix and wildcard modes keep reading it while iterating.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_IterateWithFilter<'tm>(
     t: *mut TrieMap,
@@ -122,8 +126,10 @@ pub unsafe extern "C" fn TrieMap_IterateWithFilter<'tm>(
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
+/// - `it` must point to a [valid] [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
 ///   [`TrieMap_IterateWithFilter`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMapIterator_SetTimeout(it: *mut TrieMapIterator, timeout: timespec) {
     debug_assert!(!it.is_null(), "it cannot be NULL");
@@ -151,8 +157,10 @@ pub unsafe extern "C" fn TrieMapIterator_SetTimeout(it: *mut TrieMapIterator, ti
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
+/// - `it` must point to a [valid] [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
 ///   [`TrieMap_IterateWithFilter`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMapIterator_Free(it: *mut TrieMapIterator) {
     debug_assert!(!it.is_null(), "it cannot be NULL");
@@ -169,12 +177,14 @@ pub unsafe extern "C" fn TrieMapIterator_Free(it: *mut TrieMapIterator) {
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
+/// - `it` must point to a [valid] [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
 ///   [`TrieMap_IterateWithFilter`] and cannot be NULL.
-/// - `ptr` must point to a valid pointer to a byte sequence, which will be set to the current key. This
+/// - `ptr` must point to a [valid] pointer to a byte sequence, which will be set to the current key. This
 ///   pointer is invalidated upon calling [`TrieMapIterator_Next`] again.
-/// - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
-/// - `value` must point to a valid pointer, which will be set to the value of the current key.
+/// - `len` must point to a [valid] `tm_len_t` which will be set to the length of the current key.
+/// - `value` must point to a [valid] pointer, which will be set to the value of the current key.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMapIterator_Next(
     it: *mut TrieMapIterator,

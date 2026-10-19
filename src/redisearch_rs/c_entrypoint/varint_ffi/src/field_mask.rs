@@ -19,8 +19,10 @@ use varint::VarintEncode;
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// 1. `b` must point to a valid `BufferReader` instance and cannot be NULL.
+/// 1. `b` must point to a [valid] `BufferReader` instance and cannot be NULL.
 /// 2. The caller must have exclusive access to the buffer reader.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ReadVarintFieldMask(b: *mut BufferReader) -> FieldMask {
     // Safety: Safe thanks to invariants 1. and 2.
@@ -39,8 +41,10 @@ pub unsafe extern "C" fn ReadVarintFieldMask(b: *mut BufferReader) -> FieldMask 
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// 1. `writer` must point to a valid `BufferWriter` instance and cannot be NULL.
+/// 1. `writer` must point to a [valid] `BufferWriter` instance and cannot be NULL.
 /// 2. The caller must have exclusive access to the buffer writer.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn WriteVarintFieldMask(
     value: FieldMask,

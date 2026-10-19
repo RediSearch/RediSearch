@@ -176,21 +176,23 @@ unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutCont
 ///
 /// # Safety
 ///
-/// 1. `child` must be null or a valid pointer to a [`QueryIterator`].
+/// 1. `child` must be null or a [valid] pointer to a [`QueryIterator`].
 ///    A null `child` is treated as empty.
 /// 2. When non-null, `child` must not be aliased.
-/// 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
-/// 4. `q.sctx` must be a non-null pointer to a valid
-///    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
+/// 3. `q` must be a [valid] non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
+/// 4. `q.sctx` must be a non-null pointer to a [valid]
+///    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay [valid] and at a stable
 ///    address for the lifetime of the returned iterator. Its request timeout must also remain
-///    valid at a stable address for that lifetime. Timeout source changes and deadline writes
+///    [valid] at a stable address for that lifetime. Timeout source changes and deadline writes
 ///    may happen only between probes; only the blocked-client flag may change concurrently.
-/// 5. `q.sctx.spec` must be a non-null pointer to a valid
+/// 5. `q.sctx.spec` must be a non-null pointer to a [valid]
 ///    [`IndexSpec`](ffi::IndexSpec).
-/// 6. `q.sctx.spec.rule`, when non-null, must point to a valid
+/// 6. `q.sctx.spec.rule`, when non-null, must point to a [valid]
 ///    [`SchemaRule`](ffi::SchemaRule).
 /// 7. When the optimized path is taken, the preconditions of
 ///    [`rqe_iterators::wildcard::new_wildcard_iterator`] must hold.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewNotIterator(
     child: *mut QueryIterator,
