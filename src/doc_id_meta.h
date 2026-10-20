@@ -50,6 +50,13 @@ int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName,
 */
 int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId);
 
+/*
+ * Drop every DocIdMeta entry on the key, whatever its spec.
+ * @return REDISMODULE_OK if the key had no metadata or it was dropped,
+ * REDISMODULE_ERR on failure to open/update the key metadata.
+ */
+int DocIdMeta_Clear(RedisModuleCtx *ctx, RedisModuleString *keyName);
+
 // Set the persistence-in-progress flag. When true, RDB save/load callbacks
 // become no-ops. Called from notifications.c during persistence events.
 void DocIdMeta_SetPersistenceInProgress(bool inProgress);
