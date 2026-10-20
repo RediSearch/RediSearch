@@ -1,5 +1,5 @@
 [package]
-name = "inkeys_ffi"
+name = "doc_key_map_ffi"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true

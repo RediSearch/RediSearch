@@ -20,8 +20,9 @@ on workers without the GIL.
 
 Redis key metadata remains unchanged. It serves other features and is not a
 candidate for replacement. Its memory cost is outside this change's accounting.
-The proposed table is additional memory, with INKEYS as its only planned lookup
-consumer. Existing metadata consumers continue using their current interfaces.
+The proposed document key map is additional memory, with INKEYS as its initial
+lookup consumer. Its name and lookup interface describe the general key-to-ID
+capability. Existing metadata consumers continue using their current interfaces.
 
 This plan targets memory mode. Disk mode retains its existing lookup mechanism;
 any claim about correcting its snapshot behavior requires a separate audit of
@@ -44,8 +45,8 @@ the relationship between key metadata and the disk snapshot.
 ## Configuration and rollout
 
 Propose a dedicated default-off, startup-only setting, provisionally named
-`search-inkeys-lookup-map`. Final spelling and exposure require normal design
-review. It selects an execution optimization, not a new query syntax.
+`search-doc-key-map` (legacy module argument `DOC_KEY_MAP`). It selects an
+execution optimization, not a new query syntax.
 
 The initial implementation uses one process-level choice:
 

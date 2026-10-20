@@ -37,7 +37,7 @@ fork_gc_ffi = { path = "../fork_gc_ffi" }
 geo_ffi = { path = "../geo_ffi" }
 idf_ffi = { path = "../idf_ffi" }
 inverted_index_ffi = { path = "../inverted_index_ffi" }
-inkeys_ffi = { path = "../inkeys_ffi" }
+doc_key_map_ffi = { path = "../doc_key_map_ffi" }
 iterators_ffi = { path = "../iterators_ffi" }
 metrics_ffi = { path = "../metrics_ffi" }
 query_error_ffi = { path = "../query_error_ffi" }

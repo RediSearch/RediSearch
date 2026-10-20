@@ -1712,7 +1712,7 @@ booleanConfigs = [
     ('search-partial-indexed-docs', 'PARTIAL_INDEXED_DOCS', 'no', True, False),
     ('search-_prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False),
     ('search-raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False),
-    ('search-inkeys-lookup-map', 'INKEYS_LOOKUP_MAP', 'no', True, False),
+    ('search-doc-key-map', 'DOC_KEY_MAP', 'no', True, False),
     ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False),
     ('search-optimize-partial-update', 'OPTIMIZE_PARTIAL_UPDATE', 'yes', False, False),
 ]

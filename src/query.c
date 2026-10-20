@@ -496,10 +496,10 @@ void QAST_ResolveInkeys(QueryAST *ast, const RedisSearchCtx *sctx) {
   if (!node->fn.docIds) {
     node->fn.docIds = rm_calloc(node->fn.len, sizeof(t_docId));
     for (size_t i = 0; i < node->fn.len; ++i) {
-      if (sctx->spec->docs.inkeys) {
+      if (sctx->spec->docs.keyMap) {
         size_t len;
         const char *key = RedisModule_StringPtrLen(node->fn.keys[i], &len);
-        node->fn.docIds[i] = DocTable_GetInkeysId(&sctx->spec->docs, key, len);
+        node->fn.docIds[i] = DocTable_GetIdByKey(&sctx->spec->docs, key, len);
       } else {
         DocIdMeta_Get(sctx->redisCtx, node->fn.keys[i], sctx->spec->specId, &node->fn.docIds[i]);
       }

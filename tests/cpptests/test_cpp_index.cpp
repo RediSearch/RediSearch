@@ -1463,54 +1463,54 @@ TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
   }
 }
 
-TEST_F(IndexTest, testInkeysLookupLifecycle) {
-  const bool previous = RSGlobalConfig.inkeysLookupMap;
-  RSGlobalConfig.inkeysLookupMap = true;
+TEST_F(IndexTest, testDocKeyMapLifecycle) {
+  const bool previous = RSGlobalConfig.docKeyMap;
+  RSGlobalConfig.docKeyMap = true;
   DocTable dt = NewDocTable(1, 10);
-  RSGlobalConfig.inkeysLookupMap = previous;
-  ASSERT_NE(dt.inkeys, nullptr);
+  RSGlobalConfig.docKeyMap = previous;
+  ASSERT_NE(dt.keyMap, nullptr);
   const char binary[] = {'d', '\0', '1'};
   auto *first = DocTable_Put(&dt, binary, sizeof(binary), 1, (RSDocumentFlags)0, nullptr, 0,
                              DocumentType_Hash);
   const auto firstId = first->id;
   DMD_Return(first);
-  EXPECT_EQ(DocTable_GetInkeysId(&dt, binary, sizeof(binary)), firstId);
-  EXPECT_EQ(DocTable_GetInkeysId(&dt, binary, 1), 0);
-  const size_t initialMemory = DocTable_InkeysMemoryUsage(&dt);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, binary, sizeof(binary)), firstId);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, binary, 1), 0);
+  const size_t initialMemory = DocTable_KeyMapMemoryUsage(&dt);
   for (int i = 0; i < 1000; ++i) {
     std::string key = "doc:" + std::to_string(i);
     auto *dmd = DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
                              DocumentType_Hash);
     DMD_Return(dmd);
   }
-  EXPECT_GT(DocTable_InkeysMemoryUsage(&dt), initialMemory);
+  EXPECT_GT(DocTable_KeyMapMemoryUsage(&dt), initialMemory);
   DocTable_SetKeyById(&dt, firstId, "renamed", 7);
-  EXPECT_EQ(DocTable_GetInkeysId(&dt, binary, sizeof(binary)), 0);
-  EXPECT_EQ(DocTable_GetInkeysId(&dt, "renamed", 7), firstId);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, binary, sizeof(binary)), 0);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), firstId);
   auto *removed = DocTable_DeleteById(&dt, firstId);
   ASSERT_NE(removed, nullptr);
-  EXPECT_EQ(DocTable_GetInkeysId(&dt, "renamed", 7), 0);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), 0);
   DMD_Return(removed);
   auto *replacement =
       DocTable_Put(&dt, "renamed", 7, 1, (RSDocumentFlags)0, nullptr, 0, DocumentType_Hash);
-  EXPECT_EQ(DocTable_GetInkeysId(&dt, "renamed", 7), replacement->id);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), replacement->id);
   EXPECT_NE(replacement->id, firstId);
   DMD_Return(replacement);
   DocTable_Free(&dt);
-  EXPECT_EQ(dt.inkeys, nullptr);
-  EXPECT_EQ(DocTable_InkeysMemoryUsage(&dt), 0);
+  EXPECT_EQ(dt.keyMap, nullptr);
+  EXPECT_EQ(DocTable_KeyMapMemoryUsage(&dt), 0);
 }
 
-TEST_F(IndexTest, testInkeysLookupDisabledForDisk) {
-  const bool previousMap = RSGlobalConfig.inkeysLookupMap;
+TEST_F(IndexTest, testDocKeyMapDisabledForDisk) {
+  const bool previousMap = RSGlobalConfig.docKeyMap;
   const bool previousFlex = isFlex;
-  RSGlobalConfig.inkeysLookupMap = true;
+  RSGlobalConfig.docKeyMap = true;
   isFlex = true;
   DocTable dt = NewDocTable(1, 10);
   isFlex = previousFlex;
-  RSGlobalConfig.inkeysLookupMap = previousMap;
+  RSGlobalConfig.docKeyMap = previousMap;
 
-  EXPECT_EQ(dt.inkeys, nullptr);
-  EXPECT_EQ(DocTable_InkeysMemoryUsage(&dt), 0);
+  EXPECT_EQ(dt.keyMap, nullptr);
+  EXPECT_EQ(DocTable_KeyMapMemoryUsage(&dt), 0);
   DocTable_Free(&dt);
 }

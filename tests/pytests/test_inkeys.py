@@ -16,7 +16,7 @@ def test_inkeys_resolves_after_queued_reindex():
     """A reindex before the execution lock must not invalidate INKEYS membership."""
     for enabled in (False, True):
         # Startup-only acceleration and a worker are needed to exercise both handoffs.
-        env = Env(moduleArgs=f'WORKERS 1 INKEYS_LOOKUP_MAP {str(enabled).lower()} TIMEOUT 0')
+        env = Env(moduleArgs=f'WORKERS 1 DOC_KEY_MAP {str(enabled).lower()} TIMEOUT 0')
         skipIfNoEnableAssert(env)
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC',
                    'SORTABLE', 'NOINDEX').ok()
@@ -51,10 +51,10 @@ def test_inkeys_resolves_after_queued_reindex():
         env.stop()
 
 
-def test_inkeys_map_lifecycle():
+def test_doc_key_map_lifecycle():
     """The optional map follows initial scans, updates, rename, deletion and reload."""
     # Each shard must maintain its own opt-in table, including during an initial scan.
-    env = Env(moduleArgs='WORKERS 1 INKEYS_LOOKUP_MAP true')
+    env = Env(moduleArgs='WORKERS 1 DOC_KEY_MAP true')
     conn = getConnectionByEnv(env)
     key = '{doc}:a'
     renamed = '{doc}:b'
@@ -95,16 +95,16 @@ def test_inkeys_map_lifecycle():
     waitForIndex(env, 'idx')
     conn.execute_command('PEXPIREAT', key, 1)
     env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 1, key, 'NOCONTENT').equal([0])
-    env.expect('CONFIG', 'SET', 'search-inkeys-lookup-map', 'no').error().contains('immutable')
+    env.expect('CONFIG', 'SET', 'search-doc-key-map', 'no').error().contains('immutable')
     env.stop()
 
 
 @skip(cluster=True)
-def test_inkeys_map_memory_and_inline():
+def test_doc_key_map_memory_and_inline():
     """Disabled acceleration allocates no map; inline execution uses enabled maps."""
     for enabled in (False, True):
         # WORKERS 0 also exercises resolution without a thread-safe context lock.
-        env = Env(moduleArgs=f'WORKERS 0 INKEYS_LOOKUP_MAP {str(enabled).lower()}')
+        env = Env(moduleArgs=f'WORKERS 0 DOC_KEY_MAP {str(enabled).lower()}')
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
         env.cmd('HSET', 'doc', 't', 'hello')
         env.expect('FT.SEARCH', 'idx', 'hello', 'INKEYS', 1, 'doc',
@@ -127,7 +127,7 @@ def test_inkeys_timeout_before_resolution():
 
     for enabled in (False, True):
         for policy in ('fail', 'return-strict'):
-            env = Env(moduleArgs=f'WORKERS 1 INKEYS_LOOKUP_MAP {str(enabled).lower()} TIMEOUT 0')
+            env = Env(moduleArgs=f'WORKERS 1 DOC_KEY_MAP {str(enabled).lower()} TIMEOUT 0')
             skipIfNoEnableAssert(env)
             env.cmd('FLUSHALL')
             env.expect('CONFIG', 'SET', 'search-on-timeout', policy).ok()
