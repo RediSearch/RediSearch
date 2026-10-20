@@ -57,13 +57,13 @@ class TestDebugCommands(object):
     def testDiskStatsRequiresDiskIndex(self):
         self.env.expect(debug_cmd(), 'DISK_STATS', 'idx').error().contains(
             'only supported on disk indexes')
-        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'stats').error().contains(
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'verbose').error().contains(
             'only supported on disk indexes')
-        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'other').error().contains('Expected STATS')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'other').error().contains('Expected VERBOSE')
         self.env.expect(debug_cmd(), 'DISK_STATS', 'invalid_idx').error().contains(
             'Can not create a search ctx')
         self.env.expect(debug_cmd(), 'DISK_STATS').error().contains('wrong number of arguments')
-        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'STATS', 'extra').error().contains(
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'VERBOSE', 'extra').error().contains(
             'wrong number of arguments')
 
     def testDebugHelp(self):

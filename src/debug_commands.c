@@ -3845,9 +3845,9 @@ DEBUG_COMMAND(NumericBucketMap) {
   return REDISMODULE_OK;
 }
 
-// FT.DEBUG DISK_STATS <index> [STATS]
+// FT.DEBUG DISK_STATS <index> [VERBOSE]
 // Storage-engine level and block-cache stats for every column family of a disk
-// index. STATS appends the sections shared by every index, so callers pass it
+// index. VERBOSE appends the sections shared by every index, so callers pass it
 // for one index per shard.
 DEBUG_COMMAND(DiskStats) {
   if (!debugCommandsEnabled(ctx)) {
@@ -3858,8 +3858,8 @@ DEBUG_COMMAND(DiskStats) {
   }
   bool withStatistics = false;
   if (argc == 4) {
-    if (strcasecmp(RedisModule_StringPtrLen(argv[3], NULL), "STATS")) {
-      return RedisModule_ReplyWithError(ctx, "Expected STATS");
+    if (strcasecmp(RedisModule_StringPtrLen(argv[3], NULL), "VERBOSE")) {
+      return RedisModule_ReplyWithError(ctx, "Expected VERBOSE");
     }
     withStatistics = true;
   }

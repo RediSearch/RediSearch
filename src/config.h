@@ -248,6 +248,7 @@ typedef struct {
   // are intentionally not coupled to any Flex bigredis-driver settings.
   bool diskDropReadCache;
   bool diskUseDirectReads;
+  // Collect storage-engine statistics for disk indexes, reported by FT.DEBUG DISK_STATS.
   // Load-time only: statistics must be attached before each index database opens.
   bool diskStatistics;
   // Per-DB SpeedB open-file cap, and the per-index cost charged against the process-wide file-descriptor reservation

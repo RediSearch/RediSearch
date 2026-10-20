@@ -1579,6 +1579,7 @@ CONFIG_BOOLEAN_GETTER(getDiskUseDirectReads, diskUseDirectReads, 0)
 
 // Legacy module-ARGS setter for search-_disk-statistics, so it can be set at
 // load time alongside the other module arguments.
+// TODO: remove together with setDiskDropReadCache.
 CONFIG_SETTER(setDiskStatistics) {
   const char *tf;
   int acrc = AC_GetString(ac, &tf, NULL, 0);
