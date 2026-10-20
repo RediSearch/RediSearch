@@ -79,8 +79,10 @@ extension of this plan.
 
 ## Table representation and ownership
 
-Use hashbrown HashTable behind a narrow Rust/C interface. Each table uses a
-standard-library RandomState seed and SipHash; no custom probing algorithm is needed.
+Use hashbrown HashTable behind a narrow Rust/C interface. Each table uses
+`ahash::RandomState` with a private randomized seed; no custom probing algorithm is needed.
+The [paired hasher benchmark](doc-key-map-hasher-benchmarks.md) records the comparison
+with the original standard-library SipHash choice and its scope limits.
 
 Each occupied bucket stores:
 

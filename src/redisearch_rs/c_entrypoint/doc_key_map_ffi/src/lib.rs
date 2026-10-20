@@ -9,8 +9,9 @@
 
 //! Key-to-document-ID lookup without owning another copy of document keys.
 
+use ahash::RandomState;
 use hashbrown::HashTable;
-use std::{collections::hash_map::RandomState, ffi::c_void, hash::BuildHasher, slice};
+use std::{ffi::c_void, slice};
 
 /// A candidate whose key remains owned by the document table.
 struct Entry {
