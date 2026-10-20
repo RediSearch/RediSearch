@@ -83,11 +83,13 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
 }
 
 /* Lowers `str` up to its first decoded NUL, writing at most `cap` runes to
- * `out`, and returns the full lowered length. Sizing and filling both go
- * through here so the buffer always fits what is written to it. */
+ * `out`, and returns the lowered length. Once that length exceeds
+ * MAX_RUNE_STR_LEN it stops early and returns a value above the limit, so a
+ * caller that rejects such strings never walks the rest. Sizing and filling
+ * both go through here so the buffer always fits what is written to it. */
 static size_t lowerRunes(const char *str, const char *end, rune *out, size_t cap) {
   size_t n = 0;
-  for (const char *p = str; p < end;) {
+  for (const char *p = str; p < end && n <= MAX_RUNE_STR_LEN;) {
     uint32_t codepoint;
     p = utf8ReadBounded(p, end, &codepoint);
     if (codepoint == 0) {
