@@ -84,6 +84,9 @@ DocTable NewDocTable(size_t cap, size_t max_size);
 /* Caller holds the spec read or write lock and keyMap is enabled. */
 t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len);
 
+/* Caller holds the spec read or write lock, pinning the DMD and its key. */
+bool DocTable_KeyEquals(const DocTable *t, t_docId id, const char *key, size_t len);
+
 /* Key-map allocation, including unused capacity; zero when disabled. */
 size_t DocTable_KeyMapMemoryUsage(const DocTable *t);
 

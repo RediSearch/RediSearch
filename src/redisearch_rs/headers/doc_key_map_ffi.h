@@ -23,19 +23,6 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Resolve a hash with full-key comparison through the document table.
- *
- * # Safety
- * `map` must be [valid] for shared access throughout the call. `matches` must
- * be [ABI-compatible] with [`DocKeyMatches`] and callable with `ctx` for
- * each candidate ID. The callback must not mutate the table or its candidates.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- * [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
- */
-uint64_t DocKeyMap_Find(const struct DocKeyMap *map, uint64_t hash, const void *ctx, DocKeyMatches matches);
-
-/**
  * Destroy a table; a null pointer is accepted.
  *
  * # Safety
@@ -45,6 +32,20 @@ uint64_t DocKeyMap_Find(const struct DocKeyMap *map, uint64_t hash, const void *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void DocKeyMap_Free(struct DocKeyMap *map);
+
+/**
+ * Resolve a borrowed key with full-key comparison through the document table.
+ *
+ * # Safety
+ * `map` must be [valid] for shared access throughout the call. `key` must be
+ * [valid] for `len` readable bytes, or may be null when `len` is zero. `matches` must
+ * be [ABI-compatible] with [`DocKeyMatches`] and callable with `ctx` for
+ * each candidate ID. The callback must not mutate the table or its candidates.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ * [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
+ */
+uint64_t DocKeyMap_GetId(const struct DocKeyMap *map, const uint8_t *key, size_t len, const void *ctx, DocKeyMatches matches);
 
 /**
  * Hash borrowed key bytes; no key storage is retained.

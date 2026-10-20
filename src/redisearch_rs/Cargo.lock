@@ -1908,6 +1908,7 @@ dependencies = [
  "build_utils",
  "c_trie",
  "dict",
+ "doc_key_map_ffi",
  "fat_array",
  "ffi",
  "field",
