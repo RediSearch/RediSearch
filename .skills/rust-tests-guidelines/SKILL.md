@@ -31,6 +31,8 @@ Guidelines for writing new tests for Rust code.
    `#[cfg(test)]` module. Integration tests cannot reach `pub(crate)` or private items,
    so this is the only option for them — but prefer exercising the behavior through the
    public API where you can, per guideline 2 above.
+3. Making an item `pub` solely so integration tests can reach it is acceptable. We own
+   both the crate and its callers, so visibility hygiene is not worth a review round.
 
 ## Dealing with extern C symbols
 

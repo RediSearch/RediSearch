@@ -9,13 +9,8 @@ import json
 
 from common import *
 
-
-def get_internal_id(env, key, idx='idx'):
-    # internal_id is the primary observable for this feature: a document whose newly added
-    # fields are all absent keeps its id (skipped), while a full reindex always goes through
-    # the REPLACE path, which deletes the old doc-table entry and mints a new, larger id.
-    docinfo = to_dict(env.cmd(debug_cmd(), 'DOCINFO', idx, key, 'REVEAL'))
-    return docinfo['internal_id']
+# get_internal_id (common.py) is the primary observable for this feature: a document whose
+# newly added fields are all absent keeps its id (skipped), while a reindexed one gets a new id.
 
 
 @skip(cluster=True)

@@ -12,7 +12,6 @@
 #include <string.h>
 
 #include "redismodule.h"
-#include "sortable.h"
 #include "sorting_vector_ffi.h"
 #include "rmalloc.h"
 #include "spec.h"
@@ -197,7 +196,7 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
     return 0;
   }
 
-  RS_LOG_ASSERT(RSSortingVector_Length(&v), "Sorting vector does not exist");  // tested in doAssignIds()
+  RS_LOG_ASSERT(RSSortingVector_Length(&v), "Sorting vector does not exist");  // tested in assignDocId()
 
   /* Set the new vector and the flags accordingly */
   dmd->sortVector = v;
@@ -460,6 +459,12 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     t->maxSize = MIN(RSGlobalConfig.maxDocTableSize, t->maxDocId);
   }
 
+  if (t->size > 1 && t->maxSize == 0) {
+    RedisModule_LogIOError(rdb, "warning",
+                           "DocTable_LegacyRdbLoad: non-empty table has zero capacity");
+    return REDISMODULE_ERR;
+  }
+
   if (t->maxDocId > t->maxSize) {
     /**
      * If the maximum doc id is greater than the maximum cap size
@@ -522,13 +527,24 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
         dmd->payload->data = buf;
         dmd->payload->len--;
         t->memsize += dmd->payload->len + sizeof(RSPayload);
-      } else if ((dmd->flags & Document_Deleted) && (encver == INDEX_MIN_EXPIRE_VERSION)) {
-        RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
+      } else {
+        // A deleted doc's payload is not loaded, so its flag must not tell DMD_Free there is one.
+        dmd->flags &= ~Document_HasPayload;
+        if (encver == INDEX_MIN_EXPIRE_VERSION) {
+          RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
+        }
       }
     }
     dmd->sortVector = RSSortingVector_Empty();
     if (dmd->flags & Document_HasSortVector) {
-      dmd->sortVector = SortingVector_RdbLoad(rdb);
+      dmd->sortVector = RSSortingVector_LegacyRdbLoad(rdb);
+      // A failed read leaves the stream unusable; the reads below would consume garbage.
+      if (RedisModule_IsIOError(rdb)) {
+        RedisModule_LogIOError(rdb, "warning",
+                               "DocTable_LegacyRdbLoad: IO error while loading document %zu", i);
+        DMD_Free(dmd);
+        return REDISMODULE_ERR;
+      }
       t->sortablesSize += RSSortingVector_GetMemorySize(&dmd->sortVector);
     }
 
@@ -539,6 +555,13 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       dmd->byteOffsets = LoadByteOffsets(bufTmp);
       rm_free(bufTmp);
       RedisModule_Free(tmp);
+      if (!dmd->byteOffsets) {
+        RedisModule_LogIOError(rdb, "warning",
+                               "DocTable_LegacyRdbLoad: truncated byte offsets for doc id %llu",
+                               (unsigned long long)dmd->id);
+        DMD_Free(dmd);
+        return REDISMODULE_ERR;
+      }
     }
 
     if (dmd->flags & Document_Deleted) {

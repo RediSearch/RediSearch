@@ -17,6 +17,7 @@
 
 #include "config.h"
 #include "query_error.h"
+#include "rmutil/rm_assert.h"
 #include "util/dllist.h"
 #include "util/rs_atomic.h"
 
@@ -135,12 +136,12 @@ typedef enum {
  *
  * Init selects no active source. Each execution cycle selects exactly one
  * source with BeginCycle, and Reset returns the state to UNARMED between
- * cycles. Cursor reads reuse this object, so policy and timeoutMS remain sticky
+ * cycles. Cursor reads reuse the owning request configuration
  * while the source union is reinitialized for each read.
  *
  * Threading contract:
  *
- * - Init, UpdateConfig, Reset, BeginCycle, and GetClockDeadlineForUpdate require
+ * - Init, Reset, BeginCycle, configuration changes, and GetClockDeadlineForUpdate require
  *   exclusive access. They must run before the request is published or between
  *   execution cycles, after all consumers of the previous cycle have stopped.
  * - kind is immutable during a cycle. Only the union member selected by kind
@@ -156,9 +157,7 @@ typedef enum {
  * pointer, and foreign-language handle borrowed from this object.
  */
 typedef struct QueryRequestTimeout {
-  // Stable configuration retained across cursor execution cycles.
-  long long timeoutMS;
-  RSTimeoutPolicy policy;
+  TimeoutConfig config;
 
   // The active source is changed only between execution cycles, while no
   // consumer can observe the union.
@@ -173,15 +172,8 @@ typedef struct QueryRequestTimeout {
   } source;
 } QueryRequestTimeout;
 
-/** Initializes timeout as UNARMED with the supplied sticky configuration. */
-void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
-                              long long timeoutMS);
-/**
- * Updates sticky configuration without changing or rearming the active cycle.
- * The new timeoutMS is used when a later clock cycle begins.
- */
-void QueryRequestTimeout_UpdateConfig(QueryRequestTimeout *timeout, RSTimeoutPolicy policy,
-                                      long long timeoutMS);
+/** Initializes timeout as UNARMED, copying config into owned storage. */
+void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const TimeoutConfig *config);
 /**
  * Ends the current cycle by selecting UNARMED; sticky configuration and stale
  * union storage are retained.
@@ -191,8 +183,8 @@ void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout);
  * Starts a cycle using kind as its timeout source.
  *
  * BLOCKED_CLIENT clears the atomic marker. CLOCK_DEADLINE derives a new
- * deadline from the sticky timeoutMS and resets the shared counter; a zero
- * timeoutMS leaves the state UNARMED. RETURN_STRICT must be downgraded by the
+ * deadline from config.queryTimeoutMS and resets the shared counter; a zero
+ * timeout leaves the state UNARMED. RETURN_STRICT must be downgraded by the
  * consumer before selecting CLOCK_DEADLINE because it requires the
  * blocked-client callback.
  */
@@ -330,20 +322,25 @@ void QueryRequestAsyncState_WakeAbortChannel(QueryRequestAsyncState *state);
  * last touch, and OnFree only runs after that. */
 typedef struct QueryRequest {
   QueryRequestKind kind;
+  // Snapshot of defaults plus parsed overrides, retained across cursor reads.
+  RequestConfig reqConfig;
+  CursorConfig cursorConfig;
   QueryRequestArgs args;
   /* A blocked-client cycle is one initial query execution or cursor read.
    * This is set after RedisModule_BlockClient returns and cleared by OnFree;
    * per-cycle state must not be read while it is false. */
   bool blockedClientCycleActive;
+  // True: the Redis reply callback serializes stored results. False: the worker replies inline.
+  // Fixed by BeginCycle before dispatch and cleared by EndCycle before parking.
+  bool replyDeferred;
+  // Assertion-only accounting in padding; keep the C/Rust layout independent of build flags.
+  uint8_t inlineReplyCount;
   CursorInfo cursorInfo;
   RegistryInfo registryInfo;
   /* Stored results and errors written by BG before UnblockClient and consumed
    * by the main-thread reply or timeout callback. Reset at the end of each
    * cycle and again during request destruction as a safety net. */
   ChunkReplyState reply;
-  /* false: BG replies inline through a thread-safe context; true: BG stores
-   * results and the Redis reply callback serializes them on the main thread. */
-  bool useReplyCallback;
   QueryRequestTimeout timeout;
   QueryRequestAsyncState async;
   /**
@@ -375,12 +372,22 @@ static inline ResultProcessor *QueryRequest_GetEndProc(const QueryRequest *reque
 }
 
 static inline bool QueryRequest_UsesReplyCallback(const QueryRequest *request) {
-  return request->useReplyCallback;
+  return request->replyDeferred;
 }
 
-static inline void QueryRequest_SetUseReplyCallback(QueryRequest *request, bool useReplyCallback) {
-  request->useReplyCallback = useReplyCallback;
+/* Record one complete inline response for a blocked cycle, including errors.
+ * Foreground execution has no OnFree and is not counted. */
+#ifdef ENABLE_ASSERT
+static inline void QueryRequest_RecordInlineReply(QueryRequest *request) {
+  if (request->blockedClientCycleActive) {
+    RS_ASSERT(!QueryRequest_UsesReplyCallback(request));
+    RS_ASSERT(request->inlineReplyCount == 0);
+    ++request->inlineReplyCount;
+  }
 }
+#else
+#define QueryRequest_RecordInlineReply(request) ((void)0)
+#endif
 
 static inline int QueryRequest_GetExecutionPhase(const QueryRequest *request) {
   return QueryRequestAsyncState_GetExecutionPhase(&request->async);
@@ -395,9 +402,9 @@ static inline void QueryRequest_SetExecutionPhase(QueryRequest *request, int pha
   }
 }
 
-void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind,
-                       const RequestConfig *requestConfig, RedisModuleString **argv,
-                       uint32_t argc);
+/** Copies request and timeout defaults into request-owned storage before retaining command arguments. */
+void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, const RequestConfig *requestConfig,
+                       const TimeoutConfig *timeoutConfig, RedisModuleString **argv, uint32_t argc);
 void QueryRequest_ResetReply(QueryRequest *request);
 void QueryRequest_Destroy(QueryRequest *request);
 

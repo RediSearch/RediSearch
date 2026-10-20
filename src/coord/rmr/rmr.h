@@ -206,6 +206,9 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold);
 
 MRReply *MRIterator_Next(MRIterator *it);
 
+// Return the next queued reply, or NULL without waiting for more replies.
+MRReply *MRIterator_TryNext(MRIterator *it);
+
 /* Get next reply, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or
  * abort flag (pair with MRChannel_WakeAbort). `timedOut` set if deadline expired.
  * At least one of `abstime` / `abortFlag` must be non-NULL; for an indefinite
@@ -224,6 +227,10 @@ struct MRChannel *MRIterator_GetChannel(MRIterator *it);
  * can arrive on the IO thread. Pair every MR_CreateIterator with
  * MR_StartIterator. */
 MRIterator *MR_CreateIterator(const MRCommand *cmd, const MRIteratorConfig *config);
+
+/* Like MR_CreateIterator, but takes over `cmd`'s allocations instead of copying them, leaving
+ * `*cmd` empty. */
+MRIterator *MR_CreateIteratorTakingCmd(MRCommand *cmd, const MRIteratorConfig *config);
 
 /* Schedule the iterator's start callback on its IO runtime, kicking off the
  * fan-out to the shards. After this call replies may arrive at any time on the

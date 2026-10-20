@@ -116,6 +116,12 @@ runs:
         EXTRA=()
         if [[ "$BUILD_TLS" == "true" ]]; then
           EXTRA+=("BUILD_TLS=yes")
+          # Redis's Makefile defaults to Homebrew's unversioned `opt/openssl`,
+          # whose major version moves under us. Build against the openssl@4
+          # that .install/macos.sh installs (see the reason there).
+          if [[ "$(uname -s)" == "Darwin" ]]; then
+            EXTRA+=("OPENSSL_PREFIX=$(brew --prefix openssl@4)")
+          fi
         fi
         if [[ "$COVERAGE" == "true" ]]; then
           EXTRA+=("REDIS_CFLAGS=-DCOVERAGE_TEST")

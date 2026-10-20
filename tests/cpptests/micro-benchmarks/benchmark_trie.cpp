@@ -13,6 +13,9 @@
 
 #include <array>
 #include <cstdint>
+#include <random>
+#include <set>
+#include <string>
 #include <vector>
 
 namespace {
@@ -130,6 +133,62 @@ void BM_TrieInsertWideNode(benchmark::State &state) {
   state.SetItemsProcessed(static_cast<int64_t>(state.iterations() * kBatchSize));
 }
 
+void AppendUtf8(std::string &out, uint32_t cp) {
+  if (cp < 0x80) {
+    out.push_back(static_cast<char>(cp));
+  } else if (cp < 0x800) {
+    out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+  } else {
+    out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+    out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+  }
+}
+
+// Distinct random words in lexicographic order, shaped like an index's terms trie
+// over web text: thousands of distinct first characters make the root very wide.
+// Deleted in the order the fork GC walks the trie.
+std::vector<std::string> MakeVocabulary(size_t count) {
+  constexpr uint32_t kFirstRuneBase = 0x100;
+  constexpr uint32_t kFirstRuneSpan = 0x3000;  // stays below the surrogate range
+  std::mt19937 rng(42);  // NOSONAR: fixed-seed benchmark input, not a security context
+  std::set<std::string> words;
+  while (words.size() < count) {
+    std::string word;
+    AppendUtf8(word, kFirstRuneBase + rng() % kFirstRuneSpan);
+    for (size_t len = 2 + rng() % 8; len > 0; len--) {
+      word.push_back(static_cast<char>('a' + rng() % 26));
+    }
+    words.insert(word);
+  }
+  return {words.begin(), words.end()};
+}
+
+void BM_TrieDeleteLexVocabulary(benchmark::State &state) {
+  RMCK::init();
+  const std::vector<std::string> words = MakeVocabulary(static_cast<size_t>(state.range(0)));
+
+  for (auto _ : state) {
+    state.PauseTiming();
+    Trie *trie = NewTrie(nullptr, Trie_Sort_Lex);
+    for (const std::string &word : words) {
+      Trie_InsertStringBuffer(trie, word.data(), word.size(), 1, 1, nullptr, 1);
+    }
+    state.ResumeTiming();
+
+    for (const std::string &word : words) {
+      benchmark::DoNotOptimize(Trie_Delete(trie, word.data(), word.size()));
+    }
+
+    state.PauseTiming();
+    TrieType_Free(trie);
+    state.ResumeTiming();
+  }
+
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations() * words.size()));
+}
+
 }  // namespace
 
 BENCHMARK(BM_TrieLookupWideNode)
@@ -150,5 +209,12 @@ BENCHMARK(BM_TrieInsertWideNode)
     ->Arg(16)
     ->Arg(64)
     ->Arg(128);
+
+BENCHMARK(BM_TrieDeleteLexVocabulary)
+    ->Name("DeleteLexVocabulary")
+    ->ArgName("words")
+    ->Arg(100000)
+    ->Arg(1000000)
+    ->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();

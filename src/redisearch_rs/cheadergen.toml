@@ -389,6 +389,7 @@ includes = ["redisearch.h", "score_explain.h"]
 includes = ["redismodule.h"]
 
 [header.sorting_vector_ffi]
+includes = ["redismodule.h"]
 trailer = """
 #ifdef __cplusplus
 extern \"C\" {

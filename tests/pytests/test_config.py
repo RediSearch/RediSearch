@@ -369,6 +369,10 @@ def testImmutable(env):
 
 workers_default = min(MAX_WORKER_THREADS, os.cpu_count())
 min_operation_workers_default = 4
+min_maintenance_workers_default = '1'
+
+def _min_maintenance_workers(env):
+    return env.cmd('CONFIG', 'GET', 'search-min-maintenance-workers')[1]
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_full():
@@ -380,6 +384,7 @@ def testDeprecatedMTConfig_full():
     # Check new config values
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', workers]])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', str(min_operation_workers_default)]])
+    env.assertEqual(_min_maintenance_workers(env), min_maintenance_workers_default)
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_operations():
@@ -396,16 +401,47 @@ def testDeprecatedMTConfig_operations():
     else:
         env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', str(workers_default)]])
         env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', workers]])
+    env.assertEqual(_min_maintenance_workers(env), min_maintenance_workers_default)
 
 @skip(cluster=True)
 def testDeprecatedMTConfig_off():
-    env = Env(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_OFF', noDefaultModuleArgs=True)
+    env = Env(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_OFF', noDefaultModuleArgs=True,
+              enableDebugCommand=True)
     # Check old config values
     env.expect(config_cmd(), 'get', 'WORKER_THREADS').equal([['WORKER_THREADS', '0']])
     env.expect(config_cmd(), 'get', 'MT_MODE').equal([['MT_MODE', 'MT_MODE_OFF']])
     # Check new config values. Both are 0 due to explicit configuration
     env.expect(config_cmd(), 'get', 'WORKERS').equal([['WORKERS', '0']])
     env.expect(config_cmd(), 'get', 'MIN_OPERATION_WORKERS').equal([['MIN_OPERATION_WORKERS', '0']])
+    env.assertEqual(_min_maintenance_workers(env), min_maintenance_workers_default)
+    env.assertEqual(getWorkersThpoolNumThreads(env), int(min_maintenance_workers_default))
+
+@skip(cluster=True)
+def testDeprecatedMTConfig_off_without_maintenance_workers():
+    env = Env(moduleArgs='WORKER_THREADS 0 MT_MODE MT_MODE_OFF', noDefaultModuleArgs=True,
+              enableDebugCommand=True, redisConfigFile=min_maintenance_workers_conf(0))
+    env.assertEqual(_min_maintenance_workers(env), '0')
+    # The pool is empty from startup, so vector deletes repair the graph in place.
+    env.assertEqual(getWorkersThpoolNumThreads(env), 0)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', 2,
+               'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(10):
+        conn.hset(f'doc:{i}', 'v', create_np_array_typed([i, i]).tobytes())
+    conn.delete('doc:0')
+    backend = to_dict(get_vecsim_debug_dict(env, 'idx', 'v')['BACKEND_INDEX'])
+    env.assertEqual(backend['NUMBER_OF_MARKED_DELETED'], 0)
+    env.assertEqual(backend['INDEX_LABEL_COUNT'], 9)
+    env.assertEqual(getWorkersThpoolStats(env)['totalJobsDone'], 0)
+
+@skip(cluster=True)
+def testDeprecatedMTConfig_explicit_min_maintenance_workers():
+    for mode in ['MT_MODE_OFF', 'MT_MODE_ONLY_ON_OPERATIONS', 'MT_MODE_FULL']:
+        workers = 0 if mode == 'MT_MODE_OFF' else 3
+        env = Env(moduleArgs=f'WORKER_THREADS {workers} MT_MODE {mode}', noDefaultModuleArgs=True,
+                  redisConfigFile=min_maintenance_workers_conf(2))
+        env.assertEqual(_min_maintenance_workers(env), '2', message=mode)
+        env.stop()
 
 # Check invalid combination
 @skip(cluster=True)
@@ -595,7 +631,7 @@ numericConfigs = [
     # configName, ftConfigName, defaultValue, minValue, maxValue, immutable, clusterConfig
     ('search-_numeric-ranges-parents', '_NUMERIC_RANGES_PARENTS', 0, 0, 2, False, False),
     ('search-bg-index-sleep-gap', 'BG_INDEX_SLEEP_GAP', 100, 1, UINT32_MAX, True, False),
-    ('search-cursor-max-idle', 'CURSOR_MAX_IDLE', 300000, 1, LLONG_MAX, False, False),
+    ('search-cursor-max-idle', 'CURSOR_MAX_IDLE', 300000, 1, UINT32_MAX, False, False),
     ('search-default-dialect', 'DEFAULT_DIALECT', 1, 1, 4, False, False),
     ('search-fork-gc-clean-threshold', 'FORK_GC_CLEAN_THRESHOLD', 100, 0, LLONG_MAX, False, False),
     ('search-fork-gc-retry-interval', 'FORK_GC_RETRY_INTERVAL', 5, 1, LLONG_MAX, False, False),
@@ -638,6 +674,7 @@ numericConfigs = [
 # Configs whose backing type narrowed from long long to uint32_t. Values above
 # UINT32_MAX are accepted but clamped (for backwards compatibility with persisted settings).
 CLAMPED_CONFIGS = {
+    'search-cursor-max-idle': UINT32_MAX,
     'search-max-prefix-expansions': UINT32_MAX,
     'search-min-prefix': UINT32_MAX,
     'search-union-iterator-heap': UINT32_MAX,
@@ -655,6 +692,26 @@ SENTINEL_TRANSLATED_CONFIGS = {
     'search-max-search-results': MAX_SEARCH_REQUEST_RESULTS,
     'search-max-aggregate-results': MAX_AGGREGATE_REQUEST_RESULTS,
 }
+
+@skip(cluster=True, redis_less_than='7.9.227')
+def test_cursor_max_idle_clamping(env):
+    """Both config interfaces saturate large inputs without changing adjacent cursor defaults."""
+    name = 'search-cursor-max-idle'
+    original = env.cmd('CONFIG', 'GET', name)[1]
+    read_size = env.cmd('INFO', 'MODULES')['search_cursor_read_size']
+    try:
+        for command in [('CONFIG', 'SET', name), (config_cmd(), 'SET', 'CURSOR_MAX_IDLE')]:
+            for value in [1, UINT32_MAX, UINT32_MAX + 1, LLONG_MAX]:
+                env.expect(*command, value).ok()
+                expected = str(min(value, UINT32_MAX))
+                env.expect('CONFIG', 'GET', name).equal([name, expected])
+                env.expect(config_cmd(), 'GET', 'CURSOR_MAX_IDLE').equal([['CURSOR_MAX_IDLE', expected]])
+                env.assertEqual(env.cmd('INFO', 'MODULES')['search_cursor_read_size'], read_size)
+            for value in [0, -1, LLONG_MAX + 1, 'invalid']:
+                env.expect(*command, value).error()
+                env.expect('CONFIG', 'GET', name).equal([name, str(UINT32_MAX)])
+    finally:
+        env.expect('CONFIG', 'SET', name, original).ok()
 
 @skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeNumericParams():
@@ -1664,6 +1721,7 @@ booleanConfigs = [
 configOnlyBooleanConfigs = [
     # configName, defaultValue
     ('search-_info-on-zero-indexes', 'no'),
+    ('search-internal-resp-schema', 'no'),
 ]
 
 @skip(redis_less_than='7.9.227')
@@ -1734,6 +1792,34 @@ def testConfigAPIConfigOnlyBooleanParams():
         # Invalid values should fail
         env.expect('CONFIG', 'SET', configName, 'invalid_boolean').error()\
             .contains('CONFIG SET failed')
+
+# CONFIG-only numeric parameters (no corresponding FT.CONFIG parameter / module argument)
+configOnlyNumericConfigs = [
+    # configName, defaultValue, minValue, maxValue, legacyName
+    ('search-min-maintenance-workers', 1, 0, MAX_WORKER_THREADS, 'MIN_MAINTENANCE_WORKERS'),
+]
+
+@skip(redis_less_than='7.9.227')
+def testConfigAPIConfigOnlyNumericParams():
+    env = Env(noDefaultModuleArgs=True)
+
+    if env.isCluster():
+        conn = env.getOSSMasterNodesConnectionList()[0]
+        cmd = conn.execute_command
+    else:
+        cmd = env.cmd
+
+    for configName, defaultValue, minValue, maxValue, legacyName in configOnlyNumericConfigs:
+        env.assertEqual(cmd('CONFIG', 'GET', configName), [configName, str(defaultValue)])
+        for val in [minValue, maxValue, defaultValue]:
+            env.assertEqual(cmd('CONFIG', 'SET', configName, val), 'OK')
+            env.assertEqual(cmd('CONFIG', 'GET', configName), [configName, str(val)])
+
+        for val in [minValue - 1, maxValue + 1]:
+            env.expect('CONFIG', 'SET', configName, val).error().contains('CONFIG SET failed')
+
+        env.expect(config_cmd(), 'GET', legacyName).equal([])
+        env.expect(config_cmd(), 'SET', legacyName, defaultValue).error().contains('Invalid option')
 
 def _testModuleLoadexBooleanParam(configName, argName, defaultValue, isFlag):
     """Run the MODULE LOADEX scenarios for a single boolean config."""
@@ -2359,19 +2445,19 @@ def test_flex_disk_resource_config_startup_boundaries():
             'search-disk-memory-limit-percentage': '1',
             'search-disk-write-buffer-min-percentage': '1',
             'search-disk-write-buffer-per-index-mb': '1',
-            'search-disk-max-open-files': '20',
+            'search-disk-max-open-files': '138',
         },
         {
             'search-disk-memory-limit-percentage': '60',
             'search-disk-write-buffer-min-percentage': '20',
             'search-disk-write-buffer-per-index-mb': '2',
-            'search-disk-max-open-files': '21',
+            'search-disk-max-open-files': '139',
         },
         {
             'search-disk-memory-limit-percentage': '99',
             'search-disk-write-buffer-min-percentage': '99',
             'search-disk-write-buffer-per-index-mb': '3',
-            'search-disk-max-open-files': '22',
+            'search-disk-max-open-files': '140',
         },
         {
             'search-disk-memory-limit-percentage': '100',
@@ -2459,8 +2545,8 @@ def test_flex_disk_resource_config_startup_rejections():
             'search-disk-write-buffer-per-index-mb',
         ),
         (
-            (('search-disk-max-open-files', '19'),),
-            f'argument must be between 20 and {INT_MAX} inclusive',
+            (('search-disk-max-open-files', '137'),),
+            f'argument must be between 138 and {INT_MAX} inclusive',
             'search-disk-max-open-files',
         ),
         (

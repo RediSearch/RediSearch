@@ -10,6 +10,7 @@
 #include "gtest/gtest.h"
 #include "aggregate/aggregate.h"
 #include "hybrid/hybrid_request.h"
+#include "hybrid/hybrid_exec.h"
 #include "redismock/util.h"
 
 class HybridRequestBasicTest : public ::testing::Test {};
@@ -39,6 +40,14 @@ TEST_F(HybridRequestBasicTest, testHybridRequestCreationBasic) {
 
   // Verify the merge pipeline is initialized
   ASSERT_TRUE(hybridReq->tailPipeline->ap.steps.next != nullptr);
-  // Clean up
+  // Only the container owns result rows; subqueries retain their own error slots.
+  HREQ_StoreResults(hybridReq, nullptr, RS_RESULT_EOF, cachedVars{});
+  EXPECT_TRUE(hybridReq->base.reply.hasStoredResults);
+  EXPECT_EQ(hybridReq->base.reply.rc, RS_RESULT_EOF);
+  EXPECT_FALSE(req1->base.reply.hasStoredResults);
+  EXPECT_FALSE(req2->base.reply.hasStoredResults);
+  QueryRequest_ResetReply(&hybridReq->base);
+  EXPECT_FALSE(hybridReq->base.reply.hasStoredResults);
+  EXPECT_EQ(hybridReq->base.reply.results, nullptr);
   HybridRequest_Free(hybridReq);
 }

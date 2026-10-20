@@ -61,6 +61,7 @@ bool SearchDisk_RegisterBigModuleCallbacks(RedisModuleCtx *ctx);
 /**
  * @brief Close the search disk module
  */
+void SearchDisk_StopMetrics(void);
 void SearchDisk_Close(RedisModuleCtx *ctx);
 
 /**
@@ -75,13 +76,14 @@ void SearchDisk_UpdateLogObfuscation();
  * search-disk-max-open-files cap.
  *
  * Applies only to new index creation. On success, charges the FD cap immediately; call
- * SearchDisk_ReleaseCreateFailure if the index does not end up opening. Restore paths always
- * proceed and let the disk backend clamp shared write-buffer capacity and FD usage instead of
- * rejecting the index.
+ * SearchDisk_ReleaseCreateFailure if the index does not end up opening.
  *
  * @param status Receives the reason creation was rejected.
  */
 bool SearchDisk_CanCreateIndex(QueryError *status);
+
+/** Check memory and reserve FD headroom before opening or staging an RDB-restored disk index. */
+bool SearchDisk_CanRestoreIndex(QueryError *status);
 
 /**
  * @brief Undo the FD charge SearchDisk_CanCreateIndex applied, after a create attempt that it
@@ -437,6 +439,12 @@ RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *ind
  */
 void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
 
+/**
+ * @brief Number of snapshots created by `SearchDisk_CreateSnapshot` and not yet released
+ * by `SearchDisk_FreeSnapshot`, across all indexes.
+ */
+size_t SearchDisk_GetLiveSnapshotCount(void);
+
 // DocTable API wrappers
 
 /**
@@ -746,6 +754,9 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
  * 2) Read the per-component getters below
  */
 
+void SearchDisk_ActivateUsage(IndexSpec *spec);
+CachedIndexMetrics SearchDisk_ReadCachedIndexMetrics(RedisSearchDiskIndexSpec *index);
+
 /**
  * @brief Collect metrics for an index and store them in the disk context
  *
@@ -755,7 +766,7 @@ bool SearchDisk_BindVectorIndexStorage(RedisModuleCtx *ctx, RedisSearchDiskIndex
  * @param index Pointer to the index spec
  * @return The total memory used by this index's disk components
  */
-uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec* index);
+uint64_t SearchDisk_CollectIndexMetrics(RedisSearchDiskIndexSpec *index);
 
 /**
  * @brief Get doc table memory for a disk index

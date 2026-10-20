@@ -17,6 +17,16 @@ from test_blocked_client_timeout import wait_for_blocked_query_client
 # EnterpriseStandaloneEnvBase (not RLTest.Env) so this still gets enterprise
 # topology seeding (see common.py) when it defines its own Env subclass.
 class CrashingEnv(EnterpriseStandaloneEnvBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The crash report's memory test is Redis's, not what these tests
+        # assert on, and under ASan it produces sanitizer reports of its own:
+        # a stack-buffer-overflow from walking process memory maps, and an
+        # abort from joining the main thread when the crash is on another
+        # thread.
+        for conn in shardsConnections(self):
+            conn.execute_command('CONFIG', 'SET', 'crash-memcheck-enabled', 'no')
+
     def getEnvByName(self):
         env = super().getEnvByName()
         # In cluster mode only the first shard is crashed (the tests use it as
@@ -212,8 +222,8 @@ def _test_query_thread_crash(env):
     # A C crash stashes no Rust panic, so the bug report must not carry
     # Rust-panic fields.
     report_lines = bug_report_span(read_log_lines(log_path))
-    for field in ("search_panic_payload", "search_panic_location",
-                  "search_panic_recorded_at"):
+    for field in ("search_rust_backtrace", "search_panic_payload",
+                  "search_panic_location", "search_panic_recorded_at"):
         env.assertFalse(
             any(field in line for line in report_lines),
             message=f"{field} found in the bug report of a C crash",
@@ -247,6 +257,7 @@ def test_query_thread_crash_with_rust_panic():
             "search_index_properties_in_mb:",
             # The backtrace
             "# search_rust_backtrace",
+            "search_backtrace:",
         ],
         crash_in_rust=True,
         crash_report_only=True,
@@ -311,6 +322,10 @@ def test_query_thread_crash_with_rust_panic():
 
     # Verify Rust backtrace section is present
     env.assertIn("search_rust_backtrace", results["# search_rust_backtrace"])
+    env.assertTrue(
+        re.search(r"\d+:", results["search_backtrace:"]),
+        message="Rust panic backtrace is empty",
+    )
 
 
 def crash_main_thread(conn):

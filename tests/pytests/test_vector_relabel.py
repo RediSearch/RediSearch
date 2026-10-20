@@ -104,6 +104,92 @@ def _assert_doc_is_queryable(env, expected_title, expected_vector, index='idx'):
     # moved an entry holding the wrong vector.
     env.assertEqual(res['results'][0]['extra_attributes']['score'], '0')
 
+@skip(cluster=True)
+def test_vector_survives_repeated_numeric_updates():
+    """Repeated numeric-only updates must move, rather than re-add, every vector.
+
+    A whole cosine corpus is updated for several rounds after reaching the HNSW backend.
+    This catches cumulative label loss or swapping that a single-document, single-update
+    check can miss, while the operation counters distinguish relabeling from reindexing.
+    """
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    conn = env.getClusterConnectionIfNeeded()
+
+    num_docs = 200
+    update_rounds = 5
+    price_round_stride = 1000
+    knn_k = 10
+    ef_runtime = 2 * num_docs
+    dim = 8
+
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', 'vecupd:', 'SCHEMA',
+               'vector', 'VECTOR', 'HNSW', '12',
+               'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
+               'M', '16', 'EF_CONSTRUCTION', '200', 'EF_RUNTIME', ef_runtime,
+               'price', 'NUMERIC').ok()
+
+    # Doc i is at cosine distance i / num_docs from the base vector, so the expected
+    # nearest-neighbour order follows directly from the generated corpus.
+    vectors = []
+    for i in range(num_docs):
+        cosine_similarity = 1.0 - i / num_docs
+        vector = [cosine_similarity,
+                  math.sqrt(1.0 - cosine_similarity * cosine_similarity)] + [0.0] * (dim - 2)
+        vectors.append(create_np_array_typed(vector, 'FLOAT32').tobytes())
+
+    pipe = conn.pipeline(transaction=False)
+    for i, vector in enumerate(vectors):
+        pipe.execute_command('HSET', f'vecupd:{i}', 'vector', vector, 'price', i)
+    env.assertEqual(pipe.execute(), [2] * num_docs)
+
+    # Relabel the backend-resident entries. A frontend deletion is in-place and would not
+    # exercise the path this regression test exists to cover.
+    verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
+    env.assertEqual(_marked_deleted(env), 0)
+    ops_before = _vector_ops(env)
+
+    for round_num in range(1, update_rounds + 1):
+        pipe = conn.pipeline(transaction=False)
+        for i in range(num_docs):
+            pipe.execute_command('HSET', f'vecupd:{i}', 'price', round_num * price_round_stride + i)
+        env.assertEqual(pipe.execute(), [0] * num_docs, message=f'price update round {round_num}')
+
+    verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
+    indexing_after, relabel_after = _vector_ops(env)
+    indexing_before, relabel_before = ops_before
+    expected_relabels = num_docs * update_rounds
+    env.assertEqual(indexing_after, indexing_before,
+                    message='numeric-only updates re-added vectors instead of moving their labels')
+    env.assertEqual(relabel_after - relabel_before, expected_relabels)
+    env.assertEqual(_marked_deleted(env), 0,
+                    message='numeric-only updates left tombstoned vector entries')
+
+    def knn_ids(blob, k):
+        res = env.cmd(
+            'FT.SEARCH', 'idx',
+            f'*=>[KNN {k} @vector $blob EF_RUNTIME {ef_runtime} AS distance]',
+            'PARAMS', '2', 'blob', blob,
+            'SORTBY', 'distance', 'ASC', 'LIMIT', '0', k, 'NOCONTENT', 'DIALECT', '2')
+        env.assertEqual(res['total_results'], k, message=res)
+        ids = [row['id'] for row in res['results']]
+        env.assertEqual(len(ids), len(set(ids)), message=f'duplicate vector results: {ids}')
+        return ids
+
+    env.assertEqual(knn_ids(vectors[0], knn_k),
+                    [f'vecupd:{i}' for i in range(knn_k)])
+    env.assertEqual(set(knn_ids(vectors[0], num_docs)),
+                    {f'vecupd:{i}' for i in range(num_docs)})
+
+    for i in (0, 1, 7, 42, 99, 100, 150, num_docs - 1):
+        env.assertEqual(knn_ids(vectors[i], 1), [f'vecupd:{i}'],
+                        message=f'vecupd:{i} no longer owns its original vector')
+
+    lower = update_rounds * price_round_stride
+    upper = lower + 49
+    res = env.cmd('FT.SEARCH', 'idx', f'@price:[{lower} {upper}]', 'NOCONTENT')
+    env.assertEqual(res['total_results'], 50,
+                    message='the numeric index does not contain the final update round')
+
 def test_relabel_unchanged_vector_on_text_update():
     """A text-only update must move the existing vector entry, leaving no tombstone.
 

@@ -18,6 +18,12 @@ use thin_vec::ThinVec;
 use value::SharedValue;
 use value::shared::SHARED_VALUE_CONTENT_SIZE;
 
+mod legacy_rdb;
+
+/// The maximum length of an [`RSSortingVector`] created from C or loaded from a
+/// legacy RDB (see [`RSSortingVector::load_legacy_rdb`]).
+pub const RS_SORTABLES_MAX: usize = 1024;
+
 /// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.
 ///
 /// In case for debug builds, it contains the index and the length of the vector for better debugging but has zero size in release builds.

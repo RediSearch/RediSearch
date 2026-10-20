@@ -62,7 +62,11 @@ protected:
     }
   };
 
+  TimeoutConfig timeoutConfig = {};
+
   void SetUp() override {
+    timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+    timeoutConfig.queryTimeoutMS = 10000;
     // Initialize Redis contexts for all test variants (WithoutIndexLock and WithIndexLock)
     for (size_t i = 0; i < NumberOfContexts; ++i) {
       redisContexts[i] = RedisModule_GetThreadSafeContext(NULL);
@@ -90,7 +94,7 @@ protected:
     for (size_t i = 0; i < NumberOfContexts; ++i) {
       searchContexts[i] = SEARCH_CTX_STATIC(redisContexts[i], mockSpec);
       timeouts[i] = static_cast<QueryRequestTimeout *>(rm_calloc(1, sizeof(QueryRequestTimeout)));
-      QueryRequestTimeout_Init(timeouts[i], TimeoutPolicy_Return, 10000);
+      QueryRequestTimeout_Init(timeouts[i], &timeoutConfig);
       QueryRequestTimeout_BeginCycle(timeouts[i], QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
       searchContexts[i].timeout = timeouts[i];
     }
@@ -314,22 +318,34 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_MarkTimedOut) {
   depleter->Free(depleter);
 }
 
-// Both hybrid depleters deliberately share one context. The gate keeps their
-// read locks overlapping until the launcher's handoff has completed.
+// The gate exposes whether shared-context depleters prevent a writer from progressing.
 TEST_P(RPSafeDepleterTest, SharedContextOwnership) {
   if (!GetParam()) {
-    GTEST_SKIP() << "Requires spec locking";
+    QueryError error = QueryError_Default();
+    RMCK::ArgvList args(redisContexts[0], "FT.CREATE", "lock_free_depletion", "SKIPINITIALSCAN",
+                        "SCHEMA", "field1", "TEXT");
+    mockSpec = Indexes_CreateNewSpec(redisContexts[0], args, args.size(), &error);
+    ASSERT_NE(mockSpec, nullptr);
+    searchContexts[0].spec = mockSpec;
+    QueryError_ClearError(&error);
   }
   struct GatedUpstream : ResultProcessor {
     std::shared_future<void> gate;
     IndexSpec *spec;
+    bool expectLock;
+    std::promise<void> started;
+    bool signaled = false;
     bool yielded = false;
 
-    GatedUpstream(std::shared_future<void> gate, IndexSpec *spec)
-        : ResultProcessor{}, gate(gate), spec(spec) {
+    GatedUpstream(std::shared_future<void> gate, IndexSpec *spec, bool expectLock)
+        : ResultProcessor{}, gate(gate), spec(spec), expectLock(expectLock) {
       Next = [](ResultProcessor *base, SearchResult *result) -> int {
         auto *self = static_cast<GatedUpstream *>(base);
-        EXPECT_TRUE(IndexSpec_IsReadLocked(self->spec));
+        EXPECT_EQ(IndexSpec_IsReadLocked(self->spec), self->expectLock);
+        if (!self->signaled) {
+          self->started.set_value();
+          self->signaled = true;
+        }
         self->gate.wait();
         if (self->yielded) return RS_RESULT_EOF;
         self->yielded = true;
@@ -340,11 +356,13 @@ TEST_P(RPSafeDepleterTest, SharedContextOwnership) {
   };
   std::promise<void> release;
   auto gate = release.get_future().share();
-  GatedUpstream upstream1(gate, mockSpec), upstream2(gate, mockSpec);
+  GatedUpstream upstream1(gate, mockSpec, GetParam()), upstream2(gate, mockSpec, GetParam());
+  auto started1 = upstream1.started.get_future();
+  auto started2 = upstream2.started.get_future();
   QueryProcessingCtx qctx1{}, qctx2{};
   QueryError error = QueryError_Default();
   qctx1.err = qctx2.err = &error;
-  StrongRef sync = DepleterSync_New(2, true);
+  StrongRef sync = DepleterSync_New(2, GetParam());
   ResultProcessor *first =
       RPSafeDepleter_New(StrongRef_Clone(sync), &searchContexts[0], depleterPool);
   ResultProcessor *second = RPSafeDepleter_New(sync, &searchContexts[0], depleterPool);
@@ -356,11 +374,23 @@ TEST_P(RPSafeDepleterTest, SharedContextOwnership) {
   array_append(depleters, first);
   array_append(depleters, second);
 
-  IndexSpec_LockRead(mockSpec);
+  if (GetParam()) {
+    IndexSpec_LockRead(mockSpec);
+  }
   EXPECT_EQ(RPSafeDepleter_StartAll(depleters, &searchContexts[0], &error), RS_RESULT_OK);
+  started1.wait();
+  started2.wait();
   EXPECT_FALSE(IndexSpec_IsLocked(mockSpec));
-  EXPECT_EQ(mockSpec->keysDict->pauserehash, 2);
-  EXPECT_NE(pthread_rwlock_trywrlock(&mockSpec->rwlock), 0);
+  EXPECT_EQ(mockSpec->keysDict->pauserehash, GetParam() ? 2 : 0);
+  const int writerResult = pthread_rwlock_trywrlock(&mockSpec->rwlock);
+  if (GetParam()) {
+    EXPECT_NE(writerResult, 0);
+  } else {
+    EXPECT_EQ(writerResult, 0);
+  }
+  if (writerResult == 0) {
+    pthread_rwlock_unlock(&mockSpec->rwlock);
+  }
   release.set_value();
   RPSafeDepleter_JoinAll(depleters);
   EXPECT_EQ(mockSpec->keysDict->pauserehash, 0);

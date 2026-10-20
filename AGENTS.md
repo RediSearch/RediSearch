@@ -147,6 +147,8 @@ as production code.
   [/rust-tests-guidelines](.skills/rust-tests-guidelines/SKILL.md)
 - Use `#[expect(...)]` over `#[allow(...)]` for lint suppressions
 - Use `tracing` macros for logging (debug!, info!, warn!, error!)
+- Encode state in types: an enum, not a `bool`, for a two-way choice (`SumMode`, not
+  `average: bool`); one `Option<Struct>`, not two `Option`s that must be `Some` together
 
 ### Python
 
@@ -175,7 +177,7 @@ as production code.
 - `src/query.c` — query execution entry point
 - `src/query_optimizer.c` — query plan optimization
 - `src/query_parser/v2/` — Ragel lexer (`lexer.rl`) + Lemon parser (`parser.y`), used by DIALECT 2 onwards (v1 is legacy)
-- `src/iterators/` — iterator implementations (hybrid_reader, optimizer_reader)
+- `src/iterators/` — iterator implementations (optimizer_reader; vector top-k lives in `src/redisearch_rs/top_k/`)
 - `src/result_processor.c` — result processing pipeline
 - `src/numeric_filter.c` — numeric range filter iterators
 - `src/cursor.c` — cursor-based result pagination
@@ -381,6 +383,7 @@ Invoke [/investigate-flaky-test](.skills/investigate-flaky-test/SKILL.md) to inv
 Invoke [/check-flow-coverage](.skills/check-flow-coverage/SKILL.md) to check which source lines are not covered by Python flow tests.
 Invoke [/improve-flow-coverage](.skills/improve-flow-coverage/SKILL.md) to find and close flow test coverage gaps for C source files.
 Invoke [/verify](.skills/verify/SKILL.md) to verify the correctness of your work before wrapping up.
+Invoke [/drive-redisearch](.skills/drive-redisearch/SKILL.md) to run the built module in a live redis-server (standalone or cluster), drive it with `FT.*` commands, and capture evidence.
 Invoke [/build](.skills/build/SKILL.md) to compile and verify the build.
 Invoke [/lint](.skills/lint/SKILL.md) to check code quality and formatting.
 Invoke [/jj-fix-conflicts](.skills/jj-fix-conflicts/SKILL.md) to resolve conflicts in jj changes.

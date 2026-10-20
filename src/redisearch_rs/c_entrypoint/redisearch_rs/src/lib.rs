@@ -13,9 +13,13 @@
 //! It exposes an FFI module for each workspace crate that must be consumed (directly) by the C code.
 
 /// Registers the Redis module allocator as the global allocator for the application.
+///
+/// [`OverAligned`](over_aligned_alloc::OverAligned) serves the layouts the Redis
+/// allocator cannot align on its own.
 #[cfg(not(feature = "mock_allocator"))]
 #[global_allocator]
-static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
+static REDIS_MODULE_ALLOCATOR: over_aligned_alloc::OverAligned<redis_module::alloc::RedisAlloc> =
+    over_aligned_alloc::OverAligned(redis_module::alloc::RedisAlloc);
 
 pub use fnv_ffi as fnv;
 pub use fork_gc_ffi as fork_gc;
@@ -36,6 +40,7 @@ pub use search_result_ffi as search_result;
 pub use slots_tracker_ffi as slots_tracker;
 pub use sorting_vector_ffi as sorting_vector;
 pub use spellcheck_dictionary_ffi as spellcheck_dictionary;
+pub use string_utils_ffi as string_utils;
 pub use term_dictionary_ffi as term_dictionary;
 pub use term_suffix_index_ffi as term_suffix_index;
 pub use trie_rdb_ffi as trie_rdb;

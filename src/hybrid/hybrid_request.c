@@ -44,14 +44,48 @@
 extern "C" {
 #endif
 
+void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
+  // Profile output reads per-processor stats from the whole chain until the reply is sent.
+  if (IsProfile(req)) {
+    return;
+  }
+  for (size_t i = 0; i < req->nrequests; i++) {
+    AREQ *areq = req->requests[i];
+    RedisSearchCtx *sctx = AREQ_SearchCtx(areq);
+    if (!sctx->diskSnapshot) {
+      continue;
+    }
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
+    ResultProcessor *depleter = qctx->endProc;
+    RS_ASSERT(depleter && (depleter->type == RP_DEPLETER || depleter->type == RP_SAFE_DEPLETER));
+
+    // Free from the depleter upstream, as QITR_FreeChain does: the iterators and the async read
+    // pool they feed must be gone before the snapshot they read from is released.
+    ResultProcessor *rp = depleter->upstream;
+    while (rp) {
+      ResultProcessor *next = rp->upstream;
+      rp->Free(rp);
+      rp = next;
+    }
+    depleter->upstream = NULL;
+    qctx->rootProc = depleter;
+    SearchCtx_CleanUp(sctx);
+  }
+}
+
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
     StrongRef sync_ref = {0};
     int rc = REDISMODULE_OK;
     if (depleteInBackground) {
-      sync_ref = DepleterSync_New(req->nrequests, true);
+      sync_ref = DepleterSync_New(req->nrequests, !req->sctx->spec->diskSpec);
     }
+
+    // Each subquery takes its own disk snapshot below. They observe the same state only because
+    // the caller holds one spec read lock across this whole loop, so no write can land between
+    // two subqueries' snapshots.
+    RS_ASSERT(!req->sctx->spec->diskSpec || IndexSpec_IsReadLocked(req->sctx->spec));
 
     // Build individual pipelines for each search request
     for (size_t i = 0; i < req->nrequests; i++) {
@@ -301,11 +335,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  */
 void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
     RS_ASSERT(sctx);
-    // Snapshot the request's config; nothing may re-read RSGlobalConfig for
-    // the request's lifetime.
-    hybridReq->reqConfig = RSGlobalConfig.requestConfigParams;
-    QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID,
-                      &hybridReq->reqConfig, argv, argc);
+    QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID, &RSGlobalConfig.requestConfigParams,
+                      &RSGlobalConfig.timeoutConfigParams, argv, argc);
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
@@ -320,8 +351,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize the tail pipeline that will merge results from all requests
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
-    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->reqConfig.timeoutPolicy,
-                        &hybridReq->base.reply.err);
+    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->base.timeout.config.timeoutPolicy, &hybridReq->base.reply.err);
     QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
     // Capture the background-scan-OOM warning flag while the spec is guaranteed
     // alive (main-thread command handling). The reply path reads only this
@@ -334,7 +364,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &requests[i]->base.reply.err);
+        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->base.timeout.config.timeoutPolicy, &requests[i]->base.reply.err);
     }
     hybridReq->profileClocks.initClock = now;
 

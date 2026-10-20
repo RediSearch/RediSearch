@@ -76,9 +76,6 @@ pub struct TopKMetrics {
     pub num_batches: usize,
     /// Number of times the collection strategy was switched.
     pub strategy_switches: usize,
-    /// Number of (batch_doc, child_doc) comparisons performed during
-    /// merge-join intersection (Batches mode only).
-    pub total_comparisons: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,7 +127,9 @@ pub struct TopKIterator<
     child: Option<C>,
     last_doc_id: DocId,
     at_eof: bool,
-    /// Diagnostic counters — not reset on [`rewind`](Self::rewind).
+    /// Diagnostic counters for the current evaluation. Cleared by
+    /// [`rewind`](Self::rewind), but preserved when collection aborts on
+    /// timeout so a timed-out profile still reports the work done.
     pub metrics: TopKMetrics,
 }
 
@@ -295,7 +294,6 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                     child,
                     &mut batch,
                     &mut self.heap,
-                    &mut self.metrics,
                     can_trim_deep_results,
                 )?;
             } else {
@@ -607,6 +605,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         *self.heap = TopKHeap::new(self.k, self.order);
         self.results.clear();
         *self.current = None;
+        self.metrics = TopKMetrics::default();
         self.source.rewind();
         if let Some(child) = &mut self.child {
             child.rewind();
@@ -703,7 +702,6 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
     child: &mut C,
     batch: &mut impl ScoreBatch,
     heap: &mut TopKHeap<'index, O>,
-    metrics: &mut TopKMetrics,
     can_trim_deep_results: bool,
 ) -> Result<(), RQEIteratorError> {
     child.rewind();
@@ -718,7 +716,6 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
     let mut child_doc = first.doc_id;
 
     loop {
-        metrics.total_comparisons += 1;
         match batch_doc.cmp(&child_doc) {
             Ordering::Equal => {
                 // Capture the matching child data only if the heap retains it,
@@ -798,10 +795,14 @@ pub trait TopKSourceProfile {
     /// [`TopKIterator`] passes its own (already profile-wrapped) child here so
     /// the source renders the same iterator it read through — and thus the
     /// child's real read counts — rather than an unprofiled side handle.
+    ///
+    /// Prefer `metrics` over any source-local equivalent: it spans the whole
+    /// evaluation, whereas a source counter is cleared by every mid-evaluation
+    /// source reset, including the one on the timeout path.
     fn print_profile(
         &self,
         mode: TopKMode,
-        switches: usize,
+        metrics: &TopKMetrics,
         map: &mut MapBuilder<'_>,
         ctx: &mut ProfilePrintCtx<'_>,
         child: Option<&dyn ProfilePrint>,
@@ -817,7 +818,7 @@ where
     fn print_profile(&self, map: &mut MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let child = self.child.as_ref().map(|c| c as &dyn ProfilePrint);
         self.source
-            .print_profile(self.mode, self.metrics.strategy_switches, map, ctx, child);
+            .print_profile(self.mode, &self.metrics, map, ctx, child);
     }
 }
 

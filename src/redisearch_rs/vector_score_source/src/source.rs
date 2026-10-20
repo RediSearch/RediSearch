@@ -731,6 +731,32 @@ mod tests {
         );
     }
 
+    /// A pinned `BATCH_SIZE` overrides the dynamic estimate: every batch
+    /// requests exactly that size, whatever the child estimate does, and the
+    /// profile metrics report it at the first iteration.
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn pinned_batch_size_overrides_estimate() {
+        let index = TestIndex::flat(20, 1);
+        let mut source = flat_source(&index, 3, 20);
+        let dynamic = source.compute_next_batch_size().get();
+        source.fixed_batch_size = 7;
+
+        source.next_batch().unwrap();
+        let first = source.compute_next_batch_size().get();
+        // A shrinking child estimate would grow a dynamic size; a pinned one holds.
+        source.child_num_estimated = 1;
+        source.next_batch().unwrap();
+
+        assert_ne!(dynamic, 7, "fixture must not coincide with the pinned size");
+        assert_eq!((first, source.compute_next_batch_size().get()), (7, 7));
+        assert_eq!(
+            (source.max_batch_size, source.max_batch_iteration),
+            (7, 0),
+            "a constant size is its own maximum, recorded at the first iteration"
+        );
+    }
+
     /// A zero seeded child estimate means no doc can match: `next_batch` must
     /// short-circuit with no results and without opening a batch iterator,
     /// matching the C hybrid reader's `NumEstimated(child) == 0` early return.

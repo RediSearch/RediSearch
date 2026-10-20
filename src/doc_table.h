@@ -12,7 +12,7 @@
 #include <string.h>
 #include "redismodule.h"
 #include "redisearch.h"
-#include "sortable.h"
+#include "sorting_vector.h"
 #include "byte_offsets.h"
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"

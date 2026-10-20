@@ -19,7 +19,6 @@ extern "C" {
 #include "spec.h"
 #include "tokenize.h"
 #include "varint_ffi.h"
-#include "iterators/hybrid_reader.h"
 #include "vector_index.h"
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
@@ -601,206 +600,6 @@ TEST_F(IndexTest, testIntersection) {
   InvertedIndex_Free(w2);
 }
 
-TEST_F(IndexTest, testHybridVector) {
-
-  size_t n = 100;
-  size_t step = 4;
-  size_t max_id = n*step;
-  size_t d = 4;
-  size_t k = 10;
-  VecSimMetric met = VecSimMetric_L2;
-  VecSimType t = VecSimType_FLOAT32;
-  InvertedIndex *w = createPopulateTermsInvIndex(n, step);
-
-  // Create vector index
-  VecSimLogCtx logCtx = { .index_field_name = "v" };
-  VecSimParams params{.algo = VecSimAlgo_HNSWLIB,
-                      .algoParams = {.hnswParams = HNSWParams{.type = t,
-                                               .dim = d,
-                                               .metric = met,
-                                               .initialCapacity = max_id,
-                                               .M = 16,
-                                               .efConstruction = 100}},
-                      .logCtx = &logCtx};
-  VecSimIndex *index = VecSimIndex_New(&params);
-  for (size_t i = 1; i <= max_id; i++) {
-    float f[d];
-    for (size_t j = 0; j < d; j++) {
-      f[j] = (float)i;
-    }
-    VecSimIndex_AddVector(index, (const void *)f, (int)i);
-  }
-  ASSERT_EQ(VecSimIndex_IndexSize(index), max_id);
-
-  float query[] = {(float)max_id, (float)max_id, (float)max_id, (float)max_id};
-  KNNVectorQuery top_k_query = {.vector = query, .vecLen = d, .k = 10, .order = BY_SCORE};
-  VecSimQueryParams queryParams = {0};
-  queryParams.hnswRuntimeParams.efRuntime = max_id;
-  FieldMaskOrIndex fieldMaskOrIndex = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX};
-  FieldFilterContext filterCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-  // Revalidation looks up the term through the spec's keys dictionary, as it does in production.
-  MockQueryEvalCtx mockQctx(max_id, max_id);
-  mockQctx.spec.keysDict = dictCreate(&invIdxDictType, nullptr);
-  CharBuf termKey = {.buf = const_cast<char *>("term"), .len = 4};
-  dictAdd(mockQctx.spec.keysDict, &termKey, w);
-  // Run simple top k query.
-  HybridIteratorParams hParams = {.sctx=&mockQctx.sctx,
-                                  .index = index,
-                                  .dim = d,
-                                  .elementType = t,
-                                  .spaceMetric = met,
-                                  .query = top_k_query,
-                                  .qParams = queryParams,
-                                  .vectorScoreField = (char *)"__v_score",
-                                  .canTrimDeepResults = true,
-                                  .childIt = NULL,
-                                  .filterCtx = &filterCtx
-  };
-  QueryError err = QueryError_Default();
-  QueryIterator *vecIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-  HybridIterator *vectorReader = (HybridIterator *)vecIt;
-  ASSERT_EQ(vectorReader->timeout, mockQctx.sctx.timeout);
-  ASSERT_EQ(vectorReader->timeout->kind, QUERY_REQUEST_TIMEOUT_UNARMED);
-
-  size_t count = 0;
-
-  // Expect to get top 10 results in reverse order of the distance that passes the filter: 364, 368, ..., 400.
-  while (vecIt->Read(vecIt) != ITERATOR_EOF) {
-    ASSERT_EQ(vecIt->current->data.tag, RSResultData_Metric);
-    ASSERT_EQ(vecIt->current->docId, max_id - count);
-    count++;
-  }
-  ASSERT_EQ(count, k);
-  ASSERT_TRUE(vecIt->atEOF);
-
-  vecIt->Rewind(vecIt);
-  ASSERT_FALSE(vecIt->atEOF);
-  ASSERT_EQ(vecIt->NumEstimated(vecIt), k);
-  // Read one result to verify that we get the one with best score after rewind.
-  ASSERT_EQ(vecIt->Read(vecIt), ITERATOR_OK);
-  ASSERT_EQ(vecIt->current->docId, max_id);
-  vecIt->Free(vecIt);
-
-  // Test in hybrid mode.
-  FieldMaskOrIndex f = {.mask_tag = FieldMaskOrIndex_Mask, .mask = RS_FIELDMASK_ALL};
-  QueryIterator *ir = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
-  hParams.childIt = ir;
-  QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-
-  HybridIterator *hr = (HybridIterator *)hybridIt;
-  ASSERT_EQ(hr->timeout, mockQctx.sctx.timeout);
-  ASSERT_EQ(hr->timeout->kind, QUERY_REQUEST_TIMEOUT_UNARMED);
-  hr->searchMode = VECSIM_HYBRID_BATCHES;
-
-  // Expect to get top 10 results in the right order of the distance that passes the filter: 400, 396, ..., 364.
-  count = 0;
-  while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
-    ASSERT_EQ(hybridIt->current->data.tag, RSResultData_Metric);
-    // since larger ids has lower distance, in every we get lower id (where max id is the final result).
-    size_t expected_id = max_id - step*(count++);
-    ASSERT_EQ(hybridIt->lastDocId, expected_id);
-  }
-  ASSERT_EQ(count, k);
-  ASSERT_TRUE(hybridIt->atEOF);
-
-  hybridIt->Rewind(hybridIt);
-  ASSERT_FALSE(hybridIt->atEOF);
-  ASSERT_EQ(hybridIt->NumEstimated(hybridIt), k);
-
-  // check rerun and abort (go over only half of the results)
-  count = 0;
-  for (size_t i = 0; i < k/2; i++) {
-    ASSERT_EQ(hybridIt->Read(hybridIt), ITERATOR_OK);
-    ASSERT_EQ(hybridIt->current->data.tag, RSResultData_Metric);
-    size_t expected_id = max_id - step*(count++);
-    ASSERT_EQ(hybridIt->lastDocId, expected_id);
-  }
-  ASSERT_EQ(hybridIt->lastDocId, max_id - step*((k/2)-1));
-  ASSERT_EQ(hybridIt->Revalidate(hybridIt, mockQctx.sctx.spec), VALIDATE_OK);
-
-  // Rerun in AD_HOC BF mode.
-  hybridIt->Rewind(hybridIt);
-  hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
-  count = 0;
-  while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
-    ASSERT_EQ(hybridIt->current->data.tag, RSResultData_Metric);
-    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
-    size_t expected_id = max_id - step*(count++);
-    ASSERT_EQ(hybridIt->lastDocId, expected_id);
-  }
-  hybridIt->Free(hybridIt);
-
-  // Rerun without ignoring document scores.
-  ir = NewInvIndIterator_TermQuery(w, &mockQctx.sctx, f, makeTestQueryTerm(), 1);
-  hParams.canTrimDeepResults = false;
-  hParams.childIt = ir;
-  hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
-  hr = (HybridIterator *)hybridIt;
-  hr->searchMode = VECSIM_HYBRID_BATCHES;
-
-  // This time, result is a tree with 2 children: vector score and subtree of terms (for scoring).
-  count = 0;
-  while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
-    RSIndexResult *h = hybridIt->current;
-    ASSERT_EQ(h->data.tag, RSResultData_HybridMetric);
-    ASSERT_TRUE(IndexResult_IsAggregate(h));
-    const RSAggregateResult *agg = IndexResult_AggregateRef(h);
-    ASSERT_EQ(AggregateResult_NumChildren(agg), 2);
-    ASSERT_EQ(AggregateResult_Get(agg, 0)->data.tag, RSResultData_Metric);
-    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
-    size_t expected_id = max_id - step*(count++);
-    ASSERT_EQ(h->docId, expected_id);
-  }
-  ASSERT_EQ(count, k);
-  ASSERT_TRUE(hybridIt->atEOF);
-
-  // Rerun in AD_HOC BF mode.
-  hybridIt->Rewind(hybridIt);
-  hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
-  count = 0;
-  while (hybridIt->Read(hybridIt) != ITERATOR_EOF) {
-    RSIndexResult *h = hybridIt->current;
-    ASSERT_EQ(h->data.tag, RSResultData_HybridMetric);
-    ASSERT_TRUE(IndexResult_IsAggregate(h));
-    const RSAggregateResult *agg = IndexResult_AggregateRef(h);
-    ASSERT_EQ(AggregateResult_NumChildren(agg), 2);
-    ASSERT_EQ(AggregateResult_Get(agg, 0)->data.tag, RSResultData_Metric);
-    // since larger ids has lower distance, in every we get higher id (where max id is the final result).
-    size_t expected_id = max_id - step*(count++);
-    ASSERT_EQ(h->docId, expected_id);
-  }
-  hybridIt->Free(hybridIt);
-
-  dictRelease(mockQctx.spec.keysDict);
-  VecSimIndex_Free(index);
-}
-
-TEST_F(IndexTest, testInvalidHybridVector) {
-
-  size_t n = 1;
-  size_t d = 4;
-  InvertedIndex *w = createPopulateTermsInvIndex(n, 1);
-
-  // Create vector index with a single vector.
-  VecSimLogCtx logCtx = { .index_field_name = "v" };
-  VecSimParams params{
-      .algo = VecSimAlgo_HNSWLIB,
-      .algoParams = {.hnswParams = HNSWParams{
-          .type = VecSimType_FLOAT32, .dim = d, .metric = VecSimMetric_L2, .initialCapacity = n}},
-      .logCtx = &logCtx};
-  VecSimIndex *index = VecSimIndex_New(&params);
-
-  float vec[] = {(float)n, (float)n, (float)n, (float)n};
-  VecSimIndex_AddVector(index, (const void *)vec, n);
-  ASSERT_EQ(VecSimIndex_IndexSize(index), n);
-
-  InvertedIndex_Free(w);
-  VecSimIndex_Free(index);
-}
-
 TEST_F(IndexTest, testMetric_VectorRange) {
 
   size_t n = 100;
@@ -831,26 +630,30 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_EQ(VecSimIndex_IndexSize(index), n);
 
   float query[] = {(float)n, (float)n, (float)n, (float)n};
-  RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
+  RangeVectorQuery range_query = {
+      .vector = query, .vecLen = sizeof(query), .radius = 0.2, .order = BY_ID};
   VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = n;
 
   // Drive the production lazy range path: the VecSim range query is deferred to the iterator's
-  // first Read/SkipTo (see MOD-16437), so the iterator must hold the *raw* query vector (`query`
-  // outlives it). The explicit UNARMED timeout mirrors request-owned state without imposing a
-  // deadline on the test.
+  // first Read/SkipTo, and must run on the *raw* query vector. The explicit UNARMED timeout
+  // mirrors request-owned state without imposing a deadline on the test.
   QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, TimeoutPolicy_Return, 0);
+  TimeoutConfig timeoutConfig = {};
+  timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+  timeoutConfig.queryTimeoutMS = 0;
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
   QueryIterator *vecIt = NewLazyVectorRangeIteratorFromParams(
-      index, range_query.vector, range_query.radius, queryParams, range_query.order,
-      /*yields_metric=*/true, &timeout);
+      index, range_query.vector, range_query.vecLen, range_query.radius, queryParams,
+      range_query.order, /*yields_metric=*/true, &timeout);
   size_t count = 0;
   size_t lowest_id = 25;
   size_t n_expected_res = n - lowest_id + 1;
 
   // Expect to get top 76 results that are within the range, with ids: 25, 26, ... , 100.
   // VecSimIndex_GetDistanceFrom_Unsafe does not normalize its input, so compute expected distances
-  // against a normalized copy. The iterator keeps the raw `query` for its deferred range query.
+  // against a normalized copy. The iterator runs its deferred range query on its own copy of the
+  // raw `query`.
   float query_normalized[d];
   memcpy(query_normalized, query, sizeof(query));
   VecSim_Normalize(query_normalized, d, t);
@@ -1524,84 +1327,6 @@ TEST_F(IndexTest, testRawDocId) {
   ir->Free(ir);
   InvertedIndex_Free(idx);
   RSGlobalConfig.invertedIndexRawDocidEncoding = previousConfig;
-}
-
-// Test HybridIteratorReducer optimization with NULL child iterator
-TEST_F(IndexTest, testHybridIteratorReducerWithEmptyChild) {
-  // Create hybrid params with NULL child iterator
-  size_t n = 100;
-  size_t d = 4;
-  size_t step = 4;
-  size_t max_id = n*step;
-  size_t k = 10;
-
-  VecSimQueryParams queryParams = {0};
-  KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
-
-  HybridIteratorParams hParams = {
-    .sctx = NULL,
-    .index = NULL,
-    .dim = d,
-    .elementType = VecSimType_FLOAT32,
-    .spaceMetric = VecSimMetric_L2,
-    .query = top_k_query,
-    .qParams = queryParams,
-    .vectorScoreField = (char *)"__v_score",
-    .canTrimDeepResults = true,
-    .childIt = NewEmptyIterator(),  // Empty child iterator
-    .filterCtx = NULL
-  };
-
-  QueryError err = QueryError_Default();
-  QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
-
-  // Verify the iterator was not created due to NULL child
-  ASSERT_FALSE(QueryError_HasError(&err));
-  ASSERT_TRUE(hybridIt == hParams.childIt);
-  ASSERT_EQ(hybridIt->type, EMPTY_ITERATOR);
-  hybridIt->Free(hybridIt);
-}
-
-// Test HybridIteratorReducer optimization with invalid child iterator
-TEST_F(IndexTest, testHybridIteratorReducerWithWildcardChild) {
-  size_t n = 100;
-  size_t d = 4;
-  size_t step = 4;
-  size_t max_id = n*step;
-  size_t k = 10;
-
-  VecSimQueryParams queryParams = {0};
-  KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
-  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = RS_INVALID_FIELD_INDEX}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
-
-  // Mock the WILDCARD_ITERATOR consideration
-  QueryIterator* wildcardIt = NewWildcardIterator_NonOptimized(max_id, 1.0);
-
-  // Create a mock context for timeout configuration
-  MockQueryEvalCtx mockQctx(max_id, max_id);
-  HybridIteratorParams hParams = {
-    .sctx = &mockQctx.sctx,
-    .index = NULL,
-    .dim = d,
-    .elementType = VecSimType_FLOAT32,
-    .spaceMetric = VecSimMetric_L2,
-    .query = top_k_query,
-    .qParams = queryParams,
-    .vectorScoreField = (char *)"__v_score",
-    .canTrimDeepResults = true,
-    .childIt = wildcardIt,
-    .filterCtx = &filterCtx
-  };
-
-  QueryError err = QueryError_Default();
-  QueryIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
-
-  // Verify the iterator was not created due to NULL child
-  ASSERT_FALSE(QueryError_HasError(&err));
-  ASSERT_EQ(hybridIt->type, HYBRID_ITERATOR);
-  HybridIterator* hi = (HybridIterator *)hybridIt;
-  ASSERT_EQ(hi->searchMode, VECSIM_STANDARD_KNN);
-  hybridIt->Free(hybridIt);
 }
 
 // Forces disk-mode validation on (SearchDisk_IsEnabledForValidation() reads
