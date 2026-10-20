@@ -17,7 +17,7 @@
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
-typedef struct InkeysMap InkeysMap;
+typedef struct DocKeyMap DocKeyMap;
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,8 +61,8 @@ typedef struct {
   size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
-  // Optional INKEYS lookup; protected by the owning spec lock.
-  InkeysMap *inkeys;
+  // Optional key-to-document-ID lookup; protected by the owning spec lock.
+  DocKeyMap *keyMap;
   // Holds field-level expirations only; created lazily on the first HEXPIRE
   // and destroyed when the last entry is removed. Iterators use a NULL check
   // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
@@ -81,11 +81,11 @@ typedef struct {
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size);
 
-/* Full-key lookup for INKEYS. Caller holds the spec read or write lock and inkeys is enabled. */
-t_docId DocTable_GetInkeysId(const DocTable *t, const char *key, size_t len);
+/* Caller holds the spec read or write lock and keyMap is enabled. */
+t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len);
 
-/* Additional INKEYS allocation, including unused capacity; zero when disabled. */
-size_t DocTable_InkeysMemoryUsage(const DocTable *t);
+/* Key-map allocation, including unused capacity; zero when disabled. */
+size_t DocTable_KeyMapMemoryUsage(const DocTable *t);
 
 #define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize)
 

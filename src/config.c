@@ -80,6 +80,7 @@ configPair_t __configPairs[] = {
   {"CURSOR_REPLY_THRESHOLD",          "search-cursor-reply-threshold"},
   {"DEFAULT_DIALECT",                 "search-default-dialect"},
   {"DEFAULT_SCORER",                  "search-default-scorer"},
+  {"DOC_KEY_MAP",                     "search-doc-key-map"},
   {"EXTLOAD",                         "search-ext-load"},
   {"FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
   {"FORK_GC_CLEAN_THRESHOLD",         "search-fork-gc-clean-threshold"},
@@ -89,7 +90,6 @@ configPair_t __configPairs[] = {
   {"FRISOINI",                        "search-friso-ini"},
   {"GC_POLICY",                       ""},
   {"GCSCANSIZE",                      "search-gc-scan-size"},
-  {"INKEYS_LOOKUP_MAP",                "search-inkeys-lookup-map"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
   {"MAX_AGGREGATE_GROUPS",            "search-max-aggregate-groups"},
   {"MAXAGGREGATERESULTS",             "search-max-aggregate-results"},
@@ -1383,8 +1383,8 @@ CONFIG_GETTER(getIndexCursorLimit) {
   return sdscatprintf(ss, "%lld", config->indexCursorLimit);
 }
 
-CONFIG_BOOLEAN_SETTER(set_InkeysLookupMap, inkeysLookupMap)
-CONFIG_BOOLEAN_GETTER(get_InkeysLookupMap, inkeysLookupMap, 0)
+CONFIG_BOOLEAN_SETTER(set_DocKeyMap, docKeyMap)
+CONFIG_BOOLEAN_GETTER(get_DocKeyMap, docKeyMap, 0)
 
 // ENABLE_UNSTABLE_FEATURES
 CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
@@ -1836,10 +1836,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Disable print of time for ft.profile. For testing only.",
          .setValue = setPrintProfileClock,
          .getValue = getPrintProfileClock},
-        {.name = "INKEYS_LOOKUP_MAP",
-         .helpText = "Enable worker-side INKEYS lookup with additional per-index memory",
-         .setValue = set_InkeysLookupMap,
-         .getValue = get_InkeysLookupMap,
+        {.name = "DOC_KEY_MAP",
+         .helpText = "Enable key-to-document-ID lookup with additional per-index memory",
+         .setValue = set_DocKeyMap,
+         .getValue = get_DocKeyMap,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "RAW_DOCID_ENCODING",
          .helpText = "Disable compression for DocID inverted index. Boost CPU performance.",
@@ -2683,9 +2683,9 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   )
 
   RM_TRY(RedisModule_RegisterBoolConfig(
-      ctx, "search-inkeys-lookup-map", 0,
+      ctx, "search-doc-key-map", 0,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, get_bool_config,
-      set_bool_config, NULL, (void *)&RSGlobalConfig.inkeysLookupMap))
+      set_bool_config, NULL, (void *)&RSGlobalConfig.docKeyMap))
 
   RM_TRY(RedisModule_RegisterBoolConfig(
       ctx, "search-internal-resp-schema", 0, REDISMODULE_CONFIG_UNPREFIXED, get_bool_config,

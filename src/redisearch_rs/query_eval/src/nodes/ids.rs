@@ -40,8 +40,8 @@ pub(crate) fn eval<'index>(
     } else {
         let table = ctx.doc_table();
         assert!(
-            !table.inkeys.is_null(),
-            "unresolved QN_IDS nodes require an INKEYS lookup map"
+            !table.keyMap.is_null(),
+            "unresolved QN_IDS nodes require a document key map"
         );
         // SAFETY: installed once at module load and never mutated during evaluation.
         let string_ptr_len = unsafe { redis_module::RedisModule_StringPtrLen }
@@ -55,7 +55,7 @@ pub(crate) fn eval<'index>(
                 let bytes = unsafe { string_ptr_len(key, &mut len) };
                 // SAFETY: evaluation holds the spec read lock, protecting the map
                 // and its DMDs. The key bytes remain live for this call.
-                let id = unsafe { ffi::DocTable_GetInkeysId(table, bytes, len) };
+                let id = unsafe { ffi::DocTable_GetIdByKey(table, bytes, len) };
                 (id != 0).then_some(id)
             })
             .collect()

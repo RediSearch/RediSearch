@@ -7,11 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use inkeys_ffi::InkeysMap;
+use doc_key_map_ffi::DocKeyMap;
 
 #[test]
 fn colliding_candidates_survive_growth_and_independent_removal() {
-    let mut map = InkeysMap::default();
+    let mut map = DocKeyMap::default();
     let empty = map.memory_usage();
     assert_eq!(map.find(42, |_| true), 0);
     for id in 1..=1000 {
@@ -38,7 +38,7 @@ fn colliding_candidates_survive_growth_and_independent_removal() {
 
 #[test]
 fn binary_keys_are_hashed_with_their_full_extent() {
-    let mut map = InkeysMap::default();
+    let mut map = DocKeyMap::default();
     for (i, key) in [b"".as_slice(), b"a", b"a\0", b"a\0b"]
         .into_iter()
         .enumerate()

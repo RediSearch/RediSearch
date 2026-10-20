@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Optional INKEYS acceleration without owning another copy of document keys.
+//! Key-to-document-ID lookup without owning another copy of document keys.
 
 use hashbrown::HashTable;
 use std::{collections::hash_map::RandomState, ffi::c_void, hash::BuildHasher, slice};
@@ -19,12 +19,12 @@ struct Entry {
 }
 
 /// Spec-lock-protected lookup table. Full-hash collisions remain separate entries.
-pub struct InkeysMap {
+pub struct DocKeyMap {
     entries: HashTable<Entry>,
     hasher: RandomState,
 }
 
-impl Default for InkeysMap {
+impl Default for DocKeyMap {
     fn default() -> Self {
         Self {
             entries: HashTable::new(),
@@ -33,7 +33,7 @@ impl Default for InkeysMap {
     }
 }
 
-impl InkeysMap {
+impl DocKeyMap {
     /// Hash a binary key using this table's private seed.
     pub fn hash(&self, key: &[u8]) -> u64 {
         self.hasher.hash_one(key)
@@ -74,19 +74,19 @@ impl InkeysMap {
 
 /// Allocate a table. Production uses the Redis global allocator.
 #[unsafe(no_mangle)]
-pub extern "C" fn InkeysMap_New() -> *mut InkeysMap {
-    Box::into_raw(Box::new(InkeysMap::default()))
+pub extern "C" fn DocKeyMap_New() -> *mut DocKeyMap {
+    Box::into_raw(Box::new(DocKeyMap::default()))
 }
 
 /// Destroy a table; a null pointer is accepted.
 ///
 /// # Safety
 /// A non-null `map` must be a [valid], exclusively owned allocation from
-/// [`InkeysMap_New`] that has not already been destroyed.
+/// [`DocKeyMap_New`] that has not already been destroyed.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InkeysMap_Free(map: *mut InkeysMap) {
+pub unsafe extern "C" fn DocKeyMap_Free(map: *mut DocKeyMap) {
     if !map.is_null() {
         // SAFETY: The caller transfers ownership of this live allocation.
         drop(unsafe { Box::from_raw(map) });
@@ -101,7 +101,7 @@ pub unsafe extern "C" fn InkeysMap_Free(map: *mut InkeysMap) {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InkeysMap_Hash(map: *const InkeysMap, key: *const u8, len: usize) -> u64 {
+pub unsafe extern "C" fn DocKeyMap_Hash(map: *const DocKeyMap, key: *const u8, len: usize) -> u64 {
     debug_assert!(!map.is_null());
     debug_assert!(len == 0 || !key.is_null());
     // SAFETY: The caller guarantees a shared table borrow.
@@ -122,7 +122,7 @@ pub unsafe extern "C" fn InkeysMap_Hash(map: *const InkeysMap, key: *const u8, l
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InkeysMap_Insert(map: *mut InkeysMap, hash: u64, id: u64) {
+pub unsafe extern "C" fn DocKeyMap_Insert(map: *mut DocKeyMap, hash: u64, id: u64) {
     debug_assert!(!map.is_null());
     // SAFETY: The caller guarantees exclusive table access.
     unsafe { &mut *map }.insert(hash, id);
@@ -135,30 +135,30 @@ pub unsafe extern "C" fn InkeysMap_Insert(map: *mut InkeysMap, hash: u64, id: u6
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InkeysMap_Remove(map: *mut InkeysMap, hash: u64, id: u64) -> bool {
+pub unsafe extern "C" fn DocKeyMap_Remove(map: *mut DocKeyMap, hash: u64, id: u64) -> bool {
     debug_assert!(!map.is_null());
     // SAFETY: The caller guarantees exclusive table access.
     unsafe { &mut *map }.remove(hash, id)
 }
 
 /// Compare a candidate's document key with the query key borrowed through `ctx`.
-pub type InkeysKeyMatches = unsafe extern "C" fn(ctx: *const c_void, id: u64) -> bool;
+pub type DocKeyMatches = unsafe extern "C" fn(ctx: *const c_void, id: u64) -> bool;
 
 /// Resolve a hash with full-key comparison through the document table.
 ///
 /// # Safety
 /// `map` must be [valid] for shared access throughout the call. `matches` must
-/// be [ABI-compatible] with [`InkeysKeyMatches`] and callable with `ctx` for
+/// be [ABI-compatible] with [`DocKeyMatches`] and callable with `ctx` for
 /// each candidate ID. The callback must not mutate the table or its candidates.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 /// [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InkeysMap_Find(
-    map: *const InkeysMap,
+pub unsafe extern "C" fn DocKeyMap_Find(
+    map: *const DocKeyMap,
     hash: u64,
     ctx: *const c_void,
-    matches: InkeysKeyMatches,
+    matches: DocKeyMatches,
 ) -> u64 {
     debug_assert!(!map.is_null());
     // SAFETY: The caller guarantees a shared table borrow.
@@ -176,7 +176,7 @@ pub unsafe extern "C" fn InkeysMap_Find(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn InkeysMap_MemoryUsage(map: *const InkeysMap) -> usize {
+pub unsafe extern "C" fn DocKeyMap_MemoryUsage(map: *const DocKeyMap) -> usize {
     if map.is_null() {
         0
     } else {

@@ -1313,7 +1313,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   // Redis writers acquire GIL before the spec lock. Keep that order for
   // metadata resolution, then retain the spec lock across iterator construction.
-  bool resolveWithGIL = req->ast.inkeysNode && !SearchDisk_IsEnabled() && !sctx->spec->docs.inkeys;
+  bool resolveWithGIL = req->ast.inkeysNode && !SearchDisk_IsEnabled() && !sctx->spec->docs.keyMap;
   if (resolveWithGIL) {
     RedisModule_ThreadSafeContextLock(outctx);
   }
@@ -1939,7 +1939,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     // Every execution or error path releases on this thread.
     IndexSpec_LockRead(sctx->spec);
 
-    if (r->ast.inkeysNode && !SearchDisk_IsEnabled() && !sctx->spec->docs.inkeys) {
+    if (r->ast.inkeysNode && !SearchDisk_IsEnabled() && !sctx->spec->docs.keyMap) {
       QAST_ResolveInkeys(&r->ast, sctx);
     }
 

@@ -152,7 +152,7 @@ fn eval_ids_empty_keys() {
 }
 
 #[test]
-#[should_panic(expected = "unresolved QN_IDS nodes require an INKEYS lookup map")]
+#[should_panic(expected = "unresolved QN_IDS nodes require a document key map")]
 fn eval_ids_requires_map_for_deferred_keys() {
     let mut mock_ctx = MockQueryEvalCtx::new();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
@@ -228,8 +228,8 @@ mod ids_doctable {
         // takes ownership of the accelerator, including on assertion failures.
         unsafe {
             let table = &mut *qctx.as_ref().docTable;
-            assert!(table.inkeys.is_null());
-            table.inkeys = redisearch_rs::inkeys::InkeysMap_New().cast();
+            assert!(table.keyMap.is_null());
+            table.keyMap = redisearch_rs::doc_key_map::DocKeyMap_New().cast();
         }
         let id_a = context.add_document("doc\0a");
         let id_b = context.add_document("doc_b");

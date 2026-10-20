@@ -547,6 +547,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "doc_key_map_ffi"
+version = "0.0.1"
+dependencies = [
+ "hashbrown",
+ "workspace_hack",
+]
+
+[[package]]
 name = "document"
 version = "0.0.1"
 dependencies = [
@@ -1162,14 +1170,6 @@ checksum = "d466e9454f08e4a911e14806c24e16fba1b4c121d1ea474396f396069cf949d9"
 dependencies = [
  "equivalent",
  "hashbrown",
-]
-
-[[package]]
-name = "inkeys_ffi"
-version = "0.0.1"
-dependencies = [
- "hashbrown",
- "workspace_hack",
 ]
 
 [[package]]
@@ -2215,11 +2215,11 @@ version = "0.0.1"
 dependencies = [
  "buffer",
  "build_utils",
+ "doc_key_map_ffi",
  "fnv_ffi",
  "fork_gc_ffi",
  "geo_ffi",
  "idf_ffi",
- "inkeys_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "metrics_ffi",
@@ -2589,12 +2589,12 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "criterion",
+ "doc_key_map_ffi",
  "ffi",
  "fnv_ffi",
  "fork_gc_ffi",
  "geo_ffi",
  "idf_ffi",
- "inkeys_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "memchr",
