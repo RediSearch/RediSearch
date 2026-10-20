@@ -133,6 +133,12 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   } else {
     if (it->current->dmd) {
       *dmd = it->current->dmd;
+      // Borrowed before a slot deletion may have been registered (e.g. held in the optimizer heap
+      // across cursor reads), so DocTable_Borrow's check did not cover it.
+      if (DocTable_HasPendingDeletions(docs) && DocTable_IsDocPendingDeletion(docs, *dmd)) {
+        DMD_Return(*dmd);
+        return false;
+      }
     } else {
       *dmd = DocTable_Borrow(docs, it->lastDocId);
     }
@@ -212,13 +218,6 @@ static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadat
     if (firstSlot > slot || lastSlot < slot) {
       return false;
     }
-  }
-
-  // A DMD can be attached before a slot deletion was registered (e.g. held in the optimizer heap
-  // across cursor reads), so DocTable_Borrow's check alone does not cover it.
-  const DocTable *docs = &self->sctx->spec->docs;
-  if (DocTable_HasPendingDeletions(docs) && DocTable_IsDocPendingDeletion(docs, dmd)) {
-    return false;
   }
 
   // Check query slots (internal command filtering)
