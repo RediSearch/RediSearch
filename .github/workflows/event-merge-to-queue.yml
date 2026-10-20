@@ -3,6 +3,10 @@ run-name: Validate ${{ github.ref_name }}
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
+permissions: {}
+
 on:
   merge_group:
     types: [checks_requested]
@@ -15,6 +19,7 @@ concurrency:
 
 jobs:
   get-latest-redis-tag:
+    permissions: {}
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
@@ -31,7 +36,6 @@ jobs:
     with:
       compare-advisories-to-base: true
       advisories-base-ref: ${{ github.event.merge_group.base_sha }}
-
   test-matrix:
     # MQ is the 8.12 release gate, so run the full supported matrix with full tests.
     needs: [get-latest-redis-tag, lint]
@@ -59,6 +63,7 @@ jobs:
       rejson-branch: 8.12
 
   pr-validation:
+    permissions: {} # aggregation gate: inspects needs.* only
     needs:
       - get-latest-redis-tag
       - lint
