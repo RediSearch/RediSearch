@@ -550,6 +550,7 @@ dependencies = [
 name = "doc_key_map_ffi"
 version = "0.0.1"
 dependencies = [
+ "ahash",
  "hashbrown",
  "workspace_hack",
 ]
