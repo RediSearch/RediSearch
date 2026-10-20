@@ -19,24 +19,24 @@ setups:
   - oss-cluster-08-primaries
 
 dbconfig:
-  - dataset_name: "customer-5_7M-v1"
-  - dataset_load_timeout_secs: 3000
-  - configuration-parameters:
-    - search-io-threads: "1"
-  - module-configuration-parameters:
-      redisearch: &search_settings
-        WORKERS: 4
-        MIN_OPERATION_WORKERS: 4
-        TIMEOUT: 0
-        ON_TIMEOUT: RETURN
-        CURSOR_MAX_IDLE: 2000
-        INDEX_CURSOR_LIMIT: 2000
-        WORKERS_PRIORITY_BIAS_THRESHOLD: 6
-        BM25STD_TANH_FACTOR: 200
-        DEFAULT_DIALECT: 2
-        MAXPREFIXEXPANSIONS: 1024
-      module-oss: *search_settings
-  - init_commands:
+  dataset_name: "customer-5_7M-v1"
+  dataset_load_timeout_secs: 3000
+  configuration-parameters:
+    search-io-threads: "1"
+  module-configuration-parameters:
+    redisearch: &search_settings
+      WORKERS: 4
+      MIN_OPERATION_WORKERS: 4
+      TIMEOUT: 0
+      ON_TIMEOUT: RETURN
+      CURSOR_MAX_IDLE: 2000
+      INDEX_CURSOR_LIMIT: 2000
+      WORKERS_PRIORITY_BIAS_THRESHOLD: 6
+      BM25STD_TANH_FACTOR: 200
+      DEFAULT_DIALECT: 2
+      MAXPREFIXEXPANSIONS: 1024
+    module-oss: *search_settings
+  init_commands:
     - ["FT.CREATE", "idx:bench", "ON", "HASH", "PREFIX", "1", "A#", "SCHEMA",
        "profile_id", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
        "post_id", "TAG", "SEPARATOR", ",", "SORTABLE", "UNF",
@@ -61,13 +61,13 @@ dbconfig:
        "full_name", "TEXT", "WEIGHT", "10", "WITHSUFFIXTRIE",
        "profile_display_name_txt", "TEXT", "WEIGHT", "10", "WITHSUFFIXTRIE",
        "bio", "TEXT", "WEIGHT", "1"]
-  - tool: ftsb_redisearch
-  - parameters:
+  tool: ftsb_redisearch
+  parameters:
     - workers: 64
     - reporting-period: 1s
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/customer-5_7M-v1/customer-groupby-5700K-hashes.redisearch.commands.SETUP.csv"
-  - check:
-      keyspacelen: 5700000
+  check:
+    keyspacelen: 5700000
 
 clientconfig:
   benchmark_type: "read-only"
