@@ -108,6 +108,10 @@ pub struct QueryProcessingCtx {
     /// value, so any qctx that is zero-initialized outside the constructor
     /// (`{0}`, `calloc`, `memset`) keeps copying. Skipping is opt-in.
     pub skipIndexResultDeepCopy: bool,
+    /// Borrowed C driver access, valid only during an owned execution segment.
+    /// Blocking boundaries use it to prepare suspension; ordinary rows do not
+    /// acquire or release ownership. Cleared before the driver releases its gate.
+    pub executionAccess: *mut std::ffi::c_void,
 }
 
 impl QueryProcessingCtx {
@@ -130,6 +134,7 @@ impl QueryProcessingCtx {
             timeoutPolicy: 0,
             canYieldPartialResults: false,
             skipIndexResultDeepCopy: false,
+            executionAccess: ptr::null_mut(),
         };
 
         Box::pin(ctx)

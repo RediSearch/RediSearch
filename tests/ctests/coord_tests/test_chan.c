@@ -52,10 +52,27 @@ void testTryPop() {
   MRChannel_Free(c);
 }
 
+void testWaitReadableDoesNotConsume() {
+  MRChannel *c = MR_NewChannel();
+  atomic_bool cancelled = false;
+  int item = 1;
+  MRChannel_Push(c, &item);
+  MRChannel_WaitReadable(c, &cancelled);
+  mu_assert_int_eq(1, MRChannel_Size(c));
+  mu_check(MRChannel_TryPop(c) == &item);
+  MRChannel_Unblock(c);
+  MRChannel_WaitReadable(c, &cancelled);
+  atomic_store_explicit(&cancelled, true, memory_order_relaxed);
+  MRChannel_WaitReadable(c, &cancelled);
+  mu_check(MRChannel_TryPop(c) == NULL);
+  MRChannel_Free(c);
+}
+
 int main(int argc, char **argv) {
   RMUTil_InitAlloc();
   MU_RUN_TEST(testChan);
   MU_RUN_TEST(testTryPop);
+  MU_RUN_TEST(testWaitReadableDoesNotConsume);
   MU_REPORT();
 
   return minunit_status;

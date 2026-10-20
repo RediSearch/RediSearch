@@ -15,6 +15,7 @@
 #include "value_ffi.h"
 #include "search_result_ffi.h"
 #include "pipeline/pipeline.h"
+#include "pipeline_execution.h"
 #include "reducer.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
@@ -275,6 +276,7 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
 
 static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   Grouper *g = (Grouper *)base;
+  PipelineAccess *access = base->parent->executionAccess;
   uint32_t chunkLimit = base->parent->resultLimit;
   base->parent->resultLimit = UINT32_MAX; // we want to accumulate all the results
   int rc;
@@ -286,6 +288,7 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
       break;
     }
   }
+  if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return rc;
   base->parent->resultLimit = chunkLimit; // restore the limit
   if (rc == RS_RESULT_EOF) {
     base->Next = Grouper_rpYield;

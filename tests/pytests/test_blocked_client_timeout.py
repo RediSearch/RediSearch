@@ -28,6 +28,107 @@ TIMEOUT_ERROR = "Timeout limit was reached"
 TIMEOUT_WARNING = TIMEOUT_ERROR
 
 
+def _owned_loader_timeout_while_parked(point, expected_rows):
+    """Prove STRICT replies before releasing the worker's private wait."""
+    # A single worker makes the follow-up query also prove late-job cleanup;
+    # the timeout is triggered explicitly, independent of machine speed.
+    env = Env(protocol=3, moduleArgs='WORKERS 1 ON_TIMEOUT RETURN-STRICT TIMEOUT 0')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'owned_idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i in (1, 2):
+        conn.execute_command('HSET', f'owned:{i}', 'n', i)
+    query = ['FT.AGGREGATE', 'owned_idx', '*', 'LOAD', 1, '@n', 'LIMIT', 0, 2]
+    result = []
+    freed_before = _get_blocked_request_onfree_count(env)
+    worker = threading.Thread(target=call_and_store, args=(env.cmd, query, result), daemon=True)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+    try:
+        worker.start()
+        client = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+            f'worker did not reach {point}')
+        env.expect('CLIENT', 'UNBLOCK', client, 'TIMEOUT').equal(1)
+        worker.join(timeout=5)
+        env.assertFalse(worker.is_alive(), message='timeout reply waited for the parked worker')
+        # Check before SIGNAL: a wake/abort-based implementation cannot satisfy this.
+        env.expect(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point).equal(1)
+        env.assertEqual(_get_blocked_request_onfree_count(env), freed_before,
+                        message='request freed while its worker still held a reference')
+        env.assertEqual(len(result), 1, message=result)
+        env.assertEqual(result[0]['results'], expected_rows, message=result)
+        env.assertEqual(result[0]['warning'], [TIMEOUT_WARNING], message=result)
+    finally:
+        env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+        env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+        worker.join(timeout=5)
+    wait_for_condition(
+        lambda: (_get_blocked_request_onfree_count(env) == freed_before + 1, {}),
+        'late worker completion did not release the request exactly once')
+    complete = env.cmd(*query)
+    env.assertEqual(complete['results'], [
+        {'extra_attributes': {'n': '1'}, 'values': []},
+        {'extra_attributes': {'n': '2'}, 'values': []},
+    ], message=complete)
+    env.assertEqual(complete['warning'], [], message=complete)
+
+
+@skip(cluster=True)
+def test_owned_strict_before_loader_gil_replies_without_waking_worker():
+    """An unfinished load batch is a recovery barrier, not a reason to wait."""
+    _owned_loader_timeout_while_parked('BeforeSafeLoaderGILLock', [])
+
+
+@skip(cluster=True)
+def test_owned_strict_loaded_batch_drains_without_waking_worker():
+    """A committed loaded batch is recovered while its worker stays parked."""
+    _owned_loader_timeout_while_parked('BeforeSafeLoaderExitGIL', [
+        {'extra_attributes': {'n': '1'}, 'values': []},
+        {'extra_attributes': {'n': '2'}, 'values': []},
+    ])
+
+
+@skip(cluster=True)
+def test_owned_strict_loader_resumes_cursor_without_timeout():
+    """Resume a parked loader normally and retain the remaining cursor rows."""
+    # STRICT selects owned execution; an explicit hook avoids timed contention.
+    env = Env(protocol=3, moduleArgs='WORKERS 1 ON_TIMEOUT RETURN-STRICT TIMEOUT 0')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'owned_idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i in (1, 2, 3):
+        conn.execute_command('HSET', f'owned:{i}', 'n', i)
+    query = ['FT.AGGREGATE', 'owned_idx', '*', 'LOAD', 1, '@n',
+             'WITHCURSOR', 'COUNT', 1]
+    result = []
+    point = 'BeforeSafeLoaderGILLock'
+    worker = threading.Thread(target=call_and_store, args=(env.cmd, query, result), daemon=True)
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+    try:
+        worker.start()
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
+            'loader did not release ownership before waiting')
+    finally:
+        env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+        env.expect(debug_cmd(), 'SYNC_POINT', 'CLEAR').ok()
+        worker.join(timeout=5)
+    env.assertFalse(worker.is_alive(), message='worker failed to resume after the wait')
+    env.assertEqual(len(result), 1, message=result)
+    chunk, cursor = result[0]
+    for expected in (1, 2, 3):
+        env.assertEqual(chunk['warning'], [], message=chunk)
+        env.assertEqual(chunk['results'], [
+            {'extra_attributes': {'n': str(expected)}, 'values': []},
+        ], message=chunk)
+        env.assertNotEqual(cursor, 0, message=chunk)
+        chunk, cursor = env.cmd('FT.CURSOR', 'READ', 'owned_idx', cursor, 'COUNT', 1)
+    env.assertEqual(chunk['results'], [], message=chunk)
+    env.assertEqual(chunk['warning'], [], message=chunk)
+    env.assertEqual(cursor, 0)
+
+
 def run_cmd_expect_timeout(env, query_args):
     env.expect(*query_args).error().contains(TIMEOUT_ERROR)
 
@@ -5130,10 +5231,11 @@ class TestCoordinatorTimeout:
         except Exception:
             pass
 
-    def _assert_unsorted_partial_reply(self, env, result, expected_rows,
-                                       pause_after_n, other_docs):
-        env.assertEqual(len(result.get('results', [])), expected_rows,
-                        message="rows in reply")
+    def _assert_completed_loader_batches(self, env, result):
+        """These small shard inputs fit in one completed, drainable loader batch."""
+        names = sorted(row['extra_attributes']['name'] for row in result['results'])
+        env.assertEqual(names, sorted(f'hello{i}' for i in range(self.n_docs)),
+                        message=result)
 
     def _run_one_shard_timesout(self, *, coord_cmd, shard_cmd, query_args,
                                 assert_reply, coord_cmd_prefix=None,
@@ -5227,15 +5329,13 @@ class TestCoordinatorTimeout:
     def test_return_strict_one_shard_timesout_flat_aggregate(self):
         """Flat aggregate, one shard times out mid-pipeline.
 
-        Expect exactly ``pause_after_n + other_docs`` rows: the timed-out shard
-        ships its buffered prefix, other shards ship their full local result
-        sets, and the strict timeout depletes the timed-out shard cursor.
+        The timed-out shard drains its completed loader batch in addition to
+        the collected prefix, and its cursor is depleted.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_flat_reply(env, result, expected_rows, pause_after_n, other_docs):
-            env.assertEqual(len(result.get('results', [])), expected_rows,
-                            message="rows in reply")
+            self._assert_completed_loader_batches(env, result)
 
         self._run_one_shard_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
@@ -5291,17 +5391,14 @@ class TestCoordinatorTimeout:
     def test_return_strict_one_shard_timesout_search(self):
         """FT.SEARCH (with content) one-shard timeout.
 
-        Expect ``pause_after_n + other_docs`` rows. The shard pipeline
-        ends in RPLoader (after RPPager), which is rejected by
-        ``pipelineCanYieldPartialResults``, so only the rows already
-        buffered by the time the timeout fires are shipped.
+        The completed safe-loader batch remains eligible for recovery even
+        though not all of its rows reached the reply collector before timeout.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_search_partial_reply(env, result, expected_rows,
                                         pause_after_n, other_docs):
-            env.assertEqual(len(result.get('results', [])), expected_rows,
-                            message="rows in reply")
+            self._assert_completed_loader_batches(env, result)
 
         self._run_one_shard_timesout(
             coord_cmd='FT.SEARCH', shard_cmd='_FT.SEARCH',
@@ -5345,8 +5442,7 @@ class TestCoordinatorTimeout:
             env.assertContains('Results', result, message="Results key")
             env.assertContains('Profile', result, message="Profile key")
             inner = result['Results']
-            self._assert_unsorted_partial_reply(env, inner, expected_rows,
-                                                pause_after_n, other_docs)
+            self._assert_completed_loader_batches(env, inner)
             env.assertEqual(inner.get('warning', []), [TIMEOUT_WARNING],
                             message="inner Results warning")
 
@@ -5498,15 +5594,12 @@ class TestCoordinatorTimeout:
     def test_return_strict_all_shards_timesout_flat_aggregate(self):
         """Flat aggregate, every shard times out.
 
-        Expect exactly ``sum(pauses)`` rows: every shard's admitted rows
-        survive, and each timed-out shard cursor is depleted.
+        Each completed loader batch is recovered without duplicate prefix rows.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_flat_reply(env, result, pauses, shards_count):
-            expected = sum(pauses)
-            env.assertEqual(len(result.get('results', [])), expected,
-                            message="rows in reply")
+            self._assert_completed_loader_batches(env, result)
 
         self._run_all_shards_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
@@ -5517,15 +5610,12 @@ class TestCoordinatorTimeout:
     def test_return_strict_all_shards_timesout_withcount_aggregate(self):
         """WITHCOUNT all-shards-timeout (barrier + RPDepleter).
 
-        Expect exactly ``sum(pauses)`` rows: every shard's admitted rows
-        survive, and each timed-out shard cursor is depleted.
+        Completed shard batches survive, and each timed-out cursor is depleted.
         """
         skipIfNoEnableAssert(self.env)
 
         def assert_withcount_reply(env, result, pauses, shards_count):
-            expected = sum(pauses)
-            env.assertEqual(len(result.get('results', [])), expected,
-                            message="rows in reply")
+            self._assert_completed_loader_batches(env, result)
 
         # WITHCOUNT must precede pipeline steps (LOAD/GROUPBY/...).
         self._run_all_shards_timesout(
@@ -5560,9 +5650,8 @@ class TestCoordinatorTimeout:
     def test_return_strict_all_shards_timesout_partial_each_aggregate(self):
         """All-shards-timeout with distinct per-shard pause counts.
 
-        Expect exactly ``sum(pauses)`` rows. Distinct pause values reject
-        regressions where admitted rows are lost or extra rows are drained after
-        strict timeout depletes each shard cursor.
+        Distinct prefix lengths must join their completed loader batches
+        without losing or duplicating rows.
         """
         skipIfNoEnableAssert(self.env)
 
@@ -5575,9 +5664,7 @@ class TestCoordinatorTimeout:
             pauses = base_pauses + [2] * (n_shards - len(base_pauses))
 
         def assert_partial_each_reply(env, result, pauses, shards_count):
-            expected = sum(pauses)
-            env.assertEqual(len(result.get('results', [])), expected,
-                            message="rows in reply")
+            self._assert_completed_loader_batches(env, result)
 
         self._run_all_shards_timesout(
             coord_cmd='FT.AGGREGATE', shard_cmd='_FT.AGGREGATE',
@@ -7713,15 +7800,15 @@ class TestShardTimeout:
         """Standalone RETURN_STRICT cursor-read timeout after BG owns results.
 
         The cursor-read worker is parked inside AggregateResults after appending
-        one row. The timeout callback then loses AREQ_TryClaimAggregateResults,
-        waits for the worker to store the partial reply, and returns the normal
-        cursor-shaped timeout warning.
+        one row. Recovery retains that prefix and drains the remaining loaded
+        batch without reapplying the cursor budget, then closes the cursor.
         """
         env = self.env
         skipIfNoEnableAssert(env)
 
+        chunk_size = 10
         prev_policy, cursor_id, baseline, before_info, _, _ = \
-            _setup_return_strict_cursor_state(env)
+            _setup_return_strict_cursor_state(env, chunk_size=chunk_size)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
         base_warn_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_WARNING_COORD_METRIC])
 
@@ -7747,7 +7834,7 @@ class TestShardTimeout:
             env.assertFalse(t_query.is_alive(), message="Cursor read thread should have finished")
             env.assertEqual(len(result), 1, message="Expected one cursor read result")
             _assert_return_strict_cursor_timeout_reply(
-                env, result[0], cursor_id, expected_results=1,
+                env, result[0], cursor_id, expected_results=chunk_size,
                 message_prefix='standalone RETURN_STRICT cursor-read timeout after claim')
 
             after_info = info_modules_to_dict(env)
@@ -8740,15 +8827,15 @@ class TestShardTimeout:
             pause_after_n=1, expected_rows=self.n_docs)
 
     def test_return_strict_timeout_profile_flat_aggregate(self):
-        """FT.PROFILE AGGREGATE (flat) preserves the envelope on the buffered path.
-
-        A flat aggregate is RPIndex -> RPPager, which is not drainable, so
-        only the rows BG buffered before the timeout fired are emitted. This
-        confirms the {Results, Profile} envelope and the inner TIMEOUT
-        warning survive even when the strict drain contributes nothing.
-        """
+        """PROFILE preserves its envelope while Drain recovers the loaded batch."""
         self._run_return_strict_timeout_profile(
             'AGGREGATE', ['LOAD', '1', '@name', 'LIMIT', '0', str(self.n_docs)],
+            pause_after_n=1, expected_rows=self.n_docs)
+
+    def test_return_strict_timeout_profile_index_barrier(self):
+        """Without a buffer, Drain stops at RP_INDEX instead of reading more rows."""
+        self._run_return_strict_timeout_profile(
+            'AGGREGATE', ['LIMIT', '0', str(self.n_docs)],
             pause_after_n=1, expected_rows=1)
 
 class TestShardTimeoutResp2:
@@ -8894,15 +8981,15 @@ class TestShardTimeoutResp2:
             pause_after_n=1, expected_rows=self.n_docs)
 
     def test_return_strict_timeout_profile_flat_aggregate_resp2(self):
-        """RESP2 FT.PROFILE AGGREGATE (flat) preserves the envelope on the buffered path.
-
-        RESP2 counterpart of test_return_strict_timeout_profile_flat_aggregate:
-        a flat aggregate (RPIndex -> RPPager) is not drainable, so only the
-        rows buffered before the timeout fired are emitted, while the
-        [results, profile] envelope still survives.
-        """
+        """RESP2 PROFILE keeps its envelope while recovering the loaded batch."""
         self._run_return_strict_timeout_profile_resp2(
             'AGGREGATE', ['LOAD', '1', '@name', 'LIMIT', '0', str(self.n_docs)],
+            pause_after_n=1, expected_rows=self.n_docs)
+
+    def test_return_strict_timeout_profile_index_barrier_resp2(self):
+        """RESP2 recovery must not read new rows through the index source."""
+        self._run_return_strict_timeout_profile_resp2(
+            'AGGREGATE', ['LIMIT', '0', str(self.n_docs)],
             pause_after_n=1, expected_rows=1)
 
 class TestNoDeadlockQueryWithConcurrentWriter:

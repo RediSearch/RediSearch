@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use result_processor::{ResultProcessorWrapper, counter::Counter};
+use result_processor::counter::Counter;
 
 /// Crate a new heap-allocated `Counter` result processor
 ///
@@ -17,10 +17,5 @@ use result_processor::{ResultProcessorWrapper, counter::Counter};
 /// - The caller must ensure to call the `Free` VTable function to properly destroy the type.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RPCounter_New() -> *mut ffi::ResultProcessor {
-    let rp = Box::pin(ResultProcessorWrapper::new(Counter::new()));
-
-    // Safety: The safety contract requires the caller to treat the returned pointer as pinned
-    unsafe { ResultProcessorWrapper::into_ptr(rp) }
-        .cast()
-        .as_ptr()
+    Counter::new().into_raw().as_ptr()
 }

@@ -19,6 +19,7 @@
 #include "debug_commands.h"
 #endif
 #include "rmalloc.h"
+#include "pipeline_execution.h"
 #include "rmutil/rm_assert.h"
 
 // The registry list every main-thread cycle links into. Asserts main-thread
@@ -87,6 +88,10 @@ void QueryRequest_EndCycle(QueryRequest *request) {
   // not consume (unconsumed stored results when the timeout replied first).
   // Idempotent; base destruction also clears reply state as a safety net.
   QueryRequest_ResetReply(request);
+  // OnFree proves the old worker released its blocked-client reference. Drop
+  // its publication before a cursor can become visible to the next cycle.
+  PipelineExecution_Free(request->execution);
+  request->execution = NULL;
 
   // Snapshot the disposition before clearing the per-cycle fields it lives in.
   struct Cursor *cursor = request->cursorInfo.cursor;
