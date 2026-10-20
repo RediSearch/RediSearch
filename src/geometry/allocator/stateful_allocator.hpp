@@ -27,7 +27,7 @@ struct StatefulAllocator {
   template <class U>
   explicit inline constexpr StatefulAllocator(StatefulAllocator<U> const&) noexcept;
 
-  [[nodiscard]] inline auto allocate(std::size_t n) noexcept -> value_type*;
+  [[nodiscard]] inline auto allocate(std::size_t n) -> value_type*;
   inline void deallocate(value_type* p, std::size_t n) noexcept;
 
   [[nodiscard]] inline constexpr std::size_t report() const noexcept;
@@ -39,7 +39,7 @@ inline constexpr StatefulAllocator<T>::StatefulAllocator(StatefulAllocator<U> co
 }
 
 template <class T>
-inline auto StatefulAllocator<T>::allocate(std::size_t n) noexcept -> value_type* {
+inline auto StatefulAllocator<T>::allocate(std::size_t n) -> value_type* {
   auto p = Allocator<T>::allocate(n);
   if (p) {
     allocated_ += n * sizeof(value_type);
