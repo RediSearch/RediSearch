@@ -12,6 +12,7 @@
 #include <array>                                // std::array
 #include <variant>                              // std::variant, std::monostate, std::get
 #include <cstddef>
+#include <exception>
 #include <memory>
 #include <string_view>
 
@@ -42,6 +43,7 @@ auto GeometryApi_Get(const GeometryIndex *idx) -> const GeometryApi * {
 
 namespace {
 #define X(variant)                                                                          \
+  /* Entry points are called from C; exceptions must not escape them. */                    \
   void Index_##variant##_Free(GeometryIndex *idx) {                                         \
     using alloc_type = Allocator<GeometryIndex>;                                            \
     alloc_type alloc;                                                                       \
@@ -60,11 +62,18 @@ namespace {
     }                                                                                       \
   }                                                                                         \
   int Index_##variant##_Remove(GeometryIndex *idx, t_docId id) {                            \
-    return std::get<rtree_ptr<variant>>(idx->index)->remove(id);                            \
+    try {                                                                                   \
+      return std::get<rtree_ptr<variant>>(idx->index)->remove(id);                          \
+    } catch (const std::exception&) {                                                       \
+      return 0;                                                                             \
+    }                                                                                       \
   }                                                                                         \
-  int Index_##variant##_Relabel(GeometryIndex *idx, t_docId old_id,                         \
-                                t_docId new_id) noexcept {                                  \
-    return std::get<rtree_ptr<variant>>(idx->index)->relabel(old_id, new_id);               \
+  int Index_##variant##_Relabel(GeometryIndex *idx, t_docId old_id, t_docId new_id) {       \
+    try {                                                                                   \
+      return std::get<rtree_ptr<variant>>(idx->index)->relabel(old_id, new_id);             \
+    } catch (const std::exception&) {                                                       \
+      return 0;                                                                             \
+    }                                                                                       \
   }                                                                                         \
   int Index_##variant##_Holds(const GeometryIndex *idx, GEOMETRY_FORMAT format,             \
                               const char *str, std::size_t len, t_docId id) {               \
