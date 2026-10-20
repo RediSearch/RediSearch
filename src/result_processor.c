@@ -214,6 +214,13 @@ static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadat
     }
   }
 
+  // A DMD can be attached before a slot deletion was registered (e.g. held in the optimizer heap
+  // across cursor reads), so DocTable_Borrow's check alone does not cover it.
+  const DocTable *docs = &self->sctx->spec->docs;
+  if (DocTable_HasPendingDeletions(docs) && DocTable_IsDocPendingDeletion(docs, dmd)) {
+    return false;
+  }
+
   // Check query slots (internal command filtering)
   if (self->querySlots && (__atomic_load_n(&key_space_version, __ATOMIC_RELAXED) != self->keySpaceVersion)) {
     if (!SlotRangeArray_ContainsSlot(self->querySlots, dmd->slot)) {

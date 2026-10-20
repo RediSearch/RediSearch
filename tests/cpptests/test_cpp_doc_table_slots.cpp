@@ -90,9 +90,12 @@ TEST_F(DocTableSlotsTest, PendingDeletionHidesOnlyOlderDocsInItsSlots) {
   t_docId inSlot = put("{a}1");
   t_docId otherSlot = put("{b}1");
   EXPECT_FALSE(DocTable_HasPendingDeletions(&dt));
+  const size_t memsize = dt.memsize;
 
   PendingSlotDeletion *pending = addPending({{SLOT_A, SLOT_A}});
   EXPECT_TRUE(DocTable_HasPendingDeletions(&dt));
+  const size_t pendingSize = dt.memsize - memsize;
+  EXPECT_GT(pendingSize, 0);
   EXPECT_EQ(pending->maxDocId, otherSlot);
 
   // A doc added after the announcement belongs to the new owner of the slot.
@@ -104,8 +107,10 @@ TEST_F(DocTableSlotsTest, PendingDeletionHidesOnlyOlderDocsInItsSlots) {
   // Hidden docs are still physically present until deleted.
   EXPECT_TRUE(DocTable_Exists(&dt, inSlot));
 
+  const size_t beforeRemove = dt.memsize;
   DocTable_RemovePendingDeletion(&dt, pending);
   EXPECT_FALSE(DocTable_HasPendingDeletions(&dt));
+  EXPECT_EQ(dt.memsize, beforeRemove - pendingSize);
   EXPECT_TRUE(visible(inSlot));
 }
 

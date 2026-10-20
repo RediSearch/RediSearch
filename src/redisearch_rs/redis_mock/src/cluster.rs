@@ -46,7 +46,7 @@ fn crc16(bytes: &[u8]) -> u16 {
 /// 1. `key` must point to `len` readable bytes.
 #[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_ClusterKeySlotC(key: *const c_char, len: usize) -> c_uint {
-    // Safety: the caller guarantees `key` points to `len` readable bytes (1.).
+    // SAFETY: the caller guarantees `key` points to `len` readable bytes (1.).
     let key = unsafe { std::slice::from_raw_parts(key.cast::<u8>(), len) };
     c_uint::from(crc16(hash_tag(key)) % CLUSTER_SLOTS)
 }
@@ -56,7 +56,7 @@ mod tests {
     use super::*;
 
     fn slot(key: &str) -> c_uint {
-        // Safety: `key` is a live `&str` of `key.len()` bytes.
+        // SAFETY: `key` is a live `&str` of `key.len()` bytes.
         unsafe { RedisModule_ClusterKeySlotC(key.as_ptr().cast(), key.len()) }
     }
 
