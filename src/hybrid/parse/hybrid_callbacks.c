@@ -207,6 +207,12 @@ void handleWithCursor(ArgParser *parser, const void *value, void *user_data) {
     }
 }
 
+void handleWithCursorUnsupported(ArgParser *parser, const void *value, void *user_data) {
+    HybridParseContext *ctx = (HybridParseContext*)user_data;
+    QueryError_SetError(ctx->status, QUERY_ERROR_CODE_PARSE_ARGS,
+                        "WITHCURSOR is not supported by FT.HYBRID");
+}
+
 // PARAMS callback - improved with error handling macro and early validation
 void handleParams(ArgParser *parser, const void *value, void *user_data) {
     HybridParseContext *ctx = (HybridParseContext*)user_data;
