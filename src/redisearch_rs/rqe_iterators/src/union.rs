@@ -20,8 +20,10 @@
 
 use std::marker::PhantomData;
 
-use index_result::{MetricsVec, RSIndexResult, RawBorrowedAggregateResult};
-use ref_mode::Suspended;
+use index_result::{
+    MetricsVec, RSIndexResult, RSResultKind, RawBorrowedAggregateResult, RawIndexResult,
+};
+use ref_mode::{Ref, Suspended};
 use rqe_core::{DocId, FieldMask};
 
 use crate::{RQEIterator, RQEValidateStatus, ResumeOutcome};
@@ -325,6 +327,22 @@ impl<Shell, Elem, Resumed> Drop for FreeSuspendedShell<Shell, Elem, Resumed> {
     }
 }
 
+/// Whether `result` is a borrowed union aggregate, the only representation a
+/// union rebuilds in place.
+///
+/// [`current`](RQEIterator::current) hands the result out mutably, so a
+/// consumer may have replaced it. The exact kind is required: `is_aggregate()`
+/// also admits `HybridMetric`, whose children are owned boxes. So is the
+/// borrowed representation: an owned `Union` aggregate boxes its children into
+/// the result's own allocation, out of the rebuild's reach, so a resume would
+/// re-narrow pointers nothing re-validated.
+pub(crate) fn result_is_borrowed_union<Rf: Ref>(result: &RawIndexResult<'_, Rf>) -> bool {
+    result.kind() == RSResultKind::Union
+        && result
+            .as_aggregate()
+            .is_some_and(|aggregate| aggregate.as_borrowed().is_some())
+}
+
 /// Whether the rebuilt aggregate still has a child behind it.
 ///
 /// `#[must_use]` sits on the type so it covers every producer: an
@@ -429,10 +447,10 @@ where
     R: RQEIterator<'a> + 'child,
 {
     if aggregate.is_empty() {
-        // Nothing borrowed, so again nothing to rebuild, and no reason to touch
-        // a single child. This is the union that was suspended before its first
-        // read: its result is an empty aggregate on document 0, which no child
-        // would answer for.
+        // Nothing borrowed, so nothing to rebuild. The union holds an empty
+        // aggregate before its first read, after a rewind, and after a skip a
+        // child error interrupted; none of them publishes a document, and
+        // aborting the last would drop a cursor's remaining results.
         return RebuildOutcome::Backed;
     }
 
