@@ -9,6 +9,9 @@
 
 #include "gtest/gtest.h"
 #include "gtest/internal/gtest-port.h"  // For CaptureStderr/GetCapturedStderr
+extern "C" {
+#include "util/dict.h"
+}
 #include "common.h"
 #include "redismock/redismock.h"
 #include "synonym_map.h"
@@ -24,6 +27,7 @@ extern "C" {
 #include "spec.h"
 #include "vector_index.h"
 #include "indexes.h"
+#include "indexer.h"
 #include "query_error_ffi.h"
 #include "rules.h"
 #include "alias.h"
@@ -38,6 +42,7 @@ extern "C" {
 extern int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 extern void Spec_AddToDict(RefManager *rm);  // Helper to add spec to global dict
 extern RedisSearchDiskAPI *disk;
+extern dict *legacySpecDict;
 }
 
 
@@ -281,6 +286,96 @@ TEST_F(RdbMockTest, testIndexSpecRdbLoadNormalizesInvalidStorageFlags) {
     EXPECT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
     EXPECT_FALSE(loadedSpec->flags & Index_WideSchema);
     EXPECT_FALSE(loadedSpec->flags & Index_StoreFieldFlags);
+}
+
+TEST_F(RdbMockTest, testIndexSpecRdbLoadRejectsNumericStorageFlag) {
+  const char *args[] = {"SCHEMA", "title", "TEXT", "price", "NUMERIC"};
+  QueryError status = QueryError_Default();
+  StrongRef originalRef =
+      IndexSpec_ParseC(nullptr, "storage_flags", args, std::size(args), &status);
+  ASSERT_FALSE(QueryError_HasError(&status)) << QueryError_GetUserError(&status);
+  auto *original = static_cast<IndexSpec *>(StrongRef_Get(originalRef));
+  ASSERT_NE(original, nullptr);
+  std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> originalPtr(
+      original, [](IndexSpec *spec) { Indexes_RemoveSpecFromGlobals(spec->own_ref, false); });
+
+  // Numeric fields are valid; only a numeric encoding on the whole spec is unsupported.
+  for (unsigned storage = 0; storage < 8; ++storage) {
+    const uint64_t flags = Index_StoreByteOffsets | ((storage & 1) ? Index_StoreTermOffsets : 0) |
+                           ((storage & 2) ? Index_StoreFieldFlags : 0) |
+                           ((storage & 4) ? Index_StoreFreqs : 0);
+    for (bool numericStorage : {false, true}) {
+      SCOPED_TRACE(::testing::Message() << "flags=" << flags << " numeric=" << numericStorage);
+      original->flags = static_cast<IndexFlags>(flags | (numericStorage ? Index_StoreNumeric : 0));
+      std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(),
+                                                                   RMCK_FreeRdbIO);
+      IndexSpec_RdbSave(io.get(), original, 0);
+      ASSERT_EQ(RMCK_IsIOError(io.get()), 0);
+      io->read_pos = 0;
+      char *name = RMCK_LoadStringBuffer(io.get(), nullptr);
+      rm_free(name);
+      RMCK_LoadUnsigned(io.get());
+      const size_t flagsEnd = io->read_pos;
+      io->read_pos = 0;
+
+      IndexSpec *loaded = IndexSpec_RdbLoad(io.get(), INDEX_CURRENT_VERSION, false, &status);
+      if (numericStorage) {
+        EXPECT_EQ(loaded, nullptr);
+        EXPECT_TRUE(QueryError_HasError(&status));
+        EXPECT_EQ(io->read_pos, flagsEnd);
+      } else {
+        ASSERT_NE(loaded, nullptr) << QueryError_GetUserError(&status);
+        EXPECT_FALSE(QueryError_HasError(&status));
+        EXPECT_EQ(loaded->flags, flags);
+        EXPECT_EQ(loaded->numFields, 2);
+        EXPECT_EQ(loaded->fields[1].types, INDEXFLD_T_NUMERIC);
+        EXPECT_EQ(io->read_pos, io->buffer.size());
+      }
+      if (loaded) {
+        IndexSpec_RdbLoadDiscard(loaded->own_ref);
+      }
+      EXPECT_EQ(RMCK_IsIOError(io.get()), 0);
+      QueryError_ClearError(&status);
+    }
+  }
+}
+
+TEST_F(RdbMockTest, testLegacyIndexSpecRdbLoadRejectsNumericStorageFlag) {
+  const auto originalGetKeyName = RedisModule_GetKeyNameFromIO;
+  const bool originalLoading = g_isLoading;
+  dict *originalRules = legacySpecRules;
+  dict *originalSpecs = legacySpecDict;
+  RedisModule_GetKeyNameFromIO = [](RedisModuleIO *) -> const RedisModuleString * {
+    return nullptr;
+  };
+  g_isLoading = true;
+  legacySpecRules = dictCreate(&dictTypeHeapHiddenStrings, nullptr);
+  legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, nullptr);
+
+  for (int encver = LEGACY_INDEX_MIN_VERSION; encver <= LEGACY_INDEX_MAX_VERSION; ++encver) {
+    for (bool numericStorage : {false, true}) {
+      SCOPED_TRACE(::testing::Message() << "encver=" << encver << " numeric=" << numericStorage);
+      std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(),
+                                                                   RMCK_FreeRdbIO);
+      RMCK_SaveStringBuffer(io.get(), "legacy_storage_flags", sizeof("legacy_storage_flags"));
+      RMCK_SaveUnsigned(io.get(), INDEX_DEFAULT_FLAGS | (numericStorage ? Index_StoreNumeric : 0));
+      const size_t flagsEnd = io->buffer.size();
+      // A later, distinct validation failure keeps the control safe on unfixed code and proves
+      // valid storage flags reach the schema, while numeric storage must stop before it.
+      RMCK_SaveUnsigned(io.get(), SPEC_MAX_FIELDS + 1);
+
+      EXPECT_EQ(IndexSpec_LegacyRdbLoad(io.get(), encver), nullptr);
+      EXPECT_EQ(io->read_pos, numericStorage ? flagsEnd : io->buffer.size());
+      EXPECT_EQ(RMCK_IsIOError(io.get()), 0);
+    }
+  }
+
+  dictRelease(legacySpecRules);
+  dictRelease(legacySpecDict);
+  legacySpecRules = originalRules;
+  legacySpecDict = originalSpecs;
+  g_isLoading = originalLoading;
+  RedisModule_GetKeyNameFromIO = originalGetKeyName;
 }
 
 // Parses `args` into a spec, saves it and loads it back with `encver`, then

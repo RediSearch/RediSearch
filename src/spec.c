@@ -3366,6 +3366,10 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   RedisModule_Free(rawName);
 
   flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup_name);
+  if (flags & Index_StoreNumeric) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid index storage flags");
+    goto cleanup_name;
+  }
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     flags |= Index_StoreFreqs;
   }
@@ -3598,6 +3602,11 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);
   RedisModule_Free(legacyName);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
+  if (sp->flags & Index_StoreNumeric) {
+    RedisModule_LogIOError(rdb, "warning", "RDB Load: Invalid index storage flags");
+    StrongRef_Release(spec_ref);
+    return NULL;
+  }
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
