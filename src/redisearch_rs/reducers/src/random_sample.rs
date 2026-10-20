@@ -73,9 +73,8 @@ impl Accumulator for RandomSample<'_> {
 /// A pseudo-random number in `0..bound`, from the C library's generator, which
 /// the C reducer used.
 fn random_below(bound: usize) -> usize {
-    // SAFETY: `rand` has no preconditions. It is not required to be thread-safe:
-    // glibc and macOS lock around its seed, while on a libc that does not, concurrent
-    // queries race on it, as they did with the C reducer this replaces.
+    // TODO: replace `rand` with a thread-safe generator.
+    // SAFETY: `rand` has no preconditions. Its thread safety depends on the libc.
     let random = unsafe { libc::rand() };
     // `rand` returns a non-negative `int`.
     random as usize % bound
