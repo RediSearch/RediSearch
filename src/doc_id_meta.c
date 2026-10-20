@@ -405,6 +405,7 @@ int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId) {
 int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId,
                   uint64_t docId) {
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
+  RS_LOG_ASSERT(key, "DocIdMeta: failed to open key for write");
   if (!key) {
     return REDISMODULE_ERR;
   }
@@ -427,6 +428,7 @@ int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t spec
 
 int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId) {
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
+  RS_LOG_ASSERT(key, "DocIdMeta: failed to open key for write");
   if (!key) {
     return REDISMODULE_ERR;
   }
@@ -437,6 +439,7 @@ int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t s
 
 int DocIdMeta_Clear(RedisModuleCtx *ctx, RedisModuleString *keyName) {
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
+  RS_LOG_ASSERT(key, "DocIdMeta: failed to open key for write");
   if (!key) {
     return REDISMODULE_ERR;
   }
@@ -445,6 +448,7 @@ int DocIdMeta_Clear(RedisModuleCtx *ctx, RedisModuleString *keyName) {
   if (rc == REDISMODULE_OK && meta != 0) {
     // See docIdMetaResetIfEmpty: detach first, then release ourselves.
     rc = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, 0);
+    RS_LOG_ASSERT(rc == REDISMODULE_OK, "DocIdMeta: failed to clear metadata");
     if (rc == REDISMODULE_OK) {
       dictRelease((dict *)meta);
     }
@@ -455,6 +459,7 @@ int DocIdMeta_Clear(RedisModuleCtx *ctx, RedisModuleString *keyName) {
 
 int DocIdMeta_PruneDeletedSpecs(RedisModuleCtx *ctx, RedisModuleString *keyName) {
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
+  RS_LOG_ASSERT(key, "DocIdMeta: failed to open key for write");
   if (!key) {
     return REDISMODULE_ERR;
   }
