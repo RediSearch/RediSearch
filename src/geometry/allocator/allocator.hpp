@@ -34,7 +34,6 @@ inline constexpr Allocator<T>::Allocator(Allocator<U> const&) noexcept {
 
 template <class T>
 inline auto Allocator<T>::allocate(std::size_t n) -> value_type* {
-  // n * sizeof(T) must not wrap: a wrapped size would return an undersized block.
   if (n > std::numeric_limits<std::size_t>::max() / sizeof(value_type)) {
     throw std::bad_alloc{};
   }
