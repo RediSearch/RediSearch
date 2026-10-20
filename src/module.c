@@ -3496,12 +3496,9 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
 // Currently used during OOM conditions for early bailout and return empty results instead of failing.
 void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req) {
     // Setup a dummy searchReducerCtx that will be used by sendSearchResults
+    // No result heap: sendSearchResults then replies with no rows.
     searchReducerCtx rCtx = {NULL};
     rCtx.searchCtx = req;
-    // Create empty heap (dynamic allocation is necessary for heap_free in sendSearchResults)
-    heap_t* emptyHeap = heap_new(cmp_results, req);
-    // The empty heap will result in an empty reply
-    rCtx.pq = emptyHeap;
 
     if (req->profileArgs > 0) {
       profileSearchReply(reply, &rCtx, 0, NULL, &req->profileClock, rs_wall_clock_now_ns());
