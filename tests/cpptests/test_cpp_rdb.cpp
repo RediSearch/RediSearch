@@ -1778,3 +1778,72 @@ TEST_F(RdbMockTest, testLegacyDocTableFailsOnTruncatedSortingVector) {
   DocTable_Free(&table);
   RMCK_FreeRdbIO(io);
 }
+
+TEST_F(RdbMockTest, testLegacyFieldTypeMapping) {
+  const std::array<FieldType, 4> expectedTypes{INDEXFLD_T_FULLTEXT, INDEXFLD_T_NUMERIC,
+                                               INDEXFLD_T_GEO, INDEXFLD_T_TAG};
+  const std::array<uint64_t, 9> storedTypes{IDXFLD_LEGACY_FULLTEXT,
+                                            IDXFLD_LEGACY_NUMERIC,
+                                            IDXFLD_LEGACY_GEO,
+                                            IDXFLD_LEGACY_TAG,
+                                            IDXFLD_LEGACY_MAX + 1,
+                                            255,
+                                            256,
+                                            (uint64_t{1} << 32) + IDXFLD_LEGACY_TAG,
+                                            UINT64_MAX};
+
+  // Exercise the shared field loader through the spec loader, with a complete trailing schema rule
+  // so rejection cannot be mistaken for an unrelated short read.
+  for (int encver = INDEX_MIN_TAGFIELD_VERSION; encver < INDEX_MIN_MULTITYPE_VERSION; ++encver) {
+    for (uint64_t storedType : storedTypes) {
+      SCOPED_TRACE(::testing::Message() << "encver=" << encver << " type=" << storedType);
+      std::unique_ptr<RedisModuleIO, decltype(&RMCK_FreeRdbIO)> io(RMCK_CreateRdbIO(),
+                                                                   RMCK_FreeRdbIO);
+      ASSERT_NE(io, nullptr);
+      RMCK_SaveStringBuffer(io.get(), "legacy_field_type", sizeof("legacy_field_type"));
+      RMCK_SaveUnsigned(io.get(), INDEX_DEFAULT_FLAGS);
+      RMCK_SaveUnsigned(io.get(), 1);
+      RMCK_SaveStringBuffer(io.get(), "field", sizeof("field"));
+      RMCK_SaveUnsigned(io.get(), storedType);
+      const size_t typeEnd = io->buffer.size();
+      RMCK_SaveUnsigned(io.get(), 0);  // Field options.
+      RMCK_SaveSigned(io.get(), -1);
+      const uint64_t narrowedType = storedType & 255;
+      if (narrowedType == IDXFLD_LEGACY_FULLTEXT) {
+        RMCK_SaveUnsigned(io.get(), 0);
+        RMCK_SaveDouble(io.get(), 1);
+      } else if (narrowedType == IDXFLD_LEGACY_TAG) {
+        RMCK_SaveUnsigned(io.get(), TagField_CaseSensitive);
+        RMCK_SaveStringBuffer(io.get(), ",", 1);
+      }
+      RMCK_SaveStringBuffer(io.get(), "HASH", sizeof("HASH"));
+      RMCK_SaveUnsigned(io.get(), 0);  // Prefixes.
+      for (int i = 0; i < 4; ++i) {
+        RMCK_SaveUnsigned(io.get(), 0);  // Optional rule fields.
+      }
+      RMCK_SaveDouble(io.get(), 1);
+      RMCK_SaveUnsigned(io.get(), DEFAULT_LANGUAGE);
+      RMCK_SaveUnsigned(io.get(), -1);  // Timeout.
+      RMCK_SaveUnsigned(io.get(), 0);   // Aliases.
+      io->read_pos = 0;
+
+      QueryError status = QueryError_Default();
+      IndexSpec *loaded = IndexSpec_RdbLoad(io.get(), encver, false, &status);
+      if (storedType <= IDXFLD_LEGACY_MAX) {
+        ASSERT_NE(loaded, nullptr) << QueryError_GetUserError(&status);
+        EXPECT_EQ(loaded->fields[0].types, expectedTypes[storedType]);
+        EXPECT_EQ(io->read_pos, io->buffer.size());
+        EXPECT_FALSE(QueryError_HasError(&status));
+      } else {
+        EXPECT_EQ(loaded, nullptr);
+        EXPECT_TRUE(QueryError_HasError(&status));
+        EXPECT_EQ(io->read_pos, typeEnd);
+      }
+      if (loaded) {
+        IndexSpec_RdbLoadDiscard(loaded->own_ref);
+      }
+      EXPECT_EQ(RMCK_IsIOError(io.get()), 0);
+      QueryError_ClearError(&status);
+    }
+  }
+}

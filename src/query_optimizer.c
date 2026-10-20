@@ -13,6 +13,7 @@
 
 #include "iterators/optimizer_reader.h"
 #include "iterators_ffi.h"
+#include "query_eval_ffi.h"
 #include "aggregate/aggregate_plan.h"
 #include "field.h"
 #include "field_spec.h"
@@ -248,17 +249,28 @@ static void updateRootIter(AREQ *req, QueryIterator *root, QueryIterator *new) {
     AddIntersectionIteratorChild(root, new);
   } else {
     QueryIterator **its = rm_malloc(2 * sizeof(*its));
-    its[0] = req->rootiter;
+    its[0] = root;
     its[1] = new;
     // use slop==-1 and inOrder==0 since not applicable
     // use weight 1 since we checked at `checkQueryTypes`
-    req->rootiter = NewIntersectionIterator(its, 2, -1, 0, 1);
+    QueryIteratorTree_SetRoot(req->iteratorTree, NewIntersectionIterator(its, 2, -1, 0, 1));
   }
+}
+
+// wraps root with an OptimizerIterator, leaving root in place if that fails
+static int setOptimizerRoot(AREQ *req, QOptimizer *opt, QueryIterator *root, QueryError *status) {
+  QueryIterator *optimized = NewOptimizerIterator(opt, root, &req->ast.config);
+  if (!optimized) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+    return REDISMODULE_ERR;
+  }
+  QueryIteratorTree_SetRoot(req->iteratorTree, optimized);
+  return REDISMODULE_OK;
 }
 
 int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
   IndexSpec *spec = AREQ_SearchCtx(req)->spec;
-  QueryIterator *root = req->rootiter;
+  QueryIterator *root = QueryIteratorTree_Root(req->iteratorTree);
 
   // OptimizerIterator and the Q_OPT_UNDECIDED numeric fallback both rely on
   // the RAM DocTable / NumericRangeTree. AREQ_Compile rejects the queries that
@@ -279,10 +291,7 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
     // limit range to number of required LIMIT
     case Q_OPT_PARTIAL_RANGE: {
       if (root->type == WILDCARD_ITERATOR) {
-        req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
-        if (!req->rootiter) {
-          req->rootiter = root;
-          QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+        if (setOptimizerRoot(req, opt, root, status) != REDISMODULE_OK) {
           return REDISMODULE_ERR;
         }
       } else if (req->ast.root->type == QN_NUMERIC) {
@@ -291,10 +300,7 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
           TrimUnionIterator(root, opt->limit, opt->asc);
         }
       } else {
-        req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
-        if (!req->rootiter) {
-          req->rootiter = root;
-          QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+        if (setOptimizerRoot(req, opt, root, status) != REDISMODULE_OK) {
           return REDISMODULE_ERR;
         }
       }
@@ -314,10 +320,7 @@ int QOptimizer_Iterators(AREQ *req, QOptimizer *opt, QueryError *status) {
       }
       opt->type = Q_OPT_HYBRID;
       // replace root with OptimizerIterator
-      req->rootiter = NewOptimizerIterator(opt, root, &req->ast.config);
-      if (!req->rootiter) {
-        req->rootiter = root;
-        QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
+      if (setOptimizerRoot(req, opt, root, status) != REDISMODULE_OK) {
         return REDISMODULE_ERR;
       }
     }

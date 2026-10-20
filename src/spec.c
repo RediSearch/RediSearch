@@ -2725,6 +2725,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
 
   char* name = NULL;
   size_t len = 0;
+  uint64_t types = 0;
   LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
   if (memchr(name, '\0', len)) {
     rm_free(name);
@@ -2743,12 +2744,15 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     }
   }
 
-  f->types = LoadUnsigned_IOError(rdb, goto fail);
+  types = LoadUnsigned_IOError(rdb, goto fail);
+  if (encver < INDEX_MIN_MULTITYPE_VERSION && types > IDXFLD_LEGACY_MAX) {
+    goto fail;
+  }
+  f->types = types;
   f->options = LoadUnsigned_IOError(rdb, goto fail);
   f->sortIdx = LoadSigned_IOError(rdb, goto fail);
 
   if (encver < INDEX_MIN_MULTITYPE_VERSION) {
-    RS_LOG_ASSERT(f->types <= IDXFLD_LEGACY_MAX, "field type should be string or numeric");
     f->types = fieldTypeMap[f->types];
   }
 
