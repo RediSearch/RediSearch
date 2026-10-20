@@ -17,6 +17,7 @@
 
 #include "config.h"
 #include "notifications.h"
+#include "doc_id_meta.h"
 #include "spec.h"
 #include "indexes.h"
 #include "doc_types.h"
@@ -328,6 +329,17 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
       break;
 
     case restore_cmd:
+      // The payload's D-ID was saved by whichever process ran DUMP: its docIds name
+      // other documents here, or this key's previous, already-unlinked incarnation.
+      // No index here has indexed this new key yet, so every entry is foreign.
+      // Optimization option: Open Key once and pass the open key down the stack to Indexes_UpdateMatchingWithSchemaRules.
+      // Split of logic would be the risk (Indexes_UpdateMatchingWithSchemaRules is a clear signal on all the notifications that reindex a key)
+      // Only processes that register the D-ID rdb_load can receive it (DocIdMeta_Init).
+      if (SearchDisk_IsEnabledForValidation()) {
+        DocIdMeta_Clear(ctx, key);
+      }
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), changedFields, numChangedFields);
+      break;
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), changedFields, numChangedFields);
       break;
