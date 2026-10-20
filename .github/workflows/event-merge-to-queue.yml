@@ -35,6 +35,7 @@ jobs:
     with:
       compare-advisories-to-base: true
       advisories-base-ref: ${{ github.event.merge_group.base_sha }}
+      check-local-links: true
   test-matrix:
     # MQ is the 8.12 release gate, so run the full supported matrix with full tests.
     needs: [get-latest-redis-tag, lint]
@@ -59,7 +60,7 @@ jobs:
       # until those findings are fixed separately.
       ubsan-unit-test-filter: 'TrieTest\.test.*ScansPackedChildKeys'
       separate-coordinator-job: true
-      rejson-branch: 8.12
+      rejson-branch: '8.12'
 
   pr-validation:
     permissions: {} # aggregation gate: inspects needs.* only
