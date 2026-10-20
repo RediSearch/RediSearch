@@ -620,8 +620,7 @@ fn interleaved_groups_are_kept_apart() {
 fn vtable_frees_group_states_only_when_they_own_something() {
     use redisearch_rs::reducers::accumulator::{
         CountDistinctReducer_Create, CountDistinctishReducer_Create, FirstValueReducer_Create,
-        HllSumReducer_Create, RandomSampleReducer_Create, StdDevReducer_Create,
-        SumReducer_Create,
+        HllSumReducer_Create, RandomSampleReducer_Create, StdDevReducer_Create, SumReducer_Create,
     };
 
     /// Whether `reducer` registers `FreeInstance`; frees it.
