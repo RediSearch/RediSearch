@@ -64,6 +64,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Resolve Redis ref
+        id: resolve-redis-ref
+        uses: ./.github/actions/resolve-redis-ref
+        with:
+          redis-ref: ${{ inputs.redis_ref }}
+          redis-ref-variable: ${{ vars.REDIS_REF }}
       - name: Compute effective benchmark filter
         id: benchmark-filter
         working-directory: tests/benchmarks
@@ -148,11 +154,11 @@ jobs:
       # preinstalled redis-server. Useful whenever the module requires a redis
       # newer than the DB hosts' default. The action exports the REDIS_SERVER
       # env var pointing at the built binary.
-      - name: Build custom redis-server from redis/redis@${{ inputs.redis_ref }}
-        if: steps.benchmark-filter.outputs.skip != 'true' && inputs.redis_ref != ''
+      - name: Build custom redis-server from redis/redis@${{ steps.resolve-redis-ref.outputs.ref }}
+        if: steps.benchmark-filter.outputs.skip != 'true'
         uses: ./.github/actions/build-redis
         with:
-          ref: ${{ inputs.redis_ref }}
+          ref: ${{ steps.resolve-redis-ref.outputs.ref }}
           # The DB hosts may not ship the runner's libssl, and benchmarks don't
           # use TLS: build without it so the copied binary needs no extra
           # shared libraries on the remote side.
@@ -202,7 +208,7 @@ jobs:
           # exports REDIS_SERVER). Empty when redis_ref is empty, so the
           # --redis-server-binary flag below is omitted and the DB hosts'
           # preinstalled redis is used.
-          CUSTOM_REDIS_SERVER: ${{ inputs.redis_ref != '' && env.REDIS_SERVER || '' }}
+          CUSTOM_REDIS_SERVER: ${{ env.REDIS_SERVER }}
           GITHUB_ACTOR_NAME: ${{ github.triggering_actor }}
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
           GITHUB_ORG_NAME: ${{ github.repository_owner }}

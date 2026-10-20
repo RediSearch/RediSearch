@@ -87,7 +87,7 @@ on:
       redis-ref:
         description: 'Redis git ref to use (e.g. "7.2.3", "unstable", or a commit sha)'
         type: string
-        default: '559d143b4e0409c452f7d229ba420954b6b647a2'
+        default: ''
       rejson-branch:
         type: string
         default: master
