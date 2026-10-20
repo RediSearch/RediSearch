@@ -22,7 +22,7 @@ jobs:
     permissions: {}
     uses: ./.github/workflows/task-get-redis-tag.yml
     with:
-      pinned-ref: 8.12
+      pinned-ref: unstable
 
   lint:
     permissions:

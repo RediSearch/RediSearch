@@ -25,7 +25,7 @@ jobs:
     permissions: {}
     uses: ./.github/workflows/task-get-redis-tag.yml
     with:
-      pinned-ref: d4de3a9b928c2b9b57ba97a48263c0747bf61146
+      pinned-ref: unstable
 
   check-what-changed:
     permissions: # actions/checkout
