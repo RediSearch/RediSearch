@@ -482,14 +482,18 @@ void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options) {
     n->fn.docIds = options->docIds;
     options->docIds = NULL;
     SetFilterNode(ast, n);
+    ast->inkeysNode = n;
   }
 }
 
-static void resolveInkeysNode(QueryNode *node, const RedisSearchCtx *sctx) {
+void QAST_ResolveInkeys(QueryAST *ast, const RedisSearchCtx *sctx) {
+  RS_ASSERT(IndexSpec_IsReadLocked(sctx->spec));
+  QueryNode *node = ast->inkeysNode;
   if (!node) {
     return;
   }
-  if (node->type == QN_IDS && !node->fn.docIds) {
+  RS_ASSERT(node->type == QN_IDS);
+  if (!node->fn.docIds) {
     node->fn.docIds = rm_calloc(node->fn.len, sizeof(t_docId));
     for (size_t i = 0; i < node->fn.len; ++i) {
       if (sctx->spec->docs.inkeys) {
@@ -501,14 +505,6 @@ static void resolveInkeysNode(QueryNode *node, const RedisSearchCtx *sctx) {
       }
     }
   }
-  for (size_t i = 0; i < QueryNode_NumChildren(node); ++i) {
-    resolveInkeysNode(node->children[i], sctx);
-  }
-}
-
-void QAST_ResolveInkeys(QueryAST *ast, const RedisSearchCtx *sctx) {
-  RS_ASSERT(IndexSpec_IsReadLocked(sctx->spec));
-  resolveInkeysNode(ast->root, sctx);
 }
 
 static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *expCtx,
@@ -646,6 +642,7 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
 void QAST_Destroy(QueryAST *q) {
   QueryNode_Free(q->root);
   q->root = NULL;
+  q->inkeysNode = NULL;
 
   // Free the key handles in metric requests
   if (q->metricRequests) {
@@ -1097,7 +1094,6 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "IDS {");
       if (spec) {
         for (size_t i = 0; i < qs->fn.len; i++) {
-          // Resolved before iterator construction, while establishing execution state.
           t_docId did = qs->fn.docIds ? qs->fn.docIds[i] : 0;
           if (did != 0) {
             s = sdscatprintf(s, "%" PRIu64 ",", did);
