@@ -340,6 +340,8 @@ def _check_never_indexed_entry_is_inserted(rtree_exists):
     keys = _keys(range(3))
     ids_before = _ids(env, keys)
     ops_before = _geoshape_ops(env)
+    if rtree_exists:
+        doc9_id = get_internal_id(env, 'doc:9')
 
     _alter_and_wait(env, 'extra', 'TAG')
 
@@ -350,7 +352,8 @@ def _check_never_indexed_entry_is_inserted(rtree_exists):
     expected = {ids_after[f'doc:{i}']: _dump_shape(SHAPES[i]) for i in range(3)}
     if rtree_exists:
         # doc:9 has no `extra`, so the ALTER skips it and its entry keeps its id.
-        expected[get_internal_id(env, 'doc:9')] = _dump_shape(SHAPES[3])
+        env.assertEqual(get_internal_id(env, 'doc:9'), doc9_id, message='doc:9 was not skipped')
+        expected[doc9_id] = _dump_shape(SHAPES[3])
     env.assertEqual(_dump(env), expected)
     env.assertEqual(_search(env, 'WITHIN', WITHIN_ALL), keys + (['doc:9'] if rtree_exists else []))
 

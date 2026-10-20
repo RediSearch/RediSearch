@@ -10,7 +10,9 @@ import json
 from redis.exceptions import ResponseError
 
 from common import *
+from test_alter_geometry_relabel import _geoshape_ops
 from test_alter_vector_relabel import get_internal_id
+from test_vector_relabel import _vector_ops
 
 # FT.ALTER ... SCHEMA ADD skips documents that lack the added fields and moves or relabels the
 # pre-existing vector and geometry entries of the documents it replaces. Either way the index must
@@ -182,7 +184,8 @@ def _queries(env, idx):
 def _build_alter_and_fresh(env, flavor):
     """Indexes `alt` (created with the pre-existing fields, then ALTERed to add the others) and
     `fresh` (created with the final schema) over the same documents. Returns the internal ids of
-    the documents in `alt` before and after the ALTER."""
+    the documents in `alt` before and after the ALTER, and the vector and geoshape indexing work
+    the ALTER did: (indexing ops, relabel ops) and geoshape indexing ops."""
     conn = getConnectionByEnv(env)
     base = [x for f in ('title', 'geom', 'vec') for x in flavor.schema(f)]
     env.expect('FT.CREATE', 'alt', 'ON', flavor.on, 'SCHEMA', *base).ok()
@@ -191,20 +194,30 @@ def _build_alter_and_fresh(env, flavor):
     keys = [f'doc:{i}' for i in range(DOC_COUNT)]
     ids_before = {k: get_internal_id(env, k, 'alt') for k in keys}
 
+    vector_before, geoshape_before = _vector_ops(env), _geoshape_ops(env)
     added = [x for f in ADDED for x in flavor.schema(f)]
     env.expect('FT.ALTER', 'alt', 'SCHEMA', 'ADD', *added).ok()
     waitForIndexFinishScan(env, 'alt')
+    vector_after, geoshape_after = _vector_ops(env), _geoshape_ops(env)
 
     final = [x for f in ('title', 'geom', 'vec', *ADDED) for x in flavor.schema(f)]
     env.expect('FT.CREATE', 'fresh', 'ON', flavor.on, 'SCHEMA', *final).ok()
     waitForIndexFinishScan(env, 'fresh')
 
     ids_after = {k: get_internal_id(env, k, 'alt') for k in keys}
-    return ids_before, ids_after
+    vector_ops = (vector_after[0] - vector_before[0], vector_after[1] - vector_before[1])
+    return ids_before, ids_after, vector_ops, geoshape_after - geoshape_before
 
 
 def _check_equivalent(env, on):
-    ids_before, ids_after = _build_alter_and_fresh(env, Flavor(on))
+    ids_before, ids_after, vector_ops, geoshape_ops = _build_alter_and_fresh(env, Flavor(on))
+
+    # Matching a fresh index would also hold if the ALTER fell back to deleting and re-inserting
+    # everything, so check the optimized paths ran. Vectors: the pre-existing `vec` of the five
+    # replaced documents is relabeled, and `vec2` is inserted on the two documents that have it.
+    # Shapes: the pre-existing `geom` is moved, so only `geom2` on its two documents is indexed.
+    env.assertEqual(vector_ops, (2, 5), message='(vector indexing ops, relabel ops)')
+    env.assertEqual(geoshape_ops, 2, message='geoshape indexing ops')
 
     # The ALTER did what the comparison below is meant to cover: it skipped the documents without
     # an added field and replaced the rest.
