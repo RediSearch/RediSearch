@@ -48,24 +48,20 @@ fn exceeds_limit() {
     assert_eq!(err.len, MAX_RUNE_STR_LEN + 1);
 }
 
-// strToLowerRunes calls nu_readstr which reads until a null byte (ignoring
-// the utf8_len parameter). Rust &str is not null-terminated, so we must
-// pass a CString copy. Compare Rust output against C for BMP-only strings
-// where libnu and Rust's Unicode tables agree on lowercasing.
+// Compare Rust output against C for BMP-only strings where libnu and Rust's
+// Unicode tables agree on lowercasing.
 #[cfg(not(miri))]
 mod ffi_comparison {
     use proptest::prelude::*;
-    use std::ffi::{CString, c_void};
+    use std::ffi::c_void;
     use string_utils::runes::str_to_lower_runes;
 
     /// Call C `strToLowerRunes` via FFI and return the resulting rune slice.
     fn c_str_to_lower_runes(s: &str) -> Option<Vec<u16>> {
-        let cstr = CString::new(s).expect("input must not contain null bytes");
         let mut unicode_len: usize = 0;
-        // SAFETY: `cstr` is a valid null-terminated buffer. `strToLowerRunes`
-        // internally calls `nu_readstr` which reads until null, and separately
-        // uses `utf8_len` for the lowercasing loop.
-        let ptr = unsafe { ffi::strToLowerRunes(cstr.as_ptr(), s.len(), &mut unicode_len) };
+        // SAFETY: `s` is a live buffer of `s.len()` bytes, which
+        // `strToLowerRunes` reads no further than.
+        let ptr = unsafe { ffi::strToLowerRunes(s.as_ptr().cast(), s.len(), &mut unicode_len) };
         if ptr.is_null() {
             return None;
         }

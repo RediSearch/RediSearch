@@ -16,10 +16,7 @@ use std::{
     ptr::{self, NonNull},
 };
 
-use string_utils::{
-    libnu::{NU_MAX_READAHEAD, tail_may_overread},
-    runes::runes_to_bytes,
-};
+use string_utils::runes::runes_to_bytes;
 
 use crate::{LoweredPattern, QueryRequestTimeoutHandle, TrieTerm};
 
@@ -215,10 +212,8 @@ impl TermsTrie {
             return 0;
         }
 
-        // The rune conversion decodes UTF-8 without bounds-checking multibyte
-        // sequences against the slice end, so a truncated or invalid sequence
-        // could read past `term`. Reject non-UTF-8 input up front; such a term
-        // cannot match a stored (rune-decoded) term anyway.
+        // Reject non-UTF-8 input up front; such a term cannot match a stored
+        // (rune-decoded) term.
         if std::str::from_utf8(term).is_err() {
             return 0;
         }
@@ -227,8 +222,8 @@ impl TermsTrie {
         // cannot truncate and `rlen` below indexes within `runes`. The extra
         // slot keeps the pointer non-dangling for an empty term.
         let mut runes = vec![0 as ffi::rune; term.len() + 1];
-        // SAFETY: `term` is valid UTF-8 of `term.len()` bytes, so the decode
-        // stays within the slice, and `runes.len()` bounds the write.
+        // SAFETY: `term` is a live slice of `term.len()` bytes, which the decode
+        // reads no further than, and `runes.len()` bounds the write.
         let rlen = unsafe {
             ffi::strToRunes(
                 term.as_ptr() as *const c_char,
@@ -367,31 +362,14 @@ impl TermsTrie {
             return Err(InvalidFuzzyDistance(max_dist));
         }
 
-        // Reject an over-long pattern before copying it. This bounds the padded
-        // copy below, which would otherwise duplicate the whole token before C
-        // had looked at its length.
+        // Reject an over-long pattern on its byte length alone, before C decodes
+        // it. The widest UTF-8 sequence is four bytes, so every pattern of up to
+        // `TRIE_MAX_PREFIX` characters fits within this bound.
         const MAX_UTF8_SEQUENCE_LEN: usize = 4;
         if pattern.len() > ffi::TRIE_MAX_PREFIX as usize * MAX_UTF8_SEQUENCE_LEN {
             return Ok(FuzzyWalk::PatternRejected);
         }
 
-        // The trie lowercases the pattern with `strToLowerRunes`, whose decoder
-        // (`nu_utf8_read`) reads a fixed 2–4 bytes from a multibyte lead byte
-        // with no bounds check — so a pattern ending in a truncated sequence
-        // (e.g. a lone `0xF0`) would read past the end. A token is a byte string
-        // that nothing validates as UTF-8, so that is reachable input. Where it
-        // can happen, hand C a private copy padded with `NU_MAX_READAHEAD`
-        // trailing zero bytes instead; the length passed stays the pattern's own,
-        // so the decode, and with it the rune-length threshold, is unchanged.
-        //
-        // The common case needs no copy: `tail_may_overread` is exact, so every
-        // well-formed pattern is decoded in place.
-        let padded = tail_may_overread(pattern).then(|| {
-            let mut buf = Vec::with_capacity(pattern.len() + NU_MAX_READAHEAD);
-            buf.extend_from_slice(pattern);
-            buf.resize(pattern.len() + NU_MAX_READAHEAD, 0);
-            buf
-        });
         // An empty slice carries no allocation, so its pointer is a well-aligned
         // dangling address rather than one into an object. C forms `str + len`
         // to bound its decode loops before testing that the loop is empty, and
@@ -402,17 +380,15 @@ impl TermsTrie {
         let pattern_ptr = if pattern.is_empty() {
             EMPTY_PATTERN.as_ptr()
         } else {
-            padded.as_deref().unwrap_or(pattern).as_ptr()
+            pattern.as_ptr()
         };
 
         // SAFETY: `self` borrows a valid `ffi::Trie` and
         // `pattern_ptr`/`pattern.len()` describe a live byte slice, which the
-        // call only reads (it decodes it into an owned filter). Its decoder can
-        // read up to `NU_MAX_READAHEAD` bytes past a truncated trailing sequence,
-        // which the padding above put inside the allocation. The returned
-        // iterator is owned by us and freed below. `Trie_IterateFuzzy` takes a
-        // non-const `Trie *` but only traverses it, so nothing is written
-        // through the shared pointer.
+        // call only reads, no further than `pattern.len()` bytes (it decodes it
+        // into an owned filter). The returned iterator is owned by us and freed
+        // below. `Trie_IterateFuzzy` takes a non-const `Trie *` but only
+        // traverses it, so nothing is written through the shared pointer.
         let it = unsafe {
             ffi::Trie_IterateFuzzy(
                 self.as_ptr().cast_mut(),
@@ -422,9 +398,6 @@ impl TermsTrie {
                 ffi::TrieMatchMode_TRIE_MATCH_EDIT_DISTANCE,
             )
         };
-        // The pattern is decoded into the filter during the call above and not
-        // referenced afterwards, so the copy has served its purpose here.
-        drop(padded);
         let Some(it) = NonNull::new(it) else {
             return Ok(FuzzyWalk::PatternRejected);
         };
