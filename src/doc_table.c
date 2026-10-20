@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "doc_table.h"
+#include "inkeys_ffi.h"
 
 #include <sys/param.h>
 #include <string.h>
@@ -18,6 +19,7 @@
 #include "config.h"
 #include "buffer.h"
 #include "rules.h"
+#include "search_disk.h"
 
 struct timespec;
 
@@ -34,6 +36,7 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .memsize = 0,
       .sortablesSize = 0,
       .maxSize = max_size,
+      .inkeys = RSGlobalConfig.inkeysLookupMap && !SearchDisk_IsEnabled() ? InkeysMap_New() : NULL,
   };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
   ret.memsize = cap * sizeof(*ret.buckets) + sizeof(DocTable);
@@ -155,6 +158,10 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
   // Adding the dmd to the chain
   dmd->nextInChain = chain->root;
   chain->root = dmd;
+  if (t->inkeys) {
+    uint64_t hash = InkeysMap_Hash(t->inkeys, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr));
+    InkeysMap_Insert(t->inkeys, hash, docId);
+  }
 }
 
 int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len) {
@@ -399,6 +406,8 @@ void DocTable_Free(DocTable *t) {
     }
   }
   rm_free(t->buckets);
+  InkeysMap_Free(t->inkeys);
+  t->inkeys = NULL;
   TimeToLiveTable_Destroy(&t->ttl);
   while (t->pendingSlotDeletions) {
     DocTable_RemovePendingDeletion(t, t->pendingSlotDeletions);
@@ -415,6 +424,12 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
   RSDocumentMetadata *md = DocTable_DmdUnchain(t, docId);
   if (!md) {
     return NULL;
+  }
+
+  if (t->inkeys) {
+    uint64_t hash = InkeysMap_Hash(t->inkeys, (const uint8_t *)md->keyPtr, sdslen(md->keyPtr));
+    bool removed = InkeysMap_Remove(t->inkeys, hash, docId);
+    RS_LOG_ASSERT(removed, "missing INKEYS entry for deleted document");
   }
 
   // Drop the doc's per-field TTL entry, if any, and tear down the table
@@ -454,10 +469,19 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *to_str, size_t 
   if (!dmd) {
     return;
   }
+  if (t->inkeys) {
+    uint64_t hash = InkeysMap_Hash(t->inkeys, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr));
+    bool removed = InkeysMap_Remove(t->inkeys, hash, docId);
+    RS_LOG_ASSERT(removed, "missing INKEYS entry for renamed document");
+  }
   t->memsize -= sdsAllocSize(dmd->keyPtr);
   sdsfree(dmd->keyPtr);
   dmd->keyPtr = sdsnewlen(to_str, to_len);
   dmd->slot = keySlot(to_str, to_len);
+  if (t->inkeys) {
+    uint64_t hash = InkeysMap_Hash(t->inkeys, (const uint8_t *)to_str, to_len);
+    InkeysMap_Insert(t->inkeys, hash, docId);
+  }
   t->memsize += sdsAllocSize(dmd->keyPtr);
 }
 
@@ -622,4 +646,29 @@ bool DocTable_IsDocPendingDeletion(const DocTable *t, const RSDocumentMetadata *
     }
   }
   return false;
+}
+
+// The spec lock pins the DMD and its key; no refcount change is needed for comparison.
+typedef struct {
+  const DocTable *table;
+  const char *key;
+  size_t len;
+} InkeysLookup;
+
+static bool inkeysKeyMatches(const void *ctx, uint64_t id) {
+  const InkeysLookup *lookup = ctx;
+  const RSDocumentMetadata *dmd = DocTable_GetOwn(lookup->table, id);
+  return dmd && sdslen(dmd->keyPtr) == lookup->len &&
+         memcmp(dmd->keyPtr, lookup->key, lookup->len) == 0;
+}
+
+t_docId DocTable_GetInkeysId(const DocTable *t, const char *key, size_t len) {
+  RS_ASSERT(t->inkeys);
+  uint64_t hash = InkeysMap_Hash(t->inkeys, (const uint8_t *)key, len);
+  InkeysLookup lookup = {.table = t, .key = key, .len = len};
+  return InkeysMap_Find(t->inkeys, hash, &lookup, inkeysKeyMatches);
+}
+
+size_t DocTable_InkeysMemoryUsage(const DocTable *t) {
+  return InkeysMap_MemoryUsage(t->inkeys);
 }

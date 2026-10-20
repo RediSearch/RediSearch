@@ -1,0 +1,13 @@
+[package]
+name = "inkeys_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+hashbrown.workspace = true
+workspace_hack.workspace = true

@@ -1163,6 +1163,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "inkeys_ffi"
+version = "0.0.1"
+dependencies = [
+ "hashbrown",
+ "workspace_hack",
+]
+
+[[package]]
 name = "insta"
 version = "1.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2202,6 +2210,7 @@ dependencies = [
  "fork_gc_ffi",
  "geo_ffi",
  "idf_ffi",
+ "inkeys_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "metrics_ffi",

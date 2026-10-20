@@ -17,11 +17,9 @@ use crate::Evaluated;
 
 /// `QN_IDS` — filter by explicit document key names.
 ///
-/// Resolving a key to a docId opens the Redis key (which needs the GIL), so it
-/// happens on the main thread during query construction — see
-/// `applyGlobalFilters` in `aggregate_request.c`. This only consumes the
-/// resulting `doc_ids`, sorts, deduplicates, and builds a sorted
-/// [`IdListSorted`] iterator.
+/// Memory-mode IDs are resolved under the execution spec lock before evaluation;
+/// disk IDs retain their admission-time resolution. This consumes the IDs,
+/// sorts, deduplicates, and builds an [`IdListSorted`] iterator.
 ///
 /// * `keys` — the key names to match against, borrowing the request's held
 ///   argv; kept only for the length invariant against `doc_ids`.

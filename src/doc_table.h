@@ -18,6 +18,7 @@
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
 #include "slot_ranges.h"
+typedef struct InkeysMap InkeysMap;
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,7 +43,7 @@ static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *d
  * incremental ids to inserted keys.
  *
  * The key -> docId direction is stored on the Redis key as key-metadata (see
- * doc_id_meta.{h,c}), not here; the DocTable only maps docId -> RSDocumentMetadata.
+ * doc_id_meta.{h,c}), not here; an optional INKEYS accelerator supplements the docId -> DMD store.
  *
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of
  * the
@@ -71,6 +72,8 @@ typedef struct {
   size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
+  // Optional INKEYS lookup; protected by the owning spec lock.
+  InkeysMap *inkeys;
   // Holds field-level expirations only; created lazily on the first HEXPIRE
   // and destroyed when the last entry is removed. Iterators use a NULL check
   // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
@@ -91,6 +94,12 @@ typedef struct {
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size);
+
+/* Full-key lookup for INKEYS. Caller holds the spec read or write lock and inkeys is enabled. */
+t_docId DocTable_GetInkeysId(const DocTable *t, const char *key, size_t len);
+
+/* Additional INKEYS allocation, including unused capacity; zero when disabled. */
+size_t DocTable_InkeysMemoryUsage(const DocTable *t);
 
 #define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize)
 

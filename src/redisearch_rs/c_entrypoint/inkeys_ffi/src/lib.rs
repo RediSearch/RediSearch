@@ -1,0 +1,181 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! Optional INKEYS acceleration without owning another copy of document keys.
+
+use hashbrown::HashTable;
+use std::{collections::hash_map::RandomState, ffi::c_void, hash::BuildHasher, slice};
+
+/// A candidate whose key remains owned by the document table.
+struct Entry {
+    hash: u64,
+    id: u64,
+}
+
+/// Spec-lock-protected lookup table. Full-hash collisions remain separate entries.
+pub struct InkeysMap {
+    entries: HashTable<Entry>,
+    hasher: RandomState,
+}
+
+impl Default for InkeysMap {
+    fn default() -> Self {
+        Self {
+            entries: HashTable::new(),
+            hasher: RandomState::new(),
+        }
+    }
+}
+
+impl InkeysMap {
+    /// Hash a binary key using this table's private seed.
+    pub fn hash(&self, key: &[u8]) -> u64 {
+        self.hasher.hash_one(key)
+    }
+
+    /// Insert an ID once. The caller must remove it before changing its key.
+    pub fn insert(&mut self, hash: u64, id: u64) {
+        assert_ne!(id, 0);
+        self.entries
+            .insert_unique(hash, Entry { hash, id }, |e| e.hash);
+    }
+
+    /// Remove exactly one candidate, including when full hashes collide.
+    pub fn remove(&mut self, hash: u64, id: u64) -> bool {
+        if let Ok(entry) = self
+            .entries
+            .find_entry(hash, |e| e.hash == hash && e.id == id)
+        {
+            entry.remove();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Find an ID by comparing candidate keys through their owning document table.
+    pub fn find(&self, hash: u64, mut matches: impl FnMut(u64) -> bool) -> u64 {
+        self.entries
+            .find(hash, |e| e.hash == hash && matches(e.id))
+            .map_or(0, |e| e.id)
+    }
+
+    /// Allocated bucket/control storage plus the table object, excluding document keys.
+    pub fn memory_usage(&self) -> usize {
+        size_of::<Self>() + self.entries.allocation_size()
+    }
+}
+
+/// Allocate a table. Production uses the Redis global allocator.
+#[unsafe(no_mangle)]
+pub extern "C" fn InkeysMap_New() -> *mut InkeysMap {
+    Box::into_raw(Box::new(InkeysMap::default()))
+}
+
+/// Destroy a table; a null pointer is accepted.
+///
+/// # Safety
+/// A non-null `map` must be a [valid], exclusively owned allocation from
+/// [`InkeysMap_New`] that has not already been destroyed.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InkeysMap_Free(map: *mut InkeysMap) {
+    if !map.is_null() {
+        // SAFETY: The caller transfers ownership of this live allocation.
+        drop(unsafe { Box::from_raw(map) });
+    }
+}
+
+/// Hash borrowed key bytes; no key storage is retained.
+///
+/// # Safety
+/// `map` must be [valid] for shared access. `key` must be [valid] for `len`
+/// readable bytes, or may be null when `len` is zero.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InkeysMap_Hash(map: *const InkeysMap, key: *const u8, len: usize) -> u64 {
+    // SAFETY: The caller guarantees a shared table borrow.
+    let map = unsafe { &*map };
+    let key = if len == 0 {
+        &[]
+    } else {
+        // SAFETY: The caller guarantees these bytes are readable for this call.
+        unsafe { slice::from_raw_parts(key, len) }
+    };
+    map.hash(key)
+}
+
+/// Insert a prehashed document ID.
+///
+/// # Safety
+/// `map` must be [valid] for exclusive access. The ID must be nonzero and absent.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InkeysMap_Insert(map: *mut InkeysMap, hash: u64, id: u64) {
+    // SAFETY: The caller guarantees exclusive table access.
+    unsafe { &mut *map }.insert(hash, id);
+}
+
+/// Remove a prehashed document ID, returning whether it was present.
+///
+/// # Safety
+/// `map` must be [valid] for exclusive access.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InkeysMap_Remove(map: *mut InkeysMap, hash: u64, id: u64) -> bool {
+    // SAFETY: The caller guarantees exclusive table access.
+    unsafe { &mut *map }.remove(hash, id)
+}
+
+/// Compare a candidate's document key with the query key borrowed through `ctx`.
+pub type InkeysKeyMatches = unsafe extern "C" fn(ctx: *const c_void, id: u64) -> bool;
+
+/// Resolve a hash with full-key comparison through the document table.
+///
+/// # Safety
+/// `map` must be [valid] for shared access throughout the call. `matches` must
+/// be [ABI-compatible] with [`InkeysKeyMatches`] and callable with `ctx` for
+/// each candidate ID. The callback must not mutate the table or its candidates.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+/// [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InkeysMap_Find(
+    map: *const InkeysMap,
+    hash: u64,
+    ctx: *const c_void,
+    matches: InkeysKeyMatches,
+) -> u64 {
+    // SAFETY: The caller guarantees a shared table borrow.
+    let map = unsafe { &*map };
+    map.find(hash, |id| {
+        // SAFETY: The caller guarantees the callback and context remain usable.
+        unsafe { matches(ctx, id) }
+    })
+}
+
+/// Report allocated table storage; null denotes disabled acceleration and returns zero.
+///
+/// # Safety
+/// A non-null `map` must be [valid] for shared access.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn InkeysMap_MemoryUsage(map: *const InkeysMap) -> usize {
+    if map.is_null() {
+        0
+    } else {
+        // SAFETY: The caller guarantees a shared table borrow.
+        unsafe { &*map }.memory_usage()
+    }
+}
