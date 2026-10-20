@@ -1494,7 +1494,9 @@ TEST_F(TrieTest, testLowerRunesStopsAtNul) {
 // to its end. The bytes past the limit sit in an inaccessible page, so reading
 // them faults.
 TEST_F(TrieTest, testLowerRunesStopsCountingPastLimit) {
-  const size_t page = sysconf(_SC_PAGESIZE);
+  const long pageSize = sysconf(_SC_PAGESIZE);
+  ASSERT_GT(pageSize, 0);
+  const size_t page = pageSize;
   const size_t n = MAX_RUNE_STR_LEN + 1;
   const size_t region = ((n + page - 1) / page + 1) * page;
   char *base =
