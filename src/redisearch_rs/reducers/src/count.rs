@@ -9,6 +9,7 @@
 
 //! The `COUNT` reducer.
 
+use bumpalo::Bump;
 use rlookup::RLookupRow;
 use value::SharedValue;
 
@@ -18,9 +19,9 @@ use crate::accumulator::Accumulator;
 pub struct Count;
 
 impl Accumulator for Count {
-    type State = usize;
+    type State<'arena> = usize;
 
-    fn init(&self) -> usize {
+    fn init(&self, _arena: &Bump) -> usize {
         0
     }
 

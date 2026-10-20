@@ -217,7 +217,7 @@ fn into_c_reducer<A: Accumulator>(accumulator: A) -> *mut ffi::Reducer {
         .set_finalize(finalize::<A>)
         .set_free(free::<A>);
     // Optimization only: skip the per-group callback when dropping the state is a no-op.
-    if std::mem::needs_drop::<A::State>() {
+    if std::mem::needs_drop::<A::State<'static>>() {
         vtable.set_free_instance(free_instance::<A>);
     }
     Box::into_raw(reducer).cast()
@@ -252,7 +252,7 @@ unsafe extern "C" fn add<A: Accumulator>(
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<AccumulatorReducer<A>>().as_ref() }.unwrap();
     // SAFETY: ensured by caller (2.)
-    let state = unsafe { state.cast::<Option<A::State>>().as_mut() }.unwrap();
+    let state = unsafe { state.cast::<Option<A::State<'_>>>().as_mut() }.unwrap();
     // SAFETY: ensured by caller (3.)
     let row = unsafe { row.cast::<RLookupRow>().as_ref() }.unwrap();
 
@@ -275,7 +275,7 @@ unsafe extern "C" fn finalize<A: Accumulator>(
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<AccumulatorReducer<A>>().as_ref() }.unwrap();
     // SAFETY: ensured by caller (2.)
-    let state = unsafe { state.cast::<Option<A::State>>().as_ref() }.unwrap();
+    let state = unsafe { state.cast::<Option<A::State<'_>>>().as_ref() }.unwrap();
 
     r.finalize(state).into_raw() as *mut ffi::RSValue
 }
@@ -292,7 +292,7 @@ unsafe extern "C" fn free_instance<A: Accumulator>(r: *mut ffi::Reducer, state: 
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<AccumulatorReducer<A>>().as_ref() }.unwrap();
     // SAFETY: ensured by caller (2.)
-    let state = unsafe { state.cast::<Option<A::State>>().as_mut() }.unwrap();
+    let state = unsafe { state.cast::<Option<A::State<'_>>>().as_mut() }.unwrap();
     r.drop_state(state);
 }
 
