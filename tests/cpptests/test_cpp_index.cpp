@@ -1500,3 +1500,17 @@ TEST_F(IndexTest, testInkeysLookupLifecycle) {
   EXPECT_EQ(dt.inkeys, nullptr);
   EXPECT_EQ(DocTable_InkeysMemoryUsage(&dt), 0);
 }
+
+TEST_F(IndexTest, testInkeysLookupDisabledForDisk) {
+  const bool previousMap = RSGlobalConfig.inkeysLookupMap;
+  const bool previousFlex = isFlex;
+  RSGlobalConfig.inkeysLookupMap = true;
+  isFlex = true;
+  DocTable dt = NewDocTable(1, 10);
+  isFlex = previousFlex;
+  RSGlobalConfig.inkeysLookupMap = previousMap;
+
+  EXPECT_EQ(dt.inkeys, nullptr);
+  EXPECT_EQ(DocTable_InkeysMemoryUsage(&dt), 0);
+  DocTable_Free(&dt);
+}

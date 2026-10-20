@@ -102,6 +102,8 @@ pub unsafe extern "C" fn InkeysMap_Free(map: *mut InkeysMap) {
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InkeysMap_Hash(map: *const InkeysMap, key: *const u8, len: usize) -> u64 {
+    debug_assert!(!map.is_null());
+    debug_assert!(len == 0 || !key.is_null());
     // SAFETY: The caller guarantees a shared table borrow.
     let map = unsafe { &*map };
     let key = if len == 0 {
@@ -121,6 +123,7 @@ pub unsafe extern "C" fn InkeysMap_Hash(map: *const InkeysMap, key: *const u8, l
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InkeysMap_Insert(map: *mut InkeysMap, hash: u64, id: u64) {
+    debug_assert!(!map.is_null());
     // SAFETY: The caller guarantees exclusive table access.
     unsafe { &mut *map }.insert(hash, id);
 }
@@ -133,6 +136,7 @@ pub unsafe extern "C" fn InkeysMap_Insert(map: *mut InkeysMap, hash: u64, id: u6
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InkeysMap_Remove(map: *mut InkeysMap, hash: u64, id: u64) -> bool {
+    debug_assert!(!map.is_null());
     // SAFETY: The caller guarantees exclusive table access.
     unsafe { &mut *map }.remove(hash, id)
 }
@@ -156,6 +160,7 @@ pub unsafe extern "C" fn InkeysMap_Find(
     ctx: *const c_void,
     matches: InkeysKeyMatches,
 ) -> u64 {
+    debug_assert!(!map.is_null());
     // SAFETY: The caller guarantees a shared table borrow.
     let map = unsafe { &*map };
     map.find(hash, |id| {
