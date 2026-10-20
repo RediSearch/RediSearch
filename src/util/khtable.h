@@ -106,11 +106,6 @@ void KHTable_Init(KHTable *table, const KHTableProcs *procs, void *ctx, size_t e
 void KHTable_Free(KHTable *table);
 
 /**
- * Resets the table but does not free the entries themselves
- */
-void KHTable_Clear(KHTable *table);
-
-/**
  * Free individual items. This is passed both the `ctx` (as the context from
  * KHTable_Init()), and the `arg` (for the current call).
  *

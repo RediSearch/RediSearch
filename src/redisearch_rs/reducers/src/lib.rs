@@ -11,6 +11,7 @@ pub mod accumulator;
 pub mod collect;
 pub mod count;
 pub mod count_distinct;
+pub mod count_distinctish;
 pub mod first_value;
 pub mod min_max;
 pub mod random_sample;

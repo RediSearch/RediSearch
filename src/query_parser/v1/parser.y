@@ -132,6 +132,8 @@ static inline struct RSQueryNode* not_step(struct RSQueryNode* child) {
 
 %type termlist { QueryNode * }
 %destructor termlist { QueryNode_Free($$); }
+%type tag_termlist { QueryNode * }
+%destructor tag_termlist { QueryNode_Free($$); }
 
 %type union { QueryNode *}
 %destructor union { QueryNode_Free($$); }
@@ -375,6 +377,23 @@ termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
     A = B;
 }
 
+// A multi-word tag value keeps its case and escapes for tag evaluation to normalize per the field's
+// case sensitivity, unlike a text phrase.
+tag_termlist(A) ::= term(B) term(C). [TERMLIST]  {
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), B.len));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(C.s, C.len), C.len));
+}
+
+tag_termlist(A) ::= tag_termlist(B) term(C) . [TERMLIST] {
+    A = B;
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(C.s, C.len), C.len));
+}
+
+tag_termlist(A) ::= tag_termlist(B) STOPWORD . [TERMLIST] {
+    A = B;
+}
+
 /////////////////////////////////////////////////////////////////
 // Negative Clause
 /////////////////////////////////////////////////////////////////
@@ -460,11 +479,13 @@ modifierlist(A) ::= modifier(B) OR term(C). {
     A = NewVector(char *, 2);
     char *s = rm_strndup(B.s, B.len);
     Vector_Push(A, s);
+    C.len = unescapen((char*)C.s, C.len);
     s = rm_strndup(C.s, C.len);
     Vector_Push(A, s);
 }
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
+    C.len = unescapen((char*)C.s, C.len);
     char *s = rm_strndup(C.s, C.len);
     Vector_Push(B, s);
     A = B;
@@ -501,12 +522,12 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
 
 tag_list(A) ::= LB term(B) . [TAGLIST] {
     A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), B.len));
 }
 
 tag_list(A) ::= LB STOPWORD(B) . [TAGLIST] {
     A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strndup(B.s, B.len), B.len));
 }
 
 tag_list(A) ::= LB affix(B) . [TAGLIST] {
@@ -514,18 +535,18 @@ tag_list(A) ::= LB affix(B) . [TAGLIST] {
     QueryNode_AddChild(A, B);
 }
 
-tag_list(A) ::= LB termlist(B) . [TAGLIST] {
+tag_list(A) ::= LB tag_termlist(B) . [TAGLIST] {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
 }
 
 tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
-    QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), -1));
+    QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), C.len));
     A = B;
 }
 
 tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
-    QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), -1));
+    QueryNode_AddChild(B, NewTokenNode(ctx, rm_strndup(C.s, C.len), C.len));
     A = B;
 }
 
@@ -534,7 +555,7 @@ tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
     A = B;
 }
 
-tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR tag_termlist(C) . [TAGLIST] {
     QueryNode_AddChild(B, C);
     A = B;
 }
@@ -564,7 +585,7 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
   A = NewQueryParam(QP_NUMERIC_FILTER);
-  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true, NULL);
+  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true, RS_INVALID_FIELD_INDEX, NULL);
 }
 
 /////////////////////////////////////////////////////////////////

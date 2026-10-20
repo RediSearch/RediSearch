@@ -8,7 +8,8 @@
 */
 
 //! FFI layer for the [`Accumulator`] reducers: `COUNT`, `SUM`, `AVG`, `MIN`,
-//! `MAX`, `STDDEV`, `FIRST_VALUE`, the exact `COUNT_DISTINCT` and `RANDOM_SAMPLE`.
+//! `MAX`, `STDDEV`, `FIRST_VALUE`, `COUNT_DISTINCT`, `COUNT_DISTINCTISH`, `HLL`,
+//! `HLL_SUM` and `RANDOM_SAMPLE`.
 //!
 //! C parses the reducer arguments and calls one of the constructors below; the
 //! rest of the vtable is one set of callbacks, generic over the accumulator.
@@ -19,6 +20,7 @@ use std::ptr;
 use reducers::accumulator::{Accumulator, AccumulatorReducer};
 use reducers::count::Count;
 use reducers::count_distinct::CountDistinct;
+use reducers::count_distinctish::{CountDistinctish, HllSum, Output};
 use reducers::first_value::{Direction, FirstValue, SortBy};
 use reducers::min_max::{Extreme, MinMax};
 use reducers::random_sample::RandomSample;
@@ -142,6 +144,47 @@ pub unsafe extern "C" fn CountDistinctReducer_Create(
     // SAFETY: ensured by caller (1.)
     let key = unsafe { srckey.cast::<RLookupKey>().as_ref() }.expect("srckey must not be null");
     into_c_reducer(CountDistinct::new(key))
+}
+
+/// Creates a `COUNT_DISTINCTISH` reducer of `srckey`, or an `HLL` one yielding the
+/// serialized registers if `raw`, and returns its base [`ffi::Reducer`], which the
+/// caller frees through its `Free` callback.
+///
+/// # Safety
+///
+/// 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+///    remains valid, and is not mutated, for the lifetime of the returned reducer.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn CountDistinctishReducer_Create(
+    srckey: *const ffi::RLookupKey,
+    raw: bool,
+) -> *mut ffi::Reducer {
+    // SAFETY: ensured by caller (1.)
+    let key = unsafe { srckey.cast::<RLookupKey>().as_ref() }.expect("srckey must not be null");
+    let output = if raw {
+        Output::Registers
+    } else {
+        Output::Count
+    };
+    into_c_reducer(CountDistinctish::new(key, output))
+}
+
+/// Creates an `HLL_SUM` reducer of `srckey` and returns its base [`ffi::Reducer`],
+/// which the caller frees through its `Free` callback.
+///
+/// # Safety
+///
+/// 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+///    remains valid, and is not mutated, for the lifetime of the returned reducer.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn HllSumReducer_Create(srckey: *const ffi::RLookupKey) -> *mut ffi::Reducer {
+    // SAFETY: ensured by caller (1.)
+    let key = unsafe { srckey.cast::<RLookupKey>().as_ref() }.expect("srckey must not be null");
+    into_c_reducer(HllSum::new(key))
 }
 
 /// Creates a `RANDOM_SAMPLE` reducer of `srckey`, keeping up to `size` values per

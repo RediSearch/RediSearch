@@ -761,8 +761,6 @@ CONFIG_SETTER(setMinOperationWorkers) {
     return errorTooManyThreads(status);
   }
   config->minOperationWorkers = newNumThreads;
-  // Will only change the number of workers if we are in an event,
-  // and `numWorkerThreads` is less than `minOperationWorkers`.
   workersThreadPool_SetNumWorkers();
   return REDISMODULE_OK;
 }
@@ -772,8 +770,8 @@ CONFIG_GETTER(getMinOperationWorkers) {
   return sdscatprintf(ss, "%lu", config->minOperationWorkers);
 }
 
-// min-operation-workers
-static int set_min_operation_workers(const char *name,
+// Shared by search-min-operation-workers and search-min-maintenance-workers.
+static int set_min_workers(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   if (val > MAX_WORKER_THREADS) {
@@ -783,13 +781,11 @@ static int set_min_operation_workers(const char *name,
     return REDISMODULE_ERR;
   }
   *(size_t *)privdata = (size_t) val;
-  // Will only change the number of workers if we are in an event,
-  // and `numWorkerThreads` is less than `minOperationWorkers`.
   workersThreadPool_SetNumWorkers();
   return REDISMODULE_OK;
 }
 
-static long long get_min_operation_workers(const char *name, void *privdata) {
+static long long get_min_workers(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long) (*(size_t *)privdata);
 }
@@ -1722,9 +1718,9 @@ RSConfigOptions RSGlobalConfigOptions = {
         },
         {.name = "TIERED_HNSW_BUFFER_LIMIT",
         .helpText = "Use for setting the buffer limit threshold for vector similarity tiered"
-                    " HNSW index, so that if we are using WORKERS for indexing, and the"
-                    " number of vectors waiting in the buffer to be indexed exceeds this limit,"
-                    " we insert new vectors directly into HNSW",
+                    " HNSW index, so that when vectors are indexed in the background (the"
+                    " workers pool is not empty), and the number of vectors waiting in the buffer"
+                    " to be indexed exceeds this limit, we insert new vectors directly into HNSW",
         .setValue = setTieredIndexBufferLimit,
         .getValue = getTieredIndexBufferLimit,
         .flags = RSCONFIGVAR_F_IMMUTABLE,  // TODO: can this be mutable?
@@ -1963,8 +1959,9 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
   RSGlobalConfigTriggers[numTriggers++] = trigger;
 }
 
-// Upgrade deprecated configurations if needed.
-// Unless MT_MODE is OFF, only the relevant configuration is set, while the other keeps its default value.
+// Upgrade deprecated configurations if needed. A configuration set explicitly by module
+// arguments always wins. No mode touches search-min-maintenance-workers: its threads run no
+// queries while WORKERS is 0, so the deprecated modes keep its default.
 void UpgradeDeprecatedMTConfigs() {
   RSConfigVar *mtMode = findConfigVar(&RSGlobalConfigOptions, "MT_MODE");
   RSConfigVar *workerThreads = findConfigVar(&RSGlobalConfigOptions, "WORKER_THREADS");
@@ -2188,7 +2185,7 @@ void iteratorsConfig_init(IteratorsConfig *config) {
 
 
 size_t GetDefaultWorkerThreads(void) {
-  if (IsEnterprise()) return 0;  // Keep default 0 for Redis Enterprise
+  if (RS_IsEnterpriseServer()) return 0;  // Keep default 0 for Redis Enterprise
   long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
   if (nprocs <= 0) {
     RedisModule_Log(RSDummyContext, "warning",
@@ -2355,9 +2352,19 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-min-operation-workers", MIN_OPERATION_WORKERS,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
-      MAX_WORKER_THREADS, get_min_operation_workers,
-      set_min_operation_workers, NULL,
+      MAX_WORKER_THREADS, get_min_workers,
+      set_min_workers, NULL,
       (void *)&(RSGlobalConfig.minOperationWorkers)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-min-maintenance-workers", MIN_MAINTENANCE_WORKERS,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      MAX_WORKER_THREADS, get_min_workers,
+      set_min_workers, NULL,
+      (void *)&(RSGlobalConfig.minMaintenanceWorkers)
     )
   )
 
@@ -2490,7 +2497,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-_bg-index-oom-pause-time",
-      IsEnterprise() ? DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY : 0,
+      RS_IsEnterpriseServer() ? DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY : 0,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
       UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry)
@@ -2665,6 +2672,11 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       (void *)&(RSGlobalConfig.invertedIndexRawDocidEncoding)
     )
   )
+
+  RM_TRY(RedisModule_RegisterBoolConfig(
+      ctx, "search-internal-resp-schema", 0, REDISMODULE_CONFIG_UNPREFIXED, get_bool_config,
+      set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.requestConfigParams.internalRespSchemaEnabled)))
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(

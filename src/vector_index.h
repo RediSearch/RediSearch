@@ -14,6 +14,8 @@
 #include "query_ctx.h"
 #include "field_spec.h"
 
+bool VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryError *status);
+
 #define VECSIM_TYPE_BFLOAT16 "BFLOAT16"
 #define VECSIM_TYPE_FLOAT16 "FLOAT16"
 #define VECSIM_TYPE_FLOAT32 "FLOAT32"
@@ -174,6 +176,9 @@ bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId new
 typedef VecSimRelabelCode (*VectorIndex_RelabelFn)(VecSimIndex *index, size_t oldLabel,
                                                    size_t newLabel);
 void VectorIndex_SetRelabelFnForTests(VectorIndex_RelabelFn fn);
+
+typedef VecSimIndexBasicInfo (*VectorIndex_BasicInfoFn)(VecSimIndex *index);
+void VectorIndex_SetBasicInfoFnForTests(VectorIndex_BasicInfoFn fn);
 #endif
 
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it);
@@ -218,21 +223,5 @@ void VecSim_TieredParams_Init(TieredIndexParams *params, StrongRef sp_ref);
 void VecSimLogCallback(void *ctx, const char *level, const char *message);
 
 bool VecSim_CallTieredIndexesGC(WeakRef spRef);
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// Builds a lazily-evaluated vector range iterator from already-resolved query parameters. The
-// underlying VecSim range query runs on the iterator's first read (see MOD-16437). Used by the
-// range branch of NewVectorIterator and by unit tests. The timeout is required and must outlive
-// the iterator. See the definition for ownership details.
-QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *vecsim, const void *vector,
-                                                    double radius, VecSimQueryParams qParams,
-                                                    VecSimQueryReply_Order order, bool yields_metric,
-                                                    QueryRequestTimeout *timeout);
-#ifdef __cplusplus
-}
-#endif
 
 #endif // VECTOR_INDEX_H__

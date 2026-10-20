@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `STDDEV`, `FIRST_VALUE`, the exact
-//! `COUNT_DISTINCT` and `RANDOM_SAMPLE`, driven through [`AccumulatorReducer`] the way the grouper
-//! drives them.
+//! `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `STDDEV`, `FIRST_VALUE`, `COUNT_DISTINCT`,
+//! `COUNT_DISTINCTISH`, `HLL`, `HLL_SUM` and `RANDOM_SAMPLE`, driven through
+//! [`AccumulatorReducer`] the way the grouper drives them.
 
 extern crate redisearch_rs;
 
@@ -18,6 +18,7 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 use reducers::accumulator::{Accumulator, AccumulatorReducer};
 use reducers::count::Count;
 use reducers::count_distinct::CountDistinct;
+use reducers::count_distinctish::{CountDistinctish, HllSum, Output};
 use reducers::first_value::{Direction, FirstValue, SortBy};
 use reducers::min_max::{Extreme, MinMax};
 use reducers::random_sample::RandomSample;
@@ -374,6 +375,127 @@ fn count_distinct_counts_a_non_static_null() {
     assert_eq!(reduce(CountDistinct::new(&key), &key, &rows), 1.0);
 }
 
+/// Missing properties and the static null are not counted; small groups are counted
+/// exactly.
+#[test]
+fn count_distinctish_counts_distinct_values() {
+    let key = key();
+    let rows = [
+        num(1.0),
+        num(1.0),
+        num(2.0),
+        string("a"),
+        string("a"),
+        None,
+        Some(SharedValue::null_static()),
+    ];
+    let distinctish = || CountDistinctish::new(&key, Output::Count);
+    assert_eq!(reduce(distinctish(), &key, &rows), 3.0);
+    assert_eq!(reduce(distinctish(), &key, &[]), 0.0);
+}
+
+fn nums(range: std::ops::Range<u32>) -> Vec<[Option<SharedValue>; 1]> {
+    range.map(|n| [num(f64::from(n))]).collect()
+}
+
+/// The `HLL` output of a group with the values `range`.
+fn hll(range: std::ops::Range<u32>) -> Option<SharedValue> {
+    let key = key();
+    let accumulator = CountDistinctish::new(&key, Output::Registers);
+    Some(reduce_rows(accumulator, [&key], &nums(range)))
+}
+
+/// A packed `flags: u32` (zero) and `bits: u8` header, then `1 << bits` registers.
+/// Shards and coordinators of different versions exchange this format.
+#[test]
+fn hll_serializes_a_header_then_the_registers() {
+    let empty = hll(0..0).unwrap();
+    let mut expected = vec![0, 0, 0, 0, 8];
+    expected.resize(5 + 256, 0);
+    assert_eq!(empty.as_str_bytes(), Some(&expected[..]));
+
+    let full = hll(0..50).unwrap();
+    let bytes = full.as_str_bytes().unwrap();
+    assert_eq!(bytes[..5], [0, 0, 0, 0, 8]);
+    assert_eq!(bytes.len(), 5 + 256);
+}
+
+/// Merging per-shard registers estimates exactly what one HyperLogLog over all
+/// the shards' values would.
+#[test]
+fn hll_sum_of_shards_matches_count_distinctish_of_their_union() {
+    let key = key();
+    let shards = [hll(0..60), hll(30..90), hll(0..0)];
+    let merged = reduce(HllSum::new(&key), &key, &shards);
+
+    let union = reduce_rows(
+        CountDistinctish::new(&key, Output::Count),
+        [&key],
+        &nums(0..90),
+    );
+    assert_eq!(merged, number(&union));
+    assert!((merged - 90.0).abs() < 90.0 * 0.2, "{merged}");
+}
+
+/// Values that are not well-formed 8-bit registers are skipped.
+#[test]
+fn hll_sum_skips_malformed_values() {
+    let key = key();
+    let hll_sum = |rows: &[Option<SharedValue>]| reduce(HllSum::new(&key), &key, rows);
+    let valid = hll(0..20);
+    let expected = hll_sum(std::slice::from_ref(&valid));
+
+    // Disjoint from `valid`, so merging anything made from it would change the estimate.
+    let other = hll(20..60);
+    assert_ne!(hll_sum(&[valid.clone(), other.clone()]), expected);
+
+    let bytes = other.as_ref().unwrap().as_str_bytes().unwrap().to_vec();
+    let with = |edit: &dyn Fn(&mut Vec<u8>)| {
+        let mut bytes = bytes.clone();
+        edit(&mut bytes);
+        Some(SharedValue::new_string(bytes))
+    };
+    let malformed = [
+        None,
+        num(1.0),
+        Some(SharedValue::new(Value::Ref(other.clone().unwrap()))),
+        with(&|b| b.truncate(4)),
+        with(&|b| b.truncate(5 + 128)),
+        with(&|b| b.push(0)),
+        // Seven bits, with as many registers.
+        with(&|b| {
+            b[4] = 7;
+            b.truncate(5 + 128)
+        }),
+        // A rank above the 24 bits left after the register index, plus one.
+        with(&|b| b[5] = 26),
+    ];
+    for value in &malformed {
+        let rows = [valid.clone(), value.clone()];
+        assert_eq!(hll_sum(&rows), expected, "{value:?}");
+    }
+    assert_eq!(hll_sum(&malformed), 0.0);
+}
+
+/// The largest rank a 32-bit hash can produce is merged, not mistaken for a malformed one.
+#[test]
+fn hll_sum_accepts_the_largest_rank() {
+    let key = key();
+    let with_first_register = |rank| {
+        let mut bytes = hll(0..0).unwrap().as_str_bytes().unwrap().to_vec();
+        bytes[5] = rank;
+        Some(SharedValue::new_string(bytes))
+    };
+    assert_eq!(
+        reduce(HllSum::new(&key), &key, &[with_first_register(25)]),
+        1.0
+    );
+    assert_eq!(
+        reduce(HllSum::new(&key), &key, &[with_first_register(26)]),
+        0.0
+    );
+}
+
 /// The numbers in the sample of `RANDOM_SAMPLE` of `size` values over a group of
 /// one row per entry of `values`.
 fn sample(size: usize, values: &[Option<SharedValue>]) -> Vec<f64> {
@@ -497,8 +619,9 @@ fn interleaved_groups_are_kept_apart() {
 #[test]
 fn vtable_frees_group_states_only_when_they_own_something() {
     use redisearch_rs::reducers::accumulator::{
-        CountDistinctReducer_Create, FirstValueReducer_Create, RandomSampleReducer_Create,
-        StdDevReducer_Create, SumReducer_Create,
+        CountDistinctReducer_Create, CountDistinctishReducer_Create, FirstValueReducer_Create,
+        HllSumReducer_Create, RandomSampleReducer_Create, StdDevReducer_Create,
+        SumReducer_Create,
     };
 
     /// Whether `reducer` registers `FreeInstance`; frees it.
@@ -525,6 +648,12 @@ fn vtable_frees_group_states_only_when_they_own_something() {
     // SAFETY: as above.
     let distinct = unsafe { CountDistinctReducer_Create(key_ptr) };
     assert!(frees_states(distinct));
+    // SAFETY: as above.
+    let distinctish = unsafe { CountDistinctishReducer_Create(key_ptr, false) };
+    assert!(!frees_states(distinctish));
+    // SAFETY: as above.
+    let hll_sum = unsafe { HllSumReducer_Create(key_ptr) };
+    assert!(frees_states(hll_sum));
     // SAFETY: as above.
     let random_sample = unsafe { RandomSampleReducer_Create(key_ptr, 10) };
     assert!(frees_states(random_sample));
