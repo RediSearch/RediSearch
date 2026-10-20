@@ -5059,6 +5059,10 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
   return REDISMODULE_OK;
 }
 
+bool RediSearch_HasRequiredRedisAPIs(void) {
+  return RedisModule_CreateReplyBufferContext && RedisModule_ReplyWithBufferedReply;
+}
+
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
@@ -5067,7 +5071,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  if (!RedisModule_CreateReplyBufferContext || !RedisModule_ReplyWithBufferedReply) {
+  if (!RediSearch_HasRequiredRedisAPIs()) {
     RedisModule_Log(ctx, "warning", "Search requires the Redis reply-buffer APIs");
     return REDISMODULE_ERR;
   }
