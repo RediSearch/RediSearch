@@ -336,9 +336,10 @@ static void uvSearchFanoutRequest(void *p) {
   dispatchFanout(mrctx, searchFanoutCallback);
 
   if (mrctx->numExpected == 0) {
-    // No shard command was sent, so searchFanoutCallback() will never fire.
+    // No shard command was sent, so neither searchFanoutCallback() nor the reducer will end the
+    // timing; a timeout callback already did if the request was aborted.
     IORuntimeCtx_RequestCompleted(mrctx->ioRuntime);
-    unblockFanout(mrctx, !mrctx->fn);
+    unblockFanout(mrctx, !MRCtx_IsAborted(mrctx));
     MRCtx_DecrRef(mrctx);
   }
 }
