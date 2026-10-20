@@ -10,6 +10,8 @@
 
 #include "rmalloc.h"
 #include <cstddef>
+#include <limits>
+#include <new>
 
 namespace RediSearch {
 namespace Allocator {
@@ -21,7 +23,7 @@ struct Allocator {
   template <class U>
   explicit inline constexpr Allocator(Allocator<U> const&) noexcept;
 
-  [[nodiscard]] static inline auto allocate(std::size_t n) noexcept -> value_type*;
+  [[nodiscard]] static inline auto allocate(std::size_t n) -> value_type*;
   static inline void deallocate(value_type* p, std::size_t n) noexcept;
 };
 
@@ -31,7 +33,11 @@ inline constexpr Allocator<T>::Allocator(Allocator<U> const&) noexcept {
 }
 
 template <class T>
-inline auto Allocator<T>::allocate(std::size_t n) noexcept -> value_type* {
+inline auto Allocator<T>::allocate(std::size_t n) -> value_type* {
+  // n * sizeof(T) must not wrap: a wrapped size would return an undersized block.
+  if (n > std::numeric_limits<std::size_t>::max() / sizeof(value_type)) {
+    throw std::bad_alloc{};
+  }
   auto alloc_size = n * sizeof(value_type);
   auto p = static_cast<value_type*>(rm_malloc(alloc_size));
   return p;
