@@ -154,6 +154,7 @@ pub fn init_redis_module_mock() {
     unsafe { redis_module::raw::RedisModule_CreateStringPrintf = Some(create_string_printf) };
 
     // register cluster methods
+    // SAFETY: tests install the mock before any C code reads this API pointer.
     unsafe { redis_module::raw::RedisModule_ClusterKeySlotC = Some(RedisModule_ClusterKeySlotC) };
 
     // register key methods

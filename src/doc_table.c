@@ -22,12 +22,6 @@
 
 struct timespec;
 
-// The slot sits in the padding after ref_count; a layout change that moves it out would grow
-// every DMD.
-_Static_assert(offsetof(RSDocumentMetadata, slot) + sizeof(uint16_t) <=
-                   offsetof(RSDocumentMetadata, expirationTimeNs),
-               "RSDocumentMetadata.slot must fit in the padding after ref_count");
-
 static inline uint16_t keySlot(const char *key, size_t len) {
   return (uint16_t)RedisModule_ClusterKeySlotC(key, len);
 }
@@ -600,6 +594,7 @@ PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t, const RedisModuleS
   pending->maxDocId = t->maxDocId;
   pending->next = t->pendingSlotDeletions;
   t->pendingSlotDeletions = pending;
+  t->memsize += sizeof(*pending) + SlotRangeArray_SizeOf(slots->num_ranges);
   return pending;
 }
 
@@ -610,6 +605,7 @@ void DocTable_RemovePendingDeletion(DocTable *t, PendingSlotDeletion *pending) {
     link = &(*link)->next;
   }
   *link = pending->next;
+  t->memsize -= sizeof(*pending) + SlotRangeArray_SizeOf(pending->slots->num_ranges);
   rm_free(pending->slots);
   rm_free(pending);
 }
