@@ -30,6 +30,9 @@
 #include <utility>
 #include <climits>
 
+#include <sys/mman.h>
+#include <unistd.h>
+
 class TrieTest : public ::testing::Test {};
 
 static bool trieInsert(Trie *t, const char *s, size_t n) {
@@ -1485,6 +1488,27 @@ TEST_F(TrieTest, testLowerRunesStopsAtNul) {
     EXPECT_EQ(0, r[rlen]) << "input size " << input.size();
     rm_free(r);
   }
+}
+
+// A string longer than MAX_RUNE_STR_LEN runes is rejected without being walked
+// to its end. The bytes past the limit sit in an inaccessible page, so reading
+// them faults.
+TEST_F(TrieTest, testLowerRunesStopsCountingPastLimit) {
+  const size_t page = sysconf(_SC_PAGESIZE);
+  const size_t n = MAX_RUNE_STR_LEN + 1;
+  const size_t region = ((n + page - 1) / page + 1) * page;
+  char *base =
+      (char *)mmap(nullptr, region, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  ASSERT_NE(MAP_FAILED, (void *)base);
+  char *guard = base + region - page;
+  ASSERT_EQ(0, mprotect(guard, page, PROT_NONE));
+  char *str = guard - n;
+  memset(str, 'a', n);
+
+  size_t rlen = 1;
+  EXPECT_EQ(nullptr, strToLowerRunes(str, n + page, &rlen));
+  EXPECT_EQ(0, rlen);
+  munmap(base, region);
 }
 
 namespace {
