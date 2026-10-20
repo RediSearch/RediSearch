@@ -365,6 +365,11 @@ impl TermsTrie {
         // Reject an over-long pattern on its byte length alone, before C decodes
         // it. The widest UTF-8 sequence is four bytes, so every pattern of up to
         // `TRIE_MAX_PREFIX` characters fits within this bound.
+        //
+        // This is not redundant with C's own rune-length check: C stops decoding
+        // at the first codepoint 0, so a pattern that holds an overlong-encoded
+        // NUL (`C0 80`) early and runs past this bound would otherwise be walked
+        // as its short prefix. Dropping the check changes which patterns match.
         const MAX_UTF8_SEQUENCE_LEN: usize = 4;
         if pattern.len() > ffi::TRIE_MAX_PREFIX as usize * MAX_UTF8_SEQUENCE_LEN {
             return Ok(FuzzyWalk::PatternRejected);

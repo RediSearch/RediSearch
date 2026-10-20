@@ -58,10 +58,19 @@ mod ffi_comparison {
 
     /// Call C `strToLowerRunes` via FFI and return the resulting rune slice.
     fn c_str_to_lower_runes(s: &str) -> Option<Vec<u16>> {
+        // An empty `&str` need not point into an object, and C forms `str + len`;
+        // that arithmetic is only defined on a pointer into one, so hand it a
+        // real one. Nothing is read through it.
+        static EMPTY: [u8; 1] = [0];
+        let ptr = if s.is_empty() {
+            EMPTY.as_ptr()
+        } else {
+            s.as_ptr()
+        };
         let mut unicode_len: usize = 0;
-        // SAFETY: `s` is a live buffer of `s.len()` bytes, which
+        // SAFETY: `ptr` addresses at least `s.len()` live bytes, which
         // `strToLowerRunes` reads no further than.
-        let ptr = unsafe { ffi::strToLowerRunes(s.as_ptr().cast(), s.len(), &mut unicode_len) };
+        let ptr = unsafe { ffi::strToLowerRunes(ptr.cast(), s.len(), &mut unicode_len) };
         if ptr.is_null() {
             return None;
         }

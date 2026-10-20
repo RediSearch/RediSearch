@@ -11,10 +11,10 @@
 //!
 //! The decoder (`nu_utf8_read`, `deps/libnu/utf8.h`) consumes a fixed 1–4
 //! bytes from whatever lead byte it lands on and decodes without validating.
-//! [`nu_seq_len`] mirrors how many bytes each step takes, [`nu_rune_count`]
-//! how many steps a walk takes, and [`nu_utf8_decode`] and [`nu_utf8_encode`]
-//! turn each step into a codepoint and back under the same lax rules, so bytes
-//! that are not UTF-8 can still be transformed character by character.
+//! [`nu_seq_len`] mirrors how many bytes each step takes, and
+//! [`nu_utf8_decode`] and [`nu_utf8_encode`] turn each step into a codepoint
+//! and back under the same lax rules, so bytes that are not UTF-8 can still be
+//! transformed character by character.
 
 /// How many bytes the C decoder (`nu_utf8_read`) consumes for the lead byte `b`,
 /// mirroring its branches exactly — including that it treats a stray
@@ -26,29 +26,6 @@ pub const fn nu_seq_len(b: u8) -> usize {
         0xE0..=0xEF => 3,
         0xF0..=0xFF => 4,
     }
-}
-
-/// How many steps the C decoder (`nu_utf8_read`) takes across `bytes` — the
-/// rune count C's `strToRunes` ends up with, as long as no sequence in `bytes`
-/// decodes to codepoint 0.
-///
-/// Each step takes [`nu_seq_len`] bytes, so this inherits its lack of
-/// validation: a truncated trailing sequence counts as one step, with the
-/// cursor stepping past the end of `bytes`.
-///
-/// C has a second stopping condition this walk cannot see: `strToRunes` decodes
-/// a codepoint per step and stops at the first zero one, which an embedded NUL
-/// byte, an overlong sequence such as `C0 80`, and a zero-padded truncated tail
-/// all produce. For those inputs this over-counts. A caller that must not
-/// over-count has to reject them.
-pub fn nu_rune_count(bytes: &[u8]) -> usize {
-    let mut pos = 0;
-    let mut runes = 0;
-    while pos < bytes.len() {
-        pos += nu_seq_len(bytes[pos]);
-        runes += 1;
-    }
-    runes
 }
 
 /// Decode one UTF-8 sequence, however malformed.
@@ -108,38 +85,6 @@ pub fn nu_utf8_encode(codepoint: u32, out: &mut Vec<u8>) {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn rune_count_matches_codepoints_for_well_formed_input() {
-        assert_eq!(nu_rune_count(b""), 0);
-        assert_eq!(nu_rune_count(b"hello"), 5);
-        assert_eq!(nu_rune_count("é".as_bytes()), 1);
-        assert_eq!(nu_rune_count("日本".as_bytes()), 2);
-        // An astral character is one four-byte sequence, hence one rune here —
-        // even though C stores it as a truncated `uint16_t`.
-        assert_eq!(nu_rune_count("ab😀".as_bytes()), 3);
-    }
-
-    #[test]
-    fn rune_count_replays_the_decoder_on_malformed_input() {
-        // A stray continuation byte is read as a two-byte lead, so it swallows
-        // the byte after it rather than counting as one rune of its own.
-        assert_eq!(nu_rune_count(b"\x80a"), 1);
-        // A truncated trailing sequence still counts as one step, with the
-        // cursor stepping past the end.
-        assert_eq!(nu_rune_count(b"a\xF0"), 2);
-        assert_eq!(nu_rune_count(b"a\xE0\x80"), 2);
-    }
-
-    #[test]
-    fn rune_count_overcounts_a_sequence_decoding_to_zero() {
-        // `C0 80` is an overlong encoding of codepoint 0, which libnu decodes
-        // rather than rejects, so C stops there and reports one rune. This walk
-        // has no codepoint to stop on and keeps stepping.
-        assert_eq!(nu_rune_count(b"a\xC0\x80b"), 3);
-        // Same divergence from an embedded NUL, where C reports two runes.
-        assert_eq!(nu_rune_count(b"ab\0cd"), 5);
-    }
 
     #[test]
     fn decode_matches_well_formed_utf8() {

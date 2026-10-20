@@ -673,6 +673,30 @@ fn iterate_fuzzy_refuses_an_over_long_pattern_with_a_truncated_tail() {
     });
 }
 
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn iterate_fuzzy_refuses_an_over_long_pattern_with_an_early_overlong_nul() {
+    with_terms_trie(FUZZY_CORPUS, |trie| {
+        // C would stop decoding at the overlong NUL and walk `ma`, which `map`
+        // is within one edit of. The byte cap refuses the pattern first.
+        let mut pattern = b"ma\xC0\x80".to_vec();
+        pattern.resize(ffi::TRIE_MAX_PREFIX as usize * 4 + 1, b'x');
+        let mut visited = false;
+        // SAFETY: live, un-mutated terms trie; the closure only records.
+        let walk = unsafe {
+            trie.iterate_fuzzy(&pattern, 1, |_, _| {
+                visited = true;
+                ControlFlow::Continue(())
+            })
+        };
+        assert!(matches!(walk, Ok(FuzzyWalk::PatternRejected)));
+        assert!(!visited, "a refused pattern visits nothing");
+    });
+}
+
 // --- `iterate_all` ----------------------------------------------------------
 
 #[test]
