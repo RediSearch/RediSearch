@@ -1682,7 +1682,10 @@ TEST_F(RdbMockTest, testLegacyDocTableRejectsZeroCapacity) {
 TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
   RedisModuleIO *io = RMCK_CreateRdbIO();
   ASSERT_NE(io, nullptr);
+  const bool previous = RSGlobalConfig.inkeysLookupMap;
+  RSGlobalConfig.inkeysLookupMap = true;
   DocTable table = NewDocTable(4, 4);
+  RSGlobalConfig.inkeysLookupMap = previous;
   RMCK_SaveUnsigned(io, 2);  // Table size includes the unused document ID zero.
   RMCK_SaveUnsigned(io, 1);
   RMCK_SaveUnsigned(io, 4);
@@ -1700,6 +1703,7 @@ TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
   int result = DocTable_LegacyRdbLoad(&table, io, INDEX_MIN_COMPACTED_DOCTABLE_VERSION);
   RedisModule_LoadFloat = originalLoadFloat;
   EXPECT_EQ(result, REDISMODULE_OK);
+  EXPECT_EQ(DocTable_GetInkeysId(&table, "doc", 3), 1);
 
   auto *dmd = const_cast<RSDocumentMetadata *>(DocTable_Borrow(&table, 1));
   EXPECT_NE(dmd, nullptr);

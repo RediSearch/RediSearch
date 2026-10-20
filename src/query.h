@@ -106,6 +106,10 @@ typedef struct {
 /** Set global filters on the AST. */
 void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options);
 
+/* Resolve deferred INKEYS under the spec lock. Without a lookup map the caller also holds the GIL.
+ */
+void QAST_ResolveInkeys(QueryAST *ast, const RedisSearchCtx *sctx);
+
 /** Set a filter node on the AST, handling different node types appropriately */
 void SetFilterNode(QueryAST *q, QueryNode *filterNode);
 

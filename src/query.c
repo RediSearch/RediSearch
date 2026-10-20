@@ -21,6 +21,7 @@
 
 #include "geo_index.h"
 #include "query.h"
+#include "doc_id_meta.h"
 #include "config.h"
 #include "query_error_ffi.h"
 #include "redis_index.h"
@@ -482,6 +483,32 @@ void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options) {
     options->docIds = NULL;
     SetFilterNode(ast, n);
   }
+}
+
+static void resolveInkeysNode(QueryNode *node, const RedisSearchCtx *sctx) {
+  if (!node) {
+    return;
+  }
+  if (node->type == QN_IDS && !node->fn.docIds) {
+    node->fn.docIds = rm_calloc(node->fn.len, sizeof(t_docId));
+    for (size_t i = 0; i < node->fn.len; ++i) {
+      if (sctx->spec->docs.inkeys) {
+        size_t len;
+        const char *key = RedisModule_StringPtrLen(node->fn.keys[i], &len);
+        node->fn.docIds[i] = DocTable_GetInkeysId(&sctx->spec->docs, key, len);
+      } else {
+        DocIdMeta_Get(sctx->redisCtx, node->fn.keys[i], sctx->spec->specId, &node->fn.docIds[i]);
+      }
+    }
+  }
+  for (size_t i = 0; i < QueryNode_NumChildren(node); ++i) {
+    resolveInkeysNode(node->children[i], sctx);
+  }
+}
+
+void QAST_ResolveInkeys(QueryAST *ast, const RedisSearchCtx *sctx) {
+  RS_ASSERT(IndexSpec_IsReadLocked(sctx->spec));
+  resolveInkeysNode(ast->root, sctx);
 }
 
 static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *expCtx,
@@ -1070,7 +1097,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "IDS {");
       if (spec) {
         for (size_t i = 0; i < qs->fn.len; i++) {
-          // docIds are pre-resolved at query construction (both modes).
+          // Resolved before iterator construction, while establishing execution state.
           t_docId did = qs->fn.docIds ? qs->fn.docIds[i] : 0;
           if (did != 0) {
             s = sdscatprintf(s, "%" PRIu64 ",", did);
