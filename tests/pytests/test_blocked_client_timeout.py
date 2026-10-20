@@ -2247,6 +2247,24 @@ class TestCoordinatorTimeout:
 
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy)
 
+    def test_return_cursor_warns_for_unloaded_shard_batch(self):
+        """A shard timeout before LOAD publishes no rows, but its warning survives."""
+        env = self.env
+        previous = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+        cursor_id = 0
+        try:
+            result, cursor_id = runDebugQueryCommandTimeoutAfterN(
+                env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+                      'WITHCURSOR', 'COUNT', '10'], timeout_res_count=15)
+            env.assertEqual(result['results'], [], message=result)
+            VerifyTimeoutWarningResp3(env, result, message=str(result))
+            env.assertNotEqual(cursor_id, 0, message=result)
+        finally:
+            if cursor_id:
+                env.expect('FT.CURSOR', 'DEL', 'idx', cursor_id).ok()
+            run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous)
+
     def test_sticky_policy_return_aggregate_config_fail_cursor_read(self):
         """Cursor created under RETURN keeps RETURN semantics after CONFIG SET to FAIL. """
         env = self.env
@@ -2259,8 +2277,10 @@ class TestCoordinatorTimeout:
         prev_on_timeout_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
 
+        # Isolate cursor policy from loader batching: the shard simulator is
+        # upstream of LOAD, whose incomplete unloaded batch cannot be drained.
         res, cursor_id = runDebugQueryCommandTimeoutAfterN(
-            env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+            env, ['FT.AGGREGATE', 'idx', '*',
                   'WITHCURSOR', 'COUNT', str(chunk_size)],
             timeout_res_count=timeout_after_n)
         env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID")
@@ -2354,8 +2374,9 @@ class TestCoordinatorTimeout:
         prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
 
+        # Keep this policy test independent of an interrupted loader batch.
         res, cursor_id = runDebugQueryCommandTimeoutAfterN(
-            env, ['FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@name',
+            env, ['FT.AGGREGATE', 'idx', '*',
                   'WITHCURSOR', 'COUNT', str(chunk_size)],
             timeout_res_count=timeout_after_n)
         env.assertNotEqual(cursor_id, 0, message="Expected non-zero cursor ID")
@@ -4106,6 +4127,13 @@ class TestCoordinatorTimeout:
         env.cmd('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_on_timeout_policy)
 
     def test_return_strict_timeout_after_store_hybrid(self):
+        self._return_strict_timeout_after_store_hybrid(10000)
+
+    def test_return_strict_timeout_after_window_completed_hybrid(self):
+        """A completed input window is not an unfinished input at timeout."""
+        self._return_strict_timeout_after_store_hybrid(1)
+
+    def _return_strict_timeout_after_store_hybrid(self, window):
         """RETURN_STRICT timeout race after the BG hybrid pipeline has stored results.
 
         Mirrors test_return_strict_timeout_after_store_aggregate for FT.HYBRID.
@@ -4136,20 +4164,18 @@ class TestCoordinatorTimeout:
 
         before_info = info_modules_to_dict(env)
 
-        setPauseAfterStoreResults(env, True, internal=False)
-
-        # K=10000, WINDOW=10000, LIMIT=10000 (mirrors the FT.HYBRID full-set
-        # query used elsewhere in this file) so the BG pipeline produces the
-        # complete n_docs result set instead of the default KNN K=10 per shard.
+        # Exercise both EOF completion and completion at the merger's window.
         query_args = [
             'FT.HYBRID', 'hybrid_idx',
             'SEARCH', '*',
             'VSIM', '@embedding', '$BLOB',
             'KNN', '2', 'K', '10000',
-            'COMBINE', 'RRF', '2', 'WINDOW', '10000',
+            'COMBINE', 'RRF', '2', 'WINDOW', str(window),
             'PARAMS', '2', 'BLOB', self.hybrid_query_vec,
             'LIMIT', '0', '10000'
         ]
+        expected = env.cmd(*query_args)
+        setPauseAfterStoreResults(env, True, internal=False)
         query_result = []
         t_query = threading.Thread(
             target=call_and_store,
@@ -4183,10 +4209,8 @@ class TestCoordinatorTimeout:
         # The pipeline finished before the timeout could abort it: all shards
         # responded and BG stored a complete result set. The reply carries
         # the full row count, no TIMEOUT warning, and no metric increment.
-        env.assertEqual(result['total_results'], self.n_docs,
-                        message=f"Expected {self.n_docs} stored results, got {result['total_results']}")
-        env.assertEqual(len(result.get('results', [])), self.n_docs,
-                        message=f"Expected {self.n_docs} rows, got {len(result.get('results', []))}")
+        env.assertEqual(result['total_results'], expected['total_results'], message=result)
+        env.assertEqual(result.get('results', []), expected['results'], message=result)
         env.assertEqual(result.get('warnings', []), [],
                         message=f"Expected no warnings (pipeline completed before timeout took effect), "
                                 f"got {result.get('warnings', [])}")
@@ -4391,17 +4415,11 @@ class TestCoordinatorTimeout:
 
             assert_reply(result)
 
-            # Both subqueries (SEARCH and VSIM) were woken by WakeAbortChannel
-            # broadcast, each returning RS_RESULT_TIMEDOUT, so the reply
-            # carries one timeout warning per subquery (suffixed (SEARCH) /
-            # (VSIM)).
+            # The callback times out both unfinished inputs even when the
+            # merger folds before observing the second input's status.
             warnings = result.get('warnings', [])
-            env.assertEqual(len(warnings), 2,
-                            message=f"Expected one TIMEOUT warning per subquery, got: {warnings}")
-            env.assertContains('Timeout', warnings[0],
-                               message=f"Expected SEARCH TIMEOUT warning, got: {warnings}")
-            env.assertContains('Timeout', warnings[1],
-                               message=f"Expected VSIM TIMEOUT warning, got: {warnings}")
+            env.assertEqual(warnings, ['Timeout limit was reached (SEARCH)',
+                                       'Timeout limit was reached (VSIM)'], message=result)
 
             # Both warning strings belong to one top-level FT.HYBRID query, so
             # the coordinator timeout-warning metric increases only once.

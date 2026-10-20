@@ -7,9 +7,91 @@
 
 from common import *
 
+def _verify_return_timeout_prefix(protocol):
+    # The reply protocol and RETURN policy are essential to this regression.
+    env = Env(protocol=protocol, moduleArgs='ON_TIMEOUT RETURN TIMEOUT 0')
+    env.expect('FT.CREATE', 'prefix_idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(6):
+        conn.execute_command('HSET', f'prefix:{i}', 'n', i)
+    try:
+        for oom_policy in ('return', 'fail'):
+            env.expect('CONFIG', 'SET', 'search-on-oom', oom_policy).ok()
+            result = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'prefix_idx', '*',
+                             'LOAD', 1, '@n', 'LIMIT', 0, 6,
+                             'TIMEOUT_AFTER_N', 3, 'DEBUG_PARAMS_COUNT', 2)
+            if protocol == 2:
+                # Streaming RESP2 publishes its count before subsequent Next calls.
+                count = 1 if oom_policy == 'return' else 3
+                env.assertEqual(result, [count, ['n', '0'], ['n', '1'], ['n', '2']])
+            else:
+                env.assertEqual(result, {
+                    'attributes': [],
+                    'format': 'STRING',
+                    'results': [{'extra_attributes': {'n': str(i)}, 'values': []}
+                                for i in range(3)],
+                    'total_results': 3,
+                    'warning': ['Timeout limit was reached'],
+                })
+    finally:
+        env.expect('CONFIG', 'SET', 'search-on-oom', 'return').ok()
+
+
+@skip(cluster=True)
+def test_return_timeout_prefix_resp2():
+    """RETURN preserves the prefix in both streaming and buffered RESP2 replies."""
+    _verify_return_timeout_prefix(2)
+
+
+@skip(cluster=True)
+def test_return_timeout_prefix_resp3():
+    """RETURN preserves the prefix and warning in both RESP3 execution modes."""
+    _verify_return_timeout_prefix(3)
+
+
+@skip(cluster=True)
+def test_return_timeout_drains_sorter_with_offset():
+    """After Next folds, Drain preserves partial-heap ordering, OFFSET and LIMIT."""
+    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN TIMEOUT 0')
+    env.expect('FT.CREATE', 'sort_idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(6):
+        conn.execute_command('HSET', f'sort:{i}', 'n', i)
+    try:
+        for oom_policy in ('return', 'fail'):
+            env.expect('CONFIG', 'SET', 'search-on-oom', oom_policy).ok()
+            result = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'sort_idx', '*',
+                             'SORTBY', 2, '@n', 'DESC', 'LIMIT', 1, 1,
+                             'TIMEOUT_AFTER_N', 3, 'DEBUG_PARAMS_COUNT', 2)
+            env.assertEqual(result, {
+                'attributes': [], 'format': 'STRING', 'total_results': 3,
+                'results': [{'extra_attributes': {'n': '1'}, 'values': []}],
+                'warning': ['Timeout limit was reached'],
+            })
+    finally:
+        env.expect('CONFIG', 'SET', 'search-on-oom', 'return').ok()
+
 def verifyTimeoutResultsResp3(env, res, expected_results_count, message="", depth=0):
     env.assertEqual(len(res["results"]), expected_results_count, depth=depth+1, message=message + " unexpected results count")
     VerifyTimeoutWarningResp3(env, res, depth=depth+1, message=message + " unexpected results count")
+
+
+@skip(cluster=True)
+def test_return_timeout_drains_normalized_scores():
+    """Drain applies the committed maximum and keeps timeout when LIMIT fills."""
+    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN TIMEOUT 0')
+    env.expect('FT.CREATE', 'norm_idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(6):
+        conn.execute_command('HSET', f'norm:{i}', 't', 'hello')
+    result = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'norm_idx', 'hello',
+                     'ADDSCORES', 'SCORER', 'BM25STD.NORM', 'LIMIT', 0, 2,
+                     'TIMEOUT_AFTER_N', 3, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(result, {
+        'attributes': [], 'format': 'STRING', 'total_results': 3,
+        'results': [{'extra_attributes': {'__score': '1'}, 'values': []}] * 2,
+        'warning': ['Timeout limit was reached'],
+    })
 
 # skip on cluster since there might not be enough documents in each shard to reach the RP_INDEX timeout limit counter.
 @skip(cluster=True)

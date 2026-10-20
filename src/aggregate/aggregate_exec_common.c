@@ -122,22 +122,47 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    }
  }
 
+ void Pipeline_CollectDrainResults(ResultProcessor *rp, int *rc, SearchResult ***results) {
+   RS_ASSERT(*rc == RS_RESULT_TIMEDOUT);
+   if (!*results) *results = array_new(SearchResult *, 8);
+   SearchResult row = SearchResult_New();
+   while (rp->parent->resultLimit) {
+     RPDrainStatus status = rp->Drain(rp, &row);
+     if (status != RP_DRAIN_OK) {
+       if (status == RP_DRAIN_ERROR) *rc = RS_RESULT_ERROR;
+       break;
+     }
+     --rp->parent->resultLimit;
+     array_append(*results, SearchResult_AllocateMove(&row));
+     row = SearchResult_New();
+   }
+   SearchResult_Destroy(&row);
+ }
+
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
    if (ctx->timeout->config.timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx->areq, rc);
+     const bool canRecover = *rc != RS_RESULT_EOF && *rc != RS_RESULT_ERROR;
      // Check timeout after aggregation
      if (QueryRequestTimeout_IsTimedOutExact(ctx->timeout)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
+     if (canRecover && *rc == RS_RESULT_TIMEDOUT && ctx->timeout->config.timeoutPolicy == TimeoutPolicy_Return) {
+       Pipeline_CollectDrainResults(rp, rc, results);
+     }
    } else {
      // Send the results received from the pipeline as they come (no need to aggregate)
      *rc = rp->Next(rp, r);
+     if (*rc == RS_RESULT_TIMEDOUT) {
+       Pipeline_CollectDrainResults(rp, rc, results);
+     }
    }
  }
 
  /**
-  * True iff draining `endProc->Next` after a RETURN-STRICT timeout produces a
+  * Legacy shape restriction for invoking `endProc->Drain` after a RETURN-STRICT timeout.
+  * True iff recovery produces a
   * valid (possibly empty) partial answer for the request's pipeline.
   *
   * The set of accepted shapes is selected by inspecting the pipeline's root
@@ -157,9 +182,8 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
   * Shard (root is `RP_INDEX`): RPIndex pulls fresh from the query iterator
   * on every call and RPPager has no buffer of its own, so shapes (1) and
   * (2) have nothing to harvest -- draining them would re-enter the QI for
-  * no useful work. Only shape (3) is accepted: rpsortNext_Yield (the state
-  * RPSorter enters on TIMEDOUT) pops from the sorter's heap without
-  * re-entering its upstream.
+  * no useful work. Only shape (3) is accepted: the sorter's Drain pops its
+  * heap without re-entering upstream.
   *
   * Any other root type returns false.
   *
@@ -173,7 +197,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
   * so the classifier transparently skips RP_PROFILE wrappers while walking
   * from `endProc`. The root proc type is read from `qctx->rootProc`, which
   * always points at the real root (RP_INDEX / RP_NETWORK) regardless of
-  * profiling, and the drain itself walks `endProc->Next` which delegates
+  * profiling, and the drain itself walks `endProc->Drain` which delegates
   * through the profile wrappers.
   */
  bool pipelineCanYieldPartialResults(AREQ *r) {
@@ -220,18 +244,9 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
   * terminates at EOF.
   */
  void Pipeline_DrainStoredResultsAfterTimeout(QueryProcessingCtx *qctx, ChunkReplyState *stored) {
-   ResultProcessor *endProc = qctx->endProc;
-   if (!stored->results) {
-     stored->results = array_new(SearchResult *, 8);
-   }
-
-   SearchResult r = SearchResult_New();
-   while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
-     qctx->resultLimit--;
-     array_append(stored->results, SearchResult_AllocateMove(&r));
-     r = SearchResult_New();
-   }
-   SearchResult_Destroy(&r);
+   if (stored->rc == RS_RESULT_EOF || stored->rc == RS_RESULT_ERROR) return;
+   stored->rc = RS_RESULT_TIMEDOUT;
+   Pipeline_CollectDrainResults(qctx->endProc, &stored->rc, &stored->results);
  }
 
  void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {

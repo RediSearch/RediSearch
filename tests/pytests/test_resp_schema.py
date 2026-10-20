@@ -291,9 +291,16 @@ def test_resp_schema_profile_and_timeout():
             command = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@id', 'LIMIT', 0, 60]
             reply = runDebugQueryCommandTimeoutAfterN(env, command, 5, internal_only=True)
             result = rows(env, reply)
-            env.assertEqual(len(result), 5 if protocol == 3 else 60)
+            if protocol == 3:
+                # Ready shard batches may include rows beyond the debug Next limit.
+                env.assertGreaterEqual(len(result), 5, message=result)
+                env.assertLessEqual(len(result), 60, message=result)
+            else:
+                env.assertEqual(len(result), 60)
+            env.assertEqual(len({row['id'] for row in result}), len(result), message=result)
             for row in result:
                 env.assertEqual(set(row), {'id'})
+                env.assertContains(int(row['id']), range(60), message=row)
             if protocol == 3:
                 VerifyTimeoutWarningResp3(env, reply)
 
