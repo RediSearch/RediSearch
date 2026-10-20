@@ -20,10 +20,9 @@ concurrency:
 jobs:
   get-latest-redis-tag:
     permissions: {}
-    uses: ./.github/workflows/task-get-latest-tag.yml
+    uses: ./.github/workflows/task-get-redis-tag.yml
     with:
-      repo: redis/redis
-      prefix: '8.10'
+      pinned-ref: 8.12
 
   lint:
     permissions:
