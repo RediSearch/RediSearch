@@ -141,9 +141,12 @@ legacy load path that creates DMDs without ordinary indexing.
 ### Accelerated path
 
 Admission records only the borrowed keys in the ID-filter AST node. Once the
-worker holds the spec read lock, execution-plan construction resolves them
-through the table immediately before node evaluation. The existing Rust evaluator
-sorts/deduplicates the IDs and creates the ID iterator.
+worker holds the spec read lock, normal evaluation of that node resolves them
+through the table, sorts/deduplicates the IDs, and creates the ID iterator.
+No separate AST traversal is needed. The AST retains a borrowed pointer to the
+INKEYS node so the metadata fallback can resolve it directly during the GIL
+handoff. Inline metadata resolution uses the same pointer. EXPLAIN resolves the
+node directly before evaluation so the AST contains IDs for its printed output.
 
 Deferral to node evaluation is sufficient; a new iterator that initializes on
 its first Read is not required. The full resolved list is needed for ordering
