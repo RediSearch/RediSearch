@@ -46,6 +46,6 @@ fn binary_keys_are_hashed_with_their_full_extent() {
         let hash = map.hash(key);
         let id = i as u64 + 1;
         map.insert(hash, id);
-        assert_eq!(map.find(hash, |candidate| candidate == id), id);
+        assert_eq!(map.get_id(key, |candidate| candidate == id), id);
     }
 }

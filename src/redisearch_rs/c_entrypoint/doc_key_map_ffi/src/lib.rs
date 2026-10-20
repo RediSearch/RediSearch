@@ -67,6 +67,11 @@ impl DocKeyMap {
             .map_or(0, |e| e.id)
     }
 
+    /// Resolve a borrowed key, checking full-key equality for matching hash candidates.
+    pub fn get_id(&self, key: &[u8], matches: impl FnMut(u64) -> bool) -> u64 {
+        self.find(self.hash(key), matches)
+    }
+
     /// Allocated bucket/control storage plus the table object, excluding document keys.
     pub fn memory_usage(&self) -> usize {
         size_of::<Self>() + self.entries.allocation_size()
@@ -145,26 +150,35 @@ pub unsafe extern "C" fn DocKeyMap_Remove(map: *mut DocKeyMap, hash: u64, id: u6
 /// Compare a candidate's document key with the query key borrowed through `ctx`.
 pub type DocKeyMatches = unsafe extern "C" fn(ctx: *const c_void, id: u64) -> bool;
 
-/// Resolve a hash with full-key comparison through the document table.
+/// Resolve a borrowed key with full-key comparison through the document table.
 ///
 /// # Safety
-/// `map` must be [valid] for shared access throughout the call. `matches` must
+/// `map` must be [valid] for shared access throughout the call. `key` must be
+/// [valid] for `len` readable bytes, or may be null when `len` is zero. `matches` must
 /// be [ABI-compatible] with [`DocKeyMatches`] and callable with `ctx` for
 /// each candidate ID. The callback must not mutate the table or its candidates.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 /// [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DocKeyMap_Find(
+pub unsafe extern "C" fn DocKeyMap_GetId(
     map: *const DocKeyMap,
-    hash: u64,
+    key: *const u8,
+    len: usize,
     ctx: *const c_void,
     matches: DocKeyMatches,
 ) -> u64 {
     debug_assert!(!map.is_null());
     // SAFETY: The caller guarantees a shared table borrow.
     let map = unsafe { &*map };
-    map.find(hash, |id| {
+    debug_assert!(len == 0 || !key.is_null());
+    let key = if len == 0 {
+        &[]
+    } else {
+        // SAFETY: The caller guarantees these bytes are readable for this call.
+        unsafe { slice::from_raw_parts(key, len) }
+    };
+    map.get_id(key, |id| {
         // SAFETY: The caller guarantees the callback and context remain usable.
         unsafe { matches(ctx, id) }
     })

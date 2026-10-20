@@ -131,7 +131,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "DMD_Free",
             "DocTable_Exists",
             "DocTable_Put",
-            "DocTable_GetIdByKey",
+            "DocTable_KeyEquals",
         ],
         types: &[],
         vars: &[],

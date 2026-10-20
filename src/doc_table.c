@@ -655,18 +655,20 @@ typedef struct {
   size_t len;
 } DocKeyLookup;
 
+bool DocTable_KeyEquals(const DocTable *t, t_docId id, const char *key, size_t len) {
+  const RSDocumentMetadata *dmd = DocTable_GetOwn(t, id);
+  return dmd && sdslen(dmd->keyPtr) == len && memcmp(dmd->keyPtr, key, len) == 0;
+}
+
 static bool docKeyMatches(const void *ctx, uint64_t id) {
   const DocKeyLookup *lookup = ctx;
-  const RSDocumentMetadata *dmd = DocTable_GetOwn(lookup->table, id);
-  return dmd && sdslen(dmd->keyPtr) == lookup->len &&
-         memcmp(dmd->keyPtr, lookup->key, lookup->len) == 0;
+  return DocTable_KeyEquals(lookup->table, id, lookup->key, lookup->len);
 }
 
 t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len) {
   RS_ASSERT(t->keyMap);
-  uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)key, len);
   DocKeyLookup lookup = {.table = t, .key = key, .len = len};
-  return DocKeyMap_Find(t->keyMap, hash, &lookup, docKeyMatches);
+  return DocKeyMap_GetId(t->keyMap, (const uint8_t *)key, len, &lookup, docKeyMatches);
 }
 
 size_t DocTable_KeyMapMemoryUsage(const DocTable *t) {
