@@ -1469,6 +1469,24 @@ TEST_F(TrieTest, testRuneDecodeStaysWithinLength) {
   }
 }
 
+// Lowering ends at the first decoded NUL, whether a literal 0 byte or an
+// overlong encoding of one.
+TEST_F(TrieTest, testLowerRunesStopsAtNul) {
+  const std::pair<std::string, std::vector<rune>> cases[] = {
+      {std::string("\0AB", 3), {}},
+      {std::string("a\0BCD", 5), {'a'}},
+      {std::string("Ab\xC0\x80") + "CD", {'a', 'b'}},
+  };
+  for (const auto &[input, expected] : cases) {
+    size_t rlen = 0;
+    rune *r = strToLowerRunes(input.data(), input.size(), &rlen);
+    ASSERT_TRUE(r != nullptr);
+    EXPECT_EQ(expected, std::vector<rune>(r, r + rlen)) << "input size " << input.size();
+    EXPECT_EQ(0, r[rlen]) << "input size " << input.size();
+    rm_free(r);
+  }
+}
+
 namespace {
 // Big enough for every allocation a search over a two-entry trie writes to.
 constexpr size_t kServedAllocBytes = 64 * 1024;

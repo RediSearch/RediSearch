@@ -82,11 +82,11 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   return ret;
 }
 
-rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
-
-  const char *end = str + utf8_len;
-  // determine the length of the lowered string
-  ssize_t rlen = 0;
+/* Lowers `str` up to its first decoded NUL, writing at most `cap` runes to
+ * `out`, and returns the full lowered length. Sizing and filling both go
+ * through here so the buffer always fits what is written to it. */
+static size_t lowerRunes(const char *str, const char *end, rune *out, size_t cap) {
+  size_t n = 0;
   for (const char *p = str; p < end;) {
     uint32_t codepoint;
     p = utf8ReadBounded(p, end, &codepoint);
@@ -95,43 +95,29 @@ rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
     }
     const char *map = nu_tolower(codepoint);
     if (map == NULL) {
-      rlen++;
+      if (n < cap) out[n] = codepoint;
+      n++;
       continue;
     }
     uint32_t mu;
     while ((map = nu_casemap_read(map, &mu)), mu != 0) {
-      rlen++;
+      if (n < cap) out[n] = mu;
+      n++;
     }
   }
+  return n;
+}
+
+rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
+  const char *end = str + utf8_len;
+  size_t rlen = lowerRunes(str, end, NULL, 0);
   if (rlen > MAX_RUNE_STR_LEN) {
     *unicode_len = 0;
     return NULL;
   }
 
   rune *ret = rm_calloc(rlen + 1, sizeof(rune));
-  const char *encoded_char = str;
-  uint32_t codepoint;
-  unsigned i = 0;
-  while (encoded_char < end) {
-    // Read unicode codepoint from utf8 string
-    encoded_char = utf8ReadBounded(encoded_char, end, &codepoint);
-    // Transform unicode codepoint to lower case
-    const char *map = nu_tolower(codepoint);
-
-    // Read the transformed codepoint and store it in the unicode buffer
-    if (map != NULL) {
-      uint32_t mu;
-      while (1) {
-        map = nu_casemap_read(map, &mu);
-        if (mu == 0) {
-          break;
-        }
-        ret[i++] = mu;
-      }
-    } else {
-        ret[i++] = codepoint;
-    }
-  }
+  lowerRunes(str, end, ret, rlen);
   *unicode_len = rlen;
 
   return ret;
