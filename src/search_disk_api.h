@@ -614,9 +614,9 @@ typedef struct IndexDiskAPI {
    * primitive. Blocks until the compactions finish.
    *
    * @param index Pointer to the disk index
-   * @return true if every compaction succeeded, false if any failed or was
-   *         cancelled (manual compactions are disabled inside a consistency
-   *         window)
+   * @return true if every compaction succeeded, false if one was cancelled
+   *         (manual compactions are disabled inside a consistency window). A
+   *         failed compaction aborts the process, as in `runGC`.
    */
   bool (*compactNonGcColumnFamilies)(RedisSearchDiskIndexSpec *index);
 

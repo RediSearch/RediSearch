@@ -1254,7 +1254,7 @@ static int finishDiskCompact(RedisModuleCtx *ctx, IndexSpec *sp) {
   if (!SearchDisk_CompactNonGcColumnFamilies(sp->diskSpec)) {
     return RedisModule_ReplyWithError(ctx,
                                       "Compaction of the doc-table or vector column "
-                                      "families did not complete; see the server log");
+                                      "families was cancelled; see the server log");
   }
   return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
