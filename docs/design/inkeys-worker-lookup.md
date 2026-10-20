@@ -81,8 +81,7 @@ extension of this plan.
 
 Use hashbrown HashTable behind a narrow Rust/C interface. Each table uses
 `ahash::RandomState` with a private randomized seed; no custom probing algorithm is needed.
-The [paired hasher benchmark](doc-key-map-hasher-benchmarks.md) records the comparison
-with the original standard-library SipHash choice and its scope limits.
+Local testing found AHash faster than the standard-library hasher.
 
 Each occupied bucket stores:
 
