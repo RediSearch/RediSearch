@@ -997,8 +997,8 @@ typedef struct {
   // Per-key load profiling buffer (nkeys entries), allocated only for
   // `FT.PROFILE ... LOAD`; NULL otherwise. Populated by the Rust loader.
   LoadFieldProfile *profileFields;
-  // Owned; NULL when loading all fields.
-  struct HashFieldNames *fieldNames;
+  // Owned format-specific cache; NULL for whole-document HASH loading.
+  struct LoaderCache *cache;
   QueryError status;
 } RPLoader;
 
@@ -1036,27 +1036,28 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 
   int ret;
   if (self->load_all) {
-      LoadAllKeysOptions opts = {
-          .sctx = self->sctx,
-          .dmd = dmd,
-          .force_string = true,
-          .status = &self->status,
-      };
-      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
+    LoadAllKeysOptions opts = {
+        .sctx = self->sctx,
+        .dmd = dmd,
+        .force_string = true,
+        .status = &self->status,
+        .cache = self->cache,
+    };
+    ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
-      LoadIndividualKeysOptions opts = {
-          .sctx = self->sctx,
-          .dmd = dmd,
-          .keys = self->keys,
-          .nkeys = self->nkeys,
-          .force_string = true,
-          .force_load = self->forceLoad,
-          .cached_only = false,
-          .status = &self->status,
-          .profile_fields = self->profileFields,
-          .field_names = self->fieldNames,
-      };
-      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
+    LoadIndividualKeysOptions opts = {
+        .sctx = self->sctx,
+        .dmd = dmd,
+        .keys = self->keys,
+        .nkeys = self->nkeys,
+        .force_string = true,
+        .force_load = self->forceLoad,
+        .cached_only = false,
+        .status = &self->status,
+        .profile_fields = self->profileFields,
+        .cache = self->cache,
+    };
+    ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
 
   // if loading the document has failed, we keep the row as it was.
@@ -1119,7 +1120,7 @@ static void rploaderFreeInternal(ResultProcessor *base) {
   QueryError_ClearError(&lc->status);
   rm_free(lc->keys);
   rm_free(lc->profileFields);
-  HashFieldNames_Free(lc->fieldNames);
+  LoaderCache_Free(lc->cache);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1139,13 +1140,14 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     if (withProfile) {
       self->profileFields = rm_calloc(nkeys, sizeof(*self->profileFields));
     }
-    self->fieldNames = HashFieldNames_New();
     self->load_all = false;
   } else {
     self->load_all = true;
-    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED); // TODO: turn on only for HASH specs
+    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED);  // TODO: turn on only for HASH specs
   }
 
+  DocumentType type = sctx && sctx->spec ? sctx->spec->rule->type : DocumentType_Hash;
+  self->cache = LoaderCache_New(type, self->keys, self->nkeys);
   self->lk = lk;
 }
 

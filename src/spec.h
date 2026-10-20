@@ -22,6 +22,7 @@
 #include "synonym_map.h"
 #include "field_spec.h"
 #include "util/dict.h"
+#include "util/charbuf.h"
 #include "util/rs_atomic.h"
 #include "util/references.h"
 #include "rules.h"
@@ -223,7 +224,8 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 28
+#define INDEX_CURRENT_VERSION 29
+#define INDEX_SST_SPEC_ID_VERSION 29
 #define INDEX_HNSW_QUANT_VERSION 28
 #define INDEX_VECTOR_RERANK_VERSION 27
 #define INDEX_DISK_VERSION 26
@@ -290,14 +292,6 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 // Forward declaration
 typedef struct InvertedIndex InvertedIndex;
 typedef const void* RedisSearchDiskIndexSpec;
-
-typedef struct CharBuf {
-  char *buf;
-  size_t len;
-} CharBuf;
-
-uint64_t CharBuf_HashFunction(const void *key);
-int CharBuf_KeyCompare(void *privdata, const void *key1, const void *key2);
 
 // What FT.DROP / FT.DROPINDEX did with this index's documents, and hence what
 // teardown still owes the keyspace. Set by DropIndexCommand before the spec is

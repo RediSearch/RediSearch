@@ -63,9 +63,8 @@ reduced rows into that same buffer from the reducer and moves them in its reply
 callback.
 
 The API is merged into Redis `unstable` but not yet released. Search rejects loading when
-either API is absent, and the shared CI dependency builds the upstream merge commit
-`d003e19b00d41cf1916ae80398a6deb6dff54f69`,
-including PR, merge-queue, and periodic validation, manual tests, and benchmarks.
+either API is absent, so the Redis revision the shared CI dependency tracks (PR, merge-queue,
+periodic validation, manual tests, and benchmarks) must include it.
 There is no fallback for older cores. A supported packaged core version remains a
 prerequisite for landing this change.
 

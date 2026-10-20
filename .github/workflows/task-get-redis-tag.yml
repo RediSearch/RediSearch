@@ -10,9 +10,9 @@ on:
       pinned-ref:
         description: "Redis ref to use instead of the latest release tag. Empty uses the latest release tag."
         type: string
-        # MOD-18503: the unstable merge of redis/redis#15775, which adds the required module reply-buffer APIs.
-        # Replace with a supported Redis release after the API lands upstream.
-        default: d003e19b00d41cf1916ae80398a6deb6dff54f69
+        # TODO: Replace with a released Redis version once one includes the hexpired notification fix
+        # and the OpenSSL 4 tls.c fix (redis/redis#15227).
+        default: 559d143b4e0409c452f7d229ba420954b6b647a2
     outputs:
       tag:
         description: "Redis tag or pinned ref"

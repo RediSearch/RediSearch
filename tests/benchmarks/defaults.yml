@@ -89,9 +89,6 @@ spec:
       requests:
         cpus: "1"
         memory: "10g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-02-primaries
     type: oss-cluster
@@ -103,9 +100,6 @@ spec:
       requests:
         cpus: "2"
         memory: "10g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-03-primaries
     type: oss-cluster
@@ -117,9 +111,6 @@ spec:
       requests:
         cpus: "3"
         memory: "30g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-04-primaries-threads-6
     type: oss-cluster
@@ -132,8 +123,6 @@ spec:
         cpus: "28" # 4 * 7 (4 primaries x 7 threads (main thread + 6 workers))
         memory: "40g"
     dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
       module-configuration-parameters:
         redisearch:
           WORKERS: 6
@@ -152,9 +141,6 @@ spec:
       requests:
         cpus: "24"
         memory: "40g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-05-primaries
     type: oss-cluster
@@ -166,9 +152,6 @@ spec:
       requests:
         cpus: "5"
         memory: "50g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-08-primaries
     type: oss-cluster
@@ -180,9 +163,6 @@ spec:
       requests:
         cpus: "10"
         memory: "90g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-09-primaries
     type: oss-cluster
@@ -194,9 +174,6 @@ spec:
       requests:
         cpus: "10"
         memory: "90g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-15-primaries
     type: oss-cluster
@@ -208,9 +185,6 @@ spec:
       requests:
         cpus: "15"
         memory: "150g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-16-primaries
     type: oss-cluster
@@ -222,9 +196,6 @@ spec:
       requests:
         cpus: "18"
         memory: "180g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-20-primaries
     type: oss-cluster
@@ -236,9 +207,6 @@ spec:
       requests:
         cpus: "20"
         memory: "500g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-21-primaries
     type: oss-cluster
@@ -250,9 +218,6 @@ spec:
       requests:
         cpus: "21"
         memory: "210g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-24-primaries
     type: oss-cluster
@@ -264,9 +229,6 @@ spec:
       requests:
         cpus: "24"
         memory: "500g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-30-primaries
     type: oss-cluster
@@ -278,9 +240,6 @@ spec:
       requests:
         cpus: "30"
         memory: "300g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-32-primaries
     type: oss-cluster
@@ -292,9 +251,6 @@ spec:
       requests:
         cpus: "32"
         memory: "300g"
-    dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
 
   - name: oss-cluster-08-primaries-250gb-threads-8
     type: oss-cluster
@@ -307,8 +263,6 @@ spec:
         cpus: "72" # 8 * 9 (8 primaries x 9 threads (main thread + 8 workers))
         memory: "250g"
     dbconfig:
-      configuration-parameters:
-        cluster-bus-port-protected-mode: "no"
       module-configuration-parameters:
         redisearch:
           WORKERS: 8
