@@ -2594,6 +2594,7 @@ dependencies = [
  "fork_gc_ffi",
  "geo_ffi",
  "idf_ffi",
+ "inkeys_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "memchr",

@@ -494,7 +494,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .numericCompress = false,                                                  \
     .numericTreeMaxDepthRange = 0,                                             \
     .requestConfigParams.printProfileClock = 1,                                \
-    .inkeysLookupMap = false,                                                 \
+    .inkeysLookupMap = false,                                                  \
     .invertedIndexRawDocidEncoding = false,                                    \
     .gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes = true,            \
     .freeResourcesThread = true,                                               \
