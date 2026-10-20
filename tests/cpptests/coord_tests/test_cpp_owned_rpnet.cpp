@@ -254,6 +254,7 @@ TEST_F(OwnedRPNetTest, TimeoutRecoveryFinishesBeforeNetworkInputArrives) {
 
 TEST_F(OwnedRPNetTest, NaturalWakeResumesSameFrameBeforeConsumingReply) {
   attachIterator();
+  net->profileBreakdown = true;
   constexpr const char *point = "RpnetWaitingForReply";
   ASSERT_TRUE(SyncPoint_Arm(point));
   OwnedNetStep step{AREQ_QueryProcessingCtx(request), &net->base, &row};
@@ -267,9 +268,31 @@ TEST_F(OwnedRPNetTest, NaturalWakeResumesSameFrameBeforeConsumingReply) {
   EXPECT_TRUE(reached);
   EXPECT_EQ(1, step.calls);
   EXPECT_EQ(RS_RESULT_OK, step.result);
+  EXPECT_EQ(1, net->breakdown.replies);
+  EXPECT_EQ(1, net->breakdown.fields);
   EXPECT_EQ(1, AREQ_QueryProcessingCtx(request)->totalResults);
   expectValue("one");
   EXPECT_EQ(RP_DRAIN_EOF, net->base.Drain(&net->base, &row));
+  EXPECT_EQ(0, MRIterator_GetChannelSize(net->it));
+}
+
+TEST_F(OwnedRPNetTest, CleanupWakeReleasesIdleWaiterWithoutAReply) {
+  attachIterator();
+  MRChannel *channel = MRIterator_GetChannel(net->it);
+  QueryRequestAsyncState_RegisterAbortWakeChannel(&request->base.async, channel);
+  auto *flag = QueryRequestTimeout_GetBlockedClientFlag(&request->base.timeout);
+  std::promise<void> entering;
+  auto waiter = std::async(std::launch::async, [&] {
+    entering.set_value();
+    MRChannel_WaitReadable(channel, flag);
+  });
+  entering.get_future().wait();
+  QueryRequestTimeout_MarkTimedOut(&request->base.timeout);
+  QueryRequestAsyncState_WakeAbortChannel(&request->base.async);
+  const auto done = waiter.wait_for(1s);
+  if (done != std::future_status::ready) MRChannel_Unblock(channel);
+  waiter.get();
+  EXPECT_EQ(std::future_status::ready, done);
   EXPECT_EQ(0, MRIterator_GetChannelSize(net->it));
 }
 
@@ -322,4 +345,20 @@ TEST_F(OwnedRPNetTest, DrainReportsFatalShardErrorThroughExistingDiagnostic) {
   push("-ERR synthetic shard failure\r\n");
   EXPECT_EQ(RP_DRAIN_ERROR, net->base.Drain(&net->base, &row));
   EXPECT_TRUE(QueryError_HasError(AREQ_QueryProcessingCtx(request)->err));
+}
+
+TEST_F(OwnedRPNetTest, StrictNextRecordsWarningBeforeOutputBudgetCanStopIteration) {
+  attachIterator();
+  net->cmd.protocol = 3;
+  const std::string warning = QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT);
+  const std::string wire =
+      "*2\r\n%3\r\n+results\r\n*1\r\n%1\r\n+extra_attributes\r\n"
+      "%1\r\n+field\r\n+one\r\n+format\r\n+STRING\r\n+warning\r\n"
+      "*1\r\n+" +
+      warning + "\r\n:0\r\n";
+  push(wire.c_str());
+  ASSERT_EQ(RS_RESULT_OK, net->base.Next(&net->base, &row));
+  expectValue("one");
+  // No subsequent Next/EOF call is guaranteed after the last requested row.
+  EXPECT_TRUE(request->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING);
 }
