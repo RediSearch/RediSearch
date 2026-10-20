@@ -12,7 +12,7 @@ test = false
 unittest = []
 
 [dependencies]
-bumpalo.workspace = true
+bumpalo = { workspace = true, features = ["collections"] }
 ffi.workspace = true
 global_config.workspace = true
 hyperloglog.workspace = true

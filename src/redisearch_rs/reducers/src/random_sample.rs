@@ -9,9 +9,8 @@
 
 //! The `RANDOM_SAMPLE` reducer.
 
-use std::mem::MaybeUninit;
-
 use bumpalo::Bump;
+use bumpalo::collections::Vec;
 use rlookup::{RLookupKey, RLookupRow};
 use value::SharedValue;
 
@@ -35,67 +34,31 @@ impl<'a> RandomSample<'a> {
 pub struct RandomSampleState<'arena> {
     /// The number of values seen, kept or not.
     seen: usize,
-    /// One slot per value the sample can hold, allocated in the arena when the group
-    /// starts, as the C reducer did, so a group never allocates on the heap. Only
-    /// the first `len` slots are initialized.
-    slots: &'arena mut [MaybeUninit<SharedValue>],
-    len: usize,
-}
-
-impl<'arena> RandomSampleState<'arena> {
-    fn new(arena: &'arena Bump, size: usize) -> Self {
-        Self {
-            seen: 0,
-            slots: arena.alloc_slice_fill_with(size, |_| MaybeUninit::uninit()),
-            len: 0,
-        }
-    }
-
-    /// Keeps `value` in the next free slot, if any is left.
-    fn push(&mut self, value: &SharedValue) -> bool {
-        let Some(slot) = self.slots.get_mut(self.len) else {
-            return false;
-        };
-        slot.write(value.clone());
-        self.len += 1;
-        true
-    }
-
-    const fn samples(&self) -> &[SharedValue] {
-        // SAFETY: the first `len` slots are initialized, and `MaybeUninit<T>` has
-        // the layout of `T`.
-        unsafe { std::slice::from_raw_parts(self.slots.as_ptr().cast(), self.len) }
-    }
-
-    const fn samples_mut(&mut self) -> &mut [SharedValue] {
-        // SAFETY: as in `samples`.
-        unsafe { std::slice::from_raw_parts_mut(self.slots.as_mut_ptr().cast(), self.len) }
-    }
-}
-
-impl Drop for RandomSampleState<'_> {
-    fn drop(&mut self) {
-        // SAFETY: the samples are initialized, and the arena never drops them, so
-        // this is the only place they are dropped.
-        unsafe { std::ptr::drop_in_place(self.samples_mut()) }
-    }
+    /// The sample, with room for all of it reserved in the arena when the group
+    /// starts, as the C reducer did, so a group never allocates on the heap.
+    samples: Vec<'arena, SharedValue>,
 }
 
 impl Accumulator for RandomSample<'_> {
     type State<'arena> = RandomSampleState<'arena>;
 
     fn init<'arena>(&self, arena: &'arena Bump) -> RandomSampleState<'arena> {
-        RandomSampleState::new(arena, self.size)
+        RandomSampleState {
+            seen: 0,
+            samples: Vec::with_capacity_in(self.size, arena),
+        }
     }
 
     fn add(&self, state: &mut RandomSampleState<'_>, row: &RLookupRow<'_>) {
         let Some(value) = row.get(self.key) else {
             return;
         };
-        if !state.push(value) {
+        if state.samples.len() < self.size {
+            state.samples.push(value.clone());
+        } else {
             // The new value replaces a sampled one with probability `size / (seen + 1)`.
             let slot = random_below(state.seen + 1);
-            if let Some(sample) = state.samples_mut().get_mut(slot) {
+            if let Some(sample) = state.samples.get_mut(slot) {
                 *sample = value.clone();
             }
         }
@@ -103,7 +66,7 @@ impl Accumulator for RandomSample<'_> {
     }
 
     fn finalize(&self, state: &RandomSampleState<'_>) -> SharedValue {
-        SharedValue::new_array(state.samples().iter().cloned())
+        SharedValue::new_array(state.samples.iter().cloned())
     }
 }
 
