@@ -212,7 +212,10 @@ must obey their existing row-publication and reply-ownership rules.
 Within the admitted domain, Drain can use coherent counters, errors and profile
 state directly. Independent hybrid input metadata is readable only after output
 publication, through normal completion or separate producer-domain recovery;
-unpublished input profiles must not be read live. This applies to RETURN replies
+unpublished input profiles must not be read live. Immutable configuration outcomes
+needed by replies, such as timeout capping, belong to the parent request rather
+than producer execution flags. Reply-buffer serialization can cache these from
+the parent without reading an unpublished producer. This applies to RETURN replies
 as well as STRICT callbacks: a folded tail does not imply all producers finished.
 Partial counts describe safe progress and need not equal a completed query.
 Existing completed-EOF/error precedence and exactly-one reply arbitration remain.
