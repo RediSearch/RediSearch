@@ -12,6 +12,7 @@
 //! Terms: the *return key* reads the *return value* a group keeps and returns;
 //! the *sort key* reads the *sort value* that rows are compared on.
 
+use bumpalo::Bump;
 use std::cmp::Ordering;
 
 use rlookup::{RLookupKey, RLookupRow};
@@ -115,9 +116,9 @@ impl FirstValue<'_> {
 }
 
 impl Accumulator for FirstValue<'_> {
-    type State = FirstValueState;
+    type State<'arena> = FirstValueState;
 
-    fn init(&self) -> FirstValueState {
+    fn init(&self, _arena: &Bump) -> FirstValueState {
         FirstValueState::default()
     }
 
