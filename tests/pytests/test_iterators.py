@@ -474,3 +474,95 @@ def test_prefix_expansion_child_count_is_not_capped_at_16_bits():
     expected_tag = env.cmd('FT.SEARCH', 'idx_tag', '@t:{va0}', 'NOCONTENT', 'DIALECT', 2)
     env.assertEqual(env.cmd('FT.SEARCH', 'idx_tag', '@t:{va*}', 'NOCONTENT', 'DIALECT', 2), expected_tag,
                     message="a TAG prefix query matches the same documents whatever its expansion width")
+
+
+@skip(cluster=True)
+def test_vector_top_k_scores_survive_a_union_dropping_an_aborted_child(env):
+    """A filtered KNN keeps each matching child result for the scorer, and those results point at
+    query terms owned by leaf iterators deep in the filter. When a union in the filter drops an
+    aborted child during revalidation, the term leaves under that child are freed, yet the top-k
+    carries on yielding the results it already stored.
+
+    Here the aborting child is `foo @n:[...]`: splitting the numeric tree between cursor reads
+    aborts its numeric leaf, which aborts the intersection, which the outer union then drops along
+    with the `foo` term. `bar` keeps the union alive, so the top-k keeps going and scores its
+    stored `foo` results by reading the freed term.
+
+    The freed term usually still holds its old values, so outside a sanitizer build the scores
+    tend to come out right regardless; AddressSanitizer reports the use-after-free.
+    """
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    for i in range(1, 11):
+        conn.execute_command('HSET', f'a:{i}', 't', 'foo', 'n', i,
+                             'v', create_np_array_typed([i, 0]).tobytes())
+    # Far from the query vector, so they never make the top-k, but they keep the union from
+    # reaching EOF during collection: a union at EOF skips revalidating its children.
+    for i in range(1, 6):
+        conn.execute_command('HSET', f'b:{i}', 't', 'bar', 'n', 1000,
+                             'v', create_np_array_typed([100 + i, 0]).tobytes())
+
+    # ADDSCORES keeps the child's full results instead of trimming them to metrics.
+    query = ['FT.AGGREGATE', 'idx',
+             '((foo @n:[0 100]) | bar)=>[KNN 5 @v $b HYBRID_POLICY BATCHES BATCH_SIZE 5 AS dist]',
+             'ADDSCORES', 'SCORER', 'BM25STD', 'LOAD', '1', '@__key',
+             'PARAMS', '2', 'b', create_np_array_typed([0, 0]).tobytes(), 'DIALECT', '2']
+    expected = env.cmd(*query)[1:]
+    env.assertEqual([to_dict(r)['__key'] for r in expected], [f'a:{i}' for i in range(1, 6)])
+
+    res, cursor = env.cmd(*query, 'WITHCURSOR', 'COUNT', '1')
+    actual = res[1:]
+
+    def numeric_revision():
+        return to_dict(env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n'))['revisionId']
+
+    # Enough distinct values to split the numeric tree's only range, which bumps its revision
+    # and so aborts the numeric leaf on the next revalidation.
+    revision = numeric_revision()
+    for i in range(500):
+        conn.execute_command('HSET', f'c:{i}', 'n', 2000 + i)
+    env.assertNotEqual(numeric_revision(), revision,
+                       message="the inserts must change the numeric tree, or nothing aborts")
+
+    while cursor != 0:
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        actual.extend(res[1:])
+
+    env.assertEqual(actual, expected)
+
+
+@skip(cluster=True)
+def test_buffered_vector_top_k_results_keep_their_query_terms(env):
+    """Processors that buffer results, such as the sorter, deep-copy each one, then read the
+    copies' query terms once the top-k has moved on. Each record the top-k yields owns its terms
+    and frees them on the next read, so the copies must not point into them.
+
+    As with the revalidation test above, a dangling copy usually still reads back the right term
+    outside a sanitizer build; AddressSanitizer reports the use-after-free.
+    """
+    conn = getConnectionByEnv(env)
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2',
+               'DISTANCE_METRIC', 'L2').ok()
+    for i in range(1, 4):
+        conn.execute_command('HSET', f'a:{i}', 't', 'foo',
+                             'v', create_np_array_typed([i, 0]).tobytes())
+    params = ['PARAMS', '2', 'b', create_np_array_typed([0, 0]).tobytes(), 'DIALECT', '2']
+
+    # The highlighter reads each term's string from the copies the sorter buffered.
+    res = env.cmd('FT.SEARCH', 'idx', '(foo)=>[KNN 3 @v $b AS dist]', 'RETURN', '1', 't',
+                  'HIGHLIGHT', *params)
+    env.assertEqual(res, [3, 'a:1', ['t', '<b>foo</b>'], 'a:2', ['t', '<b>foo</b>'],
+                          'a:3', ['t', '<b>foo</b>']])
+
+    # `matched_terms()` reads them from the copies `SORTBY` buffered. `ADDSCORES` keeps the
+    # top-k from trimming its results down to metrics, which would leave no terms to match.
+    res = env.cmd('FT.AGGREGATE', 'idx', '(foo)=>[KNN 3 @v $b AS dist]', 'ADDSCORES',
+                  'SORTBY', '2', '@dist', 'ASC', 'APPLY', 'matched_terms()', 'AS', 'mt', *params)
+    env.assertEqual([[r[0], r[1], r[-2], r[-1]] for r in res[1:]],
+                    [['dist', '1', 'mt', ['foo']], ['dist', '4', 'mt', ['foo']],
+                     ['dist', '9', 'mt', ['foo']]], message=res)
