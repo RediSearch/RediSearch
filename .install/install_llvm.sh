@@ -56,19 +56,14 @@ install_from_tarball() {
         Linux-aarch64) tarball_name="LLVM-${LLVM_FULL_VER}-Linux-ARM64.tar.xz" ;;
         Darwin-arm64)
             tarball_name="LLVM-${LLVM_FULL_VER}-macOS-ARM64.tar.xz"
-            # The static LLVM libraries are most of the unpacked size and
-            # macOS links libclang dynamically; hosted macOS runners are short
-            # on disk.
-            # Builds must use the system libc++, so drop the bundled one:
-            # - its dylibs, because with them in lib/ Apple's ld (run by this
-            #   clang) binds to them and aborts on a missing symbol;
-            # - its headers, because clang prefers <install>/include/c++/v1
-            #   over the SDK's, and these lack the vendor availability
-            #   annotations, so they reference symbols (e.g. __hash_memory)
-            #   that older macOS system libc++ does not export.
-            # Every binary in the tarball links /usr/lib/libc++.
-            tar_excludes=(--exclude '*.a' --exclude '*/lib/libc++*' --exclude '*/lib/libunwind*'
-                          --exclude '*/include/c++/*')
+            # The static LLVM component libraries are most of the unpacked size
+            # and macOS links libclang dynamically; hosted macOS runners are
+            # short on disk. Clang's runtime archives (lib/clang/*) stay.
+            # The bundled libc++ dylibs stay out too: with them in lib/,
+            # Apple's ld (run by this clang) binds to them instead of the
+            # system libc++ and aborts. Every binary in the tarball links
+            # /usr/lib/libc++.
+            tar_excludes=(--exclude '*/lib/lib*.a' --exclude '*/lib/libc++*' --exclude '*/lib/libunwind*')
             # INSTALL_DIR is user-writable here; CI passes sudo, which would
             # leave a root-owned tree in $HOME.
             priv=""
@@ -91,12 +86,30 @@ install_from_tarball() {
 
     export_path_gha
     if [[ "$OS_TYPE" == "Darwin" ]]; then
+        enable_libcxx_availability_annotations
         export_sdkroot
         add_to_macos_profiles "${INSTALL_DIR}/bin"
     else
         link_tools_for_fresh_shells
     fi
     echo ">>> LLVM ${LLVM_FULL_VER} installed to ${INSTALL_DIR}"
+}
+
+# clang uses the tarball's libc++ headers (the SDK's predate features the code
+# needs, e.g. std::atomic_ref) while builds link the system libc++. The tarball
+# ships them with vendor availability annotations off, so they call dylib
+# symbols newer than the system library (e.g. std::__hash_memory). Turn the
+# annotations on, as Homebrew's llvm does, so the headers fall back to inline
+# implementations for anything the deployment target's libc++ lacks.
+enable_libcxx_availability_annotations() {
+    local cfg="${INSTALL_DIR}/include/c++/v1/__config_site"
+    local off="#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 0"
+    if ! grep -q "^${off}\$" "$cfg" && ! grep -q "_LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 1" "$cfg"; then
+        echo "ERROR: unexpected availability setting in ${cfg}" >&2
+        return 1
+    fi
+    sed "s/^${off}\$/#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 1/" "$cfg" > "${cfg}.tmp"
+    mv "${cfg}.tmp" "$cfg"
 }
 
 # Upstream clang, unlike Homebrew's, is not configured with a default macOS
