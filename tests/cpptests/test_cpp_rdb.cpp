@@ -1795,6 +1795,9 @@ TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
   int result = DocTable_LegacyRdbLoad(&table, io, INDEX_MIN_COMPACTED_DOCTABLE_VERSION);
   RedisModule_LoadFloat = originalLoadFloat;
   EXPECT_EQ(result, REDISMODULE_OK);
+  ASSERT_EQ(table.keyMap, nullptr);
+  ASSERT_TRUE(DocTable_StartKeyMap(&table));
+  ASSERT_TRUE(DocTable_BuildKeyMapBatch(&table, 1));
   EXPECT_EQ(DocTable_GetIdByKey(&table, "doc", 3), 1);
 
   auto *dmd = const_cast<RSDocumentMetadata *>(DocTable_Borrow(&table, 1));

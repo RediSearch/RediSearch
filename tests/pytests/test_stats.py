@@ -331,8 +331,8 @@ def testDocTableInfo(env):
     n = env.shardsCount
 
     # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-    #              = 80 + (1000 * 8) = 8080 bytes
-    doc_table_size_mb = 8080 / (1024 * 1024)
+    #              = 104 + (1000 * 8) = 8104 bytes
+    doc_table_size_mb = 8104 / (1024 * 1024)
 
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 0)

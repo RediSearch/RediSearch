@@ -152,19 +152,21 @@ fn eval_ids_empty_keys() {
 }
 
 #[test]
-#[should_panic(expected = "unresolved QN_IDS nodes require a document key map")]
-fn eval_ids_requires_map_for_deferred_keys() {
+fn eval_empty_deferred_ids_without_map() {
     let mut mock_ctx = MockQueryEvalCtx::new();
+    // SAFETY: the mock owns the backing fields for the duration of evaluation.
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
-
-    // Even an empty deferred filter requires the map; no Redis strings are needed.
     let keys = MockKeys::nulls(0);
-
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
     mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+    // SAFETY: the mock owns the node and no key is accessed for an empty filter.
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
-
-    let _ = eval_node(&mut ctx, node, Config::default());
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("empty iterator")
+            .into_boxed(),
+    );
+    assert!(matches!(it.read(), Ok(None)));
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +229,12 @@ mod ids_doctable {
         let qctx = context.qctx();
         let id_a = context.add_document("doc\0a");
         let id_b = context.add_document("doc_b");
+        // SAFETY: this test has exclusive access to its document table.
+        unsafe {
+            let table = (*qctx.as_ptr()).docTable;
+            assert!(ffi::DocTable_StartKeyMap(table));
+            assert!(ffi::DocTable_BuildKeyMapBatch(table, usize::MAX));
+        }
         // SAFETY: context owns the backing fields and outlives evaluation.
         let mut ctx = unsafe { QueryEvalContext::new(qctx) };
         let keys = MockKeys::new(&["doc_b", "ghost", "doc\0a", "doc_b"]);

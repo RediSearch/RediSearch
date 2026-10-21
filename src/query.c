@@ -1074,6 +1074,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           t_docId did;
           if (qs->fn.docIds) {
             did = qs->fn.docIds[i];
+          } else if (spec->docs.keyMapState != DocKeyMap_Ready) {
+            did = 0;
+            DocIdMeta_Get(RSDummyContext, qs->fn.keys[i], spec->specId, &did);
           } else {
             size_t len;
             const char *key = RedisModule_StringPtrLen(qs->fn.keys[i], &len);
