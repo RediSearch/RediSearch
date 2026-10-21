@@ -97,6 +97,8 @@ static void scheduleSlotCleanup(IndexSpec *spec, void *slots) {
   SlotCleanupCtx *ctx = rm_malloc(sizeof(*ctx));
   ctx->spec_ref = StrongRef_Demote(spec->own_ref);
   ctx->pending = pending;
+  // Until the task ends, queries still scan the deleted docs and filter them out, so finishing it
+  // matters more than reclaiming memory.
   CleanPool_AddWork(SlotCleanup_Run, ctx);
 }
 
