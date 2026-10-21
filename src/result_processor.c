@@ -222,7 +222,9 @@ static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadat
 
   // Check query slots (internal command filtering)
   if (self->querySlots && (__atomic_load_n(&key_space_version, __ATOMIC_RELAXED) != self->keySpaceVersion)) {
-    if (!SlotRangeArray_ContainsSlot(self->querySlots, dmd->slot)) {
+    // Disk DMDs do not carry the slot (see SearchDisk_GetDocumentMetadata), so hash their key.
+    const uint16_t slot = self->sctx->spec->diskSpec ? RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr)) : dmd->slot;
+    if (!SlotRangeArray_ContainsSlot(self->querySlots, slot)) {
       return false;
     }
   }
