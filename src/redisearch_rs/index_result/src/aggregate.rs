@@ -546,6 +546,24 @@ impl<'a> RSAggregateResult<'a> {
             Self::Owned(agg) => Self::Owned(agg.to_owned()),
         }
     }
+
+    /// Create a copy of this aggregate result that owns the query terms and offsets of all
+    /// its children.
+    ///
+    /// See [`RSIndexResult::to_fully_owned`] for what the copy still shares.
+    pub fn to_fully_owned(&self) -> RSAggregateResult<'a> {
+        let mut records = MediumThinVec::with_capacity(self.len());
+        records.extend(
+            (0..self.len())
+                .filter_map(|i| self.get(i))
+                .map(|c| Box::new(c.to_fully_owned())),
+        );
+
+        Self::Owned(RSOwnedAggregateResult {
+            records,
+            kind_mask: self.kind_mask(),
+        })
+    }
 }
 
 /// An iterator over the results in an [`RSAggregateResult`].

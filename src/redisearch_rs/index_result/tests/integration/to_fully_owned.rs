@@ -1,0 +1,220 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! Tests for [`RSIndexResult::to_fully_owned`], and for [`RSIndexResult::to_owned`] of a
+//! record it produced: a copy must stay readable after the records it was taken from, and
+//! the terms they own, are dropped.
+//!
+//! Run these under miri as well: outside miri, a copy still pointing at a freed term
+//! usually reads back the old values.
+
+use index_result::{
+    MetricsVec, RSIndexResult, RSOffsetSlice, RSOffsetVector, RSQueryTerm, RSTermRecord,
+};
+
+const OFFSETS: &[u8] = &[1, 2, 3];
+
+fn foo_term() -> Box<RSQueryTerm> {
+    let mut term = RSQueryTerm::new("foo", 4, 0);
+    term.set_idf(1.5);
+    term.set_bm25_idf(0.25);
+    term
+}
+
+fn owned_offsets() -> RSOffsetVector {
+    RSOffsetSlice::from_slice(OFFSETS).to_owned()
+}
+
+/// A term leaf as an inverted index reader produces it: the record owns its query term
+/// and borrows its offsets.
+fn term_leaf(offsets: &[u8]) -> RSIndexResult<'_> {
+    RSIndexResult::build_term()
+        .borrowed_record(Some(foo_term()), RSOffsetSlice::from_slice(offsets))
+        .doc_id(7)
+        .frequency(2)
+        .build()
+}
+
+/// Erase `r`'s lifetimes, so that a copy taken through the result, or a parent borrowing it,
+/// can outlive the data `r` borrows.
+///
+/// # Safety
+///
+/// 1. The returned reference must only be used while `r`'s own storage is alive.
+/// 2. Once the data `r` borrows is dropped, only what a copy taken from `r` owns may be read.
+///    The tests read exactly that, which is the property miri checks.
+unsafe fn detach<'a>(r: &RSIndexResult<'a>) -> &'static RSIndexResult<'static> {
+    let r: *const RSIndexResult<'a> = r;
+    // SAFETY: `r` comes from a live reference, so it is non-null, aligned and valid for
+    // reads; only the lifetimes are extended, and preconditions 1. and 2. bound how long the
+    // result is used.
+    unsafe { &*r.cast::<RSIndexResult<'static>>() }
+}
+
+fn assert_is_detached_foo(record: &RSTermRecord<'_>) {
+    assert!(
+        matches!(record, RSTermRecord::FullyOwned { .. }),
+        "the copy owns its term instead of borrowing it",
+    );
+    let term = record.query_term().expect("the term is copied along");
+    assert_eq!(term.as_bytes(), Some(&b"foo"[..]));
+    assert_eq!(term.id(), 4);
+    assert_eq!(term.idf(), 1.5);
+    assert_eq!(term.bm25_idf(), 0.25);
+    assert_eq!(record.offsets(), OFFSETS);
+}
+
+/// Walk `result` and assert every term record in it owns its term.
+fn assert_all_terms_fully_owned(result: &RSIndexResult<'_>) {
+    if let Some(record) = result.as_term() {
+        assert!(
+            matches!(record, RSTermRecord::FullyOwned { .. }),
+            "every term record in the copy owns its term",
+        );
+    }
+    let mut i = 0;
+    while let Some(child) = result.get(i) {
+        assert_all_terms_fully_owned(child);
+        i += 1;
+    }
+}
+
+#[test]
+fn a_term_copy_outlives_the_record_owning_the_term() {
+    let leaf = term_leaf(OFFSETS);
+    let copy = leaf.to_fully_owned();
+    drop(leaf);
+
+    assert_eq!((copy.doc_id, copy.freq), (7, 2));
+    assert_is_detached_foo(copy.as_term().expect("a term result"));
+}
+
+#[test]
+fn a_term_copy_outlives_a_borrowed_term() {
+    let term = foo_term();
+    let source = RSIndexResult::build_term()
+        .owned_record(Some(&term), owned_offsets())
+        .build();
+    // SAFETY: only the copy's own term and offsets are read once `term` is gone.
+    let copy = unsafe { detach(&source) }.to_fully_owned();
+    drop(source);
+    drop(term);
+
+    assert_is_detached_foo(copy.as_term().expect("a term result"));
+}
+
+#[test]
+fn a_term_copy_of_a_fully_owned_record_owns_a_term_of_its_own() {
+    let source = RSIndexResult::build_term()
+        .fully_owned_record(Some(foo_term()), owned_offsets())
+        .build();
+    let copy = source.to_fully_owned();
+    drop(source);
+
+    assert_is_detached_foo(copy.as_term().expect("a term result"));
+}
+
+#[test]
+fn a_term_copy_without_a_term_stays_without_one() {
+    let source = RSIndexResult::build_term()
+        .borrowed_record(None, RSOffsetSlice::from_slice(OFFSETS))
+        .build();
+    let copy = source.to_fully_owned();
+
+    let record = copy.as_term().expect("a term result");
+    assert!(matches!(
+        record,
+        RSTermRecord::FullyOwned { term: None, .. }
+    ));
+    assert_eq!(record.offsets(), OFFSETS);
+}
+
+/// Buffering result processors deep-copy each record a top-k yields with
+/// [`RSIndexResult::to_owned`], then read the copy after the top-k has dropped the record on
+/// its next read. The record owns its term, so the copy must not borrow it.
+#[test]
+fn an_owned_copy_of_a_fully_owned_record_outlives_it() {
+    let source = term_leaf(OFFSETS).to_fully_owned();
+    // SAFETY: only the copy's own term and offsets are read once `source` is gone.
+    let copy = unsafe { detach(&source) }.to_owned();
+    drop(source);
+
+    assert_is_detached_foo(copy.as_term().expect("a term result"));
+}
+
+#[test]
+fn an_aggregate_copy_outlives_the_children_it_borrowed() {
+    let leaf = Box::new(term_leaf(OFFSETS));
+    let mut union = RSIndexResult::build_union(1).build();
+    // SAFETY: `union` is dropped before `leaf`; the copy reads only what it owns once both
+    // are gone.
+    union.push_borrowed(unsafe { detach(&leaf) }, MetricsVec::new());
+
+    let copy = union.to_fully_owned();
+    // The scenario the copy exists for: a composite iterator drops a child, and with it
+    // the term that child's record owns, while the copy is still held.
+    drop(union);
+    drop(leaf);
+
+    assert_eq!(copy.doc_id, 7);
+    let child = copy.get(0).expect("the child is copied along");
+    assert_is_detached_foo(child.as_term().expect("a term child"));
+}
+
+/// Every result kind, at every depth, in both aggregate flavours: an owned hybrid-metric
+/// aggregate holding a borrowed intersection of a term borrowing its query term and a
+/// numeric, next to a metric and a virtual result.
+#[test]
+fn a_nested_copy_equals_its_source_and_owns_every_term() {
+    let term = foo_term();
+    let term_child = Box::new(
+        RSIndexResult::build_term()
+            .owned_record(Some(&term), owned_offsets())
+            .doc_id(7)
+            .build(),
+    );
+    let numeric_child = Box::new(RSIndexResult::build_numeric(3.0).doc_id(7).build());
+    let mut intersection = RSIndexResult::build_intersect(2).build();
+    // SAFETY: `intersection` is dropped before both children; the copy reads only what it
+    // owns once all of them are gone.
+    intersection.push_borrowed(unsafe { detach(&term_child) }, MetricsVec::new());
+    // SAFETY: as above.
+    intersection.push_borrowed(unsafe { detach(&numeric_child) }, MetricsVec::new());
+
+    let mut source = RSIndexResult::build_hybrid_metric().build();
+    // SAFETY: the copy reads only what it owns once `term` and the children are gone.
+    source.push_boxed(Box::new(unsafe { detach(&intersection) }.to_owned()));
+    source.push_boxed(Box::new(RSIndexResult::build_metric(0.5).doc_id(7).build()));
+    source.push_boxed(Box::new(RSIndexResult::build_virt().doc_id(7).build()));
+    source.metrics.push_without_key(0.75);
+
+    let copy = source.to_fully_owned();
+    assert!(copy == source, "the copy holds the same data as its source");
+    assert_eq!(
+        copy.as_aggregate().map(|agg| agg.kind_mask()),
+        source.as_aggregate().map(|agg| agg.kind_mask()),
+    );
+
+    drop(source);
+    drop(intersection);
+    drop(term_child);
+    drop(numeric_child);
+    drop(term);
+
+    assert_all_terms_fully_owned(&copy);
+    assert_eq!(copy.metrics.get(0).map(|m| m.value()), Some(0.75));
+    let nested = copy.get(0).expect("the intersection is copied along");
+    assert_is_detached_foo(
+        nested
+            .get(0)
+            .and_then(RSIndexResult::as_term)
+            .expect("the intersection's term child"),
+    );
+    assert_eq!(nested.get(1).and_then(RSIndexResult::as_numeric), Some(3.0));
+}
