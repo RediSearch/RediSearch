@@ -116,13 +116,10 @@ static void scheduleSlotCleanup(IndexSpec *spec, void *slots) {
   // Until the task ends, queries still scan the deleted docs and filter them out, so finishing it
   // matters more than reclaiming memory.
   if (CleanPool_AddWork(SlotCleanup_Run, ctx) != 0) {
-    // Without a task nothing would ever remove the node, hiding these docs for good.
-    RedisModule_Log(RSDummyContext, "warning", "Could not schedule slot cleanup, docs of the trimmed slots stay indexed");
-    IndexSpec_LockWrite(spec);
-    DocTable_RemovePendingDeletion(&spec->docs, pending);
-    IndexSpec_Unlock(spec);
-    WeakRef_Release(ctx->spec_ref);
-    rm_free(ctx);
+    // Run it here rather than leave the docs hidden but never deleted. Later chunks still move to
+    // the pool once it accepts work again.
+    RedisModule_Log(RSDummyContext, "warning", "Could not queue slot cleanup, running it on the main thread");
+    SlotCleanup_Run(ctx);
   }
 }
 
