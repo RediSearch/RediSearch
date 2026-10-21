@@ -198,6 +198,16 @@ TEST_F(DiskOpenFieldsTest, CreateWithoutOptionalCallbackStillInitializesStorage)
   EXPECT_EQ(sp->fields[1].vectorOpts.diskCtx.storage, sp->diskSpec);
 }
 
+TEST_F(DiskOpenFieldsTest, MemoryIndexDoesNotOpenDiskFieldStorage) {
+  isFlex = false;
+  QueryError err = QueryError_Default();
+  IndexSpec *sp = create("open_fields_memory", {"title", "TEXT", "tags", "TAG"}, &err);
+  ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+  EXPECT_EQ(sp->diskSpec, nullptr);
+  EXPECT_TRUE(events.empty());
+  EXPECT_TRUE(openCalls.empty());
+}
+
 TEST_F(DiskOpenFieldsTest, CreateWithSchemaErrorOpensNoField) {
   QueryError err = QueryError_Default();
   EXPECT_EQ(create("open_fields_bad_schema", {"title", "TEXT", "bad", "NOSUCHTYPE"}, &err),
@@ -420,6 +430,18 @@ TEST_F(DiskOpenFieldsLoadTest, RdbLoadFailsWhenOpeningFieldsFails) {
 
 // Loads through the non-SST path and plants the pending state, so vector fields, which SST load
 // creates up front, are left out.
+TEST_F(DiskOpenFieldsLoadTest, SstOpenWithoutOptionalCallbackSucceeds) {
+  ASSERT_NO_FATAL_FAILURE(saveAndLoad("open_fields_optional_sst", {"tags", "TAG", "INDEXMISSING"}));
+  loaded->pendingDiskRdbState = reinterpret_cast<RedisSearchDiskRdbState *>(&rdbStateToken);
+  api.index.openFields = nullptr;
+
+  ASSERT_TRUE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));
+  EXPECT_EQ(events,
+            (std::vector<std::string>{"openIndexWithRdbState", "initializeMissingStorage"}));
+  EXPECT_TRUE(openCalls.empty());
+  EXPECT_NE(loaded->fields[0].tagOpts.tagIndex, nullptr);
+}
+
 TEST_F(DiskOpenFieldsLoadTest, SstOpenOpensNonVectorFieldsOnce) {
   ASSERT_NO_FATAL_FAILURE(
       saveAndLoad("open_fields_sst", {"title", "TEXT", "tags", "TAG", "INDEXMISSING"}));

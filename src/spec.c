@@ -1675,8 +1675,8 @@ static int IndexSpec_AddFieldsInternal(RedisModuleCtx *ctx, IndexSpec *sp, Stron
   }
 
   // Only once every field parsed, so a schema error never reaches storage.
-  if (!IndexSpec_OpenFieldsStorage(ctx, sp, sp->fields + prevNumFields,
-                                   sp->numFields - prevNumFields)) {
+  if (sp->diskSpec && !IndexSpec_OpenFieldsStorage(ctx, sp, sp->fields + prevNumFields,
+                                                   sp->numFields - prevNumFields)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open field storage");
     goto reset;
   }
@@ -3150,7 +3150,8 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp, FieldSpec *fs) {
 // indexes create all their field storage on the first write.
 static bool IndexSpec_OpenFieldsStorage(RedisModuleCtx *ctx, IndexSpec *sp, FieldSpec *fields,
                                         size_t n) {
-  if (!sp->diskSpec || n == 0) {
+  RS_ASSERT(sp->diskSpec);
+  if (n == 0) {
     return true;
   }
   // Before openFields, so a failure here leaves no field open for an FT.ALTER
