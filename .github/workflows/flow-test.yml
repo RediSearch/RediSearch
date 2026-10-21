@@ -83,6 +83,7 @@ on:
       redis-ref:
         description: 'Redis version to use (e.g. "7.2.3", "unstable", or a commit sha)'
         type: string
+        # Redis 8.8 SDK fix; replace with a release containing redis/redis#15979.
         default: '4cf5c6f653b4d4ffe42d37f30eacaac7ea68c973'
       rejson-branch:
         type: string
