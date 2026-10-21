@@ -20,16 +20,18 @@ pub trait Accumulator {
     /// The per-group state. It lives in an arena that frees its memory with the
     /// reducer but runs no destructors, so a state that needs dropping must be
     /// dropped once its group is done (see [`AccumulatorReducer::drop_state`]).
-    type State;
+    /// It may borrow further memory from that arena for `'arena`.
+    type State<'arena>;
 
-    /// The state of a group before any of its rows.
-    fn init(&self) -> Self::State;
+    /// The state of a group before any of its rows. `arena` is the one the state
+    /// lives in, for a state that needs memory sized when the reducer is built.
+    fn init<'arena>(&self, arena: &'arena Bump) -> Self::State<'arena>;
 
     /// Folds one of the group's rows into `state`.
-    fn add(&self, state: &mut Self::State, row: &RLookupRow<'_>);
+    fn add(&self, state: &mut Self::State<'_>, row: &RLookupRow<'_>);
 
     /// The group's result.
-    fn finalize(&self, state: &Self::State) -> SharedValue;
+    fn finalize(&self, state: &Self::State<'_>) -> SharedValue;
 }
 
 /// A [`Reducer`] running an [`Accumulator`], with the per-group states in an arena.
@@ -64,8 +66,8 @@ impl<A: Accumulator> AccumulatorReducer<A> {
     }
 
     /// Allocates the state of a new group.
-    pub fn new_state(&self) -> &mut Option<A::State> {
-        self.arena.alloc(Some(self.accumulator.init()))
+    pub fn new_state(&self) -> &mut Option<A::State<'_>> {
+        self.arena.alloc(Some(self.accumulator.init(&self.arena)))
     }
 
     /// Folds one of the group's rows into `state`.
@@ -73,7 +75,7 @@ impl<A: Accumulator> AccumulatorReducer<A> {
     /// # Panics
     ///
     /// If `state` was already dropped by [`Self::drop_state`].
-    pub fn add(&self, state: &mut Option<A::State>, row: &RLookupRow<'_>) {
+    pub fn add(&self, state: &mut Option<A::State<'_>>, row: &RLookupRow<'_>) {
         self.accumulator.add(live(state), row);
     }
 
@@ -82,7 +84,7 @@ impl<A: Accumulator> AccumulatorReducer<A> {
     /// # Panics
     ///
     /// If `state` was already dropped by [`Self::drop_state`].
-    pub fn finalize(&self, state: &Option<A::State>) -> SharedValue {
+    pub fn finalize(&self, state: &Option<A::State<'_>>) -> SharedValue {
         self.accumulator.finalize(
             state
                 .as_ref()
@@ -92,7 +94,7 @@ impl<A: Accumulator> AccumulatorReducer<A> {
 
     /// Drops the state of a group that is done, leaving `None` behind; dropping
     /// it again is a no-op.
-    pub fn drop_state(&self, state: &mut Option<A::State>) {
+    pub fn drop_state(&self, state: &mut Option<A::State<'_>>) {
         *state = None;
     }
 }

@@ -84,9 +84,6 @@ static void freeDocumentContext(void *p) {
 
 static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   Document *doc = aCtx->doc;
-  aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
-  aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
-  aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
 
   aCtx->fspecs = rm_realloc(aCtx->fspecs, sizeof(*aCtx->fspecs) * doc->numFields);
   aCtx->fdatas = rm_realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
@@ -158,18 +155,6 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
   }
 
-  if (!hasTextFields) {
-    aCtx->stateFlags |= ACTX_F_TEXTINDEXED;
-  } else {
-    aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
-  }
-
-  if (!hasOtherFields) {
-    aCtx->stateFlags |= ACTX_F_OTHERINDEXED;
-  } else {
-    aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
-  }
-
   if ((aCtx->stateFlags & ACTX_F_SORTABLES) && RSSortingVector_Length(&aCtx->sv) == 0) {
     aCtx->sv = RSSortingVector_New(sp->numSortableFields);
   }
@@ -193,7 +178,9 @@ bool AddDocumentCtx_ShouldRelabelField(const RSAddDocumentCtx *aCtx, t_fieldInde
 RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *status) {
 
   if (!actxPool_g) {
+    // Bounded because each pooled context keeps its forward index alive.
     mempool_options mopts = {.initialCap = 16,
+                             .maxCap = 16,
                              .alloc = allocDocumentContext,
                              .free = freeDocumentContext};
     mempool_test_set_global(&actxPool_g, &mopts);
@@ -206,7 +193,6 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->totalTokens = 0;
   aCtx->docFlags = 0;
   aCtx->sctx = NULL;
-  aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;
   aCtx->disk.batch = NULL;
@@ -303,7 +289,8 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
 
   // Keep hold of the new fields.
   Document_MakeStringsOwner(aCtx->doc);
-  AddDocumentCtx_SetDocument(aCtx, sctx->spec);
+  int rc = AddDocumentCtx_SetDocument(aCtx, sctx->spec);
+  RS_LOG_ASSERT(rc == 0, "SetDocument cannot fail on a document reloaded from the schema");
   return 0;
 }
 

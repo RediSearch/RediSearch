@@ -64,6 +64,13 @@ int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t s
 int DocIdMeta_PruneDeletedSpecs(RedisModuleCtx *ctx, RedisModuleString *keyName);
 
 /*
+ * Drop every DocIdMeta entry on the key, whatever its spec.
+ * @return REDISMODULE_OK if the key had no metadata or it was dropped,
+ * REDISMODULE_ERR on failure to open/update the key metadata.
+ */
+int DocIdMeta_Clear(RedisModuleCtx *ctx, RedisModuleString *keyName);
+
+/*
  * Open-key variants of Set/Get/Delete.
  *
  * These operate on a RedisModuleKey that the caller has already opened, instead

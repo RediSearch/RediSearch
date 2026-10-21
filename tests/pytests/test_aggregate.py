@@ -1713,6 +1713,29 @@ def testSortByNumericField(env):
         'FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@n', 'ASC')
     env.assertEqual(res, [3, ['n', '123'], ['n', '678'], ['n', '1023']])
 
+
+@skip(cluster=True)
+def testAggregateNumericSortByAllDialects(env):
+    """Exercise numeric aggregate sorting without an explicit LIMIT."""
+    conn = getConnectionByEnv(env)
+    max_dialect = set_max_dialect(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+               'f', 'TEXT', 'n', 'NUMERIC', 'm', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc:1', 'f', 'x', 'n', 1, 'm', 1)
+    conn.execute_command('HSET', 'doc:2', 'f', 'x', 'n', 1, 'm', 3)
+    conn.execute_command('HSET', 'doc:3', 'f', 'x', 'n', 2, 'm', 2)
+
+    for dialect in range(1, max_dialect + 1):
+        env.expect('FT.AGGREGATE', 'idx', 'x',
+                   'SORTBY', '2', '@n', 'ASC', 'DIALECT', dialect).equal(
+            [3, ['n', '1'], ['n', '1'], ['n', '2']])
+        env.expect('FT.AGGREGATE', 'idx', 'x',
+                   'SORTBY', '2', '@n', 'DESC', 'DIALECT', dialect).equal(
+            [3, ['n', '2'], ['n', '1'], ['n', '1']])
+        env.expect('FT.AGGREGATE', 'idx', 'x',
+                   'SORTBY', '4', '@n', 'ASC', '@m', 'DESC', 'DIALECT', dialect).equal(
+            [3, ['n', '1', 'm', '3'], ['n', '1', 'm', '1'], ['n', '2', 'm', '2']])
+
 @skip(cluster=False)
 def testErrorStatsResp2():
     '''Test that using RESP2 double results are affecting errorstats,
@@ -1910,3 +1933,31 @@ def test_generated_reducer_alias_case(env):
     env.assertEqual(to_dict(res[1]), {'__generated_aliasmaxprice': '10',
                                       '__generated_aliasquantileprice,0.5': '10',
                                       '__generated_aliasmaxÜnï': '7'})
+
+
+@skip(cluster=True)
+def testRandomSampleOfAGroupThatFitsReturnsEveryValue(env):
+    """RANDOM_SAMPLE returns every value of a group no larger than the sample size, skips
+    documents without the property, honors a sample size of 0, and rejects a sample size
+    that is too large or not a number."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'g', 'TAG').ok()
+    for i, n in enumerate([3, 1, 2]):
+        conn.execute_command('HSET', f'doc:{i}', 'g', 'a', 'n', n)
+    conn.execute_command('HSET', 'doc:missing', 'g', 'a')
+
+    def sample(size):
+        res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@g', '@n', 'GROUPBY', 1, '@g',
+                      'REDUCE', 'RANDOM_SAMPLE', 2, '@n', size, 'AS', 'sample')
+        return to_dict(res[1])['sample']
+
+    env.assertEqual(sorted(sample(3), key=float), ['1', '2', '3'])
+    env.assertEqual(sorted(sample(10), key=float), ['1', '2', '3'])
+    env.assertEqual(sample(0), [])
+
+    def aggregate_with_size(size):
+        return env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n', 'GROUPBY', 0,
+                          'REDUCE', 'RANDOM_SAMPLE', 2, '@n', size, 'AS', 'sample')
+
+    aggregate_with_size(1001).error().contains('Sample size too large')
+    aggregate_with_size('abc').error().contains('Bad arguments for <sample size>')

@@ -41,6 +41,9 @@ static std::mutex RMCK_GlobalLock;
 // KeyMeta mock storage
 static std::map<std::string, std::map<RedisModuleKeyMetaClassId, uint64_t>> keyMetaStorage;
 static RedisModuleKeyMetaClassId nextClassId = 1;
+// Keys whose metadata was set since the test last cleared the flag; models a server that persists
+// key metadata and only learns of changes through SetKeyMeta.
+static std::set<std::pair<std::string, RedisModuleKeyMetaClassId>> keyMetaDirty;
 static std::map<RedisModuleKeyMetaClassId, RedisModuleKeyMetaClassConfig> classConfigs;
 static std::map<std::string, RedisModuleKeyMetaClassId> classNames;
 
@@ -1696,6 +1699,7 @@ static int RMCK_SetKeyMeta(RedisModuleKeyMetaClassId class_id,
   // Redis' keyMetaSetMetadata overwrites an existing slot in place, including
   // reset_value(0); it does not remove the metadata bit or shrink the key.
   keyMetaStorage[key->key][class_id] = meta;
+  keyMetaDirty.insert({key->key, class_id});
   return REDISMODULE_OK;
 }
 
@@ -1721,6 +1725,9 @@ void RMCK_FreeKeyMetaForKey(const std::string &key) {
     RMCK_FreeKeyMetaValue(key, metaPair.first, metaPair.second);
   }
   keyMetaStorage.erase(keyIt);
+  for (auto it = keyMetaDirty.begin(); it != keyMetaDirty.end();) {
+    it = it->first == key ? keyMetaDirty.erase(it) : std::next(it);
+  }
 }
 
 void RMCK_FreeAllKeyMeta() {
@@ -1730,6 +1737,7 @@ void RMCK_FreeAllKeyMeta() {
     }
   }
   keyMetaStorage.clear();
+  keyMetaDirty.clear();
 }
 
 static void RMCK_ClearKeyMeta() {
@@ -1747,6 +1755,14 @@ void RMCK_ClearKeyMetaStorage() {
 RedisModuleKeyMetaClassId RMCK_GetKeyMetaClassByName(const char *name) {
   auto it = classNames.find(name);
   return it == classNames.end() ? -1 : it->second;
+}
+
+void RMCK_KeyMetaClearDirty(const char *key, RedisModuleKeyMetaClassId classId) {
+  keyMetaDirty.erase({key, classId});
+}
+
+bool RMCK_KeyMetaIsDirty(const char *key, RedisModuleKeyMetaClassId classId) {
+  return keyMetaDirty.count({key, classId}) != 0;
 }
 
 bool RMCK_KeyMetaSlotExists(const char *key, RedisModuleKeyMetaClassId classId) {

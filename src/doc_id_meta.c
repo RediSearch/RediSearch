@@ -154,6 +154,13 @@ static int docIdMetaResetIfEmpty(RedisModuleKey *key) {
   return REDISMODULE_OK;
 }
 
+// Re-attach `meta` after changing the dict it points to. A server that persists key metadata
+// (e.g. to flash) only learns of changes through RedisModule_SetKeyMeta, so an in-place edit of a
+// key loaded clean from storage would otherwise be lost when the key is written back.
+static int docIdMetaMarkChanged(RedisModuleKey *key, uint64_t meta) {
+  return RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, meta);
+}
+
 static int docIdMetaPruneDeletedSpecsWithOpenKey(RedisModuleKey *key) {
   uint64_t meta = 0;
   if (RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta) != REDISMODULE_OK) {
@@ -164,15 +171,20 @@ static int docIdMetaPruneDeletedSpecsWithOpenKey(RedisModuleKey *key) {
   }
 
   dict *specIdToDocId = (dict *)meta;
+  bool removed = false;
   dictIterator *iter = dictGetSafeIterator(specIdToDocId);
   dictEntry *de;
   while ((de = dictNext(iter))) {
     if (docIdMetaEntryIsStale(de)) {
       dictDelete(specIdToDocId, dictGetKey(de));
+      removed = true;
     }
   }
   dictReleaseIterator(iter);
 
+  if (removed && dictSize(specIdToDocId) != 0) {
+    return docIdMetaMarkChanged(key, meta);
+  }
   return docIdMetaResetIfEmpty(key);
 }
 
@@ -211,6 +223,10 @@ static int docIdMetaRDBLoad(RedisModuleIO *rdb, uint64_t *meta, int encver) {
     if (forgetDocIDMetadata) continue;
 
     // Skip entries belonging to indexes that are no longer in specIdDict_g (O(1) lookup).
+    // Entries are keyed by the specIds of the process that saved the key. Those match this
+    // process's indexes only after an SST load, where each index keeps its saved specId
+    // (see IndexSpec_RdbLoad). A key imported by slot migration would carry the source
+    // shard's specIds, and one of them can be the id of a different index on this shard.
     if (!isSpecValid(specId)) {
       continue;
     }
@@ -344,13 +360,14 @@ int DocIdMeta_SetWithOpenKey(RedisModuleKey *key, uint64_t specId, uint64_t docI
       dictRelease(d);
       return result;
     }
-    meta = (uint64_t)d;
+    dictReplace(d, SPECID_TO_KEY(specId), DOCID_TO_VAL(docId));
+    return REDISMODULE_OK;
   }
 
   dict *specIdToDocId = (dict *)meta;
   // Set the docId for this specId (dictReplace handles both insert and update)
   dictReplace(specIdToDocId, SPECID_TO_KEY(specId), DOCID_TO_VAL(docId));
-  return REDISMODULE_OK;
+  return docIdMetaMarkChanged(key, meta);
 }
 
 // Get docId from an already-open key. The caller owns `key` and must have opened
@@ -391,16 +408,20 @@ int DocIdMeta_DeleteWithOpenKey(RedisModuleKey *key, uint64_t specId) {
   static_assert(DICT_OK == REDISMODULE_OK);
   static_assert(DICT_ERR == REDISMODULE_ERR);
   int rc = dictDelete(specIdToDocId, SPECID_TO_KEY(specId));
-  if (rc == DICT_OK && docIdMetaResetIfEmpty(key) != REDISMODULE_OK) {
-    return REDISMODULE_ERR;
+  if (rc != DICT_OK) {
+    return rc;
   }
-  return rc;
+  if (dictSize(specIdToDocId) != 0) {
+    return docIdMetaMarkChanged(key, meta);
+  }
+  return docIdMetaResetIfEmpty(key);
 }
 
 // Set docId using key name and spec incarnation ID.
 int DocIdMeta_Set(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId,
                   uint64_t docId) {
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
+  RS_LOG_ASSERT(key, "DocIdMeta: failed to open key for write");
   if (!key) {
     return REDISMODULE_ERR;
   }
@@ -423,6 +444,7 @@ int DocIdMeta_Get(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t spec
 
 int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t specId) {
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
+  RS_LOG_ASSERT(key, "DocIdMeta: failed to open key for write");
   if (!key) {
     return REDISMODULE_ERR;
   }
@@ -431,8 +453,29 @@ int DocIdMeta_Delete(RedisModuleCtx *ctx, RedisModuleString *keyName, uint64_t s
   return result;
 }
 
+int DocIdMeta_Clear(RedisModuleCtx *ctx, RedisModuleString *keyName) {
+  RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
+  RS_LOG_ASSERT(key, "DocIdMeta: failed to open key for write");
+  if (!key) {
+    return REDISMODULE_ERR;
+  }
+  uint64_t meta = 0;
+  int rc = RedisModule_GetKeyMeta(docIdKeyMetaClassId, key, &meta);
+  if (rc == REDISMODULE_OK && meta != 0) {
+    // See docIdMetaResetIfEmpty: detach first, then release ourselves.
+    rc = RedisModule_SetKeyMeta(docIdKeyMetaClassId, key, 0);
+    RS_LOG_ASSERT(rc == REDISMODULE_OK, "DocIdMeta: failed to clear metadata");
+    if (rc == REDISMODULE_OK) {
+      dictRelease((dict *)meta);
+    }
+  }
+  RedisModule_CloseKey(key);
+  return rc;
+}
+
 int DocIdMeta_PruneDeletedSpecs(RedisModuleCtx *ctx, RedisModuleString *keyName) {
   RedisModuleKey *key = RedisModule_OpenKey(ctx, keyName, KEY_OPEN_META_SET_FLAGS);
+  RS_LOG_ASSERT(key, "DocIdMeta: failed to open key for write");
   if (!key) {
     return REDISMODULE_ERR;
   }

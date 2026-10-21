@@ -196,7 +196,7 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
     return 0;
   }
 
-  RS_LOG_ASSERT(RSSortingVector_Length(&v), "Sorting vector does not exist");  // tested in doAssignIds()
+  RS_LOG_ASSERT(RSSortingVector_Length(&v), "Sorting vector does not exist");  // tested in assignDocId()
 
   /* Set the new vector and the flags accordingly */
   dmd->sortVector = v;
@@ -457,6 +457,12 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     t->maxSize = RedisModule_LoadUnsigned(rdb);
   } else {
     t->maxSize = MIN(RSGlobalConfig.maxDocTableSize, t->maxDocId);
+  }
+
+  if (t->size > 1 && t->maxSize == 0) {
+    RedisModule_LogIOError(rdb, "warning",
+                           "DocTable_LegacyRdbLoad: non-empty table has zero capacity");
+    return REDISMODULE_ERR;
   }
 
   if (t->maxDocId > t->maxSize) {
