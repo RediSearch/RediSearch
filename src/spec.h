@@ -887,7 +887,7 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
-// Queue low-priority background work, behind index teardowns.
+// Queue high-priority background work, ahead of queued low-priority jobs.
 void CleanPool_AddWork(void (*work)(void *), void *arg);
 // Block until every queued clean-pool job has finished.
 void CleanPool_Wait();

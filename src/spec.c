@@ -2046,7 +2046,7 @@ void removePendingIndexDrop() {
 }
 
 void CleanPool_AddWork(void (*work)(void *), void *arg) {
-  redisearch_thpool_add_work(cleanPool, work, arg, THPOOL_PRIORITY_LOW);
+  redisearch_thpool_add_work(cleanPool, work, arg, THPOOL_PRIORITY_HIGH);
 }
 
 void CleanPool_Wait() {
