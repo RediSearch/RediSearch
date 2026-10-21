@@ -13,7 +13,6 @@
 
 #include "common.h"
 #include "doc_id_meta.h"
-#include "fork_gc.h"
 #include "indexes.h"
 #include "rmalloc.h"
 #include "slot_cleanup.h"
@@ -232,8 +231,6 @@ TEST_F(SlotCleanupTest, DeleteSlotsHidesAtOnceAndCleansInBackground) {
   t_docId a1 = index("{a}1");
   t_docId a2 = index("{a}2");
   t_docId b1 = index("{b}1");
-  ForkGC *fgc = reinterpret_cast<ForkGC *>(spec->gc->gcCtx);
-  const size_t gcDeletes = fgc->deletedOrUpdatedDocsFromLastRun;
 
   Indexes_DeleteSlots(slotA);
   EXPECT_FALSE(visible(a1));
@@ -245,8 +242,9 @@ TEST_F(SlotCleanupTest, DeleteSlotsHidesAtOnceAndCleansInBackground) {
   EXPECT_FALSE(present(a2));
   EXPECT_TRUE(visible(b1));
   EXPECT_EQ(spec->stats.scoring.numDocuments, 1);
-  // Every deletion reaches the GC, which schedules the inverted-index cleanup from that count.
-  EXPECT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, gcDeletes + 2);
+  // Every deletion is left for the GC to take on its next run, which schedules the inverted-index
+  // cleanup from that count.
+  EXPECT_EQ(IndexSpec_TakeGCDeferredDeletes(spec), 2);
 }
 
 TEST_F(SlotCleanupTest, OverlappingDeletionsEachKeepTheirCutoff) {

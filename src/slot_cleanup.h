@@ -17,8 +17,8 @@
 extern "C" {
 #endif
 
-// Upper bound on buckets plus DMDs visited per read-lock pass. A pass always finishes the bucket
-// it is in, so a long chain can overshoot it.
+// Upper bound on DMDs visited per read-lock pass. A pass always finishes the bucket it is in, so a
+// long chain can overshoot it.
 #define SLOT_CLEANUP_SCAN_LIMIT 4096
 // Docs collected, then deleted under one write lock, per run of a cleanup task. It bounds both the
 // collected-id buffer and how long the task holds the clean pool before requeueing itself.
@@ -49,8 +49,8 @@ static inline bool SlotCleanup_CursorDone(const SlotCleanupCursor *cursor) {
 arrayof(t_docId) SlotCleanup_CollectDocIds(IndexSpec *spec, const PendingSlotDeletion *pending,
                                            SlotCleanupCursor *cursor);
 
-// Delete `docIds` under the write lock, skipping ids that are already gone, then report the
-// deletions to the GC under the GIL.
+// Delete `docIds` under the write lock, skipping ids that are already gone, and defer the GC
+// notification to the GC's next run.
 void SlotCleanup_ApplyDeletes(IndexSpec *spec, arrayof(t_docId) docIds);
 
 #ifdef __cplusplus
