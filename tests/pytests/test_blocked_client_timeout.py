@@ -2278,9 +2278,10 @@ class TestShardTimeout:
         skipIfNoEnableAssert(env)
         prev_policy = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)[ON_TIMEOUT_CONFIG]
         env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail').ok()
-        command = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 2, '@name', 'AS']
-        # LOAD aliases are validated when the worker builds the pipeline.
-        env.expect(*command).error().contains('must be accompanied with NAME')
+        command = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 3, '@name', 'AS', 'AS']
+        # A reserved `AS` alias passes LOAD argument parsing and is only rejected
+        # when the worker builds the pipeline.
+        env.expect(*command).error().contains('Alias for LOAD cannot be `AS`')
         before_info = info_modules_to_dict(env)
         base_err_coord = int(before_info[COORD_WARN_ERR_SECTION][TIMEOUT_ERROR_COORD_METRIC])
         point = 'BeforeSpecLock'
