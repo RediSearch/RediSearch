@@ -120,6 +120,10 @@ on:
         type: boolean
         default: false
         description: "Run coordinator tests in a separate parallel job per platform"
+      enable-lto:
+        description: "Override the platform's enable_lto ('0' or '1'); empty keeps the platform default"
+        type: string
+        default: ''
 
 jobs:
   generate-matrix:
@@ -166,3 +170,4 @@ jobs:
       san: ${{ matrix.job-type == 'sanitize' && 'address' || matrix.job-type == 'ubsan' && 'alignment' || '' }}
       fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
       skip-tests: ${{ contains(inputs.options, 'skip-tests') }}
+      enable-lto: ${{ inputs.enable-lto }}

@@ -25,6 +25,8 @@ jobs:
     permissions: {}
     uses: ./.github/workflows/task-get-redis-tag.yml
     with:
+      # Redis 8.12 lacks the OpenSSL 4 tls.c fix (redis/redis#15227) and will be
+      # re-branched from unstable; switch to '8.12' once that happens.
       pinned-ref: unstable
 
   check-what-changed:
