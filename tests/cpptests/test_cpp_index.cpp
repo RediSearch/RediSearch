@@ -1504,7 +1504,9 @@ TEST_F(IndexTest, testDiskHnswForwardsOptionalSq8TrainingWithoutChangingSchema) 
                                         "EF_CONSTRUCTION",
                                         "200",
                                         "EF_RUNTIME",
-                                        "10"};
+                                        "10",
+                                        "RERANK",
+                                        "TRUE"};
       if (testCase.compression) {
         args.insert(args.end(), {"COMPRESSION", "SQ8"});
       }
