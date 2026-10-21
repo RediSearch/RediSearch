@@ -417,10 +417,9 @@ fn range_boundary(bound: &Bound<Vec<u8>>) -> Option<RangeBoundary<'_>> {
 
 /// Open one reader per value the range covers, up to the expansion cap.
 ///
-/// Unlike a pattern walk, the range descent yields only keys it matches, so the
-/// number of values visited is the number of readers opened and the cap bounds
-/// the work on its own. The request deadline is left to the pipeline, as it is
-/// for every other node.
+/// The cap counts readers opened, not values visited, and a value whose reader
+/// cannot be opened leaves it where it was, so the walk carries the request
+/// deadline as the pattern walk in [`collect_filtered_readers`] does.
 fn collect_range_readers(
     ctx: &mut QueryEvalContext,
     index: TagIndexRef,
@@ -430,6 +429,11 @@ fn collect_range_readers(
 ) -> Vec<CRQEIterator> {
     let values = index.values().range_iter(filter);
     let mut values = RangeLendingIter::from(values);
+    values.set_timeout(
+        clock_deadline(ctx)
+            .and_then(duration_from_redis_timespec)
+            .map(|remaining| Instant::now() + remaining),
+    );
 
     let mut children = Vec::new();
     while let Some((value, _)) = values.next() {

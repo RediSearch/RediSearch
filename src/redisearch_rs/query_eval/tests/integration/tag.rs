@@ -2344,6 +2344,45 @@ fn eval_tag_wildcard_suffix_trie_expansion_stops_at_the_deadline() {
 }
 
 #[test]
+fn eval_tag_lex_range_walk_stops_at_the_deadline() {
+    // The cap counts readers opened, not values visited, so it cannot bound a
+    // walk on its own: a value whose reader does not open leaves the count
+    // where it was. The deadline is what ends such a walk.
+    let mut fixture = TagFixture::new(TagOptions {
+        values: generated(TIMEOUT_VALUES, 100),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        max_prefix_expansions: Some(TIMEOUT_VALUES + 1),
+        timeout: Timeout::Expired,
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("the walk starts before it times out");
+    let ids = drain_doc_ids(&mut it);
+    assert!(!ids.is_empty());
+    assert!((ids.len() as u32) < TIMEOUT_VALUES);
+}
+
+#[test]
+fn eval_tag_lex_range_walk_ignores_the_deadline_when_checks_are_skipped() {
+    let mut fixture = TagFixture::new(TagOptions {
+        values: generated(TIMEOUT_VALUES, 100),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        max_prefix_expansions: Some(TIMEOUT_VALUES + 1),
+        timeout: Timeout::ExpiredButSkipped,
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("skipTimeoutChecks disables the deadline");
+    assert_eq!(drain_doc_ids(&mut it).len(), TIMEOUT_VALUES as usize);
+}
+
+#[test]
 fn eval_tag_expansion_without_a_deadline_is_complete() {
     let mut fixture = TagFixture::new(TagOptions {
         values: generated(TIMEOUT_VALUES, 100),
