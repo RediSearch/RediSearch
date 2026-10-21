@@ -87,7 +87,7 @@ static void SlotCleanup_Run(void *arg) {
 static void scheduleSlotCleanup(IndexSpec *spec, void *slots) {
   IndexSpec_LockWrite(spec);
   // An empty index has nothing to hide, and a node would only slow lookups until its task runs.
-  if (spec->stats.scoring.numDocuments == 0) {
+  if (DocTable_IsEmpty(&spec->docs)) {
     IndexSpec_Unlock(spec);
     return;
   }
