@@ -21,6 +21,9 @@ typedef struct {
   SlotCleanupCursor cursor;
 } SlotCleanupCtx;
 
+// TODO: consider a single pass under the write lock that unchains matching DMDs in place. It saves
+// the id buffer and the second lookup per doc, but holds the exclusive lock while scanning docs it
+// will not delete, which costs queries when only a small share of the docs is in deleted slots.
 arrayof(t_docId) SlotCleanup_CollectDocIds(IndexSpec *spec, const PendingSlotDeletion *pending,
                                            SlotCleanupCursor *cursor) {
   const DocTable *t = &spec->docs;
@@ -113,8 +116,8 @@ static void scheduleSlotCleanup(IndexSpec *spec, void *slots) {
   ctx->spec_ref = StrongRef_Demote(spec->own_ref);
   ctx->pending = pending;
   ctx->cursor = (SlotCleanupCursor){0};
-  // Until the task ends, queries still scan the deleted docs and filter them out, so finishing it
-  // matters more than reclaiming memory.
+  // Until the task ends, every DocTable_Borrow also checks the pending list, and the GC cannot
+  // learn about these deletions, so finishing it matters more than reclaiming memory.
   if (CleanPool_AddWork(SlotCleanup_Run, ctx) != 0) {
     // Run it here rather than leave the docs hidden but never deleted. Later chunks still move to
     // the pool once it accepts work again.
