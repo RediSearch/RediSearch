@@ -538,7 +538,8 @@ static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorReques
 }
 
 static bool validProfileMap(MRReply *profile, int type) {
-  if (!profile || MRReply_Type(profile) != type || MRReply_Length(profile) % 2 != 0) {
+  if (!profile || MRReply_Type(profile) != type || MRReply_Length(profile) == 0 ||
+      MRReply_Length(profile) % 2 != 0) {
     return false;
   }
   for (size_t i = 0; i < MRReply_Length(profile); i += 2) {
@@ -635,14 +636,16 @@ void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
   size_t searchCount = array_len(searchRpnet->shardsProfile);
   size_t vsimCount = array_len(vsimRpnet->shardsProfile);
 
-  bool resp3 = reply->resp3;
+  // Shard replies use the internal command protocol, independently of the client protocol.
+  bool searchResp3 = searchRpnet->cmd.protocol == 3;
+  bool vsimResp3 = vsimRpnet->cmd.protocol == 3;
 
   // Iterate over shards and print both SEARCH and VSIM profiles for each shard
   for (size_t i = 0; i < MAX(searchCount, vsimCount); i++) {
     MRReply *searchProfile =
-        i < searchCount ? extractShardProfile(searchRpnet->shardsProfile[i], resp3) : NULL;
+        i < searchCount ? extractShardProfile(searchRpnet->shardsProfile[i], searchResp3) : NULL;
     MRReply *vsimProfile =
-        i < vsimCount ? extractShardProfile(vsimRpnet->shardsProfile[i], resp3) : NULL;
+        i < vsimCount ? extractShardProfile(vsimRpnet->shardsProfile[i], vsimResp3) : NULL;
     if (!searchProfile && !vsimProfile) {
       continue;
     }

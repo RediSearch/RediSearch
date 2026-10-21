@@ -85,7 +85,9 @@ struct ProfileHarness {
   RPNet vsimNet = {};
   RedisModuleCtx *redisCtx = RedisModule_GetThreadSafeContext(nullptr);
 
-  ProfileHarness() {
+  explicit ProfileHarness(int shardProtocol) {
+    searchNet.cmd.protocol = shardProtocol;
+    vsimNet.cmd.protocol = shardProtocol;
     request.requests = array_new(AREQ *, HYBRID_REQUEST_NUM_SUBQUERIES);
     array_append(request.requests, &search);
     array_append(request.requests, &vsim);
@@ -156,7 +158,7 @@ size_t occurrences(const std::string &value, const std::string &needle) {
 
 TEST(HybridShardProfile, BalancedAndEmptyShardListsPreserveReplyContents) {
   for (int protocol : {2, 3}) {
-    ProfileHarness harness;
+    ProfileHarness harness(protocol);
     harness.add(true, protocol, "search-id", "search-value");
     harness.add(false, protocol, "vsim-id", "vsim-value");
     const std::string reply = harness.print(protocol);
@@ -167,8 +169,22 @@ TEST(HybridShardProfile, BalancedAndEmptyShardListsPreserveReplyContents) {
   }
 
   for (int protocol : {2, 3}) {
-    ProfileHarness harness;
+    ProfileHarness harness(protocol);
     EXPECT_EQ(harness.print(protocol), "[  ]");
+  }
+}
+
+TEST(HybridShardProfile, ShardProtocolIsIndependentOfClientProtocol) {
+  for (int shardProtocol : {2, 3}) {
+    for (int clientProtocol : {2, 3}) {
+      ProfileHarness harness(shardProtocol);
+      harness.add(true, shardProtocol, "search-id", "search-value");
+      harness.add(false, shardProtocol, "vsim-id", "vsim-value");
+      const std::string reply = harness.print(clientProtocol);
+      expectContains(reply, "\"Shard ID\": \"search-id\"");
+      expectContains(reply, "\"SEARCH\": { \"marker\": \"search-value\" }");
+      expectContains(reply, "\"VSIM\": { \"marker\": \"vsim-value\" }");
+    }
   }
 }
 
@@ -176,7 +192,7 @@ TEST(HybridShardProfile, MismatchedCountsKeepEveryAvailableSubqueryProfile) {
   for (int protocol : {2, 3}) {
     for (const auto [searchCount, vsimCount] :
          {std::pair<size_t, size_t>{2, 0}, {2, 1}, {0, 2}, {1, 2}}) {
-      ProfileHarness harness;
+      ProfileHarness harness(protocol);
       for (size_t i = 0; i < searchCount; ++i) {
         harness.add(true, protocol, "search-" + std::to_string(i), "s-" + std::to_string(i));
       }
@@ -202,7 +218,7 @@ TEST(HybridShardProfile, MismatchedCountsKeepEveryAvailableSubqueryProfile) {
 
 TEST(HybridShardProfile, MissingOrMalformedSearchProfileUsesVsimShardId) {
   for (int protocol : {2, 3}) {
-    ProfileHarness harness;
+    ProfileHarness harness(protocol);
     harness.add(true, protocol, "search-0", "search-0");
     harness.add(true, protocol, "search-1", "search-1");
     harness.add(false, protocol, "vsim-0", "vsim-0");
@@ -225,7 +241,7 @@ TEST(HybridShardProfile, MissingOrMalformedSearchProfileUsesVsimShardId) {
 
 TEST(HybridShardProfile, ErrorRepliesArePreservedAndValidSideSuppliesShardId) {
   for (int protocol : {2, 3}) {
-    ProfileHarness searchError;
+    ProfileHarness searchError(protocol);
     searchError.add(true, errorReply("SEARCH shard failed"));
     searchError.add(false, protocol, "vsim-id", "vsim-value");
     const std::string searchErrorReply = searchError.print(protocol);
@@ -233,7 +249,7 @@ TEST(HybridShardProfile, ErrorRepliesArePreservedAndValidSideSuppliesShardId) {
     expectContains(searchErrorReply, "\"SEARCH\": \"ERR: SEARCH shard failed\"");
     expectContains(searchErrorReply, "\"VSIM\": { \"marker\": \"vsim-value\" }");
 
-    ProfileHarness vsimError;
+    ProfileHarness vsimError(protocol);
     vsimError.add(true, protocol, "search-id", "search-value");
     vsimError.add(false, errorReply("VSIM shard failed"));
     const std::string vsimErrorReply = vsimError.print(protocol);
@@ -249,6 +265,8 @@ TEST(HybridShardProfile, MalformedResp2AndResp3NestingIsOmittedWithoutLosingOthe
         ? std::vector<std::string>{
               "$-1\r\n",                                      // null root
               ":1\r\n",                                       // wrong root type
+              map({}),
+              map({bulk("Shards"), array({map({})})}),
               map({bulk("Other"), array({})}),                 // missing Shards
               map({bulk("Shards"), ":1\r\n"}),               // wrong Shards type
               map({bulk("Shards"), array({})}),                // empty Shards array
@@ -263,11 +281,12 @@ TEST(HybridShardProfile, MalformedResp2AndResp3NestingIsOmittedWithoutLosingOthe
               array({array({}), ":1\r\n"}),                   // wrong Shards type
               array({array({}), array({})}),                    // empty Shards array
               array({array({}), array({"$-1\r\n"})}),          // null shard profile
+              array({array({}), array({array({})})}),
               array({array({}), array({":1\r\n"})}),           // wrong profile type
           };
 
     for (const auto &badReply : malformed) {
-      ProfileHarness harness;
+      ProfileHarness harness(protocol);
       harness.add(true, badReply);
       harness.add(false, protocol, "good-id", "good-value");
       const std::string reply = harness.print(protocol);
@@ -276,7 +295,7 @@ TEST(HybridShardProfile, MalformedResp2AndResp3NestingIsOmittedWithoutLosingOthe
       expectAbsent(reply, "\"SEARCH\":");
     }
 
-    ProfileHarness nullCurrent;
+    ProfileHarness nullCurrent(protocol);
     nullCurrent.add(true, static_cast<MRReply *>(nullptr));
     nullCurrent.add(false, protocol, "nonnull-id", "nonnull-value");
     const std::string nullReply = nullCurrent.print(protocol);
@@ -300,7 +319,7 @@ TEST(HybridShardProfile, MalformedResp2AndResp3NestingIsOmittedWithoutLosingOthe
     profileReply->element[3] = nullptr;
     profileReply->elements = 3;
 
-    ProfileHarness harness;
+    ProfileHarness harness(protocol);
     harness.add(true, protocol, "search-good", "search-good");
     harness.add(false, protocol, "vsim-good", "vsim-good");
     MRReply_Free(harness.searchNet.shardsProfile[0]);
@@ -318,7 +337,7 @@ TEST(HybridShardProfile, MalformedResp2AndResp3NestingIsOmittedWithoutLosingOthe
                    array({map({":9\r\n", bulk("bad-value"), bulk("marker"), bulk("bad-marker")})})})
             : array({array({}), array({array({":9\r\n", bulk("bad-value"), bulk("marker"),
                                               bulk("bad-marker")})})});
-    ProfileHarness invalidKey;
+    ProfileHarness invalidKey(protocol);
     invalidKey.add(true, invalidKeyReply);
     invalidKey.add(false, protocol, "key-fallback-id", "key-fallback-value");
     const std::string invalidKeyOutput = invalidKey.print(protocol);
@@ -336,7 +355,7 @@ TEST(HybridShardProfile, MalformedResp2AndResp3NestingIsOmittedWithoutLosingOthe
                       : MRReply_ArrayElement(MRReply_ArrayElement(missingValue, 1), 0);
     MRReply_Free(missingValueProfile->element[3]);
     missingValueProfile->element[3] = nullptr;
-    ProfileHarness nullValue;
+    ProfileHarness nullValue(protocol);
     nullValue.add(true, missingValue);
     nullValue.add(false, protocol, "value-fallback-id", "value-fallback-value");
     const std::string nullValueOutput = nullValue.print(protocol);
@@ -348,7 +367,7 @@ TEST(HybridShardProfile, MalformedResp2AndResp3NestingIsOmittedWithoutLosingOthe
 
 TEST(HybridShardProfile, BothMalformedProfilesSkipTheShardSlot) {
   for (int protocol : {2, 3}) {
-    ProfileHarness harness;
+    ProfileHarness harness(protocol);
     harness.add(true,
                 protocol == 3 ? map({bulk("Shards"), array({})}) : array({array({}), array({})}));
     harness.add(false,
