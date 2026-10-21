@@ -14,7 +14,10 @@ The task visits at most 1,024 document IDs per invocation, taking the spec write
 lock without the GIL. It then releases the lock and requeues at low priority.
 Each invocation promotes a weak index reference; index deletion cancels the next
 batch without retaining a dropped index for the whole build. Pool destruction
-already drains queued work, including these continuations.
+already drains queued work, including these continuations. Shutdown must drain
+the reindex pool before the cleanup pool, since a finishing batch can release the
+last index reference and enqueue its destruction. An executed destructor-enabled
+shutdown test exposed a crash with the previous order; the prototype corrects it.
 
 Until ready, INKEYS resolves through Redis document metadata during ordinary AST
 evaluation. A query worker checks state under the spec read lock; when necessary,
