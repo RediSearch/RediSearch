@@ -59,11 +59,16 @@ install_from_tarball() {
             # The static LLVM libraries are most of the unpacked size and
             # macOS links libclang dynamically; hosted macOS runners are short
             # on disk.
-            # The bundled libc++/libc++abi/libunwind must stay out of lib/:
-            # with them there, Apple's ld (run by this clang) binds to them
-            # instead of the system libc++ and aborts on a missing symbol.
-            # Every other binary in the tarball links /usr/lib/libc++.
-            tar_excludes=(--exclude '*.a' --exclude '*/lib/libc++*' --exclude '*/lib/libunwind*')
+            # Builds must use the system libc++, so drop the bundled one:
+            # - its dylibs, because with them in lib/ Apple's ld (run by this
+            #   clang) binds to them and aborts on a missing symbol;
+            # - its headers, because clang prefers <install>/include/c++/v1
+            #   over the SDK's, and these lack the vendor availability
+            #   annotations, so they reference symbols (e.g. __hash_memory)
+            #   that older macOS system libc++ does not export.
+            # Every binary in the tarball links /usr/lib/libc++.
+            tar_excludes=(--exclude '*.a' --exclude '*/lib/libc++*' --exclude '*/lib/libunwind*'
+                          --exclude '*/include/c++/*')
             # INSTALL_DIR is user-writable here; CI passes sudo, which would
             # leave a root-owned tree in $HOME.
             priv=""
