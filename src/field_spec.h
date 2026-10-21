@@ -120,12 +120,12 @@ typedef struct FieldSpec {
       // expected size of vector blob.
       size_t expBlobSize;
       VecSimIndex *vecSimIndex;
-      // Disk index params. diskCtx.indexName is non-NULL exactly when the
-      // field is disk-backed; diskCtx.storage is non-NULL only once the
-      // index spec is open and PopulateVectorDiskParams has run. During
-      // SST replication load, FieldSpec_RdbLoad populates indexName early
-      // (before sp->diskSpec exists) so the disk teardown path is selected
-      // even if the load aborts before storage is bound.
+      // Disk index params. A non-NULL diskCtx.indexName means the field is
+      // disk-backed; it is set once the field's storage is opened, or
+      // earlier by FieldSpec_RdbLoad so that the disk teardown path is
+      // selected even if the load aborts before storage is bound. While a
+      // new field is still being parsed it is NULL even on a disk index.
+      // diskCtx.storage is non-NULL only once the field's storage is open.
       VecSimDiskContext diskCtx;
     } vectorOpts;
     struct {
