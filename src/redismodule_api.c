@@ -28,12 +28,20 @@
  * Note the final artifacts hold more than one copy of the table: the `redis-module`
  * crate compiles its own from the header it vendors, which lacks the
  * `REDISMODULE_MAIN` gate and so defines the table in every file that includes it.
- * The copies merge rather than collide because both sides emit *common* symbols --
- * `redismodule.h` tags every pointer with `REDISMODULE_ATTR_COMMON`
- * (`__attribute__((__common__))`, on GNU-compatible C compilers) and the vendored
- * header does the same. Should both sides start emitting ordinary definitions, every
- * pointer the two headers have in common becomes a duplicate-definition error.
+ * That copy is made of *common* symbols (its header tags every pointer with
+ * `__attribute__((__common__))`), which merge into the ordinary definitions emitted
+ * here instead of colliding with them. Should the crate's copy ever become ordinary
+ * definitions too, every pointer the two headers share becomes a duplicate-definition
+ * error.
+ *
+ * This file must emit ordinary definitions, not common ones: for pointers the
+ * crate's header does not declare (e.g. `RedisModule_ShardingGetKeySlot`), this
+ * archive member is the only definition. Apple's `libtool -static`, which builds
+ * the macOS bundle, leaves common symbols out of the archive's table of contents,
+ * and a linker that resolves archive members through it (the `ld64.lld` used for
+ * Rust tests on macOS 14) then reports them undefined.
  */
 
+#define REDISMODULE_ATTR_COMMON
 #define REDISMODULE_MAIN
 #include "redismodule.h"
