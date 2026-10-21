@@ -157,7 +157,8 @@ fn eval_ids_requires_map_for_deferred_keys() {
     let mut mock_ctx = MockQueryEvalCtx::new();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
-    let keys = MockKeys::new(&["doc"]);
+    // Even an empty deferred filter requires the map; no Redis strings are needed.
+    let keys = MockKeys::nulls(0);
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
     mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
