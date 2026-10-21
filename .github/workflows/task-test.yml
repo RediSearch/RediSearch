@@ -54,6 +54,13 @@ on:
       test-timeout:
         type: number
         default: 120
+      enable-lto:
+        description: >-
+          Override the platform's enable_lto ('0' or '1'). Empty keeps whatever
+          task-get-config.yml resolves for the platform. Callers that only run
+          tests (and never ship the binary) can turn LTO off to skip the link.
+        type: string
+        default: ''
       fail-fast:
         type: boolean
         default: false
@@ -160,7 +167,7 @@ jobs:
     env:
       IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       # LTO is disabled on coverage and sanitizer tasks
-      LTO: ${{ needs.get-config.outputs.enable_lto == '1' && inputs.san == '' && !inputs.coverage && 1 || 0 }}
+      LTO: ${{ (inputs.enable-lto != '' && inputs.enable-lto || needs.get-config.outputs.enable_lto) == '1' && inputs.san == '' && !inputs.coverage && 1 || 0 }}
 
     defaults:
       run:

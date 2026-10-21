@@ -24,6 +24,10 @@ jobs:
   get-latest-redis-tag:
     permissions: {}
     uses: ./.github/workflows/task-get-redis-tag.yml
+    with:
+      # Redis 8.12 lacks the OpenSSL 4 tls.c fix (redis/redis#15227) and will be
+      # re-branched from unstable; switch to '8.12' once that happens.
+      pinned-ref: unstable
 
   check-what-changed:
     permissions: # actions/checkout
@@ -78,7 +82,7 @@ jobs:
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
-      rejson-branch: master
+      rejson-branch: '8.12'
       # Skip a suite this change can't affect, unless enforce:test asks for everything.
       skip-unit-tests: ${{ needs.check-what-changed.outputs.ONLY_PY_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
       skip-flow-tests: ${{ needs.check-what-changed.outputs.ONLY_CPP_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:test') }}
@@ -99,7 +103,7 @@ jobs:
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
-      rejson-branch: master
+      rejson-branch: '8.12'
       # Never skipped: Codecov has no carryforward configured (.github/codecov.yml), so
       # skipping a suite here would show its lines as "missed" instead of carried forward.
       skip-unit-tests: false
@@ -121,7 +125,7 @@ jobs:
       architecture: x86_64
       redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
-      rejson-branch: master
+      rejson-branch: '8.12'
       # Skip a suite this change can't affect, unless enforce:sanitize asks for everything.
       skip-unit-tests: ${{ needs.check-what-changed.outputs.ONLY_PY_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
       skip-flow-tests: ${{ needs.check-what-changed.outputs.ONLY_CPP_TESTS_CHANGED == 'true' && !contains(github.event.pull_request.labels.*.name, 'enforce:sanitize') }}
