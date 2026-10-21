@@ -429,12 +429,11 @@ void SearchDisk_FreeWriteBatch(SearchDiskWriteBatchHandle *batch) {
     disk->index.freeWriteBatch(batch);
 }
 
-bool SearchDisk_IndexTerm(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
-                          SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen,
-                          t_docId docId, t_fieldMask fieldMask, uint32_t freq,
-                          const uint8_t *offsets, size_t offsetsLen) {
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+                          const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
+                          uint32_t freq, const uint8_t *offsets, size_t offsetsLen) {
   RS_ASSERT(disk && index && batch);
-  return disk->index.indexTerm(ctx, index, batch, term, termLen, docId, fieldMask, freq, offsets,
+  return disk->index.indexTerm(index, batch, term, termLen, docId, fieldMask, freq, offsets,
                                offsetsLen);
 }
 

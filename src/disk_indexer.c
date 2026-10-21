@@ -118,9 +118,9 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       offsets = VVW_GetByteData(entry->vw);
       offsetsLen = VVW_GetByteLength(entry->vw);
     }
-    entry->staged = SearchDisk_IndexTerm(ctx->redisCtx, spec->diskSpec, aCtx->disk.batch,
-                                         entry->term, entry->len, aCtx->doc->docId,
-                                         entry->fieldMask, entry->freq, offsets, offsetsLen);
+    entry->staged =
+        SearchDisk_IndexTerm(spec->diskSpec, aCtx->disk.batch, entry->term, entry->len,
+                             aCtx->doc->docId, entry->fieldMask, entry->freq, offsets, offsetsLen);
   }
 }
 

@@ -149,7 +149,7 @@ typedef struct SearchDiskResourceConfig {
 typedef struct SearchDiskFieldOpen {
   t_fieldIndex fieldIndex;
   FieldType types;
-  /** Borrowed field name and vector parameters; required only for VECTOR fields. */
+  /** Borrowed nonempty UTF-8 field name and vector parameters; VECTOR fields only. */
   const char *fieldName;
   size_t fieldNameLen;
   const VecSimParams *vectorParams;
@@ -444,7 +444,6 @@ typedef struct IndexDiskAPI {
    * rejected this particular term (e.g. invalid UTF-8) and skipped staging it.
    * Other staged writes on the same batch are unaffected.
    *
-   * @param ctx Main-thread context permitting CF registration if TEXT preparation needs retry
    * @param index Pointer to the index
    * @param batch Open write batch to append the write to (must have been returned by
    * `createWriteBatch(index)`)
@@ -455,12 +454,11 @@ typedef struct IndexDiskAPI {
    * @param freq Frequency of the term in the document
    * @param offsets Pointer to varint-encoded term offset data (can be NULL)
    * @param offsetsLen Length of the offsets data in bytes
-   * @return true if the write was staged successfully, false if staging failed
+   * @return true if the write was staged successfully, false if the input was rejected
    */
-  bool (*indexTerm)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
-                    SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen,
-                    t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets,
-                    size_t offsetsLen);
+  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+                    const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
+                    uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
   /**
    * @brief Indexes multiple tag values for a document
@@ -741,11 +739,12 @@ typedef struct IndexDiskAPI {
    * FT.ALTER can call this while a consistency window (openConsistencyWindow) is open on the
    * index, so storage created or resized here must honour the window as existing storage does.
    *
-   * All-or-nothing: on false, no field from this call may stay open, and the caller fails the
-   * command. Do not fail for a transient or recoverable reason: a replica replays FT.CREATE and
-   * FT.ALTER, so it would diverge from a primary where the call succeeded; and when loading ends
-   * after a replica received the index storage itself, false aborts the server, as a failed
-   * vector storage bind does there.
+   * Returns false on storage preparation failure; the caller fails schema creation or load.
+   * Existing storage and data must be preserved. A failure may leave empty CFs from earlier
+   * preparations; subsequent calls must reuse them safely. The caller must not ingest into
+   * the new fields until this call succeeds.
+   * Failure while completing a received-storage load aborts the server, as a failed vector
+   * storage bind does there.
    */
   bool (*openFields)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
                      const SearchDiskFieldOpen *fields, size_t numFields);
