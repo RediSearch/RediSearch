@@ -136,9 +136,14 @@ VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fieldSpec, bool cre
   if (!fieldSpec->vectorOpts.vecSimIndex && create_if_missing) {
     if (fieldSpec->vectorOpts.diskCtx.storage) {
       VecSimParams diskIndexParams = fieldSpec->vectorOpts.vecSimParams;
-      // Disk SQ8 uses the same initial training size as RAM compression.
-      diskIndexParams.algoParams.tieredParams.specificParams.tieredHnswDiskParams
-          .QuantNormalizationSetSize = HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD;
+      TieredIndexParams *tieredParams = &diskIndexParams.algoParams.tieredParams;
+      // FieldSpec keeps RAM-shaped tiered parameters for persistence; the disk member differs.
+      size_t trainingThreshold =
+          tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize;
+      tieredParams->specificParams.tieredHnswDiskParams.QuantNormalizationSetSize =
+          tieredParams->primaryIndexParams->algoParams.hnswParams.quantType == VecSimQuant_SQ8
+              ? trainingThreshold
+              : 0;
       // Disk path - create disk-based HNSW index
       VecSimParamsDisk diskParams = {
           .indexParams = &diskIndexParams,
