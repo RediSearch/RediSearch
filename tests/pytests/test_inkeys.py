@@ -5,14 +5,15 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
+import os
 import threading
+from unittest.mock import patch
 
 from common import *
 from RLTest import Env
 
 
-@skip(cluster=True)
-def test_inkeys_resolves_after_queued_reindex():
+def _queued_reindex_with_key_map(pause_backfill):
     """A reindex before the execution lock must not invalidate INKEYS membership."""
     env = Env(moduleArgs='WORKERS 1 TIMEOUT 0')
     skipIfNoEnableAssert(env)
@@ -20,7 +21,11 @@ def test_inkeys_resolves_after_queued_reindex():
                'SORTABLE', 'NOINDEX').ok()
     env.cmd('HSET', 'doc', 't', 'hello', 'n', 1)
     old_id = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc')
-    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'KeyMapBeforeBatch').ok()
+    if pause_backfill:
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'KeyMapBeforeBatch').ok()
+    else:
+        env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 1, 'doc', 'NOCONTENT').equal([1, 'doc'])
+        env.expect(debug_cmd(), 'BG_SCAN_CONTROLLER', 'TERMINATE_BG_POOL').ok()
     point = 'BeforeSpecLock'
     env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
     results = []
@@ -175,9 +180,9 @@ def test_lazy_key_map_activation():
         env = Env(moduleArgs=f'WORKERS {workers} TIMEOUT 0')
         skipIfNoEnableAssert(env)
         env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-        for i in range(20):
+        for i in range(2050):
             env.cmd('HSET', f'doc:{i}', 't', 'hello')
-        env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([20])
+        env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([2050])
         env.assertEqual(float(index_info(env, 'idx')['key_table_size_mb']), 0)
         for point in ('KeyMapBeforeBatch', 'KeyMapBuildComplete'):
             env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
@@ -227,3 +232,31 @@ def test_lazy_key_map_drop_during_build():
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
     env.assertTrue(env.cmd('PING'))
     env.stop()
+
+
+@skip(cluster=True)
+def test_lazy_key_map_shutdown_during_build():
+    with patch.dict(os.environ, {'RS_GLOBAL_DTORS': '1'}):
+        env = Env(moduleArgs='WORKERS 0 _FREE_RESOURCE_ON_THREAD TRUE')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.cmd('HSET', 'doc', 't', 'hello')
+    # Shutdown cannot signal a parked builder; let it release its final spec
+    # reference after shutdown has started draining the background pools.
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'KeyMapBuildComplete', 1000).ok()
+    env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 1, 'doc', 'NOCONTENT').equal([1, 'doc'])
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', 'KeyMapBuildComplete') == 1, {}),
+        'backfill did not reach completion')
+    env.stop()
+    env.assertTrue(env.checkExitCode())
+
+
+@skip(cluster=True)
+def test_inkeys_resolves_after_queued_reindex():
+    _queued_reindex_with_key_map(True)
+
+
+@skip(cluster=True)
+def test_inkeys_resolves_after_queued_reindex_ready():
+    _queued_reindex_with_key_map(False)
