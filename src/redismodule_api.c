@@ -39,9 +39,10 @@
  * archive member is the only definition. Apple's `libtool -static`, which builds
  * the macOS bundle, leaves common symbols out of the archive's table of contents,
  * and a linker that resolves archive members through it (the `ld64.lld` used for
- * Rust tests on macOS 14) then reports them undefined.
+ * Rust tests on macOS 14) then reports them undefined. The build passes
+ * `-fcommon`, so the attribute is needed rather than just dropping `__common__`.
  */
 
-#define REDISMODULE_ATTR_COMMON
+#define REDISMODULE_ATTR_COMMON __attribute__((nocommon))
 #define REDISMODULE_MAIN
 #include "redismodule.h"
