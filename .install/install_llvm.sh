@@ -16,7 +16,8 @@ export DEBIAN_FRONTEND=noninteractive
 # LLVM_FULL_VERSION (e.g. "21.1.8").
 #
 # Environment variables:
-#   LLVM_INSTALL_DIR  — Where to unpack tarball installs (default: /usr/local/llvm)
+#   LLVM_INSTALL_DIR  — Where to unpack tarball installs
+#                       (default: /usr/local/llvm; ~/.local/llvm on macOS)
 # =============================================================================
 
 OS_TYPE=$(uname -s)
@@ -27,17 +28,25 @@ source "$(dirname "${BASH_SOURCE[0]}")/LLVM_VERSION.sh"
 LLVM_VER="${LLVM_VERSION}"
 LLVM_FULL_VER="${LLVM_FULL_VERSION}"
 
-INSTALL_DIR="${LLVM_INSTALL_DIR:-/usr/local/llvm}"
+# macOS installs run without sudo (macos.sh passes no MODE), so default to a
+# user-writable location there.
+if [[ "$OS_TYPE" == "Darwin" ]]; then
+    INSTALL_DIR="${LLVM_INSTALL_DIR:-${HOME}/.local/llvm}"
+else
+    INSTALL_DIR="${LLVM_INSTALL_DIR:-/usr/local/llvm}"
+fi
 MODE="${1:-}"
 
 # Download and unpack the official LLVM tarball into $INSTALL_DIR.
-# Works on any glibc-based Linux. Will NOT work on musl/Alpine.
+# Works on any glibc-based Linux and on Apple Silicon macOS. Will NOT work on
+# musl/Alpine.
 install_from_tarball() {
     local tarball_name
-    case "$ARCH" in
-        x86_64)  tarball_name="LLVM-${LLVM_FULL_VER}-Linux-X64.tar.xz" ;;
-        aarch64) tarball_name="LLVM-${LLVM_FULL_VER}-Linux-ARM64.tar.xz" ;;
-        *)       echo "ERROR: unsupported arch ${ARCH}"; return 1 ;;
+    case "${OS_TYPE}-${ARCH}" in
+        Linux-x86_64)  tarball_name="LLVM-${LLVM_FULL_VER}-Linux-X64.tar.xz" ;;
+        Linux-aarch64) tarball_name="LLVM-${LLVM_FULL_VER}-Linux-ARM64.tar.xz" ;;
+        Darwin-arm64)  tarball_name="LLVM-${LLVM_FULL_VER}-macOS-ARM64.tar.xz" ;;
+        *)             echo "ERROR: no official LLVM tarball for ${OS_TYPE} ${ARCH}"; return 1 ;;
     esac
 
     local url="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_FULL_VER}/${tarball_name}"
@@ -54,7 +63,11 @@ install_from_tarball() {
     rm -rf "$tmpdir"
 
     export_path_gha
-    link_tools_for_fresh_shells
+    if [[ "$OS_TYPE" == "Darwin" ]]; then
+        update_macos_profiles "${INSTALL_DIR}/bin"
+    else
+        link_tools_for_fresh_shells
+    fi
     echo ">>> LLVM ${LLVM_FULL_VER} installed to ${INSTALL_DIR}"
 }
 
@@ -124,24 +137,37 @@ if [[ "$OS_TYPE" == "Darwin" ]]; then
     fi
 fi
 
+# Put $1 on PATH for fresh macOS shells and later GitHub Actions steps.
+update_macos_profiles() {
+    local bindir="$1"
+    if type update_profile &>/dev/null; then
+        [[ -f ~/.bash_profile ]] && update_profile ~/.bash_profile "$bindir"
+        [[ -f ~/.zshrc ]]        && update_profile ~/.zshrc "$bindir"
+    fi
+    [[ -n "${GITHUB_PATH:-}" ]] && echo "${bindir}" >> "$GITHUB_PATH"
+    return 0
+}
+
 # ---------------------------------------------------------------------------
 # Detect distro and install.
 # ---------------------------------------------------------------------------
 install_llvm() {
-    # ----- macOS (Homebrew) ---------------------------------------------------
+    # ----- macOS (Homebrew → official tarball) -------------------------------
     if [[ "$OS_TYPE" == "Darwin" ]]; then
+        # Homebrew stops publishing bottles for macOS releases it no longer
+        # supports (e.g. no llvm@21 bottle for macOS 14), and `brew install`
+        # then builds LLVM from source, which takes hours. The official
+        # tarball only exists for Apple Silicon, so Intel still goes to brew.
+        if [[ "$ARCH" == "arm64" ]] && \
+                ! brew ruby -e "exit Formula['llvm@${LLVM_VER}'].bottled?" &>/dev/null; then
+            echo ">>> macOS — no Homebrew bottle for llvm@${LLVM_VER} on this OS; using official tarball"
+            install_from_tarball
+            return 0
+        fi
+
         echo ">>> macOS — installing via Homebrew"
         brew install "llvm@${LLVM_VER}"
-
-        local brew_prefix llvm_bin
-        brew_prefix=$(brew --prefix)
-        llvm_bin="${brew_prefix}/opt/llvm@${LLVM_VER}/bin"
-
-        if type update_profile &>/dev/null; then
-            [[ -f ~/.bash_profile ]] && update_profile ~/.bash_profile "$llvm_bin"
-            [[ -f ~/.zshrc ]]        && update_profile ~/.zshrc "$llvm_bin"
-        fi
-        [[ -n "${GITHUB_PATH:-}" ]] && echo "${llvm_bin}" >> "$GITHUB_PATH"
+        update_macos_profiles "$(brew --prefix)/opt/llvm@${LLVM_VER}/bin"
         return 0
     fi
 
