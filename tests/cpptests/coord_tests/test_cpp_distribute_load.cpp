@@ -54,7 +54,6 @@ protected:
   AREQ *compile(const std::vector<std::string> &argv, QueryError *qerr) {
     RMCK::ArgvList rmArgs(ctx, argv);
     AREQ *r = AREQ_New();
-    AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR);
     if (AREQ_Compile(r, ctx, rmArgs, rmArgs.size(), false, qerr) != REDISMODULE_OK) {
       AREQ_DecrRef(r);
       return nullptr;
