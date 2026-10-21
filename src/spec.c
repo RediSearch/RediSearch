@@ -3174,6 +3174,10 @@ static bool IndexSpec_OpenFieldsStorage(RedisModuleCtx *ctx, IndexSpec *sp, Fiel
         .fieldIndex = fs->index,
         .types = fs->types,
     };
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      opens[i].fieldName = HiddenString_GetUnsafe(fs->fieldName, &opens[i].fieldNameLen);
+      opens[i].vectorParams = &fs->vectorOpts.vecSimParams;
+    }
   }
   const bool opened = SearchDisk_OpenFields(ctx, sp->diskSpec, opens, n);
   if (opens != stackBuf) {

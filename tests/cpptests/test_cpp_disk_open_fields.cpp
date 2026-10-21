@@ -112,6 +112,23 @@ class DiskOpenFieldsTest : public ::testing::Test {
       std::vector<Desc> descs;
       for (size_t i = 0; i < n; ++i) {
         descs.emplace_back(fields[i].fieldIndex, fields[i].types);
+        const auto *sp = reinterpret_cast<const IndexSpec *>(index);
+        const auto *fs = sp->fields + fields[i].fieldIndex;
+        if (fields[i].types & INDEXFLD_T_VECTOR) {
+          size_t nameLen;
+          const char *name = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
+          EXPECT_NE(fields[i].fieldName, nullptr);
+          EXPECT_EQ(fields[i].fieldNameLen, nameLen);
+          if (fields[i].fieldName) {
+            EXPECT_EQ(std::string(fields[i].fieldName, fields[i].fieldNameLen),
+                      std::string(name, nameLen));
+          }
+          EXPECT_EQ(fields[i].vectorParams, &fs->vectorOpts.vecSimParams);
+        } else {
+          EXPECT_EQ(fields[i].fieldName, nullptr);
+          EXPECT_EQ(fields[i].fieldNameLen, 0u);
+          EXPECT_EQ(fields[i].vectorParams, nullptr);
+        }
       }
       openCalls.push_back(std::move(descs));
       return openFieldsResult;

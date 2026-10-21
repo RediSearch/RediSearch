@@ -149,6 +149,10 @@ typedef struct SearchDiskResourceConfig {
 typedef struct SearchDiskFieldOpen {
   t_fieldIndex fieldIndex;
   FieldType types;
+  /** Borrowed field name and vector parameters; required only for VECTOR fields. */
+  const char *fieldName;
+  size_t fieldNameLen;
+  const VecSimParams *vectorParams;
 } SearchDiskFieldOpen;
 
 typedef struct BasicDiskAPI {
@@ -440,8 +444,10 @@ typedef struct IndexDiskAPI {
    * rejected this particular term (e.g. invalid UTF-8) and skipped staging it.
    * Other staged writes on the same batch are unaffected.
    *
+   * @param ctx Main-thread context permitting CF registration if TEXT preparation needs retry
    * @param index Pointer to the index
-   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(index)`)
+   * @param batch Open write batch to append the write to (must have been returned by
+   * `createWriteBatch(index)`)
    * @param term Term to associate the document with
    * @param termLen Length of the term
    * @param docId Document ID to index
@@ -449,9 +455,12 @@ typedef struct IndexDiskAPI {
    * @param freq Frequency of the term in the document
    * @param offsets Pointer to varint-encoded term offset data (can be NULL)
    * @param offsetsLen Length of the offsets data in bytes
-   * @return true if the write was staged successfully, false if the input was rejected
+   * @return true if the write was staged successfully, false if staging failed
    */
-  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+  bool (*indexTerm)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                    SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen,
+                    t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets,
+                    size_t offsetsLen);
 
   /**
    * @brief Indexes multiple tag values for a document
