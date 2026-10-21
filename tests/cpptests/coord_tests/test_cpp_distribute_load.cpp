@@ -54,7 +54,6 @@ protected:
   AREQ *compile(const std::vector<std::string> &argv, QueryError *qerr) {
     RMCK::ArgvList rmArgs(ctx, argv);
     AREQ *r = AREQ_New();
-    AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR);
     if (AREQ_Compile(r, rmArgs, rmArgs.size(), qerr) != REDISMODULE_OK) {
       AREQ_Free(r);
       return nullptr;
@@ -68,9 +67,9 @@ protected:
     auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(plan, nullptr, nullptr, PLN_T_DISTRIBUTE);
     EXPECT_NE(dstp, nullptr) << "distribute step missing";
     if (!dstp) return names;
-    RLOOKUP_FOREACH(kk, &dstp->lk, {
+    for (RLookupKey *kk = dstp->lk.head; kk; kk = kk->next) {
       names.emplace_back(kk->name);
-    });
+    }
     return names;
   }
 
