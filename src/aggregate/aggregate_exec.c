@@ -1311,6 +1311,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   SyncPoint_Wait(SYNC_POINT_BEFORE_SPEC_LOCK);
 #endif
 
+  // Lock spec. Should be released on the BG thread by every downstream path.
   IndexSpec_LockRead(sctx->spec);
 
   if (prepareExecutionPlan(req, status) != REDISMODULE_OK) {
