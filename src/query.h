@@ -39,8 +39,6 @@ typedef struct QueryAST {
   size_t numTokens;
   size_t numParams;
   QueryNode *root;
-  // Borrowed from root's subtree; permits metadata resolution before releasing the GIL.
-  QueryNode *inkeysNode;
   // User data and length, for use by scorers
   const void *udata;
   size_t udatalen;
@@ -107,11 +105,6 @@ typedef struct {
 
 /** Set global filters on the AST. */
 void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options);
-
-/* Resolve the INKEYS node directly under the spec lock.
- * Without a lookup map the caller also holds the GIL.
- */
-void QAST_ResolveInkeys(QueryAST *ast, const RedisSearchCtx *sctx);
 
 /** Set a filter node on the AST, handling different node types appropriately */
 void SetFilterNode(QueryAST *q, QueryNode *filterNode);

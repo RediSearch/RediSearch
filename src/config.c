@@ -80,7 +80,6 @@ configPair_t __configPairs[] = {
   {"CURSOR_REPLY_THRESHOLD",          "search-cursor-reply-threshold"},
   {"DEFAULT_DIALECT",                 "search-default-dialect"},
   {"DEFAULT_SCORER",                  "search-default-scorer"},
-  {"DOC_KEY_MAP",                     "search-doc-key-map"},
   {"EXTLOAD",                         "search-ext-load"},
   {"FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
   {"FORK_GC_CLEAN_THRESHOLD",         "search-fork-gc-clean-threshold"},
@@ -1383,8 +1382,6 @@ CONFIG_GETTER(getIndexCursorLimit) {
   return sdscatprintf(ss, "%lld", config->indexCursorLimit);
 }
 
-CONFIG_BOOLEAN_SETTER(set_DocKeyMap, docKeyMap)
-CONFIG_BOOLEAN_GETTER(get_DocKeyMap, docKeyMap, 0)
 
 // ENABLE_UNSTABLE_FEATURES
 CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
@@ -1836,11 +1833,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Disable print of time for ft.profile. For testing only.",
          .setValue = setPrintProfileClock,
          .getValue = getPrintProfileClock},
-        {.name = "DOC_KEY_MAP",
-         .helpText = "Enable key-to-document-ID lookup with additional per-index memory",
-         .setValue = set_DocKeyMap,
-         .getValue = get_DocKeyMap,
-         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "RAW_DOCID_ENCODING",
          .helpText = "Disable compression for DocID inverted index. Boost CPU performance.",
          .setValue = setRawDocIDEncoding,
@@ -2681,11 +2673,6 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       (void *)&(RSGlobalConfig.invertedIndexRawDocidEncoding)
     )
   )
-
-  RM_TRY(RedisModule_RegisterBoolConfig(
-      ctx, "search-doc-key-map", 0,
-      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, get_bool_config,
-      set_bool_config, NULL, (void *)&RSGlobalConfig.docKeyMap))
 
   RM_TRY(RedisModule_RegisterBoolConfig(
       ctx, "search-internal-resp-schema", 0, REDISMODULE_CONFIG_UNPREFIXED, get_bool_config,

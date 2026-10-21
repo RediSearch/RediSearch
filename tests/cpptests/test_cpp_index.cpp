@@ -1464,10 +1464,7 @@ TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
 }
 
 TEST_F(IndexTest, testDocKeyMapLifecycle) {
-  const bool previous = RSGlobalConfig.docKeyMap;
-  RSGlobalConfig.docKeyMap = true;
   DocTable dt = NewDocTable(1, 10);
-  RSGlobalConfig.docKeyMap = previous;
   ASSERT_NE(dt.keyMap, nullptr);
   const char binary[] = {'d', '\0', '1'};
   auto *first = DocTable_Put(&dt, binary, sizeof(binary), 1, (RSDocumentFlags)0, nullptr, 0,
@@ -1502,13 +1499,10 @@ TEST_F(IndexTest, testDocKeyMapLifecycle) {
 }
 
 TEST_F(IndexTest, testDocKeyMapDisabledForDisk) {
-  const bool previousMap = RSGlobalConfig.docKeyMap;
   const bool previousFlex = isFlex;
-  RSGlobalConfig.docKeyMap = true;
   isFlex = true;
   DocTable dt = NewDocTable(1, 10);
   isFlex = previousFlex;
-  RSGlobalConfig.docKeyMap = previousMap;
 
   EXPECT_EQ(dt.keyMap, nullptr);
   EXPECT_EQ(DocTable_KeyMapMemoryUsage(&dt), 0);

@@ -32,7 +32,7 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .memsize = 0,
       .sortablesSize = 0,
       .maxSize = max_size,
-      .keyMap = RSGlobalConfig.docKeyMap && !SearchDisk_IsEnabled() ? DocKeyMap_New() : NULL,
+      .keyMap = !SearchDisk_IsEnabled() ? DocKeyMap_New() : NULL,
   };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
   ret.memsize = cap * sizeof(*ret.buckets) + sizeof(DocTable);

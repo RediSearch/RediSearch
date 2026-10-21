@@ -1682,10 +1682,7 @@ TEST_F(RdbMockTest, testLegacyDocTableRejectsZeroCapacity) {
 TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
   RedisModuleIO *io = RMCK_CreateRdbIO();
   ASSERT_NE(io, nullptr);
-  const bool previous = RSGlobalConfig.docKeyMap;
-  RSGlobalConfig.docKeyMap = true;
   DocTable table = NewDocTable(4, 4);
-  RSGlobalConfig.docKeyMap = previous;
   RMCK_SaveUnsigned(io, 2);  // Table size includes the unused document ID zero.
   RMCK_SaveUnsigned(io, 1);
   RMCK_SaveUnsigned(io, 4);
