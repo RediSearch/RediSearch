@@ -1295,7 +1295,7 @@ def shard_docs_converge_to_dbsize(env, shards):
         return all(docs == keys for docs, keys in state.values()), state
     wait_for_condition(check, 'indexed docs did not converge to DBSIZE')
 
-def trim_after_import_test(env: Env, trim_method: str = 'default', tracking: bool = False):
+def trim_after_import_test(env: Env, trim_method: str, expected_event: str, tracking: bool = False):
     n_docs = 2000
     create_and_populate_index(env, 'idx', n_docs)
     shards = env.getOSSMasterNodesConnectionList()
@@ -1317,20 +1317,26 @@ def trim_after_import_test(env: Env, trim_method: str = 'default', tracking: boo
     shard_docs_converge_to_dbsize(env, shards)
     # No doc lost and none counted twice across the shards.
     env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([n_docs])
+    # Convergence alone does not show which trim path Redis took.
+    log_file = os.path.join(shard2.execute_command('CONFIG', 'GET', 'dir')[1],
+                            shard2.execute_command('CONFIG', 'GET', 'logfile')[1])
+    with open(log_file) as f:
+        env.assertContains(expected_event, f.read())
     if tracker:
         tracker.close()
 
 @skip(cluster=False, min_shards=2)
 def test_background_trim_removes_trimmed_docs():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
-    trim_after_import_test(env, 'bg')
+    # Not forced: with no KEY_TRIMMED subscriber and no tracking client, Redis must choose it.
+    trim_after_import_test(env, 'default', 'Got ASM background trim event')
 
 @skip(cluster=False, min_shards=2)
 def test_active_trim_removes_trimmed_docs():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
-    trim_after_import_test(env, 'active')
+    trim_after_import_test(env, 'active', 'Got ASM trim completed event')
 
 @skip(cluster=False, min_shards=2)
 def test_tracking_client_trim_removes_trimmed_docs():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
-    trim_after_import_test(env, 'default', tracking=True)
+    trim_after_import_test(env, 'default', 'Got ASM trim completed event', tracking=True)
