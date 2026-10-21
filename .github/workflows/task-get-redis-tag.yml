@@ -18,7 +18,7 @@ jobs:
       - name: Select Redis revision
         id: pin
         env:
-          # Stay on Redis 8.8 while releases lack the macOS SDK fix.
-          # Return to latest-release selection once a release includes redis/redis#15979.
+          # TODO: Return to latest-release selection once a Redis 8.8 release
+          # includes redis/redis#15979 (macOS SDK fix).
           REDIS_REF: 4cf5c6f653b4d4ffe42d37f30eacaac7ea68c973
         run: echo "tag=$REDIS_REF" >> "$GITHUB_OUTPUT"
