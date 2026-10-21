@@ -17,24 +17,40 @@
 extern "C" {
 #endif
 
-// Upper bound on DMDs examined per read-lock pass of the collect phase. A pass always finishes
-// the bucket it is in, so a long chain can overshoot it.
-#define SLOT_CLEANUP_SCAN_DOC_LIMIT 4096
-// Upper bound on docs deleted per write-lock pass of the apply phase.
-#define SLOT_CLEANUP_APPLY_DOC_LIMIT 512
+// Upper bound on buckets plus DMDs visited per read-lock pass. A pass always finishes the bucket
+// it is in, so a long chain can overshoot it.
+#define SLOT_CLEANUP_SCAN_LIMIT 4096
+// Docs collected, then deleted under one write lock, per run of a cleanup task. It bounds both the
+// collected-id buffer and how long the task holds the clean pool before requeueing itself.
+#define SLOT_CLEANUP_CHUNK_DOC_LIMIT 512
 
 // Drop every document of `slots` from all in-memory indexes. The docs disappear from queries
 // before this returns; the memory is reclaimed by one background task per index on the clean pool.
 // No-op in disk mode. Main thread only: it walks the global spec registry.
 void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots);
 
-// Phases of the per-index background task, exposed for tests. Neither keeps DocTable pointers
-// across lock releases, so concurrent writes between passes are safe.
+// Phases of a cleanup task run, exposed for tests. Neither keeps DocTable pointers across lock
+// releases, so concurrent writes between passes are safe.
 
-// The ids of the docs `pending` covers, gathered under bounded read-lock passes.
-arrayof(t_docId) SlotCleanup_CollectDocIds(IndexSpec *spec, const PendingSlotDeletion *pending);
+// Where the collect phase resumes. Buckets are scanned in order; the bound is captured on the first
+// pass, since buckets the table grows later only hold docs newer than the deletion.
+typedef struct {
+  bool started;
+  size_t nextBucket;
+  size_t bucketLimit;
+} SlotCleanupCursor;
 
-// Delete `docIds` under bounded write-lock passes. Ids that are already gone are skipped.
+static inline bool SlotCleanup_CursorDone(const SlotCleanupCursor *cursor) {
+  return cursor->started && cursor->nextBucket >= cursor->bucketLimit;
+}
+
+// The ids of the next docs `pending` covers, about SLOT_CLEANUP_CHUNK_DOC_LIMIT of them, gathered
+// under bounded read-lock passes from `cursor`.
+arrayof(t_docId) SlotCleanup_CollectDocIds(IndexSpec *spec, const PendingSlotDeletion *pending,
+                                           SlotCleanupCursor *cursor);
+
+// Delete `docIds` under the write lock, skipping ids that are already gone, then report the
+// deletions to the GC under the GIL.
 void SlotCleanup_ApplyDeletes(IndexSpec *spec, arrayof(t_docId) docIds);
 
 #ifdef __cplusplus
