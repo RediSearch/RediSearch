@@ -50,6 +50,14 @@ def build_named_ages(env):
         conn.execute_command('HSET', f'doc{i + 1}', 'name', name, 'age', age)
 
 
+def create_json_index(env, *schema):
+    """Create an empty JSON-backed `idx` with `schema`, and return a connection."""
+    env.flush()
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'PREFIX', '1', 'doc:',
+               'SCHEMA', *schema).ok()
+    return getConnectionByEnv(env)
+
+
 def search(env, query, *args):
     """Run `query` under DIALECT 2 and return the sorted document keys it matched.
 
@@ -275,6 +283,118 @@ def testPrefixBounds(env):
         env.assertEqual(search(env, query), want, message=query)
 
 
+def testBoundPunctuationIsNotAPatternOperator(env):
+    """`*` and `?` in a bound are characters, not operators.
+
+    Quoted or escaped, each is compared by its byte value: `*` is 0x2a and `?`
+    is 0x3f, both below any letter, so a bound ending in one sorts between `a`
+    and `ab`. Bare, the lexer has already classified the text before the bound
+    rule sees it, and a bound reads what an exact tag clause reads: `a*` is a
+    prefix pattern, which is not a bound, and `?` is a separator an exact clause
+    drops too. `testBoundReadsPunctuationLikeAnExactTagClause` pins that
+    agreement.
+    """
+    enable_unstable_features(env)
+    conn = create_index(env, 'v', 'TAG')
+    for v in ['a', 'a*b', 'a?b', 'ab', 'b']:
+        conn.execute_command('HSET', v, 'v', v)
+
+    env.assertEqual(search(env, '@v:>={"a*"}'), ['a*b', 'a?b', 'ab', 'b'])
+    env.assertEqual(search(env, '@v:>={a\\*}'), ['a*b', 'a?b', 'ab', 'b'])
+    # `a?` sorts above `a*`, so the one value starting `a*` drops out.
+    env.assertEqual(search(env, '@v:>={"a?"}'), ['a?b', 'ab', 'b'])
+    env.assertEqual(search(env, '@v:>={a\\?}'), ['a?b', 'ab', 'b'])
+
+    # A pattern is not a bound, whichever side of the bound the `*` is on.
+    for bound in ('a*', '*a', 'a*b'):
+        env.expect('FT.SEARCH', 'idx', f'@v:>={{{bound}}}', 'DIALECT', '2').error()
+
+
+def testBoundReadsPunctuationLikeAnExactTagClause(env):
+    """Unescaped punctuation in a bound is read exactly as an exact tag clause
+    reads it, which for a lone `?` means dropping it.
+
+    That reading is arguably wrong, but it is how `@v:{a?}` has always behaved
+    and the two must not disagree about what text a bound names. The one place
+    they diverge is a bound that an exact clause would join into a phrase: a
+    bound is a single value, so it is rejected rather than joined.
+    """
+    enable_unstable_features(env)
+    conn = create_index(env, 'v', 'TAG')
+    for v in ['a', 'a b', 'ab']:
+        conn.execute_command('HSET', v, 'v', v)
+
+    # `?` is dropped by either clause, so both name the value `a`.
+    env.assertEqual(search(env, '@v:{a?}'), ['a'])
+    env.assertEqual(search(env, '@v:>={a?}'), ['a', 'a b', 'ab'])
+    env.assertEqual(search(env, '@v:>={a}'), ['a', 'a b', 'ab'])
+
+    # An exact clause joins two tokens into the phrase `a b`; a bound takes one
+    # token, so the same text is a syntax error. Quote or escape it instead,
+    # which `testQuotedBoundWithSpace` and `testEscapedBound` cover.
+    env.assertEqual(search(env, '@v:{a!b}'), ['a b'])
+    env.expect('FT.SEARCH', 'idx', '@v:>={a!b}', 'DIALECT', '2').error()
+
+
+def testRangeIsNotAPrefixQuery(env):
+    """A range covers every value from the bound up; a prefix query covers only
+    the values that start with it."""
+    enable_unstable_features(env)
+    conn = create_index(env, 'v', 'TAG')
+    for v in ['abb', 'abc', 'abcdef', 'abz']:
+        conn.execute_command('HSET', v, 'v', v)
+
+    env.assertEqual(search(env, '@v:{abc*}'), ['abc', 'abcdef'])
+    env.assertEqual(search(env, '@v:>={abc}'), ['abc', 'abcdef', 'abz'])
+
+
+def testClosedRangeOnOneValueAgreesWithExactMatch(env):
+    """A range closed on the same value from both sides is the exact-match set.
+
+    There is no lex-range equality operator and no need for one: `@f:{value}` is
+    the spelling for an exact match, and this only pins that the two agree.
+    """
+    enable_unstable_features(env)
+    build_index(env)
+
+    exact = search(env, '@name:{charlie}')
+    env.assertEqual(exact, ['doc3'])
+    env.assertEqual(search(env, '@name:>={charlie} @name:<={charlie}'), exact)
+
+
+def testLongBoundsHaveNoLengthLimitOfTheirOwn(env):
+    """A bound is as long as the value it names, because a TAG value is.
+
+    The tag index is a byte trie, not the rune trie that caps TEXT patterns at
+    MAX_RUNE_STR_LEN, so neither an indexed tag value nor an exact tag match nor
+    a TAG prefix pattern is capped at that length. Capping a bound alone would
+    make a long value reachable by `@v:{...}` and unreachable by `@v:>={...}`,
+    so the two are pinned agreeing here, at the rune limit and above it.
+    """
+    enable_unstable_features(env)
+    conn = create_index(env, 'v', 'TAG')
+    at_rune_limit = 'a' * 1024
+    above_rune_limit = 'a' * 1025
+    longer = 'a' * 2000
+    conn.execute_command('HSET', 'at', 'v', at_rune_limit)
+    conn.execute_command('HSET', 'long', 'v', longer)
+    conn.execute_command('HSET', 'zed', 'v', 'z')
+
+    # Both long values are indexed and exactly matchable.
+    env.assertEqual(search(env, f'@v:{{{at_rune_limit}}}'), ['at'])
+    env.assertEqual(search(env, f'@v:{{{longer}}}'), ['long'])
+
+    # A bound of either length orders them correctly, on either side.
+    env.assertEqual(search(env, f'@v:>={{{at_rune_limit}}}'), ['at', 'long', 'zed'])
+    env.assertEqual(search(env, f'@v:>{{{at_rune_limit}}}'), ['long', 'zed'])
+    env.assertEqual(search(env, f'@v:>={{{above_rune_limit}}}'), ['long', 'zed'])
+    env.assertEqual(search(env, f'@v:<={{{longer}}}'), ['at', 'long'])
+
+    # Including through a parameter, which is how a cursor arrives.
+    env.assertEqual(search(env, '@v:>={$c}', 'PARAMS', '2', 'c', longer),
+                    ['long', 'zed'])
+
+
 # ---------------------------------------------------------------------------
 # Case handling
 # ---------------------------------------------------------------------------
@@ -430,6 +550,65 @@ def testSortableTagUsesTheIndexedValue(env):
     env.assertEqual(search(env, '@name:>{charlie}'), ['doc4', 'doc5'])
 
 
+
+# ---------------------------------------------------------------------------
+# Multi-value fields
+# ---------------------------------------------------------------------------
+
+def testMultiValueClausesMatchThroughDifferentValues(env):
+    """Two range clauses may each be satisfied by a different value of the same
+    field, so a document can match a range no single one of its values is in.
+
+    This is the document-level semantics a TAG clause has always had, which the
+    exact-match control shows: each clause asks whether *any* value satisfies it.
+    Requiring one value to satisfy both bounds would be a different feature;
+    `testJsonSameValueFilteringWithAggregate` shows the workaround until then.
+    """
+    enable_unstable_features(env)
+    conn = create_index(env, 'name', 'TAG')
+    conn.execute_command('HSET', 'cross', 'name', 'a,z')
+    conn.execute_command('HSET', 'inside', 'name', 'mango')
+
+    # The control: two exact clauses already match `a,z` through two values.
+    env.assertEqual(search(env, '@name:{a} @name:{z}'), ['cross'])
+
+    # So do two range clauses, though neither `a` nor `z` is between `m` and `n`.
+    env.assertEqual(search(env, '@name:>{m} @name:<{n}'), ['cross', 'inside'])
+
+
+def testKeysetPaginationRepeatsAPageOnAMultiValueField(env):
+    """A cursor taken from SORTBY repeats a page when the sort key is not an
+    indexed tag value.
+
+    `SORTBY` reads the sorting vector, which holds the field text whole;
+    the range walks the tag index, which holds each comma-separated value
+    separately. A document whose highest indexed value sorts above its own sort
+    key therefore satisfies a cursor taken from itself, and comes back on the
+    next page forever. `testSortOrderAndIndexOrderCanDiffer` pins the same root
+    cause for surrounding whitespace, and the supported shape alongside it.
+    """
+    enable_unstable_features(env)
+    conn = create_index(env, 'name', 'TAG', 'SORTABLE')
+    conn.execute_command('HSET', 'doc1', 'name', 'alice,zulu')
+    conn.execute_command('HSET', 'doc2', 'name', 'bob')
+    conn.execute_command('HSET', 'doc3', 'name', 'carol')
+
+    def page(query):
+        res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'SORTBY', 'name',
+                      'ASC', 'LIMIT', '0', '1', 'WITHSORTKEYS', 'DIALECT', '2')
+        return [res[1], res[2]]
+
+    # The sort key is the whole field, so doc1 leads.
+    env.assertEqual(page('*'), ['doc1', '$alice,zulu'])
+
+    # Paging on that key returns doc1 again: its `zulu` value is above the
+    # cursor even though its sort key is not.
+    env.assertEqual(page('@name:>{"alice,zulu"}'), ['doc1', '$alice,zulu'])
+
+    # And again from the next document's key, for the same reason.
+    env.assertEqual(page('@name:>{bob}'), ['doc1', '$alice,zulu'])
+
+
 # The cap is per shard, so a cluster admits one expansion per shard and the
 # coordinator unions them; the counts below only hold for a single shard.
 @skip(cluster=True)
@@ -455,6 +634,39 @@ def testExpansionCapStopsTheWalk():
         env.assertContains('Max prefix expansions limit was reached', res['warning'])
         env.assertEqual(res['total_results'], 5, message=res)
     finally:
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
+
+
+
+# The deadline is per shard, and a cluster reports the first shard that trips
+# it; the error below is asserted on a single shard.
+@skip(cluster=True)
+def testRangeWalkCarriesTheQueryDeadline(env):
+    """A range query stops on the query deadline rather than running to the end.
+
+    The expansion cap bounds how many readers a range opens, not how many values
+    it visits: a value whose reader does not open leaves the count where it was.
+    The deadline is what ends such a walk, so it is installed on the walk itself,
+    the way the prefix and wildcard walks install it.
+    """
+    enable_unstable_features(env)
+    conn = create_index(env, 'v', 'TAG')
+    # A cap above the number of indexed values leaves the deadline as the only
+    # thing that can end the walk early.
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1000000')
+    pl = conn.pipeline(transaction=False)
+    for i in range(20000):
+        pl.execute_command('HSET', f'doc{i:05d}', 'v', f'v{i:05d}')
+    pl.execute()
+
+    try:
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'TIMEOUT', '1')
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL')
+        env.expect('FT.SEARCH', 'idx', '@v:>{""}', 'LIMIT', '0', '0', 'DIALECT', '2') \
+            .error().contains('Timeout limit was reached')
+    finally:
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'TIMEOUT', '500')
         run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
 
 
@@ -639,3 +851,86 @@ def testProfile(env):
     res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@name:>{charlie}', 'NOCONTENT',
                   'DIALECT', '2')
     env.assertContains('LEXRANGE', str(res))
+
+
+# ---------------------------------------------------------------------------
+# JSON
+# ---------------------------------------------------------------------------
+# The iterator and the evaluator are the ones HASH TAG fields use, so these
+# cover the separate JSON value-extraction path rather than repeating the matrix
+# above.
+
+@skip(no_json=True)
+def testJsonScalarTagValue(env):
+    """A JSON scalar TAG value ranges like a HASH one, inclusive and exclusive."""
+    enable_unstable_features(env)
+    conn = create_json_index(env, '$.name', 'AS', 'name', 'TAG')
+    for name in ('alice', 'mango', 'zoe'):
+        conn.execute_command('JSON.SET', f'doc:{name}', '$', f'{{"name":"{name}"}}')
+
+    env.assertEqual(search(env, '@name:>{mango}'), ['doc:zoe'])
+    env.assertEqual(search(env, '@name:>={mango}'), ['doc:mango', 'doc:zoe'])
+    env.assertEqual(search(env, '@name:<{mango}'), ['doc:alice'])
+    env.assertEqual(search(env, '@name:<={mango}'), ['doc:alice', 'doc:mango'])
+
+
+@skip(no_json=True)
+def testJsonArrayTagValues(env):
+    """Each element of a JSON array is indexed on its own, so a range reaches a
+    document through any one of them."""
+    enable_unstable_features(env)
+    conn = create_json_index(env, '$.tags[*]', 'AS', 'tags', 'TAG')
+    conn.execute_command('JSON.SET', 'doc:low', '$', '{"tags":["ant","bee"]}')
+    conn.execute_command('JSON.SET', 'doc:high', '$', '{"tags":["yak","zebu"]}')
+
+    env.assertEqual(search(env, '@tags:>{c}'), ['doc:high'])
+    # `bee` is matched by the inclusive bound and `yak`, `zebu` by both.
+    env.assertEqual(search(env, '@tags:>={bee}'), ['doc:high', 'doc:low'])
+    env.assertEqual(search(env, '@tags:<={bee}'), ['doc:low'])
+    env.assertEqual(search(env, '@tags:<{ant}'), [])
+
+
+@skip(no_json=True)
+def testJsonMultiValueClausesMatchThroughDifferentValues(env):
+    """The document-level semantics of
+    `testMultiValueClausesMatchThroughDifferentValues`, on a JSON array."""
+    enable_unstable_features(env)
+    conn = create_json_index(env, '$.items[*].name', 'AS', 'name', 'TAG')
+    conn.execute_command('JSON.SET', 'doc:cross', '$',
+                         '{"items":[{"name":"a"},{"name":"z"}]}')
+    conn.execute_command('JSON.SET', 'doc:match', '$',
+                         '{"items":[{"name":"mango"}]}')
+
+    env.assertEqual(search(env, '@name:>{m} @name:<{n}'),
+                    ['doc:cross', 'doc:match'])
+
+
+@skip(no_json=True)
+def testJsonSameValueFilteringWithAggregate(env):
+    """A JSONPath post-filter is how to require one array element to satisfy both
+    bounds, while the index keeps matching per document.
+
+    `FT.AGGREGATE` loads the elements that are in range and keeps only the
+    documents that have one, which drops the document whose two values straddle
+    the range. It is a post-filter, not an index-level same-value match, and
+    there is no equivalent for comma-separated HASH values.
+    """
+    enable_unstable_features(env)
+    conn = create_json_index(env, '$.items[*].name', 'AS', 'name', 'TAG')
+    conn.execute_command('JSON.SET', 'doc:cross', '$',
+                         '{"items":[{"name":"a"},{"name":"z"}]}')
+    conn.execute_command('JSON.SET', 'doc:match', '$',
+                         '{"items":[{"name":"mango"}]}')
+
+    # The broad query matches both documents.
+    env.assertEqual(search(env, '@name:>{m} @name:<{n}'),
+                    ['doc:cross', 'doc:match'])
+
+    # The filtered aggregate keeps only the one with an element in range.
+    res = env.cmd('FT.AGGREGATE', 'idx', '@name:>{m} @name:<{n}',
+                  'LOAD', '4', '$.items[?(@.name > "m" && @.name < "n")]',
+                  'AS', 'in_range', '__key',
+                  'FILTER', 'exists(@in_range)', 'DIALECT', '2')
+    env.assertEqual(res[0], 1)
+    row = res[1]
+    env.assertEqual(row[row.index('__key') + 1], 'doc:match')
