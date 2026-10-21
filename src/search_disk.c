@@ -444,10 +444,10 @@ bool SearchDisk_InitializeMissingStorage(RedisModuleCtx *ctx, RedisSearchDiskInd
   return disk->index.initializeMissingStorage(ctx, index);
 }
 
-bool SearchDisk_OpenFields(RedisSearchDiskIndexSpec *index,
+bool SearchDisk_OpenFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
                            const SearchDiskFieldOpen *fields, size_t numFields) {
   RS_ASSERT(disk && index && (fields || numFields == 0));
-  return !disk->index.openFields || disk->index.openFields(index, fields, numFields);
+  return !disk->index.openFields || disk->index.openFields(ctx, index, fields, numFields);
 }
 
 bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,

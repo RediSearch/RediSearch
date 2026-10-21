@@ -104,8 +104,9 @@ class DiskOpenFieldsTest : public ::testing::Test {
       events.emplace_back("initializeMissingStorage");
       return initMissingResult;
     };
-    api.index.openFields = [](RedisSearchDiskIndexSpec *index,
+    api.index.openFields = [](RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
                               const SearchDiskFieldOpen *fields, size_t n) {
+      EXPECT_EQ(ctx, RSDummyContext);
       events.emplace_back("openFields");
       numFieldsAtOpen.push_back(reinterpret_cast<IndexSpec *>(index)->numFields);
       std::vector<Desc> descs;

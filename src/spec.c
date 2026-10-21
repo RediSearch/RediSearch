@@ -3175,7 +3175,7 @@ static bool IndexSpec_OpenFieldsStorage(RedisModuleCtx *ctx, IndexSpec *sp, Fiel
         .types = fs->types,
     };
   }
-  const bool opened = SearchDisk_OpenFields(sp->diskSpec, opens, n);
+  const bool opened = SearchDisk_OpenFields(ctx, sp->diskSpec, opens, n);
   if (opens != stackBuf) {
     rm_free(opens);
   }

@@ -726,7 +726,8 @@ typedef struct IndexDiskAPI {
    * index is opened (on create and on load), and the fields FT.ALTER adds. `fields` is borrowed
    * for the call only. The backend may create or resize storage for these fields. On a load
    * from received index storage, that storage may already exist and hold data, which must be
-   * kept. Main thread only. A NULL callback succeeds without opening storage.
+   * kept. Main thread only; ctx permits CF registration. A NULL callback succeeds
+   * without opening storage.
    *
    * FT.ALTER can call this while a consistency window (openConsistencyWindow) is open on the
    * index, so storage created or resized here must honour the window as existing storage does.
@@ -737,7 +738,7 @@ typedef struct IndexDiskAPI {
    * after a replica received the index storage itself, false aborts the server, as a failed
    * vector storage bind does there.
    */
-  bool (*openFields)(RedisSearchDiskIndexSpec *index,
+  bool (*openFields)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
                      const SearchDiskFieldOpen *fields, size_t numFields);
 } IndexDiskAPI;
 
