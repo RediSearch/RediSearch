@@ -22,7 +22,7 @@ use std::ops::Deref;
 /// Note that if the buffer contains interior NUL bytes, C functions using it as
 /// a C string will treat the first NUL as the end of the string and truncate the
 /// payload early. This can lead to logic bugs, but it remains memory safe.
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct NulTerminatedBytes(Box<[u8]>);
 
 impl NulTerminatedBytes {

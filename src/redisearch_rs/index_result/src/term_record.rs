@@ -142,16 +142,42 @@ impl<'a> RSTermRecord<'a> {
         }
     }
 
-    /// Create an owned copy of this term record, allocating new memory for the offsets, but reusing the term.
+    /// Create an owned copy of this term record, allocating new memory for the offsets.
+    ///
+    /// The copy reuses the term of a [`Self::Borrowed`] or [`Self::Owned`] record, so it is only
+    /// valid while that term's owner is alive. That holds by convention rather than by type: a
+    /// [`Self::Borrowed`] record also owns its term, but lives in the iterator that produced it,
+    /// which outlives the copy. A [`Self::FullyOwned`] record may be transient, dropped well
+    /// before any copy of it (a top-k frees each one it yields on its next read), so its term is
+    /// copied as with [`Self::to_fully_owned`]. A producer of short-lived [`Self::Borrowed`]
+    /// records would break this, and must emit [`Self::FullyOwned`] ones instead.
     pub fn to_owned(&'a self) -> RSTermRecord<'a> {
-        let term = self.query_term();
-        Self::Owned {
-            term,
-            offsets: match self {
-                Self::Borrowed { offsets, .. } => offsets.to_owned(),
-                Self::Owned { offsets, .. } => offsets.as_slice().to_owned(),
-                Self::FullyOwned { offsets, .. } => offsets.as_slice().to_owned(),
+        match self {
+            Self::Borrowed { .. } | Self::Owned { .. } => Self::Owned {
+                term: self.query_term(),
+                offsets: self.owned_offsets(),
             },
+            Self::FullyOwned { .. } => self.to_fully_owned(),
+        }
+    }
+
+    /// Create a copy of this term record that owns both its term and its offsets.
+    ///
+    /// Unlike [`Self::to_owned`], the copy borrows nothing from `self`, so it
+    /// stays valid after the record, or the iterator owning its term, is dropped.
+    pub fn to_fully_owned(&self) -> RSTermRecord<'a> {
+        Self::FullyOwned {
+            term: self.query_term().cloned().map(Box::new),
+            offsets: self.owned_offsets(),
+        }
+    }
+
+    /// Copy the offsets of this term record into a fresh allocation.
+    fn owned_offsets(&self) -> RSOffsetVector {
+        match self {
+            Self::Borrowed { offsets, .. } => offsets.to_owned(),
+            Self::Owned { offsets, .. } => offsets.as_slice().to_owned(),
+            Self::FullyOwned { offsets, .. } => offsets.as_slice().to_owned(),
         }
     }
 

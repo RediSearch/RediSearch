@@ -30,7 +30,7 @@ pub type RSTokenFlags = u32;
 /// [`bm25_idf`](RSQueryTerm::bm25_idf)) and a unique
 /// [`id`](RSQueryTerm::id) assigned during query parsing.
 ///
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct RSQueryTerm {
     /// The term string as raw bytes with a trailing NUL, or `None` if the token
     /// had a null string pointer.

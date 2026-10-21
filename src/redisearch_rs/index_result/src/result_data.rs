@@ -97,4 +97,20 @@ impl<'a> RSResultData<'a> {
             Self::HybridMetric(agg) => Self::HybridMetric(agg.to_owned()),
         }
     }
+
+    /// Create a copy of this result data that owns its query terms and offsets.
+    ///
+    /// See [`RSIndexResult::to_fully_owned`](crate::RSIndexResult::to_fully_owned) for what the
+    /// copy still shares.
+    pub fn to_fully_owned(&self) -> RSResultData<'a> {
+        match self {
+            Self::Union(agg) => Self::Union(agg.to_fully_owned()),
+            Self::Intersection(agg) => Self::Intersection(agg.to_fully_owned()),
+            Self::Term(term) => Self::Term(term.to_fully_owned()),
+            Self::Virtual => Self::Virtual,
+            Self::Numeric(num) => Self::Numeric(*num),
+            Self::Metric(num) => Self::Metric(*num),
+            Self::HybridMetric(agg) => Self::HybridMetric(agg.to_fully_owned()),
+        }
+    }
 }
