@@ -1310,7 +1310,9 @@ def trim_after_import_test(env: Env, trim_method: str = 'default', tracking: boo
 
     keys_before = shard2.execute_command('DBSIZE')
     wait_for_migration_complete(env, shard1, shard2)
-    env.assertLess(shard2.execute_command('DBSIZE'), keys_before)
+    # The source starts trimming only after a delay that follows the migration.
+    wait_for_condition(lambda: (shard2.execute_command('DBSIZE') < keys_before, {}),
+                       'the source did not trim the migrated slots')
 
     shard_docs_converge_to_dbsize(env, shards)
     # No doc lost and none counted twice across the shards.
