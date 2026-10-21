@@ -690,6 +690,7 @@ def test_profile_cluster():
         _verify_profile_structure(env, env.protocol, actual_res)
 
         shard_profiles = actual_res[8][1]
+        env.assertEqual(len(shard_profiles), env.shardsCount, message=f'query: {query}, reply: {actual_res}')
         for i in range(len(shard_profiles)):
             shard_profile = shard_profiles[i]
             # Shard profile is a list of 6 items

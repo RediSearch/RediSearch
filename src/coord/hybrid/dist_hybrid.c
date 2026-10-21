@@ -539,21 +539,39 @@ static void setupCoordinatorArrangeSteps(AREQ *searchRequest, AREQ *vectorReques
 
 // Helper function to extract shard profile from a reply based on protocol version
 static MRReply *extractShardProfile(MRReply *current, bool resp3) {
+  if (!current) {
+    return NULL;
+  }
   if (MRReply_Type(current) == MR_REPLY_ERROR) {
     return current;
   }
+  MRReply *shards;
   if (resp3) {
     // RESP3: profile -> Shards -> [shard_profile]
-    MRReply *shards = MRReply_MapElement(current, PROFILE_SHARDS_STR);
-    return MRReply_ArrayElement(shards, 0);
+    if (MRReply_Type(current) != MR_REPLY_MAP || MRReply_Length(current) < 2 ||
+        MRReply_Length(current) % 2 != 0) {
+      return NULL;
+    }
+    shards = MRReply_MapElement(current, PROFILE_SHARDS_STR);
   } else {
     // RESP2: [results, shards_array] -> shards_array[0] is the shard profile
-    MRReply *shards_array_profile = MRReply_ArrayElement(current, 1);
-    MRReply *profile = MRReply_ArrayElement(shards_array_profile, 0);
+    if (MRReply_Type(current) != MR_REPLY_ARRAY || MRReply_Length(current) < 2) {
+      return NULL;
+    }
+    shards = MRReply_ArrayElement(current, 1);
+  }
+  if (!shards || MRReply_Type(shards) != MR_REPLY_ARRAY || MRReply_Length(shards) == 0) {
+    return NULL;
+  }
+  MRReply *profile = MRReply_ArrayElement(shards, 0);
+  if (!profile || MRReply_Length(profile) < 2 || MRReply_Length(profile) % 2 != 0) {
+    return NULL;
+  }
+  if (!resp3 && MRReply_Type(profile) == MR_REPLY_ARRAY) {
     // Convert to map for easier access (modifies in place)
     MRReply_ArrayToMap(profile);
-    return profile;
   }
+  return MRReply_Type(profile) == MR_REPLY_MAP ? profile : NULL;
 }
 
 // Helper function to extract Shard ID MRReply from a shard profile
@@ -595,7 +613,8 @@ static void printProfileExcludingShardId(RedisModule_Reply *reply, MRReply *prof
 void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
   HybridRequest *hreq = ctx;
   // New format: group by shard with Shard ID printed once per shard
-  // [{"Shard ID": "id", "SEARCH": profile (without Shard ID), "VSIM": profile (without Shard ID)}, ...]
+  // [{"Shard ID": "id", "SEARCH": profile (without Shard ID), "VSIM": profile (without Shard ID)},
+  // ...]
 
   // Get RPNets for SEARCH and VSIM requests
   AREQ *searchAreq = hreq->requests[SEARCH_INDEX];
@@ -604,24 +623,29 @@ void printShardsHybridProfile(RedisModule_Reply *reply, void *ctx) {
   RPNet *vsimRpnet = (RPNet *)AREQ_QueryProcessingCtx(vsimAreq)->rootProc;
 
   size_t searchCount = array_len(searchRpnet->shardsProfile);
+  size_t vsimCount = array_len(vsimRpnet->shardsProfile);
 
-  bool resp3 = reply->resp3;
-
-  // Iterate over shards and print both SEARCH and VSIM profiles for each shard
-  for (size_t i = 0; i < searchCount; i++) {
+  // The subqueries collect profiles independently; a timeout can leave either list shorter.
+  // Decode using each shard command's protocol, which can differ from the client's protocol.
+  for (size_t i = 0; i < MAX(searchCount, vsimCount); i++) {
+    MRReply *searchProfile = i < searchCount ? extractShardProfile(searchRpnet->shardsProfile[i],
+                                                                   searchRpnet->cmd.protocol == 3)
+                                             : NULL;
+    MRReply *vsimProfile = i < vsimCount ? extractShardProfile(vsimRpnet->shardsProfile[i],
+                                                               vsimRpnet->cmd.protocol == 3)
+                                         : NULL;
+    if (!searchProfile && !vsimProfile) {
+      continue;
+    }
     RedisModule_Reply_Map(reply);  // Start shard map
 
-    // Extract shard profiles
-    MRReply *searchProfile = extractShardProfile(searchRpnet->shardsProfile[i], resp3);
-    MRReply *vsimProfile = extractShardProfile(vsimRpnet->shardsProfile[i], resp3);
-
-    // Extract and print Shard ID from SEARCH profile
-    MRReply *shardIdReply = NULL;
-    if (searchProfile) {
-      shardIdReply = extractShardIdReply(searchProfile);
-      RedisModule_Reply_SimpleString(reply, "Shard ID");
-      MR_ReplyWithMRReply(reply, shardIdReply);
+    // Use the available profile when SEARCH is missing or contains an error.
+    MRReply *shardIdReply = extractShardIdReply(searchProfile);
+    if (!shardIdReply) {
+      shardIdReply = extractShardIdReply(vsimProfile);
     }
+    RedisModule_Reply_SimpleString(reply, "Shard ID");
+    MR_ReplyWithMRReply(reply, shardIdReply);
 
     // Print SEARCH profile for this shard (excluding Shard ID)
     if (searchProfile) {
