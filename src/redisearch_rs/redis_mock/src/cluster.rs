@@ -43,9 +43,13 @@ fn crc16(bytes: &[u8]) -> u16 {
 /// Mock implementation of `RedisModule_ClusterKeySlotC`, matching Redis' `keyHashSlot`.
 ///
 /// # Safety
-/// 1. `key` must point to `len` readable bytes.
+/// 1. `key` must point to `len` readable bytes; it may be NULL when `len` is 0.
 #[expect(non_snake_case)]
 pub unsafe extern "C" fn RedisModule_ClusterKeySlotC(key: *const c_char, len: usize) -> c_uint {
+    if len == 0 {
+        // The empty key hashes to slot 0; `from_raw_parts` would reject a NULL pointer.
+        return 0;
+    }
     // SAFETY: the caller guarantees `key` points to `len` readable bytes (1.).
     let key = unsafe { std::slice::from_raw_parts(key.cast::<u8>(), len) };
     c_uint::from(crc16(hash_tag(key)) % CLUSTER_SLOTS)
@@ -67,5 +71,7 @@ mod tests {
         assert_eq!(slot("bar"), 5061);
         assert_eq!(slot("{user1000}.following"), 3443);
         assert_eq!(slot("foo{}{bar}"), 8363);
+        // SAFETY: a zero length lets `key` be NULL (1.).
+        assert_eq!(unsafe { RedisModule_ClusterKeySlotC(std::ptr::null(), 0) }, 0);
     }
 }
