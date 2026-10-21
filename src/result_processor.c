@@ -2763,15 +2763,18 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
    ret->upstreams = upstreams;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 
-   // Calculate maximal dictionary size based on scoring type
-   size_t maximalSize;
+   size_t window;
    if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-     maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;
+     window = hybridScoringCtx->rrfCtx.window;
    } else {
-     maximalSize = hybridScoringCtx->linearCtx.window * numUpstreams;
+     window = hybridScoringCtx->linearCtx.window;
    }
-   // Pre-size the dictionary to avoid multiple resizes during accumulation
-   dictExpand(ret->hybridResults, maximalSize);
+   // WINDOW bounds consumption, not the number of documents that actually exist. Limit eager
+   // allocation and let the dictionary grow as results arrive. Check before multiplying to avoid
+   // overflow when computing the initial capacity.
+   const size_t maxPresize = 65536;
+   size_t initialSize = window > maxPresize / numUpstreams ? maxPresize : window * numUpstreams;
+   dictExpand(ret->hybridResults, initialSize);
 
    ret->iterator = NULL;
 
