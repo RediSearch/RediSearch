@@ -11,6 +11,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  get-latest-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '8.8'
+
   check-what-changed:
     uses: ./.github/workflows/task-check-changes.yml
 
@@ -45,6 +51,7 @@ jobs:
     name: ${{ matrix.job-type }}${{ matrix.test-mode == 'standalone' && ' (Standalone)' || (matrix.test-mode == 'coordinator' && ' (Coordinator-only)' || '') }}
     needs:
       - check-what-changed
+      - get-latest-redis-tag
       - generate-basic-matrix
       - spellcheck
     # Run if there are jobs AND (spellcheck succeeded or was skipped)
@@ -64,8 +71,7 @@ jobs:
     with:
       platform: ubuntu:latest
       architecture: x86_64
-      # Temporary Redis 8.8 pin until a release includes redis/redis#15979.
-      redis-ref: 4cf5c6f653b4d4ffe42d37f30eacaac7ea68c973
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag == '8.8.3' && '4cf5c6f653b4d4ffe42d37f30eacaac7ea68c973' || needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       coordinator: ${{ matrix.test-mode != 'standalone' }}
       standalone: ${{ matrix.test-mode != 'coordinator' }}
@@ -76,6 +82,7 @@ jobs:
 
   pr-validation:
     needs:
+      - get-latest-redis-tag
       - check-what-changed
       - spellcheck
       - lint
