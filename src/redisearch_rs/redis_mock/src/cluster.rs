@@ -72,6 +72,9 @@ mod tests {
         assert_eq!(slot("{user1000}.following"), 3443);
         assert_eq!(slot("foo{}{bar}"), 8363);
         // SAFETY: a zero length lets `key` be NULL (1.).
-        assert_eq!(unsafe { RedisModule_ClusterKeySlotC(std::ptr::null(), 0) }, 0);
+        assert_eq!(
+            unsafe { RedisModule_ClusterKeySlotC(std::ptr::null(), 0) },
+            0
+        );
     }
 }
