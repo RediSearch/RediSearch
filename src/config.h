@@ -186,8 +186,6 @@ typedef struct {
   size_t numericTreeMaxDepthRange;
   // disable compression for inverted index DocIdsOnly
   bool invertedIndexRawDocidEncoding;
-  // Startup-only opt-in to additional per-index key-to-document-ID lookup storage.
-  bool docKeyMap;
 
   // sets the memory limit for vector indexes to resize by (in bytes).
   // 0 indicates no limit. Default value is 0.
@@ -497,7 +495,6 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .numericCompress = false,                                                  \
     .numericTreeMaxDepthRange = 0,                                             \
     .requestConfigParams.printProfileClock = 1,                                \
-    .docKeyMap = false,                                                        \
     .invertedIndexRawDocidEncoding = false,                                    \
     .gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes = true,            \
     .freeResourcesThread = true,                                               \

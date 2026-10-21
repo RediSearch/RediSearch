@@ -1311,17 +1311,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   SyncPoint_Wait(SYNC_POINT_BEFORE_SPEC_LOCK);
 #endif
 
-  // Redis writers acquire GIL before the spec lock. Keep that order for
-  // metadata resolution, then retain the spec lock across iterator construction.
-  bool resolveWithGIL = req->ast.inkeysNode && !SearchDisk_IsEnabled() && !sctx->spec->docs.keyMap;
-  if (resolveWithGIL) {
-    RedisModule_ThreadSafeContextLock(outctx);
-  }
   IndexSpec_LockRead(sctx->spec);
-  if (resolveWithGIL) {
-    QAST_ResolveInkeys(&req->ast, sctx);
-    RedisModule_ThreadSafeContextUnlock(outctx);
-  }
 
   if (prepareExecutionPlan(req, status) != REDISMODULE_OK) {
     IndexSpec_Unlock(sctx->spec);
@@ -1939,10 +1929,6 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     // Every execution or error path releases on this thread.
     IndexSpec_LockRead(sctx->spec);
 
-    if (r->ast.inkeysNode && !SearchDisk_IsEnabled() && !sctx->spec->docs.keyMap) {
-      QAST_ResolveInkeys(&r->ast, sctx);
-    }
-
     if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
       IndexSpec_Unlock(sctx->spec);
       CurrentThread_ClearIndexSpec();
@@ -2082,10 +2068,6 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   QueryRequestTimeout_BeginCycle(&r->base.timeout,
                                  QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   IndexSpec_LockRead(sctx->spec);
-  // EXPLAIN prints the AST's IDs even when normal evaluation resolves through the map.
-  if (r->ast.inkeysNode) {
-    QAST_ResolveInkeys(&r->ast, sctx);
-  }
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
     IndexSpec_Unlock(sctx->spec);
     AREQ_Free(r);

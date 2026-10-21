@@ -17,8 +17,8 @@ use crate::{Evaluated, QueryEvalContext};
 
 /// `QN_IDS` — filter by explicit document key names.
 ///
-/// Deferred keys are resolved through the optional lookup map under the execution
-/// spec lock. The metadata fallback and disk mode supply IDs before evaluation.
+/// Deferred keys are resolved through the lookup map under the execution
+/// spec lock. Disk mode supplies IDs before evaluation.
 /// Both paths sort, deduplicate, and build an [`IdListSorted`] iterator.
 ///
 /// * `keys` — the key names to match against, borrowing the request's held
@@ -38,33 +38,7 @@ pub(crate) fn eval<'index>(
     let mut ids: Vec<DocId> = if let Some(doc_ids) = doc_ids {
         doc_ids.iter().copied().filter(|&did| did != 0).collect()
     } else {
-        let table = ctx.doc_table();
-        assert!(
-            !table.keyMap.is_null(),
-            "unresolved QN_IDS nodes require a document key map"
-        );
-        // SAFETY: the spec read lock pins the map and excludes mutation throughout evaluation.
-        let map = unsafe { &*table.keyMap.cast::<doc_key_map_ffi::DocKeyMap>() };
-        // SAFETY: installed once at module load and never mutated during evaluation.
-        let string_ptr_len = unsafe { redis_module::RedisModule_StringPtrLen }
-            .expect("RedisModule_StringPtrLen unset");
-        keys.iter()
-            .filter_map(|&key| {
-                debug_assert!(!key.is_null());
-                let mut len = 0;
-                // SAFETY: unresolved ID nodes borrow live Redis strings from the
-                // request's held argv (QueryNodeMut::new invariant 6).
-                let bytes = unsafe { string_ptr_len(key, &mut len) };
-                // SAFETY: StringPtrLen returned readable bytes from the held argv string.
-                let key_bytes = unsafe { std::slice::from_raw_parts(bytes.cast::<u8>(), len) };
-                let id = map.get_id(key_bytes, |id| {
-                    // SAFETY: the spec read lock pins candidate DMDs and their keys;
-                    // the query bytes remain live throughout this comparison.
-                    unsafe { ffi::DocTable_KeyEquals(table, id, bytes, len) }
-                });
-                (id != 0).then_some(id)
-            })
-            .collect()
+        resolve_keys(ctx, keys)
     };
 
     if !ids.is_empty() {
@@ -76,4 +50,37 @@ pub(crate) fn eval<'index>(
         ids,
         RSIndexResult::build_virt().weight(1.0).build(),
     )))
+}
+
+fn resolve_keys(
+    ctx: &QueryEvalContext,
+    keys: &[*mut redis_module::raw::RedisModuleString],
+) -> Vec<DocId> {
+    let table = ctx.doc_table();
+    assert!(
+        !table.keyMap.is_null(),
+        "unresolved QN_IDS nodes require a document key map"
+    );
+    // SAFETY: the spec read lock pins the map and excludes mutation throughout evaluation.
+    let map = unsafe { &*table.keyMap.cast::<doc_key_map_ffi::DocKeyMap>() };
+    // SAFETY: installed once at module load and never mutated during evaluation.
+    let string_ptr_len =
+        unsafe { redis_module::RedisModule_StringPtrLen }.expect("RedisModule_StringPtrLen unset");
+    keys.iter()
+        .filter_map(|&key| {
+            debug_assert!(!key.is_null());
+            let mut len = 0;
+            // SAFETY: unresolved ID nodes borrow live Redis strings from the
+            // request's held argv (QueryNodeMut::new invariant 6).
+            let bytes = unsafe { string_ptr_len(key, &mut len) };
+            // SAFETY: StringPtrLen returned readable bytes from the held argv string.
+            let key_bytes = unsafe { std::slice::from_raw_parts(bytes.cast::<u8>(), len) };
+            let id = map.get_id(key_bytes, |id| {
+                // SAFETY: the spec read lock pins candidate DMDs and their keys;
+                // the query bytes remain live throughout this comparison.
+                unsafe { ffi::DocTable_KeyEquals(table, id, bytes, len) }
+            });
+            (id != 0).then_some(id)
+        })
+        .collect()
 }

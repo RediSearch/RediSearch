@@ -42,8 +42,8 @@ static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *d
  * new
  * incremental ids to inserted keys.
  *
- * The key -> docId direction is stored on the Redis key as key-metadata (see
- * doc_id_meta.{h,c}), not here; an optional INKEYS accelerator supplements the docId -> DMD store.
+ * In-memory indexes also maintain a key -> docId map protected by the spec lock.
+ * Redis key metadata (doc_id_meta.{h,c}) remains available to its other consumers.
  *
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of
  * the
@@ -72,7 +72,7 @@ typedef struct {
   size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
-  // Optional key-to-document-ID lookup; protected by the owning spec lock.
+  // Key-to-document-ID lookup for in-memory indexes; NULL for disk indexes.
   DocKeyMap *keyMap;
   // Holds field-level expirations only; created lazily on the first HEXPIRE
   // and destroyed when the last entry is removed. Iterators use a NULL check
