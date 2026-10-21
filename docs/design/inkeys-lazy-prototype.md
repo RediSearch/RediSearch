@@ -65,3 +65,21 @@ reindex, timeout, index drop, binary keys, inline/Lua/EXPLAIN, reload, legacy lo
 and memory accounting. C tests force document-table bucket collisions while
 mutating both sides of the build cursor. Performance and full disk-engine runtime
 validation are outside this prototype's evidence.
+
+Local verification completed:
+
+- Debug/assert-enabled build and all 1,313 C/C++ tests passed.
+- Query evaluator and map Rust suites: 230 passed.
+- Focused standalone flows: 12 cases passed, including the ready-map case rerun
+  after correcting its debug-command spelling.
+- Three-shard flows: six passed, seven standalone-only cases skipped.
+- Full Rust lint and documentation checks passed.
+- Independent review found no correctness blockers. It noted that the shutdown
+  test's one-second auto-release can miss the intended overlap if the test process
+  is delayed. Replace it with shutdown-side synchronization before relying on it
+  as deterministic coverage. The shutdown crash itself was observed in a saved
+  pre-fix server log, and the fixed test checks the server exit code.
+
+Evidence logs are under `/tmp/inkeys-lazy-*` in the development workspace.
+This is functional evidence; no first-use latency, sustained-write load, or
+backfill scaling benchmark has been run for this prototype.
