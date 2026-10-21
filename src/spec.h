@@ -157,6 +157,9 @@ typedef struct {
   IndexError indexError;
   uint32_t activeQueries;
   uint32_t activeWrites;
+  // Deletions made off the main thread that the GC has not taken yet. Go through
+  // IndexSpec_DeferGCDeletes / IndexSpec_TakeGCDeferredDeletes.
+  size_t gcDeferredDeletes;
 } IndexStats;
 
 // Atomically apply `delta` to `stats->totalInvertedIndexBlocks`. Accepts signed deltas:
@@ -458,6 +461,16 @@ static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
   return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);
 }
 
+// Report deletions to the GC without touching it: once the index is dropped, the GC can free itself
+// on its own thread at any time, so only the main thread may call into it. The GC takes the count
+// at the start of its next run.
+static inline void IndexSpec_DeferGCDeletes(IndexSpec *sp, size_t n) {
+  __atomic_add_fetch(&sp->stats.gcDeferredDeletes, n, __ATOMIC_RELAXED);
+}
+static inline size_t IndexSpec_TakeGCDeferredDeletes(IndexSpec *sp) {
+  return __atomic_exchange_n(&sp->stats.gcDeferredDeletes, 0, __ATOMIC_RELAXED);
+}
+
 // Whether any field in the schema was declared INDEXMISSING.
 static inline bool IndexSpec_HasIndexMissing(const IndexSpec *sp) {
   return array_len(sp->missing.fields) != 0;
@@ -648,8 +661,8 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
 // Same as IndexSpec_DeleteDocById, for a caller already holding the spec write lock, except that it
-// leaves the GC notification to the caller: the fork GC reads and resets its deletion counter under
-// the GIL, so GCContext_OnDelete must run under the GIL too. Returns whether the doc was deleted.
+// leaves the GC notification to the caller: GCContext_OnDelete on the main thread, otherwise
+// IndexSpec_DeferGCDeletes. Returns whether the doc was deleted.
 bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId);
 
 // Resolve a key -> docId for this spec via the DocIdMeta key metadata (the

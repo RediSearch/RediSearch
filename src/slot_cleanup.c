@@ -43,28 +43,11 @@ arrayof(t_docId) SlotCleanup_CollectDocIds(IndexSpec *spec, const PendingSlotDel
           array_append(docIds, dmd->id);
         }
       }
-      // Empty buckets count too: a sparse table must not turn one pass into a full scan.
-      ++visited;
       ++cursor->nextBucket;
     }
     IndexSpec_Unlock(spec);
   }
   return docIds;
-}
-
-static void notifyGC(IndexSpec *spec, size_t deleted) {
-  if (!deleted) {
-    return;
-  }
-  RedisModule_ThreadSafeContextLock(RSDummyContext);
-  // A dropped spec's GC frees itself, and drops only happen on the main thread, so a spec still
-  // valid here keeps its GC for as long as the GIL is held.
-  if (StrongRef_Get(spec->own_ref) && spec->gc) {
-    for (size_t i = 0; i < deleted; ++i) {
-      GCContext_OnDelete(spec->gc);
-    }
-  }
-  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
 }
 
 void SlotCleanup_ApplyDeletes(IndexSpec *spec, arrayof(t_docId) docIds) {
@@ -76,7 +59,7 @@ void SlotCleanup_ApplyDeletes(IndexSpec *spec, arrayof(t_docId) docIds) {
   }
   IndexSpec_DecrActiveWrites(spec);
   IndexSpec_Unlock(spec);
-  notifyGC(spec, deleted);
+  IndexSpec_DeferGCDeletes(spec, deleted);
 }
 
 // Runs one chunk; returns whether the cleanup is complete.
@@ -126,9 +109,10 @@ static void scheduleSlotCleanup(IndexSpec *spec, void *slots) {
   PendingSlotDeletion *pending = DocTable_AddPendingDeletion(&spec->docs, slots);
   IndexSpec_Unlock(spec);
 
-  SlotCleanupCtx *ctx = rm_calloc(1, sizeof(*ctx));
+  SlotCleanupCtx *ctx = rm_new(SlotCleanupCtx);
   ctx->spec_ref = StrongRef_Demote(spec->own_ref);
   ctx->pending = pending;
+  ctx->cursor = (SlotCleanupCursor){0};
   // Until the task ends, queries still scan the deleted docs and filter them out, so finishing it
   // matters more than reclaiming memory.
   if (CleanPool_AddWork(SlotCleanup_Run, ctx) != 0) {
