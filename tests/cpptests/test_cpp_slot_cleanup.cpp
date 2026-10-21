@@ -13,6 +13,7 @@
 
 #include "common.h"
 #include "doc_id_meta.h"
+#include "fork_gc.h"
 #include "indexes.h"
 #include "rmalloc.h"
 #include "slot_cleanup.h"
@@ -160,7 +161,9 @@ TEST_F(SlotCleanupTest, CleanupDeletesOnlyDocsTheDeletionCovers) {
   // Written after the announcement, so the deletion does not cover it.
   t_docId a3 = index("{a}3");
 
-  arrayof(t_docId) docIds = SlotCleanup_CollectDocIds(spec, pending);
+  SlotCleanupCursor cursor = {};
+  arrayof(t_docId) docIds = SlotCleanup_CollectDocIds(spec, pending, &cursor);
+  EXPECT_TRUE(SlotCleanup_CursorDone(&cursor));
   EXPECT_EQ(std::vector<t_docId>(docIds, docIds + array_len(docIds)), (std::vector<t_docId>{a1, a2}));
   SlotCleanup_ApplyDeletes(spec, docIds);
   array_free(docIds);
@@ -179,7 +182,8 @@ TEST_F(SlotCleanupTest, DocChangedBetweenPhasesIsNotDeletedTwice) {
   t_docId deleted = index("{a}2");
   t_docId untouched = index("{a}3");
   PendingSlotDeletion *pending = addPending();
-  arrayof(t_docId) docIds = SlotCleanup_CollectDocIds(spec, pending);
+  SlotCleanupCursor cursor = {};
+  arrayof(t_docId) docIds = SlotCleanup_CollectDocIds(spec, pending, &cursor);
   ASSERT_EQ(array_len(docIds), 3);
 
   // Re-indexing a key gives it a fresh docId and drops the old one; a plain delete drops it too.
@@ -197,27 +201,39 @@ TEST_F(SlotCleanupTest, DocChangedBetweenPhasesIsNotDeletedTwice) {
   EXPECT_EQ(spec->stats.scoring.numDocuments, 1);
 }
 
-TEST_F(SlotCleanupTest, CollectSpansManyReadLockPasses) {
-  const size_t n = 2 * SLOT_CLEANUP_SCAN_DOC_LIMIT + 1;
+TEST_F(SlotCleanupTest, CleanupRunsInBoundedChunks) {
+  const size_t n = 2 * SLOT_CLEANUP_SCAN_LIMIT + 1;
   for (size_t i = 0; i < n; ++i) {
     index(("{a}" + std::to_string(i)).c_str());
   }
   t_docId other = index("{b}1");
   PendingSlotDeletion *pending = addPending();
 
-  arrayof(t_docId) docIds = SlotCleanup_CollectDocIds(spec, pending);
-  EXPECT_EQ(array_len(docIds), n);
-  SlotCleanup_ApplyDeletes(spec, docIds);
-  array_free(docIds);
+  SlotCleanupCursor cursor = {};
+  size_t total = 0, chunks = 0;
+  while (!SlotCleanup_CursorDone(&cursor)) {
+    arrayof(t_docId) docIds = SlotCleanup_CollectDocIds(spec, pending, &cursor);
+    // One doc per bucket here, so a chunk never overshoots its limit.
+    EXPECT_LE(array_len(docIds), SLOT_CLEANUP_CHUNK_DOC_LIMIT);
+    total += array_len(docIds);
+    ++chunks;
+    SlotCleanup_ApplyDeletes(spec, docIds);
+    array_free(docIds);
+  }
   removePending(pending);
 
+  EXPECT_EQ(total, n);
+  EXPECT_GT(chunks, n / SLOT_CLEANUP_CHUNK_DOC_LIMIT);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 1);
   EXPECT_TRUE(visible(other));
 }
 
 TEST_F(SlotCleanupTest, DeleteSlotsHidesAtOnceAndCleansInBackground) {
   t_docId a1 = index("{a}1");
+  t_docId a2 = index("{a}2");
   t_docId b1 = index("{b}1");
+  ForkGC *fgc = reinterpret_cast<ForkGC *>(spec->gc->gcCtx);
+  const size_t gcDeletes = fgc->deletedOrUpdatedDocsFromLastRun;
 
   Indexes_DeleteSlots(slotA);
   EXPECT_FALSE(visible(a1));
@@ -226,8 +242,11 @@ TEST_F(SlotCleanupTest, DeleteSlotsHidesAtOnceAndCleansInBackground) {
   CleanPool_Wait();
   EXPECT_FALSE(hasPending());
   EXPECT_FALSE(present(a1));
+  EXPECT_FALSE(present(a2));
   EXPECT_TRUE(visible(b1));
   EXPECT_EQ(spec->stats.scoring.numDocuments, 1);
+  // Every deletion reaches the GC, which schedules the inverted-index cleanup from that count.
+  EXPECT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, gcDeletes + 2);
 }
 
 TEST_F(SlotCleanupTest, OverlappingDeletionsEachKeepTheirCutoff) {

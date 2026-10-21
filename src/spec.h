@@ -647,8 +647,10 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 // NOT clean up DocIdMeta on the key. No-op if the docId is not present.
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
-// Same as IndexSpec_DeleteDocById, for a caller already holding the spec write lock.
-void IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId);
+// Same as IndexSpec_DeleteDocById, for a caller already holding the spec write lock, except that it
+// leaves the GC notification to the caller: the fork GC reads and resets its deletion counter under
+// the GIL, so GCContext_OnDelete must run under the GIL too. Returns whether the doc was deleted.
+bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId);
 
 // Resolve a key -> docId for this spec via the DocIdMeta key metadata (the
 // replacement for the former in-memory DocTable key trie). Returns 0 if the key
@@ -887,8 +889,8 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
-// Queue high-priority background work, ahead of queued low-priority jobs.
-void CleanPool_AddWork(void (*work)(void *), void *arg);
+// Queue high-priority background work, ahead of queued low-priority jobs. Returns 0 on success.
+int CleanPool_AddWork(void (*work)(void *), void *arg);
 // Block until every queued clean-pool job has finished.
 void CleanPool_Wait();
 size_t CleanInProgressOrPending();
