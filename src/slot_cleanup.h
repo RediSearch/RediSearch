@@ -20,8 +20,9 @@ extern "C" {
 // Upper bound on DMDs visited per read-lock pass. A pass always finishes the bucket it is in, so a
 // long chain can overshoot it.
 #define SLOT_CLEANUP_SCAN_LIMIT 4096
-// Docs collected, then deleted under one write lock, per run of a cleanup task. It bounds both the
-// collected-id buffer and how long the task holds the clean pool before requeueing itself.
+// Upper bound on docs collected, then deleted under one write lock, per run of a cleanup task. With
+// SLOT_CLEANUP_SCAN_LIMIT it bounds the collected-id buffer and how long a run holds the clean pool
+// before requeueing itself.
 #define SLOT_CLEANUP_CHUNK_DOC_LIMIT 512
 
 // Drop every document of `slots` from all in-memory indexes. The docs disappear from queries
@@ -44,8 +45,8 @@ static inline bool SlotCleanup_CursorDone(const SlotCleanupCursor *cursor) {
   return cursor->started && cursor->nextBucket >= cursor->bucketLimit;
 }
 
-// The ids of the next docs `pending` covers, about SLOT_CLEANUP_CHUNK_DOC_LIMIT of them, gathered
-// under bounded read-lock passes from `cursor`.
+// The ids of the next docs `pending` covers, gathered in one bounded read-lock pass from `cursor`.
+// May be empty while the cursor is not done, when the pass found no covered docs.
 arrayof(t_docId) SlotCleanup_CollectDocIds(IndexSpec *spec, const PendingSlotDeletion *pending,
                                            SlotCleanupCursor *cursor);
 

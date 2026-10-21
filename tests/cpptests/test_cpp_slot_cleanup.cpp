@@ -247,6 +247,22 @@ TEST_F(SlotCleanupTest, DeleteSlotsHidesAtOnceAndCleansInBackground) {
   EXPECT_EQ(IndexSpec_TakeGCDeferredDeletes(spec), 2);
 }
 
+TEST_F(SlotCleanupTest, ScheduledCleanupFinishesAcrossRequeues) {
+  const size_t n = 2 * SLOT_CLEANUP_CHUNK_DOC_LIMIT + 1;
+  for (size_t i = 0; i < n; ++i) {
+    index(("{a}" + std::to_string(i)).c_str());
+  }
+  t_docId other = index("{b}1");
+
+  Indexes_DeleteSlots(slotA);
+  CleanPool_Wait();
+
+  EXPECT_FALSE(hasPending());
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 1);
+  EXPECT_TRUE(visible(other));
+  EXPECT_EQ(IndexSpec_TakeGCDeferredDeletes(spec), n);
+}
+
 TEST_F(SlotCleanupTest, OverlappingDeletionsEachKeepTheirCutoff) {
   t_docId first = index("{a}1");
   Indexes_DeleteSlots(slotA);

@@ -29,31 +29,32 @@ arrayof(t_docId) SlotCleanup_CollectDocIds(IndexSpec *spec, const PendingSlotDel
   const DocTable *t = &spec->docs;
   arrayof(t_docId) docIds = array_new(t_docId, 64);
 
-  while (!SlotCleanup_CursorDone(cursor) && array_len(docIds) < SLOT_CLEANUP_CHUNK_DOC_LIMIT) {
-    IndexSpec_LockRead(spec);
-    // Every doc the deletion covers already existed when it was announced, so it sits in a bucket
-    // below the capacity seen now.
-    if (!cursor->started) {
-      cursor->started = true;
-      cursor->bucketLimit = t->cap;
-    }
-    size_t visited = 0;
-    while (cursor->nextBucket < cursor->bucketLimit && visited < SLOT_CLEANUP_SCAN_LIMIT &&
-           array_len(docIds) < SLOT_CLEANUP_CHUNK_DOC_LIMIT) {
-      for (const RSDocumentMetadata *dmd = t->buckets[cursor->nextBucket].root; dmd; dmd = dmd->nextInChain) {
-        ++visited;
-        if (dmd->id <= pending->maxDocId && SlotRangeArray_ContainsSlot(pending->slots, dmd->slot)) {
-          array_append(docIds, dmd->id);
-        }
-      }
-      ++cursor->nextBucket;
-    }
-    IndexSpec_Unlock(spec);
+  IndexSpec_LockRead(spec);
+  // Every doc the deletion covers already existed when it was announced, so it sits in a bucket
+  // below the capacity seen now.
+  if (!cursor->started) {
+    cursor->started = true;
+    cursor->bucketLimit = t->cap;
   }
+  size_t visited = 0;
+  while (cursor->nextBucket < cursor->bucketLimit && visited < SLOT_CLEANUP_SCAN_LIMIT &&
+         array_len(docIds) < SLOT_CLEANUP_CHUNK_DOC_LIMIT) {
+    for (const RSDocumentMetadata *dmd = t->buckets[cursor->nextBucket].root; dmd; dmd = dmd->nextInChain) {
+      ++visited;
+      if (dmd->id <= pending->maxDocId && SlotRangeArray_ContainsSlot(pending->slots, dmd->slot)) {
+        array_append(docIds, dmd->id);
+      }
+    }
+    ++cursor->nextBucket;
+  }
+  IndexSpec_Unlock(spec);
   return docIds;
 }
 
 void SlotCleanup_ApplyDeletes(IndexSpec *spec, arrayof(t_docId) docIds) {
+  if (array_len(docIds) == 0) {
+    return;
+  }
   size_t deleted = 0;
   IndexSpec_IncrActiveWrites(spec);
   IndexSpec_LockWrite(spec);
