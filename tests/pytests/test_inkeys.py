@@ -20,6 +20,7 @@ def test_inkeys_resolves_after_queued_reindex():
                'SORTABLE', 'NOINDEX').ok()
     env.cmd('HSET', 'doc', 't', 'hello', 'n', 1)
     old_id = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'KeyMapBeforeBatch').ok()
     point = 'BeforeSpecLock'
     env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
     results = []
@@ -63,6 +64,7 @@ def test_doc_key_map_lifecycle():
     waitForIndex(env, 'idx')
 
     for _ in env.reloadingIterator():
+        env.assertEqual(float(index_info(env, 'idx')['key_table_size_mb']), 0)
         env.expect('FT.SEARCH', 'idx', 'hello', 'INKEYS', 3, key, key, 'missing',
                    'NOCONTENT').equal([1, key])
         conn.execute_command('HSET', key, 't', 'hello', 'n', 2)
@@ -98,7 +100,7 @@ def test_doc_key_map_lifecycle():
 
 @skip(cluster=True)
 def test_doc_key_map_memory_and_inline():
-    """In-memory indexes allocate the map by default and support inline execution."""
+    """First INKEYS activates the map and supports inline execution."""
     # WORKERS 0 also exercises resolution without a thread-safe context lock.
     env = Env(moduleArgs='WORKERS 0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
@@ -165,3 +167,63 @@ def test_inkeys_timeout_before_resolution():
         env.expect('PING').equal(True)
         conn.close()
         env.stop()
+
+
+@skip(cluster=True)
+def test_lazy_key_map_activation():
+    for workers in (0, 2):
+        env = Env(moduleArgs=f'WORKERS {workers} TIMEOUT 0')
+        skipIfNoEnableAssert(env)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+        for i in range(20):
+            env.cmd('HSET', f'doc:{i}', 't', 'hello')
+        env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([20])
+        env.assertEqual(float(index_info(env, 'idx')['key_table_size_mb']), 0)
+        for point in ('KeyMapBeforeBatch', 'KeyMapBuildComplete'):
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+        try:
+            # The partial map cannot answer queries while the builder is parked.
+            env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 1, 'doc:0',
+                       'NOCONTENT').equal([1, 'doc:0'])
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', 'KeyMapBeforeBatch') == 1, {}),
+                'backfill did not start')
+            env.cmd('RENAME', 'doc:0', 'renamed')
+            env.cmd('DEL', 'doc:1')
+            env.cmd('HSET', 'new', 't', 'hello')
+            env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 2, 'renamed', 'new',
+                       'NOCONTENT').equal([2, 'renamed', 'new'])
+            env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 2, 'doc:0', 'doc:1',
+                       'NOCONTENT').equal([0])
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'KeyMapBeforeBatch')
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', 'KeyMapBuildComplete') == 1, {}),
+                'backfill did not finish')
+            env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 1, 'renamed',
+                       'NOCONTENT').equal([1, 'renamed'])
+            env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 1, 'new',
+                       'NOCONTENT').equal([1, 'new'])
+            env.assertGreater(float(index_info(env, 'idx')['key_table_size_mb']), 0)
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'KeyMapBuildComplete')
+        finally:
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.stop()
+
+
+@skip(cluster=True)
+def test_lazy_key_map_drop_during_build():
+    env = Env(moduleArgs='WORKERS 0')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.cmd('HSET', 'doc', 't', 'hello')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'KeyMapBeforeBatch').ok()
+    try:
+        env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 1, 'doc', 'NOCONTENT').equal([1, 'doc'])
+        wait_for_condition(
+            lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', 'KeyMapBeforeBatch') == 1, {}),
+            'backfill did not start')
+        env.expect('FT.DROPINDEX', 'idx').ok()
+    finally:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.assertTrue(env.cmd('PING'))
+    env.stop()

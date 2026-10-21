@@ -82,6 +82,55 @@ static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *
 
 static redisearch_thpool_t *reindexPool = NULL;
 
+typedef struct {
+  WeakRef spec;
+} KeyMapBuild;
+
+static void KeyMapBuild_Run(void *arg) {
+  KeyMapBuild *build = arg;
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("KeyMapBeforeBatch");
+#endif
+  StrongRef ref = IndexSpecRef_Promote(build->spec);
+  IndexSpec *spec = StrongRef_Get(ref);
+  bool done = true;
+  if (spec) {
+    IndexSpec_LockWrite(spec);
+    done = DocTable_BuildKeyMapBatch(&spec->docs, 1024);
+    IndexSpec_Unlock(spec);
+#ifdef ENABLE_ASSERT
+    if (done) SyncPoint_Wait("KeyMapBuildComplete");
+#endif
+    IndexSpecRef_Release(ref);
+  }
+  if (!done) {
+    // Returning to the queue lets other reindex work run between batches.
+    int rc = redisearch_thpool_add_work(reindexPool, KeyMapBuild_Run, build, THPOOL_PRIORITY_LOW);
+    RS_ASSERT_ALWAYS(rc == 0);
+  } else {
+    WeakRef_Release(build->spec);
+    rm_free(build);
+  }
+}
+
+void IndexSpec_ActivateKeyMap(IndexSpec *spec) {
+  // Only GIL-owning callers publish this pointer; the builder never replaces it.
+  if (SearchDisk_IsEnabled() || spec->docs.keyMap) return;
+  IndexSpec_LockWrite(spec);
+  bool started = DocTable_StartKeyMap(&spec->docs);
+  bool ready = spec->docs.keyMapState == DocKeyMap_Ready;
+  IndexSpec_Unlock(spec);
+  if (!started || ready) return;
+  if (!reindexPool) {
+    reindexPool =
+        redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
+  }
+  KeyMapBuild *build = rm_malloc(sizeof(*build));
+  build->spec = StrongRef_Demote(IndexSpec_GetStrongRefUnsafe(spec));
+  int rc = redisearch_thpool_add_work(reindexPool, KeyMapBuild_Run, build, THPOOL_PRIORITY_LOW);
+  RS_ASSERT_ALWAYS(rc == 0);
+}
+
 //---------------------------------------------------------------------------------------------
 
 static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, RedisModuleCtx *ctx,

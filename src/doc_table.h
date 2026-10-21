@@ -52,6 +52,12 @@ typedef struct {
   RSDocumentMetadata *root;
 } DMDChain;
 
+typedef enum {
+  DocKeyMap_Inactive,
+  DocKeyMap_Building,
+  DocKeyMap_Ready,
+} DocKeyMapState;
+
 typedef struct {
   size_t size;
   t_docId maxSize;          // the maximum size this table is allowed to grow to
@@ -61,8 +67,11 @@ typedef struct {
   size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
-  // Key-to-document-ID lookup for in-memory indexes; NULL for disk indexes.
+  // Allocated on first INKEYS use; disk indexes never activate it.
   DocKeyMap *keyMap;
+  DocKeyMapState keyMapState;
+  t_docId keyMapNextId;
+  t_docId keyMapLastId;
   // Holds field-level expirations only; created lazily on the first HEXPIRE
   // and destroyed when the last entry is removed. Iterators use a NULL check
   // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
@@ -81,7 +90,12 @@ typedef struct {
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size);
 
-/* Caller holds the spec read or write lock and keyMap is enabled. */
+/* Caller holds the spec write lock. Returns false if already activated or disk mode. */
+bool DocTable_StartKeyMap(DocTable *t);
+/* Caller holds the spec write lock. Returns true when the map is ready. */
+bool DocTable_BuildKeyMapBatch(DocTable *t, size_t budget);
+
+/* Caller holds the spec read or write lock and keyMap is ready. */
 t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len);
 
 /* Caller holds the spec read or write lock, pinning the DMD and its key. */

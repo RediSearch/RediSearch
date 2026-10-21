@@ -1465,6 +1465,8 @@ TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
 
 TEST_F(IndexTest, testDocKeyMapLifecycle) {
   DocTable dt = NewDocTable(1, 10);
+  ASSERT_EQ(dt.keyMap, nullptr);
+  ASSERT_TRUE(DocTable_StartKeyMap(&dt));
   ASSERT_NE(dt.keyMap, nullptr);
   const char binary[] = {'d', '\0', '1'};
   auto *first = DocTable_Put(&dt, binary, sizeof(binary), 1, (RSDocumentFlags)0, nullptr, 0,
@@ -1506,5 +1508,38 @@ TEST_F(IndexTest, testDocKeyMapDisabledForDisk) {
 
   EXPECT_EQ(dt.keyMap, nullptr);
   EXPECT_EQ(DocTable_KeyMapMemoryUsage(&dt), 0);
+  DocTable_Free(&dt);
+}
+
+TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
+  DocTable dt = NewDocTable(1, 2);
+  for (int i = 1; i <= 8; ++i) {
+    std::string key = "doc:" + std::to_string(i);
+    auto *dmd = DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                             DocumentType_Hash);
+    DMD_Return(dmd);
+  }
+  EXPECT_EQ(DocTable_KeyMapMemoryUsage(&dt), 0u);
+  ASSERT_TRUE(DocTable_StartKeyMap(&dt));
+  EXPECT_FALSE(DocTable_StartKeyMap(&dt));
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, 3));
+  // Mutate both the completed prefix and the not-yet-scanned suffix.
+  DocTable_SetKeyById(&dt, 1, "renamed:1", 9);
+  DocTable_SetKeyById(&dt, 8, "renamed:8", 9);
+  DMD_Return(DocTable_DeleteById(&dt, 2));
+  DMD_Return(DocTable_DeleteById(&dt, 7));
+  auto *added = DocTable_Put(&dt, "new", 3, 1, (RSDocumentFlags)0, nullptr, 0, DocumentType_Hash);
+  const auto addedId = added->id;
+  DMD_Return(added);
+  while (!DocTable_BuildKeyMapBatch(&dt, 2)) {
+  }
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed:1", 9), 1u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed:8", 9), 8u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:1", 5), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:8", 5), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:2", 5), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:7", 5), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:4", 5), 4u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "new", 3), addedId);
   DocTable_Free(&dt);
 }
