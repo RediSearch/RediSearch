@@ -17,6 +17,7 @@
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
+#include "slot_ranges.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -228,6 +229,11 @@ void DocTable_RemovePendingDeletion(DocTable *t, PendingSlotDeletion *pending);
 // `size` counts one more than the docs held: NewDocTable starts it at 1.
 static inline bool DocTable_IsEmpty(const DocTable *t) {
   return t->size <= 1;
+}
+
+// Whether `pending` covers `dmd`: the doc sits in one of its slots and existed when it was added.
+static inline bool PendingSlotDeletion_Covers(const PendingSlotDeletion *pending, const RSDocumentMetadata *dmd) {
+  return dmd->id <= pending->maxDocId && SlotRangeArray_ContainsSlot(pending->slots, dmd->slot);
 }
 
 static inline bool DocTable_HasPendingDeletions(const DocTable *t) {
