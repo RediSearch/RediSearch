@@ -313,6 +313,9 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
 
     size_t oix = doc->numFields++;
     doc->fields[oix].docFieldName = HiddenString_Duplicate(field->fieldName);
+    // Set before loading, not left to preprocessing: if the load fails after storing a
+    // multi-value array, `ClearOwnedField` only frees it when `indexAs` is set.
+    doc->fields[oix].indexAs = field->types;
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
