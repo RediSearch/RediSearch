@@ -31,8 +31,6 @@
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
-// Number of attempts to wait for the child to exit gracefully before trying to terminate it
-#define GC_WAIT_ATTEMPTS 4
 
 // GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
@@ -54,6 +52,20 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "debug", "IndexGC - used memory ratio: %f", used_memory_ratio);
 
   return used_memory_ratio > 1;
+}
+
+static void wait_for_child_exit(pid_t cpid, size_t timeout_ms) {
+  struct timespec now, timeout = {.tv_sec = timeout_ms / 1000,
+                                  .tv_nsec = (timeout_ms % 1000) * 1000000}, deadline;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+  rs_timeradd(&now, &timeout, &deadline);
+
+  while (waitpid(cpid, NULL, WNOHANG) == 0) {
+    if (TimedOut(&deadline)) {
+      break;
+    }
+    usleep(500);
+  }
 }
 
 // Waits up to timeout_sec for cpid to be reaped, polling every 1.5ms (via nanosleep). Called when
@@ -221,12 +233,7 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
       gcrv = false;
     }
     close(gc->pipe_read_fd);
-    // give the child some time to exit gracefully
-    for (int attempt = 0; attempt < GC_WAIT_ATTEMPTS; ++attempt) {
-      if (waitpid(cpid, NULL, WNOHANG) == 0) {
-        usleep(500);
-      }
-    }
+    wait_for_child_exit(cpid, RSGlobalConfig.gcConfigParams.gcSettings.forkGcChildWaitMs);
     // KillForkChild must be called when holding the GIL
     // otherwise it might cause a pipe leak and eventually run
     // out of file descriptor
