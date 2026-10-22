@@ -62,6 +62,15 @@ install_from_tarball() {
     $MODE tar -xf "${tmpdir}/${tarball_name}" -C "$INSTALL_DIR" --strip-components=1
     rm -rf "$tmpdir"
 
+    # clang passes Xcode's ld `-lto_library ${INSTALL_DIR}/lib/libLTO.dylib`,
+    # which makes ld resolve its own libc++ from that directory. The tarball's
+    # libc++ lacks symbols Xcode's ld needs, so every link aborts in dyld.
+    # Homebrew's LLVM keeps libc++ in lib/c++/; mirror that layout.
+    if [[ "$OS_TYPE" == "Darwin" ]]; then
+        $MODE mkdir -p "${INSTALL_DIR}/lib/c++"
+        $MODE mv -f "${INSTALL_DIR}"/lib/libc++*.dylib "${INSTALL_DIR}/lib/c++/"
+    fi
+
     export_path_gha
     if [[ "$OS_TYPE" == "Darwin" ]]; then
         update_macos_profiles "${INSTALL_DIR}/bin"
