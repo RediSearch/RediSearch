@@ -26,10 +26,11 @@ typedef struct {
 // will not delete, which costs queries when only a small share of the docs is in deleted slots.
 arrayof(t_docId) SlotCleanup_CollectDocIds(IndexSpec *spec, const PendingSlotDeletion *pending,
                                            SlotCleanupCursor *cursor) {
-  const DocTable *t = &spec->docs;
-  arrayof(t_docId) docIds = array_new(t_docId, 64);
+  // Sized for a full chunk; a pass that finishes a long chain may still grow it.
+  arrayof(t_docId) docIds = array_new(t_docId, SLOT_CLEANUP_CHUNK_DOC_LIMIT);
 
   IndexSpec_LockRead(spec);
+  const DocTable *t = &spec->docs;
   // Every doc the deletion covers already existed when it was announced, so it sits in a bucket
   // below the capacity seen now.
   if (!cursor->started) {
@@ -41,7 +42,7 @@ arrayof(t_docId) SlotCleanup_CollectDocIds(IndexSpec *spec, const PendingSlotDel
          array_len(docIds) < SLOT_CLEANUP_CHUNK_DOC_LIMIT) {
     for (const RSDocumentMetadata *dmd = t->buckets[cursor->nextBucket].root; dmd; dmd = dmd->nextInChain) {
       ++visited;
-      if (dmd->id <= pending->maxDocId && SlotRangeArray_ContainsSlot(pending->slots, dmd->slot)) {
+      if (PendingSlotDeletion_Covers(pending, dmd)) {
         array_append(docIds, dmd->id);
       }
     }
