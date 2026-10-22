@@ -1026,7 +1026,8 @@ impl<'a> RSIndexResult<'a> {
 
     /// Create an owned copy of this index result, allocating new memory for the contained data.
     ///
-    /// The returned result may borrow the term data from the original result.
+    /// The returned result may borrow the term data from the original result; see
+    /// [`RSTermRecord::to_owned`](crate::RSTermRecord::to_owned) for when it does.
     pub fn to_owned(&'a self) -> RSIndexResult<'a> {
         RawIndexResult {
             doc_id: self.doc_id,
@@ -1034,6 +1035,26 @@ impl<'a> RSIndexResult<'a> {
             field_mask: self.field_mask,
             freq: self.freq,
             data: self.data.to_owned(),
+            metrics: self.metrics.clone(),
+            weight: self.weight,
+            has_field_expiration: self.has_field_expiration,
+        }
+    }
+
+    /// Create a copy of this index result that owns its query terms as well as its offsets.
+    ///
+    /// Unlike [`Self::to_owned`], the copy borrows no term or offsets from `self`: it stays
+    /// valid after `self` is dropped, and after the iterators owning the terms `self` points at
+    /// are dropped. It still shares the [`metrics`](Self::metrics) keys, which belong to the
+    /// query and are what the returned `'a` stands for, and the [`dmd`](Self::dmd) pointer,
+    /// which it neither owns nor releases, exactly as [`Self::to_owned`] does.
+    pub fn to_fully_owned(&self) -> RSIndexResult<'a> {
+        RawIndexResult {
+            doc_id: self.doc_id,
+            dmd: self.dmd,
+            field_mask: self.field_mask,
+            freq: self.freq,
+            data: self.data.to_fully_owned(),
             metrics: self.metrics.clone(),
             weight: self.weight,
             has_field_expiration: self.has_field_expiration,
