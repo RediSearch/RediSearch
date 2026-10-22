@@ -770,6 +770,11 @@ void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index) {
   disk->index.flushNoWait(index);
 }
 
+bool SearchDisk_CompactNonGcColumnFamilies(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  return disk->index.compactNonGcColumnFamilies(index);
+}
+
 void SearchDisk_PauseBackgroundWork(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   disk->index.pauseBackgroundWork(index);

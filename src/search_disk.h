@@ -929,6 +929,16 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
 void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index);
 
 /**
+ * @brief Fully compact the doc-table and vector column families.
+ *
+ * See `compactNonGcColumnFamilies` in search_disk_api.h.
+ *
+ * @param index Pointer to the disk index spec
+ * @return true if every compaction succeeded
+ */
+bool SearchDisk_CompactNonGcColumnFamilies(RedisSearchDiskIndexSpec* index);
+
+/**
  * @brief Pause background flush and compaction work on the index's database.
  *
  * Reference-counted: each call must be balanced by
