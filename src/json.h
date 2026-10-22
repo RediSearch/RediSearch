@@ -47,6 +47,10 @@ void JSONIterable_Clean(JSONIterable *iterable); // Like free, but does not free
 
 int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange);
 
+/* Evaluate an owned indexing path with the Redis GIL held and a live JSON root.
+ * The compiled handle must remain alive through iteration. NULL paths yield no results. */
+JSONResultsIterator JSON_GetWithCompiledPath(RedisJSON root, JSONPath path);
+
 /* Get the RedisJSON root from an already-open RedisModuleKey handle.
  *
  * Returns NULL if RedisJSON is not loaded, the key is NULL, or it does not
@@ -72,7 +76,8 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
 
 JSONPath pathParse(const HiddenString* path, RedisModuleString **err_msg);
 
-void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName);
+void JSONParse_error(QueryError *status, const HiddenString *path, const HiddenString *fieldName,
+                     const HiddenString *indexName);
 
 #ifdef __cplusplus
 }
