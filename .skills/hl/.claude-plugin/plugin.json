@@ -1,0 +1,5 @@
+{
+  "name": "hl",
+  "description": "RediSearch add-ons for HumanLayer's /rpi workflow: per-phase rules, unattended delivery to a PR, review loop, failure triage, CI driving",
+  "version": "1.0.0"
+}

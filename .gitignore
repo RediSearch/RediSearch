@@ -44,3 +44,6 @@ compile_commands.json
 oss-*--*.json
 # Raw LLVM coverage profiles, written wherever an instrumented process runs
 *.profraw
+# RPI task directories: workflow documents and delivery records, never committed
+.agents/artifacts/
+.humanlayer/

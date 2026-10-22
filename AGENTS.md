@@ -394,6 +394,21 @@ Invoke [/open-pr](.skills/open-pr/SKILL.md) to open a pull request.
 Invoke [/close-pr](.skills/close-pr/SKILL.md) to close a pull request or clean up a mistaken or unwanted PR.
 Invoke [/adversarial-review](.skills/adversarial-review/SKILL.md) to get an independent review of a change before opening or updating a PR.
 
+### Research, Plan, Implement (RPI)
+
+HumanLayer's RPI phases come from the `riptide-rpi` plugin its daemon loads, or from the
+[`/rpi`](https://github.com/humanlayer/skills) skill; this repository adds its own rules on
+top.
+
+<important if="you are running an RPI phase: a riptide-rpi skill such as create-research, create-design-discussion, create-tdd, create-structure-outline, implement-outline or an iterate-* variant, or any step of the /rpi skill">
+Load [/hl:hl-rpi-redisearch](.skills/hl/skills/hl-rpi-redisearch/SKILL.md) before the
+phase's own process and follow it where the two differ. After the user approves the
+design, write the structure outline and deliver it with
+[/hl:hl-rpi-deliver](.skills/hl/skills/hl-rpi-deliver/SKILL.md) instead of the implement
+phase, without stopping in between, and drive the resulting PR with
+[/hl:hl-rpi-drive-ci](.skills/hl/skills/hl-rpi-drive-ci/SKILL.md).
+</important>
+
 ## Pull Requests
 
 The rules for opening one — title format, the CI-enforced release-notes checkbox, and the
