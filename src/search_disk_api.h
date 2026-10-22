@@ -10,6 +10,7 @@
 
 #include "redismodule.h"
 #include "redisearch.h"
+#include "field_spec.h"
 #include "VecSim/vec_sim_common.h"
 
 #ifdef __cplusplus
@@ -143,6 +144,16 @@ typedef struct SearchDiskResourceConfig {
   size_t wbmBudgetPerIndexMB;
   int maxOpenFiles;
 } SearchDiskResourceConfig;
+
+/** A field passed to IndexDiskAPI.openFields. */
+typedef struct SearchDiskFieldOpen {
+  t_fieldIndex fieldIndex;
+  FieldType types;
+  /** Borrowed nonempty UTF-8 field name and vector parameters; VECTOR fields only. */
+  const char *fieldName;
+  size_t fieldNameLen;
+  const VecSimParams *vectorParams;
+} SearchDiskFieldOpen;
 
 typedef struct BasicDiskAPI {
   /**
@@ -437,7 +448,8 @@ typedef struct IndexDiskAPI {
    * Other staged writes on the same batch are unaffected.
    *
    * @param index Pointer to the index
-   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(index)`)
+   * @param batch Open write batch to append the write to (must have been returned by
+   * `createWriteBatch(index)`)
    * @param term Term to associate the document with
    * @param termLen Length of the term
    * @param docId Document ID to index
@@ -447,7 +459,9 @@ typedef struct IndexDiskAPI {
    * @param offsetsLen Length of the offsets data in bytes
    * @return true if the write was staged successfully, false if the input was rejected
    */
-  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+                    const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
+                    uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
   /**
    * @brief Indexes multiple tag values for a document
@@ -712,9 +726,31 @@ typedef struct IndexDiskAPI {
   QueryIterator *(*newMissingIterator)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex,
                                        RedisSearchDiskSnapshot *snapshot, QueryError *status);
   /** Initialize the shared missing CF after schema validation, before ingestion or queries.
-   * Returns false if storage needs to be created and creation fails; true otherwise.
+   * Called whenever openFields is about to receive an INDEXMISSING field, so it must be a no-op
+   * once the storage exists. Returns false if storage needs to be created and creation fails;
+   * true otherwise; the failure rules of openFields apply.
    * ctx must allow Redis BigModule CF registration; index must be a live disk index. */
   bool (*initializeMissingStorage)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+  /**
+   * Declare `numFields` fields before any document is indexed into them: every field once the
+   * index is opened (on create and on load), and the fields FT.ALTER adds. `fields` is borrowed
+   * for the call only. The backend may create or resize storage for these fields. On a load
+   * from received index storage, that storage may already exist and hold data, which must be
+   * kept. Main thread only; ctx permits CF registration. A NULL callback succeeds
+   * without opening storage.
+   *
+   * FT.ALTER can call this while a consistency window (openConsistencyWindow) is open on the
+   * index, so storage created or resized here must honour the window as existing storage does.
+   *
+   * Returns false on storage preparation failure; the caller fails schema creation or load.
+   * Existing storage and data must be preserved. A failure may leave empty CFs from earlier
+   * preparations; subsequent calls must reuse them safely. The caller must not ingest into
+   * the new fields until this call succeeds.
+   * Failure while completing a received-storage load aborts the server, as a failed vector
+   * storage bind does there.
+   */
+  bool (*openFields)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                     const SearchDiskFieldOpen *fields, size_t numFields);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

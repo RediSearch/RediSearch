@@ -430,9 +430,12 @@ void SearchDisk_FreeWriteBatch(SearchDiskWriteBatchHandle *batch) {
     disk->index.freeWriteBatch(batch);
 }
 
-bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen) {
-    RS_ASSERT(disk && index && batch);
-    return disk->index.indexTerm(index, batch, term, termLen, docId, fieldMask, freq, offsets, offsetsLen);
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+                          const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
+                          uint32_t freq, const uint8_t *offsets, size_t offsetsLen) {
+  RS_ASSERT(disk && index && batch);
+  return disk->index.indexTerm(index, batch, term, termLen, docId, fieldMask, freq, offsets,
+                               offsetsLen);
 }
 
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
@@ -443,6 +446,12 @@ bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, 
 bool SearchDisk_InitializeMissingStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
   RS_ASSERT(disk);
   return disk->index.initializeMissingStorage(ctx, index);
+}
+
+bool SearchDisk_OpenFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                           const SearchDiskFieldOpen *fields, size_t numFields) {
+  RS_ASSERT(disk && index && (fields || numFields == 0));
+  return !disk->index.openFields || disk->index.openFields(ctx, index, fields, numFields);
 }
 
 bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,

@@ -259,6 +259,8 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
 // Forward declaration
 static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
                                            ArgsCursor *ac_in, QueryError *status);
+static bool IndexSpec_OpenFieldsStorage(RedisModuleCtx *ctx, IndexSpec *sp, FieldSpec *fields,
+                                        size_t n);
 
 /*
 * Parse an index spec from redis command arguments.
@@ -1309,20 +1311,8 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
     bool rerank = false;
     result = parseVectorField_hnsw(sp, fs, ac, status, &rerank);
-    // Build disk params if disk mode is enabled
-    if (result && sp->diskSpec) {
-      size_t nameLen;
-      const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
-      fs->vectorOpts.diskCtx = (VecSimDiskContext){
-        .storage = sp->diskSpec,
-        .indexName = rm_strndup(namePtr, nameLen),
-        .indexNameLen = nameLen,
-        // The disk storage layer keys this field's data by the value it finds
-        // here, so it has to stay stable for the life of the index.
-        .userData = fs->index,
-        .rerank = rerank,
-      };
-    }
+    // The rest of diskCtx is filled in when the field's storage is opened.
+    fs->vectorOpts.diskCtx.rerank = rerank;
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
     // Disk mode does not support SVS algorithm
     if (isSpecOnDiskForValidation(sp)) {
@@ -1544,8 +1534,8 @@ static void IndexSpec_TrackIndexMissingField(IndexSpec *sp, const FieldSpec *fs)
  * Add fields to an existing (or newly created) index. If the addition fails,
  * restore the schema state that was mutated while parsing this field batch.
  */
-static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCursor *ac,
-                                       QueryError *status, int isNew) {
+static int IndexSpec_AddFieldsInternal(RedisModuleCtx *ctx, IndexSpec *sp, StrongRef spec_ref,
+                                       ArgsCursor *ac, QueryError *status, int isNew) {
   if (AC_IsAtEnd(ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Fields arguments are missing");
     return 0;
@@ -1684,6 +1674,13 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     IndexSpec_EnsureSuffixForField(sp, fs);
   }
 
+  // Only once every field parsed, so a schema error never reaches storage.
+  if (sp->diskSpec && !IndexSpec_OpenFieldsStorage(ctx, sp, sp->fields + prevNumFields,
+                                                   sp->numFields - prevNumFields)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open field storage");
+    goto reset;
+  }
+
   // If we successfully modified the schema, we need to update the spec cache
   IndexSpecCache_Decref(sp->spcache);
   sp->spcache = IndexSpec_BuildSpecCache(sp);
@@ -1723,7 +1720,7 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
                         QueryError *status) {
   setMemoryInfo(ctx);
 
-  return IndexSpec_AddFieldsInternal(sp, spec_ref, ac, status, 0);
+  return IndexSpec_AddFieldsInternal(ctx, sp, spec_ref, ac, status, 0);
 }
 
 bool IndexSpec_IsCoherent(IndexSpec *spec, RedisModuleString **prefixes, size_t n_prefixes) {
@@ -1863,8 +1860,8 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   }
 
   // Store on disk if we're on Flex.
-  // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
-  // is available when parsing vector fields (for populating diskCtx).
+  // This must be done before IndexSpec_AddFieldsInternal, which opens the
+  // fields' storage in sp->diskSpec.
   spec->diskSpec = NULL;
   if (isSpecOnDisk(spec)) {
     RS_ASSERT(disk_db);
@@ -1898,14 +1895,7 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     goto failure;
   }
 
-  if (!IndexSpec_AddFieldsInternal(spec, spec_ref, ac, status, 1)) {
-    goto failure;
-  }
-
-  if (isSpecOnDisk(spec) && IndexSpec_HasIndexMissing(spec) &&
-      !SearchDisk_InitializeMissingStorage(ctx, spec->diskSpec)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
-                        "Could not initialize missing-field storage");
+  if (!IndexSpec_AddFieldsInternal(ctx, spec, spec_ref, ac, status, 1)) {
     goto failure;
   }
 
@@ -3126,54 +3116,93 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+// Point a disk-backed vector field's diskCtx at the open sp->diskSpec.
+static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp, FieldSpec *fs) {
+  // Only HNSW indexes support disk mode (tiered with HNSW primary)
+  VecSimParams *params = &fs->vectorOpts.vecSimParams;
+  RS_ASSERT(params->algo == VecSimAlgo_TIERED);
 
-// Populate diskCtx for all HNSW vector fields in the spec.
-// This must be called after sp->diskSpec is set.
-static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
-  if (!sp->diskSpec) return;
+  VecSimParams *primaryParams = params->algoParams.tieredParams.primaryIndexParams;
+  RS_ASSERT(primaryParams && primaryParams->algo == VecSimAlgo_HNSWLIB);
 
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec *fs = &sp->fields[i];
-    if (!FIELD_IS(fs, INDEXFLD_T_VECTOR)) continue;
+  size_t nameLen;
+  const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
 
-    // Only HNSW indexes support disk mode (tiered with HNSW primary)
-    VecSimParams *params = &fs->vectorOpts.vecSimParams;
-    RS_ASSERT(params->algo == VecSimAlgo_TIERED);
+  // Free any existing indexName to avoid memory leak
+  if (fs->vectorOpts.diskCtx.indexName) {
+    rm_free((void *)fs->vectorOpts.diskCtx.indexName);
+  }
 
-    VecSimParams *primaryParams = params->algoParams.tieredParams.primaryIndexParams;
-    RS_ASSERT(primaryParams && primaryParams->algo == VecSimAlgo_HNSWLIB);
-
-    size_t nameLen;
-    const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
-
-    // Free any existing indexName to avoid memory leak
-    if (fs->vectorOpts.diskCtx.indexName) {
-      rm_free((void*)fs->vectorOpts.diskCtx.indexName);
-    }
-
-    // Preserve rerank loaded by FieldSpec_RdbLoad — runtime fields below
-    // are repopulated from the freshly opened disk handle.
-    const bool rerank = fs->vectorOpts.diskCtx.rerank;
-    fs->vectorOpts.diskCtx = (VecSimDiskContext){
+  // Preserve rerank set by parseVectorField or FieldSpec_RdbLoad — runtime
+  // fields below are repopulated from the freshly opened disk handle.
+  const bool rerank = fs->vectorOpts.diskCtx.rerank;
+  fs->vectorOpts.diskCtx = (VecSimDiskContext){
       .storage = sp->diskSpec,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
+      // The disk storage layer keys this field's data by the value it finds
+      // here, so it has to stay stable for the life of the index.
       .userData = fs->index,
       .rerank = rerank,
-    };
-  }
+  };
 }
 
-// Initialize spec->tagOpts.tagIndex for every TAG field after the disk index
-// is opened.
-static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
-  if (!sp->diskSpec) return;
-
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec *fs = &sp->fields[i];
-    if (!FIELD_IS(fs, INDEXFLD_T_TAG)) continue;
-    TagIndex_Ensure(fs, sp->diskSpec, FieldSpec_HasSuffixTrie(fs));
+// Declares fields new to the disk index (all of them on create and load, the
+// added ones on FT.ALTER) and sets up the per-index storage they need before
+// any document is indexed into them. Disk vector indexes are still created on
+// their first write, except on SST load, which creates them eagerly. Memory
+// indexes create all their field storage on the first write.
+static bool IndexSpec_OpenFieldsStorage(RedisModuleCtx *ctx, IndexSpec *sp, FieldSpec *fields,
+                                        size_t n) {
+  RS_ASSERT(sp->diskSpec);
+  if (n == 0) {
+    return true;
   }
+  // Before openFields, so a failure here leaves no field open for an FT.ALTER
+  // rollback to strand on disk; missing storage without INDEXMISSING fields is
+  // only an empty store.
+  for (size_t i = 0; i < n; ++i) {
+    if (FieldSpec_IndexesMissing(fields + i)) {
+      if (!SearchDisk_InitializeMissingStorage(ctx, sp->diskSpec)) {
+        return false;
+      }
+      break;
+    }
+  }
+  SearchDiskFieldOpen stackBuf[16];
+  SearchDiskFieldOpen *opens =
+      n <= sizeof(stackBuf) / sizeof(stackBuf[0]) ? stackBuf : rm_malloc(n * sizeof(*opens));
+  for (size_t i = 0; i < n; ++i) {
+    const FieldSpec *fs = fields + i;
+    opens[i] = (SearchDiskFieldOpen){
+        .fieldIndex = fs->index,
+        .types = fs->types,
+    };
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      opens[i].fieldName = HiddenString_GetUnsafe(fs->fieldName, &opens[i].fieldNameLen);
+      opens[i].vectorParams = &fs->vectorOpts.vecSimParams;
+    }
+  }
+  const bool opened = SearchDisk_OpenFields(ctx, sp->diskSpec, opens, n);
+  if (opens != stackBuf) {
+    rm_free(opens);
+  }
+  if (!opened) {
+    return false;
+  }
+
+  for (size_t i = 0; i < n; ++i) {
+    FieldSpec *fs = fields + i;
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      IndexSpec_PopulateVectorDiskParams(sp, fs);
+    }
+    if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+      // Disk queries reach a TAG field's postings through its TagIndex, which
+      // must exist even before this process writes to the field.
+      TagIndex_Ensure(fs, sp->diskSpec, FieldSpec_HasSuffixTrie(fs));
+    }
+  }
+  return true;
 }
 
 // Opens sp->diskSpec from
@@ -3181,8 +3210,9 @@ static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
 // and replays the in-memory blob stashed on the matching FieldSpec.
 //
 // Returns true on success (sp->diskSpec is set and ready to register).
-// Returns false if SearchDisk_OpenIndexWithRdbState fails, or if any
-// disk-backed vector field cannot be eagerly created. Note that the
+// Returns false if SearchDisk_OpenIndexWithRdbState fails, if a field's
+// storage cannot be opened, or if any disk-backed vector field cannot be
+// eagerly created. Note that the
 // state (sp->pendingDiskRdbState) is consumed by SearchDisk_OpenIndexWithRdbState
 // on both success and failure — we null the pointer here unconditionally.
 // On the failure path, sp->diskSpec (if already created) is closed by the
@@ -3201,10 +3231,12 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
     return false;
   }
 
-  // Populate diskCtx for every HNSW-disk-backed vector field so we have the
-  // storage context needed for both eager creation (cold fields) and the
-  // bind-storage step on pending indexes (loaded inline from RDB).
-  IndexSpec_PopulateVectorDiskParams(sp);
+  // Also gives every vector field the diskCtx the bind and create below need.
+  if (!IndexSpec_OpenFieldsStorage(ctx, sp, sp->fields, sp->numFields)) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Failed to open field storage during RDB load; aborting spec load");
+    return false;
+  }
 
   // Materialize each disk-backed VecSimIndex up front so the HNSW graph
   // metadata + SQ8 vectors are available to readers immediately after RDB
@@ -3240,10 +3272,6 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
       return false;
     }
   }
-
-  // Make sure TagDiskIndex is created for every TAG field. In regular FT.CREATE the TagIndex is ensured lazily
-  // in the first document insertion
-  IndexSpec_EnsureTagDiskIndexes(sp);
 
   return true;
 }
@@ -3531,14 +3559,13 @@ int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, Q
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
       return REDISMODULE_ERR;
     }
-    if (IndexSpec_HasIndexMissing(sp) && !SearchDisk_InitializeMissingStorage(ctx, sp->diskSpec)) {
+    // Same order as FT.CREATE.
+    if (!IndexSpec_OpenFieldsStorage(ctx, sp, sp->fields, sp->numFields)) {
       QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
-                          "Could not initialize missing-field storage during RDB load");
+                          "Could not open field storage during RDB load");
       SearchDisk_CloseIndexOnMainThread(ctx, sp);
       return REDISMODULE_ERR;
     }
-    IndexSpec_PopulateVectorDiskParams(sp);
-    IndexSpec_EnsureTagDiskIndexes(sp);
   }
   return REDISMODULE_OK;
 }
