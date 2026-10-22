@@ -164,7 +164,7 @@ class ParseHybridTest : public ::testing::Test {
 TEST_F(ParseHybridTest, RejectsPublicCursor) {
   RMCK::ArgvList args(ctx, "FT.HYBRID", index_name.c_str(), "SEARCH", "hello", "VSIM", "@vector",
                       "$BLOB", "PARAMS", "2", "BLOB", TEST_BLOB_DATA, "WITHCURSOR");
-  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "WITHCURSOR: Unknown argument");
+  testErrorCode(args, QUERY_ERROR_CODE_PARSE_ARGS, "WITHCURSOR is not supported by FT.HYBRID");
 }
 
 #define assertLinearScoringCtx(Weight0, Weight1, Window) do { \
