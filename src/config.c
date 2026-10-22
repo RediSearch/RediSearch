@@ -2801,6 +2801,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(
+      ctx, "search-_disk-statistics", 0,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.diskStatistics)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
       ctx, "search-_fallback-to-main-thread-when-block-client-unavailable", 1,
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
