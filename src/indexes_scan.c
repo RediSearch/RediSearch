@@ -82,6 +82,15 @@ static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *
 
 static redisearch_thpool_t *reindexPool = NULL;
 
+static void verifyReindexPoolInit(void) {
+  if (!reindexPool) {
+    reindexPool =
+        redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
+  }
+}
+
+#define KEY_MAP_BUILD_BATCH_SIZE 1024
+
 typedef struct {
   WeakRef spec;
 } KeyMapBuild;
@@ -96,7 +105,7 @@ static void KeyMapBuild_Run(void *arg) {
   bool done = true;
   if (spec) {
     IndexSpec_LockWrite(spec);
-    done = DocTable_BuildKeyMapBatch(&spec->docs, 1024);
+    done = DocTable_BuildKeyMapBatch(&spec->docs, KEY_MAP_BUILD_BATCH_SIZE);
     IndexSpec_Unlock(spec);
 #ifdef ENABLE_ASSERT
     if (done) SyncPoint_Wait("KeyMapBuildComplete");
@@ -121,10 +130,7 @@ void IndexSpec_ActivateKeyMap(IndexSpec *spec) {
   bool ready = spec->docs.keyMapState == DocKeyMap_Ready;
   IndexSpec_Unlock(spec);
   if (!started || ready) return;
-  if (!reindexPool) {
-    reindexPool =
-        redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
-  }
+  verifyReindexPoolInit();
   KeyMapBuild *build = rm_malloc(sizeof(*build));
   build->spec = StrongRef_Demote(IndexSpec_GetStrongRefUnsafe(spec));
   int rc = redisearch_thpool_add_work(reindexPool, KeyMapBuild_Run, build, THPOOL_PRIORITY_LOW);
@@ -478,9 +484,7 @@ end:
 //---------------------------------------------------------------------------------------------
 
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange addedFields) {
-  if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
-  }
+  verifyReindexPoolInit();
 #ifdef _DEBUG
   IndexSpec* spec = (IndexSpec*)StrongRef_Get(spec_ref);
   const char* indexName = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
@@ -635,9 +639,7 @@ void Indexes_UpgradeLegacyIndexes() {
 }
 
 void Indexes_ScanAndReindex() {
-  if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
-  }
+  verifyReindexPoolInit();
 
   RedisModule_Log(RSDummyContext, "notice", "Scanning all indexes");
   IndexesScanner *scanner = IndexesScanner_NewGlobal();

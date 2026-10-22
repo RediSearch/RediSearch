@@ -36,7 +36,6 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .memsize = 0,
       .sortablesSize = 0,
       .maxSize = max_size,
-
   };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
   ret.memsize = cap * sizeof(*ret.buckets) + sizeof(DocTable);
@@ -133,7 +132,7 @@ bool DocTable_StartKeyMap(DocTable *t) {
   t->keyMapBucket = 0;
   t->keyMapEndBucket = t->cap;
   t->keyMapNext = t->cap ? t->buckets[0].root : NULL;
-  t->keyMapState = t->size > 1 ? DocKeyMap_Building : DocKeyMap_Ready;
+  t->keyMapState = DocTable_IsEmpty(t) ? DocKeyMap_Ready : DocKeyMap_Building;
   return true;
 }
 
