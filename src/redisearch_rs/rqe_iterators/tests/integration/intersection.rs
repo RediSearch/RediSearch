@@ -9,15 +9,16 @@
 
 //! Integration tests for the Intersection iterator.
 
+use index_result::RSIndexResult;
 use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
+    Empty, IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome, id_list::IdListSorted,
     intersection::Intersection, profile::Profile,
 };
 
 use rqe_iterators_test_utils::ContractChecker;
 
-use crate::utils::{Mock, MockRevalidateResult};
+use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
 
 /// Helper function to create child iterators for intersection tests.
 ///
@@ -1154,6 +1155,341 @@ fn revalidate_moved_skip_to_returns_none() {
 
     // Further reads should return EOF
     assert!(matches!(ii.read(), Ok(None)));
+}
+
+/// A child error mid-consensus leaves the intersection off EOF with the
+/// previous document's aggregate, while the first child has moved past it.
+/// The children no longer back that aggregate, so revalidation re-seeks from
+/// the furthest child rather than publish it.
+#[test]
+fn revalidate_reseeks_after_a_child_error_mid_consensus() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let child0: Mock<'_, 2> = Mock::new([10, 20]);
+    let child1: Mock<'_, 2> = Mock::new([10, 20]);
+    let mut child1_data = child1.data();
+    let mut ii = Intersection::new(vec![child0, child1], 1.0, false);
+    assert_eq!(ii.read().expect("read").expect("doc 10").doc_id, 10);
+
+    // Child 0 advances to 20, then child 1 fails to follow it.
+    child1_data.set_error_on_skip_to(Some(MockIteratorError::TimeoutError(None)));
+    assert!(ii.read().is_err(), "the child's error must surface");
+    child1_data.set_error_on_skip_to(None);
+    assert!(!ii.at_eof());
+
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert!(
+        matches!(status, RQEValidateStatus::Moved { current: Some(ref r) } if r.doc_id == 20),
+        "an aggregate the children no longer back must be re-sought, got {status:?}",
+    );
+    assert_eq!(ii.last_doc_id(), 20);
+    assert_entries_on(&mut ii, 20, 2);
+    assert!(ii.read().expect("read").is_none());
+}
+
+/// A child error during the first read leaves a child positioned with nothing
+/// yielded. That is not an unread intersection: revalidation re-seeks from the
+/// positioned child rather than let the next read advance it past its
+/// document.
+#[test]
+fn revalidate_reseeks_after_a_child_error_in_the_first_read() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let child0: Mock<'_, 2> = Mock::new([10, 20]);
+    let child1: Mock<'_, 2> = Mock::new([10, 20]);
+    let mut child1_data = child1.data();
+    let mut ii = Intersection::new(vec![child0, child1], 1.0, false);
+
+    // Child 0 reads 10, then child 1 fails to follow it.
+    child1_data.set_error_on_skip_to(Some(MockIteratorError::TimeoutError(None)));
+    assert!(ii.read().is_err(), "the child's error must surface");
+    child1_data.set_error_on_skip_to(None);
+    assert_eq!(ii.last_doc_id(), 0);
+
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert!(
+        matches!(status, RQEValidateStatus::Moved { current: Some(ref r) } if r.doc_id == 10),
+        "doc 10 must not be skipped, got {status:?}",
+    );
+    assert_entries_on(&mut ii, 10, 2);
+    assert_eq!(ii.read().expect("read").expect("doc 20").doc_id, 20);
+}
+
+/// A child may report a move while keeping its position. When every child
+/// still sits on the published document, revalidation keeps it instead of
+/// re-seeking onto it.
+#[test]
+fn revalidate_keeps_the_document_when_a_child_moves_in_place() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let child0: Mock<'_, 2> = Mock::new([10, 20]);
+    let child1: Mock<'_, 2> = Mock::new([10, 20]);
+    child1.data().set_revalidate_moves_in_place(true);
+    let mut ii = Intersection::new(vec![child0, child1], 1.0, false);
+    ii.read().expect("read").expect("doc 10");
+
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert!(matches!(status, RQEValidateStatus::Ok), "got {status:?}");
+    assert_entries_on(&mut ii, 10, 2);
+    assert_eq!(ii.read().expect("read").expect("doc 20").doc_id, 20);
+}
+
+/// After a child error the child that did not move can stand ahead of the one
+/// that did, so a re-seek from the moved child alone would seek it backwards.
+/// Revalidation re-seeks from the furthest child instead.
+#[test]
+fn revalidate_moved_reseeks_from_the_furthest_child() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let ahead: Mock<'_, 2> = Mock::new([10, 40]);
+    let behind: Mock<'_, 4> = Mock::new([10, 20, 30, 40]);
+    let mut behind_data = behind.data();
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(ahead), Box::new(behind)];
+    let mut ii = Intersection::new(children, 1.0, false);
+    assert_eq!(ii.read().expect("read").expect("doc 10").doc_id, 10);
+
+    // The sparser child reads 40, then the denser one fails to follow it.
+    behind_data.set_error_on_skip_to(Some(MockIteratorError::TimeoutError(None)));
+    assert!(ii.read().is_err(), "the child's error must surface");
+    behind_data.set_error_on_skip_to(None);
+
+    // The lagging child moves to 20, still behind the other child's 40.
+    behind_data.set_revalidate_result(MockRevalidateResult::Move);
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert!(
+        matches!(status, RQEValidateStatus::Moved { current: Some(ref r) } if r.doc_id == 40),
+        "the re-seek must land on the next consensus, got {status:?}",
+    );
+    assert_entries_on(&mut ii, 40, 2);
+}
+
+/// A child error right after a consensus fails the proximity check leaves the
+/// result on that document, which was never yielded, with every child on it.
+/// Revalidation re-seeks past it instead of publishing it.
+#[test]
+fn revalidate_reseeks_past_an_unyielded_irrelevant_consensus() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    // In order at doc 10, out of order at doc 20.
+    let child0: Mock<'_, 2> = Mock::new_with_positions([10, 20], [1, 5]);
+    let child1: Mock<'_, 2> = Mock::new_with_positions([10, 20], [2, 1]);
+    let mut child0_data = child0.data();
+    let mut ii = Intersection::new_with_slop_order(vec![child0, child1], 1.0, false, None, true);
+    assert_eq!(ii.read().expect("read").expect("doc 10").doc_id, 10);
+
+    // Doc 20 fails the order check, then advancing past it fails.
+    child0_data.set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
+    assert!(ii.read().is_err(), "the child's error must surface");
+    child0_data.set_error_at_done(None);
+    assert_eq!(ii.last_doc_id(), 10);
+    assert!(!ii.at_eof());
+
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert!(
+        matches!(status, RQEValidateStatus::Moved { current: None }),
+        "the out-of-order doc 20 must not be published, got {status:?}",
+    );
+    assert!(ii.at_eof());
+}
+
+/// The re-seek after a child moved rebuilds the aggregate in place, so a
+/// substitute that cannot be rebuilt aborts there too.
+#[test]
+fn revalidate_moved_aborts_on_a_substituted_result() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let borrowed_src = RSIndexResult::build_intersect(1).build();
+    let owned_intersection = borrowed_src.to_owned();
+    for substitute in [
+        RSIndexResult::build_numeric(1.0).build(),
+        owned_intersection,
+    ] {
+        let child0: Mock<'_, 3> = Mock::new([10, 20, 30]);
+        let child1: Mock<'_, 3> = Mock::new([10, 20, 30]);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        let mut ii = Intersection::new(vec![child0, child1], 1.0, false);
+        let current = ii.read().expect("read").expect("doc 10");
+        let kind = substitute.kind();
+        *current = substitute;
+
+        let status = ii
+            .revalidate(&*mock_ctx.spec_read())
+            .expect("revalidate failed");
+        assert!(
+            matches!(status, RQEValidateStatus::Aborted),
+            "a {kind:?} result must abort the re-seek, got {status:?}",
+        );
+    }
+}
+
+/// An unread or rewound intersection publishes nothing, so revalidation passes
+/// even when a child has no current result to back it with.
+#[test]
+fn revalidate_unread_passes_with_a_child_without_current() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+        vec![Box::new(Empty), Box::new(Mock::<'static, 2>::new([10, 20]))];
+    let mut ii = Intersection::new(children, 1.0, false);
+    assert!(!ii.at_eof());
+
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert!(
+        matches!(status, RQEValidateStatus::Ok),
+        "an unread intersection must pass, got {status:?}",
+    );
+
+    assert!(ii.read().expect("read").is_none());
+    ii.rewind();
+    assert!(!ii.at_eof());
+
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert!(
+        matches!(status, RQEValidateStatus::Ok),
+        "a rewound intersection must pass, got {status:?}",
+    );
+}
+
+/// A result swapped in through `current()` that the intersection cannot
+/// rebuild aborts the revalidation. The owned intersection is the case a kind
+/// check alone would let through, the borrowed union the case a representation
+/// check alone would.
+#[test]
+fn revalidate_aborts_when_the_result_is_no_longer_an_intersection() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let borrowed_src = RSIndexResult::build_intersect(1).build();
+    let owned_intersection = borrowed_src.to_owned();
+    for substitute in [
+        RSIndexResult::build_numeric(1.0).build(),
+        RSIndexResult::build_hybrid_metric().build(),
+        RSIndexResult::build_union(1).build(),
+        owned_intersection,
+    ] {
+        let child0: Mock<'_, 2> = Mock::new([10, 30]);
+        let child1: Mock<'_, 2> = Mock::new([10, 30]);
+        let mut ii = Intersection::new(vec![child0, child1], 1.0, false);
+        let current = ii.read().expect("read").expect("doc 10");
+        let kind = substitute.kind();
+        *current = substitute;
+
+        let status = ii
+            .revalidate(&*mock_ctx.spec_read())
+            .expect("revalidate failed");
+        assert!(
+            matches!(status, RQEValidateStatus::Aborted),
+            "a {kind:?} result must abort the revalidation, got {status:?}",
+        );
+    }
+}
+
+/// Asserts that the intersection publishes `doc_id` with one readable entry
+/// per child, the reads Miri checks after a revalidation.
+fn assert_entries_on<'index, I: RQEIterator<'index>>(
+    ii: &mut Intersection<'index, I>,
+    doc_id: DocId,
+    num_children: usize,
+) {
+    let current = ii.current().expect("not at EOF");
+    assert_eq!(current.doc_id, doc_id);
+    let aggregate = current.as_aggregate().expect("an aggregate");
+    assert_eq!(aggregate.len(), num_children);
+    for i in 0..num_children {
+        assert_eq!(aggregate.get(i).expect("an entry").doc_id, doc_id);
+    }
+}
+
+/// Revalidating the children invalidates the entries the aggregate borrowed
+/// from them, so a revalidation that keeps the document must leave an
+/// aggregate whose entries can still be read. Miri checks the reads.
+#[test]
+fn revalidate_ok_leaves_the_aggregate_readable() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let child0: Mock<'_, 2> = Mock::new([10, 20]);
+    let child1: Mock<'_, 2> = Mock::new([10, 20]);
+    let mut ii = Intersection::new(vec![child0, child1], 1.0, false);
+    ii.read().expect("read").expect("doc 10");
+
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert!(matches!(status, RQEValidateStatus::Ok), "got {status:?}");
+
+    assert_entries_on(&mut ii, 10, 2);
+}
+
+/// The children gave their metrics up when the aggregate was first built, so
+/// rebuilding its entries must keep the metrics, frequency and field mask the
+/// aggregate already gathered.
+#[test]
+fn revalidate_ok_keeps_the_aggregate_metrics() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let child0: Mock<'_, 2> = Mock::new([10, 20]);
+    let child1: Mock<'_, 2> = Mock::new([10, 20]);
+    let mut ii = Intersection::new(vec![child0, child1], 1.0, false);
+    let current = ii.read().expect("read").expect("doc 10");
+    current.metrics.push_without_key(0.5);
+    let (freq, field_mask) = (current.freq, current.field_mask);
+
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert!(matches!(status, RQEValidateStatus::Ok), "got {status:?}");
+
+    let current = ii.current().expect("not at EOF");
+    assert_eq!(current.metrics.len(), 1);
+    assert_eq!(current.metrics.get(0).expect("a metric").value, 0.5);
+    assert_eq!(current.freq, freq);
+    assert_eq!(current.field_mask, field_mask);
+}
+
+/// A borrowed intersection swapped in through `current()` passes every check
+/// a substitute can be held to, so revalidation rebuilds it from the children
+/// rather than publish it.
+#[test]
+fn revalidate_ok_rebuilds_a_substituted_intersection() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let child0: Mock<'_, 2> = Mock::new([10, 20]);
+    let child1: Mock<'_, 2> = Mock::new([10, 20]);
+    let mut ii = Intersection::new(vec![child0, child1], 1.0, false);
+    let current = ii.read().expect("read").expect("doc 10");
+    // Its doc ID is not the one yielded, as nothing makes a substitute keep it.
+    *current = RSIndexResult::build_intersect(2).build();
+
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert!(matches!(status, RQEValidateStatus::Ok), "got {status:?}");
+
+    assert_entries_on(&mut ii, 10, 2);
+}
+
+/// At EOF nothing is published, so a substituted result left behind does not
+/// abort the revalidation.
+#[test]
+fn revalidate_at_eof_ignores_a_substituted_result() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let child0: Mock<'_, 1> = Mock::new([10]);
+    let child1: Mock<'_, 1> = Mock::new([10]);
+    let mut ii = Intersection::new(vec![child0, child1], 1.0, false);
+    let current = ii.read().expect("read").expect("doc 10");
+    *current = RSIndexResult::build_numeric(1.0).build();
+    assert!(ii.read().expect("read").is_none());
+    assert!(ii.at_eof());
+
+    let status = ii
+        .revalidate(&*mock_ctx.spec_read())
+        .expect("revalidate failed");
+    assert!(matches!(status, RQEValidateStatus::Ok), "got {status:?}");
 }
 
 // =============================================================================
