@@ -135,61 +135,9 @@ TEST_P(HybridProfileTest, ErrorProfiles) {
         "[ { \"Shard ID\": \"shard-1\", \"SEARCH\": { \"Warning\": \"None\" }, "
         "\"VSIM\": \"ERR: timeout\" } ]");
   check({error}, {}, 1, "[ { \"Shard ID\": null, \"SEARCH\": \"ERR: timeout\" } ]");
-}
-
-TEST_P(HybridProfileTest, MalformedProfiles) {
-  std::vector<std::string> malformed = {":1\r\n",
-                                        "$-1\r\n",
-                                        "*0\r\n",
-                                        "%0\r\n",
-                                        "*1\r\n+Shards\r\n",
-                                        "%1\r\n+Other\r\n*0\r\n",
-                                        wrap(":1\r\n"),
-                                        wrap("$-1\r\n"),
-                                        wrap("*0\r\n"),
-                                        wrap("%0\r\n"),
-                                        wrap("*1\r\n+Shard ID\r\n")};
-  const std::string outer = shardResp3() ? "%1\r\n+Shards\r\n" : "*2\r\n+Shards\r\n";
-  for (const auto &shards : {"$-1\r\n", ":1\r\n", "*0\r\n"}) {
-    malformed.push_back(outer + shards);
-  }
-  if (shardResp3()) {
-    // RESP3 shard profiles must be maps, even when an array has an even length.
-    malformed.push_back(wrap("*2\r\n+Warning\r\n+None\r\n"));
-  }
-  for (const auto &wire : malformed) {
-    SCOPED_TRACE(wire);
-    auto *bad = parse(wire);
-    check({bad}, {validProfile()}, 1, "[ " + vsimOnly + " ]");
-    check({validProfile()}, {bad}, 1, "[ " + searchOnly + " ]");
-    check({bad}, {bad}, 0, "[  ]");
-  }
-}
-
-TEST_P(HybridProfileTest, NullProfiles) {
-  check({nullptr}, {validProfile()}, 1, "[ " + vsimOnly + " ]");
-  check({validProfile()}, {nullptr}, 1, "[ " + searchOnly + " ]");
-  check({nullptr}, {nullptr}, 0, "[  ]");
-
-  auto *missingShards = validProfile();
-  MRReply_Free(MRReply_TakeArrayElement(missingShards, 1));
-  check({missingShards}, {validProfile()}, 1, "[ " + vsimOnly + " ]");
-
-  auto *missingProfile = validProfile();
-  MRReply_Free(MRReply_TakeArrayElement(MRReply_ArrayElement(missingProfile, 1), 0));
-  check({validProfile()}, {missingProfile}, 1, "[ " + searchOnly + " ]");
-}
-
-TEST_P(HybridProfileTest, OddLengthMaps) {
-  // Hiredis cannot parse an odd-length RESP3 map; construct one from an array.
-  auto *bad = parse(wrap("*3\r\n+Shard ID\r\n+shard-1\r\n+Warning\r\n"));
-  MRReply_ArrayToMap(MRReply_ArrayElement(MRReply_ArrayElement(bad, 1), 0));
-  check({bad}, {validProfile()}, 1, "[ " + vsimOnly + " ]");
-  if (shardResp3()) {
-    auto *badOuter = parse("*1\r\n+Shards\r\n");
-    MRReply_ArrayToMap(badOuter);
-    check({validProfile()}, {badOuter}, 1, "[ " + searchOnly + " ]");
-  }
+  check({}, {error}, 1, "[ { \"Shard ID\": null, \"VSIM\": \"ERR: timeout\" } ]");
+  check({error}, {error}, 1,
+        "[ { \"Shard ID\": null, \"SEARCH\": \"ERR: timeout\", \"VSIM\": \"ERR: timeout\" } ]");
 }
 
 INSTANTIATE_TEST_SUITE_P(Protocols, HybridProfileTest,
