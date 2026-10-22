@@ -10,7 +10,7 @@
 //! A fixed-capacity heap that retains the top-k scored documents.
 
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, TryReserveError};
 use std::num::NonZeroUsize;
 
 use index_result::RSIndexResult;
@@ -116,7 +116,7 @@ impl<O: ScoreOrdering> Ord for HeapEntry<'_, O> {
 /// `compare = |a, b| b.partial_cmp(&a).unwrap_or(Ordering::Equal)`
 pub struct TopKHeap<'index, O: ScoreOrdering = Ascending> {
     inner: BinaryHeap<HeapEntry<'index, O>>,
-    capacity: usize,
+    capacity: NonZeroUsize,
     order: O,
 }
 
@@ -124,12 +124,33 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
     /// Creates a new heap that holds at most `capacity` elements,
     /// using `order` to determine which score is better.
     pub fn new(capacity: NonZeroUsize, order: O) -> Self {
-        let capacity = capacity.into();
         Self {
-            inner: BinaryHeap::with_capacity(capacity),
+            inner: BinaryHeap::with_capacity(capacity.get()),
             capacity,
             order,
         }
+    }
+
+    /// Like [`new`](Self::new), but returns an error instead of panicking
+    /// when the storage for `capacity` elements cannot be reserved.
+    pub fn try_new(capacity: NonZeroUsize, order: O) -> Result<Self, TryReserveError> {
+        let mut inner = BinaryHeap::new();
+        inner.try_reserve_exact(capacity.get())?;
+        Ok(Self {
+            inner,
+            capacity,
+            order,
+        })
+    }
+
+    /// Returns the maximum number of elements the heap retains.
+    pub const fn capacity(&self) -> NonZeroUsize {
+        self.capacity
+    }
+
+    /// Returns the ordering that ranks the heap's scores.
+    pub const fn order(&self) -> O {
+        self.order
     }
 
     /// Returns the number of elements currently in the heap.
@@ -144,7 +165,7 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
 
     /// Returns `true` if the heap has reached its capacity.
     pub fn is_full(&self) -> bool {
-        self.inner.len() >= self.capacity
+        self.inner.len() >= self.capacity.get()
     }
 
     /// Returns the worst element currently retained (the one that would be evicted next),
@@ -266,7 +287,7 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
                 order,
             })
             .collect();
-        debug_assert!(self.inner.len() <= self.capacity);
+        debug_assert!(self.inner.len() <= self.capacity.get());
     }
 
     /// Drains all elements in unspecified order, leaving the heap empty but reusable.

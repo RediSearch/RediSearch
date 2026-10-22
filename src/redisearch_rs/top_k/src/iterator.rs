@@ -27,6 +27,34 @@ use crate::{
     traits::{BatchStrategy, ScoreBatch, ScoreSource},
 };
 
+/// Outcome of reducing a filter child before constructing a [`TopKIterator`].
+pub enum ChildReduction<C> {
+    /// The child can never yield a match, so the whole query is empty.
+    Empty,
+    /// No child, or a wildcard that matches everything: run the source alone.
+    Unfiltered,
+    /// A real filter child to intersect the source's results against.
+    Filtered(C),
+}
+
+/// Classify a filter child into the [`ChildReduction`] that applies to it.
+///
+/// A reduced-away child is dropped, so unlike in C's optimizer it no longer
+/// shows up as an `EMPTY` or `WILDCARD` child in the profile output.
+pub fn reduce_child<'index, C>(child: Option<C>) -> ChildReduction<C>
+where
+    C: RQEIterator<'index> + 'index,
+{
+    let Some(child) = child else {
+        return ChildReduction::Unfiltered;
+    };
+    match child.type_() {
+        IteratorType::Empty => ChildReduction::Empty,
+        IteratorType::Wildcard | IteratorType::InvIdxWildcard => ChildReduction::Unfiltered,
+        _ => ChildReduction::Filtered(child),
+    }
+}
+
 /// Determines which collection algorithm [`TopKIterator`] uses.
 ///
 /// Selected at construction based on whether a child filter is present,
@@ -180,8 +208,25 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         order: O,
         mode: TopKMode,
     ) -> Self {
+        Self::from_heap(source, child, TopKHeap::new(k, order), mode)
+    }
+
+    /// Create a new [`TopKIterator`] around a pre-allocated `heap`, whose
+    /// [`capacity`](TopKHeap::capacity) and [`order`](TopKHeap::order) set `k`
+    /// and the score ordering.
+    ///
+    /// Pair with [`TopKHeap::try_new`] to handle an oversized `k` before
+    /// handing over the source and child.
+    pub fn from_heap(
+        source: S,
+        child: Option<C>,
+        heap: TopKHeap<'index, O>,
+        mode: TopKMode,
+    ) -> Self {
+        let k = heap.capacity();
+        let order = heap.order();
         Self {
-            heap: ManuallyDrop::new(TopKHeap::new(k, order)),
+            heap: ManuallyDrop::new(heap),
             source,
             child,
             mode,
