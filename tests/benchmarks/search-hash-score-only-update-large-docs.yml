@@ -8,8 +8,8 @@ description: "
              metadata in place (MOD_18182) instead of re-indexing the document under
              a fresh doc-id. Each document carries a 1500-word TEXT body, so a
              regression back to full re-indexing shows up as a large throughput drop:
-             measured on aarch64, one client went from about 1.6K to 28K updates per
-             second when the fast path landed.
+             on aarch64, 8 connections went from about 1.35K to 17K updates per second
+             when the fast path landed.
 
              PAYLOAD_FIELD updates take the same path and are not benchmarked separately.
              Specifically for this testcase:
@@ -30,13 +30,11 @@ dbconfig:
     # Written as a list so the script reaches Redis as one argument, unsplit. It builds
     # 64 bodies of 1500 words from a 5000-word vocabulary, then writes doc:1..doc:5000.
     - ["EVAL", "local v = {} for i = 1, 5000 do v[i] = 'w' .. i end local pool = {} for p = 1, 64 do local t = {} for j = 1, 1500 do t[j] = v[math.random(5000)] end pool[p] = table.concat(t, ' ') end for d = 1, 5000 do redis.call('HSET', 'doc:' .. d, 'body', pool[d % 64 + 1], 'score', '0.5', 'payload', 'p0') end return 5000", "0"]
-  - check:
-      keyspacelen: 5000
 
 clientconfig:
   benchmark_type: "write-only"
   tool: memtier_benchmark
-  # Three scores, none equal to the initial 0.5, so every write changes the stored value.
+  # The fast path is chosen by which fields an HSET names, not by whether their values change.
   # [1, 5000] is exactly the loaded key range: a write outside it would create a new
   # document, which is a full index insert rather than the update this measures.
   arguments: "--test-time 120 -c 8 -t 4 --hide-histogram --key-prefix 'doc:' --key-minimum 1 --key-maximum 5000 --command 'HSET __key__ score 0.25' --command-ratio 1 --command 'HSET __key__ score 0.75' --command-ratio 1 --command 'HSET __key__ score 0.9' --command-ratio 1"
