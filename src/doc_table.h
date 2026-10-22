@@ -70,8 +70,9 @@ typedef struct {
   // Allocated on first INKEYS use; disk indexes never activate it.
   DocKeyMap *keyMap;
   DocKeyMapState keyMapState;
-  t_docId keyMapNextId;
-  t_docId keyMapLastId;
+  uint32_t keyMapBucket;
+  uint32_t keyMapEndBucket;
+  RSDocumentMetadata *keyMapNext;
   // Holds field-level expirations only; created lazily on the first HEXPIRE
   // and destroyed when the last entry is removed. Iterators use a NULL check
   // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
@@ -92,7 +93,8 @@ DocTable NewDocTable(size_t cap, size_t max_size);
 
 /* Caller holds the spec write lock. Returns false if already activated or disk mode. */
 bool DocTable_StartKeyMap(DocTable *t);
-/* Caller holds the spec write lock. Returns true when the map is ready. */
+/* Caller holds the spec write lock. Visits at most budget documents/bucket boundaries.
+ * Returns true when the map is ready. */
 bool DocTable_BuildKeyMapBatch(DocTable *t, size_t budget);
 
 /* Caller holds the spec read or write lock and keyMap is ready. */

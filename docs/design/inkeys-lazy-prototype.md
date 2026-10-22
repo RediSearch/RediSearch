@@ -1,85 +1,90 @@
-# Lazy document key map: local prototype
+# Lazy document key map
 
-This prototype branches from the always-on implementation in PR #11945. It is
-local exploration, not a change to the published PR or its design decision.
+This change builds on PR #11945 and replaces its eager map allocation with
+activation on first INKEYS use. Indexes that never use INKEYS retain Redis document
+metadata for other consumers but allocate and maintain no additional key map.
+No configuration, command syntax, or persistence format changes.
 
 ## Activation and execution
 
-A memory index starts with no map allocation or map maintenance. Its first INKEYS
-request allocates an empty map under the spec write lock and schedules one task
-on the existing single-threaded reindex pool, independent of query WORKERS.
-Disk mode retains admission-time resolution and never activates a map.
+A memory index starts inactive. Its first INKEYS request allocates an empty map
+under the spec write lock and schedules work on the existing single-threaded
+reindex pool, independently of query WORKERS. An empty index becomes ready
+immediately. Disk mode retains admission-time resolution and never activates a map.
 
-The task visits at most 1,024 document IDs per invocation, taking the spec write
-lock without the GIL. It then releases the lock and requeues at low priority.
-Each invocation promotes a weak index reference; index deletion cancels the next
-batch without retaining a dropped index for the whole build. Pool destruction
-already drains queued work, including these continuations. Shutdown must drain
-the reindex pool before the cleanup pool, since a finishing batch can release the
-last index reference and enqueue its destruction. An executed destructor-enabled
-shutdown test exposed a crash with the previous order; the prototype corrects it.
+Each task promotes a weak index reference, takes the spec write lock without the
+GIL, and visits at most 1,024 documents or bucket boundaries. It then unlocks,
+releases its strong reference, and requeues at low priority if work remains. Index
+deletion cancels subsequent batches. Shutdown drains the reindex pool before the
+cleanup pool because a finishing batch can release the last index reference and
+enqueue its destruction.
 
 Until ready, INKEYS resolves through Redis document metadata during ordinary AST
 evaluation. A query worker checks state under the spec read lock; when necessary,
 it releases that lock, acquires the GIL, and reacquires the read lock. It holds the
-GIL through execution-plan construction, then releases it before execution.
-Inline and EXPLAIN execution already own the GIL. No separate AST traversal or
-cached INKEYS node is introduced. Once ready, resolution uses the Rust map directly.
+GIL through execution-plan construction, includes that interval in FT.PROFILE's
+GIL time, and releases it before execution. Inline and EXPLAIN execution already
+own the GIL. There is no separate AST traversal or cached INKEYS node. Once ready,
+resolution uses the Rust map directly.
 
-## Concurrent mutation rule
+Metadata lookup uses NOEFFECTS, which Redis defines to include NOEXPIRE. An expired
+key is not unlinked while the caller holds the spec read lock. A regression test
+covers SEARCH and EXPLAIN with active expiry disabled and checks that the expired
+key remains physically present after fallback resolution.
 
-Construction snapshots maxDocId and maintains a next-ID cursor. Map maintenance
-covers the completed prefix and IDs newer than the snapshot. Backfill reads the
-current DMD for each remaining ID. This gives each ID one insertion owner, so
-insert/delete/rename remain correct without idempotent map insertion or a per-DMD
-build marker. State and mutation are protected by the spec lock.
+## Backfill and concurrent mutation
+
+Construction snapshots the bucket-array capacity and retains a bucket index and
+next-DMD pointer. Deletion repairs that pointer before unlinking its target.
+Array growth preserves bucket membership, and newly created buckets contain only
+new documents maintained by the normal write path. Traversal therefore costs
+O(snapshot bucket capacity + visited chain entries), independent of the historical
+maximum document ID, and does not repeatedly search collision chains or assume
+any ordering within them.
+
+Writes maintain the map from activation onward. During construction, deletion
+and rename tolerate an entry not having been backfilled yet; rename inserts the
+new key. Backfill uses idempotent insertion by hash and document ID to avoid
+creating a second entry for a document already maintained by a writer. Full-hash
+collisions between different IDs remain distinct. State, cursor, map, and DMD
+mutations are all protected by the spec lock.
+
+The builder reserves capacity for the current live-document count while processing
+its first bucket. This runs in the background and avoids the large repeated
+rehashes observed with incremental growth. Concurrent writes can still require
+ordinary map growth if they exhaust that reservation.
 
 The map remains allocated after activation, including when all documents are
-deleted. Reload rebuilds documents with an inactive map; the next INKEYS activates
-it again. The prototype adds 24 bytes of state per index on this 64-bit build;
-indexes that never use INKEYS allocate no hash table or private hash seed.
+deleted. Reload starts with an inactive map. The state adds 24 bytes per index on
+the tested 64-bit build; indexes that never use INKEYS allocate no hash table or
+private hash seed. Cached hashes are retained: the earlier hash-recomputation
+experiment saved memory but imposed unacceptable resize cost.
 
-## Complexity exposed by the prototype
+## Accepted tradeoffs
 
-- The scan visits historical IDs, not only live documents. Heavy churn can make
-  it expensive, and repeated document-table bucket-chain searches can amplify the
-  cost. A production version needs a better resumable traversal or measurements
-  that justify this choice.
-- A batch limits IDs visited, not elapsed lock time. Long document-table chains
-  and a hash-table resize can exceed the intended time slice. The prior resize
-  benchmarks still apply; a strict latency bound needs additional work.
-- Existing reindex scans occupy the sole pool thread until their entire scan
-  completes. Activation can wait behind initial indexing or ALTER; queries keep
-  working through the GIL fallback during that wait.
-- Fallback holds the GIL for all plan construction, which can be expensive for
-  complex queries. Narrowing this requires a separate fallback-resolution phase
-  or a different evaluation contract.
-- Scheduling uses the existing fail-fast allocation policy. No new persistence
-  format, user configuration, or eviction policy is added.
+- Batch size bounds traversal work, not wall-clock lock time. Allocation, page
+  faults, scheduling, and concurrent growth prevent a strict latency guarantee.
+- A sparse bucket array still requires visiting its allocated buckets, bounded
+  by the document-table capacity rather than all historical IDs.
+- A full reindex scan can occupy the sole pool thread until it finishes. Queries
+  continue through the metadata/GIL fallback while activation waits.
+- Fallback holds the GIL for all plan construction. Narrowing this would require
+  a separate resolution phase or a different evaluation contract.
+- Allocation follows the existing fail-fast policy. This change introduces no
+  eviction policy or persistent map state.
+
+The measured costs and procedure are recorded in the
+[benchmark report](inkeys-lazy-benchmarks.md). They are workload measurements, not latency guarantees.
 
 ## Validation
 
-Focused tests cover absent allocation, activation with WORKERS 0/2, queries while
-construction is parked, concurrent rename/delete/insert, completion, queued
-reindex, timeout, index drop, binary keys, inline/Lua/EXPLAIN, reload, legacy load,
-and memory accounting. C tests force document-table bucket collisions while
-mutating both sides of the build cursor. Performance and full disk-engine runtime
-validation are outside this prototype's evidence.
+Tests cover absent allocation, activation with WORKERS 0/2, queries while the
+builder is parked, rename/delete/insert during construction, cursor deletion,
+bucket-array growth, unordered chains, completion, queued reindex, timeout, index
+drop, binary keys, inline/Lua/EXPLAIN, reload, legacy loading, and memory accounting.
+Rust tests cover reservation with existing hash collisions and deduplication by ID.
 
-Local verification completed:
-
-- Debug/assert-enabled build and all 1,313 C/C++ tests passed.
-- Query evaluator and map Rust suites: 230 passed.
-- Focused standalone flows: 12 cases passed, including the ready-map case rerun
-  after correcting its debug-command spelling.
-- Three-shard flows: six passed, seven standalone-only cases skipped.
-- Full Rust lint and documentation checks passed.
-- Independent review found no correctness blockers. It noted that the shutdown
-  test's one-second auto-release can miss the intended overlap if the test process
-  is delayed. Replace it with shutdown-side synchronization before relying on it
-  as deterministic coverage. The shutdown crash itself was observed in a saved
-  pre-fix server log, and the fixed test checks the server exit code.
-
-Evidence logs are under `/tmp/inkeys-lazy-*` in the development workspace.
-This is functional evidence; no first-use latency, sustained-write load, or
-backfill scaling benchmark has been run for this prototype.
+The shutdown regression holds the builder's final strong reference until reindex
+pool teardown explicitly signals it; it uses no wall-clock auto-release and checks
+the server exit code. The profiling test deliberately holds the fallback GIL
+interval open so admission-time accounting cannot hide a missing contribution.

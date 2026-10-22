@@ -1315,14 +1315,24 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   IndexSpec_LockRead(sctx->spec);
   bool keyMapFallback = req->searchopts.inkeys && !sctx->spec->diskSpec &&
                         sctx->spec->docs.keyMapState != DocKeyMap_Ready;
+  rs_wall_clock fallbackGILStart;
   if (keyMapFallback) {
     // Main-thread writers acquire the GIL before the spec lock.
     IndexSpec_Unlock(sctx->spec);
     RedisModule_ThreadSafeContextLock(outctx);
+    if (IsProfile(req)) rs_wall_clock_init(&fallbackGILStart);
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait("KeyMapFallbackGIL");
+#endif
     IndexSpec_LockRead(sctx->spec);
   }
   int planStatus = prepareExecutionPlan(req, status);
-  if (keyMapFallback) RedisModule_ThreadSafeContextUnlock(outctx);
+  if (keyMapFallback) {
+    if (IsProfile(req)) {
+      AREQ_QueryProcessingCtx(req)->queryGILTime += rs_wall_clock_elapsed_ns(&fallbackGILStart) + 1;
+    }
+    RedisModule_ThreadSafeContextUnlock(outctx);
+  }
   if (planStatus != REDISMODULE_OK) {
     IndexSpec_Unlock(sctx->spec);
     goto error;

@@ -69,6 +69,17 @@ uint64_t DocKeyMap_Hash(const struct DocKeyMap *map, const uint8_t *key, size_t 
 void DocKeyMap_Insert(struct DocKeyMap *map, uint64_t hash, uint64_t id);
 
 /**
+ * Populate a backfilled ID without duplicating a candidate maintained by a writer.
+ *
+ * # Safety
+ * `map` must be [valid] for exclusive access and allocated by [`DocKeyMap_New`].
+ * The caller must remove an ID before changing its key and corresponding hash.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void DocKeyMap_InsertIfAbsent(struct DocKeyMap *map, uint64_t hash, uint64_t id);
+
+/**
  * Report allocated table storage; null denotes disabled acceleration and returns zero.
  *
  * # Safety
@@ -92,6 +103,16 @@ struct DocKeyMap *DocKeyMap_New(void);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool DocKeyMap_Remove(struct DocKeyMap *map, uint64_t hash, uint64_t id);
+
+/**
+ * Reserve room for at least `capacity` entries without changing membership.
+ *
+ * # Safety
+ * `map` must be [valid] for exclusive access and allocated by [`DocKeyMap_New`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void DocKeyMap_Reserve(struct DocKeyMap *map, size_t capacity);
 
 #ifdef __cplusplus
 }  // extern "C"
