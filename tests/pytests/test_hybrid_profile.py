@@ -683,7 +683,8 @@ def test_profile_standalone_with_background_depletion():
 
 @skip(cluster=False)
 def test_profile_cluster():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false')
+    # This structure test requires complete profiles from every shard.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 _PRINT_PROFILE_CLOCK false TIMEOUT 0')
     _setup_index_and_data(env)
     for query, _, _, _, expected_shard_profile, expected_coordinator_profile in query_and_profile:
         actual_res = env.execute_command(*query)
