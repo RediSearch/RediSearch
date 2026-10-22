@@ -8,6 +8,7 @@
  */
 
 #include "gtest/gtest.h"
+#include "gtest/internal/gtest-port.h"  // For CaptureStderr/GetCapturedStderr
 #include "document.h"
 #include "indexes.h"
 #include "json.h"
@@ -16,6 +17,7 @@
 
 #include <cstring>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -28,6 +30,9 @@ class JSONPathIndexingTest : public ::testing::Test {
   struct Value {
     double number = 0;
     const char *string = nullptr;
+    // Reported by getString instead of strlen, to model RedisJSON strings, which are not
+    // NUL-terminated.
+    std::optional<size_t> length;
   };
   using Root = std::map<std::string, Value>;
   struct Iterator {
@@ -107,7 +112,7 @@ class JSONPathIndexingTest : public ::testing::Test {
     auto *value = static_cast<const Value *>(json);
     if (!value->string) return REDISMODULE_ERR;
     *out = value->string;
-    *len = strlen(*out);
+    *len = value->length.value_or(strlen(*out));
     return REDISMODULE_OK;
   }
 
@@ -233,6 +238,19 @@ TEST_F(JSONPathIndexingTest, languageAndScorePathsAreCompiledAndReused) {
 
   EXPECT_EQ(parses, 3);
   EXPECT_EQ(stringGets, 0);
+}
+
+TEST_F(JSONPathIndexingTest, emptyLanguageFallsBackToDefault) {
+  auto *spec = createSpec({"ON", "JSON", "LANGUAGE", "italian", "LANGUAGE_FIELD", "$.lang",
+                           "SCHEMA", "$.price", "NUMERIC"});
+  ASSERT_NE(spec, nullptr);
+  // An empty value whose pointer is followed by a valid language name: a lookup that reads past
+  // the reported length finds English instead of falling back to the index default.
+  Root doc = {{"$.lang", {0, "english", 0}}};
+  testing::internal::CaptureStderr();
+  EXPECT_EQ(SchemaRule_JsonLang(ctx, spec->rule, &doc, "doc"), RS_LANG_ITALIAN);
+  std::string log = testing::internal::GetCapturedStderr();
+  EXPECT_NE(log.find("invalid language for key doc"), std::string::npos) << log;
 }
 
 }  // namespace
