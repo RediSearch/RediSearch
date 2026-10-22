@@ -230,6 +230,11 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId);
  * mapping is untouched (it rides with the Redis key metadata). No-op if absent. */
 void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *key, size_t len);
 
+// `size` counts one more than the docs held: NewDocTable starts it at 1.
+static inline bool DocTable_IsEmpty(const DocTable *t) {
+  return t->size <= 1;
+}
+
 /* increasing the ref count of the given dmd */
 /*
  * This macro is atomic and fits for single writer and multiple readers as it is used only
