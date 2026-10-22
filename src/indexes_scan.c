@@ -514,6 +514,10 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange a
 
 void ReindexPool_ThreadPoolDestroy() {
   if (reindexPool != NULL) {
+#ifdef ENABLE_ASSERT
+    // A shutdown regression test pins the final spec reference until this drain.
+    SyncPoint_Signal("KeyMapBuildComplete");
+#endif
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     redisearch_thpool_destroy(reindexPool);
     reindexPool = NULL;

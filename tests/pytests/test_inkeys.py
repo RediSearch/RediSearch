@@ -241,9 +241,8 @@ def test_lazy_key_map_shutdown_during_build():
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     env.cmd('HSET', 'doc', 't', 'hello')
-    # Shutdown cannot signal a parked builder; let it release its final spec
-    # reference after shutdown has started draining the background pools.
-    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'KeyMapBuildComplete', 1000).ok()
+    # Reindex-pool teardown releases this hook after index ownership is dropped.
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'KeyMapBuildComplete').ok()
     env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 1, 'doc', 'NOCONTENT').equal([1, 'doc'])
     wait_for_condition(
         lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', 'KeyMapBuildComplete') == 1, {}),
@@ -260,3 +259,59 @@ def test_inkeys_resolves_after_queued_reindex():
 @skip(cluster=True)
 def test_inkeys_resolves_after_queued_reindex_ready():
     _queued_reindex_with_key_map(False)
+
+
+@skip(cluster=True)
+def test_lazy_key_map_expired_fallback():
+    """Metadata reads under the spec lock must not unlink lazily expired keys."""
+    for workers in (0, 2):
+        env = Env(moduleArgs=f'WORKERS {workers} TIMEOUT 0')
+        skipIfNoEnableAssert(env)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+        env.cmd('HSET', 'expired', 't', 'hello')
+        env.cmd('HSET', 'live', 't', 'hello')
+        env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', 0)
+        env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'KeyMapBeforeBatch').ok()
+        try:
+            now = env.cmd('TIME')
+            deadline = int(now[0]) * 1000 + int(now[1]) // 1000 + 100
+            env.cmd('PEXPIREAT', 'expired', deadline)
+            # TIME observes the TTL deadline without touching the key or expiring it.
+            wait_for_condition(
+                lambda: (int(env.cmd('TIME')[0]) * 1000 > deadline, {}),
+                'key TTL did not elapse')
+            env.assertEqual(env.cmd('DBSIZE'), 2)
+            env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 2, 'expired', 'live',
+                       'NOCONTENT').equal([1, 'live'])
+            env.assertContains('IDS {2,}', env.cmd('FT.EXPLAIN', 'idx', '*',
+                                                 'INKEYS', 2, 'expired', 'live'))
+            env.assertEqual(env.cmd('DBSIZE'), 2)
+        finally:
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', 1)
+        env.stop()
+
+
+@skip(cluster=True)
+def test_lazy_key_map_profile_gil():
+    """Fallback planning contributes to the reported worker GIL interval."""
+    from test_profile import extract_profile_coordinator_and_shards
+
+    env = Env(moduleArgs='WORKERS 1 TIMEOUT 0', protocol=3)
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.cmd('HSET', 'doc', 't', 'hello')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'KeyMapBeforeBatch').ok()
+    # Hold the measured interval open so pre-dispatch time cannot hide missing accounting.
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', 'KeyMapFallbackGIL', 50).ok()
+    try:
+        result = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*',
+                         'INKEYS', 1, 'doc', 'NOCONTENT')
+        _, shards = extract_profile_coordinator_and_shards(env, result)
+        shard = shards[0]
+        env.assertGreaterEqual(float(shard['Total GIL time']), 40, message=shard)
+        env.assertGreaterEqual(float(shard['Total GIL time']),
+                               float(shard['Pipeline creation time']), message=shard)
+    finally:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.stop()

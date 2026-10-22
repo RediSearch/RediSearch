@@ -1523,7 +1523,7 @@ TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
   ASSERT_TRUE(DocTable_StartKeyMap(&dt));
   EXPECT_FALSE(DocTable_StartKeyMap(&dt));
   EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, 3));
-  // Mutate both the completed prefix and the not-yet-scanned suffix.
+  // Delete the parked cursor and mutate both scanned and unscanned entries.
   DocTable_SetKeyById(&dt, 1, "renamed:1", 9);
   DocTable_SetKeyById(&dt, 8, "renamed:8", 9);
   DMD_Return(DocTable_DeleteById(&dt, 2));
@@ -1531,7 +1531,9 @@ TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
   auto *added = DocTable_Put(&dt, "new", 3, 1, (RSDocumentFlags)0, nullptr, 0, DocumentType_Hash);
   const auto addedId = added->id;
   DMD_Return(added);
+  size_t batches = 0;
   while (!DocTable_BuildKeyMapBatch(&dt, 2)) {
+    ASSERT_LT(++batches, 10u);
   }
   EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed:1", 9), 1u);
   EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed:8", 9), 8u);
@@ -1541,5 +1543,63 @@ TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
   EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:7", 5), 0u);
   EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:4", 5), 4u);
   EXPECT_EQ(DocTable_GetIdByKey(&dt, "new", 3), addedId);
+  DocTable_Free(&dt);
+}
+
+TEST_F(IndexTest, testLazyKeyMapBucketGrowth) {
+  DocTable dt = NewDocTable(1, 64);
+  for (int i = 1; i <= 4; ++i) {
+    auto key = std::to_string(i);
+    DMD_Return(DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                            DocumentType_Hash));
+  }
+  ASSERT_TRUE(DocTable_StartKeyMap(&dt));
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, 0));
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, 2));
+  size_t snapshotCap = dt.cap;
+  for (int i = 5; i <= 100; ++i) {
+    auto key = std::to_string(i);
+    DMD_Return(DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                            DocumentType_Hash));
+  }
+  EXPECT_GT(dt.cap, snapshotCap);
+  DocTable_SetKeyById(&dt, 2, "renamed", 7);
+  DMD_Return(DocTable_DeleteById(&dt, 3));
+  size_t batches = 0;
+  while (!DocTable_BuildKeyMapBatch(&dt, 2)) {
+    ASSERT_LT(++batches, 20u);
+  }
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), 2u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "2", 1), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "3", 1), 0u);
+  for (int i = 4; i <= 100; ++i) {
+    auto key = std::to_string(i);
+    EXPECT_EQ(DocTable_GetIdByKey(&dt, key.data(), key.size()), i);
+  }
+  DocTable_Free(&dt);
+}
+
+TEST_F(IndexTest, testLazyKeyMapUnorderedChain) {
+  DocTable dt = NewDocTable(1, 1);
+  for (int i = 1; i <= 4; ++i) {
+    auto key = std::to_string(i);
+    DMD_Return(DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                            DocumentType_Hash));
+  }
+  // Legacy loading need not preserve the insertion order of a bucket chain.
+  auto *first = dt.buckets[0].root;
+  auto *second = first->nextInChain;
+  first->nextInChain = second->nextInChain;
+  second->nextInChain = first;
+  dt.buckets[0].root = second;
+  ASSERT_TRUE(DocTable_StartKeyMap(&dt));
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, 1));
+  DMD_Return(DocTable_DeleteById(&dt, 4));
+  DocTable_SetKeyById(&dt, 1, "renamed", 7);
+  EXPECT_TRUE(DocTable_BuildKeyMapBatch(&dt, 10));
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), 1u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "2", 1), 2u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "3", 1), 3u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "4", 1), 0u);
   DocTable_Free(&dt);
 }

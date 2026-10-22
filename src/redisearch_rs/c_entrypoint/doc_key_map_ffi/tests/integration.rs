@@ -52,3 +52,37 @@ fn ffi_mutations_accept_empty_and_binary_keys() {
         assert_eq!(map.get_id(key, |_| true), 0);
     }
 }
+
+#[test]
+fn reserve_preserves_collisions_and_avoids_growth_during_backfill() {
+    let mut map = DocKeyMap::default();
+    map.insert(42, 1);
+    map.insert(42, 2);
+    map.reserve(64);
+    let reserved = map.memory_usage();
+    // A smaller request must neither shrink nor underflow the additional capacity.
+    map.reserve(0);
+    for id in 3..=64 {
+        map.insert(id, id);
+    }
+    assert_eq!(map.memory_usage(), reserved);
+    assert_eq!(map.find(42, |id| id == 1), 1);
+    assert_eq!(map.find(42, |id| id == 2), 2);
+    for id in 3..=64 {
+        assert_eq!(map.find(id, |candidate| candidate == id), id);
+    }
+}
+
+#[test]
+fn backfill_deduplicates_ids_without_merging_hash_collisions() {
+    let mut map = DocKeyMap::default();
+    map.insert(42, 1);
+    map.insert_if_absent(42, 1);
+    map.insert_if_absent(42, 2);
+    map.insert_if_absent(42, 2);
+    assert!(map.remove(42, 1));
+    assert!(!map.remove(42, 1));
+    assert_eq!(map.find(42, |_| true), 2);
+    assert!(map.remove(42, 2));
+    assert_eq!(map.find(42, |_| true), 0);
+}

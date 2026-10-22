@@ -1797,7 +1797,7 @@ TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
   EXPECT_EQ(result, REDISMODULE_OK);
   ASSERT_EQ(table.keyMap, nullptr);
   ASSERT_TRUE(DocTable_StartKeyMap(&table));
-  ASSERT_TRUE(DocTable_BuildKeyMapBatch(&table, 1));
+  ASSERT_TRUE(DocTable_BuildKeyMapBatch(&table, SIZE_MAX));
   EXPECT_EQ(DocTable_GetIdByKey(&table, "doc", 3), 1);
 
   auto *dmd = const_cast<RSDocumentMetadata *>(DocTable_Borrow(&table, 1));
