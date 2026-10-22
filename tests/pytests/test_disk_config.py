@@ -117,6 +117,7 @@ def test_disk_statistics_config_is_immutable(env):
 
 @skip(cluster=True, redis_less_than="8.8")
 def test_disk_statistics_config_set_at_load_time():
+    # No legacy module-argument alias; load-time values come from the config file.
     conf_path = os.path.join(tempfile.mkdtemp(), 'disk_statistics.conf')
     with open(conf_path, 'w') as f:
         f.write('search-_disk-statistics yes\n')
@@ -125,12 +126,3 @@ def test_disk_statistics_config_set_at_load_time():
         env.skip()
     env.expect('CONFIG', 'GET', 'search-_disk-statistics').equal(['search-_disk-statistics', 'yes'])
     env.stop()
-
-
-@skip(cluster=True, redis_less_than="8.8")
-def test_disk_statistics_config_set_by_module_arg():
-    """search-_disk-statistics=yes passed as a module argument is reflected in CONFIG GET."""
-    env = Env(moduleArgs='search-_disk-statistics yes', noDefaultModuleArgs=True)
-    if env.env == 'existing-env':
-        env.skip()
-    env.expect('CONFIG', 'GET', 'search-_disk-statistics').equal(['search-_disk-statistics', 'yes'])

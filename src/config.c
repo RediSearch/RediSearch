@@ -130,7 +130,6 @@ configPair_t __configPairs[] = {
   {"_SIMULATE_IN_FLEX",                "search-_simulate-in-flex"},
   {"search-disk-drop-read-cache",      "search-disk-drop-read-cache"},
   {"search-disk-use-direct-reads",     "search-disk-use-direct-reads"},
-  {"search-_disk-statistics",           "search-_disk-statistics"},
   {"search-_disk-async-read-pool-size",   "search-_disk-async-read-pool-size"},
   {"search-_disk-async-read-queue-factor", "search-_disk-async-read-queue-factor"},
 };
@@ -1577,25 +1576,6 @@ CONFIG_SETTER(setDiskUseDirectReads) {
 
 CONFIG_BOOLEAN_GETTER(getDiskUseDirectReads, diskUseDirectReads, 0)
 
-// Legacy module-ARGS setter for search-_disk-statistics, so it can be set at
-// load time alongside the other module arguments.
-// TODO: remove together with setDiskDropReadCache.
-CONFIG_SETTER(setDiskStatistics) {
-  const char *tf;
-  int acrc = AC_GetString(ac, &tf, NULL, 0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(tf, "yes") || !strcasecmp(tf, "true")) {
-    config->diskStatistics = true;
-  } else if (!strcasecmp(tf, "no") || !strcasecmp(tf, "false")) {
-    config->diskStatistics = false;
-  } else {
-    acrc = AC_ERR_PARSE;
-  }
-  RETURN_STATUS(acrc);
-}
-
-CONFIG_BOOLEAN_GETTER(getDiskStatistics, diskStatistics, 0)
-
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -1985,11 +1965,6 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Use O_DIRECT for SpeedB reads (yes/no, default no)",
          .setValue = setDiskUseDirectReads,
          .getValue = getDiskUseDirectReads,
-         .flags = RSCONFIGVAR_F_IMMUTABLE},
-        {.name = "search-_disk-statistics",
-         .helpText = "Collect storage-engine statistics for disk indexes (yes/no, default no)",
-         .setValue = setDiskStatistics,
-         .getValue = getDiskStatistics,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = NULL}}};
 
