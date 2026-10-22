@@ -18,7 +18,6 @@
 #include "config.h"
 #include "buffer.h"
 #include "rules.h"
-#include "slot_ranges.h"
 
 struct timespec;
 
@@ -612,7 +611,7 @@ void DocTable_RemovePendingDeletion(DocTable *t, PendingSlotDeletion *pending) {
 
 bool DocTable_IsDocPendingDeletion(const DocTable *t, const RSDocumentMetadata *dmd) {
   for (const PendingSlotDeletion *p = t->pendingSlotDeletions; p; p = p->next) {
-    if (dmd->id <= p->maxDocId && SlotRangeArray_ContainsSlot(p->slots, dmd->slot)) {
+    if (PendingSlotDeletion_Covers(p, dmd)) {
       return true;
     }
   }
