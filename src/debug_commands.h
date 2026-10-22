@@ -114,7 +114,7 @@ typedef enum {
   STORE_RESULTS_SCOPE_NON_INTERNAL_ONLY,// Pause only for non-internal (user-facing) requests
 } StoreResultsScope;
 
-// Struct used for debugging store results (pause before/after AREQ_StoreResults and HREQ_StoreResults)
+// Debug pause points around the moment a cycle publishes its results (rc) for the reply phase
 // Only available in debug builds to avoid affecting release performance
 typedef struct StoreResultsDebugCtx {
   atomic_bool pauseBeforeEnabled;   // Whether pause before StoreResults is enabled
@@ -145,6 +145,9 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_CURSOR_READ_SEND_CHUNK        "BeforeCursorReadSendChunk"
 #define SYNC_POINT_BEFORE_CURSOR_READ_SPEC_PROMOTE      "BeforeCursorReadSpecPromote"
 #define SYNC_POINT_BEFORE_AGGREGATE_RESULTS_CLAIM       "BeforeAggregateResultsClaim"
+#define SYNC_POINT_DURING_ROW_SERIALIZATION "DuringRowSerialization"
+#define SYNC_POINT_DURING_COORD_ROW_SERIALIZATION "DuringCoordRowSerialization"
+#define SYNC_POINT_DURING_HYBRID_ROW_SERIALIZATION "DuringHybridRowSerialization"
 #define SYNC_POINT_BEFORE_SAFE_LOADER_GIL_LOCK          "BeforeSafeLoaderGILLock"
 #define SYNC_POINT_AFTER_SAFE_LOADER_GIL_HANDSHAKE      "AfterSafeLoaderGILHandshake"
 #define SYNC_POINT_BEFORE_SAFE_LOADER_EXIT_GIL          "BeforeSafeLoaderExitGIL"
@@ -269,6 +272,8 @@ void HybridStoreCursorsDebugCtx_SetPause(bool pause);
 // blocking the main thread inside the callback.
 void QueryRequestOnFreeDebug_Increment(void);
 uint64_t QueryRequestOnFreeDebug_GetCount(void);
+void CoordSearchOnFreeDebug_Increment(void);
+uint64_t CoordSearchOnFreeDebug_GetCount(void);
 
 // Tracks the currently active coordinator MRIterator so tests can poll the
 // `pending` shard counter via FT.DEBUG BG_PENDING_REPLIES. Set after the
