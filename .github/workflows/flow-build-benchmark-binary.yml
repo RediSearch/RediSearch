@@ -40,8 +40,15 @@ jobs:
         with:
           submodules: recursive
       - name: Setup specific
-        working-directory: .install
-        run: ./install_script.sh sudo
+        # Ubuntu's archive publishes indexes in place, so apt-get update can
+        # briefly see a size mismatch ("Mirror sync in progress?"); the window
+        # can last several minutes.
+        uses: ./.github/actions/retry-command
+        with:
+          command: ./install_script.sh sudo
+          working_directory: .install
+          max_retries: "10"
+          retry_delay: "60"
       - name: Setup tests dependencies
         uses: ./.github/actions/retry-command
         with:

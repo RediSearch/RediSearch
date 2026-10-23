@@ -81,7 +81,7 @@ on:
         description: 'Architecture to test on. Use "all" to test on all architectures'
         default: all
       test-config:
-        description: Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")
+        description: Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1"), or "full" for the full suite. An empty value falls back to this default.
         type: string
         default: QUICK=1
       ubsan-unit-test-filter:
@@ -169,7 +169,7 @@ jobs:
       unit-tests: ${{ !contains(inputs.options, 'skip-tests') && (contains(inputs.options, 'unit-tests') || inputs.unit-tests == true) && matrix.test-mode != 'coordinator' }}
       rust-unit-tests: ${{ matrix.job-type != 'ubsan' }}
       unit-test-filter: ${{ matrix.job-type == 'ubsan' && inputs.ubsan-unit-test-filter || '' }}
-      test-config: ${{ fromJson(inputs.job-test-config || '{}')[matrix.job-type] || inputs.test-config }}
+      test-config: ${{ fromJson(inputs.job-test-config || '{}')[matrix.job-type] || (inputs.test-config != 'full' && inputs.test-config || '') }}
       coverage: ${{ matrix.job-type == 'coverage' }}
       san: ${{ matrix.job-type == 'sanitize' && 'address' || matrix.job-type == 'ubsan' && 'alignment' || '' }}
       fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
