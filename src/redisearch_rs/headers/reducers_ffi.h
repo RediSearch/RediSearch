@@ -269,6 +269,19 @@ Reducer *StdDevReducer_Create(const RLookupKey *srckey);
 Reducer *SumReducer_Create(const RLookupKey *srckey, bool average);
 
 /**
+ * Creates a `TOLIST` reducer of `srckey` and returns its base [`ffi::Reducer`],
+ * which the caller frees through its `Free` callback.
+ *
+ * # Safety
+ *
+ * 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+ *    remains valid, and is not mutated, for the lifetime of the returned reducer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+Reducer *ToListReducer_Create(const RLookupKey *srckey);
+
+/**
  * # Safety
  *
  * 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
