@@ -64,9 +64,10 @@ install_from_tarball() {
             # system libc++ and aborts. Every binary in the tarball links
             # /usr/lib/libc++.
             tar_excludes=(--exclude '*/lib/lib*.a' --exclude '*/lib/libc++*' --exclude '*/lib/libunwind*')
-            # INSTALL_DIR is user-writable here; CI passes sudo, which would
-            # leave a root-owned tree in $HOME.
-            priv=""
+            # The default INSTALL_DIR is user-writable; CI passes sudo, which
+            # would leave a root-owned tree in $HOME. A custom LLVM_INSTALL_DIR
+            # keeps the requested privilege mode.
+            [[ -z "${LLVM_INSTALL_DIR:-}" ]] && priv=""
             ;;
         *) echo "ERROR: no official LLVM tarball for ${OS_TYPE} ${ARCH}"; return 1 ;;
     esac
@@ -108,18 +109,24 @@ enable_libcxx_availability_annotations() {
         echo "ERROR: unexpected availability setting in ${cfg}" >&2
         return 1
     fi
-    sed "s/^${off}\$/#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 1/" "$cfg" > "${cfg}.tmp"
-    mv "${cfg}.tmp" "$cfg"
+    sed "s/^${off}\$/#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 1/" "$cfg" | $priv tee "${cfg}.tmp" > /dev/null
+    $priv mv "${cfg}.tmp" "$cfg"
 }
 
 # Upstream clang, unlike Homebrew's, is not configured with a default macOS
 # SDK, so without SDKROOT neither clang nor bindgen's libclang finds the
 # system headers.
 export_sdkroot() {
-    local sdk
+    local sdk profile
+    local line='export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"'
     sdk=$(xcrun --sdk macosx --show-sdk-path)
     [[ -n "${GITHUB_ENV:-}" ]] && echo "SDKROOT=${sdk}" >> "$GITHUB_ENV"
     export SDKROOT="$sdk"
+    # Resolved at shell start, so later shells follow Xcode updates.
+    for profile in ~/.bash_profile ~/.zshrc; do
+        [[ -f "$profile" ]] && ! grep -qF "$line" "$profile" && echo "$line" >> "$profile"
+    done
+    return 0
 }
 
 add_to_macos_profiles() {
