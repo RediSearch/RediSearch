@@ -58,7 +58,7 @@ impl DocKeyMap {
 
     /// Populate an ID during backfill, retaining a candidate already maintained by a writer.
     pub fn insert_if_absent(&mut self, hash: u64, id: DocId) {
-        assert_ne!(id, 0);
+        debug_assert_ne!(id, 0);
         self.entries
             .entry(hash, |entry| entry.id == id, |entry| entry.hash)
             .or_insert(Entry { hash, id });
