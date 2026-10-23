@@ -3,7 +3,8 @@ name: Get Linux Configurations
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
 env:
-  ALL_X86_IMAGES: "['ubuntu:jammy',
+  ALL_X86_IMAGES: "['ubuntu:noble',
+                    'ubuntu:jammy',
                     'ubuntu:focal',
                     'rockylinux:8',
                     'debian:bullseye',
@@ -12,7 +13,8 @@ env:
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0'
                     ]"
                     # TODO: Add back 'rockylinux:9' when RedisJSON 2.4 supports it
-  ALL_ARM_IMAGES: "['ubuntu:jammy',
+  ALL_ARM_IMAGES: "['ubuntu:noble',
+                    'ubuntu:jammy',
                     'ubuntu:focal',
                     'amazonlinux:2023'
                     ]"
