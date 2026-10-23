@@ -113,6 +113,9 @@ impl QueryEvalContext {
     ///    reads back. A plain allocation holding one [`MetricRequest`] would
     ///    satisfy every other clause here and still make that safe method read
     ///    outside it.
+    ///    While evaluating deferred document keys, the caller must hold the
+    ///    index spec read lock to keep the key map, candidate document metadata,
+    ///    and their keys alive and unmodified.
     /// 3. The caller must have exclusive access to the pointer for the
     ///    lifetime of the returned [`QueryEvalContext`].
     ///
