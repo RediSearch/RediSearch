@@ -68,7 +68,7 @@ void DocKeyMap_Insert(struct DocKeyMap *map, const uint8_t *key, size_t len, t_d
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void DocKeyMap_InsertIfAbsent(struct DocKeyMap *map, uint64_t hash, uint64_t id);
+void DocKeyMap_InsertIfAbsent(struct DocKeyMap *map, uint64_t hash, t_docId id);
 
 /**
  * Report allocated table storage; null denotes disabled acceleration and returns zero.

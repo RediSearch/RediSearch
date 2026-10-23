@@ -61,7 +61,7 @@ impl DocKeyMap {
     }
 
     /// Populate an ID during backfill, retaining a candidate already maintained by a writer.
-    pub fn insert_if_absent(&mut self, hash: u64, id: u64) {
+    pub fn insert_if_absent(&mut self, hash: u64, id: DocId) {
         assert_ne!(id, 0);
         self.entries
             .entry(hash, |entry| entry.id == id, |entry| entry.hash)
@@ -127,7 +127,7 @@ pub unsafe extern "C" fn DocKeyMap_Reserve(map: *mut DocKeyMap, capacity: usize)
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DocKeyMap_InsertIfAbsent(map: *mut DocKeyMap, hash: u64, id: u64) {
+pub unsafe extern "C" fn DocKeyMap_InsertIfAbsent(map: *mut DocKeyMap, hash: u64, id: DocId) {
     debug_assert!(!map.is_null());
     // SAFETY: The caller provides exclusive access to a live map.
     unsafe { &mut *map }.insert_if_absent(hash, id);
