@@ -2,7 +2,7 @@ version: 0.2
 
 remote:
  - type: oss-standalone
- - setup: redisearch-m7
+ - setup: redisearch-m7i-metal
 
 exporter:
   redistimeseries:

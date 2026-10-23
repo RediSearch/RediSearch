@@ -214,6 +214,8 @@ jobs:
           PERFORMANCE_RTS_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
           PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
           PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
+          # Bare-metal bisect: resolve the redisearch-m7i-metal setup dir from this testing-infrastructure branch.
+          TESTING_INFRASTRUCTURE_BRANCH: paulo/redisearch-m7i-metal
         run: |
           gh_sha="${GITHUB_SHA_OVERRIDE:-$GITHUB_SHA_RESOLVED}"
           gh_branch="${GITHUB_BRANCH_OVERRIDE:-$GITHUB_BRANCH_NAME}"
