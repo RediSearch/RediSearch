@@ -28,7 +28,7 @@ on:
       redis-ref:
         description: 'Redis git ref to use (e.g. "7.2.3", "unstable", or a commit sha)'
         type: string
-        default: '559d143b4e0409c452f7d229ba420954b6b647a2'
+        default: ''
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -224,11 +224,10 @@ jobs:
           COV_LABEL: ${{ inputs.coverage && 'coverage test' || '' }}
           PLATFORM: ${{ inputs.container || inputs.env }}
           ARCH: ${{ runner.arch }}
-          REDIS_VERSION: ${{ inputs.redis-ref }}
           TEST_MODE: ${{ inputs.test-mode }}
         run: |
           UNIQUE_ID="$RANDOM$RANDOM"
-          ARTIFACT_NAME=$(echo "${SAN_LABEL} ${COV_LABEL} ${PLATFORM} ${ARCH} ${TEST_MODE} - Redis ${REDIS_VERSION} - ${UNIQUE_ID}" | \
+          ARTIFACT_NAME=$(echo "${SAN_LABEL} ${COV_LABEL} ${PLATFORM} ${ARCH} ${TEST_MODE} - Redis ${REDIS_REF} - ${UNIQUE_ID}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')
           echo "Artifact name: ${ARTIFACT_NAME}"
           echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
