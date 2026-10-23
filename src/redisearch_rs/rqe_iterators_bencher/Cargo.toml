@@ -16,6 +16,11 @@ bench = false
 name = "iterators"
 harness = false
 
+[features]
+# Report each benchmark's allocations (and timing, inflated by the
+# instrumentation) with hotpath. See `src/profiled.rs`.
+hotpath = ["hotpath/hotpath", "hotpath/hotpath-alloc"]
+
 [build-dependencies]
 bindgen.workspace = true
 build_utils = { path = "../build_utils" }
@@ -24,6 +29,7 @@ build_utils = { path = "../build_utils" }
 criterion.workspace = true
 ffi.workspace = true
 field.workspace = true
+hotpath.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { version = "0.0.1", path = "../c_entrypoint/inverted_index_ffi" }

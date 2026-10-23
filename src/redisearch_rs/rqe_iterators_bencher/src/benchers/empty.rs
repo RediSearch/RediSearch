@@ -14,7 +14,9 @@
 
 use std::time::Duration;
 
-use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
+use criterion::{Criterion, measurement::WallTime};
+
+use crate::profiled::BenchmarkGroup;
 use rqe_iterators::{RQEIterator, empty::Empty};
 
 #[derive(Default)]

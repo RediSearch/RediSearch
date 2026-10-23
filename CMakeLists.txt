@@ -297,6 +297,11 @@ if(USE_REDIS_ALLOCATOR)
     add_compile_definitions(REDIS_MODULE_TARGET)
 endif()
 
+# Rust hotpath profiling; src/redisearch_rs/CMakeLists.txt validates the value.
+if(DEFINED RUST_HOTPATH AND NOT RUST_HOTPATH STREQUAL "0")
+    add_compile_definitions(RS_HOTPATH)
+endif()
+
 if(VERBOSE_UTESTS)
     add_compile_definitions(VERBOSE_UTESTS=1)
 endif()

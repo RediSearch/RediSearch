@@ -23,6 +23,10 @@ bench = false
 [features]
 default = []
 mock_allocator = []
+# Profile the Rust code's timing and allocations with hotpath. Off by default;
+# `./build.sh RUST_HOTPATH=1` enables it. See the module's `RSHotpath_Init` for
+# how a report is produced.
+hotpath = ["hotpath/hotpath", "hotpath/hotpath-alloc", "module_init_ffi/hotpath"]
 
 [build-dependencies]
 build_utils = { path = "../../build_utils" }
@@ -36,6 +40,7 @@ buffer = { workspace = true }
 fnv_ffi = { path = "../fnv_ffi" }
 fork_gc_ffi = { path = "../fork_gc_ffi" }
 geo_ffi = { path = "../geo_ffi" }
+hotpath.workspace = true
 idf_ffi = { path = "../idf_ffi" }
 inverted_index_ffi = { path = "../inverted_index_ffi" }
 iterators_ffi = { path = "../iterators_ffi" }

@@ -9,7 +9,7 @@
 
 //! Benchmark iterators
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group};
 use inverted_index::{
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
@@ -192,4 +192,9 @@ criterion_group!(
     benchmark_inverted_index_term,
 );
 
-criterion_main!(benches);
+// `criterion_main!(benches)`, with a hotpath report printed once all benchmarks ran.
+#[hotpath::main]
+fn main() {
+    benches();
+    Criterion::default().configure_from_args().final_summary();
+}

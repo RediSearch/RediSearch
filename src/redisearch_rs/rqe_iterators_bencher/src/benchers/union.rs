@@ -26,9 +26,11 @@
 use std::{hint::black_box, time::Duration};
 
 use criterion::{
-    BenchmarkGroup, Criterion,
+    Criterion,
     measurement::{Measurement, WallTime},
 };
+
+use crate::profiled::BenchmarkGroup;
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rqe_iterators::{
     RQEIterator, UnionFullFlat, UnionFullHeap, UnionQuickFlat, UnionQuickHeap,

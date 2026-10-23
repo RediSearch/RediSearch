@@ -15,9 +15,11 @@
 use std::{hint::black_box, time::Duration};
 
 use criterion::{
-    BenchmarkGroup, Criterion,
+    Criterion,
     measurement::{Measurement, WallTime},
 };
+
+use crate::profiled::BenchmarkGroup;
 use ffi::{
     IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets,

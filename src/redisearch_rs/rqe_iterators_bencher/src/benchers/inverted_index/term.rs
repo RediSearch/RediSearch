@@ -9,7 +9,9 @@
 
 use std::{hint::black_box, marker::PhantomData};
 
-use criterion::{BenchmarkGroup, Criterion, measurement::Measurement};
+use criterion::{Criterion, measurement::Measurement};
+
+use crate::profiled::BenchmarkGroup;
 use index_result::{RSIndexResult, RSOffsetSlice};
 use inverted_index::{
     DecodedBy, Encoder, HasInnerIndex, InvertedIndex, TermDecoder, opaque::OpaqueEncoding,

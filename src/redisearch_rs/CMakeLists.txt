@@ -37,6 +37,15 @@ else()
   set(CARGO_BUILD_FLAGS "")
 endif()
 
+# Profile the Rust code's timing and allocations with hotpath (https://hotpath.rs)
+if(NOT DEFINED RUST_HOTPATH OR RUST_HOTPATH STREQUAL "0")
+  set(CARGO_FEATURE_FLAGS "")
+elseif(RUST_HOTPATH STREQUAL "1")
+  set(CARGO_FEATURE_FLAGS "--features=hotpath")
+else()
+  message(FATAL_ERROR "Invalid RUST_HOTPATH '${RUST_HOTPATH}': expected 0 or 1")
+endif()
+
 # Map Rust profile names to their corresponding artifact directory names
 if(RUST_PROFILE STREQUAL "dev")
   set(RUST_ARTIFACT_DIR "debug")
@@ -70,6 +79,7 @@ set(RUST_BUILD_CONFIG_CONTENT
   "CARGO_EXECUTABLE=${CARGO_EXECUTABLE}\n"
   "CARGO_BUILD_FLAGS=${CARGO_BUILD_FLAGS}\n"
   "CARGO_BUILD_TARGET=${CARGO_BUILD_TARGET}\n"
+  "CARGO_FEATURE_FLAGS=${CARGO_FEATURE_FLAGS}\n"
   "RUST_ARTIFACT_DIR=${RUST_ARTIFACT_DIR}\n"
   "RUST_FLAGS=${RUST_FLAGS}\n"
   "RUST_LIB_PATH=${RUST_LIB_PATH}\n"
@@ -191,6 +201,7 @@ if(NOT TARGET redisearch_rs_build)
       ${CARGO_EXECUTABLE} ${TOOLCHAIN_MODIFIER} ${CARGO_BUILD_FLAGS}
       build
       --package redisearch_rs
+      ${CARGO_FEATURE_FLAGS}
       --profile=${RUST_PROFILE}
     COMMAND ${CMAKE_COMMAND} -E touch_nocreate "${RUST_LIB_PATH}"
     COMMAND ${CMAKE_COMMAND} -E touch "${RUST_BUILD_STAMP}"
