@@ -43,17 +43,14 @@ impl DocKeyMap {
 
     /// Insert an ID once. The caller must remove it before changing its key.
     pub fn insert(&mut self, hash: u64, id: DocId) {
-        assert_ne!(id, 0);
+        debug_assert_ne!(id, 0);
         self.entries
             .insert_unique(hash, Entry { hash, id }, |e| e.hash);
     }
 
     /// Remove exactly one candidate, including when full hashes collide.
     pub fn remove(&mut self, hash: u64, id: DocId) -> bool {
-        if let Ok(entry) = self
-            .entries
-            .find_entry(hash, |e| e.hash == hash && e.id == id)
-        {
+        if let Ok(entry) = self.entries.find_entry(hash, |e| e.id == id) {
             entry.remove();
             true
         } else {
