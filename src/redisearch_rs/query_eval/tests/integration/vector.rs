@@ -27,7 +27,7 @@ use index_result::RSIndexResult;
 use inverted_index::NumericFilter;
 use query::mock::MockQueryNode;
 use query_error::QueryErrorCode;
-use query_eval::{Config, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_node};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::{QueryNodeFlags, QueryNodeType};
 use rqe_core::DocId;
 use rqe_iterators::{IteratorType, RQEIterator};
@@ -518,12 +518,7 @@ impl VectorFixture {
     fn eval(&mut self) -> Option<(IteratorType, Vec<DocId>)> {
         // SAFETY: `self.node` is a valid, live `RSQueryNode` for the call.
         let node_ref = unsafe { QueryNodeMut::new(self.node.as_non_null()) };
-        let evaluated = eval_node(
-            &mut self.ctx,
-            node_ref,
-            Config::default(),
-            OffsetRequirement::Automatic,
-        )?;
+        let evaluated = eval_node(&mut self.ctx, node_ref, Config::default())?;
 
         // Only a range query asked back by id ascends; a KNN query and a
         // score-ordered range query both yield nearest-first.

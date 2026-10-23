@@ -27,9 +27,7 @@ use std::{ffi::CString, ptr};
 use field::FieldMaskOrIndex;
 use index_result::{RSIndexResult, RawAggregateResult};
 use query::mock::{MockQueryNode, TokenNodeType};
-use query_eval::{
-    Config, EvalResult, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_node,
-};
+use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
 use query_flags::{QEFlag, QEFlags};
 use query_types::QueryNodeType;
 use rqe_core::DocId;
@@ -677,12 +675,7 @@ impl TagFixture {
         // for the call. Its children come from `build_child`, which satisfies
         // invariants (3)-(5).
         let node_ref = unsafe { QueryNodeMut::new(self.node.as_non_null()) };
-        let evaluated = eval_node(
-            &mut self.ctx,
-            node_ref,
-            Config::default(),
-            OffsetRequirement::Automatic,
-        )?;
+        let evaluated = eval_node(&mut self.ctx, node_ref, Config::default())?;
         Some(ContractChecker::new(evaluated.into_boxed()))
     }
 
@@ -1094,13 +1087,8 @@ fn eval_tag_prefix_expansion_reader_revalidates_against_the_matched_value() {
     // for the call. Its only child comes from `build_child`, which satisfies
     // invariants (3)-(5).
     let node_ref = unsafe { QueryNodeMut::new(fixture.node.as_non_null()) };
-    let evaluated = eval_node(
-        &mut fixture.ctx,
-        node_ref,
-        Config::default(),
-        OffsetRequirement::Automatic,
-    )
-    .expect("apple matches");
+    let evaluated =
+        eval_node(&mut fixture.ctx, node_ref, Config::default()).expect("apple matches");
     let mut it = ContractChecker::new(evaluated.into_boxed());
     let status = it.revalidate(&spec).expect("revalidate must not error");
     assert_eq!(

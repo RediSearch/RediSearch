@@ -25,7 +25,7 @@ use query_error::QueryErrorCode;
 use query_types::QueryNodeFlags;
 use rqe_iterators::{IteratorType, c2rust::CRQEIterator, metric};
 
-use crate::{Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_node};
+use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, eval_node};
 
 /// `QN_VECTOR` — a KNN or range vector-similarity search, optionally filtered
 /// by a child subquery (a *hybrid* query).
@@ -72,10 +72,9 @@ pub(crate) fn eval<'index>(
         std::ptr::null_mut()
     } else {
         // A child that yields nothing leaves the hybrid query with nothing to
-        // filter, so the whole node yields nothing. A phrase's position filter
-        // never looks inside a hybrid result, so the filter needs no offsets
-        // on the phrase's account.
-        eval_node(ctx, node.child_mut(0), config, OffsetRequirement::Automatic)?.into_c_iterator()
+        // filter, so the whole node yields nothing. The offset requirement is
+        // not inherited; see `OffsetRequirement`.
+        eval_node(ctx, node.child_mut(0), config)?.into_c_iterator()
     };
 
     // SAFETY: `ctx` wraps a valid, exclusively-held `QueryEvalCtx`, `vq` is a

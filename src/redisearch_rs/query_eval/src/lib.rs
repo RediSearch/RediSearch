@@ -176,16 +176,10 @@ pub struct QueryIteratorTree<'index> {
 impl<'index> QueryIteratorTree<'index> {
     /// Build the executable iterator tree for a parsed query AST.
     ///
-    /// Evaluates `root` via [`eval_node`], with no enclosing phrase to impose an
-    /// [`OffsetRequirement`], substituting an [`Empty`] iterator when it yields
-    /// none.
+    /// Evaluates `root` via [`eval_node`], substituting an [`Empty`] iterator
+    /// when it yields none.
     pub fn new(ctx: &'index mut QueryEvalContext, root: QueryNodeMut<'_>, config: Config) -> Self {
-        Self::from_root(into_child_iterator(eval_node(
-            ctx,
-            root,
-            config,
-            OffsetRequirement::Automatic,
-        )))
+        Self::from_root(into_child_iterator(eval_node(ctx, root, config)))
     }
 
     const fn from_root(root: CRQEIterator) -> Self {
@@ -241,14 +235,28 @@ impl<'index> QueryIteratorTree<'index> {
     }
 }
 
-/// Whether the term readers of a subtree must read offsets whatever the scorer.
+/// Whether the disk term readers of a subtree must read offsets whatever the
+/// scorer.
 ///
-/// Evaluation starts at [`Automatic`](Self::Automatic), and a phrase that
-/// filters by term position promotes its descendants to
-/// [`Required`](Self::Required). Only [`expansion_needs_offsets`] consults it.
-#[expect(rustdoc::private_intra_doc_links)]
+/// A phrase that filters by term position
+/// ([`filters_by_position`](rqe_iterators::intersection::filters_by_position))
+/// checks the positions in its children's results, but the children don't
+/// carry the phrase's slop or order, so their own options never ask for
+/// offsets. The phrase therefore evaluates them under
+/// [`Required`](Self::Required).
+///
+/// - [`eval_node`] starts at [`Automatic`](Self::Automatic).
+/// - Union, optional and phrase nodes pass the requirement on, so it reaches
+///   every term a child expands into; a phrase that filters by position
+///   raises it to [`Required`](Self::Required).
+/// - NOT and a vector query's filter restart their child at
+///   [`Automatic`](Self::Automatic): a NOT yields virtual results, and a
+///   phrase never looks inside a hybrid result, so neither exposes the child's
+///   positions to an enclosing phrase.
+/// - Term leaves (token, prefix, fuzzy, wildcard query) hand it to
+///   [`expansion_needs_offsets`]; every other leaf ignores it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OffsetRequirement {
+pub(crate) enum OffsetRequirement {
     /// The node's own options and the scorer decide.
     Automatic,
     /// An enclosing phrase filters by term position.
@@ -266,12 +274,17 @@ pub enum OffsetRequirement {
 /// that reads a payload out of the node (e.g. a token handle) keeps it
 /// shared-borrowed, and can therefore neither mutate it nor hand it on to a
 /// callee that might.
-///
-/// `offsets` is the requirement imposed by the node's ancestors; leaves pass it
-/// to [`expansion_needs_offsets`], and phrases may tighten it for their
-/// children.
-#[expect(rustdoc::private_intra_doc_links)]
 pub fn eval_node<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: QueryNodeMut<'_>,
+    config: Config,
+) -> Option<Evaluated<'index>> {
+    eval_node_with_offsets(ctx, node, config, OffsetRequirement::Automatic)
+}
+
+/// [`eval_node`] under the [`OffsetRequirement`] imposed by the node's
+/// ancestors.
+fn eval_node_with_offsets<'index>(
     ctx: &'index mut QueryEvalContext,
     node: QueryNodeMut<'_>,
     config: Config,
@@ -312,7 +325,7 @@ fn eval_child_iterator(
     config: Config,
     offsets: OffsetRequirement,
 ) -> CRQEIterator {
-    into_child_iterator(eval_node(&mut *ctx, child, config, offsets))
+    into_child_iterator(eval_node_with_offsets(&mut *ctx, child, config, offsets))
 }
 
 /// Lower an evaluated node into an owning [`CRQEIterator`], for use as a child

@@ -43,8 +43,7 @@ pub(crate) fn eval<'index>(
     // nodes can nest (e.g. `-(-foo)`), and the outer NOT must keep the flag set
     // while the inner one is being evaluated and after it returns.
     let prev_in_not_sub_tree = ctx.set_in_not_sub_tree(true);
-    // A NOT yields virtual results, never its child's, so an enclosing
-    // phrase's position filter cannot see the child's offsets.
+    // Not inherited; see `OffsetRequirement`.
     let child = eval_child_iterator(ctx, node.child_mut(0), config, OffsetRequirement::Automatic);
     ctx.set_in_not_sub_tree(prev_in_not_sub_tree);
 

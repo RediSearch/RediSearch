@@ -9,7 +9,7 @@
 
 //! QN_UNION → Union
 
-use query_eval::{Config, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_node};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 use rqe_iterators_test_utils::ContractChecker;
@@ -34,14 +34,9 @@ fn eval_union_merges_children() {
     let node = unsafe { QueryNodeMut::new(union.as_non_null()) };
 
     let mut it = ContractChecker::new(
-        eval_node(
-            &mut ctx,
-            node,
-            Config::default(),
-            OffsetRequirement::Automatic,
-        )
-        .expect("should not be None")
-        .into_boxed(),
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
     );
 
     assert_eq!(it.type_(), IteratorType::Union);
@@ -74,14 +69,9 @@ fn eval_union_zero_weight_takes_quick_exit() {
     let node = unsafe { QueryNodeMut::new(union.as_non_null()) };
 
     let mut it = ContractChecker::new(
-        eval_node(
-            &mut ctx,
-            node,
-            Config::default(),
-            OffsetRequirement::Automatic,
-        )
-        .expect("should not be None")
-        .into_boxed(),
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
     );
 
     // Quick-exit collapsed the union to a single wildcard child.
@@ -117,14 +107,9 @@ fn eval_union_in_not_subtree_takes_quick_exit() {
     let node = unsafe { QueryNodeMut::new(union.as_non_null()) };
 
     let mut it = ContractChecker::new(
-        eval_node(
-            &mut ctx,
-            node,
-            Config::default(),
-            OffsetRequirement::Automatic,
-        )
-        .expect("should not be None")
-        .into_boxed(),
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
     );
 
     // Quick-exit collapsed the union to a single wildcard child.
@@ -195,14 +180,9 @@ mod union {
         let node = unsafe { QueryNodeMut::new(union.as_non_null()) };
 
         let mut it = ContractChecker::new(
-            eval_node(
-                &mut ctx,
-                node,
-                Config::default(),
-                OffsetRequirement::Automatic,
-            )
-            .expect("should not be None")
-            .into_boxed(),
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
         );
 
         assert_eq!(it.type_(), IteratorType::Union);
@@ -256,14 +236,9 @@ mod union {
         let node = unsafe { QueryNodeMut::new(union.as_non_null()) };
 
         let mut it = ContractChecker::new(
-            eval_node(
-                &mut ctx,
-                node,
-                Config::default(),
-                OffsetRequirement::Automatic,
-            )
-            .expect("a multi-child union always yields an iterator")
-            .into_boxed(),
+            eval_node(&mut ctx, node, Config::default())
+                .expect("a multi-child union always yields an iterator")
+                .into_boxed(),
         );
 
         // The empty child was dropped, leaving the single QN_IDS child, to which

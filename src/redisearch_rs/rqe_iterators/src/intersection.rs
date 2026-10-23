@@ -59,6 +59,15 @@ pub struct RawIntersection<'query, Rf: Ref, I> {
 /// with an [`RQEIterator`] impl today.
 pub type Intersection<'index, I> = RawIntersection<'index, Active<'index>, I>;
 
+/// Whether an intersection with these proximity constraints filters documents
+/// by term position, and so needs its children's term offsets.
+///
+/// Only `max_slop: None` with `in_order: false` imposes no constraint: every
+/// document matching all children is trivially within range.
+pub const fn filters_by_position(max_slop: Option<u32>, in_order: bool) -> bool {
+    max_slop.is_some() || in_order
+}
+
 /// Result of attempting to get all children to agree on a target document ID.
 enum AgreeResult {
     /// All children have the target doc_id as their current position.
@@ -198,12 +207,10 @@ where
         self.children.iter_mut()
     }
 
-    /// Returns `true` if the current result needs a proximity check after consensus.
-    ///
-    /// The check is skipped only when `max_slop` is `None` and `in_order` is `false` — the
-    /// only case where every document matching all children is trivially within range.
+    /// Returns `true` if the current result needs a proximity check after consensus; see
+    /// [`filters_by_position`].
     const fn needs_relevancy_check(&self) -> bool {
-        self.max_slop.is_some() || self.in_order
+        filters_by_position(self.max_slop, self.in_order)
     }
 
     /// Check if the current aggregate result satisfies the proximity constraints.

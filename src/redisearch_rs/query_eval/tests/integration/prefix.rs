@@ -21,9 +21,7 @@
 
 use query::mock::{MockQueryNode, TokenNodeType};
 use query_error::QueryErrorCode;
-use query_eval::{
-    Config, EvalResult, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_node,
-};
+use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
 use rqe_core::{FieldMask, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, RQEIterator};
 use rqe_iterators_test_utils::ContractChecker;
@@ -184,13 +182,7 @@ impl PrefixFixture {
     fn eval(&mut self) -> Option<EvalResult<'_>> {
         // SAFETY: `self.node` is a valid, live `RSQueryNode` for the call.
         let node_ref = unsafe { QueryNodeMut::new(self.node.as_non_null()) };
-        eval_node(
-            &mut self.ctx,
-            node_ref,
-            self.config,
-            OffsetRequirement::Automatic,
-        )
-        .map(|e| e.into_boxed())
+        eval_node(&mut self.ctx, node_ref, self.config).map(|e| e.into_boxed())
     }
 
     /// The current query error code (`Ok` when no error was set).

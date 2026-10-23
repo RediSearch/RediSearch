@@ -9,7 +9,7 @@
 
 //! QN_IDS → IdList
 
-use query_eval::{Config, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_node};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
 use rqe_iterators_test_utils::ContractChecker;
@@ -32,14 +32,9 @@ fn eval_ids_with_pre_resolved_doc_ids() {
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     let mut it = ContractChecker::new(
-        eval_node(
-            &mut ctx,
-            node,
-            Config::default(),
-            OffsetRequirement::Automatic,
-        )
-        .expect("should not be None")
-        .into_boxed(),
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
     );
 
     assert_eq!(it.type_(), IteratorType::IdListSorted);
@@ -69,14 +64,9 @@ fn eval_ids_deduplicates() {
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     let mut it = ContractChecker::new(
-        eval_node(
-            &mut ctx,
-            node,
-            Config::default(),
-            OffsetRequirement::Automatic,
-        )
-        .expect("should not be None")
-        .into_boxed(),
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
     );
 
     let r = it.read().unwrap().unwrap();
@@ -100,14 +90,9 @@ fn eval_ids_filters_zero_doc_ids() {
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     let mut it = ContractChecker::new(
-        eval_node(
-            &mut ctx,
-            node,
-            Config::default(),
-            OffsetRequirement::Automatic,
-        )
-        .expect("should not be None")
-        .into_boxed(),
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
     );
 
     let r = it.read().unwrap().unwrap();
@@ -129,14 +114,9 @@ fn eval_ids_all_zero_produces_empty_list() {
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     let mut it = ContractChecker::new(
-        eval_node(
-            &mut ctx,
-            node,
-            Config::default(),
-            OffsetRequirement::Automatic,
-        )
-        .expect("should not be None")
-        .into_boxed(),
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
     );
 
     // Nothing to yield, but nothing read yet either: `at_eof()` is the negation
@@ -159,14 +139,9 @@ fn eval_ids_empty_keys() {
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     let mut it = ContractChecker::new(
-        eval_node(
-            &mut ctx,
-            node,
-            Config::default(),
-            OffsetRequirement::Automatic,
-        )
-        .expect("should not be None")
-        .into_boxed(),
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
     );
 
     // Nothing to yield, but nothing read yet either: `at_eof()` is the negation
@@ -188,12 +163,7 @@ fn eval_ids_requires_pre_resolved_doc_ids() {
     mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let _ = eval_node(
-        &mut ctx,
-        node,
-        Config::default(),
-        OffsetRequirement::Automatic,
-    );
+    let _ = eval_node(&mut ctx, node, Config::default());
 }
 
 // ---------------------------------------------------------------------------
@@ -234,14 +204,9 @@ mod ids_doctable {
         let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
         let mut it = ContractChecker::new(
-            eval_node(
-                &mut ctx,
-                node,
-                Config::default(),
-                OffsetRequirement::Automatic,
-            )
-            .expect("should not be None")
-            .into_boxed(),
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
         );
 
         assert_eq!(it.type_(), IteratorType::IdListSorted);
@@ -269,14 +234,9 @@ mod ids_doctable {
         let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
         let mut it = ContractChecker::new(
-            eval_node(
-                &mut ctx,
-                node,
-                Config::default(),
-                OffsetRequirement::Automatic,
-            )
-            .expect("should not be None")
-            .into_boxed(),
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
         );
 
         // Nothing to yield, but nothing read yet either.
