@@ -18,7 +18,9 @@ Use this for RediSearch OSS release branch creation from `master`.
 
 2. Create the official branch.
    - Branch from the selected `origin/master` SHA.
-   - Set `src/version.h` to the requested initial milestone. For `8.10`, this was `8.9.80`.
+   - Set `src/version.h` to the milestone the release is at, confirmed with the release manager. Do not assume MS1: if milestones already shipped from master, branch out at the current one.
+     Pre-GA versions keep the previous minor: MS*k* is `x.(y-1).8(k-1)` and RC*k* is `x.(y-1).9(k-1)`; GA is `x.y.0`. For `8.10`: MS1 `8.9.80`, MS2 `8.9.81`, MS3 `8.9.82`, RC1 `8.9.90`, GA `8.10.0`.
+     Each later milestone is a one-line `Set version to …` PR on the release branch.
    - Commit with a clear message such as `Initial 8.10 branch`.
    - Push the new branch before applying branch protection.
 
@@ -46,8 +48,17 @@ Use this for RediSearch OSS release branch creation from `master`.
      - PR flow stays lightweight: Ubuntu quick tests by default. Coverage and sanitize are label-conditioned: they run only when a non-draft PR workflow event sees `enforce:coverage` or `enforce:sanitize`.
        Adding those labels alone may not start a run; add the label before a push/update or rerun the workflow.
      - Merge queue is the release gate: full supported platform/architecture matrix, full tests, coverage/sanitize, fail-fast, separate coordinator jobs.
+       A new branch inherits master's queue layout (one Ubuntu test lane plus build-only platforms); replace it with the release gate, using 8.12's `event-merge-to-queue.yml` as the template.
+       Pass `enable-lto: '0'` to the queue's test lane: with LTO, Rust tests take 45–76 min on most Linux images and `u-x64-medium` runners are lost mid-step. Queue builds never ship; snapshot builds keep LTO.
+       Exclude macOS Intel (`!macos-*~x86_64`), whose runners are unreliable.
      - Nightly is less critical than master: full matrix but `QUICK=1`, pinned Redis SHA, not Redis `unstable`.
    - Pin Redis to the current release-branch SHA until there is a better release/pre-release line. For `8.8` and the initial `8.10` branch-out, this SHA was `3cd464263b03b425ffae2e23db24df3dc9346871`.
+     Check that the pin builds on the macOS runners before relying on it. At the 8.12 branch-out, Redis `8.12` did not build with Homebrew's OpenSSL 4 (the fix, redis/redis#15227, was only on `unstable`), so 8.12 used `pinned-ref: unstable` until Redis re-branched.
+   - Validate the new gate before enqueueing it, with a manual `Build on Platforms` run using the queue's inputs. Manual runs default to `QUICK=1` (pass `test-config: full`) and cannot run coverage or sanitize, so the first queue run is still the first full check.
+   - Merge-queue mechanics that cost time on 8.12:
+     - Pushes to a queued PR are rejected; dequeue it first.
+     - Every push dismisses approvals, so batch fixes before asking for re-review.
+     - The PR's own `Pull Request Flow` feeds the required `pr-validation` check, so a flaky test there blocks enqueueing; re-run the failed job.
    - Check whether `RedisJSON/RedisJSON` has a matching release branch:
      `git ls-remote --heads git@github.com:RedisJSON/RedisJSON.git <target-branch>`.
      Use the matching branch for PR/MQ only if it exists. Otherwise keep `master` and add a TODO in the workflow.
@@ -63,6 +74,7 @@ Use this for RediSearch OSS release branch creation from `master`.
    - Manually trigger `Nightly Flow` on the new branch if needed:
      `gh workflow run event-nightly.yml --repo RediSearch/RediSearch --ref <target-branch>`.
    - Remember that scheduled workflows run from the default branch; use manual dispatch for release branch nightlies unless a dedicated schedule exists.
+   - After the first merge, check that the branch's snapshot build (`event-deploy-snapshots.yml`) uploaded every platform's artifact, including macOS 14 ARM64.
 
 8. Future sync policy.
    - Prefer normal merges from `master` into the release branch while the release branch is still tracking master closely.
