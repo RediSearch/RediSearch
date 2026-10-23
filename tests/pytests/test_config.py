@@ -94,6 +94,7 @@ def testGetConfigOptions(env):
     check_config('FORK_GC_RUN_INTERVAL')
     check_config('FORK_GC_CLEAN_THRESHOLD')
     check_config('FORK_GC_RETRY_INTERVAL')
+    check_config('FORK_GC_CHILD_WAIT_MS')
     check_config('PARTIAL_INDEXED_DOCS')
     check_config('UNION_ITERATOR_HEAP')
     check_config('_NUMERIC_COMPRESS')
@@ -142,6 +143,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_CHILD_WAIT_MS', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
     env.expect(config_cmd(), 'set', 'OPTIMIZE_PARTIAL_UPDATE', 'true').equal('OK')
@@ -217,6 +219,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['FORK_GC_RUN_INTERVAL'][0], '30')
     env.assertEqual(res_dict['FORK_GC_CLEAN_THRESHOLD'][0], '100')
     env.assertEqual(res_dict['FORK_GC_RETRY_INTERVAL'][0], '5')
+    env.assertEqual(res_dict['FORK_GC_CHILD_WAIT_MS'][0], '2000')
     env.assertEqual(res_dict['CURSOR_MAX_IDLE'][0], '300000')
     env.assertEqual(res_dict['NO_MEM_POOLS'][0], 'false')
     env.assertEqual(res_dict['PARTIAL_INDEXED_DOCS'][0], 'false')
@@ -260,6 +263,7 @@ def testInitConfig():
     _test_config_num('FORK_GC_RUN_INTERVAL', 3)
     _test_config_num('FORK_GC_CLEAN_THRESHOLD', 3)
     _test_config_num('FORK_GC_RETRY_INTERVAL', 3)
+    _test_config_num('FORK_GC_CHILD_WAIT_MS', 3)
     _test_config_num('UNION_ITERATOR_HEAP', 20)
     _test_config_num('_NUMERIC_RANGES_PARENTS', 1)
     _test_config_num('BG_INDEX_SLEEP_GAP', 15)
@@ -633,6 +637,7 @@ numericConfigs = [
     ('search-bg-index-sleep-gap', 'BG_INDEX_SLEEP_GAP', 100, 1, UINT32_MAX, True, False),
     ('search-cursor-max-idle', 'CURSOR_MAX_IDLE', 300000, 1, UINT32_MAX, False, False),
     ('search-default-dialect', 'DEFAULT_DIALECT', 1, 1, 4, False, False),
+    ('search-fork-gc-child-wait-ms', 'FORK_GC_CHILD_WAIT_MS', 2000, 0, LLONG_MAX, False, False),
     ('search-fork-gc-clean-threshold', 'FORK_GC_CLEAN_THRESHOLD', 100, 0, LLONG_MAX, False, False),
     ('search-fork-gc-retry-interval', 'FORK_GC_RETRY_INTERVAL', 5, 1, LLONG_MAX, False, False),
     ('search-fork-gc-run-interval', 'FORK_GC_RUN_INTERVAL', 30, 1, LLONG_MAX, False, False),

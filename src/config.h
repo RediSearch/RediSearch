@@ -84,6 +84,7 @@ typedef struct {
   size_t forkGcCleanThreshold;
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
+  size_t forkGcChildWaitMs;
   int forkGCCleanNumericEmptyNodes;
 } GCSettings;
 
@@ -383,6 +384,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
 #define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
+#define DEFAULT_FORK_GC_CHILD_WAIT_MS 2000
 #define DEFAULT_DISK_GC_RUN_INTERVAL 300
 #define DEFAULT_DISK_GC_CLEAN_THRESHOLD 10000
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
@@ -486,6 +488,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .gcConfigParams.gcSettings.forkGcSleepBeforeExit = 0,                      \
     .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
     .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
+    .gcConfigParams.gcSettings.forkGcChildWaitMs = DEFAULT_FORK_GC_CHILD_WAIT_MS,\
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
     .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \
