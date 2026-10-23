@@ -46,6 +46,12 @@ void handleNoSort(ArgParser *parser, const void *value, void *user_data);
 void handleWithCursor(ArgParser *parser, const void *value, void *user_data);
 
 /**
+ * WITHCURSOR callback for client-facing requests - always sets an error,
+ * since only the internal (shard) command supports cursors
+ */
+void handleWithCursorUnsupported(ArgParser *parser, const void *value, void *user_data);
+
+/**
  * PARAMS callback - handles PARAMS param value [param value ...]
  * Creates parameter dictionary for query parameterization
  */
