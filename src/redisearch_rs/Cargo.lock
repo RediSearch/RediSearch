@@ -552,6 +552,7 @@ version = "0.0.1"
 dependencies = [
  "ahash",
  "hashbrown",
+ "rqe_core",
  "workspace_hack",
 ]
 
