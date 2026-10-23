@@ -113,8 +113,11 @@ impl QueryEvalContext {
     ///    reads back. A plain allocation holding one [`MetricRequest`] would
     ///    satisfy every other clause here and still make that safe method read
     ///    outside it.
-    ///    Evaluation of deferred INKEYS nodes requires the GIL as well as the
-    ///    spec read lock until the document key map is ready.
+    ///    While evaluating deferred document keys, the caller must hold the
+    ///    index spec read lock to keep the key map, candidate document metadata,
+    ///    and their keys alive and unmodified.
+    ///    Evaluation of deferred INKEYS nodes also requires the GIL until the
+    ///    document key map is ready.
     /// 3. The caller must have exclusive access to the pointer for the
     ///    lifetime of the returned [`QueryEvalContext`].
     ///
