@@ -11,12 +11,13 @@
 
 use ahash::RandomState;
 use hashbrown::HashTable;
+use rqe_core::DocId;
 use std::{ffi::c_void, slice};
 
 /// A candidate whose key remains owned by the document table.
 struct Entry {
     hash: u64,
-    id: u64,
+    id: DocId,
 }
 
 /// Spec-lock-protected lookup table. Full-hash collisions remain separate entries.
@@ -49,14 +50,14 @@ impl DocKeyMap {
     }
 
     /// Insert an ID once. The caller must remove it before changing its key.
-    pub fn insert(&mut self, hash: u64, id: u64) {
+    pub fn insert(&mut self, hash: u64, id: DocId) {
         assert_ne!(id, 0);
         self.entries
             .insert_unique(hash, Entry { hash, id }, |e| e.hash);
     }
 
     /// Populate an ID during backfill, retaining a candidate already maintained by a writer.
-    pub fn insert_if_absent(&mut self, hash: u64, id: u64) {
+    pub fn insert_if_absent(&mut self, hash: u64, id: DocId) {
         assert_ne!(id, 0);
         self.entries
             .entry(hash, |entry| entry.id == id, |entry| entry.hash)
@@ -64,7 +65,7 @@ impl DocKeyMap {
     }
 
     /// Remove exactly one candidate, including when full hashes collide.
-    pub fn remove(&mut self, hash: u64, id: u64) -> bool {
+    pub fn remove(&mut self, hash: u64, id: DocId) -> bool {
         if let Ok(entry) = self
             .entries
             .find_entry(hash, |e| e.hash == hash && e.id == id)
@@ -77,14 +78,14 @@ impl DocKeyMap {
     }
 
     /// Find an ID by comparing candidate keys through their owning document table.
-    pub fn find(&self, hash: u64, mut matches: impl FnMut(u64) -> bool) -> u64 {
+    pub fn find(&self, hash: u64, mut matches: impl FnMut(DocId) -> bool) -> DocId {
         self.entries
             .find(hash, |e| e.hash == hash && matches(e.id))
             .map_or(0, |e| e.id)
     }
 
     /// Resolve a borrowed key, checking full-key equality for matching hash candidates.
-    pub fn get_id(&self, key: &[u8], matches: impl FnMut(u64) -> bool) -> u64 {
+    pub fn get_id(&self, key: &[u8], matches: impl FnMut(DocId) -> bool) -> DocId {
         self.find(self.hash(key), matches)
     }
 
@@ -121,7 +122,7 @@ pub unsafe extern "C" fn DocKeyMap_Reserve(map: *mut DocKeyMap, capacity: usize)
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DocKeyMap_InsertIfAbsent(map: *mut DocKeyMap, hash: u64, id: u64) {
+pub unsafe extern "C" fn DocKeyMap_InsertIfAbsent(map: *mut DocKeyMap, hash: u64, id: DocId) {
     debug_assert!(!map.is_null());
     // SAFETY: The caller provides exclusive access to a live map.
     unsafe { &mut *map }.insert_if_absent(hash, id);
@@ -171,7 +172,7 @@ pub unsafe extern "C" fn DocKeyMap_Hash(map: *const DocKeyMap, key: *const u8, l
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DocKeyMap_Insert(map: *mut DocKeyMap, hash: u64, id: u64) {
+pub unsafe extern "C" fn DocKeyMap_Insert(map: *mut DocKeyMap, hash: u64, id: DocId) {
     debug_assert!(!map.is_null());
     // SAFETY: The caller guarantees exclusive table access.
     unsafe { &mut *map }.insert(hash, id);
@@ -184,14 +185,14 @@ pub unsafe extern "C" fn DocKeyMap_Insert(map: *mut DocKeyMap, hash: u64, id: u6
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DocKeyMap_Remove(map: *mut DocKeyMap, hash: u64, id: u64) -> bool {
+pub unsafe extern "C" fn DocKeyMap_Remove(map: *mut DocKeyMap, hash: u64, id: DocId) -> bool {
     debug_assert!(!map.is_null());
     // SAFETY: The caller guarantees exclusive table access.
     unsafe { &mut *map }.remove(hash, id)
 }
 
 /// Compare a candidate's document key with the query key borrowed through `ctx`.
-pub type DocKeyMatches = unsafe extern "C" fn(ctx: *const c_void, id: u64) -> bool;
+pub type DocKeyMatches = unsafe extern "C" fn(ctx: *const c_void, id: DocId) -> bool;
 
 /// Resolve a borrowed key with full-key comparison through the document table.
 ///
@@ -210,7 +211,7 @@ pub unsafe extern "C" fn DocKeyMap_GetId(
     len: usize,
     ctx: *const c_void,
     matches: DocKeyMatches,
-) -> u64 {
+) -> DocId {
     debug_assert!(!map.is_null());
     // SAFETY: The caller guarantees a shared table borrow.
     let map = unsafe { &*map };

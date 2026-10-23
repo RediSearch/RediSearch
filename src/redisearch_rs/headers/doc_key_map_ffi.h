@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "rqe_core.h"
 
 /**
  * Spec-lock-protected lookup table. Full-hash collisions remain separate entries.
@@ -16,7 +17,7 @@ typedef struct DocKeyMap DocKeyMap;
 /**
  * Compare a candidate's document key with the query key borrowed through `ctx`.
  */
-typedef bool (*DocKeyMatches)(const void *ctx, uint64_t id);
+typedef bool (*DocKeyMatches)(const void *ctx, t_docId id);
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,7 +46,7 @@ void DocKeyMap_Free(struct DocKeyMap *map);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  * [ABI-compatible]: https://doc.rust-lang.org/std/primitive.fn.html#abi-compatibility
  */
-uint64_t DocKeyMap_GetId(const struct DocKeyMap *map, const uint8_t *key, size_t len, const void *ctx, DocKeyMatches matches);
+t_docId DocKeyMap_GetId(const struct DocKeyMap *map, const uint8_t *key, size_t len, const void *ctx, DocKeyMatches matches);
 
 /**
  * Hash borrowed key bytes; no key storage is retained.
@@ -66,7 +67,7 @@ uint64_t DocKeyMap_Hash(const struct DocKeyMap *map, const uint8_t *key, size_t 
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void DocKeyMap_Insert(struct DocKeyMap *map, uint64_t hash, uint64_t id);
+void DocKeyMap_Insert(struct DocKeyMap *map, uint64_t hash, t_docId id);
 
 /**
  * Populate a backfilled ID without duplicating a candidate maintained by a writer.
@@ -77,7 +78,7 @@ void DocKeyMap_Insert(struct DocKeyMap *map, uint64_t hash, uint64_t id);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void DocKeyMap_InsertIfAbsent(struct DocKeyMap *map, uint64_t hash, uint64_t id);
+void DocKeyMap_InsertIfAbsent(struct DocKeyMap *map, uint64_t hash, t_docId id);
 
 /**
  * Report allocated table storage; null denotes disabled acceleration and returns zero.
@@ -102,7 +103,7 @@ struct DocKeyMap *DocKeyMap_New(void);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-bool DocKeyMap_Remove(struct DocKeyMap *map, uint64_t hash, uint64_t id);
+bool DocKeyMap_Remove(struct DocKeyMap *map, uint64_t hash, t_docId id);
 
 /**
  * Reserve room for at least `capacity` entries without changing membership.
