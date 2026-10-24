@@ -56,6 +56,7 @@ pub(crate) fn eval<'index>(
 /// Resolve borrowed keys while the caller holds the index spec read lock.
 /// The lock must remain held throughout this call to pin the map, candidate
 /// document metadata, and their keys, as required by [`QueryEvalContext::new`].
+/// Until the map is ready, the caller must also hold the GIL for metadata lookup.
 fn resolve_keys(
     ctx: &QueryEvalContext,
     keys: &[*mut redis_module::raw::RedisModuleString],
