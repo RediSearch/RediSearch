@@ -133,7 +133,7 @@ void QueryNode_Free(QueryNode *n) {
       QueryGeometryNode_Free(&n->gmn);
       break;
     case QN_IDS:
-      rm_free(n->fn.keys);
+      // fn.keys is a borrowed window into the request's held argv; not freed here
       if (n->fn.docIds) {
         rm_free(n->fn.docIds);
         n->fn.docIds = NULL;
@@ -476,11 +476,7 @@ void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options) {
   }
   if (options->keys) {
     QueryNode *n = NewQueryNode(QN_IDS);
-    n->fn.keys = rm_calloc(options->nkeys, sizeof(*n->fn.keys));
-    for (size_t i = 0; i < options->nkeys; ++i) {
-      n->fn.keys[i].string = options->keys[i];
-      n->fn.keys[i].bytes = RedisModule_StringPtrLen(options->keys[i], &n->fn.keys[i].len);
-    }
+    n->fn.keys = options->keys;  // borrowed from the request's held argv
     n->fn.len = options->nkeys;
     // Transfer ownership of the docIds to the QueryNode (freed in QueryNode_Free)
     n->fn.docIds = options->docIds;
@@ -1080,10 +1076,10 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
             did = qs->fn.docIds[i];
           } else if (spec->docs.keyMapState != DocKeyMap_Ready) {
             did = 0;
-            DocIdMeta_Get(RSDummyContext, qs->fn.keys[i].string, spec->specId, &did);
+            DocIdMeta_Get(RSDummyContext, qs->fn.keys[i], spec->specId, &did);
           } else {
-            size_t len = qs->fn.keys[i].len;
-            const char *key = qs->fn.keys[i].bytes;
+            size_t len;
+            const char *key = RedisModule_StringPtrLen(qs->fn.keys[i], &len);
             did = DocTable_GetIdByKey(&spec->docs, key, len);
           }
           if (did != 0) {
@@ -1191,7 +1187,7 @@ static sds QueryNode_DumpChildren(sds s, const IndexSpec *spec, const QueryNode 
 
 /* Return a string representation of the query parse tree. The string should be freed by the
  * caller
- * Caller holds the spec read lock and the GIL for metadata fallback resolution.
+ * Assumes that the spec is guarded by the GIL or its own lock (read or write)
  */
 char *QAST_DumpExplain(const QueryAST *q, const IndexSpec *spec) {
   // callers always pass a parsed AST with a root node
