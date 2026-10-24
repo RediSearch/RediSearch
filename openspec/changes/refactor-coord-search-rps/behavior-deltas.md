@@ -97,3 +97,9 @@ remain compatibility obligations, not claims of validated equivalence.
 - The first full C/C++ unit run after lifecycle integration passed 1,283 tests.
   A later rebuild removed the additional malformed-distance guard at maintainer
   direction; full behavioral and exact-source verification remain pending.
+
+- Buffered-KNN timeout coverage uses the existing debug-only per-row reduction
+  pause hook for KNN as well as ordinary rows. Production cancellation remains
+  at shard boundaries. The test interrupts with one nearest-K candidate buffered,
+  checks final membership/order and offset-once semantics, and observes one reply
+  and one free callback in RESP2 and RESP3. Execution evidence follows validation.

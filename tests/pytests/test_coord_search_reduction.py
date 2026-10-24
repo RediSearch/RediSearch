@@ -92,3 +92,89 @@ def test_reply_array_knn_resp2(env):
 @skip(cluster=False)
 def test_reply_array_knn_resp3():
     _check_knn(Env(protocol=3), True)
+
+
+def _check_buffered_knn_timeout(resp3):
+    import struct
+    import threading
+    from common import (skipIfNoEnableAssert, setPauseBeforeReduce,
+                        getIsCoordReducePaused, getCoordReduceCount,
+                        resetCoordReduceDebug, wait_for_condition,
+                        ON_TIMEOUT_CONFIG)
+    from test_blocked_client_timeout import (
+        _get_blocked_request_onfree_count, TIMEOUT_WARNING,
+        wait_for_blocked_query_client, wait_for_client_unblocked)
+
+    # Workers ensure reduction runs in the background while the main thread times out.
+    env = Env(moduleArgs='WORKERS 1', protocol=3 if resp3 else 2)
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', 6,
+               'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'L2',
+               'label', 'TAG', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    # One nonempty shard makes the accepted candidate set independent of reply arrival order.
+    keys = [f'doc:{{knn}}:{i:02}' for i in range(12)]
+    for i, key in enumerate(keys):
+        conn.execute_command('HSET', key, 'v', struct.pack('f', i + 1),
+                             'label', f'{12 - i:02}')
+    config = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)
+    previous_policy = config[ON_TIMEOUT_CONFIG] if resp3 else config[1]
+    env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+    try:
+        for offset, limit in ((0, 10), (1, 1)):
+            outcome = []
+            args = ['FT.SEARCH', 'idx', '*=>[KNN 3 @v $vec AS distance]',
+                    'PARAMS', 2, 'vec', struct.pack('f', 0), 'SORTBY', 'label', 'ASC',
+                    'NOCONTENT', 'LIMIT', offset, limit, 'TIMEOUT', 0, 'DIALECT', 2]
+
+            def query():
+                try:
+                    with env.getConnection().client() as client:
+                        reply = client.execute_command(*args)
+                        # A second unsolicited reply would be consumed as the PING response.
+                        outcome.append((reply, client.ping()))
+                except Exception as error:
+                    outcome.append(error)
+
+            resetCoordReduceDebug(env)
+            setPauseBeforeReduce(env, 2)
+            worker = threading.Thread(target=query, daemon=True)
+            try:
+                worker.start()
+                wait_for_condition(
+                    lambda: (getIsCoordReducePaused(env) == 1, {}),
+                    'KNN source did not pause with a candidate buffered')
+                env.assertEqual(getCoordReduceCount(env), 1)
+                free_before = _get_blocked_request_onfree_count(env)
+                client_id = wait_for_blocked_query_client(env, 'FT.SEARCH')
+                env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
+                wait_for_client_unblocked(env, client_id)
+                worker.join(timeout=10)
+                env.assertFalse(worker.is_alive())
+                page = keys[2::-1][offset:offset + limit]
+                expected = ({'attributes': [], 'warning': [TIMEOUT_WARNING],
+                             'total_results': 3, 'format': 'STRING',
+                             'results': [{'id': key, 'values': []} for key in page]}
+                            if resp3 else [3, *page])
+                env.assertEqual(outcome, [(expected, True)])
+                wait_for_condition(
+                    lambda: (_get_blocked_request_onfree_count(env) > free_before, {}),
+                    'Timed-out KNN request was not freed')
+                env.assertEqual(_get_blocked_request_onfree_count(env), free_before + 1)
+            finally:
+                resetCoordReduceDebug(env)
+                worker.join(timeout=10)
+    finally:
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous_policy).ok()
+
+
+@skip(cluster=False)
+def test_buffered_knn_timeout_resp2():
+    """Strict timeout preserves buffered nearest-K candidates and applies pagination once."""
+    _check_buffered_knn_timeout(False)
+
+
+@skip(cluster=False)
+def test_buffered_knn_timeout_resp3():
+    """The buffered KNN handoff retains RESP3 warnings and exactly-once cleanup."""
+    _check_buffered_knn_timeout(True)
