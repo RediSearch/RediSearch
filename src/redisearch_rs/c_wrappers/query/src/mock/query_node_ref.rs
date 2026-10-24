@@ -378,39 +378,13 @@ impl MockQueryNode {
     /// Set the fields of the IDs-node union variant.
     ///
     /// `keys` and `doc_ids` must outlive this `MockQueryNode`.
-    pub fn set_ids(
-        &mut self,
-        keys: *mut *mut redis_module::raw::RedisModuleString,
-        doc_ids: *mut DocId,
-        len: usize,
-    ) {
+    pub fn set_ids(&mut self, keys: *mut ffi::QueryIdKey, doc_ids: *mut DocId, len: usize) {
         // SAFETY: `self.node` is valid and exclusively owned; the caller
         // guarantees the node type is Ids so the `fn` variant is active.
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             let ids = &mut *union_ptr.cast::<ffi::QueryIdFilterNode>();
-            ids.keys = if len == 0 {
-                std::ptr::null_mut()
-            } else {
-                let layout =
-                    Layout::array::<ffi::QueryIdKey>(len).expect("key layout must be valid");
-                let ptr = alloc_zeroed(layout);
-                assert!(!ptr.is_null());
-                self._aux.push(AuxAlloc { ptr, layout });
-                let descriptors = ptr.cast::<ffi::QueryIdKey>();
-                for i in 0..len {
-                    let descriptor = &mut *descriptors.add(i);
-                    descriptor.string = (*keys.add(i)).cast();
-                    if doc_ids.is_null() {
-                        descriptor.bytes = redis_module::RedisModule_StringPtrLen
-                            .expect("RedisModule_StringPtrLen unset")(
-                            *keys.add(i),
-                            &mut descriptor.len,
-                        );
-                    }
-                }
-                descriptors
-            };
+            ids.keys = keys;
             ids.docIds = doc_ids;
             ids.len = len;
         }

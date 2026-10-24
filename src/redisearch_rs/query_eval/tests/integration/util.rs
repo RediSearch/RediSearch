@@ -43,7 +43,7 @@ pub fn term_records(doc_ids: &[u64], field_mask: FieldMask) -> Vec<RSIndexResult
 /// borrows the pointer array (mirroring production, where the keys are a
 /// window into the request's held argv); this owner must outlive the
 /// evaluation and frees the strings on drop.
-pub struct MockKeys(Vec<*mut redis_module::raw::RedisModuleString>);
+pub struct MockKeys(Vec<ffi::QueryIdKey>);
 
 impl MockKeys {
     pub fn new(names: &[&str]) -> Self {
@@ -52,8 +52,18 @@ impl MockKeys {
             names
                 .iter()
                 .map(|name| {
-                    redis_mock::string::create_string(name)
-                        .cast::<redis_module::raw::RedisModuleString>()
+                    let string = redis_mock::string::create_string(name)
+                        .cast::<redis_module::raw::RedisModuleString>();
+                    let mut len = 0;
+                    // SAFETY: the mock API is initialized and this fixture owns the live string.
+                    let bytes = unsafe {
+                        redis_module::RedisModule_StringPtrLen.unwrap()(string, &mut len)
+                    };
+                    ffi::QueryIdKey {
+                        string: string.cast(),
+                        bytes,
+                        len,
+                    }
                 })
                 .collect(),
         )
@@ -62,10 +72,18 @@ impl MockKeys {
     /// Placeholder (null) keys for tests that never read them (pre-resolved
     /// doc ids).
     pub fn nulls(n: usize) -> Self {
-        Self(vec![std::ptr::null_mut(); n])
+        Self(
+            (0..n)
+                .map(|_| ffi::QueryIdKey {
+                    string: std::ptr::null_mut(),
+                    bytes: std::ptr::null(),
+                    len: 0,
+                })
+                .collect(),
+        )
     }
 
-    pub fn as_ptr(&self) -> *mut *mut redis_module::raw::RedisModuleString {
+    pub fn as_ptr(&self) -> *mut ffi::QueryIdKey {
         self.0.as_ptr().cast_mut()
     }
 
@@ -76,10 +94,10 @@ impl MockKeys {
 
 impl Drop for MockKeys {
     fn drop(&mut self) {
-        for &key in &self.0 {
-            if !key.is_null() {
+        for key in &self.0 {
+            if !key.string.is_null() {
                 // SAFETY: created by the mock in `new`, freed exactly once here.
-                unsafe { redis_mock::string::free_string(key.cast()) };
+                unsafe { redis_mock::string::free_string(key.string.cast()) };
             }
         }
     }

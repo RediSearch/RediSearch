@@ -65,6 +65,7 @@ fn resolve_keys(ctx: &QueryEvalContext, keys: &[ffi::QueryIdKey]) -> Vec<DocId> 
     let map = unsafe { &*table.keyMap.cast::<doc_key_map_ffi::DocKeyMap>() };
     keys.iter()
         .filter_map(|key| {
+            debug_assert!(!key.bytes.is_null());
             // SAFETY: QueryNodeMut::new invariant 6 guarantees the captured
             // span remains readable throughout evaluation.
             let key_bytes = unsafe { std::slice::from_raw_parts(key.bytes.cast::<u8>(), key.len) };
