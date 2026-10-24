@@ -83,3 +83,9 @@ remain compatibility obligations, not claims of validated equivalence.
 - Two added KNN protocol/profile tests passed against the PR 2 binary before
   replacement, covering default order, distance ASC, another field in both
   directions, and pages within/beyond K.
+
+- Buffered-KNN timeout coverage uses the existing debug-only per-row reduction
+  pause hook for KNN as well as ordinary rows. Production cancellation remains
+  at shard boundaries. The test interrupts with one nearest-K candidate buffered,
+  checks final membership/order and offset-once semantics, and observes one reply
+  and one free callback in RESP2 and RESP3. Execution evidence follows validation.

@@ -526,7 +526,7 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
         searchResult view;
         searchResultView(ctx, row, &view);
 #ifdef ENABLE_ASSERT
-        if (!needsKnnSelection(ctx)) debugCheckAndPauseBeforeReduce(ctx);
+        debugCheckAndPauseBeforeReduce(ctx);
 #endif
         if (!view.id) {
           ctx->errorOccurred = true;
@@ -543,7 +543,7 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
         }
         SearchResult_SetScore(row, view.score);
 #ifdef ENABLE_ASSERT
-        if (!needsKnnSelection(ctx)) CoordReduceDebugCtx_IncrementReduceCount();
+        CoordReduceDebugCtx_IncrementReduceCount();
 #endif
         return RS_RESULT_OK;
       }
