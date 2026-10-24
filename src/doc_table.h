@@ -17,6 +17,7 @@
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
+typedef struct DocKeyMap DocKeyMap;
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,8 +41,8 @@ static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *d
  * new
  * incremental ids to inserted keys.
  *
- * The key -> docId direction is stored on the Redis key as key-metadata (see
- * doc_id_meta.{h,c}), not here; the DocTable only maps docId -> RSDocumentMetadata.
+ * In-memory indexes also maintain a key -> docId map protected by the spec lock.
+ * Redis key metadata (doc_id_meta.{h,c}) remains available to its other consumers.
  *
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of
  * the
@@ -60,6 +61,8 @@ typedef struct {
   size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
+  // Key-to-document-ID lookup for in-memory indexes; NULL for disk indexes.
+  DocKeyMap *keyMap;
   // Holds field-level expirations only; created lazily on the first HEXPIRE
   // and destroyed when the last entry is removed. Iterators use a NULL check
   // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
@@ -77,6 +80,15 @@ typedef struct {
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size);
+
+/* Caller holds the spec read or write lock and keyMap is enabled. */
+t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len);
+
+/* Caller holds the spec read or write lock, pinning the DMD and its key. */
+bool DocTable_KeyEquals(const DocTable *t, t_docId id, const char *key, size_t len);
+
+/* Key-map allocation, including unused capacity; zero when disabled. */
+size_t DocTable_KeyMapMemoryUsage(const DocTable *t);
 
 #define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize)
 

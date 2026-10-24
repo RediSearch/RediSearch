@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "doc_table.h"
+#include "doc_key_map_ffi.h"
 
 #include <sys/param.h>
 #include <string.h>
@@ -18,6 +19,7 @@
 #include "config.h"
 #include "buffer.h"
 #include "rules.h"
+#include "search_disk.h"
 
 struct timespec;
 
@@ -30,6 +32,7 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .memsize = 0,
       .sortablesSize = 0,
       .maxSize = max_size,
+      .keyMap = !SearchDisk_IsEnabled() ? DocKeyMap_New() : NULL,
   };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
   ret.memsize = cap * sizeof(*ret.buckets) + sizeof(DocTable);
@@ -148,6 +151,10 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
   // Adding the dmd to the chain
   dmd->nextInChain = chain->root;
   chain->root = dmd;
+  if (t->keyMap) {
+    uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr));
+    DocKeyMap_Insert(t->keyMap, hash, docId);
+  }
 }
 
 int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len) {
@@ -391,6 +398,8 @@ void DocTable_Free(DocTable *t) {
     }
   }
   rm_free(t->buckets);
+  DocKeyMap_Free(t->keyMap);
+  t->keyMap = NULL;
   TimeToLiveTable_Destroy(&t->ttl);
 }
 
@@ -404,6 +413,12 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
   RSDocumentMetadata *md = DocTable_DmdUnchain(t, docId);
   if (!md) {
     return NULL;
+  }
+
+  if (t->keyMap) {
+    uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)md->keyPtr, sdslen(md->keyPtr));
+    bool removed = DocKeyMap_Remove(t->keyMap, hash, docId);
+    RS_LOG_ASSERT(removed, "missing INKEYS entry for deleted document");
   }
 
   // Drop the doc's per-field TTL entry, if any, and tear down the table
@@ -443,9 +458,18 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *to_str, size_t 
   if (!dmd) {
     return;
   }
+  if (t->keyMap) {
+    uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr));
+    bool removed = DocKeyMap_Remove(t->keyMap, hash, docId);
+    RS_LOG_ASSERT(removed, "missing INKEYS entry for renamed document");
+  }
   t->memsize -= sdsAllocSize(dmd->keyPtr);
   sdsfree(dmd->keyPtr);
   dmd->keyPtr = sdsnewlen(to_str, to_len);
+  if (t->keyMap) {
+    uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)to_str, to_len);
+    DocKeyMap_Insert(t->keyMap, hash, docId);
+  }
   t->memsize += sdsAllocSize(dmd->keyPtr);
 }
 
@@ -578,4 +602,31 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
 
 t_docId DocTable_GetMaxDocId(const DocTable *t) {
   return t->maxDocId;
+}
+
+// The spec lock pins the DMD and its key; no refcount change is needed for comparison.
+typedef struct {
+  const DocTable *table;
+  const char *key;
+  size_t len;
+} DocKeyLookup;
+
+bool DocTable_KeyEquals(const DocTable *t, t_docId id, const char *key, size_t len) {
+  const RSDocumentMetadata *dmd = DocTable_GetOwn(t, id);
+  return dmd && sdslen(dmd->keyPtr) == len && memcmp(dmd->keyPtr, key, len) == 0;
+}
+
+static bool docKeyMatches(const void *ctx, uint64_t id) {
+  const DocKeyLookup *lookup = ctx;
+  return DocTable_KeyEquals(lookup->table, id, lookup->key, lookup->len);
+}
+
+t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len) {
+  RS_ASSERT(t->keyMap);
+  DocKeyLookup lookup = {.table = t, .key = key, .len = len};
+  return DocKeyMap_GetId(t->keyMap, (const uint8_t *)key, len, &lookup, docKeyMatches);
+}
+
+size_t DocTable_KeyMapMemoryUsage(const DocTable *t) {
+  return DocKeyMap_MemoryUsage(t->keyMap);
 }
