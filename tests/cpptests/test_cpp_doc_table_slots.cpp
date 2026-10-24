@@ -77,6 +77,14 @@ TEST_F(DocTableSlotsTest, PutStoresClusterSlot) {
   }
 }
 
+TEST_F(DocTableSlotsTest, IsEmptyTracksDocs) {
+  EXPECT_TRUE(DocTable_IsEmpty(&dt));
+  t_docId id = put("{a}1");
+  EXPECT_FALSE(DocTable_IsEmpty(&dt));
+  DMD_Return(DocTable_DeleteById(&dt, id));
+  EXPECT_TRUE(DocTable_IsEmpty(&dt));
+}
+
 TEST_F(DocTableSlotsTest, RenameRecomputesSlot) {
   t_docId id = put("{a}x");
   DocTable_SetKeyById(&dt, id, "{b}x", 4);
