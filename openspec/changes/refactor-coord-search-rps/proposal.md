@@ -35,6 +35,9 @@ Either stack may merge first; the design records the integration boundary.
 - [Implementation tasks](tasks.md)
 - [Compatibility requirements](specs/coordinator-search/spec.md)
 
-Status: local design draft following directional agreement in conversation.
-No implementation, runtime verification, issue, or PR has been created for this
-change. Repository review milestones remain to be recorded before broad changes.
+Tracking: [MOD-20150](https://redislabs.atlassian.net/browse/MOD-20150).
+
+Status: implementation prepared as four local layers following directional
+agreement in conversation. Build, unit, and focused three-shard regression runs
+are recorded in the behavior ledger; full verification and PR references remain
+pending. No new timeout ownership protocol is introduced here.

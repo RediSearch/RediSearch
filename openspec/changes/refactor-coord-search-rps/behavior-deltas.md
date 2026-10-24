@@ -83,3 +83,17 @@ remain compatibility obligations, not claims of validated equivalence.
 - Two added KNN protocol/profile tests passed against the PR 2 binary before
   replacement, covering default order, distance ASC, another field in both
   directions, and pages within/beyond K.
+- PR 3 replacement passed six ResultProcessor unit tests and eighteen focused
+  cluster tests, including the new KNN characterization tests and eight
+  deterministic coordinator reduction timeout/disconnect cases.
+- PR 4 moves stored rows into QueryRequest.reply; common cycle teardown frees
+  them before MRCtx releases backing. Serialization uses stack views with no
+  temporary heap of custom row wrappers. Classification: internal ownership.
+- Common blocked-client reply/timeout entry points now invoke per-cycle command
+  adapters, including cursor cycles. EndCycle clears adapters before parking.
+  This is shared dispatch, not new timeout policy or nonblocking strict handoff.
+  Existing policy adapters and serialization remain command-specific.
+
+- The first full C/C++ unit run after lifecycle integration passed 1,283 tests.
+  A later rebuild removed the additional malformed-distance guard at maintainer
+  direction; full behavioral and exact-source verification remain pending.

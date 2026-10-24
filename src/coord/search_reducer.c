@@ -61,7 +61,6 @@ typedef struct searchReducerCtx {
 
   MRReply *warning;
   QueryProcessingCtx qctx;
-  arrayof(SearchResult *) results;
   MRReply **replies;
 } searchReducerCtx;
 
@@ -72,13 +71,7 @@ void CoordSearchReducer_Free(searchRequestCtx *r) {
   searchReducerCtx *rctx = r->rctx;
   if (rctx) {
     QITR_FreeChain(&rctx->qctx);
-    if (rctx->results) {
-      for (size_t i = 0; i < array_len(rctx->results); ++i) {
-        SearchResult_Destroy(rctx->results[i]);
-        rm_free(rctx->results[i]);
-      }
-      array_free(rctx->results);
-    }
+    QueryRequest_SetEndProcRef(&r->base, NULL);
     rm_free(rctx);
   }
 }
@@ -589,20 +582,23 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **rep
     QITR_PushRP(&ctx->qctx, RPPager_New(ctx->searchCtx->offset, ctx->searchCtx->limit));
   }
   QueryRequest_SetEndProcRef(&ctx->searchCtx->base, &ctx->qctx.endProc);
-  ctx->results = array_new(SearchResult *, 8);
+  ChunkReplyState *reply = &ctx->searchCtx->base.reply;
+  reply->results = array_new(SearchResult *, 8);
+  reply->limit = ctx->searchCtx->limit;
   SearchResult row = SearchResult_New();
   // A count-only request still consumes envelopes but has no candidates to sort.
   ResultProcessor *end = ctx->qctx.endProc;
   if (ctx->searchCtx->limit == 0) end = ctx->qctx.rootProc;
-  while (end->Next(end, &row) == RS_RESULT_OK) {
+  while ((reply->rc = end->Next(end, &row)) == RS_RESULT_OK) {
     if (ctx->searchCtx->limit != 0) {
-      array_append(ctx->results, SearchResult_AllocateMove(&row));
+      array_append(reply->results, SearchResult_AllocateMove(&row));
       row = SearchResult_New();
     } else {
       SearchResult_Clear(&row);
     }
   }
   SearchResult_Destroy(&row);
+  reply->hasStoredResults = true;
   if (ctx->reduceSpecialCaseCtxKnn) {
     ctx->totalReplies = MIN(ctx->reduceSpecialCaseCtxKnn->knn.k, ctx->totalReplies);
   }
@@ -622,18 +618,8 @@ static inline void recordSearchTimeoutStage(searchRequestCtx *req, bool isError)
 static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) {
   searchRequestCtx *req = rCtx->searchCtx;
 
-  // Number of results to actually return
-  size_t num = req->offset + req->limit;
-
-  size_t qlen = rCtx->results ? array_len(rCtx->results) : 0;
-  size_t pos = qlen;
-  size_t first = 0;
-
-  searchResult **results = rm_malloc(sizeof(*results) * qlen);
-  for (size_t i = 0; i < qlen; ++i) {
-    results[i] = rm_calloc(1, sizeof(*results[i]));
-    searchResultView(rCtx, rCtx->results[i], results[i]);
-  }
+  SearchResult **results = req->base.reply.results;
+  size_t qlen = results ? array_len(results) : 0;
 
   //-------------------------------------------------------------------------------------------
   // RESP2 is a flat array: total, then each result's fields in sequence.
@@ -689,9 +675,10 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     // id, the optional sections below, and the trailing "values" placeholder.
     const size_t entries = 2 + req->withScores + req->withPayload +
                            (req->withSortingKeys && req->withSortby) + !req->noContent;
-    for (size_t i = first; i < qlen && i < num; ++i) {
+    for (size_t i = 0; i < qlen; ++i) {
       RedisModule_Reply_MapWithLen(reply, entries);  // >> result
-      searchResult *res = results[i];
+      searchResult view, *res = &view;
+      searchResultView(rCtx, results[i], res);
 
       RedisModule_ReplyKV_StringBuffer(reply, "id", res->id, res->idLen);
 
@@ -735,8 +722,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   {
     RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
 
-    for (pos = first; pos < qlen && pos < num; pos++) {
-      searchResult *res = results[pos];
+    for (size_t pos = 0; pos < qlen; pos++) {
+      searchResult view, *res = &view;
+      searchResultView(rCtx, results[pos], res);
       RedisModule_Reply_StringBuffer(reply, res->id, res->idLen);
       if (req->withScores) {
         if (req->withExplainScores) {
@@ -769,12 +757,6 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
                                            COORD_ERR_WARN);
   }
   //-------------------------------------------------------------------------------------------
-
-  // Free the sorted results
-  for (pos = 0; pos < qlen; pos++) {
-    rm_free(results[pos]);
-  }
-  rm_free(results);
 }
 
 struct PrintCoordProfile_ctx {

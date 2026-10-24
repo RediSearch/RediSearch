@@ -16,33 +16,33 @@ source analysis as testing.
 
 ## 2. Mechanical extraction
 
-- [ ] Move reducer/decoder/comparator implementation behind a narrow coordinator
+- [x] Move reducer/decoder/comparator implementation behind a narrow coordinator
   interface; preserve capacities, callbacks, checkpoints and serialization.
-- [ ] Keep parsing and dispatch in module.c; check both CMake source lists.
-- [ ] Run focused cluster search/profile/KNN/timeout tests and required build checks.
-- [ ] Record B01's exact diff and validation evidence.
+- [x] Keep parsing and dispatch in module.c; check both CMake source lists.
+- [x] Run focused cluster search/profile/KNN/timeout tests and required build checks.
+- [x] Record B01's exact diff and validation evidence.
 
 ## 3. Reply-array source and ordinary ordering
 
-- [ ] Settle minimal row representation and exact destruction order.
-- [ ] Add source RP for RESP2/RESP3 and profile envelopes, with envelope error scan
+- [x] Settle minimal row representation and exact destruction order.
+- [x] Add source RP for RESP2/RESP3 and profile envelopes, with envelope error scan
   and separate count/warning metadata.
-- [ ] Reuse bounded sorter machinery with equivalent coordinator comparisons.
-- [ ] Integrate pager and count-only behavior without narrowing counts/limits.
+- [x] Reuse bounded sorter machinery with equivalent coordinator comparisons.
+- [x] Integrate pager and count-only behavior without narrowing counts/limits.
 - [ ] Differentially verify replies and exercise cleanup under ASan.
 
 ## 4. KNN paths
 
-- [ ] Add nearest-K selection followed by final ordering for shouldSort paths.
-- [ ] Preserve distance-sort shortcut pending B06 evidence.
-- [ ] Preserve count semantics independently of pagination and heap size.
+- [x] Add nearest-K selection followed by final ordering for shouldSort paths.
+- [x] Preserve distance-sort shortcut pending B06 evidence.
+- [x] Preserve count semantics independently of pagination and heap size.
 - [ ] Cover both heaps at interruption boundaries; update B05/B06/B07/B15.
 
 ## 5. Common lifecycle and callbacks
 
-- [ ] Store standard results through QueryRequest and free the RP chain normally.
-- [ ] Extract minimum common reply/policy machinery; preserve output representation.
-- [ ] Remove old reducer heaps, wrappers, post-processing callbacks and temporary
+- [x] Store standard results through QueryRequest and free the RP chain normally.
+- [x] Extract minimum common reply/policy machinery; preserve output representation.
+- [x] Remove old reducer heaps, wrappers, post-processing callbacks and temporary
   serializer adapter once callers have migrated.
 - [ ] Preserve existing timeout ownership; verify exactly-once reply/unblock/free.
 
