@@ -140,3 +140,66 @@ TEST_F(ResultProcessorTest, testmergeFlags_OwnsIndexResultNotPropagated) {
   // `b`'s flags must be left untouched by the merge.
   EXPECT_TRUE(SearchResult_GetFlags(&b) & Result_OwnsIndexResult);
 }
+
+static int compareRemoteKeys(const void *a, const void *b, const void *context) {
+  const auto *left = static_cast<const SearchResult *>(a);
+  const auto *right = static_cast<const SearchResult *>(b);
+  const int direction = context ? *static_cast<const int *>(context) : 1;
+  const auto leftId = SearchResult_GetDocId(left), rightId = SearchResult_GetDocId(right);
+  return direction * (leftId < rightId ? 1 : leftId > rightId ? -1 : 0);
+}
+
+TEST_F(ResultProcessorTest, CustomSorterPreservesRowsAndComparatorContext) {
+  // Remote ordering may differ from score order and must retain owned row values.
+  int reverse = -1;
+  for (const int *direction :
+       {static_cast<const int *>(nullptr), static_cast<const int *>(&reverse)}) {
+    QueryProcessingCtx qctx = {0};
+    qctx.resultLimit = UINT32_MAX;
+    qctx.skipIndexResultDeepCopy = true;
+    RLookup lookup = RLookup_New();
+    auto *source = new processor1Ctx();
+    source->Next = p1_Next;
+    source->Free = resultProcessor_GenericFree;
+    source->kout = RLookup_GetKey_Write(&lookup, "value", RLOOKUP_F_NOFLAGS);
+    QITR_PushRP(&qctx, source);
+    QITR_PushRP(&qctx, RPSorter_NewByComparator(3, compareRemoteKeys, (void *)direction));
+    QITR_PushRP(&qctx, RPPager_New(1, 1));
+    SearchResult row = SearchResult_New();
+    ASSERT_EQ(RS_RESULT_OK, qctx.endProc->Next(qctx.endProc, &row));
+    const t_docId expected = direction ? 4 : 2;
+    EXPECT_EQ(expected, SearchResult_GetDocId(&row));
+    EXPECT_EQ(expected,
+              RSValue_Number_Get(RLookupRow_Get(source->kout, SearchResult_GetRowData(&row))));
+    SearchResult_Clear(&row);
+    EXPECT_EQ(RS_RESULT_EOF, qctx.endProc->Next(qctx.endProc, &row));
+    SearchResult_Destroy(&row);
+    QITR_FreeChain(&qctx);
+    RLookup_Cleanup(&lookup);
+  }
+}
+
+TEST_F(ResultProcessorTest, PagerDoesNotNarrowRemoteWindows) {
+  for (bool largeOffset : {false, true}) {
+    QueryProcessingCtx qctx = {0};
+    qctx.resultLimit = UINT32_MAX;
+    RLookup lookup = RLookup_New();
+    auto *source = new processor1Ctx();
+    source->Next = p1_Next;
+    source->Free = resultProcessor_GenericFree;
+    source->kout = RLookup_GetKey_Write(&lookup, "value", RLOOKUP_F_NOFLAGS);
+    QITR_PushRP(&qctx, source);
+    const size_t wide = (size_t)UINT32_MAX + 2;
+    QITR_PushRP(&qctx, RPPager_New(largeOffset ? wide : 0, largeOffset ? 1 : wide));
+    SearchResult row = SearchResult_New();
+    size_t count = 0;
+    while (qctx.endProc->Next(qctx.endProc, &row) == RS_RESULT_OK) {
+      ++count;
+      SearchResult_Clear(&row);
+    }
+    EXPECT_EQ(largeOffset ? 0 : NUM_RESULTS, count);
+    SearchResult_Destroy(&row);
+    QITR_FreeChain(&qctx);
+    RLookup_Cleanup(&lookup);
+  }
+}

@@ -47,3 +47,28 @@ not justified as soft behavior.
 
 None yet. The first extraction is intended to change only B01. Other entries are
 compatibility obligations or candidate follow-ups, not claims of known deltas.
+
+## Implementation evidence
+
+- PR 1 extracts reduction and callbacks into `src/coord/search_reducer.c`.
+  Parsing, dispatch, registrations and the request destructor use its private
+  interface. Source review found no behavior changes. An assert-enabled build
+  and nine focused cluster tests passed at `6ccad8d1ef`.
+- PR 2 uses standard SearchResult rows with request-local reply/row locators.
+  Payloads and fields remain in MRCtx-owned reply trees; comparison and output
+  decode borrowed views. This preserves RESP types without changing the Rust
+  SearchResult layout. Comparison decode cost is unmeasured; no performance
+  improvement is claimed.
+- B16: pager counters use size_t; the advisory qctx limit saturates at UINT32_MAX.
+  Search hit totals remain size_t in reducer metadata. Unit coverage exercises
+  offset/limit above UINT32_MAX without allocating a huge result set.
+- The source uses row ordinals rather than RESP2 physical offsets in its
+  locators. The UINT32_MAX row guard exceeds the shard cap
+  MAX_SEARCH_REQUEST_RESULTS; it does not narrow supported shard output.
+  Physical offsets are computed as size_t. Classification: internal validation.
+- Two new protocol/profile/ordering characterization tests passed against the
+  extraction binary before RP replacement. The initial replacement passed these
+  and twelve existing focused cluster tests; final-head verification follows.
+- Local cluster validation requires RLTest's
+  `--cluster_bus_port_protected_mode no` for this Redis binary. This is a local
+  test setting, not a repository or product configuration change.
