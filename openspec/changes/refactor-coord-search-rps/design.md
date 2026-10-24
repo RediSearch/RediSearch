@@ -153,3 +153,24 @@ Do not redesign either protocol as part of extraction.
   minimal adapter cannot satisfy ownership and serialization requirements.
 - Fix suspicious KNN/count/warning behavior while moving code: separate change
   with its own classification and tests.
+
+## Implemented representation and callback boundary
+
+Standard SearchResult.docId stores a request-local locator: reply index in the
+high 32 bits and row ordinal in the low 32 bits. It is never a document-table ID.
+The source, comparators, and serializer borrow views from the request's MRCtx
+reply backing. No RSValue conversion or SearchResult FFI layout change is needed.
+Comparator decoding cost remains unmeasured.
+
+QueryRequest.reply owns emitted rows. EndCycle and base destruction use the
+existing ChunkReplyState cleanup; the concrete reducer destructor frees the RP
+chain before releasing MRCtx. Serialization decodes one stack view per output
+row, preserving the existing command envelope and remote value types.
+
+BlockQueryClientWithTimeout and BlockCursorClientWithTimeout register common
+reply, timeout, and free entry points. Per-cycle command adapters retain the
+existing protocol-specific reply and policy handling. Callback dispatch is
+shared; timeout policy algorithms are not yet unified. In particular this does
+not change the search callback's claim/wait behavior or implement Drain. The
+user's Drain API stack can replace that policy at the common boundary once
+exclusive pipeline ownership transfer is defined.

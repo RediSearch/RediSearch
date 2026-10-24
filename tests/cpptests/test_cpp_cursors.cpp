@@ -276,6 +276,8 @@ TEST_F(CursorsTest, DeferredCycleClearsModeBeforeInlineCursorRead) {
   cursor->query = &req->base;
   req->base.blockedClientCycleActive = true;
   req->base.replyDeferred = true;
+  req->base.replyCallback = [](RedisModuleCtx *, RedisModuleString **, int) { return 0; };
+  req->base.timeoutCallback = req->base.replyCallback;
   req->base.cursorInfo.cursor = cursor;
   req->base.cursorInfo.disposition = CURSOR_DISPOSITION_PAUSE;
   const auto id = cursor->id;
@@ -285,6 +287,8 @@ TEST_F(CursorsTest, DeferredCycleClearsModeBeforeInlineCursorRead) {
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), cursor);
   EXPECT_FALSE(QueryRequest_UsesReplyCallback(&req->base));
   EXPECT_FALSE(req->base.blockedClientCycleActive);
+  EXPECT_EQ(req->base.replyCallback, nullptr);
+  EXPECT_EQ(req->base.timeoutCallback, nullptr);
   EXPECT_FALSE(req->base.reply.hasStoredResults);
   EXPECT_EQ(req->base.reply.results, nullptr);
 
