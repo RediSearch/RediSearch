@@ -374,9 +374,13 @@ impl VectorFixture {
         // Opening the index asserts the field is a vector field before reading
         // the index off it, so the type has to be set even when there is none.
         field_spec_mut.set_types(ffi::FieldType_INDEXFLD_T_VECTOR);
-        let index = opts
-            .indexed_vectors
-            .map_or(std::ptr::null_mut(), flat_index);
+        // The query vector is the corner the index's contents are arranged
+        // around; see `flat_index`. Without an index the search stops before it
+        // ever reads the query, so the zeroed fallback is never looked at.
+        let (index, mut query_vector): (_, Box<[f32]>) = match opts.indexed_vectors {
+            Some(count) => (flat_index(count), vec![count as f32; DIM].into()),
+            None => (std::ptr::null_mut(), vec![0.0; DIM].into()),
+        };
         field_spec_mut.__bindgen_anon_1.vectorOpts.vecSimIndex = index;
 
         let (mut child, filter) = match opts.child {
@@ -407,11 +411,6 @@ impl VectorFixture {
         vq.fieldIndex = unsafe { (*field_spec.as_ptr()).index };
         vq.scoreField = opts.score_field.map_or(std::ptr::null_mut(), module_string);
 
-        // The corner the index's contents are arranged around; see `flat_index`.
-        // Without an index the search stops before it ever reads the query, so
-        // the zeroed value the fallback produces is never looked at.
-        let mut query_vector: Box<[f32]> =
-            vec![opts.indexed_vectors.unwrap_or(0) as f32; DIM].into_boxed_slice();
         if !index.is_null() {
             let vector = query_vector.as_mut_ptr().cast();
             let vec_len = std::mem::size_of_val(&*query_vector);
