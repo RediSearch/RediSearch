@@ -97,9 +97,8 @@ pub enum QueryNode<'a> {
     },
     /// A filter by explicit document key names.
     Ids {
-        /// The key names to match against: `RedisModuleString`s borrowed
-        /// from storage owned by the request (its held argv).
-        keys: &'a [*mut redis_module::raw::RedisModuleString],
+        /// Key descriptors with byte spans borrowed from the request's held argv.
+        keys: &'a [ffi::QueryIdKey],
         /// IDs resolved from [`keys`](Self::Ids::keys) before evaluation, or
         /// [`None`] when evaluation must resolve through the lookup map.
         doc_ids: Option<&'a [DocId]>,
@@ -320,7 +319,7 @@ impl QueryNodeRef {
                         &[]
                     } else {
                         // SAFETY: invariant (1) of `new` guarantees `keys` is a
-                        // valid pointer to `len` string pointers when non-null.
+                        // valid pointer to `len` key descriptors when non-null.
                         unsafe { std::slice::from_raw_parts(fn_.keys, len) }
                     },
                     doc_ids: if fn_.docIds.is_null() {
@@ -457,8 +456,11 @@ impl QueryNodeMut<'_> {
     ///    parser allocates every token that way, and query expansion leaves tag
     ///    subtrees alone.
     /// 6. Every [`QueryNodeType::Ids`] node without pre-resolved document IDs
-    ///    must borrow non-null, live Redis strings in its key array. The request
-    ///    retains those strings for the entire evaluation.
+    ///    must contain key descriptors with non-null byte pointers readable for
+    ///    their declared lengths. The byte spans are captured under the GIL after
+    ///    trimming the held argv, which retains the strings throughout evaluation.
+    ///    Until the map is ready, each descriptor must also retain its live Redis
+    ///    string pointer for metadata lookup under the GIL.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn new(ptr: NonNull<ffi::RSQueryNode>) -> Self {
