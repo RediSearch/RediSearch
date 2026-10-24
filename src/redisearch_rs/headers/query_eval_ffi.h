@@ -66,6 +66,8 @@ extern "C" {
  *    addresses for the lifetime of the returned tree. Timeout source
  *    changes and deadline writes may occur only between iterator probes;
  *    only the blocked-client flag may change concurrently.
+ *    The caller must hold the spec read lock throughout deferred INKEYS
+ *    evaluation, as required by [`QueryEvalContext::new`].
  * 4. `status` must be a non-null pointer to a valid [`QueryError`].
  *
  * Together these are exactly the invariants documented on
