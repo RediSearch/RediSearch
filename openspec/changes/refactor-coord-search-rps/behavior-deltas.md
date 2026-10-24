@@ -128,3 +128,17 @@ remain compatibility obligations, not claims of validated equivalence.
   required_fields). It never substitutes another field's numeric value. All six
   protocol/order/KNN/buffered-timeout tests pass with search/profile WITHSORTKEYS
   coverage after the fix.
+- PR 3 replacement passed six ResultProcessor unit tests and eighteen focused
+  cluster tests, including the new KNN characterization tests and eight
+  deterministic coordinator reduction timeout/disconnect cases.
+- PR 4 moves stored rows into QueryRequest.reply; common cycle teardown frees
+  them before MRCtx releases backing. Serialization uses stack views with no
+  temporary heap of custom row wrappers. Classification: internal ownership.
+- Common blocked-client reply/timeout entry points now invoke per-cycle command
+  adapters, including cursor cycles. EndCycle clears adapters before parking.
+  This is shared dispatch, not new timeout policy or nonblocking strict handoff.
+  Existing policy adapters and serialization remain command-specific.
+
+- The first full C/C++ unit run after lifecycle integration passed 1,283 tests.
+  A later rebuild removed the additional malformed-distance guard at maintainer
+  direction; full behavioral and exact-source verification remain pending.
