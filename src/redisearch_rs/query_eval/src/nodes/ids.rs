@@ -27,7 +27,7 @@ use crate::{Evaluated, QueryEvalContext};
 ///   an unresolved (not indexed) key and is filtered out.
 pub(crate) fn eval<'index>(
     ctx: &QueryEvalContext,
-    keys: &[ffi::QueryIdKey],
+    keys: &[*mut redis_module::raw::RedisModuleString],
     doc_ids: Option<&[DocId]>,
 ) -> Evaluated<'index> {
     debug_assert!(
@@ -55,7 +55,10 @@ pub(crate) fn eval<'index>(
 /// Resolve borrowed keys while the caller holds the index spec read lock.
 /// The lock must remain held throughout this call to pin the map, candidate
 /// document metadata, and their keys, as required by [`QueryEvalContext::new`].
-fn resolve_keys(ctx: &QueryEvalContext, keys: &[ffi::QueryIdKey]) -> Vec<DocId> {
+fn resolve_keys(
+    ctx: &QueryEvalContext,
+    keys: &[*mut redis_module::raw::RedisModuleString],
+) -> Vec<DocId> {
     let table = ctx.doc_table();
     assert!(
         !table.keyMap.is_null(),
@@ -63,16 +66,22 @@ fn resolve_keys(ctx: &QueryEvalContext, keys: &[ffi::QueryIdKey]) -> Vec<DocId> 
     );
     // SAFETY: the spec read lock pins the map and excludes mutation throughout evaluation.
     let map = unsafe { &*table.keyMap.cast::<doc_key_map_ffi::DocKeyMap>() };
+    // SAFETY: installed once at module load and never mutated during evaluation.
+    let string_ptr_len =
+        unsafe { redis_module::RedisModule_StringPtrLen }.expect("RedisModule_StringPtrLen unset");
     keys.iter()
-        .filter_map(|key| {
-            debug_assert!(!key.bytes.is_null());
-            // SAFETY: QueryNodeMut::new invariant 6 guarantees the captured
-            // span remains readable throughout evaluation.
-            let key_bytes = unsafe { std::slice::from_raw_parts(key.bytes.cast::<u8>(), key.len) };
+        .filter_map(|&key| {
+            debug_assert!(!key.is_null());
+            let mut len = 0;
+            // SAFETY: unresolved ID nodes borrow live Redis strings from the
+            // request's held argv (QueryNodeMut::new invariant 6).
+            let bytes = unsafe { string_ptr_len(key, &mut len) };
+            // SAFETY: StringPtrLen returned readable bytes from the held argv string.
+            let key_bytes = unsafe { std::slice::from_raw_parts(bytes.cast::<u8>(), len) };
             let id = map.get_id(key_bytes, |id| {
                 // SAFETY: the spec read lock pins candidate DMDs and their keys;
                 // the query bytes remain live throughout this comparison.
-                unsafe { ffi::DocTable_KeyEquals(table, id, key.bytes, key.len) }
+                unsafe { ffi::DocTable_KeyEquals(table, id, bytes, len) }
             });
             (id != 0).then_some(id)
         })
