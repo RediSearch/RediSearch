@@ -552,7 +552,6 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "strum",
- "thiserror",
  "workspace_hack",
 ]
 
@@ -705,7 +704,6 @@ name = "field"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
- "ffi",
  "rqe_core",
  "workspace_hack",
 ]
@@ -1185,7 +1183,6 @@ dependencies = [
  "cheadergen",
  "enumflags2",
  "ffi",
- "field",
  "index_result",
  "pretty_assertions",
  "proptest",
@@ -1205,7 +1202,6 @@ dependencies = [
 name = "inverted_index_bencher"
 version = "0.0.1"
 dependencies = [
- "buffer",
  "criterion",
  "ffi",
  "index_result",
@@ -1426,7 +1422,6 @@ version = "0.0.1"
 dependencies = [
  "ffi",
  "index_result",
- "inverted_index",
  "workspace_hack",
 ]
 
@@ -1570,7 +1565,6 @@ dependencies = [
  "insta",
  "inverted_index",
  "numeric_range_tree",
- "pretty_assertions",
  "proptest",
  "redis_mock",
  "redis_reply",
@@ -1844,7 +1838,6 @@ version = "0.0.1"
 dependencies = [
  "criterion",
  "proptest",
- "proptest-derive",
  "rand 0.10.1",
  "workspace_hack",
 ]
@@ -1908,7 +1901,6 @@ dependencies = [
  "inverted_index",
  "inverted_index_ffi",
  "lending-iterator",
- "proptest",
  "query",
  "query_error",
  "query_eval",
@@ -2206,7 +2198,6 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
- "build_utils",
  "fnv_ffi",
  "fork_gc_ffi",
  "geo_ffi",
@@ -2387,7 +2378,6 @@ dependencies = [
  "lending-iterator",
  "libc",
  "pin-project",
- "pretty_assertions",
  "proptest",
  "query_error",
  "redis-module",
@@ -2492,7 +2482,6 @@ dependencies = [
  "iterators_ffi",
  "libc",
  "numeric_range_tree",
- "pretty_assertions",
  "proptest",
  "query_error",
  "query_term",
@@ -2563,7 +2552,6 @@ dependencies = [
  "inverted_index_ffi",
  "libc",
  "numeric_range_tree",
- "numeric_range_tree_ffi",
  "query_error",
  "redis-module",
  "redis_mock",
@@ -2821,7 +2809,6 @@ dependencies = [
  "ffi",
  "inverted_index",
  "search_result",
- "unsafe-tools",
  "workspace_hack",
 ]
 
@@ -3482,8 +3469,6 @@ name = "trie_rs"
 version = "0.0.1"
 dependencies = [
  "cheadergen",
- "ffi",
- "fs-err",
  "insta",
  "lending-iterator",
  "libc",
@@ -3569,7 +3554,6 @@ name = "types_ffi"
 version = "0.0.1"
 dependencies = [
  "ffi",
- "field",
  "index_result",
  "inverted_index",
  "ref_mode",
@@ -3593,28 +3577,6 @@ name = "unicode-xid"
 version = "0.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c1f860d7d29cf02cb2f3f359fd35991af3d30bac52c57d265a3c461074cb4dc"
-
-[[package]]
-name = "unsafe-tools"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ae4406a7eaa72970d80d69c25ed0df481ff68c21eae62cb09ca13e27ec2da3a"
-dependencies = [
- "unsafe-tools-canary",
- "unsafe-tools-mimic",
-]
-
-[[package]]
-name = "unsafe-tools-canary"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08dbed46104a79e4e32531f87299df16b53214daaffde2a3c488ac3f502f4e4e"
-
-[[package]]
-name = "unsafe-tools-mimic"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c925fa852969cb33845bcb97736763d404ec5cd9210c58ebf3cefe39abbed80a"
 
 [[package]]
 name = "untrusted"
@@ -3721,7 +3683,6 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "proptest",
- "proptest-derive",
  "workspace_hack",
 ]
 
