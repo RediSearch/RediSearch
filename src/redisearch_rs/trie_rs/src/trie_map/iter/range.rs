@@ -7,9 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{cmp::Ordering, fmt::Write};
+use std::{cmp::Ordering, fmt::Write, time::Instant};
 
-use crate::trie_map::{node::Node, utils::longest_common_prefix};
+use timeout::TimeoutCheckResult;
+
+use crate::{
+    iter::timeout::IteratorTimeoutState,
+    trie_map::{node::Node, utils::longest_common_prefix},
+};
 
 /// Iterates over the entries of a [`TrieMap`](crate::TrieMap) between the specified `min` and `max`,
 /// in lexicographical order.
@@ -29,6 +34,8 @@ pub struct RangeIter<'tm, 'f, Data> {
     ///
     /// It is only taken into account if the range specifies a maximum boundary.
     is_max_included: bool,
+    /// The timeout state.
+    timeout: IteratorTimeoutState,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -184,7 +191,13 @@ impl<'tm, 'f, Data> RangeIter<'tm, 'f, Data> {
             key: prefix,
             is_min_included: range.min.map(|m| m.is_included).unwrap_or(false),
             is_max_included: range.max.map(|m| m.is_included).unwrap_or(false),
+            timeout: IteratorTimeoutState::no_timeout(),
         }
+    }
+
+    /// Set the deadline after which iteration stops, or clear it with `None`.
+    pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {
+        self.timeout = timeout.into()
     }
 
     /// The current key, obtained by concatenating the labels of the nodes
@@ -197,6 +210,10 @@ impl<'tm, 'f, Data> RangeIter<'tm, 'f, Data> {
     /// key to the one matching that node's entry
     pub(crate) fn advance(&mut self) -> Option<&'tm Data> {
         loop {
+            if matches!(self.timeout.check(), TimeoutCheckResult::TimedOut) {
+                return None;
+            }
+
             let StackEntry {
                 node,
                 was_visited,
