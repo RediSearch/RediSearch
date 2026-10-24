@@ -21,6 +21,10 @@
 
 struct timespec;
 
+static inline uint16_t keySlot(const char *key, size_t len) {
+  return (uint16_t)RedisModule_ClusterKeySlotC(key, len);
+}
+
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
   DocTable ret = {
@@ -88,6 +92,9 @@ static RSDocumentMetadata *DocTable_DmdUnchain(DocTable *t, t_docId docId) {
 
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
   RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
+  if (dmd && DocTable_HasPendingDeletions(t) && DocTable_IsDocPendingDeletion(t, dmd)) {
+    return NULL;
+  }
   if (dmd) {
     DMD_Incref(dmd);
   }
@@ -312,6 +319,7 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
 
   sds keyPtr = sdsnewlen(s, n);
   dmd->keyPtr = keyPtr;
+  dmd->slot = keySlot(s, n);
   dmd->score = score;
   dmd->flags = flags;
   dmd->maxTermFreq = 1;
@@ -392,6 +400,9 @@ void DocTable_Free(DocTable *t) {
   }
   rm_free(t->buckets);
   TimeToLiveTable_Destroy(&t->ttl);
+  while (t->pendingSlotDeletions) {
+    DocTable_RemovePendingDeletion(t, t->pendingSlotDeletions);
+  }
 }
 
 // Remove a document from the table by its internal docId (unified unlink-driven
@@ -446,6 +457,7 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *to_str, size_t 
   t->memsize -= sdsAllocSize(dmd->keyPtr);
   sdsfree(dmd->keyPtr);
   dmd->keyPtr = sdsnewlen(to_str, to_len);
+  dmd->slot = keySlot(to_str, to_len);
   t->memsize += sdsAllocSize(dmd->keyPtr);
 }
 
@@ -499,6 +511,7 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
     dmd->id = encver < INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? i : RedisModule_LoadUnsigned(rdb);
     dmd->keyPtr = sdsnewlen(tmpPtr, len);
+    dmd->slot = keySlot(tmpPtr, len);
     RedisModule_Free(tmpPtr);
 
     dmd->flags = RedisModule_LoadUnsigned(rdb) | Document_HasPayloadSlot;
@@ -578,4 +591,35 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
 
 t_docId DocTable_GetMaxDocId(const DocTable *t) {
   return t->maxDocId;
+}
+
+PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t, const RedisModuleSlotRangeArray *slots) {
+  PendingSlotDeletion *pending = rm_malloc(sizeof(*pending));
+  pending->slots = SlotRangeArray_Clone(slots);
+  pending->maxDocId = t->maxDocId;
+  pending->next = t->pendingSlotDeletions;
+  t->pendingSlotDeletions = pending;
+  t->memsize += sizeof(*pending) + SlotRangeArray_SizeOf(slots->num_ranges);
+  return pending;
+}
+
+void DocTable_RemovePendingDeletion(DocTable *t, PendingSlotDeletion *pending) {
+  PendingSlotDeletion **link = &t->pendingSlotDeletions;
+  while (*link != pending) {
+    RS_LOG_ASSERT(*link, "pending slot deletion is not in this table");
+    link = &(*link)->next;
+  }
+  *link = pending->next;
+  t->memsize -= sizeof(*pending) + SlotRangeArray_SizeOf(pending->slots->num_ranges);
+  rm_free(pending->slots);
+  rm_free(pending);
+}
+
+bool DocTable_IsDocPendingDeletion(const DocTable *t, const RSDocumentMetadata *dmd) {
+  for (const PendingSlotDeletion *p = t->pendingSlotDeletions; p; p = p->next) {
+    if (PendingSlotDeletion_Covers(p, dmd)) {
+      return true;
+    }
+  }
+  return false;
 }

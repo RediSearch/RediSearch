@@ -1801,6 +1801,8 @@ TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
   if (dmd) {
     EXPECT_TRUE(dmd->flags & Document_HasPayloadSlot);
     EXPECT_FALSE(hasPayload(dmd->flags));
+    // The cluster slot of "doc", rebuilt from the key since the legacy format does not store it.
+    EXPECT_EQ(dmd->slot, 122);
     const size_t loadedSize = table.memsize;
     EXPECT_EQ(DocTable_SetPayload(&table, dmd, "first", 5), 1);
     EXPECT_EQ(table.memsize, loadedSize + sizeof(RSPayload) + 5);
