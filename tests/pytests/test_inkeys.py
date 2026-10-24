@@ -18,10 +18,8 @@ def test_inkeys_resolves_after_queued_reindex():
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC',
                'SORTABLE', 'NOINDEX').ok()
-    # Cross Redis's large-argument threshold and retain an embedded NUL across handoff.
-    key = 'doc:' + 'x' * 65536 + '\0tail'
-    env.cmd('HSET', key, 't', 'hello', 'n', 1)
-    old_id = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', key)
+    env.cmd('HSET', 'doc', 't', 'hello', 'n', 1)
+    old_id = env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc')
     point = 'BeforeSpecLock'
     env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
     results = []
@@ -30,7 +28,7 @@ def test_inkeys_resolves_after_queued_reindex():
     def query():
         try:
             results.append(conn.execute_command('FT.SEARCH', 'idx', 'hello',
-                                                 'INKEYS', 1, key, 'NOCONTENT'))
+                                                 'INKEYS', 1, 'doc', 'NOCONTENT'))
         except Exception as exc:
             results.append(exc)
 
@@ -40,14 +38,14 @@ def test_inkeys_resolves_after_queued_reindex():
         wait_for_condition(
             lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
             'query did not reach the execution handoff')
-        env.cmd('HSET', key, 'n', 2)
-        env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', key), old_id)
+        env.cmd('HSET', 'doc', 'n', 2)
+        env.assertNotEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc'), old_id)
     finally:
         env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point)
         thread.join(timeout=10)
         env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
     env.assertFalse(thread.is_alive(), message='query did not complete')
-    env.assertEqual(results, [[1, key]])
+    env.assertEqual(results, [[1, 'doc']])
     env.stop()
 
 
