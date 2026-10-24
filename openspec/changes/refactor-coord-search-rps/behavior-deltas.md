@@ -1,7 +1,7 @@
 # Behavior delta ledger
 
-This is the authoritative ledger for observable changes. No implementation delta
-has landed yet. Source observations are not executed differential tests.
+This is the authoritative ledger for observable changes. Implementation evidence is recorded below. Source observations alone are not
+executed differential tests.
 
 ## Classification
 
@@ -45,8 +45,8 @@ not justified as soft behavior.
 
 ## Executed evidence
 
-None yet. The first extraction is intended to change only B01. Other entries are
-compatibility obligations or candidate follow-ups, not claims of known deltas.
+See the implementation evidence below. Tracked surfaces without executed evidence
+remain compatibility obligations, not claims of validated equivalence.
 
 ## Implementation evidence
 
@@ -72,3 +72,14 @@ compatibility obligations or candidate follow-ups, not claims of known deltas.
 - Local cluster validation requires RLTest's
   `--cluster_bus_port_protected_mode no` for this Redis binary. This is a local
   test setting, not a repository or product configuration change.
+
+- PR 3 removes the custom KNN heap and wrappers. Optional nearest-K selection
+  and final ordering both use the standard comparator sorter. The distance
+  SORTBY shortcut, including DESC, still bypasses nearest-K preselection.
+- B05: the legacy numeric sort-key preference in GET_NUMERIC_SCORE is preserved
+  even when SORTBY names another numeric field. This refactor does not correct
+  that selection behavior. KNN totals remain bounded by K and based on accepted
+  rows for the preselection path.
+- Two added KNN protocol/profile tests passed against the PR 2 binary before
+  replacement, covering default order, distance ASC, another field in both
+  directions, and pages within/beyond K.

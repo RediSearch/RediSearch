@@ -52,3 +52,43 @@ def test_reply_array_ordering_resp3():
     """Exercise the map decoder and profile envelope with the same ordering contract."""
     env = Env(protocol=3)
     _check_ordering(env, True)
+
+
+def _check_knn(env, resp3):
+    import struct
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', 6,
+               'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'L2',
+               'label', 'TAG', 'SORTABLE').ok()
+    conn = getConnectionByEnv(env)
+    keys = [f'doc:{{{i}}}:{i:02}' for i in range(12)]
+    for i, key in enumerate(keys):
+        conn.execute_command('HSET', key, 'v', struct.pack('f', i + 1),
+                             'label', f'{12 - i:02}')
+    query = '*=>[KNN 3 @v $vec AS distance]'
+    for sorting, order in (([], keys[:3]),
+                           (['SORTBY', 'distance', 'ASC'], keys[:3]),
+                           (['SORTBY', 'label', 'ASC'], keys[2::-1]),
+                           (['SORTBY', 'label', 'DESC'], keys[:3])):
+        for offset, limit in ((0, 10), (1, 1), (3, 10)):
+            args = [query, 'PARAMS', 2, 'vec', struct.pack('f', 0),
+                    'SCORER', 'DOCSCORE', *sorting, 'NOCONTENT',
+                    'LIMIT', offset, limit, 'DIALECT', 2]
+            page = order[offset:offset + limit]
+            expected = ({'attributes': [], 'warning': [], 'total_results': 3,
+                         'format': 'STRING',
+                         'results': [{'id': key, 'values': []} for key in page]}
+                        if resp3 else [3, *page])
+            env.assertEqual(env.cmd('FT.SEARCH', 'idx', *args), expected)
+            profiled = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', *args)
+            env.assertEqual(profiled['Results'] if resp3 else profiled[0], expected)
+
+
+@skip(cluster=False)
+def test_reply_array_knn_resp2(env):
+    _check_knn(env, False)
+
+
+@skip(cluster=False)
+def test_reply_array_knn_resp3():
+    _check_knn(Env(protocol=3), True)

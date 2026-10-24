@@ -2292,7 +2292,6 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_l
     specialCaseCtx *ctx = SpecialCaseCtx_New();
     ctx->knn.k = k;
     ctx->knn.fieldName = queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField;
-    ctx->knn.pq = NULL;
     ctx->knn.queryNode = queryNode;  // take ownership
     ctx->specialCaseType = SPECIAL_CASE_KNN;
     return ctx;

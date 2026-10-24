@@ -8,7 +8,6 @@
 */
 #pragma once
 
-#include "util/heap.h"
 #include "query_node.h"
 
 typedef enum {
@@ -22,7 +21,6 @@ typedef struct {
   const char* fieldName;  // Field name
   bool shouldSort;        // Should run presort before the coordinator sort
   size_t offset;          // Reply offset
-  heap_t *pq;             // Priority queue
   QueryNode* queryNode;   // Query node
 } knnContext;
 
