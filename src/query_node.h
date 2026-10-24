@@ -81,9 +81,15 @@ typedef struct {
 } QueryVectorNode;
 
 typedef struct {
-  /* The key names: a borrowed window into the request's held argv (see
-   * QueryRequestArgs.argv), which outlives the AST. Not owned. */
-  RedisModuleString **keys;
+  RedisModuleString *string;
+  const char *bytes;
+  size_t len;
+} QueryIdKey;
+
+typedef struct {
+  /* Owned descriptors borrowing the request's held argv. Byte spans are captured
+   * under the GIL so workers need no Redis string API access. */
+  QueryIdKey *keys;
   // Pre-resolved document IDs (for SearchDisk, resolved on main thread)
   t_docId *docIds;
   size_t len;
