@@ -133,7 +133,7 @@ void QueryNode_Free(QueryNode *n) {
       QueryGeometryNode_Free(&n->gmn);
       break;
     case QN_IDS:
-      // fn.keys is a borrowed window into the request's held argv; not freed here
+      rm_free(n->fn.keys);
       if (n->fn.docIds) {
         rm_free(n->fn.docIds);
         n->fn.docIds = NULL;
@@ -476,7 +476,11 @@ void QAST_SetGlobalFilters(QueryAST *ast, QAST_GlobalFilterOptions *options) {
   }
   if (options->keys) {
     QueryNode *n = NewQueryNode(QN_IDS);
-    n->fn.keys = options->keys;  // borrowed from the request's held argv
+    n->fn.keys = rm_calloc(options->nkeys, sizeof(*n->fn.keys));
+    for (size_t i = 0; i < options->nkeys; ++i) {
+      n->fn.keys[i].string = options->keys[i];
+      n->fn.keys[i].bytes = RedisModule_StringPtrLen(options->keys[i], &n->fn.keys[i].len);
+    }
     n->fn.len = options->nkeys;
     // Transfer ownership of the docIds to the QueryNode (freed in QueryNode_Free)
     n->fn.docIds = options->docIds;
@@ -1075,8 +1079,8 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           if (qs->fn.docIds) {
             did = qs->fn.docIds[i];
           } else {
-            size_t len;
-            const char *key = RedisModule_StringPtrLen(qs->fn.keys[i], &len);
+            size_t len = qs->fn.keys[i].len;
+            const char *key = qs->fn.keys[i].bytes;
             did = DocTable_GetIdByKey(&spec->docs, key, len);
           }
           if (did != 0) {

@@ -389,7 +389,28 @@ impl MockQueryNode {
         unsafe {
             let union_ptr = &raw mut (*self.node).__bindgen_anon_1;
             let ids = &mut *union_ptr.cast::<ffi::QueryIdFilterNode>();
-            ids.keys = keys;
+            ids.keys = if len == 0 {
+                std::ptr::null_mut()
+            } else {
+                let layout =
+                    Layout::array::<ffi::QueryIdKey>(len).expect("key layout must be valid");
+                let ptr = alloc_zeroed(layout);
+                assert!(!ptr.is_null());
+                self._aux.push(AuxAlloc { ptr, layout });
+                let descriptors = ptr.cast::<ffi::QueryIdKey>();
+                for i in 0..len {
+                    let descriptor = &mut *descriptors.add(i);
+                    descriptor.string = (*keys.add(i)).cast();
+                    if doc_ids.is_null() {
+                        descriptor.bytes = redis_module::RedisModule_StringPtrLen
+                            .expect("RedisModule_StringPtrLen unset")(
+                            *keys.add(i),
+                            &mut descriptor.len,
+                        );
+                    }
+                }
+                descriptors
+            };
             ids.docIds = doc_ids;
             ids.len = len;
         }
