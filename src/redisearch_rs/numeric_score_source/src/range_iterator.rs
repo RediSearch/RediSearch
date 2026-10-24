@@ -13,28 +13,32 @@
 //! score brackets: it asks the tree for the ranges matching a filter window —
 //! already ordered best-score-first per the filter's `ascending` flag — and
 //! hands them out in fixed-size chunks via [`next_n`](NumericRangeIterator::next_n).
-//! Each chunk is materialized into a doc-id-ordered [`NumericScoreBatch`], so a
+//! Each chunk is opened as a doc-id-ordered [`NumericScoreBatch`], so a
 //! batch is *value-bucketed across* the stream yet *doc-id-sorted within*.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, marker::PhantomData, ptr::NonNull};
 
-use index_result::RSIndexResult;
-use inverted_index::{FilterNumericReader, IndexReader as _, NumericFilter};
+use inverted_index::NumericFilter;
 use numeric_range_tree::{NumericRange, NumericRangeTree, RangeWindow};
 use rqe_core::DocId;
-use rqe_iterators::{RQEIteratorError, utils::TimeoutContext};
 
 use crate::score_batch::NumericScoreBatch;
 
 /// Streams a numeric tree's ranges in value order, restricted to a
 /// [`RangeWindow`] and chunked by [`next_n`](Self::next_n).
 pub struct NumericRangeIterator<'index> {
-    tree: &'index NumericRangeTree,
-    /// Ranges matching the current filter window, best-score-first.
-    ranges: Vec<&'index NumericRange>,
+    /// Invariant: valid for `'index`, and mutated only while the query is
+    /// suspended, i.e. between a [`revalidate`](Self::revalidate) and the
+    /// lock release before it.
+    tree: NonNull<NumericRangeTree>,
+    _tree: PhantomData<&'index NumericRangeTree>,
+    /// Ranges matching `window`, best-score-first, or `None` until they are
+    /// next resolved from the tree.
+    ranges: Option<Vec<&'index NumericRange>>,
+    window: RangeWindow,
     /// Index of the next range to hand out.
     pos: usize,
-    /// Value predicate applied to each record as a batch is materialized.
+    /// Value predicate applied to each record as a batch is read.
     filter: NumericFilter,
     /// Doc ids already handed out by an earlier batch or window, or `None` when
     /// no document in the tree carries more than one value.
@@ -47,6 +51,9 @@ pub struct NumericRangeIterator<'index> {
     /// field occupies one range per doc and needs no such tracking, so it skips
     /// the per-record set lookup entirely.
     emitted: Option<HashSet<DocId>>,
+    /// The tree's revision when this iterator was built. GC bumps it when it
+    /// splits or removes nodes, freeing the ranges borrowed above.
+    revision_id: u32,
 }
 
 impl<'index> NumericRangeIterator<'index> {
@@ -57,13 +64,62 @@ impl<'index> NumericRangeIterator<'index> {
         filter: &NumericFilter,
         window: RangeWindow,
     ) -> Self {
-        Self {
+        // SAFETY: the shared borrow keeps `tree` valid and unmutated for `'index`.
+        unsafe { Self::from_raw(NonNull::from(tree), filter, window) }
+    }
+
+    /// Like [`new`](Self::new), for a tree that may change while the query is
+    /// suspended.
+    ///
+    /// # Safety
+    ///
+    /// 1. `tree` is [valid] for a [`NumericRangeTree`] for `'index`.
+    /// 2. `tree` is mutated only while the query is suspended, and every resume
+    ///    calls [`revalidate`](Self::revalidate) before any other method.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub unsafe fn from_raw(
+        tree: NonNull<NumericRangeTree>,
+        filter: &NumericFilter,
+        window: RangeWindow,
+    ) -> Self {
+        let mut it = Self {
             tree,
-            ranges: tree.find_windowed(filter, window),
+            _tree: PhantomData,
+            ranges: None,
+            window,
             pos: 0,
             filter: *filter,
-            emitted: tree.has_multivalued_docs().then(HashSet::new),
+            emitted: None,
+            revision_id: 0,
+        };
+        let tree = it.tree();
+        it.emitted = tree.has_multivalued_docs().then(HashSet::new);
+        it.revision_id = tree.revision_id();
+        it
+    }
+
+    const fn tree(&self) -> &'index NumericRangeTree {
+        // SAFETY: valid for `'index` per the field invariant; any mutation made
+        // while suspended precedes the `revalidate` that re-admits reads.
+        unsafe { self.tree.as_ref() }
+    }
+
+    fn ranges(&mut self) -> &[&'index NumericRange] {
+        let (tree, filter, window) = (self.tree(), self.filter, self.window);
+        self.ranges
+            .get_or_insert_with(|| tree.find_windowed(&filter, window))
+    }
+
+    /// Check the tree after the lock is re-acquired: `false` if it was
+    /// restructured, otherwise drop the ranges borrowed before the release so
+    /// the next use resolves them afresh.
+    pub fn revalidate(&mut self) -> bool {
+        if self.tree().revision_id() != self.revision_id {
+            return false;
         }
+        self.ranges = None;
+        true
     }
 
     /// Re-resolve onto `window`, usually the next one, and restart from its
@@ -74,7 +130,8 @@ impl<'index> NumericRangeIterator<'index> {
     /// stay suppressed. Use [`forget_emitted`](Self::forget_emitted) to reset it
     /// when restarting the whole query.
     pub fn refind(&mut self, filter: &NumericFilter, window: RangeWindow) {
-        self.ranges = self.tree.find_windowed(filter, window);
+        self.ranges = None;
+        self.window = window;
         self.pos = 0;
         self.filter = *filter;
     }
@@ -92,162 +149,55 @@ impl<'index> NumericRangeIterator<'index> {
     /// Used as the per-window document estimate, both for the source's
     /// `num_estimated` and to advance the window's `offset` past a consumed
     /// window on retry.
-    pub fn total_docs_estimate(&self) -> usize {
-        self.ranges.iter().map(|r| r.num_docs() as usize).sum()
+    pub fn total_docs_estimate(&mut self) -> usize {
+        self.ranges().iter().map(|r| r.num_docs() as usize).sum()
     }
 
     /// Whether every range of the current window has been handed out.
-    pub fn is_exhausted(&self) -> bool {
-        self.pos >= self.ranges.len()
+    pub fn is_exhausted(&mut self) -> bool {
+        self.pos >= self.ranges().len()
     }
 
-    /// Materialize the next `n` value-ordered ranges into one doc-id-ordered
-    /// batch, or `Ok(None)` once the window is exhausted.
-    ///
-    /// `n` is clamped to at least `1`. `timeout` is polled once per record read
-    /// so a long materialization aborts with [`RQEIteratorError::TimedOut`]
-    /// rather than running past the query deadline.
-    pub fn next_n(
-        &mut self,
-        n: usize,
-        timeout: &mut impl TimeoutContext,
-    ) -> Result<Option<NumericScoreBatch>, RQEIteratorError> {
-        if self.pos >= self.ranges.len() {
-            return Ok(None);
+    /// Open the next `n` (at least `1`) value-ordered ranges as one batch, or
+    /// `None` once the window is exhausted.
+    pub fn next_n(&mut self, n: usize) -> Option<NumericScoreBatch<'index>> {
+        let len = self.ranges().len();
+        if self.pos >= len {
+            return None;
         }
-        let end = (self.pos + n.max(1)).min(self.ranges.len());
-        let batch = merge_ranges(
-            &self.ranges[self.pos..end],
-            self.filter,
-            self.emitted.as_mut(),
-            timeout,
-        )?;
+        let end = (self.pos + n.max(1)).min(len);
+        let ranges = &self.ranges.as_deref().unwrap_or_default()[self.pos..end];
+        if let Some(emitted) = &mut self.emitted {
+            emitted.reserve(reserved_capacity(ranges));
+        }
+        let batch = NumericScoreBatch::new(ranges, self.filter, self.emitted.is_some());
         self.pos = end;
-        Ok(Some(batch))
+        Some(batch)
+    }
+
+    /// Record `doc_id` as handed out, returning `false` if an earlier batch or
+    /// window already did, on a better value.
+    #[inline(always)]
+    pub fn first_emission(&mut self, doc_id: DocId) -> bool {
+        self.emitted
+            .as_mut()
+            .is_none_or(|emitted| insert(emitted, doc_id))
     }
 }
 
-/// Read each range's records that satisfy `filter` into a single
-/// `(doc_id, score)` vector, one strictly-increasing entry per doc id.
-///
-/// A range read through [`FilterNumericReader`] yields only records whose value
-/// lies in the filter's window, since the tree's buckets are coarser than the
-/// window.
-///
-/// A range is written under increasing doc ids, so its records arrive already
-/// ordered; ranges overlap in doc-id space, so reading several back-to-back
-/// yields one ascending run per range. Ordering therefore only has to merge
-/// those runs into the increasing order [`NumericScoreBatch`] requires for its
-/// `skip_to` `partition_point` — a single run is already there, and the stable
-/// sort detects and merges the rest rather than re-sorting from scratch.
-///
-/// A multivalue field indexes one entry per value, so a doc id can occur several
-/// times with different scores. Occurrences within this batch's ranges are
-/// coalesced to a single entry carrying the doc's best score for the sort
-/// direction; occurrences already handed out by an earlier batch (tracked in
-/// `emitted`) are dropped, since their better value was scored there.
-///
-/// `emitted` is the single statement of whether the field is multivalued at all:
-/// `None` says no document carries more than one value, so a doc id cannot
-/// repeat — within a batch or across batches — and both de-duplication steps are
-/// skipped.
-///
-/// `timeout` is polled once per record and once more before the sort, so a
-/// large batch stays deadline-aware across its ordering pass. The amortized
-/// counter accumulates across records and ranges, so the real clock check
-/// fires every `granularity` reads.
-fn merge_ranges(
-    ranges: &[&NumericRange],
-    filter: NumericFilter,
-    emitted: Option<&mut HashSet<DocId>>,
-    timeout: &mut impl TimeoutContext,
-) -> Result<NumericScoreBatch, RQEIteratorError> {
-    let mut items: Vec<(DocId, f64)> =
-        Vec::with_capacity(reserved_capacity(ranges, filter, emitted.is_some()));
-    let mut record = RSIndexResult::build_numeric(0.0).build();
-    // Ranges that contributed at least one record, i.e. the number of ascending
-    // runs `items` holds.
-    let mut runs = 0usize;
-    for range in ranges {
-        let run_start = items.len();
-        let mut reader = FilterNumericReader::new(filter, range.reader());
-        while reader.next_record(&mut record)? {
-            timeout.check_timeout()?;
-            if emitted
-                .as_ref()
-                .is_some_and(|emitted| emitted.contains(&record.doc_id))
-            {
-                continue;
-            }
-            let score = record
-                .as_numeric()
-                .expect("numeric range yields numeric records");
-            items.push((record.doc_id, score));
-        }
-        runs += usize::from(items.len() > run_start);
-    }
-    timeout.check_timeout()?;
-    if runs > 1 {
-        // Stable sort: `sort_by_key` detects the per-range ascending runs
-        // and merges them, where `sort_unstable_by_key` re-sorts from scratch.
-        items.sort_by_key(|(doc_id, _)| *doc_id);
-    }
-    if let Some(emitted) = emitted {
-        coalesce_by_doc_id(&mut items, filter.ascending);
-        emitted.extend(items.iter().map(|(doc_id, _)| *doc_id));
-    }
-    debug_assert!(
-        items.windows(2).all(|w| w[0].0 < w[1].0),
-        "a batch must hold one strictly-increasing entry per doc id"
-    );
-    Ok(NumericScoreBatch::new(items))
-}
-
-/// Records to reserve for reading `ranges` under `filter`: each range's
-/// [`NumericRange::num_docs`] where that is the exact count the range yields,
-/// otherwise that count capped at [`NumericRangeTree::MAXIMUM_RANGE_SIZE`].
-///
-/// The count is exact only for a range wholly inside `filter` on a field that
-/// is not `multivalued`. A range that passes `filter` only in part, or a
-/// multivalue range whose documents an earlier batch already emitted, may yield
-/// none of them — and a single-value range never splits however large it
-/// grows, so an uncapped count could reserve for millions of dropped records.
-fn reserved_capacity(ranges: &[&NumericRange], filter: NumericFilter, multivalued: bool) -> usize {
+/// Emitted doc ids to reserve for reading `ranges`: each range's
+/// [`NumericRange::num_docs`], capped at [`NumericRangeTree::MAXIMUM_RANGE_SIZE`]
+/// because a range may insert none of them and need not split however large.
+fn reserved_capacity(ranges: &[&NumericRange]) -> usize {
     ranges
         .iter()
-        .map(|r| {
-            let num_docs = r.num_docs() as usize;
-            let exact = !multivalued
-                && filter.value_in_range(r.min_val())
-                && filter.value_in_range(r.max_val());
-            if exact {
-                num_docs
-            } else {
-                num_docs.min(NumericRangeTree::MAXIMUM_RANGE_SIZE)
-            }
-        })
+        .map(|r| (r.num_docs() as usize).min(NumericRangeTree::MAXIMUM_RANGE_SIZE))
         .sum()
 }
 
-/// Collapse each run of equal doc ids in a doc-id-sorted `items` to one entry,
-/// keeping the best score for the sort direction: the smallest when `ascending`,
-/// the largest otherwise.
-fn coalesce_by_doc_id(items: &mut Vec<(DocId, f64)>, ascending: bool) {
-    items.dedup_by(|dropped, kept| {
-        if dropped.0 != kept.0 {
-            return false;
-        }
-        // `dedup_by` retains `kept`, so fold the better score into it.
-        let dropped_is_better = if ascending {
-            dropped.1 < kept.1
-        } else {
-            dropped.1 > kept.1
-        };
-        if dropped_is_better {
-            kept.1 = dropped.1;
-        }
-        true
-    });
+#[inline(never)]
+fn insert(emitted: &mut HashSet<DocId>, doc_id: DocId) -> bool {
+    emitted.insert(doc_id)
 }
 
 #[cfg(test)]
@@ -256,7 +206,6 @@ mod tests {
     use numeric_range_tree::{NumericRangeTree, RangeWindow};
     use rqe_core::DocId;
     use rqe_iterators::utils::NoTimeoutChecker;
-    use top_k::ScoreBatch;
 
     use super::{NumericRangeIterator, reserved_capacity};
 
@@ -276,11 +225,12 @@ mod tests {
         per_batch: usize,
     ) -> Vec<(DocId, f64)> {
         let mut it = NumericRangeIterator::new(tree, filter, RangeWindow::UNBOUNDED);
-        let mut timeout = NoTimeoutChecker;
         let mut pairs = Vec::new();
-        while let Some(mut batch) = it.next_n(per_batch, &mut timeout).unwrap() {
-            while let Some(pair) = batch.next() {
-                pairs.push(pair);
+        while let Some(mut batch) = it.next_n(per_batch) {
+            while let Some((doc_id, score)) = batch.read(0, &mut NoTimeoutChecker).unwrap() {
+                if it.first_emission(doc_id) {
+                    pairs.push((doc_id, score));
+                }
             }
         }
         pairs
@@ -350,83 +300,6 @@ mod tests {
         assert!(!scores.contains(&10.0) && !scores.contains(&20.0));
     }
 
-    #[test]
-    fn one_batch_merges_ranges_with_interleaved_doc_ids() {
-        // Odd ids take low values and even ids high ones, so the value split
-        // leaves every range's doc ids interleaved with another range's.
-        let docs = 40u64;
-        let value_of = |id: u64| {
-            if id % 2 == 1 {
-                id as f64
-            } else {
-                100.0 + id as f64
-            }
-        };
-        let mut tree = NumericRangeTree::new(false);
-        for id in 1..=docs {
-            tree.add(id, value_of(id), false, false, 0);
-        }
-        let filter = NumericFilter::default();
-        let ranges = tree.find(&filter).len();
-        assert!(ranges >= 2, "expected a split");
-
-        let single_batch = || {
-            let mut it = NumericRangeIterator::new(&tree, &filter, RangeWindow::UNBOUNDED);
-            let batch = it.next_n(ranges, &mut NoTimeoutChecker).unwrap().unwrap();
-            assert!(it.is_exhausted(), "every range must land in the one batch");
-            batch
-        };
-
-        let mut batch = single_batch();
-        let mut pairs = Vec::new();
-        while let Some(pair) = batch.next() {
-            pairs.push(pair);
-        }
-        let expected: Vec<(DocId, f64)> = (1..=docs).map(|id| (id, value_of(id))).collect();
-        assert_eq!(pairs, expected);
-
-        // `skip_to` binary-searches the merged order, across run boundaries.
-        let mut batch = single_batch();
-        let target = docs / 2;
-        assert_eq!(batch.skip_to(target), Some((target, value_of(target))));
-        assert_eq!(batch.next(), Some((target + 1, value_of(target + 1))));
-        assert_eq!(batch.skip_to(docs + 1), None);
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore = "Too slow to run under miri")]
-    fn range_excluded_at_its_only_value_reserves_at_most_a_split_size() {
-        let mut tree = NumericRangeTree::new(false);
-        let docs = 2 * NumericRangeTree::MAXIMUM_RANGE_SIZE as u64;
-        for id in 1..=docs {
-            tree.add(id, 5.0, false, false, 0);
-        }
-        let excluding = NumericFilter {
-            min: 5.0,
-            max: 10.0,
-            min_inclusive: false,
-            ..NumericFilter::default()
-        };
-        let including = NumericFilter {
-            min_inclusive: true,
-            ..excluding
-        };
-
-        // The inclusive bounds check still selects the single, unsplit range.
-        let ranges = tree.find(&excluding);
-        assert_eq!(ranges.len(), 1);
-
-        assert_eq!(
-            reserved_capacity(&ranges, excluding, false),
-            NumericRangeTree::MAXIMUM_RANGE_SIZE
-        );
-        assert_eq!(
-            reserved_capacity(&ranges, including, false),
-            ranges[0].num_docs() as usize
-        );
-        assert!(drain_pairs(&tree, &excluding).is_empty());
-    }
-
     #[cfg_attr(miri, ignore = "Too slow to run under miri")]
     #[test]
     fn already_emitted_multivalue_range_reserves_at_most_a_split_size() {
@@ -441,23 +314,21 @@ mod tests {
         let filter = NumericFilter::default();
         let ranges = tree.find(&filter);
         assert_eq!(ranges.len(), 2, "expected one range per value");
+        assert!(ranges[1].num_docs() as usize > NumericRangeTree::MAXIMUM_RANGE_SIZE);
 
-        let later = &ranges[1..];
         assert_eq!(
-            reserved_capacity(later, filter, true),
+            reserved_capacity(&ranges[1..]),
             NumericRangeTree::MAXIMUM_RANGE_SIZE
         );
-        assert_eq!(
-            reserved_capacity(later, filter, false),
-            later[0].num_docs() as usize
-        );
 
-        // One range per batch: the second batch is empty.
+        // One range per batch: the second batch yields only already-emitted docs.
         let mut it = NumericRangeIterator::new(&tree, &filter, RangeWindow::UNBOUNDED);
-        let mut first = it.next_n(1, &mut NoTimeoutChecker).unwrap().unwrap();
-        let mut second = it.next_n(1, &mut NoTimeoutChecker).unwrap().unwrap();
-        assert!(first.next().is_some());
-        assert_eq!(second.next(), None);
+        let mut first = it.next_n(1).unwrap();
+        let (doc_id, _) = first.read(0, &mut NoTimeoutChecker).unwrap().unwrap();
+        assert!(it.first_emission(doc_id));
+        let mut second = it.next_n(1).unwrap();
+        let (doc_id, _) = second.read(0, &mut NoTimeoutChecker).unwrap().unwrap();
+        assert!(!it.first_emission(doc_id));
     }
 
     #[test]
@@ -514,6 +385,82 @@ mod tests {
             [1.0],
             "ascending must emit the doc once, on its smallest value"
         );
+    }
+
+    #[test]
+    fn one_batch_merges_ranges_with_interleaved_doc_ids() {
+        // Odd ids take low values and even ids high ones, so the value split
+        // leaves every range's doc ids interleaved with another range's.
+        let docs = 40u64;
+        let value_of = |id: u64| {
+            if id % 2 == 1 {
+                id as f64
+            } else {
+                100.0 + id as f64
+            }
+        };
+        let mut tree = NumericRangeTree::new(false);
+        for id in 1..=docs {
+            tree.add(id, value_of(id), false, false, 0);
+        }
+        let filter = NumericFilter::default();
+        let ranges = tree.find(&filter).len();
+        assert!(ranges >= 2, "expected a split");
+
+        let single_batch = || {
+            let mut it = NumericRangeIterator::new(&tree, &filter, RangeWindow::UNBOUNDED);
+            let batch = it.next_n(ranges).unwrap();
+            assert!(it.is_exhausted(), "every range must land in the one batch");
+            batch
+        };
+
+        let mut batch = single_batch();
+        let mut pairs = Vec::new();
+        while let Some(pair) = batch.read(0, &mut NoTimeoutChecker).unwrap() {
+            pairs.push(pair);
+        }
+        let expected: Vec<(DocId, f64)> = (1..=docs).map(|id| (id, value_of(id))).collect();
+        assert_eq!(pairs, expected);
+
+        // `read` seeks every range, across run boundaries.
+        let mut batch = single_batch();
+        let target = docs / 2;
+        assert_eq!(
+            batch.read(target, &mut NoTimeoutChecker).unwrap(),
+            Some((target, value_of(target)))
+        );
+        assert_eq!(
+            batch.read(0, &mut NoTimeoutChecker).unwrap(),
+            Some((target + 1, value_of(target + 1)))
+        );
+        assert_eq!(batch.read(docs + 1, &mut NoTimeoutChecker).unwrap(), None);
+    }
+
+    #[test]
+    fn multivalue_doc_across_several_ranges_of_one_batch_is_scored_once() {
+        let doc = 1000;
+        let mut tree = NumericRangeTree::new(false);
+        for value in 1..=400u64 {
+            tree.add(value, value as f64, false, false, 0);
+        }
+        for value in [1.5, 200.5, 399.5] {
+            tree.add(doc, value, false, true, 0);
+        }
+        let filter = NumericFilter::default();
+        assert!(tree.find(&filter).len() >= 3, "expected several ranges");
+
+        for (ascending, best) in [(true, 1.5), (false, 399.5)] {
+            let filter = NumericFilter {
+                ascending,
+                ..filter
+            };
+            let occurrences: Vec<f64> = drain_pairs(&tree, &filter)
+                .into_iter()
+                .filter(|(id, _)| *id == doc)
+                .map(|(_, score)| score)
+                .collect();
+            assert_eq!(occurrences, [best]);
+        }
     }
 
     #[test]
