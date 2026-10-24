@@ -840,8 +840,9 @@ void Initialize_KeyspaceNotifications() {
                       REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LOADED |
                       REDISMODULE_NOTIFY_MODULE;
     // Not KEY_TRIMMED: subscribing to it would force Redis onto per-key active trim. Background
-    // trim is handled by the TRIM_BACKGROUND event, and keys removed by active trim (still used
-    // with tracking clients) go through the DocIdMeta `unlink` callback like any other deletion.
+    // trim is handled by the TRIM_BACKGROUND event. Redis still trims actively while any client has
+    // CLIENT TRACKING on (client-side caching), since it must invalidate the cached keys one by one;
+    // those keys go through the DocIdMeta `unlink` callback like any other deletion.
     // Take hash events over the subkey channel when the server has one: it names
     // the fields the command touched, letting a spec that indexes none of them
     // skip the reindex. Hash moves off the plain subscription entirely rather than

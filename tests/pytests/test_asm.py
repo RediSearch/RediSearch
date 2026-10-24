@@ -13,6 +13,7 @@ import random
 import re
 import numpy as np
 import threading
+import contextlib
 import time
 import os
 import signal
@@ -1295,48 +1296,55 @@ def shard_docs_converge_to_dbsize(env, shards):
         return all(docs == keys for docs, keys in state.values()), state
     wait_for_condition(check, 'indexed docs did not converge to DBSIZE')
 
-def trim_after_import_test(env: Env, trim_method: str, expected_event: str, tracking: bool = False):
+def trim_after_import_test(env: Env, trim_method: str, expected_events: list, tracking: bool = False):
     n_docs = 2000
     create_and_populate_index(env, 'idx', n_docs)
     shards = env.getOSSMasterNodesConnectionList()
     for conn in shards:
         conn.execute_command('DEBUG', 'ASM-TRIM-METHOD', trim_method)
     shard1, shard2 = env.getConnection(1), env.getConnection(2)
-    # Redis falls back to per-key active trim while any client has tracking enabled.
-    tracker = None
-    if tracking:
-        tracker = Redis(port=shard2.connection_pool.connection_kwargs['port'], single_connection_client=True)
-        tracker.execute_command('CLIENT', 'TRACKING', 'ON')
+    with contextlib.ExitStack() as stack:
+        if tracking:
+            # Client-side caching is invalidated key by key, so while any client tracks keys, Redis
+            # trims actively instead of in the background.
+            tracker = stack.enter_context(
+                Redis(port=shard2.connection_pool.connection_kwargs['port'], single_connection_client=True))
+            tracker.execute_command('CLIENT', 'TRACKING', 'ON')
 
-    keys_before = shard2.execute_command('DBSIZE')
-    wait_for_migration_complete(env, shard1, shard2)
-    # The source starts trimming only after a delay that follows the migration.
-    wait_for_condition(lambda: (shard2.execute_command('DBSIZE') < keys_before, {}),
-                       'the source did not trim the migrated slots')
+        keys_before = shard2.execute_command('DBSIZE')
+        wait_for_migration_complete(env, shard1, shard2)
+        # The source starts trimming only after a delay that follows the migration.
+        wait_for_condition(lambda: (shard2.execute_command('DBSIZE') < keys_before, {}),
+                           'the source did not trim the migrated slots')
 
-    shard_docs_converge_to_dbsize(env, shards)
-    # No doc lost and none counted twice across the shards.
-    env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([n_docs])
-    # Convergence alone does not show which trim path Redis took.
-    log_file = os.path.join(shard2.execute_command('CONFIG', 'GET', 'dir')[1],
-                            shard2.execute_command('CONFIG', 'GET', 'logfile')[1])
-    with open(log_file) as f:
-        env.assertContains(expected_event, f.read())
-    if tracker:
-        tracker.close()
+        shard_docs_converge_to_dbsize(env, shards)
+        # No doc lost and none counted twice across the shards.
+        env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([n_docs])
+        # Convergence alone does not show which trim path Redis took.
+        log_file = os.path.join(shard2.execute_command('CONFIG', 'GET', 'dir')[1],
+                                shard2.execute_command('CONFIG', 'GET', 'logfile')[1])
+        with open(log_file) as f:
+            log = f.read()
+        for event in expected_events:
+            env.assertContains(event, log)
+
+# Background trim has a single event: there is no completion event to wait for, and no per-key
+# KEY_TRIMMED notification since we do not subscribe to it.
+BACKGROUND_TRIM_EVENTS = ['Got ASM background trim event']
+ACTIVE_TRIM_EVENTS = ['Got ASM trim started event', 'Got ASM trim completed event']
 
 @skip(cluster=False, min_shards=2)
 def test_background_trim_removes_trimmed_docs():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
     # Not forced: with no KEY_TRIMMED subscriber and no tracking client, Redis must choose it.
-    trim_after_import_test(env, 'default', 'Got ASM background trim event')
+    trim_after_import_test(env, 'default', BACKGROUND_TRIM_EVENTS)
 
 @skip(cluster=False, min_shards=2)
 def test_active_trim_removes_trimmed_docs():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
-    trim_after_import_test(env, 'active', 'Got ASM trim completed event')
+    trim_after_import_test(env, 'active', ACTIVE_TRIM_EVENTS)
 
 @skip(cluster=False, min_shards=2)
 def test_tracking_client_trim_removes_trimmed_docs():
     env = Env(clusterNodeTimeout=cluster_node_timeout)
-    trim_after_import_test(env, 'default', 'Got ASM trim completed event', tracking=True)
+    trim_after_import_test(env, 'default', ACTIVE_TRIM_EVENTS, tracking=True)
