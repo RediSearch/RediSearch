@@ -18,7 +18,8 @@ use crate::{Evaluated, QueryEvalContext};
 /// `QN_IDS` — filter by explicit document key names.
 ///
 /// Deferred keys are resolved through the lookup map under the execution
-/// spec lock. Disk mode supplies IDs before evaluation.
+/// spec lock once ready; before that, evaluation uses metadata with the GIL held.
+/// Disk mode supplies IDs before evaluation.
 /// Both paths sort, deduplicate, and build an [`IdListSorted`] iterator.
 ///
 /// * `keys` — the key names to match against, borrowing the request's held
@@ -55,15 +56,27 @@ pub(crate) fn eval<'index>(
 /// Resolve borrowed keys while the caller holds the index spec read lock.
 /// The lock must remain held throughout this call to pin the map, candidate
 /// document metadata, and their keys, as required by [`QueryEvalContext::new`].
+/// Until the map is ready, the caller must also hold the GIL for metadata lookup.
 fn resolve_keys(
     ctx: &QueryEvalContext,
     keys: &[*mut redis_module::raw::RedisModuleString],
 ) -> Vec<DocId> {
     let table = ctx.doc_table();
-    assert!(
-        !table.keyMap.is_null(),
-        "unresolved QN_IDS nodes require a document key map"
-    );
+    if table.keyMapState != ffi::DocKeyMapState_DocKeyMap_Ready {
+        return keys
+            .iter()
+            .filter_map(|&key| {
+                let mut id = 0;
+                // SAFETY: deferred-key fallback evaluation holds the GIL before the spec
+                // read lock; the context and borrowed argv remain valid for this call.
+                unsafe {
+                    ffi::DocIdMeta_Get(ctx.sctx().redisCtx, key.cast(), ctx.spec().specId, &mut id)
+                };
+                (id != 0).then_some(id)
+            })
+            .collect();
+    }
+    debug_assert!(!table.keyMap.is_null());
     // SAFETY: the spec read lock pins the map and excludes mutation throughout evaluation.
     let map = unsafe { &*table.keyMap.cast::<doc_key_map_ffi::DocKeyMap>() };
     // SAFETY: installed once at module load and never mutated during evaluation.

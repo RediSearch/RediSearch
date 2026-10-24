@@ -41,11 +41,27 @@ impl DocKeyMap {
         self.hasher.hash_one(key)
     }
 
+    /// Reserve room for at least `capacity` entries, preserving existing candidates.
+    ///
+    /// Backfill knows its live-document count and can avoid repeated full-table rehashes.
+    pub fn reserve(&mut self, capacity: usize) {
+        self.entries
+            .reserve(capacity.saturating_sub(self.entries.len()), |e| e.hash);
+    }
+
     /// Insert an ID once. The caller must remove it before changing its key.
     pub fn insert(&mut self, hash: u64, id: DocId) {
         debug_assert_ne!(id, 0);
         self.entries
             .insert_unique(hash, Entry { hash, id }, |e| e.hash);
+    }
+
+    /// Populate an ID during backfill, retaining a candidate already maintained by a writer.
+    pub fn insert_if_absent(&mut self, hash: u64, id: DocId) {
+        debug_assert_ne!(id, 0);
+        self.entries
+            .entry(hash, |entry| entry.id == id, |entry| entry.hash)
+            .or_insert(Entry { hash, id });
     }
 
     /// Remove exactly one candidate, including when full hashes collide.
@@ -80,6 +96,33 @@ impl DocKeyMap {
 #[unsafe(no_mangle)]
 pub extern "C" fn DocKeyMap_New() -> *mut DocKeyMap {
     Box::into_raw(Box::new(DocKeyMap::default()))
+}
+
+/// Reserve room for at least `capacity` entries without changing membership.
+///
+/// # Safety
+/// `map` must be [valid] for exclusive access and allocated by [`DocKeyMap_New`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn DocKeyMap_Reserve(map: *mut DocKeyMap, capacity: usize) {
+    debug_assert!(!map.is_null());
+    // SAFETY: The caller provides exclusive access to a live map.
+    unsafe { &mut *map }.reserve(capacity);
+}
+
+/// Populate a backfilled ID without duplicating a candidate maintained by a writer.
+///
+/// # Safety
+/// `map` must be [valid] for exclusive access and allocated by [`DocKeyMap_New`].
+/// The caller must remove an ID before changing its key and corresponding hash.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn DocKeyMap_InsertIfAbsent(map: *mut DocKeyMap, hash: u64, id: DocId) {
+    debug_assert!(!map.is_null());
+    // SAFETY: The caller provides exclusive access to a live map.
+    unsafe { &mut *map }.insert_if_absent(hash, id);
 }
 
 /// Destroy a table; a null pointer is accepted.

@@ -39,6 +39,7 @@
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
+#include "indexes_scan.h"
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/expr/expression.h"
 #include "field_spec.h"
@@ -1476,6 +1477,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   }
 
   if (opts->inkeys) {
+    IndexSpec_ActivateKeyMap(sctx->spec);
     // inkeys is a window into the held argv, which outlives the AST; the
     // id-filter node borrows it as-is.
     QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};

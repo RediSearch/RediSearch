@@ -1952,8 +1952,9 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   GC_ThreadPoolDestroy();
   // Destroy the disk GC lock now that the GC pool is gone (no GC thread can take it).
   DiskGC_Cleanup();
-  CleanPool_ThreadPoolDestroy();
+  // Reindex backfills may release the last spec reference into the cleanup pool.
   ReindexPool_ThreadPoolDestroy();
+  CleanPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
   // Index destructors and background work may still need the disk context until pools drain.
   SearchDisk_Close(ctx);
