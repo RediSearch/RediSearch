@@ -37,7 +37,14 @@ Either stack may merge first; the design records the integration boundary.
 
 Tracking: [MOD-20150](https://redislabs.atlassian.net/browse/MOD-20150).
 
-Status: implementation prepared as four local layers following directional
-agreement in conversation. Build, unit, and focused three-shard regression runs
-are recorded in the behavior ledger; full verification and PR references remain
-pending. No new timeout ownership protocol is introduced here.
+Status: four ready-for-review PRs in native stack 11989, following directional
+agreement in conversation:
+
+1. [Extraction](https://github.com/RediSearch/RediSearch/pull/11985)
+2. [Reply source and ordinary ordering](https://github.com/RediSearch/RediSearch/pull/11986)
+3. [KNN reduction](https://github.com/RediSearch/RediSearch/pull/11987)
+4. [Common lifecycle callbacks](https://github.com/RediSearch/RediSearch/pull/11988)
+
+Local validation and its scope are recorded in the behavior ledger. Remote CI
+and automated review are pending. No new timeout ownership protocol is
+introduced here.

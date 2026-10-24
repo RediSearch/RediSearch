@@ -103,3 +103,19 @@ remain compatibility obligations, not claims of validated equivalence.
   at shard boundaries. The test interrupts with one nearest-K candidate buffered,
   checks final membership/order and offset-once semantics, and observes one reply
   and one free callback in RESP2 and RESP3. Execution evidence follows validation.
+
+## Final local validation
+
+- Final code at `f024bb8d5f`: assert-enabled build and all 1,283 C/C++ unit
+  tests passed. The focused three-shard suite collected 118 tests with zero
+  failures, including both buffered-KNN strict-timeout tests.
+- Full three-shard suite at `bb3691096b` (before the debug-only KNN pause hook):
+  2,673 collected tests, zero failures, including skips.
+- The initial standalone run lacked RedisJSON. All failed and skipped selectors
+  were subsequently rerun with RedisJSON: 594 collected, zero failures. Selector
+  accounting confirmed none was omitted; collected totals include skips.
+- Independent source review passed each implementation layer and the buffered-KNN
+  test follow-up. Remote CI and automated review remain separate gates.
+- No intentional breaking or soft observable production behavior change is
+  accepted by this stack. Unmeasured comparator decoding cost and the unexecuted
+  edge scenarios in the tracked-surface table remain explicit limitations.
