@@ -879,21 +879,34 @@ static void srDtor(void *p) {
   }
 }
 
-ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap) {
-
+static RPSorter *rpsortNew(void) {
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
-  ret->cmp = nkeys ? cmpByFields : cmpByScore;
-  ret->cmpCtx = ret;
-  ret->fieldcmp.ascendMap = ascmap;
-  ret->fieldcmp.keys = keys;
-  ret->fieldcmp.nkeys = nkeys;
-
-  ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
   *ret->pooledResult = SearchResult_New();
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
   ret->base.type = RP_SORTER;
+  return ret;
+}
+
+ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
+                                      uint64_t ascmap) {
+  RPSorter *ret = rpsortNew();
+  ret->cmp = nkeys ? cmpByFields : cmpByScore;
+  ret->cmpCtx = ret;
+  ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
+  ret->fieldcmp.keys = keys;
+  ret->fieldcmp.nkeys = nkeys;
+  ret->fieldcmp.ascendMap = ascmap;
+  return &ret->base;
+}
+
+ResultProcessor *RPSorter_NewByComparator(size_t maxresults, RPSorterCompareFunc compare,
+                                          void *context) {
+  RPSorter *ret = rpsortNew();
+  ret->cmp = compare;
+  ret->cmpCtx = context;
+  ret->pq = mmh_init_with_size(maxresults, compare, context, srDtor);
   return &ret->base;
 }
 
@@ -918,8 +931,8 @@ ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreT
 
 typedef struct {
   ResultProcessor base;
-  uint32_t offset;
-  uint32_t remaining;
+  size_t offset;
+  size_t remaining;
 } RPPager;
 
 static int rppagerNext_Limit(ResultProcessor *base, SearchResult *r) {
@@ -944,7 +957,7 @@ static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
   uint32_t limit = MIN(self->remaining, base->parent->resultLimit);
   // Save the previous limit, so that it will seem untouched to the downstream
   uint32_t downstreamLimit = base->parent->resultLimit;
-  base->parent->resultLimit = self->offset + limit;
+  base->parent->resultLimit = MIN(self->offset + limit, UINT32_MAX);
 
   // If we've not reached the offset
   while (self->offset) {
@@ -952,14 +965,14 @@ static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
     if (rc != RS_RESULT_OK) {
       return rc;
     }
-    base->parent->resultLimit--;
+    if (base->parent->resultLimit) base->parent->resultLimit--;
     self->offset--;
     SearchResult_Clear(r);
   }
 
   base->parent->resultLimit = downstreamLimit;
 
-  base->Next = rppagerNext_Limit; // switch to second phase
+  base->Next = rppagerNext_Limit;  // switch to second phase
   return base->Next(base, r);
 }
 
@@ -1664,7 +1677,7 @@ static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader"
                                      "Grouper", "Projector", "Filter",            "Profile",
                                      "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer",
                                      "Vector Normalizer", "Hybrid Merger", "Threadsafe-Depleter", "Depleter",
-                                     "Disk Async Loader"};
+                                     "Disk Async Loader", "Search Reply"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");

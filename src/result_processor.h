@@ -75,6 +75,7 @@ typedef enum {
   RP_SAFE_DEPLETER,
   RP_DEPLETER,
   RP_DISK_ASYNC_LOADER,
+  RP_SEARCH_REPLY,
   RP_MAX, // Marks the last non-debug RP type
   // Debug only result processors
   RP_TIMEOUT,
@@ -203,6 +204,13 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
  */
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey);
 
+/** Bounded selection using a caller-owned comparator context. Positive means better.
+ * The context must outlive the processor; buffered rows use normal SearchResult ownership.
+ */
+ResultProcessor *RPSorter_NewByComparator(size_t maxresults,
+                                          int (*compare)(const void *, const void *, const void *),
+                                          void *context);
+
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
 /*******************************************************************************************************************
@@ -213,10 +221,11 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  * It fills the result objects' field map with values corresponding to the requested return fields
  *
- * On thread safe mode, the loader will buffer results, in an internal phase will lock redis and load the requested
- * fields and then unlock redis, and then will yield the results to the next processor in the chain.
- * On non thread safe mode (running the query from the main thread), the loader will load the requested fields
- * for each result, one result at a time, and yield it to the next processor in the chain.
+ * On thread safe mode, the loader will buffer results, in an internal phase will lock redis and
+ * load the requested fields and then unlock redis, and then will yield the results to the next
+ * processor in the chain. On non thread safe mode (running the query from the main thread), the
+ * loader will load the requested fields for each result, one result at a time, and yield it to the
+ * next processor in the chain.
  *
  *******************************************************************************************************************/
 struct AREQ;
