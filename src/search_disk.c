@@ -797,3 +797,10 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
     RedisModule_Log(RSDummyContext, "warning", "Failed to apply updated disk memory limit");
   }
 }
+
+bool SearchDisk_VisitSlotDocuments(RedisSearchDiskIndexSpec *index,
+                                   const SearchDiskSlotRange *ranges, size_t numRanges,
+                                   SearchDiskSlotDocumentCallback callback, void *callbackCtx) {
+  return disk && disk->index.visitSlotDocuments &&
+         disk->index.visitSlotDocuments(index, ranges, numRanges, callback, callbackCtx);
+}
