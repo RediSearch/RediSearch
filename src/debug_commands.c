@@ -1241,9 +1241,8 @@ DEBUG_COMMAND(DiskFlushNoWait) {
   return REDISMODULE_OK;
 }
 
-// Finishes DISK_COMPACT once its GC cycle has compacted the inverted-index CFs, and replies.
-// The cycle writes its deleted-ids cleanup to the doc table, which is why the doc-table and
-// vector CFs are flushed and compacted only now.
+// Finishes DISK_COMPACT once its GC cycle is done, and replies. The cycle itself writes to the
+// index's disk storage, so the flush and the remaining compaction must come after it.
 static int finishDiskCompact(RedisModuleCtx *ctx, IndexSpec *sp) {
   // Background work may have been paused while the GC cycle ran.
   if (SearchDisk_IsBackgroundWorkPaused(sp->diskSpec)) {
@@ -1251,10 +1250,8 @@ static int finishDiskCompact(RedisModuleCtx *ctx, IndexSpec *sp) {
         ctx, "Background work was paused during DISK_COMPACT; use DISK_RESUME_BG_WORK first");
   }
   SearchDisk_Flush(sp->diskSpec);
-  if (!SearchDisk_CompactNonGcColumnFamilies(sp->diskSpec)) {
-    return RedisModule_ReplyWithError(ctx,
-                                      "Compaction of the doc-table or vector column "
-                                      "families was cancelled; see the server log");
+  if (!SearchDisk_CompactNonGcStorage(sp->diskSpec)) {
+    return RedisModule_ReplyWithError(ctx, "Disk compaction was cancelled; see the server log");
   }
   return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
@@ -1273,11 +1270,9 @@ static int DiskCompactAfterGC(RedisModuleCtx *ctx, RedisModuleString **argv, int
 }
 
 // FT.DEBUG DISK_COMPACT <index> [TIMEOUT]
-// Flush every column family of the index, fully compact all of them, and reply DONE.
-// The inverted-index CFs are compacted by a forced GC cycle (as in GC_FORCEINVOKE, so TIMEOUT
-// means the same), since GC owns their compaction; the rest are compacted directly.
-// Writes still in flight are not waited for: with vector fields, run WORKERS DRAIN first, or
-// queued vector jobs may write after the flush and leave the vector CFs unsettled.
+// Flush and fully compact the index's disk storage, and reply DONE. Runs a forced GC cycle
+// first (as GC_FORCEINVOKE, so TIMEOUT means the same). Writes still in flight are not waited
+// for: with vector fields, run WORKERS DRAIN first.
 DEBUG_COMMAND(DiskCompact) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
