@@ -41,6 +41,7 @@ impl ExpirationBits {
     }
 
     /// Whether `ordinal` is in the set.
+    #[inline(always)]
     pub(crate) fn contains(&self, ordinal: u16) -> bool {
         self.0
             .as_slice()
