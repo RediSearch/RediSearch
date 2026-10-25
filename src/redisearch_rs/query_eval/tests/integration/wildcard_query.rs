@@ -255,7 +255,7 @@ fn eval_wildcard_query_star_expands_and_unions_matches() {
     let mut fixture = WildcardFixture::new("ap*");
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(it.type_(), IteratorType::Union);
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3]);
 }
@@ -276,7 +276,7 @@ fn eval_wildcard_query_question_mark_matches_exactly_one_character() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![4]);
 }
 
@@ -293,7 +293,7 @@ fn eval_wildcard_query_mixed_star_and_question_mark() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![3]);
 }
 
@@ -303,7 +303,7 @@ fn eval_wildcard_query_interior_star_matches_around_it() {
     let mut fixture = WildcardFixture::new("a*t");
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![3]);
 }
 
@@ -314,7 +314,7 @@ fn eval_wildcard_query_lowercases_the_pattern() {
     let mut fixture = WildcardFixture::new("AP*");
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3]);
 }
 
@@ -332,7 +332,7 @@ fn eval_wildcard_query_single_match_collapses_to_the_reader() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(it.type_(), IteratorType::InvIdxTerm);
     let r = it.read().expect("read must not error").expect("one result");
     assert_eq!(r.doc_id, 4);
@@ -355,7 +355,7 @@ fn eval_wildcard_query_union_carries_the_node_weight() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(it.type_(), IteratorType::Union);
     let r = it.read().expect("read must not error").expect("one result");
     assert_eq!(r.weight, 5.0, "a real union carries the node weight");
@@ -368,7 +368,7 @@ fn eval_wildcard_query_no_match_yields_empty_union() {
     let mut fixture = WildcardFixture::new("zz*");
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), Vec::<u64>::new());
 }
 
@@ -388,7 +388,7 @@ fn eval_wildcard_query_expands_a_term_whose_key_is_not_utf8() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 7]);
 }
 
@@ -409,7 +409,7 @@ fn eval_wildcard_query_skips_expansion_without_inverted_index() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3]);
 }
 
@@ -423,7 +423,7 @@ fn eval_wildcard_query_removes_escapes_from_the_token() {
     let mut fixture = WildcardFixture::new("ap\\*le");
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2]);
     drop(it);
     assert_eq!(
@@ -445,7 +445,7 @@ fn eval_wildcard_query_removes_a_trailing_backslash() {
     let mut fixture = WildcardFixture::new("apple\\");
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2]);
     drop(it);
     assert_eq!(
@@ -482,7 +482,7 @@ fn eval_wildcard_query_empty_pattern_matches_nothing_without_an_empty_term() {
     let mut fixture = WildcardFixture::new("");
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), Vec::<u64>::new());
     drop(it);
     assert_eq!(
@@ -506,7 +506,7 @@ fn eval_wildcard_query_empty_pattern_matches_the_empty_term() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![9]);
     drop(it);
     assert_eq!(fixture.status_code(), QueryErrorCode::Ok);
@@ -527,7 +527,7 @@ fn eval_wildcard_query_empty_pattern_matches_the_empty_term_with_a_suffix_trie()
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![9]);
 }
 
@@ -546,7 +546,7 @@ fn eval_wildcard_query_empty_pattern_respects_the_field_mask() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), Vec::<u64>::new());
 }
 
@@ -559,7 +559,7 @@ fn eval_wildcard_query_bare_star_matches_every_term() {
     let mut fixture = WildcardFixture::new("*");
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3, 4, 5]);
 }
 
@@ -593,15 +593,44 @@ fn eval_wildcard_query_honours_a_raised_min_term_prefix() {
         },
     );
     assert!(fixture.eval().is_none());
+
+    let mut fixture = WildcardFixture::build(
+        b"apr*",
+        WildcardOptions {
+            min_term_prefix: Some(3),
+            ..WildcardOptions::default()
+        },
+    );
+    let mut it = fixture
+        .eval()
+        .expect("three literal bytes reach a minimum of three");
+    assert_eq!(collect_doc_ids(&mut it), vec![3]);
+}
+
+#[test]
+fn eval_wildcard_query_below_min_term_prefix_outranks_the_unsupported_fields_error() {
+    // As for a prefix pattern, a pattern under the minimum matches nothing without
+    // an error, even on a field the suffix trie does not cover.
+    let mut fixture = WildcardFixture::build(
+        b"a*",
+        WildcardOptions {
+            with_suffix_trie: true,
+            field_mask: 0b10,
+            ..WildcardOptions::default()
+        },
+    );
+    assert!(fixture.eval().is_none());
+    assert_eq!(fixture.status_code(), QueryErrorCode::Ok);
 }
 
 #[test]
 fn eval_wildcard_query_without_a_literal_or_a_star_ignores_min_term_prefix() {
-    // `w'*'` has no literal to anchor on, so it keeps matching every term; `?`
-    // alone and a pattern without `*` cannot expand unboundedly, so neither is
-    // held to the minimum either.
-    let cases: [(&[u8], Vec<u64>); 3] = [
+    // A pattern made only of `*` and `?` has no literal to anchor on, so it keeps
+    // matching every term of the length it spells out. A pattern without `*`
+    // cannot expand unboundedly. Neither is held to the minimum.
+    let cases: [(&[u8], Vec<u64>); 4] = [
         (b"*", vec![1, 2, 3, 4, 5]),
+        (b"?*", vec![1, 2, 3, 4, 5]),
         (b"?????", vec![1, 2, 4]),
         (b"grape", vec![4]),
     ];
@@ -662,7 +691,7 @@ fn eval_wildcard_query_narrows_the_reader_field_mask_to_the_query() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), Vec::<u64>::new());
     drop(it);
     assert_eq!(
@@ -685,7 +714,7 @@ fn eval_wildcard_query_narrows_the_reader_field_mask_to_the_query() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3]);
 }
 
@@ -703,7 +732,7 @@ fn eval_wildcard_query_field_mask_excludes_every_expansion() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), Vec::<u64>::new());
 }
 
@@ -715,7 +744,7 @@ fn eval_wildcard_query_via_suffix_trie_matches_the_same_terms() {
     let mut fixture = WildcardFixture::with_suffix_trie("*ricot");
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![3]);
 }
 
@@ -725,7 +754,7 @@ fn eval_wildcard_query_via_suffix_trie_matches_an_interior_run() {
     let mut fixture = WildcardFixture::with_suffix_trie("*ppl*");
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2]);
 }
 
@@ -741,7 +770,7 @@ fn eval_wildcard_query_falls_back_to_brute_force_without_an_anchor() {
     let mut fixture = WildcardFixture::with_suffix_trie("*");
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3, 4, 5]);
     drop(it);
     assert_eq!(
@@ -760,7 +789,7 @@ fn eval_wildcard_query_via_suffix_trie_anchors_on_a_question_mark_token() {
     let mut fixture = WildcardFixture::with_suffix_trie("?*");
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3, 4, 5]);
 }
 
@@ -781,7 +810,7 @@ fn eval_wildcard_query_unsupported_fields_errors_without_falling_back() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), Vec::<u64>::new());
     drop(it);
     assert_eq!(fixture.status_code(), QueryErrorCode::Generic);
@@ -809,7 +838,7 @@ fn eval_wildcard_query_unsupported_fields_error_applies_to_an_empty_pattern() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), Vec::<u64>::new());
     drop(it);
     assert_eq!(fixture.status_code(), QueryErrorCode::Generic);
@@ -835,7 +864,7 @@ fn eval_wildcard_query_caps_expansions_and_warns() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(
         collect_doc_ids(&mut it).len(),
         2,
@@ -878,7 +907,7 @@ fn eval_wildcard_query_caps_expansions_on_the_suffix_trie_walk() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(
         collect_doc_ids(&mut it),
         vec![1, 3],
@@ -908,7 +937,7 @@ fn eval_wildcard_query_brute_force_walk_does_not_repeat_a_term() {
     );
     let mut it = fixture
         .eval()
-        .expect("a wildcard always builds an iterator");
+        .expect("a pattern clearing the minimum builds an iterator");
     assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3]);
     drop(it);
     assert!(

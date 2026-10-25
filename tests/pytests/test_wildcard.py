@@ -642,9 +642,13 @@ def testWildcardHonorsMinPrefix(env):
             res = env.cmd('FT.SEARCH', idx, below, 'NOCONTENT', 'DIALECT', 2)
             env.assertEqual(res, [0], message=(idx, below))
         for kept in ["@path:{w'/t*'}", "@path:{w'*'}", "@t:w'he*'", "@t:w'*'",
-                     "@t:w'?????'", "@t:w'hello'"]:
+                     "@t:w'?*'", "@t:w'?????'", "@t:w'hello'"]:
             res = env.cmd('FT.SEARCH', idx, kept, 'NOCONTENT', 'DIALECT', 2)
             env.assertEqual(res, [1, 'doc1'], message=(idx, kept))
+        # Negating a pattern that matches nothing excludes nothing, as for `-h*`.
+        for negated in ["-@t:w'h*'", '-@t:h*']:
+            res = env.cmd('FT.SEARCH', idx, negated, 'NOCONTENT', 'DIALECT', 2)
+            env.assertEqual(res, [1, 'doc1'], message=(idx, negated))
 
     env.expect(config_cmd(), 'SET', 'MINPREFIX', 1).ok()
     try:

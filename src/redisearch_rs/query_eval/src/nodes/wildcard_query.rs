@@ -28,8 +28,8 @@ use crate::{
 ///
 /// Only a `*` expands unboundedly, so only a pattern containing one is held to the
 /// minimum, measured by its literal bytes: those that are neither `*` nor `?`. A
-/// pattern with no literal, such as `w'*'`, has no anchor to measure and keeps
-/// matching every term.
+/// pattern made only of `*` and `?`, such as `w'*'` or `w'?*'`, has no anchor to
+/// measure and is exempt: it matches every term of the length it spells out.
 pub(crate) fn below_min_term_prefix(pattern: &[u8], min_term_prefix: usize) -> bool {
     let literals = pattern.iter().filter(|&&b| b != b'*' && b != b'?').count();
     pattern.contains(&b'*') && literals > 0 && literals < min_term_prefix
@@ -46,10 +46,12 @@ pub(crate) fn below_min_term_prefix(pattern: &[u8], min_term_prefix: usize) -> b
 /// An empty pattern is answered without either walk: it matches exactly the empty
 /// term, whose inverted index is opened directly.
 ///
-/// Returns `None` silently when [`below_min_term_prefix`] rejects the pattern, and
-/// when the pattern is too long to name any term (reported via
-/// [`status`](QueryEvalContext::status)); every other outcome — including no
-/// matches and the unsupported-fields error — yields a union, possibly empty.
+/// Returns `None` in two cases. A pattern [`below_min_term_prefix`] rejects
+/// matches nothing and sets no error, which takes precedence over the
+/// unsupported-fields error below. A pattern too long to name any term is
+/// reported via [`status`](QueryEvalContext::status). Every other outcome,
+/// including no matches and the unsupported-fields error, yields a union,
+/// possibly empty.
 /// The number of expansions is capped by the configured
 /// [`Config::max_prefix_expansions`].
 pub(crate) fn eval<'index>(
@@ -122,7 +124,9 @@ pub(crate) fn eval<'index>(
     // A spec with a suffix trie may only answer a pattern when every queried field
     // is covered by it. An unsupported field set is an error that does *not* fall
     // back to a walk — it yields an empty union — and it is reported for any
-    // pattern, so it is decided before the empty-pattern case below.
+    // pattern that clears the minimum above, so it is decided before the
+    // empty-pattern case below. A pattern under the minimum matches nothing without
+    // an error, as a prefix pattern does.
     let fields_unsupported = !suffix_trie.is_null()
         && node_field_mask != rqe_core::RS_FIELDMASK_ALL
         && (suffix_mask & node_field_mask) != node_field_mask;

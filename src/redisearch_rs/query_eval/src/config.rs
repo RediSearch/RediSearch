@@ -33,8 +33,8 @@ pub struct Config {
     /// as a custom scorer.
     pub default_scorer: Option<BuiltInScorer>,
     /// Minimum pattern length (in bytes) a prefix/suffix/contains query must
-    /// reach before it is expanded; shorter patterns produce no matches. A
-    /// wildcard pattern containing `*` is measured by its literal bytes.
+    /// reach before it is expanded; shorter patterns produce no matches. The
+    /// wildcard-query evaluator applies it by its own measure.
     pub min_term_prefix: u32,
     /// Maximum number of terms a prefix/suffix/contains query expands to before
     /// the trie walk stops and a warning is recorded.

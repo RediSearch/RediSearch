@@ -1234,17 +1234,41 @@ fn eval_tag_wildcard_child_honours_a_raised_minimum() {
         ..TagOptions::default()
     });
     fixture.eval_yielding_nothing();
+
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::WildcardQuery(b"apr*")],
+        min_term_prefix: Some(3),
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("three literal bytes reach a minimum of three");
+    assert_eq!(drain_doc_ids(&mut it), vec![2, 3]);
 }
 
 #[test]
-fn eval_tag_wildcard_child_without_a_literal_ignores_the_minimum() {
-    let mut fixture = TagFixture::new(TagOptions {
-        children: vec![Child::WildcardQuery(b"*")],
-        min_term_prefix: Some(10),
-        ..TagOptions::default()
-    });
-    let mut it = fixture.eval().expect("every value matches");
-    assert_eq!(drain_doc_ids(&mut it), vec![1, 2, 3, 4, 5]);
+fn eval_tag_wildcard_child_without_a_literal_or_a_star_ignores_the_minimum() {
+    let cases: [(&[u8], Vec<DocId>); 3] = [
+        (b"*", vec![1, 2, 3, 4, 5]),
+        (b"?*", vec![1, 2, 3, 4, 5]),
+        (b"appl?", vec![1, 2]),
+    ];
+    for (pattern, expected) in cases {
+        let mut fixture = TagFixture::new(TagOptions {
+            children: vec![Child::WildcardQuery(pattern)],
+            min_term_prefix: Some(10),
+            ..TagOptions::default()
+        });
+        let mut it = fixture
+            .eval()
+            .expect("the minimum does not apply to this pattern");
+        assert_eq!(
+            drain_doc_ids(&mut it),
+            expected,
+            "{}",
+            String::from_utf8_lossy(pattern)
+        );
+    }
 }
 
 #[test]
