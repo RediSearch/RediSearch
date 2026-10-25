@@ -798,13 +798,6 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
   }
 }
 
-bool SearchDisk_VisitSlotDocuments(RedisSearchDiskIndexSpec *index,
-                                   const SearchDiskSlotRange *ranges, size_t numRanges,
-                                   SearchDiskSlotDocumentCallback callback, void *callbackCtx) {
-  return disk && disk->index.visitSlotDocuments &&
-         disk->index.visitSlotDocuments(index, ranges, numRanges, callback, callbackCtx);
-}
-
 SearchDiskSlotTrim *SearchDisk_PrepareSlotTrim(RedisSearchDiskIndexSpec *index,
                                                const SearchDiskSlotRange *ranges, size_t numRanges,
                                                uint64_t *numDocs, uint64_t *totalDocLen) {

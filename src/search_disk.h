@@ -1043,11 +1043,6 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  */
 void SearchDisk_DebugResetCompactionController(void);
 
-// Synchronous membership enumeration; caller holds the spec read lock.
-bool SearchDisk_VisitSlotDocuments(RedisSearchDiskIndexSpec *index,
-                                   const SearchDiskSlotRange *ranges, size_t numRanges,
-                                   SearchDiskSlotDocumentCallback callback, void *callbackCtx);
-
 SearchDiskSlotTrim *SearchDisk_PrepareSlotTrim(RedisSearchDiskIndexSpec *index,
                                                const SearchDiskSlotRange *ranges, size_t numRanges,
                                                uint64_t *numDocs, uint64_t *totalDocLen);

@@ -75,7 +75,6 @@ typedef struct SearchDiskSlotRange {
   uint16_t end;
 } SearchDiskSlotRange;
 
-typedef void (*SearchDiskSlotDocumentCallback)(void *ctx, t_docId docId, uint32_t docLen);
 // Callback function to allocate memory for the key in the scope of the search module memory
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 
@@ -722,13 +721,6 @@ typedef struct IndexDiskAPI {
    * Returns false if storage needs to be created and creation fails; true otherwise.
    * ctx must allow Redis BigModule CF registration; index must be a live disk index. */
   bool (*initializeMissingStorage)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
-  /** Visit live slot membership without document-table reads.
-   * The caller holds the spec read lock, excludes slot cleanup, and keeps index,
-   * ranges and callback context alive until this synchronous call returns.
-   * Returns false on invalid ranges or storage corruption/error. */
-  bool (*visitSlotDocuments)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
-                             size_t numRanges, SearchDiskSlotDocumentCallback callback,
-                             void *callbackCtx);
   // Drain and exclude all mutations to these slots until finish succeeds.
   // Prepare/finish perform I/O outside the spec write lock. Apply runs once
   // under that lock and invokes the callback only after visibility changes.
