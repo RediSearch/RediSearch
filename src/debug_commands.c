@@ -1276,6 +1276,8 @@ static int DiskCompactAfterGC(RedisModuleCtx *ctx, RedisModuleString **argv, int
 // Flush every column family of the index, fully compact all of them, and reply DONE.
 // The inverted-index CFs are compacted by a forced GC cycle (as in GC_FORCEINVOKE, so TIMEOUT
 // means the same), since GC owns their compaction; the rest are compacted directly.
+// Writes still in flight are not waited for: with vector fields, run WORKERS DRAIN first, or
+// queued vector jobs may write after the flush and leave the vector CFs unsettled.
 DEBUG_COMMAND(DiskCompact) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
