@@ -649,8 +649,9 @@ typedef enum {
 } IndexSpecSlotTrimResult;
 
 // Caller holds the Redis GIL and excludes mutations (including unlink/expiration)
-// to these slots until completion. APPLIED means visibility/accounting changed but
-// storage finish failed; GC completes storage cleanup. The caller must complete key
+// to these slots until completion. APPLIED means at least one batch changed
+// visibility/accounting, but later apply or storage finish failed. GC cleans only
+// applied deletions; pending documents remain live. The caller must complete key
 // removal or reindex survivors before resuming their use. This does not establish
 // the Redis migration/trim preconditions.
 IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges,

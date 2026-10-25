@@ -67,7 +67,13 @@ typedef const void* RedisSearchDiskSnapshot;
 typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
 typedef struct SearchDiskSlotTrim SearchDiskSlotTrim;
-typedef void (*SearchDiskSlotTrimCallback)(void *ctx, t_docId docId);
+typedef struct SearchDiskSlotTrimBatch SearchDiskSlotTrimBatch;
+// The batch and ID array are borrowed only for this callback. Acquire the spec
+// write lock, applyTrimBatch, remove memory entries and adjust counts before
+// unlocking. False rejects a pending batch; a successful apply must be accounted.
+typedef bool (*SearchDiskSlotTrimCallback)(void *ctx, const t_docId *ids, size_t numIds,
+                                           uint64_t totalDocLen,
+                                           const SearchDiskSlotTrimBatch *batch);
 
 // Inclusive Redis Cluster slot interval.
 typedef struct SearchDiskSlotRange {
@@ -728,16 +734,20 @@ typedef struct IndexDiskAPI {
 
 /** Disk index operations supporting slot migration. */
 typedef struct SlotMigrationAPI {
-  // Drain and exclude all mutations to these slots until finish succeeds.
-  // Prepare/finish perform I/O outside the spec write lock. Apply runs once
-  // under that lock and invokes the callback only after visibility changes.
-  // Finish retains the handle on failure for retry; free always releases it.
-  // Dropping an applied handle leaves GC responsible for physical cleanup.
+  // Drain and exclude selected-slot mutations until finish succeeds.
+  // Prepare/finish do I/O outside the spec lock. Apply invokes bounded callbacks
+  // without that lock; callbacks hold it only for their batch. Retrying the same
+  // plan skips applied batches. Finish requires all batches and retains the plan
+  // on error. Free leaves applied deletions for GC; pending documents stay live.
+  // Readers between batches may observe partially completed cleanup.
   SearchDiskSlotTrim *(*prepareTrim)(RedisSearchDiskIndexSpec *index,
                                      const SearchDiskSlotRange *ranges, size_t numRanges,
                                      uint64_t *numDocs, uint64_t *totalDocLen);
-  bool (*applyTrim)(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim,
+  // maxBatchDocs must be nonzero; retries use the supplied limit for pending IDs.
+  bool (*applyTrim)(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim, size_t maxBatchDocs,
                     SearchDiskSlotTrimCallback callback, void *callbackCtx);
+  // Only call while holding the spec write lock, on the current callback batch.
+  bool (*applyTrimBatch)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotTrimBatch *batch);
   bool (*finishTrim)(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim);
   void (*freeTrim)(SearchDiskSlotTrim *trim);
 } SlotMigrationAPI;

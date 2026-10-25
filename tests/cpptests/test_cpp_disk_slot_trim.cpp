@@ -10,6 +10,8 @@
 #include "common.h"
 #include "disk_gc.h"
 #include "geometry/geometry_api.h"
+#include <functional>
+#include <thread>
 extern "C" {
 #include "indexes.h"
 #include "disk_indexer.h"
@@ -29,6 +31,8 @@ struct TrimState {
   bool prepare = true, apply = true, finish = true;
   bool applied = false;
   size_t applyCalls = 0, finishCalls = 0, frees = 0, gcRuns = 0;
+  size_t batchCount = 1, batchesApplied = 0, batchApplyCalls = 0, failBatch = SIZE_MAX;
+  std::function<void(size_t)> beforeBatch;
 } state;
 
 class DiskSlotTrimTest : public ::testing::Test {
@@ -68,18 +72,38 @@ class DiskSlotTrimTest : public ::testing::Test {
                                        size_t, uint64_t *docs,
                                        uint64_t *len) -> SearchDiskSlotTrim * {
       if (!state.prepare) return nullptr;
-      *docs = state.applied ? 0 : 3;
-      *len = state.applied ? 0 : 21;
+      if (docs) *docs = state.applied ? 0 : 3;
+      if (len) *len = state.applied ? 0 : 21;
       return reinterpret_cast<SearchDiskSlotTrim *>(&state);
     };
     api.slotMigration.applyTrim = [](RedisSearchDiskIndexSpec *, SearchDiskSlotTrim *,
-                                     SearchDiskSlotTrimCallback callback, void *ctx) {
+                                     size_t maxBatchDocs, SearchDiskSlotTrimCallback callback,
+                                     void *ctx) {
+      EXPECT_GE(maxBatchDocs, 3u);
       ++state.applyCalls;
       if (!state.apply) return false;
-      if (!state.applied) {
-        for (t_docId id = 1; id <= 3; ++id) callback(ctx, id);
+      for (size_t batch = state.batchesApplied; batch < state.batchCount; ++batch) {
+        if (state.beforeBatch) state.beforeBatch(batch);
+        const t_docId ids[] = {batch * 3 + 1, batch * 3 + 2, batch * 3 + 3};
+        if (!callback(ctx, ids, 3, 21, reinterpret_cast<SearchDiskSlotTrimBatch *>(&state)))
+          return false;
       }
       state.applied = true;
+      return true;
+    };
+    api.slotMigration.applyTrimBatch = [](RedisSearchDiskIndexSpec *index,
+                                          const SearchDiskSlotTrimBatch *) {
+      auto *spec = reinterpret_cast<IndexSpec *>(index);
+      int lockResult = -1;
+      std::thread probe([&] {
+        lockResult = pthread_rwlock_trywrlock(&spec->rwlock);
+        if (lockResult == 0) pthread_rwlock_unlock(&spec->rwlock);
+      });
+      probe.join();
+      EXPECT_NE(lockResult, 0) << "batch apply requires the spec write lock";
+      ++state.batchApplyCalls;
+      if (state.batchesApplied == state.failBatch) return false;
+      ++state.batchesApplied;
       return true;
     };
     api.slotMigration.finishTrim = [](RedisSearchDiskIndexSpec *, SearchDiskSlotTrim *) {
@@ -177,13 +201,13 @@ TEST_F(DiskSlotTrimTest, PrepareFailureDoesNotMutateOrFree) {
 TEST_F(DiskSlotTrimTest, BoundsRejectBeforeApplyAndFreePlan) {
   spec->stats.scoring.numDocuments = 2;
   EXPECT_EQ(trim(), INDEX_TRIM_NOT_APPLIED);
-  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_EQ(state.batchApplyCalls, 0u);
   EXPECT_EQ(state.frees, 1u);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   spec->stats.scoring.numDocuments = 5;
   spec->stats.scoring.totalDocsLen = 20;
   EXPECT_EQ(trim(), INDEX_TRIM_NOT_APPLIED);
-  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_EQ(state.batchApplyCalls, 0u);
   EXPECT_EQ(state.frees, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 20u);
 }
@@ -239,6 +263,52 @@ TEST_F(DiskSlotTrimTest, SuccessfulTrimRemovesOnlySelectedVectorAndGeometryIds) 
   EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
   EXPECT_EQ(state.finishCalls, 1u);
   EXPECT_EQ(state.frees, 1u);
+}
+
+TEST_F(DiskSlotTrimTest, WriterCanUpdateStatisticsBetweenBatches) {
+  state.batchCount = 3;
+  spec->stats.scoring.numDocuments = 11;
+  spec->stats.scoring.totalDocsLen = 82;
+  state.beforeBatch = [&](size_t batch) {
+    int lockResult = -1;
+    std::thread writer([&] {
+      lockResult = pthread_rwlock_trywrlock(&spec->rwlock);
+      if (lockResult == 0) {
+        if (batch == 1) {
+          ++spec->stats.scoring.numDocuments;
+          spec->stats.scoring.totalDocsLen += 5;
+        }
+        pthread_rwlock_unlock(&spec->rwlock);
+      }
+    });
+    writer.join();
+    EXPECT_EQ(lockResult, 0) << "spec lock held between batches";
+    EXPECT_EQ(spec->stats.scoring.numDocuments, 11u - batch * 3 + (batch > 0));
+  };
+  EXPECT_EQ(trim(), INDEX_TRIM_FINISHED);
+  EXPECT_EQ(state.batchApplyCalls, 3u);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 3u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 24u);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 9u);
+}
+
+TEST_F(DiskSlotTrimTest, PartialApplyIsReportedAndRetryDoesNotRecountCompletedBatches) {
+  state.batchCount = 3;
+  state.failBatch = 1;
+  spec->stats.scoring.numDocuments = 11;
+  spec->stats.scoring.totalDocsLen = 82;
+  EXPECT_EQ(trim(), INDEX_TRIM_APPLIED);
+  EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_EQ(state.finishCalls, 0u);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 8u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 61u);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
+  state.failBatch = SIZE_MAX;
+  EXPECT_EQ(trim(), INDEX_TRIM_FINISHED);
+  EXPECT_EQ(state.batchesApplied, 3u);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 9u);
 }
 
 TEST_F(DiskSlotTrimTest, RecoverableGcFailureRetainsPendingChangesUntilRetry) {

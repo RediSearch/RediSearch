@@ -806,9 +806,15 @@ SearchDiskSlotTrim *SearchDisk_PrepareSlotTrim(RedisSearchDiskIndexSpec *index,
              : NULL;
 }
 bool SearchDisk_ApplySlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim,
-                              SearchDiskSlotTrimCallback callback, void *callbackCtx) {
+                              size_t maxBatchDocs, SearchDiskSlotTrimCallback callback,
+                              void *callbackCtx) {
   return disk && disk->slotMigration.applyTrim &&
-         disk->slotMigration.applyTrim(index, trim, callback, callbackCtx);
+         disk->slotMigration.applyTrim(index, trim, maxBatchDocs, callback, callbackCtx);
+}
+bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
+                                   const SearchDiskSlotTrimBatch *batch) {
+  return disk && disk->slotMigration.applyTrimBatch &&
+         disk->slotMigration.applyTrimBatch(index, batch);
 }
 bool SearchDisk_FinishSlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim) {
   return disk && disk->slotMigration.finishTrim && disk->slotMigration.finishTrim(index, trim);

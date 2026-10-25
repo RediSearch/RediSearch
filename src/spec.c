@@ -4080,33 +4080,49 @@ void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId) {
   }
 }
 
-static void trimMemoryIndexes(void *ctx, t_docId docId) {
-  IndexSpec_RemoveDocFromMemoryIndexes(ctx, docId);
-}
+static const size_t SLOT_TRIM_MAX_BATCH_DOCS = 256;
 
-IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges, size_t numRanges) {
-  if (!spec->diskSpec) return INDEX_TRIM_NOT_APPLIED;
-  uint64_t numDocs = 0, totalDocLen = 0;
-  SearchDiskSlotTrim *trim =
-      SearchDisk_PrepareSlotTrim(spec->diskSpec, ranges, numRanges, &numDocs, &totalDocLen);
-  if (!trim) return INDEX_TRIM_NOT_APPLIED;
+typedef struct {
+  IndexSpec *spec;
+  bool applied;
+} SlotTrimContext;
 
+static bool trimMemoryIndexes(void *ctx, const t_docId *ids, size_t numIds, uint64_t totalDocLen,
+                              const SearchDiskSlotTrimBatch *batch) {
+  SlotTrimContext *trim = ctx;
+  IndexSpec *spec = trim->spec;
   IndexSpec_IncrActiveWrites(spec);
   IndexSpec_LockWrite(spec);
-  bool applied = spec->stats.scoring.numDocuments >= numDocs &&
+  bool applied = spec->stats.scoring.numDocuments >= numIds &&
                  spec->stats.scoring.totalDocsLen >= totalDocLen &&
-                 SearchDisk_ApplySlotTrim(spec->diskSpec, trim, trimMemoryIndexes, spec);
+                 SearchDisk_ApplySlotTrimBatch(spec->diskSpec, batch);
   if (applied) {
-    spec->stats.scoring.numDocuments -= numDocs;
+    for (size_t i = 0; i < numIds; ++i) IndexSpec_RemoveDocFromMemoryIndexes(spec, ids[i]);
+    spec->stats.scoring.numDocuments -= numIds;
     spec->stats.scoring.totalDocsLen -= totalDocLen;
-    if (numDocs && spec->gc) GCContext_OnDeleteCount(spec->gc, numDocs);
+    if (numIds && spec->gc) GCContext_OnDeleteCount(spec->gc, numIds);
+    trim->applied = true;
   }
   IndexSpec_Unlock(spec);
   IndexSpec_DecrActiveWrites(spec);
+  return applied;
+}
 
+IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges,
+                                                size_t numRanges) {
+  if (!spec->diskSpec) return INDEX_TRIM_NOT_APPLIED;
+  SearchDiskSlotTrim *trim =
+      SearchDisk_PrepareSlotTrim(spec->diskSpec, ranges, numRanges, NULL, NULL);
+  if (!trim) return INDEX_TRIM_NOT_APPLIED;
+
+  SlotTrimContext context = {.spec = spec};
+  bool applied = SearchDisk_ApplySlotTrim(spec->diskSpec, trim, SLOT_TRIM_MAX_BATCH_DOCS,
+                                          trimMemoryIndexes, &context);
   bool finished = applied && SearchDisk_FinishSlotTrim(spec->diskSpec, trim);
   SearchDisk_FreeSlotTrim(trim);
-  return finished ? INDEX_TRIM_FINISHED : applied ? INDEX_TRIM_APPLIED : INDEX_TRIM_NOT_APPLIED;
+  return finished          ? INDEX_TRIM_FINISHED
+         : context.applied ? INDEX_TRIM_APPLIED
+                           : INDEX_TRIM_NOT_APPLIED;
 }
 
 // DocIdMeta access for the delete path. When an already-open, pinned key handle
