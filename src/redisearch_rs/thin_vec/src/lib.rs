@@ -469,6 +469,28 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
         self.len() == 0
     }
 
+    /// Returns `true` if the vector owns a heap allocation.
+    ///
+    /// A vector without an allocation is empty. Unlike [`is_empty`](Self::is_empty), this
+    /// compares the vector's pointer only and never reads its header, so it costs nothing beyond
+    /// the load of the `ThinVec` itself. An allocated vector may still be empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use thin_vec::ThinVec;
+    ///
+    /// let mut v: ThinVec<i32> = ThinVec::new();
+    /// assert!(!v.has_allocation());
+    ///
+    /// v.push(1);
+    /// assert!(v.has_allocation());
+    /// ```
+    #[inline(always)]
+    pub fn has_allocation(&self) -> bool {
+        !self.is_singleton()
+    }
+
     /// Returns the number of elements the vector can hold without
     /// reallocating.
     ///

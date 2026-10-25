@@ -40,12 +40,24 @@ impl ExpirationBits {
         self.0.as_mut_slice()[byte] |= Self::mask(ordinal);
     }
 
+    /// Whether the set may hold any ordinal. `false` guarantees it is empty.
+    ///
+    /// Checks only whether the set has an allocation, so the common no-expiration case costs a
+    /// pointer comparison rather than a read of the bitset's header.
+    #[inline(always)]
+    pub(crate) fn may_contain_any(&self) -> bool {
+        self.0.has_allocation()
+    }
+
     /// Whether `ordinal` is in the set.
+    #[inline(always)]
     pub(crate) fn contains(&self, ordinal: u16) -> bool {
-        self.0
-            .as_slice()
-            .get(Self::byte(ordinal))
-            .is_some_and(|byte| byte & Self::mask(ordinal) != 0)
+        self.may_contain_any()
+            && self
+                .0
+                .as_slice()
+                .get(Self::byte(ordinal))
+                .is_some_and(|byte| byte & Self::mask(ordinal) != 0)
     }
 
     /// Heap bytes occupied, including the allocation header and reserved capacity. Zero while

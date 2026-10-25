@@ -126,8 +126,18 @@ impl IndexBlock {
     }
 
     /// Whether the entry at `ordinal` belongs to a document with a field-level expiration.
+    #[inline(always)]
     pub(crate) fn expiration_bit(&self, ordinal: u16) -> bool {
         self.expiration_bits.contains(ordinal)
+    }
+
+    /// Whether any entry in this block may belong to a document with a field-level expiration.
+    /// `false` guarantees that none does.
+    ///
+    /// Costs a pointer comparison on the block itself, see [`ExpirationBits::may_contain_any`].
+    #[inline(always)]
+    pub(crate) fn may_have_expiration_bits(&self) -> bool {
+        self.expiration_bits.may_contain_any()
     }
 
     /// Get the first document ID in this block. This is only needed for some C tests.
