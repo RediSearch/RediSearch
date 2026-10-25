@@ -1043,6 +1043,13 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  */
 void SearchDisk_DebugResetCompactionController(void);
 
+SearchDiskSlotMigration *SearchDisk_BeginSlotMigration(const SearchDiskSlotRange *ranges,
+                                                       size_t numRanges);
+SearchDiskSlotTrim *SearchDisk_PrepareSlotTrimForMigration(RedisSearchDiskIndexSpec *index,
+                                                           const SearchDiskSlotMigration *migration,
+                                                           uint64_t *numDocs,
+                                                           uint64_t *totalDocLen);
+void SearchDisk_FreeSlotMigration(SearchDiskSlotMigration *migration);
 bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index);
 bool SearchDisk_CanStartSlotMigration(RedisSearchDiskIndexSpec *index,
                                       const SearchDiskSlotRange *ranges, size_t numRanges);

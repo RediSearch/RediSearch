@@ -32,7 +32,7 @@ struct TrimState {
   bool prepare = true, apply = true, finish = true;
   bool applied = false;
   bool pendingCleanup = false;
-  size_t applyCalls = 0, finishCalls = 0, frees = 0, gcRuns = 0;
+  size_t applyCalls = 0, finishCalls = 0, frees = 0, gcRuns = 0, migrationFrees = 0;
   size_t batchCount = 1, batchesApplied = 0, batchApplyCalls = 0, failBatch = SIZE_MAX;
   std::function<void(size_t)> beforeBatch;
   RedisModuleCmdFunc forceGC = nullptr;
@@ -208,6 +208,40 @@ TEST_F(DiskSlotTrimTest, AdmissionProbeForwardsSlotsAndFailsClosedWithoutBackend
   EXPECT_FALSE(SearchDisk_CanStartSlotMigration(spec->diskSpec, &range, 1));
   api.slotMigration.canStartMigration = nullptr;
   EXPECT_FALSE(SearchDisk_CanStartSlotMigration(spec->diskSpec, &range, 1));
+}
+
+TEST_F(DiskSlotTrimTest, SharedOperationUsesTrimAccountingAndReleasesCallerHandle) {
+  const SearchDiskSlotRange range{7, 9};
+  EXPECT_EQ(SearchDisk_BeginSlotMigration(&range, 1), nullptr);
+  api.slotMigration.beginMigration = [](RedisSearchDisk *context, const SearchDiskSlotRange *ranges,
+                                        size_t count) -> SearchDiskSlotMigration * {
+    EXPECT_EQ(context, disk_db);
+    EXPECT_EQ(count, 1u);
+    EXPECT_EQ(ranges[0].start, 7u);
+    EXPECT_EQ(ranges[0].end, 9u);
+    return reinterpret_cast<SearchDiskSlotMigration *>(&state);
+  };
+  auto *migration = SearchDisk_BeginSlotMigration(&range, 1);
+  ASSERT_NE(migration, nullptr);
+  EXPECT_EQ(IndexSpec_TrimDiskSlotsForMigration(spec, migration), INDEX_TRIM_NOT_APPLIED);
+  api.slotMigration.prepareTrimForMigration = [](RedisSearchDiskIndexSpec *index,
+                                                 const SearchDiskSlotMigration *operation,
+                                                 uint64_t *, uint64_t *) -> SearchDiskSlotTrim * {
+    EXPECT_NE(index, nullptr);
+    EXPECT_EQ(operation, reinterpret_cast<SearchDiskSlotMigration *>(&state));
+    return reinterpret_cast<SearchDiskSlotTrim *>(&state);
+  };
+  api.slotMigration.prepareTrim = nullptr;
+  EXPECT_EQ(IndexSpec_TrimDiskSlotsForMigration(spec, migration), INDEX_TRIM_FINISHED);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
+  EXPECT_EQ(state.frees, 1u);
+  api.slotMigration.freeMigration = [](SearchDiskSlotMigration *operation) {
+    EXPECT_EQ(operation, reinterpret_cast<SearchDiskSlotMigration *>(&state));
+    ++state.migrationFrees;
+  };
+  SearchDisk_FreeSlotMigration(migration);
+  EXPECT_EQ(state.migrationFrees, 1u);
 }
 
 TEST_F(DiskSlotTrimTest, PrepareFailureDoesNotMutateOrFree) {

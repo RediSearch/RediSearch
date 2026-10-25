@@ -798,6 +798,24 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
   }
 }
 
+SearchDiskSlotMigration *SearchDisk_BeginSlotMigration(const SearchDiskSlotRange *ranges,
+                                                       size_t numRanges) {
+  return disk && disk_db && disk->slotMigration.beginMigration
+             ? disk->slotMigration.beginMigration(disk_db, ranges, numRanges)
+             : NULL;
+}
+SearchDiskSlotTrim *SearchDisk_PrepareSlotTrimForMigration(RedisSearchDiskIndexSpec *index,
+                                                           const SearchDiskSlotMigration *migration,
+                                                           uint64_t *numDocs,
+                                                           uint64_t *totalDocLen) {
+  return disk && disk->slotMigration.prepareTrimForMigration
+             ? disk->slotMigration.prepareTrimForMigration(index, migration, numDocs, totalDocLen)
+             : NULL;
+}
+void SearchDisk_FreeSlotMigration(SearchDiskSlotMigration *migration) {
+  if (disk && disk->slotMigration.freeMigration) disk->slotMigration.freeMigration(migration);
+}
+
 bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index) {
   return disk && disk->slotMigration.hasPendingCleanup &&
          disk->slotMigration.hasPendingCleanup(index);

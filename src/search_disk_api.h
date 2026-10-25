@@ -67,6 +67,7 @@ typedef const void* RedisSearchDiskSnapshot;
 typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
 typedef struct SearchDiskSlotTrim SearchDiskSlotTrim;
+typedef struct SearchDiskSlotMigration SearchDiskSlotMigration;
 typedef struct SearchDiskSlotTrimBatch SearchDiskSlotTrimBatch;
 // The batch and ID array are borrowed only for this callback. Acquire the spec
 // write lock, applyTrimBatch, remove memory entries and adjust counts before
@@ -734,9 +735,16 @@ typedef struct IndexDiskAPI {
 
 /** Disk index operations supporting slot migration. */
 typedef struct SlotMigrationAPI {
-  // Admission probe for every relevant index before Redis/Flex starts ASM.
-  // False includes active trim plans and deferred cleanup in overlapping slots.
-  // Prepare atomically rechecks and reserves slots; this probe is advisory.
+  // Admission is shard-wide: any active operation or pending cleanup blocks it.
+  // The probe is advisory. beginMigration atomically admits an operation; all
+  // participating indexes join with prepareTrimForMigration before the caller
+  // frees its handle. Pending index cleanup retains the operation until GC.
+  SearchDiskSlotMigration *(*beginMigration)(RedisSearchDisk *disk,
+                                             const SearchDiskSlotRange *ranges, size_t numRanges);
+  SearchDiskSlotTrim *(*prepareTrimForMigration)(RedisSearchDiskIndexSpec *index,
+                                                 const SearchDiskSlotMigration *migration,
+                                                 uint64_t *numDocs, uint64_t *totalDocLen);
+  void (*freeMigration)(SearchDiskSlotMigration *migration);
   bool (*canStartMigration)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
                             size_t numRanges);
   // Pending cleanup makes normal GC eligible even below its change threshold.

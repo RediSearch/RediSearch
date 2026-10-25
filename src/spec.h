@@ -656,6 +656,9 @@ typedef enum {
 // the Redis migration/trim preconditions.
 IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges,
                                               size_t numRanges);
+// Same trim contract; join the operation admitted by SearchDisk_BeginSlotMigration.
+IndexSpecSlotTrimResult IndexSpec_TrimDiskSlotsForMigration(
+    IndexSpec *spec, const SearchDiskSlotMigration *migration);
 // Caller holds the spec write lock.
 void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId);
 

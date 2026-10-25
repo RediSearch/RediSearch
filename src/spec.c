@@ -4108,11 +4108,7 @@ static bool trimMemoryIndexes(void *ctx, const t_docId *ids, size_t numIds, uint
   return applied;
 }
 
-IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges,
-                                                size_t numRanges) {
-  if (!spec->diskSpec) return INDEX_TRIM_NOT_APPLIED;
-  SearchDiskSlotTrim *trim =
-      SearchDisk_PrepareSlotTrim(spec->diskSpec, ranges, numRanges, NULL, NULL);
+static IndexSpecSlotTrimResult applyDiskSlotTrim(IndexSpec *spec, SearchDiskSlotTrim *trim) {
   if (!trim) return INDEX_TRIM_NOT_APPLIED;
 
   SlotTrimContext context = {.spec = spec};
@@ -4123,6 +4119,20 @@ IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDis
   return finished          ? INDEX_TRIM_FINISHED
          : context.applied ? INDEX_TRIM_APPLIED
                            : INDEX_TRIM_NOT_APPLIED;
+}
+
+IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges,
+                                                size_t numRanges) {
+  if (!spec->diskSpec) return INDEX_TRIM_NOT_APPLIED;
+  return applyDiskSlotTrim(
+      spec, SearchDisk_PrepareSlotTrim(spec->diskSpec, ranges, numRanges, NULL, NULL));
+}
+
+IndexSpecSlotTrimResult IndexSpec_TrimDiskSlotsForMigration(
+    IndexSpec *spec, const SearchDiskSlotMigration *migration) {
+  if (!spec->diskSpec) return INDEX_TRIM_NOT_APPLIED;
+  return applyDiskSlotTrim(
+      spec, SearchDisk_PrepareSlotTrimForMigration(spec->diskSpec, migration, NULL, NULL));
 }
 
 // DocIdMeta access for the delete path. When an already-open, pinned key handle
