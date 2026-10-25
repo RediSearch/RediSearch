@@ -36,6 +36,12 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'notanumber').error().contains('Invalid TIMEOUT value')
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '-1').error().contains('Invalid TIMEOUT value')
 
+    def testGcForceInvokeCompactAllNeedsDiskIndex(self):
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'COMPACT_ALL').error().contains(
+            'COMPACT_ALL requires a disk index')
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '30000', '30000').error().contains(
+            'wrong number of arguments')
+
     def testHashSubkeyNotifications(self):
         """The probe answers whether this server can name the fields a hash command wrote.
 
@@ -77,7 +83,6 @@ class TestDebugCommands(object):
             "GC_FORCEBGINVOKE",
             "DISK_FLUSH",
             "DISK_FLUSH_NOWAIT",
-            "DISK_COMPACT",
             "DISK_LIVE_SNAPSHOTS",
             "DISK_PAUSE_BG_WORK",
             "DISK_RESUME_BG_WORK",

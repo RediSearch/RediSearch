@@ -1085,16 +1085,32 @@ static bool rejectForcedGCWhileBgWorkPaused(RedisModuleCtx *ctx, IndexSpec *sp) 
   return false;
 }
 
-// Reads the optional TIMEOUT at argv[3] of a forced-GC command into `timeout`. Replies with
-// an error and returns false when it is invalid.
-static bool parseForcedGCTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                 const IndexSpec *sp, long long *timeout) {
+// Reads GC_FORCEINVOKE's optional arguments after the index name, in any order: a TIMEOUT and
+// the COMPACT_ALL flag (default off). Replies with an error and returns false when they are
+// invalid.
+static bool parseForcedGCArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                              const IndexSpec *sp, long long *timeout, bool *compactAll) {
   // Disk GC cycles (SpeedB compaction) take longer than fork GC, so disk
   // indexes get a higher default timeout.
   *timeout = sp->diskSpec ? 60000 : 30000;
-  if (argc == 4 &&
-      (RedisModule_StringToLongLong(argv[3], timeout) != REDISMODULE_OK || *timeout < 0)) {
-    RedisModule_ReplyWithError(ctx, "Invalid TIMEOUT value");
+  *compactAll = false;
+  bool timeoutSet = false;
+  for (int i = 3; i < argc; i++) {
+    if (!*compactAll && !strcasecmp(RedisModule_StringPtrLen(argv[i], NULL), "COMPACT_ALL")) {
+      *compactAll = true;
+    } else if (!timeoutSet) {
+      if (RedisModule_StringToLongLong(argv[i], timeout) != REDISMODULE_OK || *timeout < 0) {
+        RedisModule_ReplyWithError(ctx, "Invalid TIMEOUT value");
+        return false;
+      }
+      timeoutSet = true;
+    } else {
+      RedisModule_WrongArity(ctx);
+      return false;
+    }
+  }
+  if (*compactAll && !sp->diskSpec) {
+    RedisModule_ReplyWithError(ctx, "COMPACT_ALL requires a disk index");
     return false;
   }
   return true;
@@ -1136,12 +1152,43 @@ static void runDiskGCInline(IndexSpec *sp) {
   SearchDisk_RunGC(sp->diskSpec, &stats);
 }
 
-// FT.DEBUG GC_FORCEINVOKE [TIMEOUT]
+// Finishes a COMPACT_ALL forced GC once its cycle is done, and replies. The cycle itself writes
+// to the index's disk storage, so the flush and the remaining compaction must come after it.
+static int finishCompactAll(RedisModuleCtx *ctx, IndexSpec *sp) {
+  // Background work may have been paused while the GC cycle ran.
+  if (SearchDisk_IsBackgroundWorkPaused(sp->diskSpec)) {
+    return RedisModule_ReplyWithError(
+        ctx, "Background work was paused during COMPACT_ALL; use DISK_RESUME_BG_WORK first");
+  }
+  SearchDisk_Flush(sp->diskSpec);
+  if (!SearchDisk_CompactNonGcStorage(sp->diskSpec)) {
+    return RedisModule_ReplyWithError(ctx, "Disk compaction was cancelled; see the server log");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "DONE");
+}
+
+// Blocked-client callback for a COMPACT_ALL forced GC cycle.
+static int GCForceInvokeCompactAllAfterGC(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp || !sp->diskSpec) {
+    return RedisModule_ReplyWithError(ctx, "Index was dropped during COMPACT_ALL");
+  }
+  return finishCompactAll(ctx, sp);
+}
+
+// FT.DEBUG GC_FORCEINVOKE <index> [TIMEOUT] [COMPACT_ALL]
+// COMPACT_ALL (disk indexes only) also flushes and fully compacts the rest of the index's disk
+// storage once the GC cycle is done, so its on-disk state, and the metrics derived from it,
+// settle. Writes still in flight are not waited for: with vector fields, run WORKERS DRAIN first.
 DEBUG_COMMAND(GCForceInvoke) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  if (argc < 3 || argc > 4) {
+  if (argc < 3 || argc > 5) {
     return RedisModule_WrongArity(ctx);
   }
   StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
@@ -1156,16 +1203,18 @@ DEBUG_COMMAND(GCForceInvoke) {
   }
 
   long long timeout;
-  if (!parseForcedGCTimeout(ctx, argv, argc, sp, &timeout)) {
+  bool compactAll;
+  if (!parseForcedGCArgs(ctx, argv, argc, sp, &timeout, &compactAll)) {
     return REDISMODULE_OK;
   }
   if (sp->gc) {
-    blockOnForcedGC(ctx, sp, timeout, GCForceInvokeReply);
+    blockOnForcedGC(ctx, sp, timeout,
+                    compactAll ? GCForceInvokeCompactAllAfterGC : GCForceInvokeReply);
     return REDISMODULE_OK;
   }
   if (sp->diskSpec) {
     runDiskGCInline(sp);
-    return RedisModule_ReplyWithSimpleString(ctx, "DONE");
+    return compactAll ? finishCompactAll(ctx, sp) : RedisModule_ReplyWithSimpleString(ctx, "DONE");
   }
   return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
 }
@@ -1239,75 +1288,6 @@ DEBUG_COMMAND(DiskFlushNoWait) {
   SearchDisk_FlushNoWait(sp->diskSpec);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
-}
-
-// Finishes DISK_COMPACT once its GC cycle is done, and replies. The cycle itself writes to the
-// index's disk storage, so the flush and the remaining compaction must come after it.
-static int finishDiskCompact(RedisModuleCtx *ctx, IndexSpec *sp) {
-  // Background work may have been paused while the GC cycle ran.
-  if (SearchDisk_IsBackgroundWorkPaused(sp->diskSpec)) {
-    return RedisModule_ReplyWithError(
-        ctx, "Background work was paused during DISK_COMPACT; use DISK_RESUME_BG_WORK first");
-  }
-  SearchDisk_Flush(sp->diskSpec);
-  if (!SearchDisk_CompactNonGcStorage(sp->diskSpec)) {
-    return RedisModule_ReplyWithError(ctx, "Disk compaction was cancelled; see the server log");
-  }
-  return RedisModule_ReplyWithSimpleString(ctx, "DONE");
-}
-
-// Blocked-client callback for DISK_COMPACT's forced GC cycle.
-static int DiskCompactAfterGC(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
-  if (!sp || !sp->diskSpec) {
-    return RedisModule_ReplyWithError(ctx, "Index was dropped during DISK_COMPACT");
-  }
-  return finishDiskCompact(ctx, sp);
-}
-
-// FT.DEBUG DISK_COMPACT <index> [TIMEOUT]
-// Flush and fully compact the index's disk storage, and reply DONE. Runs a forced GC cycle
-// first (as GC_FORCEINVOKE, so TIMEOUT means the same). Writes still in flight are not waited
-// for: with vector fields, run WORKERS DRAIN first.
-DEBUG_COMMAND(DiskCompact) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc < 3 || argc > 4) {
-    return RedisModule_WrongArity(ctx);
-  }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
-  if (!sp) {
-    const char *idx = RedisModule_StringPtrLen(argv[2], NULL);
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
-  }
-
-  if (!sp->diskSpec) {
-    return RedisModule_ReplyWithError(ctx, "Index is not a disk index");
-  }
-
-  // The flush and both compactions wait on background work, so they would deadlock.
-  if (SearchDisk_IsBackgroundWorkPaused(sp->diskSpec)) {
-    return RedisModule_ReplyWithError(
-        ctx, "Cannot compact while background work is paused; use DISK_RESUME_BG_WORK first");
-  }
-
-  long long timeout;
-  if (!parseForcedGCTimeout(ctx, argv, argc, sp, &timeout)) {
-    return REDISMODULE_OK;
-  }
-
-  if (sp->gc) {
-    blockOnForcedGC(ctx, sp, timeout, DiskCompactAfterGC);
-    return REDISMODULE_OK;
-  }
-  runDiskGCInline(sp);
-  return finishDiskCompact(ctx, sp);
 }
 
 // FT.DEBUG DISK_PAUSE_BG_WORK <index>
@@ -4014,7 +3994,6 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GC_FORCEBGINVOKE", GCForceBGInvoke},
                                {"DISK_FLUSH", DiskFlush},
                                {"DISK_FLUSH_NOWAIT", DiskFlushNoWait},
-                               {"DISK_COMPACT", DiskCompact},
                                {"DISK_LIVE_SNAPSHOTS", DiskLiveSnapshots},
                                {"DISK_PAUSE_BG_WORK", DiskPauseBackgroundWork},
                                {"DISK_RESUME_BG_WORK", DiskResumeBackgroundWork},

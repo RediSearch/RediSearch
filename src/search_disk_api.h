@@ -610,7 +610,7 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Debug only: fully compact the disk storage that `runGC` does not
    *
-   * Backs FT.DEBUG DISK_COMPACT. Blocks until done.
+   * Backs FT.DEBUG GC_FORCEINVOKE ... COMPACT_ALL. Blocks until done.
    *
    * @param index Pointer to the disk index
    * @return true on success, false if the compaction was cancelled (e.g. inside
