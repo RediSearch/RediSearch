@@ -341,6 +341,8 @@ def testMOD7453():
 
   env = DialectEnv()
   conn = getConnectionByEnv(env)
+  # The patterns below anchor on the single literal `a`.
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'MINPREFIX', 1)
 
   # Create an index with a TEXT and TAG field
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG', 'text', 'TEXT')
@@ -621,3 +623,34 @@ def testWildcardSupplementaryPlaneParity():
         res_suffix = env.cmd('FT.SEARCH', 'idx_suffix', query, 'NOCONTENT')
         env.assertEqual(res_plain, [0], message=query)
         env.assertEqual(res_suffix, res_plain, message=query)
+
+@skip(cluster=True)
+def testWildcardHonorsMinPrefix(env):
+    """A wildcard pattern containing `*` is held to MINPREFIX by its literal
+    characters, like the prefix, suffix and infix queries that match the same
+    terms (MOD-7469). Patterns without a literal or without a `*` are not."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'path', 'TAG').ok()
+    env.expect('FT.CREATE', 'idx_suffix', 'SCHEMA',
+               't', 'TEXT', 'WITHSUFFIXTRIE', 'path', 'TAG', 'WITHSUFFIXTRIE').ok()
+    conn.execute_command('HSET', 'doc1', 't', 'hello', 'path', '/test999.txt')
+    env.assertEqual(env.cmd(config_cmd(), 'GET', 'MINPREFIX'), [['MINPREFIX', '2']])
+
+    for idx in ['idx', 'idx_suffix']:
+        for below in [r"@path:{w'/*'}", r"@path:{\/*}", "@t:w'h*'", '@t:h*',
+                      "@t:w'*l*'", '@t:*l*']:
+            res = env.cmd('FT.SEARCH', idx, below, 'NOCONTENT', 'DIALECT', 2)
+            env.assertEqual(res, [0], message=(idx, below))
+        for kept in ["@path:{w'/t*'}", "@path:{w'*'}", "@t:w'he*'", "@t:w'*'",
+                     "@t:w'?????'", "@t:w'hello'"]:
+            res = env.cmd('FT.SEARCH', idx, kept, 'NOCONTENT', 'DIALECT', 2)
+            env.assertEqual(res, [1, 'doc1'], message=(idx, kept))
+
+    env.expect(config_cmd(), 'SET', 'MINPREFIX', 1).ok()
+    try:
+        for idx in ['idx', 'idx_suffix']:
+            for query in [r"@path:{w'/*'}", "@t:w'h*'", "@t:w'*l*'"]:
+                res = env.cmd('FT.SEARCH', idx, query, 'NOCONTENT', 'DIALECT', 2)
+                env.assertEqual(res, [1, 'doc1'], message=(idx, query))
+    finally:
+        env.expect(config_cmd(), 'SET', 'MINPREFIX', 2).ok()
