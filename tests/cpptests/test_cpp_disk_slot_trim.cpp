@@ -24,6 +24,7 @@ extern "C" {
 extern RedisSearchDiskAPI *disk;
 extern RedisSearchDisk *disk_db;
 extern bool isFlex;
+int RegisterDebugCommands(RedisModuleCommand *debugCommand);
 }
 
 namespace {
@@ -33,6 +34,7 @@ struct TrimState {
   size_t applyCalls = 0, finishCalls = 0, frees = 0, gcRuns = 0;
   size_t batchCount = 1, batchesApplied = 0, batchApplyCalls = 0, failBatch = SIZE_MAX;
   std::function<void(size_t)> beforeBatch;
+  RedisModuleCmdFunc forceGC = nullptr;
 } state;
 
 class DiskSlotTrimTest : public ::testing::Test {
@@ -117,7 +119,7 @@ class DiskSlotTrimTest : public ::testing::Test {
       stats->retryRequired = state.gcRuns == 1;
       if (stats->retryRequired) {
         auto *sp = reinterpret_cast<IndexSpec *>(index);
-        GCContext_OnWrite(sp->gc);
+        if (sp->gc) GCContext_OnWrite(sp->gc);
       }
       if (!stats->retryRequired) stats->num_cleaned_docs = 4;
     };
@@ -341,6 +343,42 @@ TEST_F(DiskSlotTrimTest, ForcedGcFailureReportsRetryInsteadOfSuccess) {
   EXPECT_EQ(forced.outcome, GC_FORCED_RUN_RETRY_REQUIRED);
   EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
   EXPECT_EQ(collector()->totalCycles.load(), 0u);
+}
+
+TEST_F(DiskSlotTrimTest, InlineForcedGcReportsFailureAndThenDone) {
+  spec->gc = nullptr;
+  struct RestoreHooks {
+    decltype(RedisModule_CreateSubcommand) create = RedisModule_CreateSubcommand;
+    decltype(RedisModule_GetContextFlagsAll) flags = RedisModule_GetContextFlagsAll;
+    decltype(RedisModule_ReplyWithSimpleString) reply = RedisModule_ReplyWithSimpleString;
+    ~RestoreHooks() {
+      RedisModule_CreateSubcommand = create;
+      RedisModule_GetContextFlagsAll = flags;
+      RedisModule_ReplyWithSimpleString = reply;
+    }
+  } restore;
+  RedisModule_GetContextFlagsAll = [] { return 0; };
+  RedisModule_CreateSubcommand = [](RedisModuleCommand *, const char *name,
+                                    RedisModuleCmdFunc callback, const char *, int, int, int) {
+    if (strcmp(name, "GC_FORCEINVOKE") == 0) state.forceGC = callback;
+    return REDISMODULE_OK;
+  };
+  ASSERT_EQ(RegisterDebugCommands(nullptr), REDISMODULE_OK);
+  RedisModule_CreateSubcommand = restore.create;
+  ASSERT_NE(state.forceGC, nullptr);
+  RMCK::ArgvList args(RSDummyContext, "FT.DEBUG", "GC_FORCEINVOKE", "disk_slot_trim");
+  RMCK_GetLastError(RSDummyContext).clear();
+  EXPECT_EQ(state.forceGC(RSDummyContext, args.data(), args.size()), REDISMODULE_OK);
+  EXPECT_EQ(RMCK_GetLastError(RSDummyContext), "GC FAILED: disk cleanup requires retry");
+  RMCK_GetLastError(RSDummyContext).clear();
+  RedisModule_ReplyWithSimpleString = [](RedisModuleCtx *ctx, const char *reply) {
+    RMCK_GetLastError(ctx) = reply;
+    return REDISMODULE_OK;
+  };
+  EXPECT_EQ(state.forceGC(RSDummyContext, args.data(), args.size()), REDISMODULE_OK);
+  EXPECT_EQ(RMCK_GetLastError(RSDummyContext), "DONE");
+  EXPECT_EQ(state.gcRuns, 2u);
+  RMCK_GetLastError(RSDummyContext).clear();
 }
 
 TEST_F(DiskSlotTrimTest, SurvivingKeyAfterFailedFinishIsCountedAsANewInsert) {

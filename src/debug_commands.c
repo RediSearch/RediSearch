@@ -1144,6 +1144,9 @@ DEBUG_COMMAND(GCForceInvoke) {
     // the compaction inline and let the stats go nowhere.
     DiskGCRunStats stats = {0};
     SearchDisk_RunGC(sp->diskSpec, &stats);
+    if (stats.retryRequired) {
+      return RedisModule_ReplyWithError(ctx, "GC FAILED: disk cleanup requires retry");
+    }
     return RedisModule_ReplyWithSimpleString(ctx, "DONE");
   }
   return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
