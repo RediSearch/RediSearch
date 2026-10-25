@@ -76,6 +76,10 @@ RedisJSON JSON_GetJsonFromHandle(RedisModuleKey *key) {
   return japi->getJsonFromHandle(key);
 }
 
+JSONResultsIterator JSON_GetWithCompiledPath(RedisJSON root, JSONPath path) {
+  return path ? japi->getWithPath(root, path) : NULL;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 JSONPath pathParse(const HiddenString* path, RedisModuleString **err_msg) {
@@ -1137,13 +1141,13 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   return rv;
 }
 
-void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName) {
-  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL_PATH,
-                         "Invalid JSONPath", " '%s' in attribute '%s' in index '%s'",
-                         HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
-  RedisModule_FreeString(RSDummyContext, err_msg);
+void JSONParse_error(QueryError *status, const HiddenString *path, const HiddenString *fieldName,
+                     const HiddenString *indexName) {
+  QueryError_SetWithUserDataFmt(
+      status, QUERY_ERROR_CODE_INVAL_PATH, "Invalid JSONPath",
+      " '%s' in attribute '%s' in index '%s'", HiddenString_GetUnsafe(path, NULL),
+      HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
 }
-
 
 #ifdef ENABLE_ASSERT
 #include "json_test_api.h"

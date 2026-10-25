@@ -96,7 +96,6 @@ configPair_t __configPairs[] = {
   {"MAXPREFIXEXPANSIONS",             "search-max-prefix-expansions"},
   {"MAXSEARCHRESULTS",                "search-max-search-results"},
   {"_MAX_FOREGROUND_TIMEOUT_LIMIT",   "search-_max-foreground-timeout-limit"},
-  {"MIN_MAINTENANCE_WORKERS",         "search-min-maintenance-workers"},
   {"MIN_OPERATION_WORKERS",           "search-min-operation-workers"},
   {"MIN_PHONETIC_TERM_LEN",           "search-min-phonetic-term-len"},
   {"MINPREFIX",                       "search-min-prefix"},
@@ -791,24 +790,6 @@ static long long get_min_workers(const char *name, void *privdata) {
   return (long long) (*(size_t *)privdata);
 }
 
-// MIN_MAINTENANCE_WORKERS
-CONFIG_SETTER(setMinMaintenanceWorkers) {
-  size_t newNumThreads;
-  int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (newNumThreads > MAX_WORKER_THREADS) {
-    return errorTooManyThreads(status);
-  }
-  config->minMaintenanceWorkers = newNumThreads;
-  workersThreadPool_SetNumWorkers();
-  return REDISMODULE_OK;
-}
-
-CONFIG_GETTER(getMinMaintenanceWorkers) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->minMaintenanceWorkers);
-}
-
 static inline int errorMemoryLimitG100(QueryError *status) {
   QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Memory limit for indexing cannot be greater then 100%%");
   return REDISMODULE_ERR;
@@ -878,7 +859,7 @@ size_t numWorkerThreads_config = 0;
 
 // WORKER_THREADS
 CONFIG_SETTER(setDeprWorkThreads) {
-  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS, MIN_OPERATION_WORKERS and MIN_MAINTENANCE_WORKERS instead");
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   size_t newNumThreads;
   int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
@@ -891,7 +872,7 @@ CONFIG_SETTER(setDeprWorkThreads) {
 }
 
 CONFIG_GETTER(getDeprWorkThreads) {
-  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS, MIN_OPERATION_WORKERS and MIN_MAINTENANCE_WORKERS instead");
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   sds ss = sdsempty();
   size_t numThreads;
   switch (mt_mode_config) {
@@ -910,7 +891,7 @@ CONFIG_GETTER(getDeprWorkThreads) {
 
 // MT_MODE
 CONFIG_SETTER(setMtMode) {
-  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS, MIN_OPERATION_WORKERS and MIN_MAINTENANCE_WORKERS instead");
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   const char *mt_mode;
   int acrc = AC_GetString(ac, &mt_mode, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
@@ -939,7 +920,7 @@ static inline const char *MTMode_ToString(enum MTMode mt_mode) {
 }
 
 CONFIG_GETTER(getMtMode) {
-  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS, MIN_OPERATION_WORKERS and MIN_MAINTENANCE_WORKERS instead");
+  RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   return sdsnew(MTMode_ToString(mt_mode_config));
 }
 
@@ -1723,22 +1704,14 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMinOperationWorkers,
          .getValue = getMinOperationWorkers,
         },
-        {.name = "MIN_MAINTENANCE_WORKERS",
-         .helpText = "Minimum number of worker threads, keeping background index maintenance (such "
-                     "as vector graph repair) off the main thread. While WORKERS is 0 these threads "
-                     "run no queries. 0 makes vector writes run in place on the main thread when "
-                     "WORKERS is 0. Default is " STRINGIFY(MIN_MAINTENANCE_WORKERS),
-         .setValue = setMinMaintenanceWorkers,
-         .getValue = getMinMaintenanceWorkers,
-        },
         {.name = "WORKER_THREADS",
-         .helpText = "Deprecated, see WORKERS, MIN_OPERATION_WORKERS and MIN_MAINTENANCE_WORKERS",
+         .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
          .setValue = setDeprWorkThreads,
          .getValue = getDeprWorkThreads,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
         },
         {.name = "MT_MODE",
-         .helpText = "Deprecated, see WORKERS, MIN_OPERATION_WORKERS and MIN_MAINTENANCE_WORKERS",
+         .helpText = "Deprecated, see WORKERS and MIN_OPERATION_WORKERS",
          .setValue = setMtMode,
          .getValue = getMtMode,
          .flags = RSCONFIGVAR_F_IMMUTABLE,
@@ -1986,17 +1959,9 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
   RSGlobalConfigTriggers[numTriggers++] = trigger;
 }
 
-static void disableMaintenanceWorkers(const char *mt_mode) {
-  RSGlobalConfig.minMaintenanceWorkers = 0;
-  RedisModule_Log(RSDummyContext, "warning",
-                  "Setting `MIN_MAINTENANCE_WORKERS` to 0 due to explicit `%s`, "
-                  "overriding the default of " STRINGIFY(MIN_MAINTENANCE_WORKERS), mt_mode);
-}
-
 // Upgrade deprecated configurations if needed. A configuration set explicitly by module
-// arguments always wins. MT_MODE_FULL sets only WORKERS and MT_MODE_ONLY_ON_OPERATIONS only
-// MIN_OPERATION_WORKERS; both keep the maintenance workers, which run no queries while WORKERS
-// is 0. MT_MODE_OFF disables all three.
+// arguments always wins. No mode touches search-min-maintenance-workers: its threads run no
+// queries while WORKERS is 0, so the deprecated modes keep its default.
 void UpgradeDeprecatedMTConfigs() {
   RSConfigVar *mtMode = findConfigVar(&RSGlobalConfigOptions, "MT_MODE");
   RSConfigVar *workerThreads = findConfigVar(&RSGlobalConfigOptions, "WORKER_THREADS");
@@ -2016,10 +1981,8 @@ void UpgradeDeprecatedMTConfigs() {
 
   RSConfigVar *workers = findConfigVar(&RSGlobalConfigOptions, "WORKERS");
   RSConfigVar *minOperationWorkers = findConfigVar(&RSGlobalConfigOptions, "MIN_OPERATION_WORKERS");
-  RSConfigVar *minMaintenanceWorkers = findConfigVar(&RSGlobalConfigOptions, "MIN_MAINTENANCE_WORKERS");
   bool explicit_workers = workers->flags & RSCONFIGVAR_F_MODIFIED;
   bool explicit_minOperationWorkers = minOperationWorkers->flags & RSCONFIGVAR_F_MODIFIED;
-  bool explicit_minMaintenanceWorkers = minMaintenanceWorkers->flags & RSCONFIGVAR_F_MODIFIED;
 
   // Set the new configurations based on the deprecated ones.
   // We know that at least one of the deprecated configurations was set.
@@ -2034,9 +1997,6 @@ void UpgradeDeprecatedMTConfigs() {
         RedisModule_Log(RSDummyContext, "warning",
                         "Setting `MIN_OPERATION_WORKERS` to 0 due to explicit `MT_MODE_OFF`, "
                         "overriding the default of " STRINGIFY(MIN_OPERATION_WORKERS));
-      }
-      if (!explicit_minMaintenanceWorkers) {
-        disableMaintenanceWorkers("MT_MODE_OFF");
       }
       break;
     case MT_MODE_FULL:

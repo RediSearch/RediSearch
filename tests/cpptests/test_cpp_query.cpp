@@ -177,13 +177,13 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   ASSERT_FALSE(QueryError_HasError(&iterErr)) << QueryError_GetUserError(&iterErr);
 
   // Disk-backed pre-filtered KNN requires explicit HYBRID_POLICY during iteration setup.
-  QueryIterator *it = QAST_Iterate(&ast, &opts, &ctx, 0, &iterErr);
-  ASSERT_NE(it, nullptr);
+  QueryIteratorTree *tree = QAST_Iterate(&ast, &opts, &ctx, 0, &iterErr);
+  ASSERT_NE(tree, nullptr);
   ASSERT_TRUE(QueryError_HasError(&iterErr));
   ASSERT_NE(strstr(QueryError_GetUserError(&iterErr), "require explicit HYBRID_POLICY"), nullptr)
       << QueryError_GetUserError(&iterErr);
 
-  it->Free(it);
+  QueryIteratorTree_Free(tree);
   QAST_Destroy(&ast);
   Param_DictFree(opts.params);
   RedisModule_FreeString(NULL, blob);
@@ -218,14 +218,14 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
       << QueryError_GetUserError(&iterErrMissingAttrs);
 
   // Query attributes syntax without HYBRID_POLICY still raises the same error.
-  QueryIterator *it_missing_attrs =
+  QueryIteratorTree *tree_missing_attrs =
       QAST_Iterate(&ast_missing_attrs, &opts_missing_attrs, &ctx, 0, &iterErrMissingAttrs);
-  ASSERT_NE(it_missing_attrs, nullptr);
+  ASSERT_NE(tree_missing_attrs, nullptr);
   ASSERT_TRUE(QueryError_HasError(&iterErrMissingAttrs));
   ASSERT_NE(strstr(QueryError_GetUserError(&iterErrMissingAttrs), "require explicit HYBRID_POLICY"), nullptr)
       << QueryError_GetUserError(&iterErrMissingAttrs);
 
-  it_missing_attrs->Free(it_missing_attrs);
+  QueryIteratorTree_Free(tree_missing_attrs);
   QAST_Destroy(&ast_missing_attrs);
   Param_DictFree(opts_missing_attrs.params);
   RedisModule_FreeString(NULL, missingAttrsBlob);
@@ -254,11 +254,11 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   ASSERT_FALSE(QueryError_HasError(&iterErrAttrs)) << QueryError_GetUserError(&iterErrAttrs);
 
   // Query attributes syntax also satisfies the explicit HYBRID_POLICY requirement.
-  QueryIterator *it_attrs = QAST_Iterate(&ast_attrs, &opts_attrs, &ctx, 0, &iterErrAttrs);
-  ASSERT_NE(it_attrs, nullptr);
+  QueryIteratorTree *tree_attrs = QAST_Iterate(&ast_attrs, &opts_attrs, &ctx, 0, &iterErrAttrs);
+  ASSERT_NE(tree_attrs, nullptr);
   ASSERT_FALSE(QueryError_HasError(&iterErrAttrs)) << QueryError_GetUserError(&iterErrAttrs);
 
-  it_attrs->Free(it_attrs);
+  QueryIteratorTree_Free(tree_attrs);
   QAST_Destroy(&ast_attrs);
   Param_DictFree(opts_attrs.params);
   RedisModule_FreeString(NULL, attrsBlob);
@@ -268,6 +268,57 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   RSGlobalConfig.simulateInFlex = prevSimulateInFlex;
   RedisModule_FreeThreadSafeContext(redisCtx);
 }
+
+#ifdef ENABLE_ASSERT
+TEST_F(QueryTest, testVectorIteratorRejectsUnsafeDimension) {
+  RedisModuleCtx *redisCtx = RedisModule_GetThreadSafeContext(nullptr);
+  std::array<const char *, 11> args = {
+      "SCHEMA", "v", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "1", "DISTANCE_METRIC", "L2"};
+  QueryError parseErr = QueryError_Default();
+  StrongRef ref = IndexSpec_ParseC(redisCtx, "unsafe_dim", args.data(), args.size(), &parseErr);
+  ASSERT_FALSE(QueryError_HasError(&parseErr)) << QueryError_GetUserError(&parseErr);
+  IndexSpec *spec = static_cast<IndexSpec *>(StrongRef_Get(ref));
+  ASSERT_NE(spec, nullptr);
+  ASSERT_NE(openVectorIndex(redisCtx, &spec->fields[0], CREATE_INDEX), nullptr);
+
+  VectorIndex_SetBasicInfoFnForTests([](VecSimIndex *) {
+    VecSimIndexBasicInfo info = {};
+    info.type = VecSimType_FLOAT32;
+    info.dim = SIZE_MAX / sizeof(float) + 1;
+    return info;
+  });
+  struct ResetBasicInfoFn {
+    ~ResetBasicInfoFn() {
+      VectorIndex_SetBasicInfoFnForTests(nullptr);
+    }
+  } resetBasicInfoFn;
+
+  RedisSearchCtx searchCtx = SEARCH_CTX_STATIC(redisCtx, spec);
+  QueryError queryErr = QueryError_Default();
+  QueryEvalCtx queryCtx = {.sctx = &searchCtx, .status = &queryErr};
+  char vector[sizeof(float)] = {};
+
+  for (VectorQueryType type : {VECSIM_QT_KNN, VECSIM_QT_RANGE}) {
+    SCOPED_TRACE(type == VECSIM_QT_KNN ? "KNN" : "RANGE");
+    VectorQuery query = {.fieldIndex = 0, .type = type};
+    if (type == VECSIM_QT_KNN) {
+      query.knn.vector = vector;
+      query.knn.vecLen = sizeof(vector);
+    } else {
+      query.range.vector = vector;
+      query.range.vecLen = sizeof(vector);
+    }
+
+    EXPECT_EQ(NewVectorIterator(&queryCtx, &query, nullptr), nullptr);
+    EXPECT_STREQ("SEARCH_QUERY_BAD Invalid vector DIM: vector size is too large",
+                 QueryError_GetUserError(&queryErr));
+    QueryError_ClearError(&queryErr);
+  }
+
+  Indexes_RemoveSpecFromGlobals(ref, false);
+  RedisModule_FreeThreadSafeContext(redisCtx);
+}
+#endif
 
 TEST_F(QueryTest, testParser_v1) {
   RedisSearchCtx ctx;

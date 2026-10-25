@@ -157,10 +157,9 @@ mod lower_runes {
     // Best exercised under AddressSanitizer, where an unbounded read would fault.
     #[test]
     fn lower_runes_truncated_lead_stays_in_bounds() {
-        // `0xF0` starts a four-byte sequence, but only one byte follows it. The C
-        // decoder reads a fixed four bytes regardless; `as_lower_runes` pads the
-        // decoder input so that over-read lands in its own trailing zero bytes rather
-        // than past the token. The leading content still decodes normally.
+        // `0xF0` starts a four-byte sequence, but only one byte follows it. The
+        // decode stays within the token, and the leading content still decodes
+        // normally.
         with_token(Some(b"ab\xF0"), 0, |tok| {
             let runes = tok.as_lower_runes().expect("conversion succeeds");
             assert_eq!(&runes[..2], &[b'a' as u16, b'b' as u16]);
@@ -178,10 +177,8 @@ mod lower_runes {
     }
 
     #[test]
-    fn lower_runes_huge_token_yields_none_without_huge_copy() {
-        // A token far larger than any storable term is rejected after copying only a
-        // bounded prefix (`MAX_DECODE_BYTES`), not the whole input. The result is the
-        // same `None` the full decode would produce, since it can match no term.
+    fn lower_runes_huge_token_yields_none() {
+        // A token far larger than any storable term can match no term.
         let content = vec![b'a'; 1 << 20];
         with_token(Some(&content), 0, |tok| {
             assert!(tok.as_lower_runes().is_none());

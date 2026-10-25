@@ -9,6 +9,7 @@
 
 //! The exact `COUNT_DISTINCT` reducer.
 
+use bumpalo::Bump;
 use rlookup::{RLookupKey, RLookupRow};
 use rustc_hash::FxHashSet;
 use value::SharedValue;
@@ -32,9 +33,9 @@ impl<'a> CountDistinct<'a> {
 impl Accumulator for CountDistinct<'_> {
     /// The hashes seen so far. They are already randomized per process, so the set
     /// only needs a cheap hasher of its own.
-    type State = FxHashSet<u64>;
+    type State<'arena> = FxHashSet<u64>;
 
-    fn init(&self) -> FxHashSet<u64> {
+    fn init(&self, _arena: &Bump) -> FxHashSet<u64> {
         FxHashSet::default()
     }
 
