@@ -66,6 +66,9 @@ typedef const void* RedisSearchDiskSnapshot;
 // `SearchDisk_CommitWriteBatch`, `SearchDisk_AbortWriteBatch`, etc.).
 typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
+typedef struct SearchDiskSlotTrim SearchDiskSlotTrim;
+typedef void (*SearchDiskSlotTrimCallback)(void *ctx, t_docId docId);
+
 // Inclusive Redis Cluster slot interval.
 typedef struct SearchDiskSlotRange {
   uint16_t start;
@@ -726,6 +729,18 @@ typedef struct IndexDiskAPI {
   bool (*visitSlotDocuments)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
                              size_t numRanges, SearchDiskSlotDocumentCallback callback,
                              void *callbackCtx);
+  // Drain and exclude all mutations to these slots until finish succeeds.
+  // Prepare/finish perform I/O outside the spec write lock. Apply runs once
+  // under that lock and invokes the callback only after visibility changes.
+  // Finish retains the handle on failure for retry; free always releases it.
+  // Dropping an applied handle leaves GC responsible for physical cleanup.
+  SearchDiskSlotTrim *(*prepareSlotTrim)(RedisSearchDiskIndexSpec *index,
+                                         const SearchDiskSlotRange *ranges, size_t numRanges,
+                                         uint64_t *numDocs, uint64_t *totalDocLen);
+  bool (*applySlotTrim)(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim,
+                        SearchDiskSlotTrimCallback callback, void *callbackCtx);
+  bool (*finishSlotTrim)(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim);
+  void (*freeSlotTrim)(SearchDiskSlotTrim *trim);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

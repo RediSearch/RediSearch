@@ -4060,12 +4060,16 @@ static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docL
     GCContext_OnDelete(spec->gc);
   }
 
+  IndexSpec_RemoveDocFromMemoryIndexes(spec, docId);
+}
+
+void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId) {
   // VecSim fields clear deleted data on the fly
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         VecSimIndex *vecsim = openVectorIndex(NULL, spec->fields + i, DONT_CREATE_INDEX);
-        if(!vecsim) continue;
+        if (!vecsim) continue;
         VecSimIndex_DeleteVector(vecsim, docId);
       }
     }
@@ -4074,6 +4078,35 @@ static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docL
   if (spec->flags & Index_HasGeometry) {
     GeometryIndex_RemoveId(spec, docId);
   }
+}
+
+static void trimMemoryIndexes(void *ctx, t_docId docId) {
+  IndexSpec_RemoveDocFromMemoryIndexes(ctx, docId);
+}
+
+bool IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges, size_t numRanges) {
+  if (!spec->diskSpec) return false;
+  uint64_t numDocs = 0, totalDocLen = 0;
+  SearchDiskSlotTrim *trim =
+      SearchDisk_PrepareSlotTrim(spec->diskSpec, ranges, numRanges, &numDocs, &totalDocLen);
+  if (!trim) return false;
+
+  IndexSpec_IncrActiveWrites(spec);
+  IndexSpec_LockWrite(spec);
+  bool applied = spec->stats.scoring.numDocuments >= numDocs &&
+                 spec->stats.scoring.totalDocsLen >= totalDocLen &&
+                 SearchDisk_ApplySlotTrim(spec->diskSpec, trim, trimMemoryIndexes, spec);
+  if (applied) {
+    spec->stats.scoring.numDocuments -= numDocs;
+    spec->stats.scoring.totalDocsLen -= totalDocLen;
+    if (numDocs && spec->gc) GCContext_OnDelete(spec->gc);
+  }
+  IndexSpec_Unlock(spec);
+  IndexSpec_DecrActiveWrites(spec);
+
+  bool finished = applied && SearchDisk_FinishSlotTrim(spec->diskSpec, trim);
+  SearchDisk_FreeSlotTrim(trim);
+  return finished;
 }
 
 // DocIdMeta access for the delete path. When an already-open, pinned key handle

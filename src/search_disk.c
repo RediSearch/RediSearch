@@ -804,3 +804,22 @@ bool SearchDisk_VisitSlotDocuments(RedisSearchDiskIndexSpec *index,
   return disk && disk->index.visitSlotDocuments &&
          disk->index.visitSlotDocuments(index, ranges, numRanges, callback, callbackCtx);
 }
+
+SearchDiskSlotTrim *SearchDisk_PrepareSlotTrim(RedisSearchDiskIndexSpec *index,
+                                               const SearchDiskSlotRange *ranges, size_t numRanges,
+                                               uint64_t *numDocs, uint64_t *totalDocLen) {
+  return disk && disk->index.prepareSlotTrim
+             ? disk->index.prepareSlotTrim(index, ranges, numRanges, numDocs, totalDocLen)
+             : NULL;
+}
+bool SearchDisk_ApplySlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim,
+                              SearchDiskSlotTrimCallback callback, void *callbackCtx) {
+  return disk && disk->index.applySlotTrim &&
+         disk->index.applySlotTrim(index, trim, callback, callbackCtx);
+}
+bool SearchDisk_FinishSlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim) {
+  return disk && disk->index.finishSlotTrim && disk->index.finishSlotTrim(index, trim);
+}
+void SearchDisk_FreeSlotTrim(SearchDiskSlotTrim *trim) {
+  if (disk && disk->index.freeSlotTrim) disk->index.freeSlotTrim(trim);
+}

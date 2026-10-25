@@ -1047,6 +1047,14 @@ void SearchDisk_DebugResetCompactionController(void);
 bool SearchDisk_VisitSlotDocuments(RedisSearchDiskIndexSpec *index,
                                    const SearchDiskSlotRange *ranges, size_t numRanges,
                                    SearchDiskSlotDocumentCallback callback, void *callbackCtx);
+
+SearchDiskSlotTrim *SearchDisk_PrepareSlotTrim(RedisSearchDiskIndexSpec *index,
+                                               const SearchDiskSlotRange *ranges, size_t numRanges,
+                                               uint64_t *numDocs, uint64_t *totalDocLen);
+bool SearchDisk_ApplySlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim,
+                              SearchDiskSlotTrimCallback callback, void *callbackCtx);
+bool SearchDisk_FinishSlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim);
+void SearchDisk_FreeSlotTrim(SearchDiskSlotTrim *trim);
 #ifdef __cplusplus
 }
 #endif
