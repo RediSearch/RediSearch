@@ -12,6 +12,7 @@
 use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
+use std::ptr::NonNull;
 
 use crate::union::{
     FreeSuspendedShell, RebuildOutcome, SettleOutcome, rebuild_borrowed_entries,

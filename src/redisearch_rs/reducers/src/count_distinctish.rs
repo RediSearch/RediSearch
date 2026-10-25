@@ -11,6 +11,7 @@
 //! the coordinator splits it into, `HLL` on the shards and `HLL_SUM` merging
 //! their registers.
 
+use bumpalo::Bump;
 use hyperloglog::HyperLogLog8;
 use rlookup::{RLookupKey, RLookupRow};
 use value::SharedValue;
@@ -53,9 +54,9 @@ impl<'a> CountDistinctish<'a> {
 }
 
 impl Accumulator for CountDistinctish<'_> {
-    type State = Hll;
+    type State<'arena> = Hll;
 
-    fn init(&self) -> Hll {
+    fn init(&self, _arena: &Bump) -> Hll {
         Hll::new()
     }
 
@@ -99,9 +100,9 @@ impl<'a> HllSum<'a> {
 impl Accumulator for HllSum<'_> {
     /// Allocated on the first well-formed value, so groups without one cost only a
     /// pointer.
-    type State = Option<Box<Hll>>;
+    type State<'arena> = Option<Box<Hll>>;
 
-    fn init(&self) -> Option<Box<Hll>> {
+    fn init(&self, _arena: &Bump) -> Option<Box<Hll>> {
         None
     }
 
