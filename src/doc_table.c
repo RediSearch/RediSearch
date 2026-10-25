@@ -459,6 +459,12 @@ int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     t->maxSize = MIN(RSGlobalConfig.maxDocTableSize, t->maxDocId);
   }
 
+  if (t->size > 1 && t->maxSize == 0) {
+    RedisModule_LogIOError(rdb, "warning",
+                           "DocTable_LegacyRdbLoad: non-empty table has zero capacity");
+    return REDISMODULE_ERR;
+  }
+
   if (t->maxDocId > t->maxSize) {
     /**
      * If the maximum doc id is greater than the maximum cap size
