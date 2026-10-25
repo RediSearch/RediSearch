@@ -801,18 +801,18 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
 SearchDiskSlotTrim *SearchDisk_PrepareSlotTrim(RedisSearchDiskIndexSpec *index,
                                                const SearchDiskSlotRange *ranges, size_t numRanges,
                                                uint64_t *numDocs, uint64_t *totalDocLen) {
-  return disk && disk->index.prepareSlotTrim
-             ? disk->index.prepareSlotTrim(index, ranges, numRanges, numDocs, totalDocLen)
+  return disk && disk->slotMigration.prepareTrim
+             ? disk->slotMigration.prepareTrim(index, ranges, numRanges, numDocs, totalDocLen)
              : NULL;
 }
 bool SearchDisk_ApplySlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim,
                               SearchDiskSlotTrimCallback callback, void *callbackCtx) {
-  return disk && disk->index.applySlotTrim &&
-         disk->index.applySlotTrim(index, trim, callback, callbackCtx);
+  return disk && disk->slotMigration.applyTrim &&
+         disk->slotMigration.applyTrim(index, trim, callback, callbackCtx);
 }
 bool SearchDisk_FinishSlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim) {
-  return disk && disk->index.finishSlotTrim && disk->index.finishSlotTrim(index, trim);
+  return disk && disk->slotMigration.finishTrim && disk->slotMigration.finishTrim(index, trim);
 }
 void SearchDisk_FreeSlotTrim(SearchDiskSlotTrim *trim) {
-  if (disk && disk->index.freeSlotTrim) disk->index.freeSlotTrim(trim);
+  if (disk && disk->slotMigration.freeTrim) disk->slotMigration.freeTrim(trim);
 }

@@ -64,15 +64,16 @@ class DiskSlotTrimTest : public ::testing::Test {
     isFlex = true;
     gc.gcCtx = DiskGC_Create(ref, &gc.callbacks);
     spec->gc = &gc;
-    api.index.prepareSlotTrim = [](RedisSearchDiskIndexSpec *, const SearchDiskSlotRange *, size_t,
-                                   uint64_t *docs, uint64_t *len) -> SearchDiskSlotTrim * {
+    api.slotMigration.prepareTrim = [](RedisSearchDiskIndexSpec *, const SearchDiskSlotRange *,
+                                       size_t, uint64_t *docs,
+                                       uint64_t *len) -> SearchDiskSlotTrim * {
       if (!state.prepare) return nullptr;
       *docs = state.applied ? 0 : 3;
       *len = state.applied ? 0 : 21;
       return reinterpret_cast<SearchDiskSlotTrim *>(&state);
     };
-    api.index.applySlotTrim = [](RedisSearchDiskIndexSpec *, SearchDiskSlotTrim *,
-                                 SearchDiskSlotTrimCallback callback, void *ctx) {
+    api.slotMigration.applyTrim = [](RedisSearchDiskIndexSpec *, SearchDiskSlotTrim *,
+                                     SearchDiskSlotTrimCallback callback, void *ctx) {
       ++state.applyCalls;
       if (!state.apply) return false;
       if (!state.applied) {
@@ -81,11 +82,11 @@ class DiskSlotTrimTest : public ::testing::Test {
       state.applied = true;
       return true;
     };
-    api.index.finishSlotTrim = [](RedisSearchDiskIndexSpec *, SearchDiskSlotTrim *) {
+    api.slotMigration.finishTrim = [](RedisSearchDiskIndexSpec *, SearchDiskSlotTrim *) {
       ++state.finishCalls;
       return state.finish;
     };
-    api.index.freeSlotTrim = [](SearchDiskSlotTrim *) { ++state.frees; };
+    api.slotMigration.freeTrim = [](SearchDiskSlotTrim *) { ++state.frees; };
     api.index.isBackgroundWorkPaused = [](RedisSearchDiskIndexSpec *) { return false; };
     api.index.runGC = [](RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
       ++state.gcRuns;

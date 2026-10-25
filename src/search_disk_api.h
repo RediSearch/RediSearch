@@ -724,19 +724,23 @@ typedef struct IndexDiskAPI {
    * Returns false if storage needs to be created and creation fails; true otherwise.
    * ctx must allow Redis BigModule CF registration; index must be a live disk index. */
   bool (*initializeMissingStorage)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+} IndexDiskAPI;
+
+/** Disk index operations supporting slot migration. */
+typedef struct SlotMigrationAPI {
   // Drain and exclude all mutations to these slots until finish succeeds.
   // Prepare/finish perform I/O outside the spec write lock. Apply runs once
   // under that lock and invokes the callback only after visibility changes.
   // Finish retains the handle on failure for retry; free always releases it.
   // Dropping an applied handle leaves GC responsible for physical cleanup.
-  SearchDiskSlotTrim *(*prepareSlotTrim)(RedisSearchDiskIndexSpec *index,
-                                         const SearchDiskSlotRange *ranges, size_t numRanges,
-                                         uint64_t *numDocs, uint64_t *totalDocLen);
-  bool (*applySlotTrim)(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim,
-                        SearchDiskSlotTrimCallback callback, void *callbackCtx);
-  bool (*finishSlotTrim)(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim);
-  void (*freeSlotTrim)(SearchDiskSlotTrim *trim);
-} IndexDiskAPI;
+  SearchDiskSlotTrim *(*prepareTrim)(RedisSearchDiskIndexSpec *index,
+                                     const SearchDiskSlotRange *ranges, size_t numRanges,
+                                     uint64_t *numDocs, uint64_t *totalDocLen);
+  bool (*applyTrim)(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim,
+                    SearchDiskSlotTrimCallback callback, void *callbackCtx);
+  bool (*finishTrim)(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim);
+  void (*freeTrim)(SearchDiskSlotTrim *trim);
+} SlotMigrationAPI;
 
 typedef struct DocTableDiskAPI {
   /**
@@ -1196,6 +1200,7 @@ typedef struct RedisSearchDiskAPI {
   DocTableDiskAPI docTable;
   VectorDiskAPI vector;
   MetricsDiskAPI metrics;
+  SlotMigrationAPI slotMigration;
 } RedisSearchDiskAPI;
 
 // Forward declarations from vecsim_disk's global consistency lock. Declared
