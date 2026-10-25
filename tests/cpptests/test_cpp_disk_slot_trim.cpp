@@ -1,0 +1,223 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+#include "gtest/gtest.h"
+#include "common.h"
+#include "disk_gc.h"
+#include "geometry/geometry_api.h"
+extern "C" {
+#include "indexes.h"
+#include "search_disk.h"
+#include "vector_index.h"
+#include "geometry_index.h"
+#include "info/global_stats.h"
+extern RedisSearchDiskAPI *disk;
+extern RedisSearchDisk *disk_db;
+extern bool isFlex;
+}
+
+namespace {
+struct TrimState {
+  bool prepare = true, apply = true, finish = true;
+  bool applied = false;
+  size_t applyCalls = 0, finishCalls = 0, frees = 0, gcRuns = 0;
+} state;
+
+class DiskSlotTrimTest : public ::testing::Test {
+ protected:
+  RedisSearchDiskAPI api{};
+  RedisSearchDiskAPI *savedDisk = nullptr;
+  RedisSearchDisk *savedDb = nullptr;
+  bool savedFlex = false;
+  StrongRef ref{};
+  IndexSpec *spec = nullptr;
+  GCContext gc{};
+  bool savedEnableGC = false;
+
+  void SetUp() override {
+    state = {};
+    savedDisk = disk;
+    savedDb = disk_db;
+    savedFlex = isFlex;
+    savedEnableGC = RSGlobalConfig.gcConfigParams.enableGC;
+    RSGlobalConfig.gcConfigParams.enableGC = false;
+    const char *args[] = {"SCHEMA", "v", "VECTOR",          "FLAT", "6", "TYPE",     "FLOAT32",
+                          "DIM",    "2", "DISTANCE_METRIC", "L2",   "g", "GEOSHAPE", "FLAT"};
+    QueryError err = QueryError_Default();
+    ref = IndexSpec_ParseC(nullptr, "disk_slot_trim", args, sizeof(args) / sizeof(*args), &err);
+    spec = static_cast<IndexSpec *>(StrongRef_Get(ref));
+    ASSERT_NE(spec, nullptr) << QueryError_GetUserError(&err);
+    Spec_AddToDict(ref.rm);
+    spec->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(spec);
+    spec->stats.scoring.numDocuments = 5;
+    spec->stats.scoring.totalDocsLen = 40;
+    disk = &api;
+    disk_db = reinterpret_cast<RedisSearchDisk *>(&api);
+    isFlex = true;
+    gc.gcCtx = DiskGC_Create(ref, &gc.callbacks);
+    spec->gc = &gc;
+    api.index.prepareSlotTrim = [](RedisSearchDiskIndexSpec *, const SearchDiskSlotRange *, size_t,
+                                   uint64_t *docs, uint64_t *len) -> SearchDiskSlotTrim * {
+      if (!state.prepare) return nullptr;
+      *docs = state.applied ? 0 : 3;
+      *len = state.applied ? 0 : 21;
+      return reinterpret_cast<SearchDiskSlotTrim *>(&state);
+    };
+    api.index.applySlotTrim = [](RedisSearchDiskIndexSpec *, SearchDiskSlotTrim *,
+                                 SearchDiskSlotTrimCallback callback, void *ctx) {
+      ++state.applyCalls;
+      if (!state.apply) return false;
+      if (!state.applied) {
+        for (t_docId id = 1; id <= 3; ++id) callback(ctx, id);
+      }
+      state.applied = true;
+      return true;
+    };
+    api.index.finishSlotTrim = [](RedisSearchDiskIndexSpec *, SearchDiskSlotTrim *) {
+      ++state.finishCalls;
+      return state.finish;
+    };
+    api.index.freeSlotTrim = [](SearchDiskSlotTrim *) { ++state.frees; };
+    api.index.isBackgroundWorkPaused = [](RedisSearchDiskIndexSpec *) { return false; };
+    api.index.runGC = [](RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
+      ++state.gcRuns;
+      stats->retryRequired = state.gcRuns == 1;
+      if (stats->retryRequired) {
+        auto *sp = reinterpret_cast<IndexSpec *>(index);
+        GCContext_OnWrite(sp->gc);
+      }
+      if (!stats->retryRequired) stats->num_cleaned_docs = 4;
+    };
+    disk = &api;
+  }
+
+  void TearDown() override {
+    if (gc.gcCtx) gc.callbacks.onTerm(gc.gcCtx);
+    spec->gc = nullptr;
+    spec->diskSpec = nullptr;
+    spec->diskRegistered = false;
+    disk = savedDisk;
+    disk_db = savedDb;
+    isFlex = savedFlex;
+    Indexes_RemoveSpecFromGlobals(ref, false);
+    RSGlobalConfig.gcConfigParams.enableGC = savedEnableGC;
+  }
+
+  bool trim() {
+    SearchDiskSlotRange range{0, 100};
+    return IndexSpec_TrimDiskSlots(spec, &range, 1);
+  }
+  DiskGC *collector() {
+    return static_cast<DiskGC *>(gc.gcCtx);
+  }
+  void unchanged() {
+    EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
+    EXPECT_EQ(spec->stats.scoring.totalDocsLen, 40u);
+    EXPECT_EQ(collector()->deletesFromLastRun.load(), 0u);
+    EXPECT_EQ(state.finishCalls, 0u);
+  }
+};
+
+TEST_F(DiskSlotTrimTest, PrepareFailureDoesNotMutateOrFree) {
+  state.prepare = false;
+  EXPECT_FALSE(trim());
+  unchanged();
+  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_EQ(state.frees, 0u);
+}
+
+TEST_F(DiskSlotTrimTest, BoundsRejectBeforeApplyAndFreePlan) {
+  spec->stats.scoring.numDocuments = 2;
+  EXPECT_FALSE(trim());
+  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_EQ(state.frees, 1u);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  spec->stats.scoring.numDocuments = 5;
+  spec->stats.scoring.totalDocsLen = 20;
+  EXPECT_FALSE(trim());
+  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_EQ(state.frees, 2u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 20u);
+}
+
+TEST_F(DiskSlotTrimTest, ApplyFailureDoesNotAdjustScoringOrRunFinish) {
+  state.apply = false;
+  EXPECT_FALSE(trim());
+  unchanged();
+  EXPECT_EQ(state.applyCalls, 1u);
+  EXPECT_EQ(state.frees, 1u);
+}
+
+TEST_F(DiskSlotTrimTest, FailedFinishThenRetryCountsBulkDeletionOnce) {
+  state.finish = false;
+  EXPECT_FALSE(trim());
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
+  EXPECT_EQ(state.frees, 1u);
+  state.finish = true;
+  EXPECT_TRUE(trim());
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
+  EXPECT_EQ(state.frees, 2u);
+  GCContext_OnDelete(&gc);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 4u);
+}
+
+TEST_F(DiskSlotTrimTest, SuccessfulTrimRemovesOnlySelectedVectorAndGeometryIds) {
+  // Build memory indexes before enabling the disk backend for this spec.
+  spec->diskSpec = nullptr;
+  auto *vectors = openVectorIndex(RSDummyContext, &spec->fields[0], true);
+  auto *geometry = OpenGeometryIndex(&spec->fields[1], true);
+  ASSERT_NE(vectors, nullptr);
+  ASSERT_NE(geometry, nullptr);
+  const float vector[] = {1, 2};
+  const char *wkt = "POLYGON((0 0,0 1,1 1,1 0,0 0))";
+  const auto *geometryApi = GeometryApi_Get(geometry);
+  for (t_docId id = 1; id <= 5; ++id) {
+    VecSimIndex_AddVector(vectors, vector, id);
+    ASSERT_TRUE(
+        geometryApi->addGeomStr(geometry, GEOMETRY_FORMAT_WKT, wkt, strlen(wkt), id, nullptr));
+  }
+  spec->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(spec);
+  ASSERT_TRUE(trim());
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
+  EXPECT_EQ(VecSimIndex_IndexSize(vectors), 2u);
+  for (t_docId id = 1; id <= 5; ++id) {
+    EXPECT_EQ(GeometryIndex_HoldsGeom(geometry, id, GEOMETRY_FORMAT_WKT, wkt, strlen(wkt)), id > 3);
+  }
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
+  EXPECT_EQ(state.finishCalls, 1u);
+  EXPECT_EQ(state.frees, 1u);
+}
+
+TEST_F(DiskSlotTrimTest, RecoverableGcFailureRetainsPendingChangesUntilRetry) {
+  const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  auto &threshold = RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold;
+  const auto savedThreshold = threshold;
+  threshold = 3;
+  GCContext_OnDeleteCount(&gc, 3);
+  GCContext_OnWrite(&gc);
+  GCContext_OnUpdate(&gc);
+  EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
+  EXPECT_EQ(collector()->writesFromLastRun.load(), 2u);
+  EXPECT_EQ(collector()->updatesFromLastRun.load(), 1u);
+  EXPECT_EQ(collector()->totalCycles.load(), 0u);
+  EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
+  EXPECT_EQ(state.gcRuns, 2u);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 0u);
+  EXPECT_EQ(collector()->writesFromLastRun.load(), 0u);
+  EXPECT_EQ(collector()->updatesFromLastRun.load(), 0u);
+  EXPECT_EQ(collector()->totalCycles.load(), 1u);
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
+  threshold = savedThreshold;
+}
+}  // namespace

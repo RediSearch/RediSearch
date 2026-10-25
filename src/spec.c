@@ -4099,7 +4099,7 @@ bool IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges,
   if (applied) {
     spec->stats.scoring.numDocuments -= numDocs;
     spec->stats.scoring.totalDocsLen -= totalDocLen;
-    if (numDocs && spec->gc) GCContext_OnDelete(spec->gc);
+    if (numDocs && spec->gc) GCContext_OnDeleteCount(spec->gc, numDocs);
   }
   IndexSpec_Unlock(spec);
   IndexSpec_DecrActiveWrites(spec);

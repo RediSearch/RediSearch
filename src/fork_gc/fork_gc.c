@@ -365,10 +365,14 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   RedisModule_InfoEndDictField(ctx);
 }
 
-static void deleteOrUpdateCb(void *ctx) {
+static void deleteCb(void *ctx, size_t count) {
   ForkGC *gc = ctx;
-  ++gc->deletedOrUpdatedDocsFromLastRun;
-  IndexsGlobalStats_IncreaseLogicallyDeleted(1);
+  atomic_fetch_add(&gc->deletedOrUpdatedDocsFromLastRun, count);
+  IndexsGlobalStats_IncreaseLogicallyDeleted(count);
+}
+
+static void updateCb(void *ctx) {
+  deleteCb(ctx, 1);
 }
 
 static void getStatsCb(void *gcCtx, InfoGCStats *out) {
@@ -401,9 +405,9 @@ ForkGC *FGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->renderStats = statsCb;
   callbacks->renderStatsForInfo = statsForInfoCb;
   callbacks->getInterval = getIntervalCb;
-  callbacks->onDelete = deleteOrUpdateCb;
+  callbacks->onDelete = deleteCb;
   callbacks->onWrite = NULL; // writes are not tracked for forkGC
-  callbacks->onUpdate = deleteOrUpdateCb;
+  callbacks->onUpdate = updateCb;
   callbacks->getStats = getStatsCb;
 
   return forkGc;

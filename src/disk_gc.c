@@ -95,7 +95,13 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
 
     DiskGCRunStats stats = {0};
     SearchDisk_RunGC(sp->diskSpec, &stats);
-    accumulateCycleStats(gc, &stats);
+    if (stats.retryRequired) {
+      atomic_fetch_add(&gc->writesFromLastRun, num_writes);
+      atomic_fetch_add(&gc->deletesFromLastRun, num_deletes);
+      atomic_fetch_add(&gc->updatesFromLastRun, num_updates);
+    } else {
+      accumulateCycleStats(gc, &stats);
+    }
 
     gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
   }
@@ -170,10 +176,10 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   RedisModule_InfoEndDictField(ctx);
 }
 
-static void deleteCb(void *ctx) {
+static void deleteCb(void *ctx, size_t count) {
   DiskGC *gc = ctx;
-  atomic_fetch_add(&gc->deletesFromLastRun, 1);
-  IndexsGlobalStats_IncreaseLogicallyDeleted(1);
+  atomic_fetch_add(&gc->deletesFromLastRun, count);
+  IndexsGlobalStats_IncreaseLogicallyDeleted(count);
 }
 
 static void updateCb(void *ctx) {

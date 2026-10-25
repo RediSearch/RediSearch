@@ -314,8 +314,12 @@ void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx) {
 }
 
 void GCContext_OnDelete(GCContext* gc) {
-  if (gc->callbacks.onDelete) {
-    gc->callbacks.onDelete(gc->gcCtx);
+  GCContext_OnDeleteCount(gc, 1);
+}
+
+void GCContext_OnDeleteCount(GCContext* gc, size_t count) {
+  if (count && gc->callbacks.onDelete) {
+    gc->callbacks.onDelete(gc->gcCtx, count);
   }
 }
 

@@ -132,6 +132,8 @@ typedef struct AsyncReadResult {
 // Populated by `IndexDiskAPI::runGC`: the caller zero-initializes the struct
 // and the callee fills the fields it knows about.
 typedef struct DiskGCRunStats {
+  // A recoverable failure retains pending changes for a later GC cycle.
+  bool retryRequired;
   // Number of deleted document IDs removed in this cycle.
   size_t num_cleaned_docs;
   // Bytes freed by the compaction (storage layer's view). Signed because
@@ -581,7 +583,8 @@ typedef struct IndexDiskAPI {
    *
    * On return, `stats` is populated with per-cycle counters
    * (see `DiskGCRunStats`). Caller MUST zero-initialize `stats` before the
-   * call; the implementation only writes the fields it knows about.
+   * call. Recoverable failures set `retryRequired`; the caller must retain
+   * pending changes and must not accumulate the failed cycle's counters.
    *
    * @param index Pointer to the disk index
    * @param stats Caller-allocated, zero-initialized stats out-parameter

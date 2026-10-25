@@ -99,7 +99,7 @@ typedef struct GCCallbacks {
   bool (*periodicCallback)(void* gcCtx, GCForcedRun* forced);
   void (*renderStats)(RedisModule_Reply* reply, void* gc);
   void (*renderStatsForInfo)(RedisModuleInfoCtx* ctx, void* gc);
-  void (*onDelete)(void* ctx);
+  void (*onDelete)(void* ctx, size_t count);
   void (*onWrite)(void* ctx);
   void (*onUpdate)(void* ctx);
   void (*onTerm)(void* ctx);
@@ -131,6 +131,7 @@ void GCContext_StopMock(GCContext* gc);
 void GCContext_RenderStats(GCContext* gc, RedisModule_Reply* ctx);
 void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx);
 void GCContext_OnDelete(GCContext* gc);
+void GCContext_OnDeleteCount(GCContext* gc, size_t count);
 void GCContext_OnWrite(GCContext* gc);
 void GCContext_OnUpdate(GCContext* gc);
 // Queue a demanded collection, built with GCForcedRun_New. `forced` is copied, so the caller
