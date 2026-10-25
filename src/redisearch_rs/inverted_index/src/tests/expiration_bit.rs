@@ -248,12 +248,11 @@ fn numeric(doc_id: DocId, has_exp: bool) -> RSIndexResult<'static> {
         .build()
 }
 
-/// A reader in a block without an expiration bitset tracks no entry ordinal. When the block gains
-/// its first bit while the reader is suspended, the reader must recover the ordinal and report
-/// the bit of every later entry, for both sequential reads and seeks.
+/// A block can gain its first expiration bit while a reader is suspended mid-block. After resuming,
+/// the reader must report the bit of every later entry, for both sequential reads and seeks.
 #[test]
 #[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
-fn reader_recovers_ordinal_when_block_gains_first_bit_while_suspended() {
+fn reader_reports_bits_of_entries_appended_while_suspended() {
     use crate::{RawIndexReaderCore, RefreshOutcome, ResumableReader};
     use ref_mode::{Active, Suspended};
 
@@ -265,7 +264,7 @@ fn reader_recovers_ordinal_when_block_gains_first_bit_while_suspended() {
         // Spare capacity, so the appends below grow the block in place and the suspended reader
         // resumes mid-block instead of re-seeking.
         crate::test_utils::reserve_block_buffer(&mut ii, 0, 256);
-        assert!(!ii.blocks[0].may_have_expiration_bits());
+        assert!(!ii.blocks[0].expiration_bits.may_contain_any());
 
         // SAFETY: mirrors a suspended cursor — the reader is parked and untouched while the index
         // is written to. The writes only append into the block's spare capacity, leaving the
@@ -297,7 +296,7 @@ fn reader_recovers_ordinal_when_block_gains_first_bit_while_suspended() {
             1,
             "the appends were meant to stay in block 0"
         );
-        assert!(ii.blocks[0].may_have_expiration_bits());
+        assert!(ii.blocks[0].expiration_bits.may_contain_any());
 
         // SAFETY: no writer runs during the refresh; this test is single threaded.
         assert_eq!(unsafe { suspended.refresh_pointers() }, RefreshOutcome::Ok);
@@ -336,8 +335,8 @@ fn numeric_seek_reports_expiration_bit_across_blocks() {
         ii.add_record(&numeric(doc_id, has_exp(doc_id))).unwrap();
     }
     assert!(ii.number_of_blocks() > 2);
-    assert!(!ii.blocks[0].may_have_expiration_bits());
-    assert!(ii.blocks.last().unwrap().may_have_expiration_bits());
+    assert!(!ii.blocks[0].expiration_bits.may_contain_any());
+    assert!(ii.blocks.last().unwrap().expiration_bits.may_contain_any());
 
     let mut reader = ii.reader();
     let mut result = numeric(0, false);
