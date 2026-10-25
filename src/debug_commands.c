@@ -1061,6 +1061,10 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_ReplyWithError(
         ctx, "GC DID NOT RUN: no child process could be created within TIMEOUT");
   }
+  if (outcome && *outcome == GC_FORCED_RUN_COMPACTION_CANCELLED) {
+    return RedisModule_ReplyWithError(ctx,
+                                      "COMPACT_ALL compaction was cancelled; see the server log");
+  }
   return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
 
@@ -1113,77 +1117,18 @@ static bool parseForcedGCArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int
     RedisModule_ReplyWithError(ctx, "COMPACT_ALL requires a disk index");
     return false;
   }
+  // The compaction runs on the GC thread; without one it would block the main thread.
+  if (*compactAll && !sp->gc) {
+    RedisModule_ReplyWithError(ctx, "COMPACT_ALL requires the index's GC, which is disabled");
+    return false;
+  }
   return true;
 }
 
-// Indexes normally own a GCContext (`sp->gc`). Routing the forced invoke through it runs the
-// periodic callback with force=true, which for the disk path performs the compaction *and*
-// accumulates the per-cycle GC stats (bytes_collected, cycles, timing). Calling SearchDisk_RunGC
-// directly would bypass that accounting and leave FT.INFO/INFO reporting stale stats after a
-// forced GC. runDiskGCInline covers the only case where a disk index has no GCContext (GC
-// globally disabled or a temporary index).
-//
-// Blocks the client on a forced GC cycle of `sp`, which must have a GCContext. `onDone` runs on
-// the main thread once the cycle ends and sends the reply.
-static void blockOnForcedGC(RedisModuleCtx *ctx, IndexSpec *sp, long long timeout,
-                            RedisModuleCmdFunc onDone) {
-  RS_ASSERT(sp->gc);
-  // TIMEOUT bounds the wait for a fork slot as well as the client's patience, less a margin
-  // so this reply wins the race against the block timeout. A short TIMEOUT gets half of it,
-  // since a fixed margin would leave nothing to wait with. 0 stays 0, meaning no limit.
-  long long forkWaitMs = timeout;  // TIMEOUT 0 asks for no limit, and stays that way
-  if (timeout > 2 * GC_FORCED_RUN_REPLY_MARGIN_MS) {
-    forkWaitMs = timeout - GC_FORCED_RUN_REPLY_MARGIN_MS;
-  } else if (timeout > 0) {
-    // Halving rounds down, and 0 here would read as no limit -- the opposite of a 1ms budget.
-    forkWaitMs = timeout / 2 > 0 ? timeout / 2 : 1;
-  }
-  GCForcedRun forced = GCForcedRun_New(forkWaitMs, GC_FORCED_RUN_RETRY_INTERVAL_MS);
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, onDone, GCForceInvokeReplyTimeout,
-                                                         GCForcedRunOutcomeFree, timeout);
-  GCContext_ForceInvoke(sp->gc, bc, forced);
-}
-
-// Fallback for a disk index without a GCContext: there is no DiskGC stats context to accumulate
-// into and FT.INFO/INFO render no GC section, so the cycle runs inline on the main thread, TIMEOUT
-// does not apply, and the stats go nowhere.
-static void runDiskGCInline(IndexSpec *sp) {
-  DiskGCRunStats stats = {0};
-  SearchDisk_RunGC(sp->diskSpec, &stats);
-}
-
-// Finishes a COMPACT_ALL forced GC once its cycle is done, and replies. The cycle itself writes
-// to the index's disk storage, so the flush and the remaining compaction must come after it.
-static int finishCompactAll(RedisModuleCtx *ctx, IndexSpec *sp) {
-  // Background work may have been paused while the GC cycle ran.
-  if (SearchDisk_IsBackgroundWorkPaused(sp->diskSpec)) {
-    return RedisModule_ReplyWithError(
-        ctx, "Background work was paused during COMPACT_ALL; use DISK_RESUME_BG_WORK first");
-  }
-  SearchDisk_Flush(sp->diskSpec);
-  if (!SearchDisk_CompactNonGcStorage(sp->diskSpec)) {
-    return RedisModule_ReplyWithError(ctx, "Disk compaction was cancelled; see the server log");
-  }
-  return RedisModule_ReplyWithSimpleString(ctx, "DONE");
-}
-
-// Blocked-client callback for a COMPACT_ALL forced GC cycle.
-static int GCForceInvokeCompactAllAfterGC(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
-  if (!sp || !sp->diskSpec) {
-    return RedisModule_ReplyWithError(ctx, "Index was dropped during COMPACT_ALL");
-  }
-  return finishCompactAll(ctx, sp);
-}
-
 // FT.DEBUG GC_FORCEINVOKE <index> [TIMEOUT] [COMPACT_ALL]
-// COMPACT_ALL (disk indexes only) also flushes and fully compacts the rest of the index's disk
-// storage once the GC cycle is done, so its on-disk state, and the metrics derived from it,
-// settle. Writes still in flight are not waited for: with vector fields, run WORKERS DRAIN first.
+// COMPACT_ALL makes the cycle also flush and fully compact the rest of the index's disk storage,
+// so its on-disk state, and the metrics derived from it, settle. Writes still in flight are not
+// waited for: with vector fields, run WORKERS DRAIN first.
 DEBUG_COMMAND(GCForceInvoke) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1207,14 +1152,38 @@ DEBUG_COMMAND(GCForceInvoke) {
   if (!parseForcedGCArgs(ctx, argv, argc, sp, &timeout, &compactAll)) {
     return REDISMODULE_OK;
   }
+
+  // Indexes normally own a GCContext (`sp->gc`). Routing the forced invoke
+  // through it runs the periodic callback with force=true, which for the disk
+  // path performs the compaction *and* accumulates the per-cycle GC stats
+  // (bytes_collected, cycles, timing). Calling SearchDisk_RunGC directly here
+  // would bypass that accounting and leave FT.INFO/INFO reporting stale stats
+  // after a forced GC. The fallback below covers the only case where a disk
+  // index has no GCContext (GC globally disabled or a temporary index).
   if (sp->gc) {
-    blockOnForcedGC(ctx, sp, timeout,
-                    compactAll ? GCForceInvokeCompactAllAfterGC : GCForceInvokeReply);
+    // TIMEOUT bounds the wait for a fork slot as well as the client's patience, less a margin
+    // so this reply wins the race against the block timeout. A short TIMEOUT gets half of it,
+    // since a fixed margin would leave nothing to wait with. 0 stays 0, meaning no limit.
+    long long forkWaitMs = timeout;  // TIMEOUT 0 asks for no limit, and stays that way
+    if (timeout > 2 * GC_FORCED_RUN_REPLY_MARGIN_MS) {
+      forkWaitMs = timeout - GC_FORCED_RUN_REPLY_MARGIN_MS;
+    } else if (timeout > 0) {
+      // Halving rounds down, and 0 here would read as no limit -- the opposite of a 1ms budget.
+      forkWaitMs = timeout / 2 > 0 ? timeout / 2 : 1;
+    }
+    GCForcedRun forced = GCForcedRun_New(forkWaitMs, GC_FORCED_RUN_RETRY_INTERVAL_MS);
+    forced.compactAll = compactAll;
+    RedisModuleBlockedClient *bc = RedisModule_BlockClient(
+        ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, GCForcedRunOutcomeFree, timeout);
+    GCContext_ForceInvoke(sp->gc, bc, forced);
     return REDISMODULE_OK;
-  }
-  if (sp->diskSpec) {
-    runDiskGCInline(sp);
-    return compactAll ? finishCompactAll(ctx, sp) : RedisModule_ReplyWithSimpleString(ctx, "DONE");
+  } else if (sp->diskSpec) {
+    // Fallback described above: with no GCContext there is no DiskGC stats
+    // context to accumulate into and FT.INFO/INFO render no GC section, so run
+    // the compaction inline and let the stats go nowhere.
+    DiskGCRunStats stats = {0};
+    SearchDisk_RunGC(sp->diskSpec, &stats);
+    return RedisModule_ReplyWithSimpleString(ctx, "DONE");
   }
   return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
 }
