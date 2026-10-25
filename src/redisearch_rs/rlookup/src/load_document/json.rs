@@ -8,7 +8,7 @@
 */
 
 use crate::{
-    RLookup, RLookupKey, RLookupKeyFlags, RLookupRow,
+    RLookup, RLookupKey, RLookupKeyFlag, RLookupRow,
     load_document::{
         DOCUMENT_OPEN_KEY_QUERY_FLAGS, DocumentFormat, FieldLoader, LoadAllError, LoadFieldError,
         UNDERSCORE_KEY,
@@ -173,8 +173,11 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         let rlk = if let Some(rlk) = rlookup.find_key_by_name(JSON_ROOT) {
             rlk.into_current().unwrap()
         } else {
+            // A SORTABLE schema field on `$` makes the key value-available from
+            // the sorting vector, in which case `get_key_load` returns `None`
+            // unless forced.
             rlookup
-                .get_key_load(JSON_ROOT, JSON_ROOT, RLookupKeyFlags::empty())
+                .get_key_load(JSON_ROOT, JSON_ROOT, RLookupKeyFlag::ForceLoad.into())
                 .unwrap()
         };
 

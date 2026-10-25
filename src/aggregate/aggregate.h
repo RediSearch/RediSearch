@@ -15,6 +15,7 @@
 #include "query_request.h"
 #include "value_ffi.h"
 #include "query.h"
+#include "query_eval.h"
 #include "reducer.h"
 #include "result_processor.h"
 #include "expr/expression.h"
@@ -158,8 +159,8 @@ typedef struct AREQ {
   /** Parsed query tree */
   QueryAST ast;
 
-  /** Root iterator. This is owned by the request */
-  QueryIterator *rootiter;
+  /** Iterator tree built from `ast`. This is owned by the request */
+  QueryIteratorTree *iteratorTree;
 
   /** Context, owned by request */
   RedisSearchCtx *sctx;

@@ -9,6 +9,7 @@
 
 //! The `STDDEV` reducer.
 
+use bumpalo::Bump;
 use rlookup::{RLookupKey, RLookupRow};
 use value::{SharedValue, Value};
 
@@ -51,9 +52,9 @@ impl StdDevState {
 }
 
 impl Accumulator for StdDev<'_> {
-    type State = StdDevState;
+    type State<'arena> = StdDevState;
 
-    fn init(&self) -> StdDevState {
+    fn init(&self, _arena: &Bump) -> StdDevState {
         StdDevState::default()
     }
 

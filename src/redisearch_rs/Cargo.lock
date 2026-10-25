@@ -1939,6 +1939,7 @@ dependencies = [
  "global_config",
  "query_eval",
  "rqe_iterators",
+ "slots_tracker",
  "workspace_hack",
 ]
 
@@ -2254,6 +2255,7 @@ dependencies = [
  "hyperloglog",
  "indexmap",
  "itertools 0.15.0",
+ "libc",
  "min-max-heap",
  "priority-queue",
  "query_error",
