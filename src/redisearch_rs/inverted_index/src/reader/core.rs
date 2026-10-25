@@ -16,8 +16,8 @@ use super::{
     SuspendableReader, TermReader,
 };
 use crate::{
-    DecodedBy, Decoder, Encoder, HasInnerIndex, InvertedIndex, NumericDecoder, TermDecoder,
-    index::unique_id::IndexUniqueId, opaque::OpaqueEncoding,
+    DecodedBy, Decoder, Encoder, HasInnerIndex, IndexBlock, InvertedIndex, NumericDecoder,
+    TermDecoder, index::unique_id::IndexUniqueId, opaque::OpaqueEncoding,
 };
 use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
 use index_result::RSIndexResult;
@@ -68,9 +68,14 @@ pub struct RawIndexReaderCore<Rf: Ref, E> {
     /// document ID for delta calculations.
     pub(crate) last_doc_id: DocId,
 
-    /// The ordinal (0-based position) within the current block of the *next* entry to be decoded.
-    /// Used to index the block's `expiration_bits` side bitset so each decoded result carries its
-    /// document-level field-expiration flag. Reset to 0 whenever the current block changes.
+    /// The ordinal (0-based position) within the current block of the *next* entry to be decoded,
+    /// or [`UNKNOWN_ENTRY`]. Used to index the block's `expiration_bits` side bitset so each
+    /// decoded result carries its document-level field-expiration flag.
+    ///
+    /// Only tracked while the current block has an expiration bitset. On entering a block without
+    /// one it is [`UNKNOWN_ENTRY`], and reads in that block skip the bookkeeping. If the block gains
+    /// its first bit while the reader is suspended, the ordinal is recounted once, see
+    /// [`Self::expiration_bit_of_last_entry`].
     pub(crate) entry_in_block: u16,
 
     /// The marker of the inverted index when this reader last read from it. This is used to
@@ -85,6 +90,21 @@ pub struct RawIndexReaderCore<Rf: Ref, E> {
 
     /// Keeps `E` in the type signature even though it only appears through `ii`.
     _phantom: PhantomData<E>,
+}
+
+/// [`RawIndexReaderCore::entry_in_block`] value for an ordinal the reader is not tracking.
+///
+/// Never a real ordinal: a block holds fewer than `u16::MAX` entries.
+const UNKNOWN_ENTRY: u16 = u16::MAX;
+
+/// The initial [`RawIndexReaderCore::entry_in_block`] for a reader entering `block`.
+#[inline(always)]
+fn entry_on_block_entry(block: &IndexBlock) -> u16 {
+    if block.may_have_expiration_bits() {
+        0
+    } else {
+        UNKNOWN_ENTRY
+    }
 }
 
 /// Alias for an [`Active`] [`RawIndexReaderCore`] — the only instantiation
@@ -267,8 +287,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
 
         // The codec does not carry the field-expiration flag; it lives in the
         // block's side bitset, indexed by entry ordinal.
-        result.has_field_expiration = block.expiration_bit(self.entry_in_block);
-        self.entry_in_block += 1;
+        result.has_field_expiration = self.expiration_bit_of_last_entry(block, 0)?;
 
         self.last_doc_id = result.doc_id;
 
@@ -286,7 +305,8 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
         }
 
         let ii = self.ii.get();
-        let base = D::base_id(&ii.blocks[self.current_block_idx], self.last_doc_id);
+        let block = &ii.blocks[self.current_block_idx];
+        let base = D::base_id(block, self.last_doc_id);
         let mut cursor = Cursor::new(self.buf.get());
         cursor.set_position(self.buf_pos);
         let skipped = D::seek(&mut cursor, base, doc_id, result)?;
@@ -294,10 +314,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
 
         match skipped {
             Some(skipped) => {
-                self.entry_in_block += skipped;
-                result.has_field_expiration =
-                    ii.blocks[self.current_block_idx].expiration_bit(self.entry_in_block);
-                self.entry_in_block += 1;
+                result.has_field_expiration = self.expiration_bit_of_last_entry(block, skipped)?;
                 self.last_doc_id = result.doc_id;
                 Ok(true)
             }
@@ -352,6 +369,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
             self.buf = SharedPtr::from_ref(&[]);
             self.buf_pos = 0;
             self.last_doc_id = 0;
+            self.entry_in_block = UNKNOWN_ENTRY;
         }
 
         self.gc_marker = self.ii.get().gc_marker.load(atomic::Ordering::Relaxed);
@@ -409,13 +427,14 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> RawIndexReaderCore<
     /// # Panic
     /// This function will panic if the inverted index is empty.
     pub(crate) fn new(ii: &'index InvertedIndex<E>) -> Self {
-        let (buf, last_doc_id) = if let Some(first_block) = ii.blocks.first() {
+        let (buf, last_doc_id, entry_in_block) = if let Some(first_block) = ii.blocks.first() {
             (
                 SharedPtr::from_ref(first_block.buffer.as_slice()),
                 first_block.first_doc_id,
+                entry_on_block_entry(first_block),
             )
         } else {
-            (SharedPtr::from_ref(&[][..]), 0)
+            (SharedPtr::from_ref(&[][..]), 0, UNKNOWN_ENTRY)
         };
 
         Self {
@@ -424,7 +443,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> RawIndexReaderCore<
             buf_pos: 0,
             current_block_idx: 0,
             last_doc_id,
-            entry_in_block: 0,
+            entry_in_block,
             gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
             ii_unique_id: ii.unique_id(),
             _phantom: PhantomData,
@@ -438,6 +457,8 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> RawIndexReaderCore<
         let new_ii = std::mem::replace(index, current);
         self.ii = SharedPtr::from_ref(new_ii);
         self.ii_unique_id = new_ii.unique_id();
+        // The position now refers to another index; an unknown ordinal is always safe.
+        self.entry_in_block = UNKNOWN_ENTRY;
     }
 
     /// Get the internal index of the reader. This is only used by some C tests.
@@ -456,7 +477,49 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> RawIndexReaderCore<
         self.last_doc_id = current_block.first_doc_id;
         self.buf = SharedPtr::from_ref(current_block.buffer.as_slice());
         self.buf_pos = 0;
-        self.entry_in_block = 0;
+        self.entry_in_block = entry_on_block_entry(current_block);
+    }
+
+    /// The field-expiration bit of the entry that was just decoded, which ends at
+    /// `self.buf_pos` and was preceded by `skipped` entries since the last decoded one.
+    ///
+    /// A block without an expiration bitset answers `false` after a pointer comparison, and the
+    /// reader tracks no ordinal in it. A block can only gain its first bit through an append,
+    /// past every existing entry, while the reader is suspended. That is the one case that finds
+    /// the ordinal unknown, and recounts it once with
+    /// [`count_entries_through`](Self::count_entries_through).
+    #[inline(always)]
+    fn expiration_bit_of_last_entry(
+        &mut self,
+        block: &'index IndexBlock,
+        skipped: u16,
+    ) -> std::io::Result<bool> {
+        if !block.may_have_expiration_bits() {
+            return Ok(false);
+        }
+        let ordinal = if self.entry_in_block == UNKNOWN_ENTRY {
+            Self::count_entries_through(block, self.buf_pos)? - 1
+        } else {
+            self.entry_in_block + skipped
+        };
+        self.entry_in_block = ordinal + 1;
+        Ok(block.expiration_bit(ordinal))
+    }
+
+    /// The number of entries in `block` whose encoding ends at or before byte `end`.
+    #[cold]
+    #[inline(never)]
+    fn count_entries_through(block: &'index IndexBlock, end: u64) -> std::io::Result<u16> {
+        let mut cursor = Cursor::new(block.buffer.as_slice());
+        let mut scratch = D::base_result();
+        let mut last_doc_id = block.first_doc_id;
+        let mut count = 0;
+        while cursor.position() < end {
+            D::decode(&mut cursor, D::base_id(block, last_doc_id), &mut scratch)?;
+            last_doc_id = scratch.doc_id;
+            count += 1;
+        }
+        Ok(count)
     }
 }
 
