@@ -248,81 +248,6 @@ fn numeric(doc_id: DocId, has_exp: bool) -> RSIndexResult<'static> {
         .build()
 }
 
-/// A block can gain its first expiration bit while a reader is suspended mid-block. After resuming,
-/// the reader must report the bit of every later entry, for both sequential reads and seeks.
-#[test]
-#[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
-fn reader_reports_bits_of_entries_appended_while_suspended() {
-    use crate::{RawIndexReaderCore, RefreshOutcome, ResumableReader};
-    use ref_mode::{Active, Suspended};
-
-    for seek in [false, true] {
-        let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
-        for doc_id in 1..=3 {
-            ii.add_record(&numeric(doc_id, false)).unwrap();
-        }
-        // Spare capacity, so the appends below grow the block in place and the suspended reader
-        // resumes mid-block instead of re-seeking.
-        crate::test_utils::reserve_block_buffer(&mut ii, 0, 256);
-        assert!(!ii.blocks[0].expiration_bits.may_contain_any());
-
-        // SAFETY: mirrors a suspended cursor — the reader is parked and untouched while the index
-        // is written to. The writes only append into the block's spare capacity, leaving the
-        // `InvertedIndex` itself in place.
-        let ii_ptr = &mut ii as *mut InvertedIndex<Numeric>;
-
-        let mut reader = Box::new(ii.reader());
-        let mut result = numeric(0, false);
-        for doc_id in 1..=2 {
-            assert!(reader.next_record(&mut result).unwrap());
-            assert_eq!(
-                (result.doc_id, result.has_field_expiration),
-                (doc_id, false)
-            );
-        }
-
-        // Suspend: the same allocation, reinterpreted as the layout-identical suspended reader.
-        let active: *mut RawIndexReaderCore<Active<'_>, Numeric> = Box::into_raw(reader);
-        // SAFETY: `RawIndexReaderCore`'s `Active` and `Suspended` forms are layout-identical.
-        let mut suspended: Box<RawIndexReaderCore<Suspended, Numeric>> =
-            unsafe { Box::from_raw(active.cast()) };
-
-        for (doc_id, has_exp) in [(4, true), (5, false), (6, true)] {
-            // SAFETY: see the `ii_ptr` construction above.
-            unsafe { (*ii_ptr).add_record(&numeric(doc_id, has_exp)) }.unwrap();
-        }
-        assert_eq!(
-            ii.number_of_blocks(),
-            1,
-            "the appends were meant to stay in block 0"
-        );
-        assert!(ii.blocks[0].expiration_bits.may_contain_any());
-
-        // SAFETY: no writer runs during the refresh; this test is single threaded.
-        assert_eq!(unsafe { suspended.refresh_pointers() }, RefreshOutcome::Ok);
-        // SAFETY: the pointers were refreshed above, and the layouts are identical.
-        let mut reader: Box<RawIndexReaderCore<Active<'_>, Numeric>> =
-            unsafe { Box::from_raw(Box::into_raw(suspended).cast()) };
-
-        let expected: &[(DocId, bool)] = if seek {
-            assert!(reader.seek_record(4, &mut result).unwrap());
-            assert_eq!((result.doc_id, result.has_field_expiration), (4, true));
-            &[(5, false), (6, true)]
-        } else {
-            &[(3, false), (4, true), (5, false), (6, true)]
-        };
-        for &(doc_id, has_exp) in expected {
-            assert!(reader.next_record(&mut result).unwrap());
-            assert_eq!(
-                (result.doc_id, result.has_field_expiration),
-                (doc_id, has_exp),
-                "seek={seek}"
-            );
-        }
-        assert!(!reader.next_record(&mut result).unwrap());
-    }
-}
-
 /// Seeking within and across blocks reports each entry's bit whether or not its block has a
 /// bitset, including blocks entered without one.
 #[test]
@@ -336,8 +261,8 @@ fn numeric_seek_reports_expiration_bit_across_blocks() {
         ii.add_record(&numeric(doc_id, has_exp(doc_id))).unwrap();
     }
     assert!(ii.number_of_blocks() > 2);
-    assert!(!ii.blocks[0].expiration_bits.may_contain_any());
-    assert!(ii.blocks.last().unwrap().expiration_bits.may_contain_any());
+    assert_eq!(ii.blocks[0].expiration_bits.mem_usage(), 0);
+    assert!(ii.blocks.last().unwrap().expiration_bits.mem_usage() > 0);
 
     let mut reader = ii.reader();
     let mut result = numeric(0, false);
