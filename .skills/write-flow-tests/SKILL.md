@@ -75,6 +75,21 @@ dependent — a wall-clock `TIMEOUT`, a sleep, a race with background indexing o
 prefer a deterministic hook instead; grep `_FT.DEBUG` in `tests/pytests/` for what exists,
 and check the one you pick reaches the code path under test.
 
+## Main-thread liveness under worker locks
+
+When a change adds or alters a worker path that holds a lock the main thread also takes (the GIL,
+the IndexSpec lock, or a disk-mode lock), test that the main thread is not stuck behind it:
+
+- Park the worker inside the lock window with `FT.DEBUG SYNC_POINT ARM <name>` (add a
+  `SyncPoint_Wait` there if none exists), and poll `SYNC_POINT IS_WAITING <name>` until it parks.
+- Issue the main-thread command from a thread and `join` it with a timeout, so a regression fails
+  instead of hanging the suite: `PING` catches a held GIL; a write to a key the index covers
+  catches a spec or disk lock the write should not wait on.
+- Release the worker with `SYNC_POINT SIGNAL <name>` and `CLEAR` in a `finally`. Sync points exist
+  only in `ENABLE_ASSERT` builds, so guard the test with `@require_enable_assert`.
+
+`TestNoDeadlockQueryWithConcurrentWriter` in `test_blocked_client_timeout.py` follows this pattern.
+
 ## Deprecated commands
 
 - Do not use `FT.ADD` — use `HSET` via `conn.execute_command('HSET', ...)` instead.
