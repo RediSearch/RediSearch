@@ -328,10 +328,11 @@ fn reader_reports_bits_of_entries_appended_while_suspended() {
 #[test]
 fn numeric_seek_reports_expiration_bit_across_blocks() {
     let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
-    // Doc ids far enough apart to force several blocks; every third doc in the upper half has
-    // a TTL, so some blocks have a bitset and some do not.
-    let has_exp = |doc_id: DocId| doc_id > 5_000 && doc_id.is_multiple_of(3);
-    for doc_id in 1..=10_000 {
+    // Six blocks' worth of docs, small enough for miri. Every third doc in the upper half has a
+    // TTL, so the lower blocks have no bitset and the upper ones do.
+    let last = 6 * DocId::from(<Numeric as crate::Encoder>::RECOMMENDED_BLOCK_ENTRIES);
+    let has_exp = |doc_id: DocId| doc_id > last / 2 && doc_id.is_multiple_of(3);
+    for doc_id in 1..=last {
         ii.add_record(&numeric(doc_id, has_exp(doc_id))).unwrap();
     }
     assert!(ii.number_of_blocks() > 2);
@@ -340,7 +341,7 @@ fn numeric_seek_reports_expiration_bit_across_blocks() {
 
     let mut reader = ii.reader();
     let mut result = numeric(0, false);
-    for target in (1..=10_000).step_by(7) {
+    for target in (1..=last).step_by(7) {
         assert!(reader.seek_record(target, &mut result).unwrap());
         assert_eq!(result.doc_id, target);
         assert_eq!(
@@ -348,8 +349,8 @@ fn numeric_seek_reports_expiration_bit_across_blocks() {
             has_exp(target),
             "seek({target})"
         );
-        assert!(reader.next_record(&mut result).unwrap() || target == 10_000);
-        if target < 10_000 {
+        assert!(reader.next_record(&mut result).unwrap() || target == last);
+        if target < last {
             assert_eq!(
                 result.has_field_expiration,
                 has_exp(target + 1),
