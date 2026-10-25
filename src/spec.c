@@ -4084,12 +4084,12 @@ static void trimMemoryIndexes(void *ctx, t_docId docId) {
   IndexSpec_RemoveDocFromMemoryIndexes(ctx, docId);
 }
 
-bool IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges, size_t numRanges) {
-  if (!spec->diskSpec) return false;
+IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges, size_t numRanges) {
+  if (!spec->diskSpec) return INDEX_TRIM_NOT_APPLIED;
   uint64_t numDocs = 0, totalDocLen = 0;
   SearchDiskSlotTrim *trim =
       SearchDisk_PrepareSlotTrim(spec->diskSpec, ranges, numRanges, &numDocs, &totalDocLen);
-  if (!trim) return false;
+  if (!trim) return INDEX_TRIM_NOT_APPLIED;
 
   IndexSpec_IncrActiveWrites(spec);
   IndexSpec_LockWrite(spec);
@@ -4106,7 +4106,7 @@ bool IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges,
 
   bool finished = applied && SearchDisk_FinishSlotTrim(spec->diskSpec, trim);
   SearchDisk_FreeSlotTrim(trim);
-  return finished;
+  return finished ? INDEX_TRIM_FINISHED : applied ? INDEX_TRIM_APPLIED : INDEX_TRIM_NOT_APPLIED;
 }
 
 // DocIdMeta access for the delete path. When an already-open, pinned key handle

@@ -642,16 +642,23 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                                 RedisModuleKey *openKey);
 
-// Delete a document from the index by its docId directly, without needing
-// to look it up by key name. Removes the document from the DocTable but does
-// NOT clean up DocIdMeta on the key. This is called from the metadata unlink callback
+typedef enum {
+  INDEX_TRIM_NOT_APPLIED,
+  INDEX_TRIM_APPLIED,
+  INDEX_TRIM_FINISHED,
+} IndexSpecSlotTrimResult;
+
 // Caller holds the Redis GIL and excludes mutations (including unlink/expiration)
-// to these slots until completion. On a finish error visibility/counters remain
-// applied and GC completes physical cleanup. This does not authorize Redis trim.
-bool IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges, size_t numRanges);
+// to these slots until completion. APPLIED means visibility/accounting changed but
+// storage finish failed; GC completes storage cleanup. The caller must complete key
+// removal or reindex survivors before resuming their use. This does not establish
+// the Redis migration/trim preconditions.
+IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges,
+                                              size_t numRanges);
 // Caller holds the spec write lock.
 void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId);
 
+// Deletes by ID without clearing key metadata; used by the metadata unlink callback.
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
 
 // Resolve a key -> docId for this spec via the DocIdMeta key metadata (the

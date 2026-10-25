@@ -12,6 +12,9 @@
 #include "geometry/geometry_api.h"
 extern "C" {
 #include "indexes.h"
+#include "disk_indexer.h"
+#include "doc_id_meta.h"
+#include "forward_index.h"
 #include "search_disk.h"
 #include "vector_index.h"
 #include "geometry_index.h"
@@ -108,7 +111,46 @@ class DiskSlotTrimTest : public ::testing::Test {
     RSGlobalConfig.gcConfigParams.enableGC = savedEnableGC;
   }
 
-  bool trim() {
+  void reindexSurvivingKey(t_docId oldId, bool live, uint32_t newLength) {
+    auto *key = RedisModule_CreateString(RSDummyContext, "trim_survivor", 13);
+    RMCK::hset(RSDummyContext, "trim_survivor", "field", "value");
+    ASSERT_EQ(DocIdMeta_Set(RSDummyContext, key, spec->specId, oldId), REDISMODULE_OK);
+    api.index.createWriteBatch = [](RedisSearchDiskIndexSpec *) {
+      return reinterpret_cast<SearchDiskWriteBatchHandle *>(&state);
+    };
+    api.index.commitWriteBatch = [](SearchDiskWriteBatchHandle *) { return true; };
+    state.apply = live;
+    api.docTable.putDocument = [](RedisSearchDiskIndexSpec *, SearchDiskWriteBatchHandle *,
+                                  const char *, size_t, float, uint32_t, uint32_t, uint32_t,
+                                  uint32_t *oldLength, t_expirationTimePoint, t_docId *oldId) {
+      EXPECT_NE(*oldId, 0u);
+      if (!state.apply) *oldId = 0;
+      *oldLength = 0;
+      return t_docId{6};
+    };
+    Document document{};
+    Document_Init(&document, key, 1.0, DEFAULT_LANGUAGE, DocumentType_Hash);
+    RSAddDocumentCtx context{};
+    context.doc = &document;
+    context.spec = spec;
+    context.fwIdx = NewForwardIndex(&document, spec->flags);
+    context.fwIdx->totalFreq = newLength;
+    RedisSearchCtx search = SEARCH_CTX_STATIC(RSDummyContext, spec);
+    DiskIndexer_StageDocument(&context, &search);
+    EXPECT_EQ(context.oldDocId, live ? oldId : 0u);
+    DiskIndexer_IndexDocument(&context, &search);
+    uint64_t stored = 0;
+    EXPECT_EQ(DocIdMeta_Get(RSDummyContext, key, spec->specId, &stored), REDISMODULE_OK);
+    EXPECT_EQ(stored, 6u);
+    ForwardIndexFree(context.fwIdx);
+    Document_Free(&document);
+    auto *storedKey = RedisModule_OpenKey(RSDummyContext, key, REDISMODULE_WRITE);
+    RedisModule_DeleteKey(storedKey);
+    RedisModule_CloseKey(storedKey);
+    RedisModule_FreeString(RSDummyContext, key);
+  }
+
+  IndexSpecSlotTrimResult trim() {
     SearchDiskSlotRange range{0, 100};
     return IndexSpec_TrimDiskSlots(spec, &range, 1);
   }
@@ -125,7 +167,7 @@ class DiskSlotTrimTest : public ::testing::Test {
 
 TEST_F(DiskSlotTrimTest, PrepareFailureDoesNotMutateOrFree) {
   state.prepare = false;
-  EXPECT_FALSE(trim());
+  EXPECT_EQ(trim(), INDEX_TRIM_NOT_APPLIED);
   unchanged();
   EXPECT_EQ(state.applyCalls, 0u);
   EXPECT_EQ(state.frees, 0u);
@@ -133,13 +175,13 @@ TEST_F(DiskSlotTrimTest, PrepareFailureDoesNotMutateOrFree) {
 
 TEST_F(DiskSlotTrimTest, BoundsRejectBeforeApplyAndFreePlan) {
   spec->stats.scoring.numDocuments = 2;
-  EXPECT_FALSE(trim());
+  EXPECT_EQ(trim(), INDEX_TRIM_NOT_APPLIED);
   EXPECT_EQ(state.applyCalls, 0u);
   EXPECT_EQ(state.frees, 1u);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   spec->stats.scoring.numDocuments = 5;
   spec->stats.scoring.totalDocsLen = 20;
-  EXPECT_FALSE(trim());
+  EXPECT_EQ(trim(), INDEX_TRIM_NOT_APPLIED);
   EXPECT_EQ(state.applyCalls, 0u);
   EXPECT_EQ(state.frees, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 20u);
@@ -147,7 +189,7 @@ TEST_F(DiskSlotTrimTest, BoundsRejectBeforeApplyAndFreePlan) {
 
 TEST_F(DiskSlotTrimTest, ApplyFailureDoesNotAdjustScoringOrRunFinish) {
   state.apply = false;
-  EXPECT_FALSE(trim());
+  EXPECT_EQ(trim(), INDEX_TRIM_NOT_APPLIED);
   unchanged();
   EXPECT_EQ(state.applyCalls, 1u);
   EXPECT_EQ(state.frees, 1u);
@@ -155,13 +197,13 @@ TEST_F(DiskSlotTrimTest, ApplyFailureDoesNotAdjustScoringOrRunFinish) {
 
 TEST_F(DiskSlotTrimTest, FailedFinishThenRetryCountsBulkDeletionOnce) {
   state.finish = false;
-  EXPECT_FALSE(trim());
+  EXPECT_EQ(trim(), INDEX_TRIM_APPLIED);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
   EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
   EXPECT_EQ(state.frees, 1u);
   state.finish = true;
-  EXPECT_TRUE(trim());
+  EXPECT_EQ(trim(), INDEX_TRIM_FINISHED);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
   EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
@@ -186,7 +228,7 @@ TEST_F(DiskSlotTrimTest, SuccessfulTrimRemovesOnlySelectedVectorAndGeometryIds) 
         geometryApi->addGeomStr(geometry, GEOMETRY_FORMAT_WKT, wkt, strlen(wkt), id, nullptr));
   }
   spec->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(spec);
-  ASSERT_TRUE(trim());
+  ASSERT_EQ(trim(), INDEX_TRIM_FINISHED);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
   EXPECT_EQ(VecSimIndex_IndexSize(vectors), 2u);
@@ -220,4 +262,35 @@ TEST_F(DiskSlotTrimTest, RecoverableGcFailureRetainsPendingChangesUntilRetry) {
   EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
   threshold = savedThreshold;
 }
+
+TEST_F(DiskSlotTrimTest, ForcedGcFailureReportsRetryInsteadOfSuccess) {
+  GCContext_OnDeleteCount(&gc, 3);
+  GCForcedRun forced = GCForcedRun_New(1000, 10);
+  EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(forced.outcome, GC_FORCED_RUN_RETRY_REQUIRED);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
+  EXPECT_EQ(collector()->totalCycles.load(), 0u);
+}
+
+TEST_F(DiskSlotTrimTest, SurvivingKeyAfterFailedFinishIsCountedAsANewInsert) {
+  spec->stats.scoring.numDocuments = 3;
+  spec->stats.scoring.totalDocsLen = 21;
+  state.finish = false;
+  EXPECT_EQ(trim(), INDEX_TRIM_APPLIED);
+  reindexSurvivingKey(1, false, 11);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 1u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 11u);
+  EXPECT_EQ(collector()->updatesFromLastRun.load(), 0u);
+  EXPECT_EQ(collector()->writesFromLastRun.load(), 1u);
+}
+
+TEST_F(DiskSlotTrimTest, LiveZeroLengthReplacementKeepsTheDocumentCount) {
+  spec->stats.scoring.numDocuments = 1;
+  spec->stats.scoring.totalDocsLen = 0;
+  reindexSurvivingKey(1, true, 0);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 1u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 0u);
+  EXPECT_EQ(collector()->updatesFromLastRun.load(), 1u);
+}
+
 }  // namespace

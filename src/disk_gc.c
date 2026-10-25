@@ -96,6 +96,7 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     DiskGCRunStats stats = {0};
     SearchDisk_RunGC(sp->diskSpec, &stats);
     if (stats.retryRequired) {
+      if (forced) forced->outcome = GC_FORCED_RUN_RETRY_REQUIRED;
       atomic_fetch_add(&gc->writesFromLastRun, num_writes);
       atomic_fetch_add(&gc->deletesFromLastRun, num_deletes);
       atomic_fetch_add(&gc->updatesFromLastRun, num_updates);

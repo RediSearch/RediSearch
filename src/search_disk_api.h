@@ -743,7 +743,7 @@ typedef struct DocTableDiskAPI {
    * @brief Stages a new document insert into `batch`.
    *
    * Assigns a new document ID and stages the document metadata write on `batch`. If
-   * `oldDocId` is provided (non-zero), staging also queues the deletion of the old
+   * `*oldDocId` resolves to a live document, staging also queues deletion of the old
    * doc-table entry, and the old doc is marked deleted in the in-memory bitmap only
    * once the batch commits successfully.
    *
@@ -764,10 +764,10 @@ typedef struct DocTableDiskAPI {
    * @param docLen Sum of the frequencies of all terms in the document
    * @param oldLen Pointer to an integer to store the length of the deleted document
    * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
-   * @param oldDocId Old document ID from DocIdMeta (0 if new document)
+   * @param oldDocId In/out document ID from DocIdMeta; cleared if no live document is replaced
    * @return New document ID, or 0 on error
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId);
 
   /**
    * @brief Returns whether the docId is in the deleted set
