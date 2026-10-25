@@ -544,10 +544,9 @@ mod header_dispatch {
             let second_ptr = NonNull::from(&mut *second);
             // SAFETY: both handles outlive the exclusively owned iterator and
             // remain writable until they are detached below.
-            unsafe {
-                metric::set_key_handle(it.as_non_null(), Some(first_ptr));
-                metric::set_key_handle(it.as_non_null(), Some(first_ptr));
-            }
+            unsafe { metric::set_key_handle(it.as_non_null(), Some(first_ptr)) };
+            // SAFETY: the same handle remains attached and exclusively writable.
+            unsafe { metric::set_key_handle(it.as_non_null(), Some(first_ptr)) };
             assert!(
                 first.is_valid,
                 "{name}: reattaching the same handle preserves it"
