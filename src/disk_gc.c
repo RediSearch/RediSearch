@@ -80,14 +80,15 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
 
   // Run GC only when teardown has not disabled it, the index is still disk-backed,
   // background work is not paused, and enough changes accumulated since the last run
-  // (unless forced). The pause check is required: the cycle's compaction waits on a
-  // memtable flush that only a resume can schedule.
+  // (unless forced or slot cleanup is pending). The pause check is required:
+  // compaction waits on a memtable flush that only a resume can schedule.
   size_t num_writes = atomic_load(&gc->writesFromLastRun);
   size_t num_deletes = atomic_load(&gc->deletesFromLastRun);
   size_t num_updates = atomic_load(&gc->updatesFromLastRun);
   size_t num_changes = num_writes + num_deletes + num_updates;
   if (!g_diskGcDisabled && sp->diskSpec && !SearchDisk_IsBackgroundWorkPaused(sp->diskSpec) &&
-      (forced || num_changes >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)) {
+      (forced || num_changes >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold ||
+       SearchDisk_HasPendingSlotCleanup(sp->diskSpec))) {
     // Reset counters before running GC
     atomic_fetch_sub(&gc->writesFromLastRun, num_writes);
     atomic_fetch_sub(&gc->deletesFromLastRun, num_deletes);

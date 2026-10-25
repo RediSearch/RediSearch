@@ -1043,6 +1043,9 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  */
 void SearchDisk_DebugResetCompactionController(void);
 
+bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index);
+bool SearchDisk_CanStartSlotMigration(RedisSearchDiskIndexSpec *index,
+                                      const SearchDiskSlotRange *ranges, size_t numRanges);
 SearchDiskSlotTrim *SearchDisk_PrepareSlotTrim(RedisSearchDiskIndexSpec *index,
                                                const SearchDiskSlotRange *ranges, size_t numRanges,
                                                uint64_t *numDocs, uint64_t *totalDocLen);

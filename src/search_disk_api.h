@@ -734,11 +734,19 @@ typedef struct IndexDiskAPI {
 
 /** Disk index operations supporting slot migration. */
 typedef struct SlotMigrationAPI {
+  // Admission probe for every relevant index before Redis/Flex starts ASM.
+  // False includes active trim plans and deferred cleanup in overlapping slots.
+  // Prepare atomically rechecks and reserves slots; this probe is advisory.
+  bool (*canStartMigration)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
+                            size_t numRanges);
+  // Pending cleanup makes normal GC eligible even below its change threshold.
+  bool (*hasPendingCleanup)(RedisSearchDiskIndexSpec *index);
   // Drain and exclude selected-slot mutations until finish succeeds.
   // Prepare/finish do I/O outside the spec lock. Apply invokes bounded callbacks
   // without that lock; callbacks hold it only for their batch. Retrying the same
   // plan skips applied batches. Finish requires all batches and retains the plan
-  // on error. Free leaves applied deletions for GC; pending documents stay live.
+  // on error. Finish never deletes slot-CF ranges; GC reclaims those records.
+  // Free leaves applied deletions for GC; pending documents stay live.
   // Readers between batches may observe partially completed cleanup.
   SearchDiskSlotTrim *(*prepareTrim)(RedisSearchDiskIndexSpec *index,
                                      const SearchDiskSlotRange *ranges, size_t numRanges,

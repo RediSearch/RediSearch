@@ -31,6 +31,7 @@ namespace {
 struct TrimState {
   bool prepare = true, apply = true, finish = true;
   bool applied = false;
+  bool pendingCleanup = false;
   size_t applyCalls = 0, finishCalls = 0, frees = 0, gcRuns = 0;
   size_t batchCount = 1, batchesApplied = 0, batchApplyCalls = 0, failBatch = SIZE_MAX;
   std::function<void(size_t)> beforeBatch;
@@ -192,6 +193,23 @@ class DiskSlotTrimTest : public ::testing::Test {
   }
 };
 
+TEST_F(DiskSlotTrimTest, AdmissionProbeForwardsSlotsAndFailsClosedWithoutBackend) {
+  SearchDiskSlotRange range{10, 20};
+  api.slotMigration.canStartMigration = [](RedisSearchDiskIndexSpec *index,
+                                           const SearchDiskSlotRange *ranges, size_t count) {
+    EXPECT_NE(index, nullptr);
+    EXPECT_EQ(count, 1u);
+    EXPECT_EQ(ranges[0].start, 10u);
+    EXPECT_EQ(ranges[0].end, 20u);
+    return state.prepare;
+  };
+  EXPECT_TRUE(SearchDisk_CanStartSlotMigration(spec->diskSpec, &range, 1));
+  state.prepare = false;
+  EXPECT_FALSE(SearchDisk_CanStartSlotMigration(spec->diskSpec, &range, 1));
+  api.slotMigration.canStartMigration = nullptr;
+  EXPECT_FALSE(SearchDisk_CanStartSlotMigration(spec->diskSpec, &range, 1));
+}
+
 TEST_F(DiskSlotTrimTest, PrepareFailureDoesNotMutateOrFree) {
   state.prepare = false;
   EXPECT_EQ(trim(), INDEX_TRIM_NOT_APPLIED);
@@ -311,6 +329,36 @@ TEST_F(DiskSlotTrimTest, PartialApplyIsReportedAndRetryDoesNotRecountCompletedBa
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
   EXPECT_EQ(collector()->deletesFromLastRun.load(), 9u);
+}
+
+TEST_F(DiskSlotTrimTest, PendingSlotCleanupRunsBelowThresholdAndRetries) {
+  auto &threshold = RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold;
+  const auto savedThreshold = threshold;
+  threshold = 1000;
+  state.pendingCleanup = true;
+  api.slotMigration.hasPendingCleanup = [](RedisSearchDiskIndexSpec *) {
+    return state.pendingCleanup;
+  };
+  api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
+    ++state.gcRuns;
+    stats->retryRequired = state.gcRuns == 1;
+    if (!stats->retryRequired) {
+      stats->num_cleaned_docs = 1;
+      state.pendingCleanup = false;
+    }
+  };
+  GCContext_OnDeleteCount(&gc, 1);
+  EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
+  EXPECT_EQ(state.gcRuns, 1u);
+  EXPECT_TRUE(state.pendingCleanup);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 1u);
+  EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
+  EXPECT_EQ(state.gcRuns, 2u);
+  EXPECT_FALSE(state.pendingCleanup);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 0u);
+  EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
+  EXPECT_EQ(state.gcRuns, 2u);
+  threshold = savedThreshold;
 }
 
 TEST_F(DiskSlotTrimTest, RecoverableGcFailureRetainsPendingChangesUntilRetry) {

@@ -798,6 +798,15 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
   }
 }
 
+bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index) {
+  return disk && disk->slotMigration.hasPendingCleanup &&
+         disk->slotMigration.hasPendingCleanup(index);
+}
+bool SearchDisk_CanStartSlotMigration(RedisSearchDiskIndexSpec *index,
+                                      const SearchDiskSlotRange *ranges, size_t numRanges) {
+  return disk && disk->slotMigration.canStartMigration &&
+         disk->slotMigration.canStartMigration(index, ranges, numRanges);
+}
 SearchDiskSlotTrim *SearchDisk_PrepareSlotTrim(RedisSearchDiskIndexSpec *index,
                                                const SearchDiskSlotRange *ranges, size_t numRanges,
                                                uint64_t *numDocs, uint64_t *totalDocLen) {
