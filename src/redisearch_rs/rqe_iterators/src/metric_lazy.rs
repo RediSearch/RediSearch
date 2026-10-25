@@ -102,10 +102,7 @@ impl<'index, const SORTED_BY_ID: bool> MetricLazy<'index, SORTED_BY_ID> {
     /// # Safety
     ///
     /// Same contract as [`Metric::set_handle`].
-    pub const unsafe fn set_handle(
-        &mut self,
-        key_handle: Option<NonNull<RLookupKeyHandle<'index>>>,
-    ) {
+    pub unsafe fn set_handle(&mut self, key_handle: Option<NonNull<RLookupKeyHandle<'index>>>) {
         // SAFETY: contract forwarded to the caller of this function.
         unsafe { self.inner.set_handle(key_handle) };
     }

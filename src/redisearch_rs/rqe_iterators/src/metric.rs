@@ -100,14 +100,20 @@ impl<'query, Rf: Ref, const SORTED_BY_ID: bool> RawMetric<'query, Rf, SORTED_BY_
     }
 }
 
-impl<'query, Rf: Ref, const SORTED_BY_ID: bool> Drop for RawMetric<'query, Rf, SORTED_BY_ID> {
-    fn drop(&mut self) {
-        if let Some(key_handle) = self.key_handle {
+impl<'query, Rf: Ref, const SORTED_BY_ID: bool> RawMetric<'query, Rf, SORTED_BY_ID> {
+    const fn invalidate_handle(&mut self) {
+        if let Some(key_handle) = self.key_handle.take() {
             // SAFETY: [`Self::key_handle`]'s invariant keeps the handle initialized
             // and alive until now. Writing through the raw place creates no
             // reference, so other live pointers to the handle are not invalidated.
             unsafe { (*key_handle.as_ptr()).is_valid = false };
         }
+    }
+}
+
+impl<'query, Rf: Ref, const SORTED_BY_ID: bool> Drop for RawMetric<'query, Rf, SORTED_BY_ID> {
+    fn drop(&mut self) {
+        self.invalidate_handle();
     }
 }
 
@@ -175,7 +181,8 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
         self.metric_data = metric_data;
     }
 
-    /// Set the [`RLookupKeyHandle`] for the metric iterator.
+    /// Set the [`RLookupKeyHandle`] for the metric iterator, invalidating any different
+    /// previously attached handle.
     ///
     /// # Safety
     ///
@@ -183,12 +190,13 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     ///
     /// - [`None`], indicating that the metric iterator does not have a key.
     /// - A pointer to an initialized [`RLookupKeyHandle`] that remains alive until
-    ///   this iterator is dropped or the handle is replaced.
-    pub const unsafe fn set_handle(
-        &mut self,
-        key_handle: Option<NonNull<RLookupKeyHandle<'index>>>,
-    ) {
-        self.key_handle = key_handle;
+    ///   this iterator is dropped or the handle is replaced. Its `is_valid` field
+    ///   must be writable exclusively when either happens.
+    pub unsafe fn set_handle(&mut self, key_handle: Option<NonNull<RLookupKeyHandle<'index>>>) {
+        if self.key_handle != key_handle {
+            self.invalidate_handle();
+            self.key_handle = key_handle;
+        }
     }
 
     /// Get the metric type used by this iterator.

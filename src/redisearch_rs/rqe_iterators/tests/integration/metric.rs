@@ -528,6 +528,53 @@ mod header_dispatch {
     }
 
     #[test]
+    fn replacing_and_detaching_handles_invalidates_previous_handles() {
+        let mut first = [(); 4].map(|()| RLookupKeyHandle {
+            key_ptr: std::ptr::null_mut(),
+            is_valid: true,
+        });
+        let mut second = [(); 4].map(|()| RLookupKeyHandle {
+            key_ptr: std::ptr::null_mut(),
+            is_valid: true,
+        });
+        let mut headers = headers();
+
+        for (((name, it), first), second) in headers.iter_mut().zip(&mut first).zip(&mut second) {
+            let first_ptr = NonNull::from(&mut *first);
+            let second_ptr = NonNull::from(&mut *second);
+            // SAFETY: both handles outlive the exclusively owned iterator and
+            // remain writable until they are detached below.
+            unsafe {
+                metric::set_key_handle(it.as_non_null(), Some(first_ptr));
+                metric::set_key_handle(it.as_non_null(), Some(first_ptr));
+            }
+            assert!(
+                first.is_valid,
+                "{name}: reattaching the same handle preserves it"
+            );
+
+            // SAFETY: both handles remain alive and exclusively writable.
+            unsafe { metric::set_key_handle(it.as_non_null(), Some(second_ptr)) };
+            assert!(
+                !first.is_valid,
+                "{name}: replacement invalidates the old handle"
+            );
+            assert!(
+                second.is_valid,
+                "{name}: replacement preserves the new handle"
+            );
+
+            // SAFETY: the attached handle remains alive and exclusively writable.
+            unsafe { metric::set_key_handle(it.as_non_null(), None) };
+            assert!(
+                !second.is_valid,
+                "{name}: detachment invalidates the handle"
+            );
+            it.free();
+        }
+    }
+
+    #[test]
     #[should_panic(expected = "expected a metric iterator")]
     fn own_key_ref_rejects_a_non_metric_iterator() {
         let it = OwnedHeader::new(RQEIteratorWrapper::boxed_new(Mock::new([1, 2, 3])));
