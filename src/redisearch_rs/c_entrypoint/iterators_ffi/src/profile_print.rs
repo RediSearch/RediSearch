@@ -20,6 +20,7 @@ use std::{ffi::CStr, ptr::NonNull};
 use ffi::QueryIterator;
 use redis_module::RedisModuleCtx;
 use redis_reply::Replier;
+use rqe_iterator_type::IteratorType;
 use rqe_iterators::{c2rust::call_print_profile, profile_print::ProfilePrintCtx};
 
 // ── C-only iterator PrintProfile vtable implementations ─────────────────
@@ -39,6 +40,13 @@ pub unsafe extern "C" fn Optimus_PrintProfile(
     map: *mut redis_reply::MapBuilder,
     ctx: *mut ProfilePrintCtx,
 ) {
+    debug_assert!(!self_.is_null());
+    debug_assert_eq!(
+        // SAFETY: precondition 1.
+        unsafe { (*self_).type_ },
+        IteratorType::Optimus,
+        "Optimus_PrintProfile called on a non-Optimus iterator",
+    );
     // SAFETY: precondition 2.
     let map = unsafe { &mut *map };
     // SAFETY: precondition 3.
@@ -60,8 +68,9 @@ pub unsafe extern "C" fn Optimus_PrintProfile(
     if let Some(child) = std::ptr::NonNull::new(child as *mut _) {
         let mut child_map = map.kv_map(c"Child iterator");
         let mut child_ctx = ctx.child_ctx();
-        // SAFETY: child is valid (checked non-null) and its PrintProfile
-        // vtable entry is set (it was profile-wrapped by Profile_AddIters).
+        // SAFETY: child is valid (checked non-null), and every iterator's
+        // PrintProfile vtable entry is set at construction, by
+        // `RQEIteratorWrapper::boxed_new` or by the C iterator's constructor.
         unsafe { call_print_profile(child, &mut child_map, &mut child_ctx) };
     }
 }
@@ -88,7 +97,8 @@ pub unsafe extern "C" fn Optimus_PrintProfile(
 ///
 /// 1. `ctx` must be a [valid] [`RedisModuleCtx`] pointer.
 /// 2. `root` must be null or a [valid] pointer to a [`QueryIterator`] tree
-///    that has been profile-wrapped via `Profile_AddIters`.
+///    that has been profile-wrapped via
+///    [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled).
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -98,15 +108,21 @@ pub unsafe extern "C" fn Profile_PrintIterators(
     limited: bool,
     print_profile_clock: bool,
 ) {
-    let Some(root) = NonNull::new(root as *mut _) else {
+    let Some(root) = NonNull::new(root.cast_mut()) else {
         return;
     };
+    debug_assert_eq!(
+        // SAFETY: `root` is a valid `QueryIterator` (precondition 2).
+        unsafe { root.as_ref() }.type_,
+        IteratorType::Profile,
+        "Profile_PrintIterators expects a profile-wrapped iterator tree",
+    );
 
     // SAFETY: precondition 1.
     let mut replier = unsafe { Replier::new(ctx) };
     let mut profile_ctx = ProfilePrintCtx::new(limited, print_profile_clock);
     let mut map = replier.map();
-    // SAFETY: precondition 2 (null case handled above). The PrintProfile
-    // vtable entry is set because the tree was profile-wrapped.
+    // SAFETY: precondition 2 (null case handled above). Every iterator's
+    // PrintProfile vtable entry is set at construction.
     unsafe { call_print_profile(root, &mut map, &mut profile_ctx) };
 }

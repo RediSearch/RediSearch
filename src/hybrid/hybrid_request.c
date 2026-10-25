@@ -44,14 +44,48 @@
 extern "C" {
 #endif
 
+void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
+  // Profile output reads per-processor stats from the whole chain until the reply is sent.
+  if (IsProfile(req)) {
+    return;
+  }
+  for (size_t i = 0; i < req->nrequests; i++) {
+    AREQ *areq = req->requests[i];
+    RedisSearchCtx *sctx = AREQ_SearchCtx(areq);
+    if (!sctx->diskSnapshot) {
+      continue;
+    }
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
+    ResultProcessor *depleter = qctx->endProc;
+    RS_ASSERT(depleter && (depleter->type == RP_DEPLETER || depleter->type == RP_SAFE_DEPLETER));
+
+    // Free from the depleter upstream, as QITR_FreeChain does: the iterators and the async read
+    // pool they feed must be gone before the snapshot they read from is released.
+    ResultProcessor *rp = depleter->upstream;
+    while (rp) {
+      ResultProcessor *next = rp->upstream;
+      rp->Free(rp);
+      rp = next;
+    }
+    depleter->upstream = NULL;
+    qctx->rootProc = depleter;
+    SearchCtx_CleanUp(sctx);
+  }
+}
+
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
     StrongRef sync_ref = {0};
     int rc = REDISMODULE_OK;
     if (depleteInBackground) {
-      sync_ref = DepleterSync_New(req->nrequests, true);
+      sync_ref = DepleterSync_New(req->nrequests, !req->sctx->spec->diskSpec);
     }
+
+    // Each subquery takes its own disk snapshot below. They observe the same state only because
+    // the caller holds one spec read lock across this whole loop, so no write can land between
+    // two subqueries' snapshots.
+    RS_ASSERT(!req->sctx->spec->diskSpec || IndexSpec_IsReadLocked(req->sctx->spec));
 
     // Build individual pipelines for each search request
     for (size_t i = 0; i < req->nrequests; i++) {
@@ -75,12 +109,12 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         }
 
         // Parse subquery: Convert AST to iterator tree
-        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq),
-                                      areq->reqflags, &areq->base.reply.err);
+        areq->iteratorTree = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq),
+                                          areq->reqflags, &areq->base.reply.err);
         rs_wall_clock parseClock;
         if (isProfile) {
           // Add a Profile iterators before every iterator in the tree
-          Profile_AddIters(&areq->rootiter);
+          QueryIteratorTree_Profile(areq->iteratorTree);
           // Initialize parseClock after adding profile iterators, we want that to be accounted in the parsing timing
           rs_wall_clock_init(&parseClock);
           // Calculate the time elapsed for subquery parsing (AST to iterator + profile setup)

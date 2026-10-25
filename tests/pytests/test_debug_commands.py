@@ -48,6 +48,24 @@ class TestDebugCommands(object):
         self.env.assertIn(res, (0, 1, True, False),
                           message=f'expected a boolean, got {res!r}')
 
+    def testDiskLiveSnapshotsIsZeroWithoutDisk(self):
+        """No disk snapshot is ever taken on a RAM index, so the counter stays at zero."""
+        self.env.expect(debug_cmd(), 'DISK_LIVE_SNAPSHOTS').equal(0)
+        self.env.expect(debug_cmd(), 'DISK_LIVE_SNAPSHOTS', 'extra').error().contains(
+            'wrong number of arguments')
+
+    def testDiskStatsRequiresDiskIndex(self):
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx').error().contains(
+            'only supported on disk indexes')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'verbose').error().contains(
+            'only supported on disk indexes')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'other').error().contains('Expected VERBOSE')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'invalid_idx').error().contains(
+            'Can not create a search ctx')
+        self.env.expect(debug_cmd(), 'DISK_STATS').error().contains('wrong number of arguments')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'VERBOSE', 'extra').error().contains(
+            'wrong number of arguments')
+
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
         help_list = [
@@ -71,6 +89,7 @@ class TestDebugCommands(object):
             "GC_FORCEBGINVOKE",
             "DISK_FLUSH",
             "DISK_FLUSH_NOWAIT",
+            "DISK_LIVE_SNAPSHOTS",
             "DISK_PAUSE_BG_WORK",
             "DISK_RESUME_BG_WORK",
             "GC_CLEAN_NUMERIC",
@@ -105,6 +124,7 @@ class TestDebugCommands(object):
             'GET_MAX_DOC_ID',
             'DUMP_DELETED_IDS',
             'NUMERIC_BUCKET_MAP',
+            'DISK_STATS',
             'DISK_IO_CONTROL',
             'REGISTER_TEST_SCORERS',
             'SET_MAX_INDEXES',
@@ -132,7 +152,7 @@ class TestDebugCommands(object):
         arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS',
                         'DELETE_LOCAL_COORD_CURSORS', 'SHARD_CONNECTION_STATES',
                         'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS',
-                        'HASH_SUBKEY_NOTIFICATIONS',
+                        'HASH_SUBKEY_NOTIFICATIONS', 'DISK_LIVE_SNAPSHOTS',
                         'REGISTER_TEST_SCORERS', 'BG_PENDING_REPLIES',
                         'IO_RUNTIME_PENDING_REQUESTS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:

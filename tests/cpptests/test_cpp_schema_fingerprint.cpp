@@ -11,6 +11,7 @@
 #include "common.h"
 #include "indexes.h"
 #include "synonym_map.h"
+#include "../charbuf_test_utils.h"
 #include "util/hash/hash.h"
 
 #include <initializer_list>
@@ -83,16 +84,16 @@ TEST_F(SchemaFingerprintTest, StopwordsContentSensitiveOrderInsensitive) {
 TEST_F(SchemaFingerprintTest, SynonymMapOrderIndependent) {
   SynonymMap *a = SynonymMap_New(false);
   SynonymMap *b = SynonymMap_New(false);
-  const char *wheels[] = {"car", "automobile"};
-  const char *speed[] = {"fast", "quick"};
-  SynonymMap_Add(a, "g1", wheels, 2);
-  SynonymMap_Add(a, "g2", speed, 2);
-  SynonymMap_Add(b, "g2", speed, 2);
-  SynonymMap_Add(b, "g1", wheels, 2);
+  const CharBuf wheels[] = {CB_LIT("car"), CB_LIT("automobile")};
+  const CharBuf speed[] = {CB_LIT("fast"), CB_LIT("quick")};
+  SynonymMap_Update(a, wheels, 2, "g1");
+  SynonymMap_Update(a, speed, 2, "g2");
+  SynonymMap_Update(b, speed, 2, "g2");
+  SynonymMap_Update(b, wheels, 2, "g1");
   ASSERT_EQ(SynonymMap_Fingerprint(a), SynonymMap_Fingerprint(b));
 
   SynonymMap *c = SynonymMap_New(false);
-  SynonymMap_Add(c, "g1", wheels, 2);
+  SynonymMap_Update(c, wheels, 2, "g1");
   ASSERT_NE(SynonymMap_Fingerprint(a), SynonymMap_Fingerprint(c));
 
   SynonymMap_Free(a);
@@ -252,8 +253,8 @@ TEST_F(SchemaFingerprintTest, EmptySynonymMapMatchesAbsentMap) {
   IndexSpec_InitializeSynonym(sp);
   ASSERT_TRUE(sp->flags & Index_HasSmap);
   ASSERT_EQ(absent, fp(sp));
-  const char *terms[] = {"hello", "hi"};
-  SynonymMap_Add(sp->smap, "group", terms, 2);
+  const CharBuf terms[] = {CB_LIT("hello"), CB_LIT("hi")};
+  SynonymMap_Update(sp->smap, terms, 2, "group");
   ASSERT_NE(absent, fp(sp));
 }
 

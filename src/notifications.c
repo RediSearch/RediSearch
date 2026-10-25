@@ -17,6 +17,7 @@
 
 #include "config.h"
 #include "notifications.h"
+#include "doc_id_meta.h"
 #include "spec.h"
 #include "indexes.h"
 #include "doc_types.h"
@@ -27,6 +28,7 @@
 #include "dictionary.h"
 #include "asm_state_machine.h"
 #include "coord/rmr/redis_cluster.h"
+#include "coord/config.h"
 #include "cursor.h"
 #include "search_disk.h"
 #include "disk_gc.h"
@@ -327,6 +329,17 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
       break;
 
     case restore_cmd:
+      // The payload's D-ID was saved by whichever process ran DUMP: its docIds name
+      // other documents here, or this key's previous, already-unlinked incarnation.
+      // No index here has indexed this new key yet, so every entry is foreign.
+      // Optimization option: Open Key once and pass the open key down the stack to Indexes_UpdateMatchingWithSchemaRules.
+      // Split of logic would be the risk (Indexes_UpdateMatchingWithSchemaRules is a clear signal on all the notifications that reindex a key)
+      // Only processes that register the D-ID rdb_load can receive it (DocIdMeta_Init).
+      if (SearchDisk_IsEnabledForValidation()) {
+        DocIdMeta_Clear(ctx, key);
+      }
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), changedFields, numChangedFields);
+      break;
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), changedFields, numChangedFields);
       break;
@@ -1260,10 +1273,8 @@ void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigration, ClusterSlotMigrationEvent);
   RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterSlotMigrationTrim, ClusterSlotMigrationTrimEvent);
 
-  // Do not subscribe on Enterprise, even if the server supports the event: topology updates
-  // there are driven by `SEARCH.CLUSTERSET`, and we must not react to topology change events
-  // before the Enterprise flow fully supports it (e.g. connections auth).
-  if (!IsEnterprise()) {
+  // Proxy coordination receives topology through SEARCH.CLUSTERSET.
+  if (!RS_UsesProxyCoordination()) {
     RedisModule_Log(ctx, "notice", "Subscribe to cluster topology change events");
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterTopologyChange, ClusterTopologyChangeEvent) != REDISMODULE_OK) {
       RedisModule_Log(ctx, "warning", "Cluster topology change event is not supported by the server. The cluster "

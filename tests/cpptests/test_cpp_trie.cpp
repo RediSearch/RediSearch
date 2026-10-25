@@ -20,10 +20,18 @@
 #include <string>
 #include <memory>
 #include <functional>
+#include <stdexcept>
 #include <cstdint>
+#include <algorithm>
 #include <random>
 #include <set>
 #include <vector>
+#include <algorithm>
+#include <utility>
+#include <climits>
+
+#include <sys/mman.h>
+#include <unistd.h>
 
 class TrieTest : public ::testing::Test {};
 
@@ -122,6 +130,55 @@ static void buildPackedChildKeyScanTrie(Trie **tOut, TrieNode **prefixNodeOut) {
   ASSERT_NE(0u, trieNodeChildKeyAddress(prefixNode) % alignof(rune));
   ASSERT_EQ(0u, reinterpret_cast<uintptr_t>(TrieNode_Children(prefixNode)) % alignof(TrieNode *));
   *prefixNodeOut = prefixNode;
+}
+
+// A node already holding UINT16_MAX children, one per rune from 1 up, built directly: growing it
+// one insert at a time scans every child per insert, which is far too slow for a unit test.
+static TrieNode *newFullTrieNode(TrieSortMode mode) {
+  const rune noStr = 0;
+  TrieNode *n = __newTrieNode(&noStr, 0, 0, nullptr, 0, UINT16_MAX, 0, 0, mode, 0);
+  for (uint32_t i = 0; i < UINT16_MAX; ++i) {
+    rune key = static_cast<rune>(i + 1);
+    // The child-key cache is packed and may be unaligned.
+    memcpy(reinterpret_cast<void *>(trieNodeChildKeyAddress(n) + i * sizeof(rune)), &key,
+           sizeof(rune));
+    TrieNode_Children(n)[i] = __newTrieNode(&key, 0, 1, nullptr, 0, 0, 1, 1, mode, 0);
+  }
+  n->subtreeMaxScore = 1;
+  return n;
+}
+
+// A node holds at most UINT16_MAX children, one fewer than there are rune values, so a node
+// branching on every rune but one cannot take the last. Adding it must fail and leave the node
+// as it was.
+TEST_F(TrieTest, testAddChildToFullNodeFails) {
+  for (TrieSortMode mode : {Trie_Sort_Lex, Trie_Sort_Score}) {
+    TrieNode *root = newFullTrieNode(mode);
+    TrieNode *const before = root;
+
+    rune extra = 0;
+    int rc = TRIE_OK_NEW;
+    try {
+      rc = TrieNode_Add(&root, &extra, 1, nullptr, 1, ADD_REPLACE, nullptr, 0);
+    } catch (const std::runtime_error &e) {
+      // Debug builds catch the overflow in an assertion, which redismock throws.
+      FAIL() << "a full trie node accepted another child (mode " << mode << "): " << e.what();
+    }
+    // Not named, so the test also builds on code that predates the dedicated code: callers
+    // distinguish it from payload overflow, so that is the property to pin.
+    EXPECT_LT(rc, 0) << "a full trie node accepted another child (mode " << mode << ")";
+    EXPECT_NE(TRIE_ERR_PAYLOAD_OVERFLOW, rc) << "a full trie node reported payload overflow";
+    EXPECT_EQ(before, root);
+    EXPECT_EQ(UINT16_MAX, TrieNode_NumChildren(root));
+    EXPECT_EQ(nullptr, TrieNode_Get(root, &extra, 1, true, nullptr));
+    for (rune r : {rune(1), rune(0x8000), rune(UINT16_MAX)}) {
+      EXPECT_NE(nullptr, TrieNode_Get(root, &r, 1, true, nullptr)) << "rune " << r;
+    }
+    // A full node only refuses new children: existing entries still update.
+    rune existing = 0x8000;
+    EXPECT_EQ(TRIE_OK_UPDATED, TrieNode_Add(&root, &existing, 1, nullptr, 2, ADD_REPLACE, nullptr, 0));
+    TrieNode_Free(root, nullptr);
+  }
 }
 
 TEST_F(TrieTest, testGetScansPackedChildKeys) {
@@ -512,6 +569,52 @@ TEST_F(TrieTest, testRotateChildIntoPlace) {
   TrieNode_Free(root, NULL);
 }
 
+static TrieNode *getRaw(TrieNode *root, const char *s) {
+  runeBuf buf;
+  size_t len = strlen(s);
+  rune *runes = runeBufFill(s, len, &buf, &len);
+  TrieNode *n = TrieNode_Get(root, runes, len, true, NULL);
+  runeBufFree(&buf);
+  return n;
+}
+
+// Splitting "bcbab" at "bc" leaves "bc" with the old suffix as its only child;
+// the new suffix must be placed by score, not by rune.
+TEST_F(TrieTest, testSplitPlacesNewChildByScore) {
+  struct Case {
+    const char *newKey;
+    float newScore;
+    const char *order;
+  };
+  // Higher score goes first; a tie or lower score keeps the existing child first.
+  // Each new key's rune is on the opposite side of the existing one from where
+  // its score puts it, so rune placement would get every case wrong.
+  const Case cases[] = {{"bcca", 3.0f, "cb"}, {"bcaa", 2.0f, "ba"}, {"bcaa", 1.0f, "ba"}};
+  for (const Case &c : cases) {
+    SCOPED_TRACE(testing::Message() << c.newKey << ":" << c.newScore);
+    rune emptyRoot[1] = {0};
+    TrieNode *root = __newTrieNode(emptyRoot, 0, 0, NULL, 0, 0, 0.0f, 0, Trie_Sort_Score, 0);
+    addRaw(&root, "bcbab", 2.0f, ADD_REPLACE);
+    addRaw(&root, c.newKey, c.newScore, ADD_REPLACE);
+
+    TrieNode *split = getRaw(root, "bc");
+    ASSERT_NE(split, nullptr);
+    assertChildOrder(split, c.order);
+    assertChildrenScoreOrdered(root);
+    EXPECT_FLOAT_EQ(split->subtreeMaxScore, std::max(2.0f, c.newScore));
+
+    // exact lookups go through the split node's child-key cache
+    TrieNode *old = getRaw(root, "bcbab");
+    TrieNode *added = getRaw(root, c.newKey);
+    ASSERT_NE(old, nullptr);
+    ASSERT_NE(added, nullptr);
+    EXPECT_FLOAT_EQ(old->score, 2.0f);
+    EXPECT_FLOAT_EQ(added->score, c.newScore);
+
+    TrieNode_Free(root, NULL);
+  }
+}
+
 static int deleteRaw(TrieNode *root, const std::string &s) {
   runeBuf buf;
   size_t len = s.size();
@@ -553,15 +656,17 @@ static void assertLexTrie(const TrieNode *n, bool isRoot) {
 }
 
 // Score mode adds a bound covering the node's own score and every child's
-// bound, which is what FT.SUGGET prunes on. Not equality: ADD_REPLACE lowering
-// a score leaves an over-estimate by design. Child order is not checked, since
-// the insert split path places the new child by rune rather than by bound.
+// bound, which is what FT.SUGGET prunes on, and descending-bound child order.
+// Not equality: ADD_REPLACE lowering a score leaves an over-estimate by design.
 static void assertScoreTrie(const TrieNode *n, bool isRoot) {
   ASSERT_NO_FATAL_FAILURE(assertCompactNode(n, isRoot));
   ASSERT_GE(n->subtreeMaxScore, n->score);
   for (t_len i = 0; i < n->numChildren; i++) {
     const TrieNode *child = TrieNode_ChildAt(n, i);
     ASSERT_GE(n->subtreeMaxScore, child->subtreeMaxScore);
+    if (i > 0) {
+      ASSERT_GE(TrieNode_ChildAt(n, i - 1)->subtreeMaxScore, child->subtreeMaxScore);
+    }
     assertScoreTrie(child, false);
   }
 }
@@ -1320,6 +1425,149 @@ TEST_F(TrieTest, testSearchTrimDropsTail) {
   Vector_Free(res);
 
   TrieType_Free(t);
+}
+
+// FT.SUGGET hands strToSingleCodepointFoldedRunes a Redis string's exact byte
+// length, and FT.SUGADD/SUGDEL do the same with strToRunes. A multi-byte lead
+// byte at the end must not make a decoder read past that length, so the result
+// cannot depend on the bytes that follow it.
+TEST_F(TrieTest, testRuneDecodeStaysWithinLength) {
+  typedef std::vector<rune> (*Decoder)(const char *, size_t);
+  const std::pair<const char *, Decoder> decoders[] = {
+      {"strToSingleCodepointFoldedRunes",
+       [](const char *s, size_t n) {
+         size_t rlen = 0;
+         rune *r = strToSingleCodepointFoldedRunes(s, n, &rlen);
+         std::vector<rune> out(r, r + rlen);
+         rm_free(r);
+         return out;
+       }},
+      {"strToRunes",
+       [](const char *s, size_t n) {
+         std::vector<rune> out(n);
+         out.resize(std::min(strToRunes(s, n, out.data(), n), n));
+         return out;
+       }},
+      {"strToLowerRunes",
+       [](const char *s, size_t n) {
+         size_t rlen = 0;
+         rune *r = strToLowerRunes(s, n, &rlen);
+         std::vector<rune> out(r, r + rlen);
+         rm_free(r);
+         return out;
+       }},
+  };
+
+  // The leads of a 2-, 3- and 4-byte sequence, each cut off after "ab".
+  for (char lead : {'\xC3', '\xE4', '\xF0'}) {
+    const std::string input = std::string("ab") + lead;
+    // The same input followed by zeros, or by the rest of U+1F600.
+    const std::string zeroed = input + std::string(3, '\0');
+    const std::string continued = input + "\x9F\x98\x80";
+    for (const auto &[name, decode] : decoders) {
+      EXPECT_EQ(decode(zeroed.data(), input.size()), decode(continued.data(), input.size()))
+          << name << " read past the supplied length (trailing lead byte 0x" << std::hex
+          << (int)(unsigned char)lead << ")";
+    }
+  }
+}
+
+// Lowering ends at the first decoded NUL, whether a literal 0 byte or an
+// overlong encoding of one.
+TEST_F(TrieTest, testLowerRunesStopsAtNul) {
+  const std::pair<std::string, std::vector<rune>> cases[] = {
+      {std::string("\0AB", 3), {}},
+      {std::string("a\0BCD", 5), {'a'}},
+      {std::string("Ab\xC0\x80") + "CD", {'a', 'b'}},
+  };
+  for (const auto &[input, expected] : cases) {
+    size_t rlen = 0;
+    rune *r = strToLowerRunes(input.data(), input.size(), &rlen);
+    ASSERT_TRUE(r != nullptr);
+    EXPECT_EQ(expected, std::vector<rune>(r, r + rlen)) << "input size " << input.size();
+    EXPECT_EQ(0, r[rlen]) << "input size " << input.size();
+    rm_free(r);
+  }
+}
+
+// A string longer than MAX_RUNE_STR_LEN runes is rejected without being walked
+// to its end. The bytes past the limit sit in an inaccessible page, so reading
+// them faults.
+TEST_F(TrieTest, testLowerRunesStopsCountingPastLimit) {
+  const long pageSize = sysconf(_SC_PAGESIZE);
+  ASSERT_GT(pageSize, 0);
+  const size_t page = pageSize;
+  const size_t n = MAX_RUNE_STR_LEN + 1;
+  const size_t region = ((n + page - 1) / page + 1) * page;
+  char *base =
+      (char *)mmap(nullptr, region, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  ASSERT_NE(MAP_FAILED, (void *)base);
+  char *guard = base + region - page;
+  ASSERT_EQ(0, mprotect(guard, page, PROT_NONE));
+  char *str = guard - n;
+  memset(str, 'a', n);
+
+  size_t rlen = 1;
+  EXPECT_EQ(nullptr, strToLowerRunes(str, n + page, &rlen));
+  EXPECT_EQ(0, rlen);
+  munmap(base, region);
+}
+
+namespace {
+// Big enough for every allocation a search over a two-entry trie writes to.
+constexpr size_t kServedAllocBytes = 64 * 1024;
+void *(*allocBeforeCapture)(size_t) = nullptr;
+size_t largestAllocRequest = 0;
+
+// Records the largest rm_malloc request and serves at most kServedAllocBytes,
+// so an oversized request shows up as evidence instead of exhausting memory.
+void *cappedAlloc(size_t n) {
+  largestAllocRequest = std::max(largestAllocRequest, n);
+  return allocBeforeCapture(std::min(n, kServedAllocBytes));
+}
+
+struct CappedAllocations {
+  CappedAllocations() {
+    largestAllocRequest = 0;
+    allocBeforeCapture = RedisModule_Alloc;
+    RedisModule_Alloc = cappedAlloc;
+  }
+  ~CappedAllocations() {
+    RedisModule_Alloc = allocBeforeCapture;
+  }
+};
+}  // namespace
+
+// FT.SUGGET passes its MAX argument, anything in [1, UINT_MAX], to
+// Trie_CollectFuzzy as `num`.
+TEST_F(TrieTest, testCollectFuzzyHeapBoundedByEntries) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Score);
+  std::unique_ptr<Trie, std::function<void(Trie *)>> tPtr(t,
+                                                          [](Trie *trie) { TrieType_Free(trie); });
+  trieInsertByScore(t, "hello", 2.0f);
+  trieInsertByScore(t, "help", 1.0f);
+
+  // INT_MAX first: past it the unfixed heap reports a negative capacity and
+  // crashes, so the size assertion has to stop the test before that case.
+  for (size_t num : {(size_t)INT_MAX, (size_t)UINT_MAX}) {
+    Vector *res;
+    {
+      CappedAllocations capped;
+      res = Trie_CollectFuzzy(t, "he", 2, num, 0, TRIE_MATCH_PREFIX, 0, 0);
+      ASSERT_LE(largestAllocRequest, kServedAllocBytes)
+          << "the result heap was sized from MAX instead of the trie's entries (num=" << num << ")";
+    }
+    ASSERT_TRUE(res != NULL);
+    ASSERT_EQ(2, Vector_Size(res)) << "num=" << num;
+    const char *expected[] = {"hello", "help"};
+    for (size_t i = 0; i < 2; ++i) {
+      TrieSearchResult *e;
+      ASSERT_EQ(1, Vector_Get(res, i, &e));
+      EXPECT_EQ(std::string(expected[i]), std::string(e->str, e->len)) << "num=" << num;
+      TrieSearchResult_Free(e);
+    }
+    Vector_Free(res);
+  }
 }
 
 namespace {

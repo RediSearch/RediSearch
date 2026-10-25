@@ -201,7 +201,8 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     .maxOpenFiles = RSGlobalConfig.diskMaxOpenFiles,
   };
   disk_db = disk->basic.open(ctx, &resource_config, RSGlobalConfig.hideUserDataFromLog,
-                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads);
+                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads,
+                             RSGlobalConfig.diskStatistics);
   if (!disk_db) {
     RedisModule_Log(ctx, "warning", "Search Disk is enabled but could not be initialized");
     return false;
@@ -247,6 +248,7 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
 // Seeding precedes registry insertion; only visible indexes contribute to quota accounting.
 void SearchDisk_ActivateUsage(IndexSpec *spec) {
   if (disk_db && spec && spec->diskSpec) {
+    RS_ASSERT(specDict_g && StrongRef_Get((StrongRef){dictFetchValue(specDict_g, spec->specName)}) == spec);
     disk->metrics.activateTarget(spec->diskSpec);
   }
 }
@@ -306,10 +308,6 @@ static void SearchDisk_CompleteLogicalOpen(RedisSearchDiskIndexSpec *result, Ind
     // Open atomically registers with BigModule, so the spec needs a
     // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
     spec->diskRegistered = true;
-    dictEntry *entry = specDict_g ? dictFind(specDict_g, spec->specName) : NULL;
-    if (entry && StrongRef_Get(dictGetRef(entry)) == spec) {
-      disk->metrics.activateTarget(result);
-    }
     return;
   }
   if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {
@@ -479,9 +477,16 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
     return disk->index.newTagIterator(index, tok, fieldIndex, weight, sctx->diskSnapshot, status);
 }
 
+// Snapshots pin disk resources until freed, so tests need to see whether any outlived their query.
+static atomic_size_t liveSnapshots = 0;
+
 RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *index) {
     RS_ASSERT(disk && index);
-    return disk->index.createSnapshot(index);
+    RedisSearchDiskSnapshot *snapshot = disk->index.createSnapshot(index);
+    if (snapshot) {
+        atomic_fetch_add(&liveSnapshots, 1);
+    }
+    return snapshot;
 }
 
 void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot) {
@@ -490,6 +495,12 @@ void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot) {
     }
     RS_ASSERT(disk);
     disk->index.freeSnapshot(snapshot);
+    const size_t prev = atomic_fetch_sub(&liveSnapshots, 1);
+    RS_ASSERT(prev > 0);
+}
+
+size_t SearchDisk_GetLiveSnapshotCount(void) {
+    return atomic_load(&liveSnapshots);
 }
 
 void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
@@ -526,6 +537,11 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle) {
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size) {
     RS_ASSERT(disk && handle);
     return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
+}
+
+char *SearchDisk_DebugDiskStats(RedisSearchDiskIndexSpec *handle, bool withStatistics) {
+    RS_ASSERT(disk && disk_db && handle);
+    return disk->metrics.debugDiskStats(disk_db, handle, withStatistics, &sdsnewlen);
 }
 
 char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex) {

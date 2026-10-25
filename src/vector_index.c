@@ -36,6 +36,7 @@
 #include "query.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
+#include "query_flags.h"
 #include "query_request.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
@@ -98,6 +99,11 @@ static const char *relabelCodeName(VecSimRelabelCode rc) {
 static VectorIndex_RelabelFn relabelFnForTests = NULL;
 void VectorIndex_SetRelabelFnForTests(VectorIndex_RelabelFn fn) {
   relabelFnForTests = fn;
+}
+
+static VectorIndex_BasicInfoFn basicInfoFnForTests = NULL;
+void VectorIndex_SetBasicInfoFnForTests(VectorIndex_BasicInfoFn fn) {
+  basicInfoFnForTests = fn;
 }
 #endif
 
@@ -166,12 +172,28 @@ static int VectorQuery_ValidateDiskHybridPolicy(const QueryEvalCtx *q, const Vec
   }
 
   if (!VectorQuery_HasParam(vq, VECSIM_HYBRID_POLICY, sizeof(VECSIM_HYBRID_POLICY) - 1)) {
-    QueryError_SetError(q->status, QUERY_ERROR_CODE_INVAL,
-                        "Redis Flex pre-filtered vector queries currently require explicit HYBRID_POLICY");
+    const char *policy = q->reqFlags & QEXEC_F_IS_HYBRID_VECTOR_AGGREGATE_SUBQUERY
+                             ? "FILTER ... POLICY"
+                             : "HYBRID_POLICY";
+    QueryError_SetWithoutUserDataFmt(
+        q->status, QUERY_ERROR_CODE_INVAL,
+        "Redis Flex pre-filtered vector queries currently require explicit %s", policy);
     return REDISMODULE_ERR;
   }
 
   return REDISMODULE_OK;
+}
+
+bool VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryError *status) {
+  size_t elementSize = VecSimType_sizeof(type);
+  // Leave room for normalization and storage metadata in downstream size calculations.
+  if (!elementSize || !dim || dim > SIZE_MAX / 2 / elementSize) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "Invalid vector DIM: vector size is too large");
+    return false;
+  }
+  *size = dim * elementSize;
+  return true;
 }
 
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
@@ -184,19 +206,28 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
     return NULL;
   }
 
+#ifdef ENABLE_ASSERT
+  VecSimIndexBasicInfo info =
+      basicInfoFnForTests ? basicInfoFnForTests(vecsim) : VecSimIndex_BasicInfo(vecsim);
+#else
   VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsim);
+#endif
   size_t dim = info.dim;
   VecSimType type = info.type;
+  size_t blobSize;
+  if (!VectorIndex_GetBlobSize(dim, type, &blobSize, q->status)) {
+    return NULL;
+  }
 
   VecSimQueryParams qParams = {0};
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldSpec->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
-      if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
-        QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
-                                      "Error parsing vector similarity query: query vector blob size",
-                                      " (%zu) does not match index's expected size (%zu).",
-                                      vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
+      if (blobSize != vq->knn.vecLen) {
+        QueryError_SetWithUserDataFmt(
+            q->status, QUERY_ERROR_CODE_INVAL,
+            "Error parsing vector similarity query: query vector blob size",
+            " (%zu) does not match index's expected size (%zu).", vq->knn.vecLen, blobSize);
         return NULL;
       }
       if (VectorQuery_ValidateDiskHybridPolicy(q, vq, child_it) != REDISMODULE_OK) {
@@ -220,16 +251,16 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
         return NULL;
       }
       RS_ASSERT(q->sctx->timeout);
-      return NewVectorTopKIterator(vecsim, vq->knn.vector, dim * VecSimType_sizeof(type), &qParams,
-                                   vq->knn.k, q->opts->flags & Search_CanSkipRichResults, child_it,
+      return NewVectorTopKIterator(vecsim, vq->knn.vector, blobSize, &qParams, vq->knn.k,
+                                   q->opts->flags & Search_CanSkipRichResults, child_it,
                                    q->sctx->timeout, q->sctx, &filterCtx);
     }
     case VECSIM_QT_RANGE: {
-      if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
-        QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
-                               "Error parsing vector similarity query: query vector blob size",
-                               " (%zu) does not match index's expected size (%zu).",
-                               vq->range.vecLen, (dim * VecSimType_sizeof(type)));
+      if (blobSize != vq->range.vecLen) {
+        QueryError_SetWithUserDataFmt(
+            q->status, QUERY_ERROR_CODE_INVAL,
+            "Error parsing vector similarity query: query vector blob size",
+            " (%zu) does not match index's expected size (%zu).", vq->range.vecLen, blobSize);
         return NULL;
       }
       if (vq->range.radius < 0) {
@@ -275,7 +306,7 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
     return 0;
   }
   size_t val_len;
-  const char *val = Param_DictGet(paramsDict, params.params[index].value, &val_len, status);
+  const char *val = Param_DictGet(paramsDict, params.params[index].value, params.params[index].valLen, &val_len, status);
   if (!val) {
     return -1;
   }
@@ -781,7 +812,8 @@ static VecSimResolveCode validateSVSRuntimeParams(VecSimIndex *index,
 VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *params, size_t params_len,
                           VecSimQueryParams *qParams, VecsimQueryType queryType, QueryError *status) {
 
-  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, queryType);
+  const char *vecSimErrMsg = NULL;
+  VecSimResolveCode vecSimCode = VecSimIndex_ResolveParams(index, params, params_len, qParams, queryType, &vecSimErrMsg);
   if (vecSimCode == VecSim_OK) {
     return validateSVSRuntimeParams(index, qParams, status);
   }
@@ -825,8 +857,14 @@ VecSimResolveCode VecSim_ResolveQueryParams(VecSimIndex *index, VecSimRawParam *
     }
   }
   const char *default_msg = QueryError_StrerrorDefaultMessage(RSErrorCode);
-  QueryError_SetWithUserDataFmt(status, RSErrorCode, default_msg,
-                                " (Error parsing vector similarity parameters)");
+  if (vecSimErrMsg) {
+    // vecSimErrMsg may echo back user-supplied content (e.g. an unknown parameter name), so it
+    // goes through the user-data slot rather than the safe/obfuscation-visible message.
+    QueryError_SetWithUserDataFmt(status, RSErrorCode, default_msg, " (%s)", vecSimErrMsg);
+  } else {
+    QueryError_SetWithUserDataFmt(status, RSErrorCode, default_msg,
+                                  " (Error parsing vector similarity parameters)");
+  }
   return vecSimCode;
 }
 

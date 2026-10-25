@@ -997,8 +997,8 @@ typedef struct {
   // Per-key load profiling buffer (nkeys entries), allocated only for
   // `FT.PROFILE ... LOAD`; NULL otherwise. Populated by the Rust loader.
   LoadFieldProfile *profileFields;
-  // Owned; NULL when loading all fields.
-  struct HashFieldNames *fieldNames;
+  // Owned format-specific cache; NULL for whole-document HASH loading.
+  struct LoaderCache *cache;
   QueryError status;
 } RPLoader;
 
@@ -1036,27 +1036,28 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 
   int ret;
   if (self->load_all) {
-      LoadAllKeysOptions opts = {
-          .sctx = self->sctx,
-          .dmd = dmd,
-          .force_string = true,
-          .status = &self->status,
-      };
-      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
+    LoadAllKeysOptions opts = {
+        .sctx = self->sctx,
+        .dmd = dmd,
+        .force_string = true,
+        .status = &self->status,
+        .cache = self->cache,
+    };
+    ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
-      LoadIndividualKeysOptions opts = {
-          .sctx = self->sctx,
-          .dmd = dmd,
-          .keys = self->keys,
-          .nkeys = self->nkeys,
-          .force_string = true,
-          .force_load = self->forceLoad,
-          .cached_only = false,
-          .status = &self->status,
-          .profile_fields = self->profileFields,
-          .field_names = self->fieldNames,
-      };
-      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
+    LoadIndividualKeysOptions opts = {
+        .sctx = self->sctx,
+        .dmd = dmd,
+        .keys = self->keys,
+        .nkeys = self->nkeys,
+        .force_string = true,
+        .force_load = self->forceLoad,
+        .cached_only = false,
+        .status = &self->status,
+        .profile_fields = self->profileFields,
+        .cache = self->cache,
+    };
+    ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
 
   // if loading the document has failed, we keep the row as it was.
@@ -1119,7 +1120,7 @@ static void rploaderFreeInternal(ResultProcessor *base) {
   QueryError_ClearError(&lc->status);
   rm_free(lc->keys);
   rm_free(lc->profileFields);
-  HashFieldNames_Free(lc->fieldNames);
+  LoaderCache_Free(lc->cache);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1139,13 +1140,14 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     if (withProfile) {
       self->profileFields = rm_calloc(nkeys, sizeof(*self->profileFields));
     }
-    self->fieldNames = HashFieldNames_New();
     self->load_all = false;
   } else {
     self->load_all = true;
-    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED); // TODO: turn on only for HASH specs
+    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED);  // TODO: turn on only for HASH specs
   }
 
+  DocumentType type = sctx && sctx->spec ? sctx->spec->rule->type : DocumentType_Hash;
+  self->cache = LoaderCache_New(type, self->keys, self->nkeys);
   self->lk = lk;
 }
 
@@ -2368,7 +2370,7 @@ void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters) {
 * waiting for depletion to finish:
 * 0. Some sanity checks, will return an error if it detected an invalid state
 * 1. It will start a thread for every safe depleter
-* 2. Wait for all the threads to take their own read lock and then unlock the lock it held - we assume the lock was taken in the query thread
+* 2. When take_index_lock is set, transfer the caller's read lock to the depleters.
 * 3. If any depleter failed to acquire its lock, drain the group and return
 *    RS_RESULT_ERROR — the failure is fatal and the caller aborts before any
 *    reply, and an error return must not leave background threads writing
@@ -2377,13 +2379,14 @@ void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters) {
 * for its own completion, so consumers observe results in completion order.
 */
 int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status) {
-  RS_ASSERT(lockedCtx != NULL && IndexSpec_IsReadLocked(lockedCtx->spec));
+  RS_ASSERT(lockedCtx != NULL);
   DepleterSync *sync = NULL;
   // Verify we are in a sane state before starting the depletion process
   if (!verifyInvariants(safeDepleters, &sync)) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE, "Failed to start background depletion");
     return RS_RESULT_ERROR;
   }
+  RS_ASSERT(!sync->take_index_lock || IndexSpec_IsReadLocked(lockedCtx->spec));
 
   // TODO: Check timeout before attempting to start threads
   // This would lead to returning an error from one of the shards, maybe failing the entire command
@@ -2760,15 +2763,18 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
    ret->upstreams = upstreams;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 
-   // Calculate maximal dictionary size based on scoring type
-   size_t maximalSize;
+   size_t window;
    if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-     maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;
+     window = hybridScoringCtx->rrfCtx.window;
    } else {
-     maximalSize = hybridScoringCtx->linearCtx.window * numUpstreams;
+     window = hybridScoringCtx->linearCtx.window;
    }
-   // Pre-size the dictionary to avoid multiple resizes during accumulation
-   dictExpand(ret->hybridResults, maximalSize);
+   // WINDOW bounds consumption, not the number of documents that actually exist. Limit eager
+   // allocation and let the dictionary grow as results arrive. Check before multiplying to avoid
+   // overflow when computing the initial capacity.
+   const size_t maxPresize = 65536;
+   size_t initialSize = window > maxPresize / numUpstreams ? maxPresize : window * numUpstreams;
+   dictExpand(ret->hybridResults, initialSize);
 
    ret->iterator = NULL;
 

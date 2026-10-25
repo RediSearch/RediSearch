@@ -33,6 +33,8 @@ from common import (
     wait_for_condition,
     skipIfNoEnableAssert,
     paused_workers,
+    drain_workers,
+    min_maintenance_workers_conf,
     verify_command_OK_on_all_shards,
 )
 
@@ -177,10 +179,11 @@ def test_rdb_load_trained_svs_vamana():
 
     # Insert more vectors to trigger training
     populate_with_vectors(env, num_docs=num_docs - (training_threshold - 1), dim=dim, datatype=data_type, initial_doc_id=training_threshold)
+    drain_workers(env)
 
     for i, con in enumerate(env.getOSSMasterNodesConnectionList()):
         shard_keys = con.execute_command('DBSIZE')
-        # We are in writeInPlace mode, so once the index is trained, all vectors are transferred to the backend index in place.
+        # Once the index is trained, all vectors are transferred to the backend index.
         env.assertEqual(get_tiered_frontend_debug_info(con, index_name, field_name)['INDEX_SIZE'], 0, message=f"shard_id: {i}, datatype: {data_type}, shard_keys: {shard_keys}, after adding {num_docs} vectors")
         env.assertEqual(get_tiered_backend_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
         env.assertEqual(get_tiered_debug_info(con, index_name, field_name)['INDEX_SIZE'], shard_keys, message=f"shard_id: {i}, datatype: {data_type}, after adding {num_docs} vectors")
@@ -732,6 +735,7 @@ def test_drop_index_memory():
     # create index and measure memory. Expect it to increase by at least the size in bytes of vectors
     create_vector_index(env, dim, alg='SVS-vamana')
     waitForIndex(env, DEFAULT_INDEX_NAME)
+    drain_workers(env)
     env.assertEqual(get_tiered_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], num_docs)
     env.assertGreater(get_tiered_backend_debug_info(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)['INDEX_SIZE'], 0)
 
@@ -826,7 +830,6 @@ def gc_test_common(env, num_workers, compression_types):
 
         env.assertGreaterEqual(tiered_backend_debug_info['INDEX_SIZE'], DEFAULT_BLOCK_SIZE, message=f"{message_prefix}")
 
-        memory_before_deletion = get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
         size_before = tiered_backend_debug_info['INDEX_SIZE']
         label_count_before = tiered_backend_debug_info['INDEX_LABEL_COUNT']
 
@@ -840,9 +843,9 @@ def gc_test_common(env, num_workers, compression_types):
                         vecs_to_delete,
                         message=f"{message_prefix}: size_before: {size_before}")
 
-        # Memory should remain unchanged
+        # Fine-grained SVS consolidation may reclaim deleted labels while the deletes are still
+        # being processed, so memory can already change before the full GC below.
         after_del_memory = get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
-        env.assertEqual(after_del_memory, memory_before_deletion, message=f"{message_prefix}")
 
         # Index size should reflect the number vectors + marked deleted
         size_after = tiered_backend_debug_info['INDEX_SIZE']
@@ -856,11 +859,15 @@ def gc_test_common(env, num_workers, compression_types):
         if num_workers > 0:
             # With workers: GC jobs should be scheduled to the thread pool
             env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+            workers_stats_before_gc = getWorkersThpoolStats(env)
             forceInvokeGC(env, DEFAULT_INDEX_NAME)
             cur_workers_stats = getWorkersThpoolStats(env)
 
-            # GC background jobs for SVS should be pending in low priority queue.
-            env.assertEqual(cur_workers_stats['lowPriorityPendingJobs'], num_workers, message=f"{message_prefix}")
+            # The full GC adds one job per worker after any fine-grained consolidation jobs that
+            # were already queued by the deletes.
+            expected_pending_jobs = workers_stats_before_gc['lowPriorityPendingJobs'] + num_workers
+            env.assertEqual(cur_workers_stats['lowPriorityPendingJobs'], expected_pending_jobs,
+                            message=f"{message_prefix}: {cur_workers_stats}")
             env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
             env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
         else:
@@ -915,15 +922,24 @@ def test_gc():
 @skip(cluster=True)
 def test_gc_no_workers():
     num_workers = 0
+    # No maintenance workers either, so GC runs in place.
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+                         f' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=min_maintenance_workers_conf(0))
     gc_test_common(env, num_workers, ['NO_COMPRESSION'])
+
+@skip(cluster=True)
+def test_gc_maintenance_worker():
+    # At the default WORKERS 0 GC jobs go to the single maintenance worker.
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS 0'
+                         ' _FREE_RESOURCE_ON_THREAD FALSE')
+    gc_test_common(env, 1, ['NO_COMPRESSION'])
 
 @skip(cluster=True)
 def test_gc_no_workers_compressed():
     num_workers = 0
+    # No maintenance workers either, so GC runs in place.
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+                         f' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=min_maintenance_workers_conf(0))
     gc_test_common(env, num_workers, _gc_compressed_types())
 
 @skip(cluster=True)

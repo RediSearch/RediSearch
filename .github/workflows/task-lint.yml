@@ -101,6 +101,31 @@ jobs:
         with:
           command: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
           github_token: ${{ github.token }}
+      - name: Validate bootstrap dry-run
+        id: bootstrap-dry-run
+        continue-on-error: true
+        run: |
+          default_plan="$RUNNER_TEMP/bootstrap-dry-run.sh"
+          coverage_plan="$RUNNER_TEMP/bootstrap-coverage-dry-run.sh"
+          make bootstrap dry-run > "$default_plan"
+          make bootstrap dry-run COV=1 > "$coverage_plan"
+          bash -n "$default_plan"
+          bash -n "$coverage_plan"
+          ! grep -q '^# dependency lcov:' "$default_plan"
+          grep -Eq '^# dependency lcov: (satisfied|install-required)' "$coverage_plan"
+          for dependency in gcc llvm cargo-llvm-cov rust-llvm-tools-preview; do
+            grep -Eq "^# dependency ${dependency}: (satisfied|install-required)" "$default_plan"
+          done
+          incompatible_flags_output="$RUNNER_TEMP/incompatible-build-flags.log"
+          if ./build.sh COV=1 LTO=1 > "$incompatible_flags_output" 2>&1; then
+            echo "COV=1 LTO=1 unexpectedly succeeded"
+            exit 1
+          fi
+          grep -Fq 'COV=1 and LTO=1 are mutually exclusive' "$incompatible_flags_output"
+      - name: Test coverage summary parser
+        id: coverage-summary-tests
+        continue-on-error: true
+        run: python3 -m unittest discover -s .github/scripts/tests -v
       # Cache Rust packages and binaries
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
@@ -181,6 +206,8 @@ jobs:
       - name: Fail if any step failed
         if: |
           steps.lint.outcome == 'failure' ||
+          steps.bootstrap-dry-run.outcome == 'failure' ||
+          steps.coverage-summary-tests.outcome == 'failure' ||
           steps.git-diff.outcome == 'failure' ||
           steps.license-header.outcome == 'failure' ||
           steps.fmt.outcome == 'failure' ||
@@ -190,6 +217,8 @@ jobs:
           steps.local-links.outcome == 'failure'
         run: |
           echo "Lint: ${{ steps.lint.outcome }}"
+          echo "Bootstrap dry-run: ${{ steps.bootstrap-dry-run.outcome }}"
+          echo "Coverage summary tests: ${{ steps.coverage-summary-tests.outcome }}"
           echo "Generated files: ${{ steps.git-diff.outcome }}"
           echo "License header: ${{ steps.license-header.outcome }}"
           echo "Format check: ${{ steps.fmt.outcome }}"

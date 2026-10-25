@@ -439,6 +439,12 @@ RedisSearchDiskSnapshot* SearchDisk_CreateSnapshot(RedisSearchDiskIndexSpec *ind
  */
 void SearchDisk_FreeSnapshot(RedisSearchDiskSnapshot *snapshot);
 
+/**
+ * @brief Number of snapshots created by `SearchDisk_CreateSnapshot` and not yet released
+ * by `SearchDisk_FreeSnapshot`, across all indexes.
+ */
+size_t SearchDisk_GetLiveSnapshotCount(void);
+
 // DocTable API wrappers
 
 /**
@@ -525,6 +531,15 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
  *         no numeric index on this handle.
  */
 char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex);
+
+/**
+ * @brief Debug: storage-engine stats text of a disk index, for FT.DEBUG DISK_STATS.
+ *
+ * @param withStatistics Also append the sections shared by every index (block cache and
+ *        statistics enabled by search-_disk-statistics)
+ * @return sds text (release with sdsfree), or NULL if it could not be produced
+ */
+char *SearchDisk_DebugDiskStats(RedisSearchDiskIndexSpec *handle, bool withStatistics);
 
 /**
  * @brief Replace the key name in document metadata for a given document ID

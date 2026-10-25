@@ -102,6 +102,10 @@ inline void mempool_release(mempool_t *p, void *ptr) {
   }
 }
 
+size_t mempool_size(const mempool_t *p) {
+  return p->top;
+}
+
 void mempool_destroy(mempool_t *p) {
   for (size_t i = 0; i < p->top; i++) {
     p->free(p->entries[i]);

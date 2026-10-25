@@ -99,6 +99,8 @@ typedef struct {
 typedef struct {
   // Default dialect level used throughout database lifetime.
   unsigned int dialectVersion;
+  // Snapshot enablement before worker dispatch; internal opt-in is parsed separately.
+  bool internalRespSchemaEnabled;
   // reply with time on profile
   bool printProfileClock;
   // BM25STD.TANH factor
@@ -152,6 +154,7 @@ typedef struct {
   // MT configuration
   size_t numWorkerThreads;
   size_t minOperationWorkers;
+  size_t minMaintenanceWorkers;
   size_t tieredVecSimIndexBufferLimit;
   size_t highPriorityBiasNum;
 
@@ -245,6 +248,9 @@ typedef struct {
   // are intentionally not coupled to any Flex bigredis-driver settings.
   bool diskDropReadCache;
   bool diskUseDirectReads;
+  // Collect storage-engine statistics for disk indexes, reported by FT.DEBUG DISK_STATS.
+  // Load-time only: statistics must be attached before each index database opens.
+  bool diskStatistics;
   // Per-DB SpeedB open-file cap, and the per-index cost charged against the process-wide file-descriptor reservation
   // (see SearchDisk_CanCreateIndex). Immutable, so a deployment with few, very large indexes must set this at startup
   // rather than raising it later.
@@ -417,6 +423,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
+#define MIN_MAINTENANCE_WORKERS 1
 #define DEFAULT_INDEXING_MEMORY_LIMIT 100
 #define DEFAULT_BM25STD_TANH_FACTOR 4
 #define BM25STD_TANH_FACTOR_MAX 10000
@@ -469,6 +476,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
     .numWorkerThreads = 0, /* overwritten at runtime by GetDefaultWorkerThreads() */ \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                              \
+    .minMaintenanceWorkers = MIN_MAINTENANCE_WORKERS,                          \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                        \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,               \
     .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                          \
@@ -516,6 +524,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .diskWbmBudgetPerIndexMB = DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,           \
     .diskDropReadCache = false,                                                \
     .diskUseDirectReads = false,                                               \
+    .diskStatistics = false,                                                   \
     .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \
     .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                \
     .diskAsyncReadQueueFactor = DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR,          \
