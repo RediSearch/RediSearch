@@ -22,6 +22,19 @@ use crate::{
     expansion_needs_offsets,
 };
 
+/// Whether an unescaped wildcard `pattern` is too short for
+/// [`Config::min_term_prefix`], so that `w'h*'` matches nothing, just as the
+/// prefix query `h*` does.
+///
+/// Only a `*` expands unboundedly, so only a pattern containing one is held to the
+/// minimum, measured by its literal bytes: those that are neither `*` nor `?`. A
+/// pattern with no literal, such as `w'*'`, has no anchor to measure and keeps
+/// matching every term.
+pub(crate) fn below_min_term_prefix(pattern: &[u8], min_term_prefix: usize) -> bool {
+    let literals = pattern.iter().filter(|&&b| b != b'*' && b != b'?').count();
+    pattern.contains(&b'*') && literals > 0 && literals < min_term_prefix
+}
+
 /// `QN_WILDCARD_QUERY` — expand a verbatim wildcard pattern (`w'he?l*o'`, where
 /// `*` matches any run of characters and `?` exactly one) over the spec's terms
 /// trie into a union of per-term readers.
@@ -33,7 +46,8 @@ use crate::{
 /// An empty pattern is answered without either walk: it matches exactly the empty
 /// term, whose inverted index is opened directly.
 ///
-/// Returns `None` when the pattern is too long to name any term (reported via
+/// Returns `None` silently when [`below_min_term_prefix`] rejects the pattern, and
+/// when the pattern is too long to name any term (reported via
 /// [`status`](QueryEvalContext::status)); every other outcome — including no
 /// matches and the unsupported-fields error — yields a union, possibly empty.
 /// The number of expansions is capped by the configured
@@ -61,6 +75,12 @@ pub(crate) fn eval<'index>(
         unreachable!("wildcard_query::eval is only reached for a wildcard-query node")
     };
     tok.remove_wildcard_escapes();
+    if below_min_term_prefix(
+        tok.as_ref().as_bytes().unwrap_or_default(),
+        config.min_term_prefix as usize,
+    ) {
+        return None;
+    }
 
     // As for a prefix pattern, the token is *not* guaranteed to be valid UTF-8, and
     // the lowering decodes it without validating — which is what makes the pattern

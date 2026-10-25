@@ -1214,12 +1214,46 @@ fn eval_tag_wildcard_child_matches_by_pattern() {
 }
 
 #[test]
+fn eval_tag_wildcard_child_below_the_minimum_yields_nothing() {
+    // Held to the same minimum as the prefix child `{a*}`. The count runs after
+    // escape removal, so `a\*` is the one-literal `a*`.
+    for pattern in [&b"a*"[..], b"*a*", b"?*a", br"a\*"] {
+        let mut fixture = TagFixture::new(TagOptions {
+            children: vec![Child::WildcardQuery(pattern)],
+            ..TagOptions::default()
+        });
+        fixture.eval_yielding_nothing();
+    }
+}
+
+#[test]
+fn eval_tag_wildcard_child_honours_a_raised_minimum() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::WildcardQuery(b"ap*")],
+        min_term_prefix: Some(3),
+        ..TagOptions::default()
+    });
+    fixture.eval_yielding_nothing();
+}
+
+#[test]
+fn eval_tag_wildcard_child_without_a_literal_ignores_the_minimum() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::WildcardQuery(b"*")],
+        min_term_prefix: Some(10),
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("every value matches");
+    assert_eq!(drain_doc_ids(&mut it), vec![1, 2, 3, 4, 5]);
+}
+
+#[test]
 fn eval_tag_wildcard_child_skips_a_value_with_no_documents() {
     let mut values = fruit();
     values.push((TAG_NO_DOCS.to_vec(), vec![]));
     let mut fixture = TagFixture::new(TagOptions {
         values,
-        children: vec![Child::WildcardQuery(b"a*")],
+        children: vec![Child::WildcardQuery(b"ap*")],
         ..TagOptions::default()
     });
     let mut it = fixture.eval().expect("apple and apricot still match");
@@ -1927,6 +1961,7 @@ fn eval_tag_wildcard_expansion_stops_at_the_cap() {
         values: values(&[(b"aa", &[7]), (TAG_BANANA, &[3, 4])]),
         children: vec![Child::WildcardQuery(b"*a*")],
         max_prefix_expansions: Some(1),
+        min_term_prefix: Some(1),
         ..TagOptions::default()
     });
     let mut it = fixture.eval().expect("at least one value matches");
@@ -1964,7 +1999,7 @@ fn eval_tag_wildcard_expansion_skips_a_readerless_term_without_spending_the_cap(
     let values = values(&[(TAG_APPLE, &[1, 2]), (TAG_NO_DOCS, &[])]);
     let mut fixture = TagFixture::new(TagOptions {
         values,
-        children: vec![Child::WildcardQuery(b"a*")],
+        children: vec![Child::WildcardQuery(b"ap*")],
         max_prefix_expansions: Some(1),
         ..TagOptions::default()
     });

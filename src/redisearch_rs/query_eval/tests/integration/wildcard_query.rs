@@ -92,8 +92,7 @@ struct WildcardOptions {
     /// Overrides [`Config::max_prefix_expansions`]. [`None`] keeps the default,
     /// which no realistic test term set can reach.
     max_expansions: Option<u32>,
-    /// Overrides [`Config::min_term_prefix`]. Used to show it does *not* apply to
-    /// a wildcard pattern.
+    /// Overrides [`Config::min_term_prefix`]. [`None`] keeps the default.
     min_term_prefix: Option<u32>,
 }
 
@@ -565,21 +564,65 @@ fn eval_wildcard_query_bare_star_matches_every_term() {
 }
 
 #[test]
-fn eval_wildcard_query_ignores_min_term_prefix() {
-    // A wildcard pattern has no minimum length: unlike a prefix node, it is not
-    // rejected for being shorter than `min_term_prefix`. Copying that guard over
-    // would silently turn `w'*'` into a miss under the default MINPREFIX of 2.
+fn eval_wildcard_query_below_min_term_prefix_matches_nothing() {
+    // `w'a*'` is held to the same minimum as the prefix query `a*`, and is
+    // rejected silently: the query stays well-formed and matches nothing.
+    for pattern in ["a*", "*a*", "a?*", "?*a", r"a\*"] {
+        let mut fixture = WildcardFixture::new(pattern);
+        assert!(fixture.eval().is_none(), "{pattern} is below the minimum");
+        assert_eq!(fixture.status_code(), QueryErrorCode::Ok, "{pattern}");
+    }
+}
+
+#[test]
+fn eval_wildcard_query_at_min_term_prefix_expands() {
+    let mut fixture = WildcardFixture::new("ap*");
+    let mut it = fixture
+        .eval()
+        .expect("two literal bytes reach the default minimum");
+    assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3]);
+}
+
+#[test]
+fn eval_wildcard_query_honours_a_raised_min_term_prefix() {
     let mut fixture = WildcardFixture::build(
-        b"*",
+        b"ap*",
         WildcardOptions {
-            min_term_prefix: Some(10),
+            min_term_prefix: Some(3),
             ..WildcardOptions::default()
         },
     );
-    let mut it = fixture
-        .eval()
-        .expect("a wildcard always builds an iterator");
-    assert_eq!(collect_doc_ids(&mut it), vec![1, 2, 3, 4, 5]);
+    assert!(fixture.eval().is_none());
+}
+
+#[test]
+fn eval_wildcard_query_without_a_literal_or_a_star_ignores_min_term_prefix() {
+    // `w'*'` has no literal to anchor on, so it keeps matching every term; `?`
+    // alone and a pattern without `*` cannot expand unboundedly, so neither is
+    // held to the minimum either.
+    let cases: [(&[u8], Vec<u64>); 3] = [
+        (b"*", vec![1, 2, 3, 4, 5]),
+        (b"?????", vec![1, 2, 4]),
+        (b"grape", vec![4]),
+    ];
+    for (pattern, expected) in cases {
+        let mut fixture = WildcardFixture::build(
+            pattern,
+            WildcardOptions {
+                min_term_prefix: Some(10),
+                ..WildcardOptions::default()
+            },
+        );
+        let mut it = fixture
+            .eval()
+            .expect("the minimum does not apply to this pattern");
+        assert_eq!(
+            collect_doc_ids(&mut it),
+            expected,
+            "{}",
+            String::from_utf8_lossy(pattern)
+        );
+    }
 }
 
 #[test]
