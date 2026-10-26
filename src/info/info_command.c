@@ -290,7 +290,8 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes
 
-  REPLY_KVINT("num_docs", sp->stats.scoring.numDocuments);
+  const ScoringIndexStats visibleScoring = IndexSpec_GetVisibleScoringStats(sp);
+  REPLY_KVINT("num_docs", visibleScoring.numDocuments);
   t_docId maxDocId = sp->diskSpec ? SearchDisk_GetMaxDocId(sp->diskSpec) : sp->docs.maxDocId;
   REPLY_KVINT("max_doc_id", maxDocId);
   REPLY_KVINT("num_terms", sp->stats.scoring.numTerms);
@@ -331,8 +332,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
   REPLY_KVNUM("total_index_memory_sz_mb", total_memory / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
-  REPLY_KVNUM("records_per_doc_avg",
-              (float)num_records / (float)sp->stats.scoring.numDocuments);
+  REPLY_KVNUM("records_per_doc_avg", visibleScoring.numDocuments
+                                         ? (float)num_records / (float)visibleScoring.numDocuments
+                                         : 0);
   double bytes_per_record_avg = num_records ?
     (float)inverted_size / (float)num_records : NAN;
   REPLY_KVNUM("bytes_per_record_avg",

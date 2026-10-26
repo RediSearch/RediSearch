@@ -11,6 +11,9 @@
 #include "disk_gc.h"
 #include "geometry/geometry_api.h"
 #include <functional>
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
 #include <thread>
 extern "C" {
 #include "indexes.h"
@@ -20,6 +23,8 @@ extern "C" {
 #include "search_disk.h"
 #include "vector_index.h"
 #include "geometry_index.h"
+#include "iterators_ffi.h"
+#include "util/timeout.h"
 #include "info/global_stats.h"
 extern RedisSearchDiskAPI *disk;
 extern RedisSearchDisk *disk_db;
@@ -285,17 +290,23 @@ TEST_F(DiskSlotTrimTest, DestinationCancellationUsesBoundedMemoryAndScoringClean
   auto *importHandle = reinterpret_cast<SearchDiskSlotImport *>(&state);
   EXPECT_EQ(IndexSpec_CancelDiskSlotImport(spec, importHandle), INDEX_TRIM_NOT_APPLIED);
   api.slotMigration.cancelImport = [](RedisSearchDisk *, const SearchDiskSlotImport *) {
+    if (state.importCancelled) return false;
     state.importCancelled = true;
     return true;
   };
+  ASSERT_TRUE(SearchDisk_CancelSlotImport(importHandle));
   api.slotMigration.prepareTrim = nullptr;
   api.slotMigration.prepareCancelImport = [](RedisSearchDiskIndexSpec *,
                                              const SearchDiskSlotImport *handle, uint64_t *,
                                              uint64_t *) -> SearchDiskSlotTrim * {
     EXPECT_TRUE(state.importCancelled);
+    if (!state.prepare) return nullptr;
     EXPECT_EQ(handle, reinterpret_cast<SearchDiskSlotImport *>(&state));
     return reinterpret_cast<SearchDiskSlotTrim *>(&state);
   };
+  state.prepare = false;
+  EXPECT_EQ(IndexSpec_CancelDiskSlotImport(spec, importHandle), INDEX_TRIM_NOT_APPLIED);
+  state.prepare = true;
   EXPECT_EQ(IndexSpec_CancelDiskSlotImport(spec, importHandle), INDEX_TRIM_FINISHED);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
@@ -543,3 +554,128 @@ TEST_F(DiskSlotTrimTest, LiveZeroLengthReplacementKeepsTheDocumentCount) {
 }
 
 }  // namespace
+
+TEST_F(DiskSlotTrimTest, BlockedForcedGcRepliesWithTheActualRunOutcome) {
+  static std::mutex mutex;
+  static std::condition_variable completed;
+  static void *replyData;
+  static RedisModuleCmdFunc replyCallback;
+  static void (*freeData)(RedisModuleCtx *, void *);
+  struct RestoreHooks {
+    decltype(RedisModule_CreateSubcommand) create = RedisModule_CreateSubcommand;
+    decltype(RedisModule_GetContextFlagsAll) flags = RedisModule_GetContextFlagsAll;
+    decltype(RedisModule_BlockClient) block = RedisModule_BlockClient;
+    decltype(RedisModule_UnblockClient) unblock = RedisModule_UnblockClient;
+    decltype(RedisModule_GetBlockedClientPrivateData) data =
+        RedisModule_GetBlockedClientPrivateData;
+    decltype(RedisModule_ReplyWithSimpleString) reply = RedisModule_ReplyWithSimpleString;
+    ~RestoreHooks() {
+      RedisModule_CreateSubcommand = create;
+      RedisModule_GetContextFlagsAll = flags;
+      RedisModule_BlockClient = block;
+      RedisModule_UnblockClient = unblock;
+      RedisModule_GetBlockedClientPrivateData = data;
+      RedisModule_ReplyWithSimpleString = reply;
+    }
+  } restore;
+  RedisModule_GetContextFlagsAll = [] { return 0; };
+  RedisModule_CreateSubcommand = [](RedisModuleCommand *, const char *name,
+                                    RedisModuleCmdFunc callback, const char *, int, int, int) {
+    if (strcmp(name, "GC_FORCEINVOKE") == 0) state.forceGC = callback;
+    return REDISMODULE_OK;
+  };
+  ASSERT_EQ(RegisterDebugCommands(nullptr), REDISMODULE_OK);
+  RedisModule_CreateSubcommand = restore.create;
+  RedisModule_BlockClient = [](RedisModuleCtx *, RedisModuleCmdFunc reply, RedisModuleCmdFunc,
+                               void (*release)(RedisModuleCtx *, void *), long long) {
+    replyCallback = reply;
+    freeData = release;
+    return reinterpret_cast<RedisModuleBlockedClient *>(&state);
+  };
+  RedisModule_UnblockClient = [](RedisModuleBlockedClient *, void *data) {
+    std::lock_guard<std::mutex> guard(mutex);
+    replyData = data;
+    completed.notify_one();
+    return REDISMODULE_OK;
+  };
+  RedisModule_GetBlockedClientPrivateData = [](RedisModuleCtx *) { return replyData; };
+  RedisModule_ReplyWithSimpleString = [](RedisModuleCtx *ctx, const char *reply) {
+    RMCK_GetLastError(ctx) = reply;
+    return REDISMODULE_OK;
+  };
+  GC_ThreadPoolStart();
+  struct DrainPool {
+    ~DrainPool() {
+      GC_ThreadPoolPause();
+      GC_ThreadPoolWaitForPause(10000);
+      GC_ThreadPoolResume();
+    }
+  } drain;
+  RMCK::ArgvList args(RSDummyContext, "FT.DEBUG", "GC_FORCEINVOKE", "disk_slot_trim");
+  for (const char *expected : {"GC FAILED: disk cleanup requires retry", "DONE"}) {
+    replyData = nullptr;
+    ASSERT_EQ(state.forceGC(RSDummyContext, args.data(), args.size()), REDISMODULE_OK);
+    {
+      std::unique_lock<std::mutex> guard(mutex);
+      ASSERT_TRUE(completed.wait_for(guard, std::chrono::seconds(10), [] { return replyData; }));
+    }
+    RMCK_GetLastError(RSDummyContext).clear();
+    ASSERT_NE(replyCallback, nullptr);
+    EXPECT_EQ(replyCallback(RSDummyContext, args.data(), args.size()), REDISMODULE_OK);
+    EXPECT_EQ(RMCK_GetLastError(RSDummyContext), expected);
+    freeData(RSDummyContext, replyData);
+  }
+  EXPECT_EQ(state.gcRuns, 2u);
+  RMCK_GetLastError(RSDummyContext).clear();
+}
+
+TEST_F(DiskSlotTrimTest, UnpublishedImportsAreExcludedFromScoringSnapshots) {
+  api.slotMigration.getHiddenImportStats = [](RedisSearchDiskIndexSpec *, uint64_t *docs,
+                                              uint64_t *length) {
+    *docs = state.importCancelled ? 0 : 3;
+    *length = state.importCancelled ? 0 : 21;
+  };
+  const auto visible = IndexSpec_GetVisibleScoringStats(spec);
+  EXPECT_EQ(visible.numDocuments, 2u);
+  EXPECT_EQ(visible.totalDocsLen, 19u);
+  RSIndexStats snapshot{};
+  IndexSpec_GetStats(spec, &snapshot);
+  EXPECT_EQ(snapshot.numDocs, 2u);
+  EXPECT_DOUBLE_EQ(snapshot.avgDocLen, 9.5);
+  state.importCancelled = true;
+  IndexSpec_GetStats(spec, &snapshot);
+  EXPECT_EQ(snapshot.numDocs, 5u);
+  EXPECT_DOUBLE_EQ(snapshot.avgDocLen, 8.0);
+}
+
+TEST_F(DiskSlotTrimTest, HiddenNearestVectorsDoNotConsumeTheVisibleTopK) {
+  VecSimIndex *vectors = openVectorIndex(RSDummyContext, spec->fields, CREATE_INDEX);
+  for (t_docId id = 1; id <= 3; ++id) {
+    const float vector[] = {static_cast<float>(id - 1), 0};
+    VecSimIndex_AddVector(vectors, vector, id);
+  }
+  api.docTable.isDocIdDeleted = [](RedisSearchDiskIndexSpec *, t_docId id) {
+    return !state.importCancelled && id < 3;
+  };
+  RedisSearchCtx context = SEARCH_CTX_STATIC(RSDummyContext, spec);
+  QueryRequestTimeout timeout{};
+  TimeoutConfig timeoutConfig{};
+  timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  FieldFilterContext filter{};
+  filter.field.index_tag = FieldMaskOrIndex_Index;
+  filter.field.index = 0;
+  filter.predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT;
+  const float query[] = {0, 0};
+  VecSimQueryParams parameters{};
+  for (t_docId expected : {t_docId{3}, t_docId{1}}) {
+    QueryIterator *iterator = NewVectorTopKIterator(vectors, query, sizeof(query), &parameters, 1,
+                                                    false, nullptr, &timeout, &context, &filter);
+    ASSERT_NE(iterator, nullptr);
+    EXPECT_EQ(iterator->Read(iterator), ITERATOR_OK);
+    EXPECT_EQ(iterator->current->docId, expected);
+    EXPECT_EQ(iterator->Read(iterator), ITERATOR_EOF);
+    iterator->Free(iterator);
+    state.importCancelled = true;
+  }
+}

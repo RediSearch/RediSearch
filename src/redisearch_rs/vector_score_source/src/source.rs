@@ -118,6 +118,7 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// the timeout context and could spuriously fail). A timed-out query
     /// leaves this clear so a retry re-issues it. Reset by `rewind`.
     unfiltered_consumed: bool,
+    document_filter: Option<super::score_batch::DocumentFilter<'static>>,
 
     /// Score key for this iterator's metric output. The metrics loader writes
     /// through the address returned by [`interop::own_key_ref`]. Boxed so that
@@ -215,9 +216,20 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             k_remaining: k,
             expiration,
             unfiltered_consumed: false,
+            document_filter: None,
             own_key: Box::new(ptr::null_mut()),
             key_handle: ptr::null_mut(),
         }
+    }
+
+    /// Excludes documents before selecting the visible top-k results.
+    ///
+    /// The filter must remain safe to call until this source and its batches are dropped.
+    pub fn set_document_filter(
+        &mut self,
+        filter: impl Fn(rqe_core::DocId) -> bool + Send + Sync + 'static,
+    ) {
+        self.document_filter = Some(std::sync::Arc::new(filter));
     }
 
     /// Return the request-owned timeout as the opaque context expected by VecSim.
@@ -272,22 +284,40 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             return Ok(None);
         }
         self.query_params.timeoutCtx = self.timeout_ctx_ptr();
-        let reply = self
-            .index
-            .top_k_query(
-                &self.query_vector,
-                self.k,
-                &mut self.query_params,
-                ReplyOrder::ByScore,
-            )
-            .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
-        // Mark consumed only after the query succeeds: a timeout above propagates
-        // with the flag still clear, so a retry re-issues the query instead of
-        // taking the fast path and returning EOF.
+        let mut requested = self.k;
+        let batch = loop {
+            let reply = self
+                .index
+                .top_k_query(
+                    &self.query_vector,
+                    requested,
+                    &mut self.query_params,
+                    ReplyOrder::ByScore,
+                )
+                .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
+            let Some(results) = reply.and_then(|r| r.into_results()) else {
+                break None;
+            };
+            let Some(filter) = &self.document_filter else {
+                break Some(VecSimScoreBatch::new(results));
+            };
+            let mut examined = 0;
+            let mut visible = Vec::with_capacity(self.k);
+            for (id, score) in results {
+                examined += 1;
+                if filter(id) && visible.len() < self.k {
+                    visible.push((id, score));
+                }
+            }
+            if visible.len() == self.k || examined < requested || requested >= self.index.size() {
+                break Some(VecSimScoreBatch::buffered(visible));
+            }
+            // A fixed top-k reply cannot refill candidates removed by the visibility filter.
+            requested = requested.saturating_mul(2).min(self.index.size());
+            self.check_timeout()?;
+        };
         self.unfiltered_consumed = true;
-        Ok(reply
-            .and_then(|r| r.into_results())
-            .map(VecSimScoreBatch::new))
+        Ok(batch)
     }
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -350,10 +380,17 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
         Ok(reply
             .and_then(|r| r.into_results())
-            .map(VecSimScoreBatch::new))
+            .map(|results| VecSimScoreBatch::filtered(results, self.document_filter.clone())))
     }
 
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64> {
+        if self
+            .document_filter
+            .as_ref()
+            .is_some_and(|filter| !filter(doc_id))
+        {
+            return None;
+        }
         match &self.adhoc_state {
             AdhocPathState::Ram { guard: Some(g) } => g.get_distance_from(doc_id),
             AdhocPathState::Ram { guard: None } => None,

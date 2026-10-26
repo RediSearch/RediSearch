@@ -9,31 +9,70 @@
 
 //! [`VecSimScoreBatch`] — a [`ScoreBatch`] over a single VecSim query reply.
 
+use std::sync::Arc;
+
 use rqe_core::DocId;
 use top_k::ScoreBatch;
 use vecsim::ReplyResults;
 
-/// Adapts [`ReplyResults`] to the [`ScoreBatch`] interface.
-///
-/// The batch yields every reply entry, expired documents included; expiration
-/// is checked at yield time by the wrapping iterator (see
-/// [`VectorScoreSource::is_expired`](crate::VectorScoreSource)).
+pub(crate) type DocumentFilter<'a> = Arc<dyn Fn(DocId) -> bool + Send + Sync + 'a>;
+
+/// Adapts VecSim replies or a filtered top-k result to [`ScoreBatch`].
 pub struct VecSimScoreBatch {
-    results: ReplyResults,
+    results: Results,
+    filter: Option<DocumentFilter<'static>>,
+}
+
+enum Results {
+    Native(ReplyResults),
+    Buffered(std::vec::IntoIter<(DocId, f64)>),
 }
 
 impl VecSimScoreBatch {
     pub(crate) fn new(results: ReplyResults) -> Self {
-        Self { results }
+        Self {
+            results: Results::Native(results),
+            filter: None,
+        }
+    }
+
+    pub(crate) fn filtered(results: ReplyResults, filter: Option<DocumentFilter<'static>>) -> Self {
+        Self {
+            results: Results::Native(results),
+            filter,
+        }
+    }
+
+    pub(crate) fn buffered(results: Vec<(DocId, f64)>) -> Self {
+        Self {
+            results: Results::Buffered(results.into_iter()),
+            filter: None,
+        }
     }
 }
 
 impl ScoreBatch for VecSimScoreBatch {
     fn next(&mut self) -> Option<(DocId, f64)> {
-        self.results.next()
+        loop {
+            let item = match &mut self.results {
+                Results::Native(results) => results.next(),
+                Results::Buffered(results) => results.next(),
+            }?;
+            if self.filter.as_ref().is_none_or(|filter| filter(item.0)) {
+                return Some(item);
+            }
+        }
     }
 
     fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)> {
-        self.results.skip_to(target)
+        let item = match &mut self.results {
+            Results::Native(results) => results.skip_to(target),
+            Results::Buffered(results) => results.find(|(id, _)| *id >= target),
+        }?;
+        if self.filter.as_ref().is_none_or(|filter| filter(item.0)) {
+            Some(item)
+        } else {
+            self.next()
+        }
     }
 }

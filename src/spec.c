@@ -1935,6 +1935,16 @@ StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **a
   return IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status);
 }
 
+ScoringIndexStats IndexSpec_GetVisibleScoringStats(const IndexSpec *spec) {
+  ScoringIndexStats stats = spec->stats.scoring;
+  uint64_t hiddenDocuments = 0, hiddenLength = 0;
+  SearchDisk_GetHiddenImportStats(spec->diskSpec, &hiddenDocuments, &hiddenLength);
+  RS_ASSERT(stats.numDocuments >= hiddenDocuments && stats.totalDocsLen >= hiddenLength);
+  stats.numDocuments -= hiddenDocuments;
+  stats.totalDocsLen -= hiddenLength;
+  return stats;
+}
+
 static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIndexStats *stats) {
   stats->numDocs = scoring->numDocuments;
   stats->numTerms = scoring->numTerms;
@@ -1944,7 +1954,8 @@ static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIn
 /* Initialize some index stats that might be useful for scoring functions */
 // Assuming the spec is properly locked before calling this function
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
-  RSIndexStats_FromScoringStats(&sp->stats.scoring, stats);
+  ScoringIndexStats visible = IndexSpec_GetVisibleScoringStats(sp);
+  RSIndexStats_FromScoringStats(&visible, stats);
 }
 
 size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
@@ -3049,7 +3060,8 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   }
 
   // More properties
-  RedisModule_InfoAddFieldLongLong(ctx, "number_of_docs", sp->stats.scoring.numDocuments);
+  const ScoringIndexStats visibleScoring = IndexSpec_GetVisibleScoringStats(sp);
+  RedisModule_InfoAddFieldLongLong(ctx, "number_of_docs", visibleScoring.numDocuments);
 
   const bool isDisk = sp->diskSpec != NULL;
   size_t num_records = isDisk ? SearchDisk_GetNumRecords(sp->diskSpec) : sp->stats.numRecords;
@@ -3087,7 +3099,9 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", sp->stats.totalInvertedIndexBlocks);
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
-  RedisModule_InfoAddFieldDouble(ctx, "records_per_doc_avg",(float)num_records / (float)sp->stats.scoring.numDocuments);
+  RedisModule_InfoAddFieldDouble(
+      ctx, "records_per_doc_avg",
+      visibleScoring.numDocuments ? (float)num_records / (float)visibleScoring.numDocuments : 0);
   double bytes_per_record_avg = num_records ?
     (float)inverted_size / (float)num_records : NAN;
   RedisModule_InfoAddFieldDouble(ctx, "bytes_per_record_avg", bytes_per_record_avg);
@@ -4130,7 +4144,7 @@ IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDis
 
 IndexSpecSlotTrimResult IndexSpec_CancelDiskSlotImport(IndexSpec *spec,
                                                        const SearchDiskSlotImport *import) {
-  if (!spec->diskSpec || !SearchDisk_CancelSlotImport(import)) return INDEX_TRIM_NOT_APPLIED;
+  if (!spec->diskSpec) return INDEX_TRIM_NOT_APPLIED;
   return applyDiskSlotTrim(spec,
                            SearchDisk_PrepareCancelSlotImport(spec->diskSpec, import, NULL, NULL));
 }

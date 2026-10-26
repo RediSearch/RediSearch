@@ -736,6 +736,9 @@ typedef struct IndexDiskAPI {
 
 /** Disk index operations supporting slot migration. */
 typedef struct SlotMigrationAPI {
+  // Committed, unpublished imports to exclude from query and INFO scoring snapshots.
+  void (*getHiddenImportStats)(RedisSearchDiskIndexSpec *index, uint64_t *documents,
+                               uint64_t *totalLength);
   // Start once per shard before scan or tail indexing. Normal indexing tracks
   // matching slots automatically, including indexes created during import.
   // OSS owns the scan, worker queue and storage/memory-apply drain. After that

@@ -798,6 +798,15 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
   }
 }
 
+void SearchDisk_GetHiddenImportStats(RedisSearchDiskIndexSpec *index, uint64_t *documents,
+                                     uint64_t *totalLength) {
+  *documents = 0;
+  *totalLength = 0;
+  if (disk && index && disk->slotMigration.getHiddenImportStats) {
+    disk->slotMigration.getHiddenImportStats(index, documents, totalLength);
+  }
+}
+
 SearchDiskSlotImport *SearchDisk_BeginSlotImport(const SearchDiskSlotRange *ranges,
                                                  size_t numRanges) {
   return disk && disk_db && disk->slotMigration.beginImport

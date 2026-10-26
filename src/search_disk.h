@@ -1043,6 +1043,10 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  */
 void SearchDisk_DebugResetCompactionController(void);
 
+/** Returns the committed import contributions hidden from query/INFO snapshots. */
+void SearchDisk_GetHiddenImportStats(RedisSearchDiskIndexSpec *index, uint64_t *documents,
+                                     uint64_t *totalLength);
+
 SearchDiskSlotImport *SearchDisk_BeginSlotImport(const SearchDiskSlotRange *ranges,
                                                  size_t numRanges);
 bool SearchDisk_CompleteSlotImport(const SearchDiskSlotImport *import);

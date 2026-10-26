@@ -557,6 +557,9 @@ int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *sp, t_fieldMask fm, Quer
 const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t idx);
 
 /* Initialize some index stats that might be useful for scoring functions */
+/** Query-visible scoring counters. Caller holds the spec read or write lock. */
+ScoringIndexStats IndexSpec_GetVisibleScoringStats(const IndexSpec *spec);
+
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
 
 /* Get the number of indexing failures */
@@ -660,6 +663,7 @@ IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDis
 IndexSpecSlotTrimResult IndexSpec_TrimDiskSlotsForMigration(
     IndexSpec *spec, const SearchDiskSlotMigration *migration);
 // Same trim contract; drain scan, queue, storage and memory apply before cancelling.
+// Call after shard-level cancellation is acknowledged; this only rolls back one index.
 IndexSpecSlotTrimResult IndexSpec_CancelDiskSlotImport(IndexSpec *spec,
                                                      const SearchDiskSlotImport *import);
 // Caller holds the spec write lock.
