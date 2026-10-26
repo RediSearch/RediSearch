@@ -11,6 +11,9 @@
 #include "disk_gc.h"
 #include "geometry/geometry_api.h"
 #include <functional>
+#include <mutex>
+#include <condition_variable>
+#include <chrono>
 #include <thread>
 extern "C" {
 #include "indexes.h"
@@ -485,3 +488,77 @@ TEST_F(DiskSlotTrimTest, LiveZeroLengthReplacementKeepsTheDocumentCount) {
 }
 
 }  // namespace
+
+TEST_F(DiskSlotTrimTest, BlockedForcedGcRepliesWithTheActualRunOutcome) {
+  static std::mutex mutex;
+  static std::condition_variable completed;
+  static void *replyData;
+  static RedisModuleCmdFunc replyCallback;
+  static void (*freeData)(RedisModuleCtx *, void *);
+  struct RestoreHooks {
+    decltype(RedisModule_CreateSubcommand) create = RedisModule_CreateSubcommand;
+    decltype(RedisModule_GetContextFlagsAll) flags = RedisModule_GetContextFlagsAll;
+    decltype(RedisModule_BlockClient) block = RedisModule_BlockClient;
+    decltype(RedisModule_UnblockClient) unblock = RedisModule_UnblockClient;
+    decltype(RedisModule_GetBlockedClientPrivateData) data =
+        RedisModule_GetBlockedClientPrivateData;
+    decltype(RedisModule_ReplyWithSimpleString) reply = RedisModule_ReplyWithSimpleString;
+    ~RestoreHooks() {
+      RedisModule_CreateSubcommand = create;
+      RedisModule_GetContextFlagsAll = flags;
+      RedisModule_BlockClient = block;
+      RedisModule_UnblockClient = unblock;
+      RedisModule_GetBlockedClientPrivateData = data;
+      RedisModule_ReplyWithSimpleString = reply;
+    }
+  } restore;
+  RedisModule_GetContextFlagsAll = [] { return 0; };
+  RedisModule_CreateSubcommand = [](RedisModuleCommand *, const char *name,
+                                    RedisModuleCmdFunc callback, const char *, int, int, int) {
+    if (strcmp(name, "GC_FORCEINVOKE") == 0) state.forceGC = callback;
+    return REDISMODULE_OK;
+  };
+  ASSERT_EQ(RegisterDebugCommands(nullptr), REDISMODULE_OK);
+  RedisModule_CreateSubcommand = restore.create;
+  RedisModule_BlockClient = [](RedisModuleCtx *, RedisModuleCmdFunc reply, RedisModuleCmdFunc,
+                               void (*release)(RedisModuleCtx *, void *), long long) {
+    replyCallback = reply;
+    freeData = release;
+    return reinterpret_cast<RedisModuleBlockedClient *>(&state);
+  };
+  RedisModule_UnblockClient = [](RedisModuleBlockedClient *, void *data) {
+    std::lock_guard<std::mutex> guard(mutex);
+    replyData = data;
+    completed.notify_one();
+    return REDISMODULE_OK;
+  };
+  RedisModule_GetBlockedClientPrivateData = [](RedisModuleCtx *) { return replyData; };
+  RedisModule_ReplyWithSimpleString = [](RedisModuleCtx *ctx, const char *reply) {
+    RMCK_GetLastError(ctx) = reply;
+    return REDISMODULE_OK;
+  };
+  GC_ThreadPoolStart();
+  struct DrainPool {
+    ~DrainPool() {
+      GC_ThreadPoolPause();
+      GC_ThreadPoolWaitForPause(10000);
+      GC_ThreadPoolResume();
+    }
+  } drain;
+  RMCK::ArgvList args(RSDummyContext, "FT.DEBUG", "GC_FORCEINVOKE", "disk_slot_trim");
+  for (const char *expected : {"GC FAILED: disk cleanup requires retry", "DONE"}) {
+    replyData = nullptr;
+    ASSERT_EQ(state.forceGC(RSDummyContext, args.data(), args.size()), REDISMODULE_OK);
+    {
+      std::unique_lock<std::mutex> guard(mutex);
+      ASSERT_TRUE(completed.wait_for(guard, std::chrono::seconds(10), [] { return replyData; }));
+    }
+    RMCK_GetLastError(RSDummyContext).clear();
+    ASSERT_NE(replyCallback, nullptr);
+    EXPECT_EQ(replyCallback(RSDummyContext, args.data(), args.size()), REDISMODULE_OK);
+    EXPECT_EQ(RMCK_GetLastError(RSDummyContext), expected);
+    freeData(RSDummyContext, replyData);
+  }
+  EXPECT_EQ(state.gcRuns, 2u);
+  RMCK_GetLastError(RSDummyContext).clear();
+}
