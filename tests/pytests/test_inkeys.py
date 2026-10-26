@@ -175,6 +175,39 @@ def test_inkeys_timeout_before_resolution():
 
 
 @skip(cluster=True)
+def test_lazy_key_map_aggregate_activation():
+    """Aggregate INKEYS resolves correctly before and after backfill, inline and on workers."""
+    for workers in (0, 2):
+        env = Env(moduleArgs=f'WORKERS {workers} TIMEOUT 0')
+        skipIfNoEnableAssert(env)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+        env.cmd('HSET', 'selected', 't', 'hello')
+        env.cmd('HSET', 'excluded', 't', 'hello')
+        env.assertEqual(float(index_info(env, 'idx')['key_table_size_mb']), 0)
+        command = ('FT.AGGREGATE', 'idx', '*', 'INKEYS', 3,
+                   'selected', 'missing', 'selected', 'LOAD', 1, '@__key')
+        expected = [1, ['__key', 'selected']]
+        for point in ('KeyMapBeforeBatch', 'KeyMapBuildComplete'):
+            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+        try:
+            env.expect(*command).equal(expected)
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', 'KeyMapBeforeBatch') == 1, {}),
+                'aggregate did not start backfill')
+            env.expect(*command).equal(expected)
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'KeyMapBeforeBatch')
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', 'KeyMapBuildComplete') == 1, {}),
+                'backfill did not finish')
+            env.expect(*command).equal(expected)
+        finally:
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'KeyMapBeforeBatch')
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'KeyMapBuildComplete')
+            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+            env.stop()
+
+
+@skip(cluster=True)
 def test_lazy_key_map_activation():
     for workers in (0, 2):
         env = Env(moduleArgs=f'WORKERS {workers} TIMEOUT 0')
