@@ -192,3 +192,10 @@ C/C++ unit tests passed. The 118 existing focused coordinator tests passed.
 Both new admission-boundary tests pass after isolating the lifetime counter from
 local shard worker callbacks; each covers search/profile before and after first
 admission. Full-suite results are tracked separately.
+
+Full ownership-follow-up validation: the standalone suite collected 2,696 cases
+and the three-shard cluster suite collected 2,679, both with zero failures
+(collected totals include skips). The cluster run includes both zero-dispatch
+regressions added at `ba0ad1fcad`, checking the cluster error, exactly-once source
+cleanup, and a successful next query. Saved local logs are
+`/tmp/coord-own-full-standalone.log` and `/tmp/coord-own-full-cluster.log`.
