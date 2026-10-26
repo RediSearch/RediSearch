@@ -167,10 +167,15 @@ existing ChunkReplyState cleanup; the concrete reducer destructor frees the RP
 chain before releasing MRCtx. Serialization decodes one stack view per output
 row, preserving the existing command envelope and remote value types.
 
-BlockQueryClientWithTimeout and BlockCursorClientWithTimeout register common
-reply, timeout, and free entry points. Per-cycle command adapters retain the
-existing protocol-specific reply and policy handling. Callback dispatch is
-shared; timeout policy algorithms are not yet unified. In particular this does
-not change the search callback's claim/wait behavior or implement Drain. The
-user's Drain API stack can replace that policy at the common boundary once
-exclusive pipeline ownership transfer is defined.
+Blocked-client registration continues to use the existing command callbacks.
+No extra dispatch wrapper or per-cycle callback fields are needed. The shared
+QueryRequest free callback already performs cycle teardown. Actual timeout-policy
+unification remains part of the Drain integration once exclusive pipeline
+ownership transfer is defined.
+
+The final reducer uses private typed lookup fields for document key, sort key,
+and vector distance. Standard score/field sorters compare those values without
+re-decoding replies. Document-key secondary fields preserve coordinator ties;
+missing values remain absent. Vector distance always determines nearest-K
+membership, including when final sorting is numeric or distance DESC. See the
+behavior ledger for the approved observable corrections and count-only exception.
