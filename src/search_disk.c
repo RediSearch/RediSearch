@@ -844,6 +844,7 @@ SearchDiskSlotMigration *SearchDisk_BeginSlotMigration(const SearchDiskSlotRange
   RS_ASSERT(disk && disk_db && disk->slotMigration.beginMigration);
   return disk->slotMigration.beginMigration(disk_db, ranges, numRanges);
 }
+
 SearchDiskSlotTrim *SearchDisk_PrepareSlotTrimForMigration(RedisSearchDiskIndexSpec *index,
                                                            const SearchDiskSlotMigration *migration,
                                                            uint64_t *numDocs,
@@ -851,6 +852,7 @@ SearchDiskSlotTrim *SearchDisk_PrepareSlotTrimForMigration(RedisSearchDiskIndexS
   RS_ASSERT(disk && disk->slotMigration.prepareTrimForMigration);
   return disk->slotMigration.prepareTrimForMigration(index, migration, numDocs, totalDocLen);
 }
+
 void SearchDisk_FreeSlotMigration(SearchDiskSlotMigration *migration) {
   if (!migration) return;
   RS_ASSERT(disk && disk->slotMigration.freeMigration);
@@ -861,32 +863,38 @@ bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index) {
   RS_ASSERT(disk && disk->slotMigration.hasPendingCleanup);
   return disk->slotMigration.hasPendingCleanup(index);
 }
+
 bool SearchDisk_CanStartSlotMigration(RedisSearchDiskIndexSpec *index,
                                       const SearchDiskSlotRange *ranges, size_t numRanges) {
   RS_ASSERT(disk && disk->slotMigration.canStartMigration);
   return disk->slotMigration.canStartMigration(index, ranges, numRanges);
 }
+
 SearchDiskSlotTrim *SearchDisk_PrepareSlotTrim(RedisSearchDiskIndexSpec *index,
                                                const SearchDiskSlotRange *ranges, size_t numRanges,
                                                uint64_t *numDocs, uint64_t *totalDocLen) {
   RS_ASSERT(disk && disk->slotMigration.prepareTrim);
   return disk->slotMigration.prepareTrim(index, ranges, numRanges, numDocs, totalDocLen);
 }
+
 bool SearchDisk_ApplySlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim,
                               size_t maxBatchDocs, SearchDiskSlotTrimCallback callback,
                               void *callbackCtx) {
   RS_ASSERT(disk && disk->slotMigration.applyTrim);
   return disk->slotMigration.applyTrim(index, trim, maxBatchDocs, callback, callbackCtx);
 }
+
 bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
                                    const SearchDiskSlotTrimBatch *batch) {
   RS_ASSERT(disk && disk->slotMigration.applyTrimBatch);
   return disk->slotMigration.applyTrimBatch(index, batch);
 }
+
 bool SearchDisk_FinishSlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim) {
   RS_ASSERT(disk && disk->slotMigration.finishTrim);
   return disk->slotMigration.finishTrim(index, trim);
 }
+
 void SearchDisk_FreeSlotTrim(SearchDiskSlotTrim *trim) {
   if (!trim) return;
   RS_ASSERT(disk && disk->slotMigration.freeTrim);

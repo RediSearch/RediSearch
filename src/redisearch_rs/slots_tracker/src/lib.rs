@@ -12,10 +12,11 @@
 
 mod slot_set;
 mod slots_tracker;
-mod validated_range;
 
 pub use slots_tracker::{SlotsTracker, Version};
-pub use validated_range::{CLUSTER_SLOTS, InvalidSlotRange, ValidatedSlotRange};
+
+/// Number of Redis Cluster hash slots.
+pub const CLUSTER_SLOTS: u16 = 16384;
 
 // ============================================================================
 // C FFI Interface - Public API

@@ -29,10 +29,13 @@ typedef struct DiskGC {
   RS_Atomic(size_t) intervalSec;
   // Tracks only writes since last GC run (no updates)
   RS_Atomic(size_t) writesFromLastRun;
-  // Tracks only deletes for global stats (no updates)
+  // Delete notifications used to decide when another cycle is eligible.
   RS_Atomic(size_t) deletesFromLastRun;
-  // Tracks only updates for global stats (no pure writes or deletes)
+  // Update notifications used to decide when another cycle is eligible.
   RS_Atomic(size_t) updatesFromLastRun;
+  // Eligibility counters reset per attempt; this contribution survives until the
+  // corresponding IDs are reclaimed or the collector is destroyed.
+  RS_Atomic(size_t) logicallyDeleted;
 
   // Cumulative bytes freed across all GC cycles run on this index.
   // Signed to match `InfoGCStats::totalCollectedBytes` / fork-GC semantics

@@ -774,11 +774,11 @@ typedef struct SlotMigrationAPI {
   // Prepare only after source ownership transfer and after draining
   // earlier indexing work for these slots. Cancellation instead requires the import
   // to remain stopped through rollback. This API does not establish either ordering.
-  // Prepare/finish do I/O outside the spec lock. Apply invokes bounded callbacks
-  // without that lock; callbacks hold it only for their batch. Retrying the same
-  // plan skips applied batches. Finish requires all batches and retains the plan
-  // on error. Finish never deletes slot-CF ranges; GC reclaims those records.
-  // Free leaves applied deletions for GC; pending documents stay live.
+  // Preparation/enumeration do I/O outside the spec lock. Apply invokes bounded
+  // callbacks without that lock; callbacks hold it only for their batch. Retrying
+  // the same plan skips applied batches. Finish requires all batches and performs
+  // no storage I/O. GC reclaims document rows, postings and slot membership before
+  // retiring deletion markers. Free leaves unapplied documents live.
   // Readers between batches may observe partially completed cleanup.
   SearchDiskSlotTrim *(*prepareTrim)(RedisSearchDiskIndexSpec *index,
                                      const SearchDiskSlotRange *ranges, size_t numRanges,

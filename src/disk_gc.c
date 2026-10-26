@@ -46,6 +46,29 @@
 static pthread_rwlock_t g_diskGcRunLock = PTHREAD_RWLOCK_INITIALIZER;
 static bool g_diskGcDisabled = false;
 
+static void recordLogicalDeletes(DiskGC *gc, size_t count) {
+  IndexsGlobalStats_IncreaseLogicallyDeleted(count);
+  atomic_fetch_add(&gc->logicallyDeleted, count);
+}
+
+static void retireLogicalDeletes(DiskGC *gc, size_t count) {
+  size_t pending = atomic_load(&gc->logicallyDeleted);
+  size_t retired;
+  do {
+    // Never subtract another index's contribution if backend accounting disagrees.
+    retired = pending < count ? pending : count;
+  } while (!atomic_compare_exchange_weak(&gc->logicallyDeleted, &pending, pending - retired));
+  IndexsGlobalStats_DecreaseLogicallyDeleted(retired);
+}
+
+static void takeDeferredDeletes(DiskGC *gc, IndexSpec *spec) {
+  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(spec);
+  if (deferred) {
+    recordLogicalDeletes(gc, deferred);
+    atomic_fetch_add(&gc->deletesFromLastRun, deferred);
+  }
+}
+
 // Fold one completed cycle's results into the cumulative per-index counters.
 // Every path that runs a disk GC cycle must funnel its `DiskGCRunStats` through
 // here so the accounting stays identical regardless of how the cycle was
@@ -58,7 +81,7 @@ static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats) {
   atomic_fetch_add(&gc->totalCycles, (size_t)1);
   atomic_fetch_add(&gc->totalTimeMs, stats->cycle_time_ms);
   atomic_store(&gc->lastRunTimeMs, stats->cycle_time_ms);
-  IndexsGlobalStats_DecreaseLogicallyDeleted(stats->num_cleaned_docs);
+  retireLogicalDeletes(gc, stats->num_cleaned_docs);
 }
 
 // `forced` is only read for its presence: disk GC compacts in-process, so it has no fork slot
@@ -71,12 +94,7 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     return false;
   }
 
-  // Background cleanup cannot dereference the independently torn-down GC context.
-  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(sp);
-  if (deferred) {
-    atomic_fetch_add(&gc->deletesFromLastRun, deferred);
-    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
-  }
+  takeDeferredDeletes(gc, sp);
 
   // Hold the read lock across the whole check-and-run so shutdown teardown
   // (DiskGC_LockRunsAndDisable, which takes the write lock) waits for an in-flight run to
@@ -103,6 +121,10 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
 
     DiskGCRunStats stats = {0};
     SearchDisk_RunGC(sp->diskSpec, &stats);
+    // A trim can publish deleted IDs after the first drain but before storage's
+    // snapshot. Wait for its write-locked accounting before retiring those IDs.
+    IndexSpec_LockRead(sp);
+    takeDeferredDeletes(gc, sp);
     if (stats.retryRequired) {
       if (forced) forced->outcome = GC_FORCED_RUN_RETRY_REQUIRED;
       atomic_fetch_add(&gc->writesFromLastRun, num_writes);
@@ -111,6 +133,7 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     } else {
       accumulateCycleStats(gc, &stats);
     }
+    IndexSpec_Unlock(sp);
 
     gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
   }
@@ -145,9 +168,7 @@ void DiskGC_Cleanup(void) {
 
 static void onTerminateCb(void *privdata) {
   DiskGC *gc = privdata;
-  size_t updates = atomic_exchange(&gc->updatesFromLastRun, 0);
-  size_t deletes = atomic_exchange(&gc->deletesFromLastRun, 0);
-  IndexsGlobalStats_DecreaseLogicallyDeleted(updates + deletes);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(atomic_exchange(&gc->logicallyDeleted, 0));
   WeakRef_Release(gc->index);
   rm_free(gc);
 }
@@ -187,14 +208,14 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
 
 static void deleteCb(void *ctx) {
   DiskGC *gc = ctx;
+  recordLogicalDeletes(gc, 1);
   atomic_fetch_add(&gc->deletesFromLastRun, 1);
-  IndexsGlobalStats_IncreaseLogicallyDeleted(1);
 }
 
 static void updateCb(void *ctx) {
   DiskGC *gc = ctx;
+  recordLogicalDeletes(gc, 1);
   atomic_fetch_add(&gc->updatesFromLastRun, 1);
-  IndexsGlobalStats_IncreaseLogicallyDeleted(1);
 }
 
 static void writeCb(void *ctx) {
@@ -218,13 +239,21 @@ static struct timespec getIntervalCb(void *ctx) {
 DiskGC *DiskGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   RS_LOG_ASSERT(SearchDisk_IsEnabled(), "Disk GC is not enabled");
   RS_LOG_ASSERT(SearchDisk_IsInitialized(), "Search Disk is not initialized");
+  IndexSpec *spec = StrongRef_Get(spec_ref);
+  RS_ASSERT_ALWAYS(spec && spec->diskSpec);
+  // Restore opens the disk handle before starting GC, so these existing markers
+  // have no notifications to replay. Charge them once before indexing resumes.
+  const uint64_t restoredDeletes = SearchDisk_GetDeletedIdsCount(spec->diskSpec);
+  RS_ASSERT_ALWAYS(restoredDeletes <= SIZE_MAX);
   DiskGC *gc = rm_calloc(1, sizeof(*gc));
   *gc = (DiskGC){
       .index = StrongRef_Demote(spec_ref),
       .writesFromLastRun = 0,
-      .deletesFromLastRun = 0,
+      .deletesFromLastRun = (size_t)restoredDeletes,
       .updatesFromLastRun = 0,
+      .logicallyDeleted = 0,
   };
+  recordLogicalDeletes(gc, (size_t)restoredDeletes);
   gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
   callbacks->onTerm = onTerminateCb;
