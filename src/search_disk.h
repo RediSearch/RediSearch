@@ -1061,20 +1061,25 @@ void SearchDisk_GetHiddenImportStats(RedisSearchDiskIndexSpec *index, uint64_t *
  * handle or NULL on rejection; release with SearchDisk_FreeSlotImport. */
 SearchDiskSlotImport *SearchDisk_BeginSlotImport(const SearchDiskSlotRange *ranges,
                                                  size_t numRanges);
+
 /** Publish this shard import after successful transfer and after draining scan, queue
  * and storage/memory apply. Returns false on rejection; does not free the handle. */
 bool SearchDisk_CompleteSlotImport(const SearchDiskSlotImport *import);
+
 /** Mark this shard import cancelled after stopping and draining its indexing work.
  * Returns false on rejection; per-index rollback must follow before freeing the handle. */
 bool SearchDisk_CancelSlotImport(const SearchDiskSlotImport *import);
+
 /** Prepare one index rollback after acknowledged shard cancellation. Returns an owned
  * trim plan or NULL on failure; optional outputs receive the planned count and length. */
 SearchDiskSlotTrim *SearchDisk_PrepareCancelSlotImport(RedisSearchDiskIndexSpec *index,
                                                        const SearchDiskSlotImport *import,
                                                        uint64_t *numDocs, uint64_t *totalDocLen);
+
 /** Release the caller-owned import handle after publication or rollback accounting.
  * NULL is a no-op; this does not stop indexing or complete rollback. */
 void SearchDisk_FreeSlotImport(SearchDiskSlotImport *import);
+
 /** Reserve an internal shard cleanup operation for these slots. Returns an owned
  * handle or NULL on rejection; this does not admit or reject a Redis ASM request. */
 SearchDiskSlotMigration *SearchDisk_BeginSlotMigration(const SearchDiskSlotRange *ranges,
