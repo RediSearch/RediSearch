@@ -157,3 +157,11 @@ remain compatibility obligations, not claims of validated equivalence.
 - No intentional breaking or soft observable production behavior change is
   accepted by this stack. Unmeasured comparator decoding cost and the unexecuted
   edge scenarios in the tracked-surface table remain explicit limitations.
+
+## PR 4 simplification
+
+The per-cycle callback pointers and reply/timeout dispatch wrappers were removed.
+They did not share execution or policy logic. The existing Redis callbacks remain
+registered directly; QueryRequest.reply owns stored rows and the existing common
+free callback handles teardown. Serializer stack views remain. No callback-policy
+or timeout-handoff behavior change is introduced.

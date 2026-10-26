@@ -16,12 +16,13 @@ Consume the collected shard reply array through a source RP, select/order rows
 through bounded sorter RPs, and paginate through the standard pager. Integrate
 with QueryRequest's stored results and common callback machinery in small steps.
 
-No new command, option, persistence format, or intentional breaking behavior is
-proposed. Preserve shard command construction, fanout, successful reply semantics,
-and the current timeout ownership protocol during the initial migration.
+No new command, option, or persistence format is proposed. The approved follow-up
+corrects global KNN membership with numeric final sorting and distance DESC, and
+aligns sort values with standard typed comparison. Preserve fanout and the current
+timeout ownership protocol; see the behavior ledger for observable differences.
 
 This work targets four implementation PRs: mechanical extraction, reply-array
-source and ordinary ordering, KNN paths, and common lifecycle/callbacks. Planning
+source and ordinary ordering, KNN paths, and shared stored-result ownership. Planning
 artifacts accompany the first PR.
 
 The public Drain API and nonblocking strict-timeout handoff belong to the user's
@@ -43,7 +44,7 @@ agreement in conversation:
 1. [Extraction](https://github.com/RediSearch/RediSearch/pull/11985)
 2. [Reply source and ordinary ordering](https://github.com/RediSearch/RediSearch/pull/11986)
 3. [KNN reduction](https://github.com/RediSearch/RediSearch/pull/11987)
-4. [Common lifecycle callbacks](https://github.com/RediSearch/RediSearch/pull/11988)
+4. [Shared stored-result ownership](https://github.com/RediSearch/RediSearch/pull/11988)
 
 Local validation and its scope are recorded in the behavior ledger. Remote CI
 and automated review are pending. No new timeout ownership protocol is
