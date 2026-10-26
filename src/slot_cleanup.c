@@ -40,8 +40,12 @@ arrayof(t_docId) SlotCleanup_CollectDocIds(IndexSpec *spec, const PendingSlotDel
   size_t visited = 0;
   while (cursor->nextBucket < cursor->bucketLimit && visited < SLOT_CLEANUP_SCAN_LIMIT &&
          array_len(docIds) < SLOT_CLEANUP_CHUNK_DOC_LIMIT) {
-    for (const RSDocumentMetadata *dmd = t->buckets[cursor->nextBucket].root; dmd;
-         dmd = dmd->nextInChain) {
+    const RSDocumentMetadata *root = t->buckets[cursor->nextBucket].root;
+    // Empty buckets still cost a lookup even when few documents remain in a large table.
+    if (!root) {
+      ++visited;
+    }
+    for (const RSDocumentMetadata *dmd = root; dmd; dmd = dmd->nextInChain) {
       ++visited;
       if (PendingSlotDeletion_Covers(pending, dmd)) {
         array_append(docIds, dmd->id);
