@@ -121,3 +121,10 @@ remain compatibility obligations, not claims of validated equivalence.
   No general count-only normalization is included in this change.
 - Updated six RESP2/RESP3 characterization and buffered-timeout tests pass on the
   revised PR 3 code; broader final-stack validation follows.
+
+- The expanded RESP3 WITHSORTKEYS regression reproduced a parse error before the
+  follow-up decoder fix. When the vector distance is also the sort field, decoding
+  now reuses the normal sort-key view (which handles both top-level sortkey and
+  required_fields). It never substitutes another field's numeric value. All six
+  protocol/order/KNN/buffered-timeout tests pass with search/profile WITHSORTKEYS
+  coverage after the fix.
