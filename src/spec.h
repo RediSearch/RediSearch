@@ -157,6 +157,9 @@ typedef struct {
   IndexError indexError;
   uint32_t activeQueries;
   uint32_t activeWrites;
+  // Deletions made off the main thread that the GC has not taken yet. Go through
+  // IndexSpec_DeferGCDeletes / IndexSpec_TakeGCDeferredDeletes.
+  size_t gcDeferredDeletes;
 } IndexStats;
 
 // Atomically apply `delta` to `stats->totalInvertedIndexBlocks`. Accepts signed deltas:
@@ -458,6 +461,16 @@ static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
   return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);
 }
 
+// Report deletions to the GC without touching it: once the index is dropped, the GC can free itself
+// on its own thread at any time, so only the main thread may call into it. The GC takes the count
+// at the start of its next run.
+static inline void IndexSpec_DeferGCDeletes(IndexSpec *sp, size_t n) {
+  __atomic_add_fetch(&sp->stats.gcDeferredDeletes, n, __ATOMIC_RELAXED);
+}
+static inline size_t IndexSpec_TakeGCDeferredDeletes(IndexSpec *sp) {
+  return __atomic_exchange_n(&sp->stats.gcDeferredDeletes, 0, __ATOMIC_RELAXED);
+}
+
 // Whether any field in the schema was declared INDEXMISSING.
 static inline bool IndexSpec_HasIndexMissing(const IndexSpec *sp) {
   return array_len(sp->missing.fields) != 0;
@@ -644,8 +657,13 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 
 // Delete a document from the index by its docId directly, without needing
 // to look it up by key name. Removes the document from the DocTable but does
-// NOT clean up DocIdMeta on the key. This is called from the metadata unlink callback
+// NOT clean up DocIdMeta on the key. No-op if the docId is not present.
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
+
+// Same as IndexSpec_DeleteDocById, for a caller already holding the spec write lock, except that it
+// leaves the GC notification to the caller: GCContext_OnDelete on the main thread, otherwise
+// IndexSpec_DeferGCDeletes. Returns whether the doc was deleted.
+bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId);
 
 // Resolve a key -> docId for this spec via the DocIdMeta key metadata (the
 // replacement for the former in-memory DocTable key trie). Returns 0 if the key
@@ -884,6 +902,10 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
+// Queue high-priority background work, ahead of queued low-priority jobs. Returns 0 on success.
+int CleanPool_AddWork(void (*work)(void *), void *arg);
+// Block until every queued clean-pool job has finished.
+void CleanPool_Wait();
 size_t CleanInProgressOrPending();
 
 

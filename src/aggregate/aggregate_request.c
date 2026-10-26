@@ -784,7 +784,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   if(languageStr == NULL) {
     searchOpts->language = RS_LANG_UNSET;
   } else {
-    searchOpts->language = RSLanguage_Find(languageStr, 0);
+    searchOpts->language = RSLanguage_Find(languageStr, strlen(languageStr));
   }
 
   if (AC_IsInitialized(&returnFields)) {
