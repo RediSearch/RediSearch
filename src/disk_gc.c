@@ -97,10 +97,10 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     SearchDisk_RunGC(sp->diskSpec, &stats);
     accumulateCycleStats(gc, &stats);
 
-    // After the cycle, which itself writes to that storage. Done here rather than on the main
-    // thread, which must not wait on the disk I/O.
+    // After the cycle, which itself writes to that storage, and here rather than on the main
+    // thread, which must not wait on the disk I/O. No separate flush: the compaction flushes the
+    // memtables it covers first.
     if (forced && forced->compactAll) {
-      SearchDisk_Flush(sp->diskSpec);
       if (!SearchDisk_CompactNonGcStorage(sp->diskSpec)) {
         forced->outcome = GC_FORCED_RUN_COMPACTION_CANCELLED;
       }
