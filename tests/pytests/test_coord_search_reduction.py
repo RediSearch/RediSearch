@@ -276,6 +276,8 @@ def _check_reply_admission_timeout(resp3):
                     reply, ping = outcome[0]
                     env.assertTrue(ping)
                     if profile:
+                        shards = reply['Profile']['Shards'] if resp3 else reply[1][1]
+                        env.assertEqual(len(shards), accepted, message=reply)
                         reply = reply['Results'] if resp3 else reply[0]
                     if resp3:
                         env.assertEqual(reply['total_results'], accepted, message=reply)

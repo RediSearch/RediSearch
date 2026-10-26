@@ -516,7 +516,7 @@ void CoordSearchReply_Accept(searchRequestCtx *request, MRReply *reply) {
     source->replies[published] = reply;
 #ifdef ENABLE_ASSERT
     SyncPoint_Wait(published == 0 ? "BeforeCoordSearchReplyPublish"
-                                 : "BeforeCoordSearchNextReplyPublish");
+                                  : "BeforeCoordSearchNextReplyPublish");
 #endif
     atomic_store_explicit(&source->publishedCount, published + 1, memory_order_release);
   } else {
@@ -832,6 +832,9 @@ static bool should_return_error(const searchRequestCtx *req, QueryErrorCode errC
 static int searchResultReducer(searchRequestCtx *req, bool fromTimeout) {
   RedisModuleBlockedClient *bc = NULL;
   searchReducerCtx *rCtx = NULL;
+  RPSearchReply *source = req->replySource;
+  int count = 0;
+  MRReply **replies = NULL;
 
 #ifdef ENABLE_ASSERT
   if (!fromTimeout) SyncPoint_Wait("BeforeCoordReducerClaim");
@@ -874,10 +877,9 @@ static int searchResultReducer(searchRequestCtx *req, bool fromTimeout) {
   req->rctx = rCtx;
   // Set searchCtx early so it's available even if we bail out early
   rCtx->searchCtx = req;
-  RPSearchReply *source = req->replySource;
-  int count = atomic_load_explicit(&source->publishedCount, memory_order_acquire);
+  count = atomic_load_explicit(&source->publishedCount, memory_order_acquire);
   // Zero may precede IO-thread allocation; do not read the unpublished array pointer.
-  MRReply **replies = count ? source->replies : NULL;
+  replies = count ? source->replies : NULL;
   source->snapshotCount = count;
   rCtx->replies = replies;
 
