@@ -235,8 +235,7 @@ impl<'a> RSBorrowedAggregateResult<'a> {
         records.extend(
             self.records
                 .iter()
-                .map(|c| RSIndexResult::to_owned(c.get()))
-                .map(Box::new),
+                .map(|c| Box::new(RSIndexResult::to_owned(c.get()))),
         );
 
         RSOwnedAggregateResult {
@@ -352,8 +351,7 @@ impl<'a> RSOwnedAggregateResult<'a> {
         records.extend(
             self.records
                 .iter()
-                .map(|c| RSIndexResult::to_owned(c))
-                .map(Box::new),
+                .map(|c| Box::new(RSIndexResult::to_owned(c))),
         );
 
         RSOwnedAggregateResult {
