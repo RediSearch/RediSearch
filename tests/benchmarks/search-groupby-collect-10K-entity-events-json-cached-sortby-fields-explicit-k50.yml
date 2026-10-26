@@ -19,7 +19,7 @@ dbconfig:
   - dataset_name: "groupby-collect-entity-events-10K-heavy-json"
   - dataset_load_timeout_secs: 1800
   - configuration-parameters:
-    - search-on-timeout: "RETURN-STRICT"
+    - search-on-timeout: "FAIL"
   - init_commands:
     - '"CONFIG" "SET" "search-enable-unstable-features" "yes"'
     - '"FT.CREATE" "idx:entity_events" "ON" "JSON" "PREFIX" "1" "entity:" "SCHEMA" "$.recordId" "AS" "recordId" "NUMERIC" "SORTABLE" "$.entityName" "AS" "entityName" "TEXT" "SORTABLE" "$.event.id" "AS" "eventId" "NUMERIC" "SORTABLE" "$.event.type" "AS" "type" "TAG" "$.event.target" "AS" "target" "TAG" "SORTABLE" "$.event.hasNotes" "AS" "hasNotes" "TAG" "$.event.processed" "AS" "processed" "TAG" "$.event.dueDate" "AS" "dueDate" "TEXT" "SORTABLE" "$.event.payload" "AS" "payload" "TEXT" "NOINDEX"'

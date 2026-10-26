@@ -19,7 +19,7 @@ dbconfig:
   - dataset_name: "groupby-collect-entity-events-10K-heavy-hash"
   - dataset_load_timeout_secs: 1800
   - configuration-parameters:
-    - search-on-timeout: "RETURN-STRICT"
+    - search-on-timeout: "FAIL"
   - init_commands:
     - '"CONFIG" "SET" "search-enable-unstable-features" "yes"'
     - '"FT.CREATE" "idx:entity_events" "ON" "HASH" "PREFIX" "1" "entity:" "SCHEMA" "recordId" "NUMERIC" "SORTABLE" "entityName" "TEXT" "SORTABLE" "event_id" "AS" "eventId" "NUMERIC" "SORTABLE" "event_type" "AS" "type" "TAG" "event_target" "AS" "target" "TAG" "SORTABLE" "event_hasNotes" "AS" "hasNotes" "TAG" "event_processed" "AS" "processed" "TAG" "event_dueDate" "AS" "dueDate" "TEXT" "SORTABLE" "event_payload" "AS" "payload" "TEXT" "NOINDEX"'
