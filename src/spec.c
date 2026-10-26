@@ -4130,7 +4130,7 @@ IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDis
 
 IndexSpecSlotTrimResult IndexSpec_CancelDiskSlotImport(IndexSpec *spec,
                                                        const SearchDiskSlotImport *import) {
-  if (!spec->diskSpec) return INDEX_TRIM_NOT_APPLIED;
+  if (!spec->diskSpec || !SearchDisk_CancelSlotImport(import)) return INDEX_TRIM_NOT_APPLIED;
   return applyDiskSlotTrim(spec,
                            SearchDisk_PrepareCancelSlotImport(spec->diskSpec, import, NULL, NULL));
 }

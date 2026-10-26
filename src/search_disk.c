@@ -798,27 +798,19 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
   }
 }
 
-SearchDiskSlotImport *SearchDisk_BeginSlotImport(RedisSearchDiskIndexSpec *index,
-                                                 const SearchDiskSlotMigration *migration) {
-  return disk && disk->slotMigration.beginImport ? disk->slotMigration.beginImport(index, migration)
-                                                 : NULL;
-}
-bool SearchDisk_SlotImportReady(const SearchDiskSlotImport *import) {
-  return disk && disk->slotMigration.importReady && disk->slotMigration.importReady(import);
-}
-bool SearchDisk_SlotImportFailed(const SearchDiskSlotImport *import) {
-  return !disk || !disk->slotMigration.importFailed || disk->slotMigration.importFailed(import);
-}
-SearchDiskWriteBatchHandle *SearchDisk_CreateImportWriteBatch(
-    RedisSearchDiskIndexSpec *index, const SearchDiskSlotImportWork *work) {
-  return disk && disk->slotMigration.createImportWriteBatch
-             ? disk->slotMigration.createImportWriteBatch(index, work)
+SearchDiskSlotImport *SearchDisk_BeginSlotImport(const SearchDiskSlotRange *ranges,
+                                                 size_t numRanges) {
+  return disk && disk_db && disk->slotMigration.beginImport
+             ? disk->slotMigration.beginImport(disk_db, ranges, numRanges)
              : NULL;
 }
-bool SearchDisk_CompleteSlotImport(RedisSearchDiskIndexSpec *index,
-                                   const SearchDiskSlotImport *import) {
-  return disk && disk->slotMigration.completeImport &&
-         disk->slotMigration.completeImport(index, import);
+bool SearchDisk_CompleteSlotImport(const SearchDiskSlotImport *import) {
+  return disk && disk_db && disk->slotMigration.completeImport &&
+         disk->slotMigration.completeImport(disk_db, import);
+}
+bool SearchDisk_CancelSlotImport(const SearchDiskSlotImport *import) {
+  return disk && disk_db && disk->slotMigration.cancelImport &&
+         disk->slotMigration.cancelImport(disk_db, import);
 }
 SearchDiskSlotTrim *SearchDisk_PrepareCancelSlotImport(RedisSearchDiskIndexSpec *index,
                                                        const SearchDiskSlotImport *import,
@@ -826,18 +818,6 @@ SearchDiskSlotTrim *SearchDisk_PrepareCancelSlotImport(RedisSearchDiskIndexSpec 
   return disk && disk->slotMigration.prepareCancelImport
              ? disk->slotMigration.prepareCancelImport(index, import, numDocs, totalDocLen)
              : NULL;
-}
-SearchDiskSlotImportWork *SearchDisk_AcquireSlotImportWork(const SearchDiskSlotImport *import) {
-  return disk && disk->slotMigration.acquireImportWork
-             ? disk->slotMigration.acquireImportWork(import)
-             : NULL;
-}
-bool SearchDisk_SlotImportWorkCancelled(const SearchDiskSlotImportWork *work) {
-  return !disk || !disk->slotMigration.importWorkCancelled ||
-         disk->slotMigration.importWorkCancelled(work);
-}
-void SearchDisk_FreeSlotImportWork(SearchDiskSlotImportWork *work) {
-  if (disk && disk->slotMigration.freeImportWork) disk->slotMigration.freeImportWork(work);
 }
 void SearchDisk_FreeSlotImport(SearchDiskSlotImport *import) {
   if (disk && disk->slotMigration.freeImport) disk->slotMigration.freeImport(import);

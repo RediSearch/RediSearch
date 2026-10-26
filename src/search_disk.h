@@ -1043,20 +1043,13 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  */
 void SearchDisk_DebugResetCompactionController(void);
 
-SearchDiskSlotImport *SearchDisk_BeginSlotImport(RedisSearchDiskIndexSpec *index,
-                                                 const SearchDiskSlotMigration *migration);
-bool SearchDisk_SlotImportReady(const SearchDiskSlotImport *import);
-bool SearchDisk_SlotImportFailed(const SearchDiskSlotImport *import);
-SearchDiskWriteBatchHandle *SearchDisk_CreateImportWriteBatch(RedisSearchDiskIndexSpec *index,
-                                                              const SearchDiskSlotImportWork *work);
-bool SearchDisk_CompleteSlotImport(RedisSearchDiskIndexSpec *index,
-                                   const SearchDiskSlotImport *import);
+SearchDiskSlotImport *SearchDisk_BeginSlotImport(const SearchDiskSlotRange *ranges,
+                                                 size_t numRanges);
+bool SearchDisk_CompleteSlotImport(const SearchDiskSlotImport *import);
+bool SearchDisk_CancelSlotImport(const SearchDiskSlotImport *import);
 SearchDiskSlotTrim *SearchDisk_PrepareCancelSlotImport(RedisSearchDiskIndexSpec *index,
                                                        const SearchDiskSlotImport *import,
                                                        uint64_t *numDocs, uint64_t *totalDocLen);
-SearchDiskSlotImportWork *SearchDisk_AcquireSlotImportWork(const SearchDiskSlotImport *import);
-bool SearchDisk_SlotImportWorkCancelled(const SearchDiskSlotImportWork *work);
-void SearchDisk_FreeSlotImportWork(SearchDiskSlotImportWork *work);
 void SearchDisk_FreeSlotImport(SearchDiskSlotImport *import);
 SearchDiskSlotMigration *SearchDisk_BeginSlotMigration(const SearchDiskSlotRange *ranges,
                                                        size_t numRanges);

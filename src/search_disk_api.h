@@ -69,7 +69,6 @@ typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 typedef struct SearchDiskSlotTrim SearchDiskSlotTrim;
 typedef struct SearchDiskSlotMigration SearchDiskSlotMigration;
 typedef struct SearchDiskSlotImport SearchDiskSlotImport;
-typedef struct SearchDiskSlotImportWork SearchDiskSlotImportWork;
 typedef struct SearchDiskSlotTrimBatch SearchDiskSlotTrimBatch;
 // The batch and ID array are borrowed only for this callback. Acquire the spec
 // write lock, applyTrimBatch, remove memory entries and adjust counts before
@@ -737,28 +736,21 @@ typedef struct IndexDiskAPI {
 
 /** Disk index operations supporting slot migration. */
 typedef struct SlotMigrationAPI {
-  // Join before indexing imported keys. Complete only after core ASM success.
-  // Reserve work before enqueueing; discard cancelled jobs and release guards
-  // after storage and memory apply. Cancellation closes writes, refuses while
-  // work is outstanding, then returns a normal bounded trim plan for accounting.
-  // Freeing an unfinished import handle preserves hidden state; rejoin to recover.
-  SearchDiskSlotImport *(*beginImport)(RedisSearchDiskIndexSpec *index,
-                                       const SearchDiskSlotMigration *migration);
-  // Probe after stopping the scan producer and reserving queued work. Readiness
-  // does not publish IDs or establish core ASM success.
-  bool (*importReady)(const SearchDiskSlotImport *import);
-  bool (*importFailed)(const SearchDiskSlotImport *import);
-  // Already-reserved work may finish during cancellation; the guard retains
-  // its authorization through the batch and memory apply.
-  SearchDiskWriteBatchHandle *(*createImportWriteBatch)(RedisSearchDiskIndexSpec *index,
-                                                        const SearchDiskSlotImportWork *work);
-  bool (*completeImport)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotImport *import);
+  // Start once per shard before scan or tail indexing. Normal indexing tracks
+  // matching slots automatically, including indexes created during import.
+  // OSS owns the scan, worker queue and storage/memory-apply drain. After that
+  // drain, report core success with completeImport or failure with cancelImport.
+  // Active import visibility is runtime-only; resolve before checkpoint/restore.
+  SearchDiskSlotImport *(*beginImport)(RedisSearchDisk *disk, const SearchDiskSlotRange *ranges,
+                                       size_t numRanges);
+  bool (*completeImport)(RedisSearchDisk *disk, const SearchDiskSlotImport *import);
+  bool (*cancelImport)(RedisSearchDisk *disk, const SearchDiskSlotImport *import);
+  // After cancelImport, apply/finish one bounded trim plan per index for memory
+  // indexes and scoring. Exclude incoming-slot mutations while applying a plan.
   SearchDiskSlotTrim *(*prepareCancelImport)(RedisSearchDiskIndexSpec *index,
                                              const SearchDiskSlotImport *import, uint64_t *numDocs,
                                              uint64_t *totalDocLen);
-  SearchDiskSlotImportWork *(*acquireImportWork)(const SearchDiskSlotImport *import);
-  bool (*importWorkCancelled)(const SearchDiskSlotImportWork *work);
-  void (*freeImportWork)(SearchDiskSlotImportWork *work);
+  // Retain through cancellation accounting; pending GC retains shard admission.
   void (*freeImport)(SearchDiskSlotImport *import);
   // Admission is shard-wide: any active operation or pending cleanup blocks it.
   // The probe is advisory. beginMigration atomically admits an operation; all
