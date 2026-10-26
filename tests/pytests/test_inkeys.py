@@ -175,39 +175,6 @@ def test_inkeys_timeout_before_resolution():
 
 
 @skip(cluster=True)
-def test_lazy_key_map_aggregate_activation():
-    """Aggregate INKEYS resolves correctly before and after backfill, inline and on workers."""
-    for workers in (0, 2):
-        env = Env(moduleArgs=f'WORKERS {workers} TIMEOUT 0')
-        skipIfNoEnableAssert(env)
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-        env.cmd('HSET', 'selected', 't', 'hello')
-        env.cmd('HSET', 'excluded', 't', 'hello')
-        env.assertEqual(float(index_info(env, 'idx')['key_table_size_mb']), 0)
-        command = ('FT.AGGREGATE', 'idx', '*', 'INKEYS', 3,
-                   'selected', 'missing', 'selected', 'LOAD', 1, '@__key')
-        expected = [1, ['__key', 'selected']]
-        for point in ('KeyMapBeforeBatch', 'KeyMapBuildComplete'):
-            env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
-        try:
-            env.expect(*command).equal(expected)
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', 'KeyMapBeforeBatch') == 1, {}),
-                'aggregate did not start backfill')
-            env.expect(*command).equal(expected)
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'KeyMapBeforeBatch')
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', 'KeyMapBuildComplete') == 1, {}),
-                'backfill did not finish')
-            env.expect(*command).equal(expected)
-        finally:
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'KeyMapBeforeBatch')
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'KeyMapBuildComplete')
-            env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
-            env.stop()
-
-
-@skip(cluster=True)
 def test_lazy_key_map_activation():
     for workers in (0, 2):
         env = Env(moduleArgs=f'WORKERS {workers} TIMEOUT 0')
@@ -219,13 +186,19 @@ def test_lazy_key_map_activation():
         env.assertEqual(float(index_info(env, 'idx')['key_table_size_mb']), 0)
         for point in ('KeyMapBeforeBatch', 'KeyMapBuildComplete'):
             env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', point).ok()
+        aggregate = ('FT.AGGREGATE', 'idx', '*', 'INKEYS', 4,
+                     'renamed', 'new', 'missing', 'renamed',
+                     'LOAD', 1, '@__key', 'SORTBY', 2, '@__key', 'ASC')
+        aggregate_result = [2, ['__key', 'new'], ['__key', 'renamed']]
         try:
+            env.expect('FT.AGGREGATE', 'idx', '*', 'INKEYS', 1, 'doc:0',
+                       'LOAD', 1, '@__key').equal([1, ['__key', 'doc:0']])
+            wait_for_condition(
+                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', 'KeyMapBeforeBatch') == 1, {}),
+                'aggregate did not start backfill')
             # The partial map cannot answer queries while the builder is parked.
             env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 1, 'doc:0',
                        'NOCONTENT').equal([1, 'doc:0'])
-            wait_for_condition(
-                lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', 'KeyMapBeforeBatch') == 1, {}),
-                'backfill did not start')
             env.cmd('RENAME', 'doc:0', 'renamed')
             env.cmd('DEL', 'doc:1')
             env.cmd('HSET', 'new', 't', 'hello')
@@ -233,6 +206,7 @@ def test_lazy_key_map_activation():
                        'NOCONTENT').equal([2, 'renamed', 'new'])
             env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 2, 'doc:0', 'doc:1',
                        'NOCONTENT').equal([0])
+            env.expect(*aggregate).equal(aggregate_result)
             env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'KeyMapBeforeBatch')
             wait_for_condition(
                 lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', 'KeyMapBuildComplete') == 1, {}),
@@ -241,6 +215,7 @@ def test_lazy_key_map_activation():
                        'NOCONTENT').equal([1, 'renamed'])
             env.expect('FT.SEARCH', 'idx', '*', 'INKEYS', 1, 'new',
                        'NOCONTENT').equal([1, 'new'])
+            env.expect(*aggregate).equal(aggregate_result)
             env.assertGreater(float(index_info(env, 'idx')['key_table_size_mb']), 0)
             env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', 'KeyMapBuildComplete')
         finally:
