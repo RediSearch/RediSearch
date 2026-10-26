@@ -56,8 +56,9 @@ typedef enum {
   GC_FORCED_RUN_OK = 0,
   // No child process could be created, so nothing was collected.
   GC_FORCED_RUN_NO_FORK,
-  // The cycle ran, but the compaction `compactAll` asked for was cancelled.
-  GC_FORCED_RUN_COMPACTION_CANCELLED,
+  // `compactAll` was asked for but did not complete: the cycle was skipped (e.g. background
+  // work was paused before it started) or the compaction was cancelled.
+  GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE,
 } GCForcedRunOutcome;
 
 // What a caller that demanded a collection asked for, and what it got. A cycle receives a

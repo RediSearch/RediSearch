@@ -102,11 +102,13 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     // memtables it covers first.
     if (forced && forced->compactAll) {
       if (!SearchDisk_CompactNonGcStorage(sp->diskSpec)) {
-        forced->outcome = GC_FORCED_RUN_COMPACTION_CANCELLED;
+        forced->outcome = GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE;
       }
     }
 
     gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
+  } else if (forced && forced->compactAll) {
+    forced->outcome = GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE;
   }
 
   pthread_rwlock_unlock(&g_diskGcRunLock);
