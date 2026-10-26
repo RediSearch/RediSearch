@@ -15,6 +15,18 @@ dbconfig:
   - init_commands:
       - '"FT.CREATE" "benchIndex" "ON" "HASH" "PREFIX" "1" "doc:" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
       - '"_FT.DEBUG" "GC_STOP_SCHEDULE" "benchIndex"'
+      # MOD-20224 diagnostics (bench branch only): wait out background indexing without holding
+      # the main thread, then time idle GC cycles (log timestamps) and dump fork/memory/GC stats.
+      - '"BLPOP" "mod20224:never" "170"'
+      - '"FT.INFO" "benchIndex"'
+      - '"INFO" "memory"'
+      - '"_FT.DEBUG" "GC_FORCEINVOKE" "benchIndex" "600000"'
+      - '"INFO" "stats"'
+      - '"_FT.DEBUG" "GC_FORCEINVOKE" "benchIndex" "600000"'
+      - '"INFO" "stats"'
+      - '"_FT.DEBUG" "GC_FORCEINVOKE" "benchIndex" "600000"'
+      - '"INFO" "stats"'
+      - '"FT.INFO" "benchIndex"'
   - tool: ftsb_redisearch
   - parameters:
     - workers: 64
