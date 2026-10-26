@@ -29,7 +29,11 @@ pub(crate) enum CoverageRelation {
 /// Validates that all ranges are valid.
 #[inline]
 fn debug_assert_valid_ranges(ranges: &[SlotRange]) {
-    debug_assert!(ranges.iter().all(|r| r.start <= r.end && r.end <= 16383));
+    debug_assert!(
+        ranges
+            .iter()
+            .all(|r| r.start <= r.end && r.end < crate::CLUSTER_SLOTS)
+    );
 }
 
 /// Validates that ranges are sorted and normalized (no overlaps or adjacent ranges).
