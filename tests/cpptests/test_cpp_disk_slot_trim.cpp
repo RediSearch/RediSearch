@@ -72,6 +72,7 @@ class DiskSlotTrimTest : public ::testing::Test {
     disk = &api;
     disk_db = reinterpret_cast<RedisSearchDisk *>(&api);
     isFlex = true;
+    api.docTable.getDeletedIdsCount = [](RedisSearchDiskIndexSpec *) { return uint64_t{0}; };
     gc.gcCtx = DiskGC_Create(ref, &gc.callbacks);
     spec->gc = &gc;
     api.slotMigration.hasPendingCleanup = [](RedisSearchDiskIndexSpec *) {
@@ -135,13 +136,15 @@ class DiskSlotTrimTest : public ::testing::Test {
 
   void TearDown() override {
     if (gc.gcCtx) gc.callbacks.onTerm(gc.gcCtx);
-    spec->gc = nullptr;
-    spec->diskSpec = nullptr;
-    spec->diskRegistered = false;
+    if (spec) {
+      spec->gc = nullptr;
+      spec->diskSpec = nullptr;
+      spec->diskRegistered = false;
+    }
     disk = savedDisk;
     disk_db = savedDb;
     isFlex = savedFlex;
-    Indexes_RemoveSpecFromGlobals(ref, false);
+    if (ref.rm) Indexes_RemoveSpecFromGlobals(ref, false);
     RSGlobalConfig.gcConfigParams.enableGC = savedEnableGC;
   }
 
@@ -190,6 +193,16 @@ class DiskSlotTrimTest : public ::testing::Test {
   }
   DiskGC *collector() {
     return static_cast<DiskGC *>(gc.gcCtx);
+  }
+  void dropIndexBeforeCollectorTermination() {
+    spec->gc = nullptr;
+    spec->diskSpec = nullptr;
+    spec->diskRegistered = false;
+    Indexes_RemoveSpecFromGlobals(ref, false);
+    ref = {};
+    spec = nullptr;
+    gc.callbacks.onTerm(gc.gcCtx);
+    gc.gcCtx = nullptr;
   }
   size_t pendingDeletes() {
     return collector()->deletesFromLastRun.load() +
@@ -386,6 +399,144 @@ TEST_F(DiskSlotTrimTest, DeferredTrimDeletesSurviveGcRetry) {
   EXPECT_EQ(pendingDeletes(), 0u);
   EXPECT_EQ(state.gcRuns, 2u);
   EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
+}
+
+TEST_F(DiskSlotTrimTest, ConcurrentTrimCollectedByGcDoesNotUnderflowAfterIndexDrop) {
+  const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  api.index.runGC = [](RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
+    auto *sp = reinterpret_cast<IndexSpec *>(index);
+    IndexSpecDiskSlotTrimResult result = INDEX_DISK_TRIM_NOT_APPLIED;
+    std::thread writer([&] {
+      const SearchDiskSlotRange range{0, 100};
+      result = IndexSpec_TrimDiskSlots(sp, &range, 1);
+    });
+    writer.join();
+    EXPECT_EQ(result, INDEX_DISK_TRIM_FINISHED);
+    stats->num_cleaned_docs = 3;
+  };
+  GCForcedRun forced = GCForcedRun_New(1000, 10);
+  ASSERT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
+  EXPECT_EQ(collector()->logicallyDeleted.load(), 0u);
+  dropIndexBeforeCollectorTermination();
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
+}
+
+TEST_F(DiskSlotTrimTest, LateTrimAndUpdateRemainAccountedAcrossCyclesAndIndexDrop) {
+  const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  GCContext_OnDelete(&gc);
+  GCContext_OnDelete(&gc);
+  api.index.runGC = [](RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
+    auto *sp = reinterpret_cast<IndexSpec *>(index);
+    if (++state.gcRuns == 1) {
+      stats->num_cleaned_docs = 2;
+      const SearchDiskSlotRange range{0, 100};
+      EXPECT_EQ(IndexSpec_TrimDiskSlots(sp, &range, 1), INDEX_DISK_TRIM_FINISHED);
+    } else {
+      stats->num_cleaned_docs = 3;
+      GCContext_OnUpdate(sp->gc);
+    }
+  };
+  GCForcedRun forced = GCForcedRun_New(1000, 10);
+  ASSERT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 3);
+  EXPECT_EQ(collector()->logicallyDeleted.load(), 3u);
+  ASSERT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 1);
+  EXPECT_EQ(collector()->logicallyDeleted.load(), 1u);
+  dropIndexBeforeCollectorTermination();
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
+}
+
+TEST_F(DiskSlotTrimTest, DeferredTrimDuringFailedGcSurvivesRetryAndIndexDrop) {
+  const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  api.index.runGC = [](RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
+    auto *sp = reinterpret_cast<IndexSpec *>(index);
+    if (++state.gcRuns == 1) {
+      const SearchDiskSlotRange range{0, 100};
+      EXPECT_EQ(IndexSpec_TrimDiskSlots(sp, &range, 1), INDEX_DISK_TRIM_FINISHED);
+      stats->retryRequired = true;
+    } else {
+      stats->num_cleaned_docs = 3;
+    }
+  };
+  GCForcedRun forced = GCForcedRun_New(1000, 10);
+  ASSERT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(forced.outcome, GC_FORCED_RUN_RETRY_REQUIRED);
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 3);
+  EXPECT_EQ(pendingDeletes(), 3u);
+  ASSERT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
+  dropIndexBeforeCollectorTermination();
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
+}
+
+TEST_F(DiskSlotTrimTest, IndexDropRetiresOutstandingDeletesAfterPartialCollection) {
+  const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  for (size_t i = 0; i < 3; ++i) GCContext_OnDelete(&gc);
+  api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
+    stats->num_cleaned_docs = 1;
+  };
+  GCForcedRun forced = GCForcedRun_New(1000, 10);
+  ASSERT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 0u);
+  EXPECT_EQ(collector()->logicallyDeleted.load(), 2u);
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 2);
+  dropIndexBeforeCollectorTermination();
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
+}
+
+TEST_F(DiskSlotTrimTest, RestoredDeletionsAreChargedBeforeGcAndRemovedOnIndexDrop) {
+  const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  gc.callbacks.onTerm(gc.gcCtx);
+  api.docTable.getDeletedIdsCount = [](RedisSearchDiskIndexSpec *) { return uint64_t{4}; };
+  gc.gcCtx = DiskGC_Create(ref, &gc.callbacks);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 4u);
+  EXPECT_EQ(collector()->logicallyDeleted.load(), 4u);
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 4);
+  dropIndexBeforeCollectorTermination();
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
+}
+
+TEST_F(DiskSlotTrimTest, RestoredIdsAndLateTrimKeepExactGlobalAccounting) {
+  const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  gc.callbacks.onTerm(gc.gcCtx);
+  api.docTable.getDeletedIdsCount = [](RedisSearchDiskIndexSpec *) { return uint64_t{4}; };
+  gc.gcCtx = DiskGC_Create(ref, &gc.callbacks);
+  ASSERT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 4);
+  api.index.runGC = [](RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
+    if (++state.gcRuns == 1) {
+      stats->num_cleaned_docs = 4;
+      const SearchDiskSlotRange range{0, 100};
+      EXPECT_EQ(IndexSpec_TrimDiskSlots(reinterpret_cast<IndexSpec *>(index), &range, 1),
+                INDEX_DISK_TRIM_FINISHED);
+    } else {
+      stats->num_cleaned_docs = 3;
+    }
+  };
+  GCForcedRun forced = GCForcedRun_New(1000, 10);
+  ASSERT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(collector()->logicallyDeleted.load(), 3u);
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 3);
+  ASSERT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(collector()->logicallyDeleted.load(), 0u);
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
+  dropIndexBeforeCollectorTermination();
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
+}
+
+TEST_F(DiskSlotTrimTest, UnchargedStorageIdsDoNotConsumeOtherIndexesGlobalContribution) {
+  const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  IndexsGlobalStats_IncreaseLogicallyDeleted(4);
+  api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
+    stats->num_cleaned_docs = 3;
+  };
+  GCForcedRun forced = GCForcedRun_New(1000, 10);
+  EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 4);
+  dropIndexBeforeCollectorTermination();
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 4);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(4);
 }
 
 TEST_F(DiskSlotTrimTest, PendingSlotCleanupRunsBelowThresholdAndRetries) {
