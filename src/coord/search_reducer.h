@@ -14,8 +14,10 @@
 #include "info/global_stats.h"
 #include "rmr/rmr.h"
 
-/* Initialize before dispatch; Accept consumes each reply, including after admission closes. */
+/* Initialize on main; prepare once on the assigned IO thread before dispatch. */
 void CoordSearchReply_Init(searchRequestCtx *request);
+void CoordSearchReply_Prepare(searchRequestCtx *request, size_t capacity);
+/* Consumes each reply; the assigned IO thread is the only publisher. */
 void CoordSearchReply_Accept(searchRequestCtx *request, MRReply *reply);
 void CoordSearchReducer_Free(searchRequestCtx *request);
 void CoordSearchReducer_Schedule(searchRequestCtx *request);
