@@ -78,12 +78,16 @@ jobs:
       !cancelled() &&
       needs.get-config.result == 'success'
     runs-on: ${{ needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    # Runner-local env is unavailable while GitHub creates the job container.
+    # Use the resolved runner label as the pre-container signal for GitHub-hosted
+    # mounts; runner-local env is not available yet.
     container: ${{
       needs.get-config.outputs.container
         && fromJSON(
-          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+          format('{{"image":"{0}","options":"--user root {1} {2}"}}',
             needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
-            startsWith(needs.get-config.outputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+            startsWith(needs.get-config.outputs.container, 'alpine:') && (startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '',
+            startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '')
         )
       || null }}
 
@@ -105,37 +109,6 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
-      - name: Free up disk space (container)
-        if: ${{ needs.get-config.outputs.container }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          rm -rf /host_usr/dotnet/* 2>/dev/null || true
-          rm -rf /host_usr/android/* 2>/dev/null || true
-          rm -rf /host_opt/ghc/* 2>/dev/null || true
-          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
-      - name: Free up disk space (non-container)
-        if: ${{ !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}
-        run: |
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
-          sudo rm -rf /usr/local/share/boost || true
-          docker system prune -af 2>/dev/null || true
-      - name: Fix HOME Directory
-        if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
-        shell: bash
-        run: |
-          h=$(getent passwd "$(id -un)" | cut -d: -f6)
-          if [ "$h" = "$HOME" ]; then
-            echo "HOME fine: $HOME"
-            exit 0
-          fi
-          echo "HOME=$h" >> "$GITHUB_ENV"
-
       - name: Setup Dependencies
         if: needs.build-image.outputs.succeeded != 'true' && needs.get-config.outputs.setup_script
         env:
@@ -152,6 +125,19 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
+
+      - name: Free up disk space
+        uses: ./.github/actions/github-hosted-runner-cleanup
+      - name: Fix HOME Directory
+        if: ${{ needs.build-image.outputs.succeeded == 'true' && needs.get-config.outputs.container }}
+        shell: bash
+        run: |
+          h=$(getent passwd "$(id -un)" | cut -d: -f6)
+          if [ "$h" = "$HOME" ]; then
+            echo "HOME fine: $HOME"
+            exit 0
+          fi
+          echo "HOME=$h" >> "$GITHUB_ENV"
 
       # MIRI runs `make rust-tests` which goes through build.sh's full flow,
       # including the C build that produces libredisearch_all.a. Sccache keeps
@@ -223,4 +209,3 @@ jobs:
         run: |
           echo "Rust tests (MIRI): ${{ steps.rust_unit_tests_miri.outcome }}"
           exit 1
-
