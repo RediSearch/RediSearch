@@ -128,6 +128,11 @@ void DocTable_ClearPayload(DocTable *t, RSDocumentMetadata *dmd);
 // deletes them through the regular delete path.
 bool DocTable_Exists(const DocTable *t, t_docId docId);
 
+/* Snapshot which docIds exist so that later DocTable_Exists calls on `t` answer from a bitmap.
+ * Only for a forked GC child: `t` must not change again until DocTable_Free. A table whose
+ * maxDocId is far above its size keeps answering from its DMDs. */
+void DocTable_FreezeExistence(const DocTable *t);
+
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
 int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVector v);
