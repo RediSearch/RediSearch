@@ -3154,17 +3154,6 @@ static bool IndexSpec_OpenFieldsStorage(RedisModuleCtx *ctx, IndexSpec *sp, Fiel
   if (n == 0) {
     return true;
   }
-  // Before openFields, so a failure here leaves no field open for an FT.ALTER
-  // rollback to strand on disk; missing storage without INDEXMISSING fields is
-  // only an empty store.
-  for (size_t i = 0; i < n; ++i) {
-    if (FieldSpec_IndexesMissing(fields + i)) {
-      if (!SearchDisk_InitializeMissingStorage(ctx, sp->diskSpec)) {
-        return false;
-      }
-      break;
-    }
-  }
   SearchDiskFieldOpen stackBuf[16];
   SearchDiskFieldOpen *opens =
       n <= sizeof(stackBuf) / sizeof(stackBuf[0]) ? stackBuf : rm_malloc(n * sizeof(*opens));
@@ -3173,6 +3162,7 @@ static bool IndexSpec_OpenFieldsStorage(RedisModuleCtx *ctx, IndexSpec *sp, Fiel
     opens[i] = (SearchDiskFieldOpen){
         .fieldIndex = fs->index,
         .types = fs->types,
+        .indexMissing = FieldSpec_IndexesMissing(fs),
     };
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
       opens[i].fieldName = HiddenString_GetUnsafe(fs->fieldName, &opens[i].fieldNameLen);

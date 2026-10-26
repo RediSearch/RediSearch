@@ -11,6 +11,7 @@
 
 #include <stdatomic.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "config.h"
@@ -442,15 +443,27 @@ bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, 
     return disk->index.indexTags(ctx, index, batch, values, numValues, docId, fieldIndex);
 }
 
-bool SearchDisk_InitializeMissingStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk);
-  return disk->index.initializeMissingStorage(ctx, index);
+static bool SearchDisk_CheckStorageResult(RedisModuleCtx *ctx, bool success) {
+  if (!success && (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_REPLICATED)) {
+    RedisModule_Log(ctx, "warning", "Disk storage preparation failed during replication; aborting");
+    abort();
+  }
+  return success;
 }
 
 bool SearchDisk_OpenFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
                            const SearchDiskFieldOpen *fields, size_t numFields) {
   RS_ASSERT(disk && index && (fields || numFields == 0));
-  return !disk->index.openFields || disk->index.openFields(ctx, index, fields, numFields);
+  if (disk->index.openFields) {
+    return SearchDisk_CheckStorageResult(ctx,
+                                         disk->index.openFields(ctx, index, fields, numFields));
+  }
+  for (size_t i = 0; i < numFields; ++i) {
+    if (fields[i].indexMissing) {
+      return SearchDisk_CheckStorageResult(ctx, disk->index.initializeMissingStorage(ctx, index));
+    }
+  }
+  return true;
 }
 
 bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,

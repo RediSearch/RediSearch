@@ -149,6 +149,7 @@ typedef struct SearchDiskResourceConfig {
 typedef struct SearchDiskFieldOpen {
   t_fieldIndex fieldIndex;
   FieldType types;
+  bool indexMissing;
   /** Borrowed nonempty UTF-8 field name and vector parameters; VECTOR fields only. */
   const char *fieldName;
   size_t fieldNameLen;
@@ -722,10 +723,9 @@ typedef struct IndexDiskAPI {
    */
   QueryIterator *(*newMissingIterator)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex,
                                        RedisSearchDiskSnapshot *snapshot, QueryError *status);
-  /** Initialize the shared missing CF after schema validation, before ingestion or queries.
-   * Called whenever openFields is about to receive an INDEXMISSING field, so it must be a no-op
-   * once the storage exists. Returns false if storage needs to be created and creation fails;
-   * true otherwise; the failure rules of openFields apply.
+  /** Compatibility callback for backends without openFields. New backends prepare shared
+   * missing storage from SearchDiskFieldOpen.indexMissing in openFields instead.
+   * Must be idempotent. Returns false on preparation failure.
    * ctx must allow Redis BigModule CF registration; index must be a live disk index. */
   bool (*initializeMissingStorage)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
   /**
@@ -733,8 +733,11 @@ typedef struct IndexDiskAPI {
    * index is opened (on create and on load), and the fields FT.ALTER adds. `fields` is borrowed
    * for the call only. The backend may create or resize storage for these fields. On a load
    * from received index storage, that storage may already exist and hold data, which must be
-   * kept. Main thread only; ctx permits CF registration. A NULL callback succeeds
-   * without opening storage.
+   * kept. Main thread only; ctx permits CF registration. A NULL callback falls back to
+   * initializeMissingStorage for descriptors with indexMissing set.
+   *
+   * If any descriptor has indexMissing set, prepare the shared missing storage before
+   * preparing any per-field storage. Repeated declarations must reuse existing storage.
    *
    * FT.ALTER can call this while a consistency window (openConsistencyWindow) is open on the
    * index, so storage created or resized here must honour the window as existing storage does.
@@ -743,6 +746,7 @@ typedef struct IndexDiskAPI {
    * Existing storage and data must be preserved. A failure may leave empty CFs from earlier
    * preparations; subsequent calls must reuse them safely. The caller must not ingest into
    * the new fields until this call succeeds.
+   * Failure during a replicated schema command must abort the server to prevent divergence.
    * Failure while completing a received-storage load aborts the server, as a failed vector
    * storage bind does there.
    */

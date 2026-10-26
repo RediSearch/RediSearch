@@ -263,8 +263,6 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
  */
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
 
-bool SearchDisk_InitializeMissingStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
-
 /** See IndexDiskAPI.openFields. */
 bool SearchDisk_OpenFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
                            const SearchDiskFieldOpen *fields, size_t numFields);

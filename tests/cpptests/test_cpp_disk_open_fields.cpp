@@ -110,10 +110,13 @@ class DiskOpenFieldsTest : public ::testing::Test {
       events.emplace_back("openFields");
       numFieldsAtOpen.push_back(reinterpret_cast<IndexSpec *>(index)->numFields);
       std::vector<Desc> descs;
+      bool indexMissing = false;
       for (size_t i = 0; i < n; ++i) {
         descs.emplace_back(fields[i].fieldIndex, fields[i].types);
         const auto *sp = reinterpret_cast<const IndexSpec *>(index);
         const auto *fs = sp->fields + fields[i].fieldIndex;
+        EXPECT_EQ(fields[i].indexMissing, FieldSpec_IndexesMissing(fs) != 0);
+        indexMissing |= fields[i].indexMissing;
         if (fields[i].types & INDEXFLD_T_VECTOR) {
           size_t nameLen;
           const char *name = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
@@ -131,7 +134,7 @@ class DiskOpenFieldsTest : public ::testing::Test {
         }
       }
       openCalls.push_back(std::move(descs));
-      return openFieldsResult;
+      return openFieldsResult && (!indexMissing || initMissingResult);
     };
     api.metrics.activateTarget = [](RedisSearchDiskIndexSpec *) {};
     api.metrics.stopMetrics = [](RedisSearchDisk *) {};
@@ -276,7 +279,7 @@ TEST_F(DiskOpenFieldsTest, AlterOpensOnlyAddedFields) {
   EXPECT_NE(field(sp, "more")->tagOpts.tagIndex, nullptr);
 }
 
-TEST_F(DiskOpenFieldsTest, FailedMissingStorageInitFailsAlterBeforeOpeningFields) {
+TEST_F(DiskOpenFieldsTest, FailedMissingStorageInitFailsAlterWithoutChangingSchema) {
   QueryError err = QueryError_Default();
   IndexSpec *sp = create("open_fields_alter_missing_fail", {"title", "TEXT"}, &err);
   ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
@@ -288,8 +291,8 @@ TEST_F(DiskOpenFieldsTest, FailedMissingStorageInitFailsAlterBeforeOpeningFields
   EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_DISK_CREATION);
   QueryError_ClearError(&err);
 
-  EXPECT_EQ(events, std::vector<std::string>{"initializeMissingStorage"});
-  EXPECT_TRUE(openCalls.empty());
+  EXPECT_EQ(events, std::vector<std::string>{"openFields"});
+  EXPECT_EQ(openCalls.size(), 1u);
   EXPECT_EQ(sp->numFields, 1);
   EXPECT_FALSE(IndexSpec_HasIndexMissing(sp));
 }
@@ -302,12 +305,12 @@ TEST_F(DiskOpenFieldsTest, FailedMissingStorageInitFailsCreate) {
   EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_DISK_CREATION);
   QueryError_ClearError(&err);
 
-  EXPECT_TRUE(openCalls.empty());
+  EXPECT_EQ(openCalls.size(), 1u);
   EXPECT_EQ(StrongRef_Get(Indexes_LoadIndexSpecUnsafe("open_fields_create_missing_fail")), nullptr);
   EXPECT_EQ(closeOnMainThreadCalls, 1);
 }
 
-TEST_F(DiskOpenFieldsTest, AlterAddingIndexMissingInitializesMissingStorageFirst) {
+TEST_F(DiskOpenFieldsTest, AlterPassesMissingStorageRequirementThroughOpenFields) {
   QueryError err = QueryError_Default();
   IndexSpec *sp = create("open_fields_alter_missing", {"title", "TEXT"}, &err);
   ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
@@ -317,7 +320,7 @@ TEST_F(DiskOpenFieldsTest, AlterAddingIndexMissingInitializesMissingStorageFirst
   ASSERT_TRUE(alter(sp, {"price", "NUMERIC", "tags", "TAG", "INDEXMISSING"}, &err))
       << QueryError_GetUserError(&err);
 
-  EXPECT_EQ(events, (std::vector<std::string>{"initializeMissingStorage", "openFields"}));
+  EXPECT_EQ(events, (std::vector<std::string>{"openFields"}));
   EXPECT_TRUE(IndexSpec_HasIndexMissing(sp));
 }
 
@@ -363,6 +366,54 @@ TEST_F(DiskOpenFieldsTest, FailedCreateClosesDiskIndexAndRegistersNothing) {
   EXPECT_EQ(StrongRef_Get(Indexes_LoadIndexSpecUnsafe("open_fields_create_fail")), nullptr);
   EXPECT_EQ(closeOnMainThreadCalls, 1);
   EXPECT_EQ(closeIndexSpecCalls, 1);
+}
+
+TEST_F(DiskOpenFieldsTest, ReplicatedCreateStorageFailureAborts) {
+  Restore<decltype(RedisModule_GetContextFlags)> flags{RedisModule_GetContextFlags};
+  RedisModule_GetContextFlags = [](RedisModuleCtx *) { return REDISMODULE_CTX_FLAGS_REPLICATED; };
+  openFieldsResult = false;
+  EXPECT_DEATH(
+      {
+        QueryError err = QueryError_Default();
+        create("replicated_create_fail", {"title", "TEXT"}, &err);
+      },
+      "");
+}
+
+TEST_F(DiskOpenFieldsTest, ReplicatedMissingStorageFailureAborts) {
+  Restore<decltype(RedisModule_GetContextFlags)> flags{RedisModule_GetContextFlags};
+  RedisModule_GetContextFlags = [](RedisModuleCtx *) { return REDISMODULE_CTX_FLAGS_REPLICATED; };
+  initMissingResult = false;
+  EXPECT_DEATH(
+      {
+        QueryError err = QueryError_Default();
+        create("replicated_missing_fail", {"tags", "TAG", "INDEXMISSING"}, &err);
+      },
+      "");
+}
+
+TEST_F(DiskOpenFieldsTest, LegacyMissingStorageFailureFailsCreate) {
+  api.index.openFields = nullptr;
+  initMissingResult = false;
+  QueryError err = QueryError_Default();
+  EXPECT_EQ(create("legacy_missing_fail", {"tags", "TAG", "INDEXMISSING"}, &err), nullptr);
+  EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_DISK_CREATION);
+  QueryError_ClearError(&err);
+  EXPECT_EQ(events, (std::vector<std::string>{"openIndex", "initializeMissingStorage"}));
+  EXPECT_EQ(closeOnMainThreadCalls, 1);
+}
+
+TEST_F(DiskOpenFieldsTest, ReplicatedLegacyMissingStorageFailureAborts) {
+  Restore<decltype(RedisModule_GetContextFlags)> flags{RedisModule_GetContextFlags};
+  RedisModule_GetContextFlags = [](RedisModuleCtx *) { return REDISMODULE_CTX_FLAGS_REPLICATED; };
+  api.index.openFields = nullptr;
+  initMissingResult = false;
+  EXPECT_DEATH(
+      {
+        QueryError err = QueryError_Default();
+        create("replicated_legacy_missing_fail", {"tags", "TAG", "INDEXMISSING"}, &err);
+      },
+      "");
 }
 
 class DiskOpenFieldsLoadTest : public DiskOpenFieldsTest {
@@ -415,8 +466,7 @@ TEST_F(DiskOpenFieldsLoadTest, RdbLoadOpensAllFieldsOnce) {
   ASSERT_EQ(IndexSpec_RdbLoadOpenDisk(RSDummyContext, loaded, false, &err), REDISMODULE_OK)
       << QueryError_GetUserError(&err);
 
-  EXPECT_EQ(events,
-            (std::vector<std::string>{"openIndex", "initializeMissingStorage", "openFields"}));
+  EXPECT_EQ(events, (std::vector<std::string>{"openIndex", "openFields"}));
   ASSERT_EQ(openCalls.size(), 1u);
   EXPECT_EQ(openCalls[0], kLoadedFields);
   EXPECT_EQ(loaded->fields[2].vectorOpts.diskCtx.storage, loaded->diskSpec);
@@ -467,8 +517,7 @@ TEST_F(DiskOpenFieldsLoadTest, SstOpenOpensNonVectorFieldsOnce) {
 
   ASSERT_TRUE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));
 
-  EXPECT_EQ(events, (std::vector<std::string>{"openIndexWithRdbState", "initializeMissingStorage",
-                                              "openFields"}));
+  EXPECT_EQ(events, (std::vector<std::string>{"openIndexWithRdbState", "openFields"}));
   ASSERT_EQ(openCalls.size(), 1u);
   EXPECT_EQ(openCalls[0], (std::vector<Desc>(kLoadedFields.begin(), kLoadedFields.end() - 1)));
 }
