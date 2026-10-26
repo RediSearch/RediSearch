@@ -23,6 +23,8 @@ extern "C" {
 #include "search_disk.h"
 #include "vector_index.h"
 #include "geometry_index.h"
+#include "iterators_ffi.h"
+#include "util/timeout.h"
 #include "info/global_stats.h"
 extern RedisSearchDiskAPI *disk;
 extern RedisSearchDisk *disk_db;
@@ -36,6 +38,8 @@ struct TrimState {
   bool applied = false;
   bool pendingCleanup = false;
   size_t applyCalls = 0, finishCalls = 0, frees = 0, gcRuns = 0, migrationFrees = 0;
+  size_t importFrees = 0;
+  bool importCancelled = false;
   size_t batchCount = 1, batchesApplied = 0, batchApplyCalls = 0, failBatch = SIZE_MAX;
   std::function<void(size_t)> beforeBatch;
   RedisModuleCmdFunc forceGC = nullptr;
@@ -121,6 +125,11 @@ class DiskSlotTrimTest : public ::testing::Test {
       return state.finish;
     };
     api.slotMigration.freeTrim = [](SearchDiskSlotTrim *) { ++state.frees; };
+    api.slotMigration.getHiddenImportStats = [](RedisSearchDiskIndexSpec *, uint64_t *docs,
+                                                uint64_t *len) {
+      *docs = 0;
+      *len = 0;
+    };
     api.index.isBackgroundWorkPaused = [](RedisSearchDiskIndexSpec *) { return false; };
     api.index.runGC = [](RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
       ++state.gcRuns;
@@ -263,6 +272,58 @@ TEST_F(DiskSlotTrimTest, SharedOperationUsesTrimAccountingAndReleasesCallerHandl
   EXPECT_EQ(state.migrationFrees, 1u);
 }
 
+TEST_F(DiskSlotTrimTest, DestinationNotificationsForwardShardAndSlots) {
+  SearchDiskSlotRange range{42, 43};
+  api.slotMigration.beginImport = [](RedisSearchDisk *context, const SearchDiskSlotRange *ranges,
+                                     size_t count) -> SearchDiskSlotImport * {
+    EXPECT_EQ(context, disk_db);
+    EXPECT_EQ(count, 1u);
+    EXPECT_EQ(ranges[0].start, 42);
+    EXPECT_EQ(ranges[0].end, 43);
+    return reinterpret_cast<SearchDiskSlotImport *>(&state);
+  };
+  auto *importHandle = SearchDisk_BeginSlotImport(&range, 1);
+  ASSERT_NE(importHandle, nullptr);
+  api.slotMigration.completeImport = [](RedisSearchDisk *context,
+                                        const SearchDiskSlotImport *handle) {
+    EXPECT_EQ(context, disk_db);
+    EXPECT_EQ(handle, reinterpret_cast<SearchDiskSlotImport *>(&state));
+    return true;
+  };
+  api.slotMigration.cancelImport = api.slotMigration.completeImport;
+  EXPECT_TRUE(SearchDisk_CompleteSlotImport(importHandle));
+  EXPECT_TRUE(SearchDisk_CancelSlotImport(importHandle));
+  api.slotMigration.freeImport = [](SearchDiskSlotImport *) { ++state.importFrees; };
+  SearchDisk_FreeSlotImport(importHandle);
+  EXPECT_EQ(state.importFrees, 1u);
+}
+
+TEST_F(DiskSlotTrimTest, DestinationCancellationUsesBoundedMemoryAndScoringCleanup) {
+  auto *importHandle = reinterpret_cast<SearchDiskSlotImport *>(&state);
+  api.slotMigration.cancelImport = [](RedisSearchDisk *, const SearchDiskSlotImport *) {
+    if (state.importCancelled) return false;
+    state.importCancelled = true;
+    return true;
+  };
+  ASSERT_TRUE(SearchDisk_CancelSlotImport(importHandle));
+  api.slotMigration.prepareTrim = nullptr;
+  api.slotMigration.prepareCancelImport = [](RedisSearchDiskIndexSpec *,
+                                             const SearchDiskSlotImport *handle, uint64_t *,
+                                             uint64_t *) -> SearchDiskSlotTrim * {
+    EXPECT_TRUE(state.importCancelled);
+    if (!state.prepare) return nullptr;
+    EXPECT_EQ(handle, reinterpret_cast<SearchDiskSlotImport *>(&state));
+    return reinterpret_cast<SearchDiskSlotTrim *>(&state);
+  };
+  state.prepare = false;
+  EXPECT_EQ(IndexSpec_CancelDiskSlotImport(spec, importHandle), INDEX_DISK_TRIM_NOT_APPLIED);
+  state.prepare = true;
+  EXPECT_EQ(IndexSpec_CancelDiskSlotImport(spec, importHandle), INDEX_DISK_TRIM_FINISHED);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
+  EXPECT_EQ(state.frees, 1u);
+  EXPECT_EQ(state.batchApplyCalls, 1u);
+}
 TEST_F(DiskSlotTrimTest, PrepareFailureDoesNotMutateOrFree) {
   state.prepare = false;
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_NOT_APPLIED);
@@ -732,4 +793,55 @@ TEST_F(DiskSlotTrimTest, BlockedForcedGcRepliesWithTheActualRunOutcome) {
   }
   EXPECT_EQ(state.gcRuns, 2u);
   RMCK_GetLastError(RSDummyContext).clear();
+}
+
+TEST_F(DiskSlotTrimTest, UnpublishedImportsAreExcludedFromScoringSnapshots) {
+  api.slotMigration.getHiddenImportStats = [](RedisSearchDiskIndexSpec *, uint64_t *docs,
+                                              uint64_t *length) {
+    *docs = state.importCancelled ? 0 : 3;
+    *length = state.importCancelled ? 0 : 21;
+  };
+  const auto visible = IndexSpec_GetVisibleScoringStats(spec);
+  EXPECT_EQ(visible.numDocuments, 2u);
+  EXPECT_EQ(visible.totalDocsLen, 19u);
+  RSIndexStats snapshot{};
+  IndexSpec_GetStats(spec, &snapshot);
+  EXPECT_EQ(snapshot.numDocs, 2u);
+  EXPECT_DOUBLE_EQ(snapshot.avgDocLen, 9.5);
+  state.importCancelled = true;
+  IndexSpec_GetStats(spec, &snapshot);
+  EXPECT_EQ(snapshot.numDocs, 5u);
+  EXPECT_DOUBLE_EQ(snapshot.avgDocLen, 8.0);
+}
+
+TEST_F(DiskSlotTrimTest, HiddenNearestVectorsDoNotConsumeTheVisibleTopK) {
+  VecSimIndex *vectors = openVectorIndex(RSDummyContext, spec->fields, CREATE_INDEX);
+  for (t_docId id = 1; id <= 3; ++id) {
+    const float vector[] = {static_cast<float>(id - 1), 0};
+    VecSimIndex_AddVector(vectors, vector, id);
+  }
+  api.docTable.isDocIdDeleted = [](RedisSearchDiskIndexSpec *, t_docId id) {
+    return !state.importCancelled && id < 3;
+  };
+  RedisSearchCtx context = SEARCH_CTX_STATIC(RSDummyContext, spec);
+  QueryRequestTimeout timeout{};
+  TimeoutConfig timeoutConfig{};
+  timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  FieldFilterContext filter{};
+  filter.field.index_tag = FieldMaskOrIndex_Index;
+  filter.field.index = 0;
+  filter.predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT;
+  const float query[] = {0, 0};
+  VecSimQueryParams parameters{};
+  for (t_docId expected : {t_docId{3}, t_docId{1}}) {
+    QueryIterator *iterator = NewVectorTopKIterator(vectors, query, sizeof(query), &parameters, 1,
+                                                    false, nullptr, &timeout, &context, &filter);
+    ASSERT_NE(iterator, nullptr);
+    EXPECT_EQ(iterator->Read(iterator), ITERATOR_OK);
+    EXPECT_EQ(iterator->current->docId, expected);
+    EXPECT_EQ(iterator->Read(iterator), ITERATOR_EOF);
+    iterator->Free(iterator);
+    state.importCancelled = true;
+  }
 }

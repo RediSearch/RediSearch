@@ -189,6 +189,13 @@ IndexSpecDiskSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec,
       spec, SearchDisk_PrepareSlotTrim(spec->diskSpec, ranges, numRanges, NULL, NULL));
 }
 
+IndexSpecDiskSlotTrimResult IndexSpec_CancelDiskSlotImport(IndexSpec *spec,
+                                                           const SearchDiskSlotImport *import) {
+  if (!spec->diskSpec) return INDEX_DISK_TRIM_NOT_APPLIED;
+  return applyDiskSlotTrim(spec,
+                           SearchDisk_PrepareCancelSlotImport(spec->diskSpec, import, NULL, NULL));
+}
+
 IndexSpecDiskSlotTrimResult IndexSpec_TrimDiskSlotsForMigration(
     IndexSpec *spec, const SearchDiskSlotMigration *migration) {
   if (!spec->diskSpec) return INDEX_DISK_TRIM_NOT_APPLIED;

@@ -68,6 +68,7 @@ typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
 typedef struct SearchDiskSlotTrim SearchDiskSlotTrim;
 typedef struct SearchDiskSlotMigration SearchDiskSlotMigration;
+typedef struct SearchDiskSlotImport SearchDiskSlotImport;
 typedef struct SearchDiskSlotTrimBatch SearchDiskSlotTrimBatch;
 // The batch and ID array are borrowed only for this callback. Acquire the spec
 // write lock, applyTrimBatch, remove memory entries and adjust counts before
@@ -737,6 +738,25 @@ typedef struct IndexDiskAPI {
 
 /** Disk index operations supporting slot migration. */
 typedef struct SlotMigrationAPI {
+  // Committed, unpublished imports to exclude from query and INFO scoring snapshots.
+  void (*getHiddenImportStats)(RedisSearchDiskIndexSpec *index, uint64_t *documents,
+                               uint64_t *totalLength);
+  // Start once per shard before scan or tail indexing. Normal indexing tracks
+  // matching slots automatically, including indexes created during import.
+  // OSS owns the scan, worker queue and storage/memory-apply drain. After that
+  // drain, report core success with completeImport or failure with cancelImport.
+  // Active import visibility is runtime-only; resolve before checkpoint/restore.
+  SearchDiskSlotImport *(*beginImport)(RedisSearchDisk *disk, const SearchDiskSlotRange *ranges,
+                                       size_t numRanges);
+  bool (*completeImport)(RedisSearchDisk *disk, const SearchDiskSlotImport *import);
+  bool (*cancelImport)(RedisSearchDisk *disk, const SearchDiskSlotImport *import);
+  // After cancelImport, apply/finish one bounded trim plan per index for memory
+  // indexes and scoring. Exclude incoming-slot mutations while applying a plan.
+  SearchDiskSlotTrim *(*prepareCancelImport)(RedisSearchDiskIndexSpec *index,
+                                             const SearchDiskSlotImport *import, uint64_t *numDocs,
+                                             uint64_t *totalDocLen);
+  // Retain through cancellation accounting; pending GC retains shard admission.
+  void (*freeImport)(SearchDiskSlotImport *import);
   // Admission is shard-wide: any active operation or pending cleanup blocks it.
   // The probe is advisory. beginMigration atomically admits an operation; all
   // participating indexes join with prepareTrimForMigration before the caller
@@ -812,7 +832,7 @@ typedef struct DocTableDiskAPI {
    *
    * @param handle Handle to the document table
    * @param docId Document ID to check
-   * @return true if deleted, false if not deleted or on error
+   * @return true if deleted or hidden by a destination import; false otherwise or on error
    */
   bool (*isDocIdDeleted)(RedisSearchDiskIndexSpec* handle, t_docId docId);
 

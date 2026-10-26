@@ -806,6 +806,44 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
   }
 }
 
+void SearchDisk_GetHiddenImportStats(RedisSearchDiskIndexSpec *index, uint64_t *documents,
+                                     uint64_t *totalLength) {
+  *documents = 0;
+  *totalLength = 0;
+  if (!index) return;
+  RS_ASSERT(disk && disk->slotMigration.getHiddenImportStats);
+  disk->slotMigration.getHiddenImportStats(index, documents, totalLength);
+}
+
+SearchDiskSlotImport *SearchDisk_BeginSlotImport(const SearchDiskSlotRange *ranges,
+                                                 size_t numRanges) {
+  RS_ASSERT(disk && disk_db && disk->slotMigration.beginImport);
+  return disk->slotMigration.beginImport(disk_db, ranges, numRanges);
+}
+
+bool SearchDisk_CompleteSlotImport(const SearchDiskSlotImport *import) {
+  RS_ASSERT(disk && disk_db && disk->slotMigration.completeImport);
+  return disk->slotMigration.completeImport(disk_db, import);
+}
+
+bool SearchDisk_CancelSlotImport(const SearchDiskSlotImport *import) {
+  RS_ASSERT(disk && disk_db && disk->slotMigration.cancelImport);
+  return disk->slotMigration.cancelImport(disk_db, import);
+}
+
+SearchDiskSlotTrim *SearchDisk_PrepareCancelSlotImport(RedisSearchDiskIndexSpec *index,
+                                                       const SearchDiskSlotImport *import,
+                                                       uint64_t *numDocs, uint64_t *totalDocLen) {
+  RS_ASSERT(disk && disk->slotMigration.prepareCancelImport);
+  return disk->slotMigration.prepareCancelImport(index, import, numDocs, totalDocLen);
+}
+
+void SearchDisk_FreeSlotImport(SearchDiskSlotImport *import) {
+  if (!import) return;
+  RS_ASSERT(disk && disk->slotMigration.freeImport);
+  disk->slotMigration.freeImport(import);
+}
+
 SearchDiskSlotMigration *SearchDisk_BeginSlotMigration(const SearchDiskSlotRange *ranges,
                                                        size_t numRanges) {
   RS_ASSERT(disk && disk_db && disk->slotMigration.beginMigration);

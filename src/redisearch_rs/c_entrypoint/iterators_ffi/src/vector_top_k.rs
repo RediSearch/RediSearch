@@ -96,7 +96,7 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
     // SAFETY: guaranteed by 6.
     let checker = unsafe { FieldExpirationChecker::new(sctx_nn, filter_ctx_val, 0) };
     // SAFETY: `index`, `query_vector`, and `timeout` are guaranteed by 1, 2, and 7.
-    let reduced = unsafe {
+    let mut reduced = unsafe {
         new_vector_top_k(
             index,
             query_vector,
@@ -108,6 +108,26 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
             child,
         )
     };
+    // SAFETY: the caller keeps the search context and its index alive for the iterator.
+    let context = unsafe { sctx_nn.as_ref() };
+    // SAFETY: the caller retains the index referenced by the search context.
+    let disk = unsafe { (*context.spec).diskSpec } as usize;
+    if disk != 0 {
+        unsafe extern "C" {
+            fn SearchDisk_DocIdDeleted(index: *mut std::ffi::c_void, id: u64) -> bool;
+        }
+        let source = match &mut reduced {
+            NewVectorTopK::ReducedEmpty => None,
+            NewVectorTopK::Unfiltered(iterator) => Some(iterator.source_mut()),
+            NewVectorTopK::Filtered(iterator) => Some(iterator.source_mut()),
+        };
+        if let Some(source) = source {
+            source.set_document_filter(move |id| {
+                // SAFETY: the query retains the index; its visibility lookup is thread-safe.
+                !unsafe { SearchDisk_DocIdDeleted(disk as *mut std::ffi::c_void, id) }
+            });
+        }
+    }
     box_reduced(reduced)
 }
 

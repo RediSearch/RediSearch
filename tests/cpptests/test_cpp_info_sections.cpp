@@ -130,6 +130,11 @@ class InfoSectionsTest : public ::testing::Test {
     Spec_AddToDict(ref.rm);
     // The disk API only sees this as an opaque identity; no storage is needed.
     spec->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(spec);
+    api.slotMigration.getHiddenImportStats = [](RedisSearchDiskIndexSpec *, uint64_t *documents,
+                                               uint64_t *totalLength) {
+      *documents = 0;
+      *totalLength = 0;
+    };
     api.metrics.collectIndexMetrics = [](RedisSearchDisk *,
                                          RedisSearchDiskIndexSpec *) -> uint64_t {
       ++collections;

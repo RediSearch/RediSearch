@@ -27,7 +27,10 @@
 
 use std::{
     num::NonZeroUsize,
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::{
+        Arc, Mutex, MutexGuard, PoisonError,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use rqe_core::DocId;
@@ -124,4 +127,35 @@ fn unfiltered_timeout_does_not_mark_consumed() {
         source.all_results_unfiltered_batch().unwrap().is_some(),
         "retry after a timed-out query must re-run it, not short-circuit to EOF"
     );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn visibility_refill_timeout_does_not_mark_unfiltered_consumed() {
+    let _serial = serialize();
+    let (n, k, dim) = (512, 3, 4);
+    let index = TestIndex::hnsw(n, dim);
+    let mut source = index.source(uniform_blob(n as f32, dim), n, k, n);
+    let timeout = Arc::new(Mutex::new(None));
+    let filter_timeout = Arc::clone(&timeout);
+    let examined = AtomicUsize::new(0);
+    source.set_document_filter(move |id| {
+        // Arm after the initial top-k reply, while consuming the first refill batch.
+        if examined.fetch_add(1, Ordering::Relaxed) == k {
+            *filter_timeout.lock().unwrap() = Some(MockTimeout::enable());
+        }
+        id <= k as DocId
+    });
+
+    assert!(matches!(
+        source.all_results_unfiltered_batch(),
+        Err(RQEIteratorError::TimedOut)
+    ));
+    drop(timeout.lock().unwrap().take());
+    let mut iterator = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
+    let mut ids = Vec::new();
+    while let Some(result) = iterator.read().unwrap() {
+        ids.push(result.doc_id);
+    }
+    assert_eq!(ids, [3, 2, 1]);
 }

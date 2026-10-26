@@ -30,6 +30,9 @@ use vecsim::{
 
 use crate::score_batch::VecSimScoreBatch;
 
+/// Maximum candidate reply size when refilling excluded unfiltered results.
+const VISIBILITY_REFILL_BATCH_SIZE: NonZeroUsize = NonZeroUsize::new(128).unwrap();
+
 /// Adhoc-BF path selection and the scan-scoped state owned by each path.
 ///
 /// State inside a variant is live only between
@@ -118,6 +121,7 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// the timeout context and could spuriously fail). A timed-out query
     /// leaves this clear so a retry re-issues it. Reset by `rewind`.
     unfiltered_consumed: bool,
+    document_filter: Option<super::score_batch::DocumentFilter<'static>>,
 
     /// Score key for this iterator's metric output. The metrics loader writes
     /// through the address returned by [`interop::own_key_ref`]. Boxed so that
@@ -215,9 +219,20 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             k_remaining: k,
             expiration,
             unfiltered_consumed: false,
+            document_filter: None,
             own_key: Box::new(ptr::null_mut()),
             key_handle: ptr::null_mut(),
         }
+    }
+
+    /// Excludes documents before selecting the visible top-k results.
+    ///
+    /// The filter must remain safe to call until this source and its batches are dropped.
+    pub fn set_document_filter(
+        &mut self,
+        filter: impl Fn(rqe_core::DocId) -> bool + Send + Sync + 'static,
+    ) {
+        self.document_filter = Some(std::sync::Arc::new(filter));
     }
 
     /// Return the request-owned timeout as the opaque context expected by VecSim.
@@ -281,13 +296,62 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
                 ReplyOrder::ByScore,
             )
             .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
-        // Mark consumed only after the query succeeds: a timeout above propagates
-        // with the flag still clear, so a retry re-issues the query instead of
-        // taking the fast path and returning EOF.
+        let batch = if let Some(results) = reply.and_then(|r| r.into_results()) {
+            if let Some(filter) = self.document_filter.clone() {
+                let mut examined = 0;
+                let mut visible = Vec::with_capacity(self.k);
+                for (id, score) in results {
+                    examined += 1;
+                    if filter(id) {
+                        visible.push((id, score));
+                    }
+                }
+                if visible.len() < self.k && examined == self.k {
+                    self.check_timeout()?;
+                    let params: *mut VecSimQueryParams = &mut self.query_params;
+                    // SAFETY: the index, query vector, parameters and request-owned timeout
+                    // remain alive until this local iterator is dropped before returning.
+                    if let Some(mut batch_iter) = unsafe {
+                        self.index
+                            .batch_iterator_unchecked(&self.query_vector, params)
+                    } {
+                        // Restart from the nearest candidate so the native iterator owns
+                        // deduplication and result ordering across refill batches.
+                        visible.clear();
+                        while visible.len() < self.k && batch_iter.has_next() {
+                            self.check_timeout()?;
+                            self.num_iterations += 1;
+                            if VISIBILITY_REFILL_BATCH_SIZE.get() > self.max_batch_size {
+                                self.max_batch_size = VISIBILITY_REFILL_BATCH_SIZE.get();
+                                self.max_batch_iteration = self.num_iterations - 1;
+                            }
+                            let reply = batch_iter
+                                .next(VISIBILITY_REFILL_BATCH_SIZE, ReplyOrder::ByScore)
+                                .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
+                            let Some(results) = reply.and_then(|r| r.into_results()) else {
+                                break;
+                            };
+                            for (id, score) in results {
+                                if filter(id) {
+                                    visible.push((id, score));
+                                    if visible.len() == self.k {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        visible.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
+                    }
+                }
+                Some(VecSimScoreBatch::buffered(visible))
+            } else {
+                Some(VecSimScoreBatch::new(results))
+            }
+        } else {
+            None
+        };
         self.unfiltered_consumed = true;
-        Ok(reply
-            .and_then(|r| r.into_results())
-            .map(VecSimScoreBatch::new))
+        Ok(batch)
     }
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -350,10 +414,17 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
         Ok(reply
             .and_then(|r| r.into_results())
-            .map(VecSimScoreBatch::new))
+            .map(|results| VecSimScoreBatch::filtered(results, self.document_filter.clone())))
     }
 
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64> {
+        if self
+            .document_filter
+            .as_ref()
+            .is_some_and(|filter| !filter(doc_id))
+        {
+            return None;
+        }
         match &self.adhoc_state {
             AdhocPathState::Ram { guard: Some(g) } => g.get_distance_from(doc_id),
             AdhocPathState::Ram { guard: None } => None,
