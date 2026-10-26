@@ -166,11 +166,14 @@ typedef struct BasicDiskAPI {
    * @param logObfuscation true to enable obfuscation, false to disable
    * @param dropReadCache When true, hints the OS to evict pages after reading
    * @param useDirectReads When true, opens files with O_DIRECT to bypass the OS page cache
+   * @param enableStatistics When true, every index database shares one storage-engine
+   *        statistics object, reported by `MetricsDiskAPI::debugDiskStats`
    * @return Pointer to the disk context, or NULL on error
    */
   RedisSearchDisk *(*open)(RedisModuleCtx *ctx,
                            const SearchDiskResourceConfig *resourceConfig,
-                           bool logObfuscation, bool dropReadCache, bool useDirectReads);
+                           bool logObfuscation, bool dropReadCache, bool useDirectReads,
+                           bool enableStatistics);
   void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
 
   /**
@@ -1204,6 +1207,18 @@ typedef struct MetricsDiskAPI {
    */
   PerFieldCfDiskMetrics (*getVectorFieldMetrics)(const RedisSearchDiskIndexSpec *index,
                                                  const char *fieldName, size_t fieldNameLen);
+
+  /**
+   * @brief Debug: storage-engine level and block-cache stats for every column family of
+   *        `index`, as text.
+   *
+   * With `withStatistics`, also appends the shared block-cache and statistics sections,
+   * which cover every index; statistics are reported as disabled unless enabled in `open`.
+   *
+   * @return Text allocated via `allocate`, or NULL if it could not be produced
+   */
+  char *(*debugDiskStats)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index,
+                          bool withStatistics, AllocateKeyCallback allocate);
 } MetricsDiskAPI;
 
 typedef struct RedisSearchDiskAPI {
