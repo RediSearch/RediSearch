@@ -367,6 +367,7 @@ static void uvSearchFanoutRequest(void *p) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("BeforeCoordFanout");
 #endif
+  CoordSearchReply_Prepare(fanout->request, fanout->ioRuntime->topo->numShards);
   fanout->numExpected =
       MRCluster_FanoutCommand(fanout->ioRuntime, &fanout->cmd, searchFanoutCallback, fanout, true);
   if (fanout->numExpected == 0) searchFanoutComplete(fanout);

@@ -243,6 +243,8 @@ def _check_reply_admission_timeout(resp3):
     env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
     try:
         for checkpoint, accepted in (('BeforeCoordSearchReplyAccept', 0),
+                                     ('BeforeCoordSearchReplyPublish', 0),
+                                     ('BeforeCoordSearchNextReplyPublish', 1),
                                      ('AfterCoordSearchReplyAccept', 1)):
             for profile in (False, True):
                 outcome = []

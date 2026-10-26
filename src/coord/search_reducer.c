@@ -67,8 +67,7 @@ typedef struct searchReducerCtx {
   MRReply **replies;
 } searchReducerCtx;
 
-static int searchResultReducer(searchRequestCtx *req, int count, MRReply **replies,
-                               bool fromTimeout);
+static int searchResultReducer(searchRequestCtx *req, bool fromTimeout);
 
 searchResult *newResult_resp2(searchResult *cached, MRReply *arr, size_t j,
                               searchReplyOffsets *offsets, int explainScores) {
@@ -320,10 +319,10 @@ static void debugCheckAndPauseBeforeReduce(searchReducerCtx *rCtx) {
 typedef struct RPSearchReply {
   ResultProcessor base;
   searchReducerCtx *ctx;
-  pthread_mutex_t admissionLock;
-  bool closed;
+  _Atomic int publishedCount;
+  size_t capacity;
   MRReply **replies;
-  int count;
+  int snapshotCount;
   uint32_t shard;
   size_t row;
   MRReply *current;
@@ -383,7 +382,7 @@ static bool searchRowDistance(searchReducerCtx *ctx, const SearchResult *row,
 static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
   RPSearchReply *source = (RPSearchReply *)base;
   searchReducerCtx *ctx = source->ctx;
-  while (source->shard < (uint32_t)source->count) {
+  while (source->shard < (uint32_t)source->snapshotCount) {
     {
       if (!source->current) {
         if (ctx->searchCtx->profileArgs &&
@@ -484,9 +483,9 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
 
 static void searchReplyFree(ResultProcessor *base) {
   RPSearchReply *source = (RPSearchReply *)base;
-  for (int i = 0; i < source->count; ++i) MRReply_Free(source->replies[i]);
-  array_free(source->replies);
-  pthread_mutex_destroy(&source->admissionLock);
+  int published = atomic_load_explicit(&source->publishedCount, memory_order_acquire);
+  for (int i = 0; i < published; ++i) MRReply_Free(source->replies[i]);
+  rm_free(source->replies);
   rm_free(source);
 }
 
@@ -494,9 +493,15 @@ void CoordSearchReply_Init(searchRequestCtx *request) {
   RPSearchReply *source = rm_calloc(1, sizeof(*source));
   source->base =
       (ResultProcessor){.Next = searchReplyNext, .Free = searchReplyFree, .type = RP_SEARCH_REPLY};
-  pthread_mutex_init(&source->admissionLock, NULL);
-  source->replies = array_new(MRReply *, 8);
+  atomic_init(&source->publishedCount, 0);
   request->replySource = source;
+}
+
+void CoordSearchReply_Prepare(searchRequestCtx *request, size_t capacity) {
+  RPSearchReply *source = request->replySource;
+  RS_ASSERT(!source->replies);
+  source->capacity = capacity;
+  source->replies = rm_calloc(capacity, sizeof(*source->replies));
 }
 
 void CoordSearchReply_Accept(searchRequestCtx *request, MRReply *reply) {
@@ -504,24 +509,22 @@ void CoordSearchReply_Accept(searchRequestCtx *request, MRReply *reply) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("BeforeCoordSearchReplyAccept");
 #endif
-  pthread_mutex_lock(&source->admissionLock);
-  if (!source->closed && !QueryRequestTimeout_IsBlockedClientTimedOut(&request->base.timeout)) {
-    array_append(source->replies, reply);
-    ++source->count;
-    reply = NULL;
+  if (!QueryRequestTimeout_IsBlockedClientTimedOut(&request->base.timeout)) {
+    // Each request has one IO-thread producer. Publish only fully initialized slots.
+    int published = atomic_load_explicit(&source->publishedCount, memory_order_relaxed);
+    RS_ASSERT((size_t)published < source->capacity);
+    source->replies[published] = reply;
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(published == 0 ? "BeforeCoordSearchReplyPublish"
+                                 : "BeforeCoordSearchNextReplyPublish");
+#endif
+    atomic_store_explicit(&source->publishedCount, published + 1, memory_order_release);
+  } else {
+    MRReply_Free(reply);
   }
-  pthread_mutex_unlock(&source->admissionLock);
-  if (reply) MRReply_Free(reply);
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("AfterCoordSearchReplyAccept");
 #endif
-}
-
-static void searchReplyClose(searchRequestCtx *request) {
-  RPSearchReply *source = request->replySource;
-  pthread_mutex_lock(&source->admissionLock);
-  source->closed = true;
-  pthread_mutex_unlock(&source->admissionLock);
 }
 
 void CoordSearchReducer_Free(searchRequestCtx *request) {
@@ -548,7 +551,7 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **rep
   ctx->qctx.skipIndexResultDeepCopy = true;
   RPSearchReply *source = ctx->searchCtx->replySource;
   source->ctx = ctx;
-  RS_ASSERT(source->count == count);
+  RS_ASSERT(source->snapshotCount == count);
   source->fromTimeout = fromTimeout;
   QITR_PushRP(&ctx->qctx, &source->base);
   ctx->sortKeys[0] = RLookup_GetKey_Write(&ctx->lookup, "sortkey", RLOOKUP_F_NOFLAGS);
@@ -803,9 +806,7 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
 
 static void searchResultReducer_wrapper(void *arg) {
   searchRequestCtx *req = arg;
-  RPSearchReply *source = req->replySource;
-  searchReplyClose(req);
-  searchResultReducer(req, source->count, source->replies, false);
+  searchResultReducer(req, false);
   // Unblock is the final access: it can free the request, pipeline and transport.
   RedisModule_UnblockClient(MRSearchCtx_GetBlockedClient(req->fanout), &req->base);
 }
@@ -828,8 +829,7 @@ static bool should_return_error(const searchRequestCtx *req, QueryErrorCode errC
   return true;
 }
 
-static int searchResultReducer(searchRequestCtx *req, int count, MRReply **replies,
-                               bool fromTimeout) {
+static int searchResultReducer(searchRequestCtx *req, bool fromTimeout) {
   RedisModuleBlockedClient *bc = NULL;
   searchReducerCtx *rCtx = NULL;
 
@@ -874,6 +874,12 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   req->rctx = rCtx;
   // Set searchCtx early so it's available even if we bail out early
   rCtx->searchCtx = req;
+  RPSearchReply *source = req->replySource;
+  int count = atomic_load_explicit(&source->publishedCount, memory_order_acquire);
+  // Zero may precede IO-thread allocation; do not read the unpublished array pointer.
+  MRReply **replies = count ? source->replies : NULL;
+  source->snapshotCount = count;
+  rCtx->replies = replies;
 
   // got no replies
   if (!fromTimeout && (count == 0 || req->limit < 0)) {
@@ -973,7 +979,7 @@ int CoordSearchReducer_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       return REDISMODULE_OK;
     }
 
-    if (source->count == 0) {
+    if (source->snapshotCount == 0) {
       // Can happen in a topology error, before or after we sent the command to the cluster
       RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
       return REDISMODULE_OK;
@@ -987,7 +993,7 @@ int CoordSearchReducer_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
     if (req->profileArgs > 0) {
       // Profile command
-      profileSearchReply(reply, rCtx, source->count, source->replies, &req->profileClock,
+      profileSearchReply(reply, rCtx, source->snapshotCount, rCtx->replies, &req->profileClock,
                          rs_wall_clock_now_ns());
     } else {
       // Non-profile command
@@ -1013,7 +1019,6 @@ int CoordSearchReducer_TimeoutFail(RedisModuleCtx *ctx, RedisModuleString **argv
   if (request) {
     searchRequestCtx *req = QueryRequest_GetSearch(request);
     QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
-    searchReplyClose(req);
     recordSearchTimeoutStage(req, /*isError=*/true);
   }
 
@@ -1039,7 +1044,6 @@ int CoordSearchReducer_TimeoutPartial(RedisModuleCtx *ctx, RedisModuleString **a
   RPSearchReply *source = req->replySource;
 
   QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
-  searchReplyClose(req);
 
   recordSearchTimeoutStage(req, /*isError=*/false);
 
@@ -1047,7 +1051,7 @@ int CoordSearchReducer_TimeoutPartial(RedisModuleCtx *ctx, RedisModuleString **a
   // If we don't get it, reducer is already running (or bailout claimed it) - wait for it
   if (QueryRequest_TryClaimResults(&req->base)) {
     // We claimed reducing - run reducer on main thread with current replies
-    searchResultReducer(req, source->count, source->replies, true);
+    searchResultReducer(req, true);
   } else {
     // Reducer already running or bailout claimed it - wait for completion
     QueryRequest_WaitForResultsComplete(&req->base);
@@ -1056,7 +1060,7 @@ int CoordSearchReducer_TimeoutPartial(RedisModuleCtx *ctx, RedisModuleString **a
     // and exited before initializing req->rctx. In that case adopt the
     // timeout-owned reduction path now that the competing reducer has finished.
     if (!QueryError_HasError(&request->reply.err) && req->rctx == NULL) {
-      searchResultReducer(req, source->count, source->replies, true);
+      searchResultReducer(req, true);
     }
   }
 
@@ -1076,7 +1080,7 @@ int CoordSearchReducer_TimeoutPartial(RedisModuleCtx *ctx, RedisModuleString **a
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   if (req->profileArgs > 0) {
-    profileSearchReply(reply, rCtx, source->count, source->replies, &req->profileClock,
+    profileSearchReply(reply, rCtx, source->snapshotCount, rCtx->replies, &req->profileClock,
                        rs_wall_clock_now_ns());
   } else {
     sendSearchResults(reply, rCtx);

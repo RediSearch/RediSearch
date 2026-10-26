@@ -199,3 +199,20 @@ and the three-shard cluster suite collected 2,679, both with zero failures
 regressions added at `ba0ad1fcad`, checking the cluster error, exactly-once source
 cleanup, and a successful next query. Saved local logs are
 `/tmp/coord-own-full-standalone.log` and `/tmp/coord-own-full-cluster.log`.
+
+## PR 4 atomic publication simplification
+
+The admission mutex and closed flag are replaced by fixed-capacity storage and
+a single-producer atomic published count. Capacity comes from the assigned IO
+runtime's topology before dispatch, not the earlier main-thread shard estimate.
+The reducer reads one immutable prefix with acquire semantics; the IO callback
+publishes completed slots with release semantics. A zero snapshot avoids reading
+the array pointer before allocation. Cleanup frees the final published prefix,
+which can exceed the timeout snapshot when a callback was already in progress.
+
+This preserves the soft race boundary: replies published after the snapshot are
+excluded from results and profiles, but remain owned until completion. There is
+no new public timeout or ordering guarantee. Deterministic tests pause between
+slot initialization and publication with both zero and one earlier replies, in
+addition to the existing before/after acceptance cases, for both protocols and
+search/profile commands.

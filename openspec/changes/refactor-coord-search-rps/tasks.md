@@ -48,7 +48,7 @@ source analysis as testing.
 - [ ] Preserve existing timeout ownership; verify exactly-once reply/unblock/free.
 
 - [x] Create the reply-owning source before dispatch and replace search MRCtx.
-- [x] Freeze accepted replies under a short admission mutex for strict timeout.
+- [x] Preallocate reply storage and acquire an atomic publication snapshot for strict timeout.
 - [x] Free stored rows and downstream RPs before reply backing.
 - [x] Validate admission-boundary search/profile tests in both protocols.
 
