@@ -38,7 +38,7 @@ source analysis as testing.
 - [x] Preserve count semantics independently of pagination and heap size.
 - [ ] Cover both heaps at interruption boundaries; update B05/B06/B07/B15.
 
-## 5. Shared result ownership
+## 5. Shared result and shard-reply ownership
 
 - [x] Store standard results through QueryRequest and free the RP chain normally.
 - [x] Use shared stored-result cleanup and serializer stack views; preserve output
@@ -46,6 +46,11 @@ source analysis as testing.
 - [x] Remove old reducer heaps, wrappers, post-processing callbacks and temporary
   serializer adapter once callers have migrated.
 - [ ] Preserve existing timeout ownership; verify exactly-once reply/unblock/free.
+
+- [x] Create the reply-owning source before dispatch and replace search MRCtx.
+- [x] Freeze accepted replies under a short admission mutex for strict timeout.
+- [x] Free stored rows and downstream RPs before reply backing.
+- [x] Validate admission-boundary search/profile tests in both protocols.
 
 ## 6. Integration checklist for the user's Drain API stack
 

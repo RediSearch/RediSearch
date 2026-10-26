@@ -44,8 +44,9 @@ agreement in conversation:
 1. [Extraction](https://github.com/RediSearch/RediSearch/pull/11985)
 2. [Reply source and ordinary ordering](https://github.com/RediSearch/RediSearch/pull/11986)
 3. [KNN reduction](https://github.com/RediSearch/RediSearch/pull/11987)
-4. [Shared stored-result ownership](https://github.com/RediSearch/RediSearch/pull/11988)
+4. [Source reply ownership and search fanout](https://github.com/RediSearch/RediSearch/pull/11988)
 
 Local validation and its scope are recorded in the behavior ledger. Remote CI
-and automated review are pending. No new timeout ownership protocol is
-introduced here.
+and automated review are separate gates. PR 4 also moves shard-reply ownership
+into the source and synchronizes reply admission at timeout. BG/main reduction
+arbitration remains unchanged; abort/drain handoff stays in the Drain stack.
