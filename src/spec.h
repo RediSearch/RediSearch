@@ -655,6 +655,28 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
 void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
                                 RedisModuleKey *openKey);
 
+typedef enum {
+  INDEX_DISK_TRIM_NOT_APPLIED,
+  INDEX_DISK_TRIM_APPLIED,
+  INDEX_DISK_TRIM_FINISHED,
+} IndexSpecDiskSlotTrimResult;
+
+// Source cleanup after ownership transfer. Drain earlier indexing work for the
+// selected slots before preparing a plan. Use with background trim, which detaches
+// keys without per-key unlink callbacks. Retain a strong spec reference; collection
+// and storage I/O run unlocked, while accounting locks each batch.
+// APPLIED reports partial progress; FINISHED means logical trim completed, with
+// physical reclamation still pending in GC.
+// This helper neither transfers Redis slot ownership nor coordinates that drain.
+IndexSpecDiskSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec,
+                                                    const SearchDiskSlotRange *ranges,
+                                                    size_t numRanges);
+// Same trim contract; join the operation created by SearchDisk_BeginSlotMigration.
+IndexSpecDiskSlotTrimResult IndexSpec_TrimDiskSlotsForMigration(
+    IndexSpec *spec, const SearchDiskSlotMigration *migration);
+// Caller holds the spec write lock.
+void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId);
+
 // Delete a document from the index by its docId directly, without needing
 // to look it up by key name. Removes the document from the DocTable but does
 // NOT clean up DocIdMeta on the key. No-op if the docId is not present.

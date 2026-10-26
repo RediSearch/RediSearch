@@ -56,6 +56,8 @@ typedef enum {
   GC_FORCED_RUN_OK = 0,
   // No child process could be created, so nothing was collected.
   GC_FORCED_RUN_NO_FORK,
+  // The disk cycle failed recoverably; pending changes remain eligible for retry.
+  GC_FORCED_RUN_RETRY_REQUIRED,
 } GCForcedRunOutcome;
 
 // What a caller that demanded a collection asked for, and what it got. A cycle receives a

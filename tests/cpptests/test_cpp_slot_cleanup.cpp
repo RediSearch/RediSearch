@@ -227,6 +227,48 @@ TEST_F(SlotCleanupTest, CleanupRunsInBoundedChunks) {
   EXPECT_TRUE(visible(other));
 }
 
+TEST_F(SlotCleanupTest, SparseTableYieldsBeforeReachingRemainingDocuments) {
+  IndexSpec_LockWrite(spec);
+  for (size_t i = 0; i < 2 * SLOT_CLEANUP_SCAN_LIMIT + 1; ++i) {
+    const char key[] = "{a}removed";
+    RSDocumentMetadata *dmd = DocTable_Put(&spec->docs, key, sizeof(key) - 1, 1.0,
+                                           Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
+    const t_docId id = dmd->id;
+    DMD_Return(dmd);
+    DMD_Return(DocTable_DeleteById(&spec->docs, id));
+  }
+  IndexSpec_Unlock(spec);
+  ASSERT_GT(spec->docs.cap, 2 * SLOT_CLEANUP_SCAN_LIMIT);
+
+  const t_docId moving = index("{a}remaining");
+  const t_docId kept = index("{b}remaining");
+  PendingSlotDeletion *pending = addPending();
+  SlotCleanupCursor cursor = {};
+  arrayof(t_docId) first = SlotCleanup_CollectDocIds(spec, pending, &cursor);
+  EXPECT_EQ(array_len(first), 0);
+  EXPECT_FALSE(SlotCleanup_CursorDone(&cursor));
+  EXPECT_GT(cursor.nextBucket, 0);
+  EXPECT_LE(cursor.nextBucket, SLOT_CLEANUP_SCAN_LIMIT);
+  array_free(first);
+
+  size_t collected = 0;
+  while (!SlotCleanup_CursorDone(&cursor)) {
+    const size_t previousBucket = cursor.nextBucket;
+    arrayof(t_docId) docIds = SlotCleanup_CollectDocIds(spec, pending, &cursor);
+    EXPECT_LE(cursor.nextBucket - previousBucket, SLOT_CLEANUP_SCAN_LIMIT);
+    collected += array_len(docIds);
+    SlotCleanup_ApplyDeletes(spec, docIds);
+    array_free(docIds);
+  }
+  removePending(pending);
+
+  EXPECT_EQ(collected, 1);
+  EXPECT_FALSE(present(moving));
+  EXPECT_TRUE(visible(kept));
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 1);
+  EXPECT_EQ(vectorCount(), 1);
+}
+
 TEST_F(SlotCleanupTest, DeleteSlotsHidesAtOnceAndCleansInBackground) {
   t_docId a1 = index("{a}1");
   t_docId a2 = index("{a}2");

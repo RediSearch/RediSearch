@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #include "slot_cleanup.h"
 
 #include "indexes.h"
@@ -40,7 +40,12 @@ arrayof(t_docId) SlotCleanup_CollectDocIds(IndexSpec *spec, const PendingSlotDel
   size_t visited = 0;
   while (cursor->nextBucket < cursor->bucketLimit && visited < SLOT_CLEANUP_SCAN_LIMIT &&
          array_len(docIds) < SLOT_CLEANUP_CHUNK_DOC_LIMIT) {
-    for (const RSDocumentMetadata *dmd = t->buckets[cursor->nextBucket].root; dmd; dmd = dmd->nextInChain) {
+    const RSDocumentMetadata *root = t->buckets[cursor->nextBucket].root;
+    // Empty buckets still cost a lookup even when few documents remain in a large table.
+    if (!root) {
+      ++visited;
+    }
+    for (const RSDocumentMetadata *dmd = root; dmd; dmd = dmd->nextInChain) {
       ++visited;
       if (PendingSlotDeletion_Covers(pending, dmd)) {
         array_append(docIds, dmd->id);
@@ -123,7 +128,8 @@ static void scheduleSlotCleanup(IndexSpec *spec, void *slots) {
   if (CleanPool_AddWork(SlotCleanup_Run, ctx) != 0) {
     // Run it here rather than leave the docs hidden but never deleted. Later chunks still move to
     // the pool once it accepts work again.
-    RedisModule_Log(RSDummyContext, "warning", "Could not queue slot cleanup, running it on the main thread");
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Could not queue slot cleanup, running it on the main thread");
     SlotCleanup_Run(ctx);
   }
 }
@@ -134,4 +140,58 @@ void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots) {
     return;
   }
   Indexes_ForEachSpec(scheduleSlotCleanup, (void *)slots);
+}
+
+typedef struct {
+  IndexSpec *spec;
+  bool applied;
+} DiskSlotTrimContext;
+
+static bool trimMemoryIndexes(void *ctx, const t_docId *ids, size_t numIds, uint64_t totalDocLen,
+                              const SearchDiskSlotTrimBatch *batch) {
+  DiskSlotTrimContext *trim = ctx;
+  IndexSpec *spec = trim->spec;
+  IndexSpec_IncrActiveWrites(spec);
+  IndexSpec_LockWrite(spec);
+  bool applied = spec->stats.scoring.numDocuments >= numIds &&
+                 spec->stats.scoring.totalDocsLen >= totalDocLen &&
+                 SearchDisk_ApplySlotTrimBatch(spec->diskSpec, batch);
+  if (applied) {
+    for (size_t i = 0; i < numIds; ++i) IndexSpec_RemoveDocFromMemoryIndexes(spec, ids[i]);
+    spec->stats.scoring.numDocuments -= numIds;
+    spec->stats.scoring.totalDocsLen -= totalDocLen;
+    IndexSpec_DeferGCDeletes(spec, numIds);
+    trim->applied = true;
+  }
+  IndexSpec_Unlock(spec);
+  IndexSpec_DecrActiveWrites(spec);
+  return applied;
+}
+
+static IndexSpecDiskSlotTrimResult applyDiskSlotTrim(IndexSpec *spec, SearchDiskSlotTrim *trim) {
+  if (!trim) return INDEX_DISK_TRIM_NOT_APPLIED;
+
+  DiskSlotTrimContext context = {.spec = spec};
+  bool applied = SearchDisk_ApplySlotTrim(spec->diskSpec, trim, SLOT_CLEANUP_CHUNK_DOC_LIMIT,
+                                          trimMemoryIndexes, &context);
+  bool finished = applied && SearchDisk_FinishSlotTrim(spec->diskSpec, trim);
+  SearchDisk_FreeSlotTrim(trim);
+  return finished          ? INDEX_DISK_TRIM_FINISHED
+         : context.applied ? INDEX_DISK_TRIM_APPLIED
+                           : INDEX_DISK_TRIM_NOT_APPLIED;
+}
+
+IndexSpecDiskSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec,
+                                                    const SearchDiskSlotRange *ranges,
+                                                    size_t numRanges) {
+  if (!spec->diskSpec) return INDEX_DISK_TRIM_NOT_APPLIED;
+  return applyDiskSlotTrim(
+      spec, SearchDisk_PrepareSlotTrim(spec->diskSpec, ranges, numRanges, NULL, NULL));
+}
+
+IndexSpecDiskSlotTrimResult IndexSpec_TrimDiskSlotsForMigration(
+    IndexSpec *spec, const SearchDiskSlotMigration *migration) {
+  if (!spec->diskSpec) return INDEX_DISK_TRIM_NOT_APPLIED;
+  return applyDiskSlotTrim(
+      spec, SearchDisk_PrepareSlotTrimForMigration(spec->diskSpec, migration, NULL, NULL));
 }
