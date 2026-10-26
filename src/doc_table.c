@@ -94,9 +94,33 @@ const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
   return dmd;
 }
 
+// Set only in a fork GC child, whose single thread scans a snapshot that never changes. The GC
+// scan asks DocTable_Exists about every record of every inverted index; answering from a dense
+// bitmap avoids a dependent load into a scattered DMD for each of them.
+static struct {
+  const DocTable *table;
+  uint64_t *live;
+} frozenExistence;
+
+void DocTable_FreezeExistence(const DocTable *t) {
+  uint64_t *live = rm_calloc(t->maxDocId / 64 + 1, sizeof(*live));
+  for (size_t i = 0; i < t->cap; ++i) {
+    for (const RSDocumentMetadata *md = t->buckets[i].root; md != NULL; md = md->nextInChain) {
+      if (md->id && md->id <= t->maxDocId && !(md->flags & Document_Deleted)) {
+        live[md->id / 64] |= 1ULL << (md->id % 64);
+      }
+    }
+  }
+  frozenExistence.table = t;
+  frozenExistence.live = live;
+}
+
 bool DocTable_Exists(const DocTable *t, t_docId docId) {
   if (!docId || docId > t->maxDocId) {
     return false;
+  }
+  if (frozenExistence.table == t) {
+    return frozenExistence.live[docId / 64] & (1ULL << (docId % 64));
   }
   uint32_t ix = DocTable_GetBucket(t, docId);
   if (ix >= t->cap) {
