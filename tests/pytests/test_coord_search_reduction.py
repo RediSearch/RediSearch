@@ -308,3 +308,43 @@ def test_reply_admission_timeout_resp2():
 def test_reply_admission_timeout_resp3():
     """RESP3 search/profile serialize only the frozen replies, including timeout warnings."""
     _check_reply_admission_timeout(True)
+
+
+def _check_zero_dispatch(resp3):
+    from common import debug_cmd, skipIfNoEnableAssert, wait_for_condition
+    from test_blocked_client_timeout import _get_blocked_request_onfree_count
+
+    # Isolate coordinator cleanup from shard worker callbacks on the recovery query.
+    env = Env(moduleArgs='WORKERS 0', protocol=3 if resp3 else 2)
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    getConnectionByEnv(env).execute_command('HSET', 'doc:{zero-dispatch}', 't', 'hello')
+    args = ['*', 'NOCONTENT', 'TIMEOUT', 0]
+    expected = env.cmd('FT.SEARCH', 'idx', *args)
+    for profile in (False, True):
+        free_before = _get_blocked_request_onfree_count(env)
+        command = (['FT.PROFILE', 'idx', 'SEARCH', 'QUERY'] if profile
+                   else ['FT.SEARCH', 'idx']) + args
+        env.expect(debug_cmd(), 'SEND_ERROR', env.shardsCount).ok()
+        try:
+            env.expect(*command).error().contains('Could not send query to cluster')
+            wait_for_condition(
+                lambda: (_get_blocked_request_onfree_count(env) == free_before + 1, {}),
+                'Zero-dispatch reducer did not free its unchained source exactly once')
+            env.assertTrue(env.cmd('PING'))
+            env.assertEqual(env.cmd('FT.SEARCH', 'idx', *args), expected)
+            env.assertEqual(_get_blocked_request_onfree_count(env), free_before + 2)
+        finally:
+            env.cmd(debug_cmd(), 'SEND_ERROR', 0)
+
+
+@skip(cluster=False)
+def test_zero_dispatch_resp2():
+    """Normal zero-dispatch search/profile complete through the reducer and clean up once."""
+    _check_zero_dispatch(False)
+
+
+@skip(cluster=False)
+def test_zero_dispatch_resp3():
+    """RESP3 zero-dispatch errors leave the coordinator ready for the next query."""
+    _check_zero_dispatch(True)
