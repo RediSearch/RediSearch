@@ -334,7 +334,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVNUM("geoshapes_sz_mb", geoshapes_size / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg", visibleScoring.numDocuments
                                          ? (float)num_records / (float)visibleScoring.numDocuments
-                                         : 0);
+                                         : NAN);
   double bytes_per_record_avg = num_records ?
     (float)inverted_size / (float)num_records : NAN;
   REPLY_KVNUM("bytes_per_record_avg",

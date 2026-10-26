@@ -3068,7 +3068,16 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   }
 
   // More properties
-  const ScoringIndexStats visibleScoring = IndexSpec_GetVisibleScoringStats(sp);
+  ScoringIndexStats visibleScoring;
+  if (skip_unsafe_ops) {
+    // Crash reporting cannot enter disk visibility tracking, which may acquire locks.
+    visibleScoring = sp->stats.scoring;
+  } else {
+    const bool alreadyLocked = IndexSpec_IsLocked(sp);
+    if (!alreadyLocked) IndexSpec_LockRead(sp);
+    visibleScoring = IndexSpec_GetVisibleScoringStats(sp);
+    if (!alreadyLocked) IndexSpec_Unlock(sp);
+  }
   RedisModule_InfoAddFieldLongLong(ctx, "number_of_docs", visibleScoring.numDocuments);
 
   const bool isDisk = sp->diskSpec != NULL;
@@ -3109,7 +3118,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
   RedisModule_InfoAddFieldDouble(
       ctx, "records_per_doc_avg",
-      visibleScoring.numDocuments ? (float)num_records / (float)visibleScoring.numDocuments : 0);
+      visibleScoring.numDocuments ? (float)num_records / (float)visibleScoring.numDocuments : NAN);
   double bytes_per_record_avg = num_records ?
     (float)inverted_size / (float)num_records : NAN;
   RedisModule_InfoAddFieldDouble(ctx, "bytes_per_record_avg", bytes_per_record_avg);
