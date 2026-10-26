@@ -665,7 +665,8 @@ typedef enum {
 // selected slots before preparing a plan. Use with background trim, which detaches
 // keys without per-key unlink callbacks. Retain a strong spec reference; collection
 // and storage I/O run unlocked, while accounting locks each batch.
-// APPLIED reports partial progress; retry before treating cleanup as finished.
+// APPLIED reports partial progress; FINISHED means logical trim completed, with
+// physical reclamation still pending in GC.
 // This helper neither transfers Redis slot ownership nor coordinates that drain.
 IndexSpecDiskSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec,
                                                     const SearchDiskSlotRange *ranges,
