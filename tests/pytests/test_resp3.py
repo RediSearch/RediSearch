@@ -1438,8 +1438,8 @@ def test_ft_info():
          nodes = float(res['cluster_known_nodes'])
 
       # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-      #              = 72 + (1000 * 8) = 8072 bytes
-      initial_doc_table_size_mb = 8072 / (1024 * 1024)
+      #              = 80 + (1000 * 8) = 8080 bytes
+      initial_doc_table_size_mb = 8080 / (1024 * 1024)
       # Empty DocKeyMap: table state and private hash seed, without bucket storage.
       key_table_sz_mb = 64 / (1024 * 1024)
       per_node_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
