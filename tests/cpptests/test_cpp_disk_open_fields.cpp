@@ -180,10 +180,6 @@ class DiskSchemaOpenTest : public ::testing::Test {
     return sp;
   }
 
-  static const FieldSpec *field(const IndexSpec *sp, const char *name) {
-    return IndexSpec_GetFieldWithLength(sp, name, strlen(name));
-  }
-
   static std::vector<const char *> withVector(std::vector<const char *> schema, const char *name) {
     schema.push_back(name);
     schema.insert(schema.end(), std::begin(kVectorF32Dim4), std::end(kVectorF32Dim4));

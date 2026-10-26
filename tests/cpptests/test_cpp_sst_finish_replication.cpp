@@ -18,6 +18,8 @@ extern RedisSearchDisk *disk_db;
 extern bool isFlex;
 }
 
+#include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <string>
 #include <vector>
@@ -40,7 +42,7 @@ struct Restore {
 std::map<void *, int> opens;
 std::map<void *, int> activations;
 
-class SSTFinishReplicationTest : public ::testing::TestWithParam<size_t> {
+class SSTFinishReplicationTestBase : public ::testing::Test {
  protected:
   Restore<decltype(disk)> diskApi{disk};
   Restore<decltype(disk_db)> diskDb{disk_db};
@@ -71,6 +73,8 @@ class SSTFinishReplicationTest : public ::testing::TestWithParam<size_t> {
       IndexSpec *sp = static_cast<IndexSpec *>(StrongRef_Get(ref));
       sp->diskSpec = nullptr;
       sp->diskRegistered = false;
+      // Pending states are borrowed fixture tokens, including in the death-test parent.
+      sp->pendingDiskRdbState = nullptr;
       Indexes_RemoveSpecFromGlobals(ref, false);
     }
   }
@@ -89,6 +93,32 @@ class SSTFinishReplicationTest : public ::testing::TestWithParam<size_t> {
     return sp;
   }
 };
+
+class SSTFinishReplicationTest : public SSTFinishReplicationTestBase,
+                                 public ::testing::WithParamInterface<size_t> {};
+
+TEST_F(SSTFinishReplicationTestBase, FailedOpenAbortsCompletion) {
+  stageSpec("sst_finish_open_failure");
+  api.basic.openIndexSpecWithRdbState = [](RedisModuleCtx *, RedisSearchDisk *,
+                                           const HiddenString *, const char *, size_t, DocumentType,
+                                           RedisSearchDiskRdbState *, const SearchDiskFieldOpen *,
+                                           size_t, const SearchDiskCompactionCallbacks *, void *) {
+    return static_cast<RedisSearchDiskIndexSpec *>(nullptr);
+  };
+  Restore<decltype(RedisModule_GetContextFlags)> flags{RedisModule_GetContextFlags};
+  RedisModule_GetContextFlags = [](RedisModuleCtx *) { return 0; };
+  // The mock normally throws; reproduce Redis's terminating assertion for this test.
+  Restore<decltype(RedisModule__Assert)> assertion{RedisModule__Assert};
+  RedisModule__Assert = [](const char *condition, const char *file, int) {
+    std::fprintf(stderr, "%s: %s\n", file, condition);
+    std::abort();
+  };
+  disk = &api;
+  disk_db = reinterpret_cast<RedisSearchDisk *>(&api);
+  isFlex = true;
+
+  EXPECT_DEATH(Indexes_FinishSSTReplication(RSDummyContext), "indexes\\.c: ok");
+}
 
 // The registry is often still resizing when the load ends; the walk must still
 // open every staged spec exactly once.

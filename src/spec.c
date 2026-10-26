@@ -1533,8 +1533,8 @@ static void IndexSpec_TrackIndexMissingField(IndexSpec *sp, const FieldSpec *fs)
  * Add fields to an existing (or newly created) index. If the addition fails,
  * restore the schema state that was mutated while parsing this field batch.
  */
-static int IndexSpec_AddFieldsInternal(RedisModuleCtx *ctx, IndexSpec *sp, StrongRef spec_ref,
-                                       ArgsCursor *ac, QueryError *status, int isNew) {
+static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCursor *ac,
+                                       QueryError *status, int isNew) {
   if (AC_IsAtEnd(ac)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Fields arguments are missing");
     return 0;
@@ -1712,7 +1712,7 @@ int IndexSpec_AddFields(StrongRef spec_ref, IndexSpec *sp, RedisModuleCtx *ctx, 
                         QueryError *status) {
   setMemoryInfo(ctx);
 
-  return IndexSpec_AddFieldsInternal(ctx, sp, spec_ref, ac, status, 0);
+  return IndexSpec_AddFieldsInternal(sp, spec_ref, ac, status, 0);
 }
 
 bool IndexSpec_IsCoherent(IndexSpec *spec, RedisModuleString **prefixes, size_t n_prefixes) {
@@ -1869,7 +1869,7 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     goto failure;
   }
 
-  if (!IndexSpec_AddFieldsInternal(ctx, spec, spec_ref, ac, status, 1)) {
+  if (!IndexSpec_AddFieldsInternal(spec, spec_ref, ac, status, 1)) {
     goto failure;
   }
 
