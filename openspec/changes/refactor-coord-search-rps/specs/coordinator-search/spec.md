@@ -51,3 +51,11 @@ trigger, before/after behavior, classification and supporting evidence.
 - **WHEN** a difference lacks sufficient contract or runtime evidence
 - **THEN** it SHALL remain unclassified
 - **AND** it SHALL NOT be accepted as soft solely because documentation is absent.
+
+## Approved corrections
+
+Nearest-K selection SHALL use vector distance independently of a numeric final
+SORTBY field. Distance DESC SHALL order the global nearest-K set rather than
+selecting the farthest shard candidates. The distance ASC and count-only shortcuts
+remain. Standard typed field comparison replaces encoded-prefix comparison;
+document-key ties and absent-value placement remain explicit compatibility rules.
