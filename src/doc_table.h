@@ -226,6 +226,11 @@ PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t, const RedisModuleS
 // Unlink and free a node returned by DocTable_AddPendingDeletion. Caller holds the spec write lock.
 void DocTable_RemovePendingDeletion(DocTable *t, PendingSlotDeletion *pending);
 
+// `size` counts one more than the docs held: NewDocTable starts it at 1.
+static inline bool DocTable_IsEmpty(const DocTable *t) {
+  return t->size <= 1;
+}
+
 // Whether `pending` covers `dmd`: the doc sits in one of its slots and existed when it was added.
 static inline bool PendingSlotDeletion_Covers(const PendingSlotDeletion *pending, const RSDocumentMetadata *dmd) {
   return dmd->id <= pending->maxDocId && SlotRangeArray_ContainsSlot(pending->slots, dmd->slot);
