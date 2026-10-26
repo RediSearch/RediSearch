@@ -68,6 +68,8 @@ typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
 typedef struct SearchDiskSlotTrim SearchDiskSlotTrim;
 typedef struct SearchDiskSlotMigration SearchDiskSlotMigration;
+typedef struct SearchDiskSlotImport SearchDiskSlotImport;
+typedef struct SearchDiskSlotImportWork SearchDiskSlotImportWork;
 typedef struct SearchDiskSlotTrimBatch SearchDiskSlotTrimBatch;
 // The batch and ID array are borrowed only for this callback. Acquire the spec
 // write lock, applyTrimBatch, remove memory entries and adjust counts before
@@ -735,6 +737,29 @@ typedef struct IndexDiskAPI {
 
 /** Disk index operations supporting slot migration. */
 typedef struct SlotMigrationAPI {
+  // Join before indexing imported keys. Complete only after core ASM success.
+  // Reserve work before enqueueing; discard cancelled jobs and release guards
+  // after storage and memory apply. Cancellation closes writes, refuses while
+  // work is outstanding, then returns a normal bounded trim plan for accounting.
+  // Freeing an unfinished import handle preserves hidden state; rejoin to recover.
+  SearchDiskSlotImport *(*beginImport)(RedisSearchDiskIndexSpec *index,
+                                       const SearchDiskSlotMigration *migration);
+  // Probe after stopping the scan producer and reserving queued work. Readiness
+  // does not publish IDs or establish core ASM success.
+  bool (*importReady)(const SearchDiskSlotImport *import);
+  bool (*importFailed)(const SearchDiskSlotImport *import);
+  // Already-reserved work may finish during cancellation; the guard retains
+  // its authorization through the batch and memory apply.
+  SearchDiskWriteBatchHandle *(*createImportWriteBatch)(RedisSearchDiskIndexSpec *index,
+                                                        const SearchDiskSlotImportWork *work);
+  bool (*completeImport)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotImport *import);
+  SearchDiskSlotTrim *(*prepareCancelImport)(RedisSearchDiskIndexSpec *index,
+                                             const SearchDiskSlotImport *import, uint64_t *numDocs,
+                                             uint64_t *totalDocLen);
+  SearchDiskSlotImportWork *(*acquireImportWork)(const SearchDiskSlotImport *import);
+  bool (*importWorkCancelled)(const SearchDiskSlotImportWork *work);
+  void (*freeImportWork)(SearchDiskSlotImportWork *work);
+  void (*freeImport)(SearchDiskSlotImport *import);
   // Admission is shard-wide: any active operation or pending cleanup blocks it.
   // The probe is advisory. beginMigration atomically admits an operation; all
   // participating indexes join with prepareTrimForMigration before the caller
@@ -808,7 +833,7 @@ typedef struct DocTableDiskAPI {
    *
    * @param handle Handle to the document table
    * @param docId Document ID to check
-   * @return true if deleted, false if not deleted or on error
+   * @return true if deleted or hidden by a destination import; false otherwise or on error
    */
   bool (*isDocIdDeleted)(RedisSearchDiskIndexSpec* handle, t_docId docId);
 

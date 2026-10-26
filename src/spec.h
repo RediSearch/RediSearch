@@ -659,6 +659,9 @@ IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDis
 // Same trim contract; join the operation admitted by SearchDisk_BeginSlotMigration.
 IndexSpecSlotTrimResult IndexSpec_TrimDiskSlotsForMigration(
     IndexSpec *spec, const SearchDiskSlotMigration *migration);
+// Same trim contract; cancel only after queued/running import work drains.
+IndexSpecSlotTrimResult IndexSpec_CancelDiskSlotImport(IndexSpec *spec,
+                                                     const SearchDiskSlotImport *import);
 // Caller holds the spec write lock.
 void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId);
 

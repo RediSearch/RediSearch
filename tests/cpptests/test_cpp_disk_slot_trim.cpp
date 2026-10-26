@@ -33,6 +33,8 @@ struct TrimState {
   bool applied = false;
   bool pendingCleanup = false;
   size_t applyCalls = 0, finishCalls = 0, frees = 0, gcRuns = 0, migrationFrees = 0;
+  size_t importFrees = 0, workFrees = 0;
+  bool importCancelled = false;
   size_t batchCount = 1, batchesApplied = 0, batchApplyCalls = 0, failBatch = SIZE_MAX;
   std::function<void(size_t)> beforeBatch;
   RedisModuleCmdFunc forceGC = nullptr;
@@ -244,6 +246,82 @@ TEST_F(DiskSlotTrimTest, SharedOperationUsesTrimAccountingAndReleasesCallerHandl
   EXPECT_EQ(state.migrationFrees, 1u);
 }
 
+TEST_F(DiskSlotTrimTest, DestinationHandlesForwardAndWorkChecksFailClosed) {
+  auto *migration = reinterpret_cast<SearchDiskSlotMigration *>(&state);
+  EXPECT_EQ(SearchDisk_BeginSlotImport(spec->diskSpec, migration), nullptr);
+  EXPECT_TRUE(SearchDisk_SlotImportWorkCancelled(nullptr));
+  api.slotMigration.beginImport =
+      [](RedisSearchDiskIndexSpec *index,
+         const SearchDiskSlotMigration *operation) -> SearchDiskSlotImport * {
+    EXPECT_NE(index, nullptr);
+    EXPECT_EQ(operation, reinterpret_cast<SearchDiskSlotMigration *>(&state));
+    return reinterpret_cast<SearchDiskSlotImport *>(&state);
+  };
+  auto *importHandle = SearchDisk_BeginSlotImport(spec->diskSpec, migration);
+  ASSERT_NE(importHandle, nullptr);
+  EXPECT_FALSE(SearchDisk_CompleteSlotImport(spec->diskSpec, importHandle));
+  EXPECT_FALSE(SearchDisk_SlotImportReady(importHandle));
+  EXPECT_TRUE(SearchDisk_SlotImportFailed(importHandle));
+  api.slotMigration.importReady = [](const SearchDiskSlotImport *) {
+    return !state.importCancelled;
+  };
+  api.slotMigration.importFailed = [](const SearchDiskSlotImport *) {
+    return state.importCancelled;
+  };
+  EXPECT_TRUE(SearchDisk_SlotImportReady(importHandle));
+  EXPECT_FALSE(SearchDisk_SlotImportFailed(importHandle));
+  api.slotMigration.completeImport = [](RedisSearchDiskIndexSpec *, const SearchDiskSlotImport *) {
+    return !state.importCancelled;
+  };
+  api.slotMigration.acquireImportWork =
+      [](const SearchDiskSlotImport *handle) -> SearchDiskSlotImportWork * {
+    EXPECT_EQ(handle, reinterpret_cast<SearchDiskSlotImport *>(&state));
+    return reinterpret_cast<SearchDiskSlotImportWork *>(&state);
+  };
+  api.slotMigration.importWorkCancelled = [](const SearchDiskSlotImportWork *work) {
+    EXPECT_EQ(work, reinterpret_cast<SearchDiskSlotImportWork *>(&state));
+    return state.importCancelled;
+  };
+  auto *work = SearchDisk_AcquireSlotImportWork(importHandle);
+  EXPECT_EQ(SearchDisk_CreateImportWriteBatch(spec->diskSpec, work), nullptr);
+  api.slotMigration.createImportWriteBatch =
+      [](RedisSearchDiskIndexSpec *index,
+         const SearchDiskSlotImportWork *guard) -> SearchDiskWriteBatchHandle * {
+    EXPECT_NE(index, nullptr);
+    EXPECT_EQ(guard, reinterpret_cast<SearchDiskSlotImportWork *>(&state));
+    return reinterpret_cast<SearchDiskWriteBatchHandle *>(&state);
+  };
+  EXPECT_EQ(SearchDisk_CreateImportWriteBatch(spec->diskSpec, work),
+            reinterpret_cast<SearchDiskWriteBatchHandle *>(&state));
+  EXPECT_FALSE(SearchDisk_SlotImportWorkCancelled(work));
+  EXPECT_TRUE(SearchDisk_CompleteSlotImport(spec->diskSpec, importHandle));
+  state.importCancelled = true;
+  EXPECT_TRUE(SearchDisk_SlotImportWorkCancelled(work));
+  EXPECT_FALSE(SearchDisk_CompleteSlotImport(spec->diskSpec, importHandle));
+  api.slotMigration.freeImportWork = [](SearchDiskSlotImportWork *) { ++state.workFrees; };
+  api.slotMigration.freeImport = [](SearchDiskSlotImport *) { ++state.importFrees; };
+  SearchDisk_FreeSlotImportWork(work);
+  SearchDisk_FreeSlotImport(importHandle);
+  EXPECT_EQ(state.workFrees, 1u);
+  EXPECT_EQ(state.importFrees, 1u);
+}
+
+TEST_F(DiskSlotTrimTest, DestinationCancellationUsesBoundedMemoryAndScoringCleanup) {
+  auto *importHandle = reinterpret_cast<SearchDiskSlotImport *>(&state);
+  EXPECT_EQ(IndexSpec_CancelDiskSlotImport(spec, importHandle), INDEX_TRIM_NOT_APPLIED);
+  api.slotMigration.prepareTrim = nullptr;
+  api.slotMigration.prepareCancelImport = [](RedisSearchDiskIndexSpec *,
+                                             const SearchDiskSlotImport *handle, uint64_t *,
+                                             uint64_t *) -> SearchDiskSlotTrim * {
+    EXPECT_EQ(handle, reinterpret_cast<SearchDiskSlotImport *>(&state));
+    return reinterpret_cast<SearchDiskSlotTrim *>(&state);
+  };
+  EXPECT_EQ(IndexSpec_CancelDiskSlotImport(spec, importHandle), INDEX_TRIM_FINISHED);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
+  EXPECT_EQ(state.frees, 1u);
+  EXPECT_EQ(state.batchApplyCalls, 1u);
+}
 TEST_F(DiskSlotTrimTest, PrepareFailureDoesNotMutateOrFree) {
   state.prepare = false;
   EXPECT_EQ(trim(), INDEX_TRIM_NOT_APPLIED);
