@@ -626,6 +626,10 @@ bool SearchDisk_IsEnabledForValidation() {
   return isFlex || RSGlobalConfig.simulateInFlex;
 }
 
+bool SearchDisk_SupportsMultiValue(FieldType types) {
+  return types == INDEXFLD_T_FULLTEXT;
+}
+
 // Vector API wrappers
 void* SearchDisk_CreateVectorIndex(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, const VecSimParamsDisk *params) {
     RS_ASSERT(disk && ctx && index && params);

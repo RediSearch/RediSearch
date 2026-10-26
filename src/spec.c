@@ -1480,17 +1480,24 @@ int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
 static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
 
 /**
- * Validate that a disk-backed JSON field uses a single-value JSONPath.
- * Returns `true` when the validation does not apply or the field path is valid.
+ * Validate the JSONPath of a disk-backed JSON field: it must parse, and it must
+ * be single-value unless `SearchDisk_SupportsMultiValue` accepts the field's type.
+ * Call after `parseFieldSpec`, which sets the type, and only for a disk index.
+ * Returns `true` when the index is not JSON or the field path is valid.
  * On failure, sets `status` with the validation error and returns `false`.
  */
-static bool validateDiskJsonSinglePath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
-  if (!isSpecOnDiskForValidation(sp) || !isSpecJson(sp)) {
+static bool validateDiskJsonPath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
+  RS_ASSERT(fs->types);
+  if (!isSpecJson(sp)) {
     return true;
   }
 
   if (!validateJsonFieldPath(sp, fs, status)) {
     return false;
+  }
+
+  if (SearchDisk_SupportsMultiValue(fs->types)) {
+    return true;
   }
 
   bool isSingle = japi->pathIsSingle(fs->compiledPath);
@@ -1597,15 +1604,15 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
                              sp->numFields);
       goto reset;
     }
-    if (!validateDiskJsonSinglePath(sp, fs, status)) {
-      goto reset;
-    }
     if (!parseFieldSpec(ac, sp, spec_ref, fs, status)) {
       goto reset;
     }
 
     if (isSpecOnDiskForValidation(sp))
     {
+      if (!validateDiskJsonPath(sp, fs, status)) {
+        goto reset;
+      }
       if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && !FIELD_IS(fs, INDEXFLD_T_VECTOR) && !FIELD_IS(fs, INDEXFLD_T_TAG) && !FIELD_IS(fs, INDEXFLD_T_NUMERIC) && !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Disk index does not support non-TEXT/VECTOR/TAG/NUMERIC/GEO fields");
         goto reset;

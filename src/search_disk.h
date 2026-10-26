@@ -660,6 +660,18 @@ bool SearchDisk_IsEnabled();
 bool SearchDisk_IsEnabledForValidation();
 
 /**
+ * @brief Check if a disk JSON index supports multi-value fields of the given type:
+ * dynamic JSONPaths and JSON arrays at a single path.
+ *
+ * VECTOR must stay false here: an array at a single path is a vector's blob,
+ * and multi-value vectors need their own disk support.
+ *
+ * @param types The field's type
+ * @return true if multi-value is supported for the type, false otherwise
+ */
+bool SearchDisk_SupportsMultiValue(FieldType types);
+
+/**
  * @brief Report whether disk vector indexes are currently throttling writers.
  *
  * A disk tiered vector index raises the Redis client-postpone throttle when its flat buffer
