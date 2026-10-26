@@ -204,13 +204,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
  */
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey);
 
-/** Bounded selection using a caller-owned comparator context. Positive means better.
- * The context must outlive the processor; buffered rows use normal SearchResult ownership.
- */
-ResultProcessor *RPSorter_NewByComparator(size_t maxresults,
-                                          int (*compare)(const void *, const void *, const void *),
-                                          void *context);
-
 ResultProcessor *RPPager_New(size_t offset, size_t limit);
 
 /*******************************************************************************************************************

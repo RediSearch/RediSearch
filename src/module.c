@@ -2234,8 +2234,9 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
   if(array_len(req->specialCases) > 1) {
     specialCaseCtx* optionalSortCtx = req->specialCases[0];
     if(optionalSortCtx->specialCaseType == SPECIAL_CASE_SORTBY) {
-      if(strcmp(optionalSortCtx->sortby.sortKey, knn_ctx->knn.fieldName) == 0){
-        // If SORTBY is done by the vector score field, the coordinator will do it and no special operation is needed.
+      if ((req->sortAscending || req->limit == 0) &&
+          strcmp(optionalSortCtx->sortby.sortKey, knn_ctx->knn.fieldName) == 0) {
+        // Ascending distance already selects nearest K. Count-only requests need no selection.
         knn_ctx->knn.shouldSort = false;
         // The requested results should be at most K
         req->requestedResultsCount = MIN(knn_ctx->knn.k, requestedResultsCount);
@@ -2243,7 +2244,6 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
     }
   }
 }
-
 
 // Prepare a TOPK special case, return a context with the required KNN fields if query is
 // valid and contains KNN section, NULL otherwise (and set proper error in *status* if error
@@ -2514,7 +2514,8 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
         }
         case SPECIAL_CASE_KNN: {
           // Before requesting for a new field, see if it is not the sortkey.
-          if (!ctx->knn.shouldSort) {
+          if (i > 0 && req->specialCases[0]->specialCaseType == SPECIAL_CASE_SORTBY &&
+              !strcmp(req->specialCases[0]->sortby.sortKey, ctx->knn.fieldName)) {
             // We have already requested this field, we will not append it.
             ctx->knn.offset = 0;
             break;

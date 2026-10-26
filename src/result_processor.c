@@ -901,15 +901,6 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   return &ret->base;
 }
 
-ResultProcessor *RPSorter_NewByComparator(size_t maxresults, RPSorterCompareFunc compare,
-                                          void *context) {
-  RPSorter *ret = rpsortNew();
-  ret->cmp = compare;
-  ret->cmpCtx = context;
-  ret->pq = mmh_init_with_size(maxresults, compare, context, srDtor);
-  return &ret->base;
-}
-
 ResultProcessor *RPSorter_NewByScore(size_t maxresults, const RLookupKey *scoreTieBreakKey) {
   ResultProcessor *rp = RPSorter_NewByFields(maxresults, NULL, 0, 0);
   ((RPSorter *)rp)->scoreTieBreakKey = scoreTieBreakKey;
