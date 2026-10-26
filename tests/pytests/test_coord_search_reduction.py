@@ -59,29 +59,50 @@ def _check_knn(env, resp3):
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', 6,
                'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'L2',
-               'label', 'TAG', 'SORTABLE').ok()
+               'label', 'TAG', 'SORTABLE', 'price', 'NUMERIC', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
     keys = [f'doc:{{{i}}}:{i:02}' for i in range(12)]
     for i, key in enumerate(keys):
         conn.execute_command('HSET', key, 'v', struct.pack('f', i + 1),
-                             'label', f'{12 - i:02}')
+                             'label', f'{12 - i:02}', 'price', 12 - i)
     query = '*=>[KNN 3 @v $vec AS distance]'
     for sorting, order in (([], keys[:3]),
                            (['SORTBY', 'distance', 'ASC'], keys[:3]),
+                           (['SORTBY', 'distance', 'DESC'], keys[2::-1]),
+                           (['SORTBY', 'price', 'ASC'], keys[2::-1]),
+                           (['SORTBY', 'price', 'DESC'], keys[:3]),
                            (['SORTBY', 'label', 'ASC'], keys[2::-1]),
                            (['SORTBY', 'label', 'DESC'], keys[:3])):
-        for offset, limit in ((0, 10), (1, 1), (3, 10)):
+        for offset, limit in ((0, 10), (1, 1), (3, 10), (0, 0)):
             args = [query, 'PARAMS', 2, 'vec', struct.pack('f', 0),
                     'SCORER', 'DOCSCORE', *sorting, 'NOCONTENT',
                     'LIMIT', offset, limit, 'DIALECT', 2]
             page = order[offset:offset + limit]
-            expected = ({'attributes': [], 'warning': [], 'total_results': 3,
+            # Preserve the existing distinction between metadata-only distance sorting
+            # and preselection paths, which count returned shard candidates.
+            total = 3 if limit or sorting[:2] == ['SORTBY', 'distance'] else 0
+            expected = ({'attributes': [], 'warning': [], 'total_results': total,
                          'format': 'STRING',
                          'results': [{'id': key, 'values': []} for key in page]}
-                        if resp3 else [3, *page])
+                        if resp3 else [total, *page])
             env.assertEqual(env.cmd('FT.SEARCH', 'idx', *args), expected)
             profiled = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', *args)
             env.assertEqual(profiled['Results'] if resp3 else profiled[0], expected)
+            # A cached vector distance must not replace the public DOCSCORE value.
+            scored = ({**expected, 'results': [dict(row, score=1.0)
+                                             for row in expected['results']]}
+                      if resp3 else [total, *[value for key in page for value in (key, '1')]])
+            env.assertEqual(env.cmd('FT.SEARCH', 'idx', *args, 'WITHSCORES'), scored)
+
+
+    # An equal-distance candidate on another shard must lose to the smaller document key.
+    conn.execute_command('HSET', keys[3], 'v', struct.pack('f', 3))
+    tied = env.cmd('FT.SEARCH', 'idx', query, 'PARAMS', 2, 'vec', struct.pack('f', 0),
+                   'SCORER', 'DOCSCORE', 'NOCONTENT', 'LIMIT', 0, 3, 'DIALECT', 2)
+    expected = ({'attributes': [], 'warning': [], 'total_results': 3, 'format': 'STRING',
+                 'results': [{'id': key, 'values': []} for key in keys[:3]]}
+                if resp3 else [3, *keys[:3]])
+    env.assertEqual(tied, expected)
 
 
 @skip(cluster=False)

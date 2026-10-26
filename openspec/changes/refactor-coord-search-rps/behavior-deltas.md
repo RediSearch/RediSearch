@@ -104,7 +104,7 @@ remain compatibility obligations, not claims of validated equivalence.
   checks final membership/order and offset-once semantics, and observes one reply
   and one free callback in RESP2 and RESP3. Execution evidence follows validation.
 
-## Final local validation
+## Initial local validation before approved alignment
 
 - Final code at `f024bb8d5f`: assert-enabled build and all 1,283 C/C++ unit
   tests passed. The focused three-shard suite collected 118 tests with zero
@@ -116,6 +116,38 @@ remain compatibility obligations, not claims of validated equivalence.
   accounting confirmed none was omitted; collected totals include skips.
 - Independent source review passed each implementation layer and the buffered-KNN
   test follow-up. Remote CI and automated review remain separate gates.
-- No intentional breaking or soft observable production behavior change is
-  accepted by this stack. Unmeasured comparator decoding cost and the unexecuted
+- At those revisions no intentional breaking or soft observable production behavior
+  change was accepted. The approved follow-up below supersedes that scope. Unmeasured comparator decoding cost and the unexecuted
   edge scenarios in the tracked-surface table remain explicit limitations.
+
+## Approved alignment follow-up (supersedes initial compatibility choices)
+
+- Sorting now uses standard typed lookup values and standard score/field RPs.
+  Explicit document-key secondary fields preserve score ties, direction-dependent
+  SORTBY ties, and nearest-K distance ties. Missing sort keys remain absent lookup
+  values, preserving missing-last placement in both directions. No custom
+  comparator API remains in the final stack. Comparison performs no reply decoding
+  or numeric parsing; source decoding adds owned lookup values with borrowed strings.
+  End-to-end performance is not measured.
+- B05: nearest-K selection now reads the required vector distance even when final
+  SORTBY is another numeric field. Previously a numeric sort key could replace the
+  distance and change global K membership. This is an approved observable
+  correctness fix, not classified as soft. Regression tests sort by numeric price
+  opposite to distance in both directions, with profiles, pages and WITHSCORES.
+- B06: distance DESC now selects global nearest K before descending final order.
+  Previously it could select the farthest candidates from the union of shard-local
+  nearest-K sets. This is an approved observable membership correction. ASC keeps
+  its equivalent shortcut; count-only distance queries keep their metadata totals.
+  Required-field construction reuses the distance sort field rather than asking
+  for it twice in the new DESC path.
+- B04: encoded numeric/string values are normalized to RSValue numbers/strings;
+  heterogeneous values consequently follow standard RP coercion/error semantics
+  rather than comparing wire type prefixes. This is an explicit alignment, not
+  a claim of byte-for-byte ordering compatibility for heterogeneous shard values.
+  Numeric, string, missing-key and document-key tie cases are covered; a public
+  mixed-type SORTBY scenario has not been established by these fixtures.
+- B07: count-only behavior remains path-specific: preselection paths count returned
+  candidates, while distance-sort count-only paths use capped shard metadata.
+  No general count-only normalization is included in this change.
+- Updated six RESP2/RESP3 characterization and buffered-timeout tests pass on the
+  revised PR 3 code; broader final-stack validation follows.

@@ -61,6 +61,9 @@ typedef struct searchReducerCtx {
 
   MRReply *warning;
   QueryProcessingCtx qctx;
+  RLookup lookup;
+  const RLookupKey *sortKeys[2];
+  const RLookupKey *knnKeys[2];
   MRReply **replies;
 } searchReducerCtx;
 
@@ -72,65 +75,8 @@ void CoordSearchReducer_Free(searchRequestCtx *r) {
   if (rctx) {
     QITR_FreeChain(&rctx->qctx);
     QueryRequest_SetEndProcRef(&r->base, NULL);
+    RLookup_Cleanup(&rctx->lookup);
     rm_free(rctx);
-  }
-}
-
-static int cmpStrings(const char *s1, size_t l1, const char *s2, size_t l2) {
-  int cmp = memcmp(s1, s2, MIN(l1, l2));
-  if (l1 == l2) {
-    // if the strings are the same length, just return the result of strcmp
-    return cmp;
-  }
-
-  // if the strings are identical but the lengths aren't, return the longer string
-  if (cmp == 0) {
-    return l1 > l2 ? 1 : -1;
-  } else {  // the strings are lexically different, just return that
-    return cmp;
-  }
-}
-
-static int cmp_results(const void *p1, const void *p2, const void *udata) {
-
-  const searchResult *r1 = p1, *r2 = p2;
-  const searchRequestCtx *req = udata;
-  // Compary by sorting keys
-  if (req->withSortby) {
-    int cmp = 0;
-    if ((r1->sortKey || r2->sortKey)) {
-      // Sort by numeric sorting keys
-      if (r1->sortKeyNum != HUGE_VAL && r2->sortKeyNum != HUGE_VAL) {
-        double diff = r2->sortKeyNum - r1->sortKeyNum;
-        cmp = diff < 0 ? -1 : (diff > 0 ? 1 : 0);
-      } else if (r1->sortKey && r2->sortKey) {
-
-        // Sort by string sort keys
-        cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
-      } else {
-        // If at least one of these has no sort key, it gets high value regardless of asc/desc
-        return r2->sortKey ? 1 : -1;
-      }
-    }
-    // in case of a tie or missing both sorting keys - compare ids
-    if (!cmp) {
-      cmp = cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
-    }
-    return (req->sortAscending ? -cmp : cmp);
-  }
-
-  double s1 = r1->score, s2 = r2->score;
-  if (s1 < s2) {
-    return 1;
-  } else if (s1 > s2) {
-    return -1;
-  } else {
-    // This was reversed to be more compatible with OSS version where tie breaker was changed
-    // to return the lower doc ID to reduce sorting heap work. Doc name might not be ascending
-    // or descending but this still may reduce heap work.
-    // Our tests are usually ascending so this will create similarity between RS and RSC.
-    int rv = -cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
-    return rv;
   }
 }
 
@@ -347,11 +293,11 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
   }
 }
 
-static double parseNumeric(const char *str, const char *sortKey) {
+static double parseNumeric(const char *str) {
   RS_ASSERT(str[0] == '#');
   char *eptr;
   double d = fast_float_strtod(str + 1, &eptr);
-  RS_ASSERT(eptr != sortKey + 1 && *eptr == 0);
+  RS_ASSERT(eptr != str + 1 && *eptr == 0);
   return d;
 }
 
@@ -411,20 +357,11 @@ static void searchResultView(searchReducerCtx *ctx, const SearchResult *row, sea
   }
 }
 
-static int compareSearchRows(const void *a, const void *b, const void *context) {
-  searchReducerCtx *ctx = (searchReducerCtx *)context;
-  searchResult left, right;
-  searchResultView(ctx, a, &left);
-  searchResultView(ctx, b, &right);
-  return -cmp_results(&left, &right, ctx->searchCtx);
-}
-
 static bool needsKnnSelection(const searchReducerCtx *ctx) {
   return ctx->reduceSpecialCaseCtxKnn && ctx->reduceSpecialCaseCtxKnn->knn.shouldSort;
 }
 
-static bool searchRowDistance(searchReducerCtx *ctx, const SearchResult *row,
-                              const searchResult *view, double *distance) {
+static bool searchRowDistance(searchReducerCtx *ctx, const SearchResult *row, double *distance) {
   uint64_t locator = SearchResult_GetDocId(row);
   MRReply *body = searchReplyBody(ctx->searchCtx, ctx->replies[locator >> 32]);
   MRReply *value;
@@ -438,29 +375,8 @@ static bool searchRowDistance(searchReducerCtx *ctx, const SearchResult *row,
     value =
         MRReply_ArrayElement(body, 1 + (size_t)(uint32_t)locator * ctx->offsets.step + knn->offset);
   }
-  // Preserve GET_NUMERIC_SCORE's existing preference for a numeric sort key,
-  // even when the final SORTBY names another field. Changing it is separate work.
-  if (view->sortKeyNum != HUGE_VAL) {
-    *distance = view->sortKeyNum;
-  } else {
-    const char *text = MRReply_String(value, NULL);
-    *distance = parseNumeric(text, view->sortKey);
-  }
+  *distance = parseNumeric(MRReply_String(value, NULL));
   return true;
-}
-
-static int compareKnnRows(const void *a, const void *b, const void *context) {
-  searchReducerCtx *ctx = (searchReducerCtx *)context;
-  searchResult left, right;
-  double l, r;
-  searchResultView(ctx, a, &left);
-  searchResultView(ctx, b, &right);
-  bool leftValid = searchRowDistance(ctx, a, &left, &l);
-  bool rightValid = searchRowDistance(ctx, b, &right, &r);
-  RS_ASSERT(leftValid && rightValid);
-  if (l < r) return 1;
-  if (l > r) return -1;
-  return -cmpStrings(left.id, left.idLen, right.id, right.idLen);
 }
 
 static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
@@ -526,13 +442,24 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
           if (needsKnnSelection(ctx)) goto next_shard;
           continue;
         }
+        RLookupRow *values = SearchResult_GetRowDataMut(row);
         if (needsKnnSelection(ctx)) {
           double distance;
-          if (!searchRowDistance(ctx, row, &view, &distance)) {
+          if (!searchRowDistance(ctx, row, &distance)) {
             ctx->errorOccurred = true;
             goto next_shard;
           }
+          RLookup_WriteOwnKey(ctx->knnKeys[0], values, RSValue_NewNumber(distance));
           ctx->totalReplies = MIN(ctx->reduceSpecialCaseCtxKnn->knn.k, ctx->totalReplies + 1);
+        }
+        // Reply backing outlives the lookup values, including rows buffered by either sorter.
+        RLookup_WriteOwnKey(ctx->sortKeys[1], values,
+                            RSValue_NewBorrowedString(view.id, view.idLen));
+        if (view.sortKey) {
+          RSValue *sortValue = view.sortKey[0] == '#' ? RSValue_NewNumber(view.sortKeyNum)
+                                                      : RSValue_NewBorrowedString(
+                                                            view.sortKey + 1, view.sortKeyLen - 1);
+          RLookup_WriteOwnKey(ctx->sortKeys[0], values, sortValue);
         }
         SearchResult_SetScore(row, view.score);
 #ifdef ENABLE_ASSERT
@@ -572,12 +499,20 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **rep
   source->count = count;
   source->fromTimeout = fromTimeout;
   QITR_PushRP(&ctx->qctx, &source->base);
+  ctx->sortKeys[0] = RLookup_GetKey_Write(&ctx->lookup, "sortkey", RLOOKUP_F_NOFLAGS);
+  ctx->sortKeys[1] = RLookup_GetKey_Write(&ctx->lookup, "document_key", RLOOKUP_F_NOFLAGS);
   if (needsKnnSelection(ctx)) {
+    ctx->knnKeys[0] = RLookup_GetKey_Write(&ctx->lookup, "distance", RLOOKUP_F_NOFLAGS);
+    ctx->knnKeys[1] = ctx->sortKeys[1];
     QITR_PushRP(&ctx->qctx,
-                RPSorter_NewByComparator(ctx->reduceSpecialCaseCtxKnn->knn.k, compareKnnRows, ctx));
+                RPSorter_NewByFields(ctx->reduceSpecialCaseCtxKnn->knn.k, ctx->knnKeys, 2, 3));
   }
-  QITR_PushRP(&ctx->qctx, RPSorter_NewByComparator(ctx->searchCtx->requestedResultsCount,
-                                                   compareSearchRows, ctx));
+  ResultProcessor *sorter =
+      ctx->searchCtx->withSortby
+          ? RPSorter_NewByFields(ctx->searchCtx->requestedResultsCount, ctx->sortKeys, 2,
+                                 ctx->searchCtx->sortAscending ? 3 : 0)
+          : RPSorter_NewByScore(ctx->searchCtx->requestedResultsCount, ctx->sortKeys[1]);
+  QITR_PushRP(&ctx->qctx, sorter);
   if (ctx->searchCtx->limit != 0) {
     QITR_PushRP(&ctx->qctx, RPPager_New(ctx->searchCtx->offset, ctx->searchCtx->limit));
   }
@@ -882,6 +817,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   bc = MRCtx_GetBlockedClient(req->mrctx);
 
   rCtx = rm_calloc(1, sizeof(searchReducerCtx));
+  rCtx->lookup = RLookup_New();
 
   // Save the reducer state in the request so it is available to the
   // blocked-client reply callback after the normal unblock path.
