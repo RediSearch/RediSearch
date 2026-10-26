@@ -80,15 +80,20 @@ and check the one you pick reaches the code path under test.
 When a change adds or alters a worker path that holds a lock the main thread also takes (the GIL,
 the IndexSpec lock, or a disk-mode lock), test that the main thread is not stuck behind it:
 
-- Park the worker inside the lock window with `FT.DEBUG SYNC_POINT ARM <name>` (add a
-  `SyncPoint_Wait` there if none exists), and poll `SYNC_POINT IS_WAITING <name>` until it parks.
-- Issue the main-thread command from a thread and `join` it with a timeout, so a regression fails
-  instead of hanging the suite: `PING` catches a held GIL; a write to a key the index covers
-  catches a spec or disk lock the write should not wait on.
-- Release the worker with `SYNC_POINT SIGNAL <name>` and `CLEAR` in a `finally`. Sync points exist
-  only in `ENABLE_ASSERT` builds, so guard the test with `@require_enable_assert`.
+- Park the worker inside the lock window with `debug_cmd(), 'SYNC_POINT', 'ARM', <name>, <ms>`
+  (add a `SyncPoint_Wait` there if none exists), and poll `SYNC_POINT IS_WAITING <name>` until it
+  parks. The park must release itself — a main thread blocked on the lock can never run a
+  `SIGNAL` — so pass `auto_release_ms`, or release through a `SyncPoint_WaitUntil` predicate.
+- Issue the main-thread command from a thread and `join` it with a timeout shorter than the
+  auto-release, so a blocked command fails the assertion instead of passing once the worker lets
+  go: `PING` catches a held GIL; a write to a key the index covers catches a spec or disk lock the
+  write should not wait on.
+- `SYNC_POINT SIGNAL <name>` and `CLEAR` in a `finally`. Sync points exist only in `ENABLE_ASSERT`
+  builds: guard a test function that takes `env` with `@require_enable_assert`, and a class or a
+  test that builds its own `Env` with `skipIfNoEnableAssert(env)`.
 
-`TestNoDeadlockQueryWithConcurrentWriter` in `test_blocked_client_timeout.py` follows this pattern.
+`TestNoDeadlockQueryWithConcurrentWriter` in `test_blocked_client_timeout.py` follows this pattern,
+releasing through a `SyncPoint_WaitUntil` predicate.
 
 ## Deprecated commands
 
