@@ -185,11 +185,18 @@ behavior ledger for the approved observable corrections and count-only exception
 Create RPSearchReply before dispatch, independently of reducer initialization.
 MRSearchCtx owns the command and IO completion counters, and borrows the request.
 Each non-null shard callback transfers its reply to the source, which either
-accepts it or frees it after cancellation. A mutex protects acceptance, array
-growth, and closure. Strict timeout closes admission under that mutex before
-reading the pointer/count; accepted replies then form an immutable collection.
-Normal reduction closes admission after all callbacks finish. No collection
-lock is held during reduction or serialization.
+accepts it or frees it after cancellation. Before dispatch, the assigned IO
+thread preallocates the reply array to its topology's shard count, an upper bound
+on successful sends. That thread is the only producer: it initializes a slot
+then release-stores the published count. The array is never resized.
+
+The exclusive reducer acquire-loads the published count once and retains that
+snapshot for reduction and profile serialization. A zero snapshot never reads
+the array pointer, which may not yet be allocated; a nonzero acquire publishes
+both the array pointer and the initialized prefix. The producer may finish
+publishing a reply after timeout takes its snapshot. Cleanup uses the final
+published count after all callbacks finish, including replies outside the
+reduction snapshot. No admission mutex or closed flag is needed.
 
 The blocked-client cycle owns both source and transport. Preparation failure
 and zero-dispatch completion still finish the cycle. Otherwise the last shard
@@ -201,4 +208,5 @@ Timeout publication does not end that lifetime: outstanding callbacks continue
 accounting for completion and discard late replies. The existing claim/wait
 protocol still excludes simultaneous BG/main reduction; the future abort/drain
 handoff remains in the Drain stack. A reply is available if its admission
-completed before closure, not merely because its bytes reached the socket.
+was included in the acquired publication count, not merely because its bytes
+reached the socket.
