@@ -17,6 +17,7 @@
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
+#include "slot_ranges.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,6 +52,16 @@ typedef struct {
   RSDocumentMetadata *root;
 } DMDChain;
 
+// A slot deletion that was announced but not yet applied. Docs it covers stay in the table
+// until the cleanup task removes them, and are hidden from readers meanwhile. Each request
+// keeps its own `maxDocId`: docs added after the announcement carry a larger id and must
+// survive, so overlapping requests cannot be merged into one node.
+typedef struct PendingSlotDeletion {
+  RedisModuleSlotRangeArray *slots;
+  t_docId maxDocId;
+  struct PendingSlotDeletion *next;
+} PendingSlotDeletion;
+
 typedef struct {
   size_t size;
   t_docId maxSize;          // the maximum size this table is allowed to grow to
@@ -65,6 +76,9 @@ typedef struct {
   // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
   // index has ever had (or still has) a field-level expiration.
   TimeToLiveTable* ttl;
+  // Owned by the table. Nodes are never moved, so a cleanup task can hold a node pointer
+  // while it holds a reference to the owning spec.
+  PendingSlotDeletion *pendingSlotDeletions;
 } DocTable;
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
@@ -84,7 +98,7 @@ DocTable NewDocTable(size_t cap, size_t max_size);
 #define INITIAL_DOC_TABLE_SIZE 1000
 
 /* Get a reference to the metadata for a doc Id from the DocTable.
- * If docId is not inside the table, we return NULL */
+ * Returns NULL if docId is not inside the table or is hidden by a pending slot deletion */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
@@ -109,6 +123,9 @@ int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, 
 // Caller holds the spec write lock. Removes the payload while retaining its reserved slot.
 void DocTable_ClearPayload(DocTable *t, RSDocumentMetadata *dmd);
 
+// Whether the doc is physically in the table. Unlike DocTable_Borrow it ignores pending slot
+// deletions: GC and the indexer must keep treating those docs as present until the cleanup task
+// deletes them through the regular delete path.
 bool DocTable_Exists(const DocTable *t, t_docId docId);
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
@@ -201,6 +218,24 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId);
 /* Update the stored key of a document (by docId) after a RENAME; the key -> docId
  * mapping is untouched (it rides with the Redis key metadata). No-op if absent. */
 void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *key, size_t len);
+
+// Hide every doc currently in `slots` (id <= the table's current maxDocId) from readers until
+// the returned node is removed. `slots` is copied. Caller holds the spec write lock.
+PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t, const RedisModuleSlotRangeArray *slots);
+
+// Unlink and free a node returned by DocTable_AddPendingDeletion. Caller holds the spec write lock.
+void DocTable_RemovePendingDeletion(DocTable *t, PendingSlotDeletion *pending);
+
+// Whether `pending` covers `dmd`: the doc sits in one of its slots and existed when it was added.
+static inline bool PendingSlotDeletion_Covers(const PendingSlotDeletion *pending, const RSDocumentMetadata *dmd) {
+  return dmd->id <= pending->maxDocId && SlotRangeArray_ContainsSlot(pending->slots, dmd->slot);
+}
+
+static inline bool DocTable_HasPendingDeletions(const DocTable *t) {
+  return t->pendingSlotDeletions != NULL;
+}
+
+bool DocTable_IsDocPendingDeletion(const DocTable *t, const RSDocumentMetadata *dmd);
 
 /* increasing the ref count of the given dmd */
 /*
