@@ -1220,6 +1220,37 @@ TEST_F(IndexTest, testDocTable) {
   DocTable_Free(&dt);
 }
 
+TEST_F(IndexTest, testDocTableFrozenExistence) {
+  char buf[16];
+  // A max size below N chains documents in shared buckets.
+  DocTable dt = NewDocTable(10, 10);
+  DocTable other = NewDocTable(10, 10);
+  const int N = 100;
+  for (int i = 0; i < N; i++) {
+    size_t nkey = snprintf(buf, sizeof(buf), "doc_%d", i);
+    DMD_Return(DocTable_Put(&dt, buf, nkey, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash));
+    DMD_Return(DocTable_Put(&other, buf, nkey, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash));
+  }
+  for (t_docId id = 3; id <= N; id += 3) {
+    DMD_Return(DocTable_DeleteById(&dt, id));
+  }
+
+  bool before[N + 3];
+  for (t_docId id = 0; id < N + 3; id++) {
+    before[id] = DocTable_Exists(&dt, id);
+  }
+  DocTable_FreezeExistence(&dt);
+  for (t_docId id = 0; id < N + 3; id++) {
+    ASSERT_EQ(before[id], DocTable_Exists(&dt, id)) << "docId " << id;
+    ASSERT_EQ(id >= 1 && id <= N, DocTable_Exists(&other, id)) << "docId " << id;
+  }
+  ASSERT_FALSE(DocTable_Exists(&dt, 3));
+  ASSERT_TRUE(DocTable_Exists(&dt, 4));
+
+  DocTable_Free(&dt);
+  DocTable_Free(&other);
+}
+
 TEST_F(IndexTest, testVarintFieldMask) {
   t_fieldMask x = 127;
   size_t expected[] = {0, 2, 1, 1, 2, 0, 2, 0, 2, 3, 0, 0, 3, 0, 0, 4};

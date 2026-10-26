@@ -94,9 +94,41 @@ const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
   return dmd;
 }
 
+// Set only in a fork GC child, whose single thread scans a snapshot that never changes. The GC
+// scan asks DocTable_Exists about every record of every inverted index; answering from a dense
+// bitmap avoids a dependent load into a scattered DMD for each of them.
+static struct {
+  const DocTable *table;
+  uint64_t *live;
+} frozenExistence;
+
+// Past this many bitmap bytes per live document the bitmap is no longer small next to the DMDs
+// it stands in for (docIds are never reused, so heavy churn leaves maxDocId far above size).
+#define FROZEN_EXISTENCE_MAX_BYTES_PER_DOC 64
+
+void DocTable_FreezeExistence(const DocTable *t) {
+  const size_t words = t->maxDocId / 64 + 1;
+  if (words * sizeof(uint64_t) > FROZEN_EXISTENCE_MAX_BYTES_PER_DOC * t->size) {
+    return;
+  }
+  uint64_t *live = rm_calloc(words, sizeof(*live));
+  for (size_t i = 0; i < t->cap; ++i) {
+    for (const RSDocumentMetadata *md = t->buckets[i].root; md != NULL; md = md->nextInChain) {
+      if (md->id && md->id <= t->maxDocId && !(md->flags & Document_Deleted)) {
+        live[md->id / 64] |= 1ULL << (md->id % 64);
+      }
+    }
+  }
+  frozenExistence.table = t;
+  frozenExistence.live = live;
+}
+
 bool DocTable_Exists(const DocTable *t, t_docId docId) {
   if (!docId || docId > t->maxDocId) {
     return false;
+  }
+  if (frozenExistence.table == t) {
+    return frozenExistence.live[docId / 64] & (1ULL << (docId % 64));
   }
   uint32_t ix = DocTable_GetBucket(t, docId);
   if (ix >= t->cap) {
@@ -391,6 +423,11 @@ void DocTable_Free(DocTable *t) {
     }
   }
   rm_free(t->buckets);
+  if (frozenExistence.table == t) {
+    rm_free(frozenExistence.live);
+    frozenExistence.table = NULL;
+    frozenExistence.live = NULL;
+  }
   TimeToLiveTable_Destroy(&t->ttl);
 }
 
