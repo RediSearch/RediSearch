@@ -879,25 +879,21 @@ static void srDtor(void *p) {
   }
 }
 
-static RPSorter *rpsortNew(void) {
+ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascmap) {
+
   RPSorter *ret = rm_calloc(1, sizeof(*ret));
+  ret->cmp = nkeys ? cmpByFields : cmpByScore;
+  ret->cmpCtx = ret;
+  ret->fieldcmp.ascendMap = ascmap;
+  ret->fieldcmp.keys = keys;
+  ret->fieldcmp.nkeys = nkeys;
+
+  ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
   *ret->pooledResult = SearchResult_New();
   ret->base.Next = rpsortNext_Accum;
   ret->base.Free = rpsortFree;
   ret->base.type = RP_SORTER;
-  return ret;
-}
-
-ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys,
-                                      uint64_t ascmap) {
-  RPSorter *ret = rpsortNew();
-  ret->cmp = nkeys ? cmpByFields : cmpByScore;
-  ret->cmpCtx = ret;
-  ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
-  ret->fieldcmp.keys = keys;
-  ret->fieldcmp.nkeys = nkeys;
-  ret->fieldcmp.ascendMap = ascmap;
   return &ret->base;
 }
 

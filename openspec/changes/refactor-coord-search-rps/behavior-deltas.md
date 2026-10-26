@@ -159,3 +159,10 @@ They did not share execution or policy logic. The existing Redis callbacks remai
 registered directly; QueryRequest.reply owns stored rows and the existing common
 free callback handles teardown. Serializer stack views remain. No callback-policy
 or timeout-handoff behavior change is introduced.
+
+- The expanded RESP3 WITHSORTKEYS regression reproduced a parse error before the
+  follow-up decoder fix. When the vector distance is also the sort field, decoding
+  now reuses the normal sort-key view (which handles both top-level sortkey and
+  required_fields). It never substitutes another field's numeric value. All six
+  protocol/order/KNN/buffered-timeout tests pass with search/profile WITHSORTKEYS
+  coverage after the fix.

@@ -361,11 +361,19 @@ static bool needsKnnSelection(const searchReducerCtx *ctx) {
   return ctx->reduceSpecialCaseCtxKnn && ctx->reduceSpecialCaseCtxKnn->knn.shouldSort;
 }
 
-static bool searchRowDistance(searchReducerCtx *ctx, const SearchResult *row, double *distance) {
+static bool searchRowDistance(searchReducerCtx *ctx, const SearchResult *row,
+                              const searchResult *view, double *distance) {
   uint64_t locator = SearchResult_GetDocId(row);
   MRReply *body = searchReplyBody(ctx->searchCtx, ctx->replies[locator >> 32]);
   MRReply *value;
   knnContext *knn = &ctx->reduceSpecialCaseCtxKnn->knn;
+  // WITHSORTKEYS can move the shared distance field out of required_fields.
+  // The normal sort-key decoder already handles both wire representations.
+  if (ctx->reduceSpecialCaseCtxSortby && view->sortKey &&
+      !strcmp(ctx->reduceSpecialCaseCtxSortby->sortby.sortKey, knn->fieldName)) {
+    *distance = view->sortKeyNum;
+    return true;
+  }
   if (MRReply_Type(body) == MR_REPLY_MAP) {
     MRReply *fields = MRReply_MapElement(
         MRReply_ArrayElement(MRReply_MapElement(body, "results"), (uint32_t)locator),
@@ -445,7 +453,7 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
         RLookupRow *values = SearchResult_GetRowDataMut(row);
         if (needsKnnSelection(ctx)) {
           double distance;
-          if (!searchRowDistance(ctx, row, &distance)) {
+          if (!searchRowDistance(ctx, row, &view, &distance)) {
             ctx->errorOccurred = true;
             goto next_shard;
           }
