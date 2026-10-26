@@ -12,8 +12,10 @@
 
 mod slot_set;
 mod slots_tracker;
+mod validated_range;
 
 pub use slots_tracker::{SlotsTracker, Version};
+pub use validated_range::{CLUSTER_SLOTS, InvalidSlotRange, ValidatedSlotRange};
 
 // ============================================================================
 // C FFI Interface - Public API
