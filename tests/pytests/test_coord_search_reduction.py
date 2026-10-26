@@ -93,6 +93,26 @@ def _check_knn(env, resp3):
                                              for row in expected['results']]}
                       if resp3 else [total, *[value for key in page for value in (key, '1')]])
             env.assertEqual(env.cmd('FT.SEARCH', 'idx', *args, 'WITHSCORES'), scored)
+            if sorting:
+                field = sorting[1]
+
+                def sortkey(key):
+                    i = keys.index(key)
+                    if field == 'distance':
+                        return f'#{(i + 1) ** 2}'
+                    if field == 'price':
+                        return f'#{12 - i}'
+                    return f'${12 - i:02}'
+
+                with_keys = ({**expected, 'results': [dict(row, sortkey=sortkey(row['id']))
+                                                     for row in expected['results']]}
+                             if resp3 else [total, *[value for key in page
+                                                   for value in (key, sortkey(key))]])
+                env.assertEqual(env.cmd('FT.SEARCH', 'idx', *args, 'WITHSORTKEYS'), with_keys)
+                profiled_keys = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
+                                        *args, 'WITHSORTKEYS')
+                env.assertEqual(profiled_keys['Results'] if resp3 else profiled_keys[0], with_keys)
+
 
 
     # An equal-distance candidate on another shard must lose to the smaller document key.
