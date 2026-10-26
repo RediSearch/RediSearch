@@ -78,16 +78,18 @@ and check the one you pick reaches the code path under test.
 ## Main-thread liveness under worker locks
 
 When a change adds or alters a worker path that holds a lock the main thread also takes (the GIL,
-the IndexSpec lock, or a disk-mode lock), test that the main thread is not stuck behind it:
+the IndexSpec lock, or a disk-mode lock), test that the main thread does not wait on the worker
+where the design says it should not:
 
-- Park the worker inside the lock window with `debug_cmd(), 'SYNC_POINT', 'ARM', <name>, <ms>`
-  (add a `SyncPoint_Wait` there if none exists), and poll `SYNC_POINT IS_WAITING <name>` until it
-  parks. The park must release itself — a main thread blocked on the lock can never run a
-  `SIGNAL` — so pass `auto_release_ms`, or release through a `SyncPoint_WaitUntil` predicate.
-- Issue the main-thread command from a thread and `join` it with a timeout shorter than the
-  auto-release, so a blocked command fails the assertion instead of passing once the worker lets
-  go: `PING` catches a held GIL; a write to a key the index covers catches a spec or disk lock the
-  write should not wait on.
+- Park the worker at such a point — after it releases the lock, or while it holds only what the
+  main thread should not need — with `debug_cmd(), 'SYNC_POINT', 'ARM', <name>, <ms>`, and poll
+  `SYNC_POINT IS_WAITING <name>` until it parks. A new `SyncPoint_Wait` goes under
+  `#ifdef ENABLE_ASSERT`, like the existing ones. Where the design lets the worker keep the lock
+  but yield to a waiting writer, release through a `SyncPoint_WaitUntil` predicate instead.
+- From a `daemon=True` thread, issue `PING` (GIL) or a write to a key the index covers (spec or
+  disk lock), and `join` it with a timeout shorter than `<ms>`. A regression then fails the join,
+  and the auto-release frees the main thread instead of wedging the server — a blocked main
+  thread can never run a `SIGNAL`.
 - `SYNC_POINT SIGNAL <name>` and `CLEAR` in a `finally`. Sync points exist only in `ENABLE_ASSERT`
   builds: guard a test function that takes `env` with `@require_enable_assert`, and a class or a
   test that builds its own `Env` with `skipIfNoEnableAssert(env)`.
