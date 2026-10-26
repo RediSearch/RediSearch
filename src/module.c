@@ -2195,8 +2195,8 @@ void searchRequestCtx_Free(searchRequestCtx *r) {
     WeakRef_Release(r->spec_ref);
   }
   QueryRequest_Destroy(&r->base);
-  if (r->mrctx) {
-    MRCtx_DecrRef(r->mrctx);
+  if (r->fanout) {
+    MRSearchCtx_Free(r->fanout);
   }
   rm_free(r);
 }
@@ -3206,7 +3206,7 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
 static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, RedisModuleString **argv,
                           int argc, WeakRef spec_ref, QueryError *status) {
 
-  cmd->protocol = MRCtx_GetCommandProtocol(req->mrctx);
+  cmd->protocol = MRSearchCtx_GetCommandProtocol(req->fanout);
 
   // Handle KNN with shard ratio optimization for both multi-shard and standalone
   if (req->specialCases) {
@@ -3293,8 +3293,8 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, RedisModu
 }
 
 static int FlatSearchCommandHandler(searchRequestCtx *req) {
-  struct MRCtx *mrctx = req->mrctx;
-  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mrctx);
+  struct MRSearchCtx *fanout = req->fanout;
+  RedisModuleBlockedClient *bc = MRSearchCtx_GetBlockedClient(fanout);
   RedisModuleString **argv = req->base.args.argv;
   int argc = req->base.args.argc;
   QueryError status = QueryError_Default();
@@ -3326,14 +3326,12 @@ static int FlatSearchCommandHandler(searchRequestCtx *req) {
     return REDISMODULE_OK;
   }
 
-  MRCtx_SetReduceFunction(mrctx, CoordSearchReducer_Schedule);
-  MR_FanoutSearch(mrctx, cmd);
+  MR_FanoutSearch(fanout, cmd);
   return REDISMODULE_OK;
 }
 
 static void DistSearchCommandHandler(void *pd) {
   searchRequestCtx *req = pd;
-  struct MRCtx *mrctx = req->mrctx;
   if (req->profileArgs) {
     req->coordQueueTime = rs_wall_clock_now_ns() - req->coordStartTime;
   }
@@ -3345,7 +3343,6 @@ static void DistSearchCommandHandler(void *pd) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("CoordSearchWorkerDone");
 #endif
-  MRCtx_DecrRef(mrctx);
 }
 
 typedef RedisModuleCmdFunc BlockedClientTimeoutCB;
@@ -3515,23 +3512,11 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                                                          : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   req->base.async.requiresAggregateResultsSync = true;
 
-  // MRCtx borrows req, which is owned by the blocked-client cycle.
-  // NumShards is used as a hint for reply capacity - unsafe read is fine.
-  struct MRCtx *mrctx = MR_CreateCtx(ctx, NULL, req, NumShards);
-  if (useBlockedClientTimeout) {
-    MRCtx_SetAbortFlag(mrctx, QueryRequestTimeout_GetBlockedClientFlag(&req->base.timeout));
-  }
-  // FT.SEARCH coordinator should validate connections before sending the command to the cluster
-  MRCtx_SetValidateConnections(mrctx, true);
-
-  req->mrctx = mrctx;
-  // Block client with the base request available to every search callback.
+  CoordSearchReply_Init(req);
+  req->fanout = MRSearchCtx_New(ctx, req);
   RedisModuleBlockedClient *bc = DistSearchBlockClientWithTimeout(ctx, &req->base, queryTimeoutMS);
+  MRSearchCtx_SetBlockedClient(req->fanout, bc);
 
-  // Set the blocked client in MRCtx
-  MRCtx_SetBlockedClient(mrctx, bc);
-
-  MRCtx_IncrRef(mrctx);
   ConcurrentSearch_ThreadPoolRun(dist_callback, req);
 
   return REDISMODULE_OK;
@@ -3922,8 +3907,8 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
 /* ======================= DEBUG ONLY ======================= */
 
 static int DEBUG_FlatSearchCommandHandler(searchRequestCtx *req) {
-  struct MRCtx *mrctx = req->mrctx;
-  RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mrctx);
+  struct MRSearchCtx *fanout = req->fanout;
+  RedisModuleBlockedClient *bc = MRSearchCtx_GetBlockedClient(fanout);
   RedisModuleString **argv = req->base.args.argv;
   int argc = req->base.args.argc;
   QueryError status = QueryError_Default();
@@ -3973,14 +3958,12 @@ static int DEBUG_FlatSearchCommandHandler(searchRequestCtx *req) {
     return REDISMODULE_OK;
   }
 
-  MRCtx_SetReduceFunction(mrctx, CoordSearchReducer_Schedule);
-  MR_FanoutSearch(mrctx, cmd);
+  MR_FanoutSearch(fanout, cmd);
   return REDISMODULE_OK;
 }
 
 static void DEBUG_DistSearchCommandHandler(void *pd) {
   searchRequestCtx *req = pd;
-  struct MRCtx *mrctx = req->mrctx;
   if (req->profileArgs) {
     req->coordQueueTime = rs_wall_clock_now_ns() - req->coordStartTime;
   }
@@ -3991,5 +3974,4 @@ static void DEBUG_DistSearchCommandHandler(void *pd) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("CoordSearchWorkerDone");
 #endif
-  MRCtx_DecrRef(mrctx);
 }

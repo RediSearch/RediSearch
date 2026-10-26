@@ -70,16 +70,6 @@ typedef struct searchReducerCtx {
 static int searchResultReducer(searchRequestCtx *req, int count, MRReply **replies,
                                bool fromTimeout);
 
-void CoordSearchReducer_Free(searchRequestCtx *r) {
-  searchReducerCtx *rctx = r->rctx;
-  if (rctx) {
-    QITR_FreeChain(&rctx->qctx);
-    QueryRequest_SetEndProcRef(&r->base, NULL);
-    RLookup_Cleanup(&rctx->lookup);
-    rm_free(rctx);
-  }
-}
-
 searchResult *newResult_resp2(searchResult *cached, MRReply *arr, size_t j,
                               searchReplyOffsets *offsets, int explainScores) {
   int scoreOffset = offsets->score;
@@ -323,13 +313,16 @@ static void debugCheckAndPauseBeforeReduce(searchReducerCtx *rCtx) {
 }
 #endif
 
-/* MRCtx owns the immutable reply backing until request cleanup. A coordinator
+/* The source owns the reply backing until request cleanup. A coordinator
  * docId is a (reply index, row ordinal) locator, never a local document-table id.
  * This keeps payloads, explanations and nested RESP values lossless without
  * copying every candidate's output fields into a second representation. */
-typedef struct {
+typedef struct RPSearchReply {
   ResultProcessor base;
   searchReducerCtx *ctx;
+  pthread_mutex_t admissionLock;
+  bool closed;
+  MRReply **replies;
   int count;
   uint32_t shard;
   size_t row;
@@ -339,8 +332,8 @@ typedef struct {
 
 static MRReply *searchReplyBody(const searchRequestCtx *req, MRReply *reply) {
   if (!reply || MRReply_Type(reply) == MR_REPLY_ERROR || !req->profileArgs) return reply;
-  return MRCtx_GetCommandProtocol(req->mrctx) == 3 ? MRReply_MapElement(reply, "Results")
-                                                   : MRReply_ArrayElement(reply, 0);
+  return MRSearchCtx_GetCommandProtocol(req->fanout) == 3 ? MRReply_MapElement(reply, "Results")
+                                                          : MRReply_ArrayElement(reply, 0);
 }
 
 static void searchResultView(searchReducerCtx *ctx, const SearchResult *row, searchResult *view) {
@@ -490,7 +483,60 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
 }
 
 static void searchReplyFree(ResultProcessor *base) {
-  rm_free(base);
+  RPSearchReply *source = (RPSearchReply *)base;
+  for (int i = 0; i < source->count; ++i) MRReply_Free(source->replies[i]);
+  array_free(source->replies);
+  pthread_mutex_destroy(&source->admissionLock);
+  rm_free(source);
+}
+
+void CoordSearchReply_Init(searchRequestCtx *request) {
+  RPSearchReply *source = rm_calloc(1, sizeof(*source));
+  source->base =
+      (ResultProcessor){.Next = searchReplyNext, .Free = searchReplyFree, .type = RP_SEARCH_REPLY};
+  pthread_mutex_init(&source->admissionLock, NULL);
+  source->replies = array_new(MRReply *, 8);
+  request->replySource = source;
+}
+
+void CoordSearchReply_Accept(searchRequestCtx *request, MRReply *reply) {
+  RPSearchReply *source = request->replySource;
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("BeforeCoordSearchReplyAccept");
+#endif
+  pthread_mutex_lock(&source->admissionLock);
+  if (!source->closed && !QueryRequestTimeout_IsBlockedClientTimedOut(&request->base.timeout)) {
+    array_append(source->replies, reply);
+    ++source->count;
+    reply = NULL;
+  }
+  pthread_mutex_unlock(&source->admissionLock);
+  if (reply) MRReply_Free(reply);
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("AfterCoordSearchReplyAccept");
+#endif
+}
+
+static void searchReplyClose(searchRequestCtx *request) {
+  RPSearchReply *source = request->replySource;
+  pthread_mutex_lock(&source->admissionLock);
+  source->closed = true;
+  pthread_mutex_unlock(&source->admissionLock);
+}
+
+void CoordSearchReducer_Free(searchRequestCtx *request) {
+  // Stored rows borrow reply strings; destroy them before freeing the source.
+  QueryRequest_ResetReply(&request->base);
+  searchReducerCtx *ctx = request->rctx;
+  if (ctx) {
+    bool sourceInChain = ctx->qctx.rootProc != NULL;
+    QITR_FreeChain(&ctx->qctx);
+    if (sourceInChain) request->replySource = NULL;
+    QueryRequest_SetEndProcRef(&request->base, NULL);
+    RLookup_Cleanup(&ctx->lookup);
+    rm_free(ctx);
+  }
+  if (request->replySource) searchReplyFree(&request->replySource->base);
 }
 
 static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **replies,
@@ -500,11 +546,9 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **rep
   ctx->qctx.timeoutPolicy = ctx->searchCtx->base.timeout.config.timeoutPolicy;
   ctx->qctx.resultLimit = UINT32_MAX;
   ctx->qctx.skipIndexResultDeepCopy = true;
-  RPSearchReply *source = rm_calloc(1, sizeof(*source));
-  source->base =
-      (ResultProcessor){.Next = searchReplyNext, .Free = searchReplyFree, .type = RP_SEARCH_REPLY};
+  RPSearchReply *source = ctx->searchCtx->replySource;
   source->ctx = ctx;
-  source->count = count;
+  RS_ASSERT(source->count == count);
   source->fromTimeout = fromTimeout;
   QITR_PushRP(&ctx->qctx, &source->base);
   ctx->sortKeys[0] = RLookup_GetKey_Write(&ctx->lookup, "sortkey", RLOOKUP_F_NOFLAGS);
@@ -757,19 +801,17 @@ void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *
   }
 }
 
-static void searchResultReducer_wrapper(void *mc_v) {
-  struct MRCtx *mc = mc_v;
-  searchRequestCtx *req = MRCtx_GetPrivData(mc);
-  searchResultReducer(req, MRCtx_GetNumReplied(mc), MRCtx_GetReplies(mc), false);
-  // The worker owns blocked-client completion even when timeout owns the reply.
-  RedisModule_UnblockClient(MRCtx_GetBlockedClient(mc), &req->base);
-  MRCtx_DecrRef(mc);
+static void searchResultReducer_wrapper(void *arg) {
+  searchRequestCtx *req = arg;
+  RPSearchReply *source = req->replySource;
+  searchReplyClose(req);
+  searchResultReducer(req, source->count, source->replies, false);
+  // Unblock is the final access: it can free the request, pipeline and transport.
+  RedisModule_UnblockClient(MRSearchCtx_GetBlockedClient(req->fanout), &req->base);
 }
 
-int CoordSearchReducer_Schedule(struct MRCtx *mc, int count, MRReply **replies) {
-  MRCtx_IncrRef(mc);
-  ConcurrentSearch_ThreadPoolRun(searchResultReducer_wrapper, mc);
-  return REDISMODULE_OK;
+void CoordSearchReducer_Schedule(searchRequestCtx *request) {
+  ConcurrentSearch_ThreadPoolRun(searchResultReducer_wrapper, request);
 }
 
 static bool should_return_error(const searchRequestCtx *req, QueryErrorCode errCode) {
@@ -822,7 +864,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
     goto cleanup;
   }
 
-  bc = MRCtx_GetBlockedClient(req->mrctx);
+  bc = MRSearchCtx_GetBlockedClient(req->fanout);
 
   rCtx = rm_calloc(1, sizeof(searchReducerCtx));
   rCtx->lookup = RLookup_New();
@@ -920,7 +962,7 @@ int CoordSearchReducer_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   if (request) {
     searchRequestCtx *req = QueryRequest_GetSearch(request);
-    struct MRCtx *mrctx = req->mrctx;
+    RPSearchReply *source = req->replySource;
 
     // Check if we have an error and return it
     if (QueryError_HasError(&request->reply.err)) {
@@ -931,7 +973,7 @@ int CoordSearchReducer_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       return REDISMODULE_OK;
     }
 
-    if (MRCtx_GetNumReplied(mrctx) == 0) {
+    if (source->count == 0) {
       // Can happen in a topology error, before or after we sent the command to the cluster
       RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
       return REDISMODULE_OK;
@@ -945,8 +987,8 @@ int CoordSearchReducer_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
     if (req->profileArgs > 0) {
       // Profile command
-      profileSearchReply(reply, rCtx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx),
-                         &req->profileClock, rs_wall_clock_now_ns());
+      profileSearchReply(reply, rCtx, source->count, source->replies, &req->profileClock,
+                         rs_wall_clock_now_ns());
     } else {
       // Non-profile command
       sendSearchResults(reply, rCtx);
@@ -971,6 +1013,7 @@ int CoordSearchReducer_TimeoutFail(RedisModuleCtx *ctx, RedisModuleString **argv
   if (request) {
     searchRequestCtx *req = QueryRequest_GetSearch(request);
     QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+    searchReplyClose(req);
     recordSearchTimeoutStage(req, /*isError=*/true);
   }
 
@@ -993,10 +1036,10 @@ int CoordSearchReducer_TimeoutPartial(RedisModuleCtx *ctx, RedisModuleString **a
   }
 
   searchRequestCtx *req = QueryRequest_GetSearch(request);
-  struct MRCtx *mrctx = req->mrctx;
+  RPSearchReply *source = req->replySource;
 
-  // Signal timeout to stop accepting new replies in searchFanoutCallback
   QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  searchReplyClose(req);
 
   recordSearchTimeoutStage(req, /*isError=*/false);
 
@@ -1004,7 +1047,7 @@ int CoordSearchReducer_TimeoutPartial(RedisModuleCtx *ctx, RedisModuleString **a
   // If we don't get it, reducer is already running (or bailout claimed it) - wait for it
   if (QueryRequest_TryClaimResults(&req->base)) {
     // We claimed reducing - run reducer on main thread with current replies
-    searchResultReducer(req, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), true);
+    searchResultReducer(req, source->count, source->replies, true);
   } else {
     // Reducer already running or bailout claimed it - wait for completion
     QueryRequest_WaitForResultsComplete(&req->base);
@@ -1013,7 +1056,7 @@ int CoordSearchReducer_TimeoutPartial(RedisModuleCtx *ctx, RedisModuleString **a
     // and exited before initializing req->rctx. In that case adopt the
     // timeout-owned reduction path now that the competing reducer has finished.
     if (!QueryError_HasError(&request->reply.err) && req->rctx == NULL) {
-      searchResultReducer(req, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), true);
+      searchResultReducer(req, source->count, source->replies, true);
     }
   }
 
@@ -1033,8 +1076,8 @@ int CoordSearchReducer_TimeoutPartial(RedisModuleCtx *ctx, RedisModuleString **a
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   if (req->profileArgs > 0) {
-    profileSearchReply(reply, rCtx, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx),
-                       &req->profileClock, rs_wall_clock_now_ns());
+    profileSearchReply(reply, rCtx, source->count, source->replies, &req->profileClock,
+                       rs_wall_clock_now_ns());
   } else {
     sendSearchResults(reply, rCtx);
   }

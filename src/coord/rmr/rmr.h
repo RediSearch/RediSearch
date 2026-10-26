@@ -53,9 +53,15 @@ typedef void (*MRCtxFreePrivDataCB)(struct MRCtx *ctx);
  * reply to the reducer callback. */
 int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd);
 
-/* Search fanout uses the caller's blocked client and MRCtx_SetReduceFunction callback,
- * discarding replies after the MRCtx_SetAbortFlag flag is set. */
-int MR_FanoutSearch(struct MRCtx *ctx, MRCommand cmd);
+struct searchRequestCtx;
+struct MRSearchCtx;
+/* Owned by the search request; terminal fanout/reduction unblocks after its last access. */
+struct MRSearchCtx *MRSearchCtx_New(RedisModuleCtx *ctx, struct searchRequestCtx *request);
+void MRSearchCtx_Free(struct MRSearchCtx *ctx);
+int MRSearchCtx_GetCommandProtocol(const struct MRSearchCtx *ctx);
+void MRSearchCtx_SetBlockedClient(struct MRSearchCtx *ctx, RedisModuleBlockedClient *bc);
+RedisModuleBlockedClient *MRSearchCtx_GetBlockedClient(const struct MRSearchCtx *ctx);
+void MR_FanoutSearch(struct MRSearchCtx *ctx, MRCommand cmd);
 
 /* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster */
 void MR_Init(size_t num_io_threads, size_t conn_pool_size);
@@ -117,19 +123,10 @@ RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
 
 // Available before fanout when MR_CreateCtx received a RedisModuleCtx.
-int MRCtx_GetCommandProtocol(struct MRCtx *ctx);
 
 void MRCtx_IncrRef(struct MRCtx *ctx);
 void MRCtx_DecrRef(struct MRCtx *ctx);
 void MRCtx_SetFreePrivDataCB(struct MRCtx *ctx, MRCtxFreePrivDataCB cb);
-
-/* Set the blocked client for the context (used when MRCtx is created before blocking) */
-void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc);
-
-/* Install before MR_FanoutSearch. The flag is borrowed until client unblocking;
- * remaining MRCtx reference releases must not access it. NULL disables aborts. */
-void MRCtx_SetAbortFlag(struct MRCtx *ctx, const RS_Atomic(bool) * abortFlag);
-bool MRCtx_IsAborted(const struct MRCtx *ctx);
 
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
 bool MRCtx_GetValidateConnections(struct MRCtx *ctx);

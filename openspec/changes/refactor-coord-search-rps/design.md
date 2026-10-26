@@ -8,7 +8,7 @@ examined `ce5b78d4bc`; the relevant reduction and lifecycle code was checked aga
 this baseline before drafting. Do not infer current remote-master state from it.
 
 Start with an array-backed source, existing comparison semantics, and bounded
-sorters. Keep transport and timeout ownership intact. Do not introduce streaming
+sorters. Preserve blocked-client lifetime and BG/main reduction arbitration. Do not introduce streaming
 fanout, a k-way merge, a general-purpose remote document subsystem, or a new
 publication protocol in the first implementation.
 
@@ -28,7 +28,7 @@ Symbols below are in `src/module.c` unless another file is specified.
 | `scoredSearchResultWrapper` | Heap-owned result wrapper plus distance | Hidden distance lookup value |
 | `cachedResult` | Recycles evicted/rejected wrappers | Standard RP pooled row |
 | `processReply`, `postProcess` | Select ordinary/KNN processing; flush KNN heap at exit | Explicit source/selection/sort chain |
-| `MRCtx` (`src/coord/rmr/rmr.c`) | Owns replies; refcount spans request, fanout and reducer | Preserve transport ownership during migration |
+| `MRCtx` (`src/coord/rmr/rmr.c`) | Owns replies; refcount spans request, fanout and reducer | Search uses request-owned MRSearchCtx for transport; the source RP owns replies |
 | `PrintCoordProfile_ctx` | Coordinator timing envelope | Retain existing profile presentation initially |
 | `fieldNames`, request `reducer` | Apparently unused state in this reduction path | Verify all references before removing |
 
@@ -158,13 +158,13 @@ Do not redesign either protocol as part of extraction.
 
 Standard SearchResult.docId stores a request-local locator: reply index in the
 high 32 bits and row ordinal in the low 32 bits. It is never a document-table ID.
-The source, comparators, and serializer borrow views from the request's MRCtx
-reply backing. No RSValue conversion or SearchResult FFI layout change is needed.
-Comparator decoding cost remains unmeasured.
+The source RP owns reply backing from arrival. Sorters use typed lookup values;
+output serialization borrows views from the source. No SearchResult FFI layout
+change is needed.
 
 QueryRequest.reply owns emitted rows. EndCycle and base destruction use the
-existing ChunkReplyState cleanup; the concrete reducer destructor frees the RP
-chain before releasing MRCtx. Serialization decodes one stack view per output
+existing ChunkReplyState cleanup; the concrete reducer destructor clears stored
+rows before freeing downstream RPs and finally the reply-owning source. Serialization decodes one stack view per output
 row, preserving the existing command envelope and remote value types.
 
 Blocked-client registration continues to use the existing command callbacks.
@@ -179,3 +179,26 @@ re-decoding replies. Document-key secondary fields preserve coordinator ties;
 missing values remain absent. Vector distance always determines nearest-K
 membership, including when final sorting is numeric or distance DESC. See the
 behavior ledger for the approved observable corrections and count-only exception.
+
+## Reply admission and search transport
+
+Create RPSearchReply before dispatch, independently of reducer initialization.
+MRSearchCtx owns the command and IO completion counters, and borrows the request.
+Each non-null shard callback transfers its reply to the source, which either
+accepts it or frees it after cancellation. A mutex protects acceptance, array
+growth, and closure. Strict timeout closes admission under that mutex before
+reading the pointer/count; accepted replies then form an immutable collection.
+Normal reduction closes admission after all callbacks finish. No collection
+lock is held during reduction or serialization.
+
+The blocked-client cycle owns both source and transport. Preparation failure
+and zero-dispatch completion still finish the cycle. Otherwise the last shard
+callback either schedules reduction or unblocks after timeout; the reducer
+unblocks as its final access. No path touches the request or transport after
+its terminal handoff. No additional reference count or detach protocol is needed.
+
+Timeout publication does not end that lifetime: outstanding callbacks continue
+accounting for completion and discard late replies. The existing claim/wait
+protocol still excludes simultaneous BG/main reduction; the future abort/drain
+handoff remains in the Drain stack. A reply is available if its admission
+completed before closure, not merely because its bytes reached the socket.

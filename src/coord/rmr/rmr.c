@@ -23,6 +23,7 @@
 #include "reply_macros.h"
 #include "redismodule.h"
 #include "module.h"
+#include "coord/search_reducer.h"
 #include "cluster.h"
 #include "chan.h"
 #include "rq.h"
@@ -96,7 +97,6 @@ typedef struct MRCtx {
    */
   MRReduceFunc fn;
 
-  const RS_Atomic(bool) * abortFlag;
   MRCtxFreePrivDataCB freePrivDataCB;
 } MRCtx;
 
@@ -121,7 +121,6 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->fn = NULL;
   ret->ioRuntime =
       MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
-  ret->abortFlag = NULL;
   ret->freePrivDataCB = NULL;
 
   return ret;
@@ -195,22 +194,6 @@ void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn) {
   ctx->fn = fn;
 }
 
-int MRCtx_GetCommandProtocol(struct MRCtx *ctx) {
-  return ctx->cmd.protocol;
-}
-
-void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc) {
-  ctx->bc = bc;
-}
-
-void MRCtx_SetAbortFlag(struct MRCtx *ctx, const RS_Atomic(bool) * abortFlag) {
-  ctx->abortFlag = abortFlag;
-}
-
-bool MRCtx_IsAborted(const struct MRCtx *ctx) {
-  return ctx->abortFlag && RS_AtomicBoolLoadRelaxed(ctx->abortFlag);
-}
-
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections) {
   ctx->validateConnections = validateConnections;
 }
@@ -278,26 +261,6 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   }
 }
 
-static void searchFanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
-  MRCtx *ctx = privdata;
-  if (!MRCtx_IsAborted(ctx)) {
-    fanoutCallback(c, r, privdata);
-    return;
-  }
-
-  // Search timeouts and disconnects can abandon results before fanout completes.
-  if (r) {
-    MRReply_Free(r);
-  }
-  ctx->numErrored++;
-
-  if (ctx->numReplied + ctx->numErrored == ctx->numExpected) {
-    IORuntimeCtx_RequestCompleted(ctx->ioRuntime);
-    unblockFanout(ctx, false);
-    MRCtx_DecrRef(ctx);
-  }
-}
-
 /* Initialize the MapReduce engine with a node provider */
 void MR_Init(size_t num_io_threads, size_t conn_pool_size) {
   cluster_g = MR_NewCluster(NULL, conn_pool_size, num_io_threads);
@@ -329,18 +292,6 @@ static void uvFanoutRequest(void *p) {
   }
 }
 
-static void uvSearchFanoutRequest(void *p) {
-  MRCtx *mrctx = p;
-  dispatchFanout(mrctx, searchFanoutCallback);
-
-  if (mrctx->numExpected == 0) {
-    // No shard command was sent, so searchFanoutCallback() will never fire.
-    IORuntimeCtx_RequestCompleted(mrctx->ioRuntime);
-    unblockFanout(mrctx, !MRCtx_IsAborted(mrctx));
-    MRCtx_DecrRef(mrctx);
-  }
-}
-
 /* Fanout map - send the same command to all the shards, sending the collective
  * reply to the reducer callback */
 int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd) {
@@ -358,14 +309,73 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd) {
   return REDIS_OK;
 }
 
-int MR_FanoutSearch(struct MRCtx *mrctx, MRCommand cmd) {
-  RS_ASSERT(mrctx->bc);
-  mrctx->reducer = NULL;
-  mrctx->cmd = cmd;
+/* Search borrows the request until its terminal path calls UnblockClient. */
+struct MRSearchCtx {
+  searchRequestCtx *request;
+  RedisModuleBlockedClient *bc;
+  MRCommand cmd;
+  IORuntimeCtx *ioRuntime;
+  int numExpected;
+  int numCompleted;
+};
 
-  MRCtx_IncrRef(mrctx);
-  IORuntimeCtx_Schedule(mrctx->ioRuntime, uvSearchFanoutRequest, mrctx);
-  return REDIS_OK;
+struct MRSearchCtx *MRSearchCtx_New(RedisModuleCtx *ctx, searchRequestCtx *request) {
+  struct MRSearchCtx *fanout = rm_calloc(1, sizeof(*fanout));
+  fanout->request = request;
+  MRCommand_SetProtocol(&fanout->cmd, ctx);
+  fanout->ioRuntime =
+      MRCluster_GetIORuntimeCtx(cluster_g, MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g));
+  return fanout;
+}
+
+void MRSearchCtx_Free(struct MRSearchCtx *fanout) {
+  MRCommand_Free(&fanout->cmd);
+  rm_free(fanout);
+}
+
+int MRSearchCtx_GetCommandProtocol(const struct MRSearchCtx *fanout) {
+  return fanout->cmd.protocol;
+}
+
+void MRSearchCtx_SetBlockedClient(struct MRSearchCtx *fanout, RedisModuleBlockedClient *bc) {
+  fanout->bc = bc;
+}
+
+RedisModuleBlockedClient *MRSearchCtx_GetBlockedClient(const struct MRSearchCtx *fanout) {
+  return fanout->bc;
+}
+
+static void searchFanoutComplete(struct MRSearchCtx *fanout) {
+  IORuntimeCtx_RequestCompleted(fanout->ioRuntime);
+  searchRequestCtx *request = fanout->request;
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&request->base.timeout)) {
+    RedisModule_UnblockClient(fanout->bc, &request->base);
+  } else {
+    CoordSearchReducer_Schedule(request);
+  }
+  // Completion may free both request and fanout. No access is permitted here.
+}
+
+static void searchFanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
+  struct MRSearchCtx *fanout = privdata;
+  if (r) CoordSearchReply_Accept(fanout->request, r);
+  if (++fanout->numCompleted == fanout->numExpected) searchFanoutComplete(fanout);
+}
+
+static void uvSearchFanoutRequest(void *p) {
+  struct MRSearchCtx *fanout = p;
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("BeforeCoordFanout");
+#endif
+  fanout->numExpected =
+      MRCluster_FanoutCommand(fanout->ioRuntime, &fanout->cmd, searchFanoutCallback, fanout, true);
+  if (fanout->numExpected == 0) searchFanoutComplete(fanout);
+}
+
+void MR_FanoutSearch(struct MRSearchCtx *fanout, MRCommand cmd) {
+  RS_ASSERT(fanout->bc);
+  fanout->cmd = cmd;
+  IORuntimeCtx_Schedule(fanout->ioRuntime, uvSearchFanoutRequest, fanout);
 }
 
 /* on-loop update topology request. This can't be done from the main thread */
