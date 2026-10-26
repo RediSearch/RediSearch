@@ -165,3 +165,28 @@ They did not share execution or policy logic. The existing Redis callbacks remai
 registered directly; QueryRequest.reply owns stored rows and the existing common
 free callback handles teardown. Serializer stack views remain. No callback-policy
 or timeout-handoff behavior change is introduced.
+## PR 4 reply ownership and admission
+
+- Internal: the source RP is created before dispatch and owns accepted shard
+  replies immediately. Search uses a smaller request-owned transport context
+  instead of MRCtx; other commands retain generic map/reduce.
+- Internal: stored rows and downstream processors are freed before their source
+  backing. The blocked-client free callback still runs only after terminal
+  completion; timeout publication does not free pending transport state.
+- Soft timing boundary: reply acceptance and timeout closure are serialized.
+  Strict timeout sees a stable collection of fully accepted replies. A callback
+  racing closure can be included or excluded depending on lock acquisition;
+  socket arrival time never guaranteed inclusion. No new public ordering, count,
+  error-precedence or timeout-policy contract is introduced.
+- No streaming reduction or new BG/main handoff is introduced. Empty-dispatch
+  completion now schedules the ordinary reducer, which reports the same cluster
+  dispatch error, rather than relying on the reply callback to construct it.
+- Deterministic RESP2/RESP3 tests pause before or after the first admission,
+  force strict timeout, inspect search/profile results, and verify that freeing
+  waits for the outstanding callbacks and happens exactly once.
+
+Local validation of the ownership follow-up: assert-enabled build and all 1,282
+C/C++ unit tests passed. The 118 existing focused coordinator tests passed.
+Both new admission-boundary tests pass after isolating the lifetime counter from
+local shard worker callbacks; each covers search/profile before and after first
+admission. Full-suite results are tracked separately.

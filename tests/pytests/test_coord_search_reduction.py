@@ -219,3 +219,92 @@ def test_buffered_knn_timeout_resp2():
 def test_buffered_knn_timeout_resp3():
     """The buffered KNN handoff retains RESP3 warnings and exactly-once cleanup."""
     _check_buffered_knn_timeout(True)
+
+
+def _check_reply_admission_timeout(resp3):
+    import threading
+    from common import (debug_cmd, distinct_shard_tags, skipIfNoEnableAssert,
+                        wait_for_condition, ON_TIMEOUT_CONFIG)
+    from test_blocked_client_timeout import (
+        _get_blocked_request_onfree_count, TIMEOUT_WARNING,
+        wait_for_blocked_query_client)
+
+    # Coordinator reduction still uses its pool; synchronous shard execution keeps
+    # local shard free callbacks out of the coordinator lifetime counter.
+    env = Env(moduleArgs='WORKERS 0', protocol=3 if resp3 else 2)
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    keys = [f'doc:{{{tag}}}' for tag in distinct_shard_tags(env.getConnection())]
+    for key in keys:
+        conn.execute_command('HSET', key, 't', 'hello')
+    config = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)
+    previous_policy = config[ON_TIMEOUT_CONFIG] if resp3 else config[1]
+    env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
+    try:
+        for checkpoint, accepted in (('BeforeCoordSearchReplyAccept', 0),
+                                     ('AfterCoordSearchReplyAccept', 1)):
+            for profile in (False, True):
+                outcome = []
+                args = (['FT.PROFILE', 'idx', 'SEARCH', 'QUERY'] if profile
+                        else ['FT.SEARCH', 'idx']) + ['*', 'NOCONTENT', 'TIMEOUT', 0]
+
+                def query():
+                    try:
+                        with env.getConnection().client() as client:
+                            outcome.append((client.execute_command(*args), client.ping()))
+                    except Exception as error:
+                        outcome.append(error)
+
+                free_before = _get_blocked_request_onfree_count(env)
+                env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', checkpoint).ok()
+                worker = threading.Thread(target=query, daemon=True)
+                try:
+                    worker.start()
+                    wait_for_condition(
+                        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING',
+                                         checkpoint) == 1, {}),
+                        'No shard reply reached the admission checkpoint')
+                    client_id = wait_for_blocked_query_client(env, args[0])
+                    env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
+                    worker.join(timeout=10)
+                    env.assertFalse(worker.is_alive())
+                    env.assertEqual(len(outcome), 1, message=outcome)
+                    env.assertTrue(isinstance(outcome[0], tuple), message=outcome)
+                    reply, ping = outcome[0]
+                    env.assertTrue(ping)
+                    if profile:
+                        reply = reply['Results'] if resp3 else reply[0]
+                    if resp3:
+                        env.assertEqual(reply['total_results'], accepted, message=reply)
+                        env.assertEqual(reply['warning'], [TIMEOUT_WARNING], message=reply)
+                        ids = [row['id'] for row in reply['results']]
+                    else:
+                        env.assertEqual(reply[0], accepted, message=reply)
+                        ids = reply[1:]
+                    env.assertEqual(len(ids), accepted, message=reply)
+                    for key in ids:
+                        env.assertIn(key, keys)
+                    # The timeout reply did not release backing storage while callbacks remain.
+                    env.assertEqual(_get_blocked_request_onfree_count(env), free_before)
+                finally:
+                    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', checkpoint)
+                    worker.join(timeout=10)
+                wait_for_condition(
+                    lambda: (_get_blocked_request_onfree_count(env) == free_before + 1, {}),
+                    'Final shard callback did not free the timed-out request exactly once')
+    finally:
+        env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+        env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, previous_policy).ok()
+
+
+@skip(cluster=False)
+def test_reply_admission_timeout_resp2():
+    """Strict timeout freezes accepted replies and keeps ownership until late callbacks finish."""
+    _check_reply_admission_timeout(False)
+
+
+@skip(cluster=False)
+def test_reply_admission_timeout_resp3():
+    """RESP3 search/profile serialize only the frozen replies, including timeout warnings."""
+    _check_reply_admission_timeout(True)

@@ -14,10 +14,11 @@
 #include "info/global_stats.h"
 #include "rmr/rmr.h"
 
-/* Reducer state is private; its borrowed replies remain owned by the request's MRCtx. */
+/* Initialize before dispatch; Accept consumes each reply, including after admission closes. */
+void CoordSearchReply_Init(searchRequestCtx *request);
+void CoordSearchReply_Accept(searchRequestCtx *request, MRReply *reply);
 void CoordSearchReducer_Free(searchRequestCtx *request);
-/* Schedules reduction while retaining the transport through worker completion. */
-int CoordSearchReducer_Schedule(struct MRCtx *ctx, int count, MRReply **replies);
+void CoordSearchReducer_Schedule(searchRequestCtx *request);
 
 /* Blocked-client callbacks share the request's result-production claim. */
 int CoordSearchReducer_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
