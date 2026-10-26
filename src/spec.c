@@ -2068,6 +2068,14 @@ void removePendingIndexDrop() {
   __atomic_sub_fetch(&pendingIndexDropCount_g, 1, __ATOMIC_RELAXED);
 }
 
+int CleanPool_AddWork(void (*work)(void *), void *arg) {
+  return redisearch_thpool_add_work(cleanPool, work, arg, THPOOL_PRIORITY_HIGH);
+}
+
+void CleanPool_Wait() {
+  redisearch_thpool_wait(cleanPool);
+}
+
 size_t CleanInProgressOrPending() {
   return getPendingIndexDrop();
 }
@@ -4047,18 +4055,14 @@ int IndexSpec_UpdateDocForAlter(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 }
 
 // Shared helper: update stats and clean up auxiliary indexes after a document deletion.
-// Caller must hold the spec write lock.
+// Caller must hold the spec write lock, and notifies the GC itself (see
+// IndexSpec_DeleteDocById_Unsafe).
 static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docLen) {
   // Update the stats
   RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
   spec->stats.scoring.totalDocsLen -= docLen;
   RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
   spec->stats.scoring.numDocuments--;
-
-  // Increment the index's garbage collector's scanning frequency after document deletions
-  if (spec->gc) {
-    GCContext_OnDelete(spec->gc);
-  }
 
   IndexSpec_RemoveDocFromMemoryIndexes(spec, docId);
 }
@@ -4078,61 +4082,6 @@ void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId) {
   if (spec->flags & Index_HasGeometry) {
     GeometryIndex_RemoveId(spec, docId);
   }
-}
-
-static const size_t SLOT_TRIM_MAX_BATCH_DOCS = 256;
-
-typedef struct {
-  IndexSpec *spec;
-  bool applied;
-} SlotTrimContext;
-
-static bool trimMemoryIndexes(void *ctx, const t_docId *ids, size_t numIds, uint64_t totalDocLen,
-                              const SearchDiskSlotTrimBatch *batch) {
-  SlotTrimContext *trim = ctx;
-  IndexSpec *spec = trim->spec;
-  IndexSpec_IncrActiveWrites(spec);
-  IndexSpec_LockWrite(spec);
-  bool applied = spec->stats.scoring.numDocuments >= numIds &&
-                 spec->stats.scoring.totalDocsLen >= totalDocLen &&
-                 SearchDisk_ApplySlotTrimBatch(spec->diskSpec, batch);
-  if (applied) {
-    for (size_t i = 0; i < numIds; ++i) IndexSpec_RemoveDocFromMemoryIndexes(spec, ids[i]);
-    spec->stats.scoring.numDocuments -= numIds;
-    spec->stats.scoring.totalDocsLen -= totalDocLen;
-    if (numIds && spec->gc) GCContext_OnDeleteCount(spec->gc, numIds);
-    trim->applied = true;
-  }
-  IndexSpec_Unlock(spec);
-  IndexSpec_DecrActiveWrites(spec);
-  return applied;
-}
-
-static IndexSpecSlotTrimResult applyDiskSlotTrim(IndexSpec *spec, SearchDiskSlotTrim *trim) {
-  if (!trim) return INDEX_TRIM_NOT_APPLIED;
-
-  SlotTrimContext context = {.spec = spec};
-  bool applied = SearchDisk_ApplySlotTrim(spec->diskSpec, trim, SLOT_TRIM_MAX_BATCH_DOCS,
-                                          trimMemoryIndexes, &context);
-  bool finished = applied && SearchDisk_FinishSlotTrim(spec->diskSpec, trim);
-  SearchDisk_FreeSlotTrim(trim);
-  return finished          ? INDEX_TRIM_FINISHED
-         : context.applied ? INDEX_TRIM_APPLIED
-                           : INDEX_TRIM_NOT_APPLIED;
-}
-
-IndexSpecSlotTrimResult IndexSpec_TrimDiskSlots(IndexSpec *spec, const SearchDiskSlotRange *ranges,
-                                                size_t numRanges) {
-  if (!spec->diskSpec) return INDEX_TRIM_NOT_APPLIED;
-  return applyDiskSlotTrim(
-      spec, SearchDisk_PrepareSlotTrim(spec->diskSpec, ranges, numRanges, NULL, NULL));
-}
-
-IndexSpecSlotTrimResult IndexSpec_TrimDiskSlotsForMigration(
-    IndexSpec *spec, const SearchDiskSlotMigration *migration) {
-  if (!spec->diskSpec) return INDEX_TRIM_NOT_APPLIED;
-  return applyDiskSlotTrim(
-      spec, SearchDisk_PrepareSlotTrimForMigration(spec->diskSpec, migration, NULL, NULL));
 }
 
 // DocIdMeta access for the delete path. When an already-open, pinned key handle
@@ -4209,6 +4158,9 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   dropDocIdMeta(ctx, key, openKey, spec->specId);
 
   indexSpec_OnDocDeleted(spec, docId, docLen);
+  if (spec->gc) {
+    GCContext_OnDelete(spec->gc);
+  }
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
@@ -4224,37 +4176,37 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-// Delete a document by its internal docId. The de-indexing entry point driven by
-// the DocIdMeta `unlink` callback on physical key removal (both modes). Acquires
-// the spec write lock; no-op if the docId is not present.
-void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
-  IndexSpec_IncrActiveWrites(spec);
-  IndexSpec_LockWrite(spec);
-
+bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId) {
   uint32_t docLen = 0;
 
   if (SearchDisk_IsEnabled()) {
     RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
     if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
       // Document not found on disk
-      IndexSpec_DecrActiveWrites(spec);
-      IndexSpec_Unlock(spec);
-      return;
+      return false;
     }
   } else {
     RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, docId);
     if (!md) {
       // Document not found in the in-memory table
-      IndexSpec_DecrActiveWrites(spec);
-      IndexSpec_Unlock(spec);
-      return;
+      return false;
     }
     docLen = md->docLen;
     DMD_Return(md);
   }
 
   indexSpec_OnDocDeleted(spec, docId, docLen);
+  return true;
+}
 
+// The de-indexing entry point driven by the DocIdMeta `unlink` callback on physical key removal
+// (both modes).
+void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
+  IndexSpec_IncrActiveWrites(spec);
+  IndexSpec_LockWrite(spec);
+  if (IndexSpec_DeleteDocById_Unsafe(spec, docId) && spec->gc) {
+    GCContext_OnDelete(spec->gc);
+  }
   IndexSpec_DecrActiveWrites(spec);
   IndexSpec_Unlock(spec);
 }

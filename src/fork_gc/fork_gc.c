@@ -213,6 +213,14 @@ bool FGC_RunCycle(ForkGC *gc, GCForcedRun *forced, const FGCHook *hook) {
     return false;
   }
 
+  // Taken before the fork: a deletion deferred after this point is counted next cycle, never reset
+  // away uncounted.
+  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(StrongRef_Get(early_check));
+  if (deferred) {
+    gc->deletedOrUpdatedDocsFromLastRun += deferred;
+    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
+  }
+
   if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(early_check);
     return true;
@@ -365,14 +373,10 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   RedisModule_InfoEndDictField(ctx);
 }
 
-static void deleteCb(void *ctx, size_t count) {
+static void deleteOrUpdateCb(void *ctx) {
   ForkGC *gc = ctx;
-  atomic_fetch_add(&gc->deletedOrUpdatedDocsFromLastRun, count);
-  IndexsGlobalStats_IncreaseLogicallyDeleted(count);
-}
-
-static void updateCb(void *ctx) {
-  deleteCb(ctx, 1);
+  ++gc->deletedOrUpdatedDocsFromLastRun;
+  IndexsGlobalStats_IncreaseLogicallyDeleted(1);
 }
 
 static void getStatsCb(void *gcCtx, InfoGCStats *out) {
@@ -405,9 +409,9 @@ ForkGC *FGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->renderStats = statsCb;
   callbacks->renderStatsForInfo = statsForInfoCb;
   callbacks->getInterval = getIntervalCb;
-  callbacks->onDelete = deleteCb;
+  callbacks->onDelete = deleteOrUpdateCb;
   callbacks->onWrite = NULL; // writes are not tracked for forkGC
-  callbacks->onUpdate = updateCb;
+  callbacks->onUpdate = deleteOrUpdateCb;
   callbacks->getStats = getStatsCb;
 
   return forkGc;

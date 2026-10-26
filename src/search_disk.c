@@ -201,7 +201,8 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     .maxOpenFiles = RSGlobalConfig.diskMaxOpenFiles,
   };
   disk_db = disk->basic.open(ctx, &resource_config, RSGlobalConfig.hideUserDataFromLog,
-                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads);
+                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads,
+                             RSGlobalConfig.diskStatistics);
   if (!disk_db) {
     RedisModule_Log(ctx, "warning", "Search Disk is enabled but could not be initialized");
     return false;
@@ -515,6 +516,8 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {
     RS_ASSERT(disk && handle);
     RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
+    // TODO: disk DMDs leave `slot` unset, since disk mode supports neither ASM nor SFLUSH. Whoever
+    // adds them must decide how to provide it (stored on disk, or computed from the key).
     return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time, snapshot);
 }
 
@@ -536,6 +539,11 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle) {
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size) {
     RS_ASSERT(disk && handle);
     return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
+}
+
+char *SearchDisk_DebugDiskStats(RedisSearchDiskIndexSpec *handle, bool withStatistics) {
+  RS_ASSERT(disk && disk_db && handle);
+  return disk->metrics.debugDiskStats(disk_db, handle, withStatistics, &sdsnewlen);
 }
 
 char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex) {
@@ -800,52 +808,54 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
 
 SearchDiskSlotMigration *SearchDisk_BeginSlotMigration(const SearchDiskSlotRange *ranges,
                                                        size_t numRanges) {
-  return disk && disk_db && disk->slotMigration.beginMigration
-             ? disk->slotMigration.beginMigration(disk_db, ranges, numRanges)
-             : NULL;
+  RS_ASSERT(disk && disk_db && disk->slotMigration.beginMigration);
+  return disk->slotMigration.beginMigration(disk_db, ranges, numRanges);
 }
 SearchDiskSlotTrim *SearchDisk_PrepareSlotTrimForMigration(RedisSearchDiskIndexSpec *index,
                                                            const SearchDiskSlotMigration *migration,
                                                            uint64_t *numDocs,
                                                            uint64_t *totalDocLen) {
-  return disk && disk->slotMigration.prepareTrimForMigration
-             ? disk->slotMigration.prepareTrimForMigration(index, migration, numDocs, totalDocLen)
-             : NULL;
+  RS_ASSERT(disk && disk->slotMigration.prepareTrimForMigration);
+  return disk->slotMigration.prepareTrimForMigration(index, migration, numDocs, totalDocLen);
 }
 void SearchDisk_FreeSlotMigration(SearchDiskSlotMigration *migration) {
-  if (disk && disk->slotMigration.freeMigration) disk->slotMigration.freeMigration(migration);
+  if (!migration) return;
+  RS_ASSERT(disk && disk->slotMigration.freeMigration);
+  disk->slotMigration.freeMigration(migration);
 }
 
 bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index) {
-  return disk && disk->slotMigration.hasPendingCleanup &&
-         disk->slotMigration.hasPendingCleanup(index);
+  RS_ASSERT(disk && disk->slotMigration.hasPendingCleanup);
+  return disk->slotMigration.hasPendingCleanup(index);
 }
 bool SearchDisk_CanStartSlotMigration(RedisSearchDiskIndexSpec *index,
                                       const SearchDiskSlotRange *ranges, size_t numRanges) {
-  return disk && disk->slotMigration.canStartMigration &&
-         disk->slotMigration.canStartMigration(index, ranges, numRanges);
+  RS_ASSERT(disk && disk->slotMigration.canStartMigration);
+  return disk->slotMigration.canStartMigration(index, ranges, numRanges);
 }
 SearchDiskSlotTrim *SearchDisk_PrepareSlotTrim(RedisSearchDiskIndexSpec *index,
                                                const SearchDiskSlotRange *ranges, size_t numRanges,
                                                uint64_t *numDocs, uint64_t *totalDocLen) {
-  return disk && disk->slotMigration.prepareTrim
-             ? disk->slotMigration.prepareTrim(index, ranges, numRanges, numDocs, totalDocLen)
-             : NULL;
+  RS_ASSERT(disk && disk->slotMigration.prepareTrim);
+  return disk->slotMigration.prepareTrim(index, ranges, numRanges, numDocs, totalDocLen);
 }
 bool SearchDisk_ApplySlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim,
                               size_t maxBatchDocs, SearchDiskSlotTrimCallback callback,
                               void *callbackCtx) {
-  return disk && disk->slotMigration.applyTrim &&
-         disk->slotMigration.applyTrim(index, trim, maxBatchDocs, callback, callbackCtx);
+  RS_ASSERT(disk && disk->slotMigration.applyTrim);
+  return disk->slotMigration.applyTrim(index, trim, maxBatchDocs, callback, callbackCtx);
 }
 bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
                                    const SearchDiskSlotTrimBatch *batch) {
-  return disk && disk->slotMigration.applyTrimBatch &&
-         disk->slotMigration.applyTrimBatch(index, batch);
+  RS_ASSERT(disk && disk->slotMigration.applyTrimBatch);
+  return disk->slotMigration.applyTrimBatch(index, batch);
 }
 bool SearchDisk_FinishSlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim) {
-  return disk && disk->slotMigration.finishTrim && disk->slotMigration.finishTrim(index, trim);
+  RS_ASSERT(disk && disk->slotMigration.finishTrim);
+  return disk->slotMigration.finishTrim(index, trim);
 }
 void SearchDisk_FreeSlotTrim(SearchDiskSlotTrim *trim) {
-  if (disk && disk->slotMigration.freeTrim) disk->slotMigration.freeTrim(trim);
+  if (!trim) return;
+  RS_ASSERT(disk && disk->slotMigration.freeTrim);
+  disk->slotMigration.freeTrim(trim);
 }

@@ -74,6 +74,9 @@ class DiskSlotTrimTest : public ::testing::Test {
     isFlex = true;
     gc.gcCtx = DiskGC_Create(ref, &gc.callbacks);
     spec->gc = &gc;
+    api.slotMigration.hasPendingCleanup = [](RedisSearchDiskIndexSpec *) {
+      return state.pendingCleanup;
+    };
     api.slotMigration.prepareTrim = [](RedisSearchDiskIndexSpec *, const SearchDiskSlotRange *,
                                        size_t, uint64_t *docs,
                                        uint64_t *len) -> SearchDiskSlotTrim * {
@@ -181,22 +184,26 @@ class DiskSlotTrimTest : public ::testing::Test {
     RedisModule_FreeString(RSDummyContext, key);
   }
 
-  IndexSpecSlotTrimResult trim() {
+  IndexSpecDiskSlotTrimResult trim() {
     SearchDiskSlotRange range{0, 100};
     return IndexSpec_TrimDiskSlots(spec, &range, 1);
   }
   DiskGC *collector() {
     return static_cast<DiskGC *>(gc.gcCtx);
   }
+  size_t pendingDeletes() {
+    return collector()->deletesFromLastRun.load() +
+           __atomic_load_n(&spec->stats.gcDeferredDeletes, __ATOMIC_RELAXED);
+  }
   void unchanged() {
     EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
     EXPECT_EQ(spec->stats.scoring.totalDocsLen, 40u);
-    EXPECT_EQ(collector()->deletesFromLastRun.load(), 0u);
+    EXPECT_EQ(pendingDeletes(), 0u);
     EXPECT_EQ(state.finishCalls, 0u);
   }
 };
 
-TEST_F(DiskSlotTrimTest, AdmissionProbeForwardsSlotsAndFailsClosedWithoutBackend) {
+TEST_F(DiskSlotTrimTest, AdmissionProbeForwardsSlotsAndBackendRejection) {
   SearchDiskSlotRange range{10, 20};
   api.slotMigration.canStartMigration = [](RedisSearchDiskIndexSpec *index,
                                            const SearchDiskSlotRange *ranges, size_t count) {
@@ -209,13 +216,10 @@ TEST_F(DiskSlotTrimTest, AdmissionProbeForwardsSlotsAndFailsClosedWithoutBackend
   EXPECT_TRUE(SearchDisk_CanStartSlotMigration(spec->diskSpec, &range, 1));
   state.prepare = false;
   EXPECT_FALSE(SearchDisk_CanStartSlotMigration(spec->diskSpec, &range, 1));
-  api.slotMigration.canStartMigration = nullptr;
-  EXPECT_FALSE(SearchDisk_CanStartSlotMigration(spec->diskSpec, &range, 1));
 }
 
 TEST_F(DiskSlotTrimTest, SharedOperationUsesTrimAccountingAndReleasesCallerHandle) {
   const SearchDiskSlotRange range{7, 9};
-  EXPECT_EQ(SearchDisk_BeginSlotMigration(&range, 1), nullptr);
   api.slotMigration.beginMigration = [](RedisSearchDisk *context, const SearchDiskSlotRange *ranges,
                                         size_t count) -> SearchDiskSlotMigration * {
     EXPECT_EQ(context, disk_db);
@@ -226,7 +230,6 @@ TEST_F(DiskSlotTrimTest, SharedOperationUsesTrimAccountingAndReleasesCallerHandl
   };
   auto *migration = SearchDisk_BeginSlotMigration(&range, 1);
   ASSERT_NE(migration, nullptr);
-  EXPECT_EQ(IndexSpec_TrimDiskSlotsForMigration(spec, migration), INDEX_TRIM_NOT_APPLIED);
   api.slotMigration.prepareTrimForMigration = [](RedisSearchDiskIndexSpec *index,
                                                  const SearchDiskSlotMigration *operation,
                                                  uint64_t *, uint64_t *) -> SearchDiskSlotTrim * {
@@ -235,7 +238,7 @@ TEST_F(DiskSlotTrimTest, SharedOperationUsesTrimAccountingAndReleasesCallerHandl
     return reinterpret_cast<SearchDiskSlotTrim *>(&state);
   };
   api.slotMigration.prepareTrim = nullptr;
-  EXPECT_EQ(IndexSpec_TrimDiskSlotsForMigration(spec, migration), INDEX_TRIM_FINISHED);
+  EXPECT_EQ(IndexSpec_TrimDiskSlotsForMigration(spec, migration), INDEX_DISK_TRIM_FINISHED);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
   EXPECT_EQ(state.frees, 1u);
@@ -249,7 +252,7 @@ TEST_F(DiskSlotTrimTest, SharedOperationUsesTrimAccountingAndReleasesCallerHandl
 
 TEST_F(DiskSlotTrimTest, PrepareFailureDoesNotMutateOrFree) {
   state.prepare = false;
-  EXPECT_EQ(trim(), INDEX_TRIM_NOT_APPLIED);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_NOT_APPLIED);
   unchanged();
   EXPECT_EQ(state.applyCalls, 0u);
   EXPECT_EQ(state.frees, 0u);
@@ -257,13 +260,13 @@ TEST_F(DiskSlotTrimTest, PrepareFailureDoesNotMutateOrFree) {
 
 TEST_F(DiskSlotTrimTest, BoundsRejectBeforeApplyAndFreePlan) {
   spec->stats.scoring.numDocuments = 2;
-  EXPECT_EQ(trim(), INDEX_TRIM_NOT_APPLIED);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_NOT_APPLIED);
   EXPECT_EQ(state.batchApplyCalls, 0u);
   EXPECT_EQ(state.frees, 1u);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   spec->stats.scoring.numDocuments = 5;
   spec->stats.scoring.totalDocsLen = 20;
-  EXPECT_EQ(trim(), INDEX_TRIM_NOT_APPLIED);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_NOT_APPLIED);
   EXPECT_EQ(state.batchApplyCalls, 0u);
   EXPECT_EQ(state.frees, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 20u);
@@ -271,7 +274,7 @@ TEST_F(DiskSlotTrimTest, BoundsRejectBeforeApplyAndFreePlan) {
 
 TEST_F(DiskSlotTrimTest, ApplyFailureDoesNotAdjustScoringOrRunFinish) {
   state.apply = false;
-  EXPECT_EQ(trim(), INDEX_TRIM_NOT_APPLIED);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_NOT_APPLIED);
   unchanged();
   EXPECT_EQ(state.applyCalls, 1u);
   EXPECT_EQ(state.frees, 1u);
@@ -279,19 +282,19 @@ TEST_F(DiskSlotTrimTest, ApplyFailureDoesNotAdjustScoringOrRunFinish) {
 
 TEST_F(DiskSlotTrimTest, FailedFinishThenRetryCountsBulkDeletionOnce) {
   state.finish = false;
-  EXPECT_EQ(trim(), INDEX_TRIM_APPLIED);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_APPLIED);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
-  EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
+  EXPECT_EQ(pendingDeletes(), 3u);
   EXPECT_EQ(state.frees, 1u);
   state.finish = true;
-  EXPECT_EQ(trim(), INDEX_TRIM_FINISHED);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
-  EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
+  EXPECT_EQ(pendingDeletes(), 3u);
   EXPECT_EQ(state.frees, 2u);
   GCContext_OnDelete(&gc);
-  EXPECT_EQ(collector()->deletesFromLastRun.load(), 4u);
+  EXPECT_EQ(pendingDeletes(), 4u);
 }
 
 TEST_F(DiskSlotTrimTest, SuccessfulTrimRemovesOnlySelectedVectorAndGeometryIds) {
@@ -310,14 +313,14 @@ TEST_F(DiskSlotTrimTest, SuccessfulTrimRemovesOnlySelectedVectorAndGeometryIds) 
         geometryApi->addGeomStr(geometry, GEOMETRY_FORMAT_WKT, wkt, strlen(wkt), id, nullptr));
   }
   spec->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(spec);
-  ASSERT_EQ(trim(), INDEX_TRIM_FINISHED);
+  ASSERT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
   EXPECT_EQ(VecSimIndex_IndexSize(vectors), 2u);
   for (t_docId id = 1; id <= 5; ++id) {
     EXPECT_EQ(GeometryIndex_HoldsGeom(geometry, id, GEOMETRY_FORMAT_WKT, wkt, strlen(wkt)), id > 3);
   }
-  EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
+  EXPECT_EQ(pendingDeletes(), 3u);
   EXPECT_EQ(state.finishCalls, 1u);
   EXPECT_EQ(state.frees, 1u);
 }
@@ -342,11 +345,11 @@ TEST_F(DiskSlotTrimTest, WriterCanUpdateStatisticsBetweenBatches) {
     EXPECT_EQ(lockResult, 0) << "spec lock held between batches";
     EXPECT_EQ(spec->stats.scoring.numDocuments, 11u - batch * 3 + (batch > 0));
   };
-  EXPECT_EQ(trim(), INDEX_TRIM_FINISHED);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
   EXPECT_EQ(state.batchApplyCalls, 3u);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 3u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 24u);
-  EXPECT_EQ(collector()->deletesFromLastRun.load(), 9u);
+  EXPECT_EQ(pendingDeletes(), 9u);
 }
 
 TEST_F(DiskSlotTrimTest, PartialApplyIsReportedAndRetryDoesNotRecountCompletedBatches) {
@@ -354,18 +357,35 @@ TEST_F(DiskSlotTrimTest, PartialApplyIsReportedAndRetryDoesNotRecountCompletedBa
   state.failBatch = 1;
   spec->stats.scoring.numDocuments = 11;
   spec->stats.scoring.totalDocsLen = 82;
-  EXPECT_EQ(trim(), INDEX_TRIM_APPLIED);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_APPLIED);
   EXPECT_EQ(state.batchesApplied, 1u);
   EXPECT_EQ(state.finishCalls, 0u);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 8u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 61u);
-  EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
+  EXPECT_EQ(pendingDeletes(), 3u);
   state.failBatch = SIZE_MAX;
-  EXPECT_EQ(trim(), INDEX_TRIM_FINISHED);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
   EXPECT_EQ(state.batchesApplied, 3u);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
-  EXPECT_EQ(collector()->deletesFromLastRun.load(), 9u);
+  EXPECT_EQ(pendingDeletes(), 9u);
+}
+
+TEST_F(DiskSlotTrimTest, DeferredTrimDeletesSurviveGcRetry) {
+  const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  ASSERT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 0u);
+  EXPECT_EQ(__atomic_load_n(&spec->stats.gcDeferredDeletes, __ATOMIC_RELAXED), 3u);
+  GCForcedRun forced = GCForcedRun_New(1000, 10);
+  EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(forced.outcome, GC_FORCED_RUN_RETRY_REQUIRED);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
+  EXPECT_EQ(__atomic_load_n(&spec->stats.gcDeferredDeletes, __ATOMIC_RELAXED), 0u);
+  IndexSpec_DeferGCDeletes(spec, 1);
+  EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(pendingDeletes(), 0u);
+  EXPECT_EQ(state.gcRuns, 2u);
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
 }
 
 TEST_F(DiskSlotTrimTest, PendingSlotCleanupRunsBelowThresholdAndRetries) {
@@ -384,15 +404,15 @@ TEST_F(DiskSlotTrimTest, PendingSlotCleanupRunsBelowThresholdAndRetries) {
       state.pendingCleanup = false;
     }
   };
-  GCContext_OnDeleteCount(&gc, 1);
+  GCContext_OnDelete(&gc);
   EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
   EXPECT_EQ(state.gcRuns, 1u);
   EXPECT_TRUE(state.pendingCleanup);
-  EXPECT_EQ(collector()->deletesFromLastRun.load(), 1u);
+  EXPECT_EQ(pendingDeletes(), 1u);
   EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
   EXPECT_EQ(state.gcRuns, 2u);
   EXPECT_FALSE(state.pendingCleanup);
-  EXPECT_EQ(collector()->deletesFromLastRun.load(), 0u);
+  EXPECT_EQ(pendingDeletes(), 0u);
   EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
   EXPECT_EQ(state.gcRuns, 2u);
   threshold = savedThreshold;
@@ -403,17 +423,17 @@ TEST_F(DiskSlotTrimTest, RecoverableGcFailureRetainsPendingChangesUntilRetry) {
   auto &threshold = RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold;
   const auto savedThreshold = threshold;
   threshold = 3;
-  GCContext_OnDeleteCount(&gc, 3);
+  for (size_t i = 0; i < 3; ++i) GCContext_OnDelete(&gc);
   GCContext_OnWrite(&gc);
   GCContext_OnUpdate(&gc);
   EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
-  EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
+  EXPECT_EQ(pendingDeletes(), 3u);
   EXPECT_EQ(collector()->writesFromLastRun.load(), 2u);
   EXPECT_EQ(collector()->updatesFromLastRun.load(), 1u);
   EXPECT_EQ(collector()->totalCycles.load(), 0u);
   EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
   EXPECT_EQ(state.gcRuns, 2u);
-  EXPECT_EQ(collector()->deletesFromLastRun.load(), 0u);
+  EXPECT_EQ(pendingDeletes(), 0u);
   EXPECT_EQ(collector()->writesFromLastRun.load(), 0u);
   EXPECT_EQ(collector()->updatesFromLastRun.load(), 0u);
   EXPECT_EQ(collector()->totalCycles.load(), 1u);
@@ -422,11 +442,11 @@ TEST_F(DiskSlotTrimTest, RecoverableGcFailureRetainsPendingChangesUntilRetry) {
 }
 
 TEST_F(DiskSlotTrimTest, ForcedGcFailureReportsRetryInsteadOfSuccess) {
-  GCContext_OnDeleteCount(&gc, 3);
+  for (size_t i = 0; i < 3; ++i) GCContext_OnDelete(&gc);
   GCForcedRun forced = GCForcedRun_New(1000, 10);
   EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
   EXPECT_EQ(forced.outcome, GC_FORCED_RUN_RETRY_REQUIRED);
-  EXPECT_EQ(collector()->deletesFromLastRun.load(), 3u);
+  EXPECT_EQ(pendingDeletes(), 3u);
   EXPECT_EQ(collector()->totalCycles.load(), 0u);
 }
 
@@ -470,7 +490,7 @@ TEST_F(DiskSlotTrimTest, SurvivingKeyAfterFailedFinishIsCountedAsANewInsert) {
   spec->stats.scoring.numDocuments = 3;
   spec->stats.scoring.totalDocsLen = 21;
   state.finish = false;
-  EXPECT_EQ(trim(), INDEX_TRIM_APPLIED);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_APPLIED);
   reindexSurvivingKey(1, false, 11);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 1u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 11u);
