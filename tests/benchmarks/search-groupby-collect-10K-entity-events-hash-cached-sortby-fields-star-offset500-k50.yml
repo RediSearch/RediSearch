@@ -18,7 +18,6 @@ setups:
 dbconfig:
   - dataset_name: "groupby-collect-entity-events-10K-heavy-hash"
   - dataset_load_timeout_secs: 1800
-  # MOD-16899: bound client waits during reducer finalization on every node.
   - configuration-parameters:
     - search-on-timeout: "RETURN-STRICT"
   - init_commands:
