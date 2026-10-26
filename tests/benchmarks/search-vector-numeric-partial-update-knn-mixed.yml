@@ -6,7 +6,9 @@ description: "
              search-vector-numeric-partial-update.
 
              Queries run on the primary client while a rate-limited background client
-             rewrites every document once over the same window. An update-only run
+             rewrites the numeric field of randomly chosen documents over the same window
+             (99875 updates; the keys are uniform random, so about 63% of the documents
+             are hit, some more than once). An update-only run
              cannot show what the moves cost a concurrent reader -- which is the number
              that decides whether moving an entry is cheaper than deleting and
              re-adding it in practice, not just in the update's own latency.
@@ -45,6 +47,8 @@ clientconfig:
 # its 100000 documents. Every write therefore lands on a document that already exists:
 # a range with gaps would create new ones, and an insert is exactly what this benchmark
 # exists to show does not happen.
+# The keys are picked uniformly at random (memtier's default key pattern), so 99875 writes
+# cover about 63% of that range and some documents are rewritten more than once.
 # 99875 requests at 555/s span the ~180s the primary runs. They must finish within its
 # --test-time: the runner waits for both clients and warns if the background one outlives it.
 background_clientconfig:
