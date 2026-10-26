@@ -71,6 +71,13 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     return false;
   }
 
+  // Background cleanup cannot dereference the independently torn-down GC context.
+  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(sp);
+  if (deferred) {
+    atomic_fetch_add(&gc->deletesFromLastRun, deferred);
+    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
+  }
+
   // Hold the read lock across the whole check-and-run so shutdown teardown
   // (DiskGC_LockRunsAndDisable, which takes the write lock) waits for an in-flight run to
   // finish before it closes the diskSpec, and g_diskGcDisabled stops a new run from
@@ -178,10 +185,10 @@ static void statsForInfoCb(RedisModuleInfoCtx *ctx, void *gcCtx) {
   RedisModule_InfoEndDictField(ctx);
 }
 
-static void deleteCb(void *ctx, size_t count) {
+static void deleteCb(void *ctx) {
   DiskGC *gc = ctx;
-  atomic_fetch_add(&gc->deletesFromLastRun, count);
-  IndexsGlobalStats_IncreaseLogicallyDeleted(count);
+  atomic_fetch_add(&gc->deletesFromLastRun, 1);
+  IndexsGlobalStats_IncreaseLogicallyDeleted(1);
 }
 
 static void updateCb(void *ctx) {

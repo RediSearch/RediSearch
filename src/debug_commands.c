@@ -3851,6 +3851,42 @@ DEBUG_COMMAND(NumericBucketMap) {
   return REDISMODULE_OK;
 }
 
+// FT.DEBUG DISK_STATS <index> [VERBOSE]
+// Storage-engine level and block-cache stats for every column family of a disk
+// index. VERBOSE appends the sections shared by every index, so callers pass it
+// for one index per shard.
+DEBUG_COMMAND(DiskStats) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3 && argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  bool withStatistics = false;
+  if (argc == 4) {
+    if (strcasecmp(RedisModule_StringPtrLen(argv[3], NULL), "VERBOSE")) {
+      return RedisModule_ReplyWithError(ctx, "Expected VERBOSE");
+    }
+    withStatistics = true;
+  }
+  GET_SEARCH_CTX(argv[2])
+
+  if (!sctx->spec->diskSpec) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "DISK_STATS is only supported on disk indexes");
+  } else {
+    char *text = SearchDisk_DebugDiskStats(sctx->spec->diskSpec, withStatistics);
+    if (!text) {
+      RedisModule_ReplyWithError(sctx->redisCtx, "Disk stats are unavailable");
+    } else {
+      RedisModule_ReplyWithStringBuffer(sctx->redisCtx, text, sdslen(text));
+      sdsfree(text);
+    }
+  }
+
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 /**
  * FT.DEBUG REGISTER_TEST_SCORERS
  * Register the test scorers for testing purposes.
@@ -3962,6 +3998,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
                                {"NUMERIC_BUCKET_MAP", NumericBucketMap},
+                               {"DISK_STATS", DiskStats},
                                {"DISK_IO_CONTROL", DiskIOControl},
                                {"REGISTER_TEST_SCORERS", RegisterTestScorers},
                                {"SET_MAX_INDEXES", SetMaxIndexes},
