@@ -333,10 +333,6 @@ typedef struct QueryRequest {
   // True: the Redis reply callback serializes stored results. False: the worker replies inline.
   // Fixed by BeginCycle before dispatch and cleared by EndCycle before parking.
   bool replyDeferred;
-  // Command adapters fixed before worker dispatch and cleared at cycle end.
-  // The common blocked-client callbacks invoke these with the original arguments.
-  RedisModuleCmdFunc replyCallback;
-  RedisModuleCmdFunc timeoutCallback;
   // Assertion-only accounting in padding; keep the C/Rust layout independent of build flags.
   uint8_t inlineReplyCount;
   CursorInfo cursorInfo;

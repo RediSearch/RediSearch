@@ -244,8 +244,6 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, const Reque
   request->registryInfo = (RegistryInfo) {0};
   ChunkReplyState_Init(&request->reply);
   request->replyDeferred = false;
-  request->replyCallback = NULL;
-  request->timeoutCallback = NULL;
 #ifdef ENABLE_ASSERT
   request->inlineReplyCount = 0;
 #endif

@@ -38,10 +38,11 @@ source analysis as testing.
 - [x] Preserve count semantics independently of pagination and heap size.
 - [ ] Cover both heaps at interruption boundaries; update B05/B06/B07/B15.
 
-## 5. Common lifecycle and callbacks
+## 5. Shared result ownership
 
 - [x] Store standard results through QueryRequest and free the RP chain normally.
-- [x] Extract minimum common reply/policy machinery; preserve output representation.
+- [x] Use shared stored-result cleanup and serializer stack views; preserve output
+  representation. Keep direct callbacks until policy logic can actually be shared.
 - [x] Remove old reducer heaps, wrappers, post-processing callbacks and temporary
   serializer adapter once callers have migrated.
 - [ ] Preserve existing timeout ownership; verify exactly-once reply/unblock/free.
