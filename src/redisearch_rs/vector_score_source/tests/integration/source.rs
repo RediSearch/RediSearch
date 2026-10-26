@@ -578,3 +578,30 @@ fn unfiltered_exclusion_handles_no_visible_vectors() {
     let mut iterator = new_vector_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
     assert!(collect_ids(&mut iterator).is_empty());
 }
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn unfiltered_visibility_refill_bounds_candidate_replies() {
+    let n = 1024;
+    let index = build_hnsw_index(n);
+    let mut source = make_source(&index, n, 3, n);
+    source.set_document_filter(|id| id <= 7);
+    let mut iterator = new_vector_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
+
+    assert_eq!(collect_ids(&mut iterator), [7, 6, 5]);
+    assert!(iterator.source().num_iterations > 1);
+    assert_eq!(iterator.source().max_batch_size, 128);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn visible_unfiltered_top_k_keeps_single_query_fast_path() {
+    let index = build_hnsw_index(100);
+    let mut source = make_source(&index, 100, 3, 100);
+    source.set_document_filter(|_| true);
+    let mut iterator = new_vector_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
+
+    assert_eq!(collect_ids(&mut iterator), [100, 99, 98]);
+    assert_eq!(iterator.source().num_iterations, 0);
+    assert_eq!(iterator.source().max_batch_size, 0);
+}

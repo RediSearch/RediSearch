@@ -30,6 +30,9 @@ use vecsim::{
 
 use crate::score_batch::VecSimScoreBatch;
 
+/// Maximum candidate reply size when refilling excluded unfiltered results.
+const VISIBILITY_REFILL_BATCH_SIZE: NonZeroUsize = NonZeroUsize::new(128).unwrap();
+
 /// Adhoc-BF path selection and the scan-scoped state owned by each path.
 ///
 /// State inside a variant is live only between
@@ -284,37 +287,68 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             return Ok(None);
         }
         self.query_params.timeoutCtx = self.timeout_ctx_ptr();
-        let mut requested = self.k;
-        let batch = loop {
-            let reply = self
-                .index
-                .top_k_query(
-                    &self.query_vector,
-                    requested,
-                    &mut self.query_params,
-                    ReplyOrder::ByScore,
-                )
-                .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
-            let Some(results) = reply.and_then(|r| r.into_results()) else {
-                break None;
-            };
-            let Some(filter) = &self.document_filter else {
-                break Some(VecSimScoreBatch::new(results));
-            };
-            let mut examined = 0;
-            let mut visible = Vec::with_capacity(self.k);
-            for (id, score) in results {
-                examined += 1;
-                if filter(id) && visible.len() < self.k {
-                    visible.push((id, score));
+        let reply = self
+            .index
+            .top_k_query(
+                &self.query_vector,
+                self.k,
+                &mut self.query_params,
+                ReplyOrder::ByScore,
+            )
+            .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
+        let batch = if let Some(results) = reply.and_then(|r| r.into_results()) {
+            if let Some(filter) = self.document_filter.clone() {
+                let mut examined = 0;
+                let mut visible = Vec::with_capacity(self.k);
+                for (id, score) in results {
+                    examined += 1;
+                    if filter(id) {
+                        visible.push((id, score));
+                    }
                 }
+                if visible.len() < self.k && examined == self.k {
+                    self.check_timeout()?;
+                    let params: *mut VecSimQueryParams = &mut self.query_params;
+                    // SAFETY: the index, query vector, parameters and request-owned timeout
+                    // remain alive until this local iterator is dropped before returning.
+                    if let Some(mut batch_iter) = unsafe {
+                        self.index
+                            .batch_iterator_unchecked(&self.query_vector, params)
+                    } {
+                        // Restart from the nearest candidate so the native iterator owns
+                        // deduplication and result ordering across refill batches.
+                        visible.clear();
+                        while visible.len() < self.k && batch_iter.has_next() {
+                            self.check_timeout()?;
+                            self.num_iterations += 1;
+                            if VISIBILITY_REFILL_BATCH_SIZE.get() > self.max_batch_size {
+                                self.max_batch_size = VISIBILITY_REFILL_BATCH_SIZE.get();
+                                self.max_batch_iteration = self.num_iterations - 1;
+                            }
+                            let reply = batch_iter
+                                .next(VISIBILITY_REFILL_BATCH_SIZE, ReplyOrder::ByScore)
+                                .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
+                            let Some(results) = reply.and_then(|r| r.into_results()) else {
+                                break;
+                            };
+                            for (id, score) in results {
+                                if filter(id) {
+                                    visible.push((id, score));
+                                    if visible.len() == self.k {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        visible.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
+                    }
+                }
+                Some(VecSimScoreBatch::buffered(visible))
+            } else {
+                Some(VecSimScoreBatch::new(results))
             }
-            if visible.len() == self.k || examined < requested || requested >= self.index.size() {
-                break Some(VecSimScoreBatch::buffered(visible));
-            }
-            // A fixed top-k reply cannot refill candidates removed by the visibility filter.
-            requested = requested.saturating_mul(2).min(self.index.size());
-            self.check_timeout()?;
+        } else {
+            None
         };
         self.unfiltered_consumed = true;
         Ok(batch)
