@@ -57,8 +57,8 @@ class SSTFinishReplicationTest : public ::testing::TestWithParam<size_t> {
     api.basic.updateMemoryLimit = [](RedisSearchDisk *, size_t, size_t) { return true; };
     api.basic.openIndexSpecWithRdbState =
         [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *, const char *, size_t,
-           DocumentType, RedisSearchDiskRdbState *, const SearchDiskCompactionCallbacks *,
-           void *privateData) {
+           DocumentType, RedisSearchDiskRdbState *, const SearchDiskFieldOpen *, size_t,
+           const SearchDiskCompactionCallbacks *, void *privateData) {
           ++opens[privateData];
           return reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData);
         };

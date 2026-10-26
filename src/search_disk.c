@@ -316,6 +316,30 @@ static void SearchDisk_CompleteLogicalOpen(RedisSearchDiskIndexSpec *result, Ind
                     "Failed to restore disk resource state after an index open failure");
   }
 }
+static SearchDiskFieldOpen *SearchDisk_DescribeFields(const IndexSpec *sp) {
+  SearchDiskFieldOpen *fields = sp->numFields ? rm_calloc(sp->numFields, sizeof(*fields)) : NULL;
+  for (size_t i = 0; i < sp->numFields; ++i) {
+    const FieldSpec *fs = sp->fields + i;
+    fields[i] = (SearchDiskFieldOpen){
+        .fieldIndex = fs->index,
+        .types = fs->types,
+        .indexMissing = FieldSpec_IndexesMissing(fs),
+    };
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      fields[i].fieldName = HiddenString_GetUnsafe(fs->fieldName, &fields[i].fieldNameLen);
+      fields[i].vectorParams = &fs->vectorOpts.vecSimParams;
+    }
+  }
+  return fields;
+}
+
+static void SearchDisk_CheckOpenResult(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *result) {
+  if (!result && (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_REPLICATED)) {
+    RedisModule_Log(ctx, "warning", "Disk index open failed during replication; aborting");
+    abort();
+  }
+}
+
 RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName,
                                                const char *obfuscatedName, DocumentType type,
                                                bool deleteBeforeOpen, IndexSpec *c_index_spec) {
@@ -323,11 +347,14 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
   if (!SearchDisk_PrepareLogicalOpen()) {
     return NULL;
   }
+  SearchDiskFieldOpen *fields = SearchDisk_DescribeFields(c_index_spec);
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
-  RedisSearchDiskIndexSpec *result =
-      disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName),
-                                type, deleteBeforeOpen, &callbacks, c_index_spec);
+  RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(
+      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen,
+      fields, c_index_spec->numFields, &callbacks, c_index_spec);
+  rm_free(fields);
   SearchDisk_CompleteLogicalOpen(result, c_index_spec);
+  SearchDisk_CheckOpenResult(ctx, result);
   return result;
 }
 
@@ -390,11 +417,14 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndexWithRdbState(
     disk->basic.freeRdbState(rdbState);
     return NULL;
   }
+  SearchDiskFieldOpen *fields = SearchDisk_DescribeFields(c_index_spec);
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(
-      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, &callbacks,
-      c_index_spec);
+      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, fields,
+      c_index_spec->numFields, &callbacks, c_index_spec);
+  rm_free(fields);
   SearchDisk_CompleteLogicalOpen(result, c_index_spec);
+  SearchDisk_CheckOpenResult(ctx, result);
   return result;
 }
 
@@ -442,29 +472,6 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
     RS_ASSERT(disk && index && batch);
     return disk->index.indexTags(ctx, index, batch, values, numValues, docId, fieldIndex);
-}
-
-static bool SearchDisk_CheckStorageResult(RedisModuleCtx *ctx, bool success) {
-  if (!success && (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_REPLICATED)) {
-    RedisModule_Log(ctx, "warning", "Disk storage preparation failed during replication; aborting");
-    abort();
-  }
-  return success;
-}
-
-bool SearchDisk_OpenFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
-                           const SearchDiskFieldOpen *fields, size_t numFields) {
-  RS_ASSERT(disk && index && (fields || numFields == 0));
-  if (disk->index.openFields) {
-    return SearchDisk_CheckStorageResult(ctx,
-                                         disk->index.openFields(ctx, index, fields, numFields));
-  }
-  for (size_t i = 0; i < numFields; ++i) {
-    if (fields[i].indexMissing) {
-      return SearchDisk_CheckStorageResult(ctx, disk->index.initializeMissingStorage(ctx, index));
-    }
-  }
-  return true;
 }
 
 bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,

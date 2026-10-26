@@ -259,8 +259,7 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
 // Forward declaration
 static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
                                            ArgsCursor *ac_in, QueryError *status);
-static bool IndexSpec_OpenFieldsStorage(RedisModuleCtx *ctx, IndexSpec *sp, FieldSpec *fields,
-                                        size_t n);
+static void IndexSpec_BindFieldsStorage(IndexSpec *sp);
 
 /*
 * Parse an index spec from redis command arguments.
@@ -1674,13 +1673,6 @@ static int IndexSpec_AddFieldsInternal(RedisModuleCtx *ctx, IndexSpec *sp, Stron
     IndexSpec_EnsureSuffixForField(sp, fs);
   }
 
-  // Only once every field parsed, so a schema error never reaches storage.
-  if (sp->diskSpec && !IndexSpec_OpenFieldsStorage(ctx, sp, sp->fields + prevNumFields,
-                                                   sp->numFields - prevNumFields)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open field storage");
-    goto reset;
-  }
-
   // If we successfully modified the schema, we need to update the spec cache
   IndexSpecCache_Decref(sp->spcache);
   sp->spcache = IndexSpec_BuildSpecCache(sp);
@@ -1859,24 +1851,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     goto failure;
   }
 
-  // Store on disk if we're on Flex.
-  // This must be done before IndexSpec_AddFieldsInternal, which opens the
-  // fields' storage in sp->diskSpec.
-  spec->diskSpec = NULL;
-  if (isSpecOnDisk(spec)) {
-    RS_ASSERT(disk_db);
-    if (!SearchDisk_CanCreateIndex(status)) {
-      goto failure;
-    }
-    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName,
-                                          spec->rule->type, true, spec);
-    if (!spec->diskSpec) {
-      SearchDisk_ReleaseCreateFailure();
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
-      goto failure;
-    }
-  }
-
   if (AC_IsInitialized(&acStopwords)) {
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
@@ -1897,6 +1871,25 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
 
   if (!IndexSpec_AddFieldsInternal(ctx, spec, spec_ref, ac, status, 1)) {
     goto failure;
+  }
+
+  // Store on disk if we're on Flex.
+  if (isSpecOnDisk(spec)) {
+    RS_ASSERT(disk_db);
+    if (!SearchDisk_CanCreateIndex(status)) {
+      goto failure;
+    }
+    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName,
+                                          spec->rule->type, true, spec);
+    if (!spec->diskSpec) {
+      SearchDisk_ReleaseCreateFailure();
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      goto failure;
+    }
+  }
+
+  if (spec->diskSpec) {
+    IndexSpec_BindFieldsStorage(spec);
   }
 
   if (spec->rule->filter_exp) {
@@ -3147,52 +3140,18 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp, FieldSpec *fs) {
   };
 }
 
-// Declares fields new to the disk index (all of them on create and load, the
-// added ones on FT.ALTER) and sets up the per-index storage they need before
-// any document is indexed into them. Disk vector indexes are still created on
-// their first write, except on SST load, which creates them eagerly. Memory
-// indexes create all their field storage on the first write.
-static bool IndexSpec_OpenFieldsStorage(RedisModuleCtx *ctx, IndexSpec *sp, FieldSpec *fields,
-                                        size_t n) {
+static void IndexSpec_BindFieldsStorage(IndexSpec *sp) {
   RS_ASSERT(sp->diskSpec);
-  if (n == 0) {
-    return true;
-  }
-  SearchDiskFieldOpen stackBuf[16];
-  SearchDiskFieldOpen *opens =
-      n <= sizeof(stackBuf) / sizeof(stackBuf[0]) ? stackBuf : rm_malloc(n * sizeof(*opens));
-  for (size_t i = 0; i < n; ++i) {
-    const FieldSpec *fs = fields + i;
-    opens[i] = (SearchDiskFieldOpen){
-        .fieldIndex = fs->index,
-        .types = fs->types,
-        .indexMissing = FieldSpec_IndexesMissing(fs),
-    };
-    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      opens[i].fieldName = HiddenString_GetUnsafe(fs->fieldName, &opens[i].fieldNameLen);
-      opens[i].vectorParams = &fs->vectorOpts.vecSimParams;
-    }
-  }
-  const bool opened = SearchDisk_OpenFields(ctx, sp->diskSpec, opens, n);
-  if (opens != stackBuf) {
-    rm_free(opens);
-  }
-  if (!opened) {
-    return false;
-  }
-
-  for (size_t i = 0; i < n; ++i) {
-    FieldSpec *fs = fields + i;
+  for (size_t i = 0; i < sp->numFields; ++i) {
+    FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
       IndexSpec_PopulateVectorDiskParams(sp, fs);
     }
     if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
-      // Disk queries reach a TAG field's postings through its TagIndex, which
-      // must exist even before this process writes to the field.
       TagIndex_Ensure(fs, sp->diskSpec, FieldSpec_HasSuffixTrie(fs));
     }
   }
-  return true;
+  IndexSpec_RefreshSpecCache(sp);
 }
 
 // Opens sp->diskSpec from
@@ -3221,12 +3180,7 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
     return false;
   }
 
-  // Also gives every vector field the diskCtx the bind and create below need.
-  if (!IndexSpec_OpenFieldsStorage(ctx, sp, sp->fields, sp->numFields)) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "Failed to open field storage during RDB load; aborting spec load");
-    return false;
-  }
+  IndexSpec_BindFieldsStorage(sp);
 
   // Materialize each disk-backed VecSimIndex up front so the HNSW graph
   // metadata + SQ8 vectors are available to readers immediately after RDB
@@ -3546,16 +3500,10 @@ int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, Q
     sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type,
                                         true, sp);
     if (!sp->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
       return REDISMODULE_ERR;
     }
-    // Same order as FT.CREATE.
-    if (!IndexSpec_OpenFieldsStorage(ctx, sp, sp->fields, sp->numFields)) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
-                          "Could not open field storage during RDB load");
-      SearchDisk_CloseIndexOnMainThread(ctx, sp);
-      return REDISMODULE_ERR;
-    }
+    IndexSpec_BindFieldsStorage(sp);
   }
   return REDISMODULE_OK;
 }
