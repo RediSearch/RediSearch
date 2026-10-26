@@ -8,6 +8,8 @@
 */
 
 use query_term::RSQueryTerm;
+
+use crate::SharedQueryTerm;
 use ref_mode::{Active, Ref};
 
 use super::offsets::{RSOffsetSlice, RSOffsetVector, RawOffsetSlice};
@@ -20,12 +22,12 @@ pub enum RawTermRecord<'query, R: Ref> {
     Borrowed {
         /// The term that brought up this record.
         ///
-        /// The term is owned by the record. The name of the variant, `Borrowed`,
-        /// refers to the `offsets` field.
+        /// The record shares ownership of the term. The name of the variant,
+        /// `Borrowed`, refers to the `offsets` field.
         ///
-        /// The term is wrapped in a `Box` to ensure that both `Owned` and `Borrowed`
-        /// variants have the same memory layout.
-        term: Option<Box<RSQueryTerm>>,
+        /// Shared so that copies of the record that must outlive it can keep the
+        /// term alive without copying it.
+        term: Option<SharedQueryTerm>,
 
         /// The encoded offsets in which the term appeared in the document
         ///
@@ -52,12 +54,17 @@ pub enum RawTermRecord<'query, R: Ref> {
         /// The owned version owns a copy of the offsets data, which is freed on drop.
         offsets: RSOffsetVector,
     },
+    /// A record that borrows nothing, so it can outlive both the source of its offsets and the
+    /// iterator owning its term.
+    ///
+    /// It may be dropped before any copy of it, so [`RSTermRecord::to_owned`] shares its term
+    /// instead of borrowing it.
     FullyOwned {
         /// The term that brought up this record.
         ///
-        /// The term is owned by the record (wrapped in a `Box`), same as in the
-        /// `Borrowed` variant.
-        term: Option<Box<RSQueryTerm>>,
+        /// The record shares ownership of the term, same as in the `Borrowed`
+        /// variant.
+        term: Option<SharedQueryTerm>,
 
         /// The encoded offsets in which the term appeared in the document.
         ///
@@ -126,9 +133,9 @@ impl<'query, R: Ref> RawTermRecord<'query, R> {
 
 impl<'a> RSTermRecord<'a> {
     /// Create a new borrowed term record with the given term and offsets.
-    pub const fn with_term(term: Box<RSQueryTerm>, offsets: RSOffsetSlice<'a>) -> RSTermRecord<'a> {
+    pub fn with_term(term: Box<RSQueryTerm>, offsets: RSOffsetSlice<'a>) -> RSTermRecord<'a> {
         Self::Borrowed {
-            term: Some(term),
+            term: Some(SharedQueryTerm::new(term)),
             offsets,
         }
     }
@@ -142,15 +149,25 @@ impl<'a> RSTermRecord<'a> {
         }
     }
 
-    /// Create an owned copy of this term record, allocating new memory for the offsets, but reusing the term.
+    /// Create an owned copy of this term record, allocating new memory for the offsets.
+    ///
+    /// The copy borrows the term of a [`Self::Borrowed`] or [`Self::Owned`] record, so it is only
+    /// valid while that term's owner is alive. It shares the term of a [`Self::FullyOwned`]
+    /// record; the variant's docs explain why.
     pub fn to_owned(&'a self) -> RSTermRecord<'a> {
-        let term = self.query_term();
-        Self::Owned {
-            term,
-            offsets: match self {
-                Self::Borrowed { offsets, .. } => offsets.to_owned(),
-                Self::Owned { offsets, .. } => offsets.as_slice().to_owned(),
-                Self::FullyOwned { offsets, .. } => offsets.as_slice().to_owned(),
+        let offsets = match self {
+            Self::Borrowed { offsets, .. } => offsets.to_owned(),
+            Self::Owned { offsets, .. } => offsets.as_slice().to_owned(),
+            Self::FullyOwned { offsets, .. } => offsets.as_slice().to_owned(),
+        };
+        match self {
+            Self::Borrowed { .. } | Self::Owned { .. } => Self::Owned {
+                term: self.query_term(),
+                offsets,
+            },
+            Self::FullyOwned { term, .. } => Self::FullyOwned {
+                term: term.clone(),
+                offsets,
             },
         }
     }

@@ -19,6 +19,8 @@ use super::result_data::RawResultData;
 use super::term_record::RawTermRecord;
 use ffi::RSDocumentMetadata;
 use query_term::RSQueryTerm;
+
+use crate::SharedQueryTerm;
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
 
@@ -260,12 +262,11 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
         self
     }
 
-    /// Set the term record data with an owned query term (wrapped in a
-    /// [`Box`]) and owned offsets.
+    /// Set the term record data with an owned query term and owned offsets.
     ///
     /// Produces an [`RawTermRecord::FullyOwned`] variant. Use this when the
     /// offsets do not live long enough to be borrowed by the result, but the
-    /// caller still wants the record to own the query term (as with
+    /// caller still wants the record to share ownership of the query term (as with
     /// [`Self::borrowed_record`]). This is the right choice for readers that
     /// decode offsets from a transient source such as a disk page.
     #[inline]
@@ -283,13 +284,19 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
     pub fn build(self) -> RawIndexResult<'query, R> {
         let data = match self.record {
             TermBuilderRecord::Borrowed { term, offsets } => {
-                RawResultData::Term(RawTermRecord::Borrowed { term, offsets })
+                RawResultData::Term(RawTermRecord::Borrowed {
+                    term: term.map(SharedQueryTerm::new),
+                    offsets,
+                })
             }
             TermBuilderRecord::Owned { term, offsets } => {
                 RawResultData::Term(RawTermRecord::Owned { term, offsets })
             }
             TermBuilderRecord::FullyOwned { term, offsets } => {
-                RawResultData::Term(RawTermRecord::FullyOwned { term, offsets })
+                RawResultData::Term(RawTermRecord::FullyOwned {
+                    term: term.map(SharedQueryTerm::new),
+                    offsets,
+                })
             }
         };
         RawIndexResult {

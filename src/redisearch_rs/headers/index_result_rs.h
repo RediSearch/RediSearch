@@ -251,6 +251,15 @@ typedef struct RSOffsetVector {
 } RSOffsetVector;
 #endif /* RSOFFSETVECTOR_DEFINED */
 
+/**
+ * A reference-counted [`RSQueryTerm`], shared by the iterator that produced it and every
+ * record copied from that iterator's results.
+ *
+ * Equivalent to an [`Arc<RSQueryTerm>`], but stored as a pointer to the term itself
+ * rather than to the [`Arc`]'s allocation, so C sees a plain `RSQueryTerm *`.
+ */
+typedef struct RSQueryTerm *SharedQueryTerm;
+
 #ifndef RAWTERMRECORD_ACTIVE_DEFINED
 #define RAWTERMRECORD_ACTIVE_DEFINED
 /**
@@ -263,6 +272,13 @@ enum RawTermRecord_Active_Tag
  {
   RawTermRecord_Active_Borrowed,
   RawTermRecord_Active_Owned,
+  /**
+   * A record that borrows nothing, so it can outlive both the source of its offsets and the
+   * iterator owning its term.
+   *
+   * It may be dropped before any copy of it, so [`RSTermRecord::to_owned`] shares its term
+   * instead of borrowing it.
+   */
   RawTermRecord_Active_FullyOwned,
 };
 #ifndef __cplusplus
@@ -274,13 +290,13 @@ typedef struct RawTermRecord_Active_Borrowed_Body {
   /**
    * The term that brought up this record.
    *
-   * The term is owned by the record. The name of the variant, `Borrowed`,
-   * refers to the `offsets` field.
+   * The record shares ownership of the term. The name of the variant,
+   * `Borrowed`, refers to the `offsets` field.
    *
-   * The term is wrapped in a `Box` to ensure that both `Owned` and `Borrowed`
-   * variants have the same memory layout.
+   * Shared so that copies of the record that must outlive it can keep the
+   * term alive without copying it.
    */
-  struct RSQueryTerm *term;
+  SharedQueryTerm term;
   /**
    * The encoded offsets in which the term appeared in the document
    *
@@ -319,10 +335,10 @@ typedef struct RawTermRecord_Active_FullyOwned_Body {
   /**
    * The term that brought up this record.
    *
-   * The term is owned by the record (wrapped in a `Box`), same as in the
-   * `Borrowed` variant.
+   * The record shares ownership of the term, same as in the `Borrowed`
+   * variant.
    */
-  struct RSQueryTerm *term;
+  SharedQueryTerm term;
   /**
    * The encoded offsets in which the term appeared in the document.
    *

@@ -287,6 +287,9 @@ double IndexResult_NumValue(const RSIndexResult *result);
  * Get the query term from a result if it is a term result. If the result is not a term, then
  * this function will return a `NULL` pointer.
  *
+ * The term may be shared with other records, possibly read on other threads, so it must not
+ * be mutated through the returned pointer.
+ *
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
