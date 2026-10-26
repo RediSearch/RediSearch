@@ -549,6 +549,57 @@ def testJsonIndexLanguageField(env):
                       'SORTBY', 'word', 'DESC')
         env.assertEqual(res2, res1)
 
+@skip(no_json=True)
+def testJsonIndexEmptyLanguageField(env):
+    """An empty JSON language value falls back to the index default language.
+
+    A regression guard over the real RedisJSON path, whose strings are not
+    NUL-terminated: reading the empty value up to a terminator over-reads. A
+    normal build cannot see that over-read, so this passes with or without it;
+    only a sanitizer run can report it.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'LANGUAGE', 'italian', 'LANGUAGE_FIELD', '$.lang',
+               'SCHEMA', '$.word', 'AS', 'word', 'TEXT').ok()
+
+    conn.execute_command('JSON.SET', '{word}:1', '$',
+                         r'{"word":"ciliegia", "lang": ""}') # cherry
+    conn.execute_command('JSON.SET', '{word}:2', '$',
+                         r'{"word":"ciliegie", "lang": ""}') # cherries
+
+    info = index_info(env, 'idx')
+    env.assertEqual(int(info['num_docs']), 2, message=info)
+    env.assertEqual(int(info['hash_indexing_failures']), 0, message=info)
+
+    # Each word finding both documents shows they were stemmed in Italian.
+    expected = [2, '{word}:1', '{word}:2']
+    for word in ['ciliegia', 'ciliegie']:
+        res = env.cmd('FT.SEARCH', 'idx', word, 'SORTBY', 'word', 'ASC',
+                      'NOCONTENT')
+        env.assertEqual(res, expected)
+
+    for shardId in range(1, env.shardsCount + 1):
+        env.assertEqual(env.getConnection(shardId).execute_command('PING'), True)
+
+def testLanguageArgEmbeddedNul(env):
+    """FT.CREATE and FT.SEARCH read a LANGUAGE argument only up to its first
+    NUL byte, so Italian followed by a NUL and junk is accepted as Italian.
+
+    Pinned so that bounding the language lookup by length keeps accepting what
+    these two commands accept today. FT.ADD is not covered: it already uses the
+    argument's full length and rejects the same bytes.
+    """
+    env.expect('FT.CREATE', 'idx', 'LANGUAGE', 'italian\x00x',
+               'SCHEMA', 't', 'TEXT').ok()
+
+    info = index_info(env, 'idx')
+    index_definition = info['index_definition']
+    idx = {index_definition[i]: index_definition[i + 1] for i in range(0, len(index_definition), 2)}
+    env.assertEqual(idx['default_language'], 'italian')
+
+    env.expect('FT.SEARCH', 'idx', '*', 'LANGUAGE', 'italian\x00x').equal([0])
+
 def testTagalogLanguage(env):
     conn = getConnectionByEnv(env)
 

@@ -18,7 +18,7 @@ use crate::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
-use index_result::{RSIndexResult, RawIndexResult};
+use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
 use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref};
 use rqe_core::DocId;
@@ -58,6 +58,25 @@ pub struct RawIntersection<'query, Rf: Ref, I> {
 /// Alias for an [`Active`] [`RawIntersection`] — the only instantiation
 /// with an [`RQEIterator`] impl today.
 pub type Intersection<'index, I> = RawIntersection<'index, Active<'index>, I>;
+
+impl<Rf: Ref, I> RawIntersection<'_, Rf, I> {
+    /// Whether [`result`](Self::result) is a borrowed intersection aggregate,
+    /// the only representation
+    /// [`build_aggregate_result`](Self::build_aggregate_result) can rebuild in
+    /// place.
+    ///
+    /// [`current`](RQEIterator::current) hands the result out mutably, so a
+    /// consumer may have replaced it: another kind has no child entries to
+    /// rebuild, and an owned aggregate cannot take borrowed ones. A borrowed
+    /// intersection put there passes, and is rebuilt with its own weight.
+    fn result_is_borrowed_intersection(&self) -> bool {
+        self.result.kind() == RSResultKind::Intersection
+            && self
+                .result
+                .as_aggregate()
+                .is_some_and(|aggregate| aggregate.as_borrowed().is_some())
+    }
+}
 
 /// Whether an intersection with these proximity constraints filters documents
 /// by term position, and so needs its children's term offsets.
@@ -184,7 +203,14 @@ where
     /// # Note
     ///
     /// Unlike the constructor, this method does **not** re-sort the child list after insertion.
+    ///
+    /// Only valid before the first read: a child added later would sit behind
+    /// the documents already yielded.
     pub fn push_child(&mut self, child: I) {
+        debug_assert!(
+            self.last_doc_id == 0,
+            "children can only be added before iteration"
+        );
         let est = child.num_estimated();
         if est < self.num_expected {
             self.num_expected = est;
@@ -246,6 +272,66 @@ where
                 None => return Ok(None),
             }
         }
+    }
+
+    /// Whether the intersection is unread or rewound, so its result holds no
+    /// document. Children positioned by a failed first read count as read.
+    fn is_unread(&self) -> bool {
+        self.last_doc_id == 0
+            && self.result.doc_id == 0
+            && self
+                .result
+                .as_aggregate()
+                .is_some_and(|aggregate| aggregate.is_empty())
+            && self.children.iter().all(|child| child.last_doc_id() == 0)
+    }
+
+    /// The document of the child furthest ahead, from which a re-seek carries
+    /// on as a read would.
+    ///
+    /// After a child error the children can stand on different documents, so
+    /// any target behind one of them would seek that child backwards.
+    fn furthest_child_doc_id(&self) -> DocId {
+        self.children
+            .iter()
+            .map(|child| child.last_doc_id())
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Whether every child still sits on the document last yielded, which a
+    /// child error mid-consensus can leave some of them past.
+    ///
+    /// The result's `doc_id` is not consulted: a substitute put there through
+    /// [`current`](RQEIterator::current) may carry any.
+    fn children_back_last_doc(&mut self) -> bool {
+        let doc_id = self.last_doc_id;
+        self.children
+            .iter_mut()
+            .all(|child| child.current().is_some_and(|r| r.doc_id == doc_id))
+    }
+
+    /// Re-seeks to `target` after revalidation, rebuilding the aggregate on the
+    /// consensus found.
+    fn reseek(&mut self, target: DocId) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        debug_assert!(target > self.last_doc_id, "re-seek must move forward");
+        match self.skip_to(target)? {
+            Some(_) => Ok(RQEValidateStatus::Moved {
+                current: Some(&mut self.result),
+            }),
+            None => Ok(RQEValidateStatus::Moved { current: None }),
+        }
+    }
+
+    /// Re-derives the aggregate's child entries for the document last yielded.
+    ///
+    /// Revalidating a child borrows it mutably, which invalidates the entries
+    /// the aggregate borrowed from it. The children gave their metrics up when
+    /// the aggregate was first built, so the aggregate keeps its own.
+    fn refresh_aggregate(&mut self) {
+        let metrics = std::mem::take(&mut self.result.metrics);
+        self.build_aggregate_result(self.last_doc_id);
+        self.result.metrics = metrics;
     }
 
     /// Reads from the first child. Returns the doc_id or None if EOF.
@@ -542,7 +628,6 @@ where
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
         let mut any_child_moved = false;
-        let mut max_child_doc_id: DocId = 0;
         let mut moved_to_eof = false;
 
         for child in &mut self.children {
@@ -550,19 +635,14 @@ where
                 RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
                 RQEValidateStatus::Moved { current } => {
                     any_child_moved = true;
-                    match current {
-                        Some(result) => {
-                            // Child's last_doc_id is automatically updated by revalidate
-                            max_child_doc_id = max_child_doc_id.max(result.doc_id);
-                        }
-                        None => moved_to_eof = true,
-                    }
+                    moved_to_eof |= current.is_none();
                 }
                 RQEValidateStatus::Ok => {}
             }
         }
 
-        if !any_child_moved || self.is_eof {
+        // At EOF, or before the first read, nothing is published.
+        if self.is_eof || (!any_child_moved && self.is_unread()) {
             return Ok(RQEValidateStatus::Ok);
         }
 
@@ -571,12 +651,18 @@ where
             return Ok(RQEValidateStatus::Moved { current: None });
         }
 
-        match self.skip_to(max_child_doc_id)? {
-            Some(_) => Ok(RQEValidateStatus::Moved {
-                current: Some(&mut self.result),
-            }),
-            None => Ok(RQEValidateStatus::Moved { current: None }),
+        // Both the refresh and the re-seek rebuild the aggregate in place.
+        if !self.result_is_borrowed_intersection() {
+            return Ok(RQEValidateStatus::Aborted);
         }
+
+        // A child may report a move without leaving its position.
+        if self.children_back_last_doc() {
+            self.refresh_aggregate();
+            return Ok(RQEValidateStatus::Ok);
+        }
+
+        self.reseek(self.furthest_child_doc_id())
     }
 
     #[inline(always)]

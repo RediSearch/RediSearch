@@ -213,6 +213,14 @@ bool FGC_RunCycle(ForkGC *gc, GCForcedRun *forced, const FGCHook *hook) {
     return false;
   }
 
+  // Taken before the fork: a deletion deferred after this point is counted next cycle, never reset
+  // away uncounted.
+  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(StrongRef_Get(early_check));
+  if (deferred) {
+    gc->deletedOrUpdatedDocsFromLastRun += deferred;
+    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
+  }
+
   if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(early_check);
     return true;
