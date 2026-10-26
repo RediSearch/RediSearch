@@ -267,7 +267,8 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
 
         // The codec does not carry the field-expiration flag; it lives in the
         // block's side bitset, indexed by entry ordinal.
-        result.has_field_expiration = block.expiration_bit(self.entry_in_block);
+        result.has_field_expiration =
+            ii.expiration_bit(self.current_block_idx, self.entry_in_block);
         self.entry_in_block += 1;
 
         self.last_doc_id = result.doc_id;
@@ -296,7 +297,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
             Some(skipped) => {
                 self.entry_in_block += skipped;
                 result.has_field_expiration =
-                    ii.blocks[self.current_block_idx].expiration_bit(self.entry_in_block);
+                    ii.expiration_bit(self.current_block_idx, self.entry_in_block);
                 self.entry_in_block += 1;
                 self.last_doc_id = result.doc_id;
                 Ok(true)

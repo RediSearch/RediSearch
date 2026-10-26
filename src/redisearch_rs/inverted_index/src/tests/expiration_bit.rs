@@ -20,7 +20,8 @@ use crate::codec::{
 };
 use crate::{IndexBlock, IndexReader, InvertedIndex, RepairContext};
 use ffi::{
-    IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreNumeric,
+    IndexFlags_Index_DocIdsOnly, IndexFlags_Index_HasFieldExpiration,
+    IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreNumeric,
 };
 use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
@@ -246,6 +247,43 @@ fn numeric(doc_id: DocId, has_exp: bool) -> RSIndexResult<'static> {
         .doc_id(doc_id)
         .has_field_expiration(has_exp)
         .build()
+}
+
+/// The index gains [`IndexFlags_Index_HasFieldExpiration`] with its first entry that has a field
+/// expiration and keeps it after GC drops that entry, while the remaining entries read as
+/// unexpired.
+#[test]
+fn index_flag_set_by_first_expiration_bit() {
+    let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
+    ii.add_record(&numeric(1, false)).unwrap();
+    ii.add_record(&numeric(2, false)).unwrap();
+    let has_flag =
+        |ii: &InvertedIndex<Numeric>| ii.flags() & IndexFlags_Index_HasFieldExpiration != 0;
+    assert!(!has_flag(&ii));
+
+    ii.add_record(&numeric(3, true)).unwrap();
+    assert!(has_flag(&ii));
+
+    let delta = ii
+        .scan_gc(
+            |doc_id| doc_id != 3,
+            None::<fn(&RSIndexResult, &RepairContext<'_>)>,
+        )
+        .expect("scan_gc ok")
+        .expect("scan_gc found entries to remove");
+    ii.apply_gc(delta);
+    assert!(has_flag(&ii));
+
+    let mut reader = ii.reader();
+    let mut result = numeric(0, false);
+    for doc_id in [1, 2] {
+        assert!(reader.next_record(&mut result).unwrap());
+        assert_eq!(
+            (result.doc_id, result.has_field_expiration),
+            (doc_id, false)
+        );
+    }
+    assert!(!reader.next_record(&mut result).unwrap());
 }
 
 /// Seeking within and across blocks reports each entry's bit whether or not its block has a

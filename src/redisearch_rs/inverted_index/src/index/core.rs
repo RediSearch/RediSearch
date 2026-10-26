@@ -21,7 +21,7 @@ use crate::{
     debug::{BlockSummary, Summary},
     numeric::{NumericEncoder, PreparedValue},
 };
-use ffi::{IndexFlags, IndexFlags_Index_HasMultiValue};
+use ffi::{IndexFlags, IndexFlags_Index_HasFieldExpiration, IndexFlags_Index_HasMultiValue};
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 
@@ -188,6 +188,11 @@ impl<E: Encoder> InvertedIndex<E> {
         );
 
         let n_unique_docs = blocks.iter().map(|b| b.num_entries as u32).sum();
+        let flags = if blocks.iter().any(|b| b.expiration_bits_len() > 0) {
+            flags | IndexFlags_Index_HasFieldExpiration
+        } else {
+            flags
+        };
 
         Self {
             blocks,
@@ -302,6 +307,7 @@ impl<E: Encoder> InvertedIndex<E> {
         let bits_len_before = block.expiration_bits_len();
         if has_field_expiration {
             block.set_expiration_bit(block.num_entries);
+            self.flags |= IndexFlags_Index_HasFieldExpiration;
         }
         let buf_growth = buf_growth + (block.expiration_bits_len() - bits_len_before);
 
@@ -421,6 +427,20 @@ impl<E: Encoder> InvertedIndex<E> {
     /// Returns the number of blocks in this index.
     pub fn number_of_blocks(&self) -> usize {
         self.blocks.len()
+    }
+
+    /// Whether the entry at `ordinal` of the block at `block_idx` belongs to a document with a
+    /// field-level expiration — [`IndexBlock::expiration_bit`], skipped while the index lacks
+    /// [`IndexFlags_Index_HasFieldExpiration`] so that such indexes never load the block for it.
+    /// The flag is never cleared, so GC dropping the last such entry leaves it conservatively set.
+    #[inline(always)]
+    pub(crate) fn expiration_bit(&self, block_idx: usize, ordinal: u16) -> bool {
+        let has_field_expiration = self.flags & IndexFlags_Index_HasFieldExpiration != 0;
+        debug_assert!(
+            has_field_expiration || self.blocks[block_idx].expiration_bits_len() == 0,
+            "block {block_idx} has expiration bits but the index lacks the flag"
+        );
+        has_field_expiration && self.blocks[block_idx].expiration_bit(ordinal)
     }
 
     /// Get a reference to the block at the given index, if it exists. This is only used by some C tests.
