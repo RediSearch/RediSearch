@@ -436,3 +436,7 @@ after_includes = """
 // `TimeToLiveTable` is opaque on the C side — only passed by pointer.
 typedef struct TimeToLiveTable TimeToLiveTable;
 """
+
+[header.geo_ffi]
+includes = ["geo_index.h"]
+after_includes = "typedef struct ExprEval ExprEval;"

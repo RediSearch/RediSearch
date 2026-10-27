@@ -19,3 +19,6 @@ mod ranges;
 
 pub use parse::{Coordinates, ParseGeoError};
 pub use ranges::{GEO_RANGE_COUNT, GeoScoreRange, calc_ranges};
+
+mod filter;
+pub use filter::{FilterParameters, GeoDistance, aggregate_distance};

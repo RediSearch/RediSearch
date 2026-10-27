@@ -222,14 +222,8 @@ pub unsafe fn new_geo_range_iterator<'index>(
 }
 
 /// Convert a [`GeoDistance`] unit to metres.
-pub fn extract_geo_unit_factor(unit: GeoDistance) -> f64 {
-    match unit {
-        ffi::GeoDistance_GEO_DISTANCE_M => 1.0,
-        ffi::GeoDistance_GEO_DISTANCE_KM => 1000.0,
-        ffi::GeoDistance_GEO_DISTANCE_FT => 0.3048,
-        ffi::GeoDistance_GEO_DISTANCE_MI => 1609.34,
-        _ => unreachable!("invalid GeoDistance unit"),
-    }
+pub const fn extract_geo_unit_factor(unit: GeoDistance) -> f64 {
+    geo::GeoDistance::from_raw(unit).factor()
 }
 
 /// Build a geo-radius iterator over all geohash sub-ranges matching `gf`.

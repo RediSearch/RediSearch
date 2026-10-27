@@ -184,6 +184,7 @@ trie_rdb = { path = "./trie_rdb" }
 rdb_io = { path = "./rdb_io" }
 ttl_table = { path = "./ttl_table" }
 value = { path = "./value" }
+value_ffi = { path = "./c_entrypoint/value_ffi" }
 varint = { path = "./varint" }
 rqe_wildcard = { path = "./rqe_wildcard" }
 workspace_hack = { path = "./workspace_hack" }

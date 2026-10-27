@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "geo_index.h"
+typedef struct ExprEval ExprEval;
 
 /**
  * An opaque query error which can be passed by value to C.
@@ -15,6 +17,11 @@
  * structure exactly.
  */
 typedef struct QueryError QueryError;
+
+/**
+ * The C version of a [`SharedValue`](value::SharedValue)
+ */
+typedef struct RSValue RSValue;
 
 /**
  * WGS-84 latitude upper bound (EPSG:900913).
@@ -46,6 +53,104 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Parse a NUL-terminated distance unit.
+ *
+ * # Safety
+ * 1. `s` must be [valid] and NUL-terminated.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+GeoDistance GeoDistance_Parse(const char *s);
+
+/**
+ * Parse a bounded distance unit.
+ *
+ * # Safety
+ * 1. `s` must be [valid] for `len` bytes when `len` is below the legacy buffer limit.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+GeoDistance GeoDistance_Parse_Buffer(const char *s, size_t len);
+
+/**
+ * Return a static NUL-terminated unit spelling.
+ */
+const char *GeoDistance_ToString(GeoDistance unit);
+
+/**
+ * Free a filter and its numeric ranges.
+ *
+ * # Safety
+ * 1. `gf` must be a [valid], exclusively owned Redis allocation containing a filter.
+ * 2. Its ranges must be null or owned allocations from the geo iterator; no references may remain.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void GeoFilter_Free(GeoFilter *gf);
+
+/**
+ * Parse the five legacy GEOFILTER arguments, allocating the field wrapper only on success.
+ *
+ * # Safety
+ * 1. `gf` must be [valid] writable storage; `ac` must be an exclusively borrowed initialized cursor.
+ * 2. `has_empty` and `status` must be [valid], writable initialized values.
+ * 3. Cursor string buffers must be NUL-terminated and remain alive until the filter is freed.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *has_empty, struct QueryError *status);
+
+/**
+ * Assign the stable field index, clearing it for a null field.
+ *
+ * # Safety
+ * 1. `gf` must be [valid], writable and non-null. A non-null `fs` must be [valid] for reads.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void GeoFilter_SetField(GeoFilter *gf, const FieldSpec *fs);
+
+/**
+ * Validate a filter, retaining the historical NaN comparisons.
+ *
+ * # Safety
+ * 1. `gf` must be [valid] and non-null; `status` must point to an exclusively borrowed initialized query error.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int GeoFilter_Validate(const GeoFilter *gf, struct QueryError *status);
+
+/**
+ * Free a legacy filter, including its borrowed-name wrapper.
+ *
+ * # Safety
+ * 1. `gf` must be a [valid], exclusively owned Redis allocation, initialized by [`GeoFilter_LegacyParse`].
+ * 2. The range ownership requirements of [`GeoFilter_Free`] apply.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void LegacyGeoFilter_Free(LegacyGeoFilter *gf);
+
+/**
+ * Allocate a filter. A null unit selects kilometers.
+ *
+ * # Safety
+ * 1. A non-null `unit` must be [valid] for `unit_len` bytes.
+ * 2. The Redis allocator must be initialized. Release the result with [`GeoFilter_Free`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
+
+/**
+ * Register geodistance with the historical return-type metadata and argument bounds.
+ *
+ * # Safety
+ * The function registry must be initialized and exclusively accessible.
+ */
+void RegisterGeoFunctions(void);
+
+/**
  * Decode a geohash `f64` back into a `[longitude, latitude]` pair.
  *
  * Always succeeds — zero is a valid geohash encoding (for the boundary
@@ -67,6 +172,18 @@ void decodeGeo(double bits, double *xy);
 double encodeGeo(double lon, double lat);
 
 /**
+ * Evaluate aggregate geodistance with two, three or four arguments.
+ *
+ * # Safety
+ * 1. `ctx` must be a [valid] evaluator with an initialized, writable error.
+ * 2. `argv` must contain `argc` live value pointers; `argc` must be between two and four.
+ * 3. `result` must be a [valid] writable value, disjoint from the arguments.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int geofunc_distance(ExprEval *ctx, struct RSValue * *argv, size_t argc, struct RSValue *result);
+
+/**
  * Calculate the haversine great-circle distance between two WGS-84 points.
  *
  * All coordinates are in degrees. Returns distance in meters.
@@ -81,11 +198,8 @@ double geohashGetDistance(double lon1, double lat1, double lon2, double lat2);
  *
  * # Panics
  *
- * If any coordinate is non-finite (NaN or infinity). This cannot happen in
- * practice: `lon1`/`lat1` come from `GeoFilter` which is range-checked by
- * `GeoFilter_Validate`, and `lon2`/`lat2` come from `decodeGeo` which
- * produces finite values by construction (integer bit-arithmetic scaled to
- * WGS-84 bounds).
+ * If any coordinate is non-finite (NaN or infinity). Legacy filter
+ * validation admits NaN; callers must still supply finite coordinates here.
  *
  * # Safety
  *

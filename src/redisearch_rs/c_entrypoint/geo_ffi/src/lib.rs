@@ -12,6 +12,11 @@
 //! This crate bridges the pure Rust [`geo`] crate (including its [`geo::hash`]
 //! module), providing the same C API that was previously in `src/rs_geo.c`.
 
+mod aggregate;
+mod filter;
+pub use aggregate::*;
+pub use filter::*;
+
 use std::ffi::c_int;
 
 use decorum::R64;
@@ -110,11 +115,8 @@ pub extern "C" fn geohashGetDistance(lon1: f64, lat1: f64, lon2: f64, lat2: f64)
 ///
 /// # Panics
 ///
-/// If any coordinate is non-finite (NaN or infinity). This cannot happen in
-/// practice: `lon1`/`lat1` come from `GeoFilter` which is range-checked by
-/// `GeoFilter_Validate`, and `lon2`/`lat2` come from `decodeGeo` which
-/// produces finite values by construction (integer bit-arithmetic scaled to
-/// WGS-84 bounds).
+/// If any coordinate is non-finite (NaN or infinity). Legacy filter
+/// validation admits NaN; callers must still supply finite coordinates here.
 ///
 /// # Safety
 ///

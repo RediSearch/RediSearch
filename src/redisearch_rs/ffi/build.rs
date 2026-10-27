@@ -98,6 +98,17 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "deps/rmutil/args.h",
+        fns: &[
+            "AC_GetString",
+            "AC_GetStringNC",
+            "AC_GetDouble",
+            "AC_Advance",
+        ],
+        types: &["ArgsCursor"],
+        vars: &["AC_F_NOADVANCE"],
+    },
+    HeaderAllowlist {
         path: "src/aggregate/aggregate.h",
         fns: &[],
         types: &[
@@ -106,6 +117,18 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QEStateFlags",
         ],
         vars: &["QEXEC_S_HAS_LOAD"],
+    },
+    HeaderAllowlist {
+        path: "src/aggregate/expr/expression.h",
+        fns: &[],
+        types: &["ExprEval"],
+        vars: &["EXPR_EVAL_OK"],
+    },
+    HeaderAllowlist {
+        path: "src/aggregate/functions/function.h",
+        fns: &["RSFunctionRegistry_RegisterFunction"],
+        types: &[],
+        vars: &[],
     },
     HeaderAllowlist {
         path: "src/aggregate/reducer.h",
@@ -146,7 +169,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/geo_index.h",
         fns: &["GeoFilter_Free", "GeoFilter_Validate", "NewGeoFilter"],
-        types: &[],
+        types: &["LegacyGeoFilter"],
         vars: &[],
     },
     HeaderAllowlist {

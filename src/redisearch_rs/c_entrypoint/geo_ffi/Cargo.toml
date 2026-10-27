@@ -6,8 +6,6 @@ license-file.workspace = true
 publish.workspace = true
 
 [lib]
-# This crate has no tests nor benches.
-# Compiling a no-op bench/test binary can cause linking issues with C.
 test = false
 bench = false
 
@@ -15,6 +13,8 @@ bench = false
 cheadergen.workspace = true
 decorum.workspace = true
 geo.workspace = true
+ffi.workspace = true
+value_ffi.workspace = true
 query_error.workspace = true
 redis-module.workspace = true
 tracing.workspace = true
@@ -23,3 +23,21 @@ workspace_hack.workspace = true
 
 [lints]
 workspace = true
+
+[features]
+unittest = []
+c_bench = []
+
+[build-dependencies]
+build_utils.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+geo_ffi = { path = ".", features = ["unittest"] }
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+
+[[bench]]
+name = "remaining_geo"
+harness = false
+required-features = ["c_bench"]
