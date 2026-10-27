@@ -7,6 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod aggregate;
+mod filter;
 mod hash;
+mod legacy_filter;
 mod parse_geo;
 mod ranges;
