@@ -1614,6 +1614,7 @@ def test_ft_info():
         'records_per_doc_avg': nan,
         'sortable_values_size_mb': 0.0,
         'geoshapes_sz_mb': 0.0,
+        'total_indexing_time': 0.0,
         'total_inverted_index_blocks': 0,
         'vector_index_sz_mb': global_vector_mem_mb,
         'Index Errors': {
