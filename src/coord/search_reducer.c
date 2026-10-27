@@ -19,6 +19,8 @@
 #include "info/global_stats.h"
 #include "query_error_ffi.h"
 #include "reply.h"
+#include "reply_value.h"
+#include "score_explain_mr.h"
 #include "resp3.h"
 #include "rmr/reply.h"
 #include "util/arr/arr.h"
@@ -33,8 +35,6 @@ typedef struct {
   size_t idLen;
   double score;
   MRReply *explainScores;
-  MRReply *fields;
-  MRReply *payload;
   const char *sortKey;
   size_t sortKeyLen;
   double sortKeyNum;
@@ -50,10 +50,8 @@ typedef struct {
 
 typedef struct searchReducerCtx {
   MRReply *fieldNames;
-  MRReply *lastError;
   searchRequestCtx *searchCtx;
   size_t totalReplies;
-  bool errorOccurred;
   searchReplyOffsets offsets;
 
   specialCaseCtx *reduceSpecialCaseCtxKnn;
@@ -64,18 +62,18 @@ typedef struct searchReducerCtx {
   RLookup lookup;
   const RLookupKey *sortKeys[2];
   const RLookupKey *knnKeys[2];
+  const RLookupKey *fieldsKey;
+  const RLookupKey *payloadKey;
+  const RLookupKey *wireSortKey;
   MRReply **replies;
 } searchReducerCtx;
 
 static int searchResultReducer(searchRequestCtx *req, bool fromTimeout);
 
-searchResult *newResult_resp2(searchResult *cached, MRReply *arr, size_t j,
-                              searchReplyOffsets *offsets, int explainScores) {
+static searchResult *newResult_resp2(searchResult *res, MRReply *arr, size_t j,
+                                     searchReplyOffsets *offsets, int explainScores) {
   int scoreOffset = offsets->score;
-  int fieldsOffset = offsets->firstField;
-  int payloadOffset = offsets->payload;
   int sortKeyOffset = offsets->sortKey;
-  searchResult *res = cached ? cached : rm_malloc(sizeof *res);
   res->sortKey = NULL;
   res->sortKeyNum = HUGE_VAL;
   if (MRReply_Type(MRReply_ArrayElement(arr, j)) != MR_REPLY_STRING) {
@@ -108,10 +106,6 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, size_t j,
     res->id = NULL;
     return res;
   }
-  // get fields
-  res->fields = fieldsOffset > 0 ? MRReply_ArrayElement(arr, j + fieldsOffset) : NULL;
-  // get payloads
-  res->payload = payloadOffset > 0 ? MRReply_ArrayElement(arr, j + payloadOffset) : NULL;
   if (sortKeyOffset > 0) {
     res->sortKey = MRReply_String(MRReply_ArrayElement(arr, j + sortKeyOffset), &res->sortKeyLen);
   }
@@ -125,10 +119,9 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, size_t j,
   return res;
 }
 
-searchResult *newResult_resp3(searchResult *cached, MRReply *results, size_t j,
-                              searchReplyOffsets *offsets, bool explainScores,
-                              specialCaseCtx *reduceSpecialCaseCtxSortBy) {
-  searchResult *res = cached ? cached : rm_malloc(sizeof *res);
+static searchResult *newResult_resp3(searchResult *res, MRReply *results, size_t j,
+                                     searchReplyOffsets *offsets, bool explainScores,
+                                     specialCaseCtx *reduceSpecialCaseCtxSortBy) {
   res->sortKey = NULL;
   res->sortKeyNum = HUGE_VAL;
 
@@ -168,12 +161,6 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, size_t j,
     res->id = NULL;
     return res;
   }
-
-  // get fields
-  res->fields = MRReply_MapElement(result_j, "extra_attributes");
-
-  // get payloads
-  res->payload = MRReply_MapElement(result_j, "payload");
 
   if (offsets->sortKey > 0) {
     MRReply *sortkey = NULL;
@@ -312,10 +299,6 @@ static void debugCheckAndPauseBeforeReduce(searchReducerCtx *rCtx) {
 }
 #endif
 
-/* The source owns the reply backing until request cleanup. A coordinator
- * docId is a (reply index, row ordinal) locator, never a local document-table id.
- * This keeps payloads, explanations and nested RESP values lossless without
- * copying every candidate's output fields into a second representation. */
 typedef struct RPSearchReply {
   ResultProcessor base;
   searchReducerCtx *ctx;
@@ -335,28 +318,12 @@ static MRReply *searchReplyBody(const searchRequestCtx *req, MRReply *reply) {
                                                           : MRReply_ArrayElement(reply, 0);
 }
 
-static void searchResultView(searchReducerCtx *ctx, const SearchResult *row, searchResult *view) {
-  uint64_t locator = SearchResult_GetDocId(row);
-  MRReply *body = searchReplyBody(ctx->searchCtx, ctx->replies[locator >> 32]);
-  uint32_t offset = (uint32_t)locator;
-  *view = (searchResult){0};
-  if (MRReply_Type(body) == MR_REPLY_MAP) {
-    newResult_resp3(view, MRReply_MapElement(body, "results"), offset, &ctx->offsets,
-                    ctx->searchCtx->withExplainScores, ctx->reduceSpecialCaseCtxSortby);
-  } else {
-    newResult_resp2(view, body, 1 + (size_t)offset * ctx->offsets.step, &ctx->offsets,
-                    ctx->searchCtx->withExplainScores);
-  }
-}
-
 static bool needsKnnSelection(const searchReducerCtx *ctx) {
   return ctx->reduceSpecialCaseCtxKnn && ctx->reduceSpecialCaseCtxKnn->knn.shouldSort;
 }
 
-static bool searchRowDistance(searchReducerCtx *ctx, const SearchResult *row,
+static bool searchRowDistance(searchReducerCtx *ctx, MRReply *body, size_t ordinal,
                               const searchResult *view, double *distance) {
-  uint64_t locator = SearchResult_GetDocId(row);
-  MRReply *body = searchReplyBody(ctx->searchCtx, ctx->replies[locator >> 32]);
   MRReply *value;
   knnContext *knn = &ctx->reduceSpecialCaseCtxKnn->knn;
   // WITHSORTKEYS can move the shared distance field out of required_fields.
@@ -368,15 +335,27 @@ static bool searchRowDistance(searchReducerCtx *ctx, const SearchResult *row,
   }
   if (MRReply_Type(body) == MR_REPLY_MAP) {
     MRReply *fields = MRReply_MapElement(
-        MRReply_ArrayElement(MRReply_MapElement(body, "results"), (uint32_t)locator),
-        "required_fields");
+        MRReply_ArrayElement(MRReply_MapElement(body, "results"), ordinal), "required_fields");
     if (!fields || !(value = MRReply_MapElement(fields, knn->fieldName))) return false;
   } else {
-    value =
-        MRReply_ArrayElement(body, 1 + (size_t)(uint32_t)locator * ctx->offsets.step + knn->offset);
+    value = MRReply_ArrayElement(body, 1 + ordinal * ctx->offsets.step + knn->offset);
   }
   *distance = parseNumeric(MRReply_String(value, NULL));
   return true;
+}
+
+static int searchReplyParseError(searchReducerCtx *ctx) {
+  QueryError_SetError(ctx->qctx.err, QUERY_ERROR_CODE_GENERIC,
+                      "could not parse redisearch results");
+  return RS_RESULT_ERROR;
+}
+
+static MRReply *takeSearchField(MRReply *body, size_t offset, int fieldOffset, const char *name) {
+  if (MRReply_Type(body) == MR_REPLY_MAP) {
+    return MRReply_TakeMapElement(MRReply_ArrayElement(MRReply_MapElement(body, "results"), offset),
+                                  name);
+  }
+  return fieldOffset > 0 ? MRReply_TakeArrayElement(body, offset + fieldOffset) : NULL;
 }
 
 static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
@@ -404,8 +383,7 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
           if (!ctx->warning && warning && MRReply_Length(warning)) ctx->warning = warning;
           MRReply *total = MRReply_MapElement(body, "total_results");
           if ((!total && !needsKnnSelection(ctx)) || !MRReply_MapElement(body, "results")) {
-            ctx->errorOccurred = true;
-            goto next_shard;
+            return searchReplyParseError(ctx);
           }
           if (!needsKnnSelection(ctx)) ctx->totalReplies += MRReply_Integer(total);
           source->row = 0;
@@ -422,46 +400,60 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
       size_t step = resp3 ? 1 : ctx->offsets.step;
       size_t offset = resp3 ? source->row : 1 + source->row * step;
       if (offset < len) {
-        // Shard row counts are bounded by MAX_SEARCH_REQUEST_RESULTS.
-        if (source->row > UINT32_MAX) {
-          ctx->errorOccurred = true;
-          goto next_shard;
+        if (step > len - offset) return searchReplyParseError(ctx);
+        searchResult view = {0};
+        if (resp3) {
+          newResult_resp3(&view, rows, source->row, &ctx->offsets,
+                          ctx->searchCtx->withExplainScores, ctx->reduceSpecialCaseCtxSortby);
+        } else {
+          newResult_resp2(&view, body, offset, &ctx->offsets, ctx->searchCtx->withExplainScores);
         }
-        if (step > len - offset) {
-          ctx->errorOccurred = true;
-          goto next_shard;
-        }
-        SearchResult_SetDocId(row, ((uint64_t)source->shard << 32) | source->row++);
-        searchResult view;
-        searchResultView(ctx, row, &view);
 #ifdef ENABLE_ASSERT
         debugCheckAndPauseBeforeReduce(ctx);
 #endif
-        if (!view.id) {
-          ctx->errorOccurred = true;
-          if (needsKnnSelection(ctx)) goto next_shard;
-          continue;
-        }
+        if (!view.id) return searchReplyParseError(ctx);
         RLookupRow *values = SearchResult_GetRowDataMut(row);
         if (needsKnnSelection(ctx)) {
           double distance;
-          if (!searchRowDistance(ctx, row, &view, &distance)) {
-            ctx->errorOccurred = true;
-            goto next_shard;
+          if (!searchRowDistance(ctx, body, source->row, &view, &distance)) {
+            return searchReplyParseError(ctx);
           }
           RLookup_WriteOwnKey(ctx->knnKeys[0], values, RSValue_NewNumber(distance));
           ctx->totalReplies = MIN(ctx->reduceSpecialCaseCtxKnn->knn.k, ctx->totalReplies + 1);
         }
-        // Reply backing outlives the lookup values, including rows buffered by either sorter.
-        RLookup_WriteOwnKey(ctx->sortKeys[1], values,
-                            RSValue_NewBorrowedString(view.id, view.idLen));
+        // The sort projection borrows bytes owned by the wire sort key in this same row.
         if (view.sortKey) {
           RSValue *sortValue = view.sortKey[0] == '#' ? RSValue_NewNumber(view.sortKeyNum)
                                                       : RSValue_NewBorrowedString(
                                                             view.sortKey + 1, view.sortKeyLen - 1);
           RLookup_WriteOwnKey(ctx->sortKeys[0], values, sortValue);
         }
+        MRReply *record = resp3 ? MRReply_ArrayElement(rows, source->row) : body;
+        RLookup_WriteOwnKey(ctx->sortKeys[1], values,
+                            MRReply_ToValue(resp3 ? MRReply_TakeMapElement(record, "id")
+                                                  : MRReply_TakeArrayElement(body, offset)));
+        RLookup_WriteOwnKey(ctx->fieldsKey, values,
+                            MRReply_ToValue(takeSearchField(body, offset, ctx->offsets.firstField,
+                                                            "extra_attributes")));
+        RLookup_WriteOwnKey(
+            ctx->payloadKey, values,
+            MRReply_ToValue(takeSearchField(body, offset, ctx->offsets.payload, "payload")));
+        if (view.explainScores && MRReply_Type(view.explainScores) != MR_REPLY_NIL) {
+          SearchResult_SetScoreExplain(row, SE_FromMRReply(view.explainScores));
+        }
+        if (view.sortKey) {
+          MRReply *key = NULL;
+          if (resp3 && ctx->reduceSpecialCaseCtxSortby) {
+            MRReply *required = MRReply_MapElement(record, "required_fields");
+            if (required)
+              key =
+                  MRReply_TakeMapElement(required, ctx->reduceSpecialCaseCtxSortby->sortby.sortKey);
+          }
+          if (!key) key = takeSearchField(body, offset, ctx->offsets.sortKey, "sortkey");
+          RLookup_WriteOwnKey(ctx->wireSortKey, values, MRReply_ToValue(key));
+        }
         SearchResult_SetScore(row, view.score);
+        ++source->row;
 #ifdef ENABLE_ASSERT
         CoordReduceDebugCtx_IncrementReduceCount();
 #endif
@@ -528,7 +520,7 @@ void CoordSearchReply_Accept(searchRequestCtx *request, MRReply *reply) {
 }
 
 void CoordSearchReducer_Free(searchRequestCtx *request) {
-  // Stored rows borrow reply strings; destroy them before freeing the source.
+  // Release stored rows and buffered candidates through the common row lifecycle.
   QueryRequest_ResetReply(&request->base);
   searchReducerCtx *ctx = request->rctx;
   if (ctx) {
@@ -556,6 +548,9 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **rep
   QITR_PushRP(&ctx->qctx, &source->base);
   ctx->sortKeys[0] = RLookup_GetKey_Write(&ctx->lookup, "sortkey", RLOOKUP_F_NOFLAGS);
   ctx->sortKeys[1] = RLookup_GetKey_Write(&ctx->lookup, "document_key", RLOOKUP_F_NOFLAGS);
+  ctx->fieldsKey = RLookup_GetKey_Write(&ctx->lookup, "fields", RLOOKUP_F_NOFLAGS);
+  ctx->payloadKey = RLookup_GetKey_Write(&ctx->lookup, "payload", RLOOKUP_F_NOFLAGS);
+  ctx->wireSortKey = RLookup_GetKey_Write(&ctx->lookup, "wire_sortkey", RLOOKUP_F_NOFLAGS);
   if (needsKnnSelection(ctx)) {
     ctx->knnKeys[0] = RLookup_GetKey_Write(&ctx->lookup, "distance", RLOOKUP_F_NOFLAGS);
     ctx->knnKeys[1] = ctx->sortKeys[1];
@@ -667,38 +662,37 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
                            (req->withSortingKeys && req->withSortby) + !req->noContent;
     for (size_t i = 0; i < qlen; ++i) {
       RedisModule_Reply_MapWithLen(reply, entries);  // >> result
-      searchResult view, *res = &view;
-      searchResultView(rCtx, results[i], res);
-
-      RedisModule_ReplyKV_StringBuffer(reply, "id", res->id, res->idLen);
+      const SearchResult *res = results[i];
+      const RLookupRow *values = SearchResult_GetRowData(res);
+      RedisModule_Reply_SimpleString(reply, "id");
+      RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->sortKeys[1], values), 0);
 
       if (req->withScores) {
         RedisModule_Reply_SimpleString(reply, "score");
 
         if (req->withExplainScores) {
           RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
-          RedisModule_Reply_Double(reply, res->score);
-          MR_ReplyWithMRReply(reply, res->explainScores);
+          RedisModule_Reply_Double(reply, SearchResult_GetScore(res));
+          SEReply(reply, SearchResult_GetScoreExplain(res));
         } else {
-          RedisModule_Reply_Double(reply, res->score);
+          RedisModule_Reply_Double(reply, SearchResult_GetScore(res));
         }
       }
 
       if (req->withPayload) {
         RedisModule_Reply_SimpleString(reply, "payload");
-        MR_ReplyWithMRReply(reply, res->payload);
+        RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->payloadKey, values), 0);
       }
 
       if (req->withSortingKeys && req->withSortby) {
         RedisModule_Reply_SimpleString(reply, "sortkey");
-        if (res->sortKey) {
-          RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
-        } else {
-          RedisModule_Reply_Null(reply);
-        }
+        RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->wireSortKey, values), 0);
       }
       if (!req->noContent) {
-        RedisModule_ReplyKV_MRReply(reply, "extra_attributes", res->fields);  // >> extra_attributes
+        RedisModule_Reply_SimpleString(reply, "extra_attributes");
+        RedisModule_Reply_RSValue(
+            reply, RLookupRow_Get(rCtx->fieldsKey, values),
+            req->format & QEXEC_FORMAT_EXPAND ? SENDREPLY_FLAG_EXPAND : 0);  // >> extra_attributes
       }
 
       RedisModule_Reply_SimpleString(reply, "values");
@@ -713,30 +707,26 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
 
     for (size_t pos = 0; pos < qlen; pos++) {
-      searchResult view, *res = &view;
-      searchResultView(rCtx, results[pos], res);
-      RedisModule_Reply_StringBuffer(reply, res->id, res->idLen);
+      const SearchResult *res = results[pos];
+      const RLookupRow *values = SearchResult_GetRowData(res);
+      RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->sortKeys[1], values), 0);
       if (req->withScores) {
         if (req->withExplainScores) {
           RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
-          RedisModule_Reply_Double(reply, res->score);
-          MR_ReplyWithMRReply(reply, res->explainScores);
+          RedisModule_Reply_Double(reply, SearchResult_GetScore(res));
+          SEReply(reply, SearchResult_GetScoreExplain(res));
         } else {
-          RedisModule_Reply_Double(reply, res->score);
+          RedisModule_Reply_Double(reply, SearchResult_GetScore(res));
         }
       }
       if (req->withPayload) {
-        MR_ReplyWithMRReply(reply, res->payload);
+        RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->payloadKey, values), 0);
       }
       if (req->withSortingKeys && req->withSortby) {
-        if (res->sortKey) {
-          RedisModule_Reply_StringBuffer(reply, res->sortKey, res->sortKeyLen);
-        } else {
-          RedisModule_Reply_Null(reply);
-        }
+        RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->wireSortKey, values), 0);
       }
       if (!req->noContent) {
-        MR_ReplyWithMRReply(reply, res->fields);
+        RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->fieldsKey, values), 0);
       }
     }
   }
@@ -867,7 +857,7 @@ static int searchResultReducer(searchRequestCtx *req, bool fromTimeout) {
     goto cleanup;
   }
 
-  bc = MRSearchCtx_GetBlockedClient(req->fanout);
+  if (!fromTimeout) bc = MRSearchCtx_GetBlockedClient(req->fanout);
 
   rCtx = rm_calloc(1, sizeof(searchReducerCtx));
   rCtx->lookup = RLookup_New();
@@ -895,8 +885,6 @@ static int searchResultReducer(searchRequestCtx *req, bool fromTimeout) {
   for (int i = 0; i < count; i++) {
     MRReply *curr_rep = replies[i];
     if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
-      rCtx->errorOccurred = true;
-      rCtx->lastError = curr_rep;
       const char *errStr = MRReply_String(curr_rep, NULL);
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(errStr);
       if (should_return_error(req, errCode)) {
@@ -940,12 +928,6 @@ static int searchResultReducer(searchRequestCtx *req, bool fromTimeout) {
   }
 #endif
 
-  if (rCtx->errorOccurred && !rCtx->lastError) {
-    QueryError_SetError(&req->base.reply.err, QUERY_ERROR_CODE_GENERIC,
-                        "could not parse redisearch results");
-    goto cleanup;
-  }
-
 cleanup:
   // Reduction/post-processing done, about to hand off the reply: advance the marker
   // so a timeout from here on is attributed to REPLY (frozen once already timed out).
@@ -964,6 +946,13 @@ cleanup:
 // Reply callback for distributed search.
 // Called on the main thread when the client is unblocked.
 // QueryRequest_OnFree ends the blocked-client cycle after this callback.
+#ifdef ENABLE_ASSERT
+RLookup *CoordSearchReducer_DebugReduce(searchRequestCtx *request) {
+  searchResultReducer(request, true);
+  return &request->rctx->lookup;
+}
+#endif
+
 int CoordSearchReducer_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   UNUSED(argv);
   UNUSED(argc);

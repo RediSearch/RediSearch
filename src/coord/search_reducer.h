@@ -22,6 +22,10 @@ void CoordSearchReply_Accept(searchRequestCtx *request, MRReply *reply);
 void CoordSearchReducer_Free(searchRequestCtx *request);
 void CoordSearchReducer_Schedule(searchRequestCtx *request);
 
+#ifdef ENABLE_ASSERT
+RLookup *CoordSearchReducer_DebugReduce(searchRequestCtx *request);
+#endif
+
 /* Blocked-client callbacks share the request's result-production claim. */
 int CoordSearchReducer_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 int CoordSearchReducer_TimeoutFail(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);

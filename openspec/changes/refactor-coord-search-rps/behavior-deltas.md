@@ -216,3 +216,25 @@ no new public timeout or ordering guarantee. Deterministic tests pause between
 slot initialization and publication with both zero and one earlier replies, in
 addition to the existing before/after acceptance cases, for both protocols and
 search/profile commands.
+
+## Owned row values and immediate parse errors
+
+- **Internal:** the reply source consumes row fields into RSValues, transferring
+  string buffers with the same converter as RPNet. Document keys, payloads,
+  returned field collections and wire sort keys belong to the SearchResult;
+  score explanations use the common score-explanation representation. The
+  serializer no longer re-decodes shard replies through a packed docId locator.
+  Shard envelopes and profiles remain source-owned. Numeric conversion remains
+  eager; lazy numeric values are outside this refactor.
+- **Intentional observable error change:** an encountered malformed row or
+  required envelope field returns `RS_RESULT_ERROR` and sets QueryError
+  immediately. Previously the reducer continued and checked a deferred flag;
+  a tolerated shard timeout/OOM or coordinator timeout could suppress that
+  error. Now the parse error wins over partial results under RETURN and
+  RETURN-STRICT too. Treat this as a breaking error-precedence change, explicitly
+  approved for alignment with the generic buffered-reply behavior in #11365.
+  Successful replies and shard timeout/OOM policy handling are unchanged.
+- **Deferred:** strict cancellation remains at shard boundaries. Per-row
+  cancellation belongs with Drain continuation through the reply source and
+  both KNN sorters; switching the current sorter to yielding on timeout cannot
+  preserve the remaining candidate set by itself.
