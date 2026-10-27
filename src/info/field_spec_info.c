@@ -8,8 +8,6 @@
 */
 #include "field_spec_info.h"
 
-#include <string.h>
-
 #include "reply_macros.h"
 #include "coord/rmr/reply.h"
 #include "search_disk.h"
@@ -29,13 +27,6 @@
 #define FIELD_DISK_SHARED_BYTES    "disk_shared_bytes"
 #define FIELD_DISK_TOTAL_BYTES     "disk_total_bytes"
 #define FIELD_DISK_NUM_KEYS        "disk_num_keys"
-
-static FieldType getFieldType(const char *type){
-    if (strcmp(type, "vector") == 0) {
-        return INDEXFLD_T_VECTOR;
-    }
-    return 0;
-}
 
 // Per-field disk metrics are cluster-wide totals, so each metric is summed
 // across shards. A shard that omits the `disk` metrics (e.g. an older,
@@ -141,29 +132,16 @@ static void FieldStats_DeserializeDiskMetrics(FieldSpecStats *stats, const MRRep
     }
 }
 
-static FieldSpecStats FieldStats_Deserialize(const char* type, const MRReply* reply){
-    FieldSpecStats stats = {0};
-    FieldType fieldType = getFieldType(type);
-    switch (fieldType) {
-        case INDEXFLD_T_VECTOR:
-            for(int i = 0; VectorIndexStats_Metrics[i] != NULL; i++){
-                // Handle missing metrics gracefully (e.g., during rolling upgrades when
-                // old shards don't output new metrics). Missing metrics default to 0.
-                MRReply *metricReply = MRReply_MapElement(reply, VectorIndexStats_Metrics[i]);
-                if (metricReply) {
-                    size_t metricValue = MRReply_Integer(metricReply);
-                    VectorIndexStats_GetSetter(VectorIndexStats_Metrics[i])(&stats.vecStats, metricValue);
-                }
-            }
-            stats.type = INDEXFLD_T_VECTOR;
-            break;
-        default:
-            break;
+void FieldSpecStats_DeserializeVectorMetrics(FieldSpecStats *stats, const MRReply *reply) {
+    stats->type = INDEXFLD_T_VECTOR;
+    for (int i = 0; VectorIndexStats_Metrics[i] != NULL; i++) {
+        // Newer vector metrics may be absent during rolling upgrades.
+        const MRReply *metricReply = MRReply_MapElement(reply, VectorIndexStats_Metrics[i]);
+        if (metricReply) {
+            size_t metricValue = MRReply_Integer(metricReply);
+            VectorIndexStats_GetSetter(VectorIndexStats_Metrics[i])(&stats->vecStats, metricValue);
+        }
     }
-    // Disk metrics are field-type independent and keyed by name, so parse them
-    // for every field regardless of the vector switch above.
-    FieldStats_DeserializeDiskMetrics(&stats, reply);
-    return stats;
 }
 
 // IO and cluster traits
@@ -258,8 +236,7 @@ AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply
     MRReply *error = MRReply_MapElement(reply, IndexError_ObjectName);
     RS_ASSERT(error);
     info.error = IndexError_Deserialize(error, INDEX_ERROR_WITHOUT_OOM_STATUS);
-    // attribute used to determine field type
-    info.stats = FieldStats_Deserialize(info.attribute, reply);
+    FieldStats_DeserializeDiskMetrics(&info.stats, reply);
 
     return info;
 }
