@@ -32,7 +32,7 @@ jobs:
     secrets: inherit
     with:
       # Benchmarking-only branch: narrow the run to the vector-field-update benchmark.
-      benchmark_filter: 'search-vector-field-update.yml'
+      benchmark_filter: 'search-vector-field-update-large-docs.yml'
       # Baseline against master when the 'bench:vs-master' label is set (for
       # stacked PRs), otherwise against the PR base branch.
       base_branch: ${{ contains(github.event.pull_request.labels.*.name, 'bench:vs-master') && 'master' || github.event.pull_request.base.ref }}
