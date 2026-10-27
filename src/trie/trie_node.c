@@ -19,6 +19,7 @@
 #include "redisearch.h"
 #include "util/timeout.h"
 #include "trie/levenshtein.h"
+#include "rmutil/rm_assert.h"
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
@@ -931,6 +932,64 @@ inline int __ti_step(TrieIterator *it, void *matchCtx) {
 
 next:
   return __STEP_CONT;
+}
+
+typedef struct {
+  rune buf[TRIE_INITIAL_STRING_LEN + 1];
+  const rune *after;
+  size_t afterLen;
+  TrieVisitCallback visit;
+  void *ctx;
+} visitAfterCtx;
+
+// `bounded` means the path to `n` equals the first `depth` runes of `after`, so `n`'s subtree may
+// still hold keys that do not sort after it.
+static int visitAfter(const TrieNode *n, size_t depth, bool bounded, visitAfterCtx *v) {
+  if (depth + n->len > TRIE_INITIAL_STRING_LEN) {
+    return 0;  // longer than any key the trie accepts
+  }
+
+  bool include_self = true;
+  if (bounded) {
+    for (t_len i = 0; i < n->len; ++i) {
+      size_t at = depth + i;
+      if (at >= v->afterLen || n->str[i] > v->after[at]) {
+        bounded = false;  // the path already sorts after `after`
+        break;
+      }
+      if (n->str[i] < v->after[at]) {
+        return 0;  // the whole subtree sorts before `after`
+      }
+    }
+    if (bounded) {
+      // The path is a prefix of `after` (or equal to it): its own key is not after `after`, and
+      // once it is equal every child extends it and sorts after.
+      include_self = false;
+      bounded = depth + n->len < v->afterLen;
+    }
+  }
+
+  memcpy(v->buf + depth, n->str, n->len * sizeof(rune));
+  size_t len = depth + n->len;
+  if (include_self && len > 0 && TrieNode_IsTerminal(n) && !__trieNode_isDeleted(n)) {
+    if (v->visit(v->buf, len, v->ctx)) {
+      return 1;
+    }
+  }
+
+  for (t_len i = 0; i < n->numChildren; ++i) {
+    if (visitAfter(TrieNode_Children(n)[i], len, bounded, v)) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+int TrieNode_VisitAfter(const TrieNode *n, const rune *after, size_t afterLen,
+                        TrieVisitCallback visit, void *ctx) {
+  RS_ASSERT(n->sortMode == Trie_Sort_Lex);
+  visitAfterCtx v = {.after = after, .afterLen = afterLen, .visit = visit, .ctx = ctx};
+  return visitAfter(n, 0, afterLen > 0, &v);
 }
 
 TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx) {

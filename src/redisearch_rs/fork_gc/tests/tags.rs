@@ -24,7 +24,7 @@ use std::mem::{self, ManuallyDrop};
 
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 use fork_gc::HandleError;
-use fork_gc::tags::{TagEntry, apply_tag_entry, collect_tags};
+use fork_gc::tags::{TagEntry, TagsCursor, apply_tag_entry, collect_tags, scan_tags_after};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::{DocId, opaque::InvertedIndex};
 use serde::Serialize as _;
@@ -528,4 +528,101 @@ fn the_end_marker_leaves_following_bytes_unread() {
     );
     assert_eq!(cursor.position(), end_marker_len as u64);
     assert_eq!(&buf[cursor.position() as usize..], following);
+}
+
+/// What identifies an entry, for comparing two scans.
+fn entry_key(entry: &TagEntry) -> (Vec<u8>, u32, Vec<u8>, u32) {
+    (
+        entry.field_name.to_vec(),
+        entry.tag_index_unique_id,
+        entry.tag.to_vec(),
+        entry.inverted_index_unique_id,
+    )
+}
+
+fn mixed_fields() -> Vec<Field> {
+    vec![
+        Field::other(c"n", FieldSpecType::Numeric.into()),
+        Field::tag(c"colours", &[b"red", b"blue"], 3, false),
+        Field::disk_tag(c"disk"),
+        Field::tag_without_index(c"never"),
+        Field::tag(c"sizes", &[b"", b"xl"], 3, false),
+    ]
+}
+
+/// One uninterrupted resumable scan finds exactly what the collector sends, in
+/// the same order, skipping the same fields.
+#[test]
+fn an_uninterrupted_tag_scan_matches_the_collected_entries() {
+    let test = TestSpec::create(mixed_fields());
+    let collected = receive_all(&collect_tags_from(&test));
+
+    let mut found = Vec::new();
+    let stopped = scan_tags_after(
+        &test.read_guard(),
+        &mut TagsCursor::default(),
+        || false,
+        &mut found,
+    );
+
+    assert!(!stopped);
+    assert_eq!(
+        found.iter().map(entry_key).collect::<Vec<_>>(),
+        collected.iter().map(entry_key).collect::<Vec<_>>()
+    );
+    for (found, collected) in found.iter().zip(&collected) {
+        assert_eq!(found.delta, collected.delta);
+    }
+}
+
+/// Stopping after every value and resuming walks every value exactly once, and
+/// reports values left until the last one.
+#[test]
+fn a_tag_scan_resumes_after_the_last_value_visited() {
+    let test = TestSpec::create(mixed_fields());
+    let collected = receive_all(&collect_tags_from(&test));
+
+    let mut cursor = TagsCursor::default();
+    let mut found = Vec::new();
+    let mut calls = 0;
+    while scan_tags_after(&test.read_guard(), &mut cursor, || true, &mut found) {
+        calls += 1;
+        assert!(calls <= collected.len(), "the scan must make progress");
+    }
+
+    assert_eq!(
+        found.iter().map(entry_key).collect::<Vec<_>>(),
+        collected.iter().map(entry_key).collect::<Vec<_>>()
+    );
+}
+
+/// A field that lost its tag index between two chunks is skipped.
+#[test]
+fn a_tag_scan_skips_a_field_that_lost_its_index_between_chunks() {
+    let mut test = TestSpec::create(vec![
+        Field::tag(c"colours", &[b"blue", b"red"], 3, false),
+        Field::tag(c"sizes", &[b"xl"], 3, false),
+    ]);
+
+    let mut cursor = TagsCursor::default();
+    let mut found = Vec::new();
+    assert!(scan_tags_after(
+        &test.read_guard(),
+        &mut cursor,
+        || true,
+        &mut found
+    ));
+    assert_eq!(&*found[0].tag, b"blue");
+
+    test.remove_tag_index(0);
+    assert!(!scan_tags_after(
+        &test.read_guard(),
+        &mut cursor,
+        || false,
+        &mut found
+    ));
+    assert_eq!(
+        found.iter().map(|e| e.tag.to_vec()).collect::<Vec<_>>(),
+        [b"blue".to_vec(), b"xl".to_vec()]
+    );
 }

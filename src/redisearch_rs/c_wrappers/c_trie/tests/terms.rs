@@ -971,3 +971,127 @@ fn delete_of_a_multibyte_term_round_trips() {
         assert_eq!(terms_of(trie), set(&["wörld"]));
     });
 }
+
+/// Collect what [`TermsTrie::visit_after`] visits after `after`.
+fn visited_after(trie: &TermsTrie, after: &str) -> Vec<String> {
+    let mut visited = Vec::new();
+    trie.visit_after(&to_runes(after), |runes| {
+        visited.push(runes_to_string(runes));
+        ControlFlow::Continue(())
+    });
+    visited
+}
+
+/// Words chosen so radix compression splits nodes at every depth: prefixes of
+/// one another, shared stems, and single-rune keys.
+const VISIT_CORPUS: &[&str] = &[
+    "b", "abd", "a", "abc", "ba", "bab", "ab", "c", "cab", "abcd", "zz", "z",
+];
+
+fn sorted_corpus() -> Vec<String> {
+    let mut sorted: Vec<String> = VISIT_CORPUS.iter().map(|s| s.to_string()).collect();
+    sorted.sort();
+    sorted
+}
+
+#[test]
+fn visit_after_nothing_visits_every_term_in_lexicographic_order() {
+    with_terms_trie(VISIT_CORPUS, |trie| {
+        assert_eq!(visited_after(trie, ""), sorted_corpus());
+    });
+}
+
+/// The bound is exclusive whether or not it is itself a stored term, and
+/// whether it is a prefix of stored terms, extends one, or sorts past all.
+#[test]
+fn visit_after_starts_strictly_after_the_bound() {
+    with_terms_trie(VISIT_CORPUS, |trie| {
+        let sorted = sorted_corpus();
+        for bound in [
+            "a", "ab", "abc", "abca", "abz", "aa", "b", "bb", "c", "ca", "y", "zz", "zzz",
+        ] {
+            let expected: Vec<String> = sorted
+                .iter()
+                .filter(|t| t.as_str() > bound)
+                .cloned()
+                .collect();
+            assert_eq!(visited_after(trie, bound), expected, "after {bound:?}");
+        }
+    });
+}
+
+/// Stopping after every term and resuming from it walks the whole trie once,
+/// which is how a caller resumes across lock releases.
+#[test]
+fn visit_after_resumes_from_the_last_term_seen() {
+    with_terms_trie(VISIT_CORPUS, |trie| {
+        let mut cursor: Vec<ffi::rune> = Vec::new();
+        let mut walked = Vec::new();
+        loop {
+            let mut next = None;
+            trie.visit_after(&cursor, |runes| {
+                next = Some(runes.to_vec());
+                ControlFlow::Break(())
+            });
+            let Some(next) = next else { break };
+            walked.push(runes_to_string(&next));
+            cursor = next;
+        }
+        assert_eq!(walked, sorted_corpus());
+    });
+}
+
+/// A deleted term is skipped, and resuming from it still works.
+#[test]
+fn visit_after_skips_and_resumes_past_a_deleted_term() {
+    with_terms_trie(VISIT_CORPUS, |trie| {
+        assert!(trie.delete(&trie_term("abc")));
+        let expected: Vec<String> = sorted_corpus().into_iter().filter(|t| t != "abc").collect();
+        assert_eq!(visited_after(trie, ""), expected);
+        let after_deleted: Vec<String> = expected
+            .iter()
+            .filter(|t| t.as_str() > "abc")
+            .cloned()
+            .collect();
+        assert_eq!(visited_after(trie, "abc"), after_deleted);
+    });
+}
+
+#[test]
+fn visit_after_on_an_empty_trie_visits_nothing() {
+    with_terms_trie(&[], |trie| {
+        assert!(visited_after(trie, "").is_empty());
+        assert!(visited_after(trie, "a").is_empty());
+    });
+}
+
+/// The walk orders terms by rune value, which for BMP text is code point
+/// order, the same order a Rust `String` sort gives.
+#[test]
+fn visit_after_orders_non_ascii_terms_by_rune_value() {
+    let corpus = [
+        "über", "zebra", "école", "eagle", "日本", "日", "ßeta", "été",
+    ];
+    with_terms_trie(&corpus, |trie| {
+        let mut expected: Vec<String> = corpus.iter().map(|s| s.to_string()).collect();
+        expected.sort();
+
+        let mut visited = Vec::new();
+        trie.visit_after(&[], |runes| {
+            visited.push(runes_to_text(runes));
+            ControlFlow::Continue(())
+        });
+        assert_eq!(visited, expected);
+
+        let mut after_ecole = Vec::new();
+        trie.visit_after(&to_runes("école"), |runes| {
+            after_ecole.push(runes_to_text(runes));
+            ControlFlow::Continue(())
+        });
+        let tail: Vec<String> = expected
+            .into_iter()
+            .filter(|t| t.as_str() > "école")
+            .collect();
+        assert_eq!(after_ecole, tail);
+    });
+}

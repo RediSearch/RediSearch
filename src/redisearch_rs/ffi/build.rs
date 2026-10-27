@@ -437,6 +437,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "Trie_IterateContains",
             "Trie_IterateFuzzy",
             "Trie_IterateWildcard",
+            "Trie_VisitAfter",
             "TrieType_Free",
         ],
         types: &[],
@@ -445,7 +446,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/trie/trie_node.h",
         fns: &["TrieIterator_Free", "TrieIterator_Next", "TrieNode_NumDocs"],
-        types: &["TrieIterator", "TrieRangeCallback", "TrieSuffixCallback"],
+        types: &[
+            "TrieIterator",
+            "TrieRangeCallback",
+            "TrieSuffixCallback",
+            "TrieVisitCallback",
+        ],
         vars: &[],
     },
     HeaderAllowlist {

@@ -36,6 +36,7 @@ string_utils.workspace = true
 nul_terminated_bytes.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+trie_rs.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
