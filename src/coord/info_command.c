@@ -357,11 +357,11 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
 
 static void replyIndexAverages(RedisModule_Reply *reply, InfoFields *fields) {
   InfoValue *values = fields->toplevelValues;
-  InfoValue *docs =
+  const InfoValue *docs =
       findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "num_docs").value;
-  InfoValue *records =
+  const InfoValue *records =
       findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "num_records").value;
-  InfoValue *size =
+  const InfoValue *size =
       findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "inverted_sz_mb").value;
 
   if (records && docs && records->isSet && docs->isSet) {
