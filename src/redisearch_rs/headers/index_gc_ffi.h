@@ -162,9 +162,9 @@ void ForkGC_sendTerminator(IndexGC *fgc);
  * Run every GC scanner over `gc`'s index on the calling thread, under the
  * spec's read/write lock, a bounded number of keys per hold.
  *
- * Returns [`FGCError::Done`] when the cycle completed,
- * [`FGCError::SpecDeleted`] when the index was dropped during it, and
- * [`FGCError::ParentError`] for any other failure. Stats of the chunks applied
+ * Returns [`ForkGCError::Done`] when the cycle completed,
+ * [`ForkGCError::SpecDeleted`] when the index was dropped during it, and
+ * [`ForkGCError::ParentError`] for any other failure. Stats of the chunks applied
  * before an early end are kept.
  *
  * # Safety
@@ -175,7 +175,7 @@ void ForkGC_sendTerminator(IndexGC *fgc);
  *    a reference to the struct.
  * 2. The calling thread must not hold any spec lock.
  */
-enum FGCError ThreadGC_runScanners(IndexGC *gc);
+enum ForkGCError ThreadGC_runScanners(IndexGC *gc);
 
 /**
  * Receive a field header (field name + unique id).

@@ -139,8 +139,8 @@ bool DocTable_KeyEquals(const DocTable *t, t_docId id, const char *key, size_t l
 /* Key-map allocation, including unused capacity; zero when disabled. */
 size_t DocTable_KeyMapMemoryUsage(const DocTable *t);
 
-// No GC policy reads the deleted set yet; the one that does turns tracking on here.
-#define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize, false)
+#define DocTable_New(cap) \
+  NewDocTable(cap, RSGlobalConfig.maxDocTableSize, RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread)
 
 // Initial number of slots in a spec's document table
 #define INITIAL_DOC_TABLE_SIZE 1000
