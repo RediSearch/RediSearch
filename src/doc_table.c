@@ -426,8 +426,7 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
   }
 
   if (t->keyMap) {
-    bool removed =
-        DocKeyMap_Remove(t->keyMap, (const uint8_t *)md->keyPtr, sdslen(md->keyPtr), docId);
+    bool removed = DocKeyMap_Remove(t->keyMap, (const uint8_t *)md->keyPtr, sdslen(md->keyPtr), docId);
     RS_LOG_ASSERT(removed, "missing INKEYS entry for deleted document");
   }
 
@@ -469,8 +468,7 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *to_str, size_t 
     return;
   }
   if (t->keyMap) {
-    bool removed =
-        DocKeyMap_Remove(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), docId);
+    bool removed = DocKeyMap_Remove(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), docId);
     RS_LOG_ASSERT(removed, "missing INKEYS entry for renamed document");
   }
   t->memsize -= sdsAllocSize(dmd->keyPtr);
