@@ -18,15 +18,16 @@ use super::offsets::{RSOffsetSlice, RSOffsetVector, RawOffsetSlice};
 #[cheadergen::config(prefix_with_name)]
 #[derive(Debug)]
 #[repr(u8)]
-pub enum RawTermRecord<'query, R: Ref> {
+pub enum RawTermRecord<R: Ref> {
+    /// A record whose offsets may borrow from the index block they were decoded from, so it
+    /// cannot outlive that block. Its term is shared, not borrowed.
+    ///
+    /// [`RSTermRecord::to_owned`] turns it into an [`Owned`](Self::Owned) record.
     Borrowed {
         /// The term that brought up this record.
         ///
-        /// The record shares ownership of the term. The name of the variant,
-        /// `Borrowed`, refers to the `offsets` field.
-        ///
-        /// Shared so that copies of the record that must outlive it can keep the
-        /// term alive without copying it.
+        /// Shared so that [`RSTermRecord::to_owned`] copies of the record
+        /// can keep the term alive without copying it.
         term: Option<SharedQueryTerm>,
 
         /// The encoded offsets in which the term appeared in the document
@@ -35,31 +36,9 @@ pub enum RawTermRecord<'query, R: Ref> {
         /// parameter (which carries the index lifetime in [`Active`] mode).
         offsets: RawOffsetSlice<R>,
     },
-    Owned {
-        /// The term that brought up this record.
-        ///
-        /// It borrows the term from another record. `None` encodes "no
-        /// term"; thanks to the `NonNull` niche of `&T`, `Option<&'query RSQueryTerm>`
-        /// has the same C ABI as a nullable `*const RSQueryTerm`.
-        ///
-        /// The borrowed query term belongs to the query pipeline, so it lives
-        /// under the `'query` lifetime and is never weakened by the
-        /// `Active`/`Suspended` ref-mode transitions — it stays a genuine
-        /// `&'query` borrow, so it is modelled as a plain reference rather than
-        /// a ref-mode-parametrised `SharedPtr`.
-        term: Option<&'query RSQueryTerm>,
-
-        /// The encoded offsets in which the term appeared in the document
-        ///
-        /// The owned version owns a copy of the offsets data, which is freed on drop.
-        offsets: RSOffsetVector,
-    },
     /// A record that borrows nothing, so it can outlive both the source of its offsets and the
-    /// iterator owning its term.
-    ///
-    /// It may be dropped before any copy of it, so [`RSTermRecord::to_owned`] shares its term
-    /// instead of borrowing it.
-    FullyOwned {
+    /// iterator holding its term (see [`RSTermRecord::to_owned`]).
+    Owned {
         /// The term that brought up this record.
         ///
         /// The record shares ownership of the term, same as in the `Borrowed`
@@ -69,16 +48,14 @@ pub enum RawTermRecord<'query, R: Ref> {
         /// The encoded offsets in which the term appeared in the document.
         ///
         /// Unlike `Borrowed`, the offsets are owned by the record as well and
-        /// therefore do not tie the record to an external lifetime. Used when
-        /// the decoded record must outlive the source of the offset bytes
-        /// (e.g. reading from a disk page that may be evicted).
+        /// therefore do not tie the record to an external lifetime.
         offsets: RSOffsetVector,
     },
 }
 
 /// The [`Active`] instantiation of [`RawTermRecord`].
 #[cheadergen::config(export)]
-pub type RSTermRecord<'a> = RawTermRecord<'a, Active<'a>>;
+pub type RSTermRecord<'a> = RawTermRecord<Active<'a>>;
 
 // Compile-time proof that the `Active` and `Suspended` instantiations of
 // `RawTermRecord` are layout-identical. Only `size_of`/`align_of` are checked:
@@ -90,13 +67,13 @@ pub type RSTermRecord<'a> = RawTermRecord<'a, Active<'a>>;
 const _: () = {
     use ref_mode::Suspended;
     use std::mem::{align_of, size_of};
-    type A = RawTermRecord<'static, Active<'static>>;
-    type S = RawTermRecord<'static, Suspended>;
+    type A = RawTermRecord<Active<'static>>;
+    type S = RawTermRecord<Suspended>;
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
 };
 
-// Manual (rather than derived) so equality is well-defined across the three
+// Manual (rather than derived) so equality is well-defined across the two
 // variants (which store the term and offsets differently): compares the
 // dereferenced query term and the byte view of the offsets.
 impl<'a> PartialEq for RSTermRecord<'a> {
@@ -107,7 +84,7 @@ impl<'a> PartialEq for RSTermRecord<'a> {
 
 impl<'a> Eq for RSTermRecord<'a> {}
 
-impl<'query, R: Ref> RawTermRecord<'query, R> {
+impl<R: Ref> RawTermRecord<R> {
     /// Create a new term record without term pointer and offsets.
     pub const fn new() -> Self {
         Self::Borrowed {
@@ -118,15 +95,13 @@ impl<'query, R: Ref> RawTermRecord<'query, R> {
 
     /// Is this term record borrowed or owned?
     pub const fn is_copy(&self) -> bool {
-        matches!(self, Self::Owned { .. } | Self::FullyOwned { .. })
+        matches!(self, Self::Owned { .. })
     }
 
     /// Get a reference to the query term of this term record, if one is set.
     pub fn query_term(&self) -> Option<&RSQueryTerm> {
         match self {
-            Self::Borrowed { term, .. } => term.as_deref(),
-            Self::Owned { term, .. } => *term,
-            Self::FullyOwned { term, .. } => term.as_deref(),
+            Self::Borrowed { term, .. } | Self::Owned { term, .. } => term.as_deref(),
         }
     }
 }
@@ -145,38 +120,35 @@ impl<'a> RSTermRecord<'a> {
         match self {
             Self::Borrowed { offsets, .. } => offsets.as_bytes(),
             Self::Owned { offsets, .. } => offsets.as_bytes(),
-            Self::FullyOwned { offsets, .. } => offsets.as_bytes(),
         }
     }
 
-    /// Create an owned copy of this term record, allocating new memory for the offsets.
+    /// Create a copy of this term record that owns its offsets and shares ownership of its term.
     ///
-    /// The copy borrows the term of a [`Self::Borrowed`] or [`Self::Owned`] record, so it is only
-    /// valid while that term's owner is alive. It shares the term of a [`Self::FullyOwned`]
-    /// record; the variant's docs explain why.
-    pub fn to_owned(&'a self) -> RSTermRecord<'a> {
-        let offsets = match self {
+    /// The copy borrows nothing from `self`, so it stays valid after the record, or the
+    /// iterator holding its term, is dropped.
+    pub fn to_owned(&self) -> RSTermRecord<'a> {
+        let term = match self {
+            Self::Borrowed { term, .. } | Self::Owned { term, .. } => term.clone(),
+        };
+        Self::Owned {
+            term,
+            offsets: self.owned_offsets(),
+        }
+    }
+
+    /// Copy the offsets of this term record into a fresh allocation.
+    fn owned_offsets(&self) -> RSOffsetVector {
+        match self {
             Self::Borrowed { offsets, .. } => offsets.to_owned(),
             Self::Owned { offsets, .. } => offsets.as_slice().to_owned(),
-            Self::FullyOwned { offsets, .. } => offsets.as_slice().to_owned(),
-        };
-        match self {
-            Self::Borrowed { .. } | Self::Owned { .. } => Self::Owned {
-                term: self.query_term(),
-                offsets,
-            },
-            Self::FullyOwned { term, .. } => Self::FullyOwned {
-                term: term.clone(),
-                offsets,
-            },
         }
     }
 
     /// Set the offsets of this term record, replacing any existing offsets.
     ///
-    /// For the `Owned` and `FullyOwned` variants the slice is copied into a
-    /// fresh allocation, so the input does not need to satisfy any lifetime
-    /// relationship beyond the call itself.
+    /// For the `Owned` variant the slice is copied into a fresh allocation, so the input does not
+    /// need to satisfy any lifetime relationship beyond the call itself.
     pub fn set_offsets(&mut self, offsets: RSOffsetSlice<'a>) {
         match self {
             Self::Borrowed { offsets: o, .. } => {
@@ -184,9 +156,6 @@ impl<'a> RSTermRecord<'a> {
             }
             Self::Owned { offsets: o, .. } => {
                 // Assign the new owned copy; the old value is auto-dropped, freeing old data.
-                *o = offsets.to_owned();
-            }
-            Self::FullyOwned { offsets: o, .. } => {
                 *o = offsets.to_owned();
             }
         }
@@ -206,27 +175,23 @@ impl<'a> RSTermRecord<'a> {
     /// Panics if the record is in the [`Self::Borrowed`] variant,
     /// which stores an [`RSOffsetSlice`] rather than an owned vector. Callers
     /// that need to call this method should construct the record via
-    /// [`RawTermResultBuilder::fully_owned_record`](super::core::RawTermResultBuilder::fully_owned_record)
-    /// or [`RawTermResultBuilder::owned_record`](super::core::RawTermResultBuilder::owned_record).
+    /// [`RawTermResultBuilder::owned_record`](super::core::RawTermResultBuilder::owned_record).
     pub fn set_offsets_owned(&mut self, offsets: RSOffsetVector) {
         match self {
             Self::Borrowed { .. } => {
                 panic!(
                     "set_offsets_owned called on RSTermRecord::Borrowed; \
-                     construct the record with fully_owned_record or owned_record instead"
+                     construct the record with owned_record instead"
                 );
             }
             Self::Owned { offsets: o, .. } => {
-                *o = offsets;
-            }
-            Self::FullyOwned { offsets: o, .. } => {
                 *o = offsets;
             }
         }
     }
 }
 
-impl<'query, R: Ref> Default for RawTermRecord<'query, R> {
+impl<R: Ref> Default for RawTermRecord<R> {
     fn default() -> Self {
         Self::new()
     }
