@@ -25,5 +25,6 @@ pretty_assertions.workspace = true
 
 # Crate required to invoke C symbols
 field_spec = { workspace = true, features = ["unittest"] }
+libc.workspace = true
 redisearch_rs.workspace = true
 redis_mock.workspace = true
