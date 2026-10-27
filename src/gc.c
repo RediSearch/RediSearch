@@ -71,6 +71,7 @@ GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
 
 static void timerCallback(RedisModuleCtx* ctx, void* data);
 static void taskCallback(void* data);
+static void debugTaskCallback(void* data);
 
 static bool GCContext_RunPending(GCContext* gc) {
   return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_RUN_PENDING) != 0;
@@ -139,14 +140,59 @@ static void GCContext_QueueRun(GCContext* gc) {
   }
 }
 
+static void GCDebugTask_Finish(struct GCDebugTask *task);
+
 // Posted from the GC thread, run on the main thread. The pass keeps RUN_PENDING until here,
-// so nothing could arm a timer or queue a run while the post was in flight.
+// so nothing could arm a timer or queue a run while the post was in flight. After a forced
+// run the timer is usually still armed and keeps its schedule; arming is then a no-op.
 static void rearmOneShotCb(void* data) {
   GCContext* gc = data;
   RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_RUN_PENDING);
   if (GCContext_ArmTimerIn(gc, gc->pendingInterval)) {
     IncrementGCTimerArmFromOneShot();
   }
+  // Answered only now, so a caller that follows up at once finds RUN_PENDING free.
+  struct GCDebugTask *forced = gc->forcedRun;
+  gc->forcedRun = NULL;
+  if (forced) {
+    GCDebugTask_Finish(forced);
+  }
+}
+
+// The tail of every run that holds RUN_PENDING, scheduled or forced. `reschedule` is the
+// cycle's answer: false means the index was freed.
+static void GCContext_EndRun(GCContext* gc, bool reschedule) {
+  if (reschedule) { // The common case
+    // The index was not freed. Hand the re-arm to the main thread.
+    if (RS_IsMock) {  // the unit-test harness has no event loop
+      RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_RUN_PENDING);
+      if (gc->forcedRun) {
+        GCDebugTask_Finish(gc->forcedRun);
+        gc->forcedRun = NULL;
+      }
+      return;
+    }
+    gc->pendingInterval = gc->callbacks.getInterval(gc->gcCtx);
+
+    // Test hook (ENABLE_ASSERT): park with the pass over but the re-arm not yet posted -- the
+    // window a drop can overtake, where RUN_PENDING is held by a run that no longer exists.
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_GC_BEFORE_REARM_POST);
+#endif
+
+    RedisModule_EventLoopAddOneShot(rearmOneShotCb, gc);
+    return;
+  }
+
+  // The index was freed. RUN_PENDING is still set for this run, so no timer is armed and no
+  // second run is queued -- free inline, which keeps the GC pool join in GC_ThreadPoolDestroy
+  // as the guarantee that this happens at shutdown.
+  RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "GC %p: Self-Terminating. Index was freed.", gc);
+  if (gc->forcedRun) {
+    GCDebugTask_Finish(gc->forcedRun);
+  }
+  gc->callbacks.onTerm(gc->gcCtx);
+  rm_free(gc);
 }
 
 static void taskCallback(void* data) {
@@ -160,49 +206,27 @@ static void taskCallback(void* data) {
 #endif
 
   bool ret = gc->callbacks.periodicCallback(gc->gcCtx, NULL);
-
-  if (ret) { // The common case
-    // The index was not freed. Hand the re-arm to the main thread.
-    if (RS_IsMock) {  // the unit-test harness has no event loop
-      RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_RUN_PENDING);
-      return;
-    }
-    gc->pendingInterval = gc->callbacks.getInterval(gc->gcCtx);
-
-    // Test hook (ENABLE_ASSERT): park with the pass over but the re-arm not yet posted -- the
-    // window a drop can overtake, where RUN_PENDING is held by a run that no longer exists.
-#ifdef ENABLE_ASSERT
-    SyncPoint_Wait(SYNC_POINT_GC_BEFORE_REARM_POST);
-#endif
-
-    RedisModule_EventLoopAddOneShot(rearmOneShotCb, gc);
-  } else {
-    // The index was freed. RUN_PENDING is still set for this run, so no timer is armed and no
-    // second periodic run is queued -- free inline, which keeps the GC pool join in
-    // GC_ThreadPoolDestroy as the guarantee that this happens at shutdown. Debug tasks
-    // (GC_FORCEBGINVOKE) hold `gc` outside this model.
-    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "GC %p: Self-Terminating. Index was freed.", gc);
-    gc->callbacks.onTerm(gc->gcCtx);
-    rm_free(gc);
-  }
+  GCContext_EndRun(gc, ret);
 }
 
+// Answer a forced run's caller, if it has one, and free the task.
+static void GCDebugTask_Finish(struct GCDebugTask *task) {
+  // The outcome outlives this task, so the reply gets its own copy.
+  if (task->bClient) {
+    GCForcedRunOutcome *outcome = rm_new(GCForcedRunOutcome);
+    *outcome = task->forced.outcome;
+    RedisModule_UnblockClient(task->bClient, outcome);
+  }
+  rm_free(task);
+}
+
+// Its task is answered by the run's tail.
 static void debugTaskCallback(void* data) {
   GCDebugTask *task = data;
   GCContext* gc = task->gc;
-  RedisModuleBlockedClient* bc = task->bClient;
 
-  gc->callbacks.periodicCallback(gc->gcCtx, &task->forced);
-
-  // if GC was invoke by debug command, we release the client
-  // and terminate without rescheduling the task again. The outcome outlives this task, so
-  // the reply gets its own copy.
-  if (bc) {
-    GCForcedRunOutcome *outcome = rm_new(GCForcedRunOutcome);
-    *outcome = task->forced.outcome;
-    RedisModule_UnblockClient(bc, outcome);
-  }
-  rm_free(task);
+  bool ret = gc->callbacks.periodicCallback(gc->gcCtx, &task->forced);
+  GCContext_EndRun(gc, ret);
 }
 
 static void timerCallback(RedisModuleCtx* ctx, void* data) {
@@ -335,10 +359,24 @@ void GCContext_GetStats(GCContext* gc, InfoGCStats* out) {
   gc->callbacks.getStats(gc->gcCtx, out);
 }
 
+// Main thread only. A forced run holds RUN_PENDING like a scheduled one, so the two never
+// overlap on one index however many GC threads there are. These are debug commands, so one that
+// finds a run in flight does not wait for it: it fails, and the caller retries.
 void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc,
                                  GCForcedRun forced) {
   GCDebugTask *task = GCDebugTaskCreate(gc, bc, forced);
-  redisearch_thpool_add_work(gcThreadpool_g, debugTaskCallback, task, THPOOL_PRIORITY_HIGH);
+  if (RS_AtomicUintFetchOrRelaxed(&gc->schedFlags, GC_SCHED_RUN_PENDING) & GC_SCHED_RUN_PENDING) {
+    task->forced.outcome = GC_FORCED_RUN_BUSY;
+    GCDebugTask_Finish(task);
+    return;
+  }
+  gc->forcedRun = task;
+  if (redisearch_thpool_add_work(gcThreadpool_g, debugTaskCallback, task, THPOOL_PRIORITY_HIGH) != 0) {
+    gc->forcedRun = NULL;
+    RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_RUN_PENDING);
+    task->forced.outcome = GC_FORCED_RUN_BUSY;
+    GCDebugTask_Finish(task);
+  }
 }
 
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc, GCForcedRun forced) {
@@ -353,13 +391,30 @@ static void GCContext_UnblockClient(void* data) {
   OpBlockClient_Unblock(data);
 }
 
+// Runs once every job queued before it was taken. The barrier then waits for the jobs still
+// running on every GC thread, without parking a thread on queued work.
+static void GCContext_WaitJob(void* bc) {
+  if (redisearch_thpool_add_barrier(gcThreadpool_g, GCContext_UnblockClient, bc) != 0) {
+    GCContext_UnblockClient(bc);
+  }
+}
+
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc) {
-  redisearch_thpool_add_work(gcThreadpool_g, GCContext_UnblockClient, bc, THPOOL_PRIORITY_HIGH);
+  if (redisearch_thpool_add_work(gcThreadpool_g, GCContext_WaitJob, bc, THPOOL_PRIORITY_HIGH) != 0) {
+    GCContext_UnblockClient(bc);
+  }
+}
+
+// Cycles of different indexes run in parallel only under the thread policy: fork cycles all
+// compete for Redis' single child slot.
+static size_t GC_ThreadPoolSize(void) {
+  const GCConfig *gc = &RSGlobalConfig.gcConfigParams;
+  return gc->gcPolicy == GCPolicy_Thread ? gc->gcThreads : 1;
 }
 
 void GC_ThreadPoolStart() {
   if (gcThreadpool_g == NULL) {
-    gcThreadpool_g = redisearch_thpool_create(GC_THREAD_POOL_SIZE, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "gc");
+    gcThreadpool_g = redisearch_thpool_create(GC_ThreadPoolSize(), DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "gc");
   }
 }
 

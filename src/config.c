@@ -67,6 +67,7 @@ typedef struct {
 // For deprecated FTConfigName, the ConfigName is an empty string
 configPair_t __configPairs[] = {
   {"_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
+  {"_GC_THREADS",                     ""},
   {"_FREE_RESOURCE_ON_THREAD",        "search-_free-resource-on-thread"},
   {"_NUMERIC_COMPRESS",               "search-_numeric-compress"},
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
@@ -1094,6 +1095,23 @@ CONFIG_GETTER(getForkGcCleanThreshold) {
   return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcCleanThreshold);
 }
 
+// _GC_THREADS
+CONFIG_SETTER(setGcThreads) {
+  size_t threads;
+  int acrc = AC_GetSize(ac, &threads, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (threads > MAX_GC_THREADS) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                     "_GC_THREADS must be at most %d", MAX_GC_THREADS);
+    return REDISMODULE_ERR;
+  }
+  config->gcConfigParams.gcThreads = threads;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getGcThreads) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%zu", config->gcConfigParams.gcThreads);
 }
 
 // FORK_GC_RETRY_INTERVAL
@@ -1790,6 +1808,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setForkGCCleanNumericEmptyNodes,
          .getValue = getForkGCCleanNumericEmptyNodes,
          .flags = RSCONFIGVAR_F_FLAG},
+        {.name = "_GC_THREADS",
+         .helpText = "GC threads under the THREAD gc policy, each cleaning a different index",
+         .setValue = setGcThreads,
+         .getValue = getGcThreads,
+         .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES",
          .helpText = "clean empty nodes from numeric tree",
          .setValue = set_ForkGCCleanNumericEmptyNodes,

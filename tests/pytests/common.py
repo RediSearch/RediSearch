@@ -771,13 +771,26 @@ def shard_set_info_on_zero_indexes(env, enabled: bool):
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
+GC_RUN_IN_PROGRESS = 'another GC run of this index is in progress'
+
+def _retryWhileGCBusy(env, *args):
+    # A forced run fails instead of waiting when the index's scheduled run is in flight.
+    deadline = time.time() + 30
+    while True:
+        try:
+            return env.cmd(*args)
+        except Exception as e:
+            if GC_RUN_IN_PROGRESS not in str(e) or time.time() > deadline:
+                raise
+            time.sleep(0.01)
+
 def forceInvokeGC(env, idx='idx', timeout=None):
     waitForRdbSaveToFinish(env)
     if timeout is not None:
         # Note: timeout==0 means infinite (no timeout)
-        env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx, timeout)
+        _retryWhileGCBusy(env, debug_cmd(), 'GC_FORCEINVOKE', idx, timeout)
     else:
-        env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx)
+        _retryWhileGCBusy(env, debug_cmd(), 'GC_FORCEINVOKE', idx)
 
 def forceBGInvokeGC(env, idx='idx'):
     waitForRdbSaveToFinish(env)

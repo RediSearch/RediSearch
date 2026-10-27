@@ -294,6 +294,19 @@ size_t redisearch_thpool_admin_priority_pending_jobs(redisearch_thpool_t *);
 **/
 void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove, bool terminate_when_empty);
 
+/**
+ * @brief Call `on_release(arg)` once every thread has finished the job it is running now.
+ *
+ * Puts one ADMIN job per thread in the queue without waiting. ADMIN jobs are pulled before any
+ * other, so each thread takes one as soon as its current job returns and waits there for the
+ * others; the thread that releases them calls `on_release`. Jobs still queued are not waited
+ * for. While the pool is paused, threads that already took one wait until it resumes.
+ *
+ * @return 0 on success, -1 if the jobs could not be queued (`on_release` is then not called).
+ */
+int redisearch_thpool_add_barrier(redisearch_thpool_t *thpool_p, void (*on_release)(void *),
+                                  void *arg);
+
 #ifdef __cplusplus
 }
 #endif
