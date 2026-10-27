@@ -53,6 +53,7 @@ struct Request {
   }
   ~Request() {
     CoordSearchReducer_Free(&req);
+    array_free(req.specialCases);
     QueryRequest_Destroy(&req.base);
   }
   MRReply *add(const std::string &wire) {
@@ -99,6 +100,42 @@ TEST(SearchReply, ParseErrorStopsAndOverridesPartialResultsAndShardTimeout) {
         EXPECT_EQ(std::string(MRReply_String(unread, nullptr)), "unread");
       }
     }
+  }
+}
+
+TEST(SearchReply, MissingKnnDistanceStopsBothSorters) {
+  for (auto policy : {TimeoutPolicy_Return, TimeoutPolicy_ReturnStrict, TimeoutPolicy_Fail}) {
+    specialCaseCtx knn = {};
+    knn.specialCaseType = SPECIAL_CASE_KNN;
+    knn.knn.k = 2;
+    knn.knn.fieldName = "distance";
+    knn.knn.shouldSort = true;
+    Request request(policy);
+    request.req.noContent = true;
+    request.req.specialCases = array_new(specialCaseCtx *, 1);
+    array_append(request.req.specialCases, &knn);
+    auto row = [](const char *id, bool hasDistance) {
+      std::vector<std::string> fields = {str("id"), str(id), str("score"), ",1\r\n"};
+      if (hasDistance) {
+        fields.push_back(str("required_fields"));
+        fields.push_back(sequence('%', {str("distance"), str("#1")}));
+      }
+      return sequence('%', fields);
+    };
+    MRReply *root = request.add(sequence(
+        '%', {str("total_results"), ":3\r\n", str("warning"), "*0\r\n", str("results"),
+              sequence('*', {row("first", true), row("bad", false), row("unread", true)})}));
+    CoordSearchReducer_DebugReduce(&request.req);
+    EXPECT_EQ(request.req.base.reply.rc, RS_RESULT_ERROR);
+    EXPECT_EQ(QueryError_GetCode(&request.req.base.reply.err), QUERY_ERROR_CODE_GENERIC);
+    EXPECT_STREQ(QueryError_GetUserError(&request.req.base.reply.err),
+                 "SEARCH_GENERIC could not parse redisearch results");
+    EXPECT_EQ(array_len(request.req.base.reply.results), 0);
+    MRReply *rows = MRReply_MapElement(root, "results");
+    // The first candidate reached the nearest-K sorter before the error stopped the pipeline.
+    EXPECT_EQ(MRReply_MapElement(MRReply_ArrayElement(rows, 0), "id"), nullptr);
+    MRReply *unread = MRReply_MapElement(MRReply_ArrayElement(rows, 2), "id");
+    EXPECT_EQ(std::string(MRReply_String(unread, nullptr)), "unread");
   }
 }
 
