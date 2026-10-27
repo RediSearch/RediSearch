@@ -233,7 +233,8 @@ mod ids_doctable {
         unsafe {
             let table = (*qctx.as_ptr()).docTable;
             assert!(ffi::DocTable_StartKeyMap(table));
-            assert!(ffi::DocTable_BuildKeyMapBatch(table, usize::MAX));
+            let mut iter = std::mem::zeroed();
+            assert!(ffi::DocTable_BuildKeyMapBatch(table, &mut iter, usize::MAX));
         }
         // SAFETY: context owns the backing fields and outlives evaluation.
         let mut ctx = unsafe { QueryEvalContext::new(qctx) };

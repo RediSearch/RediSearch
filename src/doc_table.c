@@ -83,9 +83,6 @@ static RSDocumentMetadata *DocTable_DmdUnchain(DocTable *t, t_docId docId) {
   RSDocumentMetadata **prev_next = &dmdChain->root;
   for (RSDocumentMetadata *md = dmdChain->root; md != NULL; md = md->nextInChain) {
     if (md->id == docId) {
-      if (t->keyMapState == DocKeyMap_Building && t->keyMapNext == md) {
-        t->keyMapNext = md->nextInChain;
-      }
       *prev_next = md->nextInChain;
       md->nextInChain = NULL;
       return md;
@@ -129,33 +126,52 @@ bool DocTable_Exists(const DocTable *t, t_docId docId) {
 bool DocTable_StartKeyMap(DocTable *t) {
   if (SearchDisk_IsEnabled() || t->keyMapState != DocKeyMap_Inactive) return false;
   t->keyMap = DocKeyMap_New();
-  t->keyMapBucket = 0;
-  t->keyMapEndBucket = t->cap;
-  t->keyMapNext = t->cap ? t->buckets[0].root : NULL;
   t->keyMapState = DocTable_IsEmpty(t) ? DocKeyMap_Ready : DocKeyMap_Building;
   return true;
 }
 
-bool DocTable_BuildKeyMapBatch(DocTable *t, size_t budget) {
+void DocTable_KeyMapIteratorCleanup(DocTableKeyMapIterator *iter) {
+  DMD_Return(iter->next);
+  iter->next = NULL;
+}
+
+bool DocTable_BuildKeyMapBatch(DocTable *t, DocTableKeyMapIterator *iter, size_t budget) {
   RS_ASSERT(t->keyMapState != DocKeyMap_Inactive);
-  if (t->keyMapState == DocKeyMap_Building && t->keyMapBucket == 0 && budget) {
+  if (t->keyMapState == DocKeyMap_Ready) return true;
+  if (!budget) return false;
+  if (!iter->initialized) {
+    iter->endBucket = t->cap;
+    iter->initialized = true;
     // Reserve on the background thread, before backfill can cause large rehashes.
     DocKeyMap_Reserve(t->keyMap, t->size - 1);
   }
-  while (t->keyMapState == DocKeyMap_Building && budget--) {
-    RSDocumentMetadata *dmd = t->keyMapNext;
+
+  RSDocumentMetadata *dmd = iter->next;
+  // Unlinking clears nextInChain. A retained deleted DMD stays alive, but cannot
+  // lead us to the remaining entries; restarting is safe because insertion is idempotent.
+  if (!dmd || (dmd->flags & Document_Deleted)) {
+    dmd = t->buckets[iter->bucket].root;
+  }
+  DocTable_KeyMapIteratorCleanup(iter);
+  // The spec lock pins the chain throughout the batch; only the yield needs a borrow.
+  while (iter->bucket < iter->endBucket && budget--) {
     if (dmd) {
-      t->keyMapNext = dmd->nextInChain;
-      uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr));
-      // A concurrent insert or rename may already have populated this ID.
-      DocKeyMap_InsertIfAbsent(t->keyMap, hash, dmd->id);
-    } else if (++t->keyMapBucket == t->keyMapEndBucket) {
-      t->keyMapState = DocKeyMap_Ready;
-    } else {
-      t->keyMapNext = t->buckets[t->keyMapBucket].root;
+      DocKeyMap_InsertIfAbsent(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
+      dmd = dmd->nextInChain;
+    }
+    if (!dmd && ++iter->bucket < iter->endBucket) {
+      dmd = t->buckets[iter->bucket].root;
     }
   }
-  return t->keyMapState == DocKeyMap_Ready;
+  if (iter->bucket == iter->endBucket) {
+    t->keyMapState = DocKeyMap_Ready;
+    return true;
+  }
+  if (dmd) {
+    DMD_Incref(dmd);
+    iter->next = dmd;
+  }
+  return false;
 }
 
 static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *dmd) {
@@ -193,8 +209,7 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
   dmd->nextInChain = chain->root;
   chain->root = dmd;
   if (t->keyMap) {
-    uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr));
-    DocKeyMap_Insert(t->keyMap, hash, docId);
+    DocKeyMap_Insert(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), docId);
   }
 }
 
@@ -443,7 +458,6 @@ void DocTable_Free(DocTable *t) {
   DocKeyMap_Free(t->keyMap);
   t->keyMap = NULL;
   t->keyMapState = DocKeyMap_Inactive;
-  t->keyMapNext = NULL;
   TimeToLiveTable_Destroy(&t->ttl);
   while (t->pendingSlotDeletions) {
     DocTable_RemovePendingDeletion(t, t->pendingSlotDeletions);
@@ -463,8 +477,7 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
   }
 
   if (t->keyMap) {
-    uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)md->keyPtr, sdslen(md->keyPtr));
-    bool removed = DocKeyMap_Remove(t->keyMap, hash, docId);
+    bool removed = DocKeyMap_Remove(t->keyMap, (const uint8_t *)md->keyPtr, sdslen(md->keyPtr), docId);
     RS_LOG_ASSERT(removed || t->keyMapState == DocKeyMap_Building,
                   "missing key map entry for deleted document");
   }
@@ -507,8 +520,7 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *to_str, size_t 
     return;
   }
   if (t->keyMap) {
-    uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr));
-    bool removed = DocKeyMap_Remove(t->keyMap, hash, docId);
+    bool removed = DocKeyMap_Remove(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), docId);
     RS_LOG_ASSERT(removed || t->keyMapState == DocKeyMap_Building,
                   "missing key map entry for renamed document");
   }
@@ -517,8 +529,7 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *to_str, size_t 
   dmd->keyPtr = sdsnewlen(to_str, to_len);
   dmd->slot = keySlot(to_str, to_len);
   if (t->keyMap) {
-    uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)to_str, to_len);
-    DocKeyMap_Insert(t->keyMap, hash, docId);
+    DocKeyMap_Insert(t->keyMap, (const uint8_t *)to_str, to_len, docId);
   }
   t->memsize += sdsAllocSize(dmd->keyPtr);
 }

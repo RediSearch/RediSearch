@@ -61,7 +61,11 @@ impl DocKeyMap {
     }
 
     /// Populate an ID during backfill, retaining a candidate already maintained by a writer.
-    pub fn insert_if_absent(&mut self, hash: u64, id: DocId) {
+    pub fn insert_if_absent(&mut self, key: &[u8], id: DocId) {
+        self.insert_if_absent_hashed(self.hash(key), id)
+    }
+
+    fn insert_if_absent_hashed(&mut self, hash: u64, id: DocId) {
         debug_assert_ne!(id, 0);
         self.entries
             .entry(hash, |entry| entry.id == id, |entry| entry.hash)
@@ -123,14 +127,20 @@ pub unsafe extern "C" fn DocKeyMap_Reserve(map: *mut DocKeyMap, capacity: usize)
 ///
 /// # Safety
 /// `map` must be [valid] for exclusive access and allocated by [`DocKeyMap_New`].
-/// The caller must remove an ID before changing its key and corresponding hash.
+/// `key` must be [valid] for `len` readable bytes, or null when `len` is zero.
+/// The caller must remove an ID before changing its key.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DocKeyMap_InsertIfAbsent(map: *mut DocKeyMap, hash: u64, id: DocId) {
+pub unsafe extern "C" fn DocKeyMap_InsertIfAbsent(
+    map: *mut DocKeyMap,
+    key: *const u8,
+    len: usize,
+    id: DocId,
+) {
     debug_assert!(!map.is_null());
-    // SAFETY: The caller provides exclusive access to a live map.
-    unsafe { &mut *map }.insert_if_absent(hash, id);
+    // SAFETY: The caller provides exclusive map access and readable key bytes.
+    unsafe { &mut *map }.insert_if_absent(unsafe { key_bytes(key, len) }, id);
 }
 
 /// Destroy a table; a null pointer is accepted.
@@ -282,5 +292,38 @@ mod tests {
         assert_eq!(map.find(42, |_| true), 0);
         map.insert_hashed(42, count + 1);
         assert_eq!(map.find(42, |_| true), count + 1);
+    }
+    #[test]
+    fn reserve_preserves_collisions_and_avoids_growth_during_backfill() {
+        let mut map = DocKeyMap::default();
+        map.insert_hashed(42, 1);
+        map.insert_hashed(42, 2);
+        map.reserve(64);
+        let reserved = map.memory_usage();
+        // A smaller request must neither shrink nor underflow the additional capacity.
+        map.reserve(0);
+        for id in 3..=64 {
+            map.insert_hashed(id, id);
+        }
+        assert_eq!(map.memory_usage(), reserved);
+        assert_eq!(map.find(42, |id| id == 1), 1);
+        assert_eq!(map.find(42, |id| id == 2), 2);
+        for id in 3..=64 {
+            assert_eq!(map.find(id, |candidate| candidate == id), id);
+        }
+    }
+
+    #[test]
+    fn backfill_deduplicates_ids_without_merging_hash_collisions() {
+        let mut map = DocKeyMap::default();
+        map.insert_hashed(42, 1);
+        map.insert_if_absent_hashed(42, 1);
+        map.insert_if_absent_hashed(42, 2);
+        map.insert_if_absent_hashed(42, 2);
+        assert!(map.remove_hashed(42, 1));
+        assert!(!map.remove_hashed(42, 1));
+        assert_eq!(map.find(42, |_| true), 2);
+        assert!(map.remove_hashed(42, 2));
+        assert_eq!(map.find(42, |_| true), 0);
     }
 }

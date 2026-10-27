@@ -93,6 +93,7 @@ static void verifyReindexPoolInit(void) {
 
 typedef struct {
   WeakRef spec;
+  DocTableKeyMapIterator iterator;
 } KeyMapBuild;
 
 static void KeyMapBuild_Run(void *arg) {
@@ -105,7 +106,7 @@ static void KeyMapBuild_Run(void *arg) {
   bool done = true;
   if (spec) {
     IndexSpec_LockWrite(spec);
-    done = DocTable_BuildKeyMapBatch(&spec->docs, KEY_MAP_BUILD_BATCH_SIZE);
+    done = DocTable_BuildKeyMapBatch(&spec->docs, &build->iterator, KEY_MAP_BUILD_BATCH_SIZE);
     IndexSpec_Unlock(spec);
 #ifdef ENABLE_ASSERT
     if (done) SyncPoint_Wait("KeyMapBuildComplete");
@@ -117,6 +118,7 @@ static void KeyMapBuild_Run(void *arg) {
     int rc = redisearch_thpool_add_work(reindexPool, KeyMapBuild_Run, build, THPOOL_PRIORITY_LOW);
     RS_ASSERT_ALWAYS(rc == 0);
   } else {
+    DocTable_KeyMapIteratorCleanup(&build->iterator);
     WeakRef_Release(build->spec);
     rm_free(build);
   }
@@ -131,7 +133,7 @@ void IndexSpec_ActivateKeyMap(IndexSpec *spec) {
   IndexSpec_Unlock(spec);
   if (!started || ready) return;
   verifyReindexPoolInit();
-  KeyMapBuild *build = rm_malloc(sizeof(*build));
+  KeyMapBuild *build = rm_calloc(1, sizeof(*build));
   build->spec = StrongRef_Demote(IndexSpec_GetStrongRefUnsafe(spec));
   int rc = redisearch_thpool_add_work(reindexPool, KeyMapBuild_Run, build, THPOOL_PRIORITY_LOW);
   RS_ASSERT_ALWAYS(rc == 0);

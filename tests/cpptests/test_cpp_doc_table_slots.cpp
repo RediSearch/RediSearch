@@ -163,6 +163,9 @@ TEST_F(DocTableSlotsTest, KeyLookupRejectsPendingDeletionCandidates) {
   const t_docId oldId = put(key);
   const t_docId unaffectedId = put("{b}other");
   PendingSlotDeletion *pending = addPending({{SLOT_A, SLOT_A}});
+  ASSERT_TRUE(DocTable_StartKeyMap(&dt));
+  DocTableKeyMapIterator iter = {};
+  ASSERT_TRUE(DocTable_BuildKeyMapBatch(&dt, &iter, SIZE_MAX));
 
   EXPECT_FALSE(DocTable_KeyEquals(&dt, oldId, key.data(), key.size()));
   EXPECT_EQ(DocTable_GetIdByKey(&dt, key.data(), key.size()), 0u);

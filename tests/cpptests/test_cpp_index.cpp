@@ -1512,6 +1512,7 @@ TEST_F(IndexTest, testDocKeyMapDisabledForDisk) {
 }
 
 TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
+  DocTableKeyMapIterator iter = {};
   DocTable dt = NewDocTable(1, 2);
   for (int i = 1; i <= 8; ++i) {
     std::string key = "doc:" + std::to_string(i);
@@ -1522,19 +1523,25 @@ TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
   EXPECT_EQ(DocTable_KeyMapMemoryUsage(&dt), 0u);
   ASSERT_TRUE(DocTable_StartKeyMap(&dt));
   EXPECT_FALSE(DocTable_StartKeyMap(&dt));
-  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, 3));
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 3));
+  ASSERT_NE(iter.next, nullptr);
+  EXPECT_EQ(iter.next->id, 2u);
+  EXPECT_EQ(iter.next->ref_count, 2u);
   // Delete the parked cursor and mutate both scanned and unscanned entries.
   DocTable_SetKeyById(&dt, 1, "renamed:1", 9);
   DocTable_SetKeyById(&dt, 8, "renamed:8", 9);
   DMD_Return(DocTable_DeleteById(&dt, 2));
+  EXPECT_TRUE(iter.next->flags & Document_Deleted);
+  EXPECT_EQ(iter.next->ref_count, 1u);
   DMD_Return(DocTable_DeleteById(&dt, 7));
   auto *added = DocTable_Put(&dt, "new", 3, 1, (RSDocumentFlags)0, nullptr, 0, DocumentType_Hash);
   const auto addedId = added->id;
   DMD_Return(added);
   size_t batches = 0;
-  while (!DocTable_BuildKeyMapBatch(&dt, 2)) {
+  while (!DocTable_BuildKeyMapBatch(&dt, &iter, 2)) {
     ASSERT_LT(++batches, 10u);
   }
+  EXPECT_EQ(iter.next, nullptr);
   EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed:1", 9), 1u);
   EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed:8", 9), 8u);
   EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:1", 5), 0u);
@@ -1547,6 +1554,7 @@ TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
 }
 
 TEST_F(IndexTest, testLazyKeyMapBucketGrowth) {
+  DocTableKeyMapIterator iter = {};
   DocTable dt = NewDocTable(1, 64);
   for (int i = 1; i <= 4; ++i) {
     auto key = std::to_string(i);
@@ -1554,8 +1562,8 @@ TEST_F(IndexTest, testLazyKeyMapBucketGrowth) {
                             DocumentType_Hash));
   }
   ASSERT_TRUE(DocTable_StartKeyMap(&dt));
-  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, 0));
-  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, 2));
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 0));
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 2));
   size_t snapshotCap = dt.cap;
   for (int i = 5; i <= 100; ++i) {
     auto key = std::to_string(i);
@@ -1566,7 +1574,7 @@ TEST_F(IndexTest, testLazyKeyMapBucketGrowth) {
   DocTable_SetKeyById(&dt, 2, "renamed", 7);
   DMD_Return(DocTable_DeleteById(&dt, 3));
   size_t batches = 0;
-  while (!DocTable_BuildKeyMapBatch(&dt, 2)) {
+  while (!DocTable_BuildKeyMapBatch(&dt, &iter, 2)) {
     ASSERT_LT(++batches, 20u);
   }
   EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), 2u);
@@ -1580,6 +1588,7 @@ TEST_F(IndexTest, testLazyKeyMapBucketGrowth) {
 }
 
 TEST_F(IndexTest, testLazyKeyMapUnorderedChain) {
+  DocTableKeyMapIterator iter = {};
   DocTable dt = NewDocTable(1, 1);
   for (int i = 1; i <= 4; ++i) {
     auto key = std::to_string(i);
@@ -1593,13 +1602,37 @@ TEST_F(IndexTest, testLazyKeyMapUnorderedChain) {
   second->nextInChain = first;
   dt.buckets[0].root = second;
   ASSERT_TRUE(DocTable_StartKeyMap(&dt));
-  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, 1));
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 1));
   DMD_Return(DocTable_DeleteById(&dt, 4));
   DocTable_SetKeyById(&dt, 1, "renamed", 7);
-  EXPECT_TRUE(DocTable_BuildKeyMapBatch(&dt, 10));
+  EXPECT_TRUE(DocTable_BuildKeyMapBatch(&dt, &iter, 10));
   EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), 1u);
   EXPECT_EQ(DocTable_GetIdByKey(&dt, "2", 1), 2u);
   EXPECT_EQ(DocTable_GetIdByKey(&dt, "3", 1), 3u);
   EXPECT_EQ(DocTable_GetIdByKey(&dt, "4", 1), 0u);
   DocTable_Free(&dt);
+}
+
+TEST_F(IndexTest, testLazyKeyMapCursorOutlivesTable) {
+  DocTable dt = NewDocTable(1, 1);
+  for (int i = 1; i <= 3; ++i) {
+    auto key = std::to_string(i);
+    DMD_Return(DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                            DocumentType_Hash));
+  }
+  ASSERT_TRUE(DocTable_StartKeyMap(&dt));
+  DocTableKeyMapIterator iter = {};
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 1));
+  ASSERT_NE(iter.next, nullptr);
+  EXPECT_EQ(iter.next->id, 2u);
+  EXPECT_EQ(iter.next->ref_count, 2u);
+  EXPECT_EQ(dt.buckets[0].root->ref_count, 1u);
+  EXPECT_EQ(iter.next->nextInChain->ref_count, 1u);
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 0));
+  EXPECT_EQ(iter.next->ref_count, 2u);
+  DocTable_Free(&dt);
+  EXPECT_EQ(iter.next->ref_count, 1u);
+  DocTable_KeyMapIteratorCleanup(&iter);
+  EXPECT_EQ(iter.next, nullptr);
+  DocTable_KeyMapIteratorCleanup(&iter);
 }

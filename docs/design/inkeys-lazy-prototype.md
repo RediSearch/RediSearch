@@ -34,13 +34,19 @@ key remains physically present after fallback resolution.
 
 ## Backfill and concurrent mutation
 
-Construction snapshots the bucket-array capacity and retains a bucket index and
-next-DMD pointer. Deletion repairs that pointer before unlinking its target.
+The background task owns the traversal state, so indexes retain no iterator fields.
+Its first nonempty-budget batch snapshots the bucket-array capacity. Within each
+batch the spec lock pins the chain without per-document reference-count changes.
+At the end it retains only the next DMD; at the start of the next batch it checks
+that DMD for deletion and releases the retained reference. If deleted, traversal
+restarts the current bucket because unlinking clears the DMD's chain link.
+Completion and cancellation release any parked reference, even after index drop.
+
 Array growth preserves bucket membership, and newly created buckets contain only
-new documents maintained by the normal write path. Traversal therefore costs
-O(snapshot bucket capacity + visited chain entries), independent of the historical
-maximum document ID, and does not repeatedly search collision chains or assume
-any ordering within them.
+new documents maintained by the normal write path. Without cursor deletions,
+traversal costs O(snapshot bucket capacity + visited chain entries), independent
+of the historical maximum document ID and chain ordering. Cursor deletions can
+cause rescans, but every batch still bounds documents and empty buckets visited.
 
 Writes maintain the map from activation onward. During construction, deletion
 and rename tolerate an entry not having been backfilled yet; rename inserts the

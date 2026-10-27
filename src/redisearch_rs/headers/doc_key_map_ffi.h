@@ -64,11 +64,12 @@ void DocKeyMap_Insert(struct DocKeyMap *map, const uint8_t *key, size_t len, t_d
  *
  * # Safety
  * `map` must be [valid] for exclusive access and allocated by [`DocKeyMap_New`].
- * The caller must remove an ID before changing its key and corresponding hash.
+ * `key` must be [valid] for `len` readable bytes, or null when `len` is zero.
+ * The caller must remove an ID before changing its key.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void DocKeyMap_InsertIfAbsent(struct DocKeyMap *map, uint64_t hash, t_docId id);
+void DocKeyMap_InsertIfAbsent(struct DocKeyMap *map, const uint8_t *key, size_t len, t_docId id);
 
 /**
  * Report allocated table storage; null denotes disabled acceleration and returns zero.
