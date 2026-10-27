@@ -1061,6 +1061,9 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_ReplyWithError(
         ctx, "GC DID NOT RUN: no child process could be created within TIMEOUT");
   }
+  if (outcome && *outcome == GC_FORCED_RUN_BUSY) {
+    return RedisModule_ReplyWithError(ctx, "GC DID NOT RUN: another GC run of this index is in progress");
+  }
   return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
 

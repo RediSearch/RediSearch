@@ -817,3 +817,57 @@ TEST_P(PriorityThpoolTestBiasAndNonBias, TestTakingTasksAsBias) {
     sign2 = false;
     redisearch_thpool_wait(this->pool);
 }
+
+/* ========================== BARRIER ========================== */
+
+class ThpoolBarrierTest : public testing::Test {
+protected:
+    static constexpr size_t N_THREADS = 3;
+    redisearch_thpool_t *pool;
+    void SetUp() override {
+        pool = redisearch_thpool_create(N_THREADS, 1, LogCallback, "test");
+    }
+    void TearDown() override {
+        redisearch_thpool_destroy(pool);
+    }
+};
+
+static std::atomic<bool> barrier_job_may_finish;
+static void blockUntilAllowed(void *) {
+    while (!barrier_job_may_finish.load()) {
+        usleep(100);
+    }
+}
+static void markReleased(void *released) {
+    static_cast<std::atomic<bool> *>(released)->store(true);
+}
+
+// The barrier waits for a job that was already running when it was queued, and releases once it
+// returns, even though the other threads were idle all along.
+TEST_F(ThpoolBarrierTest, ReleasesOnlyAfterRunningJobsReturn) {
+    barrier_job_may_finish = false;
+    redisearch_thpool_add_work(pool, blockUntilAllowed, NULL, THPOOL_PRIORITY_HIGH);
+    jobs_pull_wait(pool, 1);
+
+    std::atomic<bool> released{false};
+    ASSERT_EQ(redisearch_thpool_add_barrier(pool, markReleased, &released), 0);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    ASSERT_FALSE(released.load());
+
+    barrier_job_may_finish = true;
+    while (!released.load()) {
+        usleep(100);
+    }
+    redisearch_thpool_wait(pool);
+}
+
+// Two barriers queued back to back both release.
+TEST_F(ThpoolBarrierTest, ConsecutiveBarriersBothRelease) {
+    std::atomic<bool> first{false}, second{false};
+    ASSERT_EQ(redisearch_thpool_add_barrier(pool, markReleased, &first), 0);
+    ASSERT_EQ(redisearch_thpool_add_barrier(pool, markReleased, &second), 0);
+    while (!first.load() || !second.load()) {
+        usleep(100);
+    }
+    redisearch_thpool_wait(pool);
+}
