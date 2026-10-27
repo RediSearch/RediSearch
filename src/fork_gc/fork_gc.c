@@ -42,6 +42,7 @@
 // Number of attempts to wait for the child to exit gracefully before trying to terminate it
 #define GC_WAIT_ATTEMPTS 4
 
+
 // GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   // Check if we are a slave/replica
@@ -190,41 +191,10 @@ static bool runThreadCycle(ForkGC *gc, StrongRef spec_ref) {
   return gcrv;
 }
 
-bool FGC_RunCycle(ForkGC *gc, GCForcedRun *forced, const FGCHook *hook) {
+// The fork half of FGC_RunCycle. Consumes `early_check`.
+static bool runForkCycle(ForkGC *gc, GCForcedRun *forced, const FGCHook *hook,
+                         StrongRef early_check) {
   RedisModuleCtx *ctx = gc->ctx;
-
-  // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
-  // early termination might never change after index deletion and will cause periodicCb to always return true,
-  // which will cause the GC to never stop rescheduling itself.
-  // If the index was deleted, we don't want to reschedule the GC, so we return false.
-  // If the index is still valid, we MUST hold the strong reference to it until after the fork, to make sure
-  // the child process has a valid reference to the index.
-  // If we were to try and revalidate the index after the fork, it might already be dropped and the child
-  // will exit before sending any data, and might left the parent waiting for data that will never arrive.
-  // Attempting to revalidate the index after the fork is also problematic because the parent and child are
-  // not synchronized, and the parent might see the index alive while the child sees it as deleted.
-  StrongRef early_check = IndexSpecRef_Promote(gc->index);
-  if (!StrongRef_Get(early_check)) {
-    // Index was deleted
-    return false;
-  }
-
-  // Taken before the fork: a deletion deferred after this point is counted next cycle, never reset
-  // away uncounted.
-  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(StrongRef_Get(early_check));
-  if (deferred) {
-    gc->deletedOrUpdatedDocsFromLastRun += deferred;
-    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
-  }
-
-  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
-    IndexSpecRef_Release(early_check);
-    return true;
-  }
-
-  if (threadPolicyEnabled()) {
-    return runThreadCycle(gc, early_check);
-  }
 
   bool gcrv = true;
   pid_t cpid;
@@ -332,6 +302,43 @@ bool FGC_RunCycle(ForkGC *gc, GCForcedRun *forced, const FGCHook *hook) {
   gc->stats.lastRunTimeMs = msRun;
 
   return gcrv;
+}
+
+bool FGC_RunCycle(ForkGC *gc, GCForcedRun *forced, const FGCHook *hook) {
+  // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
+  // early termination might never change after index deletion and will cause periodicCb to always return true,
+  // which will cause the GC to never stop rescheduling itself.
+  // If the index was deleted, we don't want to reschedule the GC, so we return false.
+  // If the index is still valid, we MUST hold the strong reference to it until after the fork, to make sure
+  // the child process has a valid reference to the index.
+  // If we were to try and revalidate the index after the fork, it might already be dropped and the child
+  // will exit before sending any data, and might left the parent waiting for data that will never arrive.
+  // Attempting to revalidate the index after the fork is also problematic because the parent and child are
+  // not synchronized, and the parent might see the index alive while the child sees it as deleted.
+  StrongRef early_check = IndexSpecRef_Promote(gc->index);
+  if (!StrongRef_Get(early_check)) {
+    // Index was deleted
+    return false;
+  }
+
+  // Taken before the fork: a deletion deferred after this point is counted next cycle, never reset
+  // away uncounted.
+  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(StrongRef_Get(early_check));
+  if (deferred) {
+    gc->deletedOrUpdatedDocsFromLastRun += deferred;
+    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
+  }
+
+  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+    IndexSpecRef_Release(early_check);
+    return true;
+  }
+
+  if (threadPolicyEnabled()) {
+    return runThreadCycle(gc, early_check);
+  }
+
+  return runForkCycle(gc, forced, hook, early_check);
 }
 
 static bool periodicCb(void *privdata, GCForcedRun *forced) {

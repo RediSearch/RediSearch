@@ -1091,6 +1091,56 @@ static void admin_job_change_state_last_destroys_barrier(void *job_arg_) {
   }
 }
 
+/* ========================== BARRIER ============================ */
+
+typedef struct {
+  pthread_barrier_t barrier;
+  atomic_size_t num_threads_to_leave; /* the last thread to leave frees the struct */
+  void (*on_release)(void *);
+  void *arg;
+} threadBarrier;
+
+static void admin_job_barrier(void *job_arg_) {
+  adminJobArg *job_arg = job_arg_;
+  threadBarrier *barrier = job_arg->arg;
+  if (pthread_barrier_wait(&barrier->barrier) == PTHREAD_BARRIER_SERIAL_THREAD) {
+    barrier->on_release(barrier->arg);
+  }
+  if (atomic_fetch_sub(&barrier->num_threads_to_leave, 1) == 1) {
+    pthread_barrier_destroy(&barrier->barrier);
+    rm_free(barrier);
+  }
+}
+
+int redisearch_thpool_add_barrier(redisearch_thpool_t *thpool_p, void (*on_release)(void *),
+                                  void *arg) {
+  redisearch_thpool_lock(thpool_p);
+  size_t n_threads = thpool_p->n_threads;
+  redisearch_thpool_unlock(thpool_p);
+  if (n_threads == 0) {
+    on_release(arg); /* nothing can be running */
+    return 0;
+  }
+
+  threadBarrier *barrier = rm_malloc(sizeof(*barrier));
+  pthread_barrier_init(&barrier->barrier, NULL, n_threads);
+  atomic_init(&barrier->num_threads_to_leave, n_threads);
+  barrier->on_release = on_release;
+  barrier->arg = arg;
+
+  redisearch_thpool_work_t jobs[n_threads];
+  for (size_t i = 0; i < n_threads; i++) {
+    jobs[i].arg_p = barrier;
+    jobs[i].function_p = admin_job_barrier;
+  }
+  if (redisearch_thpool_add_n_work(thpool_p, jobs, n_threads, THPOOL_PRIORITY_ADMIN) != 0) {
+    pthread_barrier_destroy(&barrier->barrier);
+    rm_free(barrier);
+    return -1;
+  }
+  return 0;
+}
+
 void redisearch_thpool_schedule_config_reduce_threads_job(redisearch_thpool_t *thpool_p, size_t n_threads_to_remove, bool terminate_when_empty) {
   /** THPOOL_UNINITIALIZED means either:
    * 1. thpool->n_threads > 0, and there are no threads alive
