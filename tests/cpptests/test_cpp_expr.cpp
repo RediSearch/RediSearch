@@ -122,6 +122,64 @@ TEST_F(ExprTest, testExpr) {
   ASSERT_EQ(6, RSValue_Number_Get(result));
 }
 
+TEST_F(ExprTest, testGeoDistanceArgumentForms) {
+  for (const char *expression : {
+           "geodistance('1.23,4.56','1.25,4.5')",
+           "geodistance(1.23,4.56,'1.25,4.5')",
+           "geodistance('1.23','4.56','1.25,4.5')",
+           "geodistance('1.23,4.56',1.25,4.5)",
+           "geodistance('1.23,4.56','1.25','4.5')",
+           "geodistance(1.23,4.56,1.25,4.5)",
+           "geodistance('1.23','4.56','1.25','4.5')",
+       }) {
+    SCOPED_TRACE(expression);
+    TEvalCtx ctx(expression);
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.err = &ctx.status_s;
+    ASSERT_EQ(ctx.eval(), EXPR_EVAL_OK);
+    ASSERT_EQ(RSValue_Type(ctx.result()), RSValueType_Number);
+    EXPECT_DOUBLE_EQ(RSValue_Number_Get(ctx.result()), 7032.37);
+  }
+}
+
+TEST_F(ExprTest, testGeoDistanceConversionFailures) {
+  for (const char *expression : {
+           "geodistance(NULL,'0,0')",
+           "geodistance('0,0',NULL)",
+           "geodistance(0,'bad','0,0')",
+           "geodistance(0,0,NULL)",
+           "geodistance('0,0','bad',0)",
+           "geodistance('0,0',0,'bad')",
+           "geodistance('bad',0,0,0)",
+           "geodistance(0,'bad',0,0)",
+           "geodistance(0,0,'bad',0)",
+           "geodistance(0,0,0,'bad')",
+       }) {
+    SCOPED_TRACE(expression);
+    TEvalCtx ctx(expression);
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.err = &ctx.status_s;
+    EXPECT_EQ(ctx.eval(), EXPR_EVAL_OK);
+    ASSERT_EQ(RSValue_Type(ctx.result()), RSValueType_Number);
+    EXPECT_TRUE(std::isnan(RSValue_Number_Get(ctx.result())));
+    EXPECT_FALSE(QueryError_HasError(&ctx.status_s));
+  }
+  for (const char *expression : {
+           "geodistance('bad','0,0')",
+           "geodistance('0,0','bad')",
+           "geodistance('bad',0,0)",
+           "geodistance(0,0,'bad')",
+       }) {
+    SCOPED_TRACE(expression);
+    TEvalCtx ctx(expression);
+    ASSERT_TRUE(ctx) << ctx.error();
+    ctx.err = &ctx.status_s;
+    EXPECT_EQ(ctx.eval(), EXPR_EVAL_OK);
+    ASSERT_EQ(RSValue_Type(ctx.result()), RSValueType_Number);
+    EXPECT_TRUE(std::isnan(RSValue_Number_Get(ctx.result())));
+    EXPECT_EQ(QueryError_GetCode(&ctx.status_s), QUERY_ERROR_CODE_PARSE_ARGS);
+  }
+}
 
 TEST_F(ExprTest, testDump) {
   using String = const char *;

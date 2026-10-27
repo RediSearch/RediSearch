@@ -241,3 +241,79 @@ def testGeoParseTrailingWhitespace(env):
   conn.execute_command('HSET', 'ws2', 'g', '1.23, 4.56 ')
 
   assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
+
+
+@skip(cluster=True)
+def testGeoFilterUnits(env):
+  """Legacy and query filters convert every supported unit to the same radius."""
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('HSET', 'near', 'g', '0.01,0')
+  conn.execute_command('HSET', 'far', 'g', '0.02,0')
+  for unit, radius in [('M', 1500), ('Km', 1.5), ('fT', 1500 / 0.3048),
+                       ('MI', 1500 / 1609.34)]:
+    for dialect in [1, 2]:
+      env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 0, 0, radius, unit,
+                 'NOCONTENT', 'DIALECT', dialect).equal([1, 'near'])
+      env.expect('FT.SEARCH', 'idx', f'@g:[0 0 {radius} {unit}]',
+                 'NOCONTENT', 'DIALECT', dialect).equal([1, 'near'])
+
+
+@skip(cluster=True)
+def testGeoDistanceArgumentForms(env):
+  """Two, three and four arguments round to centimeters, including numeric strings."""
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO', 's', 'GEO', 'SORTABLE').ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('HSET', 'doc', 'g', '1.23,4.56', 's', '1.23,4.56')
+  expressions = [
+    'geodistance("1.23,4.56","1.25,4.5")',
+    'geodistance("1.23 4.56","1.25 4.5")',
+    'geodistance(1.23,4.56,"1.25,4.5")',
+    'geodistance("1.23","4.56","1.25,4.5")',
+    'geodistance("1.23,4.56",1.25,4.5)',
+    'geodistance("1.23,4.56","1.25","4.5")',
+    'geodistance(1.23,4.56,1.25,4.5)',
+    'geodistance("1.23","4.56","1.25","4.5")',
+    'geodistance(@g,1.25,4.5)',
+    'geodistance(@s,1.25,4.5)',
+    'geodistance(1.25,4.5,@s)',
+    'geodistance(@s,"1.25,4.5")',
+    'geodistance("1.25,4.5",@s)',
+  ]
+  for expression in expressions:
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@g',
+               'APPLY', expression, 'AS', 'distance', 'GROUPBY', 1,
+               '@distance').equal([1, ['distance', '7032.37']])
+
+
+@skip(cluster=True)
+def testGeoDistanceConversionFailures(env):
+  """Numeric conversion failures yield NaN; malformed geo strings retain parse errors."""
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  getConnectionByEnv(env).execute_command('HSET', 'doc', 't', 'test')
+  for expression in [
+    'geodistance(NULL,"0,0")',
+    'geodistance("0,0",NULL)',
+    'geodistance(0,"bad","0,0")',
+    'geodistance(0,0,NULL)',
+    'geodistance("0,0","bad",0)',
+    'geodistance("0,0",0,"bad")',
+    'geodistance("bad",0,0,0)',
+    'geodistance(0,"bad",0,0)',
+    'geodistance(0,0,"bad",0)',
+    'geodistance(0,0,0,"bad")',
+  ]:
+    env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', expression, 'AS', 'distance',
+               'GROUPBY', 1, '@distance').equal([1, ['distance', 'nan']])
+  for expression in [
+    'geodistance("bad","0,0")',
+    'geodistance("0,0","bad")',
+    'geodistance("bad",0,0)',
+    'geodistance(0,0,"bad")',
+  ]:
+    env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', expression, 'AS', 'distance',
+               'GROUPBY', 1, '@distance').error().contains(
+                 'SEARCH_PARSE_ARGS Invalid geo string: missing separator')
+  for expression in ['geodistance("0,0")', 'geodistance(0,0,0,0,0)']:
+    env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', expression,
+               'AS', 'distance').error().contains('arguments')

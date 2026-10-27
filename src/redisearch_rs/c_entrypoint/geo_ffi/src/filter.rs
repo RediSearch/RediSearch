@@ -91,7 +91,7 @@ const fn unit_from_c(unit: GeoDistance) -> geo::GeoDistance {
 /// # Safety
 /// `s` must point to a readable NUL-terminated string.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoDistance_Parse(s: *const c_char) -> GeoDistance {
+pub unsafe extern "C" fn GeoDistance_Parse(s: *const c_char) -> GeoDistance {
     // SAFETY: caller supplies a NUL-terminated string.
     unit_to_c(geo::GeoDistance::parse(
         unsafe { CStr::from_ptr(s) }.to_bytes(),
@@ -103,7 +103,7 @@ pub unsafe extern "C" fn Rust_GeoDistance_Parse(s: *const c_char) -> GeoDistance
 /// # Safety
 /// `s` must be readable for `len` bytes when `len` is less than the buffer limit.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoDistance_Parse_Buffer(s: *const c_char, len: usize) -> GeoDistance {
+pub unsafe extern "C" fn GeoDistance_Parse_Buffer(s: *const c_char, len: usize) -> GeoDistance {
     if len >= 16 {
         return GEO_DISTANCE_INVALID;
     }
@@ -118,7 +118,7 @@ pub unsafe extern "C" fn Rust_GeoDistance_Parse_Buffer(s: *const c_char, len: us
 
 /// Return a static NUL-terminated unit spelling.
 #[unsafe(no_mangle)]
-pub const extern "C" fn Rust_GeoDistance_ToString(unit: GeoDistance) -> *const c_char {
+pub const extern "C" fn GeoDistance_ToString(unit: GeoDistance) -> *const c_char {
     match unit_from_c(unit) {
         geo::GeoDistance::Kilometers => c"km",
         geo::GeoDistance::Meters => c"m",
@@ -129,13 +129,13 @@ pub const extern "C" fn Rust_GeoDistance_ToString(unit: GeoDistance) -> *const c
     .as_ptr()
 }
 
-/// Allocate an unvalidated filter, released with [`Rust_GeoFilter_Free`].
+/// Allocate an unvalidated filter, released with [`GeoFilter_Free`].
 ///
 /// # Safety
 /// A non-null `unit` must be readable for `unit_len` bytes.
 /// Redis allocation functions must be initialized and remain unchanged.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_NewGeoFilter(
+pub unsafe extern "C" fn NewGeoFilter(
     lon: f64,
     lat: f64,
     radius: f64,
@@ -145,7 +145,7 @@ pub unsafe extern "C" fn Rust_NewGeoFilter(
     let mut filter = GeoFilter::from_core(geo::GeoFilter::new(lon, lat, radius, None));
     if !unit.is_null() {
         // SAFETY: forwarded caller contract.
-        filter.unitType = unsafe { Rust_GeoDistance_Parse_Buffer(unit, unit_len) };
+        filter.unitType = unsafe { GeoDistance_Parse_Buffer(unit, unit_len) };
     }
     // SAFETY: the Redis allocator is initialized and remains unchanged.
     let alloc =
@@ -163,7 +163,7 @@ pub unsafe extern "C" fn Rust_NewGeoFilter(
 /// # Safety
 /// `gf` must be writable; a non-null `fs` must point to a live [`ffi::FieldSpec`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoFilter_SetField(gf: *mut GeoFilter, fs: *const ffi::FieldSpec) {
+pub unsafe extern "C" fn GeoFilter_SetField(gf: *mut GeoFilter, fs: *const ffi::FieldSpec) {
     // SAFETY: a non-null fs points to a live field spec.
     let index = unsafe { fs.as_ref() }.map_or(RS_INVALID_FIELD_INDEX, |fs| fs.index);
     // SAFETY: caller guarantees gf is writable.
@@ -175,7 +175,7 @@ pub unsafe extern "C" fn Rust_GeoFilter_SetField(gf: *mut GeoFilter, fs: *const 
 /// # Safety
 /// `gf` must be readable and `status` must point to an initialized, writable query error.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoFilter_Validate(
+pub unsafe extern "C" fn GeoFilter_Validate(
     gf: *const GeoFilter,
     status: *mut OpaqueQueryError,
 ) -> c_int {
@@ -206,7 +206,7 @@ unsafe extern "C" {
 /// `gf` must own its cache and point to a live Redis allocation. Both allocation
 /// functions must remain initialized; no references may survive this call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoFilter_Free(gf: *mut GeoFilter) {
+pub unsafe extern "C" fn GeoFilter_Free(gf: *mut GeoFilter) {
     // SAFETY: caller supplies a live filter.
     let filters = unsafe { (*gf).numericFilters };
     if !filters.is_null() {
@@ -227,7 +227,7 @@ pub unsafe extern "C" fn Rust_GeoFilter_Free(gf: *mut GeoFilter) {
 /// # Panics
 /// The constraints of [`geo::GeoFilter::is_within_radius`] apply.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_isWithinRadius(
+pub unsafe extern "C" fn isWithinRadius(
     gf: *const GeoFilter,
     score: f64,
     distance: *mut f64,

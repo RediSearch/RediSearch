@@ -150,14 +150,8 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/geo_index.h",
-        fns: &["GeoFilter_Free", "GeoFilter_Validate", "NewGeoFilter"],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/redisearch_rs/headers/geo_ffi.h",
-        fns: &[],
+        fns: &["GeoFilter_Free", "GeoFilter_Validate", "NewGeoFilter"],
         types: &[],
         vars: &[
             "GEO_DISTANCE_INVALID",
