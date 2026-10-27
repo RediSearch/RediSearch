@@ -18,12 +18,21 @@ def _check_ordering(env, resp3):
         fields = ['t', 'same'] + (['n', i // 3] if i < 10 else [])
         conn.execute_command('HSET', key, *fields)
 
-    def expected(order, offset=0, limit=20):
+    def expected(order, offset=0, limit=20, with_sortkeys=False):
         page = order[offset:offset + limit]
+
+        def sortkey(key):
+            i = keys.index(key)
+            return f'#{i // 3}' if i < 10 else None
+
         if not resp3:
-            return [len(keys), *page]
+            values = [v for key in page for v in (key, sortkey(key))] if with_sortkeys else page
+            return [len(keys), *values]
+        rows = [{'id': key, 'values': []} for key in page]
+        if with_sortkeys:
+            rows = [dict(row, sortkey=sortkey(row['id'])) for row in rows]
         return {'attributes': [], 'warning': [], 'total_results': len(keys),
-                'format': 'STRING', 'results': [{'id': key, 'values': []} for key in page]}
+                'format': 'STRING', 'results': rows}
 
     for direction in ('ASC', 'DESC'):
         present = sorted(keys[:10], key=lambda key: (keys.index(key) // 3, key),
@@ -32,10 +41,12 @@ def _check_ordering(env, resp3):
         order = present + missing
         for offset, limit in ((0, 20), (2, 5), (11, 5), (20, 5), (0, 0)):
             args = ['idx', '*', 'SORTBY', 'n', direction, 'NOCONTENT', 'LIMIT', offset, limit]
-            result = env.cmd('FT.SEARCH', *args)
-            env.assertEqual(result, expected(order, offset, limit))
-            profiled = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', *args[1:])
-            env.assertEqual(profiled['Results'] if resp3 else profiled[0], result)
+            for with_sortkeys in (False, True):
+                options = ['WITHSORTKEYS'] if with_sortkeys else []
+                result = env.cmd('FT.SEARCH', *args, *options)
+                env.assertEqual(result, expected(order, offset, limit, with_sortkeys))
+                profiled = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', *args[1:], *options)
+                env.assertEqual(profiled['Results'] if resp3 else profiled[0], result)
 
     env.assertEqual(env.cmd('FT.SEARCH', 'idx', 'same', 'SCORER', 'DOCSCORE',
                             'NOCONTENT', 'LIMIT', 2, 5), expected(sorted(keys), 2, 5))

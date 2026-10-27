@@ -451,6 +451,8 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
           }
           if (!key) key = takeSearchField(body, offset, ctx->offsets.sortKey, "sortkey");
           RLookup_WriteOwnKey(ctx->wireSortKey, values, MRReply_ToValue(key));
+        } else {
+          RLookup_WriteOwnKey(ctx->wireSortKey, values, RSValue_NullStatic());
         }
         SearchResult_SetScore(row, view.score);
         ++source->row;
