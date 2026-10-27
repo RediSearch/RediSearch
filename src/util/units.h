@@ -10,3 +10,4 @@
 
 #define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000)
 #define MEMORY_MB(x) ((x) / (double)(1024 * 1024))
+#define MB_TO_BYTES(x) ((x) * (double)(1024 * 1024))

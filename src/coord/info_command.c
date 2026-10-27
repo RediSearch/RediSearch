@@ -8,6 +8,7 @@
 */
 #include "info_command.h"
 
+#include <math.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -24,6 +25,7 @@
 #include "rmr/rmr.h"
 #include "rmutil/rm_assert.h"
 #include "util/arr/arr.h"
+#include "util/units.h"
 
 struct MRCtx;
 
@@ -57,8 +59,6 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "text_overhead_sz_mb", .type = InfoField_DoubleSum},
     {.name = "total_index_memory_sz_mb", .type = InfoField_DoubleSum},
     {.name = "geoshapes_sz_mb", .type = InfoField_DoubleSum},
-    {.name = "records_per_doc_avg", .type = InfoField_DoubleAverage},
-    {.name = "bytes_per_record_avg", .type = InfoField_DoubleAverage},
     {.name = "offsets_per_term_avg", .type = InfoField_DoubleAverage},
     {.name = "offset_bits_per_record_avg", .type = InfoField_DoubleAverage},
     {.name = "indexing", .type = InfoField_WholeSum},
@@ -355,6 +355,25 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
   }
 }
 
+static void replyIndexAverages(RedisModule_Reply *reply, InfoFields *fields) {
+  InfoValue *values = fields->toplevelValues;
+  InfoValue *docs =
+      findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "num_docs").value;
+  InfoValue *records =
+      findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "num_records").value;
+  InfoValue *size =
+      findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "inverted_sz_mb").value;
+
+  if (records && docs && records->isSet && docs->isSet) {
+    double average = docs->u.total_l ? (double)records->u.total_l / docs->u.total_l : NAN;
+    RedisModule_ReplyKV_Double(reply, "records_per_doc_avg", average);
+  }
+  if (size && records && size->isSet && records->isSet) {
+    double average = records->u.total_l ? MB_TO_BYTES(size->u.total_d / records->u.total_l) : NAN;
+    RedisModule_ReplyKV_Double(reply, "bytes_per_record_avg", average);
+  }
+}
+
 static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bool obfuscate) {
   RedisModule_Reply_Map(reply);
 
@@ -392,6 +411,7 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
   RedisModule_Reply_MapEnd(reply);
 
   replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
+  replyIndexAverages(reply, fields);
 
 
   // Global index error stats
