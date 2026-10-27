@@ -7,6 +7,16 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "rmutil/args.h"
+#include "rqe_core.h"
+typedef struct FieldSpec FieldSpec;
+typedef struct HiddenString HiddenString;
+
+
+/**
+ * Filter details to apply to numeric values
+ */
+typedef struct NumericFilter NumericFilter;
 
 /**
  * An opaque query error which can be passed by value to C.
@@ -15,6 +25,52 @@
  * structure exactly.
  */
 typedef struct QueryError QueryError;
+
+/**
+ * The C version of a [`SharedValue`](value::SharedValue)
+ */
+typedef struct RSValue RSValue;
+
+/**
+ * C unit representation. Integers outside the named constants remain representable.
+ */
+typedef int GeoDistance;
+
+/**
+ * C query geometry and iterator-owned runtime cache.
+ */
+typedef struct GeoFilter {
+  /**
+   * Stable index, not a potentially stale field-spec pointer.
+   */
+  t_fieldIndex fieldIndex;
+  double lat;
+  double lon;
+  double radius;
+  GeoDistance unitType;
+  /**
+   * Released by the iterator adapter, which knows both allocation origins.
+   */
+  NumericFilter * *numericFilters;
+} GeoFilter;
+
+/**
+ * Legacy syntax borrows a field name until schema resolution.
+ */
+typedef struct LegacyGeoFilter {
+  struct GeoFilter base;
+  HiddenString *field;
+} LegacyGeoFilter;
+
+#define GEO_DISTANCE_FT 2
+
+#define GEO_DISTANCE_INVALID -1
+
+#define GEO_DISTANCE_KM 0
+
+#define GEO_DISTANCE_M 1
+
+#define GEO_DISTANCE_MI 3
 
 /**
  * WGS-84 latitude upper bound (EPSG:900913).
@@ -44,6 +100,101 @@ typedef struct QueryError QueryError;
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Evaluate aggregate geodistance, returning NaN on conversion failure.
+ * Only malformed coordinate strings update the query error.
+ *
+ * # Safety
+ * `argv` must contain `argc` live non-null value pointers, with arity checked by
+ * the function registry. `status` must point to an initialized writable error.
+ */
+double Rust_GeoDistance_Evaluate(struct RSValue *const *argv, size_t argc, struct QueryError *status);
+
+/**
+ * Parse a NUL-terminated unit.
+ *
+ * # Safety
+ * `s` must point to a readable NUL-terminated string.
+ */
+GeoDistance Rust_GeoDistance_Parse(const char *s);
+
+/**
+ * Parse a bounded unit, retaining the legacy buffer limit.
+ *
+ * # Safety
+ * `s` must be readable for `len` bytes when `len` is less than the buffer limit.
+ */
+GeoDistance Rust_GeoDistance_Parse_Buffer(const char *s, size_t len);
+
+/**
+ * Return a static NUL-terminated unit spelling.
+ */
+const char *Rust_GeoDistance_ToString(GeoDistance unit);
+
+/**
+ * Free a Redis-allocated filter and its iterator-owned cache.
+ *
+ * # Safety
+ * `gf` must own its cache and point to a live Redis allocation. Both allocation
+ * functions must remain initialized; no references may survive this call.
+ */
+void Rust_GeoFilter_Free(struct GeoFilter *gf);
+
+/**
+ * Parse legacy arguments, retaining cursor progress and partial output on errors.
+ *
+ * # Safety
+ * `gf`, `ac`, `has_empty_value`, and `status` must be non-null and writable.
+ * The cursor arguments must remain live, including the field string for the
+ * resulting filter's lifetime. `gf` must not already own resources.
+ */
+int Rust_GeoFilter_LegacyParse(struct LegacyGeoFilter *gf, ArgsCursor *ac, bool *has_empty_value, struct QueryError *status);
+
+/**
+ * Resolve or clear the stable field index.
+ *
+ * # Safety
+ * `gf` must be writable; a non-null `fs` must point to a live [`ffi::FieldSpec`].
+ */
+void Rust_GeoFilter_SetField(struct GeoFilter *gf, const FieldSpec *fs);
+
+/**
+ * Validate without changing geometry; errors use [`QueryErrorCode::Syntax`].
+ *
+ * # Safety
+ * `gf` must be readable and `status` must point to an initialized, writable query error.
+ */
+int Rust_GeoFilter_Validate(const struct GeoFilter *gf, struct QueryError *status);
+
+/**
+ * Release the borrowed field wrapper and Redis-allocated legacy filter.
+ *
+ * # Safety
+ * `gf` must be a live Redis allocation with exclusively owned resources, as
+ * initialized by [`Rust_GeoFilter_LegacyParse`]. Its borrowed field buffer is not freed.
+ */
+void Rust_LegacyGeoFilter_Free(struct LegacyGeoFilter *gf);
+
+/**
+ * Allocate an unvalidated filter, released with [`Rust_GeoFilter_Free`].
+ *
+ * # Safety
+ * A non-null `unit` must be readable for `unit_len` bytes.
+ * Redis allocation functions must be initialized and remain unchanged.
+ */
+struct GeoFilter *Rust_NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
+
+/**
+ * Evaluate a numeric geohash score against the filter.
+ *
+ * # Safety
+ * `gf` must be readable; non-null `distance` must be writable.
+ *
+ * # Panics
+ * The constraints of [`geo::GeoFilter::is_within_radius`] apply.
+ */
+int Rust_isWithinRadius(const struct GeoFilter *gf, double score, double *distance);
 
 /**
  * Decode a geohash `f64` back into a `[longitude, latitude]` pair.

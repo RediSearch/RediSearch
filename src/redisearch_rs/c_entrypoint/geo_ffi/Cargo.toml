@@ -14,11 +14,15 @@ bench = false
 [dependencies]
 cheadergen.workspace = true
 decorum.workspace = true
+ffi.workspace = true
 geo.workspace = true
 query_error.workspace = true
 redis-module.workspace = true
+rqe_core.workspace = true
 tracing.workspace = true
 tracing_log_error.workspace = true
+value.workspace = true
+value_ffi = { path = "../value_ffi" }
 workspace_hack.workspace = true
 
 [lints]

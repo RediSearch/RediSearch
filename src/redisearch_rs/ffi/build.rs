@@ -98,6 +98,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "deps/rmutil/args.h",
+        fns: &["AC_GetString", "AC_GetDouble"],
+        types: &["ArgsCursor"],
+        vars: &["AC_F_NOADVANCE"],
+    },
+    HeaderAllowlist {
         path: "src/aggregate/aggregate.h",
         fns: &[],
         types: &[
@@ -148,6 +154,18 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &["GeoFilter_Free", "GeoFilter_Validate", "NewGeoFilter"],
         types: &[],
         vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/redisearch_rs/headers/geo_ffi.h",
+        fns: &[],
+        types: &[],
+        vars: &[
+            "GEO_DISTANCE_INVALID",
+            "GEO_DISTANCE_KM",
+            "GEO_DISTANCE_M",
+            "GEO_DISTANCE_FT",
+            "GEO_DISTANCE_MI",
+        ],
     },
     HeaderAllowlist {
         path: "src/geometry/geometry_api.h",
@@ -669,7 +687,15 @@ fn main() {
     for entry in HEADERS {
         let abs = root.join(entry.path);
         verify_symbols(&abs, entry);
-        bindings = bindings.header(abs.display().to_string());
+        // Direct and transitive includes must use the same staged file so
+        // #pragma once also protects generated struct definitions.
+        let input = if let Some(header) = entry.path.strip_prefix("src/redisearch_rs/headers/") {
+            assert!(PERMITTED_GENERATED_HEADERS.contains(&header));
+            permitted_dir.join(header)
+        } else {
+            abs.clone()
+        };
+        bindings = bindings.header(input.display().to_string());
         println!("cargo:rerun-if-changed={}", abs.display());
 
         for func in entry.fns {

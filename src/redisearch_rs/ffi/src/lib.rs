@@ -38,6 +38,13 @@ use redis_module::raw::*;
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
+// Preserve bindgen's former enum names while the C ABI now accepts all integers.
+pub const GeoDistance_GEO_DISTANCE_INVALID: GeoDistance = GEO_DISTANCE_INVALID as GeoDistance;
+pub const GeoDistance_GEO_DISTANCE_KM: GeoDistance = GEO_DISTANCE_KM as GeoDistance;
+pub const GeoDistance_GEO_DISTANCE_M: GeoDistance = GEO_DISTANCE_M as GeoDistance;
+pub const GeoDistance_GEO_DISTANCE_FT: GeoDistance = GEO_DISTANCE_FT as GeoDistance;
+pub const GeoDistance_GEO_DISTANCE_MI: GeoDistance = GEO_DISTANCE_MI as GeoDistance;
+
 /// Access to the RediSearch Module context
 pub mod context;
 

@@ -859,11 +859,15 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "decorum",
+ "ffi",
  "geo",
  "query_error",
  "redis-module",
+ "rqe_core",
  "tracing",
  "tracing_log_error",
+ "value",
+ "value_ffi",
  "workspace_hack",
 ]
 
