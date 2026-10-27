@@ -91,8 +91,9 @@ For common serialization, prefer a small output accessor/adapter over pretending
 remote rows have local document metadata. The local serializer currently requires
 RSDocumentMetadata and an RSScoreExplain tree. Determine whether existing owned
 RSValue types preserve every output type before choosing conversion. RPNet's
-MRReply_ToValue converts integer nodes to doubles, so it cannot be reused blindly
-for lossless output. Do not both consume reply nodes and leave borrowed users.
+MRReply_ToValue reconstructs the shard's numeric RSValues; serialization must use
+the same STRING/EXPAND flags. Do not both consume reply nodes and leave borrowed
+users outside the owning row.
 
 Acceptance of the RP migration requires a concrete row-lifetime test and a plan
 to remove the temporary serializer adapter; wrapping the old monolithic reducer
@@ -156,16 +157,18 @@ Do not redesign either protocol as part of extraction.
 
 ## Implemented representation and callback boundary
 
-Standard SearchResult.docId stores a request-local locator: reply index in the
-high 32 bits and row ordinal in the low 32 bits. It is never a document-table ID.
-The source RP owns reply backing from arrival. Sorters use typed lookup values;
-output serialization borrows views from the source. No SearchResult FFI layout
+The source owns shard reply envelopes from arrival. It consumes document keys,
+returned field collections, payloads and wire sort keys into row-owned RSValues
+using the shared RPNet converter. Score explanations use RSScoreExplain. Typed
+sort projections and vector distances remain lookup values. No packed docId
+locator or repeated output decoding is needed, and no SearchResult FFI layout
 change is needed.
 
 QueryRequest.reply owns emitted rows. EndCycle and base destruction use the
 existing ChunkReplyState cleanup; the concrete reducer destructor clears stored
-rows before freeing downstream RPs and finally the reply-owning source. Serialization decodes one stack view per output
-row, preserving the existing command envelope and remote value types.
+rows and buffered candidates through the common lifecycle. Serialization reads
+row values with the existing STRING/EXPAND flags. Shard profile data remains in
+the source-owned envelopes.
 
 Blocked-client registration continues to use the existing command callbacks.
 No extra dispatch wrapper or per-cycle callback fields are needed. The shared
