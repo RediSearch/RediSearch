@@ -570,7 +570,8 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
     env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
 
 
-@skip(cluster=True)
+# Fork-only: the thread GC policy neither forks nor skips cycles under memory pressure.
+@skip(cluster=True, gc_no_fork=True)
 def test_gc_oom(env:Env):
     env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
     env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
@@ -1076,7 +1077,8 @@ def holdForkSlot(env, key_delay_us):
     env.assertEqual(int(env.cmd('INFO', 'Persistence')['rdb_bgsave_in_progress']), 1)
 
 
-@skip(cluster=True)
+# Fork-only: the thread GC policy never takes the fork slot.
+@skip(cluster=True, gc_no_fork=True)
 def testForcedGCWaitsForForkSlot():
     """A forced GC replying DONE has to mean it collected. Parking the cycle before its fork lets
     a bgsave take the only child slot first, and parking it again after the failed fork is what
@@ -1107,7 +1109,8 @@ def testForcedGCWaitsForForkSlot():
     env.assertGreater(int(to_dict(index_info(env)['gc_stats'])['bytes_collected']), 0)
 
 
-@skip(cluster=True)
+# Fork-only: the thread GC policy never takes the fork slot.
+@skip(cluster=True, gc_no_fork=True)
 def testForcedGCReportsWhenItCannotFork():
     """A forced GC that never gets the slot has to say so. Replying DONE would be the original
     bug at a longer timescale: a collection reported but never made."""

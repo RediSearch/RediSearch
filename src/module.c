@@ -4972,6 +4972,15 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
     RedisModule_Log(ctx, "warning", "Could not run RedisModule_LoadConfigs(ctx)");
     return REDISMODULE_ERR;
   }
+  // GC_POLICY THREAD is an unstable feature and load-time, so it is only taken when unstable
+  // features are on once every config is loaded.
+  if (RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread &&
+      !RSGlobalConfig.enableUnstableFeatures) {
+    RedisModule_Log(ctx, "warning",
+                    "GC_POLICY THREAD requires search-enable-unstable-features at load; "
+                    "using the fork GC policy");
+    RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Fork;
+  }
   if (RSGlobalConfig.diskMinMemoryBudgetPercentage >
       RSGlobalConfig.diskMaxMemoryPercentage) {
     RedisModule_Log(ctx, "warning",

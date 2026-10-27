@@ -63,6 +63,9 @@ typedef struct ForkGC {
 
   struct timespec retryInterval;
   RS_Atomic(size_t) deletedOrUpdatedDocsFromLastRun;
+  // Set while a thread cycle runs its scanners. Their deltas address blocks by position, so two
+  // cycles on one index must never interleave; the GC scheduler guarantees it, this checks it.
+  bool threadCycleInFlight;
 
   // current value of RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes
   // This value is updated during the periodic callback execution.

@@ -151,6 +151,47 @@ static pid_t forkGCChild(RedisModuleCtx *ctx, GCForcedRun *forced) {
   }
 }
 
+// GC_POLICY THREAD is an unstable feature, so it is re-checked against the runtime flag every cycle.
+static bool threadPolicyEnabled(void) {
+  return RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread &&
+         RSGlobalConfig.enableUnstableFeatures;
+}
+
+// One cycle of the in-process GC: the scanners run on this GC pool thread under the spec's own
+// read/write lock instead of in a forked child. `spec_ref` is consumed; the driver promotes the
+// weak reference again for every lock it takes, so a drop mid-cycle just ends the cycle.
+static bool runThreadCycle(ForkGC *gc, StrongRef spec_ref) {
+  TimeSample ts;
+  TimeSampler_Start(&ts);
+  IndexSpecRef_Release(spec_ref);
+
+  // Unlike a fork's snapshot, the scan sees deletes that land mid-cycle and may collect them while
+  // they still count toward the next cycle's threshold: at worst an early next cycle.
+  size_t num_docs_to_clean = atomic_exchange(&gc->deletedOrUpdatedDocsFromLastRun, 0);
+  gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
+  gc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
+
+  IndexSpec_AssertLockNotHeld();  // the driver takes the spec locks itself
+  RS_LOG_ASSERT(!gc->threadCycleInFlight, "two thread GC cycles on one index at once");
+  gc->threadCycleInFlight = true;
+  uint64_t budget_us = RSGlobalConfig.gcConfigParams.gcSettings.gcThreadScanBudgetUs;
+  bool gcrv = FGC_threadRunScanners(gc, budget_us) != FGC_SPEC_DELETED;
+  gc->threadCycleInFlight = false;
+  if (gcrv) {
+    gcrv = VecSim_CallTieredIndexesGC(gc->index);
+  }
+
+  IndexsGlobalStats_DecreaseLogicallyDeleted(num_docs_to_clean);
+  TimeSampler_End(&ts);
+  long long msRun = TimeSampler_DurationMS(&ts);
+
+  gc->stats.numCycles++;
+  gc->stats.totalMSRun += msRun;
+  gc->stats.lastRunTimeMs = msRun;
+
+  return gcrv;
+}
+
 bool FGC_RunCycle(ForkGC *gc, GCForcedRun *forced, const FGCHook *hook) {
   RedisModuleCtx *ctx = gc->ctx;
 
@@ -181,6 +222,10 @@ bool FGC_RunCycle(ForkGC *gc, GCForcedRun *forced, const FGCHook *hook) {
   if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(early_check);
     return true;
+  }
+
+  if (threadPolicyEnabled()) {
+    return runThreadCycle(gc, early_check);
   }
 
   bool gcrv = true;

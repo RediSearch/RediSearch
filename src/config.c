@@ -67,6 +67,7 @@ typedef struct {
 // For deprecated FTConfigName, the ConfigName is an empty string
 configPair_t __configPairs[] = {
   {"_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
+  {"_GC_THREAD_SCAN_BUDGET_US",       ""},
   {"_FREE_RESOURCE_ON_THREAD",        "search-_free-resource-on-thread"},
   {"_NUMERIC_COMPRESS",               "search-_numeric-compress"},
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
@@ -1094,6 +1095,17 @@ CONFIG_GETTER(getForkGcCleanThreshold) {
   return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcCleanThreshold);
 }
 
+// _GC_THREAD_SCAN_BUDGET_US
+CONFIG_SETTER(setGcThreadScanBudgetUs) {
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.gcThreadScanBudgetUs, 0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getGcThreadScanBudgetUs) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%zu", config->gcConfigParams.gcSettings.gcThreadScanBudgetUs);
+}
+
 // FORK_GC_RETRY_INTERVAL
 CONFIG_SETTER(setForkGcRetryInterval) {
   int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcRetryInterval, AC_F_GE1);
@@ -1251,6 +1263,8 @@ CONFIG_SETTER(setGcPolicy) {
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
     config->gcConfigParams.gcPolicy = GCPolicy_Fork;
+  } else if (!strcasecmp(policy, "THREAD")) {
+    config->gcConfigParams.gcPolicy = GCPolicy_Thread;
   } else if (!strcasecmp(policy, "LEGACY")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
     return REDISMODULE_ERR;
@@ -1762,7 +1776,8 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMinPhoneticTermLen,
          .getValue = getMinPhoneticTermLen},
         {.name = "GC_POLICY",
-         .helpText = "gc policy to use (DEFAULT/LEGACY)",
+         .helpText = "gc policy to use (DEFAULT/FORK, or THREAD while unstable features are "
+                     "enabled)",
          .setValue = setGcPolicy,
          .getValue = getGcPolicy,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
@@ -1785,6 +1800,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setForkGCCleanNumericEmptyNodes,
          .getValue = getForkGCCleanNumericEmptyNodes,
          .flags = RSCONFIGVAR_F_FLAG},
+        {.name = "_GC_THREAD_SCAN_BUDGET_US",
+         .helpText = "microseconds the THREAD gc policy may hold an index read lock per scan "
+                     "chunk; 0 scans one key per lock",
+         .setValue = setGcThreadScanBudgetUs,
+         .getValue = getGcThreadScanBudgetUs},
         {.name = "_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES",
          .helpText = "clean empty nodes from numeric tree",
          .setValue = set_ForkGCCleanNumericEmptyNodes,
