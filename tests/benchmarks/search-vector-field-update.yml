@@ -33,6 +33,13 @@ dbconfig:
   check:
     keyspacelen: 100000
 
+# Benchmarking-only: read the HNSW direct insertion counter and the flat buffer size after the run.
+info_metrics:
+  - section: search_vector_index
+    fields:
+      - search_hnsw_direct_main_thread_insertions
+      - search_tiered_index_frontend_buffer_size
+
 clientconfig:
   benchmark_type: "write-only"
   tool: memtier_benchmark
