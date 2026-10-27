@@ -648,8 +648,8 @@ where
                 RawTermRecord::Borrowed { offsets, .. } => {
                     *offsets = RawOffsetSlice::empty();
                 }
-                RawTermRecord::Owned { .. } | RawTermRecord::FullyOwned { .. } => {
-                    // These variants own their offsets, so no issues.
+                RawTermRecord::Owned { .. } => {
+                    // This variant owns its offsets, so no issues.
                 }
             }
         }

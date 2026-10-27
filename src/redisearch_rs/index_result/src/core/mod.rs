@@ -45,29 +45,13 @@ pub struct RawIndexResultBuilder<'query, R: Ref> {
 /// Created via [`RawIndexResult::build_term`]. Use [`Self::borrowed_record`]
 /// or [`Self::owned_record`] to set the term record data before calling
 /// [`Self::build`].
-pub struct RawTermResultBuilder<'query, R: Ref> {
+pub struct RawTermResultBuilder<R: Ref> {
     doc_id: DocId,
     field_mask: FieldMask,
     freq: u32,
     weight: f64,
-    record: TermBuilderRecord<'query, R>,
+    record: RawTermRecord<R>,
     has_field_expiration: bool,
-}
-
-/// Internal enum holding the term record data for the builder.
-enum TermBuilderRecord<'query, R: Ref> {
-    Borrowed {
-        term: Option<Box<RSQueryTerm>>,
-        offsets: RawOffsetSlice<R>,
-    },
-    Owned {
-        term: Option<&'query RSQueryTerm>,
-        offsets: RSOffsetVector,
-    },
-    FullyOwned {
-        term: Option<Box<RSQueryTerm>>,
-        offsets: RSOffsetVector,
-    },
 }
 
 impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
@@ -189,7 +173,7 @@ impl<'query, R: Ref> RawIndexResultBuilder<'query, R> {
     }
 }
 
-impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
+impl<R: Ref> RawTermResultBuilder<R> {
     /// Create a new term result builder
     const fn new() -> Self {
         Self {
@@ -197,10 +181,7 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
             field_mask: 0,
             freq: 1,
             weight: 0.0,
-            record: TermBuilderRecord::Borrowed {
-                term: None,
-                offsets: RawOffsetSlice::empty(),
-            },
+            record: RawTermRecord::new(),
             has_field_expiration: false,
         }
     }
@@ -244,61 +225,31 @@ impl<'query, R: Ref> RawTermResultBuilder<'query, R> {
         term: Option<Box<RSQueryTerm>>,
         offsets: RawOffsetSlice<R>,
     ) -> Self {
-        self.record = TermBuilderRecord::Borrowed { term, offsets };
+        self.record = RawTermRecord::Borrowed {
+            term: term.map(SharedQueryTerm::new),
+            offsets,
+        };
         self
     }
 
-    /// Set the term record data with owned offsets and an optional borrowed query term.
+    /// Set the term record data with owned offsets and an optional query term.
     ///
-    /// Produces an [`RawTermRecord::Owned`] variant. Use this when the offset
-    /// data does not live long enough to be borrowed by the result.
+    /// Produces an [`RawTermRecord::Owned`] variant. Use this when the offsets
+    /// do not live long enough to be borrowed by the result, such as for
+    /// readers that decode offsets from a transient source like a disk page.
     #[inline]
-    pub fn owned_record(
-        mut self,
-        term: Option<&'query RSQueryTerm>,
-        offsets: RSOffsetVector,
-    ) -> Self {
-        self.record = TermBuilderRecord::Owned { term, offsets };
-        self
-    }
-
-    /// Set the term record data with an owned query term and owned offsets.
-    ///
-    /// Produces an [`RawTermRecord::FullyOwned`] variant. Use this when the
-    /// offsets do not live long enough to be borrowed by the result, but the
-    /// caller still wants the record to share ownership of the query term (as with
-    /// [`Self::borrowed_record`]). This is the right choice for readers that
-    /// decode offsets from a transient source such as a disk page.
-    #[inline]
-    pub fn fully_owned_record(
-        mut self,
-        term: Option<Box<RSQueryTerm>>,
-        offsets: RSOffsetVector,
-    ) -> Self {
-        self.record = TermBuilderRecord::FullyOwned { term, offsets };
+    pub fn owned_record(mut self, term: Option<Box<RSQueryTerm>>, offsets: RSOffsetVector) -> Self {
+        self.record = RawTermRecord::Owned {
+            term: term.map(SharedQueryTerm::new),
+            offsets,
+        };
         self
     }
 
     /// Build the final [`RawIndexResult`]
     #[inline]
-    pub fn build(self) -> RawIndexResult<'query, R> {
-        let data = match self.record {
-            TermBuilderRecord::Borrowed { term, offsets } => {
-                RawResultData::Term(RawTermRecord::Borrowed {
-                    term: term.map(SharedQueryTerm::new),
-                    offsets,
-                })
-            }
-            TermBuilderRecord::Owned { term, offsets } => {
-                RawResultData::Term(RawTermRecord::Owned { term, offsets })
-            }
-            TermBuilderRecord::FullyOwned { term, offsets } => {
-                RawResultData::Term(RawTermRecord::FullyOwned {
-                    term: term.map(SharedQueryTerm::new),
-                    offsets,
-                })
-            }
-        };
+    pub fn build<'query>(self) -> RawIndexResult<'query, R> {
+        let data = RawResultData::Term(self.record);
         RawIndexResult {
             doc_id: self.doc_id,
             dmd: ptr::null(),
@@ -633,7 +584,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     }
 
     /// Create a specialized builder for a term index result
-    pub const fn build_term() -> RawTermResultBuilder<'query, R> {
+    pub const fn build_term() -> RawTermResultBuilder<R> {
         RawTermResultBuilder::new()
     }
 
@@ -748,7 +699,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
     /// # Safety
     ///
     /// 1. `Self::is_term()` must return `true` for `self`.
-    pub unsafe fn as_term_unchecked_mut(&mut self) -> &mut RawTermRecord<'query, R> {
+    pub unsafe fn as_term_unchecked_mut(&mut self) -> &mut RawTermRecord<R> {
         debug_assert!(
             self.is_term(),
             "Invariant violation: `as_term_unchecked_mut` was invoked on a non-term `RawIndexResult` \
@@ -772,7 +723,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
 
     /// Get this record as a term record if possible. If the record is not term, returns
     /// `None`.
-    pub const fn as_term(&self) -> Option<&RawTermRecord<'query, R>> {
+    pub const fn as_term(&self) -> Option<&RawTermRecord<R>> {
         match &self.data {
             RawResultData::Term(term) => Some(term),
             RawResultData::Union(_)
@@ -786,7 +737,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
 
     /// Get this record as a mutable term record if possible. If the record is not term, returns
     /// `None`.
-    pub const fn as_term_mut(&mut self) -> Option<&mut RawTermRecord<'query, R>> {
+    pub const fn as_term_mut(&mut self) -> Option<&mut RawTermRecord<R>> {
         match &mut self.data {
             RawResultData::Term(term) => Some(term),
             RawResultData::Union(_)
@@ -923,8 +874,7 @@ impl<'query, R: Ref> RawIndexResult<'query, R> {
             RawResultData::Union(RawAggregateResult::Owned(_))
             | RawResultData::Intersection(RawAggregateResult::Owned(_))
             | RawResultData::HybridMetric(RawAggregateResult::Owned(_))
-            | RawResultData::Term(RawTermRecord::Owned { .. })
-            | RawResultData::Term(RawTermRecord::FullyOwned { .. }) => true,
+            | RawResultData::Term(RawTermRecord::Owned { .. }) => true,
             RawResultData::Union(RawAggregateResult::Borrowed(_))
             | RawResultData::Intersection(RawAggregateResult::Borrowed(_))
             | RawResultData::HybridMetric(RawAggregateResult::Borrowed(_))
@@ -1031,10 +981,15 @@ impl<'a> RSIndexResult<'a> {
         }
     }
 
-    /// Create an owned copy of this index result, allocating new memory for the contained data.
+    /// Create a copy of this index result that owns its offsets and shares ownership of its
+    /// query terms.
     ///
-    /// The returned result may borrow the term data from the original result.
-    pub fn to_owned(&'a self) -> RSIndexResult<'a> {
+    /// The copy borrows no term or offsets from `self`: it stays valid after `self` is
+    /// dropped, and after the iterators holding the terms `self` points at are dropped. It
+    /// still shares the [`metrics`](Self::metrics) keys, which belong to the query and are
+    /// what the returned `'a` stands for, and the [`dmd`](Self::dmd) pointer, which it neither
+    /// owns nor releases.
+    pub fn to_owned(&self) -> RSIndexResult<'a> {
         RawIndexResult {
             doc_id: self.doc_id,
             dmd: self.dmd,
