@@ -159,8 +159,7 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
   dmd->nextInChain = chain->root;
   chain->root = dmd;
   if (t->keyMap) {
-    uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr));
-    DocKeyMap_Insert(t->keyMap, hash, docId);
+    DocKeyMap_Insert(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), docId);
   }
 }
 
@@ -427,8 +426,8 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
   }
 
   if (t->keyMap) {
-    uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)md->keyPtr, sdslen(md->keyPtr));
-    bool removed = DocKeyMap_Remove(t->keyMap, hash, docId);
+    bool removed =
+        DocKeyMap_Remove(t->keyMap, (const uint8_t *)md->keyPtr, sdslen(md->keyPtr), docId);
     RS_LOG_ASSERT(removed, "missing INKEYS entry for deleted document");
   }
 
@@ -470,8 +469,8 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *to_str, size_t 
     return;
   }
   if (t->keyMap) {
-    uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr));
-    bool removed = DocKeyMap_Remove(t->keyMap, hash, docId);
+    bool removed =
+        DocKeyMap_Remove(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), docId);
     RS_LOG_ASSERT(removed, "missing INKEYS entry for renamed document");
   }
   t->memsize -= sdsAllocSize(dmd->keyPtr);
@@ -479,8 +478,7 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *to_str, size_t 
   dmd->keyPtr = sdsnewlen(to_str, to_len);
   dmd->slot = keySlot(to_str, to_len);
   if (t->keyMap) {
-    uint64_t hash = DocKeyMap_Hash(t->keyMap, (const uint8_t *)to_str, to_len);
-    DocKeyMap_Insert(t->keyMap, hash, docId);
+    DocKeyMap_Insert(t->keyMap, (const uint8_t *)to_str, to_len, docId);
   }
   t->memsize += sdsAllocSize(dmd->keyPtr);
 }

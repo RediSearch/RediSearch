@@ -37,19 +37,27 @@ impl Default for DocKeyMap {
 
 impl DocKeyMap {
     /// Hash a binary key using this table's private seed.
-    pub fn hash(&self, key: &[u8]) -> u64 {
+    fn hash(&self, key: &[u8]) -> u64 {
         self.hasher.hash_one(key)
     }
 
     /// Insert an ID once. The caller must remove it before changing its key.
-    pub fn insert(&mut self, hash: u64, id: DocId) {
+    pub fn insert(&mut self, key: &[u8], id: DocId) {
+        self.insert_hashed(self.hash(key), id)
+    }
+
+    fn insert_hashed(&mut self, hash: u64, id: DocId) {
         debug_assert_ne!(id, 0);
         self.entries
             .insert_unique(hash, Entry { hash, id }, |e| e.hash);
     }
 
     /// Remove exactly one candidate, including when full hashes collide.
-    pub fn remove(&mut self, hash: u64, id: DocId) -> bool {
+    pub fn remove(&mut self, key: &[u8], id: DocId) -> bool {
+        self.remove_hashed(self.hash(key), id)
+    }
+
+    fn remove_hashed(&mut self, hash: u64, id: DocId) -> bool {
         if let Ok(entry) = self.entries.find_entry(hash, |e| e.id == id) {
             entry.remove();
             true
@@ -59,7 +67,7 @@ impl DocKeyMap {
     }
 
     /// Find an ID by comparing candidate keys through their owning document table.
-    pub fn find(&self, hash: u64, mut matches: impl FnMut(DocId) -> bool) -> DocId {
+    fn find(&self, hash: u64, mut matches: impl FnMut(DocId) -> bool) -> DocId {
         self.entries
             .find(hash, |e| e.hash == hash && matches(e.id))
             .map_or(0, |e| e.id)
@@ -97,52 +105,58 @@ pub unsafe extern "C" fn DocKeyMap_Free(map: *mut DocKeyMap) {
     }
 }
 
-/// Hash borrowed key bytes; no key storage is retained.
+/// Borrow key bytes, accepting a null pointer for an empty key.
 ///
 /// # Safety
-/// `map` must be [valid] for shared access. `key` must be [valid] for `len`
-/// readable bytes, or may be null when `len` is zero.
+/// A nonempty key must be [valid] for reads for the returned lifetime.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn DocKeyMap_Hash(map: *const DocKeyMap, key: *const u8, len: usize) -> u64 {
-    debug_assert!(!map.is_null());
+unsafe fn key_bytes<'a>(key: *const u8, len: usize) -> &'a [u8] {
     debug_assert!(len == 0 || !key.is_null());
-    // SAFETY: The caller guarantees a shared table borrow.
-    let map = unsafe { &*map };
-    let key = if len == 0 {
+    if len == 0 {
         &[]
     } else {
-        // SAFETY: The caller guarantees these bytes are readable for this call.
+        // SAFETY: The caller guarantees the bytes are readable for the borrow.
         unsafe { slice::from_raw_parts(key, len) }
-    };
-    map.hash(key)
+    }
 }
 
-/// Insert a prehashed document ID.
+/// Insert a document ID using borrowed key bytes.
 ///
 /// # Safety
+/// `key` must be [valid] for `len` readable bytes, or null when `len` is zero.
 /// `map` must be [valid] for exclusive access. The ID must be nonzero and absent.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DocKeyMap_Insert(map: *mut DocKeyMap, hash: u64, id: DocId) {
+pub unsafe extern "C" fn DocKeyMap_Insert(
+    map: *mut DocKeyMap,
+    key: *const u8,
+    len: usize,
+    id: DocId,
+) {
     debug_assert!(!map.is_null());
-    // SAFETY: The caller guarantees exclusive table access.
-    unsafe { &mut *map }.insert(hash, id);
+    // SAFETY: The caller guarantees exclusive table access and readable key bytes.
+    unsafe { &mut *map }.insert(unsafe { key_bytes(key, len) }, id);
 }
 
-/// Remove a prehashed document ID, returning whether it was present.
+/// Remove a document ID using borrowed key bytes, returning whether it was present.
 ///
 /// # Safety
+/// `key` must be [valid] for `len` readable bytes, or null when `len` is zero.
 /// `map` must be [valid] for exclusive access.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DocKeyMap_Remove(map: *mut DocKeyMap, hash: u64, id: DocId) -> bool {
+pub unsafe extern "C" fn DocKeyMap_Remove(
+    map: *mut DocKeyMap,
+    key: *const u8,
+    len: usize,
+    id: DocId,
+) -> bool {
     debug_assert!(!map.is_null());
-    // SAFETY: The caller guarantees exclusive table access.
-    unsafe { &mut *map }.remove(hash, id)
+    // SAFETY: The caller guarantees exclusive table access and readable key bytes.
+    unsafe { &mut *map }.remove(unsafe { key_bytes(key, len) }, id)
 }
 
 /// Compare a candidate's document key with the query key borrowed through `ctx`.
@@ -169,13 +183,8 @@ pub unsafe extern "C" fn DocKeyMap_GetId(
     debug_assert!(!map.is_null());
     // SAFETY: The caller guarantees a shared table borrow.
     let map = unsafe { &*map };
-    debug_assert!(len == 0 || !key.is_null());
-    let key = if len == 0 {
-        &[]
-    } else {
-        // SAFETY: The caller guarantees these bytes are readable for this call.
-        unsafe { slice::from_raw_parts(key, len) }
-    };
+    // SAFETY: The caller guarantees readable key bytes for this call.
+    let key = unsafe { key_bytes(key, len) };
     map.get_id(key, |id| {
         // SAFETY: The caller guarantees the callback and context remain usable.
         unsafe { matches(ctx, id) }
@@ -195,5 +204,40 @@ pub unsafe extern "C" fn DocKeyMap_MemoryUsage(map: *const DocKeyMap) -> usize {
     } else {
         // SAFETY: The caller guarantees a shared table borrow.
         unsafe { &*map }.memory_usage()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn colliding_candidates_survive_growth_and_independent_removal() {
+        let mut map = DocKeyMap::default();
+        // Full-hash collisions make this quadratic; 64 entries still exercise multiple resizes.
+        let count = if cfg!(miri) { 64 } else { 1000 };
+        let removed = count / 2;
+        let empty = map.memory_usage();
+        assert_eq!(map.find(42, |_| true), 0);
+        for id in 1..=count {
+            map.insert_hashed(42, id);
+        }
+        assert!(map.memory_usage() > empty);
+        for id in 1..=count {
+            assert_eq!(map.find(42, |candidate| candidate == id), id);
+        }
+        assert_eq!(map.find(43, |_| true), 0);
+        assert!(map.remove_hashed(42, removed));
+        assert!(!map.remove_hashed(42, removed));
+        assert_eq!(map.find(42, |id| id == removed), 0);
+        assert_eq!(map.find(42, |id| id == removed + 1), removed + 1);
+        for id in 1..=count {
+            if id != removed {
+                assert!(map.remove_hashed(42, id));
+            }
+        }
+        assert_eq!(map.find(42, |_| true), 0);
+        map.insert_hashed(42, count + 1);
+        assert_eq!(map.find(42, |_| true), count + 1);
     }
 }

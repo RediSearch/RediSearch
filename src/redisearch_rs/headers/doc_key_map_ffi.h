@@ -49,25 +49,15 @@ void DocKeyMap_Free(struct DocKeyMap *map);
 t_docId DocKeyMap_GetId(const struct DocKeyMap *map, const uint8_t *key, size_t len, const void *ctx, DocKeyMatches matches);
 
 /**
- * Hash borrowed key bytes; no key storage is retained.
+ * Insert a document ID using borrowed key bytes.
  *
  * # Safety
- * `map` must be [valid] for shared access. `key` must be [valid] for `len`
- * readable bytes, or may be null when `len` is zero.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-uint64_t DocKeyMap_Hash(const struct DocKeyMap *map, const uint8_t *key, size_t len);
-
-/**
- * Insert a prehashed document ID.
- *
- * # Safety
+ * `key` must be [valid] for `len` readable bytes, or null when `len` is zero.
  * `map` must be [valid] for exclusive access. The ID must be nonzero and absent.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void DocKeyMap_Insert(struct DocKeyMap *map, uint64_t hash, t_docId id);
+void DocKeyMap_Insert(struct DocKeyMap *map, const uint8_t *key, size_t len, t_docId id);
 
 /**
  * Report allocated table storage; null denotes disabled acceleration and returns zero.
@@ -85,14 +75,15 @@ size_t DocKeyMap_MemoryUsage(const struct DocKeyMap *map);
 struct DocKeyMap *DocKeyMap_New(void);
 
 /**
- * Remove a prehashed document ID, returning whether it was present.
+ * Remove a document ID using borrowed key bytes, returning whether it was present.
  *
  * # Safety
+ * `key` must be [valid] for `len` readable bytes, or null when `len` is zero.
  * `map` must be [valid] for exclusive access.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-bool DocKeyMap_Remove(struct DocKeyMap *map, uint64_t hash, t_docId id);
+bool DocKeyMap_Remove(struct DocKeyMap *map, const uint8_t *key, size_t len, t_docId id);
 
 #ifdef __cplusplus
 }  // extern "C"

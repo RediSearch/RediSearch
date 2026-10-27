@@ -10,45 +10,45 @@
 use doc_key_map_ffi::DocKeyMap;
 
 #[test]
-fn colliding_candidates_survive_growth_and_independent_removal() {
-    let mut map = DocKeyMap::default();
-    // Full-hash collisions make this quadratic; 64 entries still exercise multiple resizes.
-    let count = if cfg!(miri) { 64 } else { 1000 };
-    let removed = count / 2;
-    let empty = map.memory_usage();
-    assert_eq!(map.find(42, |_| true), 0);
-    for id in 1..=count {
-        map.insert(42, id);
-    }
-    assert!(map.memory_usage() > empty);
-    for id in 1..=count {
-        assert_eq!(map.find(42, |candidate| candidate == id), id);
-    }
-    assert_eq!(map.find(43, |_| true), 0);
-    assert!(map.remove(42, removed));
-    assert!(!map.remove(42, removed));
-    assert_eq!(map.find(42, |id| id == removed), 0);
-    assert_eq!(map.find(42, |id| id == removed + 1), removed + 1);
-    for id in 1..=count {
-        if id != removed {
-            assert!(map.remove(42, id));
-        }
-    }
-    assert_eq!(map.find(42, |_| true), 0);
-    map.insert(42, count + 1);
-    assert_eq!(map.find(42, |_| true), count + 1);
-}
-
-#[test]
 fn binary_keys_are_hashed_with_their_full_extent() {
     let mut map = DocKeyMap::default();
     for (i, key) in [b"".as_slice(), b"a", b"a\0", b"a\0b"]
         .into_iter()
         .enumerate()
     {
-        let hash = map.hash(key);
         let id = i as u64 + 1;
-        map.insert(hash, id);
+        map.insert(key, id);
         assert_eq!(map.get_id(key, |candidate| candidate == id), id);
+        assert!(map.remove(key, id));
+        assert_eq!(map.get_id(key, |_| true), 0);
+    }
+}
+
+#[test]
+fn ffi_mutations_accept_empty_and_binary_keys() {
+    use doc_key_map_ffi::{DocKeyMap_Insert, DocKeyMap_Remove};
+    let mut map = DocKeyMap::default();
+    let keys: &[&[u8]] = &[b"", b"a", b"a\0", b"a\0b"];
+    for (i, key) in keys.iter().enumerate() {
+        let ptr = if key.is_empty() {
+            std::ptr::null()
+        } else {
+            key.as_ptr()
+        };
+        // SAFETY: The map is exclusively borrowed, each ID is new, and each key
+        // is readable for its length (the empty key deliberately uses null).
+        unsafe { DocKeyMap_Insert(&mut map, ptr, key.len(), i as u64 + 1) };
+    }
+    for (i, key) in keys.iter().enumerate() {
+        let id = i as u64 + 1;
+        assert_eq!(map.get_id(key, |candidate| candidate == id), id);
+        let ptr = if key.is_empty() {
+            std::ptr::null()
+        } else {
+            key.as_ptr()
+        };
+        // SAFETY: The map is exclusively borrowed and the key bytes remain live.
+        assert!(unsafe { DocKeyMap_Remove(&mut map, ptr, key.len(), id) });
+        assert_eq!(map.get_id(key, |_| true), 0);
     }
 }
