@@ -1,0 +1,53 @@
+version: 0.4
+name: search-ftsb-1M-enwiki_abstract-hashes-gc-mixed-thread
+description: |
+  Write and query latency while the in-process (GC_POLICY THREAD) GC runs on its own schedule.
+  Compare against search-ftsb-1M-enwiki_abstract-hashes-gc-mixed-fork.
+  1. Create FT index on HASH with TEXT fields
+  2. Populate 1M enwiki documents using ftsb_redisearch
+  3. Overwrite titles (every write leaves garbage) while querying, with GC
+     cycles about every second
+  INDEXALL keeps an existing-docs index over every document: the largest
+  single inverted index a GC scan holds the read lock for.
+
+dbconfig:
+  - dataset_name: "ftsb-1M-enwiki_abstract-hashes-gc"
+  - redis-topologies:
+      - oss-standalone
+  - configuration-parameters:
+    - save: '""'
+  - module-configuration-parameters:
+      redisearch:
+        GC_POLICY: THREAD
+        ENABLE_UNSTABLE_FEATURES: "true"
+        FORK_GC_RUN_INTERVAL: 1
+        FORK_GC_CLEAN_THRESHOLD: 0
+  - init_commands:
+      - '"FT.CREATE" "benchIndex" "ON" "HASH" "PREFIX" "1" "doc:" "INDEXALL" "ENABLE" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.SETUP.csv"
+  - check:
+      keyspacelen: 1000000
+
+clientconfig:
+  benchmark_type: "mixed"
+  tool: memtier_benchmark
+  arguments: '--key-prefix doc: --key-minimum 1 --key-maximum 1000000 --data-size 32 --command "HSET __key__ title __data__" --command-ratio 20 --command "FT.SEARCH benchIndex Abraham LIMIT 0 10" --command-ratio 80 --hide-histogram --test-time 300 -c 8 -t 2'
+  resources:
+    requests:
+      cpus: "2"
+      memory: 2g
+
+exporter:
+  redistimeseries:
+    metrics:
+      - "$.'ALL STATS'.'Hsets'.'Percentile Latencies'.'p50.00'"
+      - "$.'ALL STATS'.'Hsets'.'Percentile Latencies'.'p99.00'"
+      - "$.'ALL STATS'.'Hsets'.'Percentile Latencies'.'p99.90'"
+      - "$.'ALL STATS'.'Ft.searchs'.'Percentile Latencies'.'p50.00'"
+      - "$.'ALL STATS'.'Ft.searchs'.'Percentile Latencies'.'p99.00'"
+      - "$.'ALL STATS'.'Ft.searchs'.'Percentile Latencies'.'p99.90'"
+      - "$.'ALL STATS'.'Totals'.'Ops/sec'"
