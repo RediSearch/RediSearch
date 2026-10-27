@@ -7,10 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#pragma once
+#ifndef COORD_REPLY_VALUE_H__
+#define COORD_REPLY_VALUE_H__
 
 #include "rmr/reply.h"
 #include "value_ffi.h"
 
 // Consumes the reply, transferring string buffers to the resulting value.
 RSValue *MRReply_ToValue(MRReply *reply);
+
+#endif
