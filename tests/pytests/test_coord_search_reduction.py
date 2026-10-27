@@ -352,3 +352,44 @@ def test_zero_dispatch_resp2():
 def test_zero_dispatch_resp3():
     """RESP3 zero-dispatch errors leave the coordinator ready for the next query."""
     _check_zero_dispatch(True)
+
+
+def _check_owned_row_serialization(env, resp3):
+    env.expect('FT.CREATE', 'idx', 'PAYLOAD_FIELD', 'payload', 'SCHEMA',
+               'rank', 'TAG', 'SORTABLE', 'text', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    keys = [f'doc:{{{i}}}:\0{i}' for i in range(6)]
+    binary = 'a\0b'
+    large = '9007199254740993'
+    for i, key in enumerate(keys):
+        conn.execute_command('HSET', key, 'rank', f'r{i}', 'text', binary,
+                             'large', large, 'payload', binary)
+    for direction, selected in (('ASC', [0, 1]), ('DESC', [5, 4])):
+        args = ['*', 'SCORER', 'DOCSCORE', 'WITHSCORES', 'EXPLAINSCORE',
+                'WITHPAYLOADS', 'WITHSORTKEYS', 'SORTBY', 'rank', direction,
+                'RETURN', 4, 'text', 'AS', 'val', 'large', 'LIMIT', 0, 2]
+        if resp3:
+            expected = {'attributes': [], 'warning': [], 'total_results': 6,
+                        'format': 'STRING', 'results': [
+                            {'id': keys[i], 'score': [1.0, "Document's score is 1.00"],
+                             'payload': binary, 'sortkey': f'$r{i}',
+                             'extra_attributes': {'val': binary, 'large': large},
+                             'values': []} for i in selected]}
+        else:
+            expected = [6]
+            for i in selected:
+                expected.extend([keys[i], ['1', "Document's score is 1.00"], binary,
+                                 f'$r{i}', ['val', binary, 'large', large]])
+        env.assertEqual(env.cmd('FT.SEARCH', 'idx', *args), expected)
+        profiled = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', *args)
+        env.assertEqual(profiled['Results'] if resp3 else profiled[0], expected)
+
+
+def test_owned_row_serialization_resp2(env):
+    """Sorted rows retain binary fields, payloads, aliases and explanations after eviction."""
+    _check_owned_row_serialization(env, False)
+
+
+def test_owned_row_serialization_resp3():
+    """The map reply preserves string numbers and the SEARCH/PROFILE row representation."""
+    _check_owned_row_serialization(Env(protocol=3), True)
