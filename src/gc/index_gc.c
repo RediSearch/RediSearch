@@ -14,6 +14,7 @@
 #include <time.h>
 
 #include "fork_cycle.h"
+#include "thread_cycle.h"
 #include "time_sample.h"
 #include "module.h"
 #include "info/global_stats.h"
@@ -28,6 +29,11 @@
 #include "search_ctx.h"
 #include "spec.h"
 #include "util/references.h"
+
+// GC_POLICY is load-time, so a GC runs the same policy for its whole life.
+static bool threadPolicyEnabled(void) {
+  return RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread;
+}
 
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook) {
   // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
@@ -59,6 +65,9 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
     return true;
   }
 
+  if (threadPolicyEnabled()) {
+    return ThreadCycle_Run(gc, early_check);
+  }
   return ForkCycle_Run(gc, forced, hook, early_check);
 }
 

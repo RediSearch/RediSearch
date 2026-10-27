@@ -58,7 +58,9 @@ static const char *on_oom_vals[3] = {
 };
 
 
-typedef enum { GCPolicy_Fork = 0, GCPolicy_Disk = 1 } GCPolicy;
+// GCPolicy_Thread runs the fork GC's scanners in-process, on the GC thread. Load-time: the policy
+// is fixed from module load on.
+typedef enum { GCPolicy_Fork = 0, GCPolicy_Disk = 1, GCPolicy_Thread = 2 } GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
 const char *OomPolicy_ToString(RSOomPolicy);
@@ -73,6 +75,8 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
     case GCPolicy_Fork:
       return "fork";
+    case GCPolicy_Thread:
+      return "thread";
     case GCPolicy_Disk: // LCOV_EXCL_LINE cannot be reached
     default:            // LCOV_EXCL_LINE cannot be reached
       return "huh?";    // LCOV_EXCL_LINE cannot be reached
