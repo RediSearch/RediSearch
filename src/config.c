@@ -39,7 +39,7 @@
 #include "util/stringify.h"
 
 #define DEFAULT_UNSTABLE_FEATURES_ENABLE false
-#define DEFAULT_OPTIMIZE_PARTIAL_UPDATE true
+#define DEFAULT_OPTIMIZE_PARTIAL_UPDATE false
 
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
