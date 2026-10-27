@@ -1159,6 +1159,7 @@ dependencies = [
  "field_spec",
  "hidden_string",
  "inverted_index",
+ "libc",
  "pretty_assertions",
  "redis_mock",
  "redisearch_rs",
