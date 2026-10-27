@@ -1,0 +1,50 @@
+version: 0.4
+name: search-ftsb-1M-enwiki_abstract-hashes-gc-thread
+description: |
+  RediSearch GC benchmark flow, with the in-process GC (GC_POLICY THREAD);
+  compare against search-ftsb-1M-enwiki_abstract-hashes-gc, which forks. That
+  baseline runs without unstable features, which this one needs; the
+  gc-mixed-fork/gc-mixed-thread pair has the flag on in both.
+
+  1. Create FT index on HASH with TEXT field
+  2. Populate 1M enwiki documents using ftsb_redisearch
+  3. Run continuous HSET updates with periodic GC trigger (1 GC per 1000 HSETs)
+
+dbconfig:
+  - dataset_name: "ftsb-1M-enwiki_abstract-hashes-gc"
+  - redis-topologies:
+      - oss-standalone
+  - configuration-parameters:
+    - save: '""'
+  - module-configuration-parameters:
+      redisearch:
+        GC_POLICY: THREAD
+        ENABLE_UNSTABLE_FEATURES: "true"
+  - init_commands:
+      - '"FT.CREATE" "benchIndex" "ON" "HASH" "PREFIX" "1" "doc:" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
+      - '"_FT.DEBUG" "GC_STOP_SCHEDULE" "benchIndex"'
+  - tool: ftsb_redisearch
+  - parameters:
+    - workers: 64
+    - reporting-period: 1s
+    - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.SETUP.csv"
+  - check:
+      keyspacelen: 1000000
+
+clientconfig:
+  tool: memtier_benchmark
+  arguments: '--key-prefix doc: --key-minimum 1 --key-maximum 1000000 --data-size 32 --command "HSET __key__ title __data__" --command-ratio 1000 --command "_FT.DEBUG GC_FORCEINVOKE benchIndex 600000" --command-ratio 1 --hide-histogram --test-time 300 -c 1 -t 1'
+  resources:
+    requests:
+      cpus: "2"
+      memory: 2g
+
+exporter:
+  redistimeseries:
+    metrics:
+      - "$.'ALL STATS'.'_ft.debugs'.'Percentile Latencies'.'p50.00'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Percentile Latencies'.'p99.00'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Percentile Latencies'.'p99.90'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Average Latency'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Min Latency'"
+      - "$.'ALL STATS'.'_ft.debugs'.'Max Latency'"
