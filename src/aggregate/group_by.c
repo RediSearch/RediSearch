@@ -257,7 +257,8 @@ static int extractGroups(Grouper *g, RLookupRow *res, t_docId docId) {
   }
 }
 
-static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
+/** Add a row that has an array value to the group of each of its combinations. */
+static int invokeGroupReducersExpanded(Grouper *g, RLookupRow *srcrow, t_docId docId) {
   size_t nkeys = GROUPER_NSRCKEYS(g);
   // The cartesian product size for the row
   size_t rowExpansion = 1;
@@ -279,6 +280,24 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
     }
   }
   return extractGroups(g, srcrow, docId);
+}
+
+static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
+  // Rows without array values belong to exactly one group, so skip the walk.
+  uint64_t hval = 0;
+  for (size_t ii = 0; ii < GROUPER_NSRCKEYS(g); ++ii) {
+    const RSValue *v = RLookupRow_Get(g->srckeys[ii], srcrow);
+    if (v == NULL) {
+      v = RSValue_NullStatic();
+    }
+    const RSValue *deref = RSValue_Dereference(v);
+    if (RSValue_IsArray(deref)) {
+      return invokeGroupReducersExpanded(g, srcrow, docId);
+    }
+    g->groupvals[ii] = v;
+    hval = RSValue_Hash(deref, hval);
+  }
+  return addToGroup(g, hval, srcrow, docId);
 }
 
 static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
