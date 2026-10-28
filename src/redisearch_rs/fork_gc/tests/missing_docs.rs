@@ -15,15 +15,15 @@ use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
     HandleError,
     missing_docs::{
-        MissingDocsEntry, apply_missing_docs, collect_missing_docs, missing_field_names,
-        receive_missing_docs, scan_missing_field,
+        MissingDocsEntry, apply_missing_docs, apply_missing_docs_with, collect_missing_docs,
+        missing_field_names, receive_missing_docs, scan_missing_field, snapshot_missing_field,
     },
 };
 use hidden_string::OwnedHiddenString;
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
-use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
+use inverted_index::{DocId, DocLiveness, GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
 use serde::Serialize as _;
 
 // Link both Rust-provided and C-provided symbols
@@ -310,7 +310,77 @@ fn scan_missing_field_matches_the_collected_entry() {
         .unwrap()
         .expect("the field has docs to collect");
 
-    assert_eq!(scan_missing_field(&guard, c"age"), Some(collected.delta));
-    assert_eq!(scan_missing_field(&guard, c"empty"), None);
-    assert_eq!(scan_missing_field(&guard, c"unknown"), None);
+    assert_eq!(
+        scan_missing_field(&guard, c"age", |id| guard.doc_exists(id)),
+        Some(collected.delta)
+    );
+    assert_eq!(
+        scan_missing_field(&guard, c"empty", |id| guard.doc_exists(id)),
+        None
+    );
+    assert_eq!(
+        scan_missing_field(&guard, c"unknown", |id| guard.doc_exists(id)),
+        None
+    );
+}
+
+/// A snapshot of a field's index scans to the same delta as the live index.
+#[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
+fn a_snapshot_scans_like_the_live_index() {
+    let (spec, _dict) = make_spec([(&b"f"[..], index(3))]);
+    // SAFETY: spec is valid and live for the duration of the test.
+    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+    let field = CString::new("f").unwrap();
+    let exists = |id: DocId| id != 2;
+
+    let live_delta = scan_missing_field(&guard, &field, exists).expect("doc 2 is gone");
+    let snapshot = snapshot_missing_field(&guard, &field, &exists).expect("doc 2 is gone");
+    assert_eq!(snapshot.scan_gc(exists).unwrap(), Some(live_delta));
+}
+
+/// A delta whose last block grew since the scan is rescanned when the apply has a
+/// liveness source, and denied when it has none.
+#[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
+fn apply_with_a_liveness_source_rescans_a_grown_last_block() {
+    // Docs 1 and 2 are gone; the one the writer appends is live.
+    let exists = |id: DocId| id > 2;
+    for (live, denied, collected) in [
+        (Some(&exists as &dyn DocLiveness), 0, true),
+        (None, 1, false),
+    ] {
+        let (mut spec, mut dict) = make_spec([(&b"f"[..], index(2))]);
+        let field = CString::new("f").unwrap();
+        let delta = {
+            // SAFETY: spec is valid and live for the duration of the test.
+            let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+            scan_missing_field(&guard, &field, exists).expect("both docs are gone")
+        };
+        let Some(OpaqueInvertedIndex::DocIdsOnly(ii)) =
+            dict.fetch_mut(&OwnedHiddenString::new(&field))
+        else {
+            panic!("the field is indexed as a doc-ids-only index");
+        };
+        ii.add_record(&RSIndexResult::build_virt().doc_id(3).build())
+            .unwrap();
+
+        // SAFETY: spec is valid and exclusively accessed for the duration of the test.
+        let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
+        let stats = apply_missing_docs_with(&field, delta, live, &mut guard).unwrap();
+
+        assert_eq!(stats.blocks_denied, denied);
+        assert_eq!(
+            stats.bytes_collected > 0,
+            collected,
+            "the gone docs' bytes are freed"
+        );
+        assert!(
+            guard
+                .missing_field_dict_mut()
+                .fetch(&OwnedHiddenString::new(&field))
+                .is_some(),
+            "doc 3 is live, so the field's index stays"
+        );
+    }
 }
