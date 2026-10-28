@@ -27,6 +27,34 @@ use crate::{
     traits::{BatchStrategy, ScoreBatch, ScoreSource},
 };
 
+/// Outcome of reducing a filter child before constructing a [`TopKIterator`].
+pub enum ChildReduction<C> {
+    /// The child can never yield a match, so the whole query is empty.
+    Empty,
+    /// No child, or a wildcard that matches everything: run the source alone.
+    Unfiltered,
+    /// A real filter child to intersect the source's results against.
+    Filtered(C),
+}
+
+/// Classify a filter child into the [`ChildReduction`] that applies to it.
+///
+/// A reduced-away child is dropped, so unlike in C's optimizer it no longer
+/// shows up as an `EMPTY` or `WILDCARD` child in the profile output.
+pub fn reduce_child<'index, C>(child: Option<C>) -> ChildReduction<C>
+where
+    C: RQEIterator<'index> + 'index,
+{
+    let Some(child) = child else {
+        return ChildReduction::Unfiltered;
+    };
+    match child.type_() {
+        IteratorType::Empty => ChildReduction::Empty,
+        IteratorType::Wildcard | IteratorType::InvIdxWildcard => ChildReduction::Unfiltered,
+        _ => ChildReduction::Filtered(child),
+    }
+}
+
 /// Determines which collection algorithm [`TopKIterator`] uses.
 ///
 /// Selected at construction based on whether a child filter is present,
@@ -112,7 +140,6 @@ pub struct TopKIterator<
     /// Holds the in-progress batch for the Unfiltered path.
     direct_batch: Option<S::Batch>,
     k: NonZeroUsize,
-    order: O,
     /// When `true`, filtered modes skip deep-copying the child's rich result
     /// subtree and yield its metrics with the source's score attached.
     /// Set when the downstream pipeline needs no rich results (no relevance
@@ -180,15 +207,30 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         order: O,
         mode: TopKMode,
     ) -> Self {
+        Self::from_heap(source, child, TopKHeap::new(k, order), mode)
+    }
+
+    /// Create a new [`TopKIterator`] around a pre-allocated `heap`, whose
+    /// [`capacity`](TopKHeap::capacity) and [`order`](TopKHeap::order) set `k`
+    /// and the score ordering.
+    ///
+    /// Pair with [`TopKHeap::try_new`] to handle an oversized `k` before
+    /// handing over the source and child.
+    pub fn from_heap(
+        source: S,
+        child: Option<C>,
+        heap: TopKHeap<'index, O>,
+        mode: TopKMode,
+    ) -> Self {
+        let k = heap.capacity();
         Self {
-            heap: ManuallyDrop::new(TopKHeap::new(k, order)),
+            heap: ManuallyDrop::new(heap),
             source,
             child,
             mode,
             initial_mode: mode,
             direct_batch: None,
             k,
-            order,
             can_trim_deep_results: false,
             phase: Phase::NotStarted,
             results: ManuallyDrop::new(Vec::new()),
@@ -278,6 +320,17 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         Ok(())
     }
 
+    /// What to stash from each matching child record the heap retains.
+    fn child_capture(&self) -> ChildCapture {
+        if !self.source.yields_child_record() {
+            ChildCapture::Nothing
+        } else if self.can_trim_deep_results {
+            ChildCapture::Metrics
+        } else {
+            ChildCapture::Record
+        }
+    }
+
     /// Collect results by intersecting score-ordered batches with the child filter.
     fn collect_batches(&mut self) -> Result<(), RQEIteratorError> {
         loop {
@@ -288,22 +341,40 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
 
             // Borrow-checker split: we can't hold `&mut self.child` and call
             // `self.heap.push` at the same time.  Pass fields explicitly.
-            let can_trim_deep_results = self.can_trim_deep_results;
+            let capture = self.child_capture();
             if let Some(child) = &mut self.child {
                 intersect_batch_with_child(
                     child,
                     &mut batch,
+                    &mut self.source,
                     &mut self.heap,
-                    can_trim_deep_results,
+                    capture,
                 )?;
             } else {
                 // No filter child: every source batch record is a candidate, so feed
                 // the whole batch through the heap, which retains the top k.
-                while let Some((doc_id, score)) = batch.next() {
-                    self.heap.push(doc_id, score);
+                let mut chunk = [(0, 0.0); 64];
+                loop {
+                    let mut len = 0;
+                    let more = loop {
+                        if len == chunk.len() {
+                            break Ok(true);
+                        }
+                        match batch.next(&mut self.source) {
+                            Ok(Some(pair)) => chunk[len] = pair,
+                            done => break done.map(|_| false),
+                        }
+                        len += 1;
+                    };
+                    for &(doc_id, score) in &chunk[..len] {
+                        self.heap.push(doc_id, score);
+                    }
+                    if !more? {
+                        break;
+                    }
                 }
             }
-            // Batch consumption is unpolled; check once at the boundary.
+            // A batch need not poll as it is read; check once at the boundary.
             self.source.check_timeout()?;
             match self.source.batch_strategy(self.heap.len(), self.k.get()) {
                 BatchStrategy::Continue => continue,
@@ -325,7 +396,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                     // rescans every match from scratch, so batch-phase entries
                     // are redundant. Keeping them would re-admit the same doc id
                     // (TopKHeap::push only de-dups against the worst element).
-                    *self.heap = TopKHeap::new(self.k, self.order);
+                    self.heap.clear();
                     self.collect_adhoc()?;
                     return Ok(());
                 }
@@ -353,7 +424,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
     /// wrap the adhoc code. This allows [`ScoreSource::lookup_score`]
     /// to reuse expensive resources.
     fn collect_adhoc(&mut self) -> Result<(), RQEIteratorError> {
-        let can_trim_deep_results = self.can_trim_deep_results;
+        let capture = self.child_capture();
         let child = self
             .child
             .as_mut()
@@ -377,36 +448,15 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                 // phase needn't re-walk the child. A discarded candidate skips the
                 // copy entirely. When rich results can be trimmed, copy only the
                 // child's yielded metrics rather than its full scoring subtree.
-                self.heap.push_with_record_lazy(doc_id, score, || {
-                    Some(if can_trim_deep_results {
-                        capture_child_metrics(result)
-                    } else {
-                        capture_child_record(result)
-                    })
-                });
+                self.heap
+                    .push_with_record_lazy(doc_id, score, || capture.capture(result));
             }
         }
 
         // Reached only on a clean scan exit (EOF or `Stop`); a timed-out scan
         // propagates earlier.
         if scope.0.should_rerank() && !self.heap.is_empty() {
-            let entries = self.heap.drain_unsorted().collect::<Vec<_>>();
-            // `rerank` only rewrites scores in place (doc ids stay put), so the
-            // scored slice stays index-aligned with `entries` and each stored
-            // record can be re-paired with its updated score below.
-            let mut scored: Vec<ScoredResult> = entries.iter().map(|e| e.scored).collect();
-            scope.0.rerank(&mut scored);
-            // Restore heap order under the (possibly) new scores, carrying each
-            // entry's captured record along. The count never exceeded k, so
-            // every entry is retained and a bulk rebuild needs no eviction.
-            let reranked = entries
-                .into_iter()
-                .zip(scored)
-                .map(|(entry, scored)| HeapResult {
-                    scored,
-                    record: entry.record,
-                });
-            self.heap.rebuild_from(reranked);
+            self.heap.rescore(|scored| scope.0.rerank(scored));
         }
 
         drop(scope);
@@ -417,9 +467,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
     /// Drain the heap into `self.results` in best-first order and transition to
     /// the [`Yielding`](Phase::Yielding) phase.
     fn finalize_collection(&mut self) {
-        // Replace heap with a fresh one; drain_sorted consumes the old one.
-        let old_heap = std::mem::replace(&mut *self.heap, TopKHeap::new(self.k, self.order));
-        *self.results = old_heap.drain_sorted();
+        *self.results = self.heap.drain_sorted();
         self.yield_pos = 0;
         self.phase = Phase::Yielding;
     }
@@ -433,7 +481,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         &mut self,
     ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         loop {
-            let item = self.direct_batch.as_mut().and_then(S::Batch::next);
+            let item = self
+                .direct_batch
+                .as_mut()
+                .map(|batch| batch.next(&mut self.source))
+                .transpose()?
+                .flatten();
 
             // Poll once per step, after classifying the entry and before yielding
             // it — gates valid results, EOF, and expired skips alike.
@@ -597,13 +650,16 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
                 RQEValidateStatus::Ok | RQEValidateStatus::Moved { .. } => {}
             }
         }
+        if !self.source.revalidate() {
+            return Ok(RQEValidateStatus::Aborted);
+        }
         Ok(RQEValidateStatus::Ok)
     }
 
     #[inline(always)]
     fn rewind(&mut self) {
-        *self.heap = TopKHeap::new(self.k, self.order);
-        self.results.clear();
+        *self.results = Vec::new();
+        self.heap.clear();
         *self.current = None;
         self.metrics = TopKMetrics::default();
         self.source.rewind();
@@ -692,22 +748,45 @@ fn capture_child_metrics<'index>(record: &RSIndexResult<'index>) -> RSIndexResul
     owned
 }
 
+/// What the collection phase copies out of a matching child record.
+#[derive(Clone, Copy)]
+enum ChildCapture {
+    /// The source builds every yielded result itself
+    /// ([`ScoreSource::yields_child_record`] is `false`).
+    Nothing,
+    /// See [`capture_child_metrics`].
+    Metrics,
+    /// See [`capture_child_record`].
+    Record,
+}
+
+impl ChildCapture {
+    fn capture<'index>(self, record: &RSIndexResult<'index>) -> Option<RSIndexResult<'index>> {
+        match self {
+            Self::Nothing => None,
+            Self::Metrics => Some(capture_child_metrics(record)),
+            Self::Record => Some(capture_child_record(record)),
+        }
+    }
+}
+
 /// Intersect one score-ordered batch with a child filter iterator,
 /// pushing matches into `heap`.
 ///
 /// Uses a merge-join (alternating `skip_to` calls) to find matching doc IDs.
 ///
 /// The child is **rewound** at the start of each call.
-fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
+fn intersect_batch_with_child<'index, C: RQEIterator<'index>, S, O: ScoreOrdering>(
     child: &mut C,
-    batch: &mut impl ScoreBatch,
+    batch: &mut impl ScoreBatch<S>,
+    source: &mut S,
     heap: &mut TopKHeap<'index, O>,
-    can_trim_deep_results: bool,
+    capture: ChildCapture,
 ) -> Result<(), RQEIteratorError> {
     child.rewind();
 
     // Prime both iterators.
-    let Some((mut batch_doc, mut batch_score)) = batch.next() else {
+    let Some((mut batch_doc, mut batch_score)) = batch.next(source)? else {
         return Ok(());
     };
     let Some(first) = child.read()? else {
@@ -724,19 +803,15 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
                 // When rich results can be trimmed, copy only the child's yielded
                 // metrics rather than its full scoring subtree.
                 heap.push_with_record_lazy(batch_doc, batch_score, || {
-                    child.current().map(|r| {
-                        if can_trim_deep_results {
-                            capture_child_metrics(r)
-                        } else {
-                            capture_child_record(r)
-                        }
-                    })
+                    child.current().and_then(|r| capture.capture(r))
                 });
                 // Advance the batch first; only read the child when another
                 // batch doc remains. Reading the child past an exhausted batch
                 // is needless work that inflates its profile counters and could
                 // turn a completed batch into a spurious TimedOut.
-                let Some((d, s)) = batch.next() else { break };
+                let Some((d, s)) = batch.next(source)? else {
+                    break;
+                };
                 batch_doc = d;
                 batch_score = s;
                 match child.read()?.map(|r| r.doc_id) {
@@ -746,7 +821,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
             }
             Ordering::Less => {
                 // batch is behind child — skip batch forward to child_doc.
-                match batch.skip_to(child_doc) {
+                match batch.skip_to(source, child_doc)? {
                     Some((d, s)) => {
                         batch_doc = d;
                         batch_score = s;

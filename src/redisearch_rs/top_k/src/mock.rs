@@ -44,18 +44,22 @@ impl MockScoreBatch {
     }
 }
 
-impl ScoreBatch for MockScoreBatch {
-    fn next(&mut self) -> Option<(DocId, f64)> {
+impl<S: ?Sized> ScoreBatch<S> for MockScoreBatch {
+    fn next(&mut self, _source: &mut S) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
         let item = self.items.get(self.pos).copied();
         if item.is_some() {
             self.pos += 1;
         }
-        item
+        Ok(item)
     }
 
-    fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)> {
+    fn skip_to(
+        &mut self,
+        source: &mut S,
+        target: DocId,
+    ) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
         self.pos += self.items[self.pos..].partition_point(|(id, _)| *id < target);
-        self.next()
+        self.next(source)
     }
 }
 
@@ -98,6 +102,9 @@ pub struct MockScoreSource {
     timeout_once_at: Option<usize>,
     /// Count of [`ScoreSource::check_timeout`] calls so far.
     n_timeout_checks: usize,
+    /// Whether [`ScoreSource::revalidate`] reports the index as changed.
+    /// `false` by default.
+    stale: bool,
 }
 
 impl MockScoreSource {
@@ -135,6 +142,7 @@ impl MockScoreSource {
             timeout_after_n_checks: None,
             timeout_once_at: None,
             n_timeout_checks: 0,
+            stale: false,
         }
     }
 
@@ -173,6 +181,12 @@ impl MockScoreSource {
         self.timeout_once_at = Some(n);
         self
     }
+
+    /// Make [`ScoreSource::revalidate`] report the index as changed.
+    pub fn with_stale_index(mut self) -> Self {
+        self.stale = true;
+        self
+    }
 }
 
 impl ScoreSource for MockScoreSource {
@@ -204,6 +218,10 @@ impl ScoreSource for MockScoreSource {
 
     fn rewind(&mut self) {
         self.batch_pos = 0;
+    }
+
+    fn revalidate(&mut self) -> bool {
+        !self.stale
     }
 
     fn build_result<'r>(&self, doc_id: DocId, _score: f64) -> RSIndexResult<'r>

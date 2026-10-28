@@ -23,17 +23,27 @@ use crate::heap::ScoredResult;
 /// [`TopKIterator`]'s intersection engine.  Doc IDs within a batch must be
 /// **strictly increasing**.
 ///
+/// Each call is handed `source`, the [`ScoreSource`] that produced the batch,
+/// so a batch that reads lazily can reach the source's state as it goes.
+///
+/// A batch that returns `Err` is spent: it may have consumed entries it did not
+/// yield, so it must be dropped rather than read again.
+///
 /// [`TopKIterator`]: crate::TopKIterator
-pub trait ScoreBatch {
+pub trait ScoreBatch<S: ?Sized> {
     /// Advance to the next `(doc_id, score)` pair.
     ///
-    /// Returns `None` when the batch is exhausted.
-    fn next(&mut self) -> Option<(DocId, f64)>;
+    /// Returns `Ok(None)` when the batch is exhausted.
+    fn next(&mut self, source: &mut S) -> Result<Option<(DocId, f64)>, RQEIteratorError>;
 
     /// Skip forward to the first pair whose `doc_id >= target`.
     ///
-    /// Returns `None` if no such pair exists in this batch.
-    fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)>;
+    /// Returns `Ok(None)` if no such pair exists in this batch.
+    fn skip_to(
+        &mut self,
+        source: &mut S,
+        target: DocId,
+    ) -> Result<Option<(DocId, f64)>, RQEIteratorError>;
 }
 
 /// Decision returned by [`ScoreSource::batch_strategy`] after each batch,
@@ -88,7 +98,7 @@ pub enum BatchStrategy {
 /// [`batch_strategy`]: ScoreSource::batch_strategy
 pub trait ScoreSource {
     /// The type of batch iterator this source produces.
-    type Batch: ScoreBatch;
+    type Batch: ScoreBatch<Self>;
 
     /// Fetch the next score-ordered batch.
     ///
@@ -192,6 +202,13 @@ pub trait ScoreSource {
 
     /// Rewind the source to its initial state so batch iteration can restart.
     fn rewind(&mut self);
+
+    /// Re-admit the source after the lock is re-acquired. Returns `false` if
+    /// the index it reads changed under it while the lock was released, so its
+    /// cursor cannot be resumed and revalidation must abort.
+    fn revalidate(&mut self) -> bool {
+        true
+    }
 
     /// Build the [`RSIndexResult`] that the [`TopKIterator`] will yield for a
     /// given `(doc_id, score)` pair.
