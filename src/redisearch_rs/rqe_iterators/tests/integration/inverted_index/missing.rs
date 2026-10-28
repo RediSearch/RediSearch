@@ -186,8 +186,8 @@ mod not_miri {
         // Replace the dict entry. `dictDelete` calls the value destructor
         // which frees the original inverted index. Then add the new one.
         // Note: the iterator's reader holds a (now-dangling) pointer to the
-        // original II, but `should_abort` only compares pointers via
-        // `is_index` without dereferencing it, so this is safe.
+        // original II, but revalidation only compares it against the dict's
+        // entry without dereferencing it, so this is safe.
         let dict = test.test.context.spec_read().missing_field_dict_ptr();
         unsafe {
             ffi::RS_dictDelete(dict, field_name as *mut _);
@@ -239,7 +239,7 @@ mod not_miri {
             ffi::RS_dictDelete(dict, field_name as *mut _);
         }
 
-        // `should_abort` sees NULL from `dictFetchValue` and returns true.
+        // Revalidation sees NULL from `dictFetchValue` and aborts.
         let status = it
             .revalidate(&*test.test.context.spec_read())
             .expect("revalidate failed");
@@ -374,7 +374,7 @@ mod not_miri {
                 ffi::RS_dictDelete(dict, field_name as *mut _);
             }
 
-            // `should_abort` sees NULL from `dictFetchValue` and returns true.
+            // Revalidation sees NULL from `dictFetchValue` and aborts.
             let outcome =
                 revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
             assert!(matches!(outcome, ResumeOutcome::Aborted));
