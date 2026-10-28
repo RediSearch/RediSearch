@@ -61,6 +61,12 @@ impl GcApplyStats {
     /// Combines the spec stats update (done under the write lock) and the GC
     /// stats update that always go together after applying a GC delta.
     pub fn apply(&self, fgc: &mut ForkGC, guard: &mut IndexSpecWriteGuard<'_>) {
+        self.apply_to_spec(guard);
+        fgc.record(self);
+    }
+
+    /// Apply the spec-level half of this delta, under the spec's write lock.
+    pub fn apply_to_spec(&self, guard: &mut IndexSpecWriteGuard<'_>) {
         guard.update_gc_stats(
             self.records_removed,
             self.bytes_collected,
@@ -69,11 +75,25 @@ impl GcApplyStats {
             self.terms_removed,
         );
         guard.add_block_count(self.block_count_delta);
-        fgc.update_gc_stats(
-            self.bytes_collected,
-            self.bytes_allocated,
-            self.blocks_denied,
-            self.numeric_nodes_missed,
+    }
+}
+
+/// Receives the GC-level half of each [`GcApplyStats`] a cycle produces.
+///
+/// The spec-level half goes through [`GcApplyStats::apply_to_spec`] under the
+/// write lock; this half only touches the GC's own counters.
+pub trait GcStatsSink {
+    /// Fold `stats` into the GC's counters.
+    fn record(&mut self, stats: &GcApplyStats);
+}
+
+impl GcStatsSink for ForkGC {
+    fn record(&mut self, stats: &GcApplyStats) {
+        self.update_gc_stats(
+            stats.bytes_collected,
+            stats.bytes_allocated,
+            stats.blocks_denied,
+            stats.numeric_nodes_missed,
         );
     }
 }

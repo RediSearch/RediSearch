@@ -159,6 +159,25 @@ void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len);
 void FGC_sendTerminator(ForkGC *fgc);
 
 /**
+ * Run every GC scanner over `gc`'s index on the calling thread, under the
+ * spec's read/write lock, a bounded number of keys per hold.
+ *
+ * Returns [`FGCError::Done`] when the cycle completed,
+ * [`FGCError::SpecDeleted`] when the index was dropped during it, and
+ * [`FGCError::ParentError`] for any other failure. Stats of the chunks applied
+ * before an early end are kept.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`] that nothing else references for
+ *    the duration of this call: in particular no other GC cycle runs on it. The
+ *    main thread's deletion counter is an atomic the C side updates in place, not
+ *    a reference to the struct.
+ * 2. The calling thread must not hold any spec lock.
+ */
+enum FGCError FGC_threadRunScanners(ForkGC *gc);
+
+/**
  * Receive a field header (field name + unique id).
  *
  * Returns `FGC_COLLECTED` on success, `FGC_DONE` when no more fields remain,

@@ -27,6 +27,7 @@ use tracing::Level;
 use tracing_log_error::log_error;
 
 mod orchestration;
+mod thread_gc;
 mod util;
 
 /// Status code returned by Fork GC parent-side pipe-receive operations.
