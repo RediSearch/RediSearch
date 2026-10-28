@@ -198,7 +198,9 @@ TEST_F(FGCTestTag, testRemoveEntryFromLastBlock) {
 
   // gc stats
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
-  ASSERT_EQ(1, fgc->stats.totalCollected);
+  // The repaired block's buffer holds one 1-byte entry instead of two. Within the buffer's
+  // allocation padding that can free nothing, so `numRecords` below is what shows the repair.
+  ASSERT_EQ(blockBufferHeap(2) - blockBufferHeap(1), fgc->stats.totalCollected);
 
   // numDocuments is updated in the indexing process, while all other fields are only updated if
   // their memory was cleaned by the gc.

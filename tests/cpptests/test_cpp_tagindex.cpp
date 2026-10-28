@@ -97,11 +97,10 @@ TEST_F(TagIndexTest, testCreate) {
 
   // The size of the inverted index structure is 24 bytes
   size_t iv_index_size = 24;
-  size_t index_block_size = 56;
 
-  // Each index block is 56 bytes + its buffer capacity + the header of the block vector
-  size_t expectedTotalSZ =
-      v.size() * (iv_index_size + (8 + (buffer_cap + index_block_size) * num_blocks));
+  // Each index block is the block itself + its buffer allocation + the header of the block vector
+  size_t expectedTotalSZ = v.size() * (iv_index_size + (8 + (blockBufferHeap(buffer_cap) +
+                                                              INDEX_BLOCK_SIZE) * num_blocks));
   ASSERT_EQ(expectedTotalSZ, stats.invertedSize);
 
   // Add a new entry to and check the last block size
@@ -109,9 +108,9 @@ TEST_F(TagIndexTest, testCreate) {
   indexTags(idx, v2, ++d, &stats);
   // A base inverted index is 24 bytes
   // The header of the block vector is 8 bytes
-  // An index block is 56 bytes
+  // An index block is INDEX_BLOCK_SIZE bytes
   // And after the first insert the buffer capacity is 1 byte
-  size_t last_block_size = 24 + 8 + index_block_size + 1;
+  size_t last_block_size = 24 + 8 + INDEX_BLOCK_SIZE + blockBufferHeap(1);
   ASSERT_EQ(expectedTotalSZ + last_block_size, stats.invertedSize);
   ASSERT_EQ(N * v.size() + v2.size(), stats.numRecords);
 

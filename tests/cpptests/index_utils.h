@@ -20,6 +20,16 @@
 #include <algorithm>
 #include <cstring>
 
+/** The size of an `IndexBlock`, which is opaque to C. */
+constexpr size_t INDEX_BLOCK_SIZE = 40;
+
+/** The heap bytes held by an index block's encoded-entries buffer of capacity @param cap: a
+ * `ThinVec<u8, u32>`, whose allocation holds an 8-byte length/capacity header and is padded to
+ * a multiple of 4 bytes. Nothing is allocated while the capacity is 0. */
+constexpr size_t blockBufferHeap(size_t cap) {
+  return cap == 0 ? 0 : (8 + cap + 3) & ~size_t{3};
+}
+
 /** returns a string object containing @param id as a string */
 std::string numToDocStr(unsigned id);
 

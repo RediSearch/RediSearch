@@ -356,6 +356,9 @@ TEST_F(IndexTest, testNumericInverted) {
     // The number of bytes added to the capacity is defined by the formula:
     // MIN(1 + buf.cap / 5, 1024 * 1024)  (see controlled_cursor.rs reserve_and_pad())
     //
+    // `sz` below is the capacity growth; the reported memory growth is the growth of the
+    // buffer's allocation, see blockBufferHeap().
+    //
     //   | H + V | Delta | Bytes     | Written  | Buff cap | Available | sz
     // i | bytes | bytes | per Entry | bytes    |          | size      |
     // ----------------------------------------------------------------------
@@ -385,13 +388,12 @@ TEST_F(IndexTest, testNumericInverted) {
       target_cap += MIN(1 + target_cap / 5, 1024 * 1024);
     }
 
-    expected_sz = target_cap - buff_cap;
+    expected_sz = blockBufferHeap(target_cap) - blockBufferHeap(buff_cap);
     buff_cap = target_cap;
 
-    // The first write add an index block of 56 bytes
-    // and the vector header
+    // The first write add an index block and the vector header
     if (i < 1) {
-      expected_sz += 56 + 8;
+      expected_sz += INDEX_BLOCK_SIZE + 8;
     }
 
     // Check if the write matches the simulation
@@ -1002,7 +1004,8 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
-  ASSERT_EQ(81, sz);
+  // The block vector header, the block, and its 17-byte buffer
+  ASSERT_EQ(8 + INDEX_BLOCK_SIZE + blockBufferHeap(17), sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
@@ -1010,7 +1013,8 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
-  ASSERT_EQ(sz2, 68);
+  // The block vector header, the block, and its 4-byte buffer
+  ASSERT_EQ(8 + INDEX_BLOCK_SIZE + blockBufferHeap(4), sz2);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
@@ -1018,7 +1022,9 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_EQ(40, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(85, InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth);
+  // The block vector header, the block, and its 21-byte buffer
+  ASSERT_EQ(8 + INDEX_BLOCK_SIZE + blockBufferHeap(21),
+            InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth);
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
@@ -1031,7 +1037,8 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
-  ASSERT_EQ(67, sz);
+  // The block vector header, the block, and its 3-byte buffer
+  ASSERT_EQ(8 + INDEX_BLOCK_SIZE + blockBufferHeap(3), sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
@@ -1041,7 +1048,8 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
-  ASSERT_EQ(75, sz);
+  // The block vector header, the block, and its 11-byte buffer
+  ASSERT_EQ(8 + INDEX_BLOCK_SIZE + blockBufferHeap(11), sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);

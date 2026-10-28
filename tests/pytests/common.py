@@ -1370,6 +1370,15 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
 
     return total_size
 
+# The size of an inverted index block, which is opaque outside the Rust code.
+INDEX_BLOCK_SIZE = 40
+
+# The heap bytes an index block's encoded-entries buffer takes for a capacity of `cap` bytes: the
+# buffer is a `ThinVec<u8, u32>`, whose allocation holds an 8-byte header and is padded to a
+# multiple of 4 bytes. Nothing is allocated while the capacity is 0.
+def blockBufferHeap(cap):
+    return 0 if cap == 0 else (8 + cap + 3) & ~3
+
 # fields should be in capital letters
 def getInvertedIndexInitialSize_MB(env, fields, depth=0) -> float:
     return getInvertedIndexInitialSize(env, fields, depth=depth+1) / float(1024 * 1024)

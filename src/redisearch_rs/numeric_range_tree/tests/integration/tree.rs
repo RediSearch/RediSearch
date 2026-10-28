@@ -33,10 +33,12 @@ fn test_add_basic() {
     assert_eq!(tree.last_doc_id(), 1);
     assert!(result.size_delta > 0);
 
+    // A block buffer's allocation is padded, so growing its capacity by a few bytes can fit in
+    // the padding and leave the memory usage unchanged.
     let result = tree.add(2, 10.0, false, false, 0);
     assert_eq!(tree.num_entries(), 2);
     assert_eq!(tree.last_doc_id(), 2);
-    assert!(result.size_delta > 0);
+    assert!(result.size_delta >= 0);
 }
 
 #[test]
@@ -80,9 +82,10 @@ fn test_duplicate_doc_id_allowed_with_multi() {
     tree.add(5, 10.0, false, true, 0);
     assert_eq!(tree.num_entries(), 1);
 
-    // Duplicate allowed with is_multi=true
+    // Duplicate allowed with is_multi=true. The entry may fit in the block buffer's allocation
+    // padding, so the memory usage need not grow.
     let result = tree.add(5, 20.0, false, true, 0);
-    assert!(result.size_delta > 0);
+    assert!(result.size_delta >= 0);
     assert_eq!(tree.num_entries(), 2);
 }
 

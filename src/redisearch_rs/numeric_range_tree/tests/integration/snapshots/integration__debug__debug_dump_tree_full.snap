@@ -16,7 +16,7 @@ expression: reply
       "maxVal",
       10,
       "invertedIndexSize [bytes]",
-      122,
+      116,
       "card",
       10,
       "entries",

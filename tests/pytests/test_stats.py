@@ -45,10 +45,10 @@ def runTestWithSeed(env, s=None):
         conn.execute_command('HSET', 'doc%d' % i, 'n', (i % num_values) + value_offset)
 
     expected_inv_idx_size = (
-        443 # buffer size after writing 4 bytes 100 times.
+        blockBufferHeap(443) # buffer capacity after writing 4 bytes 100 times.
         + 8 # thin vector header
         + 32 # size of the inverted index structure on the stack
-        + 56 # index block stack size
+        + INDEX_BLOCK_SIZE # index block stack size
     ) / (1024 * 1024)
     check_index_info(env, idx, count, expected_inv_idx_size, "after insert")
 

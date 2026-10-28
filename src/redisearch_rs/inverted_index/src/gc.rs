@@ -145,7 +145,8 @@ impl IndexBlock {
         mut repair: Option<impl FnMut(&RSIndexResult<'block>, &RepairContext<'block>)>,
         _encoder: PhantomData<E>,
     ) -> std::io::Result<Option<RepairType>> {
-        let mut cursor: std::io::Cursor<&'block [u8]> = std::io::Cursor::new(self.buffer.as_slice());
+        let mut cursor: std::io::Cursor<&'block [u8]> =
+            std::io::Cursor::new(self.buffer.as_slice());
         let mut last_read_doc_id = None;
         let mut result = D::base_result();
         let mut unique_read = 0;

@@ -92,7 +92,10 @@ pub struct IndexBlock {
     pub(crate) num_entries: u16,
 
     /// The encoded entries in this block
-    #[serde(serialize_with = "serialize_buffer", deserialize_with = "deserialize_buffer")]
+    #[serde(
+        serialize_with = "serialize_buffer",
+        deserialize_with = "deserialize_buffer"
+    )]
     pub(crate) buffer: BlockBuffer,
 
     /// The entries in this block that belong to a field with a field-level expiration, see
