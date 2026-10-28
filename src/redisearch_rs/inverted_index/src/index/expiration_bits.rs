@@ -22,7 +22,7 @@ use thin_vec::ThinVec;
 ///
 /// The set reaches only as far as the highest ordinal inserted; ordinals past its end are absent.
 /// An empty set does not allocate.
-#[derive(Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub(crate) struct ExpirationBits(ThinVec<u8, u16>);
 
 impl ExpirationBits {

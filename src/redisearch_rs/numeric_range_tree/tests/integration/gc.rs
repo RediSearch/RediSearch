@@ -9,7 +9,7 @@
 
 //! Tests for garbage collection in the numeric range tree.
 
-use numeric_range_tree::{NodeGcDelta, NumericRangeTree};
+use numeric_range_tree::{NodeGcDelta, NumericRangeTree, scan_range_index_gc};
 use rstest::rstest;
 
 use numeric_range_tree::test_utils::{
@@ -143,6 +143,39 @@ fn apply_gc_to_node_with_blocks_since_fork(#[values(false, true)] compress_float
     // With a single value (42.0), cardinality should be exactly 1 after rescan.
     let cardinality_after = tree.root().range().unwrap().cardinality();
     assert_eq!(cardinality_after, 1);
+}
+
+/// A last block that grew since the scan is rescanned in place when the apply has a
+/// liveness source, and denied without one; after a rescan the cardinality and bounds
+/// come from the block as it is now, so they are exact either way.
+#[rstest]
+fn apply_gc_to_node_with_a_liveness_source_rescans_a_grown_last_block(
+    #[values(false, true)] compress_floats: bool,
+) {
+    let n = ENTRIES_PER_BLOCK / 2;
+    let live = |doc_id: u64| doc_id > n / 2;
+    for (with_live, denied, removed) in [(true, false, n / 2), (false, true, 0)] {
+        let mut tree = NumericRangeTree::new(compress_floats);
+        for i in 1..=n {
+            tree.add(i, 42.0, false, false, 0);
+        }
+        let delta =
+            scan_node_delta(&tree, tree.root_index(), &live).expect("half the docs are gone");
+        // The writer appends to the leaf's only block, which the scan read as it was.
+        tree.add(n + 1, 7.0, false, false, 0);
+
+        let live_dyn: &dyn inverted_index::DocLiveness = &live;
+        let result = tree
+            .apply_gc_to_node_with(tree.root_index(), delta, with_live.then_some(live_dyn))
+            .unwrap();
+
+        assert_eq!(result.index_gc_info.ignored_last_block, denied);
+        assert_eq!(result.index_gc_info.rescanned_last_block, with_live);
+        assert_eq!(result.index_gc_info.entries_removed, removed as usize);
+        let range = tree.root().range().unwrap();
+        assert_eq!(range.cardinality(), 2, "42.0 and the appended 7.0");
+        assert_eq!(range.entries().num_docs() as u64, n + 1 - removed);
+    }
 }
 
 #[rstest]
@@ -855,4 +888,22 @@ fn gc_tightens_retained_internal_range() {
         leftmost = left;
     }
     assert_eq!(bounds_of(&tree, leftmost).0, 2.0);
+}
+
+/// A scan of a snapshot taken with a liveness source finds exactly what a scan of
+/// the live range finds with it.
+#[rstest]
+fn scanning_a_snapshot_matches_scanning_the_live_range(
+    #[values(false, true)] compress_floats: bool,
+) {
+    let tree = build_single_leaf_tree(ENTRIES_PER_BLOCK * 3, compress_floats);
+    let entries = tree.root().range().expect("a leaf has a range").entries();
+    let live = |doc_id: u64| doc_id % 3 != 0;
+
+    let on_live = scan_range_index_gc(entries, live)
+        .unwrap()
+        .expect("every third doc is gone");
+    let snapshot = entries.gc_snapshot(&live).expect("every third doc is gone");
+
+    assert_eq!(scan_range_index_gc(&snapshot, live).unwrap(), Some(on_live));
 }

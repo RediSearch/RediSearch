@@ -10,6 +10,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     marker::PhantomData,
+    ops::RangeInclusive,
     sync::atomic::{self, AtomicU32},
 };
 use thin_vec::ThinVec;
@@ -72,7 +73,7 @@ pub struct AddRecordOutcome {
 /// last entry has the highest document ID. The block also contains a buffer that is used to
 /// store the encoded entries. The buffer is dynamically resized as needed when new entries are
 /// added to the block.
-#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct IndexBlock {
     /// The first document ID in this block. This is used to determine the range of document IDs
     /// that this block covers.
@@ -197,6 +198,64 @@ impl<E: Encoder> InvertedIndex<E> {
             unique_id: IndexUniqueId::next(),
             _encoder: Default::default(),
         }
+    }
+
+    /// A private copy of the blocks a GC scan has to decode, for scanning without a lock.
+    ///
+    /// With [`GcSnapshotScope::DirtyBlocks`](crate::GcSnapshotScope::DirtyBlocks), blocks
+    /// whose doc-ID range holds nothing `live` reports gone keep their bounds and entry
+    /// count but no data, so a scan of the copy skips them as it would skip the originals,
+    /// and a repair never touches them. Returns `None` when no block needs a look. Scan the
+    /// copy with the same `live`: another source may find a dataless block dirty and leave
+    /// its entries uncollected for this cycle.
+    pub fn gc_snapshot(
+        &self,
+        live: &impl crate::DocLiveness,
+        scope: crate::GcSnapshotScope,
+    ) -> Option<Self> {
+        let (first, last) = (self.blocks.first()?, self.blocks.last()?);
+        if !live.any_gone(first.first_doc_id, last.last_doc_id) {
+            return None;
+        }
+        let blocks = self
+            .blocks
+            .iter()
+            .map(|b| {
+                if scope == crate::GcSnapshotScope::AllBlocks
+                    || live.any_gone(b.first_doc_id, b.last_doc_id)
+                {
+                    b.clone()
+                } else {
+                    IndexBlock {
+                        first_doc_id: b.first_doc_id,
+                        last_doc_id: b.last_doc_id,
+                        num_entries: b.num_entries,
+                        buffer: Vec::new(),
+                        expiration_bits: ExpirationBits::new(),
+                    }
+                }
+            })
+            .collect();
+        Some(Self {
+            blocks,
+            n_unique_docs: self.n_unique_docs,
+            flags: self.flags,
+            gc_marker: AtomicU32::new(self.gc_marker()),
+            unique_id: self.unique_id,
+            _encoder: Default::default(),
+        })
+    }
+
+    /// The doc IDs the index spans, from its first block's first to its last block's last;
+    /// `None` for an index without blocks.
+    pub fn doc_id_range(&self) -> Option<RangeInclusive<DocId>> {
+        Some(self.blocks.first()?.first_doc_id..=self.blocks.last()?.last_doc_id)
+    }
+
+    /// The doc IDs the last block spans; `None` for an index without blocks.
+    pub fn last_block_doc_id_range(&self) -> Option<RangeInclusive<DocId>> {
+        let last = self.blocks.last()?;
+        Some(last.first_doc_id..=last.last_doc_id)
     }
 
     /// The memory size of the index in bytes.
