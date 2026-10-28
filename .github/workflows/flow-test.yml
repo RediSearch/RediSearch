@@ -1,168 +1,34 @@
-name: Build on Platforms
-
-# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
-
-# Floor, not a grant: every job below declares what it needs, so this only
-# stops a job added later from silently inheriting the repository default.
-permissions: {}
-
+name: Read-only failed runner lifecycle probe
 on:
-  workflow_call:
-    inputs:
-      platform:
-        type: string
-        default: all
-      architecture:
-        type: string
-        default: all
-      job-test-config:
-        description: 'JSON mapping of job-type to test-config (e.g. ''{"test": "QUICK=1", "coverage": "", "sanitize": "", "ubsan": ""}''). Use empty string for full tests.'
-        type: string
-        default: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
-      ubsan-unit-test-filter:
-        description: 'Optional C/C++ unit-test filter used by UBSan unit-test jobs.'
-        type: string
-        default: ''
-      redis-ref:
-        description: 'Redis version to use (e.g. "7.2.3", "unstable")'
-        type: string
-        required: true
-      rejson-branch:
-        type: string
-        default: master
-        description: 'Branch to use when building RedisJSON for tests'
-      options:
-        type: string
-        default: coordinator,standalone,unit-tests,rejson,fail-fast
-        description: 'Comma-separated list of options: coordinator, standalone, unit-tests, rejson, fail-fast, coverage, sanitize, ubsan, skip-tests'
-      ubsan:
-        description: 'Run selected C/C++ unit tests under alignment UBSan'
-        type: boolean
-        default: false
-      separate-coordinator-job:
-        type: boolean
-        default: false
-        description: "Run coordinator tests in a separate parallel job per platform"
-
   workflow_dispatch:
-    inputs:
-      platform:
-        type: choice
-        options:
-          - all
-          - ubuntu:resolute
-          - ubuntu:noble
-          - ubuntu:jammy
-          - ubuntu:focal
-          - rockylinux:8
-          - rockylinux:9
-          - rockylinux:10
-          - debian:bookworm
-          - debian:trixie
-          - amazonlinux:2023
-          - azurelinux:3
-          - alpine:3.23
-          - macos-14
-          - macos-15
-          - macos-26
-          - intel
-        description: 'Platform to test on. Use "all" to test on all platforms'
-        default: all
-      architecture:
-        type: choice
-        options:
-          - all
-          - x86_64
-          - aarch64
-        description: 'Architecture to test on. Use "all" to test on all architectures'
-        default: all
-      test-config:
-        description: Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")
-        type: string
-        default: QUICK=1
-      ubsan-unit-test-filter:
-        description: Optional C/C++ unit-test filter for UBSan jobs
-        type: string
-        default: ''
-      redis-ref:
-        description: 'Redis git ref to use (e.g. "7.2.3", "unstable", or a commit sha)'
-        type: string
-        default: '559d143b4e0409c452f7d229ba420954b6b647a2'
-      rejson-branch:
-        type: string
-        default: master
-        description: 'Branch to use when building RedisJSON for tests (default: master)'
-      unit-tests:
-        description: 'Run unit tests'
-        type: boolean
-        default: true
-      standalone:
-        description: 'Run standalone tests'
-        type: boolean
-        default: true
-      cluster:
-        description: 'Run cluster mode tests'
-        type: boolean
-        default: true
-      rejson:
-        description: 'Include RedisJSON tests'
-        type: boolean
-        default: true
-      fail-fast:
-        description: 'Fail fast on test failures'
-        type: boolean
-        default: true
-      ubsan:
-        description: 'Run selected C/C++ unit tests under alignment UBSan'
-        type: boolean
-        default: false
-      separate-coordinator-job:
-        type: boolean
-        default: false
-        description: "Run coordinator tests in a separate parallel job per platform"
-
+permissions: {}
 jobs:
-  generate-matrix:
-    permissions: {} # generate-matrix.yml only computes a matrix
-    uses: ./.github/workflows/generate-matrix.yml
-    with:
-      platform: ${{ inputs.platform }}
-      architecture: ${{ inputs.architecture }}
-      include-coverage: ${{ contains(inputs.options, 'coverage') }}
-      include-sanitize: ${{ contains(inputs.options, 'sanitize') }}
-      include-ubsan: ${{ contains(inputs.options, 'ubsan') || inputs.ubsan == true }}
-      separate-coordinator-job: ${{ inputs.separate-coordinator-job }}
-
-  # Unified test matrix - includes Linux and macOS platforms, plus optional coverage, sanitize, and intel
-  test-matrix:
-    name: ${{ matrix.job-type == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', matrix.job-type, matrix.architecture) }}${{ matrix.test-mode == 'standalone' && ' (Standalone)' || (matrix.test-mode == 'coordinator' && ' (Coordinator-only)' || '') }}
-    needs: [generate-matrix]
-    if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
-    strategy:
-      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
-      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
       contents: read
-      packages: write
-      id-token: write # OIDC role assumption for sccache S3 (used inside task-test.yml)
-      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-test.yml)
-    uses: ./.github/workflows/task-test.yml
-    secrets: inherit
-    with:
-      platform: ${{ matrix.platform }}
-      architecture: ${{ matrix.architecture }}
-      redis-ref: ${{ inputs.redis-ref }}
-      rejson: ${{ contains(inputs.options, 'rejson') || inputs.rejson == true }}
-      rejson-branch: ${{ inputs.rejson-branch }}
-      # skip-tests is explicit: build the selected matrix, but disable every test step
-      # even if another test option is present through defaults or manual input.
-      coordinator: ${{ !contains(inputs.options, 'skip-tests') && (contains(inputs.options, 'coordinator') || inputs.cluster == true) && (matrix.test-mode == 'coordinator' || matrix.test-mode == 'all') }}
-      standalone: ${{ !contains(inputs.options, 'skip-tests') && (contains(inputs.options, 'standalone') || inputs.standalone == true) && (matrix.test-mode == 'standalone' || matrix.test-mode == 'all') }}
-      unit-tests: ${{ !contains(inputs.options, 'skip-tests') && (contains(inputs.options, 'unit-tests') || inputs.unit-tests == true) && matrix.test-mode != 'coordinator' }}
-      rust-unit-tests: ${{ matrix.job-type != 'ubsan' }}
-      unit-test-filter: ${{ matrix.job-type == 'ubsan' && inputs.ubsan-unit-test-filter || '' }}
-      test-config: ${{ fromJson(inputs.job-test-config || '{}')[matrix.job-type] || inputs.test-config }}
-      coverage: ${{ matrix.job-type == 'coverage' }}
-      san: ${{ matrix.job-type == 'sanitize' && 'address' || matrix.job-type == 'ubsan' && 'alignment' || '' }}
-      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
-      skip-tests: ${{ contains(inputs.options, 'skip-tests') }}
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - name: Configure existing sccache role
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c
+        with:
+          role-to-assume: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.SCCACHE_S3_REGION }}
+          mask-aws-account-id: true
+          retry-max-attempts: 1
+      - name: Read only the failed instance lifecycle
+        env:
+          AWS_MAX_ATTEMPTS: '1'
+          AWS_PAGER: ''
+        run: python3 .github/scripts/probe_runner_lifecycle.py
+      - name: Retain sanitized result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: failed-runner-lifecycle
+          path: runner-lifecycle.json
+          retention-days: 3
+          if-no-files-found: error
