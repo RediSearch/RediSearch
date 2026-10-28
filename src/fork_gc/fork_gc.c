@@ -386,6 +386,31 @@ static void deleteOrUpdateCb(void *ctx) {
   IndexsGlobalStats_IncreaseLogicallyDeleted(1);
 }
 
+// A fork is costly enough to keep to its interval, so only the thread policy starts early.
+// Deletions reported off the main thread are parked on the spec until a run takes them; they
+// count here, or a tick could keep deferring work it is never told about directly.
+static bool hasEnoughWorkCb(void *ctx) {
+  ForkGC *gc = ctx;
+  if (!threadPolicyEnabled()) {
+    return true;
+  }
+  // A tick that defers re-arms from this, and only a cycle refreshes it otherwise: pick up an
+  // interval change here too, or a quiet index would keep the old cadence until it has work.
+  gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
+  // A plain promotion, not `IndexSpecRef_Promote`: this runs inside commands that already own
+  // the thread's spec slot for crash reports, and must not take it over.
+  StrongRef spec_ref = WeakRef_Promote(gc->index);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (!sp) {
+    // The index is gone (a failed promotion holds nothing to release): the run must happen so it
+    // finds that out and frees this GC.
+    return true;
+  }
+  size_t pending = gc->deletedOrUpdatedDocsFromLastRun + IndexSpec_PeekGCDeferredDeletes(sp);
+  StrongRef_Release(spec_ref);
+  return pending >= RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold;
+}
+
 static void getStatsCb(void *gcCtx, InfoGCStats *out) {
   const ForkGC *gc = gcCtx;
   out->totalCollectedBytes = gc->stats.totalCollected;
@@ -420,6 +445,7 @@ ForkGC *FGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
   callbacks->onWrite = NULL; // writes are not tracked for forkGC
   callbacks->onUpdate = deleteOrUpdateCb;
   callbacks->getStats = getStatsCb;
+  callbacks->hasEnoughWork = hasEnoughWorkCb;
 
   return forkGc;
 }
