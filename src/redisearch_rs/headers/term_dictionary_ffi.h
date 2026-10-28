@@ -117,9 +117,11 @@ struct TermDictionary *NewTermDictionary(void);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`TermDictionaryIterator`] obtained from
+ * - `it` must point to a [valid] [`TermDictionaryIterator`] obtained from
  *   one of the `TermDictionary_Iterate*` functions and cannot be NULL.
  * - `it` must not be used after this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TermDictionaryIterator_Free(struct TermDictionaryIterator *it);
 
@@ -136,9 +138,9 @@ void TermDictionaryIterator_Free(struct TermDictionaryIterator *it);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`TermDictionaryIterator`] obtained from
+ * - `it` must point to a [valid] [`TermDictionaryIterator`] obtained from
  *   one of the `TermDictionary_Iterate*` functions and cannot be NULL.
- * - `term` and `len` must be valid, non-NULL pointers to writable
+ * - `term` and `len` must be [valid], non-NULL pointers to writable
  *   locations; `score` and `num_docs` must each be NULL or point to a
  *   writable location.
  * - The out-pointers must not overlap each other, the
@@ -147,6 +149,8 @@ void TermDictionaryIterator_Free(struct TermDictionaryIterator *it);
  *   exclusive access to the iterator.
  * - The [`TermDictionary`] the iterator was obtained from must still be
  *   alive and unmodified since the iterator was created.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int TermDictionaryIterator_Next(struct TermDictionaryIterator *it, const char * *term, size_t *len, float *score, size_t *num_docs);
 
@@ -158,9 +162,9 @@ int TermDictionaryIterator_Next(struct TermDictionaryIterator *it, const char * 
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
+ * - `term` must point to a [valid] byte sequence of length `len`.
  * - No other access to `t` may occur concurrently with this call —
  *   neither another mutator nor a read-only call such as
  *   [`TermDictionary_Len`], and no iterator obtained from `t` may be
@@ -169,6 +173,8 @@ int TermDictionaryIterator_Next(struct TermDictionaryIterator *it, const char * 
  * # Panics
  *
  * Panics if `term` is not valid UTF-8.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 enum TermDictionaryInsertOutcome TermDictionary_AddTerm(struct TermDictionary *t, const char *term, size_t len, float score, size_t num_docs);
 
@@ -183,9 +189,9 @@ enum TermDictionaryInsertOutcome TermDictionary_AddTerm(struct TermDictionary *t
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
+ * - `term` must point to a [valid] byte sequence of length `len`.
  * - No other access to `t` may occur concurrently with this call —
  *   neither another mutator nor a read-only call such as
  *   [`TermDictionary_Len`], and no iterator obtained from `t` may be
@@ -194,6 +200,8 @@ enum TermDictionaryInsertOutcome TermDictionary_AddTerm(struct TermDictionary *t
  * # Panics
  *
  * Panics if `term` is not valid UTF-8.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 enum TermDictionaryDecrResult TermDictionary_DecrementNumDocs(struct TermDictionary *t, const char *term, size_t len, size_t delta);
 
@@ -203,13 +211,15 @@ enum TermDictionaryDecrResult TermDictionary_DecrementNumDocs(struct TermDiction
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
  * - No other access to `t` may occur concurrently with this call —
  *   neither another mutator nor a read-only call such as
  *   [`TermDictionary_Len`], and no iterator obtained from `t` may be
  *   alive.
  * - `t` must not be used after this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TermDictionary_Free(struct TermDictionary *t);
 
@@ -222,9 +232,9 @@ void TermDictionary_Free(struct TermDictionary *t);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
+ * - `term` must point to a [valid] byte sequence of length `len`.
  * - `out_score` and `out_num_docs` must each be NULL or point to a
  *   writable location.
  * - The out-pointers must not overlap each other or the
@@ -234,6 +244,8 @@ void TermDictionary_Free(struct TermDictionary *t);
  * # Panics
  *
  * Panics if `term` is not valid UTF-8.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int TermDictionary_Get(const struct TermDictionary *t, const char *term, size_t len, float *out_score, size_t *out_num_docs);
 
@@ -245,9 +257,11 @@ int TermDictionary_Get(const struct TermDictionary *t, const char *term, size_t 
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
  * - `t` must not be modified or freed while the iterator lives.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct TermDictionaryIterator *TermDictionary_Iterate(const struct TermDictionary *t);
 
@@ -261,17 +275,19 @@ struct TermDictionaryIterator *TermDictionary_Iterate(const struct TermDictionar
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
- * - `str` must point to a valid byte sequence of length `len`.
+ * - `str` must point to a [valid] byte sequence of length `len`.
  * - `t` must not be modified or freed while the iterator lives.
- * - The substring bytes `(str, len)` must stay valid and unmodified
+ * - The substring bytes `(str, len)` must stay [valid] and unmodified
  *   while the iterator lives — the iterator matches candidates against
  *   them on every advance.
  *
  * # Panics
  *
  * Panics if the substring is not valid UTF-8.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct TermDictionaryIterator *TermDictionary_IterateContains(const struct TermDictionary *t, const char *str, size_t len);
 
@@ -285,14 +301,16 @@ struct TermDictionaryIterator *TermDictionary_IterateContains(const struct TermD
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
- * - `str` must point to a valid byte sequence of length `len`.
+ * - `str` must point to a [valid] byte sequence of length `len`.
  * - `t` must not be modified or freed while the iterator lives.
  *
  * # Panics
  *
  * Panics if the pattern is not valid UTF-8.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct TermDictionaryIterator *TermDictionary_IterateFuzzy(const struct TermDictionary *t, const char *str, size_t len, uint32_t max_dist);
 
@@ -305,14 +323,16 @@ struct TermDictionaryIterator *TermDictionary_IterateFuzzy(const struct TermDict
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
- * - `str` must point to a valid byte sequence of length `len`.
+ * - `str` must point to a [valid] byte sequence of length `len`.
  * - `t` must not be modified or freed while the iterator lives.
  *
  * # Panics
  *
  * Panics if the prefix is not valid UTF-8.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct TermDictionaryIterator *TermDictionary_IteratePrefix(const struct TermDictionary *t, const char *str, size_t len);
 
@@ -326,14 +346,16 @@ struct TermDictionaryIterator *TermDictionary_IteratePrefix(const struct TermDic
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
- * - `str` must point to a valid byte sequence of length `len`.
+ * - `str` must point to a [valid] byte sequence of length `len`.
  * - `t` must not be modified or freed while the iterator lives.
  *
  * # Panics
  *
  * Panics if the suffix is not valid UTF-8.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct TermDictionaryIterator *TermDictionary_IterateSuffix(const struct TermDictionary *t, const char *str, size_t len);
 
@@ -351,14 +373,16 @@ struct TermDictionaryIterator *TermDictionary_IterateSuffix(const struct TermDic
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
- * - `str` must point to a valid byte sequence of length `len`.
+ * - `str` must point to a [valid] byte sequence of length `len`.
  * - `t` must not be modified or freed while the iterator lives.
  *
  * # Panics
  *
  * Panics if the pattern is not valid UTF-8.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct TermDictionaryIterator *TermDictionary_IterateWildcard(const struct TermDictionary *t, const char *str, size_t len);
 
@@ -368,8 +392,10 @@ struct TermDictionaryIterator *TermDictionary_IterateWildcard(const struct TermD
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t TermDictionary_Len(const struct TermDictionary *t);
 
@@ -381,8 +407,10 @@ size_t TermDictionary_Len(const struct TermDictionary *t);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t TermDictionary_MemUsage(const struct TermDictionary *t);
 
@@ -393,9 +421,9 @@ size_t TermDictionary_MemUsage(const struct TermDictionary *t);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
+ * - `term` must point to a [valid] byte sequence of length `len`.
  * - No other access to `t` may occur concurrently with this call —
  *   neither another mutator nor a read-only call such as
  *   [`TermDictionary_Len`], and no iterator obtained from `t` may be
@@ -404,6 +432,8 @@ size_t TermDictionary_MemUsage(const struct TermDictionary *t);
  * # Panics
  *
  * Panics if `term` is not valid UTF-8.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int TermDictionary_Remove(struct TermDictionary *t, const char *term, size_t len);
 
@@ -415,9 +445,9 @@ int TermDictionary_Remove(struct TermDictionary *t, const char *term, size_t len
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`TermDictionary`] obtained from
+ * - `t` must point to a [valid] [`TermDictionary`] obtained from
  *   [`NewTermDictionary`] and cannot be NULL.
- * - `term` must point to a valid byte sequence of length `len`.
+ * - `term` must point to a [valid] byte sequence of length `len`.
  * - No other access to `t` may occur concurrently with this call —
  *   neither another mutator nor a read-only call such as
  *   [`TermDictionary_Len`], and no iterator obtained from `t` may be
@@ -426,6 +456,8 @@ int TermDictionary_Remove(struct TermDictionary *t, const char *term, size_t len
  * # Panics
  *
  * Panics if `term` is not valid UTF-8.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 enum TermDictionaryInsertOutcome TermDictionary_ReplaceTerm(struct TermDictionary *t, const char *term, size_t len, float score, size_t num_docs);
 

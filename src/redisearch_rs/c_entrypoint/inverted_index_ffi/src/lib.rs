@@ -91,7 +91,7 @@ const NUMERIC_MASK: IndexFlags = IndexFlags_Index_StoreNumeric;
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `mem_size` must be a valid pointer to a `usize`.
+/// - `mem_size` must be a [valid] pointer to a `usize`.
 ///
 /// # Panics
 /// This function will panic if the provided flags does not set at least one of the following
@@ -101,6 +101,8 @@ const NUMERIC_MASK: IndexFlags = IndexFlags_Index_StoreNumeric;
 /// - `StoreTermOffsets`
 /// - `StoreNumeric`
 /// - `DocIdsOnly`
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub extern "C" fn NewInvertedIndex_Ex(
     flags: IndexFlags,
@@ -173,8 +175,10 @@ pub extern "C" fn NewInvertedIndex_Ex(
 ///
 /// # Safety
 /// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance created using
+/// - `ii` must be a [valid], non NULL, pointer to an `InvertedIndex` instance created using
 ///   [`NewInvertedIndex_Ex`] or `NewInvertedIndex`.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_Free(ii: *mut InvertedIndex) {
     debug_assert!(!ii.is_null(), "ii must not be null");
@@ -187,7 +191,9 @@ pub unsafe extern "C" fn InvertedIndex_Free(ii: *mut InvertedIndex) {
 ///
 /// # Safety
 /// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance and must not be NULL.
+/// - `ii` must be a [valid] pointer to an `InvertedIndex` instance and must not be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usize {
     debug_assert!(!ii.is_null(), "ii must not be null");
@@ -202,7 +208,9 @@ pub unsafe extern "C" fn InvertedIndex_MemUsage(ii: *const InvertedIndex) -> usi
 /// growth and the number of new index blocks created.
 ///
 /// # Safety
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
     ii: *mut InvertedIndex,
@@ -222,8 +230,10 @@ pub unsafe extern "C" fn InvertedIndex_WriteNumericEntry(
 /// memory growth and the number of new index blocks created.
 ///
 /// # Safety
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
-/// - `record` must be a valid pointer to an `RSIndexResult` instance and cannot be NULL.
+/// - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - `record` must be a [valid] pointer to an `RSIndexResult` instance and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_WriteEntryGeneric(
     ii: *mut InvertedIndex,
@@ -245,7 +255,9 @@ pub unsafe extern "C" fn InvertedIndex_WriteEntryGeneric(
 ///
 /// # Safety
 /// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_NumBlocks(ii: *const InvertedIndex) -> usize {
     debug_assert!(!ii.is_null(), "ii must not be null");
@@ -259,7 +271,9 @@ pub unsafe extern "C" fn InvertedIndex_NumBlocks(ii: *const InvertedIndex) -> us
 ///
 /// # Safety
 /// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_Flags(ii: *const InvertedIndex) -> IndexFlags {
     debug_assert!(!ii.is_null(), "ii must not be null");
@@ -273,7 +287,9 @@ pub unsafe extern "C" fn InvertedIndex_Flags(ii: *const InvertedIndex) -> IndexF
 ///
 /// # Safety
 /// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_NumDocs(ii: *const InvertedIndex) -> u32 {
     debug_assert!(!ii.is_null(), "ii must not be null");
@@ -287,7 +303,9 @@ pub unsafe extern "C" fn InvertedIndex_NumDocs(ii: *const InvertedIndex) -> u32 
 ///
 /// # Safety
 /// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_Summary(ii: *const InvertedIndex) -> Summary {
     debug_assert!(!ii.is_null(), "ii must not be null");
@@ -303,8 +321,10 @@ pub unsafe extern "C" fn InvertedIndex_Summary(ii: *const InvertedIndex) -> Summ
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
-/// - `count` must be a valid pointer to a `usize` and cannot be NULL.
+/// - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - `count` must be a [valid] pointer to a `usize` and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_BlocksSummary(
     ii: *const InvertedIndex,
@@ -330,10 +350,12 @@ pub unsafe extern "C" fn InvertedIndex_BlocksSummary(
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `blocks` must be a valid pointer to an array of `BlockSummary` instances returned by
+/// - `blocks` must be a [valid] pointer to an array of `BlockSummary` instances returned by
 ///   [`InvertedIndex_BlocksSummary`].
 /// - `count` must have the same value as the `count` output parameter passed to
 ///   [`InvertedIndex_BlocksSummary`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_BlocksSummaryFree(blocks: *mut BlockSummary, count: usize) {
     debug_assert!(!blocks.is_null(), "blocks must not be null");
@@ -351,7 +373,9 @@ pub unsafe extern "C" fn InvertedIndex_BlocksSummaryFree(blocks: *mut BlockSumma
 ///
 /// # Safety
 /// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_FieldMask(ii: *const InvertedIndex) -> FieldMask {
     debug_assert!(!ii.is_null(), "ii must not be null");
@@ -383,7 +407,9 @@ pub unsafe extern "C" fn InvertedIndex_FieldMask(ii: *const InvertedIndex) -> Fi
 ///
 /// # Safety
 /// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_BlockRef<'index>(
     ii: *const InvertedIndex,
@@ -401,7 +427,9 @@ pub unsafe extern "C" fn InvertedIndex_BlockRef<'index>(
 ///
 /// # Safety
 /// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid pointer to an `InvertedIndex` instance and cannot be NULL.
+/// - `ii` must be a [valid] pointer to an `InvertedIndex` instance and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_LastId(ii: *const InvertedIndex) -> DocId {
     debug_assert!(!ii.is_null(), "ii must not be null");
@@ -417,12 +445,14 @@ pub unsafe extern "C" fn InvertedIndex_LastId(ii: *const InvertedIndex) -> DocId
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `wr` must be a valid, non NULL, pointer to an `InvertedIndexGCWriter` instance.
-/// - `sctx` must be a valid, non NULL, pointer to a `RedisSearchCtx` instance.
-/// - `idx` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
-/// - `cb` must be a valid, non NULL, pointer to an `InvertedIndexGCCallback` instance.
-/// - The `spec` field of the `RedisSearchCtx` must be a valid, non NULL, pointer to an
+/// - `wr` must be a [valid], non NULL, pointer to an `InvertedIndexGCWriter` instance.
+/// - `sctx` must be a [valid], non NULL, pointer to a `RedisSearchCtx` instance.
+/// - `idx` must be a [valid], non NULL, pointer to an `InvertedIndex` instance.
+/// - `cb` must be a [valid], non NULL, pointer to an `InvertedIndexGCCallback` instance.
+/// - The `spec` field of the `RedisSearchCtx` must be a [valid], non NULL, pointer to an
 ///   `IndexSpec` instance.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
     wr: *mut InvertedIndexGCWriter,
@@ -478,7 +508,9 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `rd` must be a valid, non NULL, pointer to an `InvertedIndexGCReader` instance.
+/// - `rd` must be a [valid], non NULL, pointer to an `InvertedIndexGCReader` instance.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_GcDelta_Read(
     rd: *mut InvertedIndexGCReader,
@@ -502,8 +534,10 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Read(
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `deltas` must be a valid pointer to a `GcScanDelta` instance created using
+/// - `deltas` must be a [valid] pointer to a `GcScanDelta` instance created using
 ///   [`InvertedIndex_GcDelta_Read`], or NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_GcDelta_Free(deltas: *mut GcScanDelta) {
     if !deltas.is_null() {
@@ -523,10 +557,12 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Free(deltas: *mut GcScanDelta) {
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
-/// - `deltas` must be a valid, non NULL, pointer to a `GcScanDelta` instance created using
+/// - `ii` must be a [valid], non NULL, pointer to an `InvertedIndex` instance.
+/// - `deltas` must be a [valid], non NULL, pointer to a `GcScanDelta` instance created using
 ///   [`InvertedIndex_GcDelta_Read`].
-/// - `apply_info` must be a valid, non NULL, pointer to a `GcApplyInfo` instance.
+/// - `apply_info` must be a [valid], non NULL, pointer to a `GcApplyInfo` instance.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn InvertedIndex_ApplyGCDelta(
     ii: *mut InvertedIndex,
@@ -555,7 +591,9 @@ pub unsafe extern "C" fn InvertedIndex_ApplyGCDelta(
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+/// - `ib` must be a [valid] pointer to an `IndexBlock` instance and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexBlock_FirstId(ib: *const IndexBlock) -> DocId {
     debug_assert!(!ib.is_null(), "ib must not be null");
@@ -571,7 +609,9 @@ pub unsafe extern "C" fn IndexBlock_FirstId(ib: *const IndexBlock) -> DocId {
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+/// - `ib` must be a [valid] pointer to an `IndexBlock` instance and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexBlock_NumEntries(ib: *const IndexBlock) -> u16 {
     debug_assert!(!ib.is_null(), "ib must not be null");
@@ -587,7 +627,9 @@ pub unsafe extern "C" fn IndexBlock_NumEntries(ib: *const IndexBlock) -> u16 {
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `ib` must be a valid pointer to an `IndexBlock` instance and cannot be NULL.
+/// - `ib` must be a [valid] pointer to an `IndexBlock` instance and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexBlock_Data(ib: *const IndexBlock) -> *const c_char {
     debug_assert!(!ib.is_null(), "ib must not be null");
@@ -739,10 +781,12 @@ impl<'index> IndexReader<'index> {
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `ii` must be a valid, non NULL, pointer to an `InvertedIndex` instance.
+/// - `ii` must be a [valid], non NULL, pointer to an `InvertedIndex` instance.
 ///
 /// # Panics
 /// This function will panic if the provided filter is not compatible with the `InvertedIndex` type.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewIndexReader(
     ii: *const InvertedIndex,
@@ -823,8 +867,10 @@ pub unsafe extern "C" fn NewIndexReader(
 /// # Safety
 ///
 /// The following invariant must be upheld when calling this function:
-/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance created using
+/// - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance created using
 ///   [`NewIndexReader`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexReader_Free(ir: *mut IndexReader) {
     debug_assert!(!ir.is_null(), "ir must not be null");
@@ -840,8 +886,10 @@ pub unsafe extern "C" fn IndexReader_Free(ir: *mut IndexReader) {
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
-/// - `res` must be a valid pointer to an `RSIndexResult` instance.
+/// - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance.
+/// - `res` must be a [valid] pointer to an `RSIndexResult` instance.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexReader_Next<'index>(
     ir: *mut IndexReader<'index>,
@@ -867,8 +915,10 @@ pub unsafe extern "C" fn IndexReader_Next<'index>(
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `ir` must be a valid, non NULL, pointer to an `IndexReader` instance.
-/// - `res` must be a valid pointer to an `RSIndexResult` instance.
+/// - `ir` must be a [valid], non NULL, pointer to an `IndexReader` instance.
+/// - `res` must be a [valid] pointer to an `RSIndexResult` instance.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexReader_Seek<'index>(
     ir: *mut IndexReader<'index>,

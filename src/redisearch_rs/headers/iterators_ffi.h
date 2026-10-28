@@ -114,8 +114,10 @@ extern "C" {
  *
  * # Safety
  *
- * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
- * 2. `child` must be a valid non-null pointer to a `QueryIterator`, not aliased.
+ * 1. `header` must be a [valid] non-null pointer created via [`NewIntersectionIterator()`].
+ * 2. `child` must be a [valid] non-null pointer to a `QueryIterator`, not aliased.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
 
@@ -142,8 +144,10 @@ void GeoFilter_FreeNumericFilters(NumericFilter * *filters);
  *
  * # Safety
  *
- * 1. `iter` must be a valid non-null pointer to an implementation of the C query iterator API.
+ * 1. `iter` must be a [valid] non-null pointer to an implementation of the C query iterator API.
  * 2. `iter` must not be aliased.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *IntoProfiled(QueryIterator *iter);
 
@@ -152,7 +156,9 @@ QueryIterator *IntoProfiled(QueryIterator *iter);
  *
  * # Safety
  *
- * `it`, when non-null, must point to a valid [`QueryIterator`].
+ * `it`, when non-null, must point to a [valid] [`QueryIterator`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool IsWildcardIterator(const QueryIterator *it);
 
@@ -176,20 +182,22 @@ QueryIterator *NewEmptyIterator(void);
  *
  * # Safety
  *
- * 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
- *    `spec` is a valid [`IndexSpec`](ffi::IndexSpec); both must outlive the
+ * 1. `sctx` must be a non-null pointer to a [valid] [`RedisSearchCtx`] whose
+ *    `spec` is a [valid] [`IndexSpec`](ffi::IndexSpec); both must outlive the
  *    returned iterator, and `sctx` must stay at a stable address for that
- *    whole window. The request timeout reached through `sctx.timeout` must also remain valid
+ *    whole window. The request timeout reached through `sctx.timeout` must also remain [valid]
  *    at a stable address until the iterator is dropped. Timeout source changes and deadline
  *    writes may happen only between probes; only the blocked-client flag may change concurrently.
- * 2. `filter_ctx` must be a non-null pointer to a valid [`FieldFilterContext`].
+ * 2. `filter_ctx` must be a non-null pointer to a [valid] [`FieldFilterContext`].
  * 3. `ids` must be null, or point to `num` initialized [`DocId`]s allocated via
  *    `RedisModule_Alloc`. Ownership is transferred to the iterator. When `ids`
  *    is null, `num` must be zero.
- * 4. `allocated`, when non-null, must point to a valid, initialized `usize`
+ * 4. `allocated`, when non-null, must point to a [valid], initialized `usize`
  *    (it is read-modify-written) that outlives the iterator and is only
  *    accessed single-threaded (it is mutated without synchronization, which
  *    holds under the spec lock).
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *NewGeometryQueryIterator(const RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx, t_docId *ids, size_t num, size_t *allocated);
 
@@ -208,10 +216,12 @@ QueryIterator *NewGeometryQueryIterator(const RedisSearchCtx *sctx, const struct
  *
  * # Safety
  *
- * 1. `its` must be a valid non-null pointer to an array of `num` `QueryIterator*` values,
+ * 1. `its` must be a [valid] non-null pointer to an array of `num` `QueryIterator*` values,
  *    allocated with the Redis allocator (`rm_malloc`). Ownership is transferred to this function.
- * 2. Every non-null pointer in `its` must be a valid `QueryIterator` whose callbacks are set.
+ * 2. Every non-null pointer in `its` must be a [valid] `QueryIterator` whose callbacks are set.
  * 3. Null entries in `its` are treated as empty iterators.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t max_slop, bool in_order, double weight);
 
@@ -238,17 +248,19 @@ QueryIterator *NewIntersectionIterator(QueryIterator * *its, size_t num, int32_t
  *
  * The following invariants must be upheld when calling this function:
  *
- * 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
+ * 1. `idx` must be a [valid] pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
  *    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
- * 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
+ * 2. `idx` must remain [valid] between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
  *    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
- * 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
- * 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned
+ * 3. `tag_idx` must be a [valid] pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
+ * 4. `tag_idx` and `tag_idx.values` must remain [valid] for the lifetime of the returned
  *    iterator.
- * 5. `sctx` must be a valid pointer to a [`RedisSearchCtx`](ffi::RedisSearchCtx) and cannot be NULL.
- * 6. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
- * 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
+ * 5. `sctx` must be a [valid] pointer to a [`RedisSearchCtx`](ffi::RedisSearchCtx) and cannot be NULL.
+ * 6. `sctx` and `sctx.spec` must remain [valid] for the lifetime of the returned iterator.
+ * 7. `term` must be a [valid] pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagIndex *tag_idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
 
@@ -271,14 +283,16 @@ QueryIterator *NewInvIndIterator_TagQuery(const InvertedIndex *idx, const TagInd
  *
  * The following invariants must be upheld when calling this function:
  *
- * 1. `idx` must be a valid pointer to a term `InvertedIndex` and cannot be NULL.
- * 2. `idx` must remain valid between `revalidate()` calls, since the revalidation
+ * 1. `idx` must be a [valid] pointer to a term `InvertedIndex` and cannot be NULL.
+ * 2. `idx` must remain [valid] between `revalidate()` calls, since the revalidation
  *    mechanism detects when the index has been replaced via `Redis_OpenInvertedIndex()`
  *    pointer comparison.
- * 3. `sctx` must be a valid pointer to a `RedisSearchCtx` and cannot be NULL.
- * 4. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
- * 5. `term` must be a valid pointer to a heap-allocated `RSQueryTerm` (e.g. created by
+ * 3. `sctx` must be a [valid] pointer to a `RedisSearchCtx` and cannot be NULL.
+ * 4. `sctx` and `sctx.spec` must remain [valid] for the lifetime of the returned iterator.
+ * 5. `term` must be a [valid] pointer to a heap-allocated `RSQueryTerm` (e.g. created by
  *    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const RedisSearchCtx *sctx, union FieldMaskOrIndex field_mask_or_index, struct RSQueryTerm *term, double weight);
 
@@ -315,12 +329,14 @@ QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *index, const vo
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
+ * 1. `ids` must be a [valid] pointer to an array of `DocId` with at least `num` elements.
  *    The array must be sorted in ascending order.
- * 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
+ * 2. `metric_list` must be a [valid] pointer to an array of `f64` with at least `num` elements.
  * 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
  * 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that these pointers were allocated in a compatible manner.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *NewMetricIteratorSortedById(t_docId *ids, double *metric_list, size_t num, enum MetricType type_);
 
@@ -337,21 +353,23 @@ QueryIterator *NewMetricIteratorSortedById(t_docId *ids, double *metric_list, si
  *
  * # Safety
  *
- * 1. `child` must be null or a valid pointer to a [`QueryIterator`].
+ * 1. `child` must be null or a [valid] pointer to a [`QueryIterator`].
  *    A null `child` is treated as empty.
  * 2. When non-null, `child` must not be aliased.
- * 3. `q` must be a valid non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
- * 4. `q.sctx` must be a non-null pointer to a valid
- *    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
+ * 3. `q` must be a [valid] non-null pointer to a [`QueryEvalCtx`](ffi::QueryEvalCtx).
+ * 4. `q.sctx` must be a non-null pointer to a [valid]
+ *    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay [valid] and at a stable
  *    address for the lifetime of the returned iterator. Its request timeout must also remain
- *    valid at a stable address for that lifetime. Timeout source changes and deadline writes
+ *    [valid] at a stable address for that lifetime. Timeout source changes and deadline writes
  *    may happen only between probes; only the blocked-client flag may change concurrently.
- * 5. `q.sctx.spec` must be a non-null pointer to a valid
+ * 5. `q.sctx.spec` must be a non-null pointer to a [valid]
  *    [`IndexSpec`](ffi::IndexSpec).
- * 6. `q.sctx.spec.rule`, when non-null, must point to a valid
+ * 6. `q.sctx.spec.rule`, when non-null, must point to a [valid]
  *    [`SchemaRule`](ffi::SchemaRule).
  * 7. When the optimized path is taken, the preconditions of
  *    [`rqe_iterators::wildcard::new_wildcard_iterator`] must hold.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double weight, QueryEvalCtx *q);
 
@@ -368,15 +386,17 @@ QueryIterator *NewNotIterator(QueryIterator *child, t_docId max_doc_id, double w
  *
  * # Safety
  *
- * 1. `ctx` must be a valid non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining valid
+ * 1. `ctx` must be a [valid] non-NULL pointer to a [`ffi::RedisSearchCtx`], remaining [valid]
  *    for the lifetime of the returned iterator.
- * 2. `ctx.spec` must be a valid non-NULL pointer to an [`ffi::IndexSpec`].
- * 3. `flt` must be a valid non-NULL pointer to a [`NumericFilter`] whose `field_index` is
+ * 2. `ctx.spec` must be a [valid] non-NULL pointer to an [`ffi::IndexSpec`].
+ * 3. `flt` must be a [valid] non-NULL pointer to a [`NumericFilter`] whose `field_index` is
  *    within `(*ctx).spec`'s current field count, and the field at that index must be of
  *    numeric or geo type.
- * 4. `config` must be a valid non-NULL pointer to an [`IteratorsConfig`].
- * 5. `filter_ctx` must be a valid non-NULL pointer to a [`FieldFilterContext`] with a field
+ * 4. `config` must be a [valid] non-NULL pointer to an [`IteratorsConfig`].
+ * 5. `filter_ctx` must be a [valid] non-NULL pointer to a [`FieldFilterContext`] with a field
  *    index (not a field mask).
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct NumericFilter *flt, FieldType _for_type, const struct IteratorsConfig *config, const struct FieldFilterContext *filter_ctx);
 
@@ -385,11 +405,13 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct 
  *
  * # Safety
  *
- * 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
+ * 1. `ids` must be a [valid] pointer to an array of `DocId` with at least `num` elements.
  *    The array must be sorted in ascending order.
  * 2. The caller must ensure that `ids` is not null unless `num` is zero.
  * 3. The memory pointed to by `ids` will be freed using `RedisModule_Free`,
  *    so the caller must ensure that the pointer was allocated in a compatible manner.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight);
 
@@ -401,15 +423,17 @@ QueryIterator *NewSortedIdListIterator(t_docId *ids, uint64_t num, double weight
  *
  * # Safety
  *
- * 1. `its` must be a valid non-null pointer to an array of `num`
+ * 1. `its` must be a [valid] non-null pointer to an array of `num`
  *    `QueryIterator*` values, allocated with the Redis allocator (`rm_malloc`).
  *    Ownership is transferred to this function.
- * 2. Every non-null pointer in `its` must be a valid `QueryIterator` whose
+ * 2. Every non-null pointer in `its` must be a [valid] `QueryIterator` whose
  *    callbacks are set.
  * 3. Null entries in `its` are treated as empty iterators.
- * 4. `config` must be a valid non-null pointer to an [`IteratorsConfig`].
- * 5. `q_str` must be null or a valid, NUL-terminated C string that outlives
+ * 4. `config` must be a [valid] non-null pointer to an [`IteratorsConfig`].
+ * 5. `q_str` must be null or a [valid], NUL-terminated C string that outlives
  *    the returned iterator — the requirement of [`build_union`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_exit, double weight, QueryNodeType type_, const char *q_str, const struct IteratorsConfig *config);
 
@@ -443,7 +467,7 @@ QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_ex
  *    duration of this call.
  * 6. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
  *    `spec`, both outliving the returned iterator.
- * 7. `timeout` is non-null and remains valid for the returned iterator's lifetime.
+ * 7. `timeout` is non-null and remains [valid] for the returned iterator's lifetime.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  * [`IteratorType::Empty`]: rqe_iterators::IteratorType::Empty
@@ -461,9 +485,11 @@ QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
  *
  * # Safety
  *
- * 1. `self_` must be a valid pointer to an Optimus iterator.
- * 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
- * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
+ * 1. `self_` must be a [valid] pointer to an Optimus iterator.
+ * 2. `map` must be a [valid] pointer to a [`redis_reply::MapBuilder`].
+ * 3. `ctx` must be a [valid] pointer to a [`ProfilePrintCtx`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
 
@@ -486,10 +512,12 @@ void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, st
  *
  * # Safety
  *
- * 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
- * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
+ * 1. `ctx` must be a [valid] [`RedisModuleCtx`] pointer.
+ * 2. `root` must be null or a [valid] pointer to a [`QueryIterator`] tree
  *    that has been profile-wrapped via
  *    [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled).
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void Profile_PrintIterators(struct RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 
@@ -518,8 +546,10 @@ void RQEIterators_SetMockRevalidateTimeout(bool enabled);
  *
  * # Safety
  *
- * 1. `it` must be a valid non-null pointer to a non-reduced union iterator
+ * 1. `it` must be a [valid] non-null pointer to a non-reduced union iterator
  *    created via [`NewUnionIterator`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
 
@@ -527,8 +557,10 @@ void TrimUnionIterator(QueryIterator *it, size_t limit, bool asc);
  *
  * # Safety
  *
- * 1. `spec` must be a valid non-null pointer to an [`ffi::IndexSpec`].
- * 2. `fs` must be a valid non-null pointer to a [`FieldSpec`] for a numeric or geo field.
+ * 1. `spec` must be a [valid] non-null pointer to an [`ffi::IndexSpec`].
+ * 2. `fs` must be a [valid] non-null pointer to a [`FieldSpec`] for a numeric or geo field.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 NumericRangeTree *openNumericOrGeoIndex(IndexSpec *spec, FieldSpec *fs, bool create_if_missing);
 

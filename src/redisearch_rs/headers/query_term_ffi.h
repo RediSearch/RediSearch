@@ -31,12 +31,14 @@ extern "C" {
  *
  * # Safety
  *
- * - `tok` must point to a valid `RSToken` and cannot be NULL.
+ * - `tok` must point to a [valid] `RSToken` and cannot be NULL.
  * - `tok->str` may be NULL, in which case the resulting term will have a
  *   NULL `str` field.
- * - If not NULL, `tok->str` must be a valid byte slice of `tok->len` bytes.
+ * - If not NULL, `tok->str` must be a [valid] byte slice of `tok->len` bytes.
  * - The returned pointer is a [`Box`] allocation whose ownership must be
  *   handed to a Rust consumer (e.g. an iterator), which drops it.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RSQueryTerm *NewQueryTerm(const RSToken *tok, int id);
 
@@ -45,8 +47,10 @@ struct RSQueryTerm *NewQueryTerm(const RSToken *tok, int id);
  *
  * # Safety
  *
- * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * `term` must be a [valid], non-null pointer to an [`RSQueryTerm`] previously
  * allocated by [`NewQueryTerm`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 double QueryTerm_GetBM25_IDF(const struct RSQueryTerm *term);
 
@@ -57,8 +61,10 @@ double QueryTerm_GetBM25_IDF(const struct RSQueryTerm *term);
  *
  * # Safety
  *
- * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * `term` must be a [valid], non-null pointer to an [`RSQueryTerm`] previously
  * allocated by [`NewQueryTerm`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int QueryTerm_GetID(const struct RSQueryTerm *term);
 
@@ -67,8 +73,10 @@ int QueryTerm_GetID(const struct RSQueryTerm *term);
  *
  * # Safety
  *
- * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * `term` must be a [valid], non-null pointer to an [`RSQueryTerm`] previously
  * allocated by [`NewQueryTerm`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 double QueryTerm_GetIDF(const struct RSQueryTerm *term);
 
@@ -77,8 +85,10 @@ double QueryTerm_GetIDF(const struct RSQueryTerm *term);
  *
  * # Safety
  *
- * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * `term` must be a [valid], non-null pointer to an [`RSQueryTerm`] previously
  * allocated by [`NewQueryTerm`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t QueryTerm_GetLen(const struct RSQueryTerm *term);
 
@@ -89,8 +99,10 @@ size_t QueryTerm_GetLen(const struct RSQueryTerm *term);
  *
  * # Safety
  *
- * - `term` must be valid and non-null
- * - `out_len` must be a valid pointer to write the length to
+ * - `term` must be [valid] and non-null
+ * - `out_len` must be a [valid] pointer to write the length to
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const char *QueryTerm_GetStrAndLen(const struct RSQueryTerm *term, size_t *out_len);
 
@@ -101,8 +113,10 @@ const char *QueryTerm_GetStrAndLen(const struct RSQueryTerm *term, size_t *out_l
  *
  * # Safety
  *
- * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * `term` must be a [valid], non-null pointer to an [`RSQueryTerm`] previously
  * allocated by [`NewQueryTerm`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void QueryTerm_SetIDFs(struct RSQueryTerm *term, double idf, double bm25_idf);
 

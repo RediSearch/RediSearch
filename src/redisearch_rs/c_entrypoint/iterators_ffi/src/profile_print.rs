@@ -29,9 +29,11 @@ use rqe_iterators::{c2rust::call_print_profile, profile_print::ProfilePrintCtx};
 ///
 /// # Safety
 ///
-/// 1. `self_` must be a valid pointer to an Optimus iterator.
-/// 2. `map` must be a valid pointer to a [`redis_reply::MapBuilder`].
-/// 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
+/// 1. `self_` must be a [valid] pointer to an Optimus iterator.
+/// 2. `map` must be a [valid] pointer to a [`redis_reply::MapBuilder`].
+/// 3. `ctx` must be a [valid] pointer to a [`ProfilePrintCtx`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Optimus_PrintProfile(
     self_: *const QueryIterator,
@@ -93,10 +95,12 @@ pub unsafe extern "C" fn Optimus_PrintProfile(
 ///
 /// # Safety
 ///
-/// 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
-/// 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
+/// 1. `ctx` must be a [valid] [`RedisModuleCtx`] pointer.
+/// 2. `root` must be null or a [valid] pointer to a [`QueryIterator`] tree
 ///    that has been profile-wrapped via
 ///    [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled).
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Profile_PrintIterators(
     ctx: *mut RedisModuleCtx,

@@ -20,8 +20,10 @@ use std::ptr::NonNull;
 ///
 /// # Safety
 ///
-/// 1. `iter` must be a valid non-null pointer to an implementation of the C query iterator API.
+/// 1. `iter` must be a [valid] non-null pointer to an implementation of the C query iterator API.
 /// 2. `iter` must not be aliased.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IntoProfiled(iter: *mut QueryIterator) -> *mut QueryIterator {
     debug_assert!(!iter.is_null(), "iter must not be null");

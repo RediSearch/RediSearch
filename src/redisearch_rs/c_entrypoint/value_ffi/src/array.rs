@@ -41,7 +41,9 @@ pub unsafe extern "C" fn RSValue_NewArrayBuilder(len: u32) -> *mut *mut RSValue 
 ///
 /// 1. `values` must have been allocated via [`RSValue_NewArrayBuilder`] with
 ///    a capacity equal to `len`.
-/// 2. All `len` entries in `values` must have been filled with valid [`RSValue`] pointers.
+/// 2. All `len` entries in `values` must have been filled with [valid] [`RSValue`] pointers.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RSValue_NewArrayFromBuilder(
     values: *mut *mut RSValue,
