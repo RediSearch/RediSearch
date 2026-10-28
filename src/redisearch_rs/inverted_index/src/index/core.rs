@@ -53,6 +53,16 @@ pub struct InvertedIndex<E> {
     /// differ, allowing cursors to detect the replacement.
     unique_id: IndexUniqueId,
 
+    /// The entries of each block that belong to a field with a field-level expiration:
+    /// `expiration[i]` covers `blocks[i]`. Empty — and unallocated — until the first such entry
+    /// is added, so indexes without field TTLs pay only this field's stack size. Kept outside
+    /// [`IndexBlock`] so the block's size and layout stay as they were before field-expiration
+    /// tracking (MOD-20225).
+    ///
+    /// Invariant: empty, or exactly as long as `blocks` whenever [`Self::add_entry`] and
+    /// [`Self::apply_gc`] are not running.
+    pub(crate) expiration: ThinVec<ExpirationBits, BlockCapacity>,
+
     /// The encoder to use when adding new entries to the index
     pub(crate) _encoder: PhantomData<E>,
 }
@@ -87,11 +97,12 @@ pub struct IndexBlock {
 
     /// The encoded entries in this block
     pub(crate) buffer: Vec<u8>,
-
-    /// The entries in this block that belong to a field with a field-level expiration, see
-    /// [`ExpirationBits`]. Empty — and unallocated — while no entry in the block does.
-    pub(crate) expiration_bits: ExpirationBits,
 }
+
+// MOD-20225: growing the block past this measurably slows queries that never read it. Keep
+// per-block extras in a side structure such as `InvertedIndex::expiration` instead.
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(std::mem::size_of::<IndexBlock>() == 48);
 
 impl IndexBlock {
     pub(crate) const STACK_SIZE: usize = std::mem::size_of::<Self>();
@@ -104,31 +115,13 @@ impl IndexBlock {
             last_doc_id: doc_id,
             num_entries: 0,
             buffer: Vec::new(),
-            expiration_bits: ExpirationBits::new(),
         }
     }
 
-    /// The number of bytes occupied by the field-expiration bitset, if any.
-    fn expiration_bits_len(&self) -> usize {
-        self.expiration_bits.mem_usage()
-    }
-
-    /// Get the memory usage of this block, including the stack size, the capacity of the bytes
-    /// buffer, and the field-expiration bitset.
-    pub fn mem_usage(&self) -> usize {
-        Self::STACK_SIZE + self.buffer.capacity() + self.expiration_bits_len()
-    }
-
-    /// Record that the entry at `ordinal` (its 0-based position within this block)
-    /// belongs to a document with at least one field-level expiration.
-    pub(crate) fn set_expiration_bit(&mut self, ordinal: u16) {
-        self.expiration_bits.insert(ordinal);
-    }
-
-    /// Whether the entry at `ordinal` belongs to a document with a field-level expiration.
-    #[inline(always)]
-    pub(crate) fn expiration_bit(&self, ordinal: u16) -> bool {
-        self.expiration_bits.contains(ordinal)
+    /// Get the memory usage of this block, including the stack size and the capacity of the
+    /// bytes buffer.
+    pub const fn mem_usage(&self) -> usize {
+        Self::STACK_SIZE + self.buffer.capacity()
     }
 
     /// Get the first document ID in this block. This is only needed for some C tests.
@@ -166,6 +159,7 @@ impl<E: Encoder> InvertedIndex<E> {
             flags,
             gc_marker: AtomicU32::new(0),
             unique_id: IndexUniqueId::next(),
+            expiration: ThinVec::new(),
             _encoder: Default::default(),
         }
     }
@@ -195,6 +189,7 @@ impl<E: Encoder> InvertedIndex<E> {
             flags,
             gc_marker: AtomicU32::new(0),
             unique_id: IndexUniqueId::next(),
+            expiration: ThinVec::new(),
             _encoder: Default::default(),
         }
     }
@@ -202,14 +197,63 @@ impl<E: Encoder> InvertedIndex<E> {
     /// The memory size of the index in bytes.
     pub fn memory_usage(&self) -> usize {
         let blocks_heap = self.blocks.mem_usage();
-        let blocks_buffers: usize = self
-            .blocks
-            .iter()
-            .map(|b| b.buffer.capacity() + b.expiration_bits_len())
-            .sum();
+        let blocks_buffers: usize = self.blocks.iter().map(|b| b.buffer.capacity()).sum();
         let stack = std::mem::size_of::<Self>();
 
-        blocks_heap + blocks_buffers + stack
+        blocks_heap + blocks_buffers + self.expiration_mem_usage() + stack
+    }
+
+    /// Heap bytes held by [`Self::expiration`], including each block's bitset.
+    pub(crate) fn expiration_mem_usage(&self) -> usize {
+        self.expiration.mem_usage()
+            + self
+                .expiration
+                .iter()
+                .map(ExpirationBits::mem_usage)
+                .sum::<usize>()
+    }
+
+    /// Whether entry `ordinal` (its 0-based position within block `block_idx`) belongs to a
+    /// document with a field-level expiration.
+    #[inline(always)]
+    pub(crate) fn expiration_bit(&self, block_idx: usize, ordinal: u16) -> bool {
+        self.expiration
+            .get(block_idx)
+            .is_some_and(|bits| bits.contains(ordinal))
+    }
+
+    /// Record that entry `ordinal` of block `block_idx` belongs to a document with a field-level
+    /// expiration, creating [`Self::expiration`] on first use. Returns the heap growth in bytes.
+    fn set_expiration_bit(&mut self, block_idx: usize, ordinal: u16) -> usize {
+        let before = self.expiration.mem_usage()
+            + self
+                .expiration
+                .get(block_idx)
+                .map_or(0, ExpirationBits::mem_usage);
+        if self.expiration.len() <= block_idx {
+            let missing = block_idx + 1 - self.expiration.len();
+            self.expiration.reserve_exact(missing);
+            self.expiration
+                .extend(std::iter::repeat_with(ExpirationBits::new).take(missing));
+        }
+        self.expiration[block_idx].insert(ordinal);
+        self.expiration.mem_usage() + self.expiration[block_idx].mem_usage() - before
+    }
+
+    /// Extend a non-empty [`Self::expiration`] with empty bitsets until it covers every block.
+    /// Returns the heap growth in bytes.
+    fn sync_expiration_len(&mut self) -> usize {
+        let missing = self.blocks.len().saturating_sub(self.expiration.len());
+        if self.expiration.is_empty() || missing == 0 {
+            return 0;
+        }
+        let before = self.expiration.mem_usage();
+        // Grow exactly, as `Self::add_block` grows `blocks`: an index with field TTLs pays a
+        // second reallocation per new block, but holds no spare bitset slots.
+        self.expiration.reserve_exact(missing);
+        self.expiration
+            .extend(std::iter::repeat_with(ExpirationBits::new).take(missing));
+        self.expiration.mem_usage() - before
     }
 
     /// Add a new record to the index. Returns an [`AddRecordOutcome`] reporting how many bytes
@@ -297,13 +341,13 @@ impl<E: Encoder> InvertedIndex<E> {
 
         // Record the document-level field-expiration bit for this entry at its
         // ordinal within the block — which is the current `num_entries`, before
-        // the bump below. The codec (the `buffer` above) is untouched; the bit
-        // lives in the block's side bitset.
-        let bits_len_before = block.expiration_bits_len();
-        if has_field_expiration {
-            block.set_expiration_bit(block.num_entries);
-        }
-        let buf_growth = buf_growth + (block.expiration_bits_len() - bits_len_before);
+        // the bump below. The codec (the `buffer` above) is untouched. The block
+        // is out of `self.blocks`, and goes back at index `self.blocks.len()`.
+        let buf_growth = if has_field_expiration {
+            buf_growth + self.set_expiration_bit(self.blocks.len(), block.num_entries)
+        } else {
+            buf_growth
+        };
 
         debug_assert!(block.num_entries.saturating_add(1) < u16::MAX);
         block.num_entries += 1;
@@ -311,6 +355,8 @@ impl<E: Encoder> InvertedIndex<E> {
 
         // We took ownership of the block so put it back
         mem_growth += self.add_block(block);
+        mem_growth += self.sync_expiration_len();
+        debug_assert!(self.expiration.is_empty() || self.expiration.len() == self.blocks.len());
 
         if !same_doc {
             self.n_unique_docs += 1;
