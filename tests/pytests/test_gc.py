@@ -886,7 +886,9 @@ def testForcedGCFailsWhileARunOfTheIndexIsInFlight():
 @skip(cluster=True)
 def testGCKeepsReschedulingItself_MOD_17309():
     """Every arm goes through the main-thread one-shot, and the chain sustains itself."""
-    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1')
+    # A zero threshold makes every tick run a cycle. Under the thread policy a tick below the
+    # threshold re-arms on the main thread without a cycle, which is not the chain under test.
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
     def arms(which):
