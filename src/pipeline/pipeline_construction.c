@@ -61,6 +61,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   size_t nproperties = array_len(properties);
   // The property count is client-controlled, so keep these off the stack.
   const RLookupKey **srckeys = rm_malloc(2 * nproperties * sizeof(*srckeys));
+  ResultProcessor *rp = NULL;
   const RLookupKey **dstkeys = srckeys + nproperties;
   for (size_t ii = 0; ii < nproperties; ++ii) {
     const char *fldname = properties[ii] + 1;  // account for the @-
@@ -76,20 +77,17 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
       // If we can't load keys, or the key we loaded is not in the schema, we fail.
       if (!loadKeys || !(RLookupKey_GetFlags(srckeys[ii]) & RLOOKUP_F_SCHEMASRC)) {
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY, "No such property", " `%s`", fldname);
-        rm_free(srckeys);
-        return NULL;
+        goto cleanup;
       }
     }
     dstkeys[ii] = RLookup_GetKey_WriteEx(&gstp->lookup, fldname, fldname_len, RLOOKUP_F_NOFLAGS);
     if (!dstkeys[ii]) {
       QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_DUP_FIELD, "Property", " `%s` specified more than once", fldname);
-      rm_free(srckeys);
-      return NULL;
+      goto cleanup;
     }
   }
 
   Grouper *grp = Grouper_New(srckeys, dstkeys, nproperties, groupByLimits);
-  rm_free(srckeys);
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
@@ -103,7 +101,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY,
                                       "Property not loaded nor in pipeline", ": `%s`",
                                       pr->inputAlias);
-        return NULL;
+        goto cleanup;
       }
     }
     ReducerOptions options = REDUCEROPTS_INIT(pr->name, &pr->args, srclookup, loadKeys, err,
@@ -114,12 +112,12 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
       // No such reducer!
       Grouper_Free(grp);
       QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_REDUCER, "No such reducer", ": %s", pr->name);
-      return NULL;
+      goto cleanup;
     }
     Reducer *rr = ff(&options);
     if (!rr) {
       Grouper_Free(grp);
-      return NULL;
+      goto cleanup;
     }
 
     // Set the destination key for the grouper!
@@ -130,11 +128,15 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     if (!dstkey) {
       Grouper_Free(grp);
       QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_DUP_FIELD, "Property", " `%s` specified more than once", pr->alias);
-      return NULL;
+      goto cleanup;
     }
   }
 
-  return Grouper_GetRP(grp);
+  rp = Grouper_GetRP(grp);
+
+cleanup:
+  rm_free(srckeys);
+  return rp;
 }
 
 /** Pushes a processor up the stack. Returns the newly pushed processor

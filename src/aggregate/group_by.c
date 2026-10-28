@@ -232,72 +232,47 @@ static void selectGroupValue(Grouper *g, size_t pos, size_t idx) {
 
 /**
  * Add the row to a group for each combination of its key values, i.e. each
- * element of the cartesian product of its array values. Combinations are
- * visited iteratively, with the last key varying fastest.
+ * element of the cartesian product of its array values.
  */
-static int extractGroups(Grouper *g, RLookupRow *res, t_docId docId) {
+static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
   const size_t nkeys = GROUPER_NSRCKEYS(g);
-  size_t pos = 0;  // keys from `pos` on start over at their first value
-  while (true) {
-    for (; pos < nkeys; ++pos) {
-      selectGroupValue(g, pos, 0);
-    }
-    int rc = addToGroup(g, nkeys ? g->cursors[nkeys - 1].hash : 0, res, docId);
-    if (rc != RS_RESULT_OK) {
-      return rc;
-    }
-    // Advance the last key that has values left.
-    while (pos > 0 && g->cursors[pos - 1].idx + 1 == g->cursors[pos - 1].fanout) {
-      --pos;
-    }
-    if (pos == 0) {
-      return RS_RESULT_OK;
-    }
-    selectGroupValue(g, pos - 1, g->cursors[pos - 1].idx + 1);
-  }
-}
+  size_t combinations = 1;
 
-/** Add a row that has an array value to the group of each of its combinations. */
-static int invokeGroupReducersExpanded(Grouper *g, RLookupRow *srcrow, t_docId docId) {
-  size_t nkeys = GROUPER_NSRCKEYS(g);
-  // The cartesian product size for the row
-  size_t rowExpansion = 1;
-
-  for (size_t ii = 0; ii < nkeys; ++ii) {
-    GroupKeyCursor *c = &g->cursors[ii];
-    const RSValue *v = RLookupRow_Get(g->srckeys[ii], srcrow);
+  // Select the first value of every key, chaining the hash as we go.
+  for (size_t pos = 0; pos < nkeys; ++pos) {
+    GroupKeyCursor *c = &g->cursors[pos];
+    const RSValue *v = RLookupRow_Get(g->srckeys[pos], srcrow);
     c->value = v ? v : RSValue_NullStatic();
     c->deref = RSValue_Dereference(c->value);
     c->fanout = 1;
     if (RSValue_IsArray(c->deref) && RSValue_ArrayLen(c->deref) > 1) {
       size_t len = RSValue_ArrayLen(c->deref);
-      if (rowExpansion > g->groupByLimits.maxGroups / len) {
+      if (combinations > g->groupByLimits.maxGroups / len) {
         setAggregateGroupLimitError(g);
         return RS_RESULT_ERROR;
       }
-      rowExpansion *= len;
+      combinations *= len;
       c->fanout = len;
     }
+    selectGroupValue(g, pos, 0);
   }
-  return extractGroups(g, srcrow, docId);
-}
 
-static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
-  // Rows without array values belong to exactly one group, so skip the walk.
-  uint64_t hval = 0;
-  for (size_t ii = 0; ii < GROUPER_NSRCKEYS(g); ++ii) {
-    const RSValue *v = RLookupRow_Get(g->srckeys[ii], srcrow);
-    if (v == NULL) {
-      v = RSValue_NullStatic();
+  // Visit the remaining combinations, with the last key varying fastest.
+  for (size_t visited = 1;; ++visited) {
+    int rc = addToGroup(g, nkeys ? g->cursors[nkeys - 1].hash : 0, srcrow, docId);
+    if (rc != RS_RESULT_OK || visited == combinations) {
+      return rc;
     }
-    const RSValue *deref = RSValue_Dereference(v);
-    if (RSValue_IsArray(deref)) {
-      return invokeGroupReducersExpanded(g, srcrow, docId);
+    // Some key still has values left, as `visited < combinations`.
+    size_t pos = nkeys;
+    while (g->cursors[pos - 1].idx + 1 == g->cursors[pos - 1].fanout) {
+      --pos;
     }
-    g->groupvals[ii] = v;
-    hval = RSValue_Hash(deref, hval);
+    selectGroupValue(g, pos - 1, g->cursors[pos - 1].idx + 1);
+    for (; pos < nkeys; ++pos) {
+      selectGroupValue(g, pos, 0);
+    }
   }
-  return addToGroup(g, hval, srcrow, docId);
 }
 
 static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {

@@ -24,6 +24,7 @@
 #include <array>
 #include <iostream>
 #include <cstdarg>
+#include <pthread.h>
 
 class AggTest : public ::testing::Test {};
 using RS::addDocument;
@@ -294,6 +295,96 @@ TEST_F(AggTest, testGroupSplit) {
   gp->Free(gp);
   RLookup_Cleanup(&lk_in);
   RLookup_Cleanup(&lk_out);
+}
+
+// The widest GROUPBY the argument parser accepts (MAX_GROUPBY_PROPERTIES).
+static constexpr size_t WIDEST_GROUPBY = (1 << 16) - 1;
+// The default secondary-thread stack size on macOS; musl's default is smaller.
+static constexpr size_t SMALL_STACK = 512 * 1024;
+
+class WideRowGenerator : public ResultProcessor {
+ public:
+  RLookupKey *multi = NULL;
+  RLookupKey *single = NULL;
+  size_t counter = 0;
+
+  WideRowGenerator() {
+    memset(static_cast<ResultProcessor *>(this), 0, sizeof(ResultProcessor));
+  }
+};
+
+struct WideGroupByRun {
+  WideRowGenerator *gen;
+  Grouper *grouper;
+  size_t groups = 0;
+};
+
+static void *runWideGroupBy(void *arg) {
+  auto *run = static_cast<WideGroupByRun *>(arg);
+  ResultProcessor *gp = Grouper_GetRP(run->grouper);
+  SearchResult res = SearchResult_New();
+  while (gp->Next(gp, &res) == RS_RESULT_OK) {
+    ++run->groups;
+    SearchResult_Clear(&res);
+  }
+  SearchResult_Destroy(&res);
+  return NULL;
+}
+
+TEST_F(AggTest, testGroupByWidestOnSmallStack) {
+  QueryProcessingCtx qitr = {0};
+  WideRowGenerator gen;
+  RLookup lk_in = RLookup_New();
+  RLookup lk_out = RLookup_New();
+  gen.multi = RLookup_GetKey_Write(&lk_in, "multi", RLOOKUP_F_NOFLAGS);
+  gen.single = RLookup_GetKey_Write(&lk_in, "single", RLOOKUP_F_NOFLAGS);
+  RLookupKey *multi_out = RLookup_GetKey_Write(&lk_out, "multi", RLOOKUP_F_NOFLAGS);
+  RLookupKey *single_out = RLookup_GetKey_Write(&lk_out, "single", RLOOKUP_F_NOFLAGS);
+
+  // One multi-valued key followed by scalar ones, so the row is added to two groups.
+  std::vector<const RLookupKey *> srckeys(WIDEST_GROUPBY, gen.single);
+  std::vector<const RLookupKey *> dstkeys(WIDEST_GROUPBY, single_out);
+  srckeys[0] = gen.multi;
+  dstkeys[0] = multi_out;
+
+  gen.Next = [](ResultProcessor *rp, SearchResult *res) -> int {
+    auto *p = static_cast<WideRowGenerator *>(rp);
+    if (p->counter++ > 0) return RS_RESULT_EOF;
+    SearchResult_SetDocId(res, p->counter);
+    RSValue **arr = RSValue_NewArrayBuilder(2);
+    arr[0] = RSValue_NewBorrowedString("x", 1);
+    arr[1] = RSValue_NewBorrowedString("y", 1);
+    RLookup_WriteOwnKey(p->multi, SearchResult_GetRowDataMut(res),
+                        RSValue_NewArrayFromBuilder(arr, 2));
+    RLookup_WriteOwnKey(p->single, SearchResult_GetRowDataMut(res),
+                        RSValue_NewBorrowedString("s", 1));
+    return RS_RESULT_OK;
+  };
+  QITR_PushRP(&qitr, &gen);
+
+  Grouper *gr = Grouper_New(srckeys.data(), dstkeys.data(), WIDEST_GROUPBY,
+                            GroupByLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
+  ArgsCursor args = {0};
+  ReducerOptions opt = {0};
+  opt.args = &args;
+  RLookupKey *count_out = RLookup_GetKey_Write(&lk_out, "COUNT", RLOOKUP_F_NOFLAGS);
+  Grouper_AddReducer(gr, RDCRCount_New(&opt), count_out);
+  QITR_PushRP(&qitr, Grouper_GetRP(gr));
+
+  // The stack must not grow with the number of keys, so run on a small one.
+  WideGroupByRun run{&gen, gr};
+  pthread_attr_t attr;
+  ASSERT_EQ(0, pthread_attr_init(&attr));
+  ASSERT_EQ(0, pthread_attr_setstacksize(&attr, SMALL_STACK));
+  pthread_t thread;
+  ASSERT_EQ(0, pthread_create(&thread, &attr, runWideGroupBy, &run));
+  ASSERT_EQ(0, pthread_join(thread, NULL));
+  pthread_attr_destroy(&attr);
+
+  EXPECT_EQ(2, run.groups);
+  Grouper_GetRP(gr)->Free(Grouper_GetRP(gr));
+  RLookup_Cleanup(&lk_out);
+  RLookup_Cleanup(&lk_in);
 }
 
 #if 0
