@@ -43,7 +43,6 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
     });
 
     Config {
-        numeric_compress: global_config::numeric_compress(),
         prioritize_intersect_union_children: global_config::prioritize_intersect_union_children(),
         default_scorer,
         min_term_prefix: iterators.min_term_prefix,

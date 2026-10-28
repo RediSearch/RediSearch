@@ -80,18 +80,11 @@ pub unsafe extern "C" fn NewNumericFilterIterator(
     let sctx = unsafe { &*ctx };
     // SAFETY: 5. guarantees filter_ctx is valid and non-null.
     let field_ctx = unsafe { &*filter_ctx };
-    let compress = global_config::numeric_compress();
 
     // SAFETY: preconditions 1–3/5 map directly to those of
     // `build_numeric_filter_iterator`.
     unsafe {
-        rqe_iterators::build_numeric_filter_iterator(
-            sctx,
-            flt_ref,
-            min_union_iter_heap,
-            field_ctx,
-            compress,
-        )
+        rqe_iterators::build_numeric_filter_iterator(sctx, flt_ref, min_union_iter_heap, field_ctx)
     }
     .map_or(ptr::null_mut(), NonNull::as_ptr)
 }

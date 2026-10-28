@@ -23,15 +23,16 @@ use ffi::{
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
-    FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader,
+    FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader, ReseatIndex,
     ResumableReader, SuspendableReader,
 };
 use numeric_range_tree::{
-    NumericIndexReader, NumericRangeTree, RangeWindow, RawNumericIndexReader,
+    NodeIndex, NumericIndex, NumericIndexReader, NumericRangeTree, RangeWindow,
+    RawNumericIndexReader,
 };
 use query_types::QueryNodeType;
 use ref_mode::{Active, Ref, Suspended};
-use rqe_core::{DocId, RS_INVALID_FIELD_INDEX};
+use rqe_core::DocId;
 
 use super::core::{InvIndIterator, RawInvIndIterator, ResumeStatus};
 
@@ -61,13 +62,59 @@ pub struct RawNumeric<'query, Rf: Ref, R, E = NoOpChecker, RA = R> {
 /// [`RQEIterator`] impl today.
 pub type Numeric<'index, R, E = NoOpChecker> = RawNumeric<'index, Active<'index>, R, E, R>;
 
+/// The range a [`Numeric`] iterator reads, located as a node of the tree that
+/// owns it, so revalidation can resolve it again.
+#[derive(Clone, Copy)]
+pub struct RangeSource {
+    /// The tree owning the range. A raw pointer rather than a reference, so
+    /// that it stays usable across the writes [`RangeSource::new`] allows.
+    tree: NonNull<NumericRangeTree>,
+    /// The node holding the range. It resolves to the same range only while the
+    /// tree's [revision](NumericRangeTree::revision_id) is unchanged.
+    node: NodeIndex,
+}
+
+impl RangeSource {
+    /// Locate a range as `node` of `tree`.
+    ///
+    /// # Safety
+    ///
+    /// 1. `tree` must be [valid] for reads of a [`NumericRangeTree`] for as long
+    ///    as any iterator built with this source lives.
+    /// 2. `tree` must be the pointer the tree's owner holds, or a raw copy of it
+    ///    — not one derived from a reference to the tree, which a writer's `&mut`
+    ///    would invalidate.
+    /// 3. The tree must only be written to, or mutably borrowed, while every
+    ///    iterator built with this source is parked across a lock release.
+    ///
+    /// Which range the source must locate depends on the reader it is paired
+    /// with, so [`Numeric::new`] carries that requirement.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub const unsafe fn new(tree: NonNull<NumericRangeTree>, node: NodeIndex) -> Self {
+        Self { tree, node }
+    }
+}
+
 /// Information about the numeric range tree backing a [`Numeric`] iterator.
 struct RangeTreeInfo {
-    /// Pointer to the numeric range tree.
-    tree: NonNull<NumericRangeTree>,
+    /// Where the reader's range lives.
+    source: RangeSource,
     /// The revision ID at the time the iterator was created.
     /// Used to detect if the tree has been modified.
     revision_id: u32,
+}
+
+/// What revalidation finds when it looks the reader's range up again.
+enum RangeLookup {
+    /// The tree changed shape, so the range may be gone: the iterator must
+    /// [abort](RQEValidateStatus::Aborted).
+    Gone,
+    /// The range's entries, freshly resolved through the tree, to
+    /// [reseat](inverted_index::ReseatIndex) the reader on.
+    Live(NonNull<NumericIndex>),
+    /// The iterator was built without a tree, so there is nothing to look up.
+    Untracked,
 }
 
 impl<'query, Rf: Ref, R, E, RA> RawNumeric<'query, Rf, R, E, RA> {
@@ -87,33 +134,34 @@ impl<'query, Rf: Ref, R, E, RA> RawNumeric<'query, Rf, R, E, RA> {
         self.it.flags()
     }
 
-    /// Check if the iterator should abort revalidation.
+    /// Look the reader's range up again through the tree.
     ///
-    /// The numeric range tree's revision id changes when the tree is
-    /// modified by GC (a node split or removal). The iterator's cached
-    /// `revision_id` snapshot is compared against the current value; if
-    /// they differ, the cursor is invalidated and the iterator must
-    /// [abort](RQEValidateStatus::Aborted).
+    /// The numeric range tree's revision id changes when the tree changes shape
+    /// (a node split or removal). While it is unchanged, the node the reader was
+    /// opened on still holds the same range, so the range's entries are resolved
+    /// afresh for the caller to [reseat](ReseatIndex) the reader on.
     ///
-    /// Reads only the range tree's `NonNull` pointer and `revision_id` (owned by
-    /// the spec, stable under the read lock); it materializes no `&'a`
-    /// reader/buffer borrow, so it is sound to call on the suspended form during
-    /// [`RQESuspendedIterator::resume`].
-    pub(crate) const fn should_abort(&self) -> bool {
-        // If there's no range tree, we can't check for changes
+    /// Reads only through the tree pointer its owner holds (stable under the read
+    /// lock); it materializes no `&'a` reader/buffer borrow, so it is sound to
+    /// call on the suspended form during [`RQESuspendedIterator::resume`].
+    fn resolve_live_index(&self) -> RangeLookup {
         let Some(ref info) = self.range_tree_info else {
-            return false;
+            return RangeLookup::Untracked;
         };
 
-        let current_revision_id = {
-            // SAFETY: Condition 2 of `Self::new` guarantees the tree
-            // remains valid for the iterator's lifetime.
-            let tree = unsafe { info.tree.as_ref() };
-            tree.revision_id()
-        };
-        // If the revision id changed the numeric tree was either completely deleted or a node was split or removed.
-        // The cursor is invalidated so we cannot revalidate the iterator.
-        current_revision_id != info.revision_id
+        // SAFETY: 1. and 2. of `RangeSource::new` keep the tree valid for the
+        // iterator's lifetime and its pointer valid across writes; by 3. nothing
+        // writes to it or borrows it mutably while the iterator revalidates.
+        let tree = unsafe { info.source.tree.as_ref() };
+        if tree.revision_id() != info.revision_id {
+            return RangeLookup::Gone;
+        }
+
+        let range = tree
+            .node(info.source.node)
+            .range()
+            .expect("an unchanged revision keeps the range on its node");
+        RangeLookup::Live(NonNull::from(range.entries()))
     }
 }
 
@@ -130,29 +178,37 @@ where
     ///
     /// `expiration_checker` is used to check for expired documents when reading from the inverted index.
     ///
-    /// `range_tree` is the underlying range tree backing the iterator.
-    /// It is used during revalidation to check if the iterator is still valid.
+    /// `range_source` locates the reader's range in the tree backing the
+    /// iterator. Revalidation uses it to check the iterator is still valid and to
+    /// reseat the reader on the range's entries.
     ///
     /// `range_min` and `range_max` are the minimum and maximum numeric ranges,
     /// respectively. They are only used in debug print.
     ///
     /// # Safety
     ///
-    /// 1. If `range_tree` is Some, it must be a valid pointer to a [`NumericRangeTree`].
-    /// 2. If `range_tree` is Some, it must stay valid during the iterator's lifetime.
+    /// 1. If `range_source` is Some, `node` must hold the range whose entries
+    ///    `reader` reads. Revalidation reseats `reader` on that range's entries,
+    ///    so pairing it with another range's reader would point the reader at an
+    ///    index whose blocks its position does not describe. [`RangeSource::new`]
+    ///    carries the requirements on the source itself.
+    /// 2. If `range_source` is None, nothing may write to the index `reader`
+    ///    reads while the iterator lives, as revalidation then has no index to
+    ///    [reseat](ReseatIndex) `reader` on.
     pub unsafe fn new(
         reader: R,
         expiration_checker: E,
-        range_tree: Option<&NumericRangeTree>,
+        range_source: Option<RangeSource>,
         range_min: Option<f64>,
         range_max: Option<f64>,
     ) -> Self {
         let result = RSIndexResult::build_numeric(0.0).build();
 
-        let range_tree_info = range_tree.map(|tree| {
-            let revision_id = tree.revision_id();
+        let range_tree_info = range_source.map(|source| {
+            // SAFETY: 1. and 3. of `RangeSource::new`.
+            let revision_id = unsafe { source.tree.as_ref() }.revision_id();
             RangeTreeInfo {
-                tree: NonNull::from_ref(tree),
+                source,
                 revision_id,
             }
         });
@@ -179,9 +235,10 @@ where
 
 impl<'index, R, E> RQEIteratorBoxed<'index> for Numeric<'index, R, E>
 where
-    R: NumericReader<'index> + SuspendableReader + 'index,
-    R::Suspended: ResumableReader,
-    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: NumericReader<'a>,
+    R: NumericReader<'index> + ReseatIndex<NumericIndex> + SuspendableReader + 'index,
+    R::Suspended: ResumableReader + ReseatIndex<NumericIndex>,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>:
+        NumericReader<'a> + ReseatIndex<NumericIndex>,
     E: ExpirationChecker + 'static,
 {
     // Reader weakens `R -> R::Suspended`; the frozen `RA = R` slot keeps the
@@ -203,8 +260,8 @@ where
 
 impl<'query, RS, E, RA> RQESuspendedIterator<'query> for RawNumeric<'query, Suspended, RS, E, RA>
 where
-    RS: ResumableReader,
-    for<'a> RS::Resumed<'a>: NumericReader<'a>,
+    RS: ResumableReader + ReseatIndex<NumericIndex>,
+    for<'a> RS::Resumed<'a>: NumericReader<'a> + ReseatIndex<NumericIndex>,
     E: ExpirationChecker + 'static,
 {
     type Resumed<'a>
@@ -222,8 +279,17 @@ where
         // Step 1: identity check on the suspended form. On abort we drop the
         // suspended iterator without promoting it to Active — nothing is
         // materialized.
-        if self.should_abort() {
-            return Ok(ResumeOutcome::Aborted);
+        match self.resolve_live_index() {
+            RangeLookup::Gone => return Ok(ResumeOutcome::Aborted),
+            // `resume_in_place` first reads the index's GC marker through the
+            // reader's pointer, which may not have survived a write while
+            // suspended.
+            // SAFETY: 1. An unchanged revision keeps the reader's range on the node
+            // it was opened on. 2. `ii` was resolved just now, under the read lock
+            // `guard` witnesses. 3. The revalidation protocol only lets the index
+            // be written while the reader is parked across a lock release.
+            RangeLookup::Live(ii) => unsafe { self.it.reader.reseat(ii) },
+            RangeLookup::Untracked => {}
         }
 
         // Step 2: run the shared in-place resume transition on the inner core
@@ -258,7 +324,7 @@ where
 }
 impl<'index, R, E> RQEIterator<'index> for Numeric<'index, R, E>
 where
-    R: NumericReader<'index>,
+    R: NumericReader<'index> + ReseatIndex<NumericIndex>,
     E: ExpirationChecker,
 {
     #[inline(always)]
@@ -304,8 +370,16 @@ where
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.should_abort() {
-            return Ok(RQEValidateStatus::Aborted);
+        match self.resolve_live_index() {
+            RangeLookup::Gone => return Ok(RQEValidateStatus::Aborted),
+            // `revalidate` reads the index's GC marker through the reader's
+            // pointer, which may not have survived a write to the index.
+            // SAFETY: 1. An unchanged revision keeps the reader's range on the node
+            // it was opened on. 2. `ii` was resolved just now, under the read lock
+            // `spec` witnesses. 3. The revalidation protocol only lets the index be
+            // written while the reader is parked across a lock release.
+            RangeLookup::Live(ii) => unsafe { self.it.reader.reseat(ii) },
+            RangeLookup::Untracked => {}
         }
 
         self.it.revalidate(spec)
@@ -508,8 +582,10 @@ impl<'index> NumericIteratorVariant<'index> {
     ///
     /// 1. `sctx` and `sctx.spec` must remain valid for the lifetime of all returned iterators.
     /// 2. `field_ctx.field` must be a field index (tag == `FieldMaskOrIndex::Index`), not a field mask.
+    /// 3. `tree` must satisfy the requirements of [`RangeSource::new`] for
+    ///    `'index`.
     pub unsafe fn from_tree(
-        tree: &'index NumericRangeTree,
+        tree: NonNull<NumericRangeTree>,
         sctx: NonNull<ffi::RedisSearchCtx>,
         filter: &'index NumericFilter,
         field_ctx: &field::FieldFilterContext,
@@ -521,20 +597,20 @@ impl<'index> NumericIteratorVariant<'index> {
             }
         };
 
+        // SAFETY: 3.
+        let tree_ref: &'index NumericRangeTree = unsafe { tree.as_ref() };
+
         // The optimizer paginates the sort field by changing the filter's window
         // between rewinds; every other query leaves it unbounded.
-        let ranges = tree.find_windowed(filter, RangeWindow::from_filter(filter));
+        let nodes = tree_ref.find_windowed_nodes(filter, RangeWindow::from_filter(filter));
 
-        let range_tree: Option<&NumericRangeTree> = if filter.field_index == RS_INVALID_FIELD_INDEX
-        {
-            None
-        } else {
-            Some(tree)
-        };
-
-        ranges
-            .iter()
-            .map(|range| {
+        nodes
+            .into_iter()
+            .map(|node| {
+                let range = tree_ref
+                    .node(node)
+                    .range()
+                    .expect("found nodes hold a range");
                 let min_val = range.min_val();
                 let max_val = range.max_val();
 
@@ -564,14 +640,19 @@ impl<'index> NumericIteratorVariant<'index> {
                     )
                 };
 
-                Self::new(
-                    reader,
-                    reader_filter,
-                    expiration_checker,
-                    range_tree,
-                    min_val,
-                    max_val,
-                )
+                // SAFETY: by 3.
+                let source = unsafe { RangeSource::new(tree, node) };
+                // SAFETY: 1. `reader` reads the range `node` holds.
+                unsafe {
+                    Self::new(
+                        reader,
+                        reader_filter,
+                        expiration_checker,
+                        Some(source),
+                        min_val,
+                        max_val,
+                    )
+                }
             })
             .collect()
     }
@@ -582,22 +663,26 @@ impl<'index> NumericIteratorVariant<'index> {
     /// - `filter` is `None` → [`NumericIteratorVariant::Unfiltered`]
     /// - `filter` is `Some(f)` where `f.is_numeric_filter()` → [`NumericIteratorVariant::Filtered`]
     /// - `filter` is `Some(f)` where `!f.is_numeric_filter()` → [`NumericIteratorVariant::Geo`]
-    pub fn new(
+    ///
+    /// # Safety
+    ///
+    /// The requirements of [`Numeric::new`] on `range_source` and `reader`.
+    pub unsafe fn new(
         reader: NumericIndexReader<'index>,
         filter: Option<&'index NumericFilter>,
         expiration_checker: FieldExpirationChecker,
-        range_tree: Option<&'index NumericRangeTree>,
+        range_source: Option<RangeSource>,
         range_min: f64,
         range_max: f64,
     ) -> Self {
         match filter {
             None => {
-                // SAFETY: `range_tree` lifetime is enforced by `'index`.
+                // SAFETY: forwarded from this function's contract.
                 let iter = unsafe {
                     Numeric::new(
                         reader,
                         expiration_checker,
-                        range_tree,
+                        range_source,
                         Some(range_min),
                         Some(range_max),
                     )
@@ -605,12 +690,13 @@ impl<'index> NumericIteratorVariant<'index> {
                 Self::Unfiltered(iter)
             }
             Some(f) if f.is_numeric_filter() => {
-                // SAFETY: `range_tree` lifetime is enforced by `'index`.
+                // SAFETY: forwarded from this function's contract; the filtering
+                // readers read the same range as `reader`.
                 let iter = unsafe {
                     Numeric::new(
                         FilterNumericReader::new(*f, reader),
                         expiration_checker,
-                        range_tree,
+                        range_source,
                         Some(range_min),
                         Some(range_max),
                     )
@@ -618,12 +704,13 @@ impl<'index> NumericIteratorVariant<'index> {
                 Self::Filtered(iter)
             }
             Some(f) => {
-                // SAFETY: `range_tree` lifetime is enforced by `'index`.
+                // SAFETY: forwarded from this function's contract; the filtering
+                // readers read the same range as `reader`.
                 let iter = unsafe {
                     Numeric::new(
                         FilterGeoReader::new(*f, reader),
                         expiration_checker,
-                        range_tree,
+                        range_source,
                         Some(range_min),
                         Some(range_max),
                     )
@@ -783,7 +870,6 @@ pub unsafe fn build_numeric_filter_iterator(
     flt: &NumericFilter,
     min_union_iter_heap: usize,
     field_ctx: &field::FieldFilterContext,
-    compress: bool,
 ) -> Option<NonNull<QueryIterator>> {
     let node_type = if flt.is_numeric_filter() {
         QueryNodeType::Numeric
@@ -804,11 +890,11 @@ pub unsafe fn build_numeric_filter_iterator(
     // stable index when the filter was built; `IndexSpec.fields` only grows between
     // then and now (existing indices stay valid), and `spec` is the current field
     // array, read under the lock evaluation holds.
-    let fs = unsafe { &mut *fs_ptr };
-    // SAFETY: `spec`/`fs` are valid (1, 2); the field is numeric/geo so the tree
-    // is the right type. We never create the tree here (`create_if_missing` is
-    // false), so the `fs.tree` ownership precondition is trivially upheld.
-    let tree = unsafe { open_numeric_or_geo_index(spec, fs, false, compress) }?;
+    let fs = unsafe { &*fs_ptr };
+    // The field is numeric/geo, so its tree is a `NumericRangeTree`. Copy the
+    // owner's pointer rather than open the tree through a `&mut`, as
+    // `RangeSource::new` requires.
+    let tree = NonNull::new(fs.tree.cast::<NumericRangeTree>())?;
 
     // SAFETY: `sctx`/`sctx.spec` remain valid (1); `field_ctx.field` is a field
     // index (3).
