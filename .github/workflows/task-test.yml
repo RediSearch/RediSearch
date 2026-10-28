@@ -246,13 +246,13 @@ jobs:
       - name: Verify runner diagnostic readability
         id: runner-diagnostic-readability
         continue-on-error: true
-        run: python3 .github/scripts/runner_events.py --require-readable > "${{ runner.temp }}/runner-events-start.json"
+        run: python3 .github/scripts/runner_events.py --require-readable > runner-events-start.json
 
       - name: Upload safe runner diagnostic baseline
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: runner-events-start-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/runner-events-start.json
+          path: runner-events-start.json
           retention-days: 3
           if-no-files-found: error
 
