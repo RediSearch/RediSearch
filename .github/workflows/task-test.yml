@@ -315,7 +315,14 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: make rust-tests
+        run: |
+          # Stream evidence before a lost runner can prevent artifact upload.
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            python3 -u .github/scripts/runner_resources.py &
+            resource_monitor=$!
+            trap 'kill "$resource_monitor" 2>/dev/null || true; wait "$resource_monitor" 2>/dev/null || true' EXIT
+          fi
+          make rust-tests
       - name: Build TESTFILE excluding flaky tests (standalone)
         id: standalone_testfile
         if: ${{ inputs.standalone && env.IS_FORK_PR != 'true' }}
