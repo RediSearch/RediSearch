@@ -42,10 +42,8 @@ pub struct MissingDocsEntry<T = Vec<u8>> {
 ///
 /// [`GcScanDelta`]: inverted_index::GcScanDelta
 pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::Result<()> {
-    let doc_exists = |id| spec.doc_exists(id);
-
     for entry in spec.missing_field_dict().iter() {
-        let Ok(Some(deltas)) = entry.val().scan_gc(doc_exists) else {
+        let Ok(Some(deltas)) = entry.val().scan_gc(|id| spec.doc_exists(id)) else {
             continue;
         };
 
@@ -60,6 +58,25 @@ pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) 
     }
 
     serialize(writer, None::<MissingDocsEntry<&[u8]>>)
+}
+
+/// Name every missing field that has an inverted index, in dict order.
+pub fn missing_field_names(spec: &IndexSpecReadGuard) -> Vec<CString> {
+    spec.missing_field_dict()
+        .iter()
+        .map(|entry| entry.key().secret_value().to_owned())
+        .collect()
+}
+
+/// Run the GC scan of `field_name`'s missing-docs inverted index.
+///
+/// Returns `None` when the field has no such index, the scan found nothing to
+/// collect, or the scan failed; a failed scan is retried on the next cycle.
+pub fn scan_missing_field(spec: &IndexSpecReadGuard, field_name: &CStr) -> Option<GcScanDelta> {
+    let ii = spec
+        .missing_field_dict()
+        .fetch(&OwnedHiddenString::new(field_name))?;
+    ii.scan_gc(|id| spec.doc_exists(id)).ok().flatten()
 }
 
 /// Decode one missing-docs message from `reader`.

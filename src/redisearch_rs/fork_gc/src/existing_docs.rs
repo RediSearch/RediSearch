@@ -29,15 +29,20 @@ use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 ///
 /// [`GcScanDelta`]: inverted_index::GcScanDelta
 pub fn collect_existing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::Result<()> {
-    let doc_exists = |id| spec.doc_exists(id);
-
-    if let Some(ii) = spec.existing_docs()
-        && let Ok(Some(deltas)) = ii.scan_gc(doc_exists)
-    {
+    if let Some(deltas) = scan_existing_docs(spec) {
         serialize(writer, Some(deltas))?;
     }
 
     serialize(writer, None::<GcScanDelta>)
+}
+
+/// Run the GC scan of the spec's `existingDocs` inverted index.
+///
+/// Returns `None` when the spec has no such index, the scan found nothing to
+/// collect, or the scan failed; a failed scan is retried on the next cycle.
+pub fn scan_existing_docs(spec: &IndexSpecReadGuard) -> Option<GcScanDelta> {
+    let ii = spec.existing_docs()?;
+    ii.scan_gc(|id| spec.doc_exists(id)).ok().flatten()
 }
 
 /// Apply a pre-decoded GC delta to the spec's `existingDocs` inverted index.

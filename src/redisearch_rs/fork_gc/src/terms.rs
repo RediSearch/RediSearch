@@ -13,13 +13,14 @@
 use std::{
     borrow::Cow,
     io::{self, Read, Write},
+    ops::ControlFlow,
 };
 
 use c_trie::TrieTerm;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
 use serde::{Deserialize, Serialize};
-use string_utils::obfuscation::obfuscate_text;
+use string_utils::{obfuscation::obfuscate_text, runes::runes_to_bytes};
 
 use crate::util::{deserialize, serialize};
 use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
@@ -51,11 +52,7 @@ pub struct TermEntry<T = Box<[u8]>> {
 /// [`GcScanDelta`]: inverted_index::GcScanDelta
 pub fn collect_terms(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::Result<()> {
     for term in spec.terms() {
-        let Some(ii) = spec.keys_dict().fetch(&term) else {
-            continue;
-        };
-
-        let Ok(Some(delta)) = ii.scan_gc(|id| spec.doc_exists(id)) else {
+        let Some(delta) = scan_term(spec, &term) else {
             continue;
         };
 
@@ -69,6 +66,56 @@ pub fn collect_terms(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::
     }
 
     serialize(writer, None::<TermEntry<&[u8]>>)
+}
+
+/// Run the GC scan of `term`'s inverted index.
+///
+/// Returns `None` when the term has no inverted index, the scan found nothing
+/// to collect, or the scan failed; a failed scan is retried on the next cycle.
+pub fn scan_term(spec: &IndexSpecReadGuard, term: &TrieTerm) -> Option<GcScanDelta> {
+    let ii = spec.keys_dict().fetch(term)?;
+    ii.scan_gc(|id| spec.doc_exists(id)).ok().flatten()
+}
+
+/// Where a [`scan_terms_after`] walk resumes: the last term it visited.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct TermsCursor(Vec<ffi::rune>);
+
+/// Scan terms in lexicographic order, starting strictly after `cursor`, until
+/// `should_stop` returns `true` after a term or no term is left.
+///
+/// Appends each delta, with its term, to `found`, and moves `cursor` past every
+/// term visited, so a later call resumes after them even if the trie changed
+/// in between. Returns whether the walk stopped early, leaving terms to scan.
+pub fn scan_terms_after(
+    spec: &IndexSpecReadGuard,
+    cursor: &mut TermsCursor,
+    mut should_stop: impl FnMut() -> bool,
+    found: &mut Vec<(TrieTerm, GcScanDelta)>,
+) -> bool {
+    let mut stopped = false;
+    spec.terms().visit_after(&cursor.0.clone(), |runes| {
+        cursor.0.clear();
+        cursor.0.extend_from_slice(runes);
+
+        // Stored keys are capped at `TRIE_INITIAL_STRING_LEN` runes, inside the
+        // `MAX_RUNE_STR_LEN` `runes_to_bytes` requires.
+        let bytes = runes_to_bytes(runes).expect("a stored trie key fits within MAX_RUNE_STR_LEN");
+        // SAFETY: the walk only visits non-empty keys the terms trie accepted, and
+        // `runes_to_bytes` emits a complete encoding of each rune, none of them zero.
+        let term = unsafe { TrieTerm::from_bytes_unchecked(bytes.into_boxed_slice()) };
+        if let Some(delta) = scan_term(spec, &term) {
+            found.push((term, delta));
+        }
+
+        if should_stop() {
+            stopped = true;
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    });
+    stopped
 }
 
 /// Decode one terms message from `reader`.

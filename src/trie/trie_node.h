@@ -125,6 +125,15 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
                       size_t *numDocs, void *matchCtx);
 
 typedef int(TrieRangeCallback)(const rune *, size_t, void *, void *, size_t);
+
+/* Called with each key a visit walk reaches; returning non-zero stops the walk. */
+typedef int (*TrieVisitCallback)(const rune *key, size_t len, void *ctx);
+
+/* Visit, in lexicographic rune order, every key of the subtree at `n` that sorts strictly after
+ * `after`, until `visit` returns non-zero. Requires a Trie_Sort_Lex trie. Returns non-zero when
+ * `visit` stopped the walk. */
+int TrieNode_VisitAfter(const TrieNode *n, const rune *after, size_t afterLen,
+                        TrieVisitCallback visit, void *ctx);
 typedef int(TrieSuffixCallback)(const char *, size_t, void *, void *);
 
 /**

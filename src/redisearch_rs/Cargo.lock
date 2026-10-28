@@ -784,6 +784,7 @@ dependencies = [
  "string_utils",
  "thiserror",
  "tracing",
+ "trie_rs",
  "workspace_hack",
 ]
 
