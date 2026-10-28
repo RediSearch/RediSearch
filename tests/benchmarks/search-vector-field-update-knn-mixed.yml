@@ -43,12 +43,30 @@ dbconfig:
   check:
     keyspacelen: 100000
 
-# The runner discards the background client's output, so the updates are counted on the server:
-# each one is an EVAL call. A redisbench-admin without info_metrics ignores this block.
+# Benchmarking-only: counters read after the run; the garbage collector ones show what the
+# vector index garbage collection did, and the indexing operation counts show which update path ran.
 info_metrics:
+  - section: search_vector_index
+    fields:
+      - search_hnsw_direct_main_thread_insertions
+      - search_tiered_index_frontend_buffer_size
+  - section: search_fields_statistics
+    fields:
+      - search_total_indexing_ops_text_fields
+      - search_total_indexing_ops_tag_fields
+      - search_total_indexing_ops_numeric_fields
+      - search_total_indexing_ops_vector_fields
+  - section: search_garbage_collector
+    fields:
+      - search_gc_bytes_collected
+      - search_gc_total_cycles
+      - search_gc_total_ms_run
+      - search_gc_total_docs_not_collected
+      - search_gc_marked_deleted_vectors
   - section: commandstats
     fields:
       - cmdstat_eval
+
 
 clientconfig:
   benchmark_type: "mixed"
