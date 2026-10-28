@@ -13,10 +13,12 @@ use std::num::NonZeroUsize;
 
 use rqe_core::{DocId, FieldMask, RS_FIELDMASK_ALL};
 
-use index_result::RSIndexResult;
+use index_result::{RSIndexResult, RSOffsetSlice, RSQueryTerm, RSTermRecord};
+use index_spec::IndexSpecReadGuard;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IdList, RQEIterator, RQEIteratorError, c2rust::CRQEIterator, interop::ProfileChildren,
+    IdList, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, c2rust::CRQEIterator,
+    interop::ProfileChildren, union::Union,
 };
 use rqe_iterators_test_utils::ContractChecker;
 use top_k::Ascending;
@@ -169,6 +171,107 @@ fn drain_scoring_fields<'a>(it: &mut impl RQEIterator<'a>) -> Vec<(DocId, u32, F
         emitted.push((r.doc_id, r.freq, r.field_mask));
     }
     emitted
+}
+
+/// Child yielding, for each id of an [`IdList`], a term record owning its query
+/// term, as an inverted index reader does.
+struct TermLeaf<'index> {
+    ids: IdList<'index, true>,
+    result: RSIndexResult<'index>,
+    abort_on_revalidate: bool,
+}
+
+impl TermLeaf<'_> {
+    const OFFSETS: &'static [u8] = &[1, 2, 3];
+
+    fn new(ids: Vec<DocId>, term: &str) -> Self {
+        Self {
+            ids: IdList::new(ids),
+            result: RSIndexResult::build_term()
+                .borrowed_record(
+                    Some(RSQueryTerm::new(term, 1, 0)),
+                    RSOffsetSlice::from_slice(Self::OFFSETS),
+                )
+                .build(),
+            abort_on_revalidate: false,
+        }
+    }
+
+    /// Make [`RQEIterator::revalidate`] report [`RQEValidateStatus::Aborted`], as a leaf
+    /// whose index changed under it does.
+    fn aborting_on_revalidate(mut self) -> Self {
+        self.abort_on_revalidate = true;
+        self
+    }
+}
+
+impl<'index> RQEIterator<'index> for TermLeaf<'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.ids.current()?;
+        Some(&mut self.result)
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        let Some(r) = self.ids.read()? else {
+            return Ok(None);
+        };
+        self.result.doc_id = r.doc_id;
+        Ok(Some(&mut self.result))
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: DocId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        let Some(outcome) = self.ids.skip_to(doc_id)? else {
+            return Ok(None);
+        };
+        let (found, doc_id) = match outcome {
+            SkipToOutcome::Found(r) => (true, r.doc_id),
+            SkipToOutcome::NotFound(r) => (false, r.doc_id),
+        };
+        self.result.doc_id = doc_id;
+        Ok(Some(if found {
+            SkipToOutcome::Found(&mut self.result)
+        } else {
+            SkipToOutcome::NotFound(&mut self.result)
+        }))
+    }
+
+    fn revalidate(
+        &mut self,
+        _: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        Ok(if self.abort_on_revalidate {
+            RQEValidateStatus::Aborted
+        } else {
+            RQEValidateStatus::Ok
+        })
+    }
+
+    fn rewind(&mut self) {
+        self.ids.rewind();
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.ids.num_estimated()
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.ids.last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        self.ids.at_eof()
+    }
+
+    fn type_(&self) -> IteratorType {
+        IteratorType::Mock
+    }
+
+    fn intersection_sort_weight(&self, _: bool) -> f64 {
+        1.0
+    }
 }
 
 /// Build an [`IdList`] from `ids` and wrap it in a [`CRQEIterator`] so the
@@ -1113,6 +1216,96 @@ fn batches_preserves_child_scoring_fields() {
     // Best-first ASC order, each result carrying the child's scoring fields
     // rather than a freshly rebuilt record.
     assert_eq!(emitted, vec![(2, 7, 0xABC), (1, 7, 0xABC)]);
+}
+
+/// A captured child record must own its query terms rather than borrow them:
+/// the iterators owning the child's terms can be dropped while the top-k still
+/// holds the record, as when a union drops an aborted child during revalidation.
+#[test]
+fn batches_captured_child_record_owns_its_terms() {
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+
+    let mut it = ContractChecker::new_unordered(TopKIterator::new(
+        source,
+        Box::new(TermLeaf::new(vec![1, 2], "foo")) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        Ascending,
+    ));
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        let record = r.as_term().expect("the child's term record is yielded");
+        assert!(
+            matches!(record, RSTermRecord::FullyOwned { .. }),
+            "the captured record owns its term instead of borrowing the child's",
+        );
+        let term = record.query_term().and_then(RSQueryTerm::as_bytes);
+        emitted.push((
+            r.doc_id,
+            term.map(<[u8]>::to_vec),
+            record.offsets().to_vec(),
+        ));
+    }
+
+    let foo = Some(b"foo".to_vec());
+    let offsets = TermLeaf::OFFSETS.to_vec();
+    assert_eq!(
+        emitted,
+        vec![(2, foo.clone(), offsets.clone()), (1, foo, offsets)]
+    );
+}
+
+/// A union in the filter drops an aborted child during revalidation, and with it the query
+/// term that child's leaf owns, while the top-k still holds the records it captured from that
+/// leaf. Reading their terms afterwards must not touch the freed term; run under miri to
+/// check, since outside it a freed term usually still reads back its old values.
+#[test]
+fn batches_captured_terms_survive_a_union_dropping_an_aborted_child() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
+        BatchStrategy::Continue
+    });
+    // `bar` matches past the batch, so the union is not at EOF when revalidated: a union at
+    // EOF skips revalidating its children.
+    let foo = TermLeaf::new(vec![1, 2], "foo").aborting_on_revalidate();
+    let bar = TermLeaf::new(vec![100], "bar");
+    let child = Union::new(vec![
+        Box::new(foo) as Box<dyn RQEIterator<'_> + '_>,
+        Box::new(bar),
+    ]);
+
+    let mut it = ContractChecker::new_unordered(TopKIterator::new(
+        source,
+        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        NonZeroUsize::new(10).unwrap(),
+        Ascending,
+    ));
+
+    let mut emitted = Vec::new();
+    let mut read_term = |r: &RSIndexResult<'_>| {
+        let record = r
+            .get(0)
+            .and_then(RSIndexResult::as_term)
+            .expect("the union's term child is yielded");
+        let term = record.query_term().and_then(RSQueryTerm::as_bytes);
+        emitted.push((r.doc_id, term.map(<[u8]>::to_vec)));
+    };
+
+    // The first read collects every match, capturing `foo`'s records.
+    read_term(it.read().unwrap().expect("a first match"));
+    assert_eq!(
+        it.revalidate(&mock_ctx.spec_read()).unwrap(),
+        RQEValidateStatus::Ok,
+        "the union survives on `bar`, so the top-k carries on",
+    );
+    while let Some(r) = it.read().unwrap() {
+        read_term(r);
+    }
+
+    let foo = Some(b"foo".to_vec());
+    assert_eq!(emitted, vec![(2, foo.clone()), (1, foo)]);
 }
 
 /// Same setup as [`batches_preserves_child_scoring_fields`], with deep-result

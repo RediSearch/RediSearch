@@ -263,6 +263,13 @@ enum RawTermRecord_Active_Tag
  {
   RawTermRecord_Active_Borrowed,
   RawTermRecord_Active_Owned,
+  /**
+   * A record that borrows nothing, so it can outlive both the source of its offsets and the
+   * iterator owning its term (see [`RSTermRecord::to_fully_owned`]).
+   *
+   * It may be dropped before any copy of it, so [`RSTermRecord::to_owned`] copies its term
+   * instead of borrowing it. Producers of short-lived records must use this variant.
+   */
   RawTermRecord_Active_FullyOwned,
 };
 #ifndef __cplusplus
@@ -327,9 +334,7 @@ typedef struct RawTermRecord_Active_FullyOwned_Body {
    * The encoded offsets in which the term appeared in the document.
    *
    * Unlike `Borrowed`, the offsets are owned by the record as well and
-   * therefore do not tie the record to an external lifetime. Used when
-   * the decoded record must outlive the source of the offset bytes
-   * (e.g. reading from a disk page that may be evicted).
+   * therefore do not tie the record to an external lifetime.
    */
   RSOffsetVector offsets;
 } RawTermRecord_Active_FullyOwned_Body;
