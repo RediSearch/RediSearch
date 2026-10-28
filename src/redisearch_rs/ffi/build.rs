@@ -98,6 +98,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "deps/rmutil/args.h",
+        fns: &["AC_GetDouble", "AC_GetString"],
+        types: &["ArgsCursor", "ACStatus"],
+        vars: &["AC_F_NOADVANCE"],
+    },
+    HeaderAllowlist {
         path: "src/aggregate/aggregate.h",
         fns: &[],
         types: &[
@@ -144,9 +150,9 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/geo_index.h",
-        fns: &["GeoFilter_Free", "GeoFilter_Validate", "NewGeoFilter"],
-        types: &[],
+        path: "src/geo_index_types.h",
+        fns: &[],
+        types: &["GeoFilter", "LegacyGeoFilter", "GeoDistance"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -275,6 +281,12 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/doc_id_meta.h",
         fns: &["DocIdMeta_Get"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/geo_index.h",
+        fns: &["GeoFilter_Free", "GeoFilter_Validate", "NewGeoFilter"],
         types: &[],
         vars: &[],
     },
@@ -669,7 +681,14 @@ fn main() {
     for entry in HEADERS {
         let abs = root.join(entry.path);
         verify_symbols(&abs, entry);
-        bindings = bindings.header(abs.display().to_string());
+        // Direct generated inputs must use the staged copy too; otherwise their
+        // quoted includes load duplicate definitions beside the permitted copies.
+        let bindgen_path = if abs.parent() == Some(cheadergen_dir.as_path()) {
+            permitted_dir.join(abs.file_name().unwrap())
+        } else {
+            abs.clone()
+        };
+        bindings = bindings.header(bindgen_path.display().to_string());
         println!("cargo:rerun-if-changed={}", abs.display());
 
         for func in entry.fns {
