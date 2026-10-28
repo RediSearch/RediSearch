@@ -1419,7 +1419,7 @@ TEST_F(RdbMockTest, testLegacyVectorDimensionOverflow) {
   }
 }
 
-TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
+TEST_F(RdbMockTest, testHnswSq8ValidatesRdbParameters) {
   std::array args{
       "SCHEMA", "v", "VECTOR", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "64", "DISTANCE_METRIC", "L2",
   };
@@ -1431,7 +1431,7 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
   std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(
       spec, [](const IndexSpec *s) { StrongRef_Release(s->own_ref); });
 
-  struct InvalidParams {
+  struct TestParams {
     uint64_t compression;
     uint64_t threshold;
     VecSimType type;
@@ -1439,8 +1439,9 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
     size_t dim = 64;
     VecSimMetric metric = VecSimMetric_L2;
     bool disk = false;
+    int expectedResult = REDISMODULE_ERR;
   };
-  const std::array<InvalidParams, 13> cases{{
+  const std::array<TestParams, 13> cases{{
       {VecSimQuant_NONE, 0, VecSimType_FLOAT32, 0, SIZE_MAX / 4 + 2},
       {2, 0, VecSimType_FLOAT32, 0},
       {(uint64_t{1} << 32) + VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0},
@@ -1452,8 +1453,8 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 2 * sizeof(uint64_t)},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 0},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, static_cast<VecSimMetric>(3)},
-      {VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true},
-      {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true},
+      {VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true, REDISMODULE_OK},
+      {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true, REDISMODULE_OK},
   }};
   for (const auto &test : cases) {
     SCOPED_TRACE(::testing::Message()
@@ -1480,7 +1481,14 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
     RSGlobalConfig.simulateInFlex = test.disk;
     const int result = VecSim_RdbLoad_v5(io, &loaded, specRef, "v");
     RSGlobalConfig.simulateInFlex = previousFlex;
-    EXPECT_EQ(REDISMODULE_ERR, result);
+    EXPECT_EQ(test.expectedResult, result);
+    if (result == REDISMODULE_OK) {
+      EXPECT_EQ(test.compression,
+                loaded.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.quantType);
+      EXPECT_EQ(
+          test.threshold,
+          loaded.algoParams.tieredParams.specificParams.tieredHnswParams.QuantNormalizationSetSize);
+    }
     VecSimParams_Cleanup(&loaded);
   }
 }
