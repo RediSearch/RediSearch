@@ -1438,8 +1438,8 @@ def test_ft_info():
          nodes = float(res['cluster_known_nodes'])
 
       # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-      #              = 88 + (1000 * 8) = 8088 bytes
-      initial_doc_table_size_mb = 8088 / (1024 * 1024)
+      #              = 96 + (1000 * 8) = 8096 bytes
+      initial_doc_table_size_mb = 8096 / (1024 * 1024)
       # No map allocation until this index receives an INKEYS query.
       key_table_sz_mb = 0
       per_node_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb

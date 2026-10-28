@@ -1056,7 +1056,7 @@ TEST_F(IndexTest, testIndexFlags) {
 }
 
 TEST_F(IndexTest, testDocTablePayloadSlotLifecycle) {
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, false);
   const size_t emptySize = dt.memsize;
   RSDocumentMetadata *dmd =
       DocTable_Put(&dt, "doc", 3, 0.5, Document_HasPayloadSlot, nullptr, 0, DocumentType_Hash);
@@ -1124,7 +1124,7 @@ TEST_F(IndexTest, testDocTablePayloadSlotLifecycle) {
 }
 
 TEST_F(IndexTest, testDocTableClearedPayloadSlotAccounting) {
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, false);
   const size_t emptySize = dt.memsize;
   RSDocumentMetadata *dmd =
       DocTable_Put(&dt, "doc", 3, 1.0, Document_DefaultFlags, "payload", 7, DocumentType_Hash);
@@ -1139,7 +1139,7 @@ TEST_F(IndexTest, testDocTableClearedPayloadSlotAccounting) {
 }
 
 TEST_F(IndexTest, testDocTablePayloadWithoutSlotIsRejected) {
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, false);
   const size_t emptySize = dt.memsize;
   RSDocumentMetadata *dmd =
       DocTable_Put(&dt, "doc", 3, 1.0, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
@@ -1160,7 +1160,7 @@ TEST_F(IndexTest, testDocTablePayloadWithoutSlotIsRejected) {
 
 TEST_F(IndexTest, testDocTable) {
   char buf[16];
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, false);
   size_t doc_table_size = sizeof(DocTable) + (10 * sizeof(DMDChain));
   ASSERT_EQ(doc_table_size, (int)dt.memsize);
   t_docId did = 0;
@@ -1693,7 +1693,7 @@ struct KeyMapTestCleanup {
 }  // namespace
 
 TEST_F(IndexTest, testDocKeyMapLifecycle) {
-  DocTable dt = NewDocTable(1, 10);
+  DocTable dt = NewDocTable(1, 10, false);
   KeyMapTestCleanup cleanup{&dt};
   EXPECT_EQ(dt.keyMap, nullptr);
   EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_Ready);
@@ -1736,7 +1736,7 @@ TEST_F(IndexTest, testDocKeyMapDisabledForDisk) {
   ASSERT_EQ(pthread_rwlock_init(&spec.rwlock, nullptr), 0);
   const bool previousFlex = isFlex;
   isFlex = true;
-  spec.docs = NewDocTable(1, 10);
+  spec.docs = NewDocTable(1, 10, false);
   KeyMapTestCleanup cleanup{&spec.docs};
   IndexSpec_ActivateKeyMap(&spec);
   isFlex = previousFlex;
@@ -1750,7 +1750,7 @@ TEST_F(IndexTest, testDocKeyMapDisabledForDisk) {
 
 TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
   DocTableKeyMapIterator iter = {};
-  DocTable dt = NewDocTable(1, 2);
+  DocTable dt = NewDocTable(1, 2, false);
   KeyMapTestCleanup cleanup{&dt, &iter};
   for (int i = 1; i <= 8; ++i) {
     std::string key = "doc:" + std::to_string(i);
@@ -1793,7 +1793,7 @@ TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
 
 TEST_F(IndexTest, testLazyKeyMapBucketGrowth) {
   DocTableKeyMapIterator iter = {};
-  DocTable dt = NewDocTable(1, 64);
+  DocTable dt = NewDocTable(1, 64, false);
   KeyMapTestCleanup cleanup{&dt, &iter};
   for (int i = 1; i <= 4; ++i) {
     auto key = std::to_string(i);
@@ -1828,7 +1828,7 @@ TEST_F(IndexTest, testLazyKeyMapBucketGrowth) {
 
 TEST_F(IndexTest, testLazyKeyMapUnorderedChain) {
   DocTableKeyMapIterator iter = {};
-  DocTable dt = NewDocTable(1, 1);
+  DocTable dt = NewDocTable(1, 1, false);
   KeyMapTestCleanup cleanup{&dt, &iter};
   for (int i = 1; i <= 4; ++i) {
     auto key = std::to_string(i);
@@ -1855,7 +1855,7 @@ TEST_F(IndexTest, testLazyKeyMapUnorderedChain) {
 
 TEST_F(IndexTest, testLazyKeyMapCursorOutlivesTable) {
   DocTableKeyMapIterator iter = {};
-  DocTable dt = NewDocTable(1, 1);
+  DocTable dt = NewDocTable(1, 1, false);
   KeyMapTestCleanup cleanup{&dt, &iter};
   for (int i = 1; i <= 3; ++i) {
     auto key = std::to_string(i);
