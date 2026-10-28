@@ -111,6 +111,21 @@ pub struct Context<'a> {
 }
 
 impl Context<'_> {
+    /// Add GIL acquisition wait and hold time to this processor and its query.
+    ///
+    /// Call only for profiled queries, after releasing the GIL.
+    pub fn record_gil_time(&mut self, elapsed: std::time::Duration) {
+        // SAFETY: the context exclusively accesses its processor header during this call.
+        let header = unsafe { self.ptr.as_mut() };
+        let elapsed_ns = elapsed.as_nanos() as ffi::rs_wall_clock_ns_t + 1;
+        header.rp_gil_time += elapsed_ns;
+        // SAFETY: the parent installed by the C pipeline outlives this processor. Its profiling
+        // counters are updated by the query worker, with no overlapping parent borrow here.
+        if let Some(parent) = unsafe { header.parent.cast_mut().as_mut() } {
+            parent.queryGILTime += elapsed_ns;
+        }
+    }
+
     /// Create a new context for calling the given type-erased result processor
     pub(crate) fn new(header: Pin<&mut Header>) -> Self {
         // Safety: Context & Upstream correctly treat the pointer as pinned
