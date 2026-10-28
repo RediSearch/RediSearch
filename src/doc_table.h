@@ -79,6 +79,10 @@ typedef struct {
   // Owned by the table. Nodes are never moved, so a cleanup task can hold a node pointer
   // while it holds a reference to the owning spec.
   PendingSlotDeletion *pendingSlotDeletions;
+  // IDs removed from the table whose index entries the in-process GC may not have collected yet;
+  // owned by the table, maintained under the spec write lock. NULL until that GC creates it, so
+  // a table it never runs on records nothing. See `deleted_docs_ffi.h`.
+  struct DeletedDocs *deletedDocs;
 } DocTable;
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
@@ -210,6 +214,13 @@ static inline bool DocTable_FieldHasExpiration(const DocTable *t, t_docId docId,
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
+
+// Writes to `out` (capacity `cap`) the IDs in `*next..=last` with no live document, in ascending
+// order, stopping when `out` is full or `last` is passed; advances `*next` past the last ID
+// examined and returns how many were written. `*next` is at least 1 (ID 0 is never assigned) and
+// `last` below UINT64_MAX. Caller must hold the spec read lock across each call; IDs assigned
+// between calls are beyond `last` and are not looked at.
+size_t DocTable_CollectDeadIds(const DocTable *t, t_docId *next, t_docId last, t_docId *out, size_t cap);
 
 /* Remove a document by its internal docId (unified unlink-driven delete path).
  * Ownership of the returned DMD moves to the caller, or NULL if not present. */

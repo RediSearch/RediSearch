@@ -32,6 +32,7 @@ walkdir.workspace = true
 
 [dependencies]
 buffer = { workspace = true }
+deleted_docs_ffi = { path = "../deleted_docs_ffi" }
 fnv_ffi = { path = "../fnv_ffi" }
 fork_gc_ffi = { path = "../fork_gc_ffi" }
 geo_ffi = { path = "../geo_ffi" }

@@ -19,6 +19,7 @@ use std::{
 };
 
 use c_trie::{SuffixTrie, TermsTrie};
+use deleted_docs::DeletedDocs;
 use dict::{Dict, KeysDictType, MissingFieldDictType};
 use field_spec::FieldSpec;
 use hidden_string::HiddenString;
@@ -127,6 +128,29 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
                 decr as usize,
             )
         }
+    }
+
+    /// The doc table's record of deleted documents, for the in-process GC to
+    /// prune after a cycle; `None` until [`Self::ensure_deleted_docs`] made one.
+    /// See [`DeletedDocs`].
+    pub const fn deleted_docs_mut(&mut self) -> Option<&mut DeletedDocs> {
+        let docs = self.0.docs.deletedDocs.cast::<DeletedDocs>();
+        // SAFETY: a non-null pointer came from `Box::into_raw` in `ensure_deleted_docs`,
+        // the table owns it until `DocTable_Free`, and the write lock makes this borrow unique.
+        unsafe { docs.as_mut() }
+    }
+
+    /// The doc table's record of deleted documents, created now if the table has
+    /// none yet. From this point on `DocTable_DeleteById` records into it, so a GC
+    /// cycle that creates the set before it reads liveness can trust the set from
+    /// the next cycle on.
+    pub fn ensure_deleted_docs(&mut self) -> &mut DeletedDocs {
+        if self.0.docs.deletedDocs.is_null() {
+            // Freed by `DocTable_Free` through `DeletedDocs_Free`, which boxes it back.
+            self.0.docs.deletedDocs = Box::into_raw(Box::new(DeletedDocs::new())).cast();
+        }
+        self.deleted_docs_mut()
+            .expect("the set was just created if it was missing")
     }
 
     /// Creates a guard from an already-locked IndexSpec without acquiring the lock.
@@ -358,6 +382,44 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         index_spec: &'lock ffi::IndexSpec,
     ) -> std::mem::ManuallyDrop<Self> {
         std::mem::ManuallyDrop::new(Self(index_spec))
+    }
+
+    /// The doc table's record of deleted documents, for the in-process GC to
+    /// take its snapshot from; `None` until
+    /// [`IndexSpecWriteGuard::ensure_deleted_docs`] made one. See [`DeletedDocs`].
+    pub const fn deleted_docs(&self) -> Option<&DeletedDocs> {
+        let docs = self.0.docs.deletedDocs.cast::<DeletedDocs>();
+        // SAFETY: a non-null pointer came from `Box::into_raw` in `ensure_deleted_docs`,
+        // the table owns it until `DocTable_Free`, and the read lock keeps writers out.
+        unsafe { docs.as_ref() }
+    }
+
+    /// The highest document ID the doc table has assigned.
+    pub const fn max_doc_id(&self) -> rqe_core::DocId {
+        self.0.docs.maxDocId
+    }
+
+    /// Fill `out` with the IDs in `*next..=last` that have no live document, in
+    /// ascending order, advancing `*next` past the last ID examined; returns how
+    /// many were written. `*next` is at least 1 (ID 0 is never assigned) and `last`
+    /// at most [`Self::max_doc_id`]: beyond it every ID reads as dead. See
+    /// `DocTable_CollectDeadIds`.
+    pub fn collect_dead_ids(
+        &self,
+        next: &mut rqe_core::DocId,
+        last: rqe_core::DocId,
+        out: &mut [rqe_core::DocId],
+    ) -> usize {
+        debug_assert!(*next >= 1, "ID 0 is never assigned");
+        debug_assert!(
+            last <= self.max_doc_id(),
+            "IDs past the highest assigned read as dead"
+        );
+        // SAFETY: docs is a valid DocTable kept unmodified by the read lock; `out` is a valid
+        // slice of `out.len()` IDs.
+        unsafe {
+            ffi::DocTable_CollectDeadIds(&self.0.docs, next, last, out.as_mut_ptr(), out.len())
+        }
     }
 
     /// Check whether the document with the given id exists in this spec's document table.
