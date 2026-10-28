@@ -22,6 +22,10 @@ void CoordSearchReply_Accept(searchRequestCtx *request, MRReply *reply);
 void CoordSearchReducer_Free(searchRequestCtx *request);
 void CoordSearchReducer_Schedule(searchRequestCtx *request);
 
+/* SerializeResult callback shape: borrowed rows are valid until request cleanup. */
+void CoordSearch_SerializeResult(QueryRequest *request, RedisModule_Reply *reply,
+                                 const SearchResult *row);
+
 #ifdef ENABLE_ASSERT
 RLookup *CoordSearchReducer_DebugReduce(searchRequestCtx *request);
 #endif
