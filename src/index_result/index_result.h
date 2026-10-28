@@ -22,7 +22,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r);
 
 /* Fill an array of max capacity cap with all the matching text terms for the result. The number of
  * matching terms is returned */
-size_t IndexResult_GetMatchedTerms(const RSIndexResult *r, RSQueryTerm **arr, size_t cap);
+size_t IndexResult_GetMatchedTerms(const RSIndexResult *r, const RSQueryTerm **arr, size_t cap);
 
 #ifdef __cplusplus
 }

@@ -222,8 +222,8 @@ pub unsafe extern "C" fn IndexResult_SetNumValue(result: *mut RSIndexResult, val
 /// Get the query term from a result if it is a term result. If the result is not a term, then
 /// this function will return a `NULL` pointer.
 ///
-/// The term may be shared with other records, possibly read on other threads, so it must not
-/// be mutated through the returned pointer.
+/// The pointer is `const` because the term may be shared with other records, possibly read on
+/// other threads.
 ///
 /// # Safety
 ///
@@ -232,7 +232,7 @@ pub unsafe extern "C" fn IndexResult_SetNumValue(result: *mut RSIndexResult, val
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn IndexResult_QueryTermRef<'index>(
     result: *const RSIndexResult<'index>,
-) -> *mut RSQueryTerm {
+) -> *const RSQueryTerm {
     debug_assert!(!result.is_null(), "result must not be null");
 
     // SAFETY: Caller is to ensure that the pointer `result` is a valid, non-null pointer to
@@ -242,7 +242,7 @@ pub unsafe extern "C" fn IndexResult_QueryTermRef<'index>(
     result
         .as_term()
         .and_then(|term| term.query_term())
-        .map_or(ptr::null_mut(), |t| ptr::from_ref(t).cast_mut())
+        .map_or(ptr::null(), ptr::from_ref)
 }
 
 /// Get the term offsets from a result if it is a term result. If the result is not a term, then
