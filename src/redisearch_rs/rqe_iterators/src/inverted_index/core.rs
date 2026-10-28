@@ -608,9 +608,11 @@ where
     /// # Precondition
     ///
     /// Like [`RQESuspendedIterator::resume`], this refreshes the reader pointers
-    /// without an index-identity check of its own. It assumes the caller has
-    /// already established that the underlying inverted index is still live
-    /// (leaf wrappers run their `should_abort` check first).
+    /// without an index-identity check of its own, and reads the index through
+    /// the reader's pointer. The caller must already have established that the
+    /// underlying inverted index is still live, and
+    /// [reseated](inverted_index::RawIndexReaderCore::reseat_index) the reader on
+    /// it.
     pub(crate) fn resume_in_place<'a>(
         &mut self,
         guard: &IndexSpecReadGuard<'a>,
