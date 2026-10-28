@@ -12,6 +12,7 @@ features are on by then, so each test loads the module with both.
 """
 
 import threading
+import time
 
 from common import *
 
@@ -367,11 +368,141 @@ def testScheduledThreadGCCollectsWithoutForking():
     for i in range(0, 50, 2):
         conn.execute_command('DEL', f'doc:{i}')
 
-    wait_for_condition(
-        lambda: (len(env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello')) == 25, {}),
-        'the scheduled thread GC did not collect')
+    # The dump reads the index without the spec lock, so wait for the run to end rather than
+    # poll while it applies; a run that never came would show as a still-full posting list.
+    wait_for_condition(lambda: (gc_total_cycles(env) > 0, {}), 'the scheduled thread GC did not run')
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+    env.assertEqual(len(env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello')), 25)
 
     env.assertEqual(total_forks(env), forks_before)
+
+
+def early_starts(env):
+    return int(env.cmd(debug_cmd(), 'GC_TIMER_ARMS', 'EARLY_STARTS'))
+
+
+def gc_total_cycles(env, idx='idx'):
+    return int(to_dict(index_info(env, idx)['gc_stats'])['total_cycles'])
+
+
+def wait_for_a_tick_that_found_too_little(env):
+    """A tick arrives within two intervals; with the index too quiet for the threshold it re-arms
+    without running a cycle and leaves the GC waiting for deletions. A tick between two of the
+    deletions that follow finds the count still short and keeps waiting, and the one that
+    reaches the threshold runs synchronously, so the counter read right after it is
+    deterministic."""
+    cycles = gc_total_cycles(env)
+    env.expect(debug_cmd(), 'GC_TIMER_ARMS', 'RESET').ok()
+    wait_for_condition(lambda: (int(env.cmd(debug_cmd(), 'GC_TIMER_ARMS', 'TOTAL')) > 0, {}),
+                       'no GC tick within two intervals', timeout=5)
+    env.assertEqual(gc_total_cycles(env), cycles, message='the tick ran a cycle instead of waiting')
+
+
+@skip(cluster=True)
+def testThreadGCStartsEarlyOnceDeletionsReachTheThreshold():
+    """A scheduled tick that finds too little to do does not make the garbage wait out another
+    interval: the deletion that brings the count to FORK_GC_CLEAN_THRESHOLD starts the run."""
+    env = thread_gc_env('FORK_GC_RUN_INTERVAL 1')
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 100).ok()
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
+    add_docs(conn, 'doc:', 200)
+    wait_for_a_tick_that_found_too_little(env)
+
+    for i in range(99):
+        conn.execute_command('DEL', f'doc:{i}')
+    env.assertEqual(early_starts(env), 0, message='below the threshold nothing starts')
+    conn.execute_command('DEL', 'doc:99')
+    env.assertEqual(early_starts(env), 1, message='the deletion that reaches it does')
+
+    # The dump reads the index without the spec lock, so let the run finish first.
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+    env.assertEqual(len(env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello')), 100)
+
+
+@skip(cluster=True)
+def testThreadGCWaitingForWorkStillNoticesADroppedIndex():
+    """A GC left waiting for deletions by a quiet tick must still run once its index is dropped,
+    since that run is what frees the GC; otherwise its timer would re-arm forever."""
+    env = thread_gc_env('FORK_GC_RUN_INTERVAL 1')
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 100).ok()
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
+    add_docs(conn, 'doc:', 10)
+    wait_for_a_tick_that_found_too_little(env)
+
+    env.expect('FT.DROPINDEX', 'idx').ok()
+
+    # The armed tick runs, finds the index gone and frees the GC, so nothing arms a timer again;
+    # a GC that kept waiting would re-arm once per interval instead.
+    arms = int(env.cmd(debug_cmd(), 'GC_TIMER_ARMS', 'TOTAL'))
+    time.sleep(2.5)
+    env.assertEqual(int(env.cmd(debug_cmd(), 'GC_TIMER_ARMS', 'TOTAL')), arms,
+                    message='the dropped index keeps re-arming its GC timer')
+
+
+@skip(cluster=True)
+def testThreadGCDoesNotStartEarlyWhileSchedulingIsStopped():
+    """Stopping the schedule ends the wait a quiet tick began: deletions reaching the threshold
+    start nothing until the schedule resumes, which runs the pending work right away."""
+    env = thread_gc_env('FORK_GC_RUN_INTERVAL 1')
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 100).ok()
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
+    add_docs(conn, 'doc:', 200)
+    wait_for_a_tick_that_found_too_little(env)
+
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    for i in range(100):
+        conn.execute_command('DEL', f'doc:{i}')
+    env.assertEqual(early_starts(env), 0, message='a stopped schedule starts nothing')
+
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+
+    # Resuming queues the pending work at once; the dump reads the index without the spec lock,
+    # so let that run finish first.
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+    env.assertEqual(len(env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello')), 100,
+                    message='resuming the schedule did not run the pending work')
+
+
+@skip(cluster=True)
+def testThreadGCDoesNotStartEarlyAfterAForcedRun():
+    """A forced run does the work a quiet tick put off, so it ends the wait: deletions that reach
+    the threshold afterwards do not start another run before the next tick."""
+    # The interval is changed at runtime below; keep that to a server of this test's own.
+    env = thread_gc_env('FORK_GC_RUN_INTERVAL 1', fresh=True)
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 100).ok()
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
+    add_docs(conn, 'doc:', 200)
+    wait_for_a_tick_that_found_too_little(env)
+    # Push the next tick an hour out: a waiting tick re-arms with the current interval, so once
+    # one more has passed no tick can land during the rest of the test.
+    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).ok()
+    wait_for_a_tick_that_found_too_little(env)
+
+    forceInvokeGC(env, 'idx')
+    for i in range(100):
+        conn.execute_command('DEL', f'doc:{i}')
+
+    env.assertEqual(early_starts(env), 0, message='the forced run ended the wait')
+
+
+@skip(cluster=True)
+def testForkGCKeepsToItsIntervalBelowTheThreshold():
+    """The fork policy never waits for deletions: a fork is costly enough to keep to its
+    interval, so reaching the threshold between ticks starts nothing early."""
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 100')
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
+    add_docs(conn, 'doc:', 200)
+    wait_for_a_tick_that_found_too_little(env)
+
+    for i in range(100):
+        conn.execute_command('DEL', f'doc:{i}')
+
+    env.assertEqual(early_starts(env), 0)
 
 
 @skip(cluster=True)
