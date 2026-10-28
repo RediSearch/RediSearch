@@ -289,6 +289,7 @@ void IncrementBgIndexYieldCounter(void);
 // one-shot; a test asserts the two are equal to prove no arm happened on the GC thread.
 void IncrementGCTimerArm(void);
 void IncrementGCTimerArmFromOneShot(void);
+void IncrementGCEarlyStart(void);
 
 // Indexer sleep before yield functions
 unsigned int GetIndexerSleepBeforeYieldMicros(void);

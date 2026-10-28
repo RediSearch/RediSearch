@@ -470,6 +470,9 @@ static inline void IndexSpec_DeferGCDeletes(IndexSpec *sp, size_t n) {
 static inline size_t IndexSpec_TakeGCDeferredDeletes(IndexSpec *sp) {
   return __atomic_exchange_n(&sp->stats.gcDeferredDeletes, 0, __ATOMIC_RELAXED);
 }
+static inline size_t IndexSpec_PeekGCDeferredDeletes(const IndexSpec *sp) {
+  return __atomic_load_n(&sp->stats.gcDeferredDeletes, __ATOMIC_RELAXED);
+}
 
 // Whether any field in the schema was declared INDEXMISSING.
 static inline bool IndexSpec_HasIndexMissing(const IndexSpec *sp) {
