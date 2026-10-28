@@ -21,7 +21,7 @@ DIRECTORY = Path('/runner-diag')
 MAX_BYTES = 4 * 1024 * 1024
 HEADER = re.compile(
     r'^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z) '
-    r'(INFO|WARN|ERR|VERB) '
+    r'(INFO|WARN|ERR|VERB) +'
     r'(JobDispatcher|BrokerMessageListener|BrokerServer|RunServer|ResultServer|'
     r'JobServerQueue|JobRunner|Worker|Runner|ProcessChannel)\] (.*)$'
 )

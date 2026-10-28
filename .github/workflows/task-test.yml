@@ -186,6 +186,9 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Check runner event parser output boundaries
+        run: python3 .github/scripts/check_runner_events.py
+
       - name: Verify runner diagnostic readability
         id: runner-diagnostic-readability
         continue-on-error: true
