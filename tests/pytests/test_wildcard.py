@@ -625,10 +625,11 @@ def testWildcardSupplementaryPlaneParity():
         env.assertEqual(res_suffix, res_plain, message=query)
 
 @skip(cluster=True)
-def testWildcardHonorsMinPrefix(env):
+def testWildcardHonorsMinPrefix():
     """A wildcard pattern containing `*` is held to MINPREFIX by its literal
     characters, like the prefix, suffix and infix queries that match the same
     terms (MOD-7469). Patterns without a literal or without a `*` are not."""
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MINPREFIX 2')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'path', 'TAG').ok()
     env.expect('FT.CREATE', 'idx_suffix', 'SCHEMA',
