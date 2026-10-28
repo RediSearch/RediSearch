@@ -187,12 +187,30 @@ pub trait NumericReader<'index>: IndexReader<'index> {}
 ///
 /// Extracted from [`TermReader`] so it can be implemented for both the
 /// [`Active`](ref_mode::Active) and [`Suspended`](ref_mode::Suspended) reader
-/// forms; leaves (`Term`, FFI enums) call it from their suspended-side
-/// `should_abort` checks during `RQESuspendedIterator::resume`.
+/// forms; leaves (`Term`, FFI enums) call it on their suspended form during
+/// `RQESuspendedIterator::resume`, before [reseating](ReseatIndex) the reader.
 pub trait PointsToOpaqueIndex {
     /// Check if this reader's underlying index points to the same one
     /// contained in the given opaque [`InvertedIndex`](crate::opaque::InvertedIndex).
     fn points_to_the_same_opaque_index(&self, opaque: &crate::opaque::InvertedIndex) -> bool;
+}
+
+/// A reader that can [reseat](RawIndexReaderCore::reseat_index) itself on a
+/// freshly resolved pointer to the index it already reads, `I` being the form in
+/// which that index's owner hands it out.
+///
+/// Implemented for both the [`Active`](ref_mode::Active) and
+/// [`Suspended`](ref_mode::Suspended) reader forms, and forwarded by the filtering
+/// wrappers, so a leaf can reseat whichever reader it holds before revalidating
+/// or resuming it.
+pub trait ReseatIndex<I: ?Sized> {
+    /// Reseat this reader's index pointer on `index`.
+    ///
+    /// # Safety
+    ///
+    /// The requirements of [`RawIndexReaderCore::reseat_index`], applied to the
+    /// [`InvertedIndex`](crate::InvertedIndex) that `index` holds.
+    unsafe fn reseat(&mut self, index: std::ptr::NonNull<I>);
 }
 
 /// Trait for readers producing term values.

@@ -8,8 +8,8 @@
 */
 
 use super::{
-    IndexReader, IndexReaderCore, NumericFilter, NumericReader, RefreshOutcome, ResumableReader,
-    SuspendableReader,
+    IndexReader, IndexReaderCore, NumericFilter, NumericReader, RefreshOutcome, ReseatIndex,
+    ResumableReader, SuspendableReader,
 };
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{GeoFilter, IndexFlags};
@@ -113,6 +113,14 @@ impl<'index, IR: NumericReader<'index>> FilterGeoReader<IR> {
 /// proof there), given `IR`'s own layout compatibility.
 unsafe impl<IR: SuspendableReader> SuspendableReader for FilterGeoReader<IR> {
     type Suspended = FilterGeoReader<IR::Suspended>;
+}
+
+/// Forwards the reseat to the inner reader, in either reader form.
+impl<I: ?Sized, IR: ReseatIndex<I>> ReseatIndex<I> for FilterGeoReader<IR> {
+    unsafe fn reseat(&mut self, index: std::ptr::NonNull<I>) {
+        // SAFETY: the caller upholds the trait's contract, which forwards as is.
+        unsafe { self.inner.reseat(index) }
+    }
 }
 
 /// Inverse of the above: `FilterGeoReader<RS>` resumes to
