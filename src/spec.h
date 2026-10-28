@@ -595,7 +595,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
 
 // Bump whenever the schema members or their hash encoding change.
-#define SCHEMA_FINGERPRINT_VERSION 1
+#define SCHEMA_FINGERPRINT_VERSION 2
 
 // Deterministic hash of schema values, independent of RDB settings and shard data.
 // Includes field definitions, indexing rules, custom stopwords, synonyms, and timeout;

@@ -3751,6 +3751,7 @@ static void fingerprintVectorParams(Sha1Context *hash, const VecSimParams *param
       RS_ASSERT(p->primaryIndexParams);
       if (p->primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
         Sha1_UpdateU64(hash, p->specificParams.tieredHnswParams.swapJobThreshold);
+        Sha1_UpdateU64(hash, p->specificParams.tieredHnswParams.QuantNormalizationSetSize);
       } else {
         RS_ASSERT(p->primaryIndexParams->algo == VecSimAlgo_SVS);
         Sha1_UpdateU64(hash, p->specificParams.tieredSVSParams.trainingTriggerThreshold);
@@ -3760,6 +3761,7 @@ static void fingerprintVectorParams(Sha1Context *hash, const VecSimParams *param
     }
     case VecSimAlgo_HNSWLIB: {
       const HNSWParams *p = &params->algoParams.hnswParams;
+      Sha1_UpdateU64(hash, p->quantType);
       Sha1_UpdateU64(hash, p->type);
       Sha1_UpdateU64(hash, p->dim);
       Sha1_UpdateU64(hash, p->metric);

@@ -214,8 +214,8 @@ def test_internal_payload_reports_this_shards_schemas(env):
     env.assertEqual(len(set(node_ids)), env.shardsCount)
     env.assertEqual([p[0] for p in payloads], node_ids)
 
-    # The initial fingerprint version is shared by every shard.
-    env.assertEqual([p[1] for p in payloads], [1] * env.shardsCount)
+    # The current fingerprint recipe is shared by every shard.
+    env.assertEqual([p[1] for p in payloads], [2] * env.shardsCount)
     env.assertEqual(len(set(p[2] for p in payloads)), 1)
 
     fps = [dict(p[3]) for p in payloads]
@@ -337,11 +337,11 @@ def test_divergence_is_proven_within_a_gate_group(env):
     # Emulate a peer with a different fingerprint version.
     if env.useTLS:
         env.skip()
-    node_id, _, version, entries = internal_payload(env, env.shardsCount)
+    node_id, recipe, version, entries = internal_payload(env, env.shardsCount)
     # Matching bytes from an incompatible version do not establish agreement.
     fingerprint = local_fingerprint(env, 'idx', 1)
     response = (f'*4\r\n${len(node_id)}\r\n{node_id}\r\n'
-                f':2\r\n:{version}\r\n*1\r\n*2\r\n$3\r\nidx\r\n:{fingerprint}\r\n').encode()
+                f':{recipe + 1}\r\n:{version}\r\n*1\r\n*2\r\n$3\r\nidx\r\n:{fingerprint}\r\n').encode()
     env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
     try:
         with rejecting_shard(env, env.shardsCount, response):
@@ -678,6 +678,26 @@ def test_schema_agreement_groups(env):
         entry['status']['schema_groups'] = sorted(
             sorted(group) for group in entry['status']['schema_groups'])
         env.assertEqual(entry, expected['idx'])
+
+
+@skip(cluster=False)
+@env_spec(shardsCount=3)
+def test_hnsw_sq8_settings_form_distinct_schema_groups(env):
+    """Compression and the SQ8 training threshold each distinguish shard schemas."""
+    node_ids = shard_node_ids(env)
+    settings = [[], ['COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', '0'],
+                ['COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', '32']]
+    for shard, extra in enumerate(settings, start=1):
+        con = env.getConnection(shard)
+        con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
+        env.assertEqual(con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR',
+                        'HNSW', 6 + len(extra), 'TYPE', 'FLOAT32', 'DIM', '8',
+                        'DISTANCE_METRIC', 'L2', *extra), 'OK')
+    env.assertEqual(cluster_state(env), {'idx': {'index': 'idx', 'status': {
+        'warning': INCONSISTENT + ': the shards that have it hold 3 different schemas.'
+                   ' Drop the index and recreate it so that all shards agree.',
+        'schema_groups': [[node] for node in sorted(node_ids)],
+    }}})
 
 
 @skip(cluster=False)
