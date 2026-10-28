@@ -157,3 +157,30 @@ TEST_F(DocTableSlotsTest, FreeReleasesPendingDeletions) {
   addPending({{SLOT_A, SLOT_A}});
   // TearDown frees the table; the sanitizer build reports the nodes if they leak.
 }
+
+TEST_F(DocTableSlotsTest, KeyLookupRejectsPendingDeletionCandidates) {
+  const std::string key = "{a}same";
+  const t_docId oldId = put(key);
+  const t_docId unaffectedId = put("{b}other");
+  PendingSlotDeletion *pending = addPending({{SLOT_A, SLOT_A}});
+
+  EXPECT_FALSE(DocTable_KeyEquals(&dt, oldId, key.data(), key.size()));
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, key.data(), key.size()), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "{b}other", 8), unaffectedId);
+
+  // Slot trim detaches Redis keys before asynchronous index cleanup. A recreated
+  // key can therefore coexist with the hidden DMD until cleanup deletes the old ID.
+  const t_docId replacementId = put(key);
+  ASSERT_GT(replacementId, pending->maxDocId);
+  EXPECT_TRUE(DocTable_KeyEquals(&dt, replacementId, key.data(), key.size()));
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, key.data(), key.size()), replacementId);
+
+  // Rehashing can change which of the identical-key candidates is encountered first.
+  for (int i = 0; i < 100; ++i) {
+    put("{b}fill:" + std::to_string(i));
+    EXPECT_EQ(DocTable_GetIdByKey(&dt, key.data(), key.size()), replacementId);
+  }
+  DMD_Return(DocTable_DeleteById(&dt, oldId));
+  DocTable_RemovePendingDeletion(&dt, pending);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, key.data(), key.size()), replacementId);
+}

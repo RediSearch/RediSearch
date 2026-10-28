@@ -653,7 +653,8 @@ typedef struct {
 
 bool DocTable_KeyEquals(const DocTable *t, t_docId id, const char *key, size_t len) {
   const RSDocumentMetadata *dmd = DocTable_GetOwn(t, id);
-  return dmd && sdslen(dmd->keyPtr) == len && memcmp(dmd->keyPtr, key, len) == 0;
+  return dmd && sdslen(dmd->keyPtr) == len && memcmp(dmd->keyPtr, key, len) == 0 &&
+         (!DocTable_HasPendingDeletions(t) || !DocTable_IsDocPendingDeletion(t, dmd));
 }
 
 static bool docKeyMatches(const void *ctx, uint64_t id) {
