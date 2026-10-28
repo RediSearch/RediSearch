@@ -23,7 +23,7 @@ use rqe_core::DocId;
 use smallvec::smallvec;
 use thin_vec::medium_thin_vec;
 
-use super::{Dummy, encode_ids};
+use super::{Dummy, buffer_heap, encode_ids};
 
 #[test]
 fn index_block_repair_delete() {
@@ -200,7 +200,7 @@ fn index_block_repair_delta_too_big() {
     .unwrap();
 
     let block = IndexBlock {
-        buffer: writer.into_inner(),
+        buffer: writer.into_inner().into(),
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 42,
@@ -234,7 +234,7 @@ fn index_block_repair_delta_too_big() {
                         )
                         .unwrap();
 
-                        writer.into_inner()
+                        writer.into_inner().into()
                     },
                     num_entries: 1,
                     first_doc_id: 10,
@@ -251,7 +251,7 @@ fn index_block_repair_delta_too_big() {
                         )
                         .unwrap();
 
-                        writer.into_inner()
+                        writer.into_inner().into()
                     },
                     num_entries: 1,
                     first_doc_id: 42,
@@ -420,10 +420,10 @@ fn ii_apply_gc() {
         24// Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
-        + 8 // Size of the buffer of the first index block
-        + 16 // Size of the buffer of the second index block
-        + 8 // Size of the buffer of the third index block
-        + 16 // Size of the buffer of the fourth index block
+        + buffer_heap(8) // Buffer of the first index block
+        + buffer_heap(12) // Buffer of the second index block
+        + buffer_heap(4) // Buffer of the third index block
+        + buffer_heap(12) // Buffer of the fourth index block
     );
 
     let gc_result = vec![
@@ -487,10 +487,7 @@ fn ii_apply_gc() {
         24// Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
-        + 8 // Size of the buffer of the first index block
-        + 8 // Size of the buffer of the second index block
-        + 8 // Size of the buffer of the third index block
-        + 8 // Size of the buffer of the fourth index block
+        + buffer_heap(4) * 4 // Buffers of the index blocks, one entry each
     );
 
     assert_eq!(ii.unique_docs(), 4);
@@ -531,9 +528,9 @@ fn ii_apply_gc() {
         apply_info,
         GcApplyInfo {
             // The first, second and fourth block were removed.
-            bytes_freed: 208,
+            bytes_freed: IndexBlock::STACK_SIZE * 3 + buffer_heap(8) + buffer_heap(12) * 2,
             // The third and fifth block were split into new blocks.
-            bytes_allocated: 192,
+            bytes_allocated: (IndexBlock::STACK_SIZE + buffer_heap(4)) * 3,
             entries_removed: 5,
             // Removed 3, added back (split blocks) — see `apply_gc` for the exact net delta
             block_count_delta: 0,
@@ -569,8 +566,8 @@ fn ii_apply_gc_last_block_updated() {
         24// Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 2 // Size of the index blocks
-        + 8 // Size of the buffer of the first index block
-        + 16 // Size of the buffer of the second index block
+        + buffer_heap(8) // Buffer of the first index block
+        + buffer_heap(12) // Buffer of the second index block
     );
 
     let gc_result = vec![
@@ -614,7 +611,7 @@ fn ii_apply_gc_last_block_updated() {
         24 // Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE // Size of the index blocks
-        + 16 // Size of the buffer of the first index block
+        + buffer_heap(12) // Buffer of the first index block
     );
 
     assert_eq!(ii.unique_docs(), 3);
@@ -632,7 +629,7 @@ fn ii_apply_gc_last_block_updated() {
         apply_info,
         GcApplyInfo {
             // Freed only the first block
-            bytes_freed: 64,
+            bytes_freed: IndexBlock::STACK_SIZE + buffer_heap(8),
             // Nothing new was made in the end
             bytes_allocated: 0,
             entries_removed: 2,
@@ -690,7 +687,7 @@ fn ii_apply_gc_last_block_updated_no_delta() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 64,
+            bytes_freed: IndexBlock::STACK_SIZE + buffer_heap(8),
             bytes_allocated: 0,
             entries_removed: 2,
             block_count_delta: -1,
@@ -825,8 +822,8 @@ fn ii_apply_gc_entries_tracking_index() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 73,
-            bytes_allocated: 64,
+            bytes_freed: IndexBlock::STACK_SIZE + buffer_heap(17),
+            bytes_allocated: IndexBlock::STACK_SIZE + buffer_heap(8),
             entries_removed: 2,
             block_count_delta: 0,
             ignored_last_block: false,

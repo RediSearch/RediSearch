@@ -26,14 +26,14 @@ fn seeking_records() {
     // Make two blocks - the last one with four records
     let blocks = medium_thin_vec![
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1],
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1].into(),
             num_entries: 3,
             first_doc_id: 10,
             last_doc_id: 12,
             expiration_bits: Default::default(),
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 5],
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 5].into(),
             num_entries: 4,
             first_doc_id: 100,
             last_doc_id: 108,
@@ -84,42 +84,42 @@ fn index_reader_construction_with_no_blocks() {
 fn index_reader_skip_to() {
     let blocks = medium_thin_vec![
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 5],
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 5].into(),
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 15,
             expiration_bits: Default::default(),
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1].into(),
             num_entries: 2,
             first_doc_id: 16,
             last_doc_id: 17,
             expiration_bits: Default::default(),
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 4],
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 4].into(),
             num_entries: 2,
             first_doc_id: 20,
             last_doc_id: 24,
             expiration_bits: Default::default(),
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0],
+            buffer: vec![0, 0, 0, 0].into(),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
             expiration_bits: Default::default(),
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0],
+            buffer: vec![0, 0, 0, 0].into(),
             num_entries: 1,
             first_doc_id: 40,
             last_doc_id: 40,
             expiration_bits: Default::default(),
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0],
+            buffer: vec![0, 0, 0, 0].into(),
             num_entries: 1,
             first_doc_id: 50,
             last_doc_id: 50,
@@ -173,14 +173,14 @@ fn index_reader_skip_to() {
 fn reader_reset() {
     let blocks = medium_thin_vec![
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1].into(),
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
             expiration_bits: Default::default(),
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0],
+            buffer: vec![0, 0, 0, 0].into(),
             num_entries: 1,
             first_doc_id: 100,
             last_doc_id: 100,
@@ -282,14 +282,14 @@ fn reader_needs_revalidation_when_block_buffer_grew_in_place() {
 fn reader_unique_docs() {
     let blocks = medium_thin_vec![
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1].into(),
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
             expiration_bits: Default::default(),
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0],
+            buffer: vec![0, 0, 0, 0].into(),
             num_entries: 1,
             first_doc_id: 100,
             last_doc_id: 100,
@@ -386,14 +386,14 @@ fn reading_records() {
     // Make two blocks. The first with two records and the second with one record
     let blocks = medium_thin_vec![
         IndexBlock {
-            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
+            buffer: vec![0, 0, 0, 0, 0, 0, 0, 1].into(),
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
             expiration_bits: Default::default(),
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0],
+            buffer: vec![0, 0, 0, 0].into(),
             num_entries: 0,
             first_doc_id: 100,
             last_doc_id: 100,
@@ -434,14 +434,14 @@ fn reading_over_empty_blocks() {
     // The second should automatically continue from the third block
     let blocks = medium_thin_vec![
         IndexBlock {
-            buffer: vec![0, 0, 0, 0],
+            buffer: vec![0, 0, 0, 0].into(),
             num_entries: 1,
             first_doc_id: 10,
             last_doc_id: 10,
             expiration_bits: Default::default(),
         },
         IndexBlock {
-            buffer: vec![0, 0, 0, 0],
+            buffer: vec![0, 0, 0, 0].into(),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
@@ -515,7 +515,7 @@ fn read_using_the_first_block_id_as_the_base() {
 
     // Make a block with three different doc IDs
     let blocks = medium_thin_vec![IndexBlock {
-        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2],
+        buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2].into(),
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 12,

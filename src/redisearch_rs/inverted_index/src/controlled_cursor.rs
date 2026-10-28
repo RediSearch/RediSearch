@@ -5,11 +5,13 @@
 //! [`crate::IndexBlock`]s. This is common for text indexes where many terms are rare and only appear in a
 //! few documents.
 //!
-//! This implementation uses a [`Vec::reserve_exact`] call to only allocate the exact amount of memory
-//! needed to write the data. This can lead to more frequent allocations, but avoids the excessive
-//! memory usage caused by the doubling strategy. There is a `CHANGED` comment to mark this section.
+//! This implementation writes into a [`crate::BlockBuffer`] and uses a
+//! [`thin_vec::ThinVec::reserve_exact`] call to only allocate the exact amount of memory needed to
+//! write the data. This can lead to more frequent allocations, but avoids the excessive memory
+//! usage caused by the doubling strategy. There is a `CHANGED` comment to mark this section.
 //!
-//! The rest of this code is a verbatim copy of the [`std::io::Cursor`] implementation.
+//! The rest of this code follows the [`std::io::Cursor`] implementation, with its raw writes into
+//! spare capacity replaced by safe slice copies.
 //!
 //! ## License
 //!
@@ -23,13 +25,15 @@
 
 use std::io::{IoSlice, Seek, SeekFrom, Write};
 
+use crate::BlockBuffer;
+
 pub struct ControlledCursor<'buf> {
-    inner: &'buf mut Vec<u8>,
+    inner: &'buf mut BlockBuffer,
     pos: u64,
 }
 
 impl<'buf> ControlledCursor<'buf> {
-    pub const fn new(inner: &'buf mut Vec<u8>) -> Self {
+    pub fn new(inner: &'buf mut BlockBuffer) -> Self {
         Self {
             pos: inner.len() as u64,
             inner,
@@ -37,73 +41,31 @@ impl<'buf> ControlledCursor<'buf> {
     }
 }
 
-/// Writes the slice to the vec without allocating.
-///
-/// # Safety
-///
-/// `vec` must have `buf.len()` spare capacity.
-unsafe fn vec_write_all_unchecked(pos: usize, vec: &mut Vec<u8>, buf: &[u8]) -> usize {
-    debug_assert!(vec.capacity() >= pos + buf.len());
+/// Write `buf` at `pos`, overwriting the bytes already there and appending the rest. The caller
+/// must have reserved the capacity and padded the vec up to `pos`.
+fn vec_write_at(pos: usize, vec: &mut BlockBuffer, buf: &[u8]) -> usize {
+    debug_assert!(vec.len() >= pos && vec.capacity() >= pos + buf.len());
 
-    // SAFETY: we just checked the position is within the capacity
-    let vec = unsafe { vec.as_mut_ptr().add(pos) };
-
-    // SAFETY: we are meeting the following safety conditions
-    // - vec is valid for writes of buf.len() bytes because of the capacity check above
-    // - vec is properly aligned because it comes from a Vec<u8>
-    // - buf.as_ptr() is valid for reads of buf.len() bytes because buf is a valid slice
-    // - buf.as_ptr() is properly aligned because it comes from a &[u8]
-    unsafe { vec.copy_from(buf.as_ptr(), buf.len()) };
+    let overlap = (vec.len() - pos).min(buf.len());
+    vec[pos..pos + overlap].copy_from_slice(&buf[..overlap]);
+    vec.extend_from_slice(&buf[overlap..]);
 
     pos + buf.len()
 }
 
-/// Resizing `write_all` implementation for [`ControlledCursor`].
-///
-/// Cursor is allowed to have a pre-allocated and initialised
-/// vector body, but with a position of 0. This means the [`Write`]
-/// will overwrite the contents of the vec.
-///
-/// This also allows for the vec body to be empty, but with a position of N.
-/// This means that [`Write`] will pad the vec with 0 initially,
-/// before writing anything from that point
-fn vec_write_all(pos_mut: &mut u64, vec: &mut Vec<u8>, buf: &[u8]) -> std::io::Result<usize> {
+fn vec_write_all(pos_mut: &mut u64, vec: &mut BlockBuffer, buf: &[u8]) -> std::io::Result<usize> {
     let buf_len = buf.len();
-    let mut pos = reserve_and_pad(pos_mut, vec, buf_len)?;
-
-    // Write the buf then progress the vec forward if necessary
-    // Safety: we have ensured that the capacity is available
-    // and that all bytes get written up to pos
-    unsafe {
-        pos = vec_write_all_unchecked(pos, vec, buf);
-    }
-
-    if pos > vec.len() {
-        // SAFETY: we meet the following safety conditions
-        // - `new_len` is equal or less than `capacity()` because of the `reserve_and_pad()` call
-        // - All the elements from `old_len..new_len` was initialized in the `vec_write_all_unchecked()` call
-        unsafe {
-            vec.set_len(pos);
-        }
-    }
+    let pos = reserve_and_pad(pos_mut, vec, buf_len)?;
+    vec_write_at(pos, vec, buf);
 
     // Bump us forward
     *pos_mut += buf_len as u64;
     Ok(buf_len)
 }
 
-/// Resizing `write_all_vectored` implementation for [`ControlledCursor`].
-///
-/// Cursor is allowed to have a pre-allocated and initialised
-/// vector body, but with a position of 0. This means the [`Write`]
-/// will overwrite the contents of the vec.
-///
-/// This also allows for the vec body to be empty, but with a position of N.
-/// This means that [`Write`] will pad the vec with 0 initially,
-/// before writing anything from that point
 fn vec_write_all_vectored(
     pos_mut: &mut u64,
-    vec: &mut Vec<u8>,
+    vec: &mut BlockBuffer,
     bufs: &[IoSlice<'_>],
 ) -> std::io::Result<usize> {
     // For safety reasons, we don't want this sum to overflow ever.
@@ -112,20 +74,7 @@ fn vec_write_all_vectored(
     let mut pos = reserve_and_pad(pos_mut, vec, buf_len)?;
 
     for buf in bufs {
-        // Write the buf then progress the vec forward if necessary
-        // Safety: we have ensured that the capacity is available
-        // and that all bytes get written up to the last pos
-        unsafe {
-            pos = vec_write_all_unchecked(pos, vec, buf);
-        }
-    }
-    if pos > vec.len() {
-        // SAFETY: we meet the following safety conditions
-        // - `new_len` is equal or less than `capacity()` because of the `reserve_and_pad()` call
-        // - All the elements from `old_len..new_len` was initialized in the `vec_write_all_unchecked()` call
-        unsafe {
-            vec.set_len(pos);
-        }
+        pos = vec_write_at(pos, vec, buf);
     }
 
     // Bump us forward
@@ -133,8 +82,11 @@ fn vec_write_all_vectored(
     Ok(buf_len)
 }
 
-/// Reserves the required space, and pads the vec with 0s if necessary.
-fn reserve_and_pad(pos_mut: &mut u64, vec: &mut Vec<u8>, buf_len: usize) -> std::io::Result<usize> {
+fn reserve_and_pad(
+    pos_mut: &mut u64,
+    vec: &mut BlockBuffer,
+    buf_len: usize,
+) -> std::io::Result<usize> {
     let pos: usize = (*pos_mut).try_into().map_err(|_| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -161,28 +113,10 @@ fn reserve_and_pad(pos_mut: &mut u64, vec: &mut Vec<u8>, buf_len: usize) -> std:
         vec.reserve_exact(new_cap - vec.len());
     }
 
-    // Pad if pos is above the current len.
+    // Pad if pos is above the current len. The capacity reserved above covers it, so this
+    // does not reallocate.
     if pos > vec.len() {
-        let diff = pos - vec.len();
-        // Unfortunately, `resize()` would suffice but the optimiser does not
-        // realise the `reserve` it does can be eliminated. So we do it manually
-        // to eliminate that extra branch
-        let spare = vec.spare_capacity_mut();
-        debug_assert!(spare.len() >= diff);
-        // Safety: we have allocated enough capacity for this.
-        // And we are only writing, not reading
-        unsafe {
-            spare
-                .get_unchecked_mut(..diff)
-                .fill(core::mem::MaybeUninit::new(0));
-        }
-
-        // Safety: we meet the following safety conditions
-        // - `new_len` is equal or less than `capacity()` because of the `reserve_exact` code block
-        // - All the elements from `old_len..new_len` was just initialized with 0s
-        unsafe {
-            vec.set_len(pos);
-        }
+        vec.resize(pos, 0);
     }
 
     Ok(pos)

@@ -9,12 +9,12 @@
 
 use std::io::{IoSlice, Seek, SeekFrom, Write};
 
-use inverted_index::controlled_cursor::ControlledCursor;
+use inverted_index::{BlockBuffer, controlled_cursor::ControlledCursor};
 
 #[test]
 fn test_write_seek_and_vectored_write_with_padding() {
     // Start with an empty vec
-    let mut buffer = Vec::new();
+    let mut buffer = BlockBuffer::new();
 
     assert_eq!(buffer.capacity(), 0, "Initial capacity should be 0");
 
@@ -99,7 +99,7 @@ fn test_write_seek_and_vectored_write_with_padding() {
 #[test]
 fn test_seek_and_overwrite() {
     // Test seeking backwards and overwriting existing data
-    let mut buffer = Vec::new();
+    let mut buffer = BlockBuffer::new();
 
     {
         let mut cursor = ControlledCursor::new(&mut buffer);

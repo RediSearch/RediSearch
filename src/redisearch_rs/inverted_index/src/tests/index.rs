@@ -24,7 +24,7 @@ use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 use rqe_core::DocId;
 
-use super::Dummy;
+use super::{Dummy, buffer_heap};
 
 #[test]
 fn memory_usage() {
@@ -48,8 +48,8 @@ fn adding_records() {
 
     assert_eq!(
         mem_growth,
-        8 + IndexBlock::STACK_SIZE + 4,
-        "header of the thin vec storing the blocks (8 bytes), size of the first index block (56 bytes) plus 4 bytes for the encoded delta"
+        8 + IndexBlock::STACK_SIZE + buffer_heap(4),
+        "header of the thin vec storing the blocks (8 bytes), the first index block, and its buffer holding the 4-byte encoded delta"
     );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
@@ -63,7 +63,8 @@ fn adding_records() {
     let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
     assert_eq!(
-        mem_growth, 5,
+        mem_growth,
+        buffer_heap(9) - buffer_heap(4),
         "buffer needs to grow to 9 bytes to hold a total of 8 bytes"
     );
     assert_eq!(ii.blocks.len(), 1);
@@ -183,15 +184,19 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         .mem_growth as usize;
     assert_eq!(
         mem_growth,
-        8 + IndexBlock::STACK_SIZE + 1,
-        "header of the thin vec storing the blocks (8 bytes), size of the first index block (56 bytes) plus the byte written"
+        8 + IndexBlock::STACK_SIZE + buffer_heap(1),
+        "header of the thin vec storing the blocks (8 bytes), the first index block, and its buffer holding the byte written"
     );
     assert_eq!(ii.blocks.len(), 1);
     let mem_growth = ii
         .add_record(&RSIndexResult::build_virt().doc_id(11).build())
         .unwrap()
         .mem_growth as usize;
-    assert_eq!(mem_growth, 1, "buffer needs to grow for the new byte");
+    assert_eq!(
+        mem_growth,
+        buffer_heap(2) - buffer_heap(1),
+        "buffer needs to grow for the new byte"
+    );
     assert_eq!(ii.blocks.len(), 1);
 
     // 3 entry should create a new block
@@ -201,8 +206,8 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         .mem_growth as usize;
     assert_eq!(
         mem_growth,
-        IndexBlock::STACK_SIZE + 1,
-        "size of the new index block (56 bytes) plus the byte written"
+        IndexBlock::STACK_SIZE + buffer_heap(1),
+        "the new index block and its buffer holding the byte written"
     );
     assert_eq!(
         ii.blocks.len(),
@@ -213,7 +218,11 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         .add_record(&RSIndexResult::build_virt().doc_id(13).build())
         .unwrap()
         .mem_growth as usize;
-    assert_eq!(mem_growth, 1, "buffer needs to grow for the new byte");
+    assert_eq!(
+        mem_growth,
+        buffer_heap(2) - buffer_heap(1),
+        "buffer needs to grow for the new byte"
+    );
     assert_eq!(ii.blocks.len(), 2);
 
     // But duplicate entry does not go in new block even if the current block is full
@@ -221,7 +230,11 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
         .add_record(&RSIndexResult::build_virt().doc_id(13).build())
         .unwrap()
         .mem_growth as usize;
-    assert_eq!(mem_growth, 1, "buffer needs to grow again");
+    assert_eq!(
+        mem_growth,
+        buffer_heap(3) - buffer_heap(2),
+        "buffer needs to grow again"
+    );
     assert_eq!(
         ii.blocks.len(),
         2,
@@ -242,8 +255,8 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        4 + 8 + IndexBlock::STACK_SIZE,
-        "should write 4 bytes for delta, 8 bytes of thin vec header, and one index block"
+        buffer_heap(4) + 8 + IndexBlock::STACK_SIZE,
+        "should write a buffer of 4 bytes for delta, 8 bytes of thin vec header, and one index block"
     );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
@@ -260,8 +273,8 @@ fn adding_big_delta_makes_new_block() {
 
     assert_eq!(
         mem_growth,
-        4 + IndexBlock::STACK_SIZE,
-        "should write 4 bytes for delta and one new index block"
+        buffer_heap(4) + IndexBlock::STACK_SIZE,
+        "should write a buffer of 4 bytes for delta and one new index block"
     );
     assert_eq!(ii.blocks.len(), 2);
     assert_eq!(ii.blocks[1].buffer, [0, 0, 0, 0]);
@@ -413,8 +426,8 @@ fn adding_track_field_mask() {
 
     assert_eq!(
         mem_growth,
-        8 + IndexBlock::STACK_SIZE + 4,
-        "header of the thin vec storing the blocks (8 bytes), size of the first index block (56 bytes) plus 4 bytes for the encoded result"
+        8 + IndexBlock::STACK_SIZE + buffer_heap(4),
+        "header of the thin vec storing the blocks (8 bytes), the first index block, and its buffer holding the 4-byte encoded result"
     );
     assert_eq!(ii.field_mask(), 0b101);
 
@@ -424,7 +437,7 @@ fn adding_track_field_mask() {
         .build();
     let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
-    assert_eq!(mem_growth, 5);
+    assert_eq!(mem_growth, buffer_heap(9) - buffer_heap(4));
     assert_eq!(ii.field_mask(), 0b101);
 
     let record = RSIndexResult::build_virt()
@@ -433,7 +446,7 @@ fn adding_track_field_mask() {
         .build();
     let mem_growth = ii.add_record(&record).unwrap().mem_growth as usize;
 
-    assert_eq!(mem_growth, 5);
+    assert_eq!(mem_growth, buffer_heap(14) - buffer_heap(9));
     assert_eq!(ii.field_mask(), 0b111);
 }
 

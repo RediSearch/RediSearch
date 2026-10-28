@@ -108,7 +108,7 @@ pub fn relocate_block_buffer<E: crate::Encoder + crate::DecodedBy>(
     // Hold the original allocation while the replacement is allocated, so they cannot overlap.
     let original = std::mem::take(&mut block.buffer);
     let original_base = original.as_ptr();
-    let mut relocated = Vec::with_capacity(original.len().max(1));
+    let mut relocated = crate::BlockBuffer::with_capacity(original.len().max(1));
     relocated.extend_from_slice(&original);
 
     let base = relocated.as_ptr();

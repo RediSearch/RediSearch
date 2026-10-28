@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::{
     marker::PhantomData,
     sync::atomic::{self, AtomicU32},
@@ -67,6 +67,12 @@ pub struct AddRecordOutcome {
     pub blocks_added: u32,
 }
 
+/// The encoded entries of an [`IndexBlock`]. A [`ThinVec`] keeps its length and capacity in the heap
+/// allocation, next to the bytes, so the block itself only holds a pointer. The capacity is a
+/// [`u32`] because a block keeps taking a document's repeated entries past
+/// [`Encoder::RECOMMENDED_BLOCK_ENTRIES`], so a block of a multi-value field can outgrow 64 KiB.
+pub type BlockBuffer = ThinVec<u8, u32>;
+
 /// Each `IndexBlock` contains a set of entries for a specific range of document IDs. The entries
 /// are ordered by document ID, so the first entry in the block has the lowest document ID, and the
 /// last entry has the highest document ID. The block also contains a buffer that is used to
@@ -86,11 +92,27 @@ pub struct IndexBlock {
     pub(crate) num_entries: u16,
 
     /// The encoded entries in this block
-    pub(crate) buffer: Vec<u8>,
+    #[serde(serialize_with = "serialize_buffer", deserialize_with = "deserialize_buffer")]
+    pub(crate) buffer: BlockBuffer,
 
     /// The entries in this block that belong to a field with a field-level expiration, see
     /// [`ExpirationBits`]. Empty — and unallocated — while no entry in the block does.
     pub(crate) expiration_bits: ExpirationBits,
+}
+
+// `IndexBlock`s are stored contiguously in `InvertedIndex::blocks`, so their size sets how densely
+// the block arrays pack in memory. Growing it to 56 bytes cost about 5% of wildcard query
+// throughput on cluster benchmarks (MOD-20225), even on queries that read no block.
+const _: () = assert!(std::mem::size_of::<IndexBlock>() == 40);
+
+// `thin_vec` has no `serde` impls. The wire form is a plain byte sequence, matching `[u8]`.
+fn serialize_buffer<S: Serializer>(buffer: &BlockBuffer, serializer: S) -> Result<S::Ok, S::Error> {
+    buffer.as_slice().serialize(serializer)
+}
+
+fn deserialize_buffer<'de, D: Deserializer<'de>>(deserializer: D) -> Result<BlockBuffer, D::Error> {
+    let bytes = Vec::<u8>::deserialize(deserializer)?;
+    Ok(BlockBuffer::from(bytes))
 }
 
 impl IndexBlock {
@@ -103,7 +125,7 @@ impl IndexBlock {
             first_doc_id: doc_id,
             last_doc_id: doc_id,
             num_entries: 0,
-            buffer: Vec::new(),
+            buffer: ThinVec::new(),
             expiration_bits: ExpirationBits::new(),
         }
     }
@@ -113,10 +135,15 @@ impl IndexBlock {
         self.expiration_bits.mem_usage()
     }
 
-    /// Get the memory usage of this block, including the stack size, the capacity of the bytes
-    /// buffer, and the field-expiration bitset.
+    /// The number of heap bytes held by the encoded-entries buffer, its header included.
+    fn buffer_len(&self) -> usize {
+        self.buffer.mem_usage()
+    }
+
+    /// Get the memory usage of this block, including the stack size, the bytes buffer's
+    /// allocation, and the field-expiration bitset.
     pub fn mem_usage(&self) -> usize {
-        Self::STACK_SIZE + self.buffer.capacity() + self.expiration_bits_len()
+        Self::STACK_SIZE + self.buffer_len() + self.expiration_bits_len()
     }
 
     /// Record that the entry at `ordinal` (its 0-based position within this block)
@@ -151,7 +178,7 @@ impl IndexBlock {
         &self.buffer
     }
 
-    pub(crate) const fn writer(&mut self) -> ControlledCursor<'_> {
+    pub(crate) fn writer(&mut self) -> ControlledCursor<'_> {
         ControlledCursor::new(&mut self.buffer)
     }
 }
@@ -205,7 +232,7 @@ impl<E: Encoder> InvertedIndex<E> {
         let blocks_buffers: usize = self
             .blocks
             .iter()
-            .map(|b| b.buffer.capacity() + b.expiration_bits_len())
+            .map(|b| b.buffer_len() + b.expiration_bits_len())
             .sum();
         let stack = std::mem::size_of::<Self>();
 
@@ -285,15 +312,15 @@ impl<E: Encoder> InvertedIndex<E> {
             }
         };
 
-        let buf_cap = block.buffer.capacity();
+        let buf_len_before = block.buffer_len();
         let writer = block.writer();
         let _bytes_written = encode(writer, delta)?;
 
         // We don't use `_bytes_written` returned by the encoder to determine by how much memory
         // grew because the buffer might have had enough capacity for the bytes in the encoding.
-        // Instead we took the capacity of the buffer before the write and now check by how much it
-        // has increased (if any).
-        let buf_growth = block.buffer.capacity() - buf_cap;
+        // Instead we took the buffer's allocation size before the write and now check by how much
+        // it has increased (if any).
+        let buf_growth = block.buffer_len() - buf_len_before;
 
         // Record the document-level field-expiration bit for this entry at its
         // ordinal within the block — which is the current `num_entries`, before

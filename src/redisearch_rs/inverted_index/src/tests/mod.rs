@@ -58,6 +58,12 @@ impl crate::Decoder for Dummy {
     }
 }
 
+/// The heap bytes of a block buffer whose capacity is exactly `capacity` bytes, its header and
+/// alignment padding included.
+pub(super) fn buffer_heap(capacity: usize) -> usize {
+    crate::BlockBuffer::with_capacity(capacity).mem_usage()
+}
+
 /// Helper macro to encode a series of doc IDs using the provided encoder. The first ID is encoded
 /// as a delta from 0, and each subsequent ID is encoded as a delta from the previous ID.
 macro_rules! encode_ids {
@@ -72,7 +78,7 @@ macro_rules! encode_ids {
                 <$encoder>::encode(&mut writer, delta, &RSIndexResult::build_virt().doc_id($doc_id).build()).unwrap();
                 _last_id = $doc_id;
             )*
-            writer.into_inner()
+            $crate::BlockBuffer::from(writer.into_inner())
         }
     };
 }
