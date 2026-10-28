@@ -214,7 +214,10 @@ pub trait ReseatIndex<I: ?Sized> {
 }
 
 /// Trait for readers producing term values.
-pub trait TermReader<'index>: IndexReader<'index> + PointsToOpaqueIndex {}
+pub trait TermReader<'index>:
+    IndexReader<'index> + PointsToOpaqueIndex + ReseatIndex<crate::opaque::InvertedIndex>
+{
+}
 
 /// Filter to apply when reading from an index. Entries which don't match the filter will not be
 /// returned by the reader.
