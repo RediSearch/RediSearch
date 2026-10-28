@@ -14,7 +14,7 @@ use std::{
 };
 use thin_vec::ThinVec;
 
-use super::{ExpirationBits, unique_id::IndexUniqueId};
+use super::unique_id::IndexUniqueId;
 use crate::{
     BlockCapacity, Encoder, IdDelta,
     controlled_cursor::ControlledCursor,
@@ -87,11 +87,11 @@ pub struct IndexBlock {
 
     /// The encoded entries in this block
     pub(crate) buffer: Vec<u8>,
-
-    /// The entries in this block that belong to a field with a field-level expiration, see
-    /// [`ExpirationBits`]. Empty — and unallocated — while no entry in the block does.
-    pub(crate) expiration_bits: ExpirationBits,
 }
+
+// MOD-20225 benchmark probe, not for merging: the block without #10169's `expiration_bits`, so its
+// layout and allocations match the code before #10169 exactly. Field-expiration bits are dropped.
+const _: () = assert!(std::mem::size_of::<IndexBlock>() == 48);
 
 impl IndexBlock {
     pub(crate) const STACK_SIZE: usize = std::mem::size_of::<Self>();
@@ -104,13 +104,12 @@ impl IndexBlock {
             last_doc_id: doc_id,
             num_entries: 0,
             buffer: Vec::new(),
-            expiration_bits: ExpirationBits::new(),
         }
     }
 
     /// The number of bytes occupied by the field-expiration bitset, if any.
     fn expiration_bits_len(&self) -> usize {
-        self.expiration_bits.mem_usage()
+        0
     }
 
     /// Get the memory usage of this block, including the stack size, the capacity of the bytes
@@ -122,13 +121,14 @@ impl IndexBlock {
     /// Record that the entry at `ordinal` (its 0-based position within this block)
     /// belongs to a document with at least one field-level expiration.
     pub(crate) fn set_expiration_bit(&mut self, ordinal: u16) {
-        self.expiration_bits.insert(ordinal);
+        let _ = ordinal;
     }
 
     /// Whether the entry at `ordinal` belongs to a document with a field-level expiration.
     #[inline(always)]
     pub(crate) fn expiration_bit(&self, ordinal: u16) -> bool {
-        self.expiration_bits.contains(ordinal)
+        let _ = ordinal;
+        false
     }
 
     /// Get the first document ID in this block. This is only needed for some C tests.
