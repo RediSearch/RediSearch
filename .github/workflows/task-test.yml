@@ -240,6 +240,22 @@ jobs:
           coverage: ${{ inputs.coverage }}
           redis-cache-platform-id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
 
+      - name: Validate macOS LLVM in fresh shells
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          [[ -x "$HOME/.local/llvm/bin/clang" ]] || exit 0
+          # GITHUB_ENV and GITHUB_PATH must not hide a broken bootstrap profile.
+          check=$(cat <<'CHECK'
+          test "$(command -v clang)" = "$HOME/.local/llvm/bin/clang"
+          test "${SDKROOT:-}" = "$(xcrun --sdk macosx --show-sdk-path)"
+          printf '#include <stdio.h>\n' | clang -x c -fsyntax-only -
+          printf '#include <atomic>\nint main() { int n = 0; std::atomic_ref<int> a(n); }\n' | clang++ -x c++ -std=c++20 -fsyntax-only -
+          CHECK
+          )
+          env -u SDKROOT PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+            /bin/bash -l -e -o pipefail -c "$check"
+
       - name: Setup LCOV
         if: inputs.coverage
         uses: ./.github/actions/setup-lcov
