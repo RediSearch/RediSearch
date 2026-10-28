@@ -22,11 +22,16 @@ use std::ffi::{CStr, CString};
 use std::io::Cursor;
 use std::mem::{self, ManuallyDrop};
 
+use deleted_docs::DeletedDocs;
+use dict::{KeysDictType, MissingFieldDictType, OwnedDict};
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
-use fork_gc::HandleError;
+use fork_gc::stats::GcStatsSink;
 use fork_gc::tags::{
     TagEntry, TagsCursor, apply_tag_entry, apply_tag_entry_with, collect_tags, scan_tags_after,
 };
+use fork_gc::thread_gc::{ScanBudget, SpecLockAccess, run_cycle};
+use fork_gc::util::SpecWriteAccess;
+use fork_gc::{GcApplyStats, HandleError};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::{DocId, DocLiveness, opaque::InvertedIndex};
 use serde::Serialize as _;
@@ -209,6 +214,9 @@ struct TestSpec {
     field_specs: Vec<ffi::FieldSpec>,
     // Owns the C tag indexes the field specs point at.
     tag_indexes: Vec<TestTagIndex>,
+    // An empty terms trie and dicts, so a full GC cycle can run over the spec.
+    _keys_dict: OwnedDict<KeysDictType>,
+    _missing_dict: OwnedDict<MissingFieldDictType>,
 }
 
 impl TestSpec {
@@ -235,10 +243,23 @@ impl TestSpec {
         spec.stats.numRecords = 1_000_000;
         spec.stats.invertedSize = 1_000_000;
 
+        let keys_dict = OwnedDict::<KeysDictType>::create();
+        let missing_dict = OwnedDict::<MissingFieldDictType>::create();
+        spec.keysDict = keys_dict.as_mut_ptr();
+        spec.missing.indexes = missing_dict.as_mut_ptr();
+        // SAFETY: `NewTrie` returns a fresh, valid, empty terms trie with no payloads.
+        spec.terms = unsafe { ffi::NewTrie(None, ffi::TrieSortMode_Trie_Sort_Lex) };
+        // Every doc this fixture indexes is deleted: the whole ID range is in the set the
+        // thread GC consults instead of the zeroed doc table.
+        spec.docs.deletedDocs =
+            Box::into_raw(Box::new(DeletedDocs::complete_from(1..=1024))).cast();
+
         TestSpec {
             spec,
             field_specs,
             tag_indexes,
+            _keys_dict: keys_dict,
+            _missing_dict: missing_dict,
         }
     }
 
@@ -272,8 +293,34 @@ impl TestSpec {
     }
 }
 
+impl SpecWriteAccess for TestSpec {
+    fn with_write<T>(
+        &mut self,
+        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError>,
+    ) -> Result<T, HandleError> {
+        apply(&mut self.write_guard())
+    }
+}
+
+impl SpecLockAccess for TestSpec {
+    fn with_read<T>(
+        &mut self,
+        scan: impl FnOnce(&IndexSpecReadGuard<'_>) -> T,
+    ) -> Result<T, HandleError> {
+        Ok(scan(&self.read_guard()))
+    }
+}
+
 impl Drop for TestSpec {
     fn drop(&mut self) {
+        // SAFETY: `create` made this trie, and nothing else frees it.
+        unsafe { ffi::TrieType_Free(self.spec.terms.cast()) };
+        // SAFETY: `create` boxed this set, and nothing else frees it.
+        unsafe {
+            drop(Box::from_raw(
+                self.spec.docs.deletedDocs.cast::<DeletedDocs>(),
+            ))
+        };
         // Free the `HiddenString` allocated by `NewHiddenString` for each field.
         // `FieldSpecBuilder::new` sets `fieldName == fieldPath` (a single
         // allocation, taking ownership of the name), so free it exactly once per
@@ -692,4 +739,40 @@ fn apply_with_a_liveness_source_rescans_a_grown_last_block() {
             "doc 3 is live, so the tag stays"
         );
     }
+}
+
+/// Collects the GC-level stats of every flush.
+#[derive(Default)]
+struct Recorder(GcApplyStats);
+
+impl GcStatsSink for Recorder {
+    fn record(&mut self, stats: &GcApplyStats) {
+        self.0.record(*stats);
+    }
+}
+
+/// A full in-process cycle, one tag value per chunk, collects every tag field
+/// and drops the values it emptied.
+#[test]
+fn a_thread_gc_cycle_collects_tags_one_value_per_chunk() {
+    let mut test = TestSpec::create(vec![
+        Field::tag(c"colours", &[b"red", b"blue"], 3, false),
+        Field::tag(c"sizes", &[b"", b"xl"], 3, true),
+    ]);
+    let mut recorder = Recorder::default();
+
+    let report = run_cycle(
+        &mut test,
+        &mut recorder,
+        ScanBudget(std::time::Duration::ZERO),
+        true,
+    )
+    .unwrap();
+
+    for (field, tag) in [(0, &b"red"[..]), (0, b"blue"), (1, b""), (1, b"xl")] {
+        assert!(test.posting_list(field, tag).is_none(), "{tag:?} survived");
+    }
+    assert_eq!(recorder.0.records_removed, 4 * 3);
+    // One write lock per tag value, four chunks with work, plus one to prune the deleted set.
+    assert_eq!(report.write_locks, 4 + 1);
 }
