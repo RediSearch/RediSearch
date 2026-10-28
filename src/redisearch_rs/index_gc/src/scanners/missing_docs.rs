@@ -15,7 +15,7 @@ use std::io::{self, Read, Write};
 use crate::{ForkPipe, GcApplyStats, HandleError, HandleOutcome};
 use hidden_string::OwnedHiddenString;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
-use inverted_index::GcScanDelta;
+use inverted_index::{DocLiveness, GcScanDelta, GcSnapshotScope, opaque::InvertedIndex};
 use serde::{Deserialize, Serialize};
 
 use crate::fork::wire::{deserialize, serialize};
@@ -77,11 +77,27 @@ pub fn missing_field_names(spec: &IndexSpecReadGuard) -> Vec<CString> {
 ///
 /// Returns `None` when the field has no such index, the scan found nothing to
 /// collect, or the scan failed; a failed scan is retried on the next cycle.
-pub fn scan_missing_field(spec: &IndexSpecReadGuard, field_name: &CStr) -> Option<GcScanDelta> {
+pub fn scan_missing_field(
+    spec: &IndexSpecReadGuard,
+    field_name: &CStr,
+    live: impl DocLiveness + Copy,
+) -> Option<GcScanDelta> {
     let ii = spec
         .missing_field_dict()
         .fetch(&OwnedHiddenString::new(field_name))?;
-    ii.scan_gc(|id| spec.doc_exists(id)).ok().flatten()
+    ii.scan_gc(live).ok().flatten()
+}
+
+/// A private copy of what a GC scan of `field_name`'s missing-docs index has to
+/// decode; see [`InvertedIndex::gc_snapshot`].
+pub fn snapshot_missing_field(
+    spec: &IndexSpecReadGuard,
+    field_name: &CStr,
+    live: &impl DocLiveness,
+) -> Option<InvertedIndex> {
+    spec.missing_field_dict()
+        .fetch(&OwnedHiddenString::new(field_name))?
+        .gc_snapshot(live, GcSnapshotScope::DirtyBlocks)
 }
 
 /// Decode one missing-docs message from `reader`.
@@ -97,15 +113,29 @@ pub fn receive_missing_docs(
         .transpose()
 }
 
+/// [`apply_missing_docs_with`] without a liveness source: a grown last block is left for the next cycle.
+pub fn apply_missing_docs(
+    field_name: &CStr,
+    delta: GcScanDelta,
+    guard: &mut IndexSpecWriteGuard<'_>,
+) -> Result<GcApplyStats, HandleError> {
+    apply_missing_docs_with(field_name, delta, None, guard)
+}
+
 /// Apply a pre-decoded GC delta to the field's inverted index.
 ///
 /// The field's inverted index is removed from the dict once it has no unique docs left.
 ///
 /// Returns [`GcApplyStats`] the caller flushes to the spec and the GC via
 /// [`GcApplyStats::apply`].
-pub fn apply_missing_docs(
+///
+/// With `live`, a last block that grew since the scan is rescanned against it under
+/// the write lock instead of being denied; it must be the source the scan used, see
+/// [`InvertedIndex::gc_snapshot`](inverted_index::InvertedIndex::gc_snapshot).
+pub fn apply_missing_docs_with(
     field_name: &CStr,
     delta: GcScanDelta,
+    live: Option<&dyn DocLiveness>,
     guard: &mut IndexSpecWriteGuard<'_>,
 ) -> Result<GcApplyStats, HandleError> {
     let hidden = OwnedHiddenString::new(field_name);
@@ -116,7 +146,7 @@ pub fn apply_missing_docs(
         ));
     };
 
-    let gc_info = ii.apply_gc(delta);
+    let gc_info = ii.apply_gc_with(delta, live);
 
     let (extra, remaining_blocks) = if ii.unique_docs() == 0 {
         let extra = ii.memory_usage();
