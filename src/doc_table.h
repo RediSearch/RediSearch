@@ -79,6 +79,10 @@ typedef struct {
   // Owned by the table. Nodes are never moved, so a cleanup task can hold a node pointer
   // while it holds a reference to the owning spec.
   PendingSlotDeletion *pendingSlotDeletions;
+  // IDs removed from the table whose index entries the in-process GC has not collected yet;
+  // owned by the table, fed under the spec write lock. NULL unless the table was created to
+  // track deletions (the THREAD GC policy). See `deleted_docs_ffi.h`.
+  struct DeletedDocs *deletedDocs;
 } DocTable;
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
@@ -89,10 +93,11 @@ typedef struct {
     }                                                                        \
   }
 
-/* Creates a new DocTable with a given capacity */
-DocTable NewDocTable(size_t cap, size_t max_size);
+/* Creates a new DocTable with a given capacity. `track_deleted` gives it a `deletedDocs` set. */
+DocTable NewDocTable(size_t cap, size_t max_size, bool track_deleted);
 
-#define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize)
+#define DocTable_New(cap) \
+  NewDocTable(cap, RSGlobalConfig.maxDocTableSize, RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread)
 
 // Initial number of slots in a spec's document table
 #define INITIAL_DOC_TABLE_SIZE 1000

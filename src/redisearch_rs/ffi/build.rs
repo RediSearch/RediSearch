@@ -127,7 +127,14 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/doc_table.h",
-        fns: &["DMD_Free", "DocTable_Exists", "DocTable_Put"],
+        fns: &[
+            "DMD_Free",
+            "DocTable_DeleteById",
+            "DocTable_Exists",
+            "DocTable_Free",
+            "DocTable_Put",
+            "NewDocTable",
+        ],
         types: &[],
         vars: &[],
     },

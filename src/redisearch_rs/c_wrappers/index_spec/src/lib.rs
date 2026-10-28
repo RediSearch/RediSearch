@@ -19,6 +19,7 @@ use std::{
 };
 
 use c_trie::{SuffixTrie, TermsTrie};
+use deleted_docs::DeletedDocs;
 use dict::{Dict, KeysDictType, MissingFieldDictType};
 use field_spec::FieldSpec;
 use hidden_string::HiddenString;
@@ -127,6 +128,16 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
                 decr as usize,
             )
         }
+    }
+
+    /// The doc table's record of deleted documents, for the in-process GC to
+    /// prune after a cycle; `None` for a table that does not track deletions.
+    /// See [`DeletedDocs`].
+    pub const fn deleted_docs_mut(&mut self) -> Option<&mut DeletedDocs> {
+        let docs = self.0.docs.deletedDocs.cast::<DeletedDocs>();
+        // SAFETY: a non-null pointer came from `DeletedDocs_New`, the table owns it until
+        // `DocTable_Free`, and the write lock makes this borrow unique.
+        unsafe { docs.as_mut() }
     }
 
     /// Creates a guard from an already-locked IndexSpec without acquiring the lock.
@@ -358,6 +369,16 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         index_spec: &'lock ffi::IndexSpec,
     ) -> std::mem::ManuallyDrop<Self> {
         std::mem::ManuallyDrop::new(Self(index_spec))
+    }
+
+    /// The doc table's record of deleted documents, for the in-process GC to
+    /// take its snapshot from; `None` for a table that does not track deletions.
+    /// See [`DeletedDocs`].
+    pub const fn deleted_docs(&self) -> Option<&DeletedDocs> {
+        let docs = self.0.docs.deletedDocs.cast::<DeletedDocs>();
+        // SAFETY: a non-null pointer came from `DeletedDocs_New`, the table owns it until
+        // `DocTable_Free`, and the read lock keeps writers out.
+        unsafe { docs.as_ref() }
     }
 
     /// Check whether the document with the given id exists in this spec's document table.

@@ -37,7 +37,7 @@ RedisModuleSlotRangeArray *makeRanges(std::initializer_list<std::pair<uint16_t, 
 
 class DocTableSlotsTest : public ::testing::Test {
  protected:
-  DocTable dt = NewDocTable(16, 16);
+  DocTable dt = NewDocTable(16, 16, false);
 
   void TearDown() override { DocTable_Free(&dt); }
 

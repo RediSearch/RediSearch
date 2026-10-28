@@ -1,0 +1,13 @@
+[package]
+name = "deleted_docs"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+roaring.workspace = true
+workspace_hack.workspace = true

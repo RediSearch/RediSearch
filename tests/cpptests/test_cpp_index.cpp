@@ -1048,7 +1048,7 @@ TEST_F(IndexTest, testIndexFlags) {
 }
 
 TEST_F(IndexTest, testDocTablePayloadSlotLifecycle) {
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, false);
   const size_t emptySize = dt.memsize;
   RSDocumentMetadata *dmd =
       DocTable_Put(&dt, "doc", 3, 0.5, Document_HasPayloadSlot, nullptr, 0, DocumentType_Hash);
@@ -1116,7 +1116,7 @@ TEST_F(IndexTest, testDocTablePayloadSlotLifecycle) {
 }
 
 TEST_F(IndexTest, testDocTableClearedPayloadSlotAccounting) {
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, false);
   const size_t emptySize = dt.memsize;
   RSDocumentMetadata *dmd =
       DocTable_Put(&dt, "doc", 3, 1.0, Document_DefaultFlags, "payload", 7, DocumentType_Hash);
@@ -1131,7 +1131,7 @@ TEST_F(IndexTest, testDocTableClearedPayloadSlotAccounting) {
 }
 
 TEST_F(IndexTest, testDocTablePayloadWithoutSlotIsRejected) {
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, false);
   const size_t emptySize = dt.memsize;
   RSDocumentMetadata *dmd =
       DocTable_Put(&dt, "doc", 3, 1.0, Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
@@ -1152,7 +1152,7 @@ TEST_F(IndexTest, testDocTablePayloadWithoutSlotIsRejected) {
 
 TEST_F(IndexTest, testDocTable) {
   char buf[16];
-  DocTable dt = NewDocTable(10, 10);
+  DocTable dt = NewDocTable(10, 10, false);
   size_t doc_table_size = sizeof(DocTable) + (10 * sizeof(DMDChain));
   ASSERT_EQ(doc_table_size, (int)dt.memsize);
   t_docId did = 0;

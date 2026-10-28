@@ -1292,7 +1292,7 @@ TEST_F(RdbMockTest, testDocTableLegacyRdbLoadOverflow) {
 
     // Create a DocTable with initial small capacity
     // Use NewDocTable directly to avoid RSGlobalConfig dependency
-    DocTable t = NewDocTable(16, 1000000);
+    DocTable t = NewDocTable(16, 1000000, false);
     std::unique_ptr<DocTable, std::function<void(DocTable *)>> tablePtr(&t, [](DocTable *t) {
         DocTable_Free(t);
     });
@@ -1739,7 +1739,7 @@ TEST_F(RdbMockTest, testLegacyDocTableRejectsZeroCapacity) {
       SCOPED_TRACE(::testing::Message() << "encver=" << encver << " empty=" << empty);
       RedisModuleIO *io = RMCK_CreateRdbIO();
       ASSERT_NE(io, nullptr);
-      DocTable table = NewDocTable(4, 4);
+      DocTable table = NewDocTable(4, 4, false);
       RMCK_SaveUnsigned(io, empty ? 1 : 2);  // Size includes the unused document ID zero.
       // Older encodings derive capacity from maxDocId, so zero exercises that path too.
       RMCK_SaveUnsigned(io, !empty && encver >= INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? 1 : 0);
@@ -1777,7 +1777,7 @@ TEST_F(RdbMockTest, testLegacyDocTableRejectsZeroCapacity) {
 TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
   RedisModuleIO *io = RMCK_CreateRdbIO();
   ASSERT_NE(io, nullptr);
-  DocTable table = NewDocTable(4, 4);
+  DocTable table = NewDocTable(4, 4, false);
   RMCK_SaveUnsigned(io, 2);  // Table size includes the unused document ID zero.
   RMCK_SaveUnsigned(io, 1);
   RMCK_SaveUnsigned(io, 4);
@@ -1852,7 +1852,7 @@ TEST_F(RdbMockTest, testSortingVectorRdbLoadTruncatedString) {
 TEST_F(RdbMockTest, testLegacyDocTableFailsOnTruncatedSortingVector) {
   RedisModuleIO *io = RMCK_CreateRdbIO();
   ASSERT_NE(io, nullptr);
-  DocTable table = NewDocTable(4, 4);
+  DocTable table = NewDocTable(4, 4, false);
   RMCK_SaveUnsigned(io, 2);  // Table size includes the unused document ID zero.
   RMCK_SaveUnsigned(io, 1);
   RMCK_SaveUnsigned(io, 4);
