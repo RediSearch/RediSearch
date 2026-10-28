@@ -17,7 +17,7 @@ use std::{
 };
 
 use dict::{KeysDictType, OwnedDict};
-use index_spec::{IndexSpec, IndexSpecWeakRef};
+use index_spec::{IndexSpec, IndexSpecReadGuard, IndexSpecWeakRef, IndexSpecWriteGuard};
 use pretty_assertions::assert_eq;
 
 #[test]
@@ -195,5 +195,90 @@ fn an_invalidated_spec_can_still_be_read_locked() {
         libc::pthread_rwlock_destroy(rwlock);
         ffi::HiddenString_Free(spec.specName, true);
         drop(CString::from_raw(spec.obfuscatedName));
+    }
+}
+
+/// Release the caller's reference to a document's metadata, as `DMD_Return` does.
+///
+/// # Safety
+///
+/// `dmd` holds a reference the caller owns.
+unsafe fn dmd_return(dmd: *mut ffi::RSDocumentMetadata) {
+    // SAFETY: the caller owns a reference, so the metadata is live; C updates the
+    // count atomically, so it is accessed atomically here too.
+    let count = unsafe { std::sync::atomic::AtomicU16::from_ptr(&raw mut (*dmd).ref_count) };
+    if count.fetch_sub(1, std::sync::atomic::Ordering::AcqRel) == 1 {
+        // SAFETY: that was the last reference.
+        unsafe { ffi::DMD_Free(dmd) };
+    }
+}
+
+/// A doc table created to track deletions records each deleted document's ID in
+/// the set it owns, which the GC reads and prunes through the spec guards; one
+/// created without tracking has no set.
+#[test]
+#[cfg_attr(miri, ignore = "calls the C doc table")]
+fn a_tracking_doc_table_records_deleted_documents() {
+    redis_mock::init_redis_module_mock();
+    for track_deleted in [true, false] {
+        // SAFETY: zero is valid for every field this test leaves unset.
+        let mut spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
+        // SAFETY: plain construction of an empty table, freed below.
+        spec.docs = unsafe { ffi::NewDocTable(16, 1000, track_deleted) };
+        let ids: Vec<u64> = ["a", "b", "c"]
+            .iter()
+            .map(|key| {
+                // SAFETY: `key` is readable for its length and the table is live.
+                let dmd = unsafe {
+                    ffi::DocTable_Put(
+                        &raw mut spec.docs,
+                        key.as_ptr().cast(),
+                        key.len(),
+                        1.0,
+                        0,
+                        ptr::null(),
+                        0,
+                        document::DocumentType::Hash,
+                    )
+                };
+                assert!(!dmd.is_null());
+                // SAFETY: `DocTable_Put` returned a reference for the caller.
+                let id = unsafe { (*dmd).id };
+                // SAFETY: as above; the table keeps its own reference.
+                unsafe { dmd_return(dmd) };
+                id
+            })
+            .collect();
+        // SAFETY: the table is live and `ids[1]` is in it.
+        let removed = unsafe { ffi::DocTable_DeleteById(&raw mut spec.docs, ids[1]) };
+        assert!(!removed.is_null());
+        // SAFETY: the delete hands the table's reference to the caller.
+        unsafe { dmd_return(removed) };
+
+        {
+            // SAFETY: the test owns the spec; nothing else accesses it.
+            let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+            let Some(deleted) = guard.deleted_docs() else {
+                assert!(!track_deleted, "a tracking table owns a set");
+                // SAFETY: created above and freed once.
+                unsafe { ffi::DocTable_Free(&raw mut spec.docs) };
+                continue;
+            };
+            assert!(track_deleted, "a table made without tracking has no set");
+            let snapshot = deleted.snapshot();
+            assert_eq!(snapshot.iter().collect::<Vec<_>>(), [ids[1]]);
+        }
+        {
+            // SAFETY: the test owns the spec; nothing else accesses it.
+            let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
+            let deleted = guard
+                .deleted_docs_mut()
+                .expect("the table tracks deletions");
+            let collected = deleted.snapshot();
+            deleted.prune(&collected);
+            assert!(deleted.is_empty());
+        }
+        // SAFETY: created above and freed once; this also frees the set it owns.
+        unsafe { ffi::DocTable_Free(&raw mut spec.docs) };
     }
 }
