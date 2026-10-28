@@ -29,8 +29,7 @@ LLVM_VER="${LLVM_VERSION}"
 LLVM_FULL_VER="${LLVM_FULL_VERSION}"
 
 if [[ "$OS_TYPE" == "Darwin" ]]; then
-    # /usr/local is root-owned on Apple silicon and the macOS install runs
-    # without a privilege prefix.
+    # Avoid root-owned /usr/local for the default macOS install.
     INSTALL_DIR="${LLVM_INSTALL_DIR:-${HOME}/.local/llvm}"
 else
     INSTALL_DIR="${LLVM_INSTALL_DIR:-/usr/local/llvm}"
@@ -45,8 +44,7 @@ if ! command -v _dry_line >/dev/null 2>&1; then
 fi
 
 # Download and unpack the official LLVM tarball into $INSTALL_DIR.
-# Works on any glibc-based Linux and on Apple-silicon macOS. Will NOT work on
-# musl/Alpine.
+# Supports glibc-based Linux and Apple-silicon macOS, not musl/Alpine.
 install_from_tarball() {
     local tarball_name
     local -a tar_excludes=()
@@ -56,17 +54,10 @@ install_from_tarball() {
         Linux-aarch64) tarball_name="LLVM-${LLVM_FULL_VER}-Linux-ARM64.tar.xz" ;;
         Darwin-arm64)
             tarball_name="LLVM-${LLVM_FULL_VER}-macOS-ARM64.tar.xz"
-            # The static LLVM component libraries are most of the unpacked size
-            # and macOS links libclang dynamically; hosted macOS runners are
-            # short on disk. Clang's runtime archives (lib/clang/*) stay.
-            # The bundled libc++ dylibs stay out too: with them in lib/,
-            # Apple's ld (run by this clang) binds to them instead of the
-            # system libc++ and aborts. Every binary in the tarball links
-            # /usr/lib/libc++.
+            # Save disk by omitting LLVM archives; keep lib/clang runtime archives.
+            # Omit bundled C++ runtimes so Apple's linker uses system libc++.
             tar_excludes=(--exclude '*/lib/lib*.a' --exclude '*/lib/libc++*' --exclude '*/lib/libunwind*')
-            # The default INSTALL_DIR is user-writable; CI passes sudo, which
-            # would leave a root-owned tree in $HOME. A custom LLVM_INSTALL_DIR
-            # keeps the requested privilege mode.
+            # Keep the default user-owned; honor MODE for custom install paths.
             [[ -z "${LLVM_INSTALL_DIR:-}" ]] && priv=""
             ;;
         *) echo "ERROR: no official LLVM tarball for ${OS_TYPE} ${ARCH}"; return 1 ;;
@@ -96,12 +87,8 @@ install_from_tarball() {
     echo ">>> LLVM ${LLVM_FULL_VER} installed to ${INSTALL_DIR}"
 }
 
-# clang uses the tarball's libc++ headers (the SDK's predate features the code
-# needs, e.g. std::atomic_ref) while builds link the system libc++. The tarball
-# ships them with vendor availability annotations off, so they call dylib
-# symbols newer than the system library (e.g. std::__hash_memory). Turn the
-# annotations on, as Homebrew's llvm does, so the headers fall back to inline
-# implementations for anything the deployment target's libc++ lacks.
+# Keep modern libc++ headers (e.g. std::atomic_ref), but enable their fallbacks
+# for symbols absent from the deployment target's system libc++, as Homebrew does.
 enable_libcxx_availability_annotations() {
     local cfg="${INSTALL_DIR}/include/c++/v1/__config_site"
     local off="#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 0"
@@ -113,21 +100,12 @@ enable_libcxx_availability_annotations() {
     $priv mv "${cfg}.tmp" "$cfg"
 }
 
-# Upstream clang, unlike Homebrew's, is not configured with a default macOS
-# SDK, so without SDKROOT neither clang nor bindgen's libclang finds the
-# system headers.
+# Upstream clang and bindgen's libclang need an explicit SDK to find system headers.
 export_sdkroot() {
     local sdk
     sdk=$(xcrun --sdk macosx --show-sdk-path)
     [[ -n "${GITHUB_ENV:-}" ]] && echo "SDKROOT=${sdk}" >> "$GITHUB_ENV"
     export SDKROOT="$sdk"
-}
-
-add_to_macos_profiles() {
-    type update_profile &>/dev/null || return 0
-    [[ -f ~/.bash_profile ]] && update_profile ~/.bash_profile "$@"
-    [[ -f ~/.zshrc ]]        && update_profile ~/.zshrc "$@"
-    return 0
 }
 
 # Prints "yes" when Homebrew would pour a bottle of $1 on this OS, "no" when it
@@ -247,7 +225,10 @@ install_llvm() {
         brew_prefix=$(brew --prefix)
         llvm_bin="${brew_prefix}/opt/llvm@${LLVM_VER}/bin"
 
-        add_to_macos_profiles "$llvm_bin"
+        if type update_profile &>/dev/null; then
+            [[ -f ~/.bash_profile ]] && update_profile ~/.bash_profile "$llvm_bin"
+            [[ -f ~/.zshrc ]]        && update_profile ~/.zshrc "$llvm_bin"
+        fi
         [[ -n "${GITHUB_PATH:-}" ]] && echo "${llvm_bin}" >> "$GITHUB_PATH"
         return 0
     fi

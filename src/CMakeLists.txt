@@ -288,10 +288,8 @@ list(REMOVE_DUPLICATES MERGE_DEPENDS)
 # Create the combined library using platform-specific tools
 if(APPLE)
     # macOS: use libtool to merge static libraries
-    # -c lists common symbols in the table of contents, as Linux archives do. The
-    # API pointer table in redismodule_api.c is common (see that file), and some of
-    # its pointers have no other definition, so linkers that resolve archive members
-    # through the table (ld64.lld, used for Rust tests on macOS 14) must find them.
+    # Index common symbols so Rust's ld64.lld can resolve the API pointer table
+    # defined in redismodule_api.c when linking tests.
     add_custom_command(
         OUTPUT ${REDISEARCH_C_BUNDLE_OUTPUT}
         COMMAND libtool -static -c -no_warning_for_no_symbols -o ${REDISEARCH_C_BUNDLE_OUTPUT} ${LIBS_TO_MERGE}
