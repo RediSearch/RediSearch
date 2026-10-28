@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Tests for the per-entry field-expiration bit, which is kept in each
-//! [`IndexBlock`](crate::IndexBlock)'s `expiration_bits` side bitset (indexed by
-//! entry ordinal) rather than inside the encoded entry. These tests exercise the
+//! Tests for the per-entry field-expiration bit, which is kept in the index's
+//! per-block bitsets ([`InvertedIndex::expiration`], indexed by block and entry
+//! ordinal) rather than inside the encoded entry. These tests exercise the
 //! storage/round-trip layer directly by setting the bit on each record, so they
 //! are agnostic to how producers derive it; they check that reads (sequential and
 //! seek) and GC re-encoding recover the right bit per entry.
@@ -18,7 +18,7 @@ use crate::codec::{
     doc_ids_only::DocIdsOnly, fields_only::FieldsOnly, numeric::Numeric,
     raw_doc_ids_only::RawDocIdsOnly,
 };
-use crate::{IndexBlock, IndexReader, InvertedIndex, RepairContext};
+use crate::{IndexReader, InvertedIndex, RepairContext, index::ExpirationBits};
 use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreNumeric,
 };
@@ -27,20 +27,64 @@ use pretty_assertions::assert_eq;
 use rqe_core::DocId;
 
 #[test]
-fn block_bitset_set_and_get() {
-    let mut block = IndexBlock::new(1);
-    assert!(!block.expiration_bit(0));
-    block.set_expiration_bit(3);
-    block.set_expiration_bit(10);
+fn bitset_set_and_get() {
+    let mut bits = ExpirationBits::new();
+    assert!(!bits.contains(0));
+    assert!(bits.is_empty());
+    bits.insert(3);
+    bits.insert(10);
+    assert!(!bits.is_empty());
     for ordinal in 0..16u16 {
         assert_eq!(
-            block.expiration_bit(ordinal),
+            bits.contains(ordinal),
             ordinal == 3 || ordinal == 10,
             "ordinal {ordinal}"
         );
     }
     // Ordinals beyond the grown bitset read as false.
-    assert!(!block.expiration_bit(1000));
+    assert!(!bits.contains(1000));
+}
+
+/// An index whose entries never carry a field-level expiration never allocates the per-block
+/// bitsets, whatever its number of blocks.
+#[test]
+fn no_expiration_allocates_nothing() {
+    let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let per_block = DocId::from(<Numeric as crate::Encoder>::RECOMMENDED_BLOCK_ENTRIES);
+    for doc_id in 1..=3 * per_block {
+        ii.add_record(&numeric(doc_id, false)).unwrap();
+    }
+    assert_eq!(ii.number_of_blocks(), 3);
+    assert!(ii.expiration.is_empty());
+    assert_eq!(ii.expiration_mem_usage(), 0);
+}
+
+/// The first entry with an expiration creates a bitset slot for every block, including the
+/// earlier ones, and the growth it reports matches the index's memory usage.
+#[test]
+fn first_expiration_covers_earlier_blocks() {
+    let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let per_block = DocId::from(<Numeric as crate::Encoder>::RECOMMENDED_BLOCK_ENTRIES);
+    let mut reported = ii.memory_usage();
+    for doc_id in 1..=2 * per_block + 1 {
+        let outcome = ii
+            .add_record(&numeric(doc_id, doc_id == 2 * per_block + 1))
+            .unwrap();
+        reported += outcome.mem_growth as usize;
+    }
+    assert_eq!(ii.number_of_blocks(), 3);
+    assert_eq!(ii.expiration.len(), 3);
+    assert!(ii.expiration[..2].iter().all(ExpirationBits::is_empty));
+    assert!(ii.expiration_bit(2, 0));
+    assert_eq!(reported, ii.memory_usage());
+
+    // Blocks added after that get a slot too.
+    for doc_id in 2 * per_block + 2..=3 * per_block + 1 {
+        reported += ii.add_record(&numeric(doc_id, false)).unwrap().mem_growth as usize;
+    }
+    assert_eq!(ii.number_of_blocks(), 4);
+    assert_eq!(ii.expiration.len(), 4);
+    assert_eq!(reported, ii.memory_usage());
 }
 
 /// Add records with the given (doc_id, has_expiration) and assert a sequential
@@ -262,9 +306,9 @@ fn numeric_seek_reports_expiration_bit_across_blocks() {
         ii.add_record(&numeric(doc_id, has_exp(doc_id))).unwrap();
     }
     assert_eq!(ii.number_of_blocks(), 6);
-    for (i, block) in ii.blocks.iter().enumerate() {
+    for i in 0..ii.number_of_blocks() {
         assert_eq!(
-            block.expiration_bits.mem_usage() > 0,
+            ii.expiration[i].mem_usage() > 0,
             i >= 3,
             "bitset presence of block {i}"
         );
@@ -303,4 +347,53 @@ fn numeric_seek_reports_expiration_bit_across_blocks() {
             "multi-block seek({target})"
         );
     }
+}
+
+/// GC keeps each untouched block's bitset aligned with its block when an earlier block is
+/// deleted, reports the bitsets' heap change, and frees them once no entry with an expiration
+/// survives.
+#[test]
+fn gc_realigns_and_drops_bitsets() {
+    let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let per_block = DocId::from(<Numeric as crate::Encoder>::RECOMMENDED_BLOCK_ENTRIES);
+    // Three full blocks; only the last block's even docs have a TTL.
+    let has_exp = |doc_id: DocId| doc_id > 2 * per_block && doc_id.is_multiple_of(2);
+    for doc_id in 1..=3 * per_block {
+        ii.add_record(&numeric(doc_id, has_exp(doc_id))).unwrap();
+    }
+    assert_eq!(ii.number_of_blocks(), 3);
+
+    let gc = |ii: &mut InvertedIndex<Numeric>, exists: &dyn Fn(DocId) -> bool| {
+        let before = ii.memory_usage();
+        let delta = ii
+            .scan_gc(exists, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
+            .unwrap()
+            .expect("something to collect");
+        let info = ii.apply_gc(delta);
+        assert_eq!(
+            before + info.bytes_allocated - info.bytes_freed,
+            ii.memory_usage()
+        );
+    };
+
+    // Delete the whole first block: the TTL block moves from index 2 to 1.
+    gc(&mut ii, &|doc_id| doc_id > per_block);
+    assert_eq!(ii.number_of_blocks(), 2);
+    assert_eq!(ii.expiration.len(), 2);
+    {
+        let mut reader = ii.reader();
+        let mut result = numeric(0, false);
+        for doc_id in per_block + 1..=3 * per_block {
+            assert!(reader.next_record(&mut result).unwrap());
+            assert_eq!(
+                (result.doc_id, result.has_field_expiration),
+                (doc_id, has_exp(doc_id))
+            );
+        }
+    }
+
+    // Delete every doc with a TTL: the bitsets go away entirely.
+    gc(&mut ii, &|doc_id| !has_exp(doc_id));
+    assert!(ii.expiration.is_empty());
+    assert_eq!(ii.expiration_mem_usage(), 0);
 }

@@ -29,7 +29,7 @@ use super::Dummy;
 #[test]
 fn memory_usage() {
     let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
-    let empty_size = 24;
+    let empty_size = 32;
 
     assert_eq!(ii.memory_usage(), empty_size);
 
@@ -49,7 +49,7 @@ fn adding_records() {
     assert_eq!(
         mem_growth,
         8 + IndexBlock::STACK_SIZE + 4,
-        "header of the thin vec storing the blocks (8 bytes), size of the first index block (56 bytes) plus 4 bytes for the encoded delta"
+        "header of the thin vec storing the blocks (8 bytes), size of the first index block (48 bytes) plus 4 bytes for the encoded delta"
     );
     assert_eq!(ii.blocks.len(), 1);
     assert_eq!(ii.blocks[0].buffer, [0, 0, 0, 0]);
@@ -184,7 +184,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
     assert_eq!(
         mem_growth,
         8 + IndexBlock::STACK_SIZE + 1,
-        "header of the thin vec storing the blocks (8 bytes), size of the first index block (56 bytes) plus the byte written"
+        "header of the thin vec storing the blocks (8 bytes), size of the first index block (48 bytes) plus the byte written"
     );
     assert_eq!(ii.blocks.len(), 1);
     let mem_growth = ii
@@ -202,7 +202,7 @@ fn adding_creates_new_blocks_when_entries_is_reached() {
     assert_eq!(
         mem_growth,
         IndexBlock::STACK_SIZE + 1,
-        "size of the new index block (56 bytes) plus the byte written"
+        "size of the new index block (48 bytes) plus the byte written"
     );
     assert_eq!(
         ii.blocks.len(),
@@ -382,7 +382,7 @@ fn adding_ii_blocks_growth_strategy() {
 fn adding_tracks_entries() {
     let mut ii = EntriesTrackingIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
 
-    let empty_size = 32;
+    let empty_size = 40;
     assert_eq!(ii.memory_usage(), empty_size);
     assert_eq!(ii.number_of_entries(), 0);
 
@@ -402,7 +402,7 @@ fn adding_tracks_entries() {
 fn adding_track_field_mask() {
     let mut ii = FieldMaskTrackingIndex::<Dummy>::new(IndexFlags_Index_StoreFieldFlags);
 
-    assert_eq!(ii.memory_usage(), 40);
+    assert_eq!(ii.memory_usage(), 48);
     assert_eq!(ii.field_mask(), 0);
 
     let record = RSIndexResult::build_virt()
@@ -414,7 +414,7 @@ fn adding_track_field_mask() {
     assert_eq!(
         mem_growth,
         8 + IndexBlock::STACK_SIZE + 4,
-        "header of the thin vec storing the blocks (8 bytes), size of the first index block (56 bytes) plus 4 bytes for the encoded result"
+        "header of the thin vec storing the blocks (8 bytes), size of the first index block (48 bytes) plus 4 bytes for the encoded result"
     );
     assert_eq!(ii.field_mask(), 0b101);
 
