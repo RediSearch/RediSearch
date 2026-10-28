@@ -285,7 +285,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/geo_index.h",
+        path: "src/redisearch_rs/headers/geo_ffi.h",
         fns: &["GeoFilter_Free", "GeoFilter_Validate", "NewGeoFilter"],
         types: &[],
         vars: &[],

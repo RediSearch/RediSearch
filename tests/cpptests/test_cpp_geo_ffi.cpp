@@ -40,7 +40,7 @@ TEST(GeoFFI, ValidationRejectsOnlyCanonicalInvalidUnitBeforeScalarErrors) {
                             : scalars[2] <= 0  ? "Invalid GeoFilter radius"
                                                : nullptr;
       QueryError error = QueryError_Default();
-      EXPECT_EQ(Rust_GeoFilter_Validate(&filter, &error), message ? 0 : 1);
+      EXPECT_EQ(GeoFilter_Validate(&filter, &error), message ? 0 : 1);
       EXPECT_EQ(QueryError_GetCode(&error),
                 message ? QUERY_ERROR_CODE_SYNTAX : QUERY_ERROR_CODE_OK);
       if (message) {
@@ -50,7 +50,7 @@ TEST(GeoFFI, ValidationRejectsOnlyCanonicalInvalidUnitBeforeScalarErrors) {
       EXPECT_EQ(static_cast<int>(filter.unitType), rawUnit);
       QueryError_ClearError(&error);
       QueryError_SetError(&error, QUERY_ERROR_CODE_GENERIC, "retained first error");
-      EXPECT_EQ(Rust_GeoFilter_Validate(&filter, &error), message ? 0 : 1);
+      EXPECT_EQ(GeoFilter_Validate(&filter, &error), message ? 0 : 1);
       EXPECT_EQ(QueryError_GetCode(&error), QUERY_ERROR_CODE_GENERIC);
       EXPECT_STREQ(QueryError_GetUserError(&error), "SEARCH_GENERIC retained first error");
       QueryError_ClearError(&error);
@@ -73,7 +73,7 @@ TEST(GeoFFI, LegacyNonUtf8UnitPreservesRawAndObfuscatedErrors) {
     LegacyGeoFilter filter{};
     QueryError error = QueryError_Default();
     bool empty = true;
-    ASSERT_EQ(Rust_GeoFilter_LegacyParse(&filter, &cursor, &empty, &error), REDISMODULE_ERR);
+    ASSERT_EQ(GeoFilter_LegacyParse(&filter, &cursor, &empty, &error), REDISMODULE_ERR);
     EXPECT_EQ(cursor.offset, 6u);
     EXPECT_TRUE(empty);
     EXPECT_EQ(filter.base.lon, 1);
@@ -100,7 +100,7 @@ TEST(GeoFFI, LegacySdsUsesLogicalLengthForEmptyCoalescingAndKeepsPartialWrites) 
   QueryError error = QueryError_Default();
   bool empty = false;
   // Internal strtod accepts the NUL prefix as zero despite the nonempty SDS payload.
-  EXPECT_EQ(Rust_GeoFilter_LegacyParse(&filter, &cursor, &empty, &error), REDISMODULE_ERR);
+  EXPECT_EQ(GeoFilter_LegacyParse(&filter, &cursor, &empty, &error), REDISMODULE_ERR);
   EXPECT_EQ(cursor.offset, 3u);
   EXPECT_EQ(filter.base.lon, 1);
   EXPECT_EQ(filter.base.lat, 0);
@@ -119,6 +119,11 @@ TEST(GeoFFI, LegacySdsUsesLogicalLengthForEmptyCoalescingAndKeepsPartialWrites) 
 }
 
 TEST(GeoFFI, AggregateCoercesTriosOnlyForRawCoordinates) {
+  if (!RSFunctionRegistry_Get("geodistance", 11)) {
+    RegisterGeoFunctions();
+  }
+  const auto* function = RSFunctionRegistry_Get("geodistance", 11);
+  ASSERT_NE(function, nullptr);
   using ValueOwner = std::unique_ptr<RSValue, decltype(&RSValue_DecrRef)>;
   ValueOwner trio(RSValue_NewTrio(RSValue_NewNumber(0), RSValue_NewNull(), RSValue_NewNull()),
                   RSValue_DecrRef);
@@ -127,13 +132,15 @@ TEST(GeoFFI, AggregateCoercesTriosOnlyForRawCoordinates) {
   ValueOwner target(RSValue_NewBorrowedString("0,0", 3), RSValue_DecrRef);
   ValueOwner result(RSValue_NewUndefined(), RSValue_DecrRef);
   QueryError error = QueryError_Default();
+  ExprEval context{};
+  context.err = &error;
   for (RSValue* value : {trio.get(), reference.get()}) {
     RSValue* rawArgs[] = {value, zero.get(), target.get()};
-    EXPECT_EQ(GeoDistance_Compute(rawArgs, 3, result.get(), &error), EXPR_EVAL_OK);
+    EXPECT_EQ(function->f(&context, rawArgs, 3, result.get()), EXPR_EVAL_OK);
     EXPECT_EQ(RSValue_Number_Get(result.get()), 0);
     EXPECT_FALSE(QueryError_HasError(&error));
     RSValue* fieldArgs[] = {value, target.get()};
-    EXPECT_EQ(GeoDistance_Compute(fieldArgs, 2, result.get(), &error), EXPR_EVAL_OK);
+    EXPECT_EQ(function->f(&context, fieldArgs, 2, result.get()), EXPR_EVAL_OK);
     EXPECT_TRUE(std::isnan(RSValue_Number_Get(result.get())));
     EXPECT_FALSE(QueryError_HasError(&error));
   }
@@ -141,6 +148,11 @@ TEST(GeoFFI, AggregateCoercesTriosOnlyForRawCoordinates) {
 }
 
 TEST(GeoFFI, AggregateReferenceToRedisStringPreservesCoordinateParseErrors) {
+  if (!RSFunctionRegistry_Get("geodistance", 11)) {
+    RegisterGeoFunctions();
+  }
+  const auto* function = RSFunctionRegistry_Get("geodistance", 11);
+  ASSERT_NE(function, nullptr);
   const char bytes[] = {'1', ',', static_cast<char>(0xff)};
   RedisModuleString* string = RedisModule_CreateString(nullptr, bytes, sizeof(bytes));
   using ValueOwner = std::unique_ptr<RSValue, decltype(&RSValue_DecrRef)>;
@@ -149,13 +161,15 @@ TEST(GeoFFI, AggregateReferenceToRedisStringPreservesCoordinateParseErrors) {
   ValueOwner target(RSValue_NewBorrowedString("0,0", 3), RSValue_DecrRef);
   ValueOwner result(RSValue_NewUndefined(), RSValue_DecrRef);
   QueryError error = QueryError_Default();
+  ExprEval context{};
+  context.err = &error;
   RSValue* args[] = {reference.get(), target.get()};
-  EXPECT_EQ(GeoDistance_Compute(args, 2, result.get(), &error), EXPR_EVAL_OK);
+  EXPECT_EQ(function->f(&context, args, 2, result.get()), EXPR_EVAL_OK);
   EXPECT_TRUE(std::isnan(RSValue_Number_Get(result.get())));
   EXPECT_EQ(QueryError_GetCode(&error), QUERY_ERROR_CODE_PARSE_ARGS);
   const std::string firstError = QueryError_GetUserError(&error);
   EXPECT_NE(firstError.find("UTF-8"), std::string::npos);
-  EXPECT_EQ(GeoDistance_Compute(args, 2, result.get(), &error), EXPR_EVAL_OK);
+  EXPECT_EQ(function->f(&context, args, 2, result.get()), EXPR_EVAL_OK);
   EXPECT_EQ(std::string(QueryError_GetUserError(&error)), firstError);
   QueryError_ClearError(&error);
 }
