@@ -114,9 +114,13 @@ impl Context<'_> {
     /// Add GIL acquisition wait and hold time to this processor and its query.
     ///
     /// Call only for profiled queries, after releasing the GIL.
-    pub const fn record_gil_time(&mut self, elapsed: std::time::Duration) {
+    pub const fn add_gil_time(&mut self, elapsed: std::time::Duration) {
         // SAFETY: the context exclusively accesses its processor header during this call.
         let header = unsafe { self.ptr.as_mut() };
+        debug_assert!(
+            !header.parent.is_null(),
+            "profiled result processor must have a parent"
+        );
         let elapsed_ns = elapsed.as_nanos() as ffi::rs_wall_clock_ns_t + 1;
         header.rp_gil_time += elapsed_ns;
         // SAFETY: the parent installed by the C pipeline outlives this processor. Its profiling
