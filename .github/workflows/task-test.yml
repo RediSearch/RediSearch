@@ -254,7 +254,35 @@ jobs:
           CHECK
           )
           env -u SDKROOT PATH=/usr/bin:/bin:/usr/sbin:/sbin \
-            /bin/bash -l -e -o pipefail -c "$check"
+            "${SHELL:-/bin/bash}" -l -i -e -o pipefail -c "$check"
+
+          source .install/macos_update_profile.sh
+          profile_fixture=$(mktemp -d)
+          trap 'rm -rf "$profile_fixture"' EXIT
+          mkdir "$profile_fixture/bash" "$profile_fixture/zsh"
+          # Exercise each Bash login precedence level without replacing HOME or
+          # allowing the runner's own startup files to supply the missing SDK.
+          for profile in .profile .bash_login .bash_profile; do
+            touch "$profile_fixture/bash/$profile"
+            update_llvm_profile "$HOME/.local/llvm/bin" /bin/bash "$profile_fixture/bash"
+            if [[ "$profile" != .bash_profile ]]; then
+              test ! -e "$profile_fixture/bash/.bash_profile"
+            fi
+            env -u SDKROOT PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+              /bin/bash --noprofile -e -o pipefail -c 'source "$1"; eval "$2"' \
+              _ "$profile_fixture/bash/$profile" "$check"
+          done
+          touch "$profile_fixture/zsh/.zprofile"
+          ZDOTDIR="$profile_fixture/zsh" update_llvm_profile "$HOME/.local/llvm/bin" /bin/zsh
+          test ! -e "$profile_fixture/zsh/.zshrc"
+          env -u SDKROOT PATH=/usr/bin:/bin:/usr/sbin:/sbin ZDOTDIR="$profile_fixture/zsh" \
+            /bin/zsh -l -i -e -o pipefail -c "$check"
+          # A new shell configuration must receive a startup file as well.
+          update_llvm_profile "$HOME/.local/llvm/bin" /bin/bash "$profile_fixture/new-bash"
+          test -f "$profile_fixture/new-bash/.bash_profile"
+          update_llvm_profile "$HOME/.local/llvm/bin" /bin/zsh "$profile_fixture/new-zsh"
+          env -u SDKROOT PATH=/usr/bin:/bin:/usr/sbin:/sbin ZDOTDIR="$profile_fixture/new-zsh" \
+            /bin/zsh -l -i -e -o pipefail -c "$check"
 
       - name: Setup LCOV
         if: inputs.coverage

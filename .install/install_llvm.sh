@@ -89,7 +89,7 @@ install_from_tarball() {
     if [[ "$OS_TYPE" == "Darwin" ]]; then
         enable_libcxx_availability_annotations
         export_sdkroot
-        add_to_macos_profiles "${INSTALL_DIR}/bin"
+        update_llvm_profile "${INSTALL_DIR}/bin"
     else
         link_tools_for_fresh_shells
     fi
@@ -117,16 +117,10 @@ enable_libcxx_availability_annotations() {
 # SDK, so without SDKROOT neither clang nor bindgen's libclang finds the
 # system headers.
 export_sdkroot() {
-    local sdk profile
-    local line='export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"'
+    local sdk
     sdk=$(xcrun --sdk macosx --show-sdk-path)
     [[ -n "${GITHUB_ENV:-}" ]] && echo "SDKROOT=${sdk}" >> "$GITHUB_ENV"
     export SDKROOT="$sdk"
-    # Resolved at shell start, so later shells follow Xcode updates.
-    for profile in ~/.bash_profile ~/.zshrc; do
-        [[ -f "$profile" ]] && ! grep -qF "$line" "$profile" && echo "$line" >> "$profile"
-    done
-    return 0
 }
 
 add_to_macos_profiles() {
