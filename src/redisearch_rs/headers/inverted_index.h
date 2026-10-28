@@ -96,10 +96,18 @@ typedef struct II_GCScanStats {
    */
   int64_t block_count_delta;
   /**
-   * Whether or not we ignored the last block in the index, since it changed
-   * compared to the time we performed the scan
+   * Whether the last block's delta was dropped because the block changed since the
+   * scan and could not be rescanned (no liveness source given, or it would not decode).
    */
   bool ignored_last_block;
+  /**
+   * Whether the last block changed since the scan and was rescanned in place with the
+   * liveness source given to [`InvertedIndex::apply_gc_with`]. The block's survivors are
+   * then whatever the rescan kept, not what the scan's delta described, so a caller
+   * keeping derived statistics about the last block (as the numeric tree does) must
+   * recompute them from the block as it is now.
+   */
+  bool rescanned_last_block;
 } II_GCScanStats;
 
 /**
