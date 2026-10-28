@@ -1665,6 +1665,53 @@ def test_hybrid_query_cosine():
             env.assertContains(res_id, expected_res_ids)
 
 
+@skip(cluster=True)
+def test_hnsw_broad_filter_policy(env):
+    """Broad positive and negative filters must not trigger a full scan at k=13."""
+    n, dim = 35000, 128
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'policy:',
+               'SCHEMA', 't', 'TAG', 'v', 'VECTOR', 'HNSW', 10,
+               'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE',
+               'M', 16, 'EF_CONSTRUCTION', 64).ok()
+    rng = np.random.default_rng(0)
+    conn = getConnectionByEnv(env)
+    pipe = conn.pipeline(transaction=False)
+    for i in range(n):
+        tags = 'skip' if i % 20 == 0 else 'keep'
+        if i == 1:
+            tags += ',rare'
+        pipe.hset(f'policy:{i}', mapping={
+            't': tags, 'v': rng.standard_normal(dim, dtype=np.float32).tobytes()})
+        if i % 1000 == 999:
+            pipe.execute()
+    pipe.execute()
+    wait_for_background_indexing(env, 'idx', 'v', backend_index_size=n)
+    blob = rng.standard_normal(dim, dtype=np.float32).tobytes()
+
+    def search(filter_query, k, policy=''):
+        query = f'({filter_query})=>[KNN {k} @v $q {policy} AS distance]'
+        return env.cmd('FT.SEARCH', 'idx', query, 'SORTBY', 'distance',
+                       'RETURN', 1, 't', 'LIMIT', 0, k, 'PARAMS', 2, 'q', blob, 'DIALECT', 2)
+
+    for filter_query in ('@t:{keep}', '-@t:{skip}'):
+        for k in (12, 13, 50, 200):
+            actual = search(filter_query, k)
+            info = get_tiered_debug_info(env, 'idx', 'v')
+            env.assertEqual(info['LAST_SEARCH_MODE'], 'HYBRID_BATCHES', message=info)
+            env.assertEqual(actual[0], k, message=actual)
+            for fields in actual[2::2]:
+                env.assertContains('keep', fields[1], message=actual)
+            forced = search(filter_query, k, 'HYBRID_POLICY BATCHES')
+            env.assertEqual(actual, forced)
+
+    env.assertEqual(search('@t:{rare}', 50), [1, 'policy:1', ['t', 'keep,rare']])
+    info = get_tiered_debug_info(env, 'idx', 'v')
+    env.assertEqual(info['LAST_SEARCH_MODE'], 'HYBRID_ADHOC_BF', message=info)
+    search('-@t:{skip}', 50, 'HYBRID_POLICY ADHOC_BF')
+    info = get_tiered_debug_info(env, 'idx', 'v')
+    env.assertEqual(info['LAST_SEARCH_MODE'], 'HYBRID_ADHOC_BF', message=info)
+
+
 def test_ft_aggregate_basic():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     dim = 1
