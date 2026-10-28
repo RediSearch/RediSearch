@@ -1,0 +1,7 @@
+6fa99d7e9eee0b60fc59117c7120feb66972bf5e 9962c27bea328aec2158539cdeb71906849259ab [MOD-17987] Centralize request configuration and clamp oversized cursor defaults (#11574)
+ fcdeb37b1c264c00ad2e8176d91cc2c0d071625a deps/VectorSimilarity (v8.2.12-60-gfcdeb37b)
+ 6910c9d9165801d8827d628cb72eb7ea9dd538c5 deps/googletest (release-1.8.0-3518-g6910c9d9)
+ bd01f10daf773b622260ea3c7daf8a64df50acb1 deps/hiredis (v1.0.2-280-gbd01f10)
+ e9f29cb984231524e3931aa0ae2c5dae1a32884e deps/libuv (v1.48.0)
+ 4764395431c8f2a0b4fe18b816ab1fc966a45837 deps/snowball (v2.1.0)
+8d5719e13d7f54bbb21c8bff4142be1cc7284a52fd63bbaace02eec8760377f4  /home/ubuntu/mod18278-pr11691-20261018/before.so
