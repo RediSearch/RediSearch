@@ -1,0 +1,5 @@
+name: Diagnose runner resources during Rust compilation
+description: Finalize resource snapshots while compilation is still running.
+runs:
+  using: node24
+  main: index.js

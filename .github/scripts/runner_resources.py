@@ -28,6 +28,10 @@ def sample():
         "/sys/fs/cgroup/memory.current": (),
         "/sys/fs/cgroup/memory.max": (),
         "/sys/fs/cgroup/memory.events": (),
+        "/sys/fs/cgroup/memory.swap.current": (),
+        "/sys/fs/cgroup/memory.swap.max": (),
+        "/sys/fs/cgroup/cpu.max": (),
+        "/sys/fs/cgroup/cpu.stat": (),
     }
     for source, prefixes in sources.items():
         try:

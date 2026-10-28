@@ -305,6 +305,14 @@ jobs:
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
         run: make unit-tests
+      - name: Fetch pinned artifact uploader for runner diagnostics
+        if: ${{ inputs.unit-tests && inputs.rust-unit-tests }}
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          repository: actions/upload-artifact
+          ref: 043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+          path: .github/diagnostic-tools/upload-artifact
+          persist-credentials: false
       - name: Rust tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: rust_unit_tests
@@ -315,14 +323,7 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: |
-          # Stream evidence before a lost runner can prevent artifact upload.
-          if [[ "$RUNNER_OS" == Linux ]]; then
-            python3 -u .github/scripts/runner_resources.py &
-            resource_monitor=$!
-            trap 'kill "$resource_monitor" 2>/dev/null || true; wait "$resource_monitor" 2>/dev/null || true' EXIT
-          fi
-          make rust-tests
+        uses: ./.github/actions/diagnose-runner-resources
       - name: Build TESTFILE excluding flaky tests (standalone)
         id: standalone_testfile
         if: ${{ inputs.standalone && env.IS_FORK_PR != 'true' }}
