@@ -87,7 +87,16 @@ pub struct IndexBlock {
 
     /// The encoded entries in this block
     pub(crate) buffer: Vec<u8>,
+
+    /// MOD-20225 benchmark probe, not for merging: a never-read, never-allocated field that grows
+    /// the block from 48 to 56 bytes with the same type #10169 adds as `expiration_bits`, so only
+    /// the block's size and layout change.
+    #[serde(skip)]
+    pub(crate) layout_pad: ThinVec<u8, u16>,
 }
+
+// #10169's `IndexBlock` is 56 bytes; the probe must match it exactly.
+const _: () = assert!(std::mem::size_of::<IndexBlock>() == 56);
 
 impl IndexBlock {
     pub(crate) const STACK_SIZE: usize = std::mem::size_of::<Self>();
@@ -100,6 +109,7 @@ impl IndexBlock {
             last_doc_id: doc_id,
             num_entries: 0,
             buffer: Vec::new(),
+            layout_pad: ThinVec::new(),
         }
     }
 
