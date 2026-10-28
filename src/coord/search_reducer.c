@@ -19,8 +19,6 @@
 #include "info/global_stats.h"
 #include "query_error_ffi.h"
 #include "reply.h"
-#include "reply_value.h"
-#include "score_explain_mr.h"
 #include "resp3.h"
 #include "rmr/reply.h"
 #include "util/arr/arr.h"
@@ -34,7 +32,6 @@ typedef struct {
   char *id;
   size_t idLen;
   double score;
-  MRReply *explainScores;
   const char *sortKey;
   size_t sortKeyLen;
   double sortKeyNum;
@@ -62,9 +59,6 @@ typedef struct searchReducerCtx {
   RLookup lookup;
   const RLookupKey *sortKeys[2];
   const RLookupKey *knnKeys[2];
-  const RLookupKey *fieldsKey;
-  const RLookupKey *payloadKey;
-  const RLookupKey *wireSortKey;
   MRReply **replies;
 } searchReducerCtx;
 
@@ -99,7 +93,6 @@ static searchResult *newResult_resp2(searchResult *res, MRReply *arr, size_t j,
       res->id = NULL;
       return res;
     }
-    res->explainScores = MRReply_ArrayElement(scoreReply, 1);
     // Parse scores only if they were are part of the shard's response.
   } else if (scoreOffset > 0 &&
              !MRReply_ToDouble(MRReply_ArrayElement(arr, j + scoreOffset), &res->score)) {
@@ -155,7 +148,6 @@ static searchResult *newResult_resp3(searchResult *res, MRReply *results, size_t
       res->id = NULL;
       return res;
     }
-    res->explainScores = MRReply_ArrayElement(score, 1);
 
   } else if (offsets->score > 0 && !MRReply_ToDouble(score, &res->score)) {
     res->id = NULL;
@@ -350,14 +342,6 @@ static int searchReplyParseError(searchReducerCtx *ctx) {
   return RS_RESULT_ERROR;
 }
 
-static MRReply *takeSearchField(MRReply *body, size_t offset, int fieldOffset, const char *name) {
-  if (MRReply_Type(body) == MR_REPLY_MAP) {
-    return MRReply_TakeMapElement(MRReply_ArrayElement(MRReply_MapElement(body, "results"), offset),
-                                  name);
-  }
-  return fieldOffset > 0 ? MRReply_TakeArrayElement(body, offset + fieldOffset) : NULL;
-}
-
 static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
   RPSearchReply *source = (RPSearchReply *)base;
   searchReducerCtx *ctx = source->ctx;
@@ -400,7 +384,7 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
       size_t step = resp3 ? 1 : ctx->offsets.step;
       size_t offset = resp3 ? source->row : 1 + source->row * step;
       if (offset < len) {
-        if (step > len - offset) return searchReplyParseError(ctx);
+        if (source->row > UINT32_MAX || step > len - offset) return searchReplyParseError(ctx);
         searchResult view = {0};
         if (resp3) {
           newResult_resp3(&view, rows, source->row, &ctx->offsets,
@@ -421,39 +405,17 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
           RLookup_WriteOwnKey(ctx->knnKeys[0], values, RSValue_NewNumber(distance));
           ctx->totalReplies = MIN(ctx->reduceSpecialCaseCtxKnn->knn.k, ctx->totalReplies + 1);
         }
-        // The sort projection borrows bytes owned by the wire sort key in this same row.
+        // The source owns these bytes until stored rows and both sorters have been freed.
         if (view.sortKey) {
           RSValue *sortValue = view.sortKey[0] == '#' ? RSValue_NewNumber(view.sortKeyNum)
                                                       : RSValue_NewBorrowedString(
                                                             view.sortKey + 1, view.sortKeyLen - 1);
           RLookup_WriteOwnKey(ctx->sortKeys[0], values, sortValue);
         }
-        MRReply *record = resp3 ? MRReply_ArrayElement(rows, source->row) : body;
         RLookup_WriteOwnKey(ctx->sortKeys[1], values,
-                            MRReply_ToValue(resp3 ? MRReply_TakeMapElement(record, "id")
-                                                  : MRReply_TakeArrayElement(body, offset)));
-        RLookup_WriteOwnKey(ctx->fieldsKey, values,
-                            MRReply_ToValue(takeSearchField(body, offset, ctx->offsets.firstField,
-                                                            "extra_attributes")));
-        RLookup_WriteOwnKey(
-            ctx->payloadKey, values,
-            MRReply_ToValue(takeSearchField(body, offset, ctx->offsets.payload, "payload")));
-        if (view.explainScores && MRReply_Type(view.explainScores) != MR_REPLY_NIL) {
-          SearchResult_SetScoreExplain(row, SE_FromMRReply(view.explainScores));
-        }
-        if (view.sortKey) {
-          MRReply *key = NULL;
-          if (resp3 && ctx->reduceSpecialCaseCtxSortby) {
-            MRReply *required = MRReply_MapElement(record, "required_fields");
-            if (required)
-              key =
-                  MRReply_TakeMapElement(required, ctx->reduceSpecialCaseCtxSortby->sortby.sortKey);
-          }
-          if (!key) key = takeSearchField(body, offset, ctx->offsets.sortKey, "sortkey");
-          RLookup_WriteOwnKey(ctx->wireSortKey, values, MRReply_ToValue(key));
-        } else {
-          RLookup_WriteOwnKey(ctx->wireSortKey, values, RSValue_NullStatic());
-        }
+                            RSValue_NewBorrowedString(view.id, view.idLen));
+        // The locator survives sorter moves without allocating a per-candidate payload.
+        SearchResult_SetDocId(row, ((uint64_t)source->shard << 32) | source->row);
         SearchResult_SetScore(row, view.score);
         ++source->row;
 #ifdef ENABLE_ASSERT
@@ -550,9 +512,6 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **rep
   QITR_PushRP(&ctx->qctx, &source->base);
   ctx->sortKeys[0] = RLookup_GetKey_Write(&ctx->lookup, "sortkey", RLOOKUP_F_NOFLAGS);
   ctx->sortKeys[1] = RLookup_GetKey_Write(&ctx->lookup, "document_key", RLOOKUP_F_NOFLAGS);
-  ctx->fieldsKey = RLookup_GetKey_Write(&ctx->lookup, "fields", RLOOKUP_F_NOFLAGS);
-  ctx->payloadKey = RLookup_GetKey_Write(&ctx->lookup, "payload", RLOOKUP_F_NOFLAGS);
-  ctx->wireSortKey = RLookup_GetKey_Write(&ctx->lookup, "wire_sortkey", RLOOKUP_F_NOFLAGS);
   if (needsKnnSelection(ctx)) {
     ctx->knnKeys[0] = RLookup_GetKey_Write(&ctx->lookup, "distance", RLOOKUP_F_NOFLAGS);
     ctx->knnKeys[1] = ctx->sortKeys[1];
@@ -600,6 +559,70 @@ static inline QueryTimeoutStage searchReqCtx_GetExecutionStage(searchRequestCtx 
 static inline void recordSearchTimeoutStage(searchRequestCtx *req, bool isError) {
   QueryTimeoutStage stage = req ? searchReqCtx_GetExecutionStage(req) : QUERY_TIMEOUT_STAGE_QUEUE;
   QueryTimeoutStageStats_Record(stage, isError, COORD_ERR_WARN);
+}
+
+static MRReply *searchRowField(MRReply *record, size_t offset, int fieldOffset, const char *name) {
+  if (MRReply_Type(record) == MR_REPLY_MAP) return MRReply_MapElement(record, name);
+  return fieldOffset >= 0 ? MRReply_ArrayElement(record, offset + fieldOffset) : NULL;
+}
+
+void CoordSearch_SerializeResult(QueryRequest *request, RedisModule_Reply *reply,
+                                 const SearchResult *row) {
+  searchRequestCtx *req = QueryRequest_GetSearch(request);
+  searchReducerCtx *ctx = req->rctx;
+  uint64_t locator = SearchResult_GetDocId(row);
+  uint32_t shard = locator >> 32;
+  RS_ASSERT(shard < req->replySource->snapshotCount);
+  MRReply *body = searchReplyBody(req, ctx->replies[shard]);
+  size_t offset = (uint32_t)locator;
+  MRReply *record = body;
+  if (MRReply_Type(body) == MR_REPLY_MAP) {
+    record = MRReply_ArrayElement(MRReply_MapElement(body, "results"), offset);
+  } else {
+    offset = 1 + offset * ctx->offsets.step;
+  }
+  if (reply->resp3) {
+    const size_t entries = 2 + req->withScores + req->withPayload +
+                           (req->withSortingKeys && req->withSortby) + !req->noContent;
+    RedisModule_Reply_MapWithLen(reply, entries);
+    RedisModule_Reply_SimpleString(reply, "id");
+  }
+  MR_ReplyWithMRReply(reply, searchRowField(record, offset, 0, "id"));
+  if (req->withScores) {
+    if (reply->resp3) RedisModule_Reply_SimpleString(reply, "score");
+    if (req->withExplainScores) {
+      RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
+      RedisModule_Reply_Double(reply, SearchResult_GetScore(row));
+      MRReply *score = searchRowField(record, offset, ctx->offsets.score, "score");
+      MR_ReplyWithMRReply(reply, MRReply_ArrayElement(score, 1));
+    } else {
+      RedisModule_Reply_Double(reply, SearchResult_GetScore(row));
+    }
+  }
+  if (req->withPayload) {
+    if (reply->resp3) RedisModule_Reply_SimpleString(reply, "payload");
+    MR_ReplyWithMRReply(reply, searchRowField(record, offset, ctx->offsets.payload, "payload"));
+  }
+  if (req->withSortingKeys && req->withSortby) {
+    if (reply->resp3) RedisModule_Reply_SimpleString(reply, "sortkey");
+    MRReply *sortkey = NULL;
+    if (MRReply_Type(record) == MR_REPLY_MAP && ctx->reduceSpecialCaseCtxSortby) {
+      MRReply *required = MRReply_MapElement(record, "required_fields");
+      if (required)
+        sortkey = MRReply_MapElement(required, ctx->reduceSpecialCaseCtxSortby->sortby.sortKey);
+    }
+    if (!sortkey) sortkey = searchRowField(record, offset, ctx->offsets.sortKey, "sortkey");
+    MR_ReplyWithMRReply(reply, sortkey);
+  }
+  if (!req->noContent) {
+    if (reply->resp3) RedisModule_Reply_SimpleString(reply, "extra_attributes");
+    MR_ReplyWithMRReply(
+        reply, searchRowField(record, offset, ctx->offsets.firstField, "extra_attributes"));
+  }
+  if (reply->resp3) {
+    RedisModule_Reply_SimpleString(reply, "values");
+    RedisModule_Reply_EmptyArray(reply);
+  }
 }
 
 static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) {
@@ -659,46 +682,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     RedisModule_ReplyKV_Array(reply, "results");  // >results
 
-    // id, the optional sections below, and the trailing "values" placeholder.
-    const size_t entries = 2 + req->withScores + req->withPayload +
-                           (req->withSortingKeys && req->withSortby) + !req->noContent;
     for (size_t i = 0; i < qlen; ++i) {
-      RedisModule_Reply_MapWithLen(reply, entries);  // >> result
-      const SearchResult *res = results[i];
-      const RLookupRow *values = SearchResult_GetRowData(res);
-      RedisModule_Reply_SimpleString(reply, "id");
-      RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->sortKeys[1], values), 0);
-
-      if (req->withScores) {
-        RedisModule_Reply_SimpleString(reply, "score");
-
-        if (req->withExplainScores) {
-          RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
-          RedisModule_Reply_Double(reply, SearchResult_GetScore(res));
-          SEReply(reply, SearchResult_GetScoreExplain(res));
-        } else {
-          RedisModule_Reply_Double(reply, SearchResult_GetScore(res));
-        }
-      }
-
-      if (req->withPayload) {
-        RedisModule_Reply_SimpleString(reply, "payload");
-        RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->payloadKey, values), 0);
-      }
-
-      if (req->withSortingKeys && req->withSortby) {
-        RedisModule_Reply_SimpleString(reply, "sortkey");
-        RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->wireSortKey, values), 0);
-      }
-      if (!req->noContent) {
-        RedisModule_Reply_SimpleString(reply, "extra_attributes");
-        RedisModule_Reply_RSValue(
-            reply, RLookupRow_Get(rCtx->fieldsKey, values),
-            req->format & QEXEC_FORMAT_EXPAND ? SENDREPLY_FLAG_EXPAND : 0);  // >> extra_attributes
-      }
-
-      RedisModule_Reply_SimpleString(reply, "values");
-      RedisModule_Reply_EmptyArray(reply);
+      CoordSearch_SerializeResult(&req->base, reply, results[i]);
     }
 
     RedisModule_Reply_ArrayEnd(reply);  // >results
@@ -708,28 +693,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   {
     RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
 
-    for (size_t pos = 0; pos < qlen; pos++) {
-      const SearchResult *res = results[pos];
-      const RLookupRow *values = SearchResult_GetRowData(res);
-      RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->sortKeys[1], values), 0);
-      if (req->withScores) {
-        if (req->withExplainScores) {
-          RedisModule_Reply_ArrayWithLen(reply, SCORE_WITH_EXPLAIN_REPLY_LEN);
-          RedisModule_Reply_Double(reply, SearchResult_GetScore(res));
-          SEReply(reply, SearchResult_GetScoreExplain(res));
-        } else {
-          RedisModule_Reply_Double(reply, SearchResult_GetScore(res));
-        }
-      }
-      if (req->withPayload) {
-        RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->payloadKey, values), 0);
-      }
-      if (req->withSortingKeys && req->withSortby) {
-        RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->wireSortKey, values), 0);
-      }
-      if (!req->noContent) {
-        RedisModule_Reply_RSValue(reply, RLookupRow_Get(rCtx->fieldsKey, values), 0);
-      }
+    for (size_t i = 0; i < qlen; ++i) {
+      CoordSearch_SerializeResult(&req->base, reply, results[i]);
     }
   }
   RedisModule_Reply_MapOrArrayEnd(reply);

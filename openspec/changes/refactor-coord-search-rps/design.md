@@ -157,18 +157,25 @@ Do not redesign either protocol as part of extraction.
 
 ## Implemented representation and callback boundary
 
-The source owns shard reply envelopes from arrival. It consumes document keys,
-returned field collections, payloads and wire sort keys into row-owned RSValues
-using the shared RPNet converter. Score explanations use RSScoreExplain. Typed
-sort projections and vector distances remain lookup values. No packed docId
-locator or repeated output decoding is needed, and no SearchResult FFI layout
-change is needed.
+The source owns complete shard replies from arrival through request cleanup. Candidates
+contain borrowed document/sort strings, numeric sort projections, score and a packed
+shard/row locator in SearchResult.docId. Neither decoding nor serialization detaches
+reply fields. Returned fields, payloads and score explanations are never converted
+into intermediate RSValues. No SearchResult FFI layout change is needed.
 
-QueryRequest.reply owns emitted rows. EndCycle and base destruction use the
-existing ChunkReplyState cleanup; the concrete reducer destructor clears stored
-rows and buffered candidates through the common lifecycle. Serialization reads
-row values with the existing STRING/EXPAND flags. Shard profile data remains in
-the source-owned envelopes.
+QueryRequest.reply owns emitted candidate descriptors. Request cleanup first clears
+stored candidates, then frees downstream processors before the reply source through
+QITR_FreeChain. This ordering keeps borrowed strings and locators valid through normal
+serialization, timeout serialization and error cleanup. The source also retains late
+publications until transport completion; only the acquired snapshot is serialized.
+
+CoordSearch_SerializeResult has the SerializeResult callback signature introduced by
+#11365 and writes selected rows directly from MRReply into RedisModule_Reply. The current
+base predates Pipeline_SerializeResults, so the existing reply loop invokes that callback.
+After #11365 is available, the callback can run in the common buffered-serialization loop;
+that integration must route coordinator-search pipelineEnd and preserve exclusive Drain
+ownership through both KNN sorters. It is not implemented by copying the unmerged common
+loop into this stack. Shard profiles remain in the same source-owned replies.
 
 Blocked-client registration continues to use the existing command callbacks.
 No extra dispatch wrapper or per-cycle callback fields are needed. The shared

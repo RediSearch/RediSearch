@@ -160,7 +160,7 @@ def _check_buffered_knn_timeout(resp3):
     # Workers ensure reduction runs in the background while the main thread times out.
     env = Env(moduleArgs='WORKERS 1', protocol=3 if resp3 else 2)
     skipIfNoEnableAssert(env)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'FLAT', 6,
+    env.expect('FT.CREATE', 'idx', 'PAYLOAD_FIELD', 'payload', 'SCHEMA', 'v', 'VECTOR', 'FLAT', 6,
                'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'L2',
                'label', 'TAG', 'SORTABLE').ok()
     conn = getConnectionByEnv(env)
@@ -168,7 +168,7 @@ def _check_buffered_knn_timeout(resp3):
     keys = [f'doc:{{knn}}:{i:02}' for i in range(12)]
     for i, key in enumerate(keys):
         conn.execute_command('HSET', key, 'v', struct.pack('f', i + 1),
-                             'label', f'{12 - i:02}')
+                             'label', f'{12 - i:02}', 'body', f'body\0{i}', 'payload', f'payload\0{i}')
     config = env.cmd('CONFIG', 'GET', ON_TIMEOUT_CONFIG)
     previous_policy = config[ON_TIMEOUT_CONFIG] if resp3 else config[1]
     env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return-strict').ok()
@@ -177,7 +177,7 @@ def _check_buffered_knn_timeout(resp3):
             outcome = []
             args = ['FT.SEARCH', 'idx', '*=>[KNN 3 @v $vec AS distance]',
                     'PARAMS', 2, 'vec', struct.pack('f', 0), 'SORTBY', 'label', 'ASC',
-                    'NOCONTENT', 'LIMIT', offset, limit, 'TIMEOUT', 0, 'DIALECT', 2]
+                    'RETURN', 1, 'body', 'WITHPAYLOADS', 'WITHSORTKEYS', 'LIMIT', offset, limit, 'TIMEOUT', 0, 'DIALECT', 2]
 
             def query():
                 try:
@@ -206,8 +206,13 @@ def _check_buffered_knn_timeout(resp3):
                 page = keys[2::-1][offset:offset + limit]
                 expected = ({'attributes': [], 'warning': [TIMEOUT_WARNING],
                              'total_results': 3, 'format': 'STRING',
-                             'results': [{'id': key, 'values': []} for key in page]}
-                            if resp3 else [3, *page])
+                             'results': [{'id': key, 'payload': f'payload\0{keys.index(key)}',
+                                          'sortkey': f'${12 - keys.index(key):02}',
+                                          'extra_attributes': {'body': f'body\0{keys.index(key)}'},
+                                          'values': []} for key in page]}
+                            if resp3 else [3, *[value for key in page for value in (
+                                key, f'payload\0{keys.index(key)}', f'${12 - keys.index(key):02}',
+                                ['body', f'body\0{keys.index(key)}'])]])
                 env.assertEqual(outcome, [(expected, True)])
                 wait_for_condition(
                     lambda: (_get_blocked_request_onfree_count(env) > free_before, {}),
@@ -365,7 +370,7 @@ def test_zero_dispatch_resp3():
     _check_zero_dispatch(True)
 
 
-def _check_owned_row_serialization(env, resp3):
+def _check_borrowed_row_serialization(env, resp3):
     env.expect('FT.CREATE', 'idx', 'PAYLOAD_FIELD', 'payload', 'SCHEMA',
                'rank', 'TAG', 'SORTABLE', 'text', 'TEXT').ok()
     conn = getConnectionByEnv(env)
@@ -396,11 +401,11 @@ def _check_owned_row_serialization(env, resp3):
         env.assertEqual(profiled['Results'] if resp3 else profiled[0], expected)
 
 
-def test_owned_row_serialization_resp2(env):
+def test_borrowed_row_serialization_resp2(env):
     """Sorted rows retain binary fields, payloads, aliases and explanations after eviction."""
-    _check_owned_row_serialization(env, False)
+    _check_borrowed_row_serialization(env, False)
 
 
-def test_owned_row_serialization_resp3():
+def test_borrowed_row_serialization_resp3():
     """The map reply preserves string numbers and the SEARCH/PROFILE row representation."""
-    _check_owned_row_serialization(Env(protocol=3), True)
+    _check_borrowed_row_serialization(Env(protocol=3), True)

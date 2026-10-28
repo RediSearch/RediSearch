@@ -217,15 +217,21 @@ slot initialization and publication with both zero and one earlier replies, in
 addition to the existing before/after acceptance cases, for both protocols and
 search/profile commands.
 
-## Owned row values and immediate parse errors
+## Borrowed rows, direct serialization and immediate parse errors
 
-- **Internal:** the reply source consumes row fields into RSValues, transferring
-  string buffers with the same converter as RPNet. Document keys, payloads,
-  returned field collections and wire sort keys belong to the SearchResult;
-  score explanations use the common score-explanation representation. The
-  serializer no longer re-decodes shard replies through a packed docId locator.
-  Shard envelopes and profiles remain source-owned. Numeric conversion remains
-  eager; lazy numeric values are outside this refactor.
+- **Internal:** replaces the intermediate eager row conversion with source-owned
+  complete replies. Candidates borrow document/sort bytes and retain a shard/row
+  locator. Only sorter projections are RSValues; selected rows serialize directly
+  from MRReply, including payloads, fields and explanations. Discarded candidates
+  incur no returned-field conversion. Stored rows and both sorters are freed before
+  their source. No new user-facing behavior is intended by this ownership change.
+- **Preserved:** RESP2/RESP3 types, binary strings, numeric-looking strings, nested
+  JSON STRING/EXPAND output, score explanations, missing sort keys, pagination,
+  profiles and the published timeout snapshot. Serialization reuses the parsed
+  candidate score and does not reparse numeric sort keys.
+- **Integration boundary:** the serializer matches #11365's SerializeResult callback;
+  this base still invokes it from the existing reply loop. Buffered publication and
+  main-thread Drain integration remain dependent on the reply-buffer/Drain stack.
 - **Intentional observable error change:** an encountered malformed row or
   required envelope field returns `RS_RESULT_ERROR` and sets QueryError
   immediately. Previously the reducer continued and checked a deferred flag;

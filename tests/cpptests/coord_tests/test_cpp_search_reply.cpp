@@ -13,7 +13,6 @@ extern "C" {
 #include "module.h"
 extern "C" {
 #include "coord/search_reducer.h"
-#include "coord/reply_value.h"
 }
 #include "hiredis/hiredis.h"
 #include "hiredis/read.h"
@@ -133,7 +132,8 @@ TEST(SearchReply, MissingKnnDistanceStopsBothSorters) {
     EXPECT_EQ(array_len(request.req.base.reply.results), 0);
     MRReply *rows = MRReply_MapElement(root, "results");
     // The first candidate reached the nearest-K sorter before the error stopped the pipeline.
-    EXPECT_EQ(MRReply_MapElement(MRReply_ArrayElement(rows, 0), "id"), nullptr);
+    EXPECT_STREQ(MRReply_String(MRReply_MapElement(MRReply_ArrayElement(rows, 0), "id"), nullptr),
+                 "first");
     MRReply *unread = MRReply_MapElement(MRReply_ArrayElement(rows, 2), "id");
     EXPECT_EQ(std::string(MRReply_String(unread, nullptr)), "unread");
   }
@@ -153,38 +153,39 @@ TEST(SearchReply, MalformedEnvelopeReportsError) {
   }
 }
 
-TEST(SearchReply, OwnsBinaryAndNestedFieldsAfterSourceCleanup) {
-  RSValue *id = nullptr, *fields = nullptr, *payload = nullptr;
+TEST(SearchReply, BorrowsBinaryAndNestedFieldsUntilRequestCleanup) {
+  Request request;
+  request.req.limit = request.req.requestedResultsCount = 1;
+  request.req.withPayload = true;
   const std::string binary("a\0b", 3);
-  {
-    Request request;
-    request.req.withPayload = true;
-    const std::string attrs = sequence('*', {str("field"), str(binary), str("nested"),
-                                             sequence('*', {str("9007199254740993"), "$-1\r\n"})});
-    request.add(sequence('*', {":1\r\n", str(binary), str("1"), str(binary), attrs}));
-    RLookup *lookup = CoordSearchReducer_DebugReduce(&request.req);
-    ASSERT_EQ(request.req.base.reply.rc, RS_RESULT_EOF);
-    ASSERT_EQ(array_len(request.req.base.reply.results), 1);
-    const auto *row = SearchResult_GetRowData(request.req.base.reply.results[0]);
-    auto own = [&](const char *name) {
-      return RSValue_IncrRef(
-          RLookupRow_Get(RLookup_GetKey_Read(lookup, name, RLOOKUP_F_NOFLAGS), row));
-    };
-    id = own("document_key");
-    fields = own("fields");
-    payload = own("payload");
-  }
-  for (const RSValue *v : {id, payload, RSValue_ArrayItem(fields, 1)}) {
-    auto view = RSValue_GetReplyView(v, RSValueTrioSelection_Middle);
-    EXPECT_EQ(std::string(view.string.bytes, view.str_len), binary);
-  }
-  auto *nested = RSValue_ArrayItem(fields, 3);
-  auto numberString =
-      RSValue_GetReplyView(RSValue_ArrayItem(nested, 0), RSValueTrioSelection_Middle);
-  EXPECT_EQ(std::string(numberString.string.bytes, numberString.str_len), "9007199254740993");
-  EXPECT_TRUE(RSValue_IsNull(RSValue_ArrayItem(nested, 1)));
-  RSValue_DecrRef(id);
-  RSValue_DecrRef(fields);
-  RSValue_DecrRef(payload);
+  const std::string attrs = sequence('*', {str("field"), str(binary), str("nested"),
+                                           sequence('*', {str("9007199254740993"), "$-1\r\n"})});
+  MRReply *root = request.add(sequence('*', {":2\r\n", str(binary), str("2"), str(binary), attrs,
+                                             str("discarded"), str("1"), str(binary), attrs}));
+  MRReply *fields = MRReply_ArrayElement(root, 4);
+  const char *idBytes = MRReply_String(MRReply_ArrayElement(root, 1), nullptr);
+  RLookup *lookup = CoordSearchReducer_DebugReduce(&request.req);
+  ASSERT_EQ(request.req.base.reply.rc, RS_RESULT_EOF);
+  ASSERT_EQ(array_len(request.req.base.reply.results), 1);
+  const SearchResult *result = request.req.base.reply.results[0];
+  EXPECT_EQ(SearchResult_GetDocId(result), 0);
+  const auto *row = SearchResult_GetRowData(result);
+  const RSValue *id =
+      RLookupRow_Get(RLookup_GetKey_Read(lookup, "document_key", RLOOKUP_F_NOFLAGS), row);
+  auto view = RSValue_GetReplyView(id, RSValueTrioSelection_Middle);
+  EXPECT_EQ(view.string.bytes, idBytes);
+  EXPECT_EQ(std::string(view.string.bytes, view.str_len), binary);
+  EXPECT_EQ(RLookup_GetKey_Read(lookup, "fields", RLOOKUP_F_NOFLAGS), nullptr);
+  EXPECT_EQ(RLookup_GetKey_Read(lookup, "payload", RLOOKUP_F_NOFLAGS), nullptr);
+  EXPECT_EQ(MRReply_ArrayElement(root, 4), fields);
+  EXPECT_EQ(MRReply_Length(root), 9);
+  // Dropping returned candidates must not release backing used by profiles or cleanup.
+  QueryRequest_ResetReply(&request.req.base);
+  EXPECT_EQ(std::string(MRReply_String(MRReply_ArrayElement(root, 3), nullptr), 3), binary);
+  EXPECT_EQ(std::string(MRReply_String(MRReply_ArrayElement(fields, 1), nullptr), 3), binary);
+  MRReply *nested = MRReply_ArrayElement(fields, 3);
+  EXPECT_STREQ(MRReply_String(MRReply_ArrayElement(nested, 0), nullptr), "9007199254740993");
+  EXPECT_EQ(MRReply_Type(MRReply_ArrayElement(nested, 1)), MR_REPLY_NIL);
 }
+
 #endif
