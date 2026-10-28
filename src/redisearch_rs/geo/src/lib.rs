@@ -13,9 +13,11 @@
 //! encoding/decoding. The lower-level geohash primitives live in the
 //! [`hash`] module.
 
+mod filter;
 pub mod hash;
 mod parse;
 mod ranges;
 
+pub use filter::{DistanceUnit, FilterError, FilterParams};
 pub use parse::{Coordinates, ParseGeoError};
 pub use ranges::{GEO_RANGE_COUNT, GeoScoreRange, calc_ranges};

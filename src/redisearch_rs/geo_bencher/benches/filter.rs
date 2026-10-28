@@ -10,6 +10,7 @@
 use std::{ffi::c_char, hint::black_box};
 
 use criterion::{Criterion, criterion_group, criterion_main};
+use geo::{DistanceUnit, FilterParams};
 
 extern crate redisearch_rs;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
@@ -30,6 +31,13 @@ fn benchmarks(c: &mut Criterion) {
             }
         });
     });
+    c.bench_function("geo_filter/units/rust", |b| {
+        b.iter(|| {
+            for unit in black_box(units) {
+                black_box(DistanceUnit::parse_buffer(unit));
+            }
+        });
+    });
 
     let filter = ffi::GeoFilter {
         fieldIndex: 7,
@@ -45,6 +53,15 @@ fn benchmarks(c: &mut Criterion) {
             black_box(unsafe { CGeoFilter_Validate(black_box(&filter), std::ptr::null_mut()) });
         });
     });
+    let params = FilterParams {
+        lon: filter.lon,
+        lat: filter.lat,
+        radius: filter.radius,
+        unit: Some(DistanceUnit::Kilometers),
+    };
+    c.bench_function("geo_filter/validate/rust", |b| {
+        b.iter(|| black_box(black_box(&params).validate()));
+    });
     let score = redisearch_rs::geo::encodeGeo(12.25, -33.5);
     c.bench_function("geo_filter/radius/c", |b| {
         b.iter(|| {
@@ -54,6 +71,9 @@ fn benchmarks(c: &mut Criterion) {
                 unsafe { CIsWithinRadius(black_box(&filter), black_box(score), &mut distance) };
             black_box((found, distance));
         });
+    });
+    c.bench_function("geo_filter/radius/rust", |b| {
+        b.iter(|| black_box(black_box(&params).within_radius(black_box(score))));
     });
 }
 
