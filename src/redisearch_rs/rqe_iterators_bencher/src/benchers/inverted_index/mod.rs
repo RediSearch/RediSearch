@@ -11,7 +11,8 @@
 
 use std::time::Duration;
 
-use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
+use criterion::measurement::WallTime;
+use hotpath::criterion::{BenchmarkGroup, Criterion};
 
 mod missing;
 mod numeric;

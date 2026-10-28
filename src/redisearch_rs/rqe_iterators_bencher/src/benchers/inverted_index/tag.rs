@@ -11,7 +11,8 @@
 
 use std::hint::black_box;
 
-use criterion::{BenchmarkGroup, Criterion, measurement::Measurement};
+use criterion::measurement::Measurement;
+use hotpath::criterion::{BenchmarkGroup, Criterion};
 use index_result::RSQueryTerm;
 use inverted_index::{doc_ids_only::DocIdsOnly, opaque::OpaqueEncoding};
 use iterators_ffi::inverted_index::CTagIndexLookup;

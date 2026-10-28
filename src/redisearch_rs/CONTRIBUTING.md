@@ -195,3 +195,89 @@ Benchmark crates (e.g., named `*_bencher`) are pure testing code, so they don't 
    // - Mock or stub the ones that aren't provided by the line above
    redis_mock::mock_or_stub_missing_redis_c_symbols!();
    ```
+
+## Running benchmarks
+
+Benchmarks use [Criterion](https://bheisler.github.io/criterion.rs/book/). Run them from `src/redisearch_rs/`:
+
+```bash
+# All benchmarks of a crate
+cargo bench -p rqe_iterators_bencher
+# Only the benchmarks whose id matches a regex
+cargo bench -p rqe_iterators_bencher -- 'Iterator - Metric'
+# List the benchmark ids
+cargo bench -p rqe_iterators_bencher -- --list
+# Compare against an earlier run: save a baseline, change the code, then compare
+cargo bench -p rqe_iterators_bencher -- --save-baseline before 'Iterator - Metric'
+cargo bench -p rqe_iterators_bencher -- --baseline before 'Iterator - Metric'
+```
+
+Benchmark ids are `<group>/<function>`, e.g. `Iterator - Metric - Read Dense/Rust`.
+
+### Profiling a benchmark with hotpath
+
+`rqe_iterators_bencher` can report a benchmark's per-call allocations, and its
+instruction counts, with [hotpath's Criterion integration](https://hotpath.rs/criterion).
+Profiling is opt-in: without the features and environment variables below the
+benchmarks run as plain Criterion benchmarks.
+
+A profiling run executes a single benchmark routine exactly
+`HOTPATH_CRITERION_ITERATIONS` times, in Criterion's test mode, and prints a
+report. The filter must match exactly one benchmark, so run each benchmark in
+its own process:
+
+```bash
+HOTPATH_CRITERION_ITERATIONS=100 cargo bench -p rqe_iterators_bencher --features hotpath \
+  -- --test --exact 'Iterator - Metric - Read Dense/Rust'
+```
+
+The report has two rows:
+
+- `criterion::routine`: each call of the benchmark routine, without setup.
+- `criterion::bench`: the whole loop, including setup and dropping the inputs.
+
+There is no warm-up, and hotpath's instrumentation adds a few nanoseconds per call:
+use the regular Criterion run for timing, and the profiling run for allocations.
+Allocations made by the C code are not tracked.
+
+Pick the iteration count per benchmark: nanosecond-scale routines need many
+iterations, routines taking milliseconds only a few.
+
+To write the report as JSON instead, set `HOTPATH_OUTPUT_FORMAT=json` and
+`HOTPATH_OUTPUT_PATH=<file>`.
+
+#### Counting instructions with Callgrind
+
+The `hotpath-callgrind` feature adds the number of instructions executed per
+routine call, which is deterministic, so it is a reliable measure for comparing
+two versions of the code. Build with the `callgrind` profile, which keeps the
+symbols Callgrind needs by disabling link-time optimization, then run the
+benchmark binary, printed on the `Executable` line, under Callgrind:
+
+```bash
+cargo bench -p rqe_iterators_bencher --features hotpath-callgrind --profile callgrind --no-run
+HOTPATH_CRITERION_ITERATIONS=20 valgrind --tool=callgrind \
+  ../../bin/redisearch_rs/callgrind/deps/iterators-<hash> \
+  --bench --test --exact 'Iterator - Metric - Read Dense/Rust'
+```
+
+Under Callgrind the report has no timing, and running is tens of times slower,
+so keep the iteration count low.
+
+To get timing, allocations and instruction counts in a single JSON report, run
+the same binary natively first, then merge its report into the Callgrind run's.
+Merging also needs the `hotpath/hotpath-cloud` feature:
+
+```bash
+cargo bench -p rqe_iterators_bencher --features hotpath-callgrind,hotpath/hotpath-cloud \
+  --profile callgrind --no-run
+BENCH=../../bin/redisearch_rs/callgrind/deps/iterators-<hash>
+ID='Iterator - Metric - Read Dense/Rust'
+export HOTPATH_CRITERION_ITERATIONS=20 HOTPATH_OUTPUT_FORMAT=json
+HOTPATH_OUTPUT_PATH=native.json "$BENCH" --bench --test --exact "$ID"
+HOTPATH_OUTPUT_PATH=merged.json HOTPATH_MERGE_REPORT=native.json \
+  valgrind --tool=callgrind "$BENCH" --bench --test --exact "$ID"
+```
+
+The timing in the merged report comes from the `callgrind` profile, without
+link-time optimization, so it is slower than in a regular benchmark run.

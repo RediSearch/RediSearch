@@ -13,6 +13,8 @@ use std::sync::OnceLock;
 use std::time::SystemTime;
 use tracing::level_filters::LevelFilter;
 
+mod hotpath;
+
 /// Parses a redis `loglevel` config value into a `tracing` level.
 ///
 /// # Panics

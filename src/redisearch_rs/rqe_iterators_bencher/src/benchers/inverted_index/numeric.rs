@@ -9,8 +9,9 @@
 
 use std::hint::black_box;
 
-use criterion::{BenchmarkGroup, Criterion, measurement::Measurement};
+use criterion::measurement::Measurement;
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use hotpath::criterion::{BenchmarkGroup, Criterion};
 use index_result::RSIndexResult;
 use inverted_index::IndexReader;
 use rqe_iterators::{FieldExpirationChecker, RQEIterator, SkipToOutcome, inverted_index::Numeric};

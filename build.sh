@@ -55,6 +55,7 @@ RUST_PROFILE=""  # Which profile should be used to build/test Rust code
 RUN_MIRI=0       # Run Rust tests through miri to catch undefined behavior
 RUST_DENY_WARNS=0 # Deny all Rust compiler warnings
 RUST_TOOLCHAIN_MODIFIER="" # Rust toolchain to use (e.g., +nightly)
+RUST_HOTPATH=0   # Profile the Rust code's timing and allocations with hotpath
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
@@ -167,6 +168,9 @@ parse_arguments() {
         ;;
       RUST_DENY_WARNS=*)
         RUST_DENY_WARNS="${arg#*=}"
+        ;;
+      RUST_HOTPATH=*)
+        RUST_HOTPATH="${arg#*=}"
         ;;
       SAN=*)
         SAN="${arg#*=}"
@@ -828,6 +832,9 @@ prepare_cmake_arguments() {
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCARGO_BUILD_TARGET=$CARGO_BUILD_TARGET"
   fi
 
+  # Always passed, so that a profiling build doesn't stick in the CMake cache.
+  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_HOTPATH=$RUST_HOTPATH"
+
   if [[ -n "$RUST_TOOLCHAIN_MODIFIER" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_TOOLCHAIN_MODIFIER=$RUST_TOOLCHAIN_MODIFIER"
   fi
@@ -1309,6 +1316,10 @@ run_python_tests() {
   export EXT=${EXT-"RUN"}
   export EXT_HOST=${EXT_HOST-"127.0.0.1"}
   export EXT_PORT=${EXT_PORT-6379}
+  # With RUST_HOTPATH=1, every redis-server would bind hotpath's fixed metrics port:
+  # only the first succeeds, and the port may be one a test needs. Reports are still
+  # written next to each server's log.
+  export HOTPATH_METRICS_SERVER_OFF=${HOTPATH_METRICS_SERVER_OFF:-1}
 
   # Set up test filter if provided
   if [[ -n "$TEST_FILTER" ]]; then

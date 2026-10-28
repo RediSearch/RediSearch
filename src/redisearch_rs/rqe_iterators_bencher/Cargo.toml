@@ -16,6 +16,13 @@ bench = false
 name = "iterators"
 harness = false
 
+[features]
+# Profile one benchmark with hotpath (allocations, and timing inflated by the
+# instrumentation). See `hotpath::criterion`.
+hotpath = ["hotpath/hotpath", "hotpath/hotpath-alloc"]
+# Also count instructions when run under `valgrind --tool=callgrind`.
+hotpath-callgrind = ["hotpath", "hotpath/hotpath-callgrind"]
+
 [build-dependencies]
 bindgen.workspace = true
 build_utils = { path = "../build_utils" }
@@ -24,6 +31,7 @@ build_utils = { path = "../build_utils" }
 criterion.workspace = true
 ffi.workspace = true
 field.workspace = true
+hotpath = { workspace = true, features = ["criterion-0-8"] }
 index_result.workspace = true
 inverted_index.workspace = true
 inverted_index_ffi = { version = "0.0.1", path = "../c_entrypoint/inverted_index_ffi" }

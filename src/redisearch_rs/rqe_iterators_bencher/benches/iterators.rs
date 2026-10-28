@@ -9,7 +9,7 @@
 
 //! Benchmark iterators
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use hotpath::criterion::{Criterion, criterion_group, criterion_main};
 use inverted_index::{
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},

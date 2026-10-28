@@ -11,10 +11,8 @@
 
 use std::{hint::black_box, time::Duration};
 
-use criterion::{
-    BenchmarkGroup, Criterion,
-    measurement::{Measurement, WallTime},
-};
+use criterion::measurement::{Measurement, WallTime};
+use hotpath::criterion::{BenchmarkGroup, Criterion};
 use rqe_iterators::{RQEIterator, metric::MetricSortedById};
 
 #[derive(Default)]

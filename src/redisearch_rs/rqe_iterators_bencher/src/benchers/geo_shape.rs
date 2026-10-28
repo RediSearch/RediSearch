@@ -11,7 +11,8 @@
 
 use std::{hint::black_box, time::Duration};
 
-use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
+use criterion::measurement::WallTime;
+use hotpath::criterion::{BenchmarkGroup, Criterion};
 use rqe_core::DocId;
 use rqe_iterators::{
     NoOpChecker, NoTracker, RQEIterator, geo_shape::GeoShape, utils::NoTimeoutChecker,
