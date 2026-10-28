@@ -1030,6 +1030,7 @@ checksum = "618bdbbe0aa401002251afd661e4b46cae48b22a132c656373c1738d250c1946"
 dependencies = [
  "arc-swap",
  "cfg-if",
+ "criterion",
  "crossbeam-channel",
  "futures-core",
  "hdrhistogram",
@@ -2666,6 +2667,7 @@ dependencies = [
  "criterion",
  "ffi",
  "field",
+ "hotpath",
  "index_result",
  "inverted_index",
  "inverted_index_ffi",

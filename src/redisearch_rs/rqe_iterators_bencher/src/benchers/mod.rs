@@ -22,7 +22,8 @@ pub mod wildcard;
 
 use std::time::Duration;
 
-use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
+use criterion::measurement::WallTime;
+use hotpath::criterion::{BenchmarkGroup, Criterion};
 
 /// Create a Criterion benchmark group configured with the given measurement and warm-up times.
 fn group<'a>(

@@ -21,7 +21,8 @@
 
 use std::{hint::black_box, time::Duration};
 
-use criterion::{BenchmarkGroup, Criterion, measurement::WallTime};
+use criterion::measurement::WallTime;
+use hotpath::criterion::{BenchmarkGroup, Criterion};
 use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
 use rqe_iterators::{
     IdList, RQEIterator, SkipToOutcome, optional::Optional, optional_optimized::OptionalOptimized,

@@ -14,14 +14,12 @@
 
 use std::{hint::black_box, time::Duration};
 
-use criterion::{
-    BenchmarkGroup, Criterion,
-    measurement::{Measurement, WallTime},
-};
+use criterion::measurement::{Measurement, WallTime};
 use ffi::{
     IndexFlags, IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
     IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets,
 };
+use hotpath::criterion::{BenchmarkGroup, Criterion};
 use index_result::{RSIndexResult, RSOffsetSlice};
 use inverted_index::{InvertedIndex, full::Full};
 use query_term::RSQueryTerm;

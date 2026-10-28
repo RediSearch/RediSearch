@@ -294,3 +294,10 @@ codegen-units = 16
 debug-assertions = true
 # - Enable runtime overflow checks
 overflow-checks = true
+
+# For running the benchmarks under Callgrind with the `hotpath-callgrind`
+# feature: without LTO, so the per-function markers hotpath relies on to
+# attribute instruction counts are not merged away.
+[profile.callgrind]
+inherits = "release"
+lto = false
