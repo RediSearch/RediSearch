@@ -10,6 +10,7 @@
 #include "common.h"
 extern "C" {
 #include "geo_index.h"
+#include "geo_index_ffi.h"
 #include "query_error_ffi.h"
 }
 #include "gtest/gtest.h"
@@ -154,5 +155,36 @@ TEST(GeoIndex, LegacyParseCursorAndFailureCleanup) {
   EXPECT_EQ(cursor.offset, 0);
   EXPECT_STREQ(QueryError_GetUserError(&error), "SEARCH_PARSE_ARGS GEOFILTER requires 5 arguments");
   LegacyGeoFilter_Free(gf);
+  QueryError_ClearError(&error);
+}
+
+TEST(GeoIndex, RustBoundaryLinksWithCLayouts) {
+  EXPECT_EQ(RustGeoDistance_Parse("fT"), GEO_DISTANCE_FT);
+  EXPECT_EQ(RustGeoDistance_Parse_Buffer("km\0unused", 9), GEO_DISTANCE_KM);
+  EXPECT_STREQ(RustGeoDistance_ToString(GEO_DISTANCE_MI), "mi");
+  GeoFilter* gf = RustNewGeoFilter(12.0, -33.25, 1.0, "m", 1);
+  FieldSpec field = {};
+  field.index = 7;
+  RustGeoFilter_SetField(gf, &field);
+  EXPECT_EQ(gf->fieldIndex, 7);
+  QueryError error = QueryError_Default();
+  EXPECT_EQ(RustGeoFilter_Validate(gf, &error), 1);
+  const double score = encodeGeo(12.25, -33.5);
+  double rustDistance = -1;
+  double cDistance = -1;
+  EXPECT_EQ(RustIsWithinRadius(gf, score, &rustDistance), isWithinRadius(gf, score, &cDistance));
+  EXPECT_DOUBLE_EQ(rustDistance, cDistance);
+  RustGeoFilter_Free(gf);
+
+  const char* args[] = {"place", "31.5", "-24.75", "12.25", "KM"};
+  ArgsCursor cursor;
+  ArgsCursor_InitCString(&cursor, args, 5);
+  auto* legacy = static_cast<LegacyGeoFilter*>(rm_malloc(sizeof(LegacyGeoFilter)));
+  bool empty = true;
+  EXPECT_EQ(RustGeoFilter_LegacyParse(legacy, &cursor, &empty, &error), REDISMODULE_OK);
+  EXPECT_EQ(cursor.offset, 5);
+  EXPECT_TRUE(empty);
+  EXPECT_STREQ(HiddenString_GetUnsafe(legacy->field, nullptr), "place");
+  RustLegacyGeoFilter_Free(legacy);
   QueryError_ClearError(&error);
 }

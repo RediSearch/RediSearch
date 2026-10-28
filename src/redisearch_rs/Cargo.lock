@@ -880,6 +880,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "geo_index_ffi"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "ffi",
+ "geo",
+ "geo_index_ffi",
+ "query_error",
+ "redis-module",
+ "redis_mock",
+ "redisearch_rs",
+ "rqe_core",
+ "rqe_iterators",
+ "workspace_hack",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2214,6 +2231,7 @@ dependencies = [
  "fnv_ffi",
  "fork_gc_ffi",
  "geo_ffi",
+ "geo_index_ffi",
  "idf_ffi",
  "inverted_index_ffi",
  "iterators_ffi",

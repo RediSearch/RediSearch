@@ -1,0 +1,33 @@
+[package]
+name = "geo_index_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lib]
+test = false
+bench = false
+
+[lints]
+workspace = true
+
+[features]
+unittest = []
+
+[build-dependencies]
+build_utils.workspace = true
+
+[dependencies]
+ffi.workspace = true
+geo.workspace = true
+query_error.workspace = true
+redis-module.workspace = true
+rqe_core.workspace = true
+rqe_iterators.workspace = true
+workspace_hack.workspace = true
+
+[dev-dependencies]
+geo_index_ffi = { path = ".", features = ["unittest"] }
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
