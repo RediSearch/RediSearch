@@ -144,7 +144,7 @@ jobs:
     container: ${{
       needs.get-config.outputs.container
         && fromJSON(
-          format('{{"image":"{0}","options":"--user root {1} {2}"}}',
+          format('{{"image":"{0}","options":"--user root --mount type=bind,source=/opt/actions-runner/_diag,target=/runner-diag,readonly {1} {2}"}}',
             needs.build-image.outputs.succeeded == 'true' && needs.build-image.outputs.image || needs.get-config.outputs.container,
             startsWith(needs.get-config.outputs.container, 'alpine:') && (startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '',
             startsWith(needs.get-config.outputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '')
@@ -185,6 +185,23 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
+
+      - name: Verify runner diagnostic readability
+        id: runner-diagnostic-readability
+        continue-on-error: true
+        run: python3 .github/scripts/runner_events.py --require-readable > "${{ runner.temp }}/runner-events-start.json"
+
+      - name: Upload safe runner diagnostic baseline
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: runner-events-start-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-events-start.json
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Require readable runner diagnostic logs
+        if: steps.runner-diagnostic-readability.outcome != 'success'
+        run: exit 1
 
       - name: Free up disk space
         uses: ./.github/actions/github-hosted-runner-cleanup

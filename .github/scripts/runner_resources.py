@@ -8,14 +8,18 @@
 """Stream Linux resource evidence while a CI step is still reachable."""
 
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 import subprocess
 import time
+
+from runner_events import snapshot as runner_events
 
 
 def sample():
     """Record host pressure and container-visible limits without process arguments."""
     print(f"[runner-resources] {datetime.now(timezone.utc).isoformat()}")
+    print(f"[runner-events] {json.dumps(runner_events(), separators=(',', ':'))}")
     sources = {
         "/proc/loadavg": (),
         "/proc/meminfo": ("MemTotal:", "MemAvailable:", "SwapTotal:", "SwapFree:"),
