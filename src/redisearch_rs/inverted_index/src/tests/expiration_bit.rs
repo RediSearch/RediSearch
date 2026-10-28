@@ -284,6 +284,40 @@ fn expiration_bit_survives_gc() {
     assert!(!reader.next_record(&mut result).unwrap());
 }
 
+/// A scan of a GC snapshot carries the bits onto the survivors too, both the ones copied
+/// before the first dead entry and the ones re-encoded after it.
+#[test]
+fn expiration_bit_survives_a_snapshot_scan() {
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    let entries: &[(DocId, bool)] = &[(10, true), (11, false), (12, true), (13, true), (14, true)];
+    for &(doc_id, has_exp) in entries {
+        let rec = RSIndexResult::build_virt()
+            .doc_id(doc_id)
+            .has_field_expiration(has_exp)
+            .build();
+        ii.add_record(&rec).unwrap();
+    }
+
+    let live = |doc_id: DocId| doc_id != 13;
+    let snapshot = ii
+        .gc_snapshot(&live, crate::GcSnapshotScope::DirtyBlocks)
+        .expect("doc 13 is gone");
+    let delta = snapshot
+        .scan_gc(live, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
+        .expect("scan_gc ok")
+        .expect("scan_gc found entries to remove");
+    ii.apply_gc(delta);
+
+    let mut reader = ii.reader();
+    let mut result = RSIndexResult::build_virt().build();
+    for &(doc_id, has_exp) in &[(10u64, true), (11, false), (12, true), (14, true)] {
+        assert!(reader.next_record(&mut result).unwrap());
+        assert_eq!(result.doc_id, doc_id);
+        assert_eq!(result.has_field_expiration, has_exp, "doc {doc_id}");
+    }
+    assert!(!reader.next_record(&mut result).unwrap());
+}
+
 /// Numeric record for `doc_id` with the given field-expiration bit.
 fn numeric(doc_id: DocId, has_exp: bool) -> RSIndexResult<'static> {
     RSIndexResult::build_numeric(1.5)
