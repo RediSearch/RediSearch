@@ -103,7 +103,10 @@ pub unsafe extern "C" fn Rust_GeoDistance_Parse(s: *const c_char) -> GeoDistance
 /// # Safety
 /// `s` must be readable for `len` bytes when `len` is less than the buffer limit.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoDistance_Parse_Buffer(s: *const c_char, len: usize) -> GeoDistance {
+pub unsafe extern "C" fn Rust_GeoDistance_Parse_Buffer(
+    s: *const c_char,
+    len: usize,
+) -> GeoDistance {
     if len >= 16 {
         return GEO_DISTANCE_INVALID;
     }

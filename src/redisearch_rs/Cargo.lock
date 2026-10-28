@@ -857,12 +857,16 @@ dependencies = [
 name = "geo_ffi"
 version = "0.0.1"
 dependencies = [
+ "build_utils",
  "cheadergen",
  "decorum",
  "ffi",
  "geo",
+ "geo_ffi",
  "query_error",
  "redis-module",
+ "redis_mock",
+ "redisearch_rs",
  "rqe_core",
  "tracing",
  "tracing_log_error",
