@@ -241,3 +241,28 @@ def testGeoParseTrailingWhitespace(env):
   conn.execute_command('HSET', 'ws2', 'g', '1.23, 4.56 ')
 
   assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
+
+@skip(cluster=True)
+def testGeoFilterUnitsAndLegacyErrors(env):
+  """Keep the legacy and query-syntax filters equivalent across units and errors."""
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  for key, point in [('near', '12.25,-33.5'), ('far', '13.25,-33.5')]:
+    conn.execute_command('HSET', key, 'g', point)
+  for unit, radius in [('m', 1000), ('KM', 1), ('fT', 3280.84), ('Mi', 0.621372)]:
+    for dialect in [1, 2]:
+      env.expect('FT.SEARCH', 'idx', f'@g:[12.25 -33.5 {radius} {unit}]',
+                 'NOCONTENT', 'DIALECT', dialect).equal([1, 'near'])
+      env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 12.25, -33.5, radius, unit,
+                 'NOCONTENT', 'DIALECT', dialect).equal([1, 'near'])
+  for args, message in [
+      (['g', '12.25', '-33.5', '1'], 'GEOFILTER requires 5 arguments'),
+      (['g', 'bad', '-33.5', '1', 'km'], 'Bad arguments for <lon>'),
+      (['g', '12.25', 'bad', '1', 'km'], 'Bad arguments for <lat>'),
+      (['g', '12.25', '-33.5', 'bad', 'km'], 'Bad arguments for <radius>'),
+      (['g', '12.25', '-33.5', '1', 'yards'], 'Unknown distance unit yards'),
+      (['g', '181', '-33.5', '1', 'km'], 'Invalid GeoFilter lat/lon'),
+      (['g', '12.25', '-33.5', '0', 'km'], 'Invalid GeoFilter radius'),
+      (['g', 'NaN', '-33.5', '1', 'km'], 'Bad arguments for <lon>'),
+  ]:
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', *args).error().contains(message)

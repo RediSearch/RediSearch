@@ -853,6 +853,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "geo_bencher"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "criterion",
+ "ffi",
+ "geo",
+ "redis_mock",
+ "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "geo_ffi"
 version = "0.0.1"
 dependencies = [
