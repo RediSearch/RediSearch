@@ -61,13 +61,15 @@ KHASH_MAP_INIT_INT64(khid, Group *);
 #define GROUPER_NSRCKEYS(g) ((g)->nkeys)
 
 /**
- * Per-key state while a row is added to its groups. A non-empty array value
- * contributes each of its elements in turn; any other value contributes itself.
+ * Per-key state while a row is added to its groups. An array value with more
+ * than one element contributes each of its elements in turn; any other value
+ * contributes itself, with an empty array standing for null and a single-element
+ * array for its element.
  */
 typedef struct {
-  const RSValue *value;  // the row's value for this key
+  const RSValue *value;  // the value this key contributes, or its array
   const RSValue *deref;  // `value`, dereferenced
-  size_t fanout;         // how many values this key contributes
+  size_t fanout;         // how many values this key contributes; > 1 only for arrays
   size_t idx;            // which of them is currently selected
   uint64_t hash;         // hash of the selected values up to and including this key
 } GroupKeyCursor;
@@ -220,10 +222,9 @@ static void selectGroupValue(Grouper *g, size_t pos, size_t idx) {
   GroupKeyCursor *c = &g->cursors[pos];
   const RSValue *selected = c->value;
   const RSValue *hashed = c->deref;
-  if (RSValue_IsArray(c->deref)) {
-    // An empty array groups as null. Elements are hashed as-is, even arrays.
-    selected = hashed =
-        RSValue_ArrayLen(c->deref) ? RSValue_ArrayItem(c->deref, idx) : RSValue_NullStatic();
+  if (c->fanout > 1) {
+    // Elements are hashed as-is, even arrays.
+    selected = hashed = RSValue_ArrayItem(c->deref, idx);
   }
   c->idx = idx;
   g->groupvals[pos] = selected;
@@ -245,14 +246,19 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
     c->value = v ? v : RSValue_NullStatic();
     c->deref = RSValue_Dereference(c->value);
     c->fanout = 1;
-    if (RSValue_IsArray(c->deref) && RSValue_ArrayLen(c->deref) > 1) {
+    if (RSValue_IsArray(c->deref)) {
       size_t len = RSValue_ArrayLen(c->deref);
-      if (combinations > g->groupByLimits.maxGroups / len) {
-        setAggregateGroupLimitError(g);
-        return RS_RESULT_ERROR;
+      if (len > 1) {
+        if (combinations > g->groupByLimits.maxGroups / len) {
+          setAggregateGroupLimitError(g);
+          return RS_RESULT_ERROR;
+        }
+        combinations *= len;
+        c->fanout = len;
+      } else {
+        // An empty array groups as null, a single element as itself (as-is).
+        c->value = c->deref = len ? RSValue_ArrayItem(c->deref, 0) : RSValue_NullStatic();
       }
-      combinations *= len;
-      c->fanout = len;
     }
     selectGroupValue(g, pos, 0);
   }

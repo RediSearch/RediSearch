@@ -61,8 +61,10 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   size_t nproperties = array_len(properties);
   // The property count is client-controlled, so keep these off the stack.
   const RLookupKey **srckeys = rm_malloc(2 * nproperties * sizeof(*srckeys));
-  ResultProcessor *rp = NULL;
   const RLookupKey **dstkeys = srckeys + nproperties;
+  ResultProcessor *rp = NULL;
+  Grouper *grp = NULL;
+  size_t nreducers;
   for (size_t ii = 0; ii < nproperties; ++ii) {
     const char *fldname = properties[ii] + 1;  // account for the @-
     size_t fldname_len = strlen(fldname);
@@ -87,9 +89,9 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, nproperties, groupByLimits);
+  grp = Grouper_New(srckeys, dstkeys, nproperties, groupByLimits);
 
-  size_t nreducers = array_len(gstp->reducers);
+  nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
