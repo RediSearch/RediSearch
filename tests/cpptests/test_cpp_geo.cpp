@@ -180,13 +180,23 @@ TEST(GeoIndexTest, LegacyParseEmptyValuesAndDeferredValidation) {
 }
 
 TEST(GeoIndexTest, LegacyParseErrorsAndCursorPosition) {
-  for (int badIndex : {1, 2, 3, 4, -1}) {
-    const char *args[] = {"g", "0", "0", "1", "km"};
-    if (badIndex >= 0) {
-      args[badIndex] = "bad";
-    }
+  struct Case {
+    const char *args[5];
+    int count;
+    size_t offset;
+    const char *error;
+  };
+  for (const auto &test : {
+           Case{{"g", "bad", "0", "1", "km"}, 5, 1, "for <lon>"},
+           Case{{"g", "0", "bad", "1", "km"}, 5, 2, "for <lat>"},
+           Case{{"g", "0", "0", "bad", "km"}, 5, 3, "for <radius>"},
+           Case{{"g", "0", "0", "1", "bad"}, 5, 5, "Unknown distance unit bad"},
+           Case{{"g", "0", "0", "1", "km"}, 4, 0, "GEOFILTER requires 5 arguments"},
+       }) {
+    SCOPED_TRACE(test.error);
+    auto args = test;
     ArgsCursor cursor;
-    ArgsCursor_InitCString(&cursor, args, badIndex == -1 ? 4 : 5);
+    ArgsCursor_InitCString(&cursor, args.args, args.count);
     LegacyFilter filter(static_cast<LegacyGeoFilter *>(rm_calloc(1, sizeof(LegacyGeoFilter))),
                         LegacyGeoFilter_Free);
     Error error;
@@ -197,12 +207,9 @@ TEST(GeoIndexTest, LegacyParseErrorsAndCursorPosition) {
     EXPECT_EQ(filter->base.numericFilters, nullptr);
     EXPECT_EQ(filter->base.fieldIndex, RS_INVALID_FIELD_INDEX);
     EXPECT_EQ(QueryError_GetCode(&error.value), QUERY_ERROR_CODE_PARSE_ARGS);
-    const char *details[] = {"", "for <lon>", "for <lat>", "for <radius>",
-                             "Unknown distance unit bad"};
-    EXPECT_NE(std::string(QueryError_GetUserError(&error.value))
-                  .find(badIndex == -1 ? "GEOFILTER requires 5 arguments" : details[badIndex]),
+    EXPECT_NE(std::string(QueryError_GetUserError(&error.value)).find(test.error),
               std::string::npos);
-    EXPECT_EQ(cursor.offset, badIndex == -1 ? 0 : badIndex == 4 ? 5 : badIndex);
+    EXPECT_EQ(cursor.offset, test.offset);
   }
 }
 
@@ -234,7 +241,7 @@ TEST(GeoIndexTest, LegacyPartialOutputAndCursorGrammar) {
 
 TEST(GeoIndexTest, AggregateReferenceAndTrioViews) {
   using Value = std::unique_ptr<RSValue, decltype(&RSValue_DecrRef)>;
-  Value point(RSValue_NewString(rm_strdup("0,0"), 3), RSValue_DecrRef);
+  Value point(RSValue_NewCopiedString("0,0", 3), RSValue_DecrRef);
   Value reference(RSValue_NewReference(point.get()), RSValue_DecrRef);
   Value trio(RSValue_NewTrio(RSValue_NewNumber(0), RSValue_NewNumber(1), RSValue_NewNumber(2)),
              RSValue_DecrRef);

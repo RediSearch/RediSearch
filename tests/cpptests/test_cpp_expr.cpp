@@ -143,41 +143,34 @@ TEST_F(ExprTest, testGeoDistanceArgumentForms) {
 }
 
 TEST_F(ExprTest, testGeoDistanceConversionFailures) {
-  for (const char *expression : {
-           "geodistance(NULL,'0,0')",
-           "geodistance('0,0',NULL)",
-           "geodistance(0,'bad','0,0')",
-           "geodistance(0,0,NULL)",
-           "geodistance('0,0','bad',0)",
-           "geodistance('0,0',0,'bad')",
-           "geodistance('bad',0,0,0)",
-           "geodistance(0,'bad',0,0)",
-           "geodistance(0,0,'bad',0)",
-           "geodistance(0,0,0,'bad')",
+  struct Case {
+    const char *expression;
+    QueryErrorCode error;
+  };
+  for (const auto &test : {
+           Case{"geodistance(NULL,'0,0')", QUERY_ERROR_CODE_OK},
+           Case{"geodistance('0,0',NULL)", QUERY_ERROR_CODE_OK},
+           Case{"geodistance(0,'bad','0,0')", QUERY_ERROR_CODE_OK},
+           Case{"geodistance(0,0,NULL)", QUERY_ERROR_CODE_OK},
+           Case{"geodistance('0,0','bad',0)", QUERY_ERROR_CODE_OK},
+           Case{"geodistance('0,0',0,'bad')", QUERY_ERROR_CODE_OK},
+           Case{"geodistance('bad',0,0,0)", QUERY_ERROR_CODE_OK},
+           Case{"geodistance(0,'bad',0,0)", QUERY_ERROR_CODE_OK},
+           Case{"geodistance(0,0,'bad',0)", QUERY_ERROR_CODE_OK},
+           Case{"geodistance(0,0,0,'bad')", QUERY_ERROR_CODE_OK},
+           Case{"geodistance('bad','0,0')", QUERY_ERROR_CODE_PARSE_ARGS},
+           Case{"geodistance('0,0','bad')", QUERY_ERROR_CODE_PARSE_ARGS},
+           Case{"geodistance('bad',0,0)", QUERY_ERROR_CODE_PARSE_ARGS},
+           Case{"geodistance(0,0,'bad')", QUERY_ERROR_CODE_PARSE_ARGS},
        }) {
-    SCOPED_TRACE(expression);
-    TEvalCtx ctx(expression);
+    SCOPED_TRACE(test.expression);
+    TEvalCtx ctx(test.expression);
     ASSERT_TRUE(ctx) << ctx.error();
     ctx.err = &ctx.status_s;
     EXPECT_EQ(ctx.eval(), EXPR_EVAL_OK);
     ASSERT_EQ(RSValue_Type(ctx.result()), RSValueType_Number);
     EXPECT_TRUE(std::isnan(RSValue_Number_Get(ctx.result())));
-    EXPECT_FALSE(QueryError_HasError(&ctx.status_s));
-  }
-  for (const char *expression : {
-           "geodistance('bad','0,0')",
-           "geodistance('0,0','bad')",
-           "geodistance('bad',0,0)",
-           "geodistance(0,0,'bad')",
-       }) {
-    SCOPED_TRACE(expression);
-    TEvalCtx ctx(expression);
-    ASSERT_TRUE(ctx) << ctx.error();
-    ctx.err = &ctx.status_s;
-    EXPECT_EQ(ctx.eval(), EXPR_EVAL_OK);
-    ASSERT_EQ(RSValue_Type(ctx.result()), RSValueType_Number);
-    EXPECT_TRUE(std::isnan(RSValue_Number_Get(ctx.result())));
-    EXPECT_EQ(QueryError_GetCode(&ctx.status_s), QUERY_ERROR_CODE_PARSE_ARGS);
+    EXPECT_EQ(QueryError_GetCode(&ctx.status_s), test.error);
   }
 }
 

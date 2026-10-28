@@ -122,16 +122,19 @@ fn validation_preserves_comparison_boundaries_and_nonfinite_values() {
 }
 
 #[test]
-fn containment_is_inclusive_and_always_reports_meters() {
+fn containment_always_reports_meters() {
     let score = 3_477_064_553_862_190.0;
     let mut filter = GeoFilter::new(13.0, 38.0, 1.0, Some(b"m"));
     let (within, distance) = filter.is_within_radius(score);
     assert!(!within);
     assert!(distance > 1.0);
-    filter.radius = distance;
-    assert_eq!(filter.is_within_radius(score), (true, distance));
-    filter.radius = distance.next_down();
-    assert_eq!(filter.is_within_radius(score), (false, distance));
+    // Transcendental results may vary between calls under Miri; keep the
+    // nonzero cases away from the boundary and check distance approximately.
+    let assert_result = |filter: &GeoFilter, expected| {
+        let (within, actual_distance) = filter.is_within_radius(score);
+        assert_eq!(within, expected);
+        assert!((actual_distance - distance).abs() < distance * 1e-12);
+    };
     for unit in [
         GeoDistance::Kilometers,
         GeoDistance::Meters,
@@ -140,14 +143,27 @@ fn containment_is_inclusive_and_always_reports_meters() {
     ] {
         filter.unit = unit;
         filter.radius = distance * 2.0 / unit.factor();
-        assert_eq!(filter.is_within_radius(score), (true, distance));
+        assert_result(&filter, true);
         filter.radius = distance / (2.0 * unit.factor());
-        assert_eq!(filter.is_within_radius(score), (false, distance));
+        assert_result(&filter, false);
     }
     filter.radius = f64::NAN;
-    assert_eq!(filter.is_within_radius(score), (false, distance));
+    assert_result(&filter, false);
     filter.radius = f64::INFINITY;
-    assert_eq!(filter.is_within_radius(score), (true, distance));
+    assert_result(&filter, true);
+}
+
+#[test]
+fn containment_includes_exact_zero_distance_boundary() {
+    let score = 3_477_064_553_862_190_u64;
+    let (lon, lat) = decode_to_lon_lat(GeoHashBits {
+        bits: score,
+        step: GEO_STEP_MAX,
+    });
+    let mut filter = GeoFilter::new(lon.into_inner(), lat.into_inner(), 0.0, Some(b"m"));
+    assert_eq!(filter.is_within_radius(score as f64), (true, 0.0));
+    filter.radius = -1.0;
+    assert_eq!(filter.is_within_radius(score as f64), (false, 0.0));
 }
 
 #[test]

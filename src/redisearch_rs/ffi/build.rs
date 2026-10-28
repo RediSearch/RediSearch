@@ -100,7 +100,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "deps/rmutil/args.h",
         fns: &["AC_GetString", "AC_GetDouble"],
-        types: &["ArgsCursor"],
+        types: &["ArgsCursor", "ACType"],
         vars: &["AC_F_NOADVANCE"],
     },
     HeaderAllowlist {
