@@ -24,6 +24,7 @@
 #include "redisearch.h"
 #include "result_processor.h"
 #include "debug_commands.h"
+#include "info/info_redis/threads/main_thread.h"
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
 // GCSchedFlags bits seeded into every GCContext created from here on, so one created while a
@@ -128,16 +129,20 @@ static void GCContext_DisarmTimer(GCContext* gc) {
 // Claims RUN_PENDING and queues a run, or does nothing if a run already holds this context --
 // two runs behind one bit would let the first one's tail clear it while the second is still
 // queued, and every guard that reads RUN_PENDING would be void from then on.
-static void GCContext_QueueRun(GCContext* gc) {
+// Returns whether a run was queued; a run already pending or executing takes the work instead.
+static bool GCContext_QueueRun(GCContext* gc) {
+  RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_WAIT_FOR_WORK);
   if (RS_AtomicUintFetchOrRelaxed(&gc->schedFlags, GC_SCHED_RUN_PENDING) & GC_SCHED_RUN_PENDING) {
-    return;  // that run's tail re-arms
+    return false;  // that run's tail re-arms
   }
   if (redisearch_thpool_add_work(gcThreadpool_g, taskCallback, gc, THPOOL_PRIORITY_HIGH) != 0) {
     // Nothing else would clear the bit, and no run is coming to re-arm -- so without both of
     // these this index loses collection for the life of the process.
     RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_RUN_PENDING);
     GCContext_ArmTimer(gc);
+    return false;
   }
+  return true;
 }
 
 static void GCDebugTask_Finish(struct GCDebugTask *task);
@@ -243,7 +248,38 @@ static void timerCallback(RedisModuleCtx* ctx, void* data) {
     GCContext_ArmTimer(gc);
     return;
   }
+  if (gc->callbacks.hasEnoughWork && !gc->callbacks.hasEnoughWork(gc->gcCtx)) {
+    // Keep the interval cadence as a fallback for work this GC is not told about.
+    RS_AtomicUintFetchOrRelaxed(&gc->schedFlags, GC_SCHED_WAIT_FOR_WORK);
+    GCContext_ArmTimer(gc);
+    return;
+  }
   GCContext_QueueRun(gc);
+}
+
+// After a deletion was counted: the run a tick put off starts once there is enough to do.
+// Replaces the armed timer; the run's tail arms the next one. Timers are main-thread only, like
+// everywhere in this file, and deletions are also counted from the reindex pool (a background
+// scan that drops documents a rule no longer matches), so off the main thread nothing starts:
+// the deletion is counted, and the next tick finds it. A policy that stops waiting while the
+// flag is set (the thread policy falling back to forks) gets one early run, which clears the flag.
+static void GCContext_RunIfWaitedFor(GCContext* gc) {
+  if (!(RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_WAIT_FOR_WORK)) {
+    return;
+  }
+  if (MainThread_GetBlockedQueries() == NULL) {
+    return;
+  }
+  RS_LOG_ASSERT(gc->callbacks.hasEnoughWork, "only a GC with a work policy waits for work");
+  if (!gc->enabled || GCContext_IsSchedulingPaused(gc) ||
+      (RedisModule_AvoidReplicaTraffic && RedisModule_AvoidReplicaTraffic()) ||
+      !gc->callbacks.hasEnoughWork(gc->gcCtx)) {
+    return;
+  }
+  GCContext_DisarmTimer(gc);
+  if (GCContext_QueueRun(gc)) {
+    IncrementGCEarlyStart();
+  }
 }
 
 void GCContext_StartNow(GCContext* gc) {
@@ -295,6 +331,9 @@ void GCContext_FinishDrop(GCContext* gc) {
 
 void GCContext_StopFutureRuns(GCContext* gc) {
   gc->enabled = false;
+  // A deletion must not start what the operator just stopped; the tick that follows a resume
+  // decides anew.
+  RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_WAIT_FOR_WORK);
   GCContext_DisarmTimer(gc);
 }
 
@@ -307,6 +346,7 @@ void GCContext_PauseScheduling(GCContext* gc) {
     return;
   }
   RS_AtomicUintFetchOrRelaxed(&gc->schedFlags, GC_SCHED_PAUSED);
+  RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_WAIT_FOR_WORK);
   GCContext_DisarmTimer(gc);
 }
 
@@ -340,6 +380,7 @@ void GCContext_RenderStatsForInfo(GCContext* gc, RedisModuleInfoCtx* ctx) {
 void GCContext_OnDelete(GCContext* gc) {
   if (gc->callbacks.onDelete) {
     gc->callbacks.onDelete(gc->gcCtx);
+    GCContext_RunIfWaitedFor(gc);
   }
 }
 
@@ -365,6 +406,8 @@ void GCContext_GetStats(GCContext* gc, InfoGCStats* out) {
 void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc,
                                  GCForcedRun forced) {
   GCDebugTask *task = GCDebugTaskCreate(gc, bc, forced);
+  // A forced run does the work a tick put off; its tail re-arms the timer.
+  RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_WAIT_FOR_WORK);
   if (RS_AtomicUintFetchOrRelaxed(&gc->schedFlags, GC_SCHED_RUN_PENDING) & GC_SCHED_RUN_PENDING) {
     task->forced.outcome = GC_FORCED_RUN_BUSY;
     GCDebugTask_Finish(task);

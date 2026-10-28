@@ -28,6 +28,9 @@ typedef enum {
   GC_SCHED_NONE = 0x00,
   GC_SCHED_RUN_PENDING = 0x01,  // a run is queued on the GC pool, or executing
   GC_SCHED_PAUSED = 0x02,       // a disk consistency window is open
+  // The last timer tick found too little work; the main-thread deletion that makes enough
+  // queues the run instead of waiting for the next tick.
+  GC_SCHED_WAIT_FOR_WORK = 0x04,
 } GCSchedFlags;
 
 typedef struct InfoGCStats {
@@ -106,6 +109,10 @@ typedef struct GCCallbacks {
   void (*onTerm)(void* ctx);
   struct timespec (*getInterval)(void* ctx);
   void (*getStats)(void* gcCtx, InfoGCStats* out);
+  // Whether a run started now would have enough to do; NULL means always. A tick that is told
+  // "no" re-arms and waits for a deletion to say "yes" instead (GC_SCHED_WAIT_FOR_WORK). Called
+  // on the main thread only.
+  bool (*hasEnoughWork)(void* ctx);
 } GCCallbacks;
 
 struct GCDebugTask;

@@ -2792,10 +2792,12 @@ void ResetYieldCounters(void) {
   g_yieldCallHandler.yieldOnBgIndexCounter = 0;
 }
 
-// Both are only ever bumped on the main thread.
+// All are only ever bumped on the main thread.
 typedef struct {
   size_t total;
   size_t fromOneShot;
+  // Runs a deletion queued in place of a waiting timer (GC_SCHED_WAIT_FOR_WORK).
+  size_t earlyStarts;
 } GCTimerArmCounters;
 
 static GCTimerArmCounters g_gcTimerArms = {0};
@@ -2808,7 +2810,11 @@ void IncrementGCTimerArmFromOneShot(void) {
   g_gcTimerArms.fromOneShot++;
 }
 
-// FT.DEBUG GC_TIMER_ARMS TOTAL|FROM_ONESHOT|RESET
+void IncrementGCEarlyStart(void) {
+  g_gcTimerArms.earlyStarts++;
+}
+
+// FT.DEBUG GC_TIMER_ARMS TOTAL|FROM_ONESHOT|EARLY_STARTS|RESET
 DEBUG_COMMAND(GCTimerArms) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -2828,6 +2834,9 @@ DEBUG_COMMAND(GCTimerArms) {
   }
   if (STR_EQCASE(subCmd, len, "FROM_ONESHOT")) {
     return RedisModule_ReplyWithLongLong(ctx, (long long)g_gcTimerArms.fromOneShot);
+  }
+  if (STR_EQCASE(subCmd, len, "EARLY_STARTS")) {
+    return RedisModule_ReplyWithLongLong(ctx, (long long)g_gcTimerArms.earlyStarts);
   }
   return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
 }
