@@ -23,7 +23,7 @@ HEADER = re.compile(
     r'^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z) '
     r'(INFO|WARN|ERR|VERB) +'
     r'(JobDispatcher|BrokerMessageListener|BrokerServer|RunServer|ResultServer|'
-    r'JobServerQueue|JobRunner|Worker|Runner|ProcessChannel)\] (.*)$'
+    r'JobServer|JobServerQueue|JobRunner|Worker|Runner|ProcessChannel)\] (.*)$'
 )
 EVENTS = (
     ('lease_renewed', r'Successfully renew job(?: request)? '),
@@ -102,6 +102,12 @@ def snapshot():
             exception = next((name for name in EXCEPTIONS if re.search(r'\b' + name + r'\b', message)), None)
             if exception:
                 record['exception'] = exception
+            status = re.search(
+                r'Response status code does not indicate success: ([1-5][0-9]{2})(?![0-9])',
+                message,
+            )
+            if status:
+                record['http_status'] = int(status.group(1))
             counts[event] += 1
             entry['events'].append(record)
         entry['counts'] = dict(counts)

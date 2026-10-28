@@ -37,7 +37,7 @@ cases = [
     ('ResultServer', 'INFO', 'Exception caught during websocket client connect, retry connection.', 'websocket_connect_error'),
     ('BrokerServer', 'INFO', 'Exception caught during runner websocket connect, will retry.', 'websocket_connect_error'),
     ('BrokerServer', 'INFO', 'Exception caught while holding runner websocket, will reconnect.', 'websocket_receive_error'),
-    ('ResultServer', 'INFO', "Websocket is not open, let's attempt to connect back again with random backoff 00:00:00.3080000 ms.", 'websocket_reconnect'),
+    ('JobServer', 'INFO', "Websocket is not open, let's attempt to connect back again with random backoff 00:00:00.3080000 ms.", 'websocket_reconnect'),
     ('BrokerMessageListener', 'INFO', "Acknowledging runner request 'dummy-job'.", 'broker_request_acknowledged'),
 ]
 exceptions = [
@@ -54,6 +54,11 @@ expected.extend(
      'event': 'component_error', 'exception': name}
     for name in exceptions
 )
+expected.extend(
+    {'utc': '2026-10-28 12:00:00Z', 'component': 'RunServer',
+     'event': 'component_error', 'exception': 'HttpRequestException', 'http_status': status}
+    for status in (401, 503)
+)
 
 with tempfile.TemporaryDirectory() as directory:
     runner_events.DIRECTORY = Path(directory)
@@ -65,6 +70,11 @@ with tempfile.TemporaryDirectory() as directory:
     fixture += ''.join(
         f'[2026-10-28 12:00:00Z ERR  RunServer] System.Net.Http.{name}: {dummy_url}\n'
         for name in exceptions
+    )
+    fixture += ''.join(
+        '[2026-10-28 12:00:00Z ERR  RunServer] System.Net.Http.HttpRequestException: '
+        f'Response status code does not indicate success: {status} (error). {dummy_url}\n'
+        for status in (401, 503)
     )
     fixture += '[2026-10-28 12:00:03Z INFO Worker] Ignored payload: ' + dummy_url + '\n'
     for kind in ('Runner', 'Worker'):
