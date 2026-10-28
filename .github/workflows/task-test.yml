@@ -343,6 +343,7 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
+          CARGO_BUILD_JOBS: 2
         uses: ./.github/actions/diagnose-runner-resources
       - name: Build TESTFILE excluding flaky tests (standalone)
         id: standalone_testfile
