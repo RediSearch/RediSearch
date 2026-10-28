@@ -96,8 +96,8 @@ typedef struct II_GCScanStats {
    */
   int64_t block_count_delta;
   /**
-   * Whether or not we ignored the last block in the index, since it changed
-   * compared to the time we performed the scan
+   * Whether the last block's delta was dropped because the block changed since the
+   * scan and could not be rescanned (no liveness source given, or it would not decode).
    */
   bool ignored_last_block;
 } II_GCScanStats;

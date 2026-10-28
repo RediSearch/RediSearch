@@ -9,7 +9,7 @@
 
 //! Tests for garbage collection in the numeric range tree.
 
-use numeric_range_tree::{NodeGcDelta, NumericRangeTree};
+use numeric_range_tree::{NodeGcDelta, NumericRangeTree, scan_range_index_gc};
 use rstest::rstest;
 
 use numeric_range_tree::test_utils::{
@@ -855,4 +855,22 @@ fn gc_tightens_retained_internal_range() {
         leftmost = left;
     }
     assert_eq!(bounds_of(&tree, leftmost).0, 2.0);
+}
+
+/// A scan of a snapshot taken with a liveness source finds exactly what a scan of
+/// the live range finds with it.
+#[rstest]
+fn scanning_a_snapshot_matches_scanning_the_live_range(
+    #[values(false, true)] compress_floats: bool,
+) {
+    let tree = build_single_leaf_tree(ENTRIES_PER_BLOCK * 3, compress_floats);
+    let entries = tree.root().range().expect("a leaf has a range").entries();
+    let live = |doc_id: u64| doc_id % 3 != 0;
+
+    let on_live = scan_range_index_gc(entries, live)
+        .unwrap()
+        .expect("every third doc is gone");
+    let snapshot = entries.gc_snapshot(&live).expect("every third doc is gone");
+
+    assert_eq!(scan_range_index_gc(&snapshot, live).unwrap(), Some(on_live));
 }

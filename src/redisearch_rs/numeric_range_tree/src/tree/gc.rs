@@ -13,7 +13,6 @@
 //! the normal insert/query hot paths. It handles applying GC deltas from
 //! child processes, trimming empty leaves, and compacting the node slab.
 
-use rqe_core::DocId;
 use std::collections::HashMap;
 
 use index_result::RSIndexResult;
@@ -86,55 +85,12 @@ impl NumericRangeNode {
     /// documents, and computes HLL registers for cardinality re-estimation.
     ///
     /// Returns `Some(NodeGcDelta)` if the node had GC work, `None` otherwise
-    /// (either the node has no range, or no documents were deleted).
-    pub fn scan_gc(&self, doc_exists: &dyn Fn(DocId) -> bool) -> Option<NodeGcDelta> {
-        let range = self.range()?;
-
-        // The logical index of the last block — used inside the repair closure to route
-        // each entry's HLL contribution into the correct accumulator. Comparing by
-        // logical index instead of pointer equality is robust to future changes that
-        // produce blocks via owned snapshots (where block addresses can shift).
-        let last_block_idx = range.entries().num_blocks().saturating_sub(1);
-
-        // HLL tracking for cardinality (re)estimation.
-        //
-        // `majority_hll` accumulates all blocks except the last one.
-        // `last_block_hll` accumulates only the last block.
-        let mut majority_hll = Hll::new();
-        let mut last_block_hll = Hll::new();
-        let mut majority_bounds = ValueBounds::EMPTY;
-        let mut last_block_bounds = ValueBounds::EMPTY;
-
-        let mut repair_fn = |res: &RSIndexResult, ctx: &inverted_index::RepairContext<'_>| {
-            // SAFETY: We know this is a numeric index result. Scanned straight out of
-            // the index, so already in stored form.
-            let value = StoredValue::from_decoded(unsafe { res.as_numeric_unchecked() });
-            let (hll, bounds) = if ctx.block_idx == last_block_idx {
-                (&mut last_block_hll, &mut last_block_bounds)
-            } else {
-                (&mut majority_hll, &mut majority_bounds)
-            };
-            hll.add(&value.into());
-            bounds.include(value.get());
-        };
-
-        let delta = range
-            .entries()
-            .scan_gc(doc_exists, Some(&mut repair_fn))
+    /// (the node has no range, no documents were deleted, or the range would not
+    /// decode; the next cycle tries again).
+    pub fn scan_gc(&self, doc_exists: impl inverted_index::DocLiveness) -> Option<NodeGcDelta> {
+        scan_range_index_gc(self.range()?.entries(), doc_exists)
             .ok()
-            .flatten()?;
-
-        // Merge majority into last_block to get the "with last block" statistics.
-        last_block_hll.merge(&majority_hll);
-        last_block_bounds.merge(majority_bounds);
-
-        Some(NodeGcDelta {
-            delta,
-            registers_with_last_block: *last_block_hll.registers(),
-            registers_without_last_block: *majority_hll.registers(),
-            bounds_with_last_block: last_block_bounds,
-            bounds_without_last_block: majority_bounds,
-        })
+            .flatten()
     }
 }
 
@@ -427,4 +383,61 @@ impl NumericRangeTree {
 
         nodes.remove(node_idx);
     }
+}
+
+/// The GC scan of one range's entries: the inverted-index delta plus the HLL
+/// registers and value bounds of the surviving entries, with and without the
+/// last block, so the node's cardinality can be reset whichever way the apply
+/// treats that block. Runs on the live index or on a full copy of it taken with
+/// [`NumericIndex::gc_snapshot`](crate::NumericIndex::gc_snapshot).
+///
+/// Returns `Ok(None)` when no document was deleted from the range, and the error
+/// when the range would not decode, so the caller can tell the two apart.
+pub fn scan_range_index_gc(
+    entries: &crate::NumericIndex,
+    doc_exists: impl inverted_index::DocLiveness,
+) -> std::io::Result<Option<NodeGcDelta>> {
+    // The logical index of the last block — used inside the repair closure to route
+    // each entry's HLL contribution into the correct accumulator. Comparing by
+    // logical index instead of pointer equality is robust to future changes that
+    // produce blocks via owned snapshots (where block addresses can shift).
+    let last_block_idx = entries.num_blocks().saturating_sub(1);
+
+    // HLL tracking for cardinality (re)estimation.
+    //
+    // `majority_hll` accumulates all blocks except the last one.
+    // `last_block_hll` accumulates only the last block.
+    let mut majority_hll = Hll::new();
+    let mut last_block_hll = Hll::new();
+    let mut majority_bounds = ValueBounds::EMPTY;
+    let mut last_block_bounds = ValueBounds::EMPTY;
+
+    let mut repair_fn = |res: &RSIndexResult, ctx: &inverted_index::RepairContext<'_>| {
+        // SAFETY: We know this is a numeric index result. Scanned straight out of
+        // the index, so already in stored form.
+        let value = StoredValue::from_decoded(unsafe { res.as_numeric_unchecked() });
+        let (hll, bounds) = if ctx.block_idx == last_block_idx {
+            (&mut last_block_hll, &mut last_block_bounds)
+        } else {
+            (&mut majority_hll, &mut majority_bounds)
+        };
+        hll.add(&value.into());
+        bounds.include(value.get());
+    };
+
+    let Some(delta) = entries.scan_gc(doc_exists, Some(&mut repair_fn))? else {
+        return Ok(None);
+    };
+
+    // Merge majority into last_block to get the "with last block" statistics.
+    last_block_hll.merge(&majority_hll);
+    last_block_bounds.merge(majority_bounds);
+
+    Ok(Some(NodeGcDelta {
+        delta,
+        registers_with_last_block: *last_block_hll.registers(),
+        registers_without_last_block: *majority_hll.registers(),
+        bounds_with_last_block: last_block_bounds,
+        bounds_without_last_block: majority_bounds,
+    }))
 }
