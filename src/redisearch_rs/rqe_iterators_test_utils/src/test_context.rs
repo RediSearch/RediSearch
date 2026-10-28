@@ -696,7 +696,7 @@ impl TestContext {
             }
         }
 
-        // Set spec.existingDocs so Wildcard::should_abort() can find the index
+        // Set spec.existingDocs so Wildcard's revalidation can find the index
         // during revalidation (it compares spec.existingDocs with the reader's index).
         unsafe {
             (&mut *spec).existingDocs = ii_ptr.cast();
