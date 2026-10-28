@@ -225,7 +225,7 @@ typedef void (*RSFreeFunction)(void *);
 /* RSOffsetIterator is an interface for iterating offset vectors of aggregate and token records */
 typedef struct RSOffsetIterator {
   void *ctx;
-  uint32_t (*Next)(void *ctx, RSQueryTerm **term);
+  uint32_t (*Next)(void *ctx, const RSQueryTerm **term);
   void (*Rewind)(void *ctx);
   void (*Free)(void *ctx);
 } RSOffsetIterator;
@@ -242,7 +242,7 @@ typedef struct {
 
 #pragma pack()
 
-RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t);
+RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, const RSQueryTerm *t);
 
 /* Iterate an offset vector. The iterator object is allocated on the heap and needs to be freed */
 RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res);

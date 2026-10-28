@@ -723,17 +723,17 @@ fn full_test_mirrors_cpp_testdistance() {
     assert!(ir.is_within_range(Some(5), true));
 }
 
-// ── RSTermRecord::FullyOwned ─────────────────────────────────────────────
+// ── RSTermRecord::Owned ──────────────────────────────────────────────────
 //
-// The `FullyOwned` variant owns both the query term (via `Box`) and the
+// The `Owned` variant shares ownership of the query term and owns the
 // offsets (via `RSOffsetVector`), so the resulting `RSIndexResult` is
 // independent of the original offset byte source.
 
-/// Build a `FullyOwned`-backed result, drop the source bytes, and verify the
+/// Build an `Owned`-backed result, drop the source bytes, and verify the
 /// record still reads back correctly. Also exercises the `is_copy`,
-/// `offsets`, and `query_term` match arms for the `FullyOwned` variant.
+/// `offsets`, and `query_term` match arms for the `Owned` variant.
 #[test]
-fn fully_owned_term_result_is_independent_of_source_bytes() {
+fn owned_term_result_is_independent_of_source_bytes() {
     let term = RSQueryTerm::new("abc", 1, 0);
 
     // Allocate the offset bytes on a temporary buffer, copy them into an
@@ -744,7 +744,7 @@ fn fully_owned_term_result_is_independent_of_source_bytes() {
     drop(transient);
 
     let ir = RSIndexResult::build_term()
-        .fully_owned_record(Some(term), offsets_vec)
+        .owned_record(Some(term), offsets_vec)
         .doc_id(42)
         .field_mask(7)
         .frequency(2)
@@ -752,8 +752,8 @@ fn fully_owned_term_result_is_independent_of_source_bytes() {
         .build();
 
     let term_rec = ir.as_term().expect("term record");
-    assert!(term_rec.is_copy(), "FullyOwned is a copy variant");
-    assert!(ir.is_copy(), "FullyOwned bubbles up through RSIndexResult");
+    assert!(term_rec.is_copy(), "Owned is a copy variant");
+    assert!(ir.is_copy(), "Owned bubbles up through RSIndexResult");
     assert_eq!(term_rec.offsets(), &[1, 4, 9]);
     assert_eq!(
         term_rec.query_term().and_then(|t| t.as_bytes()),
@@ -765,16 +765,16 @@ fn fully_owned_term_result_is_independent_of_source_bytes() {
     assert_eq!(ir.weight, 1.5);
 }
 
-/// `set_offsets` on a `FullyOwned` record copies the input slice into the
-/// record's own allocation (exercising the `FullyOwned` match arm of
+/// `set_offsets` on an `Owned` record copies the input slice into the
+/// record's own allocation (exercising the `Owned` match arm of
 /// `set_offsets`, distinct from the `Borrowed` arm covered elsewhere).
 #[test]
-fn set_offsets_on_fully_owned_copies_slice() {
+fn set_offsets_on_owned_copies_slice() {
     static INITIAL: [u8; 2] = [1, 2];
     static REPLACEMENT: [u8; 3] = [9, 8, 7];
     let term = RSQueryTerm::new("t", 1, 0);
     let mut ir = RSIndexResult::build_term()
-        .fully_owned_record(Some(term), RSOffsetSlice::from_slice(&INITIAL).to_owned())
+        .owned_record(Some(term), RSOffsetSlice::from_slice(&INITIAL).to_owned())
         .build();
 
     ir.as_term_mut()
