@@ -1190,6 +1190,7 @@ dependencies = [
  "query_term",
  "redis_reply",
  "ref_mode",
+ "rmp-serde",
  "rqe_core",
  "serde",
  "smallvec",

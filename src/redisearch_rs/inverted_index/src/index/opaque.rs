@@ -135,6 +135,12 @@ pub enum InvertedIndex {
     NumericFloatCompression(EntriesTrackingIndex<NumericFloatCompression>),
 }
 
+// MOD-20225: C allocates every inverted index as this enum. Its size, set by the 16-byte-aligned
+// field mask, absorbs `InvertedIndexInner::expiration`, so adding that field changed no
+// allocation size. Keep it that way: growing past this moves every index to a larger class.
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(std::mem::size_of::<InvertedIndex>() == 64);
+
 impl InvertedIndex {
     /// Scan the index for blocks that can be garbage collected.
     ///

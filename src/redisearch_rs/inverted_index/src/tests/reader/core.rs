@@ -30,14 +30,12 @@ fn seeking_records() {
             num_entries: 3,
             first_doc_id: 10,
             last_doc_id: 12,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 5],
             num_entries: 4,
             first_doc_id: 100,
             last_doc_id: 108,
-            expiration_bits: Default::default(),
         },
     ];
 
@@ -88,42 +86,36 @@ fn index_reader_skip_to() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 15,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 1],
             num_entries: 2,
             first_doc_id: 16,
             last_doc_id: 17,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0, 0, 0, 0, 4],
             num_entries: 2,
             first_doc_id: 20,
             last_doc_id: 24,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 40,
             last_doc_id: 40,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 50,
             last_doc_id: 50,
-            expiration_bits: Default::default(),
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -177,14 +169,12 @@ fn reader_reset() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 100,
             last_doc_id: 100,
-            expiration_bits: Default::default(),
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -286,14 +276,12 @@ fn reader_unique_docs() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 100,
             last_doc_id: 100,
-            expiration_bits: Default::default(),
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -390,14 +378,12 @@ fn reading_records() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 0,
             first_doc_id: 100,
             last_doc_id: 100,
-            expiration_bits: Default::default(),
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -438,14 +424,12 @@ fn reading_over_empty_blocks() {
             num_entries: 1,
             first_doc_id: 10,
             last_doc_id: 10,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: vec![0, 0, 0, 0],
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
-            expiration_bits: Default::default(),
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -519,7 +503,6 @@ fn read_using_the_first_block_id_as_the_base() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 12,
-        expiration_bits: Default::default(),
     }];
     let ii = InvertedIndex::<FirstBlockIdDummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
     let mut ir = ii.reader();

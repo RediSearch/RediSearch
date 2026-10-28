@@ -10,7 +10,9 @@
 use serde::{Deserialize, Serialize};
 use std::marker::PhantomData;
 
-use crate::{BlockCapacity, DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex};
+use crate::{
+    BlockCapacity, DecodedBy, Decoder, Encoder, IndexBlock, InvertedIndex, index::ExpirationBits,
+};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
@@ -46,6 +48,10 @@ pub(crate) enum RepairType {
     Replace {
         /// The new blocks to replace this block with
         blocks: SmallVec<[IndexBlock; 3]>,
+
+        /// The field-expiration bitsets of `blocks`, one per block, or empty when no surviving
+        /// entry has a field-level expiration. See [`InvertedIndex::expiration`].
+        expiration: SmallVec<[ExpirationBits; 3]>,
 
         /// How many unique documents were removed from the block being replaced.
         n_unique_docs_removed: u32,
@@ -141,6 +147,7 @@ impl IndexBlock {
     pub(crate) fn repair<'block, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'block self,
         block_idx: usize,
+        expiration: Option<&ExpirationBits>,
         doc_exist: impl Fn(DocId) -> bool,
         mut repair: Option<impl FnMut(&RSIndexResult<'block>, &RepairContext<'block>)>,
         _encoder: PhantomData<E>,
@@ -152,8 +159,8 @@ impl IndexBlock {
         let mut unique_write = 0;
         let mut block_changed = false;
         // Ordinal of the entry being read, used to carry its field-expiration bit
-        // (kept in this block's side bitset, not the encoded buffer) onto the
-        // re-encoded survivor so `add_record` re-propagates it into the new block.
+        // (kept in `expiration`, not the encoded buffer) onto the re-encoded
+        // survivor so `add_record` re-propagates it into the new block.
         let mut ordinal: u16 = 0;
 
         let mut tmp_inverted_index = InvertedIndex::<E>::new(IndexFlags_Index_DocIdsOnly);
@@ -161,7 +168,7 @@ impl IndexBlock {
         while self.buffer.len() as u64 > cursor.position() {
             let base = D::base_id(self, last_read_doc_id.unwrap_or(self.first_doc_id));
             D::decode(&mut cursor, base, &mut result)?;
-            result.has_field_expiration = self.expiration_bit(ordinal);
+            result.has_field_expiration = expiration.is_some_and(|bits| bits.contains(ordinal));
             ordinal += 1;
 
             if doc_exist(result.doc_id) {
@@ -196,6 +203,7 @@ impl IndexBlock {
         } else if block_changed {
             Ok(Some(RepairType::Replace {
                 blocks: SmallVec::from_iter(tmp_inverted_index.blocks),
+                expiration: SmallVec::from_iter(tmp_inverted_index.expiration),
                 n_unique_docs_removed: unique_read - unique_write,
             }))
         } else {
@@ -227,7 +235,13 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         let mut results = Vec::new();
 
         for (i, block) in self.blocks.iter().enumerate() {
-            let repair = block.repair(i, &doc_exist, repair.as_mut(), PhantomData::<E>)?;
+            let repair = block.repair(
+                i,
+                self.expiration.get(i),
+                &doc_exist,
+                repair.as_mut(),
+                PhantomData::<E>,
+            )?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });
@@ -290,9 +304,24 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         let mut tmp_blocks = ThinVec::with_capacity(self.blocks.len());
         std::mem::swap(&mut self.blocks, &mut tmp_blocks);
 
+        // `self.expiration` is rebuilt in step with `self.blocks`, but only when some block,
+        // old or new, has a field-expiration bitset: indexes without field TTLs skip it.
+        let expiration_heap_before = self.expiration_mem_usage();
+        let track_expiration = !self.expiration.is_empty()
+            || deltas.iter().any(|d| {
+                matches!(&d.repair, RepairType::Replace { expiration, .. } if !expiration.is_empty())
+            });
+        let mut old_expiration = std::mem::take(&mut self.expiration).into_iter();
+        let mut new_expiration: ThinVec<ExpirationBits, BlockCapacity> = if track_expiration {
+            ThinVec::with_capacity(tmp_blocks.len())
+        } else {
+            ThinVec::new()
+        };
+
         let mut deltas = deltas.into_iter().peekable();
 
         for (block_index, block) in tmp_blocks.into_iter().enumerate() {
+            let old_bits = old_expiration.next().unwrap_or_default();
             match deltas.peek() {
                 Some(delta) if delta.index == block_index => {
                     // This block needs to be repaired
@@ -312,16 +341,21 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                         }
                         RepairType::Replace {
                             blocks,
+                            expiration,
                             n_unique_docs_removed,
                         } => {
                             info.entries_removed += block.num_entries as usize;
                             info.bytes_freed += block.mem_usage();
                             self.n_unique_docs -= n_unique_docs_removed;
 
+                            let mut expiration = expiration.into_iter();
                             for block in blocks {
                                 info.entries_removed -= block.num_entries as usize;
                                 info.bytes_allocated += block.mem_usage();
                                 self.blocks.push(block);
+                                if track_expiration {
+                                    new_expiration.push(expiration.next().unwrap_or_default());
+                                }
                             }
                         }
                     }
@@ -329,8 +363,24 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                 _ => {
                     // This block does not need to be repaired, so just put it back
                     self.blocks.push(block);
+                    if track_expiration {
+                        new_expiration.push(old_bits);
+                    }
                 }
             }
+        }
+
+        // Drop the bitsets entirely once no surviving entry has a field-level expiration.
+        if new_expiration.iter().any(|bits| !bits.is_empty()) {
+            new_expiration.shrink_to_fit();
+            self.expiration = new_expiration;
+        }
+        debug_assert!(self.expiration.is_empty() || self.expiration.len() == self.blocks.len());
+        let expiration_heap_after = self.expiration_mem_usage();
+        if expiration_heap_after > expiration_heap_before {
+            info.bytes_allocated += expiration_heap_after - expiration_heap_before;
+        } else {
+            info.bytes_freed += expiration_heap_before - expiration_heap_after;
         }
 
         // Remove excess capacity from the blocks vector.

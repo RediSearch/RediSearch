@@ -69,7 +69,7 @@ pub struct RawIndexReaderCore<Rf: Ref, E> {
     pub(crate) last_doc_id: DocId,
 
     /// The ordinal (0-based position) within the current block of the *next* entry to be decoded.
-    /// Used to index the block's `expiration_bits` side bitset so each decoded result carries its
+    /// Used to index the index's per-block `expiration` bitsets so each decoded result carries its
     /// document-level field-expiration flag. Reset to 0 whenever the current block changes.
     pub(crate) entry_in_block: u16,
 
@@ -266,8 +266,9 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
         self.buf_pos = cursor.position();
 
         // The codec does not carry the field-expiration flag; it lives in the
-        // block's side bitset, indexed by entry ordinal.
-        result.has_field_expiration = block.expiration_bit(self.entry_in_block);
+        // index's per-block bitsets, indexed by block and entry ordinal.
+        result.has_field_expiration =
+            ii.expiration_bit(self.current_block_idx, self.entry_in_block);
         self.entry_in_block += 1;
 
         self.last_doc_id = result.doc_id;
@@ -296,7 +297,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
             Some(skipped) => {
                 self.entry_in_block += skipped;
                 result.has_field_expiration =
-                    ii.blocks[self.current_block_idx].expiration_bit(self.entry_in_block);
+                    ii.expiration_bit(self.current_block_idx, self.entry_in_block);
                 self.entry_in_block += 1;
                 self.last_doc_id = result.doc_id;
                 Ok(true)
