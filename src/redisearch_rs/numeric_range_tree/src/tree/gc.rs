@@ -232,6 +232,14 @@ impl NumericRangeTree {
 
         let rv = self._trim_empty_leaves();
         let slab_freed = self.compact_slab();
+        // Compaction can move every node even when trimming changed nothing: the
+        // slab is shrunk to fit, which reallocates it whenever it has spare
+        // capacity, so the revision must change as `revision_id` documents. Nodes
+        // move exactly when the slab frees memory — spare capacity or holes are
+        // what compaction reclaims.
+        if !rv.changed && slab_freed > 0 {
+            self.revision_id = self.revision_id.wrapping_add(1);
+        }
         CompactIfSparseResult {
             inverted_index_size_delta: rv.size_delta,
             node_size_delta: -(slab_freed as i64),
