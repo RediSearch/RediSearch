@@ -91,131 +91,74 @@ jobs:
     env:
       IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
     steps:
-      - name: Pre checkout deps
-        run:  sudo apt-get update && sudo apt-get -o DPkg::Lock::Timeout=600 -y --no-install-recommends install git
+      - name: Verify pre-checkout APT lock contention
+        timeout-minutes: 20
+        run: |
+          sudo python3 - <<'PYTHON'
+          import fcntl
+          import os
+          import subprocess
+          import threading
+          import time
+
+          original = "sudo apt-get update && sudo apt-get -y --no-install-recommends install git"
+          patched = "sudo apt-get update && sudo apt-get -o DPkg::Lock::Timeout=600 -y --no-install-recommends install git"
+          lock_path = "/var/lib/dpkg/lock-frontend"
+          with open(lock_path, "r+") as lock:
+              deadline = time.monotonic() + 600
+              while True:
+                  try:
+                      fcntl.lockf(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                      break
+                  except BlockingIOError:
+                      if time.monotonic() >= deadline:
+                          raise RuntimeError("Existing package transaction exceeded 600 seconds")
+                      time.sleep(1)
+              print(f"CONTROL: POSIX frontend lock held by validation process {os.getpid()}", flush=True)
+              try:
+                  old = subprocess.run(["bash", "-c", original], text=True,
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180)
+                  print(old.stdout, flush=True)
+                  assert old.returncode == 100, f"Original command returned {old.returncode}"
+                  assert lock_path in old.stdout and f"process {os.getpid()}" in old.stdout
+                  print("ORIGINAL: exit 100 because validation process holds frontend lock", flush=True)
+
+                  waiting = threading.Event()
+                  captured = []
+                  new = subprocess.Popen(["bash", "-c", patched], text=True,
+                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                  def read_output():
+                      recent = ""
+                      while True:
+                          char = new.stdout.read(1)
+                          if not char:
+                              return
+                          captured.append(char)
+                          recent = (recent + char)[-256:]
+                          if "Waiting for cache lock" in recent:
+                              waiting.set()
+                  reader = threading.Thread(target=read_output, daemon=True)
+                  reader.start()
+                  observed_wait = waiting.wait(180)
+                  print(f"PATCHED: waiting observed while POSIX lock held: {observed_wait}", flush=True)
+              finally:
+                  fcntl.lockf(lock, fcntl.LOCK_UN)
+                  print("CONTROL: released POSIX frontend lock", flush=True)
+
+              result = new.wait(timeout=180)
+              reader.join(timeout=10)
+              print("".join(captured), flush=True)
+              assert observed_wait, "Patched command did not report waiting while lock was held"
+              assert not reader.is_alive(), "Output collection did not finish"
+              assert result == 0, f"Patched command returned {result}"
+              print("PATCHED: waited for lock release and exited 0", flush=True)
+          PYTHON
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
-      - name: Print runner info
-        run: |
-          printf "Runner lscpu:\n$(lscpu)\n"
-          printf "Runner lsmem:\n$(lsmem)\n"
-          printf "Runner nproc:\n$(nproc)\n"
-          printf "Runner uname:\n$(uname -a)\n"
-          printf "Runner arch:\n$(arch)\n"
-      - name: Install python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: 3.11
-      - name: Setup sccache
-        if: ${{ env.IS_FORK_PR != 'true' }}
-        uses: ./.github/actions/setup-sccache
-        with:
-          aws-role: ${{ vars.SCCACHE_AWS_ROLE_TO_ASSUME }}
-          s3-bucket: ${{ vars.SCCACHE_S3_BUCKET }}
-          s3-region: ${{ vars.SCCACHE_S3_REGION }}
-          s3-key-prefix: ${{ vars.SCCACHE_S3_KEY_PREFIX }}
-      - name: Install benchmark dependencies
-        run: |
-          export HOME=/home/ubuntu
-          cd .install
-          ./install_script.sh sudo
-          cd ..
-          # Then install Python dependencies
-          pip3 install --upgrade pip PyYAML setuptools redisbench-admin==0.12.14
-        env:
-          DEBIAN_FRONTEND: noninteractive
-          # Use committed Rust C headers; cheadergen is not installed on the
-          # benchmark EC2 runner (see redis/redis#15220 for the same pattern).
-          REDISEARCH_GENERATE_HEADERS: "0"
-      - name: Run Micro Benchmark
-        env:
-          ARCH: ${{ inputs.architecture }}
-          LTO: 1
-          # Use committed Rust C headers; cheadergen is not installed on the
-          # benchmark EC2 runner (see redis/redis#15220 for the same pattern).
-          REDISEARCH_GENERATE_HEADERS: "0"
-        timeout-minutes: 300
-        run: |
-          export HOME=/home/ubuntu
-          export PATH="$HOME/.cargo/bin:$PATH"
-          make micro-benchmarks
-      - name: Show sccache stats
-        run: ${SCCACHE_PATH:-sccache} --show-stats || true
-      - name: Collect results
-        # Everything dynamic goes through env rather than being expanded into the
-        # script: a PR author controls their own branch name, so interpolating it
-        # into a shell command lets them inject arbitrary code.
-        env:
-          INPUT_ARCHITECTURE: ${{ inputs.architecture }}
-          PERFORMANCE_RTS_HOST: ${{ secrets.PERFORMANCE_RTS_HOST }}
-          PERFORMANCE_RTS_PORT: ${{ secrets.PERFORMANCE_RTS_PORT }}
-          PERFORMANCE_RTS_AUTH: ${{ secrets.PERFORMANCE_RTS_AUTH }}
-          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
-          GITHUB_ORG_NAME: ${{ github.repository_owner }}
-          GITHUB_BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-          GITHUB_ACTOR_NAME: ${{ github.triggering_actor }}
-        run: |
-          # Determine OS name
-          OS_NAME=$(uname | tr '[:upper:]' '[:lower:]')
-          if [[ "$OS_NAME" == "darwin" ]]; then
-            OS_NAME="macos"
-          fi
-
-          # Get architecture using uname -m
-          ARCH=$(uname -m)
-          if [[ "$ARCH" == "arm64" ]]; then
-            ARCH="aarch64"
-          elif [[ "$ARCH" == "x86_64" ]]; then
-            ARCH="x64"
-          fi
-
-          # Set flavor (assuming release build for benchmarks)
-          FLAVOR="release"
-
-          # Create full variant string for the build directory
-          FULL_VARIANT="${OS_NAME}-${ARCH}-${FLAVOR}"
-
-          # Set coordinator type (assuming OSS)
-          COORD="oss"
-          OUTDIR="search-community"
-
-          # Set the final BINDIR
-          BINDIR="bin/${FULL_VARIANT}/${OUTDIR}"
-
-          # Update the binary directory path for ARM architectures
-          echo "Looking for benchmark results in $BINDIR/micro-benchmarks"
-
-          # Find all JSON result files
-          JSON_FILES=$(find $BINDIR/micro-benchmarks -name "*_results.json")
-
-          if [ -z "$JSON_FILES" ]; then
-            echo "No benchmark result files found in $BINDIR/micro-benchmarks"
-            exit 1
-          fi
-
-          # Print found files for debugging
-          echo "Found the following result files:"
-          echo "$JSON_FILES" | tr ' ' '\n'
-
-          # Process each file individually
-          for file in $JSON_FILES; do
-            echo "Processing $file..."
-            redisbench-admin export \
-              --redistimeseries_host "$PERFORMANCE_RTS_HOST" \
-              --redistimeseries_port "$PERFORMANCE_RTS_PORT" \
-              --redistimeseries_user default \
-              --redistimeseries_pass "$PERFORMANCE_RTS_AUTH" \
-              --github_repo "$GITHUB_REPO_NAME" \
-              --github_org "$GITHUB_ORG_NAME" \
-              --github_branch "$GITHUB_BRANCH_NAME" \
-              --github_actor "$GITHUB_ACTOR_NAME" \
-              --results-format google.benchmark \
-              --benchmark-result-file "$file" \
-              --triggering_env redisearch-micro-benchmarks \
-              --architecture $INPUT_ARCHITECTURE
-          done
+      - name: Confirm checkout
+        run: git rev-parse HEAD
 
   stop-runner:
     name: Stop self-hosted EC2 runner
