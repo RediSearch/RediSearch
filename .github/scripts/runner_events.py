@@ -40,7 +40,7 @@ EVENTS = (
     ('queue_shutdown_started', r'Fire signal to shutdown all queues\.'),
     ('queue_shutdown_finished', r'All queue process task stopped\.'),
     ('websocket_connected', r'Successfully started (?:runner )?websocket client\.'),
-    ('websocket_connect_error', r'Exception caught during (?:runner )?websocket connect'),
+    ('websocket_connect_error', r'Exception caught during (?:runner )?websocket (?:client )?connect'),
     ('websocket_receive_error', r'Exception caught while holding runner websocket'),
     ('websocket_reconnect', r'Websocket is not open, let.s attempt to connect'),
     ('broker_request_acknowledged', r'Acknowledging runner request '),

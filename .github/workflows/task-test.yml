@@ -186,26 +186,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Check runner event parser output boundaries
-        run: python3 .github/scripts/check_runner_events.py
-
-      - name: Verify runner diagnostic readability
-        id: runner-diagnostic-readability
-        continue-on-error: true
-        run: python3 .github/scripts/runner_events.py --require-readable > "${{ runner.temp }}/runner-events-start.json"
-
-      - name: Upload safe runner diagnostic baseline
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: runner-events-start-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/runner-events-start.json
-          retention-days: 3
-          if-no-files-found: error
-
-      - name: Require readable runner diagnostic logs
-        if: steps.runner-diagnostic-readability.outcome != 'success'
-        run: exit 1
-
       - name: Free up disk space
         uses: ./.github/actions/github-hosted-runner-cleanup
       - name: Fix HOME Directory
@@ -259,6 +239,26 @@ jobs:
           redis-ref: ${{ inputs.redis-ref }}
           coverage: ${{ inputs.coverage }}
           redis-cache-platform-id: ${{ needs.get-config.outputs.container || needs.get-config.outputs.env }}
+
+      - name: Check runner event parser output boundaries
+        run: python3 .github/scripts/check_runner_events.py
+
+      - name: Verify runner diagnostic readability
+        id: runner-diagnostic-readability
+        continue-on-error: true
+        run: python3 .github/scripts/runner_events.py --require-readable > "${{ runner.temp }}/runner-events-start.json"
+
+      - name: Upload safe runner diagnostic baseline
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: runner-events-start-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/runner-events-start.json
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Require readable runner diagnostic logs
+        if: steps.runner-diagnostic-readability.outcome != 'success'
+        run: exit 1
 
       - name: Setup LCOV
         if: inputs.coverage
