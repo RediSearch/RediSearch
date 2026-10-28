@@ -532,6 +532,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "deleted_docs"
+version = "0.0.1"
+dependencies = [
+ "roaring",
+ "rqe_core",
+ "workspace_hack",
+]
+
+[[package]]
+name = "deleted_docs_ffi"
+version = "0.0.1"
+dependencies = [
+ "deleted_docs",
+ "rqe_core",
+ "workspace_hack",
+]
+
+[[package]]
 name = "dict"
 version = "0.0.1"
 dependencies = [
@@ -1154,6 +1172,7 @@ name = "index_spec"
 version = "0.0.1"
 dependencies = [
  "c_trie",
+ "deleted_docs",
  "dict",
  "document",
  "ffi",
@@ -2222,6 +2241,7 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
+ "deleted_docs_ffi",
  "doc_key_map_ffi",
  "fnv_ffi",
  "geo_ffi",
@@ -2603,6 +2623,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "criterion",
+ "deleted_docs_ffi",
  "doc_key_map_ffi",
  "ffi",
  "fnv_ffi",
