@@ -629,7 +629,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   searchRequestCtx *req = rCtx->searchCtx;
 
   SearchResult **results = req->base.reply.results;
-  size_t qlen = results ? array_len(results) : 0;
+  size_t qlen = array_len(results);
 
   //-------------------------------------------------------------------------------------------
   // RESP2 is a flat array: total, then each result's fields in sequence.

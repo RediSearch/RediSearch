@@ -3,6 +3,25 @@
 This is the authoritative ledger for observable changes. Implementation evidence is recorded below. Source observations alone are not
 executed differential tests.
 
+## Final review map
+
+The tracked-surface table records the original audit; the implementation evidence
+and approved corrections below record the final disposition. In the final stack:
+
+- Internal changes: standard RPs, source-owned reply trees, atomic publication,
+  direct selected-row serialization and shared stored-result cleanup.
+- Preserved: reply types/precision, binary data, tie rules, missing-key placement,
+  counts, pagination, profile snapshot consistency and shard-boundary cancellation.
+- Approved observable corrections: B05/B06 nearest-K membership, B04 typed-field
+  comparison alignment, and immediate malformed-reply error precedence (B11).
+  These are not described as soft changes.
+- Deferred: reply-buffer/Drain integration, per-row cancellation and nonblocking
+  strict-timeout handoff. No new public timeout completeness guarantee is claimed.
+
+Reply backing remains alive through request cleanup, as in existing master/8.12
+coordinator SEARCH. Lower retained memory in the intermediate eager-conversion
+implementation was not a property of the original implementation.
+
 ## Classification
 
 - **Internal:** no change to command results, protocol, errors or lifecycle
@@ -128,7 +147,7 @@ remain compatibility obligations, not claims of validated equivalence.
   values, preserving missing-last placement in both directions. No custom
   comparator API remains in the final stack. Comparison performs no reply decoding
   or numeric parsing; source decoding adds owned lookup values with borrowed strings.
-  End-to-end performance is not measured.
+  Performance evidence is recorded in the final validation section.
 - B05: nearest-K selection now reads the required vector distance even when final
   SORTBY is another numeric field. Previously a numeric sort key could replace the
   distance and change global K membership. This is an approved observable
@@ -244,3 +263,35 @@ search/profile commands.
   cancellation belongs with Drain continuation through the reply source and
   both KNN sorters; switching the current sorter to yielding on timeout cannot
   preserve the remaining candidate set by itself.
+
+## Final validation and performance evidence
+
+The direct-row implementation at `b863eb4c8` passed CI run
+[40699837625](https://github.com/RediSearch/RediSearch/actions/runs/40699837625),
+including unit, standalone/coordinator flow, sanitizer, coverage, lint, Miri and
+Rust Valgrind lanes. Independent review of that head reported zero findings.
+
+The comparison revisions are borrowed rows `765b056fe`, eager RSValues `0d5e04c4f`,
+and direct serialization `b863eb4c8`. The harness is preserved separately at
+`f292683b2`, outside the implementation stack.
+
+The completed local replay and allocation comparisons each contain 1,296 trials
+(six repetitions, three variants). Direct serialization versus eager conversion
+reduced replay pipeline CPU by a median 40.8% across configurations; versus the
+previous borrowed-row revision, the median reduction was 3.7%. These are descriptive
+medians, not production workload-weighted speedups. One small-result configuration
+was about 1.3% slower than the previous borrowed version.
+
+For 40,000 wide candidates (8 shards, RESP3), pipeline allocation calls excluding
+parsing were 80,066 for eager conversion and 52 for direct serialization. Whole-request
+tracked peak was about 425 MB for both. Direct retained about 400 MB after reduction,
+versus 29 MB for eager conversion: avoiding conversion churn does not mean releasing
+reply trees earlier. The tracker excludes Redis core reply buffers and is not RSS.
+
+The end-to-end run was intentionally stopped to release the machine. Its partial
+comparison uses only the two complete repetitions (408 matched trials); 75 trials
+from the incomplete repetition are excluded. Throughput was mostly flat against
+borrowed rows, with improvements over eager conversion most visible for deep offsets
+and KNN. Two repetitions do not establish precise speedups or tail-latency equivalence.
+No comparison against original master was run. These benchmarks do not exercise
+strict-timeout handoff and do not replace the functional lifecycle tests.

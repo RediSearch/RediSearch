@@ -1,5 +1,20 @@
 # Design
 
+## Final review scope
+
+The implemented stack uses source-owned shard replies, standard sorters and direct
+selected-row serialization. The final ownership contract is described under
+"Implemented representation and callback boundary" below. Reply trees remain alive until
+request cleanup, matching the existing coordinator SEARCH lifetime; the intermediate
+eager RSValue conversion is not part of the final design.
+
+The baseline map and staged migration discussion below explain the starting point.
+Approved corrections supersede its initial compatibility choices: numeric final
+SORTBY cannot replace KNN distance; distance DESC selects nearest K first; typed
+comparison follows standard RPs; encountered parse errors are immediate. The behavior
+ledger records their classifications. Shared reply-buffer and Drain integration
+remain outside this stack.
+
 ## Baseline and scope
 
 Source baseline: local master `833b7252ced78b33e10b5dd6150dba5321af9e42`.

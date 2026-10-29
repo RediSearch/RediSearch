@@ -1,6 +1,6 @@
 # Coordinator search compatibility requirements
 
-These are proposed refactor acceptance requirements, not new promises about
+These are the final refactor acceptance requirements, not new promises about
 historical timeout result completeness. The behavior ledger owns unresolved
 classifications and evidence.
 
@@ -18,11 +18,12 @@ pagination and hit counts unless a separate behavior change is approved.
 - **THEN** the replacement SHALL apply membership selection before that ordering
 - **AND** pagination SHALL NOT replace hit-count computation.
 
-#### Scenario: Distance-sort shortcut
+#### Scenario: Distance sorting
 
-- **WHEN** the existing plan uses the distance-sort shortcut
-- **THEN** the replacement SHALL preserve that path until equivalence with another
-  composition has been established, including descending order.
+- **WHEN** a non-count-only KNN query sorts by distance descending
+- **THEN** the replacement SHALL select global nearest K before descending order.
+- **WHEN** distance sorting is ascending or the query is count-only
+- **THEN** the existing shortcut and path-specific count semantics SHALL remain.
 
 #### Scenario: Remote output values
 
@@ -59,3 +60,25 @@ SORTBY field. Distance DESC SHALL order the global nearest-K set rather than
 selecting the farthest shard candidates. The distance ASC and count-only shortcuts
 remain. Standard typed field comparison replaces encoded-prefix comparison;
 document-key ties and absent-value placement remain explicit compatibility rules.
+
+### Requirement: Serialize borrowed rows from source-owned replies
+
+The source RP SHALL own accepted shard replies until request cleanup. Candidates
+SHALL borrow their output values and serialize selected rows directly, without
+converting returned fields, payloads or explanations into intermediate RSValues.
+Stored candidates and downstream processors SHALL be freed before their source.
+Results and profiles SHALL use the same acquired publication snapshot; later
+publications SHALL remain owned for final cleanup.
+
+### Requirement: Report encountered parse errors immediately
+
+An encountered malformed row or required envelope field SHALL stop reduction and
+set QueryError. This error SHALL take precedence over partial results, including
+RETURN/RETURN-STRICT and tolerated shard timeout/OOM. This approved error-precedence
+change does not change successful reply representations.
+
+### Integration boundary
+
+Strict cancellation remains at shard boundaries. Shared reply-buffer serialization,
+per-row cancellation, public Drain continuation and nonblocking BG/main handoff
+remain integration work for the separate reply-buffer/Drain stack.
