@@ -10,6 +10,7 @@
 
 #include "redismodule.h"
 #include "redisearch.h"
+#include "field_spec.h"
 #include "VecSim/vec_sim_common.h"
 
 #ifdef __cplusplus
@@ -144,6 +145,17 @@ typedef struct SearchDiskResourceConfig {
   int maxOpenFiles;
 } SearchDiskResourceConfig;
 
+/** A schema field borrowed by the index-open APIs. */
+typedef struct SearchDiskFieldOpen {
+  t_fieldIndex fieldIndex;
+  FieldType types;
+  bool indexMissing;
+  /** Borrowed nonempty UTF-8 field name and vector parameters; VECTOR fields only. */
+  const char *fieldName;
+  size_t fieldNameLen;
+  const VecSimParams *vectorParams;
+} SearchDiskFieldOpen;
+
 typedef struct BasicDiskAPI {
   /**
    * @brief Open the disk storage context
@@ -172,7 +184,7 @@ typedef struct BasicDiskAPI {
   void (*setLogObfuscation)(RedisSearchDisk *disk, bool enable);
 
   /**
-   * @brief Open an index spec
+   * @brief Open an index spec and its schema-declared storage.
    * @param ctx Redis module context for BigModule APIs (required for getting DB path)
    * @param disk Pointer to the disk
    * @param indexName Name of the index
@@ -180,6 +192,8 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type
    * @param deleteBeforeOpen If true, delete any existing data before opening
+   * @param fields Borrowed schema declarations, used to open CFs with their final options.
+   * @param numFields Number of declarations in fields.
    * @param callbacks Callback table for applying compaction delta updates during GC.
    *                  Bound to the IndexSpec for its lifetime; must outlive the IndexSpec.
    * @param private_data Opaque pointer passed back into every callback. Bound to the
@@ -189,10 +203,13 @@ typedef struct BasicDiskAPI {
    * @note This both opens the database and registers it with Redis BigModule APIs.
    *       Registration is atomic with creation; there is no separate register step.
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpec)(
-      RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
-      const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
-      bool deleteBeforeOpen, const SearchDiskCompactionCallbacks *callbacks, void *private_data);
+  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk,
+                                             const HiddenString *indexName,
+                                             const char *obfuscatedName, size_t obfuscatedNameLen,
+                                             DocumentType type, bool deleteBeforeOpen,
+                                             const SearchDiskFieldOpen *fields, size_t numFields,
+                                             const SearchDiskCompactionCallbacks *callbacks,
+                                             void *private_data);
   /**
    * @brief Close an index spec
    * @param disk Pointer to the disk context (for cleanup of index metrics)
@@ -274,6 +291,8 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type for this index
    * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
+   * @param fields Borrowed schema declarations, used to open CFs with their final options.
+   * @param numFields Number of declarations in fields.
    * @param callbacks Callback table for applying compaction delta updates during GC.
    *                  Bound to the IndexSpec for its lifetime; must outlive the IndexSpec.
    * @param private_data Opaque pointer passed back into every callback. Bound to the
@@ -283,8 +302,8 @@ typedef struct BasicDiskAPI {
   RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(
       RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
       const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
-      RedisSearchDiskRdbState *rdbState, const SearchDiskCompactionCallbacks *callbacks,
-      void *private_data);
+      RedisSearchDiskRdbState *rdbState, const SearchDiskFieldOpen *fields, size_t numFields,
+      const SearchDiskCompactionCallbacks *callbacks, void *private_data);
 
   /**
    * @brief Free a temporary RDB state object.
@@ -437,7 +456,8 @@ typedef struct IndexDiskAPI {
    * Other staged writes on the same batch are unaffected.
    *
    * @param index Pointer to the index
-   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(index)`)
+   * @param batch Open write batch to append the write to (must have been returned by
+   * `createWriteBatch(index)`)
    * @param term Term to associate the document with
    * @param termLen Length of the term
    * @param docId Document ID to index
@@ -447,7 +467,9 @@ typedef struct IndexDiskAPI {
    * @param offsetsLen Length of the offsets data in bytes
    * @return true if the write was staged successfully, false if the input was rejected
    */
-  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+                    const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
+                    uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
   /**
    * @brief Indexes multiple tag values for a document
@@ -711,8 +733,8 @@ typedef struct IndexDiskAPI {
    */
   QueryIterator *(*newMissingIterator)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex,
                                        RedisSearchDiskSnapshot *snapshot, QueryError *status);
-  /** Initialize the shared missing CF after schema validation, before ingestion or queries.
-   * Returns false if storage needs to be created and creation fails; true otherwise.
+  /** Legacy initializer; schema-aware index open already prepares shared missing storage.
+   * Must be idempotent. Returns false on preparation failure.
    * ctx must allow Redis BigModule CF registration; index must be a live disk index. */
   bool (*initializeMissingStorage)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
