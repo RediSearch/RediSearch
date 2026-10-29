@@ -15,6 +15,7 @@ extern "C" {
 #include "buffer/buffer.h"
 #include "forward_index.h"
 #include "index_result.h"
+#include "indexes_scan.h"
 #include "query_parser/tokenizer.h"
 #include "spec.h"
 #include "tokenize.h"
@@ -1521,15 +1522,21 @@ TEST_F(IndexTest, testDocKeyMapLifecycle) {
 }
 
 TEST_F(IndexTest, testDocKeyMapDisabledForDisk) {
+  IndexSpec spec = {};
+  // Keep the failure path valid if activation ever bypasses the disk guard.
+  ASSERT_EQ(pthread_rwlock_init(&spec.rwlock, nullptr), 0);
   const bool previousFlex = isFlex;
   isFlex = true;
-  DocTable dt = NewDocTable(1, 10);
-  KeyMapTestCleanup cleanup{&dt};
+  spec.docs = NewDocTable(1, 10);
+  KeyMapTestCleanup cleanup{&spec.docs};
+  IndexSpec_ActivateKeyMap(&spec);
   isFlex = previousFlex;
 
-  EXPECT_EQ(dt.keyMap, nullptr);
-  EXPECT_EQ(DocTable_KeyMapMemoryUsage(&dt), 0);
+  EXPECT_EQ(spec.docs.keyMap, nullptr);
+  EXPECT_EQ(spec.docs.keyMapState, DocKeyMap_Inactive);
+  EXPECT_EQ(DocTable_KeyMapMemoryUsage(&spec.docs), 0);
   cleanup.freeTable();
+  EXPECT_EQ(pthread_rwlock_destroy(&spec.rwlock), 0);
 }
 
 TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
