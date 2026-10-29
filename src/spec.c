@@ -1758,6 +1758,25 @@ inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
   return SearchDisk_IsEnabledForValidation();
 }
 
+static bool isKnownCreateOption(const char *arg, const ACArgSpec *argopts) {
+  for (int i = 0; argopts[i].name; ++i) {
+    if (strcasecmp(arg, argopts[i].name) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static void handleBadArguments(const char *badarg, bool unsupportedOption, QueryError *status) {
+  if (unsupportedOption) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
+                                  "Unsupported argument for Flex index:", " `%s`", badarg);
+  } else {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument",
+                                  " `%s`", badarg);
+  }
+}
+
 int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
                            QueryError *status) {
   *options = (IndexSpecOptions){.flags = INDEX_DEFAULT_FLAGS};
@@ -1821,12 +1840,7 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
   if (rc == AC_ERR_ENOENT && flex) {
     const char *arg;
     AC_GetString(ac, &arg, NULL, AC_F_NOADVANCE);
-    for (int i = 0; non_flex_argopts[i].name; ++i) {
-      if (strcasecmp(arg, non_flex_argopts[i].name) == 0) {
-        options->unsupportedOption = true;
-        break;
-      }
-    }
+    options->unsupportedOption = isKnownCreateOption(arg, non_flex_argopts);
   }
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
@@ -1915,13 +1929,7 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   if (!AC_AdvanceIfMatch(ac, SPEC_SCHEMA_STR)) {
     if (AC_NumRemaining(ac)) {
       const char *badarg = AC_GetStringNC(ac, NULL);
-      if (options.unsupportedOption) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
-                                      "Unsupported argument for Flex index:", " `%s`", badarg);
-      } else {
-        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument",
-                                      " `%s`", badarg);
-      }
+      handleBadArguments(badarg, options.unsupportedOption, status);
     } else {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No schema found");
     }
