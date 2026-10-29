@@ -64,6 +64,7 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "indexing", .type = InfoField_WholeSum},
     {.name = "percent_indexed", .type = InfoField_DoubleAverage},
     {.name = "hash_indexing_failures", .type = InfoField_WholeSum},
+    {.name = "total_indexing_time", .type = InfoField_DoubleSum},
     {.name = "number_of_uses", .type = InfoField_Max},
     {.name = "number_of_admin_ops", .type = InfoField_Max},
     {.name = "cleaning", .type = InfoField_WholeSum}};
