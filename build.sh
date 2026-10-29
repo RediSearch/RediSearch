@@ -974,6 +974,10 @@ run_unit_tests() {
 
   if [[ $COV == 1 ]]; then
     prepare_coverage_capture
+    if [[ $OS_NAME != "macos" ]]; then
+      rm -f "$BINROOT/rust_unit-"*.profraw
+      export LLVM_PROFILE_FILE="$BINROOT/rust_unit-%8m.profraw"
+    fi
   fi
 
   # Set verbose mode if requested
@@ -1000,6 +1004,16 @@ run_unit_tests() {
 
   if [[ $COV == 1 ]]; then
     capture_coverage unit
+    if [[ $OS_NAME != "macos" ]]; then
+      # Unswapped Rust FFI is exercised only by C/C++ tests, not by flow tests.
+      local module="$BINDIR/redisearch.so"
+      if [[ ! -f "$module" && -f "$BINDIR/module-enterprise.so" ]]; then
+        module="$BINDIR/module-enterprise.so"
+      fi
+      capture_rust_module_coverage rust_unit "$module"
+      cat "$BINROOT/rust_unit.info" >> "$BINROOT/unit.info"
+      rm "$BINROOT/rust_unit.info"
+    fi
   fi
 }
 

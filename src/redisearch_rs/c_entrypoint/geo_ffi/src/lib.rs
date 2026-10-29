@@ -19,6 +19,9 @@ use geo::ParseGeoError;
 use query_error::{QueryError, QueryErrorCode, opaque::OpaqueQueryError};
 use tracing_log_error::log_error;
 
+mod filter;
+pub use filter::*;
+
 /// The number of geohash ranges: the center cell plus its 8 neighbors.
 #[cheadergen::config(export)]
 pub const GEO_RANGE_COUNT: usize = geo::GEO_RANGE_COUNT;
