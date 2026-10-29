@@ -315,7 +315,11 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: make rust-tests
+        run: |
+          if [[ "$RUNNER_OS" == Linux && "$RUNNER_ARCH" == X64 && "$LTO" == 1 ]]; then
+            export CARGO_BUILD_JOBS=2
+          fi
+          make rust-tests
       - name: Build TESTFILE excluding flaky tests (standalone)
         id: standalone_testfile
         if: ${{ inputs.standalone && env.IS_FORK_PR != 'true' }}
