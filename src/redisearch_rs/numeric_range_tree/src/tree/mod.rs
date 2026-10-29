@@ -155,13 +155,14 @@ pub struct NumericRangeTree {
     /// Whether any document has been indexed under more than one value, as a
     /// multivalue field does. See [`has_multivalued_docs`](Self::has_multivalued_docs).
     has_multivalued_docs: bool,
-    /// Revision ID, incremented when the tree structure changes (splits/rotations).
+    /// Revision ID, incremented when the tree structure changes (splits/rotations)
+    /// and whenever nodes move in memory (slab compaction). While it is
+    /// unchanged, every [`NodeIndex`] resolves to the same node, at the same
+    /// address.
     ///
-    /// When `revision_id != 0`, it indicates the tree nodes have changed and
-    /// concurrent iteration may not be safe. Iterators like
-    /// `NumericRangeTreeIterator` should check this value and abort if it
-    /// changes during iteration, as the tree structure they were traversing
-    /// may no longer be valid.
+    /// Anything holding on to a node or range across a release of the lock that
+    /// guards the tree — a parked iterator, say — must compare it against a
+    /// snapshot taken when it started, and stop using what it holds if it changed.
     revision_id: u32,
     /// Unique identifier for this tree instance.
     unique_id: TreeUniqueId,
