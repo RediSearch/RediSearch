@@ -48,6 +48,17 @@ if(HAS_WNO_ERROR_INCOMPATIBLE_POINTER_TYPES_DISCARDS_QUALIFIERS)
 endif()
 
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
+# BENCHMARK ONLY, do not merge: build the tiered HNSW index with id reuse on insert enabled
+# (`reuseIdOnInsert` has no runtime switch), so the mixed vector-update benchmark can compare it.
+set(VECSIM_TIERED_HNSW_HEADER "${root}/deps/VectorSimilarity/src/VecSim/algorithms/hnsw/hnsw_tiered.h")
+file(READ "${VECSIM_TIERED_HNSW_HEADER}" VECSIM_TIERED_HNSW_SRC)
+if(VECSIM_TIERED_HNSW_SRC MATCHES "reuseIdOnInsert\\{false\\}")
+  string(REPLACE "std::atomic<bool> reuseIdOnInsert{false};" "std::atomic<bool> reuseIdOnInsert{true};"
+         VECSIM_TIERED_HNSW_SRC "${VECSIM_TIERED_HNSW_SRC}")
+  file(WRITE "${VECSIM_TIERED_HNSW_HEADER}" "${VECSIM_TIERED_HNSW_SRC}")
+elseif(NOT VECSIM_TIERED_HNSW_SRC MATCHES "reuseIdOnInsert\\{true\\}")
+  message(FATAL_ERROR "reuseIdOnInsert declaration not found in ${VECSIM_TIERED_HNSW_HEADER}")
+endif()
 # The coverage report excludes VectorSimilarity, and instrumenting it slows SVS index builds enough
 # to time out vector tests on the coverage lane.
 set(SAVED_C_FLAGS "${CMAKE_C_FLAGS}")
