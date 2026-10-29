@@ -346,13 +346,13 @@ def testMemAllocated(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT')
   empty_memory = float(index_info(env, 'idx1')['key_table_size_mb'])
-  env.assertGreater(empty_memory, 0)
+  env.assertEqual(empty_memory, 0)
   for key in ('doc1', 'doc2', 'd3'):
     conn.execute_command('HSET', key, 't', 'hello world')
   populated_memory = float(index_info(env, 'idx1')['key_table_size_mb'])
-  env.assertGreater(populated_memory, empty_memory)
+  env.assertEqual(populated_memory, 0)
 
-  # Deletion removes entries but retains the allocated bucket capacity.
+  # An index that never uses INKEYS keeps its map unallocated through deletion.
   for key in ('doc1', 'doc2', 'd3'):
     conn.execute_command('DEL', key)
     assertInfoField(env, 'idx1', 'key_table_size_mb', populated_memory, delta=0)
@@ -361,7 +361,7 @@ def testMemAllocated(env):
   for i in range(1000):
     conn.execute_command('HSET', f'doc{i}', 't', f'text{i}')
   grown_memory = float(index_info(env, 'idx2')['key_table_size_mb'])
-  env.assertGreater(grown_memory, populated_memory)
+  env.assertEqual(grown_memory, 0)
   for i in range(1000):
     conn.execute_command('DEL', f'doc{i}')
   assertInfoField(env, 'idx2', 'key_table_size_mb', grown_memory, delta=0)

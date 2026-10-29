@@ -126,12 +126,20 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["RM_SCAN_KEY_API_FIX", "RSGlobalConfig"],
     },
     HeaderAllowlist {
+        path: "src/doc_id_meta.h",
+        fns: &["DocIdMeta_Get"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/doc_table.h",
         fns: &[
             "DMD_Free",
             "DocTable_Exists",
             "DocTable_Put",
             "DocTable_KeyEquals",
+            "DocTable_StartKeyMap",
+            "DocTable_BuildKeyMapBatch",
         ],
         types: &[],
         vars: &[],

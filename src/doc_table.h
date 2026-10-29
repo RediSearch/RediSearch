@@ -52,6 +52,12 @@ typedef struct {
   RSDocumentMetadata *root;
 } DMDChain;
 
+typedef enum {
+  DocKeyMap_Inactive,
+  DocKeyMap_Building,
+  DocKeyMap_Ready,
+} DocKeyMapState;
+
 typedef struct {
   size_t size;
   t_docId maxSize;          // the maximum size this table is allowed to grow to
@@ -61,8 +67,9 @@ typedef struct {
   size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
-  // Key-to-document-ID lookup for in-memory indexes; NULL for disk indexes.
+  // Allocated on first INKEYS use; disk indexes never activate it.
   DocKeyMap *keyMap;
+  DocKeyMapState keyMapState;
   // Holds field-level expirations only; created lazily on the first HEXPIRE
   // and destroyed when the last entry is removed. Iterators use a NULL check
   // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
@@ -81,7 +88,30 @@ typedef struct {
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size);
 
-/* Caller holds the spec read or write lock and keyMap is enabled. */
+typedef enum {
+  DocKeyMapActivation_Unchanged,
+  DocKeyMapActivation_Ready,
+  DocKeyMapActivation_NeedsBackfill,
+} DocKeyMapActivation;
+
+/* Caller holds the spec write lock and has checked storage-mode eligibility. */
+DocKeyMapActivation DocTable_StartKeyMap(DocTable *t);
+// Task-owned and zero-initialized. Only next is retained across batch boundaries.
+typedef struct {
+  RSDocumentMetadata *next;
+  uint32_t bucket;
+  uint32_t endBucket;
+  bool initialized;
+} DocTableKeyMapIterator;
+
+/* Caller holds the spec write lock. Visits at most budget documents/empty buckets.
+ * Returns true when the map is ready. Use one iterator for the entire build. */
+bool DocTable_BuildKeyMapBatch(DocTable *t, DocTableKeyMapIterator *iter, size_t budget);
+
+/* Release a parked DMD on completion or cancellation, including after the table is freed. */
+void DocTable_KeyMapIteratorReleaseNext(DocTableKeyMapIterator *iter);
+
+/* Caller holds the spec read or write lock and keyMap is ready. */
 t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len);
 
 /* Match a visible document key. Caller holds the spec read or write lock, pinning the DMD and its
@@ -214,6 +244,11 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId);
 /* Update the stored key of a document (by docId) after a RENAME; the key -> docId
  * mapping is untouched (it rides with the Redis key metadata). No-op if absent. */
 void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *key, size_t len);
+
+// `size` counts one more than the docs held: NewDocTable starts it at 1.
+static inline bool DocTable_IsEmpty(const DocTable *t) {
+  return t->size <= 1;
+}
 
 /* increasing the ref count of the given dmd */
 /*

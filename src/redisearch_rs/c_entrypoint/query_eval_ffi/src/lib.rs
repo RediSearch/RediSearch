@@ -75,7 +75,8 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
 ///    changes and deadline writes may occur only between iterator probes;
 ///    only the blocked-client flag may change concurrently.
 ///    The caller must hold the spec read lock throughout deferred INKEYS
-///    evaluation, as required by [`QueryEvalContext::new`].
+///    evaluation, as required by [`QueryEvalContext::new`]. Until the document
+///    key map is ready, the caller must also hold the GIL for metadata lookup.
 /// 4. `status` must be a non-null pointer to a valid [`QueryError`].
 ///
 /// Together these are exactly the invariants documented on
