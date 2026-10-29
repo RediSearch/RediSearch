@@ -24,7 +24,10 @@ use std::mem::{self, ManuallyDrop};
 
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 use fork_gc::HandleError;
-use fork_gc::tags::{TagError, apply_tag_entry, collect_tags, receive_tag_entry};
+use fork_gc::tags::{
+    TagEntry, TagError, TagFieldHeader, apply_tag_entry, collect_tags, receive_field_header,
+    receive_tag_entry,
+};
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::reader::IndexReader;
@@ -294,7 +297,7 @@ impl TestSpec {
         }
     }
 
-    fn scan(&self) -> fork_gc::tags::TagEntry {
+    fn scan(&self) -> (TagFieldHeader, TagEntry) {
         let mut entries = receive_all(&collect_tags_from(self));
         assert_eq!(entries.len(), 1);
         entries.remove(0)
@@ -302,14 +305,14 @@ impl TestSpec {
 
     fn apply_and_check(
         &mut self,
-        entry: fork_gc::tags::TagEntry,
+        (field, entry): (TagFieldHeader, TagEntry),
         expected: Vec<DocId>,
         denied: u64,
     ) {
         let ii = self.posting_list(0, b"red").unwrap();
         let (bytes_before, blocks_before, docs_before) =
             (ii.memory_usage(), ii.number_of_blocks(), ii.unique_docs());
-        let stats = apply_tag_entry(entry, &mut self.write_guard()).unwrap();
+        let stats = apply_tag_entry(&field, entry, &mut self.write_guard()).unwrap();
         assert_eq!(self.ids(), expected);
         let (bytes_after, blocks_after) = self
             .posting_list(0, b"red")
@@ -378,11 +381,13 @@ fn collect_tags_from(spec: &TestSpec) -> Vec<u8> {
 }
 
 /// Decode every message with the real reader, asserting it consumes the complete stream.
-fn receive_all(buf: &[u8]) -> Vec<fork_gc::tags::TagEntry> {
+fn receive_all(buf: &[u8]) -> Vec<(TagFieldHeader, TagEntry)> {
     let mut cursor = Cursor::new(buf);
     let mut entries = Vec::new();
-    while let Some(entry) = receive_tag_entry(&mut cursor).unwrap() {
-        entries.push(entry);
+    while let Some(field) = receive_field_header(&mut cursor).unwrap() {
+        while let Some(entry) = receive_tag_entry(&mut cursor).unwrap() {
+            entries.push((field.clone(), entry));
+        }
     }
     assert_eq!(
         cursor.position(),
@@ -410,7 +415,7 @@ fn fields_without_collectable_tag_indexes_write_only_the_end_marker() {
 }
 
 #[test]
-fn each_dirty_tag_carries_its_own_routing_data() {
+fn dirty_tags_share_their_fields_routing_data() {
     let test = TestSpec::create(vec![
         Field::other(c"n", FieldSpecType::Numeric.into()),
         Field::tag(c"colours", &[b"red", b"blue"], 3, false),
@@ -420,32 +425,39 @@ fn each_dirty_tag_carries_its_own_routing_data() {
     let colours = test.tag_index(0).uniqueId;
     let sizes = test.tag_index(1).uniqueId;
 
-    let entries = receive_all(&collect_tags_from(&test));
-    let expected: &[(&[u8], u32, &[u8])] = &[
-        // Tags come out in the values trie's lexicographical order.
-        (b"colours", colours, b"blue"),
-        (b"colours", colours, b"red"),
-        (b"sizes", sizes, b"xl"),
-    ];
-    assert_eq!(entries.len(), expected.len());
-    for (entry, &(field_name, tag_index_unique_id, tag)) in entries.iter().zip(expected) {
-        assert_eq!(&*entry.field_name, field_name);
-        assert_eq!(entry.tag_index_unique_id, tag_index_unique_id);
-        assert_eq!(&*entry.tag, tag);
+    let bytes = collect_tags_from(&test);
+    let mut reader = Cursor::new(&bytes);
+    for (name, unique_id, tags) in [
+        (
+            b"colours".as_slice(),
+            colours,
+            vec![b"blue".as_slice(), b"red"],
+        ),
+        (b"sizes".as_slice(), sizes, vec![b"xl".as_slice()]),
+    ] {
+        let field = receive_field_header(&mut reader).unwrap().unwrap();
+        assert_eq!(&*field.field_name, name);
+        assert_eq!(field.tag_index_unique_id, unique_id);
+        for tag in tags {
+            let entry = receive_tag_entry(&mut reader).unwrap().unwrap();
+            assert_eq!(&*entry.tag, tag);
+        }
+        assert!(receive_tag_entry(&mut reader).unwrap().is_none());
     }
+    assert!(receive_field_header(&mut reader).unwrap().is_none());
+    assert_eq!(reader.position(), bytes.len() as u64);
 }
 
-/// `INDEXEMPTY` indexes the empty string, which is distinct from the MessagePack
-/// `None` end marker that ends the stream.
+/// `INDEXEMPTY` indexes the empty string, distinct from either end marker.
 #[test]
 fn the_empty_tag_round_trips() {
     let test = TestSpec::create(vec![Field::tag(c"tags", &[b""], 3, false)]);
 
     let entries = receive_all(&collect_tags_from(&test));
     assert_eq!(entries.len(), 1);
-    assert_eq!(&*entries[0].field_name, b"tags");
-    assert_eq!(entries[0].tag_index_unique_id, test.tag_index(0).uniqueId);
-    assert!(entries[0].tag.is_empty());
+    assert_eq!(&*entries[0].0.field_name, b"tags");
+    assert_eq!(entries[0].0.tag_index_unique_id, test.tag_index(0).uniqueId);
+    assert!(entries[0].1.tag.is_empty());
 }
 
 /// The unique id the child ships is the posting list's own, which is what
@@ -460,7 +472,7 @@ fn the_message_carries_the_scanned_posting_lists_id() {
 
     let entries = receive_all(&collect_tags_from(&test));
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].inverted_index_unique_id, u32::from(expected));
+    assert_eq!(entries[0].1.inverted_index_unique_id, u32::from(expected));
 }
 
 /// A tag that loses its last document is dropped, and what that freed is
@@ -472,7 +484,8 @@ fn applying_a_delta_drops_an_emptied_tag_and_reports_what_it_freed() {
     let mut entries = receive_all(&collect_tags_from(&test));
     assert_eq!(entries.len(), 1);
 
-    let stats = apply_tag_entry(entries.remove(0), &mut test.write_guard()).unwrap();
+    let (field, entry) = entries.remove(0);
+    let stats = apply_tag_entry(&field, entry, &mut test.write_guard()).unwrap();
 
     assert_eq!(stats.records_removed, 3, "every document was deleted");
     assert!(
@@ -495,9 +508,10 @@ fn applying_a_delta_drops_an_emptied_tag_and_reports_what_it_freed() {
 fn a_message_for_an_unknown_field_is_rejected() {
     let mut test = TestSpec::create(vec![Field::tag(c"tags", &[b"red"], 3, false)]);
     let mut entries = receive_all(&collect_tags_from(&test));
-    entries[0].field_name = Box::from(&b"other"[..]);
+    entries[0].0.field_name = Box::from(&b"other"[..]);
 
-    let err = apply_tag_entry(entries.remove(0), &mut test.write_guard()).unwrap_err();
+    let (field, entry) = entries.remove(0);
+    let err = apply_tag_entry(&field, entry, &mut test.write_guard()).unwrap_err();
     assert!(matches!(err, HandleError::Custom(TagError { .. })));
     assert_eq!(
         err.to_string(),
@@ -514,7 +528,8 @@ fn a_message_for_a_field_without_an_in_memory_tag_index_is_rejected() {
 
     test.remove_tag_index(0);
 
-    let err = apply_tag_entry(entries.remove(0), &mut test.write_guard()).unwrap_err();
+    let (field, entry) = entries.remove(0);
+    let err = apply_tag_entry(&field, entry, &mut test.write_guard()).unwrap_err();
     assert_eq!(
         err.to_string(),
         "the field no longer has an in-memory tag index"
@@ -527,9 +542,10 @@ fn a_message_for_a_field_without_an_in_memory_tag_index_is_rejected() {
 fn a_message_for_a_replaced_tag_index_is_rejected() {
     let mut test = TestSpec::create(vec![Field::tag(c"tags", &[b"red"], 3, false)]);
     let mut entries = receive_all(&collect_tags_from(&test));
-    entries[0].tag_index_unique_id = entries[0].tag_index_unique_id.wrapping_add(1);
+    entries[0].0.tag_index_unique_id = entries[0].0.tag_index_unique_id.wrapping_add(1);
 
-    let err = apply_tag_entry(entries.remove(0), &mut test.write_guard()).unwrap_err();
+    let (field, entry) = entries.remove(0);
+    let err = apply_tag_entry(&field, entry, &mut test.write_guard()).unwrap_err();
     assert_eq!(
         err.to_string(),
         "the field's tag index is not the one the child scanned"
@@ -545,65 +561,62 @@ fn a_message_for_a_replaced_posting_list_is_rejected() {
     assert_eq!(entries.len(), 2);
 
     // Stand in for `red`'s posting list having been replaced since the scan.
-    let blue = entries[0].inverted_index_unique_id;
-    let mut red = entries.remove(1);
+    let blue = entries[0].1.inverted_index_unique_id;
+    let (field, mut red) = entries.remove(1);
     assert_eq!(&*red.tag, b"red");
     red.inverted_index_unique_id = blue;
 
-    let err = apply_tag_entry(red, &mut test.write_guard()).unwrap_err();
+    let err = apply_tag_entry(&field, red, &mut test.write_guard()).unwrap_err();
     assert_eq!(
         err.to_string(),
         "the tag's posting list is not the one the child scanned"
     );
 }
 
-/// The child's stream can be cut short at any point if it dies mid-write, so
-/// every prefix of a message has to come back as a codec error rather than a
-/// partial apply.
+/// A child that dies mid-stream must be reported as a codec error, including
+/// when it omits a field or scanner terminator.
 #[test]
 fn a_truncated_message_is_a_codec_error() {
     let test = TestSpec::create(vec![Field::tag(c"tags", &[b"red"], 3, false)]);
     let buf = collect_tags_from(&test);
 
-    // Where the one message ends; the bytes after it are the stream end marker,
-    // and a prefix that reaches this far is a whole message, not a truncated one.
-    let message_end = {
-        let mut cursor = Cursor::new(&buf);
-        receive_tag_entry(&mut cursor).unwrap().unwrap();
-        cursor.position() as usize
-    };
-
-    for len in 1..message_end {
-        match receive_tag_entry(&mut Cursor::new(&buf[..len])) {
-            Err(HandleError::Codec { .. }) => {}
-            other => panic!("a {len}-byte prefix must be a codec error, got {other:?}"),
-        }
+    for len in 0..buf.len() {
+        let mut reader = Cursor::new(&buf[..len]);
+        let mut decode = || -> Result<(), HandleError<TagError>> {
+            while receive_field_header(&mut reader)?.is_some() {
+                while receive_tag_entry(&mut reader)?.is_some() {}
+            }
+            Ok(())
+        };
+        assert!(
+            matches!(decode(), Err(HandleError::Codec { .. })),
+            "a {len}-byte prefix must be a codec error"
+        );
     }
 }
 
-/// An empty stream is not a valid tag message: it is a truncated MessagePack
-/// value, not the `None` end marker a child sends after a complete stream.
 #[test]
-fn an_empty_stream_is_a_codec_error() {
-    let err = receive_tag_entry(&mut Cursor::new([])).unwrap_err();
-    assert!(matches!(err, HandleError::Codec { .. }));
+fn an_empty_stream_or_delta_frame_is_a_codec_error() {
+    for bytes in [Vec::new(), vec![0; size_of::<usize>()]] {
+        let err = receive_tag_entry(&mut Cursor::new(bytes)).unwrap_err();
+        assert!(matches!(err, HandleError::Codec { .. }));
+    }
 }
 
-/// The tag-stream end marker is one complete MessagePack value, so it must not
-/// consume following bytes.
+/// The next scanner's bytes must remain unread.
 #[test]
 fn the_end_marker_leaves_following_bytes_unread() {
-    let mut buf = Vec::new();
-    Option::<fork_gc::tags::TagEntry<&[u8]>>::None
-        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
-        .unwrap();
-    let end_marker_len = buf.len();
+    let test = TestSpec::create(vec![Field::tag(c"tags", &[b"red", b"blue"], 3, false)]);
+    let mut buf = collect_tags_from(&test);
+    let stream_len = buf.len();
     let following = [0x01, 0x02, 0x03];
     buf.extend_from_slice(&following);
 
     let mut cursor = Cursor::new(&buf);
-    assert!(receive_tag_entry(&mut cursor).unwrap().is_none());
-    assert_eq!(cursor.position(), end_marker_len as u64);
+    while receive_field_header(&mut cursor).unwrap().is_some() {
+        while receive_tag_entry(&mut cursor).unwrap().is_some() {}
+    }
+    assert_eq!(cursor.position(), stream_len as u64);
     assert_eq!(&buf[cursor.position() as usize..], following);
 }
 
@@ -620,9 +633,9 @@ fn a_message_for_a_non_tag_field_is_rejected_before_union_access() {
         // Non-TAG union storage must never be interpreted as a TagIndex pointer.
         other.spec.__bindgen_anon_1.tagOpts.tagIndex = std::ptr::without_provenance_mut(1);
         let mut test = TestSpec::create(vec![Field::tag(c"tags", &[b"red"], 3, false), other]);
-        let mut entry = test.scan();
-        entry.field_name = Box::from(&b"other"[..]);
-        let error = apply_tag_entry(entry, &mut test.write_guard()).unwrap_err();
+        let (mut field, entry) = test.scan();
+        field.field_name = Box::from(&b"other"[..]);
+        let error = apply_tag_entry(&field, entry, &mut test.write_guard()).unwrap_err();
         assert_eq!(
             error.to_string(),
             "the field no longer has an in-memory tag index"
@@ -662,20 +675,26 @@ fn routing_bytes_use_bulk_io_and_preserve_binary_values() {
     let test = TestSpec::create(vec![Field::tag(c"tags", &[b"red"], 3, false)]);
     let mut counts = Vec::new();
     for len in [16, 4096] {
-        let mut entry = test.scan();
+        let (mut field, mut entry) = test.scan();
         let bytes: Box<[u8]> = (0..len).map(|i| (i % 256) as u8).collect();
-        entry.field_name = bytes.clone();
+        field.field_name = bytes.clone();
         entry.tag = bytes.clone();
         let mut writer = CountingWriter::default();
-        Some(entry)
+        Some(field)
             .serialize(&mut rmp_serde::Serializer::new(&mut writer))
             .unwrap();
+        let header_writes = writer.calls;
+        entry.encode(&mut writer).unwrap();
+        assert_eq!(writer.calls - header_writes, 2);
         let mut reader = CountingReader {
             bytes: &writer.bytes,
             calls: 0,
         };
+        let field = receive_field_header(&mut reader).unwrap().unwrap();
+        let header_reads = reader.calls;
         let decoded = receive_tag_entry(&mut reader).unwrap().unwrap();
-        assert_eq!(decoded.field_name, bytes);
+        assert_eq!(reader.calls - header_reads, 2);
+        assert_eq!(field.field_name, bytes);
         assert_eq!(decoded.tag, bytes);
         assert!(reader.bytes.is_empty());
         counts.push((writer.calls, reader.calls));
@@ -744,8 +763,8 @@ fn removing_middle_block_preserves_new_blocks() {
 fn emptied_tags_remove_suffixes_but_empty_tags_have_none() {
     for tag in [b"red".as_slice(), b""] {
         let mut test = TestSpec::create(vec![Field::tag(c"tags", &[tag], 3, true)]);
-        let entry = test.scan();
-        apply_tag_entry(entry, &mut test.write_guard()).unwrap();
+        let (field, entry) = test.scan();
+        apply_tag_entry(&field, entry, &mut test.write_guard()).unwrap();
         assert!(test.posting_list(0, tag).is_none());
         // SAFETY: the fixture owns the suffix trie for this field.
         let suffix = unsafe { &*test.tag_index(0).suffix.cast::<TrieMapOpaque>() };
@@ -756,18 +775,18 @@ fn emptied_tags_remove_suffixes_but_empty_tags_have_none() {
 #[test]
 fn missing_tag_and_disk_backed_parent_are_rejected() {
     let mut test = TestSpec::create(vec![Field::tag(c"tags", &[b"red"], 3, false)]);
-    let mut entry = test.scan();
+    let (field, mut entry) = test.scan();
     entry.tag = Box::from(&b"absent"[..]);
     assert_eq!(
-        apply_tag_entry(entry, &mut test.write_guard())
+        apply_tag_entry(&field, entry, &mut test.write_guard())
             .unwrap_err()
             .to_string(),
         "the tag was removed before the delta could be applied"
     );
-    let entry = test.scan();
+    let (field, entry) = test.scan();
     let mut disk = TestSpec::create(vec![Field::disk_tag(c"tags")]);
     assert_eq!(
-        apply_tag_entry(entry, &mut disk.write_guard())
+        apply_tag_entry(&field, entry, &mut disk.write_guard())
             .unwrap_err()
             .to_string(),
         "the field no longer has an in-memory tag index"
