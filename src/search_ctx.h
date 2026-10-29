@@ -29,15 +29,6 @@ struct QueryRequestTimeout;
 
 #define APIVERSION_RETURN_MULTI_CMP_FIRST 3
 
-typedef enum {
-  SPEC_LOCK_UNSET,
-  SPEC_LOCK_READ,
-  SPEC_LOCK_WRITE,
-  /* Read lock held by an outer scope on this thread: read freely, but never lock
-   * or unlock the rwlock. See RedisSearchCtx_BorrowSpecReadLock. */
-  SPEC_LOCK_READ_BORROWED,
-} SpecLockState;
-
 /** Context passed to all redis related search handling functions. */
 typedef struct RedisSearchCtx {
   // Borrowed, never owned; valid only within the execution cycle that lent it
@@ -51,7 +42,6 @@ typedef struct RedisSearchCtx {
   // NULL when there is no owning request.
   struct QueryRequestTimeout *timeout;
   uint8_t apiVersion; // API Version to allow for backward compatibility / alternative functionality
-  SpecLockState lock_state;
   // Per-query disk snapshot (optional, NULL when no snapshot has been taken or when the
   // backing index has no disk component). Used by the disk-iterator construction paths
   // so all iterators created during one query observe a consistent on-disk view.
@@ -77,7 +67,6 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .spec = sp,
                           .currentTime = { 0, 0 },
                           .timeout = NULL,
-                          .lock_state = SPEC_LOCK_UNSET,
                           .diskSnapshot = NULL,};
   return sctx;
 }
@@ -101,33 +90,11 @@ typedef struct QueryError QueryError;
 // the query in that case rather than fall back to live disk reads.
 int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status);
 
+// Context destruction never releases a spec lock: a cursor sweep can destroy
+// an idle request while the same thread holds a different request's lock.
 void SearchCtx_CleanUp(RedisSearchCtx * sctx);
 
 void SearchCtx_Free(RedisSearchCtx *sctx);
-
-void RedisSearchCtx_LockSpecRead(RedisSearchCtx *sctx);
-
-int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *sctx);
-
-void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *sctx);
-
-void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx);
-
-/* Mark `sctx` as borrowing a read lock that the caller holds on the same spec.
- * Neither function touches the rwlock: while borrowed, UnlockSpec on this context
- * is a no-op and its query iterator skips locking and revalidation, so the
- * caller's lock stays held for the whole borrow. Clearing a context that never
- * borrowed is a no-op, so a caller can clean up unconditionally. */
-void RedisSearchCtx_BorrowSpecReadLock(RedisSearchCtx *sctx);
-void RedisSearchCtx_ClearBorrowedSpecReadLock(RedisSearchCtx *sctx);
-
-/* Debug-only (ENABLE_ASSERT) check that the spec lock is not held. Used at
- * background request-cycle boundaries: the lock must be taken and released
- * within a single cycle, on the same worker thread — a later release (request
- * free / client unblock on the main thread) would unlock the pthread_rwlock
- * from a thread that does not own it, which is undefined behavior. */
-#define RedisSearchCtx_AssertLockNotHeld(sctx) \
-  RS_LOG_ASSERT(!(sctx) || (sctx)->lock_state == SPEC_LOCK_UNSET, "spec lock must not be held")
 
 #ifdef __cplusplus
 }

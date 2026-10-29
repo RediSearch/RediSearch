@@ -8,51 +8,6 @@
 from common import *
 import time
 
-# The output for this test can be used for recreating documentation for `FT.INFO`
-@skip()
-def testInfo(env):
-  count = 345678
-  conn = env.getConnection()
-  pl = conn.pipeline()
-
-  idx = 'wikipedia'
-
-  for i in range(count):
-    geo = '1.23456,1.' + str(i / float(count))
-    pl.execute_command('HSET', 'doc%d' % i, 'title', 'hello%d' % i,
-                                            'body', '%dhello%dworld%dhow%dare%dyou%dtoday%d' % (i, i, i, i, i, i, i),
-                                            'n', i / 17.0,
-                                            'geo', geo)
-    if i % 10000 == 0:
-      pl.execute()
-  pl.execute()
-
-  env.expect('FT.CREATE', idx, 'STOPWORDS', 3, 'TLV', 'summer', '2020',
-                               'SCHEMA', 'title', 'TEXT', 'SORTABLE',
-                                         'body', 'TEXT',
-                                         'id', 'NUMERIC',
-                                         'subject location', 'GEO').ok()
-
-  waitForIndex(env, idx)
-
-  for i in range(count):
-    pl.execute_command('DEL', 'doc%d' % i)
-    if i % 10000 == 0:
-      pl.execute()
-      forceInvokeGC(env, idx)
-  pl.execute()
-
-  #  GC stats
-  for i in range(25):
-    forceInvokeGC(env, idx)
-
-  # cursor stats
-  #query = ['FT.AGGREGATE', idx, '*', 'WITHCURSOR']
-  #res = env.cmd(*query)
-  #env.cmd('FT.CURSOR', 'READ', idx, str(res[1]))
-
-  #print info
-
 def test_vecsim_info():
   env = Env(protocol=3)
   dim = 2
@@ -222,12 +177,12 @@ def test_vecsim_info_stats_memory():
   env = Env(protocol=3)
   vec_size = 6
   data_type = 'FLOAT16'
-  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2').ok()
-  load_vectors_to_redis(env, 1000, 0, vec_size, data_type)
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'embedding', 'VECTOR', 'FLAT', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2').ok()
+  load_vectors_to_redis(env, 1000, 0, vec_size, data_type, field_name='embedding')
   def get_memory(info): return info[info.index('MEMORY') + 1]
   total_memory = 0
   for shard_conn in shardsConnections(env):
-    total_memory += get_memory(shard_conn.execute_command(debug_cmd(), 'VECSIM_INFO', 'idx', 'vector'))
+    total_memory += get_memory(shard_conn.execute_command(debug_cmd(), 'VECSIM_INFO', 'idx', 'embedding'))
   info = shard_conn.execute_command('ft.info', 'idx')
   env.assertTrue("field statistics" in info)
   env.assertEqual(total_memory, info["field statistics"][0]["memory"])
@@ -237,8 +192,8 @@ def test_vecsim_info_stats_marked_deleted():
   conn = env.getClusterConnectionIfNeeded()
   vec_size = 6
   data_type = 'FLOAT16'
-  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2').ok()
-  load_vectors_to_redis(env, 1000, 0, vec_size, data_type)
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'embedding', 'VECTOR', 'HNSW', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2').ok()
+  load_vectors_to_redis(env, 1000, 0, vec_size, data_type, field_name='embedding')
   # Run the worker-pool sync on every shard: in cluster mode the docs (and the GC below) are
   # spread across all shards, so draining/pausing only the default shard leaves the other shards'
   # repair jobs racing the GC, which flakily leaves vectors marked-deleted (MOD-16881).

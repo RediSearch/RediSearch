@@ -88,45 +88,6 @@ RedisModuleString *Legacy_fmtRedisScoreIndexKey(const RedisSearchCtx *ctx, const
                                         term);
 }
 
-void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
-  RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
-  pthread_rwlock_rdlock(&ctx->spec->rwlock);
-  // pause rehashing while we're using the dict for reads only
-  // Assert that the pause value before we pause is valid.
-  RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
-  ctx->lock_state = SPEC_LOCK_READ;
-}
-
-int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *ctx) {
-  RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
-  int rc = pthread_rwlock_tryrdlock(&ctx->spec->rwlock);
-  if (rc != 0) {
-    // Lock is busy (EBUSY) or other error
-    return REDISMODULE_ERR;
-  }
-  // pause rehashing while we're using the dict for reads only
-  // Assert that the pause value before we pause is valid.
-  RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
-  ctx->lock_state = SPEC_LOCK_READ;
-  return REDISMODULE_OK;
-}
-
-void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
-  RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
-#ifdef ENABLE_ASSERT
-  // Bump the pending-writers counter before we may park on the rwlock so that
-  // tests can observe a queued writer via `PendingSpecWriters_Get` without
-  // depending on the main thread (the main thread is exactly what's blocked
-  // here when a BG worker holds the read lock).
-  PendingSpecWriters_Incr();
-#endif
-  pthread_rwlock_wrlock(&ctx->spec->rwlock);
-#ifdef ENABLE_ASSERT
-  PendingSpecWriters_Decr();
-#endif
-  ctx->lock_state = SPEC_LOCK_WRITE;
-}
-
 RedisSearchCtx *NewSearchCtxCEx(RedisModuleCtx *ctx, const char *indexName, bool resetTTL,
                                 IndexLoadOptionsFlags flags) {
   IndexLoadOptions loadOpts = {.nameC = indexName, .flags = flags};
@@ -175,49 +136,19 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
   return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL), resetTTL);
 }
 
-void RedisSearchCtx_BorrowSpecReadLock(RedisSearchCtx *ctx) {
-  RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
-  // Marker only - the outer scope already holds the rwlock.
-  ctx->lock_state = SPEC_LOCK_READ_BORROWED;
-}
-
-void RedisSearchCtx_ClearBorrowedSpecReadLock(RedisSearchCtx *ctx) {
-  // A lock this context actually owns must go through RedisSearchCtx_UnlockSpec.
-  RS_ASSERT(ctx->lock_state == SPEC_LOCK_READ_BORROWED || ctx->lock_state == SPEC_LOCK_UNSET);
-  ctx->lock_state = SPEC_LOCK_UNSET;
-}
-
-void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
-  RS_ASSERT(sctx);
-  if (sctx->lock_state == SPEC_LOCK_UNSET) {
-    return;
-  }
-  if (sctx->lock_state == SPEC_LOCK_READ_BORROWED) {
-    // Not ours to release. The marker is cleared by RedisSearchCtx_ClearBorrowedSpecReadLock.
-    return;
-  }
-  if (sctx->lock_state == SPEC_LOCK_READ) {
-    // We paused rehashing when we locked the spec for read. Now we can resume it.
-    // Assert that it was actually previously paused
-    RS_ASSERT_ALWAYS(dictResumeRehashing(sctx->spec->keysDict));
-  }
-  pthread_rwlock_unlock(&sctx->spec->rwlock);
-  sctx->lock_state = SPEC_LOCK_UNSET;
-}
-
 void SearchCtx_UpdateCurrentTime(RedisSearchCtx *sctx) {
   updateTime(&sctx->currentTime);
 }
 
 void SearchCtx_CleanUp(RedisSearchCtx *sctx) {
   // Release the per-query disk snapshot (no-op when NULL). Must happen after every
-  // iterator built from `sctx` has been freed; the OSS query pipeline tears down
-  // iterators before reaching SearchCtx_CleanUp/SearchCtx_Free.
+  // iterator built from `sctx` has been freed; the OSS query pipeline tears down iterators
+  // before reaching SearchCtx_CleanUp/SearchCtx_Free. Also called early, once a subquery is
+  // fully depleted, so a parked cursor does not pin the snapshot.
   if (sctx->diskSnapshot) {
     SearchDisk_FreeSnapshot(sctx->diskSnapshot);
     sctx->diskSnapshot = NULL;
   }
-  RedisSearchCtx_UnlockSpec(sctx);
 }
 
 void SearchCtx_Free(RedisSearchCtx *sctx) {
@@ -304,8 +235,8 @@ int Redis_LegacyDeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   return res;
 }
 
-int Redis_UnlinkKeyC(RedisModuleCtx *ctx, char *cstr) {
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "UNLINK", "c!", cstr);
+int Redis_UnlinkKey(RedisModuleCtx *ctx, const char *key, size_t len) {
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "UNLINK", "b!", key, len);
   RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);

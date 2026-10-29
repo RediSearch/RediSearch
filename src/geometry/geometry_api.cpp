@@ -62,6 +62,21 @@ namespace {
   int Index_##variant##_Remove(GeometryIndex *idx, t_docId id) {                            \
     return std::get<rtree_ptr<variant>>(idx->index)->remove(id);                            \
   }                                                                                         \
+  int Index_##variant##_Relabel(GeometryIndex *idx, t_docId old_id,                         \
+                                t_docId new_id) noexcept {                                  \
+    return std::get<rtree_ptr<variant>>(idx->index)->relabel(old_id, new_id);               \
+  }                                                                                         \
+  int Index_##variant##_Holds(const GeometryIndex *idx, GEOMETRY_FORMAT format,             \
+                              const char *str, std::size_t len, t_docId id) {               \
+    switch (format) {                                                                       \
+      case GEOMETRY_FORMAT_WKT:                                                             \
+        return std::get<rtree_ptr<variant>>(idx->index)                                     \
+            ->holds(std::string_view{str, len}, id);                                        \
+      case GEOMETRY_FORMAT_GEOJSON:                                                         \
+      default:                                                                              \
+        return 0;                                                                           \
+    }                                                                                       \
+  }                                                                                         \
   auto Index_##variant##_Query(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, \
                                const GeometryIndex *idx, QueryType query_type,              \
                                GEOMETRY_FORMAT format, const char *str, std::size_t len,    \
@@ -85,6 +100,8 @@ namespace {
       .freeIndex = Index_##variant##_Free,                                                  \
       .addGeomStr = Index_##variant##_Insert,                                               \
       .delGeom = Index_##variant##_Remove,                                                  \
+      .relabelGeom = Index_##variant##_Relabel,                                             \
+      .holdsGeomStr = Index_##variant##_Holds,                                              \
       .query = Index_##variant##_Query,                                                     \
       .dump = Index_##variant##_Dump,                                                       \
       .report = Index_##variant##_Report,                                                   \

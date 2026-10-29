@@ -239,3 +239,68 @@ fn expiration_bit_survives_gc() {
     }
     assert!(!reader.next_record(&mut result).unwrap());
 }
+
+/// Numeric record for `doc_id` with the given field-expiration bit.
+fn numeric(doc_id: DocId, has_exp: bool) -> RSIndexResult<'static> {
+    RSIndexResult::build_numeric(1.5)
+        .doc_id(doc_id)
+        .has_field_expiration(has_exp)
+        .build()
+}
+
+/// Seeking within and across blocks reports each entry's bit whether or not its block has a
+/// bitset, including blocks entered without one.
+#[test]
+fn numeric_seek_reports_expiration_bit_across_blocks() {
+    let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
+    // Six blocks' worth of docs, small enough for miri. Every third doc in the upper half has a
+    // TTL, so the lower three blocks have no bitset and the upper three do.
+    let per_block = DocId::from(<Numeric as crate::Encoder>::RECOMMENDED_BLOCK_ENTRIES);
+    let last = 6 * per_block;
+    let has_exp = |doc_id: DocId| doc_id > last / 2 && doc_id.is_multiple_of(3);
+    for doc_id in 1..=last {
+        ii.add_record(&numeric(doc_id, has_exp(doc_id))).unwrap();
+    }
+    assert_eq!(ii.number_of_blocks(), 6);
+    for (i, block) in ii.blocks.iter().enumerate() {
+        assert_eq!(
+            block.expiration_bits.mem_usage() > 0,
+            i >= 3,
+            "bitset presence of block {i}"
+        );
+    }
+
+    // Seeks within a block and into the next one, then the entry after each. The last doc is
+    // included so the end of the index is checked too.
+    let mut reader = ii.reader();
+    let mut result = numeric(0, false);
+    for target in (1..=last).step_by(7).chain([last]) {
+        assert!(reader.seek_record(target, &mut result).unwrap());
+        assert_eq!(
+            (result.doc_id, result.has_field_expiration),
+            (target, has_exp(target)),
+            "seek({target})"
+        );
+        if target < last {
+            assert!(reader.next_record(&mut result).unwrap());
+            assert_eq!(
+                (result.doc_id, result.has_field_expiration),
+                (target + 1, has_exp(target + 1)),
+                "next after {target}"
+            );
+        } else {
+            assert!(!reader.next_record(&mut result).unwrap(), "end of index");
+        }
+    }
+
+    // Seeks that skip several blocks at once, through the binary search over block bounds.
+    let mut reader = ii.reader();
+    for target in [1, 4 * per_block + per_block / 2, last - 1] {
+        assert!(reader.seek_record(target, &mut result).unwrap());
+        assert_eq!(
+            (result.doc_id, result.has_field_expiration),
+            (target, has_exp(target)),
+            "multi-block seek({target})"
+        );
+    }
+}

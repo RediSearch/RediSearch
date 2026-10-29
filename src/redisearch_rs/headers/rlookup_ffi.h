@@ -8,7 +8,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include "search_result_rs.h"
+#include "document_rs.h"
 #include "rlookup.h"
+
+/**
+ * Owns the format-specific cache for one loader. C only holds an opaque pointer.
+ */
+typedef struct LoaderCache LoaderCache;
 
 typedef struct QueryError QueryError;
 
@@ -31,6 +37,10 @@ typedef struct LoadAllKeysOptions {
   const RSDocumentMetadata *dmd;
   bool force_string;
   struct QueryError *status;
+  /**
+   * Loader-owned [`LoaderCache`]; required for JSON root loading, null for hashes.
+   */
+  const struct LoaderCache *cache;
 } LoadAllKeysOptions;
 
 typedef struct LoadIndividualKeysOptions {
@@ -51,21 +61,20 @@ typedef struct LoadIndividualKeysOptions {
    * `FT.PROFILE ... LOAD` path. Null when profiling is not requested.
    */
   struct LoadFieldProfile *profile_fields;
+  /**
+   * Loader-owned [`LoaderCache`] matching the document type. JSON paths must be
+   * aligned with the selected keys. Null makes hash loading build field names afresh.
+   */
+  const struct LoaderCache *cache;
 } LoadIndividualKeysOptions;
 
 /**
  * An iterator over the keys in an `RLookup`, returning immutable pointers.
  */
 typedef struct RLookupIterator {
-  const RLookupKey *current;
+  const RLookupKey *const *current;
+  size_t remaining;
 } RLookupIterator;
-
-/**
- * An iterator over the keys in an `RLookup`, returning mutable pointers.
- */
-typedef struct RLookupIteratorMut {
-  RLookupKey *current;
-} RLookupIteratorMut;
 
 /**
  * [`RSSortingVector`] acts as a cache for sortable fields in a document.
@@ -113,6 +122,36 @@ typedef struct RSSortingVectorSlice {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Free a cache returned by [`LoaderCache_New`]. Null is a no-op.
+ *
+ * # Safety
+ *
+ * `cache` must be null or a [valid] pointer returned by [`LoaderCache_New`]. A non-null
+ * cache must be freed exactly once, with no load in progress and no subsequent uses.
+ * Hash caches must not be accessed concurrently.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void LoaderCache_Free(struct LoaderCache *cache);
+
+/**
+ * Create the format-specific cache for one loader. With no keys, JSON loads the root
+ * and hashes need no cache.
+ *
+ * Returns null when the RedisJSON API is unavailable.
+ * Free the returned cache with [`LoaderCache_Free`].
+ *
+ * # Safety
+ *
+ * 1. For JSON, the RedisJSON module must be initialized.
+ * 2. For JSON with nonzero `nkeys`, `keys` must point to `nkeys` [valid], non-null [`RLookupKey`]s
+ *    whose path bytes remain [valid] until the returned cache is freed.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+struct LoaderCache *LoaderCache_New(enum DocumentType doc_type, const RLookupKey *const *keys, size_t nkeys);
 
 /**
  * Retrieves an item from the given `RLookupRow` based on the provided `RLookupKey`.
@@ -230,15 +269,14 @@ void RLookupRow_Wipe(struct RLookupRow *row);
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 2. The memory pointed to by `name` must contain a valid null terminator at the
- *    end of the string.
- * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
- *    This means in particular:
- *     1. `name_len` must be same as `strlen(name)`
- *     2. The entire memory range of this cstr must be contained within a single allocation!
- *     3. `name` must be non-null even for a zero-length cstr.
+ * 2. `name` must be [valid] for reads of `name_len` bytes, all within a single allocation.
+ * 3. `name` must be non-null even when `name_len` is `0`.
  * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
  * 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
+ *
+ * No null terminator is required; `name_len` alone bounds the read. An interior
+ * NUL byte is not a safety precondition; it panics on the insert path, where the
+ * name is copied into an owned [`CString`](std::ffi::CString).
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -256,15 +294,14 @@ void RLookupRow_WriteByName(struct RLookup *lookup, const char *name, size_t nam
  * # Safety
  *
  * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 2. The memory pointed to by `name` must contain a valid null terminator at the
- *    end of the string.
- * 3. `name` must be [valid] for reads of `name_len` bytes up to and including the null terminator.
- *    This means in particular:
- *     1. `name_len` must be same as `strlen(name)`
- *     2. The entire memory range of this cstr must be contained within a single allocation!
- *     3. `name` must be non-null even for a zero-length cstr.
+ * 2. `name` must be [valid] for reads of `name_len` bytes, all within a single allocation.
+ * 3. `name` must be non-null even when `name_len` is `0`.
  * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
  * 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
+ *
+ * No null terminator is required; `name_len` alone bounds the read. An interior
+ * NUL byte is not a safety precondition; it panics on the insert path, where the
+ * name is copied into an owned [`CString`](std::ffi::CString).
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -527,23 +564,6 @@ RLookupKey *RLookup_GetKey_Write(struct RLookup *lookup, const char *name, uint3
 RLookupKey *RLookup_GetKey_WriteEx(struct RLookup *lookup, const char *name, size_t name_len, uint32_t flags);
 
 /**
- * Returns the number of visible fields in this RLookupRow.
- *
- * Keys named after the schema rule's special fields (score, lang, payload)
- * carry `RLOOKUP_F_HIDDEN` from creation (see the spec cache's rule names),
- * so excluding `RLOOKUP_F_HIDDEN` also excludes them.
- *
- * # Safety
- *
- * 1. `lookup` must be a [valid], non-null pointer to a [`RLookup`]
- * 2. `row` must be a [valid], non-null pointer to a [`RLookupRow`]
- * 3. `skip_field_index` must be a [valid] non-null pointer for reads and writes of `skip_field_index_len` boolean values
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-size_t RLookup_GetLength(const struct RLookup *lookup, const struct RLookupRow *row, bool *skip_field_index, size_t skip_field_index_len, uint32_t required_flags, uint32_t excluded_flags);
-
-/**
  * Returns the row len of the [`RLookup`], i.e. the number of keys in its key list not counting the overridden keys.
  *
  * # Safety
@@ -572,25 +592,11 @@ bool RLookup_HasIndexSpecCache(const struct RLookup *lookup);
  *
  * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
  * 2. The returned iterator must only be used as long as the `lookup` remains valid.
+ * 3. `lookup` must not be mutated until the returned iterator is exhausted.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct RLookupIterator RLookup_Iter(const struct RLookup *lookup);
-
-/**
- * Return an iterator over an [`RLookup`]'s key list with editing operations.
- *
- * # Safety
- *
- * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
- * 2. The returned iterator must only be used as long as the `lookup` remains valid.
- * 3. The caller must treat the returned `current` pointer as pinned. Specifically
- *    a. Not move (memcpy/memmove) out of the pointer.
- *    b. The pointed-to value must remain at its original address in memory and never be relocated.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
 
 /**
  * Load values from the document `dmd` into `dst_row`
@@ -603,6 +609,8 @@ struct RLookupIteratorMut RLookup_IterMut(struct RLookup *lookup);
  *    `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
  * 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
  *    be a valid [`DocumentType`].
+ * 5. `(*opts).cache` must be null or a [valid] pointer returned by [`LoaderCache_New`]
+ *    for the document type and kept alive for this call. JSON requires a non-null root cache.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -622,6 +630,9 @@ int RLookup_LoadDocumentAll(struct RLookup *lookup, struct RLookupRow *dst_row, 
  * 5. If `(*opts).nkeys > 0`, `(*opts).keys` must be a [valid], non-null pointer to `nkeys`
  *    consecutive `*const ffi::RLookupKey`, each of which must itself be a [valid], non-null
  *    pointer to a properly initialized key that outlives this call.
+ * 6. `(*opts).cache` must be null or a [valid] pointer returned by [`LoaderCache_New`]
+ *    for the document type and kept alive for this call. JSON requires a non-null cache
+ *    for these keys in the same order. No other thread may access a hash cache during this call.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
@@ -656,6 +667,20 @@ int32_t RLookup_LoadRuleFields(RedisSearchCtx *search_ctx, struct RLookup *looku
  * Returns a newly created [`RLookup`].
  */
 struct RLookup RLookup_New(void);
+
+/**
+ * Seal the lookup at the end of pipeline construction: from now on it is
+ * append-only. Creating new keys stays legal (document loaders and the
+ * coordinator append keys during execution), but overriding or mutating an
+ * existing key panics. Idempotent.
+ *
+ * # Safety
+ *
+ * 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void RLookup_Seal(struct RLookup *lookup);
 
 /**
  * Sets the [`ffi::IndexSpecCache`] of the lookup. If spcache is provided, then it will be used as an

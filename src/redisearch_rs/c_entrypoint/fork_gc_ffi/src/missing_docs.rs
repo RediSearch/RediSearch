@@ -16,10 +16,10 @@ use index_spec::IndexSpecReadGuard;
 
 use crate::{FGCError, util::into_fgc_error};
 
-/// Collect GC delta data for every entry in the spec's `missingFieldDict` and
+/// Collect GC delta data for every entry in the spec's `missing.indexes` and
 /// send it to the parent process over the pipe.
 ///
-/// Iterates the `missingFieldDict`, and for each entry with a non-null
+/// Iterates the `missing.indexes`, and for each entry with a non-null
 /// `InvertedIndex` calls `scan_gc` which sends the field name header
 /// followed by the serialised GC delta. Sends a terminator once all
 /// entries are processed.
@@ -54,7 +54,7 @@ pub unsafe extern "C" fn FGC_childCollectMissingDocs(
     collect_missing_docs(&mut fgc.writer(), &guard).unwrap_or_exit();
 }
 
-/// Receive and apply the GC delta for one field in the spec's `missingFieldDict`.
+/// Receive and apply the GC delta for one field in the spec's `missing.indexes`.
 ///
 /// Reads one protocol frame from the pipe. Returns [`FGCError::Collected`] after
 /// successfully applying a delta, [`FGCError::Done`] when the child sent a

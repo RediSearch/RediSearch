@@ -187,6 +187,9 @@ jobs:
       - name: Validate glibc version
         if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
         uses: ./.github/actions/validate-glibc-version
+      - name: Validate OpenSSL linkage
+        if: runner.os == 'macOS'
+        uses: ./.github/actions/validate-openssl-linkage
 
       # Upload
       - name: Configure AWS Credentials

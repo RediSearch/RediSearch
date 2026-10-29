@@ -303,16 +303,14 @@ endif()
 
 # Platform-specific settings
 if(APPLE)
-    # Find OpenSSL on macOS. Prefer explicit paths, then known Homebrew prefixes.
+    # Find OpenSSL on macOS. Prefer explicit paths, then Homebrew's openssl@4 prefixes.
     if(NOT OPENSSL_ROOT_DIR AND DEFINED LIBSSL_DIR)
         set(OPENSSL_ROOT_DIR "${LIBSSL_DIR}")
     endif()
     if(NOT OPENSSL_ROOT_DIR)
         foreach(_openssl_prefix
-            "/opt/homebrew/opt/openssl@3"
-            "/usr/local/opt/openssl@3"
-            "/opt/homebrew/opt/openssl"
-            "/usr/local/opt/openssl")
+            "/opt/homebrew/opt/openssl@4"
+            "/usr/local/opt/openssl@4")
             if(EXISTS "${_openssl_prefix}")
                 set(OPENSSL_ROOT_DIR "${_openssl_prefix}")
                 break()
@@ -320,6 +318,14 @@ if(APPLE)
         endforeach()
     endif()
     find_package(OpenSSL REQUIRED)
+    # The Homebrew Redis package ships only openssl@4, so a module linked against
+    # any other major fails to load there.
+    if(NOT OPENSSL_VERSION VERSION_GREATER_EQUAL 4 OR OPENSSL_VERSION VERSION_GREATER_EQUAL 5)
+        message(FATAL_ERROR "macOS builds require OpenSSL 4, found '${OPENSSL_VERSION}' "
+            "(${OPENSSL_CRYPTO_LIBRARY}). Install it with `brew install openssl@4`, or point "
+            "OPENSSL_ROOT_DIR at an OpenSSL 4 prefix. An existing build directory may have "
+            "cached another version: rebuild with `./build.sh FORCE`.")
+    endif()
     include_directories(${OPENSSL_INCLUDE_DIR})
 
     if(DEFINED LIBSSL_DIR)
@@ -430,6 +436,12 @@ target_link_libraries(redisearch
     redisearch_rs
     ${SSL_LIBS}
     ${CMAKE_LD_LIBS})
+
+if(DEFINED RUST_COVERAGE_PROFILE_RUNTIME)
+    target_link_libraries(redisearch
+        "-Wl,-u,__llvm_profile_runtime"
+        "${RUST_COVERAGE_PROFILE_RUNTIME}")
+endif()
 
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch redisearch_rs)

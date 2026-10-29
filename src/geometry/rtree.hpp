@@ -88,6 +88,10 @@ class RTree {
 
   int insertWKT(std::string_view wkt, t_docId id, RedisModuleString** err_msg);
   bool remove(t_docId id);
+  // False, with no change, if old_id has no entry, new_id has one, or the R-tree misses the pair.
+  bool relabel(t_docId old_id, t_docId new_id);
+  // True iff wkt parses to exactly the geometry stored under id.
+  [[nodiscard]] bool holds(std::string_view wkt, t_docId id) const;
   [[nodiscard]] auto query(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, std::string_view wkt, QueryType query_type,
                            RedisModuleString** err_msg) const -> QueryIterator*;
 

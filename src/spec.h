@@ -16,12 +16,13 @@
 #include "config.h"
 #include "doc_table.h"
 #include "trie/trie.h"
-#include "sortable.h"
+#include "sorting_vector.h"
 #include "stopwords.h"
 #include "gc.h"
 #include "synonym_map.h"
 #include "field_spec.h"
 #include "util/dict.h"
+#include "util/charbuf.h"
 #include "util/rs_atomic.h"
 #include "util/references.h"
 #include "rules.h"
@@ -156,6 +157,9 @@ typedef struct {
   IndexError indexError;
   uint32_t activeQueries;
   uint32_t activeWrites;
+  // Deletions made off the main thread that the GC has not taken yet. Go through
+  // IndexSpec_DeferGCDeletes / IndexSpec_TakeGCDeferredDeletes.
+  size_t gcDeferredDeletes;
 } IndexStats;
 
 // Atomically apply `delta` to `stats->totalInvertedIndexBlocks`. Accepts signed deltas:
@@ -223,7 +227,9 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
 
-#define INDEX_CURRENT_VERSION 27
+#define INDEX_CURRENT_VERSION 29
+#define INDEX_SST_SPEC_ID_VERSION 29
+#define INDEX_HNSW_QUANT_VERSION 28
 #define INDEX_VECTOR_RERANK_VERSION 27
 #define INDEX_DISK_VERSION 26
 #define INDEX_VECSIM_SVS_VAMANA_VERSION 25
@@ -290,11 +296,6 @@ typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
 typedef struct InvertedIndex InvertedIndex;
 typedef const void* RedisSearchDiskIndexSpec;
 
-typedef struct CharBuf {
-  char *buf;
-  size_t len;
-} CharBuf;
-
 // What FT.DROP / FT.DROPINDEX did with this index's documents, and hence what
 // teardown still owes the keyspace. Set by DropIndexCommand before the spec is
 // unlinked, and reset to IndexDrop_None once the cleanup it implies has run, so
@@ -312,6 +313,17 @@ typedef enum {
   // In disk mode the RDB save/load cycle reclaims them instead.
   IndexDrop_KeepDocs,
 } IndexDropMode;
+
+// State backing INDEXMISSING fields.
+typedef struct {
+  // Field name -> Index_DocIdsOnly inverted index of the documents lacking
+  // that field.
+  dict *indexes;
+  // Indices into IndexSpec.fields of the INDEXMISSING fields, so indexing a
+  // document need not scan the whole schema. Indices rather than FieldSpec
+  // pointers, because FT.ALTER reallocates IndexSpec.fields.
+  arrayof(t_fieldIndex) fields;
+} IndexSpecMissing;
 
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
@@ -387,8 +399,7 @@ typedef struct IndexSpec {
   // Quick access to the spec's strong ref
   StrongRef own_ref;
 
-  // Contains inverted indexes of missing fields
-  dict *missingFieldDict;
+  IndexSpecMissing missing;
   // Maps between field ftid and field index in the fields array
   arrayof(t_fieldIndex) fieldIdToIndex;
 
@@ -448,6 +459,21 @@ static inline void IndexSpec_DecrActiveWrites(IndexSpec *sp) {
 }
 static inline uint32_t IndexSpec_GetActiveWrites(IndexSpec *sp) {
   return __atomic_load_n(&sp->stats.activeWrites, __ATOMIC_RELAXED);
+}
+
+// Report deletions to the GC without touching it: once the index is dropped, the GC can free itself
+// on its own thread at any time, so only the main thread may call into it. The GC takes the count
+// at the start of its next run.
+static inline void IndexSpec_DeferGCDeletes(IndexSpec *sp, size_t n) {
+  __atomic_add_fetch(&sp->stats.gcDeferredDeletes, n, __ATOMIC_RELAXED);
+}
+static inline size_t IndexSpec_TakeGCDeferredDeletes(IndexSpec *sp) {
+  return __atomic_exchange_n(&sp->stats.gcDeferredDeletes, 0, __ATOMIC_RELAXED);
+}
+
+// Whether any field in the schema was declared INDEXMISSING.
+static inline bool IndexSpec_HasIndexMissing(const IndexSpec *sp) {
+  return array_len(sp->missing.fields) != 0;
 }
 
 /**
@@ -550,7 +576,7 @@ void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats);
 size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
 
 /* Get the count of total blocks*/
-size_t IndexSpec_TotalBlockCount(IndexSpec *sp);
+size_t IndexSpec_TotalBlockCount(const IndexSpec *sp);
 
 /*
  * Parse an index spec from redis command arguments.
@@ -580,6 +606,14 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
  * using RedisModule_FreeString
 */
 RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
+
+// Bump whenever the schema members or their hash encoding change.
+#define SCHEMA_FINGERPRINT_VERSION 1
+
+// Deterministic hash of schema values, independent of RDB settings and shard data.
+// Includes field definitions, indexing rules, custom stopwords, synonyms, and timeout;
+// excludes index names, aliases, documents, statistics, and live index state.
+uint64_t IndexSpec_SchemaFingerprint(const IndexSpec *sp);
 
 /**
  * Deserialize an IndexSpec from its RDB serialized form, by calling the `IndexSpecType` rdb_load function.
@@ -623,8 +657,13 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 
 // Delete a document from the index by its docId directly, without needing
 // to look it up by key name. Removes the document from the DocTable but does
-// NOT clean up DocIdMeta on the key. This is called from the metadata unlink callback
+// NOT clean up DocIdMeta on the key. No-op if the docId is not present.
 void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId);
+
+// Same as IndexSpec_DeleteDocById, for a caller already holding the spec write lock, except that it
+// leaves the GC notification to the caller: GCContext_OnDelete on the main thread, otherwise
+// IndexSpec_DeferGCDeletes. Returns whether the doc was deleted.
+bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId);
 
 // Resolve a key -> docId for this spec via the DocIdMeta key metadata (the
 // replacement for the former in-memory DocTable key trie). Returns 0 if the key
@@ -644,8 +683,18 @@ const RSDocumentMetadata *IndexSpec_BorrowDocByKeyR(IndexSpec *sp, RedisModuleCt
 // callback) so the DocIdMeta update can reuse the handle instead of reopening
 // the key by name; pass NULL otherwise. The caller retains ownership of
 // `openKey` and must keep it valid for the duration of the call.
+// `changedFields` / `numChangedFields` name the fields the originating command
+// modified (NULL / 0 when unknown);
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
-                        DocumentType type, RedisModuleKey *openKey);
+                        DocumentType type, RedisModuleKey *openKey,
+                        RedisModuleString **changedFields, size_t numChangedFields);
+
+// IndexSpec_UpdateDoc for a document an FT.ALTER backfill replaces while its scan is selective.
+// Schema fields at or past `addedFieldsStart` were added by that ALTER, so their VECTOR or
+// GEOSHAPE values are inserted without a comparison; every other field is handled as by
+// IndexSpec_UpdateDoc with no change set, and a pre-existing GEOSHAPE field may also be moved.
+int IndexSpec_UpdateDocForAlter(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
+                                DocumentType type, t_fieldIndex addedFieldsStart);
 
 // Format the legacy (separate-key) Redis key name for a numeric/tag/geo field.
 RedisModuleString *IndexSpec_LegacyGetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
@@ -660,7 +709,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 /* The dictType used for IndexSpec.keysDict: CharBuf keys, InvertedIndex* values. */
 extern dictType invIdxDictType;
 
-/* The dictType used for IndexSpec.missingFieldDict: HiddenString keys, InvertedIndex* values. */
+/* The dictType used for IndexSpec.missing.indexes: HiddenString keys, InvertedIndex* values. */
 extern dictType missingFieldDictType;
 
 /**
@@ -792,6 +841,9 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
 // Open the non-SST on-disk index for a spec parsed by IndexSpec_RdbLoad, once the
 // caller has resolved sp->isDuplicate. No-op for SST/memory/duplicate specs.
 int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, QueryError *status);
+// Discard a spec returned by IndexSpec_RdbLoad that will not be registered:
+// withdraw it from the global prefix trie and alias table, then release it.
+void IndexSpec_RdbLoadDiscard(StrongRef spec_ref);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags);
 
 // Per-spec callbacks for the IndexSpecType module type. IndexSpec_LegacyRdbLoad
@@ -831,6 +883,7 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
  * TODO: fIx so this will account for the entire index memory, preferably by using an allocator,
  * currently it is a best effort that account only for part of the actual memory.
  */
+size_t IndexSpec_TotalMemUsageForInfo(IndexSpec *sp, size_t vector_overhead, size_t disk_memory);
 size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_overhead,
   size_t vector_overhead);
 
@@ -842,12 +895,17 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t text_
 * @return the formatted name of the index
 */
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
+
 char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 //---------------------------------------------------------------------------------------------
 
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
+// Queue high-priority background work, ahead of queued low-priority jobs. Returns 0 on success.
+int CleanPool_AddWork(void (*work)(void *), void *arg);
+// Block until every queued clean-pool job has finished.
+void CleanPool_Wait();
 size_t CleanInProgressOrPending();
 
 
@@ -860,6 +918,26 @@ StrongRef IndexSpecRef_Promote(WeakRef ref);
 // Must only be called if the spec was promoted successfully
 // Will also clear the current thread's active spec
 void IndexSpecRef_Release(StrongRef ref);
+
+// A thread may hold one spec lock. Acquisitions are non-recursive, including
+// acquisitions through a different search context for the same spec.
+void IndexSpec_LockRead(IndexSpec *sp);
+int IndexSpec_TryLockRead(IndexSpec *sp);
+void IndexSpec_LockWrite(IndexSpec *sp);
+// Idempotent when this thread holds no lock; never releases another thread's lock.
+void IndexSpec_Unlock(IndexSpec *sp);
+bool IndexSpec_IsLocked(const IndexSpec *sp);
+bool IndexSpec_IsReadLocked(const IndexSpec *sp);
+// Debug-only check at worker-cycle boundaries, independent of request/context lifetime.
+void IndexSpec_AssertLockNotHeld(void);
+
+// Suppress Unlock on this thread while synchronous hybrid subqueries use the
+// outer scope's read lock, so one subquery reaching EOF cannot release it early.
+// Requires a held read lock; suppression scopes cannot nest. AllowUnlock ends
+// suppression on the same thread without releasing the lock; the outer scope
+// must then call Unlock.
+void IndexSpec_SuppressUnlock(IndexSpec *sp);
+void IndexSpec_AllowUnlock(IndexSpec *sp);
 
 // =============================================================================
 // Compaction FFI Functions (called by Rust during GC)

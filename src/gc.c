@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include "op_block_client.h"
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
@@ -349,9 +350,7 @@ void GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced) {
 }
 
 static void GCContext_UnblockClient(void* data) {
-  RedisModuleBlockedClient *bc = data;
-  RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, NULL);
+  OpBlockClient_Unblock(data);
 }
 
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc) {

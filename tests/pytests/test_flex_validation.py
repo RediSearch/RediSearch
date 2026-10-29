@@ -31,20 +31,15 @@ def with_simulate_in_flex(enabled, module_args='', no_default_module_args=False)
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_max_index_limit(env):
-    """Test that creating more than 10 indices fails when search-_simulate-in-flex is true"""
-    # Create 10 indices successfully (the maximum allowed)
-    for i in range(10):
-        index_name = f'idx{i}'
-        env.expect('FT.CREATE', index_name, 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT').ok()
+def test_flex_no_fixed_index_limit(env):
+    """Flex has no fixed index count cap; creation is bounded by disk resources instead."""
+    n_indexes = 20
+    for i in range(n_indexes):
+        env.expect('FT.CREATE', f'idx{i}', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT').ok()
+    env.assertEqual(len(env.cmd('FT._LIST')), n_indexes)
 
-    # Verify all 10 indices were created
-    info_result = env.cmd('FT._LIST')
-    env.assertEqual(len(info_result), 10)
-
-    # Try to create the 11th index - this should fail
-    env.expect('FT.CREATE', 'idx10', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT') \
-        .error().contains('Max number of indexes reached for Flex indexes: 10')
+    env.dumpAndReload()
+    env.assertEqual(len(env.cmd('FT._LIST')), n_indexes)
 
 
 @skip(cluster=True)
@@ -158,11 +153,6 @@ def test_unsupported_schema_options(env):
     # Test NOINDEX is not supported
     env.expect('FT.CREATE', 'idx2', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'NOINDEX') \
         .error().contains('Disk index does not support NOINDEX fields')
-
-    # Test INDEXMISSING is not supported
-    env.expect('FT.CREATE', 'idx3', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA', 'field', 'TEXT', 'INDEXMISSING') \
-        .error().contains('Disk index does not support INDEXMISSING fields')
-
 
 
 @skip(cluster=True)
@@ -361,17 +351,6 @@ def test_flex_aggregate_rejects_withcursor(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_blocks_hybrid_commands(env):
-    _create_flex_search(env)
-
-    env.expect('FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB') \
-        .error().contains('FT.HYBRID is not supported in Redis Flex')
-    env.expect('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*', 'VSIM', '@v', '$BLOB') \
-        .error().contains('FT.HYBRID is not supported in Redis Flex')
-
-
-@skip(cluster=True)
-@with_simulate_in_flex(True)
 def test_flex_blocks_dict_commands(env):
     _create_flex_search(env)
 
@@ -381,6 +360,27 @@ def test_flex_blocks_dict_commands(env):
         .error().contains('FT.DICTDEL is not supported in Redis Flex')
     env.expect('FT.DICTDUMP', 'dict') \
         .error().contains('FT.DICTDUMP is not supported in Redis Flex')
+
+
+@skip(cluster=True)
+@with_simulate_in_flex(True)
+def test_flex_disk_hnsw_rejects_compression_and_training(env):
+    """Reject in-memory SQ8 options before creating a disk-backed vector field."""
+    for data_type in ('FLOAT32', 'FLOAT16'):
+        base = ['TYPE', data_type, 'DIM', 64, 'DISTANCE_METRIC', 'L2',
+                'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'RERANK', 'TRUE']
+        for extra, error in (
+            (['COMPRESSION', 'SQ8'], 'COMPRESSION is not supported for disk-based vector indexes'),
+            (['COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 0],
+             'COMPRESSION is not supported for disk-based vector indexes'),
+            (['TRAINING_THRESHOLD', 4, 'COMPRESSION', 'SQ8'],
+             'COMPRESSION is not supported for disk-based vector indexes'),
+            (['TRAINING_THRESHOLD', 0],
+             'TRAINING_THRESHOLD is irrelevant when compression was not requested'),
+        ):
+            params = [*base, *extra]
+            env.expect('FT.CREATE', 'sq8', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+                       'v', 'VECTOR', 'HNSW', len(params), *params).error().contains(error)
 
 
 @skip(cluster=True)
@@ -586,6 +586,41 @@ def test_flex_disk_hnsw_rerank_rdb_roundtrip(env):
 
 
 @skip(cluster=True)
+@with_simulate_in_flex(True, module_args='WORKERS 2')
+def test_flex_hybrid_rejects_nonblocking_contexts(env):
+    """Simulated Flex rejects hybrid loader execution in MULTI and Lua across entry points."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'HNSW', 14,
+               'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2', 'M', 16,
+               'EF_CONSTRUCTION', 100, 'EF_RUNTIME', 10, 'RERANK', 'TRUE').ok()
+    blob = create_np_array_typed([1.0, 0.0], 'FLOAT32').tobytes()
+    env.expect('HSET', 'doc:1', 't', 'hello', 'v', blob).equal(2)
+    args = ['idx', 'SEARCH', 'hello', 'VSIM', '@v', '$b', 'KNN', 2, 'K', 1,
+            'PARAMS', 2, 'b', blob]
+    commands = [
+        ['FT.HYBRID', *args],
+        ['FT.PROFILE', 'idx', 'HYBRID', 'QUERY', *args[1:]],
+        [debug_cmd(), 'FT.HYBRID', *args, 'TIMEOUT_AFTER_N_SEARCH', 100, 'DEBUG_PARAMS_COUNT', 2],
+    ]
+    error = ('SEARCH_FLEX_UNSUPPORTED_ARGUMENT FT.HYBRID in a context that cannot block '
+             '(MULTI/EXEC or Lua scripts) is not supported in Redis Flex')
+    option = 'search-_fallback-to-main-thread-when-block-client-unavailable'
+    previous = env.cmd('CONFIG', 'GET', option)[1]
+    try:
+        env.expect('CONFIG', 'SET', option, 'yes').ok()
+        for command in commands:
+            env.expect(*command).noError()
+            with env.getConnection().pipeline(transaction=True) as pipeline:
+                pipeline.execute_command(*command)
+                responses = pipeline.execute(raise_on_error=False)
+            env.assertEqual(len(responses), 1)
+            env.assertContains(error, str(responses[0]))
+            env.expect('EVAL', 'return redis.call(unpack(ARGV))', 0, *command) \
+                .error().contains(error)
+    finally:
+        env.expect('CONFIG', 'SET', option, previous).ok()
+
+
+@skip(cluster=True)
 @with_simulate_in_flex(True)
 def test_disk_vector_query_validation(env: Env):
 
@@ -625,6 +660,33 @@ def test_disk_vector_query_validation(env: Env):
         env.assertEqual(res[0], 2, message=f'Expected 2 results for query "{query}"')
         env.assertEqual(set(res[1:]), {'doc:1', 'doc:2'}, message=f'Expected results doc:1 and doc:2 for query "{query}"')
 
+    hybrid_args = ['idx', 'SEARCH', 'hello', 'VSIM', '@v', '$b', 'KNN', 2, 'K', 2,
+                   'PARAMS', 2, 'b', query_blob]
+    response = env.cmd('FT.HYBRID', *hybrid_args)
+    results, count = get_results_from_hybrid_response(response)
+    env.assertEqual(count, 2, message=response)
+    env.assertEqual(set(results), {'doc:1', 'doc:2'}, message=response)
+    env.expect('FT.PROFILE', 'idx', 'HYBRID', 'QUERY', *hybrid_args[1:]).noError()
+    env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'HYBRID', 'QUERY', *hybrid_args[1:]).noError()
+    before_uses = int(to_dict(env.cmd('FT.INFO', 'idx'))['number_of_uses'])
+    env.expect(debug_cmd(), 'FT.HYBRID', *hybrid_args, 'TIMEOUT_AFTER_N_SEARCH', 100,
+               'DEBUG_PARAMS_COUNT', 2).noError()
+    after_uses = int(to_dict(env.cmd('FT.INFO', 'idx'))['number_of_uses'])
+    env.assertEqual(after_uses, before_uses + 1)
+
+    env.expect('FT.HYBRID', *hybrid_args, 'WITHCURSOR') \
+        .error().contains('WITHCURSOR: Unknown argument')
+    filtered_args = ['idx', 'SEARCH', 'hello', 'VSIM', '@v', '$b',
+                     'KNN', 2, 'K', 2, 'FILTER', 1, '@t:hello',
+                     'PARAMS', 2, 'b', query_blob]
+    env.expect('FT.HYBRID', *filtered_args).error().contains('FILTER ... POLICY')
+    wildcard_filter = filtered_args.copy()
+    wildcard_filter[12] = '*'
+    env.expect('FT.HYBRID', *wildcard_filter).error().contains('FILTER ... POLICY')
+    for policy in ['ADHOC', 'BATCHES']:
+        env.expect('FT.HYBRID', *filtered_args[:10], 'FILTER', 3, '@t:hello',
+                   'POLICY', policy, *filtered_args[-4:]).noError()
+
     # Vector range queries are supported on Flex disk indexes. With L2 (squared)
     # distance and a query vector of [1.0, 1.0]: doc:1 -> 0, doc:2 -> 2,
     # doc:3 -> 4802. Radius 10 returns doc:1 and doc:2; radius 0 returns doc:1
@@ -649,6 +711,7 @@ def test_disk_vector_query_validation(env: Env):
     # Negative radius is still rejected by the vector index validation path.
     env.expect('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE -1 $b]', 'NOCONTENT',
                'PARAMS', '2', 'b', query_blob).error()
+    env.expect('FT.DROPINDEX', 'idx').ok()
 
 
 @skip(cluster=True)
@@ -800,7 +863,7 @@ def test_flex_blocks_cursor_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_debug_wrappers_for_aggregate_and_hybrid(env):
+def test_flex_debug_wrappers_for_aggregate(env):
     _create_flex_search(env)
 
     # Debug FT.AGGREGATE follows the command's flex enablement (MOD-16604).
@@ -808,13 +871,6 @@ def test_flex_debug_wrappers_for_aggregate_and_hybrid(env):
         .noError()
     env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'TIMEOUT_AFTER_N', '1', 'DEBUG_PARAMS_COUNT', '2') \
         .noError()
-
-    env.expect(debug_cmd(), 'FT.HYBRID', 'idx', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
-               'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.HYBRID is not supported in Redis Flex')
-    env.expect(debug_cmd(), 'FT.PROFILE', 'idx', 'HYBRID', 'QUERY', 'SEARCH', '*', 'VSIM', '@v', '$BLOB',
-               'TIMEOUT_AFTER_N_SEARCH', '1', 'DEBUG_PARAMS_COUNT', '2') \
-        .error().contains('FT.HYBRID is not supported in Redis Flex')
 
 
 @skip(cluster=True)

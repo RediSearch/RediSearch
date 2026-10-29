@@ -102,6 +102,37 @@ TEST_F(AggTest, testBasic) {
 
 #endif // HAVE_RM_SCANCURSOR_CREATE
 
+TEST_F(AggTest, GroupBySealsEveryLookup) {
+  RMCK::Context ctx;
+  RMCK::ArgvList args(ctx, "*", "APPLY", "1", "AS", "first", "GROUPBY", "1", "@first", "REDUCE",
+                      "COUNT", "0", "AS", "count", "APPLY", "@count + 1", "AS", "count", "GROUPBY",
+                      "0", "REDUCE", "SUM", "1", "@count", "AS", "total");
+  QueryError status = QueryError_Default();
+  AREQ *req = AREQ_New(args, args.size());
+  ASSERT_EQ(AREQ_Compile(req, ctx, 0, false, &status), REDISMODULE_OK);
+  AREQ_AddRequestFlags(req, QEXEC_F_IS_COORDINATOR);
+  ASSERT_EQ(AREQ_BuildPipeline(req, &status), REDISMODULE_OK) << QueryError_GetUserError(&status);
+
+  AGGPlan *plan = AREQ_AGGPlan(req);
+  size_t count = 0;
+  for (const DLLIST_node *node = plan->steps.next; node != &plan->steps; node = node->next) {
+    const PLN_BaseStep *step = DLLIST_ITEM(node, PLN_BaseStep, llnodePln);
+    if (step->type != PLN_T_GROUP) {
+      continue;
+    }
+    RLookup *lookup = AGPLN_GetLookup(plan, step, AGPLN_GETLOOKUP_PREV);
+    EXPECT_DEATH(RLookup_SetCache(lookup, nullptr), "sealed");
+    ++count;
+  }
+  EXPECT_EQ(count, 2);
+  RLookup *last = AGPLN_GetLookup(plan, nullptr, AGPLN_GETLOOKUP_LAST);
+  EXPECT_DEATH(RLookup_SetCache(last, nullptr), "sealed");
+  // The seal protects existing keys, but coordinator replies can still add fields.
+  EXPECT_NE(RLookup_GetKey_Write(last, "late", RLOOKUP_F_NOFLAGS), nullptr);
+  AREQ_Free(req);
+  QueryError_ClearError(&status);
+}
+
 class RPMock : public ResultProcessor {
  public:
   size_t counter;

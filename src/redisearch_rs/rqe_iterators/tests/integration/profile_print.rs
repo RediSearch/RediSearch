@@ -302,7 +302,6 @@ fn union_limited_geo_prints_full() {
 #[test]
 fn union_with_query_string() {
     use query_types::QueryNodeType;
-    use ref_mode::SharedPtr;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -312,7 +311,7 @@ fn union_with_query_string() {
     let iter = UnionOpaque {
         variant: UnionVariant::FlatFull(flat),
         query_node_type: QueryNodeType::Prefix,
-        query_string: Some(SharedPtr::from_ref(query_str.as_c_str())),
+        query_string: Some(query_str.as_c_str()),
     };
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
@@ -485,7 +484,7 @@ fn missing_with_field() {
     let ii = DocIdsOnly::from_opaque(ctx.missing_inverted_index());
     let field_index = ctx.field_spec().index;
     // SAFETY: ctx provides a valid RedisSearchCtx with a valid spec,
-    // missingFieldDict, and field_index.
+    // missing.indexes, and field_index.
     let iter = unsafe {
         rqe_iterators::inverted_index::Missing::new(
             ii.reader(),
@@ -567,7 +566,7 @@ fn numeric_variant_geo() {
     let nw_score = nw_hash.bits as f64;
 
     let geo_filter = ffi::GeoFilter {
-        fieldSpec: std::ptr::null(),
+        fieldIndex: rqe_core::RS_INVALID_FIELD_INDEX,
         lat: 0.0,
         lon: 0.0,
         radius: 1.0,

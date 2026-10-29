@@ -24,6 +24,9 @@ void MRChannel_Push(MRChannel *chan, void *ptr);
  * Return NULL if the channel is empty and MRChannel_Unblock was called by another thread */
 void *MRChannel_Pop(MRChannel *chan);
 
+// Thread-safe pop that returns NULL immediately when the channel is empty.
+void *MRChannel_TryPop(MRChannel *chan);
+
 /* Pop an item, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or abort
  * flag (re-checked on each wait entry; pair with MRChannel_WakeAbort). `timedOut`
  * set if deadline expired. At least one of `abstime` / `abortFlag` must be non-NULL;

@@ -33,6 +33,10 @@ jobs:
     with:
       compare-advisories-to-base: true
       advisories-base-ref: ${{ github.event.merge_group.base_sha }}
+      # Every queue entry, not just Markdown changes: deleting or renaming a
+      # file can break a doc link. External URLs stay out so a third-party
+      # outage cannot block merges.
+      check-local-links: true
 
   build-unique-oses:
     needs: get-latest-redis-tag

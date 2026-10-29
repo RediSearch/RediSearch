@@ -14,6 +14,7 @@
 #include <stddef.h>
 
 typedef struct QueryError QueryError;
+typedef struct RedisModuleString RedisModuleString;
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,7 +36,7 @@ typedef enum {
 } ParamType;
 
 typedef struct Param {
-  // Parameter name
+  // Parameter name, borrowed from the request (query text or argv); not NUL-terminated
   const char *name;
   // Length of the parameter name
   size_t len;
@@ -50,11 +51,12 @@ typedef struct Param {
   int sign;
 } Param;
 
-void Param_FreeInternal(Param *param);
-
-dict *Param_DictCreate();
-int Param_DictAdd(dict *d, const char *name, const char *value, size_t value_len, QueryError *status);
-const char *Param_DictGet(dict *d, const char *name, size_t *value_len, QueryError *status);
+/* The params dict borrows its names and values; both must outlive the dict and anything that
+ * resolved a parameter from it. Query requests satisfy this with their held argv. */
+// `capacity` is the exact number of parameters that will be added.
+dict *Param_DictCreate(size_t capacity);
+int Param_DictAdd(dict *d, const char *name, size_t name_len, RedisModuleString *value, QueryError *status);
+const char *Param_DictGet(dict *d, const char *name, size_t name_len, size_t *value_len, QueryError *status);
 void Param_DictFree(dict *);
 dict *Param_DictClone(dict *source);
 

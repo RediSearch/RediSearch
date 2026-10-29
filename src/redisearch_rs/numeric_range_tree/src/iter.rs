@@ -113,3 +113,45 @@ impl<'a> Iterator for IndexedReversePreOrderDfsIterator<'a> {
         Some((node_idx, node))
     }
 }
+
+/// An iterator that yields every node of the tree, alongside its index, after all
+/// of its descendants (post-order: left subtree, right subtree, parent).
+///
+/// Fork GC emits node deltas in this order so that a node's range is updated only
+/// after the ranges of its children, which it must keep covering.
+#[derive(Debug)]
+pub struct IndexedPostOrderDfsIterator<'a> {
+    /// Reference to the tree (used to resolve node indices).
+    tree: &'a NumericRangeTree,
+    /// Stack of node indices, each flagged with whether its children were pushed.
+    stack: Vec<(NodeIndex, bool)>,
+}
+
+impl<'a> IndexedPostOrderDfsIterator<'a> {
+    /// Create a new iterator starting from the root of the given tree.
+    pub fn new(tree: &'a NumericRangeTree) -> Self {
+        let root = tree.root_index();
+        let mut stack = Vec::with_capacity(2 * (tree.node(root).max_depth() as usize + 1));
+        stack.push((root, false));
+        Self { tree, stack }
+    }
+}
+
+impl<'a> Iterator for IndexedPostOrderDfsIterator<'a> {
+    type Item = (NodeIndex, &'a NumericRangeNode);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let (node_idx, expanded) = self.stack.pop()?;
+            let node = self.tree.node(node_idx);
+            match node {
+                NumericRangeNode::Internal(internal) if !expanded => {
+                    self.stack.push((node_idx, true));
+                    self.stack.push((internal.right_index(), false));
+                    self.stack.push((internal.left_index(), false));
+                }
+                _ => return Some((node_idx, node)),
+            }
+        }
+    }
+}

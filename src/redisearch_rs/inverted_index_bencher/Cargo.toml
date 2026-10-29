@@ -25,7 +25,6 @@ name = "add_record"
 harness = false
 
 [dependencies]
-buffer.workspace = true
 criterion.workspace = true
 ffi.workspace = true
 rqe_core.workspace = true

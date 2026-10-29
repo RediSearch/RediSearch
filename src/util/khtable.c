@@ -42,11 +42,6 @@ void KHTable_Free(KHTable *table) {
   rm_free(table->buckets);
 }
 
-void KHTable_Clear(KHTable *table) {
-  memset(table->buckets, 0, sizeof(*table->buckets) * table->numBuckets);
-  table->numItems = 0;
-}
-
 static int KHTable_Rehash(KHTable *table) {
   // Find new capacity
   size_t newCapacity = 0;

@@ -224,6 +224,7 @@ jobs:
           import os
           import json
           import re
+          from botocore.exceptions import ClientError
           from concurrent.futures import ThreadPoolExecutor
           from zipfile import ZipFile
 
@@ -318,9 +319,20 @@ jobs:
           group_print("Included Files", include_list)
           group_print("Unexpected SHAs", set([sha for _, sha in exclude_list]))
 
-          # Copy included files to new location
+          # IfNoneMatch="*" makes the copy a conditional write: S3 rejects it with PreconditionFailed
+          # if an object already exists at dst, instead of silently overwriting a published artifact.
           for src, dst in zip(include_list, dest_files):
-              client.copy_object(Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src}, ACL="public-read")
+              try:
+                  client.copy_object(
+                      Bucket=bucket, Key=dst, CopySource={"Bucket": bucket, "Key": src},
+                      ACL="public-read", IfNoneMatch="*",
+                  )
+              except ClientError as e:
+                  if e.response["Error"]["Code"] == "PreconditionFailed":
+                      raise Exception(
+                          f"::error title=Release artifact already exists::Refusing to overwrite s3://{bucket}/{dst}"
+                      )
+                  raise
 
           group_print("New Files", dest_files)
 

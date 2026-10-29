@@ -833,7 +833,17 @@
   },
   "FT._LIST": {
     "summary": "Returns a list of all existing indexes",
-    "complexity": "O(1)",
+    "complexity": "Without WITHCLUSTERSTATE: O(N), where N is the number of local indexes. With WITHCLUSTERSTATE: O(B + (I + 1) * S^2) total work, where S is the shard count, I is the number of distinct indexes, and B is the total schema content processed across shards, including index names, fields, stopwords, and synonym memberships. Each shard hashes its local schema content on its Redis thread; the coordinator compares shard reports.",
+    "arguments": [
+      {
+        "name": "withclusterstate",
+        "type": "pure-token",
+        "token": "WITHCLUSTERSTATE",
+        "summary": "Reports each index's cross-shard consistency state",
+        "optional": true,
+        "since": "8.12.0"
+      }
+    ],
     "since": "2.0.0",
     "group": "search",
     "command_tips": [
@@ -2317,6 +2327,14 @@
                     "optional": true
                   },
                   {
+                    "name": "rerank",
+                    "type": "string",
+                    "token": "RERANK",
+                    "summary": "Whether to rerank disk vector candidates (TRUE or FALSE)",
+                    "optional": true,
+                    "since": "8.8.7"
+                  },
+                  {
                     "name": "shard_k_ratio",
                     "type": "double",
                     "token": "SHARD_K_RATIO",
@@ -2354,6 +2372,14 @@
                     "type": "double",
                     "token": "EPSILON",
                     "optional": true
+                  },
+                  {
+                    "name": "rerank",
+                    "type": "string",
+                    "token": "RERANK",
+                    "summary": "Whether to rerank disk vector candidates (TRUE or FALSE)",
+                    "optional": true,
+                    "since": "8.8.7"
                   },
                   {
                     "name": "yield_score_as",
@@ -3252,6 +3278,10 @@
       [
         "8.4.3",
         "Added `count`, `POLICY` and `BATCH_SIZE` arguments to the `VSIM` `FILTER` clause"
+      ],
+      [
+        "8.8.7",
+        "Added `RERANK` to the `VSIM` `KNN` and `RANGE` clauses for disk-based HNSW indexes"
       ]
     ],
     "group": "search",

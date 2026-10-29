@@ -272,3 +272,1691 @@ fn union_full_heap_upholds_current_contract() {
     assert_eq!(assert_current_contract(&mut it), [1, 2, 3, 4]);
     assert_current_contract_via_skip_to(&mut it, 5);
 }
+
+mod via_resume {
+    use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
+    use index_result::RSIndexResult;
+    use rqe_core::DocId;
+    use rqe_iterators::{
+        RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus,
+        ResumeOutcome, TypeErasedRQEIterator, UnionFullHeap, UnionHeap, UnionQuickHeap,
+    };
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+
+    /// Read `it` to completion, collecting the doc ids it yields.
+    fn drain<'index>(it: &mut impl RQEIterator<'index>) -> Vec<DocId> {
+        let mut seen = Vec::new();
+        while let Some(doc) = it.read().expect("read failed") {
+            seen.push(doc.doc_id);
+        }
+        seen
+    }
+
+    /// Wrap three mocks as the type-erased children a composite really holds:
+    /// their active and suspended forms carry different vtables, which a
+    /// concrete-child test cannot exercise.
+    fn boxed_children<'spec, const N0: usize, const N1: usize, const N2: usize>(
+        c0: Mock<'spec, N0>,
+        c1: Mock<'spec, N1>,
+        c2: Mock<'spec, N2>,
+    ) -> Vec<TypeErasedRQEIterator<'spec>> {
+        vec![
+            TypeErasedRQEIterator::new(Box::new(c0)),
+            TypeErasedRQEIterator::new(Box::new(c1)),
+            TypeErasedRQEIterator::new(Box::new(c2)),
+        ]
+    }
+
+    #[test]
+    fn resume_ok() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+        let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullHeap::new(children);
+
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 10);
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 15);
+
+        let guard = mock_ctx.spec_read();
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 20);
+    }
+
+    #[test]
+    fn resume_moved() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+        let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullHeap::new(children);
+
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_moved();
+        assert!(union.last_doc_id() > 10);
+    }
+
+    #[test]
+    fn resume_single_child_aborts() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+        let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullHeap::new(children);
+
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let mut union =
+            match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+                .expect("resume failed")
+            {
+                ResumeOutcome::Ok(it) | ResumeOutcome::Moved(it) => it,
+                ResumeOutcome::Aborted => {
+                    panic!("Expected MOVED or OK when one child aborts, got Aborted")
+                }
+            };
+        let r = union.read().unwrap().unwrap();
+        assert!(r.doc_id >= 15);
+    }
+
+    #[test]
+    fn resume_all_children_abort() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+        let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullHeap::new(children);
+
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let outcome = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed");
+        assert!(matches!(outcome, ResumeOutcome::Aborted));
+    }
+
+    /// When no child moved, the union resumes on the document it was on, so
+    /// subsequent reads continue from the same position.
+    #[test]
+    fn resume_minimum_unchanged_returns_ok() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 3> = Mock::new([10, 30, 50]);
+        let child1: Mock<'_, 3> = Mock::new([10, 40, 60]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullHeap::new(children);
+
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let r = union.read().unwrap().unwrap();
+        assert!(r.doc_id > 10, "expected next doc_id > 10, got {}", r.doc_id);
+    }
+
+    /// An EOF child dropped from the heap must NOT be
+    /// re-inserted into it by resume — it would yield its already-read max
+    /// doc_id forever.
+    ///
+    /// The *surviving* child has to move, or `any_change` stays false and
+    /// `resume` returns before `rebuild_heap` runs at all: the heap would then
+    /// be carried over untouched and the re-admission filter this test is about
+    /// (`rebuild_heap`'s `!child.at_eof()`) would never be reached.
+    #[test]
+    fn resume_swap_removed_dead_tail_not_yielded_again() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 2> = Mock::new([10, 20]);
+        let child1: Mock<'_, 5> = Mock::new([5, 15, 25, 35, 45]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullHeap::new(children);
+
+        let mut docs = Vec::new();
+        for _ in 0..4 {
+            docs.push(union.read().unwrap().unwrap().doc_id);
+        }
+        assert_eq!(docs, [5, 10, 15, 20]);
+        // The next read runs child0 past its last document, dropping it from
+        // the heap while it stays in the children vector.
+        let r = union.read().unwrap().unwrap();
+        assert_eq!(r.doc_id, 25);
+
+        let guard = mock_ctx.spec_read();
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_moved();
+        assert_eq!(
+            union.last_doc_id(),
+            35,
+            "only the surviving child backs the union's new position",
+        );
+
+        let remaining: Vec<_> =
+            std::iter::from_fn(|| union.read().unwrap().map(|r| r.doc_id)).collect();
+        assert_eq!(remaining, [45], "child0's 20 must not come back");
+    }
+
+    /// The same dead-tail child, but *aborting*: the compaction that removes it
+    /// shifts the survivor down to slot 0, invalidating every `child_idx` the
+    /// heap still caches. Only the `rebuild_heap` that follows re-derives them,
+    /// so a resume that reused the carried-over heap would index a child that no
+    /// longer lives there.
+    #[test]
+    fn resume_compacts_over_an_aborted_dead_tail_child() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 2> = Mock::new([10, 20]);
+        let child1: Mock<'_, 5> = Mock::new([5, 15, 25, 35, 45]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullHeap::new(children);
+
+        let mut docs = Vec::new();
+        for _ in 0..5 {
+            docs.push(union.read().unwrap().unwrap().doc_id);
+        }
+        assert_eq!(docs, [5, 10, 15, 20, 25]);
+
+        let guard = mock_ctx.spec_read();
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+        assert_eq!(
+            union.last_doc_id(),
+            25,
+            "the survivor still sits on the union's document",
+        );
+        assert_eq!(drain(&mut union), [35, 45]);
+    }
+
+    /// `resume` publishes the aggregate it rebuilt from the resumed children, so
+    /// every entry must *reach* its child afterwards. Every other `Ok`-path test
+    /// reads first, which resets and rebuilds the aggregate again, so a broken
+    /// entry would be overwritten before anything read it. Dereference every
+    /// entry here instead, in the window between the resume and the next read —
+    /// the window a scorer walking `current()` occupies in production.
+    ///
+    /// Run under miri this is also the regression test for the entries'
+    /// *provenance*, which is the half a plain read cannot see: the addresses
+    /// survive a child's transition on their own, the borrows they were derived
+    /// from do not, and only `resume`'s re-derivation of the entries makes them
+    /// usable rather than merely well-addressed. The twin of
+    /// `union_flat::via_resume::resume_ok_leaves_the_aggregate_pointing_at_live_children`.
+    #[test]
+    fn resume_ok_leaves_the_aggregate_pointing_at_live_children() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // All three children start on 10, so all three back the aggregate.
+        let child0: Mock<'_, 3> = Mock::new([10, 40, 70]);
+        let child1: Mock<'_, 3> = Mock::new([10, 50, 80]);
+        let child2: Mock<'_, 3> = Mock::new([10, 60, 90]);
+        // Nothing moves, so `resume` publishes its rebuilt aggregate with no
+        // settle afterwards to replace it.
+        for data in [child0.data(), child1.data(), child2.data()].iter_mut() {
+            data.set_revalidate_result(MockRevalidateResult::Ok);
+        }
+
+        let mut union = UnionFullHeap::new(boxed_children(child0, child1, child2));
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let current = union
+            .current()
+            .expect("an unchanged union is still positioned");
+        assert_eq!(current.doc_id, 10);
+        let aggregate = current
+            .as_aggregate()
+            .expect("a full union publishes an aggregate result");
+        assert_eq!(aggregate.len(), 3, "one entry per child on the document");
+        for i in 0..aggregate.len() {
+            let entry = aggregate.get(i).expect("index below len");
+            assert_eq!(
+                entry.doc_id, 10,
+                "entry {i} must still reach its child's live result",
+            );
+        }
+
+        // Only now let a read rebuild the aggregate from scratch.
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 40);
+    }
+
+    /// [`resume_ok_leaves_the_aggregate_pointing_at_live_children`] with
+    /// **concrete** children. They live inline in the children vector, so here
+    /// the rebuilt entries point into the union's own buffer rather than into
+    /// each child's separate box — the case where the buffer accesses `resume`
+    /// makes after the rebuild could invalidate the entries' provenance, which
+    /// only miri can see.
+    #[test]
+    fn resume_ok_leaves_the_aggregate_pointing_at_live_concrete_children() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let children = vec![
+            Mock::new([10u64, 40, 70]),
+            Mock::new([10u64, 50, 80]),
+            Mock::new([10u64, 60, 90]),
+        ];
+        let mut union = Box::new(UnionFullHeap::new(children));
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+        let mut union = match union.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(a) => a,
+            ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+
+        let current = union
+            .current()
+            .expect("an unchanged union is still positioned");
+        assert_eq!(current.doc_id, 10);
+        let aggregate = current
+            .as_aggregate()
+            .expect("a full union publishes an aggregate result");
+        assert_eq!(aggregate.len(), 3, "one entry per child on the document");
+        for i in 0..aggregate.len() {
+            let entry = aggregate.get(i).expect("index below len");
+            assert_eq!(
+                entry.doc_id, 10,
+                "entry {i} must still reach its child's live result",
+            );
+        }
+
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 40);
+    }
+
+    /// A child that resumes onto EOF ahead of a concrete contributor sends the
+    /// resume through the settle, which builds the published aggregate itself.
+    /// The resume must not have derived entries of its own for the settle to
+    /// leave stale. Run under miri, for both modes.
+    #[test]
+    fn resume_settle_rebuilds_past_an_exhausted_child_with_a_concrete_contributor() {
+        fn check<const QUICK_EXIT: bool>() {
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let guard = mock_ctx.spec_read();
+            // child0's move from 10 runs it off the end.
+            let child0 = Mock::new([5u64, 10]);
+            child0
+                .data()
+                .set_revalidate_result(MockRevalidateResult::Move);
+            let child1 = Mock::new([10u64, 20]);
+            let mut union = Box::new(rqe_iterators::UnionHeap::<'_, _, QUICK_EXIT>::new(vec![
+                child0, child1,
+            ]));
+            assert_eq!(union.read().unwrap().unwrap().doc_id, 5);
+            assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+            let mut active = match union.suspend().resume(&guard).expect("resume failed") {
+                ResumeOutcome::Ok(a) => a,
+                ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+                ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+            };
+            let current = active.current().expect("child1 still backs doc 10");
+            assert_eq!(current.doc_id, 10);
+            let aggregate = current
+                .as_aggregate()
+                .expect("a union publishes an aggregate result");
+            assert_eq!(aggregate.len(), 1, "only child1 is on doc 10");
+            assert_eq!(aggregate.get(0).expect("one entry").doc_id, 10);
+            assert_eq!(drain(&mut *active), [20]);
+        }
+        check::<false>();
+        check::<true>();
+    }
+
+    /// The abort path — `copy_nonoverlapping` compacting survivors down over
+    /// the hole, `set_len` shrinking the vector, the heap rebuilt over the
+    /// shifted indices, and the whole-box cast that must not re-narrow the
+    /// aggregate onto the child it just freed — with **concrete** children, so
+    /// miri can see all of it.
+    ///
+    /// Concrete children are also what makes the relocation half of that
+    /// hazard real: a `Mock` lives inline in the vector's buffer, so compaction
+    /// moves the survivor's result object to a new address, where a boxed
+    /// child's would have stayed put.
+    #[test]
+    fn resume_compacts_over_an_aborted_concrete_child() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child0 = Mock::new([10u64, 40, 70]);
+        let child1 = Mock::new([20u64, 50, 80]);
+        let child2 = Mock::new([30u64, 60, 90]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+
+        let mut union = Box::new(UnionFullHeap::new(vec![child0, child1, child2]));
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+        let mut active = match union.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Moved(a) => a,
+            ResumeOutcome::Ok(_) => panic!("expected Moved, got Ok"),
+            ResumeOutcome::Aborted => panic!("expected Moved, got Aborted"),
+        };
+        assert_eq!(
+            active.num_children_total(),
+            2,
+            "the aborted child is gone from the vector",
+        );
+        assert_eq!(active.last_doc_id(), 20);
+        assert_eq!(
+            drain(&mut *active),
+            [30, 50, 60, 80, 90],
+            "nothing of the aborted child's may survive in the sequence",
+        );
+    }
+
+    /// The rebuild recomputes `freq` and `field_mask` from the children it
+    /// re-pushes, so a published union never claims a frequency or a set of
+    /// fields that its own entries do not account for. `field_mask` is the one
+    /// that bites if it drifts — it decides field filtering and field-weighted
+    /// scoring, so an over-broad mask lets a document through a filter no live
+    /// child matches.
+    ///
+    /// Asserted as agreement between the result and its entries rather than
+    /// against literals, because that is the invariant: whatever the children
+    /// hold, the two must say the same thing.
+    #[test]
+    fn resume_leaves_the_aggregate_agreeing_with_its_entries() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // Two children on the union's document and one past it, so the rebuild
+        // has to *select* rather than re-push everything it is handed.
+        let child0: Mock<'_, 2> = Mock::new([10, 40]);
+        let child1: Mock<'_, 2> = Mock::new([10, 50]);
+        let child2: Mock<'_, 2> = Mock::new([20, 60]);
+        for data in [child0.data(), child1.data(), child2.data()].iter_mut() {
+            data.set_revalidate_result(MockRevalidateResult::Ok);
+        }
+
+        let mut union = UnionFullHeap::new(boxed_children(child0, child1, child2));
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let current = union
+            .current()
+            .expect("an unchanged union is still positioned");
+        let aggregate = current
+            .as_aggregate()
+            .expect("a full union publishes an aggregate result");
+        assert_eq!(
+            aggregate.len(),
+            2,
+            "only the children sitting on doc 10 back the result",
+        );
+
+        let mut freq = 0;
+        let mut field_mask = 0;
+        for i in 0..aggregate.len() {
+            let entry = aggregate.get(i).expect("index below len");
+            assert_eq!(entry.doc_id, 10, "entry {i} is on the union's document");
+            freq += entry.freq;
+            field_mask |= entry.field_mask;
+        }
+        assert_eq!(current.freq, freq, "freq must be the sum over the entries");
+        assert_eq!(
+            current.field_mask, field_mask,
+            "field_mask must be the union over the entries",
+        );
+    }
+
+    /// Metrics survive the rebuild, because they cannot be rebuilt.
+    ///
+    /// Unlike `freq` and `field_mask`, which are copied from each child,
+    /// `RSIndexResult::push_borrowed` **moves** a child's metrics into the
+    /// aggregate — so by the time a resume runs, the children hold none and
+    /// there is nothing to re-accumulate. The rebuild therefore clears the
+    /// records alone and carries `metrics` across; reaching for
+    /// `reset_aggregate` instead would read as tidier and would discard them for
+    /// good, taking `__vector_score` out of a hybrid query's reply on every
+    /// suspend/resume cycle.
+    #[test]
+    fn resume_keeps_the_metrics_the_aggregate_gathered() {
+        use rqe_iterators::metric::MetricSortedById;
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let scored = MetricSortedById::new(vec![100u64], vec![0.5]);
+        let sibling: Mock<'_, 2> = Mock::new([100, 200]);
+        sibling
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(scored)),
+            TypeErasedRQEIterator::new(Box::new(sibling)),
+        ];
+        let mut union = UnionFullHeap::new(children);
+        let first = union.read().expect("read failed").expect("doc 100");
+        assert_eq!(first.doc_id, 100);
+        assert_eq!(
+            first.metrics.len(),
+            1,
+            "the aggregate gathered the scored child's metric",
+        );
+
+        let guard = mock_ctx.spec_read();
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let current = union.current().expect("still on doc 100");
+        assert_eq!(current.doc_id, 100);
+        assert_eq!(
+            current.metrics.len(),
+            1,
+            "the metric must survive a rebuild of the document it was gathered for",
+        );
+    }
+
+    /// Children whose union stays on doc 100 when the last one aborts: a
+    /// scored child carrying a metric, a sibling on the same document, and a
+    /// doomed child ahead of the union.
+    fn children_settling_back_onto_100<'index>() -> Vec<TypeErasedRQEIterator<'index>> {
+        let scored = rqe_iterators::metric::MetricSortedById::new(vec![100u64], vec![0.5]);
+        let sibling: Mock<'_, 2> = Mock::new([100, 200]);
+        sibling
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Ok);
+        let doomed: Mock<'_, 2> = Mock::new([150, 300]);
+        doomed
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        vec![
+            TypeErasedRQEIterator::new(Box::new(scored)),
+            TypeErasedRQEIterator::new(Box::new(sibling)),
+            TypeErasedRQEIterator::new(Box::new(doomed)),
+        ]
+    }
+
+    /// The same metric, but with a sibling that aborts, so the union goes
+    /// through the settle rather than keeping its aggregate. The union stays on
+    /// its document, and the metric it gathered there must stay with it.
+    #[track_caller]
+    fn assert_settling_back_keeps_the_metrics<'index, U>(mut union: Box<U>)
+    where
+        U: RQEIteratorBoxed<'index>,
+    {
+        let first = union.read().expect("read failed").expect("doc 100");
+        assert_eq!(first.doc_id, 100);
+        assert_eq!(
+            first.metrics.len(),
+            1,
+            "the aggregate gathered the scored child's metric",
+        );
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let ResumeOutcome::Ok(mut resumed) = union.suspend().resume(&guard).expect("no error")
+        else {
+            panic!("a sibling ahead of the union aborting leaves it in place");
+        };
+        let current = resumed.current().expect("still on doc 100");
+        assert_eq!(current.doc_id, 100);
+        assert_eq!(
+            current.metrics.len(),
+            1,
+            "the metric must survive the settle",
+        );
+    }
+
+    #[test]
+    fn settling_back_onto_the_same_document_keeps_the_metrics() {
+        assert_settling_back_keeps_the_metrics(Box::new(UnionFullHeap::new(
+            children_settling_back_onto_100(),
+        )));
+    }
+
+    #[test]
+    fn quick_settling_back_onto_the_same_document_keeps_the_metrics() {
+        assert_settling_back_keeps_the_metrics(Box::new(UnionQuickHeap::new(
+            children_settling_back_onto_100(),
+        )));
+    }
+
+    /// A quick union reports a single child, so the rebuild republishes one
+    /// backer rather than aggregating every child on the union's document.
+    #[test]
+    fn quick_resume_republishes_a_single_backer() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        // All three on doc 10, so a rebuild that aggregated would show three.
+        let child0: Mock<'_, 2> = Mock::new([10, 40]);
+        let child1: Mock<'_, 2> = Mock::new([10, 50]);
+        let child2: Mock<'_, 2> = Mock::new([10, 60]);
+        for data in [child0.data(), child1.data(), child2.data()].iter_mut() {
+            data.set_revalidate_result(MockRevalidateResult::Ok);
+        }
+
+        let mut union = UnionQuickHeap::new(boxed_children(child0, child1, child2));
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        let current = union
+            .current()
+            .expect("an unchanged union is still positioned");
+        assert_eq!(current.doc_id, 10);
+        let aggregate = current
+            .as_aggregate()
+            .expect("a quick union still publishes an aggregate result");
+        assert_eq!(aggregate.len(), 1, "quick mode reports one child, not all");
+        assert_eq!(
+            aggregate.get(0).expect("one entry").doc_id,
+            10,
+            "the backer must sit on the union's document",
+        );
+    }
+
+    /// The backer a quick union republishes is the one it reported before the
+    /// suspend, as `revalidate` leaves it — not merely the first child on the
+    /// document.
+    ///
+    /// When `first` runs out, the heap's `pop` promotes its last entry, so the
+    /// scored child — the last slot — backs doc 20 and its metric is moved into
+    /// the union. A rebuild that picked by slot would republish `plain` instead,
+    /// beside a metric that `plain` never contributed.
+    #[test]
+    fn quick_resume_keeps_the_backer_it_reported() {
+        use index_result::RSResultKind;
+        use rqe_iterators::metric::MetricSortedById;
+
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let first: Mock<'_, 1> = Mock::new([10]);
+        let plain: Mock<'_, 2> = Mock::new([20, 50]);
+        let scored = MetricSortedById::new(vec![20u64], vec![0.5]);
+        let mut union = UnionQuickHeap::new(vec![
+            TypeErasedRQEIterator::new(Box::new(first)),
+            TypeErasedRQEIterator::new(Box::new(plain)),
+            TypeErasedRQEIterator::new(Box::new(scored)),
+        ]);
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+        fn backer_kind<'index>(union: &mut impl RQEIterator<'index>) -> RSResultKind {
+            let current = union.current().expect("positioned on doc 20");
+            assert_eq!(current.doc_id, 20);
+            assert_eq!(current.metrics.len(), 1, "the scored child's metric");
+            let aggregate = current.as_aggregate().expect("a union result");
+            assert_eq!(aggregate.len(), 1, "quick mode reports one child");
+            aggregate.get(0).expect("one entry").kind()
+        }
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 20);
+        assert_eq!(
+            backer_kind(&mut union),
+            RSResultKind::Metric,
+            "precondition: the heap picked the scored child",
+        );
+
+        let guard = mock_ctx.spec_read();
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        assert_eq!(
+            backer_kind(&mut union),
+            RSResultKind::Metric,
+            "the entry must stay with the child whose metric the union carries",
+        );
+    }
+
+    /// Which child each of the union's aggregate entries points at, as slot
+    /// indices in entry order.
+    ///
+    /// Only addresses are compared, and the entries are read before any child
+    /// is: taking `&mut` to a child invalidates the entry borrowed from it, so
+    /// the union must be read or rebuilt before its aggregate is used again.
+    fn entry_children<'index>(
+        union: &mut UnionFullHeap<'index, TypeErasedRQEIterator<'index>>,
+    ) -> Vec<usize> {
+        let entries: Vec<*const RSIndexResult<'index>> = union
+            .current()
+            .expect("the union is positioned")
+            .as_aggregate()
+            .and_then(|aggregate| aggregate.as_borrowed())
+            .expect("a full union publishes a borrowed aggregate")
+            .records()
+            .iter()
+            .map(|entry| entry.as_raw())
+            .collect();
+        let children: Vec<*const RSIndexResult<'index>> = union
+            .children_mut()
+            .map(|child| child.current().map_or(std::ptr::null(), |c| &raw const *c))
+            .collect();
+        entries
+            .iter()
+            .map(|&entry| {
+                children
+                    .iter()
+                    .position(|&child| std::ptr::eq(child, entry))
+                    .expect("every entry points at a child's result")
+            })
+            .collect()
+    }
+
+    /// A resume that changes nothing leaves the entries in the order the heap
+    /// built them, as `revalidate` does by leaving the aggregate alone.
+    ///
+    /// Three children on one document sit in the heap array in slot order, and
+    /// the aggregate's descent visits the right subtree before the left, so the
+    /// entries come out as slots 0, 2, 1. A rebuild that offered the children
+    /// in slot order would reorder them.
+    #[test]
+    fn resume_ok_keeps_the_entry_order() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 2> = Mock::new([10, 40]);
+        let child1: Mock<'_, 2> = Mock::new([10, 50]);
+        let child2: Mock<'_, 2> = Mock::new([10, 60]);
+        for data in [child0.data(), child1.data(), child2.data()].iter_mut() {
+            data.set_revalidate_result(MockRevalidateResult::Ok);
+        }
+
+        let mut union = Box::new(UnionFullHeap::new(boxed_children(child0, child1, child2)));
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+        let before = entry_children(&mut union);
+        assert_eq!(
+            before,
+            [0, 2, 1],
+            "precondition: heap order is not slot order"
+        );
+
+        let guard = mock_ctx.spec_read();
+        let mut union = match union.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(union) => union,
+            ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+
+        assert_eq!(entry_children(&mut union), before);
+    }
+
+    /// A quick union whose backer has slipped off the union's document while
+    /// still answering `Ok` to its resume falls back to another child on that
+    /// document, rather than losing its position.
+    #[test]
+    fn quick_resume_falls_back_when_the_backer_left_the_document() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 2> = Mock::new([10, 40]);
+        let child1: Mock<'_, 2> = Mock::new([10, 50]);
+        for data in [child0.data(), child1.data()].iter_mut() {
+            data.set_revalidate_result(MockRevalidateResult::Ok);
+        }
+
+        let mut union = Box::new(UnionQuickHeap::new(vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ]));
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+        let backer: *const RSIndexResult<'_> = union
+            .current()
+            .expect("positioned on doc 10")
+            .as_aggregate()
+            .expect("a union result")
+            .get(0)
+            .expect("quick mode reports one child");
+        let mut slipped = 0;
+        for child in union.children_mut() {
+            let current = child.current().expect("the child sits on doc 10");
+            if std::ptr::eq(&raw const *current, backer) {
+                current.doc_id = 20;
+                slipped += 1;
+            }
+        }
+        assert_eq!(
+            slipped, 1,
+            "precondition: exactly one child backs the union"
+        );
+
+        let guard = mock_ctx.spec_read();
+        let mut union = match union.suspend().resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(union) => union,
+            ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+
+        let current = union.current().expect("still positioned");
+        assert_eq!(current.doc_id, 10);
+        let aggregate = current.as_aggregate().expect("a union result");
+        assert_eq!(aggregate.len(), 1, "quick mode reports one child");
+        let entry: *const RSIndexResult<'_> = aggregate.get(0).expect("one entry");
+        assert_ne!(
+            entry, backer,
+            "the slipped backer no longer describes doc 10"
+        );
+        assert_eq!(
+            aggregate.get(0).expect("one entry").doc_id,
+            10,
+            "the fallback backer sits on the union's document",
+        );
+    }
+
+    /// The suspend/resume cycle must reuse the allocation: the FFI wrapper and
+    /// delegating parents cache raw pointers into the iterator's storage, and a
+    /// rebuilt box would dangle them.
+    #[test]
+    fn resume_preserves_box_address() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let children = vec![Mock::new([10u64, 30]), Mock::new([20u64, 40])];
+        let mut union = Box::new(UnionFullHeap::new(children));
+        let r = union.read().expect("read failed").expect("expected doc");
+        assert_eq!(r.doc_id, 10);
+        let addr_before = &*union as *const _ as usize;
+
+        let suspended = union.suspend();
+        assert_eq!(
+            &*suspended as *const _ as usize, addr_before,
+            "suspend must reuse the allocation",
+        );
+        let mut active = match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Ok(a) => a,
+            ResumeOutcome::Moved(_) => panic!("expected Ok, got Moved"),
+            ResumeOutcome::Aborted => panic!("expected Ok, got Aborted"),
+        };
+        assert_eq!(
+            &*active as *const _ as usize, addr_before,
+            "resume must reuse the allocation",
+        );
+
+        let r = active.read().expect("read failed").expect("expected doc");
+        assert_eq!(r.doc_id, 20, "the union carries on where it was");
+    }
+
+    /// A child whose resume *fails* takes the union down the
+    /// `FreeSuspendedShell` teardown, the most delicate unsafe in the union
+    /// resume: it drops the compacted resumed prefix, leaves the consumed slot
+    /// alone, and drops the still-suspended tail. Get the `kept`/`cursor`
+    /// boundary wrong and it is a double free or a leak, both of which miri
+    /// sees through the mocks' reference-counted state.
+    ///
+    /// This is the plain shape: no child aborted first, so `kept == cursor - 1`
+    /// and the buffer is a resumed prefix, the consumed slot, and a suspended
+    /// tail — all three regions at once.
+    #[test]
+    fn resume_child_error_frees_a_shell_with_a_suspended_tail() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child0: Mock<'_, 3> = Mock::new([10, 40, 70]);
+        let child1: Mock<'_, 3> = Mock::new([20, 50, 80]);
+        let child2: Mock<'_, 3> = Mock::new([30, 60, 90]);
+        child1
+            .data()
+            .set_error_on_resume(Some(MockIteratorError::TimeoutError(None)));
+
+        let mut union = UnionFullHeap::new(boxed_children(child0, child1, child2));
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+        match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard) {
+            Err(e) => assert!(matches!(e, RQEIteratorError::TimedOut)),
+            Ok(_) => panic!("the failing child's error must reach the caller"),
+        }
+    }
+
+    /// The same teardown, but with a hole in the middle: child 0 aborts before
+    /// child 2 fails, so the survivor is compacted down to slot 0 and `kept`
+    /// (1) trails the cursor (3). The vacated region then spans slot 1, moved
+    /// out of, and slot 2, consumed by the failing child, and the teardown must
+    /// skip both — the clause the plain shape never reaches.
+    #[test]
+    fn resume_child_error_frees_a_shell_with_a_hole_in_it() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child0: Mock<'_, 3> = Mock::new([10, 40, 70]);
+        let child1: Mock<'_, 3> = Mock::new([20, 50, 80]);
+        let child2: Mock<'_, 3> = Mock::new([30, 60, 90]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        child2
+            .data()
+            .set_error_on_resume(Some(MockIteratorError::TimeoutError(None)));
+
+        let mut union = UnionFullHeap::new(boxed_children(child0, child1, child2));
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+        match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard) {
+            Err(e) => assert!(matches!(e, RQEIteratorError::TimedOut)),
+            Ok(_) => panic!("the failing child's error must reach the caller"),
+        }
+    }
+
+    /// A `Moved` that changes *which* child is the minimum, which is what makes
+    /// the post-resume `rebuild_heap` more than a formality. Both children
+    /// advance, but child 0 jumps past child 1: the root has to change hands, so
+    /// a re-sift that is merely partial or mis-ordered — not just an absent one —
+    /// surfaces as the wrong position.
+    #[test]
+    fn resume_moved_resifts_the_heap_when_the_root_changes_child() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 2> = Mock::new([10, 100]);
+        let child1: Mock<'_, 2> = Mock::new([15, 20]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullHeap::new(children);
+        assert_eq!(
+            union.read().unwrap().unwrap().doc_id,
+            10,
+            "child 0 starts out as the root",
+        );
+
+        let guard = mock_ctx.spec_read();
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_moved();
+        assert_eq!(
+            union.last_doc_id(),
+            20,
+            "child 1 is the minimum now that child 0 jumped to 100",
+        );
+        assert_eq!(drain(&mut union), [100]);
+    }
+
+    /// A finished union is finished whatever its children now say:
+    /// `revalidate` tests `is_eof` before it looks at a single child, so it
+    /// reports `Ok` without asking them. `resume` has to transition the
+    /// children regardless, but must still reach the same verdict — and hand
+    /// back the position it was spent on, since the aggregate it carries was
+    /// never rebuilt.
+    #[test]
+    fn resume_of_a_finished_union_is_ok() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 2> = Mock::new([10, 30]);
+        let child1: Mock<'_, 2> = Mock::new([20, 40]);
+        for data in [child0.data(), child1.data()].iter_mut() {
+            data.set_revalidate_result(MockRevalidateResult::Move);
+        }
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullHeap::new(children);
+        assert_eq!(drain(&mut union), [10, 20, 30, 40]);
+        assert!(union.at_eof());
+        let spent_at = union.last_doc_id();
+
+        let guard = mock_ctx.spec_read();
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+        assert!(union.at_eof());
+        assert!(union.current().is_none());
+        assert_eq!(
+            union.last_doc_id(),
+            spent_at,
+            "a spent union keeps the position it stopped on",
+        );
+        assert!(matches!(union.read(), Ok(None)));
+    }
+
+    /// A child that lands behind a *full* union is a broken child on the resume
+    /// path exactly as it is on the legacy one, and the shared settle says so
+    /// instead of absorbing it — the resume twin of
+    /// `revalidate_asserts_when_a_resurrected_child_lands_behind_a_full_union`.
+    ///
+    /// A conforming child cannot get there. `advance_matching_children` leaves no
+    /// child in the heap behind the union, and exhaustion is terminal across the
+    /// cycle ([`at_eof`](RQEIterator::at_eof)), so one `rebuild_heap` left out
+    /// stays left out. The mock breaks that on purpose, and its lever is
+    /// [`MockData::set_force_read_none`]: a `read` that answers `None` while the
+    /// child is neither exhausted nor out of documents, leaving it out of the heap
+    /// on a live, lagging position. (The legacy twin uses
+    /// [`MockData::set_revalidate_reseeks_to`], which only `revalidate` honours —
+    /// [`MockSuspended::resume`] never reads it.)
+    ///
+    /// [`MockData::set_force_read_none`]: crate::utils::MockData::set_force_read_none
+    /// [`MockData::set_revalidate_reseeks_to`]: crate::utils::MockData::set_revalidate_reseeks_to
+    /// [`MockSuspended::resume`]: crate::utils::MockSuspended
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "moved behind the union's position")]
+    fn resume_asserts_when_a_lagging_child_lands_behind_a_full_union() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child0: Mock<'_, 3> = Mock::new([10, 30, 40]);
+        let child1: Mock<'_, 3> = Mock::new([20, 100, 200]);
+        let mut data0 = child0.data();
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionFullHeap::new(children);
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+        // The contract violation: child0 answers `None` while still sitting on 10,
+        // so the union drops it from the heap with a live, lagging position.
+        data0.set_force_read_none(true);
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 20);
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 100);
+
+        // child1 has to move, or resume returns before the parked child is ever
+        // re-admitted.
+        let _ = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard);
+    }
+
+    /// A union sitting on doc 10 whose every child has since slipped off it while
+    /// still promising, through an `Ok` resume, that it held its position.
+    ///
+    /// The slip goes through `current()`, which hands the child's result out
+    /// mutably: the mock keeps answering `Ok` to its own resume, so the union's
+    /// `!any_change` exit is the one taken, and the aggregate rebuild there finds
+    /// no child on the union's document.
+    fn union_whose_children_broke_unchanged<'index>()
+    -> Box<UnionFullHeap<'index, TypeErasedRQEIterator<'index>>> {
+        let child0: Mock<'_, 2> = Mock::new([10, 30]);
+        let child1: Mock<'_, 2> = Mock::new([10, 40]);
+        let mut union = Box::new(UnionFullHeap::new(vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ]));
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+        for child in union.children_mut() {
+            child.current().expect("the child sits on doc 10").doc_id = 20;
+        }
+        union
+    }
+
+    /// The rebuild coming out unbacked is a child contract violation, surfaced
+    /// loudly in debug builds rather than absorbed.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "cannot lose its aggregate")]
+    fn resume_asserts_when_unchanged_children_no_longer_back_the_union() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+
+        let _ = union_whose_children_broke_unchanged()
+            .suspend()
+            .resume(&guard);
+    }
+
+    /// In release builds the same violation aborts the resume rather than
+    /// publish a position no child backs.
+    #[test]
+    #[cfg(not(debug_assertions))]
+    fn resume_aborts_when_unchanged_children_no_longer_back_the_union() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+
+        let outcome = union_whose_children_broke_unchanged()
+            .suspend()
+            .resume(&guard)
+            .expect("no error");
+        assert!(matches!(outcome, ResumeOutcome::Aborted));
+    }
+
+    /// Every child is transitioned, exhausted ones included, so a `rewind` after a
+    /// resume brings the whole union back — the behavioural half of that rule
+    /// (the other half is that a skipped slot would be undefined behaviour, which
+    /// no test can observe).
+    ///
+    /// child1 is spent and out of the heap before the suspend, so a resume that
+    /// walked only the heap's children would leave it suspended, and the rewind
+    /// below would rewind and read it in that state.
+    #[test]
+    fn resume_then_rewind_revives_the_exhausted_children_too() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child0: Mock<'_, 3> = Mock::new([10, 40, 70]);
+        let child1: Mock<'_, 1> = Mock::new([20]);
+        let child2: Mock<'_, 2> = Mock::new([30, 60]);
+
+        let mut union = UnionFullHeap::new(boxed_children(child0, child1, child2));
+        assert_eq!(
+            (0..4)
+                .map(|_| union.read().unwrap().unwrap().doc_id)
+                .collect::<Vec<_>>(),
+            [10, 20, 30, 40],
+            "reading past 20 drops child1 out of the heap",
+        );
+
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+
+        union.rewind();
+        assert_eq!(
+            drain(&mut union),
+            [10, 20, 30, 40, 60, 70],
+            "the rewind must revive every child, including the one dropped as spent",
+        );
+    }
+
+    // =========================================================================
+    // `UnionQuickHeap` coverage: `QUICK_EXIT = true` is a separate
+    // monomorphization with its own settle branches, and every test above uses
+    // `UnionFullHeap`.
+    // =========================================================================
+
+    #[test]
+    fn quick_resume_ok() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+        let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionQuickHeap::new(children);
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+        assert_eq!(union.last_doc_id(), 10);
+        assert_eq!(drain(&mut union), [15, 20, 25, 30, 35, 40, 45, 50, 55]);
+    }
+
+    #[test]
+    fn quick_resume_moved() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let child0: Mock<'_, 5> = Mock::new([10, 20, 30, 40, 50]);
+        let child1: Mock<'_, 5> = Mock::new([15, 25, 35, 45, 55]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionQuickHeap::new(children);
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+
+        let guard = mock_ctx.spec_read();
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_moved();
+        assert_eq!(union.last_doc_id(), 20);
+        assert_eq!(drain(&mut union), [25, 30, 35, 40, 45, 50, 55]);
+    }
+
+    /// The settle's `min.doc_id < original_last_doc_id` recovery, reached the only
+    /// way a conforming union can reach it: the quick `skip_to` returns on the
+    /// first exact match, stranding a live sibling behind the union. That makes the
+    /// block quick mode's alone, which is what the `debug_assert!(QUICK_EXIT, ..)`
+    /// above it claims and
+    /// `resume_asserts_when_a_lagging_child_lands_behind_a_full_union` checks from
+    /// the other side.
+    #[test]
+    fn quick_resume_keeps_a_child_stranded_behind_the_union() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child0: Mock<'_, 3> = Mock::new([5, 100, 300]);
+        let child1: Mock<'_, 3> = Mock::new([10, 50, 200]);
+        // The lagger moves — to 50, still behind the union — which both gets the
+        // resume past its `!any_change` early return and keeps child0 on 100.
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+
+        let children = vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ];
+        let mut union = UnionQuickHeap::new(children);
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 5);
+
+        // An exact match on child0, so the quick path returns without ever
+        // reaching child1 — which stays on 10, behind the union's 100.
+        assert!(union.skip_to(100).expect("skip_to failed").is_some());
+        assert_eq!(union.last_doc_id(), 100);
+
+        // 50 is behind the already-delivered 100, so it is not a position to move
+        // to: the union stays put, republished from child0, which still holds it.
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_ok();
+        assert_eq!(
+            union.last_doc_id(),
+            100,
+            "the union must not fall back onto the stranded child's position",
+        );
+        assert_eq!(
+            drain(&mut union),
+            [200, 300],
+            "the stranded child is caught up rather than dropped, so its 200 shows up",
+        );
+    }
+
+    /// The stranded-child recovery when catching the lagger up runs it out:
+    /// the seek exhausts it, it is dropped, and with the other child aborted
+    /// nothing is left, so the union ends rather than settling on a position
+    /// no child backs.
+    #[test]
+    fn quick_resume_ends_when_the_stranded_child_runs_out() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+        let child0: Mock<'_, 2> = Mock::new([5, 100]);
+        let child1: Mock<'_, 2> = Mock::new([10, 50]);
+        // child0 leaving means no survivor still sits on 100, so the settle has
+        // to seek the lagger rather than republish from a sibling.
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        child1
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Move);
+
+        let mut union = UnionQuickHeap::new(vec![
+            TypeErasedRQEIterator::new(Box::new(child0)),
+            TypeErasedRQEIterator::new(Box::new(child1)),
+        ]);
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 5);
+        assert!(union.skip_to(100).expect("skip_to failed").is_some());
+
+        let mut union = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard)
+            .expect("resume failed")
+            .expect_moved();
+        assert!(
+            union.at_eof(),
+            "the lagger has nothing at or past 100, so nothing backs the union",
+        );
+        assert!(matches!(union.read(), Ok(None)));
+    }
+
+    /// Catching a stranded child up is a real seek, so it can fail, and the
+    /// failure reaches the caller on both paths rather than being swallowed
+    /// into a position no child backs.
+    #[test]
+    fn quick_settle_surfaces_a_failing_lagger_seek() {
+        fn stranded<'index>(
+            child0: Mock<'index, 3>,
+            child1: Mock<'index, 3>,
+        ) -> UnionQuickHeap<'index, TypeErasedRQEIterator<'index>> {
+            let mut lagger = child1.data();
+            child1
+                .data()
+                .set_revalidate_result(MockRevalidateResult::Move);
+            let mut union = UnionQuickHeap::new(vec![
+                TypeErasedRQEIterator::new(Box::new(child0)),
+                TypeErasedRQEIterator::new(Box::new(child1)),
+            ]);
+            assert_eq!(union.read().unwrap().unwrap().doc_id, 5);
+            assert!(union.skip_to(100).expect("skip_to failed").is_some());
+            // Armed only now, so the quick skip above cannot trip it.
+            lagger.set_error_on_skip_to(Some(MockIteratorError::TimeoutError(None)));
+            union
+        }
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+
+        // child0 aborting leaves no survivor on 100, so the lagger must be seeked.
+        let child0: Mock<'_, 3> = Mock::new([5, 100, 300]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        let union = stranded(child0, Mock::new([10, 50, 200]));
+        match revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(union)), &guard) {
+            Err(e) => assert!(matches!(e, RQEIteratorError::TimedOut)),
+            Ok(_) => panic!("the lagger's failed seek must reach the caller"),
+        }
+
+        let child0: Mock<'_, 3> = Mock::new([5, 100, 300]);
+        child0
+            .data()
+            .set_revalidate_result(MockRevalidateResult::Abort);
+        let mut union = stranded(child0, Mock::new([10, 50, 200]));
+        match union.revalidate(&guard) {
+            Err(e) => assert!(matches!(e, RQEIteratorError::TimedOut)),
+            Ok(_) => panic!("the lagger's failed seek must reach the caller"),
+        }
+    }
+
+    /// A suspended union answers the accessors a parent may query while it is
+    /// suspended with the values it held when it was suspended.
+    #[test]
+    fn suspended_union_reports_its_position_and_estimate() {
+        let children = vec![Mock::new([10u64, 30]), Mock::new([20u64, 40])];
+        let mut union = Box::new(UnionFullHeap::new(children));
+        assert_eq!(union.read().unwrap().unwrap().doc_id, 10);
+        let num_estimated = union.num_estimated();
+
+        let suspended = union.suspend();
+        assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 10);
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            num_estimated
+        );
+    }
+
+    // =========================================================================
+    // Differential: the legacy `revalidate` and the new `resume` are two
+    // spellings of one transition and must not drift.
+    // =========================================================================
+
+    /// The outcome shape the legacy and resume paths share.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Outcome {
+        Ok,
+        Moved,
+        Aborted,
+        Failed,
+    }
+
+    /// What a union publishes as its `current()` right after the transition —
+    /// the result a parent emits on `Moved` or keeps on `Ok` without reading.
+    ///
+    /// Entries are counted rather than identified: the two paths remove an
+    /// aborted child differently, so the same contributor can sit in a
+    /// different slot on each.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Published {
+        doc_id: DocId,
+        freq: u32,
+        field_mask: rqe_core::FieldMask,
+        entries: usize,
+        metrics: usize,
+    }
+
+    fn published<'index>(it: &mut impl RQEIterator<'index>) -> Option<Published> {
+        it.current().map(|r| Published {
+            doc_id: r.doc_id,
+            freq: r.freq,
+            field_mask: r.field_mask,
+            entries: r.as_aggregate().map_or(0, |aggregate| aggregate.len()),
+            metrics: r.metrics.len(),
+        })
+    }
+
+    /// Drive `build()` through the legacy `revalidate` and through
+    /// `suspend`/`resume`, and require both to agree on the outcome, on the
+    /// result published at the new position, *and* on everything read
+    /// afterwards. `what` names the scenario in the failure.
+    #[track_caller]
+    fn assert_paths_agree<'index, const QUICK_EXIT: bool>(
+        what: &str,
+        guard: &index_spec::IndexSpecReadGuard<'index>,
+        build: impl Fn() -> Box<UnionHeap<'index, TypeErasedRQEIterator<'index>, QUICK_EXIT>>,
+    ) {
+        let mut legacy = build();
+        let legacy_outcome = match legacy.revalidate(guard) {
+            Ok(RQEValidateStatus::Ok) => Outcome::Ok,
+            Ok(RQEValidateStatus::Moved { .. }) => Outcome::Moved,
+            Ok(RQEValidateStatus::Aborted) => Outcome::Aborted,
+            Err(_) => Outcome::Failed,
+        };
+        // An aborted or failed iterator is dropped rather than used, so there is
+        // nothing left to read on either path.
+        let (legacy_published, legacy_tail) = match legacy_outcome {
+            Outcome::Ok | Outcome::Moved => (published(&mut *legacy), drain(&mut *legacy)),
+            Outcome::Aborted | Outcome::Failed => (None, Vec::new()),
+        };
+
+        let (resumed_outcome, resumed_published, resumed_tail) = match build()
+            .suspend()
+            .resume(guard)
+        {
+            Ok(ResumeOutcome::Ok(mut it)) => (Outcome::Ok, published(&mut *it), drain(&mut *it)),
+            Ok(ResumeOutcome::Moved(mut it)) => {
+                (Outcome::Moved, published(&mut *it), drain(&mut *it))
+            }
+            Ok(ResumeOutcome::Aborted) => (Outcome::Aborted, None, Vec::new()),
+            Err(_) => (Outcome::Failed, None, Vec::new()),
+        };
+
+        assert_eq!(
+            legacy_outcome, resumed_outcome,
+            "{what}: the two paths disagree on the outcome",
+        );
+        assert_eq!(
+            legacy_published, resumed_published,
+            "{what}: the two paths disagree on the published result",
+        );
+        assert_eq!(
+            legacy_tail, resumed_tail,
+            "{what}: the two paths disagree on what is read afterwards",
+        );
+    }
+
+    /// Every child outcome at every position, for both modes. The position
+    /// matters because the abort/error teardown splits the child list at the
+    /// failing index, and the mode matters because `QUICK_EXIT` takes settle
+    /// branches the full union cannot reach.
+    #[test]
+    fn revalidate_and_resume_agree_on_every_child_outcome() {
+        let outcomes = [
+            MockRevalidateResult::Ok,
+            MockRevalidateResult::Move,
+            MockRevalidateResult::Abort,
+            MockRevalidateResult::TimedOut,
+        ];
+        for position in 0..3 {
+            for outcome in outcomes {
+                let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+                let guard = mock_ctx.spec_read();
+                let build = || {
+                    let child0: Mock<'_, 4> = Mock::new([10, 20, 40, 70]);
+                    let child1: Mock<'_, 4> = Mock::new([10, 30, 50, 80]);
+                    let child2: Mock<'_, 4> = Mock::new([10, 35, 60, 90]);
+                    for (i, data) in [child0.data(), child1.data(), child2.data()]
+                        .iter_mut()
+                        .enumerate()
+                    {
+                        data.set_revalidate_result(if i == position {
+                            outcome
+                        } else {
+                            MockRevalidateResult::Ok
+                        });
+                    }
+                    (child0, child1, child2)
+                };
+                let what = format!("child {position} reports {outcome:?}");
+                assert_paths_agree(&format!("full: {what}"), &guard, || {
+                    let (c0, c1, c2) = build();
+                    let mut it = Box::new(UnionFullHeap::new(boxed_children(c0, c1, c2)));
+                    assert_eq!(it.read().expect("read failed").expect("doc").doc_id, 10);
+                    it
+                });
+                assert_paths_agree(&format!("quick: {what}"), &guard, || {
+                    let (c0, c1, c2) = build();
+                    let mut it = Box::new(UnionQuickHeap::new(boxed_children(c0, c1, c2)));
+                    assert_eq!(it.read().expect("read failed").expect("doc").doc_id, 10);
+                    it
+                });
+            }
+        }
+    }
+
+    /// The two exits `revalidate` reaches *before* it looks at any child, and
+    /// which `resume` has to reproduce even though it must transition the
+    /// children regardless: a union that has already finished, and a union that
+    /// never had a child to begin with.
+    ///
+    /// `MockRevalidateResult::TimedOut` is deliberately not in the loop below —
+    /// it is the one child outcome the two paths cannot agree on, pinned by
+    /// [`resume_of_a_spent_union_surfaces_a_child_error`] instead.
+    #[test]
+    fn revalidate_and_resume_agree_on_a_spent_or_empty_union() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+
+        for outcome in [MockRevalidateResult::Ok, MockRevalidateResult::Abort] {
+            assert_paths_agree(
+                &format!("full, spent, children {outcome:?}"),
+                &guard,
+                || {
+                    let child0: Mock<'_, 2> = Mock::new([10, 30]);
+                    let child1: Mock<'_, 2> = Mock::new([20, 40]);
+                    for data in [child0.data(), child1.data()].iter_mut() {
+                        data.set_revalidate_result(outcome);
+                    }
+                    let mut it = Box::new(UnionFullHeap::new(vec![
+                        TypeErasedRQEIterator::new(Box::new(child0)),
+                        TypeErasedRQEIterator::new(Box::new(child1)),
+                    ]));
+                    assert_eq!(drain(&mut *it), [10, 20, 30, 40]);
+                    it
+                },
+            );
+        }
+
+        assert_paths_agree("full, empty", &guard, || {
+            Box::new(UnionFullHeap::new(Vec::new()))
+        });
+        assert_paths_agree("quick, empty", &guard, || {
+            Box::new(UnionQuickHeap::new(Vec::new()))
+        });
+    }
+
+    /// A union that no longer holds the aggregate it built cannot resume: it has
+    /// no way to re-validate a payload it did not create, so it refuses rather
+    /// than re-narrow the substitute's suspended pointers. The union counterpart
+    /// of `optional::via_resume::resume_aborts_when_result_no_longer_virtual`.
+    ///
+    /// The three substitutes cover the three ways a payload can slip a looser
+    /// gate. `Numeric` is not an aggregate at all. `HybridMetric` *is* one, so
+    /// `is_aggregate()` would admit it. And an owned `Union` has the right kind
+    /// too, so even an exact-kind check would admit it — all three borrow no
+    /// entries, which is precisely why the rebuild reports success for them
+    /// without re-validating a thing.
+    #[test]
+    fn resume_aborts_when_the_result_is_no_longer_a_union() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+
+        // An *owned* Union is the case the kind alone cannot reject: same
+        // `kind()`, but its children are boxed into the result's own allocation
+        // and never transitioned, so re-narrowing would promote whatever
+        // index-backed pointers they hold. Safe code can build one and assign it
+        // through `current()`.
+        let borrowed_src = index_result::RSIndexResult::build_union(1).build();
+        let owned_union = borrowed_src.to_owned();
+        for substitute in [
+            index_result::RSIndexResult::build_numeric(1.0).build(),
+            index_result::RSIndexResult::build_hybrid_metric().build(),
+            owned_union,
+        ] {
+            let child0: Mock<'_, 2> = Mock::new([10, 30]);
+            let child1: Mock<'_, 2> = Mock::new([10, 40]);
+            let mut union = Box::new(UnionFullHeap::new(vec![
+                TypeErasedRQEIterator::new(Box::new(child0)),
+                TypeErasedRQEIterator::new(Box::new(child1)),
+            ]));
+
+            let current = union.read().unwrap().unwrap();
+            assert_eq!(current.doc_id, 10);
+            // A consumer swaps what `current()` handed out for something the
+            // union never built.
+            let kind = substitute.kind();
+            *current = substitute;
+
+            assert!(
+                matches!(
+                    union.suspend().resume(&guard).expect("no error"),
+                    ResumeOutcome::Aborted
+                ),
+                "a {kind:?} result must abort the resume, not be re-narrowed",
+            );
+        }
+    }
+
+    /// The other known divergence, and the one the differential harness cannot
+    /// see: it compares outcomes and the documents read afterwards, never what a
+    /// `rewind` brings back.
+    ///
+    /// `revalidate` returns before it looks at a child when the union is spent,
+    /// so a child that would abort is never asked and stays in the list; a later
+    /// `rewind` re-admits it. `resume` has to transition every child, so it
+    /// learns about the abort and drops it, and the rewind has one fewer child
+    /// to revive.
+    ///
+    /// Deliberate, not a defect. An aborted child's underlying state is
+    /// unrecoverable, so the ones `resume` drops here are precisely the ones
+    /// `revalidate` would go on to rewind and read after their index had gone
+    /// away. The mock cannot show that — its "aborted" child stays perfectly
+    /// readable — which is exactly why the difference is asserted here rather
+    /// than left for the harness to trip over.
+    #[test]
+    fn resume_of_a_spent_union_drops_children_that_revalidate_would_rewind() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+
+        let build = || {
+            let child0: Mock<'_, 2> = Mock::new([10, 30]);
+            let child1: Mock<'_, 2> = Mock::new([20, 40]);
+            child1
+                .data()
+                .set_revalidate_result(MockRevalidateResult::Abort);
+            let mut it = Box::new(UnionFullHeap::new(vec![
+                TypeErasedRQEIterator::new(Box::new(child0)),
+                TypeErasedRQEIterator::new(Box::new(child1)),
+            ]));
+            assert_eq!(drain(&mut *it), [10, 20, 30, 40], "the union is spent");
+            it
+        };
+
+        let mut legacy = build();
+        assert!(matches!(
+            legacy.revalidate(&guard),
+            Ok(RQEValidateStatus::Ok)
+        ));
+        legacy.rewind();
+        assert_eq!(
+            drain(&mut *legacy),
+            [10, 20, 30, 40],
+            "the legacy path never asked, so the aborting child is still there",
+        );
+
+        let mut resumed = revalidate_via_resume(TypeErasedRQEIterator::new(build()), &guard)
+            .expect("resume failed")
+            .expect_ok();
+        resumed.rewind();
+        assert_eq!(
+            drain(&mut resumed),
+            [10, 30],
+            "resume asked, learned of the abort, and dropped the child for good",
+        );
+    }
+
+    /// The single outcome on which the legacy and resume paths are known to
+    /// disagree, asserted so it stays a known quantity.
+    ///
+    /// A spent union sends `revalidate` home with `Ok` before it looks at a
+    /// child, so a child that would time out is never asked. Resume has to
+    /// transition every child before it can hand any of them back, and
+    /// [`resume`](rqe_iterators::RQESuspendedIterator::resume) consumes the child
+    /// *by value* — once it answers `Err` the child no longer exists, so there is
+    /// nothing to carry on to the `is_eof` exit with. The difference is
+    /// structural, not a missing branch.
+    ///
+    /// A timeout is transient (the child is intact, the resume just ran out of
+    /// budget), so the cost is a query-level error where the legacy path would
+    /// have finished quietly.
+    #[test]
+    fn resume_of_a_spent_union_surfaces_a_child_error() {
+        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+        let guard = mock_ctx.spec_read();
+
+        let build = || {
+            let child0: Mock<'_, 2> = Mock::new([10, 30]);
+            let child1: Mock<'_, 2> = Mock::new([20, 40]);
+            for data in [child0.data(), child1.data()].iter_mut() {
+                data.set_revalidate_result(MockRevalidateResult::TimedOut);
+            }
+            let mut it = Box::new(UnionFullHeap::new(vec![
+                TypeErasedRQEIterator::new(Box::new(child0)),
+                TypeErasedRQEIterator::new(Box::new(child1)),
+            ]));
+            assert_eq!(drain(&mut *it), [10, 20, 30, 40], "the union is spent");
+            it
+        };
+
+        assert!(
+            matches!(build().revalidate(&guard), Ok(RQEValidateStatus::Ok)),
+            "the legacy path never reaches the timing-out child",
+        );
+        assert!(
+            build().suspend().resume(&guard).is_err(),
+            "resume must ask every child, and a consumed child cannot be walked past",
+        );
+    }
+}

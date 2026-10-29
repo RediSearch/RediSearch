@@ -387,6 +387,24 @@ def testDropIndex(env):
     env.expect('FT.DROPINDEX', 'idx').ok()
     env.assertEqual(docs_count, countKeys(env))
 
+@skip(cluster=True)
+def testDropDeletesBinaryDocKey(env):
+    """Dropping an index with its documents must delete each document by its full
+    binary-safe key. Truncating at an embedded NUL would delete a different,
+    unindexed key under the same prefix and leave the document behind."""
+    conn = getConnectionByEnv(env)
+    doc_key = 'p:victim\x00suffix'
+    for drop_cmd in (['FT.DROPINDEX', 'idx', 'DD'], ['FT.DROP', 'idx']):
+        env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'p:', 'SCHEMA', 't', 'TAG').ok()
+        conn.execute_command('SET', 'p:victim', 'unrelated')
+        conn.execute_command('HSET', doc_key, 't', 'foo')
+
+        env.expect(*drop_cmd).ok()
+
+        env.assertEqual(conn.execute_command('EXISTS', 'p:victim'), 1, message=drop_cmd)
+        env.assertEqual(conn.execute_command('EXISTS', doc_key), 0, message=drop_cmd)
+        conn.execute_command('DEL', 'p:victim')
+
 def testCustomStopwords(env):
     # Index with default stopwords
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'foo', 'text').ok()
@@ -884,14 +902,14 @@ def testPartial(env):
     res = env.cmd('ft.search', 'idx', 'wat', 'nocontent')
     env.assertEqual([1, 'doc1'], res)
 
-    # Test updating of score and no fields
-    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'TFIDF')
-    env.assertLess(float(res[2]), 1)
-    # env.assertEqual([1, 'doc1'], res)
+    # A partial write with no fields updates the document score independently of reindexing.
+    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'DOCSCORE')
+    env.assertEqual(res[:2], [1, 'doc1'])
+    env.assertAlmostEqual(float(res[2]), 0.1, delta=1e-6, message=res)
     env.assertOk(con.execute_command('ft.add', 'idx', 'doc1', '1.0', 'replace', 'partial', 'fields'))
-    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'TFIDF')
-    # We reindex though no new fields, just score is updated. this effects score
-    env.assertEqual(float(res[2]), 1)
+    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'DOCSCORE')
+    env.assertEqual(res[:2], [1, 'doc1'])
+    env.assertEqual(float(res[2]), 1, message=res)
 
     # Test updating payloads
     res = env.cmd(
@@ -1971,8 +1989,6 @@ def testInfoCommand(env):
             env.assertEqual(int(d['num_records']), N * 2)
 
             env.assertGreater(float(d['offset_vectors_sz_mb']), 0)
-            # The key->docId mapping now lives in Redis key-metadata (not
-            # module-tracked memory), so key_table_size_mb is always 0.
             env.assertEqual(float(d['key_table_size_mb']), 0)
             env.assertGreater(float(d['inverted_sz_mb']), 0)
             env.assertGreater(float(d['bytes_per_record_avg']), 0)
@@ -3412,6 +3428,38 @@ def testTimeFormatError(env):
     env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'year("not_number")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
     env.expect('ft.aggregate', 'idx', '@test:[0..inf]', 'LOAD', '1', '@test', 'APPLY', 'monthofyear("not_number")', 'as', 'a').equal([1, ['test', '12234556', 'a', None]])
 
+def testDateFunctionsRejectUnrepresentableTimestamps(env):
+    """Date functions return null for timestamps gmtime_r cannot convert."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'test', 'NUMERIC').ok()
+    getConnectionByEnv(env).execute_command('HSET', 'doc1', 'test', '1')
+
+    functions = ('timefmt', 'hour', 'day', 'dayofmonth', 'dayofweek',
+                 'dayofyear', 'year', 'month', 'monthofyear')
+    # The first two fit in time_t but their year overflows struct tm's int,
+    # the rest don't fit in time_t at all.
+    timestamps = ('67768036191676800', '1000000000000000000',
+                  '9223372036854775808', '"inf"', '"nan"')
+    # Without GROUPBY the expression runs on the shards, after it on the coordinator.
+    plans = (([], ['value', None]),
+             (['GROUPBY', '0', 'REDUCE', 'COUNT', '0', 'AS', 'count'],
+              ['count', '1', 'value', None]))
+    for function in functions:
+        for timestamp in timestamps:
+            expression = f'{function}({timestamp})'
+            for prefix, expected in plans:
+                res = env.cmd('FT.AGGREGATE', 'idx', '*', *prefix, 'APPLY', expression, 'AS', 'value')
+                env.assertEqual(res, [1, expected],
+                                message=f'unsafe date timestamp accepted: {expression} {prefix}')
+
+    # Valid timestamps are unaffected.
+    for expression, expected in (('timefmt(-1)', '1969-12-31T23:59:59Z'),
+                                 ('year(253402300799)', '9999'),
+                                 ('dayofmonth(1517417144.75)', '31'),
+                                 ('month(1517417144)', '1514764800'),
+                                 ('year(-1)', None)):
+        env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', expression, 'AS', 'value').equal(
+            [1, ['value', expected]])
+
 def testMonthOfYear(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'NUMERIC').equal('OK')
     env.assertOk(env.getClusterConnectionIfNeeded().execute_command('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', '12234556'))
@@ -4280,6 +4328,7 @@ def cluster_set_test(env: Env):
         env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', 5)
         env.cmd(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER')
         verify_shard_init(env)
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
 
     password = env.password + "@" if env.password else ""
 
@@ -4435,6 +4484,7 @@ def test_multiple_slot_ranges_per_shard(env: Env):
 @skip(cluster=False) # this test is only relevant on cluster
 def test_cluster_set_multiple_slots(env: Env):
     env.cmd(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER')
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
     num_slots = 16384
     ranges_per_shard = 2
     slot_range_size = math.ceil(num_slots / (env.shardsCount * ranges_per_shard))
@@ -4475,6 +4525,7 @@ def test_cluster_set_multiple_slots(env: Env):
 @skip(cluster=False) # this test is only relevant on cluster
 def test_cluster_set_myself_excluded(env: Env):
     env.cmd(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER')
+    env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
     env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', 1)
 
     # Set two shards, one with all the slots, and one without any slots
@@ -4527,6 +4578,8 @@ def test_cluster_set_myself_excluded(env: Env):
 
 @skip(cluster=True) # only parsing errors are tested, no need for an actual cluster
 def test_cluster_set_errors(env: Env):
+    if not RS_TEST_ENTERPRISE:
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
 
     # Check general values parsing
     env.expect('SEARCH.CLUSTERSET').error().contains('Missing value for MYID')
@@ -4689,6 +4742,10 @@ def test_timeout_strict_policy():
     `ON_TIMEOUT FAIL` - return an error upon experiencing a timeout, without the
     partial results.
     """
+    if CLUSTER:
+        # Leaks the abandoned request's fanout state, as in
+        # test_async.py:test_eval_node_errors_async.
+        skipTest(asan=True)
 
     env = Env(moduleArgs='ON_TIMEOUT FAIL')
 

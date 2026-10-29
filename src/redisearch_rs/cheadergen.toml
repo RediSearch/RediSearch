@@ -118,7 +118,7 @@ typedef struct timespec timespec;
 """
 
 [header.query_eval_ffi]
-includes = ["redisearch.h", "query_ctx.h", "iterators/iterator_api.h", "query.h"]
+includes = ["redisearch.h", "query_ctx.h", "iterators/iterator_api.h", "query.h", "result_processor.h"]
 after_includes = """
 // `RSQueryNode` is defined in `query_node.h` as `typedef struct RSQueryNode { ... } QueryNode;`,
 // i.e. the typedef name is `QueryNode`, not `RSQueryNode`. cheadergen emits the
@@ -184,22 +184,9 @@ after_includes = """
 // Manually added alias for the "no flags" state of RLookup_F (not a variant in Rust).
 #define RLOOKUP_F_NOFLAGS 0x0
 
-// Forward typedef for RLookupKey.
-//
-// We have two distinct Rust types that both map to the C name `RLookupKey`:
-//   - `RLookupKeyHeader` (renamed via `#[cheadergen::config(rename = "RLookupKey")]`),
-//     whose struct body is what gets emitted in this header.
-//   - `RLookupKey` (the wrapping Rust struct, marked `#[cheadergen::config(skip)]`),
-//     which appears as the pointee of the `next: *mut RLookupKey` self-reference
-//     inside the `RLookupKeyHeader` body.
-//
-// Because the two Rust types share a C name (a name collision we introduced via
-// the rename), cheadergen takes the bare-reference path for the skipped type and
-// emits `RLookupKey *next` with no `struct` qualifier. The typedef is not yet in
-// scope at that point inside the body, so the C compiler errors. We pre-declare
-// the typedef here so the bare reference resolves; C11+ permits the later
-// `typedef struct RLookupKey { ... } RLookupKey;` as a compatible redeclaration.
+// Handles are emitted before the full key definition.
 typedef struct RLookupKey RLookupKey;
+
 """
 
 [header.query_flags]
@@ -356,6 +343,25 @@ typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 typedef const RSDocumentMetadata *OwnedDocumentMetadata;
 """
 
+[header.term_dictionary_ffi]
+after_includes = """
+/* Readers-writer contract for a TermDictionary. cheadergen emits per-item
+ * documentation only, so this crate-wide rule has no other C-visible home;
+ * keep it in sync with the term_dictionary_ffi module docs.
+ *
+ * Read-only calls (TermDictionary_Get, TermDictionary_Len,
+ * TermDictionary_MemUsage and the TermDictionary_Iterate* constructors) may
+ * run concurrently with each other. TermDictionary_AddTerm,
+ * TermDictionary_ReplaceTerm, TermDictionary_Remove,
+ * TermDictionary_DecrementNumDocs and TermDictionary_Free require exclusive
+ * access: no other call on the same dictionary, and no live iterator
+ * obtained from it.
+ *
+ * An iterator itself is single-threaded — it may not be advanced or freed
+ * from two threads at once — though separate iterators over the same
+ * dictionary may be used concurrently. */
+"""
+
 [header.triemap_ffi]
 includes = ["<time.h>"]
 after_includes = """
@@ -383,6 +389,7 @@ includes = ["redisearch.h", "score_explain.h"]
 includes = ["redismodule.h"]
 
 [header.sorting_vector_ffi]
+includes = ["redismodule.h"]
 trailer = """
 #ifdef __cplusplus
 extern \"C\" {

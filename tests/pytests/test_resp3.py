@@ -367,7 +367,11 @@ def test_coord_profile():
           'Workers queue time': ANY,
           'Pipeline creation time': ANY,
           'Warning': ['None'],
-          'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Results processed': 2}]
+          'Result processors profile': [{
+            'Type': 'Network', 'Time': ANY, 'Results processed': 2,
+            'Shard-Wait-Time': ANY, 'Row-Convert-Time': ANY, 'Reply-Free-Time': ANY,
+            'Shard replies': ANY, 'Fields converted': 0,
+          }]
         }
       }
     }
@@ -385,9 +389,58 @@ def test_coord_profile():
     }
     res = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '*', 'FORMAT', 'STRING')
     env.assertEqual(res, exp)
+    network = res['Profile']['Coordinator']['Result processors profile'][0]
+    for metric in ('Shard-Wait-Time', 'Row-Convert-Time', 'Reply-Free-Time'):
+      env.assertGreaterEqual(network[metric], 0, message=network)
+    env.assertGreaterEqual(int(network['Shard replies']), 1, message=network)
     env.assertLessEqual(len(res['Profile']['Shards']), env.shardsCount)
     for shard_res in res['Profile']['Shards']:
       env.assertEqual(shard_res, shard)
+
+def network_profile(env, res):
+    if env.protocol == 3:
+      return res['Profile']['Coordinator']['Result processors profile'][0]
+    coordinator = to_dict(to_dict(res[1])['Coordinator'])
+    return to_dict(coordinator['Result processors profile'][0])
+
+def check_network_breakdown(env):
+    with env.getClusterConnectionIfNeeded() as r:
+      r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
+      r.execute_command('HSET', 'doc2', 'f1', '3', 'f2', '2', 'f3', '4')
+    env.cmd('FT.create', 'idx1', 'PREFIX', 1, 'doc', 'SCHEMA', 'f1', 'TEXT', 'f2', 'TEXT')
+    waitForIndex(env, 'idx1')
+
+    breakdown_keys = ['Shard-Wait-Time', 'Row-Convert-Time', 'Reply-Free-Time', 'Shard replies', 'Fields converted']
+
+    res = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, 'f1', 'f2')
+    network = network_profile(env, res)
+    for key in breakdown_keys:
+      env.assertContains(key, network)
+    # Two rows of two loaded fields each, however they are spread over the shards.
+    env.assertEqual(int(network['Fields converted']), 4, message=network)
+    env.assertGreaterEqual(int(network['Shard replies']), 1, message=network)
+    env.assertGreater(float(network['Row-Convert-Time']), 0, message=network)
+
+    # An index with no matches yields only empty replies, which are still counted.
+    res = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '@f1:nomatch', 'LOAD', 2, 'f1', 'f2')
+    network = network_profile(env, res)
+    env.assertEqual(int(network['Fields converted']), 0, message=network)
+    env.assertGreaterEqual(int(network['Shard replies']), 1, message=network)
+
+    # Early termination drains remaining shard profiles outside the Network timer.
+    res = env.cmd("FT.PROFILE", "idx1", "AGGREGATE", "QUERY", "*", "LIMIT", 0, 1)
+    network = network_profile(env, res)
+    measured = sum(float(network[key]) for key in breakdown_keys[:3])
+    # Allow floating-point rounding when summing the disjoint timers.
+    env.assertLessEqual(measured, float(network["Time"]) + 1e-9, message=network)
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_coord_profile_network_breakdown_resp3():
+    check_network_breakdown(Env(protocol=3))
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_coord_profile_network_breakdown_resp2():
+    check_network_breakdown(Env(protocol=2))
 
 @skip(redis_less_than="7.0.0")
 def test_aggregate():
@@ -1385,11 +1438,9 @@ def test_ft_info():
          nodes = float(res['cluster_known_nodes'])
 
       # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-      #              = 64 + (1000 * 8) = 8064 bytes
-      # (DocTable lost its 8-byte DocIdMap trie pointer when the key trie was removed.)
-      initial_doc_table_size_mb = 8064 / (1024 * 1024)
-      # The key->docId mapping now lives in Redis key-metadata (not module-tracked
-      # memory), so key_table_size_mb is always 0.
+      #              = 88 + (1000 * 8) = 8088 bytes
+      initial_doc_table_size_mb = 8088 / (1024 * 1024)
+      # No map allocation until this index receives an INKEYS query.
       key_table_sz_mb = 0
       per_node_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
 
@@ -1562,6 +1613,7 @@ def test_ft_info():
         'records_per_doc_avg': nan,
         'sortable_values_size_mb': 0.0,
         'geoshapes_sz_mb': 0.0,
+        'total_indexing_time': 0.0,
         'total_inverted_index_blocks': 0,
         'vector_index_sz_mb': global_vector_mem_mb,
         'Index Errors': {
@@ -1741,6 +1793,45 @@ def test_warning_maxprefixexpansions():
     if 'Max prefix expansions limit was reached' in shard['Warning']:
          n_warnings += 1
   env.assertEqual(n_warnings, 1)
+
+def test_warning_not_carried_across_cursor_reads():
+  """
+  A warning belongs to the reply of the cycle that raised it. The request's error
+  slot outlives a cursor read, so this pins that the next FT.CURSOR READ does not
+  re-emit (and re-count) the previous read's warning. Max prefix expansions is
+  raised once, while the iterator tree is built at cursor creation, so it is the
+  warning most likely to leak.
+  """
+  # RESP3 for the `warning` reply field; dialect 2 for the prefix query syntax.
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  conn = env.getClusterConnectionIfNeeded()
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
+  # Two matches for the single allowed expansion (`foo`), one more term (`fooo`)
+  # to push the expansion count over the limit. Same shard, so the limit is hit there.
+  conn.execute_command('HSET', 'doc1{3}', 't', 'foo')
+  conn.execute_command('HSET', 'doc2{3}', 't', 'foo')
+  conn.execute_command('HSET', 'doc3{3}', 't', 'fooo')
+  populated_shard_conn = env.getConnectionByKey('doc1{3}', 'HSET')
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1')
+
+  # Drain the cursor one row per read, recording each reply's warnings. Where the warning
+  # lands differs by mode (standalone: the creating reply; cluster: the read that consumes the
+  # shard reply carrying it), but it must land in exactly one reply.
+  warnings_per_read = []
+  rows = 0
+  res, cid = env.cmd('FT.AGGREGATE', 'idx', 'fo*', 'LOAD', '1', '@t', 'WITHCURSOR', 'COUNT', '1') # codespell:ignore fo
+  while True:
+    warnings_per_read.append(res['warning'])
+    rows += len(res['results'])
+    if not cid:
+      break
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+  env.assertEqual(rows, 2, message=warnings_per_read)
+  env.assertGreaterEqual(len(warnings_per_read), 2, message=warnings_per_read)
+  env.assertEqual([w for w in warnings_per_read if w], [['Max prefix expansions limit was reached']],
+                  message=warnings_per_read)
+
+  populated_shard_conn.execute_command(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
 
 def test_multiple_warnings():
   """

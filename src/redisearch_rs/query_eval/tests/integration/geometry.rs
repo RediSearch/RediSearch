@@ -71,7 +71,7 @@ impl GeometryFixture {
         let mut geomq = Box::new(ffi::GeometryQuery {
             format: ffi::GEOMETRY_FORMAT_GEOMETRY_FORMAT_WKT,
             query_type: ffi::QueryType_WITHIN,
-            fs: context.field_spec() as *const _,
+            fieldIndex: context.field_spec().index,
             str_: wkt.as_ptr(),
             str_len: wkt.as_bytes().len(),
         });
@@ -125,6 +125,21 @@ impl GeometryFixture {
         // `err` set) on failure.
         assert_ne!(rc, 0, "indexing a well-formed geometry must succeed");
         assert!(err.is_null(), "a successful insert must not set an error");
+    }
+
+    /// Move the entry under `old` to `new` in the fixture's GEOSHAPE index.
+    fn relabel_geometry(&self, old: u64, new: u64) -> bool {
+        let fs = self._context.field_spec() as *const ffi::FieldSpec as *mut ffi::FieldSpec;
+        // SAFETY: `fs` is a valid GEOSHAPE `FieldSpec`; create-if-missing returns its index.
+        let index = unsafe { ffi::OpenGeometryIndex(fs, true) };
+        // SAFETY: `index` is a valid `GeometryIndex` from `OpenGeometryIndex`.
+        let api = unsafe { ffi::GeometryApi_Get(index) };
+        // SAFETY: `GeometryApi_Get` always populates the `relabelGeom` callback.
+        let relabel =
+            unsafe { (*api).relabelGeom }.expect("geometry api `relabelGeom` must be set");
+        // SAFETY: `index` is valid.
+        let rc = unsafe { relabel(index, old, new) };
+        rc != 0
     }
 
     /// Evaluate the node, returning the boxed iterator, or `None` when
@@ -182,6 +197,30 @@ fn eval_geometry_matches_contained_geometry() {
             read_all(&mut it),
             vec![1],
             "only the geometry within the query polygon must match"
+        );
+    }
+    assert!(fixture.ctx.status().is_ok());
+}
+
+#[test]
+fn eval_geometry_after_relabel_yields_new_id() {
+    // A moved entry must be found under its new id only.
+    let mut fixture = GeometryFixture::new(VALID_POLYGON);
+    fixture.add_geometry(1, "POLYGON((2 2, 2 4, 4 4, 4 2, 2 2))");
+    assert!(
+        fixture.relabel_geometry(1, 11),
+        "moving a present entry must succeed"
+    );
+    {
+        let mut it = ContractChecker::new_with_duplicates(
+            fixture
+                .eval()
+                .expect("a well-formed geometry query must build an iterator"),
+        );
+        assert_eq!(
+            read_all(&mut it),
+            vec![11],
+            "the query must return the new id, not the old"
         );
     }
     assert!(fixture.ctx.status().is_ok());

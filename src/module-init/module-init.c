@@ -151,7 +151,7 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
   VecSim_SetLogCallbackFunction(VecSimLogCallback);
 
   // Init threadpool.
-  if (workersThreadPool_CreatePool(RSGlobalConfig.numWorkerThreads) == REDISMODULE_ERR) {
+  if (workersThreadPool_CreatePool() == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
   DO_LOG("verbose", "threadpool has %lu high-priority bias that always prefer running queries "
@@ -197,7 +197,6 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
 
   ASM_StateMachine_Init();
   Initialize_ServerEventNotifications(ctx);
-  Initialize_CommandFilter(ctx);
   Initialize_RdbNotifications(ctx);
   Initialize_RoleChangeNotifications(ctx);
 

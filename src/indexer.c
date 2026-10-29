@@ -16,6 +16,7 @@
 #include "inverted_index_ffi.h"
 #include "sorting_vector_ffi.h"
 #include "vector_index.h"
+#include "vector_compare/vector_compare.h"
 #include "redis_index.h"
 #include "suffix.h"
 #include "config.h"
@@ -34,6 +35,7 @@
 #include "byte_offsets.h"
 #include "doc_table.h"
 #include "geometry_index.h"
+#include "geometry/geometry_api.h"
 #include "index_result_rs.h"
 #include "info/index_error.h"
 #include "query_error.h"
@@ -47,9 +49,7 @@
 #include "synonym_map.h"
 #include "ttl_table.h"
 #include "ttl_table_rs.h"
-#include "util/block_alloc.h"
 #include "util/dict/dict.h"
-#include "util/khtable.h"
 #include "varint_ffi.h"
 
 extern RedisModuleCtx *RSDummyContext;
@@ -75,46 +75,6 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEnt
     spec->stats.offsetVecsSize += VVW_GetByteLength(entry->vw);
     spec->stats.offsetVecRecords += VVW_GetCount(entry->vw);
   }
-}
-
-// Number of terms for each block-allocator block
-#define TERMS_PER_BLOCK 128
-
-// Effectively limits the maximum number of documents whose terms can be merged
-#define MAX_BULK_DOCS 1024
-
-// Entry for the merged dictionary
-typedef struct mergedEntry {
-  KHTableEntry base;        // Base structure
-  ForwardIndexEntry *head;  // First document containing the term
-  ForwardIndexEntry *tail;  // Last document containing the term
-} mergedEntry;
-
-// Boilerplate hashtable compare function
-static int mergedCompare(const KHTableEntry *ent, const void *s, size_t n, uint32_t h) {
-  mergedEntry *e = (mergedEntry *)ent;
-  // 0 return value means "true"
-  return !(e->head->hash == h && e->head->len == n && memcmp(e->head->term, s, n) == 0);
-}
-
-// Boilerplate hash retrieval function. Used for rebalancing the table
-static uint32_t mergedHash(const KHTableEntry *ent) {
-  mergedEntry *e = (mergedEntry *)ent;
-  return e->head->hash;
-}
-
-// Boilerplate dict entry allocator
-static KHTableEntry *mergedAlloc(void *ctx) {
-  return BlkAlloc_Alloc(ctx, sizeof(mergedEntry), sizeof(mergedEntry) * TERMS_PER_BLOCK);
-}
-
-// This function used for debugging, and returns how many items are actually in the list
-static size_t countMerged(mergedEntry *ent) {
-  size_t n = 0;
-  for (ForwardIndexEntry *cur = ent->head; cur; cur = cur->next) {
-    n++;
-  }
-  return n;
 }
 
 // Build the mask of this document's TEXT fields that carry a field-level
@@ -152,7 +112,7 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   // Text fields carrying a field-level expiration for this document; a posting's
   // inline expiration bit is set when its field mask overlaps this one. Read back
-  // from the doc table because `doAssignIds` moved `doc->fieldExpirations` there.
+  // from the doc table because `assignDocId` moved `doc->fieldExpirations` there.
   const t_fieldMask expiringTextFields = docExpiringTextFieldMask(spec, aCtx->doc->docId);
   size_t prevNumTerms = spec->stats.scoring.numTerms;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
@@ -175,21 +135,118 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_FULLTEXT, spec->stats.scoring.numTerms - prevNumTerms);
 }
 
-// Contract documented on the declaration in indexer_internal.h.
-void Indexer_RemoveReplacedDocVectorAndGeometry(IndexSpec *spec, t_docId oldDocId) {
-  if (spec->flags & Index_HasVecSim) {
-    for (int i = 0; i < spec->numFields; ++i) {
-      if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-        // ctx is NULL because we don't create the index here
-        VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[i], DONT_CREATE_INDEX);
-        if (!vecsim) continue;
-        VecSimIndex_DeleteVector(vecsim, oldDocId);
-        // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
-      }
+/**
+ * This update's value for schema field `f_idx`, or NULL when this version of the document
+ * carries none.
+ *
+ * `VectorIndex_RemoveOrKeepId` and `GeometryIndex_RemoveOrKeepId` walk the schema while the
+ * preprocessed values are indexed by document field, so the mapping is resolved here.
+ */
+static const FieldIndexerData *fieldValue(const RSAddDocumentCtx *aCtx,
+                                                  const t_fieldIndex f_idx) {
+  const Document *doc = aCtx->doc;
+  for (size_t ii = 0; ii < doc->numFields; ++ii) {
+    const FieldSpec *fs = aCtx->fspecs + ii;
+    if (!fs->fieldName || fs->index != f_idx) continue;
+    const FieldIndexerData *fdata = aCtx->fdatas + ii;
+    return fdata->isNull ? NULL : fdata;
+  }
+  return NULL;
+}
+
+/**
+ * Checks verification indicator or compare the actual data.
+ * An unverified mark (no change set: JSON, a background scan, a server without subkey
+ * notifications) is resolved by asking the index whether it already holds the value about to
+ * be written.
+ */
+static bool checkVectorChanged(const RSAddDocumentCtx *aCtx, const FieldSpec *fs, VecSimIndex *vecsim,
+                                t_docId oldDocId) {
+  const ChangedFieldInd mark = AddDocumentCtx_FieldChange(aCtx, fs->index);
+  if (mark == ChangedFieldInd_VerifiedYes) {
+    return false;
+  }
+
+  const FieldIndexerData *fdata = fieldValue(aCtx, fs->index);
+  if (fdata &&
+      (mark == ChangedFieldInd_VerifiedNo ||
+       VectorIndex_HoldsVectors(vecsim, oldDocId, fdata->vector, fdata->numVec))) {
+    aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedNo;
+    return true;
+  }
+  aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
+  return false;
+}
+
+/**
+ * Either Drop the replaced document's entry from every VECTOR field of `spec`, or keep it
+ * to be moved onto the document's new doc-id — only to be relabled
+ */
+static void VectorIndex_RemoveOrKeepId(const IndexSpec *spec, t_docId oldDocId,
+                                      const RSAddDocumentCtx *aCtx) {
+  for (int i = 0; i < spec->numFields; ++i) {
+    FieldSpec *fs = &spec->fields[i];
+    if (fs->types != INDEXFLD_T_VECTOR) continue;
+    // ctx is NULL because we don't create the index here
+    VecSimIndex *vecsim = openVectorIndex(NULL, fs, DONT_CREATE_INDEX);
+    if (!vecsim) {
+      // No index yet, so continue as usual (i.e. "changed" )
+      if (aCtx && aCtx->fieldChanges) aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
+      continue;
     }
+    if (checkVectorChanged(aCtx, fs, vecsim, oldDocId)) continue;
+    VecSimIndex_DeleteVector(vecsim, oldDocId);
+  }
+}
+
+/**
+ * Whether GEOSHAPE field `fs`'s old entry can be moved. An unverified mark is resolved by
+ * comparing the stored shape with the new value.
+ */
+static bool checkGeometryUnchanged(const RSAddDocumentCtx *aCtx, const FieldSpec *fs,
+                                   const GeometryIndex *idx, t_docId oldDocId) {
+  const ChangedFieldInd mark = AddDocumentCtx_FieldChange(aCtx, fs->index);
+  if (mark == ChangedFieldInd_VerifiedYes) {
+    return false;
+  }
+  const FieldIndexerData *fdata = fieldValue(aCtx, fs->index);
+  if (fdata && !fdata->isMulti && fdata->format == GEOMETRY_FORMAT_WKT && fdata->str &&
+      (mark == ChangedFieldInd_VerifiedNo ||
+       GeometryIndex_HoldsGeom(idx, oldDocId, fdata->format, fdata->str, fdata->strlen))) {
+    aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedNo;
+    return true;
+  }
+  aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
+  return false;
+}
+
+/**
+ * Drop the replaced document's entry from every GEOSHAPE field of `spec`, or keep it for
+ * `geometryIndexer` to move.
+ */
+static void GeometryIndex_RemoveOrKeepId(const IndexSpec *spec, t_docId oldDocId,
+                                         const RSAddDocumentCtx *aCtx) {
+  for (int i = 0; i < spec->numFields; ++i) {
+    FieldSpec *fs = &spec->fields[i];
+    if (!(fs->types & INDEXFLD_T_GEOMETRY)) continue;
+    GeometryIndex *idx = OpenGeometryIndex(fs, DONT_CREATE_INDEX);
+    if (!idx) {
+      if (aCtx && aCtx->fieldChanges) aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
+      continue;
+    }
+    if (checkGeometryUnchanged(aCtx, fs, idx, oldDocId)) continue;
+    GeometryApi_Get(idx)->delGeom(idx, oldDocId);
+  }
+}
+
+// Contract documented on the declaration in indexer_internal.h.
+void Indexer_HandleReplacedDocVectorAndGeometry(const IndexSpec *spec, t_docId oldDocId,
+                                                const RSAddDocumentCtx *aCtx) {
+  if (spec->flags & Index_HasVecSim) {
+    VectorIndex_RemoveOrKeepId(spec, oldDocId, aCtx);
   }
   if (spec->flags & Index_HasGeometry) {
-    GeometryIndex_RemoveId(spec, oldDocId);
+    GeometryIndex_RemoveOrKeepId(spec, oldDocId, aCtx);
   }
 }
 
@@ -228,32 +285,33 @@ static int actxDocIdMetaSet(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, uint64_
 /** Assigns a document ID to a single document. Handles only the RAM index.
  *  The key -> docId mapping is stored on the Redis key via DocIdMeta (unified
  *  with disk mode); the in-memory DocTable only maps docId -> DMD. */
-static RSDocumentMetadata *makeDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx *aCtx,
+static RSDocumentMetadata *newDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx *aCtx,
                                           int replace, bool *updated) {
   IndexSpec *spec = sctx->spec;
   DocTable *table = &spec->docs;
   Document *doc = aCtx->doc;
 
   // Existing key -> docId mapping (memory-mode analogue of the disk oldDocId
-  // lookup in doAssignIds).
+  // lookup in DiskIndexer_StageDocument).
   uint64_t oldDocId = 0;
   actxDocIdMetaGet(aCtx, sctx, &oldDocId);
+  aCtx->oldDocId = oldDocId;
 
   if (oldDocId) {
     if (replace) {
       // Drop the previous version + its stats/aux indexes; the mapping is
       // overwritten by the actxDocIdMetaSet below.
-      RSDocumentMetadata *old = DocTable_DeleteById(table, (t_docId)oldDocId);
+      RSDocumentMetadata *old = DocTable_DeleteById(table, oldDocId);
       if (old) {
         Indexer_RemoveOldDocStats(spec, old->docLen);
-        Indexer_RemoveReplacedDocVectorAndGeometry(spec, old->id);
+        Indexer_HandleReplacedDocVectorAndGeometry(spec, old->id, aCtx);
         *updated = true;
         DMD_Return(old);
       }
     } else {
       // Already indexed, not a REPLACE: return the existing DMD (former
       // DocTable_Put dedup). Fall through only if the mapping is stale.
-      RSDocumentMetadata *existing = (RSDocumentMetadata *)DocTable_Borrow(table, (t_docId)oldDocId);
+      RSDocumentMetadata *existing = (RSDocumentMetadata *)DocTable_Borrow(table, oldDocId);
       if (existing) {
         doc->docId = existing->id;
         return existing;
@@ -263,78 +321,103 @@ static RSDocumentMetadata *makeDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx
 
   size_t n;
   const char *s = RedisModule_StringPtrLen(doc->docKey, &n);
+  RSDocumentFlags flags = aCtx->docFlags;
+  if (spec->rule && spec->rule->payload_field) {
+    // Reserve capacity now: adding a payload later must not require moving the DMD.
+    flags |= Document_HasPayloadSlot;
+  }
   RSDocumentMetadata *dmd =
-      DocTable_Put(table, s, n, doc->score, aCtx->docFlags, doc->payload, doc->payloadSize, doc->type);
+      DocTable_Put(table, s, n, doc->score, flags, doc->payload, doc->payloadSize, doc->type);
   if (dmd) {
     doc->docId = dmd->id;
     // Publish the key -> docId mapping. Crash on failure (matches the disk
     // post-commit policy) rather than leave a DMD with no mapping.
     int rc = actxDocIdMetaSet(aCtx, sctx, dmd->id);
-    RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed while indexing in memory mode");
+    RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK,
+                         "DocIdMeta_Set failed while indexing in memory mode");
   }
 
   return dmd;
 }
 
 /**
- * Performs bulk document ID assignment to all items in the queue.
- * If one item cannot be assigned an ID, it is marked as being errored.
+ * Assigns the document its ID. On failure the document is marked as errored.
  *
  * Disk mode delegates to `DiskIndexer_StageDocument`; memory mode assigns the
  * doc-id and applies all RAM mutations inline here.
  *
  * This function also sets the document's sorting vector, if present.
  */
-static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
+static void assignDocId(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
-  for (; cur; cur = cur->next) {
-    if (cur->stateFlags & ACTX_F_ERRORED) {
+  RS_ASSERT(aCtx->doc);
+  RS_LOG_ASSERT(!aCtx->doc->docId, "docId must be 0");
+  if (SearchDisk_IsEnabled()) {
+    DiskIndexer_StageDocument(aCtx, ctx);
+  } else {
+    bool updated = false;
+    RSDocumentMetadata *md = newDocumentId(ctx, aCtx,
+                                            aCtx->options & DOCUMENT_ADD_REPLACE, &updated);
+    if (!md) {
+      aCtx->stateFlags |= ACTX_F_ERRORED;
+      return;
+    }
+
+    md->maxTermFreq = aCtx->fwIdx->maxTermFreq;
+    md->docLen = aCtx->fwIdx->totalFreq;
+    Indexer_AddNewDocStats(spec, md->docLen);
+
+    if (RSSortingVector_Length(&aCtx->sv)) {
+      DocTable_SetSortingVector(&spec->docs, md, aCtx->sv);
+      aCtx->sv = RSSortingVector_Empty();
+    }
+
+    if (aCtx->byteOffsets) {
+      ByteOffsetWriter_Move(&aCtx->offsetsWriter, aCtx->byteOffsets);
+      DocTable_SetByteOffsets(md, aCtx->byteOffsets);
+      aCtx->byteOffsets = NULL;
+    }
+    Document* doc = aCtx->doc;
+    const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || FieldExpirations_Len(&doc->fieldExpirations) > 0;
+    if (hasExpiration) {
+      DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime,
+                                DocTable_TakeFieldExpirations(&doc->fieldExpirations));
+    }
+    DMD_Return(md);
+
+    handle_gc(spec, updated);
+  }
+}
+
+/**
+ * Delete the old-doc VecSim or geometry entry of every VECTOR or GEOSHAPE field, from
+ * `fromField` onward, that was marked to keep for the relabel. Called when that applier is not
+ * going to run this pass due to error path
+ */
+static void revertPendingRelabels(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
+                                         size_t fromField) {
+  if (!aCtx->fieldChanges || !aCtx->oldDocId) return;
+  const Document *doc = aCtx->doc;
+  for (size_t ii = fromField; ii < doc->numFields; ++ii) {
+    const FieldSpec *fs = aCtx->fspecs + ii;
+    const bool isVector = fs->types == INDEXFLD_T_VECTOR;
+    const bool isGeometry = fs->types & INDEXFLD_T_GEOMETRY;
+    if (!(isVector || isGeometry) || aCtx->fieldChanges[fs->index] != ChangedFieldInd_VerifiedNo) {
       continue;
     }
-
-    RS_ASSERT(cur->doc);
-    if (SearchDisk_IsEnabled()) {
-      DiskIndexer_StageDocument(cur, ctx);
+    if (isVector) {
+      // ctx is NULL because we don't create the index here, matching `VectorIndex_RemoveOrKeepId`.
+      VecSimIndex *vecsim = openVectorIndex(NULL, &spec->fields[fs->index], DONT_CREATE_INDEX);
+      if (vecsim) {
+        VecSimIndex_DeleteVector(vecsim, aCtx->oldDocId);
+      }
     } else {
-      RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
-      bool updated = false;
-      RSDocumentMetadata *md = makeDocumentId(ctx, cur,
-                                              cur->options & DOCUMENT_ADD_REPLACE, &updated);
-      if (!md) {
-        cur->stateFlags |= ACTX_F_ERRORED;
-        continue;
-      }
-
-      md->maxTermFreq = cur->fwIdx->maxTermFreq;
-      md->docLen = cur->fwIdx->totalFreq;
-      Indexer_AddNewDocStats(spec, md->docLen);
-
-      if (RSSortingVector_Length(&cur->sv)) {
-        DocTable_SetSortingVector(&spec->docs, md, cur->sv);
-        cur->sv = RSSortingVector_Empty();
-      }
-
-      if (cur->byteOffsets) {
-        ByteOffsetWriter_Move(&cur->offsetsWriter, cur->byteOffsets);
-        DocTable_SetByteOffsets(md, cur->byteOffsets);
-        cur->byteOffsets = NULL;
-      }
-      Document* doc = cur->doc;
-      const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || FieldExpirations_Len(&doc->fieldExpirations) > 0;
-      if (hasExpiration) {
-        DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime,
-                                  DocTable_TakeFieldExpirations(&doc->fieldExpirations));
-      }
-      DMD_Return(md);
-
-      if (spec->gc) {
-        if (updated) {
-          GCContext_OnUpdate(spec->gc);
-        } else {
-          GCContext_OnWrite(spec->gc);
-        }
+      GeometryIndex *idx = OpenGeometryIndex(&spec->fields[fs->index], DONT_CREATE_INDEX);
+      if (idx) {
+        GeometryApi_Get(idx)->delGeom(idx, aCtx->oldDocId);
       }
     }
+    aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
   }
 }
 
@@ -345,10 +428,15 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
  * that a later field's failure cannot orphan earlier fields' bookkeeping.
  *
  * On the first add failure, marks `ACTX_F_ERRORED` and bails. Earlier fields
- * stay fully applied; later fields are skipped entirely.
+ * stay fully applied; later fields are skipped entirely -- including their
+ * appliers, so any pending relabel from `ii` onward is abandoned
+ * instead of left stranded
  */
 static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-  if (aCtx->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_ERRORED)) return;
+  if (aCtx->stateFlags & ACTX_F_ERRORED) {
+    revertPendingRelabels(aCtx, sctx->spec, 0);
+    return;
+  }
 
   const Document *doc = aCtx->doc;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
@@ -362,48 +450,43 @@ static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       FieldSpec_AddQueryError(&aCtx->spec->fields[fs->index], &aCtx->status, doc->docKey);
       QueryError_ClearError(&aCtx->status);
       aCtx->stateFlags |= ACTX_F_ERRORED;
+      revertPendingRelabels(aCtx, sctx->spec, ii);
       return;
     }
     IndexerBulkApply(aCtx, doc->fields + ii, fs, fdata);
   }
-  aCtx->stateFlags |= ACTX_F_OTHERINDEXED;
 }
 
 static void reopenCb(void *arg) {}
 
-// Routines for the merged hash table
-#define ACTX_IS_INDEXED(actx)                                           \
-  (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
-   (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED))
+// Compute absent fields from the cached INDEXMISSING field indexes.
+// Expiration handling stays in the RAM caller.
+dict *Indexer_GetDocumentMissingFields(const IndexSpec *spec, const Document *doc) {
+  if (!IndexSpec_HasIndexMissing(spec)) return NULL;
 
-// Index missing field docs.
-// Add field names to missingFieldDict if it is missing in the document
-// and add the doc to its corresponding inverted index
-static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
-                                  struct FieldExpirationSlice sortedFieldWithExpiration) {
-  Document *doc = aCtx->doc;
-  IndexSpec *spec = sctx->spec;
-  // We use a dictionary as a set, to keep all the fields that we've seen so far (optimization)
+  // Set of INDEXMISSING fields, seeded from the spec and narrowed below to the
+  // ones this document lacks. Keyed by field name so document fields can be
+  // removed without knowing their index in the schema.
   dict *df_fields_dict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
-
-  // collect missing fields in schema
-  for (t_fieldIndex i = 0; i < spec->numFields; i++) {
-    FieldSpec *fs = spec->fields + i;
-    if (FieldSpec_IndexesMissing(fs)) {
-      dictAdd(df_fields_dict, (void*)fs->fieldName, fs);
-    }
-  }
-
-  // if there are no missing fields then there is nothing to index
-  if (dictSize(df_fields_dict) == 0) {
-    dictRelease(df_fields_dict);
-    return;
-  }
+  array_foreach(spec->missing.fields, fieldIndex, {
+    FieldSpec *fs = spec->fields + fieldIndex;
+    dictAdd(df_fields_dict, (void*)fs->fieldName, fs);
+  });
 
   // remove fields that are in the document
   for (uint32_t j = 0; j < doc->numFields; j++) {
     dictDelete(df_fields_dict, (void*)doc->fields[j].docFieldName);
   }
+
+  return df_fields_dict;
+}
+
+// Adds missing and present-but-expiring fields to the RAM missing-docs indexes.
+static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
+                                  struct FieldExpirationSlice sortedFieldWithExpiration) {
+  IndexSpec *spec = sctx->spec;
+  dict *df_fields_dict = Indexer_GetDocumentMissingFields(spec, aCtx->doc);
+  if (!df_fields_dict) return;
 
   // add indexmissing fields that are in the document but are marked to be expired at some point
   for (size_t sortedIndex = 0; sortedIndex < sortedFieldWithExpiration.len; sortedIndex++) {
@@ -419,12 +502,12 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
   dictIterator* iter = dictGetIterator(df_fields_dict);
   for (dictEntry *entry = dictNext(iter); entry; entry = dictNext(iter)) {
     const FieldSpec *fs = dictGetVal(entry);
-    InvertedIndex *iiMissingDocs = dictFetchValue(spec->missingFieldDict, fs->fieldName);
+    InvertedIndex *iiMissingDocs = dictFetchValue(spec->missing.indexes, fs->fieldName);
     if (iiMissingDocs == NULL) {
       size_t index_size;
       iiMissingDocs = NewInvertedIndex(Index_DocIdsOnly, &index_size);
       aCtx->spec->stats.invertedSize += index_size;
-      dictAdd(spec->missingFieldDict, (void*)fs->fieldName, iiMissingDocs);
+      dictAdd(spec->missing.indexes, (void*)fs->fieldName, iiMissingDocs);
       // Complete any rehashing this insert started, else later reads on different
       // threads could end up mutating the dict simultaneously, corrupting it.
       //
@@ -432,7 +515,7 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx,
       //
       // dictRehash migrates a bounded number of buckets per call and returns
       // non-zero while more remain, so loop until it reports done.
-      while (dictRehash(spec->missingFieldDict, 100)) {
+      while (dictRehash(spec->missing.indexes, 100)) {
       }
     }
     // Add docId to inverted index
@@ -473,8 +556,8 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
  * atomic chunk (see `indexText` and `bulkIndexFields`). A later field's
  * failure cannot orphan an earlier field's writes.
  *
- * Doc-table scoring-stat deltas + GC are applied inline in `makeDocumentId` /
- * `doAssignIds`, so there is no `applyDocTable` step here.
+ * Doc-table scoring-stat deltas + GC are applied inline in `assignDocId`, so
+ * there is no `applyDocTable` step here.
  */
 static void indexDocumentMemory(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
                                 FieldExpirationSlice fes) {
@@ -487,20 +570,14 @@ static void indexDocumentMemory(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
 }
 
 /**
- * Per-document indexing entry point. Performs the shared prelude (state
- * guards, doc-id assignment, field-expiration setup) and dispatches to the
+ * Per-document indexing entry point. Performs the shared prelude (doc-id
+ * assignment, field-expiration setup) and dispatches to the
  * mode-specific pipeline.
  */
 static void Indexer_Process(RSAddDocumentCtx *aCtx) {
-  RSAddDocumentCtx *firstZeroId = aCtx;
   RedisSearchCtx ctx = *aCtx->sctx;
 
-  if (ACTX_IS_INDEXED(aCtx) || aCtx->stateFlags & (ACTX_F_ERRORED)) {
-    // Document is complete or errored. No need for further processing.
-    if (!(aCtx->stateFlags & ACTX_F_EMPTY)) {
-      return;
-    }
-  }
+  RS_LOG_ASSERT(!(aCtx->stateFlags & ACTX_F_ERRORED), "document reached the indexer already errored");
 
   if (!ctx.spec) {
     QueryError_SetCode(&aCtx->status, QUERY_ERROR_CODE_NO_INDEX);
@@ -510,30 +587,13 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
 
   Document *doc = aCtx->doc;
 
-  /**
-   * Document ID & sorting-vector assignment:
-   * In order to hold the GIL for as short a time as possible, we assign
-   * document IDs in bulk. We begin using the first document ID that is assumed
-   * to be zero.
-   *
-   * When merging multiple document IDs, the merge stage scans through the chain
-   * of proposed documents and selects the first document in the chain missing an
-   * ID - the subsequent documents should also all be missing IDs. If none of
-   * the documents are missing IDs then the firstZeroId document is NULL and
-   * no ID assignment takes place.
-   *
-   * Assigning IDs in bulk speeds up indexing of smaller documents by about
-   * 10% overall.
-   */
-  if (firstZeroId != NULL && firstZeroId->doc->docId == 0) {
-    doAssignIds(firstZeroId, &ctx);
-  }
+  assignDocId(aCtx, &ctx);
 
   if (SearchDisk_IsEnabled()) {
     DiskIndexer_IndexDocument(aCtx, &ctx);
   } else {
     // `doc->fieldExpirations` ownership has already been moved into the TTL
-    // table by `doAssignIds` on success. On failure (e.g. `makeDocumentId`
+    // table by `assignDocId` on success. On failure (e.g. `newDocumentId`
     // returned NULL), the array stays attached to `doc` so `Document_Free`
     // can release it.
     struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);

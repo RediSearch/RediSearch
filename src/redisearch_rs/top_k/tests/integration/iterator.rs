@@ -26,15 +26,81 @@ use top_k::{
 
 // ── Error path stubs ─────────────────────────────────────────────────────────────
 
-/// [`ScoreSource`] whose [`ScoreSource::next_batch`] unconditionally returns [`RQEIteratorError::TimedOut`].
+/// [`ScoreSource`] that serves one batch and then fails, so a collection abort
+/// leaves entries already in the heap.
+#[derive(Default)]
+struct PartialThenTimingOutSource {
+    batches_served: usize,
+}
+
+impl ScoreSource for PartialThenTimingOutSource {
+    type Batch = MockScoreBatch;
+
+    fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+        if self.batches_served == 0 {
+            self.batches_served += 1;
+            return Ok(Some(MockScoreBatch::new(vec![(1, 0.5), (2, 0.25)])));
+        }
+        Err(RQEIteratorError::TimedOut)
+    }
+
+    fn lookup_score(&mut self, _: DocId) -> Option<f64> {
+        None
+    }
+
+    fn num_estimated(&self) -> usize {
+        2
+    }
+
+    fn rewind(&mut self) {
+        self.batches_served = 0;
+    }
+
+    fn build_result<'r>(&self, doc_id: DocId, _: f64) -> RSIndexResult<'r>
+    where
+        Self: 'r,
+    {
+        RSIndexResult::build_virt().doc_id(doc_id).build()
+    }
+
+    fn attach_score_metric<'r>(&self, _result: &mut RSIndexResult<'r>, _score: f64)
+    where
+        Self: 'r,
+    {
+    }
+
+    fn yields_child_record(&self) -> bool {
+        true
+    }
+
+    fn batch_strategy(&mut self, _: usize, _: usize) -> BatchStrategy {
+        BatchStrategy::Continue
+    }
+
+    fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
+        Ok(())
+    }
+
+    fn iterator_type(&self) -> rqe_iterator_type::IteratorType {
+        rqe_iterator_type::IteratorType::Mock
+    }
+}
+
+/// [`ScoreSource`] whose [`ScoreSource::next_batch`] unconditionally returns [`RQEIteratorError::TimedOut`],
+/// counting how many times it was driven.
 ///
-/// Used to verify that timeout errors propagate correctly through [`TopKIterator`].
-struct TimingOutSource;
+/// Used to verify that timeout errors propagate correctly through [`TopKIterator`],
+/// and that a scan the iterator abandons is not silently restarted.
+#[derive(Default)]
+struct TimingOutSource {
+    next_batch_calls: usize,
+}
 
 impl ScoreSource for TimingOutSource {
     type Batch = MockScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
+        self.next_batch_calls += 1;
         Err(RQEIteratorError::TimedOut)
     }
 
@@ -286,7 +352,7 @@ fn unfiltered_empty_source_is_immediate_eof() {
 #[test]
 fn unfiltered_timeout_propagated() {
     let mut it = ContractChecker::new_unordered(TopKIterator::new_unfiltered(
-        TimingOutSource,
+        TimingOutSource::default(),
         NonZeroUsize::new(5).unwrap(),
         Ascending,
     ));
@@ -294,6 +360,76 @@ fn unfiltered_timeout_propagated() {
         it.read().unwrap_err(),
         rqe_iterators::RQEIteratorError::TimedOut
     ));
+}
+
+/// Collection work must stay bounded across repeated reads of an iterator whose
+/// collection keeps failing. A caller that reads again after a timeout — an
+/// `FT.CURSOR READ`, which arrives with a fresh deadline — otherwise drives a
+/// full scan every time and the query never terminates.
+#[test]
+fn failed_collection_is_not_restarted_on_every_read() {
+    const READS: usize = 5;
+
+    let mut it = TopKIterator::new_unfiltered(
+        TimingOutSource::default(),
+        NonZeroUsize::new(5).unwrap(),
+        Ascending,
+    );
+    for _ in 0..READS {
+        // Reporting the timeout again, or EOF, is fine; re-scanning is not.
+        let _ = it.read();
+    }
+
+    assert_eq!(
+        it.source().next_batch_calls,
+        1,
+        "each read restarted collection, so retrying is unbounded work"
+    );
+}
+
+/// What an aborted scan already collected is still served: under `ON_TIMEOUT
+/// RETURN` those rows are the partial answer the caller asked for, and serving
+/// them is what carries the iterator to EOF.
+#[test]
+fn failed_collection_yields_what_it_collected() {
+    let mut it = TopKIterator::new_with_mode(
+        PartialThenTimingOutSource::default(),
+        None::<Box<dyn RQEIterator<'_>>>,
+        NonZeroUsize::new(5).unwrap(),
+        Ascending,
+        TopKMode::Batches,
+    );
+
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
+
+    let mut emitted = Vec::new();
+    while let Some(r) = it.read().unwrap() {
+        emitted.push(r.doc_id);
+    }
+    assert_eq!(emitted, vec![2, 1], "best score first");
+    assert!(it.at_eof(), "the spent iterator must report EOF");
+}
+
+/// Only an explicit rewind starts a new scan, so a failed collection does not
+/// leave the iterator permanently spent.
+#[test]
+fn rewind_after_failed_collection_recollects() {
+    let mut it = TopKIterator::new_unfiltered(
+        TimingOutSource::default(),
+        NonZeroUsize::new(5).unwrap(),
+        Ascending,
+    );
+
+    assert!(it.read().is_err());
+    assert_eq!(it.source().next_batch_calls, 1);
+
+    it.rewind();
+    assert!(it.read().is_err());
+    assert_eq!(
+        it.source().next_batch_calls,
+        2,
+        "rewind must drive a fresh scan"
+    );
 }
 
 // ── Batches intersection ──────────────────────────────────────────────────
@@ -533,13 +669,13 @@ fn yield_timeout_polled_before_yielding_valid() {
 }
 
 #[test]
-fn retry_after_timeout_discards_partial_collection() {
-    // A scan that times out after collecting some hits, then is re-driven via
-    // read(), must re-collect from scratch. The collection paths append to the
-    // heap without de-duping against leftovers, so a retained partial hit would
-    // resurface as a duplicate doc id. The one-shot deadline fires on the second
-    // adhoc poll (mid-collection, with doc 1 already in the heap) and clears, so
-    // the retry runs clean and must yield each doc exactly once.
+fn timed_out_collection_serves_its_hits_even_if_the_deadline_clears() {
+    // A scan that times out after collecting some hits serves exactly those hits
+    // and then reports EOF, even though the one-shot deadline clears before the
+    // next read. Re-collecting instead would be unbounded, because every read can
+    // arrive with a fresh deadline. The documents the aborted scan never reached
+    // are lost rather than duplicated: the collection paths append to the heap
+    // without de-duping, so a second pass would resurface doc 1.
     let source = MockScoreSource::new(vec![], vec![(1, 0.1), (2, 0.2), (3, 0.3)], |_, _| {
         BatchStrategy::Continue
     })
@@ -555,7 +691,11 @@ fn retry_after_timeout_discards_partial_collection() {
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
 
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
-    assert_eq!(doc_ids, vec![1, 2, 3]);
+    assert_eq!(
+        doc_ids,
+        vec![1],
+        "only the hit the aborted scan had already made"
+    );
     assert!(it.at_eof());
 }
 
