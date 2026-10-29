@@ -204,6 +204,26 @@ TEST_F(InfoSectionsTest, UnknownSectionDoesNotCollect) {
   EXPECT_EQ(diskOutputs, 0);
 }
 
+TEST_F(InfoSectionsTest, CrashReportOmitsKeyMapMemory) {
+  spec->diskSpec = nullptr;
+  ASSERT_NE(spec->docs.keyMap, nullptr);
+  InfoCapture info;
+  IndexSpec_AddToInfo(reinterpret_cast<RedisModuleInfoCtx *>(&info), spec, false, true, false);
+  EXPECT_EQ(info.fields.count("key_table_size"), 0u);
+  EXPECT_EQ(info.fields.count("doc_table_size"), 1u);
+}
+
+TEST_F(InfoSectionsTest, NormalIndexInfoIncludesKeyMapMemory) {
+  spec->diskSpec = nullptr;
+  ASSERT_NE(spec->docs.keyMap, nullptr);
+  InfoCapture info;
+  IndexSpec_LockRead(spec);
+  IndexSpec_AddToInfo(reinterpret_cast<RedisModuleInfoCtx *>(&info), spec, false, false, false);
+  IndexSpec_Unlock(spec);
+  ASSERT_EQ(info.fields.count("key_table_size"), 1u);
+  EXPECT_GT(std::stod(info.fields.at("key_table_size")), 0);
+}
+
 TEST_F(InfoSectionsTest, MultipleAggregateSectionsReadCacheOnce) {
   auto info = run({"indexes", "memory", "disk"});
   EXPECT_EQ(info.sections, (std::vector<std::string>{"indexes", "memory", "disk"}));
