@@ -136,8 +136,7 @@ def _resize_paused_pool(env, set_cmd):
 
 def _queue_repairs(env, rng, docs, removed_vectors, n, overwrite=True):
     """With the pool paused, delete `n` docs and, if `overwrite`, overwrite `n` others; returns the
-    paused pool stats. VecSim submits an overwrite's insert only once the old vector's repairs are
-    done, so it is not queued yet: `heldInserts` counts these."""
+    paused pool stats."""
     env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
     keys = list(docs)
     deleted, overwritten = keys[:n], keys[n:2 * n] if overwrite else []
@@ -145,13 +144,12 @@ def _queue_repairs(env, rng, docs, removed_vectors, n, overwrite=True):
     _mutate_in_transaction(env, rng, docs, deleted, overwritten)
     stats = _stats(env)
     env.assertGreater(_pending(stats), 0, message=stats, depth=1)
-    stats['heldInserts'] = len(overwritten) * N_INDEXES
     return stats
 
 
 def _jobs_done_after(queued):
-    """The jobs-done count once the jobs queued at `queued`, and the inserts they hold, have run."""
-    return queued['totalJobsDone'] + _pending(queued) + queued.get('heldInserts', 0)
+    """The jobs-done count once the jobs queued at `queued` have run."""
+    return queued['totalJobsDone'] + _pending(queued)
 
 
 def _assert_ran_exactly_once(env, queued):
