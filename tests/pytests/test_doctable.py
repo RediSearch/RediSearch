@@ -55,6 +55,8 @@ def _assertWildcardScanSkipsDeleted(env, numDocs):
     shard = res[1][1][0]
     iterators = shard[shard.index('Iterators profile') + 1]
     env.assertEqual(iterators[:2], ['Type', 'WILDCARD'], message=res)
+    # The profiled scan prefetches too, so check its count as well.
+    env.assertEqual(res[0][0], len(expected), message=res)
 
     # No SORTBY: a numeric sort can let the optimizer replace the wildcard iterator.
     res = env.cmd('FT.SEARCH', 'idx', '*', 'RETURN', 1, 'n', 'LIMIT', 0, numDocs)
