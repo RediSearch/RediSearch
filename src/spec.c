@@ -1758,7 +1758,7 @@ inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
   return SearchDisk_IsEnabledForValidation();
 }
 
-static bool isKnownCreateOption(const char *arg, const ACArgSpec *argopts) {
+static bool containsArgument(const char *arg, const ACArgSpec *argopts) {
   for (int i = 0; argopts[i].name; ++i) {
     if (strcasecmp(arg, argopts[i].name) == 0) {
       return true;
@@ -1840,7 +1840,7 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
   if (rc == AC_ERR_ENOENT && flex) {
     const char *arg;
     AC_GetString(ac, &arg, NULL, AC_F_NOADVANCE);
-    options->unsupportedOption = isKnownCreateOption(arg, non_flex_argopts);
+    options->unsupportedOption = containsArgument(arg, non_flex_argopts);
   }
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
