@@ -5,13 +5,17 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #include "slot_cleanup.h"
 
 #include "indexes.h"
 #include "rmalloc.h"
 #include "search_disk.h"
 #include "slot_ranges.h"
+
+#include <pthread.h>
+#include <stdatomic.h>
+#include <limits.h>
 
 typedef struct {
   WeakRef spec_ref;
@@ -40,7 +44,12 @@ arrayof(t_docId) SlotCleanup_CollectDocIds(IndexSpec *spec, const PendingSlotDel
   size_t visited = 0;
   while (cursor->nextBucket < cursor->bucketLimit && visited < SLOT_CLEANUP_SCAN_LIMIT &&
          array_len(docIds) < SLOT_CLEANUP_CHUNK_DOC_LIMIT) {
-    for (const RSDocumentMetadata *dmd = t->buckets[cursor->nextBucket].root; dmd; dmd = dmd->nextInChain) {
+    const RSDocumentMetadata *root = t->buckets[cursor->nextBucket].root;
+    // Empty buckets still cost a lookup even when few documents remain in a large table.
+    if (!root) {
+      ++visited;
+    }
+    for (const RSDocumentMetadata *dmd = root; dmd; dmd = dmd->nextInChain) {
       ++visited;
       if (PendingSlotDeletion_Covers(pending, dmd)) {
         array_append(docIds, dmd->id);

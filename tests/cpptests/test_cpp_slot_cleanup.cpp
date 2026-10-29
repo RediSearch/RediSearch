@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 
 #include "gtest/gtest.h"
 #include "redismock/redismock.h"
@@ -23,8 +23,16 @@
 extern "C" {
 #include "vector_index.h"
 #include "redis_index.h"
+#include "search_disk.h"
+#include "result_processor.h"
+#include "search_result_ffi.h"
+#include "query_request.h"
+#include "types_ffi.h"
+extern RedisSearchDiskAPI *disk;
+extern RedisSearchDisk *disk_db;
 }
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -49,8 +57,9 @@ class SlotCleanupTest : public ::testing::Test {
     static int counter = 0;
     std::string name = "slotcleanup" + std::to_string(++counter);
     QueryError err = QueryError_Default();
-    RMCK::ArgvList args(ctx, "FT.CREATE", name.c_str(), "ON", "HASH", "SCHEMA", "title", "TEXT", "vec",
-                        "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2");
+    RMCK::ArgvList args(ctx, "FT.CREATE", name.c_str(), "ON", "HASH", "SCHEMA", "title", "TEXT",
+                        "vec", "VECTOR", "FLAT", "6", "TYPE", "FLOAT32", "DIM", "4",
+                        "DISTANCE_METRIC", "L2");
     spec = Indexes_CreateNewSpec(ctx, args, args.size(), &err);
     ASSERT_NE(spec, nullptr) << QueryError_GetUserError(&err);
 
@@ -72,8 +81,9 @@ class SlotCleanupTest : public ::testing::Test {
   t_docId index(const char *key, const char *title = "hello") {
     RMCK::hset(ctx, key, "title", title);
     RMCK::hset(ctx, key, "vec", kVec);
-    EXPECT_EQ(IndexSpec_UpdateDoc(spec, ctx, RMCK::RString(key), DocumentType_Hash, nullptr, nullptr, 0),
-              REDISMODULE_OK);
+    EXPECT_EQ(
+        IndexSpec_UpdateDoc(spec, ctx, RMCK::RString(key), DocumentType_Hash, nullptr, nullptr, 0),
+        REDISMODULE_OK);
     uint64_t docId = 0;
     EXPECT_EQ(DocIdMeta_Get(ctx, RMCK::RString(key), spec->specId, &docId), REDISMODULE_OK);
     return docId;
@@ -163,7 +173,8 @@ TEST_F(SlotCleanupTest, CleanupDeletesOnlyDocsTheDeletionCovers) {
   SlotCleanupCursor cursor = {};
   arrayof(t_docId) docIds = SlotCleanup_CollectDocIds(spec, pending, &cursor);
   EXPECT_TRUE(SlotCleanup_CursorDone(&cursor));
-  EXPECT_EQ(std::vector<t_docId>(docIds, docIds + array_len(docIds)), (std::vector<t_docId>{a1, a2}));
+  EXPECT_EQ(std::vector<t_docId>(docIds, docIds + array_len(docIds)),
+            (std::vector<t_docId>{a1, a2}));
   SlotCleanup_ApplyDeletes(spec, docIds);
   array_free(docIds);
   removePending(pending);
@@ -227,6 +238,48 @@ TEST_F(SlotCleanupTest, CleanupRunsInBoundedChunks) {
   EXPECT_TRUE(visible(other));
 }
 
+TEST_F(SlotCleanupTest, SparseTableYieldsBeforeReachingRemainingDocuments) {
+  IndexSpec_LockWrite(spec);
+  for (size_t i = 0; i < 2 * SLOT_CLEANUP_SCAN_LIMIT + 1; ++i) {
+    const char key[] = "{a}removed";
+    RSDocumentMetadata *dmd = DocTable_Put(&spec->docs, key, sizeof(key) - 1, 1.0,
+                                           Document_DefaultFlags, nullptr, 0, DocumentType_Hash);
+    const t_docId id = dmd->id;
+    DMD_Return(dmd);
+    DMD_Return(DocTable_DeleteById(&spec->docs, id));
+  }
+  IndexSpec_Unlock(spec);
+  ASSERT_GT(spec->docs.cap, 2 * SLOT_CLEANUP_SCAN_LIMIT);
+
+  const t_docId moving = index("{a}remaining");
+  const t_docId kept = index("{b}remaining");
+  PendingSlotDeletion *pending = addPending();
+  SlotCleanupCursor cursor = {};
+  arrayof(t_docId) first = SlotCleanup_CollectDocIds(spec, pending, &cursor);
+  EXPECT_EQ(array_len(first), 0);
+  EXPECT_FALSE(SlotCleanup_CursorDone(&cursor));
+  EXPECT_GT(cursor.nextBucket, 0);
+  EXPECT_LE(cursor.nextBucket, SLOT_CLEANUP_SCAN_LIMIT);
+  array_free(first);
+
+  size_t collected = 0;
+  while (!SlotCleanup_CursorDone(&cursor)) {
+    const size_t previousBucket = cursor.nextBucket;
+    arrayof(t_docId) docIds = SlotCleanup_CollectDocIds(spec, pending, &cursor);
+    EXPECT_LE(cursor.nextBucket - previousBucket, SLOT_CLEANUP_SCAN_LIMIT);
+    collected += array_len(docIds);
+    SlotCleanup_ApplyDeletes(spec, docIds);
+    array_free(docIds);
+  }
+  removePending(pending);
+
+  EXPECT_EQ(collected, 1);
+  EXPECT_FALSE(present(moving));
+  EXPECT_TRUE(visible(kept));
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 1);
+  EXPECT_EQ(vectorCount(), 1);
+}
+
 TEST_F(SlotCleanupTest, DeleteSlotsHidesAtOnceAndCleansInBackground) {
   t_docId a1 = index("{a}1");
   t_docId a2 = index("{a}2");
@@ -285,4 +338,22 @@ TEST_F(SlotCleanupTest, SpecDroppedWithCleanupQueuedIsSafe) {
   // The task either finds the spec gone or keeps it alive until it finishes; the sanitizer build
   // reports a use-after-free or a leaked node otherwise.
   CleanPool_Wait();
+}
+
+TEST_F(SlotCleanupTest, ExplicitCutoffDoesNotUseRamDocTableMaxId) {
+  IndexSpec_LockWrite(spec);
+  EXPECT_EQ(spec->docs.maxDocId, 0);
+  PendingSlotDeletion *first = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 10);
+  PendingSlotDeletion *second = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 20);
+  EXPECT_TRUE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 10, SLOT_A));
+  EXPECT_TRUE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 20, SLOT_A));
+  EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 21, SLOT_A));
+  EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 10, SLOT_A - 1));
+
+  DocTable_RemovePendingDeletion(&spec->docs, second);
+  EXPECT_TRUE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 10, SLOT_A));
+  EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 11, SLOT_A));
+  DocTable_RemovePendingDeletion(&spec->docs, first);
+  EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 10, SLOT_A));
+  IndexSpec_Unlock(spec);
 }
