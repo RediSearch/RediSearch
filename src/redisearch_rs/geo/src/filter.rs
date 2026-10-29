@@ -26,6 +26,18 @@ pub enum DistanceUnit {
 }
 
 impl DistanceUnit {
+    /// Decode a C discriminant without interpreting an arbitrary integer as an enum.
+    pub const fn from_code(code: i32) -> Option<Self> {
+        match code {
+            -1 => Some(Self::Invalid),
+            0 => Some(Self::Kilometers),
+            1 => Some(Self::Meters),
+            2 => Some(Self::Feet),
+            3 => Some(Self::Miles),
+            _ => None,
+        }
+    }
+
     /// Parse a case-insensitive C unit string, without a buffer-length restriction.
     pub const fn parse(s: &CStr) -> Self {
         Self::parse_bytes(s.to_bytes())
@@ -33,7 +45,6 @@ impl DistanceUnit {
 
     /// Preserve the legacy buffer parser: reject lengths at least [`UNIT_BUFFER_SIZE`]
     /// before truncating at the first NUL. Non-UTF-8 input is accepted as bytes.
-    #[expect(rustdoc::private_intra_doc_links)]
     pub fn parse_buffer(bytes: &[u8]) -> Self {
         if bytes.len() >= UNIT_BUFFER_SIZE {
             return Self::Invalid;
@@ -83,7 +94,7 @@ impl DistanceUnit {
 }
 
 /// Size of the historical unit parser's temporary C buffer, including its NUL terminator.
-const UNIT_BUFFER_SIZE: usize = 16;
+pub const UNIT_BUFFER_SIZE: usize = 16;
 
 /// Query parameters independent of index metadata and numeric-range allocation ownership.
 #[derive(Clone, Copy, Debug)]
