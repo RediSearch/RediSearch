@@ -110,3 +110,28 @@ fn replace_root_hands_back_previous_root() {
     // nothing else owns.
     drop(unsafe { CRQEIterator::new(new_root) });
 }
+
+#[test]
+fn replace_root_updates_root_type() {
+    let mut mock_ctx = MockQueryEvalCtx::new();
+    mock_ctx.set_max_doc_id(10);
+    // SAFETY: `mock_ctx` is a fully initialised `QueryEvalCtx` whose pointer
+    // fields are all valid, and it outlives `ctx` and the tree built from it.
+    let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
+    let mock_node = MockQueryNode::new(QueryNodeType::Wildcard);
+    // SAFETY: `mock_node` is a valid `RSQueryNode`, not accessed elsewhere
+    // while `node` is alive.
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
+
+    let mut tree = QueryIteratorTree::new(&mut ctx, node, Config::default());
+    assert_eq!(tree.root_type(), IteratorType::Wildcard);
+
+    let new_root = NonNull::new(RQEIteratorWrapper::boxed_new(Empty)).unwrap();
+    // SAFETY: `new_root` is a freshly boxed, valid iterator that nothing else owns.
+    let previous = tree.replace_root(unsafe { CRQEIterator::new(new_root) });
+    assert_eq!(tree.root_type(), IteratorType::Empty);
+
+    // SAFETY: `replace_root` handed back ownership of the previous root, which
+    // nothing else owns.
+    drop(unsafe { CRQEIterator::new(previous) });
+}
