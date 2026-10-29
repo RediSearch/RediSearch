@@ -20,8 +20,14 @@ use std::hint::black_box;
 use std::num::NonZeroUsize;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_group, criterion_main};
+use index_result::{RSIndexResult, RSOffsetSlice, RSQueryTerm};
+use index_spec::IndexSpecReadGuard;
 use rand::{SeedableRng as _, seq::SliceRandom as _};
-use rqe_iterators::RQEIterator;
+use rqe_core::DocId;
+use rqe_iterator_type::IteratorType;
+use rqe_iterators::{
+    IdList, Intersection, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+};
 use top_k::{Ascending, BatchStrategy, TopKHeap, TopKIterator, TopKMode, mock::MockScoreSource};
 
 // ── Heap benchmarks ───────────────────────────────────────────────────────────
@@ -237,6 +243,145 @@ fn bench_adhoc_vs_batches(c: &mut Criterion) {
     group.finish();
 }
 
+/// Child yielding, for each id of an [`IdList`], a term record owning its query
+/// term, as an inverted index reader does.
+struct TermLeaf<'index> {
+    ids: IdList<'index, true>,
+    result: RSIndexResult<'index>,
+}
+
+impl TermLeaf<'_> {
+    const OFFSETS: &'static [u8] = &[1, 2, 3];
+
+    fn new(ids: Vec<DocId>, term: &str) -> Self {
+        Self {
+            ids: IdList::new(ids),
+            result: RSIndexResult::build_term()
+                .borrowed_record(
+                    Some(RSQueryTerm::new(term, 1, 0)),
+                    RSOffsetSlice::from_slice(Self::OFFSETS),
+                )
+                .build(),
+        }
+    }
+}
+
+impl<'index> RQEIterator<'index> for TermLeaf<'index> {
+    fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        self.ids.current()?;
+        Some(&mut self.result)
+    }
+
+    fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        let Some(r) = self.ids.read()? else {
+            return Ok(None);
+        };
+        self.result.doc_id = r.doc_id;
+        Ok(Some(&mut self.result))
+    }
+
+    fn skip_to(
+        &mut self,
+        doc_id: DocId,
+    ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        let Some(outcome) = self.ids.skip_to(doc_id)? else {
+            return Ok(None);
+        };
+        let (found, doc_id) = match outcome {
+            SkipToOutcome::Found(r) => (true, r.doc_id),
+            SkipToOutcome::NotFound(r) => (false, r.doc_id),
+        };
+        self.result.doc_id = doc_id;
+        Ok(Some(if found {
+            SkipToOutcome::Found(&mut self.result)
+        } else {
+            SkipToOutcome::NotFound(&mut self.result)
+        }))
+    }
+
+    fn revalidate(
+        &mut self,
+        _: &IndexSpecReadGuard,
+    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+        Ok(RQEValidateStatus::Ok)
+    }
+
+    fn rewind(&mut self) {
+        self.ids.rewind();
+    }
+
+    fn num_estimated(&self) -> usize {
+        self.ids.num_estimated()
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        self.ids.last_doc_id()
+    }
+
+    fn at_eof(&self) -> bool {
+        self.ids.at_eof()
+    }
+
+    fn type_(&self) -> IteratorType {
+        IteratorType::Mock
+    }
+
+    fn intersection_sort_weight(&self, _: bool) -> f64 {
+        1.0
+    }
+}
+
+fn bench_captured_term_records(c: &mut Criterion) {
+    // Batches with an untrimmed child yielding term records, as a filtered KNN
+    // whose scorer or highlighter reads the child's terms: each match the heap
+    // retains deep-copies the child's record, terms included.
+    let mut group = c.benchmark_group("iterator/captured_terms");
+    let n = 10_000usize;
+    let k = NonZeroUsize::new(100).unwrap();
+    // 50% overlap: batch docs are even numbers, child docs are every other even.
+    let child_ids: Vec<u64> = (0..n as u64).step_by(2).map(|i| i * 2).collect();
+    // Scores rising with the doc id fill the heap with the first `k` matches and
+    // reject every later one before capturing it; falling scores make every
+    // match outrank the heap's worst entry, so every match is captured.
+    let ascending: Vec<(u64, f64)> = (0..n as u64).map(|i| (i * 2, i as f64)).collect();
+    let descending: Vec<(u64, f64)> = (0..n as u64)
+        .map(|i| (i * 2, (n as u64 - i) as f64))
+        .collect();
+    const TERMS: [&str; 3] = ["hello", "world", "again"];
+
+    for (captures, batch) in [("first_k", &ascending), ("every_match", &descending)] {
+        for n_terms in [1usize, 2, 3] {
+            group.bench_with_input(
+                BenchmarkId::new(captures, format!("{n_terms}_terms")),
+                &n_terms,
+                |b, &n_terms| {
+                    b.iter_batched(
+                        || {
+                            let source =
+                                MockScoreSource::new(vec![batch.clone()], vec![], |_, _| {
+                                    BatchStrategy::Continue
+                                });
+                            let leaves = TERMS[..n_terms]
+                                .iter()
+                                .map(|term| TermLeaf::new(child_ids.clone(), term))
+                                .collect();
+                            let child: Box<dyn RQEIterator> =
+                                Box::new(Intersection::new(leaves, 1.0, false));
+                            (source, child)
+                        },
+                        |(source, child)| {
+                            let mut it = TopKIterator::new(source, child, k, Ascending);
+                            while black_box(it.read()).unwrap().is_some() {}
+                        },
+                        BatchSize::SmallInput,
+                    )
+                },
+            );
+        }
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_heap_insert,
@@ -244,5 +389,6 @@ criterion_group!(
     bench_intersection_overlap,
     bench_intersection_disjoint,
     bench_adhoc_vs_batches,
+    bench_captured_term_records,
 );
 criterion_main!(benches);

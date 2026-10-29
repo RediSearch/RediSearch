@@ -34,6 +34,7 @@ use query_term::RSQueryTerm;
 
 pub mod boxed;
 pub mod c2rust;
+mod composite;
 pub mod config;
 pub mod deferred;
 pub mod empty;
