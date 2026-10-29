@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include <pthread.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -41,6 +42,8 @@
 #define GC_READERFD 0
 // Number of attempts to wait for the child to exit gracefully before trying to terminate it
 #define GC_WAIT_ATTEMPTS 4
+
+static pthread_mutex_t forkCycleLock_g = PTHREAD_MUTEX_INITIALIZER;
 
 // GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
@@ -91,6 +94,24 @@ static long long forkBudgetLeftMs(const GCForcedRun *forced) {
   long long left = (forced->forkDeadline.tv_sec - now.tv_sec) * 1000 +
                    (forced->forkDeadline.tv_nsec - now.tv_nsec) / 1000000;
   return left > 0 ? left : 0;
+}
+
+// Takes forkCycleLock_g, giving up when a forced run's budget runs out. Returns whether it holds it.
+static bool lockForkCycle(const GCForcedRun *forced) {
+  long long budget_left = forced ? forkBudgetLeftMs(forced) : -1;
+  if (budget_left < 0) {
+    pthread_mutex_lock(&forkCycleLock_g);
+    return true;
+  }
+  struct timespec deadline;  // pthread_mutex_timedlock measures against CLOCK_REALTIME
+  clock_gettime(CLOCK_REALTIME, &deadline);
+  deadline.tv_sec += budget_left / 1000;
+  deadline.tv_nsec += (budget_left % 1000) * 1000000;
+  if (deadline.tv_nsec >= 1000000000) {
+    deadline.tv_sec++;
+    deadline.tv_nsec -= 1000000000;
+  }
+  return pthread_mutex_timedlock(&forkCycleLock_g, &deadline) == 0;
 }
 
 // Takes the single child slot Redis allows. A forced cycle retries while a competing BGSAVE,
@@ -192,41 +213,10 @@ static bool runThreadCycle(ForkGC *gc, StrongRef spec_ref) {
   return gcrv;
 }
 
-bool FGC_RunCycle(ForkGC *gc, GCForcedRun *forced, const FGCHook *hook) {
+// The fork half of FGC_RunCycle. Consumes `early_check`.
+static bool runForkCycle(ForkGC *gc, GCForcedRun *forced, const FGCHook *hook,
+                         StrongRef early_check) {
   RedisModuleCtx *ctx = gc->ctx;
-
-  // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
-  // early termination might never change after index deletion and will cause periodicCb to always return true,
-  // which will cause the GC to never stop rescheduling itself.
-  // If the index was deleted, we don't want to reschedule the GC, so we return false.
-  // If the index is still valid, we MUST hold the strong reference to it until after the fork, to make sure
-  // the child process has a valid reference to the index.
-  // If we were to try and revalidate the index after the fork, it might already be dropped and the child
-  // will exit before sending any data, and might left the parent waiting for data that will never arrive.
-  // Attempting to revalidate the index after the fork is also problematic because the parent and child are
-  // not synchronized, and the parent might see the index alive while the child sees it as deleted.
-  StrongRef early_check = IndexSpecRef_Promote(gc->index);
-  if (!StrongRef_Get(early_check)) {
-    // Index was deleted
-    return false;
-  }
-
-  // Taken before the fork: a deletion deferred after this point is counted next cycle, never reset
-  // away uncounted.
-  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(StrongRef_Get(early_check));
-  if (deferred) {
-    gc->deletedOrUpdatedDocsFromLastRun += deferred;
-    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
-  }
-
-  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
-    IndexSpecRef_Release(early_check);
-    return true;
-  }
-
-  if (threadPolicyEnabled()) {
-    return runThreadCycle(gc, early_check);
-  }
 
   bool gcrv = true;
   pid_t cpid;
@@ -333,6 +323,53 @@ bool FGC_RunCycle(ForkGC *gc, GCForcedRun *forced, const FGCHook *hook) {
   gc->stats.totalMSRun += msRun;
   gc->stats.lastRunTimeMs = msRun;
 
+  return gcrv;
+}
+
+bool FGC_RunCycle(ForkGC *gc, GCForcedRun *forced, const FGCHook *hook) {
+  // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
+  // early termination might never change after index deletion and will cause periodicCb to always return true,
+  // which will cause the GC to never stop rescheduling itself.
+  // If the index was deleted, we don't want to reschedule the GC, so we return false.
+  // If the index is still valid, we MUST hold the strong reference to it until after the fork, to make sure
+  // the child process has a valid reference to the index.
+  // If we were to try and revalidate the index after the fork, it might already be dropped and the child
+  // will exit before sending any data, and might left the parent waiting for data that will never arrive.
+  // Attempting to revalidate the index after the fork is also problematic because the parent and child are
+  // not synchronized, and the parent might see the index alive while the child sees it as deleted.
+  StrongRef early_check = IndexSpecRef_Promote(gc->index);
+  if (!StrongRef_Get(early_check)) {
+    // Index was deleted
+    return false;
+  }
+
+  // Taken before the fork: a deletion deferred after this point is counted next cycle, never reset
+  // away uncounted.
+  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(StrongRef_Get(early_check));
+  if (deferred) {
+    gc->deletedOrUpdatedDocsFromLastRun += deferred;
+    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
+  }
+
+  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+    IndexSpecRef_Release(early_check);
+    return true;
+  }
+
+  if (threadPolicyEnabled()) {
+    return runThreadCycle(gc, early_check);
+  }
+
+  // Redis allows one child at a time, so with several GC threads (the thread policy with unstable
+  // features switched off at runtime) fork cycles take turns instead of failing on each other. A
+  // forced run waits for its turn only within its budget.
+  if (!lockForkCycle(forced)) {
+    forced->outcome = GC_FORCED_RUN_NO_FORK;
+    IndexSpecRef_Release(early_check);
+    return true;
+  }
+  bool gcrv = runForkCycle(gc, forced, hook, early_check);
+  pthread_mutex_unlock(&forkCycleLock_g);
   return gcrv;
 }
 
