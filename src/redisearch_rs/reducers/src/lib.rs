@@ -19,6 +19,7 @@ mod reducer;
 mod reducer_options;
 pub mod std_dev;
 pub mod sum;
+pub mod to_list;
 
 pub use reducer::Reducer;
 pub use reducer_options::ReducerOptions;
