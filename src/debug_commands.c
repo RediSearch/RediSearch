@@ -496,12 +496,22 @@ void validateDebugMode(DebugCTX *debugCtx) {
 
 }
 
-#define GET_SEARCH_CTX(name)                                        \
+// Debug commands read index structures that background GC and indexing mutate, so they hold
+// the spec lock for their whole run like any other command. Release with SearchCtx_Release.
+#define GET_SEARCH_CTX_LOCKED(name, lock)                           \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
   if (!sctx) {                                                      \
     RedisModule_ReplyWithError(ctx, "Can not create a search ctx"); \
     return REDISMODULE_OK;                                          \
-  }
+  }                                                                 \
+  lock(sctx->spec);
+#define GET_SEARCH_CTX(name) GET_SEARCH_CTX_LOCKED(name, IndexSpec_LockRead)
+#define GET_SEARCH_CTX_WRITE(name) GET_SEARCH_CTX_LOCKED(name, IndexSpec_LockWrite)
+
+static void SearchCtx_Release(RedisSearchCtx *sctx) {
+  IndexSpec_Unlock(sctx->spec);
+  SearchCtx_Free(sctx);
+}
 
 #define REPLY_WITH_LONG_LONG(name, val, len)                  \
   RedisModule_ReplyWithStringBuffer(ctx, name, strlen(name)); \
@@ -589,7 +599,7 @@ DEBUG_COMMAND(DumpTerms) {
   }
   TrieIterator_Free(it);
 
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -657,7 +667,7 @@ DEBUG_COMMAND(InvertedIndexSummary) {
   RedisModule_ReplySetArrayLength(ctx, invIdxBulkLen);
 
 end:
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -690,7 +700,7 @@ DEBUG_COMMAND(DumpInvertedIndex) {
   ReplyReaderResultsIDs(reader, res, sctx->redisCtx);
 
 end:
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -714,7 +724,7 @@ DEBUG_COMMAND(NumericIndexSummary) {
   rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
   NumericRangeTree_DebugSummary(sctx->redisCtx, rt);
 end:
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -743,7 +753,7 @@ DEBUG_COMMAND(DumpNumericIndex) {
   rt = openNumericOrGeoIndex(sctx->spec, fs, DONT_CREATE_INDEX);
   NumericRangeTree_DebugDumpIndex(sctx->redisCtx, rt, with_headers);
 end:
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -776,7 +786,7 @@ DEBUG_COMMAND(DumpGeometryIndex) {
   api->dump(idx, ctx);
 
 end:
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -819,7 +829,7 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
   minimal = argc > 4 && !strcasecmp(RedisModule_StringPtrLen(argv[4], NULL), "minimal");
   NumericRangeTree_DebugDumpTree(sctx->redisCtx, rt, minimal);
 end:
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -837,7 +847,7 @@ DEBUG_COMMAND(SpecInvertedIndexesInfo) {
   REPLY_WITH_LONG_LONG("inverted_indexes_memory", sctx->spec->stats.invertedSize, ARRAY_LEN_VAR(specInvertedIndexesInfo));
   END_POSTPONED_LEN_ARRAY(specInvertedIndexesInfo);
 
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -893,7 +903,7 @@ DEBUG_COMMAND(DumpTagIndex) {
   TrieMapIterator_Free(iter);
 
 end:
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -970,7 +980,7 @@ DEBUG_COMMAND(DumpSuffix) {
     RedisModule_ReplySetArrayLength(ctx, resultSize);
   }
 end:
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -1002,7 +1012,7 @@ DEBUG_COMMAND(IdToDocId) {
   }
   DMD_Return(doc);
 end:
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -1015,7 +1025,7 @@ DEBUG_COMMAND(DocIdToId) {
   }
   GET_SEARCH_CTX(argv[2])
   t_docId docId = getDocIdFromKey(sctx->redisCtx, sctx->spec, argv[3]);
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
 
   return RedisModule_ReplyWithLongLong(ctx, docId);
 }
@@ -1423,7 +1433,7 @@ DEBUG_COMMAND(GCCleanNumeric) {
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
-  GET_SEARCH_CTX(argv[2])
+  GET_SEARCH_CTX_WRITE(argv[2])
   fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
@@ -1438,7 +1448,7 @@ DEBUG_COMMAND(GCCleanNumeric) {
   IndexStats_BlockCountAdd(&sctx->spec->stats, rv.block_count_delta);
 
 end:
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   RedisModule_ReplyWithSimpleString(ctx, "OK");
   return REDISMODULE_OK;
 }
@@ -1761,7 +1771,7 @@ reply_done:
   RedisModule_ReplySetArrayLength(ctx, nelem);
 
 end:
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -1848,7 +1858,7 @@ DEBUG_COMMAND(DocInfo) {
     dmd = IndexSpec_BorrowDocByKeyR(sctx->spec, ctx, argv[3]);
   }
   if (!dmd) {
-    SearchCtx_Free(sctx);
+    SearchCtx_Release(sctx);
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
   }
 
@@ -1857,7 +1867,7 @@ DEBUG_COMMAND(DocInfo) {
   const bool obfuscate = !strcasecmp(obfuscateOrReveal, "OBFUSCATE");
   if (!reveal && !obfuscate) {
     DMD_Return(dmd);
-    SearchCtx_Free(sctx);
+    SearchCtx_Release(sctx);
     return RedisModule_ReplyWithError(ctx, "Invalid argument. Expected REVEAL or OBFUSCATE as the last argument");
   }
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
@@ -1876,7 +1886,7 @@ DEBUG_COMMAND(DocInfo) {
 
   RedisModule_EndReply(reply);
   DMD_Return(dmd);
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
 
   return REDISMODULE_OK;
 }
@@ -1920,14 +1930,14 @@ DEBUG_COMMAND(VecsimInfo) {
 
   FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
   if (!fs) {
-    SearchCtx_Free(sctx);
+    SearchCtx_Release(sctx);
     return RedisModule_ReplyWithError(ctx, "Vector index not found");
   }
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
   VecSimIndex *vecsimIndex = openVectorIndex(ctx, fs, CREATE_INDEX);
   if(!vecsimIndex) {
-    SearchCtx_Free(sctx);
+    SearchCtx_Release(sctx);
     return RedisModule_ReplyWithError(ctx, "Can't open vector index");
   }
 
@@ -1937,7 +1947,7 @@ DEBUG_COMMAND(VecsimInfo) {
 
   // Cleanup
   VecSimDebugInfoIterator_Free(infoIter); // Free the iterator (and all its nested children)
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -1955,12 +1965,12 @@ DEBUG_COMMAND(VecsimRelabelSupported) {
 
   FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
   if (!fs) {
-    SearchCtx_Free(sctx);
+    SearchCtx_Release(sctx);
     return RedisModule_ReplyWithError(ctx, "Vector index not found");
   }
   VecSimIndex *vecsimIndex = openVectorIndex(ctx, fs, CREATE_INDEX);
   if (!vecsimIndex) {
-    SearchCtx_Free(sctx);
+    SearchCtx_Release(sctx);
     return RedisModule_ReplyWithError(ctx, "Can't open vector index");
   }
 
@@ -1968,7 +1978,7 @@ DEBUG_COMMAND(VecsimRelabelSupported) {
   // The interface default returns Unsupported, which is how builds lacking the backend operation
   // advertise that the caller must fall back to delete and insert.
   VecSimRelabelCode code = VecSimIndex_RelabelVector(vecsimIndex, INVALID_LABEL, INVALID_LABEL);
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return RedisModule_ReplyWithLongLong(ctx, code != VecSimRelabel_Unsupported);
 }
 
@@ -2087,7 +2097,7 @@ DEBUG_COMMAND(dumpHNSWData) {
   RedisModule_ReplySetArrayLength(ctx, len_num_docs);
 
   cleanup:
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -3668,7 +3678,7 @@ DEBUG_COMMAND(DumpSchema) {
   GET_SEARCH_CTX(argv[2]);
 
   RedisModuleString *schemaStr = IndexSpec_Serialize(sctx->spec);
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
 
   if (!schemaStr) return RedisModule_ReplyWithError(ctx, "Failed to serialize schema");
 
@@ -3881,7 +3891,7 @@ DEBUG_COMMAND(GetMaxDocId) {
   }
 
   RedisModule_ReplyWithLongLong(sctx->redisCtx, maxDocId);
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -3905,7 +3915,7 @@ DEBUG_COMMAND(DumpDeletedIds) {
       t_docId *buffer = rm_malloc(count * sizeof(t_docId));
       if (!buffer) {
         RedisModule_ReplyWithError(sctx->redisCtx, "Out of memory");
-        SearchCtx_Free(sctx);
+        SearchCtx_Release(sctx);
         return REDISMODULE_OK;
       }
 
@@ -3930,7 +3940,7 @@ DEBUG_COMMAND(DumpDeletedIds) {
     RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
   }
 
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -3967,7 +3977,7 @@ DEBUG_COMMAND(NumericBucketMap) {
     }
   }
 
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
@@ -4003,7 +4013,7 @@ DEBUG_COMMAND(DiskStats) {
     }
   }
 
-  SearchCtx_Free(sctx);
+  SearchCtx_Release(sctx);
   return REDISMODULE_OK;
 }
 
