@@ -10,7 +10,8 @@
 //! Safe Rust implementation of RediSearch's Fork GC.
 //!
 //! This crate hosts the protocol- and algorithm-level logic that runs in
-//! the forked child and the parent process. Redis-facing concerns (the
+//! the forked child and the parent process, and [`thread_gc`], which runs the
+//! same scanners in-process under the spec lock instead. Redis-facing concerns (the
 //! `FGC_*` C ABI, `RedisModule_*` API calls, process-exit handling) live
 //! in the `fork_gc_ffi` crate, which is a thin trampoline on top of this
 //! one.
@@ -26,6 +27,7 @@ pub mod orchestration;
 pub mod stats;
 pub mod tags;
 pub mod terms;
+pub mod thread_gc;
 pub mod util;
 
 pub use fork_gc::ForkGC;

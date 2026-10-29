@@ -139,6 +139,29 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
         self.index.reader()
     }
 
+    /// See [`InvertedIndex::gc_snapshot`].
+    pub fn gc_snapshot(
+        &self,
+        live: &impl crate::DocLiveness,
+        scope: crate::GcSnapshotScope,
+    ) -> Option<Self> {
+        let index = self.index.gc_snapshot(live, scope)?;
+        Some(Self {
+            index,
+            number_of_entries: self.number_of_entries,
+        })
+    }
+
+    /// See [`InvertedIndex::doc_id_range`].
+    pub fn doc_id_range(&self) -> Option<std::ops::RangeInclusive<DocId>> {
+        self.index.doc_id_range()
+    }
+
+    /// See [`InvertedIndex::last_block_doc_id_range`].
+    pub fn last_block_doc_id_range(&self) -> Option<std::ops::RangeInclusive<DocId>> {
+        self.index.last_block_doc_id_range()
+    }
+
     /// Scan the index for blocks that can be garbage collected. A block can be garbage collected
     /// if any of its records point to documents that no longer exist. The `doc_exist`
     /// callback is used to check if a document exists. It should return `true` if the document
@@ -149,20 +172,29 @@ impl<E: Encoder + DecodedBy> EntriesTrackingIndex<E> {
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
     pub fn scan_gc(
         &self,
-        doc_exist: impl Fn(DocId) -> bool,
+        doc_exist: impl crate::DocLiveness,
         repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &crate::RepairContext<'call>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
         self.index.scan_gc(doc_exist, repair)
     }
 
-    /// Apply the deltas of a garbage collection scan to the index. This will modify the index
-    /// by deleting or repairing blocks as needed.
-    pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
-        let info = self.index.apply_gc(delta);
+    /// See [`InvertedIndex::apply_gc_with`].
+    pub fn apply_gc_with(
+        &mut self,
+        delta: GcScanDelta,
+        live: Option<&dyn crate::DocLiveness>,
+    ) -> GcApplyInfo {
+        let info = self.index.apply_gc_with(delta, live);
 
         self.number_of_entries -= info.entries_removed;
 
         info
+    }
+
+    /// Apply the deltas of a garbage collection scan to the index. This will modify the index
+    /// by deleting or repairing blocks as needed.
+    pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
+        self.apply_gc_with(delta, None)
     }
 }
 

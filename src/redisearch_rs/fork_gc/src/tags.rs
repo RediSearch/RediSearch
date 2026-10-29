@@ -17,7 +17,7 @@ use std::{
 
 use field_spec::{FieldSpec, FieldSpecType};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
-use inverted_index::{GcScanDelta, opaque::InvertedIndex};
+use inverted_index::{DocLiveness, GcScanDelta, GcSnapshotScope, opaque::InvertedIndex};
 use serde::{Deserialize, Serialize};
 use trie_rs::{
     TrieMapOpaque,
@@ -87,6 +87,39 @@ pub struct TagEntry<T = Box<[u8]>> {
     pub inverted_index_unique_id: u32,
     /// What the scan found to collect.
     pub delta: GcScanDelta,
+}
+
+/// A [`TagEntry`] whose scan has not run yet: a private copy of what the scan
+/// has to decode, taken under the lock so the scan itself needs none.
+pub struct TagSnapshot {
+    /// Name of the TAG field, as [`TagEntry::field_name`].
+    pub field_name: Box<[u8]>,
+    /// Unique id of the field's tag index, as [`TagEntry::tag_index_unique_id`].
+    pub tag_index_unique_id: u32,
+    /// The tag value, as [`TagEntry::tag`].
+    pub tag: Box<[u8]>,
+    /// Unique id of the tag's inverted index, as [`TagEntry::inverted_index_unique_id`].
+    pub inverted_index_unique_id: u32,
+    /// The copy to scan; see [`InvertedIndex::gc_snapshot`].
+    pub snapshot: InvertedIndex,
+}
+
+impl TagSnapshot {
+    /// Run the GC scan on the copy, with the liveness source the copy was taken with;
+    /// `Ok(None)` when it finds nothing to collect, the error when the copy would not
+    /// decode, so the caller can keep the IDs [`Self::snapshot`] spans for another try.
+    pub fn scan(self, live: impl DocLiveness) -> std::io::Result<Option<TagEntry>> {
+        let Some(delta) = self.snapshot.scan_gc(live)? else {
+            return Ok(None);
+        };
+        Ok(Some(TagEntry {
+            field_name: self.field_name,
+            tag_index_unique_id: self.tag_index_unique_id,
+            tag: self.tag,
+            inverted_index_unique_id: self.inverted_index_unique_id,
+            delta,
+        }))
+    }
 }
 
 /// Collect GC deltas for every tag of every TAG field in the spec and write them
@@ -188,15 +221,20 @@ pub struct TagsCursor {
 /// lexicographic order, starting strictly after `cursor`, until `should_stop`
 /// returns `true` after a value or no value is left.
 ///
-/// Appends each entry to `found` and moves `cursor` past every value visited,
-/// so a later call resumes after them even if the tag indexes changed in
-/// between. Each entry carries the unique ids [`apply_tag_entry`] checks.
+/// Appends a [`TagSnapshot`] of each value whose posting list `live` finds a gone
+/// document in to `found`, and moves `cursor` past every value visited, so a
+/// later call resumes after them even if the tag indexes changed in between.
 /// Returns whether the walk stopped early, leaving values to scan.
+///
+/// What `found` holds between stops is bounded only by `live` ruling ranges
+/// clean (see [`DocLiveness::any_gone`]) and by `should_stop`: a source that
+/// rules nothing out copies every non-empty posting list visited.
 pub fn scan_tags_after(
     spec: &IndexSpecReadGuard,
     cursor: &mut TagsCursor,
+    live: impl DocLiveness + Copy,
     mut should_stop: impl FnMut() -> bool,
-    found: &mut Vec<TagEntry>,
+    found: &mut Vec<TagSnapshot>,
 ) -> bool {
     let fields = spec.field_specs();
     while let Some(fs) = fields.get(cursor.field_index) {
@@ -221,13 +259,13 @@ pub fn scan_tags_after(
                     // SAFETY: C TagIndex values are Rust opaque inverted indexes,
                     // kept alive by the read lock.
                     let ii = unsafe { &*value.cast::<InvertedIndex>() };
-                    if let Ok(Some(delta)) = ii.scan_gc(|id| spec.doc_exists(id)) {
-                        found.push(TagEntry {
+                    if let Some(snapshot) = ii.gc_snapshot(&live, GcSnapshotScope::DirtyBlocks) {
+                        found.push(TagSnapshot {
                             field_name: fs.field_name().secret_value().to_bytes().into(),
                             tag_index_unique_id: tag_index.uniqueId,
                             tag: tag.as_slice().into(),
                             inverted_index_unique_id: u32::from(ii.unique_id()),
-                            delta,
+                            snapshot,
                         });
                     }
                 }
@@ -243,12 +281,25 @@ pub fn scan_tags_after(
     false
 }
 
+/// [`apply_tag_entry_with`] without a liveness source: a grown last block is left for the next cycle.
+pub fn apply_tag_entry(
+    entry: TagEntry,
+    guard: &mut IndexSpecWriteGuard<'_>,
+) -> Result<GcApplyStats, HandleError> {
+    apply_tag_entry_with(entry, None, guard)
+}
+
 /// Apply one decoded tag message to the field's tag index.
 ///
 /// Returns [`GcApplyStats`] the caller flushes to the spec and the GC via
 /// [`GcApplyStats::apply`].
-pub fn apply_tag_entry(
+///
+/// With `live`, a last block that grew since the scan is rescanned against it under
+/// the write lock instead of being denied; it must be the source the scan used, see
+/// [`InvertedIndex::gc_snapshot`](inverted_index::InvertedIndex::gc_snapshot).
+pub fn apply_tag_entry_with(
     entry: TagEntry,
+    live: Option<&dyn DocLiveness>,
     guard: &mut IndexSpecWriteGuard<'_>,
 ) -> Result<GcApplyStats, HandleError> {
     let fs = guard
@@ -300,7 +351,7 @@ pub fn apply_tag_entry(
         ));
     }
 
-    let info = ii.apply_gc(entry.delta);
+    let info = ii.apply_gc_with(entry.delta, live);
 
     let (extra, remaining_blocks) = if ii.unique_docs() == 0 {
         let extra = ii.memory_usage();

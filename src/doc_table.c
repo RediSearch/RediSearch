@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "doc_table.h"
+#include "deleted_docs_ffi.h"
+#include "rmutil/rm_assert.h"
 
 #include <sys/param.h>
 #include <string.h>
@@ -387,7 +389,20 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
   rm_free(md);
 }
 
+size_t DocTable_CollectDeadIds(const DocTable *t, t_docId *next, t_docId last, t_docId *out, size_t cap) {
+  // ID 0 is never assigned, and `last` must leave room for `*next` to move past it.
+  RS_LOG_ASSERT(*next >= 1 && last < UINT64_MAX, "DocTable_CollectDeadIds: ID range out of bounds");
+  size_t n = 0;
+  for (; n < cap && *next <= last; ++*next) {
+    if (!DocTable_Exists(t, *next)) {
+      out[n++] = *next;
+    }
+  }
+  return n;
+}
+
 void DocTable_Free(DocTable *t) {
+  DeletedDocs_Free(t->deletedDocs);
   for (int i = 0; i < t->cap; ++i) {
     DMDChain *chain = &t->buckets[i];
     RSDocumentMetadata *md, *next;
@@ -415,6 +430,9 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
   RSDocumentMetadata *md = DocTable_DmdUnchain(t, docId);
   if (!md) {
     return NULL;
+  }
+  if (t->deletedDocs) {
+    DeletedDocs_Record(t->deletedDocs, docId);
   }
 
   // Drop the doc's per-field TTL entry, if any, and tear down the table
