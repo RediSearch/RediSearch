@@ -1758,38 +1758,9 @@ inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
   return SearchDisk_IsEnabledForValidation();
 }
 
-void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status, ACArgSpec *non_flex_argopts) {
-  if (isSpecOnDiskForValidation(spec)) {
-    bool isKnownArg = false;
-    for (int i = 0; non_flex_argopts[i].name; i++) {
-      if (strcasecmp(badarg, non_flex_argopts[i].name) == 0) {
-        isKnownArg = true;
-        break;
-      }
-    }
-    if (isKnownArg) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
-        "Unsupported argument for Flex index:", " `%s`", badarg);
-    } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s`", badarg);
-    }
-  } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s`", badarg);
-  }
-}
-
-/* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
-    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
-  */
-
-static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
-                                           ArgsCursor *ac, QueryError *status) {
-  IndexSpec *spec = NewIndexSpec(name);
-  StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
-  spec->own_ref = spec_ref;
-
-  IndexSpec_MakeKeyless(spec);
-
+int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
+                           QueryError *status) {
+  *options = (IndexSpecOptions){.flags = INDEX_DEFAULT_FLAGS};
   ArgsCursor acStopwords = {0};
 
   long long timeout = -1;
@@ -1800,55 +1771,108 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   int rc = AC_OK;
   ACArgSpec *errarg = NULL;
   ACArgSpec flex_argopts[] = {
-    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
-    {.name = "FILTER", .target = &rule_args.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "LANGUAGE", .target = &rule_args.lang_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "LANGUAGE_FIELD", .target = &rule_args.lang_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "SCORE", .target = &rule_args.score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "SCORE_FIELD", .target = &rule_args.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
-    {.name = NULL}
-  };
+      {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
+      {.name = "FILTER",
+       .target = &rule_args.filter_exp_str,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "LANGUAGE",
+       .target = &rule_args.lang_default,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "LANGUAGE_FIELD",
+       .target = &rule_args.lang_field,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "SCORE",
+       .target = &rule_args.score_default,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = "SCORE_FIELD",
+       .target = &rule_args.score_field,
+       .len = &dummy2,
+       .type = AC_ARGTYPE_STRING},
+      {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
+      {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &options->flags, Index_SkipInitialScan)},
+      {.name = NULL}};
   ACArgSpec non_flex_argopts[] = {
-    {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
-                Index_StoreTermOffsets | Index_StoreByteOffsets)},
-    {AC_MKUNFLAG(SPEC_NOHL_STR, &spec->flags, Index_StoreByteOffsets)},
-    {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
-    {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
-    {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
-    {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
-    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
+      {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &options->flags,
+                   Index_StoreTermOffsets | Index_StoreByteOffsets)},
+      {AC_MKUNFLAG(SPEC_NOHL_STR, &options->flags, Index_StoreByteOffsets)},
+      {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &options->flags, Index_StoreFieldFlags)},
+      {AC_MKUNFLAG(SPEC_NOFREQS_STR, &options->flags, Index_StoreFreqs)},
+      {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &options->flags, Index_WideSchema)},
+      {AC_MKBITFLAG(SPEC_ASYNC_STR, &options->flags, Index_Async)},
+      {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &options->flags, Index_SkipInitialScan)},
 
-    // For compatibility
-    {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
-    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
-    {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
-    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-    {.name = NULL}
-  };
-  ACArgSpec *argopts = isSpecOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
+      // For compatibility
+      {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
+      {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+      SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
+      {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
+      {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
+      {.name = NULL}};
+  ACArgSpec *argopts = flex ? flex_argopts : non_flex_argopts;
   rc = AC_ParseArgSpec(ac, argopts, &errarg);
+  options->rule = rule_args;
+  options->prefixes = rule_prefixes;
+  options->stopwords = acStopwords;
+  if (rc == AC_ERR_ENOENT && flex) {
+    const char *arg;
+    AC_GetString(ac, &arg, NULL, AC_F_NOADVANCE);
+    for (int i = 0; non_flex_argopts[i].name; ++i) {
+      if (strcasecmp(arg, non_flex_argopts[i].name) == 0) {
+        options->unsupportedOption = true;
+        break;
+      }
+    }
+  }
   if (rc != AC_OK) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
-      goto failure;
+      return REDISMODULE_ERR;
     }
   }
-  if ((spec->flags & Index_WideSchema) && !(spec->flags & Index_StoreFieldFlags)) {
+  if ((options->flags & Index_WideSchema) && !(options->flags & Index_StoreFieldFlags)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
                         SPEC_SCHEMA_EXPANDABLE_STR " cannot be used with " SPEC_NOFIELDS_STR);
-    goto failure;
+    return REDISMODULE_ERR;
   }
 
   if (timeout != -1) {
-    // When disk validation is active, argopts is set to flex_argopts, which does not include SPEC_TEMPORARY_STR
-    RS_ASSERT(!SearchDisk_IsEnabled());
-    spec->flags |= Index_Temporary;
+    options->flags |= Index_Temporary;
   }
-  spec->timeout = timeout * 1000;  // convert to ms
+  options->timeout = timeout * 1000;  // convert to ms
+
+  return REDISMODULE_OK;
+}
+
+/* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
+    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
+  */
+
+static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
+                                              ArgsCursor *ac, QueryError *status) {
+  IndexSpec *spec = NewIndexSpec(name);
+  StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
+  spec->own_ref = spec_ref;
+
+  IndexSpec_MakeKeyless(spec);
+
+  IndexSpecOptions options;
+  int rc = IndexSpec_ParseOptions(ac, isSpecOnDiskForValidation(spec), &options, status);
+  spec->flags = options.flags;
+  SchemaRuleArgs rule_args = options.rule;
+  ArgsCursor rule_prefixes = options.prefixes;
+  ArgsCursor acStopwords = options.stopwords;
+  if (rc != REDISMODULE_OK) {
+    goto failure;
+  }
+  if (spec->flags & Index_Temporary) {
+    RS_ASSERT(!SearchDisk_IsEnabled());
+  }
+  spec->timeout = options.timeout;
 
   if (rule_prefixes.argc > 0) {
     spec->rule = SchemaRule_CreateWithPrefixesAC(&rule_args, &rule_prefixes, spec_ref, status);
@@ -1891,7 +1915,13 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   if (!AC_AdvanceIfMatch(ac, SPEC_SCHEMA_STR)) {
     if (AC_NumRemaining(ac)) {
       const char *badarg = AC_GetStringNC(ac, NULL);
-      handleBadArguments(spec, badarg, status, non_flex_argopts);
+      if (options.unsupportedOption) {
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
+                                      "Unsupported argument for Flex index:", " `%s`", badarg);
+      } else {
+        QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument",
+                                      " `%s`", badarg);
+      }
     } else {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No schema found");
     }

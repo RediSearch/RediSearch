@@ -627,6 +627,27 @@ IndexSpec *IndexSpec_Deserialize(const RedisModuleString *serialized, int encver
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
 
+/** Parsed CREATE options. Strings and cursor slices borrow the input arguments and
+ * remain valid only while those arguments live. No cleanup is needed. Copy the
+ * prefix/stopword cursors before consuming them to retain the parsed result.
+ * An empty prefix slice uses the default empty prefix; uninitialized stopwords
+ * use the default stopword list. */
+typedef struct {
+  IndexFlags flags;
+  long long timeout;  // Milliseconds; -1000 represents the omitted/-1 sentinel.
+  SchemaRuleArgs rule;
+  ArgsCursor prefixes;
+  ArgsCursor stopwords;
+  bool unsupportedOption;  // The stopping token is a known option unsupported by Flex.
+} IndexSpecOptions;
+
+/** Parse options without constructing an index. Returns REDISMODULE_OK or ERR.
+ * Leaves ac at the first unrecognized token (normally SCHEMA), or at the end.
+ * Missing SCHEMA/unknown-option errors remain the caller's responsibility, after
+ * rule validation. On error, only flags and the cursor position are meaningful. */
+int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
+                           QueryError *status);
+
 /* Same as IndexSpec_Parse, but takes a NUL-terminated C-string name and wraps it in a HiddenString
  * internally. Intended for unit tests only.
  * Do not use in production or new code: the wrapping requires an extra strlen() over the name,
