@@ -66,7 +66,6 @@ void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   // TODO: Consider calling this from SearchDisk_PutDocument
   uint64_t oldDocId = 0;
   actxDocIdMetaGet(aCtx, ctx, &oldDocId);
-  aCtx->oldDocId = oldDocId;
 
   // Open a per-document write batch that doc-table / inverted-index / tag-index writes
   // will be staged into. The batch is committed (or aborted on error) by
@@ -78,7 +77,7 @@ void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   t_docId docId = aCtx->disk.batch
     ? SearchDisk_PutDocument(spec->diskSpec, aCtx->disk.batch, key, len,
         aCtx->doc->score, aCtx->docFlags, aCtx->fwIdx->maxTermFreq,
-        aCtx->fwIdx->totalFreq, &oldLen, aCtx->doc->docExpirationTime, oldDocId)
+        aCtx->fwIdx->totalFreq, &oldLen, aCtx->doc->docExpirationTime, &oldDocId)
     : 0;
 
   // `SearchDisk_CreateWriteBatch` / `SearchDisk_PutDocument` failure
@@ -91,6 +90,7 @@ void DiskIndexer_StageDocument(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
                            aCtx->disk.batch ? "SearchDisk_PutDocument returned 0"
                                             : "SearchDisk_CreateWriteBatch returned NULL");
 
+  aCtx->oldDocId = oldDocId;
   aCtx->doc->docId = docId;
   aCtx->disk.oldDocLen = oldLen;
   // No in-memory mutations here — the post-commit apply step in
@@ -208,17 +208,8 @@ static void applyDocTable(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   int rc = actxDocIdMetaSet(aCtx, ctx, aCtx->doc->docId);
   RS_LOG_ASSERT_ALWAYS(rc == REDISMODULE_OK, "DocIdMeta_Set failed after a successful disk commit");
 
-  // `oldDocId` comes from the key→docId mapping in Redis. The de-index path
-  // (`IndexSpec_DeleteDoc`) now clears that mapping, so in normal operation a
-  // non-zero `oldDocId` means a real on-disk row is being replaced.
-  // `oldDocId` (not `oldDocLen`) is the REPLACE signal for stats and GC: a
-  // vector/tag/numeric-only document has no full-text tokens, so its `docLen`
-  // (== `fwIdx->totalFreq`) is 0. Gating on `oldDocLen != 0` would miss those
-  // replaces and leak `numDocuments` (the new doc's `Indexer_AddNewDocStats`
-  // increment would never be matched by `Indexer_RemoveOldDocStats`). This mirrors
-  // memory mode, which gates `Indexer_RemoveOldDocStats` on whether an old DMD
-  // existed, not on its length. `oldDocLen` is still the right value to subtract
-  // from `totalDocsLen` (0 for a zero-length old doc is a correct no-op subtraction).
+  // Staging reconciles DocIdMeta against live disk metadata. Length alone
+  // cannot distinguish a stale mapping from a live vector/tag-only document.
   const bool replaced = aCtx->oldDocId != 0;
   if (replaced) {
     Indexer_HandleReplacedDocVectorAndGeometry(spec, aCtx->oldDocId, aCtx);

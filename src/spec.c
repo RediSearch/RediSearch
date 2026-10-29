@@ -4055,7 +4055,8 @@ int IndexSpec_UpdateDocForAlter(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 }
 
 // Shared helper: update stats and clean up auxiliary indexes after a document deletion.
-// Caller must hold the spec write lock, and notifies the GC itself (see IndexSpec_DeleteDocById_Unsafe).
+// Caller must hold the spec write lock, and notifies the GC itself (see
+// IndexSpec_DeleteDocById_Unsafe).
 static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docLen) {
   // Update the stats
   RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
@@ -4063,12 +4064,16 @@ static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docL
   RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
   spec->stats.scoring.numDocuments--;
 
+  IndexSpec_RemoveDocFromMemoryIndexes(spec, docId);
+}
+
+void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId) {
   // VecSim fields clear deleted data on the fly
   if (spec->flags & Index_HasVecSim) {
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         VecSimIndex *vecsim = openVectorIndex(NULL, spec->fields + i, DONT_CREATE_INDEX);
-        if(!vecsim) continue;
+        if (!vecsim) continue;
         VecSimIndex_DeleteVector(vecsim, docId);
       }
     }
