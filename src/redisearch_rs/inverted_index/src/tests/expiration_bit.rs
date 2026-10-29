@@ -401,6 +401,44 @@ fn expiration_bit_survives_a_snapshot_scan() {
     assert!(!reader.next_record(&mut result).unwrap());
 }
 
+/// Compacting a run of under-filled blocks keeps the bit of every entry it merges.
+#[test]
+fn expiration_bit_survives_block_compaction() {
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    let per_block = DocId::from(<DocIdsOnly as crate::Encoder>::RECOMMENDED_BLOCK_ENTRIES);
+    let has_exp = |doc_id: DocId| doc_id % 3 == 0;
+    for doc_id in 1..=3 * per_block {
+        let rec = RSIndexResult::build_virt()
+            .doc_id(doc_id)
+            .has_field_expiration(has_exp(doc_id))
+            .build();
+        ii.add_record(&rec).unwrap();
+    }
+    assert_eq!(ii.number_of_blocks(), 3);
+
+    // The first two blocks keep a tenth of their entries, which fit one block.
+    let live = |doc_id: DocId| doc_id > 2 * per_block || doc_id % 10 == 0;
+    let delta = ii
+        .scan_gc(live, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
+        .expect("scan_gc ok")
+        .expect("scan_gc found entries to remove");
+    ii.apply_gc(delta);
+    assert_eq!(
+        ii.number_of_blocks(),
+        2,
+        "the first two blocks were compacted"
+    );
+
+    let mut reader = ii.reader();
+    let mut result = RSIndexResult::build_virt().build();
+    for doc_id in (1..=3 * per_block).filter(|&doc_id| live(doc_id)) {
+        assert!(reader.next_record(&mut result).unwrap());
+        assert_eq!(result.doc_id, doc_id);
+        assert_eq!(result.has_field_expiration, has_exp(doc_id), "doc {doc_id}");
+    }
+    assert!(!reader.next_record(&mut result).unwrap());
+}
+
 /// Numeric record for `doc_id` with the given field-expiration bit.
 fn numeric(doc_id: DocId, has_exp: bool) -> RSIndexResult<'static> {
     RSIndexResult::build_numeric(1.5)
