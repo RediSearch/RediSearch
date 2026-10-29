@@ -24,6 +24,16 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Reserve room for at least `total_capacity` entries without changing membership.
+ *
+ * # Safety
+ * `map` must be [valid] for exclusive access and allocated by [`DocKeyMap_New`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void DocKeyMap_EnsureCapacity(struct DocKeyMap *map, size_t total_capacity);
+
+/**
  * Destroy a table; a null pointer is accepted.
  *
  * # Safety
@@ -96,16 +106,6 @@ struct DocKeyMap *DocKeyMap_New(void);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool DocKeyMap_Remove(struct DocKeyMap *map, const uint8_t *key, size_t len, t_docId id);
-
-/**
- * Reserve room for at least `total_capacity` entries without changing membership.
- *
- * # Safety
- * `map` must be [valid] for exclusive access and allocated by [`DocKeyMap_New`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void DocKeyMap_EnsureCapacity(struct DocKeyMap *map, size_t total_capacity);
 
 #ifdef __cplusplus
 }  // extern "C"
