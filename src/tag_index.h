@@ -12,7 +12,7 @@
 #include "redismodule.h"
 #include "doc_table.h"
 #include "document.h"
-#include "geo_index.h"
+#include "geo_ffi.h"
 #include "vector_index.h"
 #include "indexer.h"
 #include "search_disk_api.h"

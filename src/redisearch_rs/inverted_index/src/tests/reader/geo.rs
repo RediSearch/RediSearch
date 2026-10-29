@@ -10,40 +10,33 @@
 use std::ptr;
 
 use crate::{FilterGeoReader, IndexReader, NumericFilter};
-use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
+use ffi::{GeoDistance_GEO_DISTANCE_KM, GeoFilter};
 use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 use rqe_core::RS_INVALID_FIELD_INDEX;
 
 #[test]
 fn reading_filter_based_on_geo_filter() {
-    /// Implement this FFI call for this test
-    #[unsafe(no_mangle)]
-    pub extern "C" fn isWithinRadius(gf: *const GeoFilter, d: f64, distance: *mut f64) -> bool {
-        if d > unsafe { (*gf).radius } {
-            return false;
-        }
-
-        // Tests changing the distance value
-        unsafe { *distance /= 5.0 };
-
-        true
-    }
-
-    // Make an iterator with three records having different geo distances. The last record will be
-    // filtered out based on the geo distance.
+    // Independent 26-bit quantization of (12.6, -42.2), (15, -42.25),
+    // and (12.55, -42.3). The middle point lies outside the 10 km radius.
     let iter = vec![
-        RSIndexResult::build_numeric(5.0).doc_id(10).build(),
-        RSIndexResult::build_numeric(15.0).doc_id(11).build(),
-        RSIndexResult::build_numeric(25.0).doc_id(12).build(),
+        RSIndexResult::build_numeric(2_542_122_275_915_209.0)
+            .doc_id(10)
+            .build(),
+        RSIndexResult::build_numeric(2_542_662_729_649_357.0)
+            .doc_id(11)
+            .build(),
+        RSIndexResult::build_numeric(2_542_120_733_624_659.0)
+            .doc_id(12)
+            .build(),
     ];
 
     let geo_filter = GeoFilter {
         fieldIndex: RS_INVALID_FIELD_INDEX,
-        lat: 0.0,
-        lon: 0.0,
-        radius: 20.0,
-        unitType: GeoDistance_GEO_DISTANCE_M,
+        lat: -42.25,
+        lon: 12.5,
+        radius: 10.0,
+        unitType: GeoDistance_GEO_DISTANCE_KM,
         numericFilters: ptr::null_mut(),
     };
 
@@ -62,9 +55,13 @@ fn reading_filter_based_on_geo_filter() {
 
     let found = reader.next_record(&mut result).unwrap();
     assert!(found);
-    assert_eq!(result, RSIndexResult::build_numeric(1.0).doc_id(10).build());
+    assert_eq!(result.doc_id, 10);
+    // Separate spherical-distance calculations for the quantized cell centers.
+    assert!((result.as_numeric().unwrap() - 9938.194472756348).abs() < 1e-7);
 
     let found = reader.next_record(&mut result).unwrap();
     assert!(found);
-    assert_eq!(result, RSIndexResult::build_numeric(3.0).doc_id(11).build());
+    assert_eq!(result.doc_id, 12);
+    assert!((result.as_numeric().unwrap() - 6918.225959756095).abs() < 1e-7);
+    assert!(!reader.next_record(&mut result).unwrap());
 }

@@ -42,7 +42,7 @@
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/expr/expression.h"
 #include "field_spec.h"
-#include "geo_index.h"
+#include "geo_ffi.h"
 #include "hiredis/sds.h"
 #include "hybrid/hybrid_cursor_mappings.h"
 #include "language.h"

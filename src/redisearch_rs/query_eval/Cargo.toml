@@ -19,6 +19,7 @@ dict.workspace = true
 fat_array.workspace = true
 ffi.workspace = true
 field.workspace = true
+geo.workspace = true
 hidden_string.workspace = true
 index_result.workspace = true
 inverted_index.workspace = true
@@ -40,7 +41,6 @@ vector_score_source.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
-geo.workspace = true
 inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi" }
 query = { workspace = true, features = ["unittest"] }
 query_flags.workspace = true

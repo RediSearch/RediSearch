@@ -16,15 +16,10 @@ typedef struct HiddenString HiddenString;
 
 typedef enum {
   GEO_DISTANCE_INVALID = -1,
-#define X_GEO_DISTANCE(X) \
-  X(KM, "km")             \
-  X(M, "m")               \
-  X(FT, "ft")             \
-  X(MI, "mi")
-
-#define X(c, unused) GEO_DISTANCE_##c,
-  X_GEO_DISTANCE(X)
-#undef X
+  GEO_DISTANCE_KM = 0,
+  GEO_DISTANCE_M = 1,
+  GEO_DISTANCE_FT = 2,
+  GEO_DISTANCE_MI = 3,
 } GeoDistance;
 
 typedef struct GeoFilter {

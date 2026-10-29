@@ -1190,6 +1190,7 @@ dependencies = [
  "cheadergen",
  "enumflags2",
  "ffi",
+ "geo",
  "index_result",
  "pretty_assertions",
  "proptest",

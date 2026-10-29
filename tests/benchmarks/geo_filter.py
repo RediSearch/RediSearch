@@ -14,15 +14,15 @@ A regression exceeds both 20% and 5 ns/op, allowing timer noise for tiny operati
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
 
-def measure(command):
+def measure(command, env=None):
     """Retain all output while extracting the benchmark's machine-readable record."""
-    result = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    result = subprocess.run(command, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     print(result.stdout, end="", flush=True)
     result.check_returncode()
     records = [json.loads(line.removeprefix("GEO_BENCH "))
@@ -35,39 +35,25 @@ def measure(command):
 def main():
     stage, binary, baseline_path = sys.argv[1:]
     path = Path(baseline_path)
-    if stage not in ("baseline", "rust", "ffi"):
+    if stage != "swap":
         raise ValueError(f"Unknown stage: {stage}")
-    source_hash = hashlib.sha256(Path("src/geo_index.c").read_bytes()).hexdigest()
-    if stage != "baseline" or path.exists():
-        baseline = json.loads(path.read_text())
-        if baseline["source_sha256"] != source_hash:
-            raise RuntimeError("The saved baseline is for different C source")
-        if stage == "baseline":
-            print(f"Reusing unchanged C baseline: {baseline}")
-            return
-    current_c = measure([binary, "--gtest_filter=GeoIndex/GeoFilterTest.Benchmark/0"])
+    # The swap deletes the C source; its parent is the admitted FFI stage.
+    source = subprocess.check_output(["git", "show", "HEAD^:src/geo_index.c"])
+    baseline = json.loads(path.read_text())
+    if baseline["source_sha256"] != hashlib.sha256(source).hexdigest():
+        raise RuntimeError("The saved baseline is for different C source")
+    retained = path.with_suffix(".ffi-baseline")
+    # Earlier stages retain their drivers in Git; after the swap C lives only in these artifacts.
+    env = os.environ.copy()
+    env["DYLD_LIBRARY_PATH" if sys.platform == "darwin" else "LD_LIBRARY_PATH"] = str(retained.resolve())
+    current_c = measure([str(retained / "rstest"), "--gtest_filter=GeoIndex/GeoFilterTest.Benchmark/0"], env)
     if current_c["implementation"] != "c":
         raise RuntimeError("The baseline executable must execute C")
-    if stage == "baseline":
-        current_c["source_sha256"] = source_hash
-        with path.open("x") as output:
-            json.dump(current_c, output, indent=2)
-        return
-    if stage == "rust":
-        candidate = measure(["cargo", "bench", "--manifest-path", "src/redisearch_rs/Cargo.toml",
-                             "-p", "geo", "--bench", "filter"])
-    else:
-        candidate = measure([binary, "--gtest_filter=GeoIndex/GeoFilterTest.Benchmark/1"])
-        # Preserve both linked artifacts before the swap removes the C implementation.
-        retained = path.with_suffix(".ffi-baseline")
-        retained.mkdir(exist_ok=True)
-        shutil.copy2(binary, retained / "rstest")
-        shutil.copy2(Path(binary).parents[2] / "redisearch.so", retained / "redisearch.so")
+    candidate = measure([binary, "--gtest_filter=GeoIndex.Benchmark"])
     if candidate["implementation"] != "rust":
         raise RuntimeError("The candidate must execute Rust")
     failures = []
-    cases = ("parse", "validate", "radius") if stage == "rust" else ("parse", "validate", "radius", "lifecycle")
-    for case in cases:
+    for case in ("parse", "validate", "radius", "lifecycle"):
         old, new = baseline[case], candidate[case]
         if not (math.isfinite(old) and math.isfinite(new) and old > 0 and new > 0):
             raise RuntimeError(f"Invalid timing for {case}: {old}, {new}")

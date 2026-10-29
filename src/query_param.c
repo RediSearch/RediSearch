@@ -13,7 +13,7 @@
 #include <string.h>
 
 #include "query_error_ffi.h"
-#include "geo_index.h"
+#include "geo_ffi.h"
 #include "numeric_filter.h"
 #include "query_internal.h"
 #include "query_error.h"

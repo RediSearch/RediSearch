@@ -43,7 +43,7 @@ pub const GEO_LONG_MIN: f64 = geo::hash::GEO_LONG_MIN;
 pub const GEO_LONG_MAX: f64 = geo::hash::GEO_LONG_MAX;
 
 /// Encode longitude and latitude into a 52-bit-aligned geohash score,
-/// or return `INVALID_GEOHASH` (`-1.0`) on invalid coordinates.
+/// or return [`INVALID_GEOHASH`] on invalid coordinates.
 ///
 /// Valid geohash scores are non-negative, so any negative return value
 /// signals an error.
@@ -60,7 +60,9 @@ pub extern "C" fn encodeGeo(lon: f64, lat: f64) -> f64 {
     geo::hash::align_52bits(hash) as f64
 }
 
-const INVALID_GEOHASH: f64 = -1.0;
+/// Sentinel returned by [`encodeGeo`] for invalid coordinates.
+#[cheadergen::config(export)]
+pub const INVALID_GEOHASH: f64 = -1.0;
 
 /// Decode a geohash `f64` back into a `[longitude, latitude]` pair.
 ///
@@ -104,43 +106,6 @@ pub extern "C" fn geohashGetDistance(lon1: f64, lat1: f64, lon2: f64, lat2: f64)
         return f64::NAN;
     };
     geo::hash::haversine_distance(lon1, lat1, lon2, lat2)
-}
-
-/// Return `true` if the distance between two lon/lat points is within `radius`
-/// meters.
-///
-/// If `distance` is non-null, the actual distance (in meters) is written to it.
-///
-/// # Panics
-///
-/// If any coordinate is non-finite (NaN or infinity). This cannot happen in
-/// practice: `lon1`/`lat1` come from `GeoFilter` which is range-checked by
-/// `GeoFilter_Validate`, and `lon2`/`lat2` come from `decodeGeo` which
-/// produces finite values by construction (integer bit-arithmetic scaled to
-/// WGS-84 bounds).
-///
-/// # Safety
-///
-/// - `distance` must be either null or a valid pointer to a writable `f64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn isWithinRadiusLonLat(
-    lon1: f64,
-    lat1: f64,
-    lon2: f64,
-    lat2: f64,
-    radius: f64,
-    distance: *mut f64,
-) -> bool {
-    let lon1 = R64::assert(lon1);
-    let lat1 = R64::assert(lat1);
-    let lon2 = R64::assert(lon2);
-    let lat2 = R64::assert(lat2);
-    let dist = geo::hash::haversine_distance(lon1, lat1, lon2, lat2);
-    // SAFETY: caller guarantees `distance` is valid when non-null.
-    if let Some(d) = unsafe { distance.as_mut() } {
-        *d = dist;
-    }
-    dist <= radius
 }
 
 /// Set a [`QueryError`] with a [`ParseGeoError`] message.

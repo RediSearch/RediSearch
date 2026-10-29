@@ -19,7 +19,7 @@
 #include "debug_commands.h" // IWYU pragma: keep
 #endif
 
-#include "geo_index.h"
+#include "geo_ffi.h"
 #include "query.h"
 #include "config.h"
 #include "query_error_ffi.h"

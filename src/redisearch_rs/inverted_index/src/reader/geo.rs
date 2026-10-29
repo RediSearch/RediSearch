@@ -13,18 +13,9 @@ use super::{
 };
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{GeoFilter, IndexFlags};
+use geo::{DistanceUnit, RadiusFilter};
 use index_result::RSIndexResult;
 use rqe_core::DocId;
-
-// Manually define some C functions, because we'll create a circular dependency if we use the FFI
-// crate to make them automatically.
-unsafe extern "C" {
-    /// Checks if a value (distance) is within the given geo filter.
-    ///
-    /// # Safety
-    /// The [`GeoFilter`] should not be null and a valid instance
-    unsafe fn isWithinRadius(gf: *const GeoFilter, d: f64, distance: *mut f64) -> bool;
-}
 
 /// A reader that filters out records that do not match a given geo filter. It is used to
 /// filter records in an index based on their geo location, allowing only those that match the
@@ -104,6 +95,16 @@ impl<'index, IR: NumericReader<'index>> FilterGeoReader<IR> {
             inner,
         }
     }
+
+    fn radius_filter(&self) -> RadiusFilter {
+        RadiusFilter {
+            lon: self.geo_filter.lon,
+            lat: self.geo_filter.lat,
+            radius: self.geo_filter.radius,
+            unit: DistanceUnit::from_code(self.geo_filter.unitType)
+                .unwrap_or(DistanceUnit::Invalid),
+        }
+    }
 }
 
 /// `FilterGeoReader<IR>` suspends to `FilterGeoReader<IR::Suspended>` —
@@ -160,8 +161,8 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
             // SAFETY: the caller must ensure the result is numeric
             let value = unsafe { result.as_numeric_unchecked_mut() };
 
-            // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-            let in_radius = unsafe { isWithinRadius(&*self.geo_filter, *value, value) };
+            let (in_radius, distance) = self.radius_filter().within_radius(*value);
+            *value = distance;
 
             if in_radius {
                 return Ok(true);
@@ -189,8 +190,8 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
         // SAFETY: the caller must ensure the result is numeric
         let value = unsafe { result.as_numeric_unchecked_mut() };
 
-        // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-        let in_radius = unsafe { isWithinRadius(&*self.geo_filter, *value, value) };
+        let (in_radius, distance) = self.radius_filter().within_radius(*value);
+        *value = distance;
 
         if in_radius {
             Ok(true)
