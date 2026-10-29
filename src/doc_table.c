@@ -123,14 +123,15 @@ bool DocTable_Exists(const DocTable *t, t_docId docId) {
   return false;
 }
 
-bool DocTable_StartKeyMap(DocTable *t) {
-  if (SearchDisk_IsEnabled() || t->keyMapState != DocKeyMap_Inactive) return false;
+DocKeyMapActivation DocTable_StartKeyMap(DocTable *t) {
+  if (t->keyMapState != DocKeyMap_Inactive) return DocKeyMapActivation_Unchanged;
   t->keyMap = DocKeyMap_New();
   t->keyMapState = DocTable_IsEmpty(t) ? DocKeyMap_Ready : DocKeyMap_Building;
-  return true;
+  return t->keyMapState == DocKeyMap_Ready ? DocKeyMapActivation_Ready
+                                           : DocKeyMapActivation_NeedsBackfill;
 }
 
-void DocTable_KeyMapIteratorCleanup(DocTableKeyMapIterator *iter) {
+void DocTable_KeyMapIteratorReleaseNext(DocTableKeyMapIterator *iter) {
   DMD_Return(iter->next);
   iter->next = NULL;
 }
@@ -143,7 +144,7 @@ bool DocTable_BuildKeyMapBatch(DocTable *t, DocTableKeyMapIterator *iter, size_t
     iter->endBucket = t->cap;
     iter->initialized = true;
     // Reserve on the background thread, before backfill can cause large rehashes.
-    DocKeyMap_Reserve(t->keyMap, t->size - 1);
+    DocKeyMap_EnsureCapacity(t->keyMap, t->size - 1);
   }
 
   RSDocumentMetadata *dmd = iter->next;
@@ -152,15 +153,19 @@ bool DocTable_BuildKeyMapBatch(DocTable *t, DocTableKeyMapIterator *iter, size_t
   if (!dmd || (dmd->flags & Document_Deleted)) {
     dmd = t->buckets[iter->bucket].root;
   }
-  DocTable_KeyMapIteratorCleanup(iter);
+  DocTable_KeyMapIteratorReleaseNext(iter);
   // The spec lock pins the chain throughout the batch; only the yield needs a borrow.
-  while (iter->bucket < iter->endBucket && budget--) {
+  while (iter->bucket < iter->endBucket && budget > 0) {
+    --budget;
     if (dmd) {
       DocKeyMap_InsertIfAbsent(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
       dmd = dmd->nextInChain;
     }
-    if (!dmd && ++iter->bucket < iter->endBucket) {
-      dmd = t->buckets[iter->bucket].root;
+    if (!dmd) {
+      ++iter->bucket;
+      if (iter->bucket < iter->endBucket) {
+        dmd = t->buckets[iter->bucket].root;
+      }
     }
   }
   if (iter->bucket == iter->endBucket) {

@@ -102,8 +102,14 @@ typedef struct {
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size);
 
-/* Caller holds the spec write lock. Returns false if already activated or disk mode. */
-bool DocTable_StartKeyMap(DocTable *t);
+typedef enum {
+  DocKeyMapActivation_Unchanged,
+  DocKeyMapActivation_Ready,
+  DocKeyMapActivation_NeedsBackfill,
+} DocKeyMapActivation;
+
+/* Caller holds the spec write lock and has checked storage-mode eligibility. */
+DocKeyMapActivation DocTable_StartKeyMap(DocTable *t);
 // Task-owned and zero-initialized. Only next is retained across batch boundaries.
 typedef struct {
   RSDocumentMetadata *next;
@@ -117,7 +123,7 @@ typedef struct {
 bool DocTable_BuildKeyMapBatch(DocTable *t, DocTableKeyMapIterator *iter, size_t budget);
 
 /* Release a parked DMD on completion or cancellation, including after the table is freed. */
-void DocTable_KeyMapIteratorCleanup(DocTableKeyMapIterator *iter);
+void DocTable_KeyMapIteratorReleaseNext(DocTableKeyMapIterator *iter);
 
 /* Caller holds the spec read or write lock and keyMap is ready. */
 t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len);

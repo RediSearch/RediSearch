@@ -119,7 +119,7 @@ static void KeyMapBuild_Run(void *arg) {
     int rc = redisearch_thpool_add_work(reindexPool, KeyMapBuild_Run, build, THPOOL_PRIORITY_LOW);
     RS_ASSERT_ALWAYS(rc == 0);
   } else {
-    DocTable_KeyMapIteratorCleanup(&build->iterator);
+    DocTable_KeyMapIteratorReleaseNext(&build->iterator);
     WeakRef_Release(build->spec);
     rm_free(build);
   }
@@ -129,10 +129,9 @@ void IndexSpec_ActivateKeyMap(IndexSpec *spec) {
   // Only GIL-owning callers publish this pointer; the builder never replaces it.
   if (SearchDisk_IsEnabled() || spec->docs.keyMap) return;
   IndexSpec_LockWrite(spec);
-  bool started = DocTable_StartKeyMap(&spec->docs);
-  bool ready = spec->docs.keyMapState == DocKeyMap_Ready;
+  DocKeyMapActivation activation = DocTable_StartKeyMap(&spec->docs);
   IndexSpec_Unlock(spec);
-  if (!started || ready) return;
+  if (activation != DocKeyMapActivation_NeedsBackfill) return;
   verifyReindexPoolInit();
   KeyMapBuild *build = rm_calloc(1, sizeof(*build));
   build->spec = StrongRef_Demote(IndexSpec_GetStrongRefUnsafe(spec));

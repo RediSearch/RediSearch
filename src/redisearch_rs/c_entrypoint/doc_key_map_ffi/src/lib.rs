@@ -41,12 +41,14 @@ impl DocKeyMap {
         self.hasher.hash_one(key)
     }
 
-    /// Reserve room for at least `capacity` entries, preserving existing candidates.
+    /// Reserve room for at least `total_capacity` entries, preserving existing candidates.
     ///
     /// Backfill knows its live-document count and can avoid repeated full-table rehashes.
-    pub fn reserve(&mut self, capacity: usize) {
+    pub fn ensure_capacity(&mut self, total_capacity: usize) {
         self.entries
-            .reserve(capacity.saturating_sub(self.entries.len()), |e| e.hash);
+            .reserve(total_capacity.saturating_sub(self.entries.len()), |e| {
+                e.hash
+            });
     }
 
     /// Insert an ID once. The caller must remove it before changing its key.
@@ -110,17 +112,17 @@ pub extern "C" fn DocKeyMap_New() -> *mut DocKeyMap {
     Box::into_raw(Box::new(DocKeyMap::default()))
 }
 
-/// Reserve room for at least `capacity` entries without changing membership.
+/// Reserve room for at least `total_capacity` entries without changing membership.
 ///
 /// # Safety
 /// `map` must be [valid] for exclusive access and allocated by [`DocKeyMap_New`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn DocKeyMap_Reserve(map: *mut DocKeyMap, capacity: usize) {
+pub unsafe extern "C" fn DocKeyMap_EnsureCapacity(map: *mut DocKeyMap, total_capacity: usize) {
     debug_assert!(!map.is_null());
     // SAFETY: The caller provides exclusive access to a live map.
-    unsafe { &mut *map }.reserve(capacity);
+    unsafe { &mut *map }.ensure_capacity(total_capacity);
 }
 
 /// Populate a backfilled ID without duplicating a candidate maintained by a writer.
@@ -298,10 +300,10 @@ mod tests {
         let mut map = DocKeyMap::default();
         map.insert_hashed(42, 1);
         map.insert_hashed(42, 2);
-        map.reserve(64);
+        map.ensure_capacity(64);
         let reserved = map.memory_usage();
         // A smaller request must neither shrink nor underflow the additional capacity.
-        map.reserve(0);
+        map.ensure_capacity(0);
         for id in 3..=64 {
             map.insert_hashed(id, id);
         }

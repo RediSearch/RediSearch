@@ -232,7 +232,10 @@ mod ids_doctable {
         // SAFETY: this test has exclusive access to its document table.
         unsafe {
             let table = (*qctx.as_ptr()).docTable;
-            assert!(ffi::DocTable_StartKeyMap(table));
+            assert_eq!(
+                ffi::DocTable_StartKeyMap(table),
+                ffi::DocKeyMapActivation_DocKeyMapActivation_NeedsBackfill
+            );
             let mut iter = std::mem::zeroed();
             assert!(ffi::DocTable_BuildKeyMapBatch(table, &mut iter, usize::MAX));
         }
