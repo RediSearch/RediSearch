@@ -322,27 +322,22 @@ fn ii_scan_gc() {
         GcScanDelta {
             last_block_idx: 3,
             last_block_num_entries: 1,
-            deltas: vec![
-                BlockGcScanResult {
-                    index: 0,
-                    repair: RepairType::Delete {
-                        n_unique_docs_removed: 2
-                    },
+            // The three blocks before the last keep 0, 2 and 1 entries, which fit one
+            // block (see `Dummy`), so they are compacted into it.
+            deltas: vec![BlockGcScanResult {
+                span: 3,
+                index: 0,
+                repair: RepairType::Replace {
+                    blocks: smallvec![IndexBlock {
+                        buffer: encode_ids!(Dummy, 21, 22, 30),
+                        num_entries: 3,
+                        first_doc_id: 21,
+                        last_doc_id: 30,
+                        expiration_bits: Default::default(),
+                    }],
+                    n_unique_docs_removed: 3
                 },
-                BlockGcScanResult {
-                    index: 1,
-                    repair: RepairType::Replace {
-                        blocks: smallvec![IndexBlock {
-                            buffer: encode_ids!(Dummy, 21, 22),
-                            num_entries: 2,
-                            first_doc_id: 21,
-                            last_doc_id: 22,
-                            expiration_bits: Default::default(),
-                        }],
-                        n_unique_docs_removed: 1
-                    },
-                },
-            ]
+            }]
         }
     );
 }
@@ -432,12 +427,14 @@ fn ii_apply_gc() {
 
     let gc_result = vec![
         BlockGcScanResult {
+            span: 1,
             index: 0,
             repair: RepairType::Delete {
                 n_unique_docs_removed: 2,
             },
         },
         BlockGcScanResult {
+            span: 1,
             index: 1,
             repair: RepairType::Replace {
                 blocks: smallvec![IndexBlock {
@@ -451,6 +448,7 @@ fn ii_apply_gc() {
             },
         },
         BlockGcScanResult {
+            span: 1,
             index: 3,
             repair: RepairType::Replace {
                 blocks: smallvec![
@@ -579,12 +577,14 @@ fn ii_apply_gc_last_block_updated() {
 
     let gc_result = vec![
         BlockGcScanResult {
+            span: 1,
             index: 0,
             repair: RepairType::Delete {
                 n_unique_docs_removed: 2,
             },
         },
         BlockGcScanResult {
+            span: 1,
             index: 1,
             repair: RepairType::Replace {
                 blocks: smallvec![IndexBlock {
@@ -676,6 +676,7 @@ fn ii_apply_gc_last_block_updated_no_delta() {
 
     // Delta only for block 0 — block 1 had no deleted entries during scan.
     let gc_result = vec![BlockGcScanResult {
+        span: 1,
         index: 0,
         repair: RepairType::Delete {
             n_unique_docs_removed: 2,
@@ -782,6 +783,7 @@ fn ii_apply_gc_entries_tracking_index() {
         last_block_idx: 0,
         last_block_num_entries: 4,
         deltas: vec![BlockGcScanResult {
+            span: 1,
             index: 0,
             repair: RepairType::Replace {
                 blocks: smallvec![IndexBlock {
@@ -931,11 +933,11 @@ fn block(ids: &[DocId]) -> IndexBlock {
     }
 }
 
-/// Blocks 10..=11, 20..=22 and 30..=31.
+/// Blocks 10..=12, 20..=22 and 30..=31: two full blocks (see `Dummy`) and a last one.
 fn three_blocks() -> InvertedIndex<Dummy> {
     InvertedIndex::<Dummy>::from_blocks(
         IndexFlags_Index_DocIdsOnly,
-        medium_thin_vec![block(&[10, 11]), block(&[20, 21, 22]), block(&[30, 31])],
+        medium_thin_vec![block(&[10, 11, 12]), block(&[20, 21, 22]), block(&[30, 31])],
     )
 }
 
@@ -956,6 +958,7 @@ fn a_range_aware_liveness_skips_the_blocks_it_rules_clean() {
     assert_eq!(
         delta.deltas,
         vec![BlockGcScanResult {
+            span: 1,
             index: 1,
             repair: RepairType::Replace {
                 blocks: smallvec![block(&[20, 22])],
@@ -971,7 +974,7 @@ fn a_range_aware_liveness_skips_the_blocks_it_rules_clean() {
         Some(|res: &RSIndexResult, _: &crate::RepairContext<'_>| seen.push(res.doc_id)),
     )
     .unwrap();
-    assert_eq!(seen, vec![10, 11, 20, 22, 30, 31]);
+    assert_eq!(seen, vec![10, 11, 12, 20, 22, 30, 31]);
 }
 
 /// Looking for a dead entry before re-encoding a block changes nothing about the
@@ -1053,6 +1056,7 @@ fn a_dataless_block_is_never_repaired() {
     assert_eq!(
         delta.deltas,
         vec![BlockGcScanResult {
+            span: 1,
             index: 1,
             repair: RepairType::Delete {
                 n_unique_docs_removed: 3
@@ -1071,12 +1075,14 @@ fn apply_gc_with_rescans_a_grown_last_block() {
         last_block_num_entries: 2,
         deltas: vec![
             BlockGcScanResult {
+                span: 1,
                 index: 0,
                 repair: RepairType::Delete {
                     n_unique_docs_removed: 2,
                 },
             },
             BlockGcScanResult {
+                span: 1,
                 index: 1,
                 repair: RepairType::Replace {
                     blocks: smallvec![block(&[20])],
@@ -1135,6 +1141,7 @@ fn apply_gc_with_denies_a_grown_last_block_it_cannot_decode() {
         last_block_idx: 1,
         last_block_num_entries: 2,
         deltas: vec![BlockGcScanResult {
+            span: 1,
             index: 0,
             repair: RepairType::Delete {
                 n_unique_docs_removed: 2,
@@ -1200,6 +1207,7 @@ fn apply_gc_with_deletes_a_grown_last_block_that_is_all_gone() {
         last_block_idx: 0,
         last_block_num_entries: 2,
         deltas: vec![BlockGcScanResult {
+            span: 1,
             index: 0,
             repair: RepairType::Delete {
                 n_unique_docs_removed: 2,
@@ -1230,6 +1238,7 @@ fn apply_gc_with_leaves_blocks_appended_after_the_scanned_last_block_alone() {
         last_block_idx: 1,
         last_block_num_entries: 2,
         deltas: vec![BlockGcScanResult {
+            span: 1,
             index: 0,
             repair: RepairType::Delete {
                 n_unique_docs_removed: 2,
@@ -1242,4 +1251,78 @@ fn apply_gc_with_leaves_blocks_appended_after_the_scanned_last_block_alone() {
     assert_eq!(ii.blocks.to_vec(), vec![block(&[20, 22]), block(&[30, 31])]);
     assert_eq!(info.entries_removed, 3);
     assert!(!info.ignored_last_block);
+}
+
+/// Consecutive under-filled blocks before the last whose entries fit one block are
+/// re-encoded into one, even when nothing is gone: the snapshot copies them, the scan
+/// spans them in one delta, and the apply drops the originals.
+#[test]
+fn under_filled_runs_are_compacted_into_one_block() {
+    let mut ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![block(&[1]), block(&[2]), block(&[5]), block(&[20])],
+    );
+    assert!(ii.has_compactable_run());
+
+    let snapshot = ii
+        .gc_snapshot(&Gone(vec![]), GcSnapshotScope::DirtyBlocks)
+        .unwrap();
+    assert!(snapshot.blocks[..3].iter().all(|b| !b.buffer.is_empty()));
+    assert!(
+        snapshot.blocks[3].buffer.is_empty(),
+        "the last block is not copied"
+    );
+
+    let delta = snapshot
+        .scan_gc(Gone(vec![]), None::<NoRepair>)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        delta.deltas,
+        vec![BlockGcScanResult {
+            span: 3,
+            index: 0,
+            repair: RepairType::Replace {
+                blocks: smallvec![block(&[1, 2, 5])],
+                n_unique_docs_removed: 0,
+            },
+        }]
+    );
+
+    let unique_docs = ii.unique_docs();
+    let info = ii.apply_gc(delta);
+    assert_eq!(ii.blocks.to_vec(), vec![block(&[1, 2, 5]), block(&[20])]);
+    assert_eq!(info.entries_removed, 0);
+    assert_eq!(info.block_count_delta, -2);
+    assert_eq!(ii.unique_docs(), unique_docs);
+    assert!(!ii.has_compactable_run());
+}
+
+/// A run whose merged entries would not fit fewer blocks (here the codec's delta
+/// cannot span the gap) is left to per-block repair, so a clean one yields no delta.
+#[test]
+fn a_run_that_would_not_shrink_is_not_compacted() {
+    let far = 1 << 33;
+    let ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![block(&[1]), block(&[far]), block(&[far + 1])],
+    );
+    assert!(ii.has_compactable_run());
+    assert_eq!(ii.scan_gc(Gone(vec![]), None::<NoRepair>).unwrap(), None);
+}
+
+/// The last block is the one writers append to and the one the apply checks for
+/// staleness by position, so it never joins a run.
+#[test]
+fn the_last_block_never_joins_a_run() {
+    let ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![block(&[1]), block(&[2])],
+    );
+    assert!(!ii.has_compactable_run());
+    assert_eq!(ii.scan_gc(Gone(vec![]), None::<NoRepair>).unwrap(), None);
+    assert!(
+        ii.gc_snapshot(&Gone(vec![]), GcSnapshotScope::DirtyBlocks)
+            .is_none()
+    );
 }
