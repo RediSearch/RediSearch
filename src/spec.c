@@ -1488,6 +1488,7 @@ static IndexSpecCache *IndexSpec_BuildSpecCache(const IndexSpec *spec);
  */
 static bool validateDiskJsonPath(const IndexSpec *sp, const FieldSpec *fs, QueryError *status) {
   RS_ASSERT(fs->types);
+  RS_ASSERT(isSpecOnDiskForValidation(sp));
   if (!isSpecJson(sp)) {
     return true;
   }
