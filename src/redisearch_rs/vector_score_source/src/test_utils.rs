@@ -28,7 +28,7 @@ use ffi::{
     VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQuantType_VecSimQuant_NONE,
     VecSimQueryParams, VecSimType_VecSimType_FLOAT32, t_docId,
 };
-use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator};
+use rqe_iterators::{ExpirationChecker, IdList, NoOpChecker, RQEIterator, TypeErasedRQEIterator};
 use top_k::Ascending;
 
 use crate::VectorScoreSource;
@@ -295,8 +295,8 @@ fn flat_params(dim: usize, metric: VecSimMetric, n: usize) -> VecSimParams {
 }
 
 /// A filter child yielding `ids`, backed by a sorted [`IdList`].
-pub fn make_child<'index>(ids: Vec<t_docId>) -> Box<dyn RQEIterator<'index> + 'index> {
-    Box::new(IdList::<true>::new(ids))
+pub fn make_child<'index>(ids: Vec<t_docId>) -> TypeErasedRQEIterator<'index> {
+    TypeErasedRQEIterator::new(Box::new(IdList::<true>::new(ids)))
 }
 
 /// Drain an iterator into the doc ids it yields, in read order.

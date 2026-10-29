@@ -25,7 +25,7 @@ macro_rules! union_common_tests {
             create_mock_3, create_union_children, drain_doc_ids,
         };
         use rqe_iterators::{
-            IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome,
+            IteratorType, RQEIterator, RQEIteratorError, SkipToOutcome, TypeErasedRQEIterator,
         };
         use rqe_iterators_test_utils::ContractChecker;
         use crate::utils::FieldMaskMock;
@@ -42,7 +42,7 @@ macro_rules! union_common_tests {
         #[test]
         #[cfg_attr(miri, ignore = "65536 children is too slow under miri")]
         fn child_count_is_not_capped_at_16_bits() {
-            let children: Vec<Box<dyn RQEIterator<'static>>> = (0..CHILD_COUNT_ABOVE_16_BIT)
+            let children: Vec<TypeErasedRQEIterator<'static>> = (0..CHILD_COUNT_ABOVE_16_BIT)
                 .map(|_| MockVec::new_boxed(vec![1]))
                 .collect();
 
@@ -212,9 +212,9 @@ macro_rules! union_common_tests {
             let mut union_iter = ContractChecker::new(Union::new(children));
 
             // Record the pointer (address) of each child before any reads.
-            let ptrs_before: Vec<*const dyn RQEIterator<'static>> = (0..3)
+            let ptrs_before: Vec<*const TypeErasedRQEIterator<'static>> = (0..3)
                 .map(|i| {
-                    union_iter.inner().child_at(i).unwrap() as *const dyn RQEIterator<'static>
+                    union_iter.inner().child_at(i).unwrap() as *const TypeErasedRQEIterator<'static>
                 })
                 .collect();
 
@@ -225,7 +225,7 @@ macro_rules! union_common_tests {
             union_iter.rewind();
             for i in 0..3 {
                 let ptr_after = union_iter.inner().child_at(i).unwrap()
-                    as *const dyn RQEIterator<'static>;
+                    as *const TypeErasedRQEIterator<'static>;
                 assert!(
                     std::ptr::addr_eq(ptrs_before[i], ptr_after),
                     "child_at({i}) should return the same child after rewind"
@@ -239,7 +239,7 @@ macro_rules! union_common_tests {
 
         #[test]
         fn edge_case_no_children() {
-            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![];
+            let children: Vec<TypeErasedRQEIterator<'static>> = vec![];
             let mut union_iter = ContractChecker::new(Union::new(children));
 
             assert!(matches!(union_iter.read(), Ok(None)));
@@ -395,8 +395,8 @@ macro_rules! union_common_tests {
             let child1: Mock<'static, 3> = Mock::new([10, 20, 30]);
             let child2: Mock<'static, 3> = Mock::new([15, 25, 35]);
 
-            let children: Vec<Box<dyn RQEIterator<'static>>> =
-                vec![Box::new(empty_child), Box::new(child1), Box::new(child2)];
+            let children: Vec<TypeErasedRQEIterator<'static>> =
+                vec![TypeErasedRQEIterator::new(Box::new(empty_child)), TypeErasedRQEIterator::new(Box::new(child1)), TypeErasedRQEIterator::new(Box::new(child2))];
             let mut union_iter = ContractChecker::new(Union::new(children));
 
             let expected = vec![10, 15, 20, 25, 30, 35];
@@ -415,8 +415,8 @@ macro_rules! union_common_tests {
             let empty2: Mock<'static, 0> = Mock::new([]);
             let empty3: Mock<'static, 0> = Mock::new([]);
 
-            let children: Vec<Box<dyn RQEIterator<'static>>> =
-                vec![Box::new(empty1), Box::new(empty2), Box::new(empty3)];
+            let children: Vec<TypeErasedRQEIterator<'static>> =
+                vec![TypeErasedRQEIterator::new(Box::new(empty1)), TypeErasedRQEIterator::new(Box::new(empty2)), TypeErasedRQEIterator::new(Box::new(empty3))];
             let mut union_iter = ContractChecker::new(Union::new(children));
             assert!(matches!(union_iter.read(), Ok(None)));
             assert!(union_iter.at_eof());
@@ -466,12 +466,12 @@ macro_rules! union_common_tests {
             let child2: Mock<'static, 2> = Mock::new([15, 25]);
             let empty3: Mock<'static, 0> = Mock::new([]);
 
-            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
-                Box::new(empty1),
-                Box::new(child1),
-                Box::new(empty2),
-                Box::new(child2),
-                Box::new(empty3),
+            let children: Vec<TypeErasedRQEIterator<'static>> = vec![
+                TypeErasedRQEIterator::new(Box::new(empty1)),
+                TypeErasedRQEIterator::new(Box::new(child1)),
+                TypeErasedRQEIterator::new(Box::new(empty2)),
+                TypeErasedRQEIterator::new(Box::new(child2)),
+                TypeErasedRQEIterator::new(Box::new(empty3)),
             ];
             let mut quick_iter = $UnionQuick::new(children);
 
@@ -493,8 +493,8 @@ macro_rules! union_common_tests {
             let mut data1 = mock1.data();
             data1.set_force_read_none(true);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(mock1), Box::new(mock2)];
+            let children: Vec<TypeErasedRQEIterator<'static>> =
+                vec![TypeErasedRQEIterator::new(Box::new(mock1)), TypeErasedRQEIterator::new(Box::new(mock2))];
 
             let mut union_iter = ContractChecker::new(Union::new(children));
 
@@ -526,8 +526,8 @@ macro_rules! union_common_tests {
                 .data()
                 .set_revalidate_result(MockRevalidateResult::Ok);
 
-            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<TypeErasedRQEIterator<'static>> =
+                vec![TypeErasedRQEIterator::new(Box::new(child0)), TypeErasedRQEIterator::new(Box::new(child1))];
 
             let mut union_iter = ContractChecker::new(Union::new(children));
 
@@ -615,8 +615,8 @@ macro_rules! union_common_tests {
             let child0: Mock<'static, 1> = Mock::new([10]);
             let child1: Mock<'static, 3> = Mock::new([10, 20, 30]);
 
-            let children: Vec<Box<dyn RQEIterator<'static>>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<TypeErasedRQEIterator<'static>> =
+                vec![TypeErasedRQEIterator::new(Box::new(child0)), TypeErasedRQEIterator::new(Box::new(child1))];
 
             let mut union = ContractChecker::new($UnionFull::new(children));
 
@@ -643,8 +643,8 @@ macro_rules! union_common_tests {
             let child0: Mock<'static, 1> = Mock::new([10]);
             let child1: Mock<'static, 3> = Mock::new([10, 20, 30]);
 
-            let children: Vec<Box<dyn RQEIterator<'static>>> =
-                vec![Box::new(child0), Box::new(child1)];
+            let children: Vec<TypeErasedRQEIterator<'static>> =
+                vec![TypeErasedRQEIterator::new(Box::new(child0)), TypeErasedRQEIterator::new(Box::new(child1))];
 
             let mut union = ContractChecker::new($UnionQuick::new(children));
 
@@ -947,14 +947,14 @@ macro_rules! union_common_tests {
 
         #[test]
         fn type_full() {
-            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![MockVec::new_boxed(vec![1, 2, 3])];
+            let children: Vec<TypeErasedRQEIterator<'static>> = vec![MockVec::new_boxed(vec![1, 2, 3])];
             let it = $UnionFull::new(children);
             assert_eq!(it.type_(), IteratorType::Union);
         }
 
         #[test]
         fn type_quick() {
-            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![MockVec::new_boxed(vec![1, 2, 3])];
+            let children: Vec<TypeErasedRQEIterator<'static>> = vec![MockVec::new_boxed(vec![1, 2, 3])];
             let it = $UnionQuick::new(children);
             assert_eq!(it.type_(), IteratorType::Union);
         }
@@ -969,9 +969,9 @@ macro_rules! union_common_tests {
         /// be OR'd across reads, leaking bits from previous documents.
         #[test]
         fn full_mode_field_mask_resets_between_reads() {
-            let children: Vec<Box<dyn RQEIterator<'static>>> = vec![
-                Box::new(FieldMaskMock::new(vec![10, 20], 0x1)),
-                Box::new(FieldMaskMock::new(vec![10, 30], 0x2)),
+            let children: Vec<TypeErasedRQEIterator<'static>> = vec![
+                TypeErasedRQEIterator::new(Box::new(FieldMaskMock::new(vec![10, 20], 0x1))),
+                TypeErasedRQEIterator::new(Box::new(FieldMaskMock::new(vec![10, 30], 0x2))),
             ];
             let mut union = ContractChecker::new($UnionFull::new(children));
 
@@ -1002,7 +1002,7 @@ macro_rules! union_common_tests {
         /// `timeout_idx` to return a timeout error at EOF.
         fn make_timeout_children(
             timeout_idx: usize,
-        ) -> Vec<Box<dyn RQEIterator<'static>>> {
+        ) -> Vec<TypeErasedRQEIterator<'static>> {
             let mocks = [
                 Mock::new([10, 20, 30, 40, 50]),
                 Mock::new([10, 20, 30, 40, 50]),
@@ -1011,7 +1011,10 @@ macro_rules! union_common_tests {
             mocks[timeout_idx]
                 .data()
                 .set_error_at_done(Some(MockIteratorError::TimeoutError(None)));
-            mocks.into_iter().map(|m| Box::new(m) as _).collect()
+            mocks
+                .into_iter()
+                .map(|m| TypeErasedRQEIterator::new(Box::new(m)))
+                .collect()
         }
 
         /// Read until we get a non-Ok result and assert it is a timeout.

@@ -66,8 +66,8 @@ pub mod utils;
 pub mod wildcard;
 
 pub use boxed::{
-    RQEDynIterator, RQEDynSuspendedIterator, RQEIteratorBoxed, RQESuspendedIterator,
-    TypeErasedRQEIterator, TypeErasedRQESuspendedIterator,
+    RQEDynIterator, RQEDynSuspendedIterator, RQESuspendedIterator, TypeErasedRQEIterator,
+    TypeErasedRQESuspendedIterator,
 };
 pub use config::IteratorsConfig;
 pub use empty::Empty;
@@ -139,7 +139,43 @@ pub enum RQEIteratorError {
 }
 
 /// Trait providing the iterators API.
-pub trait RQEIterator<'index> {
+///
+/// Every iterator is also [`ProfilePrint`](profile_print::ProfilePrint), so a
+/// type-erased iterator can report its real `FT.PROFILE` output through the
+/// [`RQEDynIterator`] vtable rather than a generic placeholder.
+pub trait RQEIterator<'index>: profile_print::ProfilePrint + 'index {
+    /// The suspended counterpart of this iterator. Carries no live
+    /// references into the *index* (those are weakened to raw pointers on
+    /// suspend), but may still borrow query-pipeline data for `'index` — see
+    /// the `'query` parameter on [`RQESuspendedIterator`]. It can therefore be
+    /// held across a lock release/reacquire cycle: the index pointers are
+    /// re-validated on resume, while the query-pipeline borrows stay live.
+    type Suspended: RQESuspendedIterator<'index> + 'index;
+
+    /// Transition to the suspended state.
+    ///
+    /// # Precondition
+    ///
+    /// The spec read lock must still be held for the duration of the call — suspending is the
+    /// step that *earns* the right to release it, not something to do afterwards. Most
+    /// implementations only re-type Rust-owned state and would not notice, but
+    /// [`CRQEIterator`](c2rust::CRQEIterator) reads its estimate off the C iterator underneath,
+    /// which may deref index-owned memory. A generic caller such as
+    /// [`suspend_child_slot_in_place`](boxed::suspend_child_slot_in_place) cannot tell from the
+    /// type whether the subtree it is suspending holds such a child, so the obligation is on
+    /// every caller.
+    ///
+    /// # Implementation
+    ///
+    /// Implementations should perform a pure pointer cast of the box:
+    /// the active and suspended types are `#[repr(C)]` layout-compatible
+    /// over [`SharedPtr`](ref_mode::SharedPtr) (a `#[repr(transparent)]`
+    /// `NonNull`) fields, so the same heap allocation can be relabelled as
+    /// the suspended type without reallocation. Preserving the heap address
+    /// is what keeps composite aggregate-result pointers valid across the
+    /// cycle.
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
+
     /// Return the current [`RSIndexResult`] stored within this [`RQEIterator`].
     ///
     /// Calls to [`read`](Self::read) and [`skip_to`](Self::skip_to) also return
@@ -268,7 +304,16 @@ pub trait RQEIterator<'index> {
 /// [`RQEIterator`] impl for boxed iterators, including type-erased `dyn` variants.
 ///
 /// All methods delegate through the vtable to the concrete type's implementation.
-impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for Box<I> {
+impl<'index, I: RQEIterator<'index> + 'index> RQEIterator<'index> for Box<I> {
+    type Suspended = I::Suspended;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // The receiver `Box<Box<I>>` is unwrapped via `*self` to recover the
+        // inner `Box<I>` by value, then dispatched through the underlying
+        // iterator's `suspend` method.
+        <I as RQEIterator<'index>>::suspend(*self)
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (**self).current()
     }
@@ -312,15 +357,6 @@ impl<'index, I: RQEIterator<'index> + ?Sized + 'index> RQEIterator<'index> for B
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         (**self).intersection_sort_weight(prioritize_union_children)
     }
-}
-
-/// Combined trait for iterators that implement both [`RQEIterator`] and
-/// [`ProfilePrint`](profile_print::ProfilePrint).
-pub trait RQEIteratorPrintable<'index>: RQEIterator<'index> + profile_print::ProfilePrint {}
-
-impl<'index, T> RQEIteratorPrintable<'index> for T where
-    T: RQEIterator<'index> + profile_print::ProfilePrint
-{
 }
 
 /// Global holder for APIs to get iterators for SearchEnterprise. This allows `rqe_iterators`

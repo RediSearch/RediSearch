@@ -14,8 +14,8 @@ use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place},
     empty::Empty,
 };
@@ -28,7 +28,7 @@ use crate::{
 ///    `#[repr(C)]` over the `#[repr(C)]` [`MaybeEmptyOption`], so `MaybeEmpty<I>`
 ///    and `MaybeEmpty<I::Suspended>` are layout-identical given that the `Some`
 ///    payload `I` and its `I::Suspended` are. This is what lets
-///    [`suspend`](RQEIteratorBoxed::suspend) / [`resume`](RQESuspendedIterator::resume)
+///    [`suspend`](RQEIterator::suspend) / [`resume`](RQESuspendedIterator::resume)
 ///    reinterpret the owning `Box` in place. Proven by the `const _` block below.
 #[repr(C)]
 pub struct MaybeEmpty<I>(MaybeEmptyOption<I>);
@@ -42,7 +42,7 @@ const _: () = {
     use crate::Wildcard;
     use std::mem::{align_of, size_of};
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     assert!(size_of::<MaybeEmpty<AChild>>() == size_of::<MaybeEmpty<SChild>>());
     assert!(align_of::<MaybeEmpty<AChild>>() == align_of::<MaybeEmpty<SChild>>());
 };
@@ -121,6 +121,31 @@ impl<'index, I> RQEIterator<'index> for MaybeEmpty<I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = MaybeEmpty<I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Walk the `Some(I)` arm if present — dispatches via the trait so
+        // dyn-erased `I` correctly transitions its vtable. The `None(Empty)`
+        // arm needs no suspend (Empty is a unit struct with no state).
+        //
+        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
+        // valid, so the inner enum slot is reachable.
+        let inner: &mut MaybeEmptyOption<I> = unsafe { &mut (*raw).0 };
+        if let MaybeEmptyOption::Some(it) = inner {
+            // SAFETY: `it` is a valid `&mut I` aliased to nothing else;
+            // the function leaves the slot in a valid `I::Suspended` state.
+            unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut I) };
+        }
+        // SAFETY: the `Some` child (if any) now holds `I::Suspended` and
+        // `None(Empty)` is `I`-free, so the allocation is a valid
+        // `MaybeEmpty<I::Suspended>` — layout-identical to the active form by
+        // invariant 1 on `MaybeEmpty` (const proof above), with the child slot's
+        // `I`/`I::Suspended` size/alignment match statically enforced by
+        // `suspend_child_slot_in_place`. `Box::from_raw` reuses the allocation.
+        unsafe { Box::from_raw(raw as *mut MaybeEmpty<I::Suspended>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         match &mut self.0 {
@@ -199,36 +224,6 @@ where
             }
             MaybeEmptyOption::Some(it) => it.intersection_sort_weight(prioritize_union_children),
         }
-    }
-}
-
-impl<'index, I> RQEIteratorBoxed<'index> for MaybeEmpty<I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = MaybeEmpty<I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Walk the `Some(I)` arm if present — dispatches via the trait so
-        // dyn-erased `I` correctly transitions its vtable. The `None(Empty)`
-        // arm needs no suspend (Empty is a unit struct with no state).
-        //
-        // SAFETY: `raw` came from `Box::into_raw`, exclusively owned and
-        // valid, so the inner enum slot is reachable.
-        let inner: &mut MaybeEmptyOption<I> = unsafe { &mut (*raw).0 };
-        if let MaybeEmptyOption::Some(it) = inner {
-            // SAFETY: `it` is a valid `&mut I` aliased to nothing else;
-            // the function leaves the slot in a valid `I::Suspended` state.
-            unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut I) };
-        }
-        // SAFETY: the `Some` child (if any) now holds `I::Suspended` and
-        // `None(Empty)` is `I`-free, so the allocation is a valid
-        // `MaybeEmpty<I::Suspended>` — layout-identical to the active form by
-        // invariant 1 on `MaybeEmpty` (const proof above), with the child slot's
-        // `I`/`I::Suspended` size/alignment match statically enforced by
-        // `suspend_child_slot_in_place`. `Box::from_raw` reuses the allocation.
-        unsafe { Box::from_raw(raw as *mut MaybeEmpty<I::Suspended>) }
     }
 }
 
@@ -347,6 +342,22 @@ where
         match &self.0 {
             MaybeEmptyOption::None(empty) => <Empty as RQESuspendedIterator>::num_estimated(empty),
             MaybeEmptyOption::Some(child) => <S as RQESuspendedIterator>::num_estimated(child),
+        }
+    }
+}
+
+// `MaybeEmpty` is a transparent child holder; delegate to the wrapped iterator's
+// own profile output (composites enumerate children through this), or print an
+// empty leaf when no child is present.
+impl<I: crate::profile_print::ProfilePrint> crate::profile_print::ProfilePrint for MaybeEmpty<I> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self.as_ref() {
+            Some(inner) => inner.print_profile(map, ctx),
+            None => ctx.print_leaf(c"EMPTY", map),
         }
     }
 }

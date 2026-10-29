@@ -20,9 +20,8 @@ use ffi::{
 };
 use rqe_core::DocId;
 use rqe_iterators::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
-    TypeErasedRQEIterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
-    intersection::Intersection,
+    RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome, TypeErasedRQEIterator,
+    c2rust::CRQEIterator, interop::RQEIteratorWrapper, intersection::Intersection,
 };
 use rqe_iterators_test_utils::{MockContext, ResumeOutcomeExt, revalidate_via_resume};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -92,7 +91,7 @@ fn resume_through_c_abi(
     let data = mock.data();
     mock.data().set_revalidate_result(outcome);
 
-    let suspended = RQEIteratorBoxed::suspend(Box::new(CRQEIterator::from_rust_leaf(mock)));
+    let suspended = RQEIterator::suspend(Box::new(CRQEIterator::from_rust_leaf(mock)));
     let report = RQESuspendedIterator::resume(suspended, &guard).map(|outcome| match outcome {
         ResumeOutcome::Ok(_) => ResumeReport::Ok,
         ResumeOutcome::Moved(mut it) => {
@@ -199,7 +198,7 @@ fn the_debug_switch_makes_a_resume_time_out_without_consulting_the_iterator() {
     let guard = ctx.spec_read();
     let mock = Mock::new([1, 2, 3]);
     let data = mock.data();
-    let suspended = RQEIteratorBoxed::suspend(Box::new(CRQEIterator::from_rust_leaf(mock)));
+    let suspended = RQEIterator::suspend(Box::new(CRQEIterator::from_rust_leaf(mock)));
 
     rqe_iterators::interop::set_mock_revalidate_timeout(true);
     let report = RQESuspendedIterator::resume(suspended, &guard);
@@ -240,7 +239,7 @@ fn a_resume_that_moves_past_the_end_reports_no_position() {
     // `atEOF` plus a NULL `current` rather than as a fresh result pointer.
     assert_eq!(drain_doc_ids(&mut *it), vec![1, 2, 3]);
 
-    let suspended = RQEIteratorBoxed::suspend(it);
+    let suspended = RQEIterator::suspend(it);
     let mut resumed = match RQESuspendedIterator::resume(suspended, &guard) {
         Ok(ResumeOutcome::Moved(it)) => it,
         other => panic!(
@@ -270,7 +269,7 @@ fn a_suspended_iterator_reports_the_position_it_was_suspended_at() {
         Some(1)
     );
 
-    let suspended = RQEIteratorBoxed::suspend(it);
+    let suspended = RQEIterator::suspend(it);
 
     assert_eq!(
         RQESuspendedIterator::last_doc_id(&*suspended),
@@ -290,7 +289,7 @@ fn suspend_and_resume_leave_the_iterator_where_c_cached_it() {
     let header = it.as_raw();
     let handle = std::ptr::from_ref(&*it);
 
-    let suspended = RQEIteratorBoxed::suspend(it);
+    let suspended = RQEIterator::suspend(it);
     assert_eq!(
         suspended.as_raw(),
         header,
@@ -333,7 +332,7 @@ fn a_suspended_iterator_serves_a_snapshot_rather_than_calling_into_c() {
     let it = Box::new(CRQEIterator::from_rust_leaf(mock));
     let estimate = RQEIterator::num_estimated(&*it);
 
-    let suspended = RQEIteratorBoxed::suspend(it);
+    let suspended = RQEIterator::suspend(it);
     // Standing in for the hazard this guards against: while suspended, the spec read lock is
     // released, so the C `NumEstimated` callbacks may be reading index memory that GC has freed
     // since - `RQEIteratorWrapper`'s forwards to the active Rust iterator underneath, and the

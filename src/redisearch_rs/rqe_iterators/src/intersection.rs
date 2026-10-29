@@ -14,8 +14,8 @@
 //! - `in_order`: Require terms to appear in order
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
     composite::{FreeSuspendedShell, repush_borrowed_entries},
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -46,7 +46,7 @@ use rqe_core::DocId;
 ///    `#[repr(C)]` over a `Vec` of children and a [`RawIndexResult`], so
 ///    `RawIntersection<Active, I>` and `RawIntersection<Suspended, I::Suspended>`
 ///    are layout-identical given that each child `I` and its `I::Suspended` are.
-///    This is what lets [`suspend`](RQEIteratorBoxed::suspend) /
+///    This is what lets [`suspend`](RQEIterator::suspend) /
 ///    [`resume`](RQESuspendedIterator::resume) reuse the intersection's
 ///    allocation and its children buffer across the cycle.
 #[repr(C)]
@@ -79,7 +79,7 @@ const _: () = {
     use crate::Wildcard;
     use std::mem::{align_of, offset_of, size_of};
     type AChild = Wildcard<'static>;
-    type SChild = <Wildcard<'static> as RQEIteratorBoxed<'static>>::Suspended;
+    type SChild = <Wildcard<'static> as RQEIterator<'static>>::Suspended;
     type A = RawIntersection<'static, Active<'static>, AChild>;
     type S = RawIntersection<'static, Suspended, SChild>;
     assert!(offset_of!(A, children) == offset_of!(S, children));
@@ -518,6 +518,36 @@ impl<'index, I> RQEIterator<'index> for Intersection<'index, I>
 where
     I: RQEIterator<'index>,
 {
+    type Suspended = RawIntersection<'index, Suspended, I::Suspended>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Each child goes through its own `suspend`, so a type-erased child
+        // swaps its vtable; the inner iterator's heap address is preserved
+        // either way. The buffer pointer and length are read up front so no
+        // `&mut Vec<I>` stays live while the slots are retyped.
+        let (base, len) = {
+            // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+            // initialised, exclusively owned); the borrow is used only to reach
+            // the buffer pointer and length.
+            let children: &mut Vec<I> = unsafe { &mut (*raw).children };
+            (children.as_mut_ptr(), children.len())
+        };
+        for i in 0..len {
+            // SAFETY: `i` is in bounds of the children buffer.
+            let slot = unsafe { base.add(i) };
+            // SAFETY: `slot` holds a valid, owned `I`; the helper leaves it in
+            // a valid `I::Suspended` state.
+            unsafe { suspend_child_slot_in_place(slot) };
+        }
+        // SAFETY: every slot now holds its suspended child at its original
+        // address, so the aggregate's entries still point at live results; the
+        // other fields are `Rf`-free. The two forms are layout-identical by
+        // invariant 1 on `RawIntersection`, and `Box::from_raw` reuses the
+        // allocation, so every interior address survives the cycle.
+        unsafe { Box::from_raw(raw as *mut RawIntersection<'index, Suspended, I::Suspended>) }
+    }
+
     #[inline]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         (!self.is_eof).then_some(&mut self.result)
@@ -635,41 +665,6 @@ where
 
     fn intersection_sort_weight(&self, _prioritize_union_children: bool) -> f64 {
         1.0 / self.children.len().max(1) as f64
-    }
-}
-
-impl<'index, I> RQEIteratorBoxed<'index> for Intersection<'index, I>
-where
-    I: RQEIteratorBoxed<'index>,
-{
-    type Suspended = RawIntersection<'index, Suspended, I::Suspended>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Each child goes through its own `suspend`, so a type-erased child
-        // swaps its vtable; the inner iterator's heap address is preserved
-        // either way. The buffer pointer and length are read up front so no
-        // `&mut Vec<I>` stays live while the slots are retyped.
-        let (base, len) = {
-            // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
-            // initialised, exclusively owned); the borrow is used only to reach
-            // the buffer pointer and length.
-            let children: &mut Vec<I> = unsafe { &mut (*raw).children };
-            (children.as_mut_ptr(), children.len())
-        };
-        for i in 0..len {
-            // SAFETY: `i` is in bounds of the children buffer.
-            let slot = unsafe { base.add(i) };
-            // SAFETY: `slot` holds a valid, owned `I`; the helper leaves it in
-            // a valid `I::Suspended` state.
-            unsafe { suspend_child_slot_in_place(slot) };
-        }
-        // SAFETY: every slot now holds its suspended child at its original
-        // address, so the aggregate's entries still point at live results; the
-        // other fields are `Rf`-free. The two forms are layout-identical by
-        // invariant 1 on `RawIntersection`, and `Box::from_raw` reuses the
-        // allocation, so every interior address survives the cycle.
-        unsafe { Box::from_raw(raw as *mut RawIntersection<'index, Suspended, I::Suspended>) }
     }
 }
 
@@ -947,9 +942,9 @@ impl<'index> crate::interop::ProfileChildren<'index>
     }
 }
 
-impl<'index, I> ProfilePrint for Intersection<'index, I>
+impl<'query, Rf: Ref, I> ProfilePrint for RawIntersection<'query, Rf, I>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"INTERSECT");

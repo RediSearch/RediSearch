@@ -190,7 +190,25 @@ impl Misbehaving<'_> {
     }
 }
 
+impl rqe_iterators::profile_print::ProfilePrint for Misbehaving<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"MISBEHAVING");
+    }
+}
+
 impl<'index> RQEIterator<'index> for Misbehaving<'index> {
+    // The checker is only driven through the read surface here, so the stub is
+    // never suspended; any `RQESuspendedIterator` satisfies the associated type.
+    type Suspended = rqe_iterators::Empty;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        unreachable!("this stub is never suspended")
+    }
+
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.past_end() {
             let stale = self.fault == Fault::StaleCurrentPastEnd

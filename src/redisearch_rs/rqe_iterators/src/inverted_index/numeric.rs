@@ -10,8 +10,8 @@
 use std::{f64, ptr::NonNull};
 
 use crate::{
-    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, ResumeOutcome, SkipToOutcome,
+    FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator,
+    ResumeOutcome, SkipToOutcome,
     c2rust::CRQEIterator,
     expiration_checker::{ExpirationChecker, NoOpChecker},
     profile_print::{ProfilePrint, ProfilePrintCtx, format_g},
@@ -177,30 +177,6 @@ where
     }
 }
 
-impl<'index, R, E> RQEIteratorBoxed<'index> for Numeric<'index, R, E>
-where
-    R: NumericReader<'index> + SuspendableReader + 'index,
-    R::Suspended: ResumableReader,
-    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: NumericReader<'a>,
-    E: ExpirationChecker + 'static,
-{
-    // Reader weakens `R -> R::Suspended`; the frozen `RA = R` slot keeps the
-    // inner iterator's dispatch pointers unchanged across the cast.
-    type Suspended = RawNumeric<'index, Suspended, R::Suspended, E, R>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // SAFETY: `RawNumeric` is `#[repr(C)]` over the inner
-        // `RawInvIndIterator`, layout-identical across modes by invariant 1 on
-        // [`RawInvIndIterator`]: `reader` weakens `R -> R::Suspended` while the
-        // frozen `RA = R` slot keeps the dispatch pointers unchanged. The
-        // remaining fields (`range_tree_info`, `range_min`, `range_max`) carry no
-        // `Rf`, so they survive the cast unchanged. `Box::from_raw` reuses the
-        // same heap allocation.
-        unsafe { Box::from_raw(raw as *mut RawNumeric<'index, Suspended, R::Suspended, E, R>) }
-    }
-}
-
 impl<'query, RS, E, RA> RQESuspendedIterator<'query> for RawNumeric<'query, Suspended, RS, E, RA>
 where
     RS: ResumableReader,
@@ -259,9 +235,27 @@ where
 
 impl<'index, R, E> RQEIterator<'index> for Numeric<'index, R, E>
 where
-    R: NumericReader<'index>,
-    E: ExpirationChecker,
+    R: NumericReader<'index> + SuspendableReader + 'index,
+    E: ExpirationChecker + 'static,
+    R::Suspended: ResumableReader,
+    for<'a> <R::Suspended as ResumableReader>::Resumed<'a>: NumericReader<'a>,
 {
+    // Reader weakens `R -> R::Suspended`; the frozen `RA = R` slot keeps the
+    // inner iterator's dispatch pointers unchanged across the cast.
+    type Suspended = RawNumeric<'index, Suspended, R::Suspended, E, R>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // SAFETY: `RawNumeric` is `#[repr(C)]` over the inner
+        // `RawInvIndIterator`, layout-identical across modes by invariant 1 on
+        // [`RawInvIndIterator`]: `reader` weakens `R -> R::Suspended` while the
+        // frozen `RA = R` slot keeps the dispatch pointers unchanged. The
+        // remaining fields (`range_tree_info`, `range_min`, `range_max`) carry no
+        // `Rf`, so they survive the cast unchanged. `Box::from_raw` reuses the
+        // same heap allocation.
+        unsafe { Box::from_raw(raw as *mut RawNumeric<'index, Suspended, R::Suspended, E, R>) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.it.current()
@@ -310,11 +304,7 @@ where
     }
 }
 
-impl<'index, R, E> ProfilePrint for Numeric<'index, R, E>
-where
-    R: NumericReader<'index>,
-    E: ExpirationChecker,
-{
+impl<'query, Rf: Ref, R, E, RA> ProfilePrint for RawNumeric<'query, Rf, R, E, RA> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"NUMERIC");
         let term_str = format!(
@@ -424,7 +414,7 @@ type GeoArm<'query, Rf> = RawNumeric<
 ///
 /// 1. **Layout compatibility across modes.** `NumericIteratorVariant<'query>`
 ///    and `NumericIteratorVariantSuspended<'query>` are layout-identical, so
-///    [`suspend`](RQEIteratorBoxed::suspend) /
+///    [`suspend`](RQEIterator::suspend) /
 ///    [`resume`](RQESuspendedIterator::resume) can transition each payload in
 ///    place and then reinterpret the owning `Box` between the two. Being a single
 ///    `#[repr(C, u8)]` generic, the two share a tag encoding and variant order by
@@ -445,7 +435,7 @@ pub enum RawNumericIteratorVariant<'query, Rf: Ref> {
 pub type NumericIteratorVariant<'index> = RawNumericIteratorVariant<'index, Active<'index>>;
 
 /// [`Suspended`]-mode counterpart of [`NumericIteratorVariant`], used as its
-/// [`RQEIteratorBoxed::Suspended`] type. Retains the `'query` lifetime so
+/// [`RQEIterator::Suspended`] type. Retains the `'query` lifetime so
 /// query-attached borrows stay valid across the suspend/resume cycle.
 pub type NumericIteratorVariantSuspended<'query> = RawNumericIteratorVariant<'query, Suspended>;
 
@@ -624,6 +614,41 @@ impl<'index> NumericIteratorVariant<'index> {
 }
 
 impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
+    type Suspended = NumericIteratorVariantSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Transition the payload in place, arm by arm. Both enums are the same
+        // `#[repr(C, u8)]` generic at different `Rf`, so they share a tag
+        // encoding and variant order; the helper writes exactly the arm's
+        // `Suspended` projection, which invariant 1's proof (a) pins to the
+        // matching suspended arm. Together those make the final whole-box cast
+        // sound. The tag byte itself is untouched.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, exclusively owned); the `&mut` borrow is confined to the
+        // match.
+        match unsafe { &mut *raw } {
+            NumericIteratorVariant::Unfiltered(it) => {
+                // SAFETY: `it` is the valid, exclusively-owned payload; the
+                // helper reinitialises the slot as its `Suspended` form in place.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+            NumericIteratorVariant::Filtered(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+            NumericIteratorVariant::Geo(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
+        }
+        // SAFETY: the payload now holds its `Suspended` form at the same offset,
+        // and the tag encodes the same variant in both enums. `Box::from_raw`
+        // reuses the same allocation, so the box address is preserved.
+        unsafe { Box::from_raw(raw.cast::<NumericIteratorVariantSuspended<'index>>()) }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         match self {
@@ -700,7 +725,7 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
     }
 }
 
-impl ProfilePrint for NumericIteratorVariant<'_> {
+impl<Rf: Ref> ProfilePrint for RawNumericIteratorVariant<'_, Rf> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         match self {
             Self::Unfiltered(it) => it.print_profile(map, ctx),
@@ -813,7 +838,7 @@ pub unsafe fn build_numeric_filter_iterator(
 // What remains to be proven:
 //
 // (a) **Arm correspondence.** `suspend` fills each payload slot with
-//     `<active arm as RQEIteratorBoxed>::Suspended` — see
+//     `<active arm as RQEIterator>::Suspended` — see
 //     [`crate::boxed::suspend_child_slot_in_place`] — and only then relabels the
 //     owning box. That is sound only if the suspended enum's matching arm *is*
 //     that projection. Asserted below as a type equality rather than a layout
@@ -848,7 +873,7 @@ const _: () = {
     /// (a) — fails to compile unless suspending `A` yields exactly `S`.
     const fn assert_suspends_to<A, S>()
     where
-        A: RQEIteratorBoxed<'static>,
+        A: RQEIterator<'static>,
         A::Suspended: IsSame<S>,
     {
     }
@@ -892,43 +917,6 @@ const _: () = {
             == align_of::<NumericIteratorVariantSuspended<'static>>()
     );
 };
-
-impl<'index> RQEIteratorBoxed<'index> for NumericIteratorVariant<'index> {
-    type Suspended = NumericIteratorVariantSuspended<'index>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Transition the payload in place, arm by arm. Both enums are the same
-        // `#[repr(C, u8)]` generic at different `Rf`, so they share a tag
-        // encoding and variant order; the helper writes exactly the arm's
-        // `Suspended` projection, which invariant 1's proof (a) pins to the
-        // matching suspended arm. Together those make the final whole-box cast
-        // sound. The tag byte itself is untouched.
-        //
-        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
-        // initialised, exclusively owned); the `&mut` borrow is confined to the
-        // match.
-        match unsafe { &mut *raw } {
-            NumericIteratorVariant::Unfiltered(it) => {
-                // SAFETY: `it` is the valid, exclusively-owned payload; the
-                // helper reinitialises the slot as its `Suspended` form in place.
-                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
-            }
-            NumericIteratorVariant::Filtered(it) => {
-                // SAFETY: as above.
-                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
-            }
-            NumericIteratorVariant::Geo(it) => {
-                // SAFETY: as above.
-                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
-            }
-        }
-        // SAFETY: the payload now holds its `Suspended` form at the same offset,
-        // and the tag encodes the same variant in both enums. `Box::from_raw`
-        // reuses the same allocation, so the box address is preserved.
-        unsafe { Box::from_raw(raw.cast::<NumericIteratorVariantSuspended<'index>>()) }
-    }
-}
 
 impl<'query> RQESuspendedIterator<'query> for NumericIteratorVariantSuspended<'query> {
     type Resumed<'a>

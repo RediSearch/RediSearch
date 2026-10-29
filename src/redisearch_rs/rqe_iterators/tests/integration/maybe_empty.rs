@@ -9,8 +9,8 @@
 
 use rqe_core::DocId;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator, maybe_empty::MaybeEmpty,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, TypeErasedRQEIterator, maybe_empty::MaybeEmpty,
 };
 use rqe_iterators_test_utils::ContractChecker;
 
@@ -45,31 +45,6 @@ const _: () = {
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
 };
-
-impl<'index> RQEIteratorBoxed<'index> for Infinite<'index> {
-    type Suspended = InfiniteSuspended<'index>;
-
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let raw = Box::into_raw(self);
-        // Transition the `result` field to its `Suspended` representation in
-        // place, reusing the allocation — rather than casting the whole struct's
-        // lifetime to `'static`. Reusing the allocation also keeps the box (and
-        // the result it hands out) at a stable address across the cycle.
-        //
-        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
-        // initialised, uniquely owned). `&raw mut` forms a field pointer to the
-        // `result` slot without creating a reference.
-        let result_slot = unsafe { &raw mut (*raw).0 };
-        // SAFETY: `result_slot` points at an initialised `RSIndexResult<'index>`
-        // and is unaliased; `into_suspended_in_place` is a safe widening
-        // conversion with no further precondition.
-        unsafe { <index_result::RSIndexResult<'index>>::into_suspended_in_place(result_slot) };
-        // SAFETY: `Infinite<'index>` and `InfiniteSuspended<'index>` are
-        // layout-identical (const proof above); the allocation is reused, so the
-        // box address is preserved and the field is now the suspended form.
-        unsafe { Box::from_raw(raw as *mut InfiniteSuspended<'index>) }
-    }
-}
 
 impl<'query> RQESuspendedIterator<'query> for InfiniteSuspended<'query> {
     type Resumed<'a>
@@ -116,6 +91,29 @@ impl<'query> RQESuspendedIterator<'query> for InfiniteSuspended<'query> {
 }
 
 impl<'index> RQEIterator<'index> for Infinite<'index> {
+    type Suspended = InfiniteSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let raw = Box::into_raw(self);
+        // Transition the `result` field to its `Suspended` representation in
+        // place, reusing the allocation — rather than casting the whole struct's
+        // lifetime to `'static`. Reusing the allocation also keeps the box (and
+        // the result it hands out) at a stable address across the cycle.
+        //
+        // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
+        // initialised, uniquely owned). `&raw mut` forms a field pointer to the
+        // `result` slot without creating a reference.
+        let result_slot = unsafe { &raw mut (*raw).0 };
+        // SAFETY: `result_slot` points at an initialised `RSIndexResult<'index>`
+        // and is unaliased; `into_suspended_in_place` is a safe widening
+        // conversion with no further precondition.
+        unsafe { <index_result::RSIndexResult<'index>>::into_suspended_in_place(result_slot) };
+        // SAFETY: `Infinite<'index>` and `InfiniteSuspended<'index>` are
+        // layout-identical (const proof above); the allocation is reused, so the
+        // box address is preserved and the field is now the suspended form.
+        unsafe { Box::from_raw(raw as *mut InfiniteSuspended<'index>) }
+    }
+
     fn current(&mut self) -> Option<&mut index_result::RSIndexResult<'index>> {
         Some(&mut self.0)
     }
@@ -355,7 +353,7 @@ mod via_resume {
     /// `Box::new` (the previous `resume`) would move the child and dangle it.
     #[test]
     fn resume_preserves_box_address() {
-        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+        use rqe_iterators::{RQEIterator, RQESuspendedIterator};
 
         let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
         let guard = mock_ctx.spec_read();
@@ -469,4 +467,24 @@ fn maybe_empty_upholds_current_contract() {
     ])));
     assert_eq!(assert_current_contract(&mut it), [10, 20, 30, 50, 80]);
     assert_current_contract_via_skip_to(&mut it, 81);
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for Infinite<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"INFINITE");
+    }
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for InfiniteSuspended<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"INFINITE");
+    }
 }
