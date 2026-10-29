@@ -239,6 +239,9 @@ pub unsafe extern "C" fn QueryIteratorTree_IntoResultProcessor(
     // SAFETY: `tree` came from `Box::into_raw` and has not been released yet
     // (precondition 1).
     let tree = unsafe { Box::from_raw(tree.as_ptr()) };
+    // Read before the root is handed over: once it is a raw pointer, a profile
+    // wrapper hides the root's type from C.
+    let wildcard_scan = tree.root_type() == rqe_iterators::IteratorType::Wildcard;
     let root = tree.into_raw_root();
     // SAFETY: `root` is a valid, owning iterator handed over with the tree
     // (precondition 1); `query_slots` and `sctx` satisfy preconditions 2 and 3.
@@ -248,6 +251,7 @@ pub unsafe extern "C" fn QueryIteratorTree_IntoResultProcessor(
             query_slots.cast(),
             key_space_version,
             sctx.as_ptr(),
+            wildcard_scan,
         )
     };
     NonNull::new(rp).expect("the query iterator result processor must not be NULL")

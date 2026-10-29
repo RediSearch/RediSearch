@@ -210,6 +210,12 @@ impl<'index> QueryIteratorTree<'index> {
         self.root.as_raw()
     }
 
+    /// The type of the root iterator, unchanged by [`Self::into_profiled`]:
+    /// see [`CRQEIterator::profiled_type`].
+    pub fn root_type(&self) -> rqe_iterators::IteratorType {
+        self.root.profiled_type()
+    }
+
     /// Replace the root iterator with `root`, returning the previous one
     /// unfreed, typically because `root` already owns it as a child.
     pub fn replace_root(&mut self, root: CRQEIterator) -> NonNull<ffi::QueryIterator> {

@@ -468,6 +468,8 @@ impl CRQEIterator {
         );
         let profiled = self.profile_children();
         let had_no_skip_to = profiled.SkipTo.is_none();
+        // `profiled_type` below relies on this being the only constructor of a
+        // C-visible [`Profile`](crate::profile::Profile) iterator.
         let profile_wrapper = crate::profile::Profile::new(profiled);
         let result = CRQEIterator::from_rust_leaf(profile_wrapper);
         if had_no_skip_to {
@@ -477,6 +479,29 @@ impl CRQEIterator {
             unsafe { crate::interop::patch_vtable(result.as_raw().as_ptr(), |h| h.SkipTo = None) };
         }
         result
+    }
+
+    /// The type of the iterator that produces this iterator's results: its own
+    /// type, or, for a [`Profile`](crate::profile::Profile) wrapper, the type
+    /// of the iterator it profiles.
+    pub fn profiled_type(&self) -> IteratorType {
+        if self.type_ != IteratorType::Profile {
+            return self.type_;
+        }
+        let ptr = std::ptr::from_ref(self.as_ref());
+        // SAFETY:
+        // - `type_ == Profile` guarantees `ptr` was produced by
+        //   `RQEIteratorWrapper::boxed_new` with `Profile<CRQEIterator>` as the
+        //   inner type (`CRQEIterator::into_profiled` is the sole constructor of a
+        //   C-visible profile iterator).
+        // - The shared borrow of `self` keeps the wrapper alive and unaliased
+        //   by a mutable reference for the lifetime of the returned reference.
+        let wrapper = unsafe {
+            RQEIteratorWrapper::<crate::profile::Profile<'_, CRQEIterator>>::ref_from_header_ptr(
+                ptr,
+            )
+        };
+        wrapper.inner.child().type_
     }
 }
 

@@ -48,6 +48,22 @@ fn into_profiled_wraps_root() {
 }
 
 #[test]
+fn root_type_sees_through_profile() {
+    let mut mock_ctx = MockQueryEvalCtx::new();
+    let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
+    let mock_node = MockQueryNode::new(QueryNodeType::Null);
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
+
+    let tree = QueryIteratorTree::new(&mut ctx, node, Config::default());
+    assert_eq!(tree.root_type(), IteratorType::Empty);
+
+    let tree = tree.into_profiled();
+    assert_eq!(tree.root_type(), IteratorType::Empty);
+    let it = tree.into_root();
+    assert_eq!(it.type_(), IteratorType::Profile);
+}
+
+#[test]
 #[should_panic(expected = "Attempted to double-profile an iterator")]
 fn into_profiled_twice_panics() {
     let mut mock_ctx = MockQueryEvalCtx::new();
