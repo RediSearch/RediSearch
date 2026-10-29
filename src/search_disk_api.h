@@ -717,6 +717,10 @@ typedef struct IndexDiskAPI {
   bool (*initializeMissingStorage)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
+typedef struct SlotMigrationAPI {
+  bool (*hasPendingCleanup)(RedisSearchDiskIndexSpec *index);
+} SlotMigrationAPI;
+
 typedef struct DocTableDiskAPI {
   /**
    * @brief Stages a new document insert into `batch`.
@@ -1187,6 +1191,7 @@ typedef struct RedisSearchDiskAPI {
   DocTableDiskAPI docTable;
   VectorDiskAPI vector;
   MetricsDiskAPI metrics;
+  SlotMigrationAPI slotMigration;
 } RedisSearchDiskAPI;
 
 // Forward declarations from vecsim_disk's global consistency lock. Declared

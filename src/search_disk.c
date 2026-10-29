@@ -805,3 +805,8 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
     RedisModule_Log(RSDummyContext, "warning", "Failed to apply updated disk memory limit");
   }
 }
+
+bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index) {
+  RS_ASSERT(disk && disk->slotMigration.hasPendingCleanup);
+  return disk->slotMigration.hasPendingCleanup(index);
+}
