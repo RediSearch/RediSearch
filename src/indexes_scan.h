@@ -41,6 +41,9 @@ void Indexes_ScanAndReindex();
 // representation and publishing them into the global registry.
 void Indexes_UpgradeLegacyIndexes();
 
+// Called with the GIL and no spec lock; schedules at most one lazy map build.
+void IndexSpec_ActivateKeyMap(IndexSpec *spec);
+
 // Expose reindexpool for debug
 void ReindexPool_ThreadPoolDestroy();
 

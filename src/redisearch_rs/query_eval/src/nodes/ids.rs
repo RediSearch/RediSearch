@@ -18,7 +18,8 @@ use crate::{Evaluated, QueryEvalContext};
 /// `QN_IDS` — filter by explicit document key names.
 ///
 /// Deferred keys are resolved through the lookup map under the execution
-/// spec lock. Disk mode supplies IDs before evaluation.
+/// spec lock once ready; before that, evaluation uses metadata with the GIL held.
+/// Disk mode supplies IDs before evaluation.
 /// Both paths sort, deduplicate, and build an [`IdListSorted`] iterator.
 ///
 /// * `keys` — the key names to match against, borrowing the request's held
@@ -37,8 +38,10 @@ pub(crate) fn eval<'index>(
 
     let mut ids: Vec<DocId> = if let Some(doc_ids) = doc_ids {
         doc_ids.iter().copied().filter(|&did| did != 0).collect()
+    } else if ctx.doc_table().keyMapState == ffi::DocKeyMapState_DocKeyMap_Ready {
+        resolve_with_keymap(ctx, keys)
     } else {
-        resolve_keys(ctx, keys)
+        resolve_with_metadata(ctx, keys)
     };
 
     if !ids.is_empty() {
@@ -52,18 +55,33 @@ pub(crate) fn eval<'index>(
     )))
 }
 
-/// Resolve borrowed keys while the caller holds the index spec read lock.
-/// The lock must remain held throughout this call to pin the map, candidate
-/// document metadata, and their keys, as required by [`QueryEvalContext::new`].
-fn resolve_keys(
+/// Resolve through metadata with both the GIL and the spec read lock held,
+/// as required by [`QueryEvalContext::new`].
+fn resolve_with_metadata(
+    ctx: &QueryEvalContext,
+    keys: &[*mut redis_module::raw::RedisModuleString],
+) -> Vec<DocId> {
+    keys.iter()
+        .filter_map(|&key| {
+            let mut id = 0;
+            // SAFETY: fallback evaluation holds the GIL before the spec read lock;
+            // the context and borrowed argv remain valid for this call.
+            unsafe {
+                ffi::DocIdMeta_Get(ctx.sctx().redisCtx, key.cast(), ctx.spec().specId, &mut id)
+            };
+            (id != 0).then_some(id)
+        })
+        .collect()
+}
+
+/// Resolve through the ready map under the spec read lock, which pins the map,
+/// candidate metadata, and keys as required by [`QueryEvalContext::new`].
+fn resolve_with_keymap(
     ctx: &QueryEvalContext,
     keys: &[*mut redis_module::raw::RedisModuleString],
 ) -> Vec<DocId> {
     let table = ctx.doc_table();
-    assert!(
-        !table.keyMap.is_null(),
-        "unresolved QN_IDS nodes require a document key map"
-    );
+    debug_assert!(!table.keyMap.is_null());
     // SAFETY: the spec read lock pins the map and excludes mutation throughout evaluation.
     let map = unsafe { &*table.keyMap.cast::<doc_key_map_ffi::DocKeyMap>() };
     // SAFETY: installed once at module load and never mutated during evaluation.

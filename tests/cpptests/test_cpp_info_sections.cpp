@@ -206,6 +206,8 @@ TEST_F(InfoSectionsTest, UnknownSectionDoesNotCollect) {
 
 TEST_F(InfoSectionsTest, CrashReportOmitsKeyMapMemory) {
   spec->diskSpec = nullptr;
+  isFlex = false;
+  ASSERT_TRUE(DocTable_StartKeyMap(&spec->docs));
   ASSERT_NE(spec->docs.keyMap, nullptr);
   InfoCapture info;
   IndexSpec_AddToInfo(reinterpret_cast<RedisModuleInfoCtx *>(&info), spec, false, true, false);
@@ -215,6 +217,8 @@ TEST_F(InfoSectionsTest, CrashReportOmitsKeyMapMemory) {
 
 TEST_F(InfoSectionsTest, NormalIndexInfoIncludesKeyMapMemory) {
   spec->diskSpec = nullptr;
+  isFlex = false;
+  ASSERT_TRUE(DocTable_StartKeyMap(&spec->docs));
   ASSERT_NE(spec->docs.keyMap, nullptr);
   InfoCapture info;
   IndexSpec_LockRead(spec);

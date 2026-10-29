@@ -1775,6 +1775,7 @@ TEST_F(RdbMockTest, testLegacyDocTableRejectsZeroCapacity) {
 }
 
 TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
+  DocTableKeyMapIterator iter = {};
   RedisModuleIO *io = RMCK_CreateRdbIO();
   ASSERT_NE(io, nullptr);
   DocTable table = NewDocTable(4, 4);
@@ -1795,6 +1796,9 @@ TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
   int result = DocTable_LegacyRdbLoad(&table, io, INDEX_MIN_COMPACTED_DOCTABLE_VERSION);
   RedisModule_LoadFloat = originalLoadFloat;
   EXPECT_EQ(result, REDISMODULE_OK);
+  ASSERT_EQ(table.keyMap, nullptr);
+  ASSERT_TRUE(DocTable_StartKeyMap(&table));
+  ASSERT_TRUE(DocTable_BuildKeyMapBatch(&table, &iter, SIZE_MAX));
   EXPECT_EQ(DocTable_GetIdByKey(&table, "doc", 3), 1);
 
   auto *dmd = const_cast<RSDocumentMetadata *>(DocTable_Borrow(&table, 1));

@@ -36,7 +36,6 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .memsize = 0,
       .sortablesSize = 0,
       .maxSize = max_size,
-      .keyMap = !SearchDisk_IsEnabled() ? DocKeyMap_New() : NULL,
   };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
   ret.memsize = cap * sizeof(*ret.buckets) + sizeof(DocTable);
@@ -120,6 +119,62 @@ bool DocTable_Exists(const DocTable *t, t_docId docId) {
     if (md->id == docId) {
       return !(md->flags & Document_Deleted);
     }
+  }
+  return false;
+}
+
+DocKeyMapActivation DocTable_StartKeyMap(DocTable *t) {
+  if (t->keyMapState != DocKeyMap_Inactive) return DocKeyMapActivation_Unchanged;
+  t->keyMap = DocKeyMap_New();
+  t->keyMapState = DocTable_IsEmpty(t) ? DocKeyMap_Ready : DocKeyMap_Building;
+  return t->keyMapState == DocKeyMap_Ready ? DocKeyMapActivation_Ready
+                                           : DocKeyMapActivation_NeedsBackfill;
+}
+
+void DocTable_KeyMapIteratorReleaseNext(DocTableKeyMapIterator *iter) {
+  DMD_Return(iter->next);
+  iter->next = NULL;
+}
+
+bool DocTable_BuildKeyMapBatch(DocTable *t, DocTableKeyMapIterator *iter, size_t budget) {
+  RS_ASSERT(t->keyMapState != DocKeyMap_Inactive);
+  if (t->keyMapState == DocKeyMap_Ready) return true;
+  if (!budget) return false;
+  if (!iter->initialized) {
+    iter->endBucket = t->cap;
+    iter->initialized = true;
+    // Reserve on the background thread, before backfill can cause large rehashes.
+    DocKeyMap_EnsureCapacity(t->keyMap, t->size - 1);
+  }
+
+  RSDocumentMetadata *dmd = iter->next;
+  // Unlinking clears nextInChain. A retained deleted DMD stays alive, but cannot
+  // lead us to the remaining entries; restarting is safe because insertion is idempotent.
+  if (!dmd || (dmd->flags & Document_Deleted)) {
+    dmd = t->buckets[iter->bucket].root;
+  }
+  DocTable_KeyMapIteratorReleaseNext(iter);
+  // The spec lock pins the chain throughout the batch; only the yield needs a borrow.
+  while (iter->bucket < iter->endBucket && budget > 0) {
+    --budget;
+    if (dmd) {
+      DocKeyMap_InsertIfAbsent(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
+      dmd = dmd->nextInChain;
+    }
+    if (!dmd) {
+      ++iter->bucket;
+      if (iter->bucket < iter->endBucket) {
+        dmd = t->buckets[iter->bucket].root;
+      }
+    }
+  }
+  if (iter->bucket == iter->endBucket) {
+    t->keyMapState = DocKeyMap_Ready;
+    return true;
+  }
+  if (dmd) {
+    DMD_Incref(dmd);
+    iter->next = dmd;
   }
   return false;
 }
@@ -407,6 +462,7 @@ void DocTable_Free(DocTable *t) {
   rm_free(t->buckets);
   DocKeyMap_Free(t->keyMap);
   t->keyMap = NULL;
+  t->keyMapState = DocKeyMap_Inactive;
   TimeToLiveTable_Destroy(&t->ttl);
   while (t->pendingSlotDeletions) {
     DocTable_RemovePendingDeletion(t, t->pendingSlotDeletions);
@@ -427,7 +483,8 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
 
   if (t->keyMap) {
     bool removed = DocKeyMap_Remove(t->keyMap, (const uint8_t *)md->keyPtr, sdslen(md->keyPtr), docId);
-    RS_LOG_ASSERT(removed, "missing INKEYS entry for deleted document");
+    RS_LOG_ASSERT(removed || t->keyMapState == DocKeyMap_Building,
+                  "missing key map entry for deleted document");
   }
 
   // Drop the doc's per-field TTL entry, if any, and tear down the table
@@ -469,7 +526,8 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *to_str, size_t 
   }
   if (t->keyMap) {
     bool removed = DocKeyMap_Remove(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), docId);
-    RS_LOG_ASSERT(removed, "missing INKEYS entry for renamed document");
+    RS_LOG_ASSERT(removed || t->keyMapState == DocKeyMap_Building,
+                  "missing key map entry for renamed document");
   }
   t->memsize -= sdsAllocSize(dmd->keyPtr);
   sdsfree(dmd->keyPtr);
@@ -663,7 +721,7 @@ static bool docKeyMatches(const void *ctx, uint64_t id) {
 }
 
 t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len) {
-  RS_ASSERT(t->keyMap);
+  RS_ASSERT(t->keyMapState == DocKeyMap_Ready);
   DocKeyLookup lookup = {.table = t, .key = key, .len = len};
   return DocKeyMap_GetId(t->keyMap, (const uint8_t *)key, len, &lookup, docKeyMatches);
 }
