@@ -357,3 +357,388 @@ TEST_F(SlotCleanupTest, ExplicitCutoffDoesNotUseRamDocTableMaxId) {
   EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 10, SLOT_A));
   IndexSpec_Unlock(spec);
 }
+
+namespace {
+
+std::function<void(IndexSpec *, t_docId)> onDiskMetadataRead;
+bool firstDiskDocDeleted = false;
+
+class DiskSlotVisibilityTest : public SlotCleanupTest {
+ protected:
+  RedisSearchDiskAPI api{};
+  RedisSearchDiskAPI *savedDisk = nullptr;
+  RedisSearchDisk *savedDiskDb = nullptr;
+
+  void SetUp() override {
+    SlotCleanupTest::SetUp();
+    savedDisk = disk;
+    savedDiskDb = disk_db;
+    disk = &api;
+    disk_db = nullptr;
+    spec->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(spec);
+    firstDiskDocDeleted = false;
+    onDiskMetadataRead = {};
+    api.docTable.isDocIdDeleted = [](RedisSearchDiskIndexSpec *, t_docId id) {
+      return firstDiskDocDeleted && id == 1;
+    };
+    api.docTable.getDocumentMetadata = [](RedisSearchDiskIndexSpec *handle, t_docId id,
+                                          RSDocumentMetadata *dmd, AllocateKeyCallback allocateKey,
+                                          const t_expirationTimePoint *,
+                                          RedisSearchDiskSnapshot *) {
+      EXPECT_FALSE(IndexSpec_IsLocked(reinterpret_cast<IndexSpec *>(handle)));
+      const char *key = id == 2 ? "{b}other" : "{a}moving";
+      dmd->id = id;
+      dmd->keyPtr = allocateKey(key, strlen(key));
+      // The disk decoder leaves this field unset; filtering must hash the loaded key.
+      dmd->slot = 0;
+      if (onDiskMetadataRead) onDiskMetadataRead(reinterpret_cast<IndexSpec *>(handle), id);
+      return true;
+    };
+  }
+
+  void TearDown() override {
+    onDiskMetadataRead = {};
+    spec->diskSpec = nullptr;
+    disk = savedDisk;
+    disk_db = savedDiskDb;
+    SlotCleanupTest::TearDown();
+  }
+
+  std::vector<t_docId> queryIds() {
+    struct Iterator {
+      QueryIterator base{};
+      RSIndexResult current{};
+      Iterator() {
+        base.Free = [](QueryIterator *) {};
+        base.Read = [](QueryIterator *base) {
+          auto *self = reinterpret_cast<Iterator *>(base);
+          if (base->lastDocId == 4) {
+            base->atEOF = true;
+            base->current = nullptr;
+            return ITERATOR_EOF;
+          }
+          self->current.docId = ++base->lastDocId;
+          base->current = &self->current;
+          return ITERATOR_OK;
+        };
+      }
+    } iterator;
+    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
+    QueryRequestTimeout timeout{};
+    TimeoutConfig config{};
+    QueryRequestTimeout_Init(&timeout, &config);
+    sctx.timeout = &timeout;
+    QueryProcessingCtx processing{};
+    ResultProcessor *processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx);
+    processor->parent = &processing;
+    SearchResult result = SearchResult_New();
+    std::vector<t_docId> ids;
+    while (processor->Next(processor, &result) == RS_RESULT_OK) {
+      ids.push_back(SearchResult_GetDocId(&result));
+      SearchResult_Clear(&result);
+    }
+    SearchResult_Destroy(&result);
+    processor->Free(processor);
+    return ids;
+  }
+};
+
+}  // namespace
+
+TEST_F(DiskSlotVisibilityTest, PendingDeletionFiltersLoadedKeysBeforeAnyBatchIsApplied) {
+  IndexSpec_LockWrite(spec);
+  PendingSlotDeletion *pending = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 3);
+  IndexSpec_Unlock(spec);
+
+  EXPECT_EQ(queryIds(), (std::vector<t_docId>{2, 4}));
+  removePending(pending);
+  EXPECT_EQ(queryIds(), (std::vector<t_docId>{1, 2, 3, 4}));
+}
+
+TEST_F(DiskSlotVisibilityTest, MetadataReadBeforeFinalBatchRemainsHiddenAfterFilterRemoval) {
+  IndexSpec_LockWrite(spec);
+  PendingSlotDeletion *pending = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 1);
+  IndexSpec_Unlock(spec);
+  onDiskMetadataRead = [pending](IndexSpec *spec, t_docId id) {
+    if (id != 1) return;
+    IndexSpec_LockWrite(spec);
+    firstDiskDocDeleted = true;
+    DocTable_RemovePendingDeletion(&spec->docs, pending);
+    IndexSpec_Unlock(spec);
+  };
+
+  EXPECT_EQ(queryIds(), (std::vector<t_docId>{2, 3, 4}));
+  EXPECT_FALSE(hasPending());
+}
+
+namespace {
+
+struct BufferedAsyncPool {
+  struct Read {
+    t_docId id;
+    uint64_t userData;
+  };
+  std::vector<Read> reads;
+  std::vector<RSDocumentMetadata *> decoded;
+  std::vector<t_docId> deletedIds;
+  uint64_t snapshotMarker = 0;
+  size_t creates = 0, adds = 0, polls = 0, frees = 0, syncReads = 0;
+};
+
+BufferedAsyncPool *bufferedAsyncPool = nullptr;
+
+class BufferedDiskQuery {
+  struct Iterator {
+    QueryIterator base{};
+    RSIndexResult *current = nullptr;
+    Iterator() {
+      current = NewVirtualResult(1.0, RS_FIELDMASK_ALL);
+      base.Free = [](QueryIterator *base) {
+        auto *self = reinterpret_cast<Iterator *>(base);
+        IndexResult_Free(self->current);
+        self->current = nullptr;
+      };
+      base.Read = [](QueryIterator *base) {
+        auto *self = reinterpret_cast<Iterator *>(base);
+        if (base->lastDocId == 6) {
+          base->atEOF = true;
+          base->current = nullptr;
+          return ITERATOR_EOF;
+        }
+        self->current->docId = ++base->lastDocId;
+        base->current = self->current;
+        return ITERATOR_OK;
+      };
+    }
+  } iterator;
+  RedisSearchCtx sctx{};
+  QueryRequestTimeout timeout{};
+  QueryProcessingCtx processing{};
+  ResultProcessor *processor = nullptr;
+  SearchResult result;
+
+ public:
+  BufferedDiskQuery(RedisModuleCtx *ctx, IndexSpec *spec, RedisSearchDiskSnapshot *snapshot)
+      : result(SearchResult_New()) {
+    sctx = SEARCH_CTX_STATIC(ctx, spec);
+    sctx.diskSnapshot = snapshot;
+    TimeoutConfig config{};
+    QueryRequestTimeout_Init(&timeout, &config);
+    sctx.timeout = &timeout;
+    processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx);
+    QITR_PushRP(&processing, processor);
+  }
+
+  void sortByScore() {
+    auto *sorter = RPSorter_NewByScore(6, nullptr);
+    QITR_PushRP(&processing, sorter);
+    processor = sorter;
+  }
+
+  uint32_t skipped() const {
+    return processing.skippedResults;
+  }
+
+  ~BufferedDiskQuery() {
+    SearchResult_Destroy(&result);
+    QITR_FreeChain(&processing);
+  }
+
+  t_docId first() {
+    EXPECT_EQ(processor->Next(processor, &result), RS_RESULT_OK);
+    const auto id = SearchResult_GetDocId(&result);
+    SearchResult_Clear(&result);
+    return id;
+  }
+
+  std::vector<t_docId> remaining() {
+    std::vector<t_docId> ids;
+    int rc;
+    while ((rc = processor->Next(processor, &result)) == RS_RESULT_OK) {
+      ids.push_back(SearchResult_GetDocId(&result));
+      SearchResult_Clear(&result);
+    }
+    EXPECT_EQ(rc, RS_RESULT_EOF);
+    return ids;
+  }
+};
+
+class DiskSlotAsyncVisibilityTest : public DiskSlotVisibilityTest {
+ protected:
+  BufferedAsyncPool pool;
+  bool savedAsyncEnabled = false;
+  decltype(RSGlobalConfig.diskAsyncReadPoolSize) savedPoolSize{};
+  decltype(RSGlobalConfig.diskAsyncReadQueueFactor) savedQueueFactor{};
+
+  void SetUp() override {
+    DiskSlotVisibilityTest::SetUp();
+    bufferedAsyncPool = &pool;
+    disk_db = reinterpret_cast<RedisSearchDisk *>(&pool);
+    savedAsyncEnabled = SearchDisk_GetAsyncIOEnabled();
+    savedPoolSize = RSGlobalConfig.diskAsyncReadPoolSize;
+    savedQueueFactor = RSGlobalConfig.diskAsyncReadQueueFactor;
+    SearchDisk_SetAsyncIOEnabled(true);
+    RSGlobalConfig.diskAsyncReadPoolSize = 8;
+    RSGlobalConfig.diskAsyncReadQueueFactor = 1;
+    api.basic.isAsyncIOSupported = [](RedisSearchDisk *) { return true; };
+    api.docTable.isDocIdDeleted = [](RedisSearchDiskIndexSpec *, t_docId id) {
+      for (const auto deleted : bufferedAsyncPool->deletedIds) {
+        if (deleted == id) return true;
+      }
+      return false;
+    };
+    api.docTable.getDocumentMetadata = [](RedisSearchDiskIndexSpec *, t_docId, RSDocumentMetadata *,
+                                          AllocateKeyCallback, const t_expirationTimePoint *,
+                                          RedisSearchDiskSnapshot *) {
+      ++bufferedAsyncPool->syncReads;
+      ADD_FAILURE() << "the async query must not fall back to synchronous metadata reads";
+      return false;
+    };
+    api.docTable.createAsyncReadPool = [](RedisSearchDiskIndexSpec *, uint16_t capacity,
+                                          RedisSearchDiskSnapshot *snapshot) {
+      ++bufferedAsyncPool->creates;
+      EXPECT_EQ(capacity, 8);
+      EXPECT_EQ(snapshot,
+                reinterpret_cast<RedisSearchDiskSnapshot *>(&bufferedAsyncPool->snapshotMarker));
+      return static_cast<RedisSearchDiskAsyncReadPool>(bufferedAsyncPool);
+    };
+    api.docTable.addAsyncRead = [](RedisSearchDiskAsyncReadPool handle, t_docId id,
+                                   uint64_t userData) {
+      auto *pool = static_cast<BufferedAsyncPool *>(handle);
+      ++pool->adds;
+      pool->reads.push_back({id, userData});
+      return true;
+    };
+    api.docTable.pollAsyncReads = [](RedisSearchDiskAsyncReadPool handle, uint32_t,
+                                     AsyncReadResult *results, uint16_t capacity, uint64_t *,
+                                     uint16_t, t_expirationTimePoint,
+                                     AllocateDMDCallback allocate) {
+      auto *pool = static_cast<BufferedAsyncPool *>(handle);
+      ++pool->polls;
+      EXPECT_LE(pool->reads.size(), capacity);
+      uint16_t ready = 0;
+      for (const auto &read : pool->reads) {
+        const char *key = read.id == 1 || read.id == 5 ? "{b}other" : "{a}moving";
+        auto *dmd = allocate(key, strlen(key));
+        dmd->id = read.id;
+        dmd->slot = 0;
+        DMD_Incref(dmd);
+        pool->decoded.push_back(dmd);
+        results[ready++] = {dmd, read.userData};
+      }
+      pool->reads.clear();
+      return AsyncPollResult{ready, 0, 0};
+    };
+    api.docTable.freeAsyncReadPool = [](RedisSearchDiskAsyncReadPool handle) {
+      auto *pool = static_cast<BufferedAsyncPool *>(handle);
+      EXPECT_TRUE(pool->reads.empty());
+      ++pool->frees;
+    };
+  }
+
+  void TearDown() override {
+    EXPECT_EQ(pool.creates, pool.frees);
+    for (auto *dmd : pool.decoded) {
+      EXPECT_EQ(dmd->ref_count, 1) << "query retained ownership of decoded metadata";
+      DMD_Return(dmd);
+    }
+    SearchDisk_SetAsyncIOEnabled(savedAsyncEnabled);
+    RSGlobalConfig.diskAsyncReadPoolSize = savedPoolSize;
+    RSGlobalConfig.diskAsyncReadQueueFactor = savedQueueFactor;
+    bufferedAsyncPool = nullptr;
+    DiskSlotVisibilityTest::TearDown();
+  }
+
+  RedisSearchDiskSnapshot *snapshot() {
+    return reinterpret_cast<RedisSearchDiskSnapshot *>(&pool.snapshotMarker);
+  }
+
+  PendingSlotDeletion *registerTrim() {
+    IndexSpec_LockWrite(spec);
+    auto *pending = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 3);
+    IndexSpec_Unlock(spec);
+    return pending;
+  }
+
+  void expectDecodedBeforeTrim() {
+    ASSERT_EQ(pool.creates, 1);
+    ASSERT_EQ(pool.adds, 6);
+    ASSERT_EQ(pool.decoded.size(), 6);
+    EXPECT_GT(pool.polls, 0);
+    EXPECT_EQ(pool.syncReads, 0);
+    EXPECT_EQ(pool.decoded[1]->ref_count, 2);
+    EXPECT_FALSE(hasPending());
+  }
+};
+
+}  // namespace
+
+TEST_F(DiskSlotAsyncVisibilityTest, BufferedMetadataIsFilteredWhenTrimStartsBeforeConsumption) {
+  {
+    BufferedDiskQuery query(ctx, spec, snapshot());
+    ASSERT_EQ(query.first(), 1);
+    expectDecodedBeforeTrim();
+    auto *pending = registerTrim();
+    EXPECT_EQ(query.remaining(), (std::vector<t_docId>{4, 5, 6}));
+    EXPECT_TRUE(hasPending());
+    removePending(pending);
+  }
+  EXPECT_EQ(pool.frees, 1);
+}
+
+TEST_F(DiskSlotAsyncVisibilityTest, BufferedMetadataStaysHiddenAfterFinalBatchRemovesFilter) {
+  {
+    BufferedDiskQuery query(ctx, spec, snapshot());
+    ASSERT_EQ(query.first(), 1);
+    expectDecodedBeforeTrim();
+    auto *pending = registerTrim();
+    IndexSpec_LockWrite(spec);
+    pool.deletedIds = {2, 3};
+    DocTable_RemovePendingDeletion(&spec->docs, pending);
+    IndexSpec_Unlock(spec);
+    EXPECT_FALSE(hasPending());
+    EXPECT_EQ(query.remaining(), (std::vector<t_docId>{4, 5, 6}));
+  }
+  EXPECT_EQ(pool.frees, 1);
+}
+
+TEST_F(DiskSlotAsyncVisibilityTest, EarlyQueryFreeReleasesEveryBufferedMetadataReference) {
+  {
+    BufferedDiskQuery query(ctx, spec, snapshot());
+    ASSERT_EQ(query.first(), 1);
+    expectDecodedBeforeTrim();
+    registerTrim();
+  }
+  EXPECT_EQ(pool.frees, 1);
+  ASSERT_EQ(pool.decoded.size(), 6);
+  for (auto *dmd : pool.decoded) EXPECT_EQ(dmd->ref_count, 1);
+}
+
+TEST_F(DiskSlotAsyncVisibilityTest, SortedResultsAreFilteredAfterTrimRegistration) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  query.sortByScore();
+  const auto first = query.first();
+  EXPECT_FALSE(hasPending());
+  auto *pending = registerTrim();
+  auto ids = query.remaining();
+  EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1 : 2);
+  for (auto id : ids) EXPECT_TRUE(id != 2 && id != 3);
+  EXPECT_EQ(ids.size(), first == 2 || first == 3 ? 4 : 3);
+  removePending(pending);
+}
+
+TEST_F(DiskSlotAsyncVisibilityTest, SortedResultsStayHiddenAfterTrimCompletes) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  query.sortByScore();
+  const auto first = query.first();
+  auto *pending = registerTrim();
+  IndexSpec_LockWrite(spec);
+  pool.deletedIds = {2, 3};
+  DocTable_RemovePendingDeletion(&spec->docs, pending);
+  IndexSpec_Unlock(spec);
+  EXPECT_FALSE(hasPending());
+  auto ids = query.remaining();
+  EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1 : 2);
+  for (auto id : ids) EXPECT_TRUE(id != 2 && id != 3);
+  EXPECT_EQ(ids.size(), first == 2 || first == 3 ? 4 : 3);
+}
