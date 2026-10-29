@@ -241,3 +241,18 @@ def testGeoParseTrailingWhitespace(env):
   conn.execute_command('HSET', 'ws2', 'g', '1.23, 4.56 ')
 
   assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
+
+@skip(cluster=True)
+def testGeoFilterUnits(env):
+  """Check unit conversion in legacy filters and parameterized geo queries."""
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('HSET', 'near', 'g', '12.501,-42.25')
+  conn.execute_command('HSET', 'far', 'g', '12.6,-42.25')
+  for unit, radius in [('m', 200), ('KM', .2), ('Ft', 656.2), ('mI', .125)]:
+    for dialect in [1, 2]:
+      env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 12.5, -42.25,
+                 radius, unit, 'NOCONTENT', 'DIALECT', dialect).equal([1, 'near'])
+    env.expect('FT.SEARCH', 'idx', '@g:[$lon $lat $radius $unit]', 'PARAMS', 8,
+               'lon', 12.5, 'lat', -42.25, 'radius', radius, 'unit', unit,
+               'NOCONTENT', 'DIALECT', 2).equal([1, 'near'])
