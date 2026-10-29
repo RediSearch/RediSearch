@@ -26,8 +26,7 @@ use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 
 use crate::{
     ExpirationChecker, FieldExpirationChecker, IteratorType, RQEIterator, RQEIteratorBoxed,
-    RQEIteratorError, RQEIteratorPrintable, RQESuspendedIterator, RQEValidateStatus, ResumeOutcome,
-    SkipToOutcome,
+    RQEIteratorError, RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, SkipToOutcome,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
@@ -314,7 +313,7 @@ pub unsafe fn new_missing_iterator<'index>(
     ii: &'index inverted_index::opaque::InvertedIndex,
     sctx: NonNull<RedisSearchCtx>,
     field_index: FieldIndex,
-) -> Box<dyn RQEIteratorPrintable<'index> + 'index> {
+) -> crate::TypeErasedRQEIterator<'index> {
     let filter_ctx = FieldFilterContext {
         field: FieldMaskOrIndex::Index(field_index),
         predicate: FieldExpirationPredicate::Missing,
@@ -327,7 +326,9 @@ pub unsafe fn new_missing_iterator<'index>(
             let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
             // SAFETY: caller guarantees sctx, spec, field_index, and
             // missing.indexes validity (1-3).
-            Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
+            crate::TypeErasedRQEIterator::new(Box::new(unsafe {
+                Missing::new(reader, sctx, field_index, checker)
+            }))
         }
         inverted_index::opaque::InvertedIndex::RawDocIdsOnly(ii) => {
             let reader = ii.reader();
@@ -335,7 +336,9 @@ pub unsafe fn new_missing_iterator<'index>(
             let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
             // SAFETY: caller guarantees sctx, spec, field_index, and
             // missing.indexes validity (1-3).
-            Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
+            crate::TypeErasedRQEIterator::new(Box::new(unsafe {
+                Missing::new(reader, sctx, field_index, checker)
+            }))
         }
         _ => panic!(
             "Missing iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
