@@ -111,13 +111,16 @@ static struct {
   uint64_t *live;
 } frozenExistence;
 
-// Past this many bitmap bytes per live document the bitmap is no longer small next to the DMDs
-// it stands in for (docIds are never reused, so heavy churn leaves maxDocId far above size).
-#define FROZEN_EXISTENCE_MAX_BYTES_PER_DOC 64
+// docIds are never reused, so heavy churn leaves maxDocId far above size. Past one live doc per
+// 64 docIds, building and reading the bitmap stops being cheap next to the DMD loads it saves.
+#define FROZEN_EXISTENCE_MAX_BYTES_PER_DOC 8
+// Bounds the child's fresh allocation however large the table is (64 MiB covers 512M docIds).
+#define FROZEN_EXISTENCE_MAX_BYTES (64 << 20)
 
 void DocTable_FreezeExistence(const DocTable *t) {
   const size_t words = t->maxDocId / 64 + 1;
-  if (words * sizeof(uint64_t) > FROZEN_EXISTENCE_MAX_BYTES_PER_DOC * t->size) {
+  const size_t bytes = words * sizeof(uint64_t);
+  if (bytes > FROZEN_EXISTENCE_MAX_BYTES_PER_DOC * t->size || bytes > FROZEN_EXISTENCE_MAX_BYTES) {
     return;
   }
   uint64_t *live = rm_calloc(words, sizeof(*live));

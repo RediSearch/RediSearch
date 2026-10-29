@@ -1248,8 +1248,34 @@ TEST_F(IndexTest, testDocTableFrozenExistence) {
   ASSERT_FALSE(DocTable_Exists(&dt, 3));
   ASSERT_TRUE(DocTable_Exists(&dt, 4));
 
+  // The bitmap is a snapshot, so a later deletion only shows through a DMD lookup.
+  DMD_Return(DocTable_DeleteById(&dt, 4));
+  ASSERT_TRUE(DocTable_Exists(&dt, 4));
+
   DocTable_Free(&dt);
   DocTable_Free(&other);
+}
+
+TEST_F(IndexTest, testDocTableFrozenExistenceSparse) {
+  char buf[16];
+  DocTable dt = NewDocTable(10, 10);
+  const int N = 1000;
+  for (int i = 0; i < N; i++) {
+    size_t nkey = snprintf(buf, sizeof(buf), "doc_%d", i);
+    DMD_Return(DocTable_Put(&dt, buf, nkey, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash));
+  }
+  // Two live docs under maxDocId N: far too sparse for a bitmap.
+  for (t_docId id = 1; id <= N - 2; id++) {
+    DMD_Return(DocTable_DeleteById(&dt, id));
+  }
+
+  DocTable_FreezeExistence(&dt);
+  DMD_Return(DocTable_DeleteById(&dt, N));
+  ASSERT_FALSE(DocTable_Exists(&dt, N));
+  ASSERT_TRUE(DocTable_Exists(&dt, N - 1));
+  ASSERT_FALSE(DocTable_Exists(&dt, 1));
+
+  DocTable_Free(&dt);
 }
 
 TEST_F(IndexTest, testVarintFieldMask) {

@@ -173,7 +173,8 @@ bool DocTable_Exists(const DocTable *t, t_docId docId);
 
 /* Snapshot which docIds exist so that later DocTable_Exists calls on `t` answer from a bitmap.
  * Only for a forked GC child: `t` must not change again until DocTable_Free. A table whose
- * maxDocId is far above its size keeps answering from its DMDs. */
+ * maxDocId is far above its size, or whose bitmap would be very large, keeps answering from its
+ * DMDs. */
 void DocTable_FreezeExistence(const DocTable *t);
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
