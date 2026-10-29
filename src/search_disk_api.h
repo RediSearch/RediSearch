@@ -613,7 +613,7 @@ typedef struct IndexDiskAPI {
    * @param stats Caller-allocated, zero-initialized stats out-parameter
    *              (MUST NOT be NULL)
    */
-  void (*runGC)(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
+  DiskGCRunResult (*runGC)(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
 
   /**
    * @brief Get the total disk usage for this index.
@@ -762,6 +762,22 @@ typedef struct SlotMigrationAPI {
   // jobs before queries resume, so Search can reinstall filters and schedule work.
   void (*forEachPendingTrim)(RedisSearchDiskIndexSpec *index,
                              SearchDiskPendingSlotTrimCallback callback, void *ctx);
+  // Worker only, without GIL/spec lock. Scan at most maxScanned membership records,
+  // counting skipped IDs too. Resume after the last applied batch even if GC has
+  // reclaimed its records. Invoke callback at most once, including an empty batch
+  // to commit progress or completion. No progress mutation outside the callback.
+  // FINISHED requires successful application of the final exhausted batch.
+  SearchDiskSlotTrimResult (*runTrimBatch)(RedisSearchDiskIndexSpec *index, uint64_t trimId,
+                                           size_t maxScanned, SearchDiskSlotTrimCallback callback,
+                                           void *ctx);
+  // Callback only, under spec write lock; no I/O. Validate current batch without
+  // mutation on failure. On success update deleted IDs, advance progress and,
+  // for the exhausted batch, clear logical intent. Search updates VecSim and stats
+  // before unlocking; all changes must share the checkpoint capture boundary.
+  // Revalidate concurrent deletes/renames so stale batches can be retried without
+  // double accounting. Applied batches cannot be applied again, even after GC.
+  bool (*applyTrimBatch)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotTrimBatch *batch);
+  // Physical reclamation eligibility, independent of logical job completion.
   bool (*hasPendingCleanup)(RedisSearchDiskIndexSpec *index);
 } SlotMigrationAPI;
 
