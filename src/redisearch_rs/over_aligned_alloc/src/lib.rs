@@ -51,6 +51,24 @@ fn invariant_violated() -> ! {
 /// room below it to store the inner block's address, which deallocation reads
 /// back.
 ///
+/// ```text
+/// inner block, allocated with size `layout.size() + layout.align()`
+/// and alignment `MAX_INNER_ALIGN`:
+///
+/// base                            block (aligned to `layout.align()`)
+///  │                               │
+///  ▼                               ▼
+///  ┌─────────────────┬─────────────┬───────────────────────┬─────────┐
+///  │     padding     │   header    │  caller's `size` bytes│  slack  │
+///  └─────────────────┴─────────────┴───────────────────────┴─────────┘
+///                     ╰─ holds `base`, ends exactly at `block`
+///  ╰─ offset ∈ [HEADER_SIZE, layout.align()] ─╯
+///     (padding is empty when offset == HEADER_SIZE)
+/// ```
+///
+/// `dealloc` reads the header just below `block` to recover `base` and frees
+/// the whole inner block.
+///
 /// The inner allocator must return memory aligned to
 /// `min(layout.align(), MAX_INNER_ALIGN)`; nothing else is assumed of it.
 pub struct OverAligned<A>(pub A);
