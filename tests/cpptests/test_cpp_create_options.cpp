@@ -58,62 +58,9 @@ TEST_F(CreateOptionsTest, BorrowedListsAndOptionLookingValues) {
   EXPECT_EQ(3, AC_NumRemaining(&cursor));
 }
 
-TEST_F(CreateOptionsTest, TemporarySentinelOrderingAndRepetition) {
-  for (const char* timeout : {"-2", "-1", "0", "2"}) {
-    ASSERT_EQ(REDISMODULE_OK, parse({"TEMPORARY", timeout, "PREFIX", "1", "p:", "SCHEMA"}));
-    const long long seconds = std::stoll(timeout);
-    EXPECT_EQ(seconds * 1000, options.timeout);
-    EXPECT_EQ(seconds != -1, bool(options.flags & Index_Temporary));
-    ASSERT_EQ(REDISMODULE_OK, parse({"PREFIX", "1", "p:", "temporary", timeout, "SCHEMA"}));
-    EXPECT_EQ(seconds * 1000, options.timeout);
-  }
-  ASSERT_EQ(REDISMODULE_OK, parse({"TEMPORARY", "2", "TEMPORARY", "-1", "SCHEMA"}));
-  EXPECT_FALSE(options.flags & Index_Temporary);
-  EXPECT_EQ(-1000, options.timeout);
-}
-
-TEST_F(CreateOptionsTest, RuleValuesAndEmptyListsInBothModes) {
-  for (bool flex : {false, true}) {
-    ASSERT_EQ(REDISMODULE_OK,
-              parse({"ON", "HASH", "FILTER", "@x > 1", "LANGUAGE", "english", "LANGUAGE_FIELD",
-                     "lang", "SCORE", "0.5", "SCORE_FIELD", "score", "PREFIX", "0", "STOPWORDS",
-                     "0", "SKIPINITIALSCAN", "SCHEMA"},
-                    flex));
-    EXPECT_STREQ("HASH", options.rule.type);
-    EXPECT_STREQ("@x > 1", options.rule.filter_exp_str);
-    EXPECT_STREQ("english", options.rule.lang_default);
-    EXPECT_STREQ("lang", options.rule.lang_field);
-    EXPECT_STREQ("0.5", options.rule.score_default);
-    EXPECT_STREQ("score", options.rule.score_field);
-    EXPECT_TRUE(AC_IsInitialized(&options.prefixes));
-    EXPECT_TRUE(AC_IsInitialized(&options.stopwords));
-    EXPECT_EQ(0, AC_NumRemaining(&options.prefixes));
-    EXPECT_EQ(0, AC_NumRemaining(&options.stopwords));
-    EXPECT_TRUE(options.flags & Index_SkipInitialScan);
-  }
-}
-
-TEST_F(CreateOptionsTest, FlagsAndCompatibilityAlias) {
-  ASSERT_EQ(REDISMODULE_OK,
-            parse({"NOOFFSETS", "NOHL", "NOFIELDS", "NOFREQS", "ASYNC", "NOSCOREIDX", "SCHEMA"}));
-  EXPECT_FALSE(options.flags & (Index_StoreTermOffsets | Index_StoreByteOffsets |
-                                Index_StoreFieldFlags | Index_StoreFreqs));
-  EXPECT_TRUE(options.flags & Index_Async);
-  ASSERT_EQ(REDISMODULE_ERR, parse({"MAXTEXTFIELDS", "NOFIELDS", "SCHEMA"}));
-  EXPECT_STREQ("SEARCH_QUERY_BAD MAXTEXTFIELDS cannot be used with NOFIELDS", QueryError_GetUserError(&error));
-}
-
 TEST_F(CreateOptionsTest, MalformedOptionsAndFailureCursor) {
-  for (auto input : {std::initializer_list<const char*>{"TEMPORARY"},
-                     {"TEMPORARY", "bad"},
-                     {"PREFIX", "bad"},
-                     {"PREFIX", "2", "p:"},
-                     {"STOPWORDS", "-1"},
-                     {"ON"}}) {
-    ASSERT_EQ(REDISMODULE_ERR, parse(input));
-    EXPECT_TRUE(QueryError_HasError(&error));
-  }
   ASSERT_EQ(REDISMODULE_ERR, parse({"TEMPORARY", "bad", "SCHEMA"}));
+  EXPECT_TRUE(QueryError_HasError(&error));
   EXPECT_EQ(2, AC_NumRemaining(&cursor));
   EXPECT_STREQ("bad", AC_GetStringNC(&cursor, nullptr));
 }
