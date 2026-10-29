@@ -58,7 +58,9 @@ static const char *on_oom_vals[3] = {
 };
 
 
-typedef enum { GCPolicy_Fork = 0, GCPolicy_Disk = 1 } GCPolicy;
+// GCPolicy_Thread runs the fork GC's scanners in-process. Module load keeps it only with unstable
+// features enabled, and each cycle falls back to forking while they are switched off.
+typedef enum { GCPolicy_Fork = 0, GCPolicy_Disk = 1, GCPolicy_Thread = 2 } GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
 const char *OomPolicy_ToString(RSOomPolicy);
@@ -73,6 +75,8 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
   switch (policy) {
     case GCPolicy_Fork:
       return "fork";
+    case GCPolicy_Thread:
+      return "thread";
     case GCPolicy_Disk: // LCOV_EXCL_LINE cannot be reached
     default:            // LCOV_EXCL_LINE cannot be reached
       return "huh?";    // LCOV_EXCL_LINE cannot be reached
@@ -85,6 +89,8 @@ typedef struct {
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
   int forkGCCleanNumericEmptyNodes;
+  // How long the in-process GC may hold the spec read lock per scan chunk.
+  size_t gcThreadScanBudgetUs;
 } GCSettings;
 
 typedef struct {
@@ -383,6 +389,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
 #define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
+#define DEFAULT_GC_THREAD_SCAN_BUDGET_US 2000
 #define DEFAULT_DISK_GC_RUN_INTERVAL 300
 #define DEFAULT_DISK_GC_CLEAN_THRESHOLD 10000
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
@@ -486,6 +493,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .gcConfigParams.gcSettings.forkGcSleepBeforeExit = 0,                      \
     .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
     .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
+    .gcConfigParams.gcSettings.gcThreadScanBudgetUs = DEFAULT_GC_THREAD_SCAN_BUDGET_US,\
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
     .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \
