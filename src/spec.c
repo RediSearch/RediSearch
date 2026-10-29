@@ -1790,48 +1790,35 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
   int rc = AC_OK;
   ACArgSpec *errarg = NULL;
   ACArgSpec flex_argopts[] = {
-      {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
-      {.name = "FILTER",
-       .target = &rule_args.filter_exp_str,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = "LANGUAGE",
-       .target = &rule_args.lang_default,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = "LANGUAGE_FIELD",
-       .target = &rule_args.lang_field,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = "SCORE",
-       .target = &rule_args.score_default,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = "SCORE_FIELD",
-       .target = &rule_args.score_field,
-       .len = &dummy2,
-       .type = AC_ARGTYPE_STRING},
-      {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-      {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &options->flags, Index_SkipInitialScan)},
-      {.name = NULL}};
+    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
+    {.name = "FILTER", .target = &rule_args.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "LANGUAGE", .target = &rule_args.lang_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "LANGUAGE_FIELD", .target = &rule_args.lang_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "SCORE", .target = &rule_args.score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "SCORE_FIELD", .target = &rule_args.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
+    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &options->flags, Index_SkipInitialScan)},
+    {.name = NULL}
+  };
   ACArgSpec non_flex_argopts[] = {
-      {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &options->flags,
-                   Index_StoreTermOffsets | Index_StoreByteOffsets)},
-      {AC_MKUNFLAG(SPEC_NOHL_STR, &options->flags, Index_StoreByteOffsets)},
-      {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &options->flags, Index_StoreFieldFlags)},
-      {AC_MKUNFLAG(SPEC_NOFREQS_STR, &options->flags, Index_StoreFreqs)},
-      {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &options->flags, Index_WideSchema)},
-      {AC_MKBITFLAG(SPEC_ASYNC_STR, &options->flags, Index_Async)},
-      {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &options->flags, Index_SkipInitialScan)},
+    {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &options->flags,
+                Index_StoreTermOffsets | Index_StoreByteOffsets)},
+    {AC_MKUNFLAG(SPEC_NOHL_STR, &options->flags, Index_StoreByteOffsets)},
+    {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &options->flags, Index_StoreFieldFlags)},
+    {AC_MKUNFLAG(SPEC_NOFREQS_STR, &options->flags, Index_StoreFreqs)},
+    {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &options->flags, Index_WideSchema)},
+    {AC_MKBITFLAG(SPEC_ASYNC_STR, &options->flags, Index_Async)},
+    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &options->flags, Index_SkipInitialScan)},
 
-      // For compatibility
-      {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
-      {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-      SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
-      {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
-      {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-      {.name = NULL}};
+    // For compatibility
+    {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
+    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
+    {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
+    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
+    {.name = NULL}
+  };
   ACArgSpec *argopts = flex ? flex_argopts : non_flex_argopts;
   rc = AC_ParseArgSpec(ac, argopts, &errarg);
   options->rule = rule_args;
@@ -1867,7 +1854,7 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
   */
 
 static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
-                                              ArgsCursor *ac, QueryError *status) {
+                                           ArgsCursor *ac, QueryError *status) {
   IndexSpec *spec = NewIndexSpec(name);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
