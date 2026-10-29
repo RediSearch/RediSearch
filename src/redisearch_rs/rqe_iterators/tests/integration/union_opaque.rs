@@ -151,13 +151,7 @@ fn resume_reports_moved_per_variant(#[case] which: Which) {
     );
 }
 
-/// A trimmed union refuses to suspend with an ordinary panic, as its legacy
-/// `revalidate` does, rather than aborting the process — see the comment in
-/// [`UnionOpaque`]'s [`RQEIteratorBoxed::suspend`] for why that takes an early
-/// refusal.
-#[test]
-#[should_panic(expected = "suspend is not supported on UnionTrimmed")]
-fn suspend_of_a_trimmed_union_panics() {
+fn trimmed_opaque() -> UnionOpaque<'static, TypeErasedRQEIterator<'static>> {
     let children = (1..=3)
         .map(|doc_id| {
             let child: Mock<'_, 1> = Mock::new([doc_id]);
@@ -166,8 +160,36 @@ fn suspend_of_a_trimmed_union_panics() {
         .collect();
     let mut union = opaque(UnionVariant::FlatFull(UnionFullFlat::new(children)));
     union.variant.trim(usize::MAX, true);
+    union
+}
 
-    let _ = Box::new(union).suspend();
+/// The pipeline suspends the tree at the read-lock release that ends a
+/// partial-range drain, so a trimmed union must suspend, and its suspended form
+/// must still answer the accessors `FT.PROFILE` reads.
+#[test]
+fn suspend_of_a_drained_trimmed_union() {
+    let mut union = trimmed_opaque();
+    while union.read().unwrap().is_some() {}
+    let (last_doc_id, num_estimated) = (union.last_doc_id(), union.num_estimated());
+
+    let suspended = Box::new(union).suspend();
+    assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), last_doc_id);
+    assert_eq!(
+        RQESuspendedIterator::num_estimated(&*suspended),
+        num_estimated
+    );
+}
+
+/// Resuming a trimmed union is refused with an ordinary panic rather than
+/// aborting the process — see the comment in [`UnionOpaque`]'s
+/// [`RQESuspendedIterator::resume`] for why that takes an early refusal.
+#[test]
+#[should_panic(expected = "resume is not supported on UnionTrimmed")]
+fn resume_of_a_trimmed_union_panics() {
+    let mock_ctx = MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+
+    let _ = Box::new(trimmed_opaque()).suspend().resume(&guard);
 }
 
 /// The allocation — and the payload's address inside it — survive the cycle.

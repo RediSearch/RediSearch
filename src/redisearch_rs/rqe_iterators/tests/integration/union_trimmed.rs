@@ -11,9 +11,11 @@
 
 use crate::utils::{Mock, MockVec, create_mock_3, drain_doc_ids};
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, TypeErasedRQEIterator, UnionTrimmed,
+    IteratorType, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, TypeErasedRQEIterator,
+    UnionTrimmed,
 };
 use rqe_iterators_test_utils::ContractChecker;
+use rqe_iterators_test_utils::MockContext;
 
 /// Helper: create a vec of boxed MockVec children from doc_id slices.
 /// Each child's `num_estimated` equals the length of its slice.
@@ -477,23 +479,43 @@ fn into_trimmed_reuses_all_children() {
 // suspend()
 // =============================================================================
 
-/// `suspend` panics, so it is the whole of the suspend/resume surface that can
-/// be exercised: `resume`'s companion panic is unreachable from any value this
-/// crate can build, since `suspend` is the only thing that could have produced
-/// the suspended form to call it on.
-///
-/// Children are type-erased because that is the shape production hands the
-/// union — the refusal must not depend on the child type.
-#[test]
-#[should_panic(expected = "suspend is not supported on UnionTrimmed")]
-fn suspend_panics() {
-    let children = (1..=3)
+fn erased_children() -> Vec<TypeErasedRQEIterator<'static>> {
+    (1..=3)
         .map(|doc_id| {
             let child: Mock<'_, 1> = Mock::new([doc_id]);
             TypeErasedRQEIterator::new(Box::new(child))
         })
-        .collect();
-    let union = UnionTrimmed::new(children, usize::MAX, true);
+        .collect()
+}
 
-    let _ = Box::new(union).suspend();
+/// The pipeline suspends the tree when it releases the spec read lock after
+/// draining it, so a drained trimmed union must suspend and keep answering the
+/// suspended accessors until it is dropped.
+///
+/// Children are type-erased because that is the shape production hands the
+/// union.
+#[test]
+fn suspend_after_drain() {
+    let mut union = UnionTrimmed::new(erased_children(), usize::MAX, true);
+    assert_eq!(drain_doc_ids(&mut union), [3, 2, 1]);
+    let (last_doc_id, num_estimated) = (union.last_doc_id(), union.num_estimated());
+
+    let suspended = Box::new(union).suspend();
+    assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), last_doc_id);
+    assert_eq!(
+        RQESuspendedIterator::num_estimated(&*suspended),
+        num_estimated
+    );
+}
+
+/// A trimmed union has no position to re-derive, so a suspended one must never
+/// be resumed.
+#[test]
+#[should_panic(expected = "resume is not supported on UnionTrimmed")]
+fn resume_panics() {
+    let mock_ctx = MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let union = UnionTrimmed::new(erased_children(), usize::MAX, true);
+
+    let _ = Box::new(union).suspend().resume(&guard);
 }
