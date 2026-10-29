@@ -43,6 +43,12 @@ def testDeleteIndex(env):
 
 def test_yield_while_bg_indexing_mod4745(env):
     conn = getConnectionByEnv(env)
+    # BG_INDEX yields are counted per RM_Scan cursor step (one per DB-dict bucket),
+    # so the expected count assumes the dict expands to ~one bucket per doc. Redis
+    # defers dict expansion while a persistence fork is live (copy-on-write), which
+    # would leave the dict under-sized and the scan short. Disable periodic RDB save
+    # so no bgsave fork races the key load and the count stays deterministic.
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'save', '')
     # Create an index in which each shard has > 1000 docs.
     n = 1010 * env.shardsCount
     for i in range(n):
