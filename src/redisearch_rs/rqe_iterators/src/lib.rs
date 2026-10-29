@@ -80,8 +80,8 @@ pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_i
 pub use inverted_index::{
     GeoRangeError, InvalidGeoInput, Missing, Numeric, NumericIteratorVariant, Tag, Term,
     TermIndexReader, build_geo_numeric_filters, build_geo_range_iterator,
-    build_numeric_filter_iterator, build_term_iterator, extract_geo_unit_factor,
-    free_geo_numeric_filters, new_geo_range_iterator, open_numeric_or_geo_index,
+    build_numeric_filter_iterator, build_term_iterator, free_geo_numeric_filters,
+    new_geo_range_iterator, open_numeric_or_geo_index,
 };
 pub use metric::Metric;
 pub use metric_lazy::MetricLazy;

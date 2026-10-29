@@ -11,6 +11,7 @@
 
 use std::ptr::NonNull;
 
+use geo::{DistanceUnit, RadiusFilter};
 use query_error::QueryErrorCode;
 use rqe_iterators::build_geo_range_iterator;
 use search_disk::SearchDiskHandle;
@@ -31,16 +32,23 @@ pub(crate) fn eval<'index>(
     gf: *mut ffi::GeoFilter,
     config: Config,
 ) -> Option<Evaluated<'index>> {
-    let status = ctx.status_ptr();
-    // SAFETY: `gf` is a valid, non-null `GeoFilter` (well-formed geo node) and
-    // `status` is the query's valid `QueryError` accumulator
-    // (`QueryEvalContext` invariant (2)).
-    if unsafe { ffi::GeoFilter_Validate(gf, status) } == 0 {
+    // SAFETY: `gf` is valid and, during single-threaded evaluation,
+    // exclusively owned for `'index`, so a `&'index mut` is sound.
+    let gf_ref = unsafe { &mut *gf };
+    let filter = RadiusFilter {
+        lon: gf_ref.lon,
+        lat: gf_ref.lat,
+        radius: gf_ref.radius,
+        // C validation rejected only INVALID, not unnamed integer discriminants.
+        unit: DistanceUnit::from_code(gf_ref.unitType).unwrap_or(DistanceUnit::Kilometers),
+    };
+    if let Err(error) = filter.validate() {
+        ctx.status()
+            .set_error(QueryErrorCode::Syntax, &error.to_string());
         return None;
     }
 
-    // SAFETY: `gf` is a valid, non-null `GeoFilter` (well-formed geo node).
-    let field_index = unsafe { (*gf).fieldIndex };
+    let field_index = gf_ref.fieldIndex;
     // `fieldIndex` is `RS_INVALID_FIELD_INDEX` when this node was parsed with no
     // local spec (e.g. a coordinator shard); nothing upstream stops it from
     // reaching evaluation against a different, spec-bearing context.
@@ -59,10 +67,6 @@ pub(crate) fn eval<'index>(
     if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
         let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
             .expect("query.sctx.diskSnapshot is null for a disk-backed geo query");
-        // SAFETY: `gf` is valid and, during single-threaded evaluation,
-        // exclusively owned for `'index`, so a `&'index mut` is sound.
-        let gf_ref = unsafe { &mut *gf };
-        let field_index = gf_ref.fieldIndex;
         // SAFETY: the wrapped disk spec is valid for `'index` (`QueryEvalContext`
         // invariants 1/2) and single-threaded query evaluation gives us the only
         // live reference to it; the enterprise iterators are registered whenever
@@ -82,9 +86,6 @@ pub(crate) fn eval<'index>(
 
     let sctx = NonNull::from(ctx.sctx());
     let min_union_iter_heap = config.min_union_iter_heap;
-    // SAFETY: `gf` is valid and, during evaluation, exclusively owned, so a
-    // `&mut` is sound.
-    let gf_ref = unsafe { &mut *gf };
     // SAFETY: `build_geo_range_iterator` preconditions hold:
     // 1. `sctx`/`sctx.spec` are valid and outlive the iterator —
     //    `QueryEvalContext` invariants (1)/(2).

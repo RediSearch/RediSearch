@@ -928,7 +928,7 @@ mod variant_resume {
         }
     }
 
-    /// Encode a WGS-84 point the way the geo indexer does, so `isWithinRadius`
+    /// Encode a WGS-84 point the way the geo indexer does, so [`geo::RadiusFilter`]
     /// decodes the stored value back to `(lon, lat)`.
     fn geo_score(lon: f64, lat: f64) -> f64 {
         let coords =
@@ -1125,10 +1125,8 @@ mod variant_resume {
     #[test]
     /// `Geo` survives a suspend/resume cycle.
     ///
-    /// This one deliberately round-trips *before* the first read, so it can run
-    /// under Miri: `FilterGeoReader`'s radius check calls the C `isWithinRadius`,
-    /// which Miri cannot execute. The post-read continuation is covered by
-    /// [`geo_round_trip_after_read`].
+    /// This round-trips before the first read; the post-read continuation is
+    /// covered by [`geo_round_trip_after_read`].
     fn geo_round_trip() {
         let ctx = MockContext::new(0, 0);
         let geo_filter = super::geo_filter_stub();
@@ -1184,11 +1182,6 @@ mod variant_resume {
     }
 
     #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "FilterGeoReader's radius check calls the C `isWithinRadius`, which Miri cannot \
-                  execute"
-    )]
     /// A positioned `Geo` iterator resumes onto the same arm and keeps reading
     /// where an uninterrupted run would have.
     fn geo_round_trip_after_read() {
@@ -1598,8 +1591,7 @@ mod variant_resume {
     #[cfg_attr(
         miri,
         ignore = "running GC over the index behind the reader's shared borrow is UB under Stacked \
-                  Borrows (see the module doc), and FilterGeoReader's radius check calls the C \
-                  `isWithinRadius`, which Miri cannot execute"
+                  Borrows (see the module doc)"
     )]
     /// `Geo` moves over a point outside the radius — the geo twin of
     /// [`filtered_moved_after_current_document_deleted`], and worth its own test

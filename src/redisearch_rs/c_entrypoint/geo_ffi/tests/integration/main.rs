@@ -15,7 +15,7 @@ fn oversized_unit_does_not_read_storage() {
     for len in [16, usize::MAX] {
         for ptr in [c"m".as_ptr(), std::ptr::null()] {
             // SAFETY: rejected lengths must not access the pointer, even under Miri.
-            let unit = unsafe { geo_ffi::Rust_GeoDistance_Parse_Buffer(ptr, len) };
+            let unit = unsafe { geo_ffi::GeoDistance_Parse_Buffer(ptr, len) };
             assert_eq!(unit, geo::DistanceUnit::Invalid as i32);
         }
     }
