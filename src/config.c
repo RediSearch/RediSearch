@@ -1293,7 +1293,7 @@ CONFIG_SETTER(setUpgradeIndex) {
   ArgsCursor rule_prefixes = {0};
 
   ACArgSpec argopts[] = {
-      SPEC_FOLLOW_HASH_ARGS_DEF(rule){.name = NULL},
+      SPEC_FOLLOW_HASH_ARGS_DEF(rule, &rule_prefixes){.name = NULL},
   };
 
   ACArgSpec *errarg = NULL;
