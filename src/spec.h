@@ -643,8 +643,8 @@ typedef struct {
 
 /** Parse options without constructing an index. Returns REDISMODULE_OK or ERR.
  * Leaves ac at the first unrecognized token (normally SCHEMA), or at the end.
- * Missing SCHEMA/unknown-option errors remain the caller's responsibility, after
- * rule validation. On error, only flags and the cursor position are meaningful. */
+ * Does not report missing SCHEMA or unrecognized-option errors.
+ * On error, only flags and the cursor position are meaningful. */
 int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
                            QueryError *status);
 
