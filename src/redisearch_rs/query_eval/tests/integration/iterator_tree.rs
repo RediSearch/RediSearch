@@ -49,18 +49,28 @@ fn into_profiled_wraps_root() {
 
 #[test]
 fn root_type_sees_through_profile() {
-    let mut mock_ctx = MockQueryEvalCtx::new();
-    let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
-    let mock_node = MockQueryNode::new(QueryNodeType::Null);
-    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
+    for (node_type, root_type) in [
+        (QueryNodeType::Null, IteratorType::Empty),
+        (QueryNodeType::Wildcard, IteratorType::Wildcard),
+    ] {
+        let mut mock_ctx = MockQueryEvalCtx::new();
+        mock_ctx.set_max_doc_id(10);
+        // SAFETY: `mock_ctx` is a fully initialised `QueryEvalCtx` whose pointer
+        // fields are all valid, and it outlives `ctx` and the tree built from it.
+        let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
+        let mock_node = MockQueryNode::new(node_type);
+        // SAFETY: `mock_node` is a valid `RSQueryNode`, not accessed elsewhere
+        // while `node` is alive.
+        let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let tree = QueryIteratorTree::new(&mut ctx, node, Config::default());
-    assert_eq!(tree.root_type(), IteratorType::Empty);
+        let tree = QueryIteratorTree::new(&mut ctx, node, Config::default());
+        assert_eq!(tree.root_type(), root_type);
 
-    let tree = tree.into_profiled();
-    assert_eq!(tree.root_type(), IteratorType::Empty);
-    let it = tree.into_root();
-    assert_eq!(it.type_(), IteratorType::Profile);
+        let tree = tree.into_profiled();
+        assert_eq!(tree.root_type(), root_type);
+        let it = tree.into_root();
+        assert_eq!(it.type_(), IteratorType::Profile);
+    }
 }
 
 #[test]
