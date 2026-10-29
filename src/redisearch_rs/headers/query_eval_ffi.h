@@ -57,8 +57,8 @@ extern "C" {
  *    a valid [`RSQueryNode`](ffi::RSQueryNode); it (and its
  *    `metricRequests`/`config` fields) must stay valid and exclusively borrowed
  *    for the duration of the call. The root's subtree must also satisfy
- *    invariants (4) and (5) of [`QueryNodeMut::new`], since evaluation
- *    rewrites tokens in place.
+ *    invariants (4), (5), and (6) of [`QueryNodeMut::new`], since evaluation
+ *    rewrites tokens in place and reads deferred INKEYS arguments.
  * 2. `opts` must be a non-null pointer to a valid [`RSSearchOptions`].
  * 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
  *    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec). `sctx` and the
@@ -66,6 +66,8 @@ extern "C" {
  *    addresses for the lifetime of the returned tree. Timeout source
  *    changes and deadline writes may occur only between iterator probes;
  *    only the blocked-client flag may change concurrently.
+ *    The caller must hold the spec read lock throughout deferred INKEYS
+ *    evaluation, as required by [`QueryEvalContext::new`].
  * 4. `status` must be a non-null pointer to a valid [`QueryError`].
  *
  * Together these are exactly the invariants documented on

@@ -547,6 +547,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "doc_key_map_ffi"
+version = "0.0.1"
+dependencies = [
+ "ahash",
+ "hashbrown",
+ "rqe_core",
+ "workspace_hack",
+]
+
+[[package]]
 name = "document"
 version = "0.0.1"
 dependencies = [
@@ -1892,6 +1902,7 @@ dependencies = [
  "build_utils",
  "c_trie",
  "dict",
+ "doc_key_map_ffi",
  "fat_array",
  "ffi",
  "field",
@@ -2198,6 +2209,7 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
+ "doc_key_map_ffi",
  "fnv_ffi",
  "fork_gc_ffi",
  "geo_ffi",
@@ -2569,6 +2581,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "criterion",
+ "doc_key_map_ffi",
  "ffi",
  "fnv_ffi",
  "fork_gc_ffi",
@@ -4026,6 +4039,7 @@ dependencies = [
  "miniz_oxide",
  "nix",
  "num-traits 0.2.19",
+ "once_cell",
  "ppv-lite86",
  "proc-macro2",
  "quote 1.0.46",

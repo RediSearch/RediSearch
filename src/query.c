@@ -21,6 +21,7 @@
 
 #include "geo_index.h"
 #include "query.h"
+#include "doc_id_meta.h"
 #include "config.h"
 #include "query_error_ffi.h"
 #include "redis_index.h"
@@ -1070,8 +1071,14 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "IDS {");
       if (spec) {
         for (size_t i = 0; i < qs->fn.len; i++) {
-          // docIds are pre-resolved at query construction (both modes).
-          t_docId did = qs->fn.docIds ? qs->fn.docIds[i] : 0;
+          t_docId did;
+          if (qs->fn.docIds) {
+            did = qs->fn.docIds[i];
+          } else {
+            size_t len;
+            const char *key = RedisModule_StringPtrLen(qs->fn.keys[i], &len);
+            did = DocTable_GetIdByKey(&spec->docs, key, len);
+          }
           if (did != 0) {
             s = sdscatprintf(s, "%" PRIu64 ",", did);
           }
