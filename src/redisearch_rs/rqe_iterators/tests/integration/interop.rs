@@ -20,8 +20,8 @@ use ffi::{
 };
 use rqe_core::DocId;
 use rqe_iterators::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus,
-    ResumeOutcome, TypeErasedRQEIterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    TypeErasedRQEIterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
     intersection::Intersection,
 };
 use rqe_iterators_test_utils::{MockContext, ResumeOutcomeExt, revalidate_via_resume};
@@ -102,49 +102,6 @@ fn resume_through_c_abi(
     });
 
     (report, data)
-}
-
-/// Drive the legacy [`RQEIterator::revalidate`] over the same lowered mock, reported the same way,
-/// so the two revalidation paths can be diffed against each other.
-fn revalidate_c_iterator(
-    outcome: MockRevalidateResult,
-) -> (Result<ResumeReport, RQEIteratorError>, MockData) {
-    let ctx = MockContext::new(100, 10);
-    let guard = ctx.spec_read();
-
-    let mock = Mock::new([1, 2, 3]);
-    let data = mock.data();
-    mock.data().set_revalidate_result(outcome);
-
-    let mut it = CRQEIterator::from_rust_leaf(mock);
-    let report = it.revalidate(&guard).map(|status| match status {
-        RQEValidateStatus::Ok => ResumeReport::Ok,
-        RQEValidateStatus::Moved { current } => ResumeReport::Moved(current.map(|r| r.doc_id)),
-        RQEValidateStatus::Aborted => ResumeReport::Aborted,
-    });
-
-    (report, data)
-}
-
-/// The two revalidation paths report failures as [`RQEIteratorError`], which is not comparable
-/// (it wraps an [`std::io::Error`]). Fold both into one comparable value.
-#[derive(Debug, PartialEq, Eq)]
-enum FlatReport {
-    Ok,
-    Moved(Option<DocId>),
-    Aborted,
-    TimedOut,
-    IoError,
-}
-
-fn flatten(report: Result<ResumeReport, RQEIteratorError>) -> FlatReport {
-    match report {
-        Ok(ResumeReport::Ok) => FlatReport::Ok,
-        Ok(ResumeReport::Moved(position)) => FlatReport::Moved(position),
-        Ok(ResumeReport::Aborted) => FlatReport::Aborted,
-        Err(RQEIteratorError::TimedOut) => FlatReport::TimedOut,
-        Err(RQEIteratorError::IoError(_)) => FlatReport::IoError,
-    }
 }
 
 #[test]
@@ -456,28 +413,6 @@ fn a_timed_out_resume_through_the_type_erased_bridge_stays_a_timeout() {
 }
 
 #[test]
-fn revalidate_and_resume_report_the_same_outcome() {
-    for outcome in [
-        MockRevalidateResult::Ok,
-        MockRevalidateResult::Move,
-        MockRevalidateResult::Abort,
-        MockRevalidateResult::TimedOut,
-        MockRevalidateResult::IoError,
-    ] {
-        let (legacy, _) = revalidate_c_iterator(outcome);
-        let (resumed, _) = resume_through_c_abi(outcome);
-
-        assert_eq!(
-            flatten(resumed),
-            flatten(legacy),
-            "`resume` supersedes `revalidate` on the same C `Revalidate` callback, so for {outcome:?} \
-             the two have to agree: while both paths are live, any divergence is a bug in whichever \
-             one the caller happens to take",
-        );
-    }
-}
-
-#[test]
 fn timed_out_revalidation_is_reported_as_a_timeout() {
     assert_eq!(
         revalidate_through_c_abi(MockRevalidateResult::TimedOut),
@@ -510,28 +445,6 @@ fn successful_revalidation_is_reported_as_ok() {
     assert_eq!(
         revalidate_through_c_abi(MockRevalidateResult::Ok),
         ValidateStatus_VALIDATE_OK,
-    );
-}
-
-#[test]
-fn a_c_child_that_times_out_hands_its_rust_parent_an_error() {
-    let ctx = MockContext::new(100, 10);
-    let guard = ctx.spec_read();
-
-    let mock = Mock::new([1, 2, 3]);
-    mock.data()
-        .set_revalidate_result(MockRevalidateResult::TimedOut);
-    // Lowering the mock to the C ABI and adopting it back puts both mappings in the path, so this
-    // covers the round trip: `Err(TimedOut)` -> `VALIDATE_TIMEOUT` -> `Err(TimedOut)`.
-    let mut child = CRQEIterator::from_rust_leaf(mock);
-
-    let err = child
-        .revalidate(&guard)
-        .expect_err("a timed-out child must surface as an error, not as a status");
-    assert!(
-        matches!(err, RQEIteratorError::TimedOut),
-        "expected a timeout, got {err:?}: a Rust composite propagates this to the root of the \
-         tree, exactly as it does for a child that times out during a read or a skip",
     );
 }
 

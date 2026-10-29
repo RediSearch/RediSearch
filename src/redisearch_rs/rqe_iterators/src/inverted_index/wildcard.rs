@@ -17,7 +17,7 @@ use rqe_core::DocId;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     expiration_checker::NoOpChecker,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -67,7 +67,7 @@ where
     /// The garbage collector may either null out `existingDocs` (after
     /// collecting all documents) or replace it with a new allocation. In
     /// both cases the reader's pointer is stale and the iterator must
-    /// [abort](RQEValidateStatus::Aborted).
+    /// [abort](ResumeOutcome::Aborted).
     ///
     /// # Safety
     ///
@@ -156,20 +156,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.it.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // The existingDocs encoding match is a structural invariant: the
-        // encoding is determined at index creation and cannot change.
-        if self.should_abort(spec) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        self.it.revalidate(spec)
     }
 
     #[inline(always)]

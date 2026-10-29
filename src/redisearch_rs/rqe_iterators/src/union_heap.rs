@@ -21,7 +21,7 @@ use crate::union::{
 use crate::utils::{DocIdMinHeap, HeapEntry};
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place},
 };
 use index_spec::IndexSpecReadGuard;
@@ -224,31 +224,11 @@ where
         }
     }
 
-    /// [`rebuild_unchanged_entries`] on the active union, for the exit of
-    /// [`revalidate`](RQEIterator::revalidate) where no child changed.
-    fn refresh_aggregate(&mut self) -> RebuildOutcome {
-        // SAFETY: the two `Ref` modes of `RawIndexResult` are layout-identical
-        // (the const proof in `index_result`'s core), and viewing the result as
-        // suspended only weakens its pointers. The rebuild derives every entry
-        // afresh from a live borrow of a child this union owns for `'index`, and
-        // nothing takes `&mut` to a child before the result is read back as
-        // active, so the entries are as valid as `push_borrowed` would make
-        // them. `self.result` is a field disjoint from `self.heap` and
-        // `self.children`.
-        let result =
-            unsafe { &mut *(&raw mut self.result).cast::<RawIndexResult<'index, Suspended>>() };
-        rebuild_unchanged_entries::<_, QUICK_EXIT>(result, self.heap.as_slice(), &mut self.children)
-    }
-
     /// Settles the union's position after its children have moved, and reports where
     /// that leaves it.
     ///
-    /// The single place that decides a union's post-change position, shared by
-    /// [`RQEIterator::revalidate`] and
-    /// [`RQESuspendedIterator::resume`] so the two
-    /// cannot drift apart — the legacy and the `Box<Self>` path must make the same
-    /// re-seek and moved-versus-unchanged decisions, and a divergence between them is a
-    /// bug. Each caller rebuilds the heap and sets `num_active` first, because
+    /// The single place that decides a union's post-change position on the
+    /// [`RQESuspendedIterator::resume`] path. The caller rebuilds the heap and sets `num_active` first, because
     /// removing an aborted child invalidates both — not because a child left out of
     /// the heap can come back. `rebuild_heap` leaves out the ones that are still
     /// exhausted.
@@ -728,69 +708,6 @@ where
         self.is_eof
     }
 
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        if self.is_eof {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        let original_last_doc_id = self.last_doc_id();
-        let mut any_change = false;
-
-        // Index-based iteration: swap_remove may reorder elements.
-        let mut i = 0;
-        while i < self.children.len() {
-            match self.children[i].revalidate(spec)? {
-                RQEValidateStatus::Aborted => {
-                    self.children.swap_remove(i);
-                    any_change = true;
-                }
-                RQEValidateStatus::Moved { .. } => {
-                    any_change = true;
-                    i += 1;
-                }
-                RQEValidateStatus::Ok => {
-                    i += 1;
-                }
-            }
-        }
-
-        if self.children.is_empty() {
-            self.is_eof = true;
-            self.num_active = 0;
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        // Both the rebuild below and the settle rebuild the aggregate in place.
-        if !result_is_borrowed_union(&self.result) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        // Nothing moved or aborted: the children still sit on the positions the
-        // aggregate describes, so it stands, with its entries derived afresh.
-        if !any_change {
-            let rebuilt = self.refresh_aggregate();
-            debug_assert_ne!(
-                rebuilt,
-                RebuildOutcome::Unbacked,
-                "a union whose children all revalidated unchanged cannot lose its aggregate",
-            );
-            if rebuilt == RebuildOutcome::Unbacked {
-                return Ok(RQEValidateStatus::Aborted);
-            }
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        self.rebuild_heap();
-        self.num_active = self.heap.len();
-
-        Ok(self
-            .settle_after_children_changed(original_last_doc_id)?
-            .into_validate_status(&mut self.result))
-    }
-
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Union
@@ -894,10 +811,9 @@ where
 /// Rebuilds a union's borrowed entries for the document `result` describes,
 /// when no child changed position since the aggregate was built.
 ///
-/// Shared by [`RQEIterator::revalidate`] and
-/// [`resume`](RQESuspendedIterator::resume), on the exit that publishes the
-/// aggregate without a settle behind it: there, taking each child mutably to
-/// revalidate or resume it has invalidated the entries borrowed from it.
+/// Used by [`resume`](RQESuspendedIterator::resume), on the exit that publishes
+/// the aggregate without a settle behind it: there, taking each child mutably
+/// to resume it has invalidated the entries borrowed from it.
 ///
 /// No child was dropped on that exit, so the heap's child indices still name
 /// their slots, and the offer order follows the heap, as the read path does:

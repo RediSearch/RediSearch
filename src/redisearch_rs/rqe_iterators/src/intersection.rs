@@ -15,7 +15,7 @@
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
     composite::{FreeSuspendedShell, repush_borrowed_entries},
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -331,63 +331,12 @@ where
             .unwrap_or(0)
     }
 
-    /// Re-seeks to `target` after revalidation, rebuilding the aggregate on the
+    /// Re-seeks to `target` after a resume, rebuilding the aggregate on the
     /// consensus found.
-    fn reseek(&mut self, target: DocId) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
+    fn reseek(&mut self, target: DocId) -> Result<(), RQEIteratorError> {
         debug_assert!(target > self.last_doc_id, "re-seek must move forward");
-        match self.skip_to(target)? {
-            Some(_) => Ok(RQEValidateStatus::Moved {
-                current: Some(&mut self.result),
-            }),
-            None => Ok(RQEValidateStatus::Moved { current: None }),
-        }
-    }
-
-    /// Settles the intersection after [`revalidate`](RQEIterator::revalidate)
-    /// has walked every child.
-    ///
-    /// [`resume`](RQESuspendedIterator::resume) cannot call this: it has to
-    /// settle the result before the cast, so it calls [`settle_after_walk`]
-    /// there and [`apply_verdict`](Self::apply_verdict) after it.
-    fn settle(
-        &mut self,
-        walk: ChildWalk,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // SAFETY: the two `Ref` modes of `RawIndexResult` are layout-identical
-        // (the const proof in `index_result`'s core), and viewing the result as
-        // suspended only weakens its pointers. The settle derives every entry
-        // afresh from a live borrow of a child this intersection owns for
-        // `'index`, and nothing takes `&mut` to a child before the result is
-        // read back as active, except a re-seek, which rebuilds the aggregate
-        // itself. `self.result` is a field disjoint from `self.children`.
-        let result =
-            unsafe { &mut *(&raw mut self.result).cast::<RawIndexResult<'index, Suspended>>() };
-        match settle_after_walk(
-            result,
-            &mut self.children,
-            self.last_doc_id,
-            self.is_eof,
-            walk,
-        ) {
-            Some(verdict) => self.apply_verdict(verdict),
-            None => Ok(RQEValidateStatus::Aborted),
-        }
-    }
-
-    /// Carries out what [`settle_after_walk`] decided.
-    fn apply_verdict(
-        &mut self,
-        verdict: SettleVerdict,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        match verdict {
-            SettleVerdict::Idle | SettleVerdict::Refreshed => Ok(RQEValidateStatus::Ok),
-            SettleVerdict::Ended => {
-                self.is_eof = true;
-                Ok(RQEValidateStatus::Moved { current: None })
-            }
-            // The re-seek rebuilds the aggregate the settle cleared.
-            SettleVerdict::Reseek => self.reseek(self.furthest_child_doc_id()),
-        }
+        self.skip_to(target)?;
+        Ok(())
     }
 
     /// Reads from the first child. Returns the doc_id or None if EOF.
@@ -679,21 +628,6 @@ where
         self.is_eof
     }
 
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let mut walk = ChildWalk::Unchanged;
-        for child in &mut self.children {
-            match child.revalidate(spec)? {
-                RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
-                RQEValidateStatus::Moved { current } => walk = walk.and_moved(current.is_none()),
-                RQEValidateStatus::Ok => {}
-            }
-        }
-        self.settle(walk)
-    }
-
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Intersect
@@ -739,7 +673,7 @@ where
     }
 }
 
-/// How an intersection's children came through revalidation or resume.
+/// How an intersection's children came through a resume.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ChildWalk {
     /// Every child stayed where it stood.
@@ -762,8 +696,8 @@ impl ChildWalk {
     }
 }
 
-/// What an intersection does once every child has been revalidated or
-/// resumed, as decided by [`settle_after_walk`].
+/// What an intersection does once every child has been resumed, as decided
+/// by [`settle_after_walk`].
 #[must_use = "the verdict decides what the intersection publishes"]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SettleVerdict {
@@ -780,11 +714,10 @@ enum SettleVerdict {
     Reseek,
 }
 
-/// Decide what an intersection does once every child has been revalidated or
-/// resumed, and leave its result safe to re-narrow.
+/// Decide what an intersection does once every child has been resumed, and
+/// leave its result safe to re-narrow.
 ///
-/// Shared by [`revalidate`](RQEIterator::revalidate) and
-/// [`resume`](RQESuspendedIterator::resume). Runs after the child walk, so a
+/// Runs after [`resume`](RQESuspendedIterator::resume)'s child walk, so a
 /// child's error or abort wins over a substitute put there through
 /// [`current`](RQEIterator::current). A child may report a move without
 /// leaving its position, so the aggregate is refreshed rather than re-sought
@@ -879,8 +812,8 @@ where
         let is_eof = self.is_eof;
         let raw = Box::into_raw(self);
 
-        // Resume every child in place, walking them as `revalidate` does. Slots
-        // never move, so the entries' addresses stay right, but their
+        // Resume every child in place; one aborting aborts the intersection.
+        // Slots never move, so the entries' addresses stay right, but their
         // provenance does not survive a child's transition: they are rebuilt or
         // cleared below, before the cast.
         let (base, len) = {
@@ -915,8 +848,8 @@ where
             match unsafe { resume_child_slot_in_place(elem, guard) }? {
                 ResumeSlotOutcome::Unchanged => {}
                 ResumeSlotOutcome::Moved => {
-                    // `revalidate` reads the EOF from its `Moved` payload; here
-                    // it is read off the resumed child.
+                    // The slot helper hands back no result, so the EOF is
+                    // read off the resumed child.
                     //
                     // SAFETY: the helper just rewrote the slot as a valid
                     // `S::Resumed<'a>`.
@@ -970,10 +903,18 @@ where
         // pointer into `result` valid.
         let mut active = unsafe { Box::from_raw(raw.cast::<Intersection<'a, S::Resumed<'a>>>()) };
 
-        match active.apply_verdict(verdict)? {
-            RQEValidateStatus::Ok => Ok(ResumeOutcome::Ok(active)),
-            RQEValidateStatus::Moved { .. } => Ok(ResumeOutcome::Moved(active)),
-            RQEValidateStatus::Aborted => unreachable!("applying a verdict never aborts"),
+        match verdict {
+            SettleVerdict::Idle | SettleVerdict::Refreshed => Ok(ResumeOutcome::Ok(active)),
+            SettleVerdict::Ended => {
+                active.is_eof = true;
+                Ok(ResumeOutcome::Moved(active))
+            }
+            // The re-seek rebuilds the aggregate the settle cleared.
+            SettleVerdict::Reseek => {
+                let target = active.furthest_child_doc_id();
+                active.reseek(target)?;
+                Ok(ResumeOutcome::Moved(active))
+            }
         }
     }
 

@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
 };
 use index_result::RSIndexResult;
@@ -220,13 +220,6 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
 
     fn at_eof(&self) -> bool {
         self.child.at_eof()
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.child.revalidate(spec)
     }
 
     #[inline(always)]

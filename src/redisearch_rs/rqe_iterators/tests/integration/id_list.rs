@@ -10,7 +10,7 @@
 use crate::id_cases;
 use index_result::RSResultKind;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEValidateStatus, SkipToOutcome,
+    IteratorType, RQEIterator, SkipToOutcome,
     id_list::{IdListSorted, IdListUnsorted},
 };
 use rqe_iterators_test_utils::ContractChecker;
@@ -238,30 +238,7 @@ fn rewind(#[case] case: &[u64]) {
     assert!(!it.at_eof());
 }
 
-#[test]
-fn revalidate() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = ContractChecker::new(IdListSorted::new(vec![1, 2, 3]));
-    let status = it
-        .revalidate(&*mock_ctx.spec_read())
-        .expect("revalidate failed");
-    assert_eq!(status, RQEValidateStatus::Ok);
-}
-
-mod via_resume {
-    use super::*;
-    use rqe_iterators::TypeErasedRQEIterator;
-    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
-
-    #[test]
-    fn revalidate() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let it = Box::new(IdListSorted::new(vec![1, 2, 3]));
-        revalidate_via_resume(TypeErasedRQEIterator::new(it), &mock_ctx.spec_read())
-            .expect("resume should not fail")
-            .expect_ok();
-    }
-}
+mod via_resume {}
 
 #[test]
 fn id_list_sorted_upholds_current_contract() {

@@ -14,7 +14,7 @@ use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome, WildcardIterator,
+    ResumeOutcome, SkipToOutcome, WildcardIterator,
     boxed::suspend_child_slot_in_place,
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -363,96 +363,6 @@ where
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.past_end
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // 1. Revalidate the wildcard iterator first.
-        let wcii_status = self.wcii.revalidate(spec)?;
-        if matches!(wcii_status, RQEValidateStatus::Aborted) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        // 2. Revalidate the child iterator.
-        let child_aborted = matches!(self.child.revalidate(spec)?, RQEValidateStatus::Aborted);
-        if child_aborted {
-            // When child is aborted, NOT becomes "NOT nothing" = everything
-            // from the wildcard iterator.
-            self.child = MaybeEmpty::new_empty();
-        }
-
-        // 3. If the wildcard moved, sync state.
-        if matches!(wcii_status, RQEValidateStatus::Moved { .. }) {
-            // Latched, never assigned: exhaustion is terminal, and this iterator's own
-            // reasons for reaching it — the `max_doc_id` window closing, which `skip_to`
-            // records with the wildcard still live on a document — outlive whatever the
-            // wildcard now answers. Assigning would drop them.
-            self.past_end |= self.wcii.at_eof();
-            // Track whether we land on a valid NOT result. Starts true
-            // when wcii is not at EOF (we have a candidate position).
-            //
-            // A wildcard that revalidated onto a document past `max_doc_id` has
-            // nothing left inside this iterator's range, so it is not a candidate
-            // — the third place the bound has to be applied, alongside the read
-            // loop and `skip_to`, because each publishes a wildcard position of
-            // its own. Without it, a concurrent index change could hand a native
-            // parent `Moved { current: Some(_) }` with an out-of-range id.
-            let mut have_valid_pos = !self.past_end && self.wcii.last_doc_id() <= self.max_doc_id;
-            if have_valid_pos {
-                self.result.doc_id = self.wcii.last_doc_id();
-
-                // If child is behind, skip it forward — the only thing that makes
-                // the membership test below mean anything.
-                //
-                // A failure here must not be swallowed. The contract forbids a
-                // skip that carries no result from leaving the child's position
-                // *on* the target, exactly so a parent cannot mistake it for a
-                // hit — so the test below would read the failure as "not in the
-                // child" and publish a document this iterator exists to exclude.
-                // Undecided is not the same as absent.
-                if self.child.last_doc_id() < self.result.doc_id {
-                    let _ = self.child.skip_to(self.result.doc_id)?;
-                }
-
-                // If child landed on the same position, the current
-                // result is in the child and invalid for NOT. Advance to
-                // the next valid position.
-                if self.child.last_doc_id() == self.result.doc_id {
-                    // A failing scan leaves nothing to report, and neither answer
-                    // available here would be true: `Moved { current: None }` says
-                    // exhausted, which every composite acts on — `Intersection`
-                    // ends, `OptionalOptimized` latches `past_end`, both unions drop
-                    // the child — so a later `read` finding a document would be
-                    // resurrecting past a parent that has already written this
-                    // iterator off. The error goes to the caller instead, which
-                    // aborts the iterator rather than trusting a position that does
-                    // not exist. Same trade `UnionFlat` makes when catching up a
-                    // lagging child fails.
-                    have_valid_pos = self.read_inner()?;
-                }
-            }
-
-            // Keep the has-current state in step with what we are about to
-            // report: a `Moved { current: None }` must leave `current()` — and
-            // `at_eof()`, its negation — agreeing with it, rather than handing
-            // back the stale pre-revalidation result.
-            if !have_valid_pos {
-                self.past_end = true;
-            }
-
-            Ok(RQEValidateStatus::Moved {
-                current: if have_valid_pos {
-                    Some(&mut self.result)
-                } else {
-                    None
-                },
-            })
-        } else {
-            Ok(RQEValidateStatus::Ok)
-        }
     }
 
     #[inline(always)]

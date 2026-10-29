@@ -31,7 +31,7 @@ use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
 use query_flags::{QEFlag, QEFlags};
 use query_types::QueryNodeType;
 use rqe_core::DocId;
-use rqe_iterators::{IteratorsConfig, RQEIterator, RQEValidateStatus};
+use rqe_iterators::{IteratorsConfig, RQEIterator};
 use rqe_iterators_test_utils::{
     ContractChecker, GlobalGuard, TestContext, assert_current_contract, with_c_globals_locked,
 };
@@ -1060,43 +1060,6 @@ fn eval_tag_prefix_child_expansions_quick_exit() {
         1,
         "the expansion union is built with quickExit hard-coded true"
     );
-}
-
-#[test]
-fn eval_tag_prefix_expansion_reader_revalidates_against_the_matched_value() {
-    // The prefix expansion must open the reader on the concrete
-    // trie-matched value (`apple`), not the query pattern (`ap`): `apple` is
-    // the only value in `idx->values`, so a reader bound to the pattern
-    // instead would fail to find itself and abort on the very first
-    // revalidate -- no GC-style perturbation needed; draining and rewinding
-    // alone (as the other expansion tests do) would never catch it.
-    let mut fixture = TagFixture::new(TagOptions {
-        values: values(&[(TAG_APPLE, &[1, 2])]),
-        children: vec![Child::Prefix {
-            pattern: b"ap",
-            prefix: true,
-            suffix: false,
-        }],
-        ..TagOptions::default()
-    });
-    let spec = fixture._context.spec_read();
-    // `TagFixture::eval` inlined by hand: it takes `&mut self` wholesale,
-    // which would conflict with `spec`'s borrow of `fixture._context` above,
-    // even though the two never touch the same field.
-    // SAFETY: `fixture.node` is a valid, live `RSQueryNode`, exclusively borrowed
-    // for the call. Its only child comes from `build_child`, which satisfies
-    // invariants (3)-(5).
-    let node_ref = unsafe { QueryNodeMut::new(fixture.node.as_non_null()) };
-    let evaluated =
-        eval_node(&mut fixture.ctx, node_ref, Config::default()).expect("apple matches");
-    let mut it = ContractChecker::new(evaluated.into_boxed());
-    let status = it.revalidate(&spec).expect("revalidate must not error");
-    assert_eq!(
-        status,
-        RQEValidateStatus::Ok,
-        "the reader must still find itself under the concrete matched value"
-    );
-    assert_eq!(drain_doc_ids(&mut it), vec![1, 2]);
 }
 
 #[test]
