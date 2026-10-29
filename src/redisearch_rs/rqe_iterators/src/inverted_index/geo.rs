@@ -13,12 +13,10 @@ use ffi::{GeoDistance, GeoFilter, QueryIterator, RedisSearchCtx};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use geo::hash::InvalidWGS84Coordinates;
 use inverted_index::NumericFilter;
+use numeric_range_tree::NumericRangeTree;
 use query_types::QueryNodeType;
 
-use crate::{
-    NumericIteratorVariant, c2rust::CRQEIterator, open_numeric_or_geo_index,
-    union_opaque::build_union,
-};
+use crate::{NumericIteratorVariant, c2rust::CRQEIterator, union_opaque::build_union};
 
 /// Error returned by [`build_geo_numeric_filters`] when the caller supplies
 /// invalid geo parameters.
@@ -178,7 +176,6 @@ pub unsafe fn new_geo_range_iterator<'index>(
     sctx: NonNull<ffi::RedisSearchCtx>,
     gf: &'index mut GeoFilter,
     field_ctx: &FieldFilterContext,
-    numeric_compress: bool,
 ) -> Result<GeoFilterAndRangeIterator<'index>, GeoRangeError> {
     // SAFETY: 1. guarantees sctx is valid and non-null.
     let sctx_ref = unsafe { sctx.as_ref() };
@@ -198,10 +195,11 @@ pub unsafe fn new_geo_range_iterator<'index>(
     // within the bounds of the `numFields`-sized array `spec.fields` points to.
     let fs_ptr = unsafe { spec.fields.add(field_index as usize) };
     // SAFETY: `fs_ptr` is valid per the derivation above.
-    let fs = unsafe { &mut *fs_ptr };
-    // SAFETY: 1–2.
-    let Some(tree) = (unsafe { open_numeric_or_geo_index(spec, fs, false, numeric_compress) })
-    else {
+    let fs = unsafe { &*fs_ptr };
+    // The field is a geo field, so its tree is a `NumericRangeTree`. Copy the
+    // owner's pointer rather than open the tree through a `&mut`, as
+    // `RangeSource::new` requires.
+    let Some(tree) = NonNull::new(fs.tree.cast::<NumericRangeTree>()) else {
         return Err(GeoRangeError::IndexNotFound);
     };
 
@@ -255,7 +253,6 @@ pub unsafe fn build_geo_range_iterator(
     sctx: NonNull<RedisSearchCtx>,
     gf: &mut GeoFilter,
     min_union_iter_heap: usize,
-    compress: bool,
 ) -> Option<NonNull<QueryIterator>> {
     let field_index = gf.fieldIndex;
     let field_ctx = FieldFilterContext {
@@ -265,7 +262,7 @@ pub unsafe fn build_geo_range_iterator(
 
     // SAFETY: preconditions (1)–(3) map directly to those of
     // `new_geo_range_iterator`.
-    let groups = unsafe { new_geo_range_iterator(sctx, gf, &field_ctx, compress) }.ok()?;
+    let groups = unsafe { new_geo_range_iterator(sctx, gf, &field_ctx) }.ok()?;
 
     let children: Vec<CRQEIterator> = groups
         .into_iter()

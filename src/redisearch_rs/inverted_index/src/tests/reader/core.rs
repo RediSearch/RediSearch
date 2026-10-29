@@ -381,6 +381,22 @@ fn reader_is_index() {
     assert!(!ir.points_to_ii(&ii2));
 }
 
+/// Reseating is only meant to refresh the reader's pointer to the index it
+/// already reads; moving it to another index would leave its position
+/// describing blocks it no longer reads.
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "reseat must not move the reader to a different index")]
+fn reseat_index_onto_another_index_panics() {
+    let ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    let other = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    let mut ir = ii.reader();
+
+    // SAFETY: violates requirement 1 on purpose: the identity check runs before
+    // anything is installed, and `other` is valid and not mutably aliased.
+    unsafe { ir.reseat_index(std::ptr::NonNull::from(&other)) };
+}
+
 #[test]
 fn reading_records() {
     // Make two blocks. The first with two records and the second with one record

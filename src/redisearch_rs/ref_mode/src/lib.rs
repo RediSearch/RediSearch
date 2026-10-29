@@ -255,6 +255,25 @@ impl<Rf: Ref, T: ?Sized> SharedPtr<Rf, T> {
     pub const fn as_non_null(self) -> NonNull<T> {
         self.raw
     }
+
+    /// Build a pointer of any mode from a [`NonNull<T>`], for code generic over
+    /// [`Ref`] that cannot name [`SharedPtr::from_ref`] or
+    /// [`SharedPtr::from_non_null`].
+    ///
+    /// # Safety
+    ///
+    /// When `Rf` is [`Active<'a>`], `raw` must uphold the [`Active`] invariant:
+    /// [valid] for reads of `T`, and not aliased by any mutable reference, for
+    /// `'a`. When `Rf` is [`Suspended`] there is no requirement.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    #[inline(always)]
+    pub const unsafe fn from_non_null_unchecked(raw: NonNull<T>) -> Self {
+        Self {
+            raw,
+            _ref: PhantomData,
+        }
+    }
 }
 
 #[cfg(test)]

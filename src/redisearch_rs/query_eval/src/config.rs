@@ -20,8 +20,6 @@ use crate::scorers::BuiltInScorer;
 /// than read from global state deep inside the dispatcher.
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
-    /// Whether numeric inverted indexes use the compressed on-disk encoding.
-    pub numeric_compress: bool,
     /// Whether an intersection prioritizes its union children when ordering its
     /// sub-iterators for evaluation.
     pub prioritize_intersect_union_children: bool,
@@ -57,7 +55,6 @@ impl Default for Config {
         let min_union_iter_heap = min_union_iter_heap as usize;
 
         Self {
-            numeric_compress: false,
             prioritize_intersect_union_children: false,
             default_scorer: None,
             min_term_prefix,

@@ -81,15 +81,8 @@ pub(crate) fn eval<'index>(
     // 2. `nf.field_index` is within `sctx.spec`'s current field count (asserted
     //    above).
     // 3. `field_ctx.field` is a field index, built as `Index` just above.
-    let iter = unsafe {
-        build_numeric_filter_iterator(
-            ctx.sctx(),
-            nf,
-            min_union_iter_heap,
-            &field_ctx,
-            config.numeric_compress,
-        )
-    };
+    let iter =
+        unsafe { build_numeric_filter_iterator(ctx.sctx(), nf, min_union_iter_heap, &field_ctx) };
 
     iter.map(Evaluated::RustCompound)
 }

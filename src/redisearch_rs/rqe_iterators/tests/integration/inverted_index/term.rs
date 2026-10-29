@@ -415,7 +415,7 @@ mod not_miri {
 
         // Build the iterator with a query term that does not exist in keysDict.
         // This simulates the GC having collected the entire inverted index for
-        // that term: Redis_OpenInvertedIndex will return null when should_abort
+        // that term: Redis_OpenInvertedIndex will return null when revalidation
         // tries to look it up.
         let field_mask = test.test.context.text_field_bit();
         let reader = test.test.context.term_inverted_index().reader(field_mask);
@@ -435,7 +435,7 @@ mod not_miri {
         // index — only the query term stored in the result differs.
         assert!(it.read().expect("failed to read").is_some());
 
-        // Revalidation calls should_abort which looks up "gc_collected" in
+        // Revalidation looks up "gc_collected" in
         // keysDict. The term is not there so Redis_OpenInvertedIndex returns
         // null, triggering the abort path.
         let status = it
@@ -621,7 +621,7 @@ mod not_miri {
 
             // Build the iterator with a query term that does not exist in keysDict.
             // This simulates the GC having collected the entire inverted index for
-            // that term: Redis_OpenInvertedIndex will return null when should_abort
+            // that term: Redis_OpenInvertedIndex will return null when revalidation
             // tries to look it up.
             let field_mask = test.test.context.text_field_bit();
             let reader = test.test.context.term_inverted_index().reader(field_mask);
@@ -641,7 +641,7 @@ mod not_miri {
             // index — only the query term stored in the result differs.
             assert!(it.read().expect("failed to read").is_some());
 
-            // Revalidation calls should_abort which looks up "gc_collected" in
+            // Revalidation looks up "gc_collected" in
             // keysDict. The term is not there so Redis_OpenInvertedIndex returns
             // null, triggering the abort path.
             let guard = test.test.context.spec_read();

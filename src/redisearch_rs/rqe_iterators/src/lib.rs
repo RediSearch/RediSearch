@@ -78,8 +78,8 @@ pub use id_list::IdList;
 pub use id_list_lazy::IdListLazy;
 pub use intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator};
 pub use inverted_index::{
-    GeoRangeError, InvalidGeoInput, Missing, Numeric, NumericIteratorVariant, Tag, Term,
-    TermIndexReader, build_geo_numeric_filters, build_geo_range_iterator,
+    GeoRangeError, InvalidGeoInput, Missing, Numeric, NumericIteratorVariant, RangeSource, Tag,
+    Term, TermIndexReader, build_geo_numeric_filters, build_geo_range_iterator,
     build_numeric_filter_iterator, build_term_iterator, extract_geo_unit_factor,
     free_geo_numeric_filters, new_geo_range_iterator, open_numeric_or_geo_index,
 };

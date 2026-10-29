@@ -92,9 +92,7 @@ pub(crate) fn eval<'index>(
     //    (well-formed geo node).
     // 3. `gf.numericFilters` is NULL on entry (freshly parsed geo node) and is
     //    populated/owned by `gf`, freed by `GeoFilter_Free`.
-    let iter = unsafe {
-        build_geo_range_iterator(sctx, gf_ref, min_union_iter_heap, config.numeric_compress)
-    };
+    let iter = unsafe { build_geo_range_iterator(sctx, gf_ref, min_union_iter_heap) };
 
     iter.map(Evaluated::RustCompound)
 }

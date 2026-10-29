@@ -24,7 +24,8 @@ pub use geo::{
 };
 pub use missing::{Missing, new_missing_iterator};
 pub use numeric::{
-    Numeric, NumericIteratorVariant, build_numeric_filter_iterator, open_numeric_or_geo_index,
+    Numeric, NumericIteratorVariant, RangeSource, build_numeric_filter_iterator,
+    open_numeric_or_geo_index,
 };
 
 pub use tag::{Tag, TagLookup};
