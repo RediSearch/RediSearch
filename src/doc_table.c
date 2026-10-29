@@ -40,14 +40,6 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
   return ret;
 }
 
-static inline uint32_t DocTable_GetBucket(const DocTable *t, t_docId docId) {
-  return docId < t->maxSize ? docId : docId % t->maxSize;
-}
-
-static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
-  return docId != 0 && docId <= t->maxDocId;
-}
-
 static RSDocumentMetadata *DocTable_GetOwn(const DocTable *t, t_docId docId) {
   if (!DocTable_ValidateDocId(t, docId)) {
     return NULL;
