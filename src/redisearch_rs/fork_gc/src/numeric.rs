@@ -10,6 +10,7 @@
 //! GC collection for numeric and geo inverted indexes.
 
 use std::{
+    collections::HashSet,
     io::{self, Read, Write},
     ops::RangeInclusive,
 };
@@ -145,9 +146,22 @@ pub struct NumericTreeKey {
     pub field_index: usize,
     /// [`NumericRangeTree::unique_id`] when the nodes were listed.
     pub unique_id: u32,
+    /// [`NumericRangeTree::revision_id`] when the nodes were listed; it moves on
+    /// every structural change, so an unchanged one means `nodes` is still every node.
+    pub revision_id: u32,
     /// Every node of the tree, children before parents, as [`collect_numeric`]
     /// visits them.
     pub nodes: Vec<NodeIndex>,
+}
+
+impl NumericTreeKey {
+    /// The tree this key names, re-checked against its unique id on every use.
+    pub(crate) const fn resolved(&self) -> ResolvedTree {
+        ResolvedTree {
+            field_index: self.field_index,
+            unique_id: self.unique_id,
+        }
+    }
 }
 
 /// List the nodes of every initialised NUMERIC and GEO tree in the spec.
@@ -164,12 +178,42 @@ pub fn numeric_tree_keys(spec: &IndexSpecReadGuard) -> Vec<NumericTreeKey> {
             Some(NumericTreeKey {
                 field_index,
                 unique_id: u32::from(tree.unique_id()),
+                revision_id: tree.revision_id(),
                 nodes: tree
                     .indexed_post_order_iter()
                     .map(|(node_idx, _)| node_idx)
                     .collect(),
             })
         })
+        .collect()
+}
+
+/// The doc IDs spanned by the ranges of the nodes `key`'s tree gained since `key`
+/// listed its nodes (`listed`, the same set), when its structure changed since.
+///
+/// A leaf that splits copies every entry of its range into two new leaves, so a
+/// cycle that cleans the listed nodes leaves those copies, dead entries included,
+/// uncollected; the caller keeps the IDs they may hold for its next cycle. Empty
+/// when nothing changed, or when the tree is not the one listed: a tree lives as
+/// long as its field, so that means the spec was replaced and its deltas failed.
+pub fn ranges_of_nodes_added_since(
+    spec: &IndexSpecReadGuard,
+    key: &NumericTreeKey,
+    listed: &HashSet<NodeIndex>,
+) -> Vec<RangeInclusive<DocId>> {
+    let Some(tree) = spec
+        .field_specs()
+        .get(key.field_index)
+        .and_then(|fs| fs.tree())
+    else {
+        return Vec::new();
+    };
+    if u32::from(tree.unique_id()) != key.unique_id || tree.revision_id() == key.revision_id {
+        return Vec::new();
+    }
+    tree.indexed_post_order_iter()
+        .filter(|(node_idx, _)| !listed.contains(node_idx))
+        .filter_map(|(_, node)| node.range()?.entries().doc_id_range())
         .collect()
 }
 
