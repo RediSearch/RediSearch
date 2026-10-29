@@ -166,6 +166,15 @@ Implement and validate:
   retain the failed result and follow-up. Matching failures alone are not proof
   of equivalence, and do not authorize weaker tests or unrelated fixes.
 
+Design quality and handoff:
+- Apply `.skills/port-c-module/references/rust-design.md`: design for the next
+  Rust consumer, express constraints in types, record every deliberate C-compatibility
+  choice with its cost, validate once at the boundary, use the repository's own
+  test/benchmark tooling, simplify FFI and delete replaced C, and deliver in
+  reviewable steps without unrelated edits.
+- Before handoff run `.skills/port-c-module/references/handoff-checklist.md` and
+  record each result. Passing tests alone does not establish a reviewable candidate.
+
 Execution and access:
 - The authoring agent runs local checks in its assigned workspace and
   build directory.

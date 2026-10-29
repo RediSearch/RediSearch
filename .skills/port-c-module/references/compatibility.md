@@ -54,3 +54,33 @@ against actual allocations and capacity, not only against its own reported total
 When replacing binary I/O with a serializer, measure underlying read/write calls
 as well as encoded size. Preserve message boundaries: buffered reads must not
 consume following fields owned by C or wait for bytes outside the current message.
+
+## Additional risks found in assisted migrations
+
+- **Configuration timing.** For each global setting the replaced code reads,
+  record whether it is read per operation or fixed at construction, in both
+  the C and the Rust version. A difference changes what happens when the
+  setting changes after creation; test it and either preserve C's timing or
+  raise the change as a finding.
+- **Failure side effects.** Record which outputs and out-parameters C writes
+  on failure and which it leaves alone. Keep that behavior unless callers are
+  shown not to depend on it, and test the failure path.
+- **Ownership-transferring calls.** After any call that frees, consumes or
+  reallocates a handle (apply, merge, take), confirm that no later statement
+  reads the old handle or values derived from it; record data needed
+  afterwards before the call.
+- **Reader and bounds choice.** Reusing a bounds-checked reader can turn
+  undefined behavior on malformed input into a panic or error, and a raw
+  reader keeps the undefined behavior. Both are decisions: record which one
+  was chosen, the callers' preconditions and, if the observable result for
+  malformed input changes, a finding.
+- **Type widths selected by the preprocessor.** If the C type depends on a
+  build option or platform, the Rust binding must follow it; test each variant
+  or record why a variant is out of scope.
+- **Test and statistics expectations.** Search tests for literal counts, sizes
+  and statistics that the migration could change. Removing an assertion that
+  starts failing may hide a defect; investigate before deleting and list each
+  deleted assertion with its replacement.
+- **Behavior tightening.** Rejecting inputs C accepted, or accepting inputs C
+  rejected, is an observable change even when it looks like a fix. See
+  [rust design](rust-design.md) for how to record it.

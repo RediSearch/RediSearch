@@ -183,3 +183,16 @@ decision. An accepted baseline limitation need not block migration acceptance, b
 remains a failed check, not a pass. Do not disable the test, weaken its assertions,
 or include an unrelated fix without approval. A worsened failure, new unsafe
 behavior, or unresolved effect on migrated behavior remains an acceptance gap.
+
+## Additional evidence rules from assisted migrations
+
+- When a hot-path function that was inlined C becomes a call, run the
+  repository's existing caller microbenchmarks and a product workload on both
+  builds, not only a standalone kernel benchmark. State how each side is
+  inlined and whether link-time optimization applies; a baseline that is
+  wrapped in non-inlined shims overstates the Rust gain.
+- Keep differential corpora, benchmark records and logs in a durable location
+  or commit them as tests; scratch directories can vanish before review.
+- Verify the tracked files after transporting a snapshot to a runner (hash
+  comparison), including dot-directories, before the author starts.
+- Before handoff run the [self-audit checklist](handoff-checklist.md).

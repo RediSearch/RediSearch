@@ -101,7 +101,10 @@ operations. Continue useful independent work while a decision is pending.
 ### Compare the Rust and C APIs
 
 Review the Rust public API against the C header, including types and caller
-expectations. Identify wrappers or adapters for each difference. If differences
+expectations. Also review it against the Rust code that will consume it next, and apply
+[Rust design and delivery quality](references/rust-design.md): types that carry
+constraints, consumer-fit APIs, recorded C-compatibility choices, tooling
+conventions, FFI cleanup and delivery shape. Identify wrappers or adapters for each difference. If differences
 cannot be bridged without redesign, return to source analysis and revise the plan
 before dependent implementation.
 
@@ -146,6 +149,9 @@ At each checkpoint, select the next eligible repair or check. An unresolved find
 blocks only its dependent tasks. Do not end merely because a report was saved or
 one check failed; record the actual limit, access constraint or decision preventing
 further useful work. A live VM does not establish a running migration controller.
+
+Before handoff run the [self-audit checklist](references/handoff-checklist.md)
+and record each result.
 
 Deliver the patch, short design rationale, behavior-to-test mapping, evidence,
 and remaining findings. Prepare for independent review; obey applicable repository
