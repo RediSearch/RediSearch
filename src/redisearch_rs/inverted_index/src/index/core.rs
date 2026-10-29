@@ -99,6 +99,12 @@ impl IndexBlock {
 
     /// Make a new index block with primed with the initial doc ID. The next entry written into
     /// the block should be for this doc ID else the block will contain incoherent data.
+    /// Whether the block carries its entries, as opposed to a dataless snapshot copy that
+    /// kept only its bounds and count. See [`InvertedIndex::gc_snapshot`].
+    pub(crate) const fn has_data(&self) -> bool {
+        !self.buffer.is_empty() || self.num_entries == 0
+    }
+
     pub(crate) const fn new(doc_id: DocId) -> Self {
         Self {
             first_doc_id: doc_id,
@@ -200,12 +206,27 @@ impl<E: Encoder> InvertedIndex<E> {
         }
     }
 
+    /// Whether two consecutive blocks before the last would fit one block together:
+    /// a header-only test for leftovers of earlier cycles, so a GC pass is worth it
+    /// even when nothing is gone.
+    pub fn has_compactable_run(&self) -> bool {
+        let limit = u32::from(E::RECOMMENDED_BLOCK_ENTRIES);
+        let Some(last_idx) = self.blocks.len().checked_sub(1) else {
+            return false;
+        };
+        self.blocks[..last_idx]
+            .windows(2)
+            .any(|w| u32::from(w[0].num_entries) + u32::from(w[1].num_entries) <= limit)
+    }
+
     /// A private copy of the blocks a GC scan has to decode, for scanning without a lock.
     ///
     /// With [`GcSnapshotScope::DirtyBlocks`](crate::GcSnapshotScope::DirtyBlocks), blocks
     /// whose doc-ID range holds nothing `live` reports gone keep their bounds and entry
     /// count but no data, so a scan of the copy skips them as it would skip the originals,
-    /// and a repair never touches them. Returns `None` when no block needs a look. Scan the
+    /// and a repair never touches them. Under-filled blocks before the last are copied
+    /// regardless, so the scan can compact a run of them. Returns `None` when no block
+    /// needs a look. Scan the
     /// copy with the same `live`: another source may find a dataless block dirty and leave
     /// its entries uncollected for this cycle.
     pub fn gc_snapshot(
@@ -214,14 +235,20 @@ impl<E: Encoder> InvertedIndex<E> {
         scope: crate::GcSnapshotScope,
     ) -> Option<Self> {
         let (first, last) = (self.blocks.first()?, self.blocks.last()?);
-        if !live.any_gone(first.first_doc_id, last.last_doc_id) {
+        if !live.any_gone(first.first_doc_id, last.last_doc_id) && !self.has_compactable_run() {
             return None;
         }
+        let last_idx = self.blocks.len() - 1;
         let blocks = self
             .blocks
             .iter()
-            .map(|b| {
+            .enumerate()
+            .map(|(i, b)| {
+                // Under-filled blocks before the last are GC leftovers; copying them lets
+                // the scan compact a run of them even where nothing is gone.
+                let under_filled = i < last_idx && b.num_entries < E::RECOMMENDED_BLOCK_ENTRIES;
                 if scope == crate::GcSnapshotScope::AllBlocks
+                    || under_filled
                     || live.any_gone(b.first_doc_id, b.last_doc_id)
                 {
                     b.clone()
