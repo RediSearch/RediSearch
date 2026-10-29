@@ -114,7 +114,8 @@ static void KeyMapBuild_Run(void *arg) {
     IndexSpecRef_Release(ref);
   }
   if (!done) {
-    // Returning to the queue lets other reindex work run between batches.
+    // One low-priority continuation per build keeps the queue bounded and lets other
+    // reindex work run between batches. Pool destruction drains these continuations.
     int rc = redisearch_thpool_add_work(reindexPool, KeyMapBuild_Run, build, THPOOL_PRIORITY_LOW);
     RS_ASSERT_ALWAYS(rc == 0);
   } else {

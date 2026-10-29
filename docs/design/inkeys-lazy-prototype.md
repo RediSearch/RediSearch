@@ -34,26 +34,16 @@ key remains physically present after fallback resolution.
 
 ## Backfill and concurrent mutation
 
-The background task owns the traversal state, so indexes retain no iterator fields.
-Its first nonempty-budget batch snapshots the bucket-array capacity. Within each
-batch the spec lock pins the chain without per-document reference-count changes.
-At the end it retains only the next DMD; at the start of the next batch it checks
-that DMD for deletion and releases the retained reference. If deleted, traversal
-restarts the current bucket because unlinking clears the DMD's chain link.
-Completion and cancellation release any parked reference, even after index drop.
+The task owns the cursor and retains its parked DMD across batches. Deletion cannot
+free that DMD while it is retained; restarting the bucket avoids following its
+cleared chain link. The spec lock protects traversal and mutations, and task cleanup
+releases the retained reference even after index drop. See
+[DocTable_BuildKeyMapBatch](../../src/doc_table.c) for traversal mechanics.
 
-Array growth preserves bucket membership, and newly created buckets contain only
-new documents maintained by the normal write path. Without cursor deletions,
-traversal costs O(snapshot bucket capacity + visited chain entries), independent
-of the historical maximum document ID and chain ordering. Cursor deletions can
-cause rescans, but every batch still bounds documents and empty buckets visited.
-
-Writes maintain the map from activation onward. During construction, deletion
-and rename tolerate an entry not having been backfilled yet; rename inserts the
-new key. Backfill uses idempotent insertion by hash and document ID to avoid
-creating a second entry for a document already maintained by a writer. Full-hash
-collisions between different IDs remain distinct. State, cursor, map, and DMD
-mutations are all protected by the spec lock.
+Writes maintain the map from activation onward, including documents added beyond
+the initial bucket snapshot. Rename and deletion tolerate entries not yet
+backfilled; idempotent insertion prevents duplicates when backfill revisits a
+document already maintained by a writer. Full-hash collisions retain distinct IDs.
 
 The builder reserves capacity for the current live-document count while processing
 its first bucket. This runs in the background and avoids the large repeated
@@ -61,7 +51,7 @@ rehashes observed with incremental growth. Concurrent writes can still require
 ordinary map growth if they exhaust that reservation.
 
 The map remains allocated after activation, including when all documents are
-deleted. Reload starts with an inactive map. The state adds 24 bytes per index on
+deleted. Reload starts with an inactive map. The lazy state adds 8 bytes per index on
 the tested 64-bit build; indexes that never use INKEYS allocate no hash table or
 private hash seed. Cached hashes are retained: the earlier hash-recomputation
 experiment saved memory but imposed unacceptable resize cost.
@@ -72,6 +62,8 @@ experiment saved memory but imposed unacceptable resize cost.
   faults, scheduling, and concurrent growth prevent a strict latency guarantee.
 - A sparse bucket array still requires visiting its allocated buckets, bounded
   by the document-table capacity rather than all historical IDs.
+- Low-priority continuation jobs bound queue growth, but do not throttle CPU or
+  spec-lock duty cycle. Timer-based pacing would trade slower activation for lower duty cycle.
 - A full reindex scan can occupy the sole pool thread until it finishes. Queries
   continue through the metadata/GIL fallback while activation waits.
 - Fallback holds the GIL for all plan construction. Narrowing this would require
@@ -84,13 +76,10 @@ The measured costs and procedure are recorded in the
 
 ## Validation
 
-Tests cover absent allocation, activation with WORKERS 0/2, queries while the
-builder is parked, rename/delete/insert during construction, cursor deletion,
-bucket-array growth, unordered chains, completion, queued reindex, timeout, index
-drop, binary keys, inline/Lua/EXPLAIN, reload, legacy loading, and memory accounting.
-Rust tests cover reservation with existing hash collisions and deduplication by ID.
-
-The shutdown regression holds the builder's final strong reference until reindex
-pool teardown explicitly signals it; it uses no wall-clock auto-release and checks
-the server exit code. The profiling test deliberately holds the fallback GIL
-interval open so admission-time accounting cannot hide a missing contribution.
+[INKEYS flow tests](../../tests/pytests/test_inkeys.py) cover query behavior across
+activation, mutation, reload, and teardown, including fallback profiling.
+[Document-table tests](../../tests/cpptests/test_cpp_index.cpp) cover cursor
+lifetime and mutation safety; [legacy-load tests](../../tests/cpptests/test_cpp_rdb.cpp)
+cover reconstruction. Rust [map tests](../../src/redisearch_rs/c_entrypoint/doc_key_map_ffi/src/lib.rs)
+and [FFI tests](../../src/redisearch_rs/c_entrypoint/doc_key_map_ffi/tests/integration.rs)
+cover collisions, idempotency, and borrowed binary keys.
