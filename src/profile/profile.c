@@ -87,6 +87,12 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     RedisModule_ReplyKV_Double(reply, "Async wait time",
         rs_wall_clock_convert_ns_to_ms_d(SearchDisk_AsyncLoader_GetAsyncWaitTime(rp->upstream)));
   }
+  if (printProfileClock && rp->upstream && rp->upstream->type == RP_INDEX) {
+    uint64_t waitTime;
+    if (RPQueryIterator_GetAsyncWaitTime(rp->upstream, &waitTime)) {
+      RedisModule_ReplyKV_Double(reply, "Async wait time", rs_wall_clock_convert_ns_to_ms_d(waitTime));
+    }
+  }
   // RP_PROFILE appends timing/counter fields to the map opened by its upstream RP.
   // Emit loader field details here so RESP2 keeps Type, Time, Results processed order.
   if (printProfileClock && rp->upstream &&
