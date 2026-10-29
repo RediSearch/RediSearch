@@ -59,6 +59,9 @@ void RMCK_ClusterMock_Reset();
 void RMCK_ClusterMock_AddNode(const char *id, const char *ip, int port, int flags,
                               const std::vector<RedisModuleSlotRange> &slots = {});
 
+// Observe frees on the calling thread, including Rust's Redis allocator. Pass nullptr to stop.
+void RMCK_SetFreeObserver(void (*observer)(void *));
+
 extern "C" {
 #else
 struct RedisModuleIO;

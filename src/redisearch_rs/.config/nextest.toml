@@ -13,6 +13,11 @@ retries = 1
 slow-timeout = { period = "10s", terminate-after = 4 }
 fail-fast = false
 
+[[profile.default-miri.overrides]]
+# Interpreting the full property-case count exceeds two minutes on shared CI runners.
+filter = 'package(=geo) & test(=filter::unit_buffer_limit_precedes_nul_truncation)'
+slow-timeout = { period = "60s", terminate-after = 5 }
+
 [profile.coverage]
 # Branch instrumentation slows the largest property tests enough to exceed the
 # default hang detector while they are still making progress.
