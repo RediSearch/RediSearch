@@ -366,10 +366,15 @@ typedef struct BasicDiskAPI {
    * @param rp  The disk async-loader ResultProcessor, previously returned by
    *            `newAsyncLoaderResultProcessor`.
    * @param request `QueryRequest *`, or NULL to clear.
-   *
-   * Note: keep this field last in `BasicDiskAPI` (C and Rust build this struct together).
    */
   void (*asyncLoaderSetSyncCtx)(ResultProcessor *rp, QueryRequest *request);
+
+  /**
+   * Accumulated document-field completion-wait time in nanoseconds; zero if profiling is disabled.
+   * rp must be a live processor returned by newAsyncLoaderResultProcessor, with no concurrent mutation.
+   * Keep this field last in BasicDiskAPI (C and Rust build this struct together).
+   */
+  uint64_t (*asyncLoaderGetAsyncWaitTime)(ResultProcessor *rp);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {

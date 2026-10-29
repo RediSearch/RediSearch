@@ -230,6 +230,9 @@ ResultProcessor *SearchDisk_NewAsyncLoaderResultProcessor(RedisSearchCtx *sctx, 
  */
 void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, QueryRequest *request);
 
+/** See BasicDiskAPI.asyncLoaderGetAsyncWaitTime. */
+uint64_t SearchDisk_AsyncLoader_GetAsyncWaitTime(ResultProcessor *rp);
+
 // Index API wrappers
 
 /**

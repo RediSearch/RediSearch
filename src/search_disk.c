@@ -342,6 +342,11 @@ void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, QueryRequest *reques
     disk->basic.asyncLoaderSetSyncCtx(rp, request);
 }
 
+uint64_t SearchDisk_AsyncLoader_GetAsyncWaitTime(ResultProcessor *rp) {
+    RS_ASSERT(disk);
+    return disk->basic.asyncLoaderGetAsyncWaitTime(rp);
+}
+
 void SearchDisk_UpdateLogObfuscation() {
     if (disk && disk_db) {
         disk->basic.setLogObfuscation(disk_db, RSGlobalConfig.hideUserDataFromLog);

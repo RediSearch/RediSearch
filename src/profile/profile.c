@@ -20,6 +20,7 @@
 #include "query_flags.h"
 #include "result_processor_ffi.h"
 #include "search_disk_api.h"
+#include "search_disk.h"
 
 static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *rp, int printProfileClock) {
   if (rp == NULL) {
@@ -82,6 +83,10 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     printProfileTime(deltaTime);
   }
   printProfileRPCounter(RPProfile_GetCount(rp) - 1);
+  if (printProfileClock && rp->upstream && rp->upstream->type == RP_DISK_ASYNC_LOADER) {
+    RedisModule_ReplyKV_Double(reply, "Async wait time",
+        rs_wall_clock_convert_ns_to_ms_d(SearchDisk_AsyncLoader_GetAsyncWaitTime(rp->upstream)));
+  }
   // RP_PROFILE appends timing/counter fields to the map opened by its upstream RP.
   // Emit loader field details here so RESP2 keeps Type, Time, Results processed order.
   if (printProfileClock && rp->upstream &&
