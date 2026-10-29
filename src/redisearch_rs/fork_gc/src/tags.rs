@@ -13,12 +13,15 @@
 use std::{
     ffi::c_char,
     io::{self, Read, Write},
+    ptr::NonNull,
 };
 
 use field_spec::{FieldSpec, FieldSpecType};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::{GcScanDelta, opaque::InvertedIndex};
+use lending_iterator::LendingIterator;
 use serde::{Deserialize, Serialize};
+use trie_rs::TrieMapOpaque;
 
 use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 
@@ -27,11 +30,14 @@ use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 /// Disk-backed fields are reported as absent: their postings live behind the
 /// RSE API, so a fork GC pass has nothing in memory to collect for them.
 fn fetch_tag_index(fs: &FieldSpec) -> Option<&ffi::TagIndex> {
+    if !fs.types().contains(FieldSpecType::Tag) {
+        return None;
+    }
     let raw_fs = std::ptr::from_ref(fs).cast::<ffi::FieldSpec>();
     // SAFETY: the wrapper is repr(transparent) over the C field spec, so the
     // cast pointer is valid for the lifetime of the borrow.
     let raw_fs = unsafe { &*raw_fs };
-    // SAFETY: callers only pass TAG fields, so `tagOpts` is the active member
+    // SAFETY: the field type check above establishes that `tagOpts` is the active member
     // of that field's C union.
     let index = unsafe { raw_fs.__bindgen_anon_1.tagOpts.tagIndex };
     // SAFETY: a non-null tag-index pointer is owned by the field, and the
@@ -47,11 +53,14 @@ fn fetch_tag_index(fs: &FieldSpec) -> Option<&ffi::TagIndex> {
 
 /// [`fetch_tag_index()`], exclusively.
 fn fetch_tag_index_mut(fs: &mut FieldSpec) -> Option<&mut ffi::TagIndex> {
+    if !fs.types().contains(FieldSpecType::Tag) {
+        return None;
+    }
     let raw_fs = std::ptr::from_mut(fs).cast::<ffi::FieldSpec>();
     // SAFETY: the wrapper is repr(transparent) over the C field spec, so the
     // cast pointer is valid for the lifetime of the borrow.
     let raw_fs = unsafe { &mut *raw_fs };
-    // SAFETY: callers only pass TAG fields, so `tagOpts` is the active member
+    // SAFETY: the field type check above establishes that `tagOpts` is the active member
     // of that field's C union.
     let index = unsafe { raw_fs.__bindgen_anon_1.tagOpts.tagIndex };
     // SAFETY: a non-null tag-index pointer is owned by the field. The
@@ -85,12 +94,18 @@ impl TagError {
 /// `T` lets the child serialize borrowed field and tag bytes without copying;
 /// the parent deserializes the default owned form.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "T: serde_bytes::Serialize",
+    deserialize = "T: serde_bytes::Deserialize<'de>"
+))]
 pub struct TagEntry<T = Box<[u8]>> {
     /// Name of the TAG field the tag belongs to.
+    #[serde(with = "serde_bytes")]
     pub field_name: T,
     /// Unique id of the field's tag index.
     pub tag_index_unique_id: u32,
     /// The tag value, possibly empty (`INDEXEMPTY`).
+    #[serde(with = "serde_bytes")]
     pub tag: T,
     /// Unique id of the tag's inverted index.
     pub inverted_index_unique_id: u32,
@@ -107,50 +122,30 @@ pub fn collect_tags(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::R
     for (fs, tag_index) in spec
         .field_specs()
         .iter()
-        .filter(|fs| fs.types().contains(FieldSpecType::Tag))
         .filter_map(|fs| fetch_tag_index(fs).map(|tag_index| (fs, tag_index)))
     {
         let field_name = fs.field_name().secret_value().to_bytes();
         let tag_index_unique_id = tag_index.uniqueId;
 
-        // SAFETY: `tag_index` and its values trie remain live for this traversal.
-        let iterator = unsafe { ffi::TrieMap_Iterate(tag_index.values) };
-
-        let result = loop {
-            let mut key = std::ptr::null_mut();
-            let mut key_len = 0;
-            let mut value = std::ptr::null_mut();
-            // SAFETY: the output locations are valid for the call and the
-            // iterator remains live until freed below.
-            if unsafe { ffi::TrieMapIterator_Next(iterator, &mut key, &mut key_len, &mut value) }
-                == 0
-            {
-                break Ok(());
-            }
-
-            if value.is_null() {
-                break Err(io::Error::other(
-                    "an in-memory tag index has a null posting list",
-                ));
-            }
-
-            let tag = if key_len == 0 {
-                &[]
-            } else {
-                // SAFETY: TrieMapIterator_Next returned this `key` with
-                // `key_len` readable bytes, valid until the next advance.
-                unsafe { std::slice::from_raw_parts(key.cast::<u8>(), key_len as usize) }
-            };
+        debug_assert!(!tag_index.values.is_null());
+        // SAFETY: the C tag index owns a TrieMapOpaque, kept live and immutable
+        // by the spec guard for the entire traversal.
+        let values = unsafe { &*tag_index.values.cast::<TrieMapOpaque>() };
+        let mut iterator = values.0.lending_iter();
+        while let Some((tag, value)) = iterator.next() {
+            let value = NonNull::new(*value).ok_or_else(|| {
+                io::Error::other("an in-memory tag index has a null posting list")
+            })?;
 
             // SAFETY: C TagIndex values are Rust opaque inverted indexes.
             // The spec's read lock prevents their removal during iteration.
-            let ii = unsafe { &*value.cast::<InvertedIndex>() };
+            let ii = unsafe { value.cast::<InvertedIndex>().as_ref() };
 
             let Ok(Some(delta)) = ii.scan_gc(|id| spec.doc_exists(id)) else {
                 continue;
             };
 
-            if let Err(error) = Some(TagEntry {
+            Some(TagEntry {
                 field_name,
                 tag_index_unique_id,
                 tag,
@@ -158,16 +153,8 @@ pub fn collect_tags(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::R
                 delta,
             })
             .serialize(&mut rmp_serde::Serializer::new(&mut *writer))
-            .map_err(io::Error::other)
-            {
-                break Err(error);
-            }
-        };
-
-        // SAFETY: TrieMap_Iterate always returns a boxed iterator for a valid
-        // trie, and this is the one returned above.
-        unsafe { ffi::TrieMapIterator_Free(iterator) };
-        result?;
+            .map_err(io::Error::other)?;
+        }
     }
 
     Option::<TagEntry<&[u8]>>::None
@@ -208,30 +195,17 @@ pub fn apply_tag_entry(
         ));
     }
 
-    let mut size = 0;
-    // SAFETY: `entry.tag` is readable for its length. A zero-length tag is
-    // valid and TagIndex_OpenIndex does not dereference its pointer in that case.
-    let ii = unsafe {
-        ffi::TagIndex_OpenIndex(
-            std::ptr::from_mut(tag_index).cast_const(),
-            entry.tag.as_ptr().cast::<c_char>(),
-            entry.tag.len(),
-            0,
-            &mut size,
-        )
-    };
+    debug_assert!(!tag_index.values.is_null());
+    // SAFETY: the tag index owns this trie, and the write guard keeps it live
+    // and excludes concurrent changes throughout lookup and application.
+    let values = unsafe { &*tag_index.values.cast::<TrieMapOpaque>() };
+    let ii = values.find(&entry.tag).ok_or(TagError::new(
+        "the tag was removed before the delta could be applied",
+    ))?;
 
-    // SAFETY: TRIEMAP_NOTFOUND is the C trie's process-global not-found
-    // sentinel. It is initialized before an index can be queried.
-    if ii.is_null() || ii.cast() == unsafe { ffi::TRIEMAP_NOTFOUND } {
-        return Err(TagError::new(
-            "the tag was removed before the delta could be applied",
-        ));
-    }
-
-    // SAFETY: the preceding null/sentinel check leaves a live opaque inverted
+    // SAFETY: the successful trie lookup returns a live opaque inverted
     // index owned by `tag_index`. The write lock makes this mutable borrow unique.
-    let ii = unsafe { &mut *ii.cast::<InvertedIndex>() };
+    let ii = unsafe { &mut *ii.cast::<InvertedIndex>().as_ptr() };
 
     if u32::from(ii.unique_id()) != entry.inverted_index_unique_id {
         return Err(TagError::new(

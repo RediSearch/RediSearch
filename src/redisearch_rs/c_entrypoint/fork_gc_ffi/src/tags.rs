@@ -40,10 +40,13 @@ pub unsafe extern "C" fn FGC_childCollectTags(
     gc: *mut ffi::ForkGC,
     sctx: *mut ffi::RedisSearchCtx,
 ) {
+    debug_assert!(!gc.is_null());
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
+    debug_assert!(!sctx.is_null());
     // SAFETY: caller guarantees (2).
     let spec_ptr = unsafe { (*sctx).spec };
+    debug_assert!(!spec_ptr.is_null());
     // SAFETY: caller guarantees (3).
     let spec = unsafe { &*spec_ptr };
 
@@ -71,6 +74,7 @@ pub unsafe extern "C" fn FGC_childCollectTags(
 ///    alive for the duration of this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_parentHandleTags(gc: *mut ffi::ForkGC) -> FGCError {
+    debug_assert!(!gc.is_null());
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
 
