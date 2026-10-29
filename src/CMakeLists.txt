@@ -288,9 +288,11 @@ list(REMOVE_DUPLICATES MERGE_DEPENDS)
 # Create the combined library using platform-specific tools
 if(APPLE)
     # macOS: use libtool to merge static libraries
+    # Index common symbols so Rust's ld64.lld can resolve the API pointer table
+    # defined in redismodule_api.c when linking tests.
     add_custom_command(
         OUTPUT ${REDISEARCH_C_BUNDLE_OUTPUT}
-        COMMAND libtool -static -no_warning_for_no_symbols -o ${REDISEARCH_C_BUNDLE_OUTPUT} ${LIBS_TO_MERGE}
+        COMMAND libtool -static -c -no_warning_for_no_symbols -o ${REDISEARCH_C_BUNDLE_OUTPUT} ${LIBS_TO_MERGE}
         DEPENDS ${MERGE_DEPENDS}
         COMMENT "Creating unified libredisearch_c_bundle.a with libtool"
         VERBATIM

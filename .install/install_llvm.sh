@@ -16,7 +16,8 @@ export DEBIAN_FRONTEND=noninteractive
 # LLVM_FULL_VERSION (e.g. "21.1.8").
 #
 # Environment variables:
-#   LLVM_INSTALL_DIR  — Where to unpack tarball installs (default: /usr/local/llvm)
+#   LLVM_INSTALL_DIR  — Where to unpack tarball installs (default: /usr/local/llvm,
+#                       or ~/.local/llvm on macOS)
 # =============================================================================
 
 OS_TYPE=$(uname -s)
@@ -27,7 +28,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/LLVM_VERSION.sh"
 LLVM_VER="${LLVM_VERSION}"
 LLVM_FULL_VER="${LLVM_FULL_VERSION}"
 
-INSTALL_DIR="${LLVM_INSTALL_DIR:-/usr/local/llvm}"
+if [[ "$OS_TYPE" == "Darwin" ]]; then
+    # Avoid root-owned /usr/local for the default macOS install.
+    INSTALL_DIR="${LLVM_INSTALL_DIR:-${HOME}/.local/llvm}"
+else
+    INSTALL_DIR="${LLVM_INSTALL_DIR:-/usr/local/llvm}"
+fi
 MODE="${1:-}"
 
 # On Linux this script is `source`d by the OS script (deps_lib.sh already in
@@ -38,13 +44,23 @@ if ! command -v _dry_line >/dev/null 2>&1; then
 fi
 
 # Download and unpack the official LLVM tarball into $INSTALL_DIR.
-# Works on any glibc-based Linux. Will NOT work on musl/Alpine.
+# Supports glibc-based Linux and Apple-silicon macOS, not musl/Alpine.
 install_from_tarball() {
     local tarball_name
-    case "$ARCH" in
-        x86_64)  tarball_name="LLVM-${LLVM_FULL_VER}-Linux-X64.tar.xz" ;;
-        aarch64) tarball_name="LLVM-${LLVM_FULL_VER}-Linux-ARM64.tar.xz" ;;
-        *)       echo "ERROR: unsupported arch ${ARCH}"; return 1 ;;
+    local -a tar_excludes=()
+    local priv="$MODE"
+    case "${OS_TYPE}-${ARCH}" in
+        Linux-x86_64)  tarball_name="LLVM-${LLVM_FULL_VER}-Linux-X64.tar.xz" ;;
+        Linux-aarch64) tarball_name="LLVM-${LLVM_FULL_VER}-Linux-ARM64.tar.xz" ;;
+        Darwin-arm64)
+            tarball_name="LLVM-${LLVM_FULL_VER}-macOS-ARM64.tar.xz"
+            # Save disk by omitting LLVM archives; keep lib/clang runtime archives.
+            # Omit bundled C++ runtimes so Apple's linker uses system libc++.
+            tar_excludes=(--exclude '*/lib/lib*.a' --exclude '*/lib/libc++*' --exclude '*/lib/libunwind*')
+            # Keep the default user-owned; honor MODE for custom install paths.
+            [[ -z "${LLVM_INSTALL_DIR:-}" ]] && priv=""
+            ;;
+        *) echo "ERROR: no official LLVM tarball for ${OS_TYPE} ${ARCH}"; return 1 ;;
     esac
 
     local url="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_FULL_VER}/${tarball_name}"
@@ -56,13 +72,47 @@ install_from_tarball() {
     curl -fSL --retry 3 -o "${tmpdir}/${tarball_name}" "$url"
 
     echo ">>> Extracting to ${INSTALL_DIR}..."
-    $MODE mkdir -p "$INSTALL_DIR"
-    $MODE tar -xf "${tmpdir}/${tarball_name}" -C "$INSTALL_DIR" --strip-components=1
+    $priv mkdir -p "$INSTALL_DIR"
+    $priv tar -xf "${tmpdir}/${tarball_name}" -C "$INSTALL_DIR" --strip-components=1 "${tar_excludes[@]}"
     rm -rf "$tmpdir"
 
     export_path_gha
-    link_tools_for_fresh_shells
+    if [[ "$OS_TYPE" == "Darwin" ]]; then
+        enable_libcxx_availability_annotations
+        export_sdkroot
+        update_llvm_profile "${INSTALL_DIR}/bin"
+    else
+        link_tools_for_fresh_shells
+    fi
     echo ">>> LLVM ${LLVM_FULL_VER} installed to ${INSTALL_DIR}"
+}
+
+# Keep modern libc++ headers (e.g. std::atomic_ref), but enable their fallbacks
+# for symbols absent from the deployment target's system libc++, as Homebrew does.
+enable_libcxx_availability_annotations() {
+    local cfg="${INSTALL_DIR}/include/c++/v1/__config_site"
+    local off="#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 0"
+    if ! grep -q "^${off}\$" "$cfg" && ! grep -q "_LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 1" "$cfg"; then
+        echo "ERROR: unexpected availability setting in ${cfg}" >&2
+        return 1
+    fi
+    sed "s/^${off}\$/#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 1/" "$cfg" | $priv tee "${cfg}.tmp" > /dev/null
+    $priv mv "${cfg}.tmp" "$cfg"
+}
+
+# Upstream clang and bindgen's libclang need an explicit SDK to find system headers.
+export_sdkroot() {
+    local sdk
+    sdk=$(xcrun --sdk macosx --show-sdk-path)
+    [[ -n "${GITHUB_ENV:-}" ]] && echo "SDKROOT=${sdk}" >> "$GITHUB_ENV"
+    export SDKROOT="$sdk"
+}
+
+# Prints "yes" when Homebrew would pour a bottle of $1 on this OS, "no" when it
+# would compile it from source, and nothing if the check itself fails.
+# Formula#bottle accounts for older-OS bottles Homebrew accepts as compatible.
+brew_bottle_available() {
+    brew ruby -e "print(Formula['$1'].bottle ? 'yes' : 'no')" 2>/dev/null || true
 }
 
 # Fresh-shell usability for the tarball install: export_path_gha only covers
@@ -160,6 +210,14 @@ fi
 install_llvm() {
     # ----- macOS (Homebrew) ---------------------------------------------------
     if [[ "$OS_TYPE" == "Darwin" ]]; then
+        # Homebrew drops bottles for older macOS releases (llvm@21 has none for
+        # macOS 14), and building LLVM from source takes hours.
+        if [[ "$ARCH" == arm64 && "$(brew_bottle_available "llvm@${LLVM_VER}")" == no ]]; then
+            echo ">>> macOS — no Homebrew bottle for llvm@${LLVM_VER}; using the official tarball"
+            install_from_tarball
+            return
+        fi
+
         echo ">>> macOS — installing via Homebrew"
         brew install "llvm@${LLVM_VER}"
 
