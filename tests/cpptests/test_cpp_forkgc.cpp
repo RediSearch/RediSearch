@@ -208,6 +208,25 @@ TEST_F(FGCTestTag, testRemoveEntryFromLastBlock) {
   ASSERT_EQ(1, totalSpecBlocks() - startValue);
 }
 
+// The tag scan must check existence through the spec's own doc table, so that the fork child's
+// frozen bitmap answers it. A deletion after the freeze is visible only to a DMD lookup.
+TEST_F(FGCTestTag, testScanAnswersFromFrozenExistence) {
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc1", "f1", "hello"));
+  ASSERT_TRUE(RS::addDocument(ctx, ism, "doc2", "f1", "hello"));
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
+  sctx.spec->monitorDocumentExpiration = false;
+  auto iv = getTagInvidx(&sctx, "f1", "hello");
+
+  DocTable_FreezeExistence(&sctx.spec->docs);
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+
+  size_t written = 0;
+  II_GCWriter wr = {&written, [](void *p, const void *, size_t len) { *(size_t *)p += len; }};
+  II_GCCallback cb = {nullptr, [](void *) {}};
+  ASSERT_FALSE(InvertedIndex_GcDelta_Scan(&wr, &sctx, iv, &cb));
+  ASSERT_EQ(0, written);
+}
+
 /**
  * In this test, the child process needs to delete the only and last block in the index,
  * while the main process adds a document to it.
