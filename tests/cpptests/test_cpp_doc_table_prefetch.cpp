@@ -83,8 +83,10 @@ TEST_F(DocTablePrefetchTest, IdBeyondCapacity) {
   put("doc1");
   ASSERT_LT(dt.cap, MAX_SIZE);
   // DocTable_Put keeps the buckets ahead of maxDocId, so fake an id past them: the bounds check
-  // must not rely on that.
+  // must not rely on that. A read past the buckets has no visible effect here; the sanitizer CI
+  // job reports it.
   dt.maxDocId = MAX_SIZE - 1;
+  ASSERT_GE(DocTable_GetBucket(&dt, dt.maxDocId), dt.cap);
   DocTable_Prefetch(&dt, dt.maxDocId);
   dt.maxDocId = 1;
 }
