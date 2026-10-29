@@ -79,6 +79,10 @@ static bool blockedClientTimedOut(void *arg) {
 // only bounds an idle wait before looping back to re-check the query timeout.
 #define ASYNC_POLL_TIMEOUT_SATURATED_MS 2
 
+// How many docIds ahead of the current one the wildcard scan prefetches metadata. Far enough
+// for the cache miss to finish before the doc is reached; measured on the asm sortby benchmarks.
+#define WILDCARD_DMD_PREFETCH_DISTANCE 16
+
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
  *
@@ -140,6 +144,12 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
         return false;
       }
     } else {
+      // A wildcard scan visits every docId in ascending order, so the ids just ahead are the next
+      // rows. Prefetching their metadata overlaps the cache misses of consecutive rows, which
+      // otherwise stall the scan one after another. Other iterators skip ids, so they don't.
+      if (it->type == WILDCARD_ITERATOR) {
+        DocTable_Prefetch(docs, it->lastDocId + WILDCARD_DMD_PREFETCH_DISTANCE);
+      }
       *dmd = DocTable_Borrow(docs, it->lastDocId);
     }
     if (!*dmd || (*dmd)->flags & Document_Deleted || DocTable_IsDocExpired(docs, *dmd, &sctx->currentTime)) {
