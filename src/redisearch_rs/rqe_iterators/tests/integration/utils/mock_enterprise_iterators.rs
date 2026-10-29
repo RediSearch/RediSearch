@@ -14,12 +14,16 @@
 //! test suite to exercise code paths that depend on [`SEARCH_ENTERPRISE_ITERATORS`]
 //! without requiring the actual enterprise implementation.
 
+use std::cell::Cell;
+
 use inverted_index::NumericFilter;
 use rqe_core::{DocId, FieldIndex};
 use rqe_iterators::{
     QueryError, RQEIteratorPrintable, SEARCH_ENTERPRISE_ITERATORS, SearchEnterpriseIterators,
     wildcard::Wildcard,
 };
+
+use super::{Mock, MockRevalidateResult};
 
 /// The `top_id` used by the wildcard returned from
 /// [`MockEnterpriseIterators::new_wildcard_on_disk`].
@@ -29,12 +33,34 @@ use rqe_iterators::{
 /// was taken.
 pub(crate) const MOCK_DISK_WILDCARD_TOP_ID: DocId = 53596;
 
+/// The documents of the [`Mock`] that [`MockEnterpriseIterators::new_wildcard_on_disk`]
+/// returns after [`next_disk_wildcard_revalidates_with`].
+pub(crate) const MOCK_DISK_WILDCARD_DOC_IDS: [DocId; 3] = [10, 20, 30];
+
+thread_local! {
+    /// Set by [`next_disk_wildcard_revalidates_with`], consumed by the next
+    /// [`MockEnterpriseIterators::new_wildcard_on_disk`] on the same thread.
+    static NEXT_DISK_WILDCARD_REVALIDATE: Cell<Option<MockRevalidateResult>> =
+        const { Cell::new(None) };
+}
+
+/// Make the next [`MockEnterpriseIterators::new_wildcard_on_disk`] call on this
+/// thread return a [`Mock`] over [`MOCK_DISK_WILDCARD_DOC_IDS`] whose
+/// revalidation reports `result`, instead of the default [`Wildcard`].
+///
+/// This lets tests drive the disk wrapper through every outcome a backend can
+/// report, while still going through the production factory path.
+pub(crate) fn next_disk_wildcard_revalidates_with(result: MockRevalidateResult) {
+    NEXT_DISK_WILDCARD_REVALIDATE.set(Some(result));
+}
+
 /// Minimal [`SearchEnterpriseIterators`] stub for tests that exercise the
 /// disk-index code paths.
 ///
 /// `new_wildcard_on_disk` returns a [`Wildcard`] with [`MOCK_DISK_WILDCARD_TOP_ID`]
 /// as its `top_id`, so callers which delegates `num_estimated` to their inner wildcard
-/// can observe through it that the disk path was taken.
+/// can observe through it that the disk path was taken. A test can swap in a
+/// configured [`Mock`] for one call with [`next_disk_wildcard_revalidates_with`].
 pub(crate) struct MockEnterpriseIterators;
 
 impl SearchEnterpriseIterators for MockEnterpriseIterators {
@@ -45,6 +71,11 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
         _snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
         _status: Option<&mut QueryError>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+        if let Some(result) = NEXT_DISK_WILDCARD_REVALIDATE.take() {
+            let mock = Mock::new(MOCK_DISK_WILDCARD_DOC_IDS);
+            mock.data().set_revalidate_result(result);
+            return Ok(Box::new(mock));
+        }
         Ok(Box::new(Wildcard::new(MOCK_DISK_WILDCARD_TOP_ID, weight)))
     }
 

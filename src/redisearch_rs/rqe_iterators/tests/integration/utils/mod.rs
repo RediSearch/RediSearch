@@ -10,7 +10,10 @@
 mod mock_enterprise_iterators;
 mod mock_iterator;
 mod wildcard_helper;
-pub(crate) use mock_enterprise_iterators::{MOCK_DISK_WILDCARD_TOP_ID, init_enterprise_iterators};
+pub(crate) use mock_enterprise_iterators::{
+    MOCK_DISK_WILDCARD_DOC_IDS, MOCK_DISK_WILDCARD_TOP_ID, init_enterprise_iterators,
+    next_disk_wildcard_revalidates_with,
+};
 pub(crate) use mock_iterator::{Mock, MockData, MockIteratorError, MockRevalidateResult, MockVec};
 pub(crate) use wildcard_helper::WildcardHelper;
 
