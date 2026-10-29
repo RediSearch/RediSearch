@@ -1779,25 +1779,20 @@ static void handleBadArguments(const char *badarg, bool unsupportedOption, Query
 
 int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
                            QueryError *status) {
-  *options = (IndexSpecOptions){.flags = INDEX_DEFAULT_FLAGS};
-  ArgsCursor acStopwords = {0};
-
-  long long timeout = -1;
+  *options = (IndexSpecOptions){.flags = INDEX_DEFAULT_FLAGS, .timeout = -1};
   int dummy;
   size_t dummy2;
-  SchemaRuleArgs rule_args = {0};
-  ArgsCursor rule_prefixes = {0};
   int rc = AC_OK;
   ACArgSpec *errarg = NULL;
   ACArgSpec flex_argopts[] = {
-    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
-    {.name = "FILTER", .target = &rule_args.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "LANGUAGE", .target = &rule_args.lang_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "LANGUAGE_FIELD", .target = &rule_args.lang_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "SCORE", .target = &rule_args.score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "SCORE_FIELD", .target = &rule_args.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
+    {.name = "ON", .target = &options->rule.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "PREFIX", .target = &options->prefixes, .type = AC_ARGTYPE_SUBARGS},
+    {.name = "FILTER", .target = &options->rule.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "LANGUAGE", .target = &options->rule.lang_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "LANGUAGE_FIELD", .target = &options->rule.lang_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "SCORE", .target = &options->rule.score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "SCORE_FIELD", .target = &options->rule.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = SPEC_STOPWORDS_STR, .target = &options->stopwords, .type = AC_ARGTYPE_SUBARGS},
     {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &options->flags, Index_SkipInitialScan)},
     {.name = NULL}
   };
@@ -1813,17 +1808,14 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
 
     // For compatibility
     {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
-    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
-    {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
-    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
+    {.name = "ON", .target = &options->rule.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    SPEC_FOLLOW_HASH_ARGS_DEF(&options->rule, &options->prefixes)
+    {.name = SPEC_TEMPORARY_STR, .target = &options->timeout, .type = AC_ARGTYPE_LLONG},
+    {.name = SPEC_STOPWORDS_STR, .target = &options->stopwords, .type = AC_ARGTYPE_SUBARGS},
     {.name = NULL}
   };
   ACArgSpec *argopts = flex ? flex_argopts : non_flex_argopts;
   rc = AC_ParseArgSpec(ac, argopts, &errarg);
-  options->rule = rule_args;
-  options->prefixes = rule_prefixes;
-  options->stopwords = acStopwords;
   if (rc == AC_ERR_ENOENT && flex) {
     const char *arg;
     AC_GetString(ac, &arg, NULL, AC_F_NOADVANCE);
@@ -1841,17 +1833,13 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
     return REDISMODULE_ERR;
   }
 
-  if (timeout != -1) {
+  if (options->timeout != -1) {
     options->flags |= Index_Temporary;
   }
-  options->timeout = timeout * 1000;  // convert to ms
+  options->timeout *= 1000;  // convert to ms
 
   return REDISMODULE_OK;
 }
-
-/* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
-    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
-  */
 
 static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
                                            ArgsCursor *ac, QueryError *status) {
@@ -1864,9 +1852,9 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   IndexSpecOptions options;
   int rc = IndexSpec_ParseOptions(ac, isSpecOnDiskForValidation(spec), &options, status);
   spec->flags = options.flags;
-  SchemaRuleArgs rule_args = options.rule;
-  ArgsCursor rule_prefixes = options.prefixes;
-  ArgsCursor acStopwords = options.stopwords;
+  SchemaRuleArgs *rule_args = &options.rule;
+  ArgsCursor *rule_prefixes = &options.prefixes;
+  ArgsCursor *acStopwords = &options.stopwords;
   if (rc != REDISMODULE_OK) {
     goto failure;
   }
@@ -1875,13 +1863,13 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   }
   spec->timeout = options.timeout;
 
-  if (rule_prefixes.argc > 0) {
-    spec->rule = SchemaRule_CreateWithPrefixesAC(&rule_args, &rule_prefixes, spec_ref, status);
+  if (rule_prefixes->argc > 0) {
+    spec->rule = SchemaRule_CreateWithPrefixesAC(rule_args, rule_prefixes, spec_ref, status);
   } else {
-    rule_args.nprefixes = 1;
+    rule_args->nprefixes = 1;
     static const char *empty_prefix[] = {""};
-    rule_args.prefixes = empty_prefix;
-    spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
+    rule_args->prefixes = empty_prefix;
+    spec->rule = SchemaRule_Create(rule_args, spec_ref, status);
   }
   if (!spec->rule) {
     goto failure;
@@ -1905,11 +1893,11 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     }
   }
 
-  if (AC_IsInitialized(&acStopwords)) {
+  if (AC_IsInitialized(acStopwords)) {
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
     }
-    spec->stopwords = NewStopWordListAC(&acStopwords);
+    spec->stopwords = NewStopWordListAC(acStopwords);
     spec->flags |= Index_HasCustomStopwords;
   }
 

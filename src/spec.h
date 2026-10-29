@@ -83,8 +83,8 @@ struct IndexesScanner;
 
 #define DEFAULT_SCORE 1.0
 
-#define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
-  {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
+#define SPEC_FOLLOW_HASH_ARGS_DEF(rule, prefixes)                                     \
+  {.name = "PREFIX", .target = (prefixes), .type = AC_ARGTYPE_SUBARGS}, \
       {.name = "FILTER",                                                    \
        .target = &(rule)->filter_exp_str,                                   \
        .len = &dummy2,                                                      \
