@@ -24,6 +24,8 @@ setups:
 
 dbconfig:
   - dataset_name: "ftsb-1M-enwiki_abstract-hashes"
+  - configuration-parameters:
+    - search-timeout: "0"
   - init_commands:
     - '"FT.CREATE" "enwiki_abstract" "ON" "HASH" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
   - asm_cluster_state:
