@@ -126,8 +126,21 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["RM_SCAN_KEY_API_FIX", "RSGlobalConfig"],
     },
     HeaderAllowlist {
+        path: "src/doc_id_meta.h",
+        fns: &["DocIdMeta_Get"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/doc_table.h",
-        fns: &["DMD_Free", "DocTable_Exists", "DocTable_Put"],
+        fns: &[
+            "DMD_Free",
+            "DocTable_Exists",
+            "DocTable_Put",
+            "DocTable_KeyEquals",
+            "DocTable_StartKeyMap",
+            "DocTable_BuildKeyMapBatch",
+        ],
         types: &[],
         vars: &[],
     },
@@ -280,7 +293,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/result_processor.h",
-        fns: &["RPProfile_IncrementCount"],
+        fns: &["RPProfile_IncrementCount", "RPQueryIterator_New"],
         types: &["RPStatus"],
         vars: &[],
     },
@@ -572,6 +585,9 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     "rqe_iterator_type.h",
     // `IteratorsConfig` is embedded by value in `RSGlobalConfig` (src/config.h).
     "rqe_iterators.h",
+    // `QueryIteratorTree` is referenced by `AREQ` (src/aggregate/aggregate.h)
+    // and `QueryPipelineParams` (src/pipeline/pipeline.h).
+    "query_eval.h",
     // `src/rlookup.h` has `static inline` accessors that dereference
     // `RLookupKey` / `RLookupIterator` fields, so the full struct bodies in
     // these three are required. (`rlookup_ffi.h` includes `search_result_rs.h`

@@ -124,6 +124,10 @@ typedef struct RSDocumentMetadata_s {
 
   uint16_t ref_count;
 
+  /* Cluster hash slot of keyPtr, cached so slot filters skip re-hashing the key.
+   * Kept in step with keyPtr by every writer of keyPtr. */
+  uint16_t slot;
+
   /* Document-level expiration time in nanoseconds since the epoch (0 = none).
    * Inlined to avoid a TTL-table lookup on the result-processor hot path. */
   int64_t expirationTimeNs;

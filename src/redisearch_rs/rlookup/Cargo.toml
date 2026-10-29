@@ -35,7 +35,6 @@ itertools.workspace = true
 lending-iterator.workspace = true
 
 [dev-dependencies]
-pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
 sorting_vector.workspace = true
 value = { workspace = true }

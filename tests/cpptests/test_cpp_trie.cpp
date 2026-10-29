@@ -27,7 +27,11 @@
 #include <set>
 #include <vector>
 #include <algorithm>
+#include <utility>
 #include <climits>
+
+#include <sys/mman.h>
+#include <unistd.h>
 
 class TrieTest : public ::testing::Test {};
 
@@ -1421,6 +1425,92 @@ TEST_F(TrieTest, testSearchTrimDropsTail) {
   Vector_Free(res);
 
   TrieType_Free(t);
+}
+
+// FT.SUGGET hands strToSingleCodepointFoldedRunes a Redis string's exact byte
+// length, and FT.SUGADD/SUGDEL do the same with strToRunes. A multi-byte lead
+// byte at the end must not make a decoder read past that length, so the result
+// cannot depend on the bytes that follow it.
+TEST_F(TrieTest, testRuneDecodeStaysWithinLength) {
+  typedef std::vector<rune> (*Decoder)(const char *, size_t);
+  const std::pair<const char *, Decoder> decoders[] = {
+      {"strToSingleCodepointFoldedRunes",
+       [](const char *s, size_t n) {
+         size_t rlen = 0;
+         rune *r = strToSingleCodepointFoldedRunes(s, n, &rlen);
+         std::vector<rune> out(r, r + rlen);
+         rm_free(r);
+         return out;
+       }},
+      {"strToRunes",
+       [](const char *s, size_t n) {
+         std::vector<rune> out(n);
+         out.resize(std::min(strToRunes(s, n, out.data(), n), n));
+         return out;
+       }},
+      {"strToLowerRunes",
+       [](const char *s, size_t n) {
+         size_t rlen = 0;
+         rune *r = strToLowerRunes(s, n, &rlen);
+         std::vector<rune> out(r, r + rlen);
+         rm_free(r);
+         return out;
+       }},
+  };
+
+  // The leads of a 2-, 3- and 4-byte sequence, each cut off after "ab".
+  for (char lead : {'\xC3', '\xE4', '\xF0'}) {
+    const std::string input = std::string("ab") + lead;
+    // The same input followed by zeros, or by the rest of U+1F600.
+    const std::string zeroed = input + std::string(3, '\0');
+    const std::string continued = input + "\x9F\x98\x80";
+    for (const auto &[name, decode] : decoders) {
+      EXPECT_EQ(decode(zeroed.data(), input.size()), decode(continued.data(), input.size()))
+          << name << " read past the supplied length (trailing lead byte 0x" << std::hex
+          << (int)(unsigned char)lead << ")";
+    }
+  }
+}
+
+// Lowering ends at the first decoded NUL, whether a literal 0 byte or an
+// overlong encoding of one.
+TEST_F(TrieTest, testLowerRunesStopsAtNul) {
+  const std::pair<std::string, std::vector<rune>> cases[] = {
+      {std::string("\0AB", 3), {}},
+      {std::string("a\0BCD", 5), {'a'}},
+      {std::string("Ab\xC0\x80") + "CD", {'a', 'b'}},
+  };
+  for (const auto &[input, expected] : cases) {
+    size_t rlen = 0;
+    rune *r = strToLowerRunes(input.data(), input.size(), &rlen);
+    ASSERT_TRUE(r != nullptr);
+    EXPECT_EQ(expected, std::vector<rune>(r, r + rlen)) << "input size " << input.size();
+    EXPECT_EQ(0, r[rlen]) << "input size " << input.size();
+    rm_free(r);
+  }
+}
+
+// A string longer than MAX_RUNE_STR_LEN runes is rejected without being walked
+// to its end. The bytes past the limit sit in an inaccessible page, so reading
+// them faults.
+TEST_F(TrieTest, testLowerRunesStopsCountingPastLimit) {
+  const long pageSize = sysconf(_SC_PAGESIZE);
+  ASSERT_GT(pageSize, 0);
+  const size_t page = pageSize;
+  const size_t n = MAX_RUNE_STR_LEN + 1;
+  const size_t region = ((n + page - 1) / page + 1) * page;
+  char *base =
+      (char *)mmap(nullptr, region, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  ASSERT_NE(MAP_FAILED, (void *)base);
+  char *guard = base + region - page;
+  ASSERT_EQ(0, mprotect(guard, page, PROT_NONE));
+  char *str = guard - n;
+  memset(str, 'a', n);
+
+  size_t rlen = 1;
+  EXPECT_EQ(nullptr, strToLowerRunes(str, n + page, &rlen));
+  EXPECT_EQ(0, rlen);
+  munmap(base, region);
 }
 
 namespace {

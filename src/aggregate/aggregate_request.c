@@ -19,6 +19,7 @@
 #include <sys/param.h>
 
 #include "aggregate.h"
+#include "query_eval_ffi.h"
 #include "aggregate_debug.h"
 #include "hybrid/hybrid_request.h"
 #include "search_result_ffi.h"
@@ -38,6 +39,7 @@
 #include "search_disk.h"
 #include "search_disk_utils.h"
 #include "doc_id_meta.h"
+#include "indexes_scan.h"
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/expr/expression.h"
 #include "field_spec.h"
@@ -783,7 +785,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   if(languageStr == NULL) {
     searchOpts->language = RS_LANG_UNSET;
   } else {
-    searchOpts->language = RSLanguage_Find(languageStr, 0);
+    searchOpts->language = RSLanguage_Find(languageStr, strlen(languageStr));
   }
 
   if (AC_IsInitialized(&returnFields)) {
@@ -1475,23 +1477,17 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   }
 
   if (opts->inkeys) {
+    IndexSpec_ActivateKeyMap(sctx->spec);
     // inkeys is a window into the held argv, which outlives the AST; the
     // id-filter node borrows it as-is.
     QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
 
-    // DocIdMeta_Get opens the key (needs the GIL), so resolve here on the main
-    // thread rather than on a background query thread. Resolving at admission
-    // rather than at snapshot time leaves a window: a key re-indexed before the
-    // worker takes the spec read lock keeps its stale, now deleted docId and
-    // drops out of the results - the same observable outcome as the
-    // Result_ExpiredDoc path takes for any doc re-indexed mid-query.
-    filterOpts.docIds = rm_malloc(sizeof(t_docId) * opts->ninkeys);
-    for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
-      uint64_t docId = 0;
-      if (DocIdMeta_Get(sctx->redisCtx, opts->inkeys[ii], sctx->spec->specId, &docId) == REDISMODULE_OK) {
-        filterOpts.docIds[ii] = docId;
-      } else {
-        filterOpts.docIds[ii] = 0;  // Mark as not found
+    // Disk resolution remains at admission; memory-mode resolution is deferred
+    // until the execution spec lock has been established.
+    if (SearchDisk_IsEnabled()) {
+      filterOpts.docIds = rm_calloc(opts->ninkeys, sizeof(t_docId));
+      for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
+        DocIdMeta_Get(sctx->redisCtx, opts->inkeys[ii], sctx->spec->specId, &filterOpts.docIds[ii]);
       }
     }
 
@@ -1825,21 +1821,22 @@ void ChunkReplyState_Destroy(ChunkReplyState *state) {
 }
 
 void AREQ_Free(AREQ *req) {
-  // Check if rootiter exists but pipeline was never built (no result processors)
-  // In this case, we need to free the rootiter manually since no RPQueryIterator
-  // was created to take ownership of it.
-  bool rootiterNeedsFreeing = (req->rootiter != NULL && req->pipeline.qctx.rootProc == NULL);
+  // Check if the iterator tree exists but pipeline was never built (no result processors)
+  // In this case, we need to free the tree manually since no RPQueryIterator
+  // was created to take ownership of its root.
+  bool treeNeedsFreeing =
+      (req->iteratorTree != NULL && req->pipeline.qctx.rootProc == NULL);
   // First, free the pipeline
   Pipeline_Clean(&req->pipeline);
 
-  // Free the rootiter if it wasn't transferred to the pipeline.
-  // The RPQueryIterator takes ownership of rootiter when the pipeline is built,
+  // Free the iterator tree if it wasn't transferred to the pipeline.
+  // The RPQueryIterator takes ownership of the tree's root when the pipeline is built,
   // but in cases like RS_GetExplainOutput or pipeline build failures,
-  // the rootiter may exist without being owned by any result processor.
-  if (rootiterNeedsFreeing) {
-    req->rootiter->Free(req->rootiter);
+  // the tree may exist without being owned by any result processor.
+  if (treeNeedsFreeing) {
+    QueryIteratorTree_Free(req->iteratorTree);
   }
-  req->rootiter = NULL;
+  req->iteratorTree = NULL;
   if (req->optimizer) {
     QOptimizer_Free(req->optimizer);
   }
@@ -1925,13 +1922,14 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
         .scoreAlias = req->searchopts.scoreAlias,
       },
       .ast = &req->ast,
-      .rootiter = req->rootiter,
+      .iteratorTree = req->iteratorTree,
       .querySlots = req->querySlots,
       .scorerName = req->searchopts.scorerName,
       .reqConfig = &req->base.reqConfig,
       .keySpaceVersion = req->keySpaceVersion,
     };
-    req->rootiter = NULL; // Ownership of the root iterator is now with the params.
+    // Ownership of the iterator tree is now with the params.
+    req->iteratorTree = NULL;
     req->querySlots = NULL; // Ownership of the slot ranges is now with the params.
     Pipeline_BuildQueryPart(&req->pipeline, &params, status);
     if (QueryError_HasError(status)) {

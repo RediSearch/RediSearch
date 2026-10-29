@@ -1236,6 +1236,32 @@ static AREQ *blockedClientReqCtx_getRequest(const blockedClientReqCtx *BCRctx) {
   return BCRctx->req;
 }
 
+// Caller holds the spec read lock; it remains held on both success and failure.
+static int prepareExecutionPlanWithKeyMapFallback(AREQ *req, QueryError *status) {
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  RedisModuleCtx *outctx = sctx->redisCtx;
+  bool keyMapFallback = req->searchopts.inkeys && !sctx->spec->diskSpec &&
+                        sctx->spec->docs.keyMapState != DocKeyMap_Ready;
+  rs_wall_clock fallbackGILStart;
+  if (keyMapFallback) {
+    // Main-thread writers acquire the GIL before the spec lock.
+    IndexSpec_Unlock(sctx->spec);
+    RedisModule_ThreadSafeContextLock(outctx);
+    if (IsProfile(req)) rs_wall_clock_init(&fallbackGILStart);
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait("KeyMapFallbackGIL");
+#endif
+    IndexSpec_LockRead(sctx->spec);
+  }
+  int planStatus = prepareExecutionPlan(req, status);
+  if (keyMapFallback) {
+    if (IsProfile(req)) {
+      AREQ_QueryProcessingCtx(req)->queryGILTime += rs_wall_clock_elapsed_ns(&fallbackGILStart) + 1;
+    }
+    RedisModule_ThreadSafeContextUnlock(outctx);
+  }
+  return planStatus;
+}
 
 static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
   RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
@@ -1313,8 +1339,8 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   // Lock spec. Should be released on the BG thread by every downstream path.
   IndexSpec_LockRead(sctx->spec);
-
-  if (prepareExecutionPlan(req, status) != REDISMODULE_OK) {
+  int planStatus = prepareExecutionPlanWithKeyMapFallback(req, status);
+  if (planStatus != REDISMODULE_OK) {
     IndexSpec_Unlock(sctx->spec);
     goto error;
   }
@@ -1389,7 +1415,7 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
   // Setting the timeout context should be done in the same thread that executes the query.
   SearchCtx_UpdateCurrentTime(sctx);
 
-  req->rootiter = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
+  req->iteratorTree = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
 
   // check possible optimization after creation of QueryIterator tree
   if (IsOptimized(req)) {
@@ -1413,7 +1439,7 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
   if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree
-    Profile_AddIters(&req->rootiter);
+    QueryIteratorTree_Profile(req->iteratorTree);
   }
 
   rs_wall_clock parseClock;

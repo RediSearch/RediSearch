@@ -35,6 +35,10 @@ std::vector<std::vector<std::string>> &RMCK_GetPropagatedCommands(RedisModuleCtx
 void RMCK_ClearKeyMetaStorage();
 RedisModuleKeyMetaClassId RMCK_GetKeyMetaClassByName(const char *name);
 bool RMCK_KeyMetaSlotExists(const char *key, RedisModuleKeyMetaClassId classId);
+// Dirty flag set by every SetKeyMeta on (key, class); tests clear it to simulate a key loaded
+// clean from storage and then check that a change was reported through SetKeyMeta.
+void RMCK_KeyMetaClearDirty(const char *key, RedisModuleKeyMetaClassId classId);
+bool RMCK_KeyMetaIsDirty(const char *key, RedisModuleKeyMetaClassId classId);
 int RMCK_KeyMetaRdbLoad(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,
                         uint64_t *meta, int encver);
 void RMCK_KeyMetaRdbSave(RedisModuleKeyMetaClassId classId, RedisModuleIO *io,

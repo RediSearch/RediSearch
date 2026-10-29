@@ -12,7 +12,7 @@ on:
         type: string
         # TODO: Replace with a released Redis version once one includes the hexpired notification fix
         # and the OpenSSL 4 tls.c fix (redis/redis#15227).
-        default: 8bc1c4e147761e7c9d6ff1bb92248b9d4dda43ab
+        default: 559d143b4e0409c452f7d229ba420954b6b647a2
     outputs:
       tag:
         description: "Redis tag or pinned ref"

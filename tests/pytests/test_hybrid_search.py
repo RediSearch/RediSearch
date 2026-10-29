@@ -124,6 +124,7 @@ def test_hybrid_knn_implicit_filter_matches_wildcard(env):
         env.expect('FT.CREATE', index, 'PREFIX', 1, f'{index}:', 'SCHEMA', 't', 'TEXT',
                    'v', 'VECTOR', algorithm, 6, 'TYPE', 'FLOAT32', 'DIM', 2,
                    'DISTANCE_METRIC', 'L2').ok()
+        waitForIndex(env, index)
         keys = [f'{index}:{i}' for i in range(1, 4)]
         for i, key in enumerate(keys, 1):
             vector = np.array([float(i), 0.0], dtype=np.float32).tobytes()

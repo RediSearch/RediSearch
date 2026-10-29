@@ -41,6 +41,9 @@ static std::mutex RMCK_GlobalLock;
 // KeyMeta mock storage
 static std::map<std::string, std::map<RedisModuleKeyMetaClassId, uint64_t>> keyMetaStorage;
 static RedisModuleKeyMetaClassId nextClassId = 1;
+// Keys whose metadata was set since the test last cleared the flag; models a server that persists
+// key metadata and only learns of changes through SetKeyMeta.
+static std::set<std::pair<std::string, RedisModuleKeyMetaClassId>> keyMetaDirty;
 static std::map<RedisModuleKeyMetaClassId, RedisModuleKeyMetaClassConfig> classConfigs;
 static std::map<std::string, RedisModuleKeyMetaClassId> classNames;
 
@@ -877,6 +880,29 @@ void RMCK_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *
   RMCK_Free(slots);
 }
 
+// Same algorithm as Redis keyHashSlot: CRC16-XMODEM of the key, or of its first non-empty
+// {hashtag}, modulo 16384. Tests rely on the slot of a key matching what Redis computes.
+unsigned int RMCK_ClusterKeySlotC(const char *key, size_t keylen) {
+  size_t start = 0, len = keylen;
+  const char *open = static_cast<const char *>(memchr(key, '{', keylen));
+  if (open) {
+    size_t s = open - key + 1;
+    const char *close = static_cast<const char *>(memchr(key + s, '}', keylen - s));
+    if (close && close != key + s) {
+      start = s;
+      len = close - (key + s);
+    }
+  }
+  uint16_t crc = 0;
+  for (size_t i = start; i < start + len; ++i) {
+    crc ^= static_cast<uint16_t>(static_cast<unsigned char>(key[i])) << 8;
+    for (int b = 0; b < 8; ++b) {
+      crc = (crc & 0x8000) ? static_cast<uint16_t>((crc << 1) ^ 0x1021) : static_cast<uint16_t>(crc << 1);
+    }
+  }
+  return crc & 0x3FFF;
+}
+
 // ============================================================================
 // Configurable cluster topology mock
 // ----------------------------------------------------------------------------
@@ -1696,6 +1722,7 @@ static int RMCK_SetKeyMeta(RedisModuleKeyMetaClassId class_id,
   // Redis' keyMetaSetMetadata overwrites an existing slot in place, including
   // reset_value(0); it does not remove the metadata bit or shrink the key.
   keyMetaStorage[key->key][class_id] = meta;
+  keyMetaDirty.insert({key->key, class_id});
   return REDISMODULE_OK;
 }
 
@@ -1721,6 +1748,9 @@ void RMCK_FreeKeyMetaForKey(const std::string &key) {
     RMCK_FreeKeyMetaValue(key, metaPair.first, metaPair.second);
   }
   keyMetaStorage.erase(keyIt);
+  for (auto it = keyMetaDirty.begin(); it != keyMetaDirty.end();) {
+    it = it->first == key ? keyMetaDirty.erase(it) : std::next(it);
+  }
 }
 
 void RMCK_FreeAllKeyMeta() {
@@ -1730,6 +1760,7 @@ void RMCK_FreeAllKeyMeta() {
     }
   }
   keyMetaStorage.clear();
+  keyMetaDirty.clear();
 }
 
 static void RMCK_ClearKeyMeta() {
@@ -1747,6 +1778,14 @@ void RMCK_ClearKeyMetaStorage() {
 RedisModuleKeyMetaClassId RMCK_GetKeyMetaClassByName(const char *name) {
   auto it = classNames.find(name);
   return it == classNames.end() ? -1 : it->second;
+}
+
+void RMCK_KeyMetaClearDirty(const char *key, RedisModuleKeyMetaClassId classId) {
+  keyMetaDirty.erase({key, classId});
+}
+
+bool RMCK_KeyMetaIsDirty(const char *key, RedisModuleKeyMetaClassId classId) {
+  return keyMetaDirty.count({key, classId}) != 0;
 }
 
 bool RMCK_KeyMetaSlotExists(const char *key, RedisModuleKeyMetaClassId classId) {
@@ -1947,6 +1986,7 @@ static void registerApis() {
   REGISTER_API(ClusterGetLocalSlotRanges);
   REGISTER_API(GetClusterNodeSlotRanges);
   REGISTER_API(ClusterFreeSlotRanges);
+  REGISTER_API(ClusterKeySlotC);
   REGISTER_API(GetClusterNodesList);
   REGISTER_API(FreeClusterNodesList);
   REGISTER_API(GetClusterNodeInfo);

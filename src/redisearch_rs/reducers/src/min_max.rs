@@ -9,6 +9,7 @@
 
 //! The `MIN` and `MAX` reducers.
 
+use bumpalo::Bump;
 use rlookup::{RLookupKey, RLookupRow};
 use value::SharedValue;
 
@@ -36,9 +37,9 @@ impl<'a> MinMax<'a> {
 }
 
 impl Accumulator for MinMax<'_> {
-    type State = f64;
+    type State<'arena> = f64;
 
-    fn init(&self) -> f64 {
+    fn init(&self, _arena: &Bump) -> f64 {
         match self.extreme {
             Extreme::Min => f64::INFINITY,
             Extreme::Max => f64::NEG_INFINITY,

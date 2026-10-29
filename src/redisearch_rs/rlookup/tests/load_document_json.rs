@@ -22,12 +22,14 @@
 //! ([`redis_json_api::mock`]) whose vtable resolves JSONPath queries against a
 //! [`serde_json::Value`].
 
+use field_spec::FieldSpecOption;
 use proptest::prelude::{Just, Strategy, any, prop_oneof};
 use proptest::proptest;
 use redis_json_api::mock::{with_json_api, with_json_api_broken_handle};
 use redis_module::RedisString;
 use rlookup::{
-    DocumentFormat, FieldLoader, JsonDocumentFormat, JsonPathCache, LoadAllError, RLookup,
+    DocumentFormat, FieldLoader, FieldSpecBuilder, FieldSpecType, IndexSpecCache,
+    JsonDocumentFormat, JsonPathCache, LoadAllError, RLookup, RLookupKey, RLookupKeyFlag,
     RLookupKeyFlags, RLookupRow,
 };
 use serde_json::json;
@@ -205,6 +207,54 @@ fn load_all_writes_root_value() {
         let cursor = rlookup.find_key_by_name(c"$").unwrap();
         let key = cursor.current().unwrap();
         assert_eq!(row.get(key).unwrap().as_str_bytes(), Some(&b"world"[..]));
+    });
+}
+
+/// An [`RLookup`] whose schema declares `$` as a SORTABLE, un-normalized (UNF) text field.
+///
+/// Such a key is "value available" from the sorting vector, so creating it without
+/// [`RLookupKeyFlag::ForceLoad`] yields no key to write into.
+fn rlookup_with_sortable_root() -> RLookup<'static> {
+    let mut rlookup = RLookup::new();
+    rlookup.set_cache(Some(IndexSpecCache::from_fields([FieldSpecBuilder::new(
+        c"$",
+    )
+    .with_types(FieldSpecType::Fulltext.into())
+    .with_options(FieldSpecOption::Sortable | FieldSpecOption::Unf)
+    .with_sort_idx(0)
+    .finish()])));
+    rlookup
+}
+
+/// Assert that `load_all` loads the root from the document when the schema declares `$` as a
+/// SORTABLE, un-normalized (UNF) field.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn load_all_force_loads_sortable_root_key() {
+    // Precondition: without forcing, the schema alone makes the key value-available and
+    // `get_key_load` declines to hand it out, so the assertions below exercise the forced path.
+    assert!(
+        rlookup_with_sortable_root()
+            .get_key_load(c"$", c"$", RLookupKeyFlags::empty())
+            .is_none(),
+        "a SORTABLE|UNF `$` must not be loadable without ForceLoad"
+    );
+
+    redis_mock::init_redis_module_mock();
+    with_json_api(Some(json!("hello")), |japi, ctx| {
+        // SAFETY: the root path is static.
+        let cache = unsafe { JsonPathCache::new(&japi, [Some(c"$")].into_iter()) };
+        let format = JsonDocumentFormat::new(ctx, &japi, PRE_MULTI, &cache);
+        let key_name = make_redis_string(c"doc:1");
+
+        let mut rlookup = rlookup_with_sortable_root();
+        let mut row = RLookupRow::new();
+        format.load_all(&mut rlookup, &mut row, &key_name).unwrap();
+
+        let cursor = rlookup.find_key_by_name(c"$").unwrap();
+        let key: &RLookupKey = cursor.current().unwrap();
+        assert!(key.flags.contains(RLookupKeyFlag::ValAvailable));
+        assert_eq!(row.get(key).unwrap().as_str_bytes(), Some(&b"hello"[..]));
     });
 }
 

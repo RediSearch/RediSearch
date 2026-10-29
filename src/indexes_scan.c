@@ -82,6 +82,63 @@ static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *
 
 static redisearch_thpool_t *reindexPool = NULL;
 
+static void verifyReindexPoolInit(void) {
+  if (!reindexPool) {
+    reindexPool =
+        redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
+  }
+}
+
+#define KEY_MAP_BUILD_BATCH_SIZE 1024
+
+typedef struct {
+  WeakRef spec;
+  DocTableKeyMapIterator iterator;
+} KeyMapBuild;
+
+static void KeyMapBuild_Run(void *arg) {
+  KeyMapBuild *build = arg;
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait("KeyMapBeforeBatch");
+#endif
+  StrongRef ref = IndexSpecRef_Promote(build->spec);
+  IndexSpec *spec = StrongRef_Get(ref);
+  bool done = true;
+  if (spec) {
+    IndexSpec_LockWrite(spec);
+    done = DocTable_BuildKeyMapBatch(&spec->docs, &build->iterator, KEY_MAP_BUILD_BATCH_SIZE);
+    IndexSpec_Unlock(spec);
+#ifdef ENABLE_ASSERT
+    if (done) SyncPoint_Wait("KeyMapBuildComplete");
+#endif
+    IndexSpecRef_Release(ref);
+  }
+  if (!done) {
+    // One low-priority continuation per build keeps the queue bounded and lets other
+    // reindex work run between batches. Pool destruction drains these continuations.
+    int rc = redisearch_thpool_add_work(reindexPool, KeyMapBuild_Run, build, THPOOL_PRIORITY_LOW);
+    RS_ASSERT_ALWAYS(rc == 0);
+  } else {
+    DocTable_KeyMapIteratorReleaseNext(&build->iterator);
+    WeakRef_Release(build->spec);
+    rm_free(build);
+  }
+}
+
+void IndexSpec_ActivateKeyMap(IndexSpec *spec) {
+  // Only GIL-owning callers publish this pointer; the builder never replaces it.
+  if (SearchDisk_IsEnabled() || spec->docs.keyMap) return;
+  IndexSpec_LockWrite(spec);
+  DocKeyMapActivation activation = DocTable_StartKeyMap(&spec->docs);
+  IndexSpec_Unlock(spec);
+  if (activation != DocKeyMapActivation_NeedsBackfill) return;
+  verifyReindexPoolInit();
+  KeyMapBuild *build = rm_calloc(1, sizeof(*build));
+  build->spec = StrongRef_Demote(IndexSpec_GetStrongRefUnsafe(spec));
+  int rc = redisearch_thpool_add_work(reindexPool, KeyMapBuild_Run, build, THPOOL_PRIORITY_LOW);
+  RS_ASSERT_ALWAYS(rc == 0);
+}
+
 //---------------------------------------------------------------------------------------------
 
 static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, RedisModuleCtx *ctx,
@@ -429,9 +486,7 @@ end:
 //---------------------------------------------------------------------------------------------
 
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange addedFields) {
-  if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
-  }
+  verifyReindexPoolInit();
 #ifdef _DEBUG
   IndexSpec* spec = (IndexSpec*)StrongRef_Get(spec_ref);
   const char* indexName = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
@@ -465,6 +520,10 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange a
 
 void ReindexPool_ThreadPoolDestroy() {
   if (reindexPool != NULL) {
+#ifdef ENABLE_ASSERT
+    // A shutdown regression test pins the final spec reference until this drain.
+    SyncPoint_Signal("KeyMapBuildComplete");
+#endif
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     redisearch_thpool_destroy(reindexPool);
     reindexPool = NULL;
@@ -582,9 +641,7 @@ void Indexes_UpgradeLegacyIndexes() {
 }
 
 void Indexes_ScanAndReindex() {
-  if (!reindexPool) {
-    reindexPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "reindex");
-  }
+  verifyReindexPoolInit();
 
   RedisModule_Log(RSDummyContext, "notice", "Scanning all indexes");
   IndexesScanner *scanner = IndexesScanner_NewGlobal();

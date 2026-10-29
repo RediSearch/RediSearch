@@ -9,13 +9,14 @@
 
 //! Flat array variant of the union iterator with O(n) min-finding.
 
-use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
+use index_result::{RSIndexResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
+use crate::composite::FreeSuspendedShell;
 use crate::union::{
-    FreeSuspendedShell, RebuildOutcome, SettleOutcome, rebuild_borrowed_entries,
-    restore_gathered_metrics,
+    RebuildOutcome, SettleOutcome, rebuild_borrowed_entries, restore_gathered_metrics,
+    result_is_borrowed_union,
 };
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
@@ -56,6 +57,48 @@ impl<I> std::ops::DerefMut for IndexedChild<I> {
     fn deref_mut(&mut self) -> &mut I {
         &mut self.inner
     }
+}
+
+/// Rebuilds a union's borrowed entries for the document `result` describes,
+/// when no child changed position since the aggregate was built.
+///
+/// Shared by [`RQEIterator::revalidate`] and
+/// [`resume`](RQESuspendedIterator::resume), on the exit that publishes the
+/// aggregate without a settle behind it: there, taking each child mutably to
+/// revalidate or resume it has invalidated the entries borrowed from it.
+///
+/// Children are offered in slot order, the order the read path scans them in,
+/// so a full union's entries come back as
+/// [`build_aggregate_result`](UnionFlat::build_aggregate_result) pushed them,
+/// and a quick union keeps the backer it reported: the first child on the
+/// document by slot.
+///
+/// Call it last, as [`rebuild_borrowed_entries`] requires.
+fn rebuild_unchanged_entries<'a, R, const QUICK_EXIT: bool>(
+    result: &mut RawIndexResult<'a, Suspended>,
+    children: &mut [IndexedChild<R>],
+) -> RebuildOutcome
+where
+    R: RQEIterator<'a>,
+{
+    let doc_id = result.doc_id;
+    // `freq` and `field_mask` sit beside the aggregate in `result`, which it
+    // borrows whole, so they are rebuilt in copies and written back.
+    let (mut freq, mut field_mask) = (result.freq, result.field_mask);
+    let aggregate = result
+        .as_aggregate_mut()
+        .and_then(|aggregate| aggregate.as_borrowed_mut())
+        .expect("only a borrowed union aggregate is rebuilt");
+    let rebuilt = rebuild_borrowed_entries::<_, QUICK_EXIT>(
+        aggregate,
+        doc_id,
+        &mut freq,
+        &mut field_mask,
+        children.iter_mut().map(|c| &mut c.inner),
+    );
+    result.freq = freq;
+    result.field_mask = field_mask;
+    rebuilt
 }
 
 /// Yields documents appearing in ANY child iterator using a flat array scan.
@@ -213,6 +256,21 @@ where
     /// Settles the union's position after its children have moved, and reports where
     /// that leaves it.
     ///
+    /// [`rebuild_unchanged_entries`] on the active union, for the exit of
+    /// [`revalidate`](RQEIterator::revalidate) where no child changed.
+    fn refresh_aggregate(&mut self) -> RebuildOutcome {
+        // SAFETY: the two `Ref` modes of `RawIndexResult` are layout-identical
+        // (the const proof in `index_result`'s core), and viewing the result as
+        // suspended only weakens its pointers. The rebuild derives every entry
+        // afresh from a live borrow of a child this union owns for `'index`, and
+        // nothing takes `&mut` to a child before the result is read back as
+        // active, so the entries are as valid as `push_borrowed` would make
+        // them. `self.result` is a field disjoint from `self.children`.
+        let result =
+            unsafe { &mut *(&raw mut self.result).cast::<RawIndexResult<'index, Suspended>>() };
+        rebuild_unchanged_entries::<_, QUICK_EXIT>(result, &mut self.children)
+    }
+
     /// The single place that decides a union's post-change position, shared by
     /// [`RQEIterator::revalidate`] and
     /// [`RQESuspendedIterator::resume`] so the two
@@ -871,8 +929,23 @@ where
             return Ok(RQEValidateStatus::Aborted);
         }
 
-        // Early return if nothing changed
+        // Both the rebuild below and the settle rebuild the aggregate in place.
+        if !result_is_borrowed_union(&self.result) {
+            return Ok(RQEValidateStatus::Aborted);
+        }
+
+        // Nothing moved or aborted: the children still sit on the positions the
+        // aggregate describes, so it stands, with its entries derived afresh.
         if !any_change {
+            let rebuilt = self.refresh_aggregate();
+            debug_assert_ne!(
+                rebuilt,
+                RebuildOutcome::Unbacked,
+                "a union whose children all revalidated unchanged cannot lose its aggregate",
+            );
+            if rebuilt == RebuildOutcome::Unbacked {
+                return Ok(RQEValidateStatus::Aborted);
+            }
             return Ok(RQEValidateStatus::Ok);
         }
 
@@ -976,27 +1049,8 @@ where
         // `Box::into_raw` opens the raw-pointer section — the same shape
         // `Optional` and `NotOptimized` use for their virtual sentinels. It is
         // also what lets `rebuild_borrowed_entries` take the borrowed aggregate
-        // as given.
-        //
-        // The test is the exact kind, not `is_aggregate()`: that also admits
-        // `HybridMetric`, whose children are *owned* boxes rather than borrowed
-        // entries, and whose own `data` may still be index-backed and
-        // suspended — a case no union is equipped to re-validate.
-        //
-        // The kind alone is not enough: an aggregate of kind `Union` can be the
-        // *owned* representation, whose children are boxed into the result's own
-        // allocation and are never transitioned. Safe code can build one —
-        // `to_owned()` on a union result, `push_boxed` an index-backed term into
-        // it, assign it through `current()` — and a boxed child's `data` can be
-        // index-backed and suspended, so re-narrowing it would promote pointers
-        // nothing re-validated. Demanding the borrowed representation is what
-        // closes that.
-        let is_borrowed_union = self.result.kind() == RSResultKind::Union
-            && self
-                .result
-                .as_aggregate()
-                .is_some_and(|aggregate| aggregate.as_borrowed().is_some());
-        if !is_borrowed_union {
+        // as given. `result_is_borrowed_union` says what it admits, and why.
+        if !result_is_borrowed_union(&self.result) {
             return Ok(ResumeOutcome::Aborted);
         }
 
@@ -1105,14 +1159,8 @@ where
         //
         // Where it does run, every survivor is offered, including any parked
         // past `num_active`: the rebuild asks each child where it sits, so
-        // neither parking nor the compaction above needs special handling. They
-        // are offered in slot order, the order the read path scans them in, so
-        // a full union's entries come back as `build_aggregate_result` pushed
-        // them and a `QUICK_EXIT` union keeps the backer it reported: the first
-        // child on the document by slot. Every quick-mode pick — `skip_to_quick`,
-        // and the settle's stay-put and lagger seek — scans slots in order, so
-        // no other record of the backer is needed (`UnionHeap`, whose backer is
-        // the heap root, has to find it by address).
+        // neither parking nor the compaction above needs special handling. See
+        // `rebuild_unchanged_entries` for the order they are offered in.
         let rebuilt = {
             // Viewed at `'a` so the rebuilt entries carry the children's
             // lifetime; `&mut` is invariant, so the narrowing needs a cast.
@@ -1128,16 +1176,12 @@ where
             // every one of them valid for `'a`.
             let result: &mut RawIndexResult<'a, Suspended> =
                 unsafe { &mut *result_ptr.cast::<RawIndexResult<'a, Suspended>>() };
-            let doc_id = result.doc_id;
-            // `freq` and `field_mask` sit beside the aggregate in `result`, which
-            // it borrows whole, so they are rebuilt in copies and written back.
-            let (mut freq, mut field_mask) = (result.freq, result.field_mask);
-            let aggregate = result
-                .as_aggregate_mut()
-                .and_then(|aggregate| aggregate.as_borrowed_mut())
-                .expect("resume admits only a borrowed union aggregate");
             if any_change {
-                aggregate.reset();
+                result
+                    .as_aggregate_mut()
+                    .and_then(|aggregate| aggregate.as_borrowed_mut())
+                    .expect("resume admits only a borrowed union aggregate")
+                    .reset();
                 None
             } else {
                 // SAFETY: `base` addresses the `kept` survivors, each a valid
@@ -1152,16 +1196,7 @@ where
                         kept,
                     )
                 };
-                let rebuilt = rebuild_borrowed_entries::<_, QUICK_EXIT>(
-                    aggregate,
-                    doc_id,
-                    &mut freq,
-                    &mut field_mask,
-                    children.iter_mut().map(|c| &mut c.inner),
-                );
-                result.freq = freq;
-                result.field_mask = field_mask;
-                Some(rebuilt)
+                Some(rebuild_unchanged_entries::<_, QUICK_EXIT>(result, children))
             }
         };
 

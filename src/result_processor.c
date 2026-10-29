@@ -133,6 +133,12 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   } else {
     if (it->current->dmd) {
       *dmd = it->current->dmd;
+      // Borrowed before a slot deletion may have been registered (e.g. held in the optimizer heap
+      // across cursor reads), so DocTable_Borrow's check did not cover it.
+      if (DocTable_HasPendingDeletions(docs) && DocTable_IsDocPendingDeletion(docs, *dmd)) {
+        DMD_Return(*dmd);
+        return false;
+      }
     } else {
       *dmd = DocTable_Borrow(docs, it->lastDocId);
     }
@@ -216,7 +222,8 @@ static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadat
 
   // Check query slots (internal command filtering)
   if (self->querySlots && (__atomic_load_n(&key_space_version, __ATOMIC_RELAXED) != self->keySpaceVersion)) {
-    int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
+    // Disk DMDs do not carry the slot (see SearchDisk_GetDocumentMetadata), so hash their key.
+    const uint16_t slot = self->sctx->spec->diskSpec ? RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr)) : dmd->slot;
     if (!SlotRangeArray_ContainsSlot(self->querySlots, slot)) {
       return false;
     }
@@ -2763,15 +2770,18 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
    ret->upstreams = upstreams;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 
-   // Calculate maximal dictionary size based on scoring type
-   size_t maximalSize;
+   size_t window;
    if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-     maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;
+     window = hybridScoringCtx->rrfCtx.window;
    } else {
-     maximalSize = hybridScoringCtx->linearCtx.window * numUpstreams;
+     window = hybridScoringCtx->linearCtx.window;
    }
-   // Pre-size the dictionary to avoid multiple resizes during accumulation
-   dictExpand(ret->hybridResults, maximalSize);
+   // WINDOW bounds consumption, not the number of documents that actually exist. Limit eager
+   // allocation and let the dictionary grow as results arrive. Check before multiplying to avoid
+   // overflow when computing the initial capacity.
+   const size_t maxPresize = 65536;
+   size_t initialSize = window > maxPresize / numUpstreams ? maxPresize : window * numUpstreams;
+   dictExpand(ret->hybridResults, initialSize);
 
    ret->iterator = NULL;
 

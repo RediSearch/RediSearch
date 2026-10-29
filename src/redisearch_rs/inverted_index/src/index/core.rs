@@ -126,6 +126,7 @@ impl IndexBlock {
     }
 
     /// Whether the entry at `ordinal` belongs to a document with a field-level expiration.
+    #[inline(always)]
     pub(crate) fn expiration_bit(&self, ordinal: u16) -> bool {
         self.expiration_bits.contains(ordinal)
     }

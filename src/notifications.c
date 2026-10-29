@@ -17,6 +17,7 @@
 
 #include "config.h"
 #include "notifications.h"
+#include "doc_id_meta.h"
 #include "spec.h"
 #include "indexes.h"
 #include "doc_types.h"
@@ -26,6 +27,7 @@
 #include "util/workers.h"
 #include "dictionary.h"
 #include "asm_state_machine.h"
+#include "slot_cleanup.h"
 #include "coord/rmr/redis_cluster.h"
 #include "coord/config.h"
 #include "cursor.h"
@@ -328,6 +330,17 @@ int HandleKeyspaceNotification(RedisModuleCtx *ctx, enum RedisCmd redisCommand,
       break;
 
     case restore_cmd:
+      // The payload's D-ID was saved by whichever process ran DUMP: its docIds name
+      // other documents here, or this key's previous, already-unlinked incarnation.
+      // No index here has indexed this new key yet, so every entry is foreign.
+      // Optimization option: Open Key once and pass the open key down the stack to Indexes_UpdateMatchingWithSchemaRules.
+      // Split of logic would be the risk (Indexes_UpdateMatchingWithSchemaRules is a clear signal on all the notifications that reindex a key)
+      // Only processes that register the D-ID rdb_load can receive it (DocIdMeta_Init).
+      if (SearchDisk_IsEnabledForValidation()) {
+        DocIdMeta_Clear(ctx, key);
+      }
+      Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), changedFields, numChangedFields);
+      break;
     case copy_to_cmd:
       Indexes_UpdateMatchingWithSchemaRules(ctx, key, getDocTypeFromString(key), changedFields, numChangedFields);
       break;
@@ -614,8 +627,14 @@ void ClusterSlotMigrationTrimEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, ui
       workersThreadPool_OnEventEnd(false);
       ASM_StateMachine_CompleteTrim(slots);
       break;
-
-    // case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND:
+    case REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND:
+      RedisModule_Log(RSDummyContext, "notice", "Got ASM background trim event.");
+      // Redis detaches the slots' keys at once and frees them without running the key-meta
+      // `unlink` callback, and no completion event follows, so both trim transitions happen here.
+      ASM_StateMachine_StartTrim(slots);
+      Indexes_DeleteSlots(slots);
+      ASM_StateMachine_CompleteTrim(slots);
+      break;
   }
 }
 
@@ -832,16 +851,10 @@ void Initialize_KeyspaceNotifications() {
     int notifyFlags = REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
                       REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LOADED |
                       REDISMODULE_NOTIFY_MODULE;
-    // TRIMMED cannot rely on `unlink`: with no module subscribed, slot migration
-    // picks background slot-dictionary detachment (see asmTrimSlots), which never
-    // runs the key-meta callbacks, so trimmed keys would stay indexed and surface
-    // as ghost results on the source shard after a reshard. Subscribing is what
-    // forces per-key active trim -- the event itself maps to `_null_cmd` and is
-    // handled by doing nothing, so do not drop this as an unused subscription.
-    // Disk does not reshard today, and keeps the cheaper background path.
-    if (!SearchDisk_IsEnabled()) {
-      notifyFlags |= REDISMODULE_NOTIFY_KEY_TRIMMED;
-    }
+    // Not KEY_TRIMMED: subscribing to it would force Redis onto per-key active trim. Background
+    // trim is handled by the TRIM_BACKGROUND event. When someone else needs per-key trim, Redis
+    // still trims actively, and those keys go through the DocIdMeta `unlink` callback like any
+    // other deletion.
     // Take hash events over the subkey channel when the server has one: it names
     // the fields the command touched, letting a spec that indexes none of them
     // skip the reindex. Hash moves off the plain subscription entirely rather than

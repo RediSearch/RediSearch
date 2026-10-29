@@ -427,6 +427,7 @@ static size_t indexSpecTotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t
   }
 
   res += sp->docs.memsize;
+  res += DocTable_KeyMapMemoryUsage(&sp->docs);
   res += sp->docs.sortablesSize;
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
   res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
@@ -2063,6 +2064,14 @@ void removePendingIndexDrop() {
   __atomic_sub_fetch(&pendingIndexDropCount_g, 1, __ATOMIC_RELAXED);
 }
 
+int CleanPool_AddWork(void (*work)(void *), void *arg) {
+  return redisearch_thpool_add_work(cleanPool, work, arg, THPOOL_PRIORITY_HIGH);
+}
+
+void CleanPool_Wait() {
+  redisearch_thpool_wait(cleanPool);
+}
+
 size_t CleanInProgressOrPending() {
   return getPendingIndexDrop();
 }
@@ -2720,6 +2729,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
 
   char* name = NULL;
   size_t len = 0;
+  uint64_t types = 0;
   LoadStringBufferAlloc_IOErrors(rdb, name, &len, true, goto fail);
   if (memchr(name, '\0', len)) {
     rm_free(name);
@@ -2738,12 +2748,15 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
     }
   }
 
-  f->types = LoadUnsigned_IOError(rdb, goto fail);
+  types = LoadUnsigned_IOError(rdb, goto fail);
+  if (encver < INDEX_MIN_MULTITYPE_VERSION && types > IDXFLD_LEGACY_MAX) {
+    goto fail;
+  }
+  f->types = types;
   f->options = LoadUnsigned_IOError(rdb, goto fail);
   f->sortIdx = LoadSigned_IOError(rdb, goto fail);
 
   if (encver < INDEX_MIN_MULTITYPE_VERSION) {
-    RS_LOG_ASSERT(f->types <= IDXFLD_LEGACY_MAX, "field type should be string or numeric");
     f->types = fieldTypeMap[f->types];
   }
 
@@ -3064,10 +3077,9 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", doc_table_size / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
-  // No in-memory key trie (it's Redis key-metadata); reported as 0, field kept
-  // for backward compatibility.
-  RedisModule_InfoAddFieldDouble(ctx, "key_table_size", 0.0);
   if (!skip_unsafe_ops) {
+    // A crash can interrupt a map mutation; inspecting its allocation would reenter Rust.
+    RedisModule_InfoAddFieldDouble(ctx, "key_table_size", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
     // Skip when unsafe - tag overhead calls dictFetchValue which can trigger dict rehashing with rm_free
     RedisModule_InfoAddFieldDouble(ctx, "tag_overhead_size_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
     RedisModule_InfoAddFieldDouble(ctx, "text_overhead_size_mb", IndexSpec_collect_text_overhead(sp) / (float)0x100000);
@@ -3357,6 +3369,10 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
   RedisModule_Free(rawName);
 
   flags = (IndexFlags)LoadUnsigned_IOError(rdb, goto cleanup_name);
+  if (flags & Index_StoreNumeric) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid index storage flags");
+    goto cleanup_name;
+  }
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     flags |= Index_StoreFreqs;
   }
@@ -3589,6 +3605,11 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);
   RedisModule_Free(legacyName);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
+  if (sp->flags & Index_StoreNumeric) {
+    RedisModule_LogIOError(rdb, "warning", "RDB Load: Invalid index storage flags");
+    StrongRef_Release(spec_ref);
+    return NULL;
+  }
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
     sp->flags |= Index_StoreFreqs;
   }
@@ -4031,18 +4052,13 @@ int IndexSpec_UpdateDocForAlter(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 }
 
 // Shared helper: update stats and clean up auxiliary indexes after a document deletion.
-// Caller must hold the spec write lock.
+// Caller must hold the spec write lock, and notifies the GC itself (see IndexSpec_DeleteDocById_Unsafe).
 static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docLen) {
   // Update the stats
   RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
   spec->stats.scoring.totalDocsLen -= docLen;
   RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
   spec->stats.scoring.numDocuments--;
-
-  // Increment the index's garbage collector's scanning frequency after document deletions
-  if (spec->gc) {
-    GCContext_OnDelete(spec->gc);
-  }
 
   // VecSim fields clear deleted data on the fly
   if (spec->flags & Index_HasVecSim) {
@@ -4134,6 +4150,9 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   dropDocIdMeta(ctx, key, openKey, spec->specId);
 
   indexSpec_OnDocDeleted(spec, docId, docLen);
+  if (spec->gc) {
+    GCContext_OnDelete(spec->gc);
+  }
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
@@ -4149,37 +4168,37 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-// Delete a document by its internal docId. The de-indexing entry point driven by
-// the DocIdMeta `unlink` callback on physical key removal (both modes). Acquires
-// the spec write lock; no-op if the docId is not present.
-void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
-  IndexSpec_IncrActiveWrites(spec);
-  IndexSpec_LockWrite(spec);
-
+bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId) {
   uint32_t docLen = 0;
 
   if (SearchDisk_IsEnabled()) {
     RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
     if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
       // Document not found on disk
-      IndexSpec_DecrActiveWrites(spec);
-      IndexSpec_Unlock(spec);
-      return;
+      return false;
     }
   } else {
     RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, docId);
     if (!md) {
       // Document not found in the in-memory table
-      IndexSpec_DecrActiveWrites(spec);
-      IndexSpec_Unlock(spec);
-      return;
+      return false;
     }
     docLen = md->docLen;
     DMD_Return(md);
   }
 
   indexSpec_OnDocDeleted(spec, docId, docLen);
+  return true;
+}
 
+// The de-indexing entry point driven by the DocIdMeta `unlink` callback on physical key removal
+// (both modes).
+void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
+  IndexSpec_IncrActiveWrites(spec);
+  IndexSpec_LockWrite(spec);
+  if (IndexSpec_DeleteDocById_Unsafe(spec, docId) && spec->gc) {
+    GCContext_OnDelete(spec->gc);
+  }
   IndexSpec_DecrActiveWrites(spec);
   IndexSpec_Unlock(spec);
 }

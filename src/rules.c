@@ -138,7 +138,7 @@ static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *p
   }
 
   if (args->lang_default) {
-    RSLanguage lang = RSLanguage_Find(args->lang_default, 0);
+    RSLanguage lang = RSLanguage_Find(args->lang_default, strlen(args->lang_default));
     if (lang == RS_LANG_UNSUPPORTED) {
       QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Invalid language");
       goto error;
