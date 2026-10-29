@@ -59,7 +59,7 @@ typedef struct {
 typedef struct PendingSlotDeletion {
   RedisModuleSlotRangeArray *slots;
   t_docId maxDocId;
-  uint64_t diskTrimId;  // Zero for RAM; identifies restored disk cleanup filters.
+  uint64_t diskTrimId;  // Zero for RAM or a disk notification awaiting backend registration.
   struct PendingSlotDeletion *next;
 } PendingSlotDeletion;
 

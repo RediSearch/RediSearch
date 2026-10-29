@@ -758,6 +758,10 @@ typedef struct SlotMigrationAPI {
   // This API does not control Redis migration admission.
   bool (*registerTrim)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
                        size_t numRanges, uint64_t *trimId, t_docId *maxDocId);
+  // Retry a retained notification with its original cutoff, never the current allocator value.
+  // On failure, no backend job is created; Search retains and serializes the notification.
+  bool (*registerTrimAtCutoff)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
+                               size_t numRanges, t_docId maxDocId, uint64_t *trimId);
   // Main thread, under the spec write lock; no I/O. Enumerate restored logical
   // jobs before queries resume, so Search can reinstall filters and schedule work.
   void (*forEachPendingTrim)(RedisSearchDiskIndexSpec *index,
