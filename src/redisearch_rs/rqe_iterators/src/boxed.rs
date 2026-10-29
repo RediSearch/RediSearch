@@ -84,6 +84,16 @@ pub trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
     type Suspended: RQESuspendedIterator<'index> + 'index;
 
     /// Transition to the suspended state.
+    ///
+    /// # Precondition
+    ///
+    /// The spec read lock must still be held for the duration of the call — suspending is the
+    /// step that *earns* the right to release it, not something to do afterwards. Most
+    /// implementations only re-type Rust-owned state and would not notice, but
+    /// [`CRQEIterator`](c2rust::CRQEIterator) reads its estimate off the C iterator underneath,
+    /// which may deref index-owned memory. A generic caller such as
+    /// [`suspend_child_slot_in_place`] cannot tell from the type whether the subtree it is
+    /// suspending holds such a child, so the obligation is on every caller.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
 }
 
