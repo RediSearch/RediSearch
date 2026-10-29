@@ -65,8 +65,8 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
 ///    a valid [`RSQueryNode`](ffi::RSQueryNode); it (and its
 ///    `metricRequests`/`config` fields) must stay valid and exclusively borrowed
 ///    for the duration of the call. The root's subtree must also satisfy
-///    invariants (4) and (5) of [`QueryNodeMut::new`], since evaluation
-///    rewrites tokens in place.
+///    invariants (4), (5), and (6) of [`QueryNodeMut::new`], since evaluation
+///    rewrites tokens in place and reads deferred INKEYS arguments.
 /// 2. `opts` must be a non-null pointer to a valid [`RSSearchOptions`].
 /// 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
 ///    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec). `sctx` and the
@@ -74,6 +74,8 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
 ///    addresses for the lifetime of the returned tree. Timeout source
 ///    changes and deadline writes may occur only between iterator probes;
 ///    only the blocked-client flag may change concurrently.
+///    The caller must hold the spec read lock throughout deferred INKEYS
+///    evaluation, as required by [`QueryEvalContext::new`].
 /// 4. `status` must be a non-null pointer to a valid [`QueryError`].
 ///
 /// Together these are exactly the invariants documented on
@@ -118,8 +120,8 @@ pub unsafe extern "C" fn QAST_Iterate(
     // SAFETY: `root` is a valid `RSQueryNode` and the whole AST is borrowed
     // exclusively for the duration of this call (precondition 1), so evaluation
     // owns the tree: no other wrapper or reference into it, or into any token
-    // string it points at, is live. Precondition 1 also carries invariants (4) and
-    // (5).
+    // string it points at, is live. Precondition 1 also carries invariants (4),
+    // (5), and (6).
     let node = unsafe { QueryNodeMut::new(root) };
 
     let config = eval_config(ctx.config());

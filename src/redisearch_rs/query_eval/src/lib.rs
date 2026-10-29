@@ -254,7 +254,7 @@ pub fn eval_node<'index>(
     match node.as_enum() {
         QueryNode::Null => Some(null::eval()),
         QueryNode::Wildcard => Some(wildcard::eval(ctx, &node)),
-        QueryNode::Ids { keys, doc_ids } => Some(ids::eval(keys, doc_ids)),
+        QueryNode::Ids { keys, doc_ids } => Some(ids::eval(ctx, keys, doc_ids)),
         QueryNode::Missing { field_index } => {
             missing::eval(ctx, field_index).map(Evaluated::RustLeaf)
         }
