@@ -41,6 +41,15 @@ struct CallCountingScoreSource {
 }
 
 impl ScoreSource for CallCountingScoreSource {
+    fn release_index_handles(&mut self) {
+        // Only call counters and flags; nothing borrows from an index.
+    }
+
+    fn can_collect_after_lock_release(&self) -> bool {
+        // Never crosses a lock release in these tests; `false` is the safe answer.
+        false
+    }
+
     type Batch = MockScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {

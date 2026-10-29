@@ -563,6 +563,19 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         // TODO: Production metric-key wiring is tracked by MOD-14946.
     }
 
+    fn release_index_handles(&mut self) {
+        // Nothing to release: the range stream holds plain references into the
+        // numeric tree and is never dereferenced on drop, and since
+        // `can_collect_after_lock_release` is `false` no collection reads it
+        // again after the lock is released.
+    }
+
+    fn can_collect_after_lock_release(&self) -> bool {
+        // The range stream points into the numeric tree, which a concurrent
+        // writer or GC can reshape while the lock is released.
+        false
+    }
+
     fn yields_child_record(&self) -> bool {
         // Numeric `SORTBY` orders purely by the field value the source supplies,
         // with no relevance scoring, so yield the source-built numeric result
