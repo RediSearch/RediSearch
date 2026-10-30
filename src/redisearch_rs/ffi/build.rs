@@ -192,7 +192,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/iterators/vector_top_k.h",
-        fns: &["RS_VecSimCheckTimeout"],
+        fns: &["RS_VecSimCheckMemory", "RS_VecSimCheckTimeout"],
         types: &[],
         vars: &[],
     },
@@ -252,6 +252,16 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &["QueryEvalCtx"],
         vars: &[],
     },
+    // Vector iterator tests fake memory pressure and read the stop reason it records.
+    HeaderAllowlist {
+        path: "src/query_memory.h",
+        fns: &[
+            "QueryMemory_ResetFakePressure",
+            "QueryMemory_SetForcedRatio",
+        ],
+        types: &[],
+        vars: &[],
+    },
     HeaderAllowlist {
         path: "src/query_node.h",
         fns: &[],
@@ -271,6 +281,12 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QueryVerbatimNode",
             "RSQueryNode",
         ],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/query_request.h",
+        fns: &["QueryRequestTimeout_GetStopReason"],
+        types: &["QueryStopReason"],
         vars: &[],
     },
     HeaderAllowlist {
