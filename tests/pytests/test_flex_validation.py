@@ -167,7 +167,7 @@ def test_on_json_is_supported(env):
 @with_simulate_in_flex(True)
 def test_disk_json_rejects_multi_value_jsonpath(env):
     """Test that disk validation rejects dynamic JSONPaths for types without multi-value support"""
-    for field_type in [['TAG'], ['NUMERIC'], ['GEO']]:
+    for field_type in [['NUMERIC'], ['GEO']]:
         env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
                    '$.field[*]', 'AS', 'field', *field_type) \
             .error().contains('Disk JSON index supports only single-value JSONPath fields')
@@ -175,9 +175,9 @@ def test_disk_json_rejects_multi_value_jsonpath(env):
                    '$.field[', *field_type) \
             .error().contains('Invalid JSONPath')
 
-    # The same dynamic path can feed a TEXT field but not a TAG one.
+    # The same dynamic path can feed a TEXT field but not a NUMERIC one.
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
-               '$.a[*]', 'AS', 't', 'TEXT', '$.a[*]', 'AS', 'g', 'TAG') \
+               '$.a[*]', 'AS', 't', 'TEXT', '$.a[*]', 'AS', 'n', 'NUMERIC') \
         .error().contains('Disk JSON index supports only single-value JSONPath fields')
     env.expect('FT.INFO', 'idx').error().contains('Index not found')
 
@@ -191,17 +191,23 @@ def test_disk_json_rejects_multi_value_jsonpath(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_disk_json_accepts_multi_value_text_jsonpath(env):
-    """Test that disk validation accepts dynamic JSONPaths for TEXT fields, but not invalid ones"""
+def test_disk_json_accepts_multi_value_text_and_tag_jsonpath(env):
+    """Test that disk validation accepts dynamic JSONPaths for TEXT and TAG fields, but not
+    invalid ones"""
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
                '$.words[*]', 'AS', 'words', 'TEXT', '$..name', 'AS', 'name', 'TEXT').ok()
     env.expect('FT.CREATE', 'idx_twice', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
                '$.words[*]', 'AS', 'w1', 'TEXT', '$.words[*]', 'AS', 'w2', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx_tag', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+               '$.tags[*]', 'AS', 'tags', 'TAG', '$..label', 'AS', 'label', 'TAG').ok()
+    env.expect('FT.CREATE', 'idx_text_tag', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+               '$.a[*]', 'AS', 't', 'TEXT', '$.a[*]', 'AS', 'g', 'TAG').ok()
 
-    # Without an alias, only the disk validation rejects a TEXT path that failed to compile.
-    env.expect('FT.CREATE', 'idx_bad', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
-               '$.words[', 'TEXT') \
-        .error().contains('Invalid JSONPath')
+    # Without an alias, only the disk validation rejects a path that failed to compile.
+    for field_type in ['TEXT', 'TAG']:
+        env.expect('FT.CREATE', 'idx_bad', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+                   '$.words[', field_type) \
+            .error().contains('Invalid JSONPath')
 
 
 @skip(cluster=True)
@@ -212,7 +218,6 @@ def test_disk_json_ingestion_rejects_array_payload_for_unsupported_type(env):
 
     cases = [
         # (type, array payload, scalar value, query matching the scalar)
-        ('TAG', '["a","b"]', '"a"', '@f:{a}'),
         ('NUMERIC', '[1,2]', '1', '@f:[1 1]'),
         ('GEO', '["1,2","3,4"]', '"1,2"', '@f:[1 2 1 km]'),
     ]
@@ -237,20 +242,25 @@ def test_disk_json_ingestion_rejects_array_payload_for_unsupported_type(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_disk_json_ingestion_accepts_multi_value_text(env):
-    """Test that disk validation lets multi-value TEXT content through at load, both from a
-    dynamic JSONPath and from an array at a single path."""
+def test_disk_json_ingestion_accepts_multi_value_text_and_tag(env):
+    """Test that disk validation lets multi-value TEXT and TAG content through at load, both
+    from a dynamic JSONPath and from an array at a single path."""
 
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SKIPINITIALSCAN', 'PREFIX', '1', 'doc:',
-               'SCHEMA', '$.words[*]', 'AS', 'words', 'TEXT', '$.name', 'AS', 'name', 'TEXT').ok()
+               'SCHEMA', '$.words[*]', 'AS', 'words', 'TEXT', '$.name', 'AS', 'name', 'TEXT',
+               '$.tags[*]', 'AS', 'tags', 'TAG', '$.color', 'AS', 'color', 'TAG').ok()
 
-    env.expect('JSON.SET', 'doc:1', '$', '{"words":["red","blue"],"name":["alice","bob"]}').ok()
+    env.expect('JSON.SET', 'doc:1', '$',
+               '{"words":["red","blue"],"name":["alice","bob"],'
+               '"tags":["news","sports"],"color":["green","yellow"]}').ok()
 
     errs = index_errors(env, 'idx')
     env.assertEqual(int(errs['indexing failures']), 0)
 
     env.expect('FT.SEARCH', 'idx', '@words:blue', 'NOCONTENT').equal([1, 'doc:1'])
     env.expect('FT.SEARCH', 'idx', '@name:bob', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@tags:{sports}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@color:{yellow}', 'NOCONTENT').equal([1, 'doc:1'])
 
 
 @skip(cluster=True)
