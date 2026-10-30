@@ -671,10 +671,18 @@ t_docId DocTable_GetMaxDocId(const DocTable *t) {
   return t->maxDocId;
 }
 
-PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t, const RedisModuleSlotRangeArray *slots) {
+PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t,
+                                                 const RedisModuleSlotRangeArray *slots) {
+  return DocTable_AddPendingDeletionWithCutoff(t, slots, t->maxDocId);
+}
+
+PendingSlotDeletion *DocTable_AddPendingDeletionWithCutoff(DocTable *t,
+                                                           const RedisModuleSlotRangeArray *slots,
+                                                           t_docId maxDocId) {
   PendingSlotDeletion *pending = rm_malloc(sizeof(*pending));
   pending->slots = SlotRangeArray_Clone(slots);
-  pending->maxDocId = t->maxDocId;
+  pending->maxDocId = maxDocId;
+  pending->diskTrimId = 0;
   pending->next = t->pendingSlotDeletions;
   t->pendingSlotDeletions = pending;
   t->memsize += sizeof(*pending) + SlotRangeArray_SizeOf(slots->num_ranges);
@@ -694,8 +702,12 @@ void DocTable_RemovePendingDeletion(DocTable *t, PendingSlotDeletion *pending) {
 }
 
 bool DocTable_IsDocPendingDeletion(const DocTable *t, const RSDocumentMetadata *dmd) {
+  return DocTable_IsDocPendingDeletionForSlot(t, dmd->id, dmd->slot);
+}
+
+bool DocTable_IsDocPendingDeletionForSlot(const DocTable *t, t_docId docId, uint16_t slot) {
   for (const PendingSlotDeletion *p = t->pendingSlotDeletions; p; p = p->next) {
-    if (PendingSlotDeletion_Covers(p, dmd)) {
+    if (PendingSlotDeletion_CoversId(p, docId, slot)) {
       return true;
     }
   }

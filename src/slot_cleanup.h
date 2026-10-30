@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #ifndef SLOT_CLEANUP_H__
 #define SLOT_CLEANUP_H__
 
@@ -17,8 +17,8 @@
 extern "C" {
 #endif
 
-// Upper bound on DMDs visited per read-lock pass. A pass always finishes the bucket it is in, so a
-// long chain can overshoot it.
+// Scan budget per read-lock pass: each DMD or empty bucket consumes one unit.
+// A pass finishes its current bucket, so a long chain can overshoot the budget.
 #define SLOT_CLEANUP_SCAN_LIMIT 4096
 // Upper bound on docs collected, then deleted under one write lock, per run of a cleanup task. With
 // SLOT_CLEANUP_SCAN_LIMIT it bounds the collected-id buffer and how long a run holds the clean pool
