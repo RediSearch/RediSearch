@@ -16,9 +16,10 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    uses: ./.github/workflows/task-fast-track.yml
+    uses: redislabsdev/redisearch-ci-common/.github/workflows/fast-track.yml@v1
     with:
       pr_number: ${{ inputs.pr_number }}
+      ci-common-ref: v1
     secrets:
       FAST_TRACK_APP_PRIVATE_KEY: ${{ secrets.FAST_TRACK_APP_PRIVATE_KEY }}
       JIRA_USER_EMAIL: ${{ secrets.JIRA_USER_EMAIL }}
