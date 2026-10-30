@@ -29,8 +29,13 @@ use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 /// `T` lets the child serialize borrowed term bytes without copying; the
 /// parent deserializes the default owned form.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "T: serde_bytes::Serialize",
+    deserialize = "T: serde_bytes::Deserialize<'de>"
+))]
 pub struct TermEntry<T = Box<[u8]>> {
     /// The term whose inverted index the child scanned.
+    #[serde(with = "serde_bytes")]
     pub term: T,
     /// What the scan found to collect.
     pub delta: GcScanDelta,
@@ -73,14 +78,19 @@ pub fn collect_terms(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::
 
 /// Decode one terms message from `reader`.
 pub fn receive_terms(reader: &mut impl Read) -> Result<Option<TermEntry<TrieTerm>>, HandleError> {
-    deserialize::<Option<TermEntry>>(reader, "decoding terms entry").map(|entry| {
-        entry.map(|entry| TermEntry {
-            // SAFETY: terms messages are produced by `collect_terms`, which only serializes
-            // non-empty terms returned by the terms trie iterator.
-            term: unsafe { TrieTerm::from_bytes_unchecked(entry.term) },
-            delta: entry.delta,
-        })
-    })
+    let Some(entry) = deserialize::<Option<TermEntry>>(reader, "decoding terms entry")? else {
+        return Ok(None);
+    };
+    if entry.term.is_empty() {
+        return Err(HandleError::codec("decoding terms entry", "empty term"));
+    }
+    // SAFETY: the term is non-empty, and collect_terms obtains its bytes from
+    // the trie iterator, preserving the trie's remaining validity invariants.
+    let term = unsafe { TrieTerm::from_bytes_unchecked(entry.term) };
+    Ok(Some(TermEntry {
+        term,
+        delta: entry.delta,
+    }))
 }
 
 fn warn_term_deletion_failed(term: &TrieTerm, guard: &IndexSpecWriteGuard<'_>) {

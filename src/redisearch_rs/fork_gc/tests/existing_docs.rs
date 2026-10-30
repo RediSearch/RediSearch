@@ -21,10 +21,11 @@ use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
+use fork_gc::util::deserialize;
 // Provide Redis allocator shims so the C dict functions can allocate memory.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-fn make_spec(existing_docs: *mut ffi::InvertedIndex) -> ffi::IndexSpec {
+const fn make_spec(existing_docs: *mut ffi::InvertedIndex) -> ffi::IndexSpec {
     // SAFETY: zeroed IndexSpec is valid for read-only access; existingDocs is
     // either null or a caller-managed pointer that outlives this struct.
     let mut spec: ffi::IndexSpec = unsafe { mem::zeroed() };
@@ -40,11 +41,11 @@ fn no_existing_docs_writes_only_terminator() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &*guard).unwrap();
+    collect_existing_docs(&mut buf, &guard).unwrap();
 
     let mut cursor = Cursor::new(&buf);
     assert!(
-        rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut cursor)
+        deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
             .unwrap()
             .is_none()
     );
@@ -63,11 +64,11 @@ fn empty_existing_docs_writes_only_terminator() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &*guard).unwrap();
+    collect_existing_docs(&mut buf, &guard).unwrap();
 
     let mut cursor = Cursor::new(&buf);
     assert!(
-        rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut cursor)
+        deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
             .unwrap()
             .is_none()
     );
@@ -94,15 +95,15 @@ fn existing_docs_with_deleted_entries_writes_delta() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &*guard).unwrap();
+    collect_existing_docs(&mut buf, &guard).unwrap();
 
     let mut cursor = Cursor::new(&buf);
-    let delta = rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut cursor)
+    let delta = deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
         .unwrap()
         .unwrap();
     assert_eq!(delta.last_block_idx(), 0);
     assert!(
-        rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut cursor)
+        deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
             .unwrap()
             .is_none()
     );
@@ -117,9 +118,10 @@ fn apply_returns_err_when_existing_docs_absent() {
     let delta = GcScanDelta::empty_for_testing();
 
     let mut apply_spec = make_spec(std::ptr::null_mut());
+    // SAFETY: the test owns the initialized spec; no concurrent access occurs.
     let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut apply_spec) };
     assert!(matches!(
-        apply_existing_docs(delta, &mut *guard),
+        apply_existing_docs(delta, &mut guard),
         Err(HandleError::ApplyError(
             "the existingDocs inverted index was removed before the delta could be applied"
         ))
@@ -140,23 +142,25 @@ fn roundtrip_all_docs_deleted_clears_index() {
 
     let mut buf = Vec::new();
     {
+        // SAFETY: the test owns the initialized spec; no concurrent access occurs.
         let read_guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
-        collect_existing_docs(&mut buf, &*read_guard).unwrap();
+        collect_existing_docs(&mut buf, &read_guard).unwrap();
     }
 
     let mut cursor = Cursor::new(&buf);
-    let delta = rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut cursor)
+    let delta = deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
         .unwrap()
         .unwrap();
     assert!(
-        rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut cursor)
+        deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
             .unwrap()
             .is_none()
     );
     assert_eq!(cursor.position() as usize, buf.len());
 
+    // SAFETY: the test owns the initialized spec; no concurrent access occurs.
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
-    let stats = apply_existing_docs(delta, &mut *write_guard).unwrap();
+    let stats = apply_existing_docs(delta, &mut write_guard).unwrap();
 
     assert!(write_guard.existing_docs_mut().is_none());
     assert!(stats.bytes_collected > 0);

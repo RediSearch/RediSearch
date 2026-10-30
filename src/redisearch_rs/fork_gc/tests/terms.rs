@@ -26,10 +26,10 @@ use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
 use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
-use serde::Serialize as _;
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
+use fork_gc::util::{deserialize, serialize};
 // Provide Redis allocator shims so the C dict/trie functions can allocate memory.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
@@ -101,7 +101,7 @@ impl TestSpec {
         }
     }
 
-    fn read_guard(&self) -> mem::ManuallyDrop<IndexSpecReadGuard<'_>> {
+    const fn read_guard(&self) -> mem::ManuallyDrop<IndexSpecReadGuard<'_>> {
         // SAFETY: the fixture owns `spec` for the duration of the guard and does not
         // mutate it while the guard is held.
         unsafe { IndexSpecReadGuard::from_locked(&self.spec) }
@@ -164,7 +164,7 @@ impl TestSpec {
         found
     }
 
-    fn write(&mut self) -> mem::ManuallyDrop<IndexSpecWriteGuard<'_>> {
+    const fn write(&mut self) -> mem::ManuallyDrop<IndexSpecWriteGuard<'_>> {
         // SAFETY: each test owns the fixture exclusively and accesses it only through
         // the returned guard until that guard goes out of scope.
         unsafe { IndexSpecWriteGuard::from_locked_mut(&mut self.spec) }
@@ -173,23 +173,23 @@ impl TestSpec {
 
 impl Drop for TestSpec {
     fn drop(&mut self) {
-        // SAFETY: all pointers were allocated by `create` or `add_suffix_trie`, remain
-        // owned by this fixture, and have not been freed yet.
-        unsafe {
-            ffi::TrieType_Free(self.spec.terms.cast());
-            if !self.spec.suffix.is_null() {
-                ffi::TrieType_Free(self.spec.suffix.cast());
-            }
-            ffi::HiddenString_Free(self.spec.specName, true);
-            drop(CString::from_raw(self.spec.obfuscatedName));
+        // SAFETY: this fixture owns the terms trie allocated by `create`.
+        unsafe { ffi::TrieType_Free(self.spec.terms.cast()) };
+        if !self.spec.suffix.is_null() {
+            // SAFETY: this fixture owns the trie allocated by `add_suffix_trie`.
+            unsafe { ffi::TrieType_Free(self.spec.suffix.cast()) };
         }
+        // SAFETY: `create` allocated this hidden string with the Redis allocator.
+        unsafe { ffi::HiddenString_Free(self.spec.specName, true) };
+        // SAFETY: `create` transferred this CString's ownership with `into_raw`.
+        drop(unsafe { CString::from_raw(self.spec.obfuscatedName) });
     }
 }
 
 fn assert_only_terminator(buf: &[u8]) {
     let mut cursor = Cursor::new(buf);
     assert!(
-        rmp_serde::from_read::<_, Option<TermEntry>>(&mut cursor)
+        deserialize::<Option<TermEntry>>(&mut cursor, "test message")
             .unwrap()
             .is_none()
     );
@@ -229,10 +229,10 @@ fn multiple_terms_write_multiple_delta_frames() {
 
     let mut cursor = Cursor::new(&buf);
 
-    let first = rmp_serde::from_read::<_, Option<TermEntry>>(&mut cursor)
+    let first = deserialize::<Option<TermEntry>>(&mut cursor, "test message")
         .unwrap()
         .unwrap();
-    let second = rmp_serde::from_read::<_, Option<TermEntry>>(&mut cursor)
+    let second = deserialize::<Option<TermEntry>>(&mut cursor, "test message")
         .unwrap()
         .unwrap();
 
@@ -241,7 +241,7 @@ fn multiple_terms_write_multiple_delta_frames() {
 
     assert_eq!(terms, [b"apple".to_vec(), b"grape".to_vec()]);
     assert!(
-        rmp_serde::from_read::<_, Option<TermEntry>>(&mut cursor)
+        deserialize::<Option<TermEntry>>(&mut cursor, "test message")
             .unwrap()
             .is_none()
     );
@@ -251,9 +251,7 @@ fn multiple_terms_write_multiple_delta_frames() {
 #[test]
 fn receive_none_returns_none() {
     let mut buf = Vec::new();
-    Option::<TermEntry<&[u8]>>::None
-        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
-        .unwrap();
+    serialize(&mut buf, Option::<TermEntry<&[u8]>>::None).unwrap();
     let mut cursor = Cursor::new(&buf);
     assert!(receive_terms(&mut cursor).unwrap().is_none());
     assert_eq!(cursor.position(), buf.len() as u64);
@@ -261,24 +259,31 @@ fn receive_none_returns_none() {
 
 #[test]
 fn receive_malformed_entry_returns_codec_error() {
-    let mut cursor = Cursor::new(b"garbage");
-    assert!(matches!(
-        receive_terms(&mut cursor),
-        Err(HandleError::Codec {
-            msg: "decoding terms entry",
-            ..
-        })
-    ));
+    let mut empty_frame = Vec::new();
+    fork_gc::Frame::Empty.encode(&mut empty_frame).unwrap();
+    let mut terminator = Vec::new();
+    fork_gc::Frame::Terminator.encode(&mut terminator).unwrap();
+    for bytes in [b"garbage".to_vec(), empty_frame, terminator] {
+        assert!(matches!(
+            receive_terms(&mut Cursor::new(bytes)),
+            Err(HandleError::Codec {
+                msg: "decoding terms entry",
+                ..
+            })
+        ));
+    }
 }
 
 #[test]
 fn receive_entry_returns_term_and_delta() {
     let mut buf = Vec::new();
-    Some(TermEntry {
-        term: b"apple".as_slice(),
-        delta: GcScanDelta::empty_for_testing(),
-    })
-    .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+    serialize(
+        &mut buf,
+        Some(TermEntry {
+            term: b"apple".as_slice(),
+            delta: GcScanDelta::empty_for_testing(),
+        }),
+    )
     .unwrap();
 
     let mut cursor = Cursor::new(&buf);
@@ -430,4 +435,22 @@ fn apply_survives_an_empty_term_missing_from_the_trie() {
         assert_eq!(stats.terms_size_removed, b"apple".len());
         assert!(write_guard.keys_dict_mut().fetch_mut(b"apple").is_none());
     }
+}
+
+#[test]
+fn receive_empty_term_returns_codec_error() {
+    let mut bytes = Vec::new();
+    serialize(
+        &mut bytes,
+        Some(TermEntry {
+            term: b"".as_slice(),
+            delta: GcScanDelta::empty_for_testing(),
+        }),
+    )
+    .unwrap();
+
+    assert!(matches!(
+        receive_terms(&mut Cursor::new(bytes)),
+        Err(HandleError::Codec { .. })
+    ));
 }

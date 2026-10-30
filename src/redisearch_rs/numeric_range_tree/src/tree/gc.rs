@@ -39,10 +39,10 @@ pub struct NodeGcDelta {
     /// The inverted index GC scan delta.
     pub delta: GcScanDelta,
     /// HLL registers including the last scanned block's cardinality.
-    #[serde(with = "serde_big_array::BigArray")]
+    #[serde(with = "serde_bytes")]
     pub registers_with_last_block: [u8; Hll::size()],
     /// HLL registers excluding the last scanned block's cardinality.
-    #[serde(with = "serde_big_array::BigArray")]
+    #[serde(with = "serde_bytes")]
     pub registers_without_last_block: [u8; Hll::size()],
     /// Bounds of the surviving entries, including the last scanned block.
     pub bounds_with_last_block: ValueBounds,

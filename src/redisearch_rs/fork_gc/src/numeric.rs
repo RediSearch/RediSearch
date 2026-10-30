@@ -25,8 +25,13 @@ use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 /// The child uses borrowed field-name bytes to avoid copies; the parent
 /// deserializes the default owned form.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "T: serde_bytes::Serialize",
+    deserialize = "T: serde_bytes::Deserialize<'de>"
+))]
 pub struct NumericField<T = Box<[u8]>> {
     /// Field name at scan time.
+    #[serde(with = "serde_bytes")]
     pub field_name: T,
     /// [`NumericRangeTree::unique_id`] at scan time.
     pub unique_id: u32,

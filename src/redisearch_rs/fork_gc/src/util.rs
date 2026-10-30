@@ -19,21 +19,30 @@ use redis_module::raw::RedisModule_ExitFromChild;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::fork_gc::ForkGCPipeReader;
-use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
+use crate::{ForkGC, Frame, GcApplyStats, HandleError, HandleOutcome};
 
-/// Serialize one fork-GC pipe message as MessagePack.
-pub(crate) fn serialize<T: Serialize>(writer: &mut impl io::Write, message: T) -> io::Result<()> {
-    message
-        .serialize(&mut rmp_serde::Serializer::new(writer))
-        .map_err(io::Error::other)
+/// Serialize one MessagePack message into a frame before writing to the pipe.
+///
+/// Buffering keeps serialization's small writes off the pipe.
+pub fn serialize<T: Serialize>(writer: &mut impl io::Write, message: T) -> io::Result<()> {
+    let bytes = rmp_serde::to_vec(&message).map_err(io::Error::other)?;
+    Frame::data(&bytes).encode(writer)
 }
 
-/// Deserialize one fork-GC pipe message from MessagePack.
-pub(crate) fn deserialize<T: DeserializeOwned>(
+/// Read one complete frame before deserializing its MessagePack payload.
+pub fn deserialize<T: DeserializeOwned>(
     reader: &mut impl Read,
     context: &'static str,
 ) -> Result<T, HandleError> {
-    rmp_serde::from_read(reader).map_err(|e| HandleError::codec(context, e))
+    match Frame::decode(reader).map_err(|e| HandleError::codec(context, e))? {
+        Frame::Data(bytes) => {
+            rmp_serde::from_slice(&bytes).map_err(|e| HandleError::codec(context, e))
+        }
+        Frame::Empty | Frame::Terminator => Err(HandleError::codec(
+            context,
+            "expected a MessagePack data frame",
+        )),
+    }
 }
 
 /// Provides closure-scoped access to a live, write-locked [`IndexSpec`](index_spec::IndexSpec).

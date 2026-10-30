@@ -19,10 +19,10 @@ use fork_gc::{GcApplyStats, HandleError, HandleOutcome};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use numeric_range_tree::NumericRangeTree;
 use numeric_range_tree::test_utils::{build_single_leaf_tree, build_tree_at_split_edge};
-use serde::Serialize as _;
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
+use fork_gc::util::{deserialize, serialize};
 // Provide Redis allocator shims so the C dict functions can allocate memory.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
@@ -89,7 +89,7 @@ impl TestSpec {
     }
 
     /// Borrow the spec as a read guard, as the collect path receives it.
-    fn read_guard(&self) -> ManuallyDrop<IndexSpecReadGuard<'_>> {
+    const fn read_guard(&self) -> ManuallyDrop<IndexSpecReadGuard<'_>> {
         // SAFETY: `spec` is a valid IndexSpec that outlives the guard, and this
         // single-threaded test never mutates it while the guard is held.
         unsafe { IndexSpecReadGuard::from_locked(&self.spec) }
@@ -142,7 +142,7 @@ fn build_two_leaf_tree_with_gc_work() -> NumericRangeTree {
 
 /// Read one field and its node stream, or `None` at the end of the field stream.
 fn read_field(cursor: &mut Cursor<&Vec<u8>>) -> Option<DecodedField> {
-    match rmp_serde::from_read::<_, Option<NumericField<Box<[u8]>>>>(&mut *cursor).unwrap() {
+    match deserialize::<Option<NumericField<Box<[u8]>>>>(&mut *cursor, "test message").unwrap() {
         None => None,
         Some(NumericField {
             field_name,
@@ -150,7 +150,7 @@ fn read_field(cursor: &mut Cursor<&Vec<u8>>) -> Option<DecodedField> {
         }) => {
             let mut entries = Vec::new();
             while let Some(node) =
-                rmp_serde::from_read::<_, Option<NumericNodeDelta>>(&mut *cursor).unwrap()
+                deserialize::<Option<NumericNodeDelta>>(&mut *cursor, "test message").unwrap()
             {
                 entries.push(node);
             }
@@ -189,23 +189,19 @@ fn collect_stream(test: &TestSpec) -> Vec<u8> {
 /// Encode one field and the outer stream terminator.
 fn encode_field(field: DecodedField) -> Vec<u8> {
     let mut buf = Vec::new();
-    Some(NumericField {
-        field_name: &field.name,
-        unique_id: field.unique_id,
-    })
-    .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+    serialize(
+        &mut buf,
+        Some(NumericField {
+            field_name: &field.name,
+            unique_id: field.unique_id,
+        }),
+    )
     .unwrap();
     for entry in field.entries {
-        Some(entry)
-            .serialize(&mut rmp_serde::Serializer::new(&mut buf))
-            .unwrap();
+        serialize(&mut buf, Some(entry)).unwrap();
     }
-    Option::<NumericNodeDelta>::None
-        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
-        .unwrap();
-    Option::<NumericField<&[u8]>>::None
-        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
-        .unwrap();
+    serialize(&mut buf, Option::<NumericNodeDelta>::None).unwrap();
+    serialize(&mut buf, Option::<NumericField<&[u8]>>::None).unwrap();
     buf
 }
 
@@ -307,15 +303,15 @@ fn numeric_and_geo_fields_are_both_collected() {
 #[test]
 fn handle_numeric_with_rejects_a_wrongly_shaped_node_record() {
     let mut buf = Vec::new();
-    Some(NumericField {
-        field_name: b"price",
-        unique_id: 0,
-    })
-    .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+    serialize(
+        &mut buf,
+        Some(NumericField {
+            field_name: b"price",
+            unique_id: 0,
+        }),
+    )
     .unwrap();
-    Some(0u32)
-        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
-        .unwrap();
+    serialize(&mut buf, Some(0u32)).unwrap();
     let mut test = TestSpec::create(vec![(
         c"price",
         FieldSpecType::Numeric.into(),
@@ -337,13 +333,17 @@ fn handle_numeric_with_rejects_a_wrongly_shaped_node_record() {
 fn handle_numeric_with_preserves_deserialization_error() {
     let invalid_message_pack = [0xc1];
     let mut buf = Vec::new();
-    Some(NumericField {
-        field_name: b"price",
-        unique_id: 0,
-    })
-    .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+    serialize(
+        &mut buf,
+        Some(NumericField {
+            field_name: b"price",
+            unique_id: 0,
+        }),
+    )
     .unwrap();
-    buf.extend(invalid_message_pack);
+    fork_gc::Frame::data(&invalid_message_pack)
+        .encode(&mut buf)
+        .unwrap();
     let mut test = TestSpec::create(vec![(
         c"price",
         FieldSpecType::Numeric.into(),
@@ -536,19 +536,17 @@ fn handle_numeric_with_preserves_progress_on_truncated_stream() {
     let first = field.entries.pop().unwrap();
 
     let mut buf = Vec::new();
-    Some(NumericField {
-        field_name: &field.name,
-        unique_id: field.unique_id,
-    })
-    .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+    serialize(
+        &mut buf,
+        Some(NumericField {
+            field_name: &field.name,
+            unique_id: field.unique_id,
+        }),
+    )
     .unwrap();
-    Some(first)
-        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
-        .unwrap();
+    serialize(&mut buf, Some(first)).unwrap();
     let mut second_bytes = Vec::new();
-    Some(second)
-        .serialize(&mut rmp_serde::Serializer::new(&mut second_bytes))
-        .unwrap();
+    serialize(&mut second_bytes, Some(second)).unwrap();
     buf.extend_from_slice(&second_bytes[..1]);
 
     let mut stats = GcApplyStats::default();
@@ -616,12 +614,11 @@ mod round_trip {
             };
 
             let mut buf = Vec::new();
-            Some(&node)
-                .serialize(&mut rmp_serde::Serializer::new(&mut buf))
+            serialize(&mut buf, Some(&node))
                 .unwrap();
 
             let mut cursor = Cursor::new(&buf);
-            let decoded = rmp_serde::from_read::<_, Option<NumericNodeDelta>>(&mut cursor)
+            let decoded = deserialize::<Option<NumericNodeDelta>>(&mut cursor, "test message")
                 .unwrap()
                 .expect("a node record");
 
@@ -637,5 +634,56 @@ mod round_trip {
             prop_assert_eq!(decoded.delta.bounds_without_last_block, node.delta.bounds_without_last_block);
             prop_assert_eq!(cursor.position(), buf.len() as u64, "decode left trailing bytes");
         }
+    }
+}
+
+struct CountingIo<T> {
+    inner: T,
+    calls: usize,
+}
+
+impl<T: std::io::Write> std::io::Write for CountingIo<T> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.calls += 1;
+        self.inner.write(bytes)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+impl<T: std::io::Read> std::io::Read for CountingIo<T> {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        self.calls += 1;
+        self.inner.read(bytes)
+    }
+}
+
+#[test]
+fn repaired_numeric_nodes_use_bulk_io() {
+    for count in [64, 4096] {
+        let tree = build_single_leaf_tree(count);
+        let (index, node) = tree.indexed_iter().next().unwrap();
+        let entry = NumericNodeDelta {
+            position: index.position(),
+            generation: index.generation(),
+            delta: node.scan_gc(&|id| id % 2 == 0).unwrap(),
+        };
+        let mut writer = CountingIo {
+            inner: Vec::new(),
+            calls: 0,
+        };
+        serialize(&mut writer, Some(&entry)).unwrap();
+        assert_eq!(writer.calls, 2);
+
+        let mut reader = CountingIo {
+            inner: writer.inner.as_slice(),
+            calls: 0,
+        };
+        let decoded = deserialize::<Option<NumericNodeDelta>>(&mut reader, "numeric node").unwrap();
+        assert_eq!(decoded, Some(entry));
+        assert_eq!(reader.calls, 2);
+        assert!(reader.inner.is_empty());
     }
 }

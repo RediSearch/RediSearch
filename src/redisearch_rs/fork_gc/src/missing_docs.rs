@@ -21,8 +21,13 @@ use serde::{Deserialize, Serialize};
 use crate::util::{deserialize, serialize};
 /// One missing-field inverted index's GC work, as it travels the pipe.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "T: serde_bytes::Serialize",
+    deserialize = "T: serde_bytes::Deserialize<'de>"
+))]
 pub struct MissingDocsEntry<T = Vec<u8>> {
     /// NUL-terminated name of the missing field whose inverted index the child scanned.
+    #[serde(with = "serde_bytes")]
     pub field_name: T,
     /// What the scan found to collect.
     pub delta: GcScanDelta,
