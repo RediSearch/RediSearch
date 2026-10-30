@@ -20,6 +20,7 @@
 #include "doc_id_meta.h"
 #include "spec.h"
 #include "indexes.h"
+#include "indexer.h"
 #include "doc_types.h"
 #include "redismodule.h"
 #include "rdb.h"
@@ -739,6 +740,7 @@ static void DeleteDiskIndexesOnShutdown(RedisModuleCtx *ctx) {
 }
 
 void ShutdownDiskClose(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
+  SlotCleanup_StopDiskJobs();
   RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch DiskAPI resources on shutdown");
   if (!g_hotRestartSave) {
     RedisModule_Log(ctx, "notice", "%s",
@@ -1008,6 +1010,7 @@ static void DiskConsistencyWindow_Quiesce(void) {
     disk_window_held |= DISK_WINDOW_GC_PAUSED;
   }
 
+  SlotCleanup_PauseDiskJobs();
   ForEachIndex(SearchDisk_OpenConsistencyWindow);  // disable + cancel compactions
   disk_window_held |= DISK_WINDOW_INDEX_HOOKS;
 }
@@ -1101,6 +1104,9 @@ static void DiskConsistencyWindow_End(DiskWindowEnd how) {
   if (disk_window_held & DISK_WINDOW_VECSIM_LOCK) {
     VecSimDisk_ReleaseConsistencyLock();
     disk_window_held &= ~(unsigned)DISK_WINDOW_VECSIM_LOCK;
+  }
+  if (how == DISK_WINDOW_END_RESUME) {
+    SlotCleanup_ResumeDiskJobs();
   }
 }
 
@@ -1243,7 +1249,17 @@ static void PersistenceEvent(RedisModuleCtx *ctx, RedisModuleEvent eid,
   }
 }
 
+static void RetryDiskSlotCleanup(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
+                                 void *data) {
+  if (SearchDisk_IsInitialized() && !g_isLoading) {
+    SlotCleanup_RetryDiskJobs();
+  }
+}
+
 void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
+  if (SearchDisk_IsEnabled()) {
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_CronLoop, RetryDiskSlotCleanup);
+  }
   // RedisModule_SubscribeToServerEvent should exist since redis 6.0
   // We can assume it is always present
 
