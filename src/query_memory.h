@@ -46,9 +46,15 @@ extern "C" {
 bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter);
 
 /**
+ * QueryMemory_ShouldStop for a checkpoint that runs once per unit far larger
+ * than a row (a shard reply, a build stage): reads memory on every call,
+ * whatever the read interval.
+ */
+bool QueryMemory_ShouldStopNow(QueryRequestTimeout *timeout);
+
+/**
  * The memory checkpoint between the build stages of a query, before it reads
- * its first row. Unless a stop is already requested, reads memory on this call,
- * whatever the read interval. Under
+ * its first row, through QueryMemory_ShouldStopNow. Under
  * pressure the OOM stop is requested, and with `oomPolicy` FAIL the query fails
  * before it runs: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` and REDISMODULE_ERR.
  * Otherwise REDISMODULE_OK; a requested stop then ends the pipeline at its
@@ -80,8 +86,9 @@ void QueryMemory_SetForcedRatio(float ratio);
 float QueryMemory_GetForcedRatio(void);
 
 /**
- * Makes the `n`-th QueryMemory_ShouldStop call from now (1-based, counted
- * across all checkpoints and queries, skipping calls that return on an
+ * Makes the `n`-th checkpoint call (QueryMemory_ShouldStop or
+ * QueryMemory_ShouldStopNow) from now (1-based, counted across all checkpoints
+ * and queries, skipping calls that return on an
  * already requested stop) report memory pressure, regardless of the ratio and
  * the read interval. Every other call behaves normally. 0 disarms it. Either
  * way the call count restarts from 0.
