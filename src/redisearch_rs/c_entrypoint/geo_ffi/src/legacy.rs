@@ -13,7 +13,7 @@ use std::ffi::{CString, c_int};
 use geo::{LegacyGeoArgs, LegacyGeoParseError};
 use query_error::{QueryError, QueryErrorCode, opaque::OpaqueQueryError};
 
-use crate::{GEO_DISTANCE_INVALID, GeoFilter, Rust_GeoFilter_Free};
+use crate::{GEO_DISTANCE_INVALID, GeoFilter, GeoFilter_Free};
 
 /// Legacy syntax borrows a field name until schema resolution.
 #[repr(C)]
@@ -83,7 +83,7 @@ impl LegacyGeoArgs for CursorArgs<'_> {
 /// The cursor arguments must remain live, including the field string for the
 /// resulting filter's lifetime. `gf` must not already own resources.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoFilter_LegacyParse(
+pub unsafe extern "C" fn GeoFilter_LegacyParse(
     gf: *mut LegacyGeoFilter,
     ac: *mut ffi::ArgsCursor,
     has_empty_value: *mut bool,
@@ -161,9 +161,9 @@ pub unsafe extern "C" fn Rust_GeoFilter_LegacyParse(
 ///
 /// # Safety
 /// `gf` must be a live Redis allocation with exclusively owned resources, as
-/// initialized by [`Rust_GeoFilter_LegacyParse`]. Its borrowed field buffer is not freed.
+/// initialized by [`GeoFilter_LegacyParse`]. Its borrowed field buffer is not freed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_LegacyGeoFilter_Free(gf: *mut LegacyGeoFilter) {
+pub unsafe extern "C" fn LegacyGeoFilter_Free(gf: *mut LegacyGeoFilter) {
     // SAFETY: caller supplies a live filter.
     let field = unsafe { (*gf).field };
     if !field.is_null() {
@@ -171,5 +171,5 @@ pub unsafe extern "C" fn Rust_LegacyGeoFilter_Free(gf: *mut LegacyGeoFilter) {
         unsafe { ffi::HiddenString_Free(field, false) };
     }
     // SAFETY: base is the first repr(C) member of this exclusively owned Redis allocation.
-    unsafe { Rust_GeoFilter_Free(gf.cast()) };
+    unsafe { GeoFilter_Free(gf.cast()) };
 }

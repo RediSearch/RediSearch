@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use geo_ffi::{Rust_GeoDistance_Evaluate, encodeGeo};
+use geo_ffi::{GeoDistance_Evaluate, encodeGeo};
 use query_error::{QueryError, QueryErrorCode};
 use value::{SharedValue, Value};
 use value_ffi::RSValue;
@@ -19,9 +19,7 @@ fn evaluate(values: &[&Value], error: &mut QueryError) -> f64 {
         .collect();
     // SAFETY: each pointer borrows a live Value for this call; arity is
     // constrained by the test cases, and error is initialized and writable.
-    unsafe {
-        Rust_GeoDistance_Evaluate(pointers.as_ptr(), pointers.len(), error.as_opaque_mut_ptr())
-    }
+    unsafe { GeoDistance_Evaluate(pointers.as_ptr(), pointers.len(), error.as_opaque_mut_ptr()) }
 }
 
 #[test]

@@ -83,7 +83,7 @@ fn cursor_progress_partial_output_and_owned_wrapper() {
         // SAFETY: LegacyParse initializes raw; cursor buffers and output locals
         // are live through the call, and arguments outlive the resulting filter.
         let result = unsafe {
-            Rust_GeoFilter_LegacyParse(raw, &mut cursor, &mut empty, error.as_opaque_mut_ptr())
+            GeoFilter_LegacyParse(raw, &mut cursor, &mut empty, error.as_opaque_mut_ptr())
         };
         assert_eq!(result, i32::from(message.is_some()));
         assert_eq!(cursor.offset, offset);
@@ -116,6 +116,6 @@ fn cursor_progress_partial_output_and_owned_wrapper() {
             assert_eq!(unsafe { CStr::from_ptr(field) }, c"g");
         }
         // SAFETY: raw is exclusively owned and neither filter nor field is used afterwards.
-        unsafe { Rust_LegacyGeoFilter_Free(raw) };
+        unsafe { LegacyGeoFilter_Free(raw) };
     }
 }

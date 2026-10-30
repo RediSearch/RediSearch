@@ -21,19 +21,6 @@ extern "C" {
 #include "value_ffi.h"
 }
 
-// Exercise the Rust adapters before production callers switch away from C.
-#define GeoDistance_Parse Rust_GeoDistance_Parse
-#define GeoDistance_Parse_Buffer Rust_GeoDistance_Parse_Buffer
-#define GeoDistance_ToString Rust_GeoDistance_ToString
-#define NewGeoFilter Rust_NewGeoFilter
-#define GeoFilter_SetField Rust_GeoFilter_SetField
-#define GeoFilter_Validate Rust_GeoFilter_Validate
-#define GeoFilter_Free Rust_GeoFilter_Free
-#define GeoFilter_LegacyParse Rust_GeoFilter_LegacyParse
-#define LegacyGeoFilter_Free Rust_LegacyGeoFilter_Free
-#define isWithinRadius Rust_isWithinRadius
-#define GeoDistance_Evaluate Rust_GeoDistance_Evaluate
-
 namespace {
 using Filter = std::unique_ptr<GeoFilter, decltype(&GeoFilter_Free)>;
 using LegacyFilter = std::unique_ptr<LegacyGeoFilter, decltype(&LegacyGeoFilter_Free)>;

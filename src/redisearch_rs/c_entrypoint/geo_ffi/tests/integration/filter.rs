@@ -35,31 +35,31 @@ fn unit_adapters_preserve_integer_and_buffer_contracts() {
         (c"bad", GEO_DISTANCE_INVALID, c"<badunit>"),
     ] {
         // SAFETY: text is NUL-terminated.
-        assert_eq!(unsafe { Rust_GeoDistance_Parse(text.as_ptr()) }, unit);
+        assert_eq!(unsafe { GeoDistance_Parse(text.as_ptr()) }, unit);
         // SAFETY: text is readable for its byte length.
-        let parsed = unsafe { Rust_GeoDistance_Parse_Buffer(text.as_ptr(), text.count_bytes()) };
+        let parsed = unsafe { GeoDistance_Parse_Buffer(text.as_ptr(), text.count_bytes()) };
         assert_eq!(parsed, unit);
         assert_eq!(
             // SAFETY: ToString returns a static NUL-terminated string.
-            unsafe { CStr::from_ptr(Rust_GeoDistance_ToString(unit)) },
+            unsafe { CStr::from_ptr(GeoDistance_ToString(unit)) },
             spelling
         );
     }
     for len in [0, 16] {
         assert_eq!(
             // SAFETY: zero and over-limit lengths never dereference the pointer.
-            unsafe { Rust_GeoDistance_Parse_Buffer(ptr::null(), len) },
+            unsafe { GeoDistance_Parse_Buffer(ptr::null(), len) },
             GEO_DISTANCE_INVALID
         );
     }
     assert_eq!(
         // SAFETY: the embedded-NUL buffer is readable for the supplied length.
-        unsafe { Rust_GeoDistance_Parse_Buffer(b"m\0x".as_ptr().cast(), 3) },
+        unsafe { GeoDistance_Parse_Buffer(b"m\0x".as_ptr().cast(), 3) },
         GEO_DISTANCE_M
     );
     assert_eq!(
         // SAFETY: ToString returns a static NUL-terminated string even for unknown units.
-        unsafe { CStr::from_ptr(Rust_GeoDistance_ToString(123)) },
+        unsafe { CStr::from_ptr(GeoDistance_ToString(123)) },
         c"<badunit>"
     );
 }
@@ -88,7 +88,7 @@ fn validation_maps_errors_and_preserves_unknown_integer_units() {
         filter.radius = radius;
         let mut error = QueryError::default();
         // SAFETY: both locals remain live, and error is initialized and writable.
-        let result = unsafe { Rust_GeoFilter_Validate(&filter, error.as_opaque_mut_ptr()) };
+        let result = unsafe { GeoFilter_Validate(&filter, error.as_opaque_mut_ptr()) };
         assert_eq!(result, i32::from(message.is_none()));
         if let Some(message) = message {
             assert_eq!(error.code(), QueryErrorCode::Syntax);
@@ -113,10 +113,10 @@ fn field_and_radius_adapters_handle_optional_pointers() {
     let mut field: ffi::FieldSpec = unsafe { std::mem::zeroed() };
     field.index = 7;
     // SAFETY: the filter and field are live locals.
-    unsafe { Rust_GeoFilter_SetField(&mut filter, &field) };
+    unsafe { GeoFilter_SetField(&mut filter, &field) };
     assert_eq!(filter.fieldIndex, 7);
     // SAFETY: filter is writable; a null field clears the index.
-    unsafe { Rust_GeoFilter_SetField(&mut filter, ptr::null()) };
+    unsafe { GeoFilter_SetField(&mut filter, ptr::null()) };
     assert_eq!(filter.fieldIndex, RS_INVALID_FIELD_INDEX);
     let score = encodeGeo(0.01, 0.0);
     let mut distance = -1.0;
@@ -130,14 +130,14 @@ fn field_and_radius_adapters_handle_optional_pointers() {
         filter.radius = 10_000.0;
         assert_eq!(
             // SAFETY: filter is live and distance is writable.
-            unsafe { Rust_isWithinRadius(&filter, score, &mut distance) },
+            unsafe { isWithinRadius(&filter, score, &mut distance) },
             1
         );
         assert!(distance > 1_000.0 && distance < 1_200.0);
         filter.radius = 0.0;
         assert_eq!(
             // SAFETY: filter is live and a null distance output is allowed.
-            unsafe { Rust_isWithinRadius(&filter, score, ptr::null_mut()) },
+            unsafe { isWithinRadius(&filter, score, ptr::null_mut()) },
             0
         );
     }
@@ -153,7 +153,7 @@ fn allocated_filters_default_or_parse_units_and_free() {
         (c"".as_ptr(), 0, GEO_DISTANCE_INVALID),
     ] {
         // SAFETY: unit buffers are valid and the allocator is initialized.
-        let raw = unsafe { Rust_NewGeoFilter(12.5, -34.5, 6.25, unit, len) };
+        let raw = unsafe { NewGeoFilter(12.5, -34.5, 6.25, unit, len) };
         // SAFETY: NewGeoFilter returned an initialized allocation, borrowed until Free.
         let filter = unsafe { &*raw };
         assert_eq!(filter.unitType, expected);
@@ -161,6 +161,6 @@ fn allocated_filters_default_or_parse_units_and_free() {
         assert!(filter.numericFilters.is_null());
         assert_eq!((filter.lon, filter.lat, filter.radius), (12.5, -34.5, 6.25));
         // SAFETY: the allocation is exclusively owned and no reference is used afterwards.
-        unsafe { Rust_GeoFilter_Free(raw) };
+        unsafe { GeoFilter_Free(raw) };
     }
 }

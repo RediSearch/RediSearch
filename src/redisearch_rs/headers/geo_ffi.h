@@ -109,7 +109,7 @@ extern "C" {
  * `argv` must contain `argc` live non-null value pointers, with arity checked by
  * the function registry. `status` must point to an initialized writable error.
  */
-double Rust_GeoDistance_Evaluate(struct RSValue *const *argv, size_t argc, struct QueryError *status);
+double GeoDistance_Evaluate(struct RSValue *const *argv, size_t argc, struct QueryError *status);
 
 /**
  * Parse a NUL-terminated unit.
@@ -117,7 +117,7 @@ double Rust_GeoDistance_Evaluate(struct RSValue *const *argv, size_t argc, struc
  * # Safety
  * `s` must point to a readable NUL-terminated string.
  */
-GeoDistance Rust_GeoDistance_Parse(const char *s);
+GeoDistance GeoDistance_Parse(const char *s);
 
 /**
  * Parse a bounded unit, retaining the legacy buffer limit.
@@ -125,12 +125,12 @@ GeoDistance Rust_GeoDistance_Parse(const char *s);
  * # Safety
  * `s` must be readable for `len` bytes when `len` is less than the buffer limit.
  */
-GeoDistance Rust_GeoDistance_Parse_Buffer(const char *s, size_t len);
+GeoDistance GeoDistance_Parse_Buffer(const char *s, size_t len);
 
 /**
  * Return a static NUL-terminated unit spelling.
  */
-const char *Rust_GeoDistance_ToString(GeoDistance unit);
+const char *GeoDistance_ToString(GeoDistance unit);
 
 /**
  * Free a Redis-allocated filter and its iterator-owned cache.
@@ -139,7 +139,7 @@ const char *Rust_GeoDistance_ToString(GeoDistance unit);
  * `gf` must own its cache and point to a live Redis allocation. Both allocation
  * functions must remain initialized; no references may survive this call.
  */
-void Rust_GeoFilter_Free(struct GeoFilter *gf);
+void GeoFilter_Free(struct GeoFilter *gf);
 
 /**
  * Parse legacy arguments, retaining cursor progress and partial output on errors.
@@ -149,7 +149,7 @@ void Rust_GeoFilter_Free(struct GeoFilter *gf);
  * The cursor arguments must remain live, including the field string for the
  * resulting filter's lifetime. `gf` must not already own resources.
  */
-int Rust_GeoFilter_LegacyParse(struct LegacyGeoFilter *gf, ArgsCursor *ac, bool *has_empty_value, struct QueryError *status);
+int GeoFilter_LegacyParse(struct LegacyGeoFilter *gf, ArgsCursor *ac, bool *has_empty_value, struct QueryError *status);
 
 /**
  * Resolve or clear the stable field index.
@@ -157,7 +157,7 @@ int Rust_GeoFilter_LegacyParse(struct LegacyGeoFilter *gf, ArgsCursor *ac, bool 
  * # Safety
  * `gf` must be writable; a non-null `fs` must point to a live [`ffi::FieldSpec`].
  */
-void Rust_GeoFilter_SetField(struct GeoFilter *gf, const FieldSpec *fs);
+void GeoFilter_SetField(struct GeoFilter *gf, const FieldSpec *fs);
 
 /**
  * Validate without changing geometry; errors use [`QueryErrorCode::Syntax`].
@@ -165,36 +165,25 @@ void Rust_GeoFilter_SetField(struct GeoFilter *gf, const FieldSpec *fs);
  * # Safety
  * `gf` must be readable and `status` must point to an initialized, writable query error.
  */
-int Rust_GeoFilter_Validate(const struct GeoFilter *gf, struct QueryError *status);
+int GeoFilter_Validate(const struct GeoFilter *gf, struct QueryError *status);
 
 /**
  * Release the borrowed field wrapper and Redis-allocated legacy filter.
  *
  * # Safety
  * `gf` must be a live Redis allocation with exclusively owned resources, as
- * initialized by [`Rust_GeoFilter_LegacyParse`]. Its borrowed field buffer is not freed.
+ * initialized by [`GeoFilter_LegacyParse`]. Its borrowed field buffer is not freed.
  */
-void Rust_LegacyGeoFilter_Free(struct LegacyGeoFilter *gf);
+void LegacyGeoFilter_Free(struct LegacyGeoFilter *gf);
 
 /**
- * Allocate an unvalidated filter, released with [`Rust_GeoFilter_Free`].
+ * Allocate an unvalidated filter, released with [`GeoFilter_Free`].
  *
  * # Safety
  * A non-null `unit` must be readable for `unit_len` bytes.
  * Redis allocation functions must be initialized and remain unchanged.
  */
-struct GeoFilter *Rust_NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
-
-/**
- * Evaluate a numeric geohash score against the filter.
- *
- * # Safety
- * `gf` must be readable; non-null `distance` must be writable.
- *
- * # Panics
- * The constraints of [`geo::GeoFilter::is_within_radius`] apply.
- */
-int Rust_isWithinRadius(const struct GeoFilter *gf, double score, double *distance);
+struct GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
 
 /**
  * Decode a geohash `f64` back into a `[longitude, latitude]` pair.
@@ -223,6 +212,17 @@ double encodeGeo(double lon, double lat);
  * All coordinates are in degrees. Returns distance in meters.
  */
 double geohashGetDistance(double lon1, double lat1, double lon2, double lat2);
+
+/**
+ * Evaluate a numeric geohash score against the filter.
+ *
+ * # Safety
+ * `gf` must be readable; non-null `distance` must be writable.
+ *
+ * # Panics
+ * The constraints of [`geo::GeoFilter::is_within_radius`] apply.
+ */
+int isWithinRadius(const struct GeoFilter *gf, double score, double *distance);
 
 /**
  * Return `true` if the distance between two lon/lat points is within `radius`

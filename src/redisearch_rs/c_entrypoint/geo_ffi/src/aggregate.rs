@@ -37,7 +37,7 @@ impl DistanceArgument for Argument<'_> {
 /// `argv` must contain `argc` live non-null value pointers, with arity checked by
 /// the function registry. `status` must point to an initialized writable error.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoDistance_Evaluate(
+pub unsafe extern "C" fn GeoDistance_Evaluate(
     argv: *const *mut RSValue,
     argc: usize,
     status: *mut OpaqueQueryError,
