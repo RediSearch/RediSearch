@@ -16,7 +16,9 @@ use rqe_iterators::{
     not_reducer::{NewNotIterator, new_not_iterator},
 };
 
-use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, eval_child_iterator};
+use crate::{
+    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_child_iterator,
+};
 
 /// `QN_NOT` — logical negation: matches every document *not* matched by its
 /// single child.
@@ -41,7 +43,8 @@ pub(crate) fn eval<'index>(
     // nodes can nest (e.g. `-(-foo)`), and the outer NOT must keep the flag set
     // while the inner one is being evaluated and after it returns.
     let prev_in_not_sub_tree = ctx.set_in_not_sub_tree(true);
-    let child = eval_child_iterator(ctx, node.child_mut(0), config);
+    // Not inherited; see `OffsetRequirement`.
+    let child = eval_child_iterator(ctx, node.child_mut(0), config, OffsetRequirement::Automatic);
     ctx.set_in_not_sub_tree(prev_in_not_sub_tree);
 
     // SAFETY: invariant (2) of `QueryEvalContext::new` guarantees that `sctx` and its

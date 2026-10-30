@@ -19,7 +19,10 @@ use rqe_iterators::build_term_iterator;
 use rs_token::RSTokenRef;
 use search_disk::SearchDiskHandle;
 
-use crate::{Config, Evaluated, QueryEvalContext, QueryNodeRef, disk, expansion_needs_offsets};
+use crate::{
+    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeRef, disk,
+    expansion_needs_offsets,
+};
 
 /// `QN_TOKEN` — a single-term lookup.
 ///
@@ -33,6 +36,7 @@ pub(crate) fn eval<'index>(
     node: &QueryNodeRef,
     tok: RSTokenRef,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> Option<Evaluated<'index>> {
     let opts = node.opts();
     let weight = opts.weight;
@@ -58,6 +62,7 @@ pub(crate) fn eval<'index>(
             weight,
             effective_field_mask,
             config,
+            offsets,
         )
     } else {
         open_term_reader(ctx, tok, term, weight, effective_field_mask)
@@ -127,6 +132,7 @@ fn eval_disk<'index>(
     weight: f64,
     effective_field_mask: FieldMask,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> Option<Evaluated<'index>> {
     // Look up the term's document count in the terms trie to compute IDF, then
     // build a disk term iterator through the enterprise API.
@@ -146,7 +152,7 @@ fn eval_disk<'index>(
     let num_documents = ctx.spec().stats.scoring.numDocuments;
     term.set_idfs(num_documents, num_docs_in_term);
 
-    let needs_offsets = expansion_needs_offsets(ctx, opts, config);
+    let needs_offsets = expansion_needs_offsets(ctx, opts, config, offsets);
 
     let iter =
         disk::new_term_iterator(ctx, disk, term, effective_field_mask, weight, needs_offsets)?;

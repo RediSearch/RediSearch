@@ -21,7 +21,7 @@ use rs_token::RSTokenRefNulTerminated;
 use string_utils::runes::runes_to_bytes;
 
 use crate::{
-    Config, Evaluated, QueryEvalContext, QueryNodeRef, expansion::Expansion,
+    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeRef, expansion::Expansion,
     expansion_needs_offsets,
 };
 
@@ -40,6 +40,7 @@ pub(crate) fn eval<'index>(
     tok: RSTokenRefNulTerminated,
     mode: WildcardMode,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> Option<Evaluated<'index>> {
     // A pattern shorter than the configured minimum is rejected to avoid
     // over-broad expansions (e.g. a bare `a*`). Not setting a ctx error: the minimum
@@ -87,7 +88,7 @@ pub(crate) fn eval<'index>(
 
     let field_mask = node_field_mask & ctx.opts().fieldmask;
     let is_disk = !ctx.spec().diskSpec.is_null();
-    let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config);
+    let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config, offsets);
 
     let suffix_trie = ctx.spec().suffix;
     let suffix_mask = ctx.spec().suffixMask;
