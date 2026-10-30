@@ -1,0 +1,24 @@
+[package]
+name = "geo_filter_tests"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+workspace_hack.workspace = true
+
+[build-dependencies]
+build_utils = { path = "../build_utils" }
+
+[dev-dependencies]
+ffi.workspace = true
+geo.workspace = true
+geo_filter_ffi = { path = "../c_entrypoint/geo_filter_ffi" }
+query_error.workspace = true
+redis-module.workspace = true
+redis_mock.workspace = true
+redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
+
+[lints]
+workspace = true

@@ -10,6 +10,8 @@ members = [
     "fork_gc",
     "generational_slab",
     "geo",
+    "geo_filter_bencher",
+    "geo_filter_tests",
     "hyperloglog",
     "index_result",
     "inverted_index",
