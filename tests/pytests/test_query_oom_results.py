@@ -582,3 +582,81 @@ def test_hybrid_shard_stop_replies_by_on_oom_policy(env):
     finally:
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
         allShards_change_oom_policy(env, 'return')
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_geoshape_collection_stop_on_a_shard_reaches_the_coordinator(env):
+    """A shard whose GEOSHAPE collection stops for OOM answers like any shard stopped at build,
+    and the coordinator replies per ON_OOM: the OOM error under FAIL, the other shards' rows
+    with its OOM warning under RETURN. Shard 2 runs no coordinator pipeline; its first build
+    checkpoint precedes the iterators, so its call 2 is the collection's first id."""
+    env.expect('FT.CREATE', 'gidx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'g{i}', 'geom', 'POLYGON((0 0, 0 20, 20 20, 20 0, 0 0))')
+    query = ['FT.AGGREGATE', 'gidx', '@geom:[within $shape]', 'PARAMS', 2, 'shape',
+             'POLYGON((-1 -1, -1 21, 21 21, 21 -1, -1 -1))', 'DIALECT', 3]
+    shard = env.getConnection(2)
+
+    def run():
+        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 2)
+        try:
+            return env.cmd(*query)
+        finally:
+            shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+
+    try:
+        allShards_change_oom_policy(env, 'fail')
+        with env.assertResponseError(contained=OOM_QUERY_ERROR):
+            run()
+        allShards_change_oom_policy(env, 'return')
+        res = run()
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+        env.assertLess(len(res['results']), N_DOCS, message=res)
+    finally:
+        allShards_change_oom_policy(env, 'return')
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_geoshape_collection_stop_replies_by_on_oom_policy(env):
+    """A GEOSHAPE query collects every matching id while its iterator is built; a stop for OOM
+    there abandons the collection, and the query ends like any stop at build: ON_OOM FAIL
+    replies the OOM error, ON_OOM RETURN an empty result with the OOM warning, for each
+    predicate, with or without workers. ON_OOM IGNORE lets it finish. The first build
+    checkpoint comes before the iterators, so call 1 + N_DOCS is the collection's last id: only
+    the collection's checkpoint can empty the reply there (later calls are the pipeline's and
+    the reply's, past the first rows)."""
+    env.expect('FT.CREATE', 'gidx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'g{i}', 'geom', 'POLYGON((0 0, 0 20, 20 20, 20 0, 0 0))')
+    queries = {
+        'within': 'POLYGON((-1 -1, -1 21, 21 21, 21 -1, -1 -1))',
+        'contains': 'POINT(5 5)',
+        'intersects': 'POINT(5 5)',
+        'disjoint': 'POLYGON((100 100, 100 110, 110 110, 110 100, 100 100))',
+    }
+    for predicate, shape in queries.items():
+        query = ['FT.SEARCH', 'gidx', f'@geom:[{predicate} $shape]', 'PARAMS', 2, 'shape', shape,
+                 'NOCONTENT', 'DIALECT', 3]
+        env.assertEqual(env.cmd(*query)['total_results'], N_DOCS, message=predicate)
+        for workers in [0, 2]:
+            _set_policies(env, 'return', 'fail', workers)
+            errors, warnings = _oom_counters(env)
+            _memory_pressure(env, 'AT_CALL', 1 + N_DOCS)
+            env.expect(*query).error().equal(f'SEARCH_OOM {OOM_QUERY_ERROR}')
+            env.assertEqual(_oom_counters(env), (errors + 1, warnings),
+                            message=(predicate, workers))
+
+            _set_policies(env, 'return', 'return', workers)
+            _memory_pressure(env, 'AT_CALL', 1 + N_DOCS)
+            res = env.cmd(*query)
+            env.assertEqual((res['results'], res['warning']), ([], [COORD_OOM_WARNING]),
+                            message=(predicate, workers, res))
+
+        _set_policies(env, 'return', 'ignore', 0)
+        _memory_pressure(env, 'AT_CALL', 1 + N_DOCS)
+        env.assertEqual(env.cmd(*query)['total_results'], N_DOCS, message=predicate)
+    _reset(env)
