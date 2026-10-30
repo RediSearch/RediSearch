@@ -1256,6 +1256,7 @@ dependencies = [
  "libc",
  "numeric_range_tree",
  "numeric_range_tree_ffi",
+ "numeric_score_source",
  "query_types",
  "redis-module",
  "redis_mock",
@@ -1625,6 +1626,7 @@ dependencies = [
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
+ "rqe_iterators_test_utils",
  "top_k",
  "workspace_hack",
 ]

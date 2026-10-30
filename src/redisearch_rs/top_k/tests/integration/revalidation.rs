@@ -20,14 +20,18 @@ use top_k::Ascending;
 use top_k::{BatchStrategy, TopKIterator, mock::MockScoreSource};
 
 /// Ascending comparator: lower score is better (e.g. vector distance).
-/// Child iterator whose `revalidate` unconditionally returns `Aborted`.
+/// Child iterator whose `revalidate` unconditionally returns `Aborted`, or
+/// times out.
 ///
 /// The `Ok` delegation path is covered by [`rqe_iterators::Empty`], which
 /// already returns `Ok` from `revalidate`.  This stub only exists for the
 /// case that cannot be expressed with any existing public iterator type.
-struct AbortOnRevalidate;
+enum FailOnRevalidate {
+    Abort,
+    TimeOut,
+}
 
-impl<'index> RQEIterator<'index> for AbortOnRevalidate {
+impl<'index> RQEIterator<'index> for FailOnRevalidate {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         None
     }
@@ -50,7 +54,10 @@ impl<'index> RQEIterator<'index> for AbortOnRevalidate {
         &mut self,
         _spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        Ok(RQEValidateStatus::Aborted)
+        match self {
+            Self::Abort => Ok(RQEValidateStatus::Aborted),
+            Self::TimeOut => Err(rqe_iterators::RQEIteratorError::TimedOut),
+        }
     }
 
     fn rewind(&mut self) {}
@@ -188,7 +195,7 @@ fn with_child_delegates_ok() {
 fn with_child_delegates_aborted() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let child: Box<dyn RQEIterator<'_>> = Box::new(AbortOnRevalidate);
+    let child: Box<dyn RQEIterator<'_>> = Box::new(FailOnRevalidate::Abort);
     let mut it = ContractChecker::new_unordered(TopKIterator::new(
         source,
         child,
@@ -214,4 +221,36 @@ fn moved_child_collapses_to_ok() {
     ));
     let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Ok);
+}
+
+#[test]
+fn stale_source_aborts() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue)
+        .with_stale_index();
+    let child: Box<dyn RQEIterator<'_>> = Box::new(rqe_iterators::Empty);
+    let mut it = ContractChecker::new_unordered(TopKIterator::new(
+        source,
+        child,
+        NonZeroUsize::new(5).unwrap(),
+        Ascending,
+    ));
+    let status = it.revalidate(&mock_ctx.spec_read()).unwrap();
+    assert_eq!(status, RQEValidateStatus::Aborted);
+}
+
+#[test]
+fn child_timeout_takes_precedence_over_stale_source() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue)
+        .with_stale_index();
+    let child: Box<dyn RQEIterator<'_>> = Box::new(FailOnRevalidate::TimeOut);
+    let mut it = ContractChecker::new_unordered(TopKIterator::new(
+        source,
+        child,
+        NonZeroUsize::new(5).unwrap(),
+        Ascending,
+    ));
+    let err = it.revalidate(&mock_ctx.spec_read()).unwrap_err();
+    assert!(matches!(err, rqe_iterators::RQEIteratorError::TimedOut));
 }
