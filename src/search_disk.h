@@ -1055,6 +1055,9 @@ void SearchDisk_DebugResetCompactionController(void);
 // These wrappers follow the thread, locking and persistence contract in SlotMigrationAPI.
 bool SearchDisk_RegisterSlotTrim(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
                                  size_t numRanges, uint64_t *trimId, t_docId *maxDocId);
+bool SearchDisk_RegisterSlotTrimAtCutoff(RedisSearchDiskIndexSpec *index,
+                                         const SearchDiskSlotRange *ranges, size_t numRanges,
+                                         t_docId maxDocId, uint64_t *trimId);
 void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
                                        SearchDiskPendingSlotTrimCallback callback, void *ctx);
 SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(RedisSearchDiskIndexSpec *index,

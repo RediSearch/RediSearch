@@ -29,6 +29,11 @@ extern "C" {
 // Main thread only: it walks the global spec registry.
 void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots);
 
+// SST/RDB captures retain notifications the backend has not accepted yet.
+// Called under the spec lock on save, and before publishing the spec on load.
+void SlotCleanup_RdbSaveUnregistered(RedisModuleIO *rdb, const IndexSpec *spec);
+bool SlotCleanup_RdbLoadUnregistered(RedisModuleIO *rdb, IndexSpec *spec);
+
 // Module startup, before disk jobs can be scheduled; requires previously stopped workers drained.
 void SlotCleanup_StartDiskJobs(void);
 // Main-thread cron retries jobs retained after queue rejection or storage failure.

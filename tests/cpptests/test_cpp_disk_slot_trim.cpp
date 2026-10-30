@@ -8,6 +8,7 @@
  */
 #include "gtest/gtest.h"
 #include "common.h"
+#include "redismock/redismock.h"
 #include "disk_gc.h"
 #include "geometry/geometry_api.h"
 #include "slot_cleanup.h"
@@ -144,6 +145,18 @@ class DiskSlotTrimTest : public ::testing::Test {
     disk = &api;
     disk_db = reinterpret_cast<RedisSearchDisk *>(&api);
     isFlex = true;
+    api.docTable.getMaxDocId = [](RedisSearchDiskIndexSpec *) { return state.maxDocId; };
+    api.slotMigration.registerTrimAtCutoff = [](RedisSearchDiskIndexSpec *,
+                                                const SearchDiskSlotRange *ranges, size_t count,
+                                                t_docId cutoff, uint64_t *trimId) {
+      ++state.registrations;
+      if (!state.registerAccepted) return false;
+      state.logicalPending = true;
+      state.ranges.assign(ranges, ranges + count);
+      *trimId = state.trimId;
+      EXPECT_EQ(cutoff, 3u);
+      return true;
+    };
     api.docTable.getDeletedIdsCount = [](RedisSearchDiskIndexSpec *) { return uint64_t{0}; };
     gc.gcCtx = DiskGC_Create(ref, &gc.callbacks);
     spec->gc = &gc;
@@ -369,14 +382,22 @@ TEST_F(DiskSlotTrimTest, RegistrationInstallsCutoffFilterWithoutScanning) {
   EXPECT_EQ(pendingDeletes(), 0u);
 }
 
-TEST_F(DiskSlotTrimTest, RegistrationFailureDoesNotHideOrMutateDocuments) {
+TEST_F(DiskSlotTrimTest, RegistrationFailureRetainsVisibilityFilterAndRetriesOriginalCutoff) {
+  state.maxDocId = 3;
   state.registerAccepted = false;
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
-  EXPECT_EQ(job, nullptr);
-  EXPECT_FALSE(pendingFilter());
+  ASSERT_NE(job, nullptr);
+  EXPECT_TRUE(pendingFilter());
+  EXPECT_FALSE(pendingFilter(4, 7));
   EXPECT_EQ(state.applyCalls, 0u);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 40u);
+  state.maxDocId = 50;
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
+  state.registerAccepted = true;
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
+  EXPECT_FALSE(pendingFilter());
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
 }
 
 TEST_F(DiskSlotTrimTest, BoundsRejectBeforeApplyingTheFinalBatch) {
@@ -1272,3 +1293,151 @@ TEST_F(DiskSlotTrimTest, SstCheckpointKeepsCleanupPausedUntilAbort) {
 }
 
 }  // namespace
+
+namespace {
+class TrimRdbBuffer {
+  decltype(RedisModule_SaveUnsigned) save = RedisModule_SaveUnsigned;
+  decltype(RedisModule_LoadUnsigned) load = RedisModule_LoadUnsigned;
+  decltype(RedisModule_IsIOError) error = RedisModule_IsIOError;
+
+ public:
+  std::vector<uint64_t> values;
+  size_t cursor = 0;
+  bool failed = false;
+  TrimRdbBuffer() {
+    RedisModule_SaveUnsigned = [](RedisModuleIO *io, uint64_t value) {
+      reinterpret_cast<TrimRdbBuffer *>(io)->values.push_back(value);
+    };
+    RedisModule_LoadUnsigned = [](RedisModuleIO *io) -> uint64_t {
+      auto *buffer = reinterpret_cast<TrimRdbBuffer *>(io);
+      if (buffer->cursor == buffer->values.size()) {
+        buffer->failed = true;
+        return 0;
+      }
+      return buffer->values[buffer->cursor++];
+    };
+    RedisModule_IsIOError = [](RedisModuleIO *io) {
+      return int(reinterpret_cast<TrimRdbBuffer *>(io)->failed);
+    };
+  }
+  ~TrimRdbBuffer() {
+    RedisModule_SaveUnsigned = save;
+    RedisModule_LoadUnsigned = load;
+    RedisModule_IsIOError = error;
+  }
+  RedisModuleIO *io() {
+    return reinterpret_cast<RedisModuleIO *>(this);
+  }
+};
+}  // namespace
+
+TEST_F(DiskSlotTrimTest, RejectedNotificationSurvivesRdbBeforeRegistration) {
+  state.maxDocId = 3;
+  state.registerAccepted = false;
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
+  TrimRdbBuffer buffer;
+  SlotCleanup_RdbSaveUnregistered(buffer.io(), spec);
+  EXPECT_EQ(buffer.values, (std::vector<uint64_t>{1, 3, 1, 0, 100}));
+  IndexSpec_FreeDiskSlotTrim(job);
+  job = nullptr;
+  DocTable_RemovePendingDeletion(&spec->docs, spec->docs.pendingSlotDeletions);
+  state.maxDocId = 50;
+  ASSERT_TRUE(SlotCleanup_RdbLoadUnregistered(buffer.io(), spec));
+  EXPECT_TRUE(pendingFilter(3, 7));
+  EXPECT_FALSE(pendingFilter(4, 7));
+  startCleanPool();
+  state.registerAccepted = true;
+  IndexSpec_ResumeDiskSlotTrims(spec);
+  CleanPool_Wait();
+  EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_FALSE(pendingFilter());
+}
+
+TEST_F(DiskSlotTrimTest, RetainedNotificationRdbRejectsTruncatedAndInvalidRanges) {
+  for (const auto &values : std::vector<std::vector<uint64_t>>{{1, 3},
+                                                               {1, 3, 0},
+                                                               {1, 3, 16385},
+                                                               {1, 3, 1, 8, 7},
+                                                               {1, 3, 1, 0, 16384},
+                                                               {1, 3, 2, 0, 5, 5, 9}}) {
+    TrimRdbBuffer buffer;
+    buffer.values = values;
+    EXPECT_FALSE(SlotCleanup_RdbLoadUnregistered(buffer.io(), spec));
+    EXPECT_FALSE(pendingFilter());
+  }
+}
+
+TEST_F(DiskSlotTrimTest, NotificationRegistrationFailureRetriesFromCronWithoutCrashing) {
+  state.maxDocId = 3;
+  state.registerAccepted = false;
+  startCleanPool();
+  scheduleAutomaticTrim();
+  CleanPool_Wait();
+  EXPECT_TRUE(pendingFilter(3, 7));
+  EXPECT_FALSE(pendingFilter(4, 7));
+  EXPECT_EQ(state.applyCalls, 0u);
+  state.maxDocId = 50;
+  state.registerAccepted = true;
+  SlotCleanup_RetryDiskJobs();
+  CleanPool_Wait();
+  EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_FALSE(pendingFilter());
+}
+
+TEST_F(DiskSlotTrimTest, IndexRdbRoundTripPreservesRetainedTrimsAndLegacyStreamAlignment) {
+  api.basic.indexSpecRdbSave = [](RedisModuleIO *io, RedisSearchDiskIndexSpec *) {
+    RedisModule_SaveUnsigned(io, 719);
+  };
+  api.basic.loadRdbToTempObject = [](RedisModuleIO *io) {
+    EXPECT_EQ(RedisModule_LoadUnsigned(io), 719u);
+    return reinterpret_cast<RedisSearchDiskRdbState *>(rm_malloc(1));
+  };
+  api.basic.freeRdbState = [](RedisSearchDiskRdbState *saved) { rm_free(saved); };
+  for (int version : {INDEX_SST_SPEC_ID_VERSION, INDEX_CURRENT_VERSION}) {
+    SCOPED_TRACE(version);
+    const char *args[] = {"SCHEMA", "t", "TEXT"};
+    QueryError error = QueryError_Default();
+    isFlex = false;
+    StrongRef sourceRef = IndexSpec_ParseC(nullptr, "retained_trim_rdb", args, 3, &error);
+    isFlex = true;
+    auto *source = static_cast<IndexSpec *>(StrongRef_Get(sourceRef));
+    ASSERT_NE(source, nullptr) << QueryError_GetUserError(&error);
+    source->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(source);
+    auto *slots = static_cast<RedisModuleSlotRangeArray *>(rm_malloc(SlotRangeArray_SizeOf(1)));
+    slots->num_ranges = 1;
+    slots->ranges[0] = {7, 9};
+    if (version == INDEX_CURRENT_VERSION) {
+      DocTable_AddPendingDeletionWithCutoff(&source->docs, slots, 17);
+    }
+    rm_free(slots);
+    auto *io = RMCK_CreateRdbIO();
+    for (int record = 0; record < 2; ++record) {
+      IndexSpec_RdbSave(io, source, REDISMODULE_CTX_FLAGS_SST_RDB);
+      if (version == INDEX_SST_SPEC_ID_VERSION) {
+        // Version 29 ends at the backend state; it has no retained-notification count.
+        io->buffer.resize(io->buffer.size() - sizeof(uint64_t));
+      }
+    }
+    source->diskSpec = nullptr;
+    StrongRef_Release(sourceRef);
+    io->read_pos = 0;
+    for (int record = 0; record < 2; ++record) {
+      IndexSpec *loaded = IndexSpec_RdbLoad(io, version, true, &error);
+      ASSERT_NE(loaded, nullptr) << QueryError_GetUserError(&error);
+      if (version == INDEX_CURRENT_VERSION) {
+        ASSERT_NE(loaded->docs.pendingSlotDeletions, nullptr);
+        EXPECT_EQ(loaded->docs.pendingSlotDeletions->maxDocId, 17u);
+        EXPECT_EQ(loaded->docs.pendingSlotDeletions->diskTrimId, 0u);
+        EXPECT_TRUE(DocTable_IsDocPendingDeletionForSlot(&loaded->docs, 17, 7));
+        EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&loaded->docs, 18, 7));
+      } else {
+        EXPECT_EQ(loaded->docs.pendingSlotDeletions, nullptr);
+      }
+      StrongRef_Release(loaded->own_ref);
+    }
+    EXPECT_EQ(io->read_pos, io->buffer.size());
+    EXPECT_FALSE(RedisModule_IsIOError(io));
+    RMCK_FreeRdbIO(io);
+    QueryError_ClearError(&error);
+  }
+}

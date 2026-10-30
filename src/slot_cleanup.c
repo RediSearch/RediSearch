@@ -179,7 +179,7 @@ static PendingSlotDeletion *pendingDiskTrim(IndexSpec *spec, uint64_t trimId,
                                             t_docId maxDocId) {
   for (PendingSlotDeletion *pending = spec->docs.pendingSlotDeletions; pending;
        pending = pending->next) {
-    if (pending->diskTrimId == trimId) return pending;
+    if (trimId != 0 && pending->diskTrimId == trimId) return pending;
   }
   RS_LOG_ASSERT_ALWAYS(numRanges <= INT32_MAX, "too many slot ranges");
   RedisModuleSlotRangeArray *slots = rm_malloc(SlotRangeArray_SizeOf(numRanges));
@@ -212,13 +212,14 @@ IndexSpecSlotTrimJob *IndexSpec_RegisterDiskSlotTrim(StrongRef specRef,
   uint64_t trimId = 0;
   t_docId maxDocId = 0;
   IndexSpec_LockWrite(spec);
+  const t_docId notificationCutoff = SearchDisk_GetMaxDocId(spec->diskSpec);
   bool registered =
       SearchDisk_RegisterSlotTrim(spec->diskSpec, ranges, numRanges, &trimId, &maxDocId);
   RS_LOG_ASSERT_ALWAYS(!registered || trimId != 0, "disk slot cleanup ID must be nonzero");
-  PendingSlotDeletion *pending =
-      registered ? pendingDiskTrim(spec, trimId, ranges, numRanges, maxDocId) : NULL;
+  PendingSlotDeletion *pending = pendingDiskTrim(spec, registered ? trimId : 0, ranges, numRanges,
+                                                 registered ? maxDocId : notificationCutoff);
   IndexSpec_Unlock(spec);
-  return registered ? newDiskJob(specRef, trimId, pending) : NULL;
+  return newDiskJob(specRef, registered ? trimId : 0, pending);
 }
 
 typedef struct {
@@ -257,6 +258,31 @@ static bool trimMemoryIndexes(void *ctx, const t_docId *ids, size_t numIds, uint
   return applied;
 }
 
+static bool registerRetainedDiskJob(IndexSpec *spec, IndexSpecSlotTrimJob *job) {
+  pthread_mutex_lock(&diskApplyLock);
+  if (diskJobsPaused) {
+    pthread_mutex_unlock(&diskApplyLock);
+    return false;
+  }
+  IndexSpec_LockWrite(spec);
+  const RedisModuleSlotRangeArray *slots = job->pending->slots;
+  SearchDiskSlotRange *ranges = rm_malloc(sizeof(*ranges) * slots->num_ranges);
+  for (int32_t i = 0; i < slots->num_ranges; ++i) {
+    ranges[i] = (SearchDiskSlotRange){slots->ranges[i].start, slots->ranges[i].end};
+  }
+  uint64_t trimId = 0;
+  bool registered = SearchDisk_RegisterSlotTrimAtCutoff(spec->diskSpec, ranges, slots->num_ranges,
+                                                        job->pending->maxDocId, &trimId);
+  if (registered) {
+    RS_LOG_ASSERT_ALWAYS(trimId != 0, "disk slot cleanup ID must be nonzero");
+    job->trimId = job->pending->diskTrimId = trimId;
+  }
+  rm_free(ranges);
+  IndexSpec_Unlock(spec);
+  pthread_mutex_unlock(&diskApplyLock);
+  return registered;
+}
+
 IndexSpecDiskSlotTrimResult IndexSpec_RunDiskSlotTrim(IndexSpecSlotTrimJob *job) {
   if (job->finished) return INDEX_DISK_TRIM_FINISHED;
   pthread_rwlock_rdlock(&diskJobRunLock);
@@ -271,6 +297,8 @@ IndexSpecDiskSlotTrimResult IndexSpec_RunDiskSlotTrim(IndexSpecSlotTrimJob *job)
   bool paused = diskJobsPaused;
   pthread_mutex_unlock(&diskApplyLock);
   if (spec && spec->diskSpec && paused) {
+    result = INDEX_DISK_TRIM_RETRY;
+  } else if (spec && spec->diskSpec && job->trimId == 0 && !registerRetainedDiskJob(spec, job)) {
     result = INDEX_DISK_TRIM_RETRY;
   } else if (spec && spec->diskSpec) {
     DiskSlotTrimContext context = {.spec = spec, .job = job};
@@ -407,6 +435,22 @@ void IndexSpec_ResumeDiskSlotTrims(IndexSpec *spec) {
   if (!spec->diskSpec || atomic_load(&diskJobsStopped)) return;
   IndexSpec_LockWrite(spec);
   SearchDisk_ForEachPendingSlotTrim(spec->diskSpec, resumeDiskTrim, spec);
+  pthread_mutex_lock(&diskJobListLock);
+  for (PendingSlotDeletion *pending = spec->docs.pendingSlotDeletions; pending;
+       pending = pending->next) {
+    if (pending->diskTrimId != 0) continue;
+    bool scheduled = false;
+    for (IndexSpecSlotTrimJob *job = diskJobs; job; job = job->next) {
+      if (job->specRef.rm == spec->own_ref.rm && job->pending == pending) scheduled = true;
+    }
+    if (!scheduled) {
+      IndexSpecSlotTrimJob *job = newDiskJob(spec->own_ref, 0, pending);
+      job->next = diskJobs;
+      diskJobs = job;
+      queueDiskJob(job);
+    }
+  }
+  pthread_mutex_unlock(&diskJobListLock);
   IndexSpec_Unlock(spec);
 }
 
@@ -420,11 +464,54 @@ static void scheduleDiskSlotCleanup(IndexSpec *spec, void *arg) {
   IndexSpecSlotTrimJob *job =
       IndexSpec_RegisterDiskSlotTrim(spec->own_ref, ranges, slots->num_ranges);
   rm_free(ranges);
-  RS_LOG_ASSERT_ALWAYS(job != NULL, "Cannot register disk slot cleanup at trim notification");
-  scheduleDiskJob(job);
+  if (job) scheduleDiskJob(job);
 }
 
 void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots) {
   Indexes_ForEachSpec(SearchDisk_IsEnabled() ? scheduleDiskSlotCleanup : scheduleSlotCleanup,
                       (void *)slots);
+}
+
+void SlotCleanup_RdbSaveUnregistered(RedisModuleIO *rdb, const IndexSpec *spec) {
+  uint64_t count = 0;
+  for (const PendingSlotDeletion *p = spec->docs.pendingSlotDeletions; p; p = p->next) {
+    if (p->diskTrimId == 0) ++count;
+  }
+  RedisModule_SaveUnsigned(rdb, count);
+  for (const PendingSlotDeletion *p = spec->docs.pendingSlotDeletions; p; p = p->next) {
+    if (p->diskTrimId != 0) continue;
+    RedisModule_SaveUnsigned(rdb, p->maxDocId);
+    RedisModule_SaveUnsigned(rdb, p->slots->num_ranges);
+    for (int32_t i = 0; i < p->slots->num_ranges; ++i) {
+      RedisModule_SaveUnsigned(rdb, p->slots->ranges[i].start);
+      RedisModule_SaveUnsigned(rdb, p->slots->ranges[i].end);
+    }
+  }
+}
+
+bool SlotCleanup_RdbLoadUnregistered(RedisModuleIO *rdb, IndexSpec *spec) {
+  const uint64_t count = RedisModule_LoadUnsigned(rdb);
+  if (RedisModule_IsIOError(rdb)) return false;
+  for (uint64_t i = 0; i < count; ++i) {
+    const t_docId cutoff = RedisModule_LoadUnsigned(rdb);
+    const uint64_t numRanges = RedisModule_LoadUnsigned(rdb);
+    // The Redis Cluster protocol has 16384 slots; bounds also cap allocations from RDB input.
+    if (RedisModule_IsIOError(rdb) || numRanges == 0 || numRanges > 16384) return false;
+    RedisModuleSlotRangeArray *slots = rm_malloc(SlotRangeArray_SizeOf(numRanges));
+    slots->num_ranges = numRanges;
+    for (uint64_t j = 0; j < numRanges; ++j) {
+      const uint64_t start = RedisModule_LoadUnsigned(rdb);
+      const uint64_t end = RedisModule_LoadUnsigned(rdb);
+      if (RedisModule_IsIOError(rdb) || start > end || end >= 16384 ||
+          (j != 0 && slots->ranges[j - 1].end + 1 >= start)) {
+        rm_free(slots);
+        return false;
+      }
+      slots->ranges[j].start = start;
+      slots->ranges[j].end = end;
+    }
+    DocTable_AddPendingDeletionWithCutoff(&spec->docs, slots, cutoff);
+    rm_free(slots);
+  }
+  return true;
 }
