@@ -29,6 +29,7 @@ use tracing_log_error::log_error;
 mod existing_docs;
 mod missing_docs;
 mod numeric;
+mod tags;
 mod terms;
 mod util;
 
