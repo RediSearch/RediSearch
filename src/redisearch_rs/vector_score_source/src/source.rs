@@ -16,8 +16,8 @@ use std::{
 };
 
 use ffi::{
-    QueryRequestTimeout, RS_VecSimCheckTimeout, VecSearchMode, VecSearchMode_HYBRID_BATCHES,
-    VecSimIndex, VecSimQueryParams,
+    QueryRequestTimeout, RS_VecSimCheckMemory, RS_VecSimCheckTimeout, VecSearchMode,
+    VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams,
 };
 use index_result::RSIndexResult;
 use rlookup::{RLookupKey, RLookupKeyHandle};
@@ -295,6 +295,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         // Timeout is propagated via self.query_params.timeoutCtx. VecSim checks it
         // internally and returns VecSim_QueryReply_TimedOut from Next/New.
 
+        let further_batch = self.batch_iter.is_some();
         // Lazily create the batch iterator on first call.
         if self.batch_iter.is_none() {
             if self.initial_child_num_estimated == 0 {
@@ -332,6 +333,14 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             .has_next()
         {
             return Ok(None);
+        }
+
+        // A further batch of this scan is more VecSim work, and what the batch iterator retains
+        // across batches can reach the index size under a weak filter.
+        // SAFETY: the constructor contract keeps the request timeout valid; the callee reads its
+        // flags, may request a stop atomically, and does not retain the pointer.
+        if further_batch && unsafe { RS_VecSimCheckMemory(self.timeout.as_ptr()) } != 0 {
+            return Err(RQEIteratorError::TimedOut);
         }
 
         let batch_size = self.compute_next_batch_size();
