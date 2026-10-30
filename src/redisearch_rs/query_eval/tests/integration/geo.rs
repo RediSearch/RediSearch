@@ -12,8 +12,7 @@
 //! Needs a real geo (numeric range tree) index, so it relies on the full-FFI
 //! `TestContext`.
 //!
-//! Disabled under Miri: `TestContext` and the geo filter validation call into
-//! the C library, which Miri cannot execute.
+//! Disabled under Miri: `TestContext` calls into the C library, which Miri cannot execute.
 #![cfg(not(miri))]
 
 use query::mock::MockQueryNode;

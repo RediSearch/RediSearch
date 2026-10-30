@@ -17,32 +17,23 @@ use rqe_core::RS_INVALID_FIELD_INDEX;
 
 #[test]
 fn reading_filter_based_on_geo_filter() {
-    /// Implement this FFI call for this test
-    #[unsafe(no_mangle)]
-    pub extern "C" fn isWithinRadius(gf: *const GeoFilter, d: f64, distance: *mut f64) -> bool {
-        if d > unsafe { (*gf).radius } {
-            return false;
-        }
-
-        // Tests changing the distance value
-        unsafe { *distance /= 5.0 };
-
-        true
-    }
-
-    // Make an iterator with three records having different geo distances. The last record will be
-    // filtered out based on the geo distance.
-    let iter = vec![
-        RSIndexResult::build_numeric(5.0).doc_id(10).build(),
-        RSIndexResult::build_numeric(15.0).doc_id(11).build(),
-        RSIndexResult::build_numeric(25.0).doc_id(12).build(),
-    ];
+    let iter: Vec<_> = [0.005, 0.015, 0.025]
+        .into_iter()
+        .enumerate()
+        .map(|(i, lon)| {
+            let point = geo::hash::WGS84Coordinates::from_f64(lon, 0.0).unwrap();
+            let score = geo::hash::encode_wgs84(point, geo::hash::GEO_STEP_MAX).bits as f64;
+            RSIndexResult::build_numeric(score)
+                .doc_id(10 + i as u64)
+                .build()
+        })
+        .collect();
 
     let geo_filter = GeoFilter {
         fieldIndex: RS_INVALID_FIELD_INDEX,
         lat: 0.0,
         lon: 0.0,
-        radius: 20.0,
+        radius: 2000.0,
         unitType: GeoDistance_GEO_DISTANCE_M,
         numericFilters: ptr::null_mut(),
     };
@@ -60,11 +51,11 @@ fn reading_filter_based_on_geo_filter() {
     let mut reader = FilterGeoReader::new(filter, iter.into_iter());
     let mut result = RSIndexResult::build_numeric(0.0).build();
 
-    let found = reader.next_record(&mut result).unwrap();
-    assert!(found);
-    assert_eq!(result, RSIndexResult::build_numeric(1.0).doc_id(10).build());
-
-    let found = reader.next_record(&mut result).unwrap();
-    assert!(found);
-    assert_eq!(result, RSIndexResult::build_numeric(3.0).doc_id(11).build());
+    // Equatorial arc lengths in meters, with tolerance for geohash quantization.
+    for (id, distance) in [(10, 556.1), (11, 1668.4)] {
+        assert!(reader.next_record(&mut result).unwrap());
+        assert_eq!(result.doc_id, id);
+        assert!((result.as_numeric().unwrap() - distance).abs() < 1.0);
+    }
+    assert!(!reader.next_record(&mut result).unwrap());
 }

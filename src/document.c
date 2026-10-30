@@ -35,7 +35,6 @@
 #include "config.h"
 #include "doc_table.h"
 #include "geo_ffi.h"
-#include "geo_index.h"
 #include "geometry/geometry_types.h"
 #include "geometry_index.h"
 #include "info/index_error.h"

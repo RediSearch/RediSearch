@@ -74,10 +74,8 @@ pub unsafe fn build_geo_numeric_filters<'index>(
     let ranges = geo::calc_ranges(center, radius_meters);
 
     // Allocate the `numericFilters` array in Rust and hand ownership to `*gf`.
-    // `GeoFilter_Free` releases it by calling back into Rust
-    // ([`free_geo_numeric_filters`], via the `iterators_ffi` wrapper), so the
-    // container is always reclaimed with the same Rust allocator that produced
-    // it.
+    // `GeoFilter_Free` releases it through [`free_geo_numeric_filters`], so the
+    // container is reclaimed with the same Rust allocator that produced it.
     let numeric_filters = Box::into_raw(Box::new(
         [std::ptr::null_mut::<NumericFilter>(); geo::GEO_RANGE_COUNT],
     ));
@@ -118,8 +116,7 @@ pub unsafe fn build_geo_numeric_filters<'index>(
 /// must stay in lockstep with it. Each piece is reclaimed with the allocator
 /// that produced it: the array container with the Rust allocator (`Box::from_raw`
 /// undoing the `Box::into_raw`) and each entry with `NumericFilter_Free` (the C
-/// allocator `NewNumericFilter` used). C's `GeoFilter_Free` calls this — through
-/// the `iterators_ffi` `GeoFilter_FreeNumericFilters` wrapper — instead of
+/// allocator `NewNumericFilter` used). `GeoFilter_Free` calls this instead of
 /// `rm_free`, so the container is freed with the right allocator in every binary.
 ///
 /// Does nothing when `filters` is NULL.
@@ -222,14 +219,10 @@ pub unsafe fn new_geo_range_iterator<'index>(
 }
 
 /// Convert a [`GeoDistance`] unit to metres.
-pub fn extract_geo_unit_factor(unit: GeoDistance) -> f64 {
-    match unit {
-        ffi::GeoDistance_GEO_DISTANCE_M => 1.0,
-        ffi::GeoDistance_GEO_DISTANCE_KM => 1000.0,
-        ffi::GeoDistance_GEO_DISTANCE_FT => 0.3048,
-        ffi::GeoDistance_GEO_DISTANCE_MI => 1609.34,
-        _ => unreachable!("invalid GeoDistance unit"),
-    }
+pub const fn extract_geo_unit_factor(unit: GeoDistance) -> f64 {
+    inverted_index::reader::geo_unit_from_c(unit)
+        .expect("invalid GeoDistance unit")
+        .meters()
 }
 
 /// Build a geo-radius iterator over all geohash sub-ranges matching `gf`.

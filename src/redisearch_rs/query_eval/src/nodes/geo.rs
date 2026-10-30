@@ -31,16 +31,16 @@ pub(crate) fn eval<'index>(
     gf: *mut ffi::GeoFilter,
     config: Config,
 ) -> Option<Evaluated<'index>> {
-    let status = ctx.status_ptr();
-    // SAFETY: `gf` is a valid, non-null `GeoFilter` (well-formed geo node) and
-    // `status` is the query's valid `QueryError` accumulator
-    // (`QueryEvalContext` invariant (2)).
-    if unsafe { ffi::GeoFilter_Validate(gf, status) } == 0 {
+    debug_assert!(!gf.is_null());
+    // SAFETY: `gf` is initialized, readable filter storage in a well-formed geo node.
+    let filter = unsafe { &*gf };
+    if let Err(error) = inverted_index::reader::geo_filter_from_c(filter) {
+        ctx.status()
+            .set_error(QueryErrorCode::Syntax, &error.to_string());
         return None;
     }
 
-    // SAFETY: `gf` is a valid, non-null `GeoFilter` (well-formed geo node).
-    let field_index = unsafe { (*gf).fieldIndex };
+    let field_index = filter.fieldIndex;
     // `fieldIndex` is `RS_INVALID_FIELD_INDEX` when this node was parsed with no
     // local spec (e.g. a coordinator shard); nothing upstream stops it from
     // reaching evaluation against a different, spec-bearing context.

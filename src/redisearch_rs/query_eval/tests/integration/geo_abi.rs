@@ -11,12 +11,9 @@ use std::{ffi::CStr, ptr};
 
 use geo_ffi::*;
 use query_error::{QueryError, QueryErrorCode};
-
-// The benchmark library supplies the live C bundle and Redis allocator symbols.
-extern crate geo_bencher;
+use rqe_iterators_test_utils::GlobalGuard;
 
 #[test]
-#[cfg_attr(miri, ignore = "compares against live C symbols")]
 fn unit_buffer_boundary() {
     for (token, expected) in [
         (c"kM", ffi::GeoDistance_GEO_DISTANCE_KM),
@@ -27,18 +24,11 @@ fn unit_buffer_boundary() {
         (c"", ffi::GeoDistance_GEO_DISTANCE_INVALID),
     ] {
         // SAFETY: every token is a static NUL-terminated string.
-        unsafe {
-            assert_eq!(
-                Rust_GeoDistance_Parse(token.as_ptr()),
-                expected,
-                "{token:?}"
-            );
-            assert_eq!(
-                geo_bencher::GeoDistance_Parse(token.as_ptr()),
-                expected,
-                "C: {token:?}"
-            );
-        }
+        assert_eq!(
+            unsafe { GeoDistance_Parse(token.as_ptr()) },
+            expected,
+            "{token:?}"
+        );
     }
     for (name, bytes, expected) in [
         (
@@ -58,17 +48,12 @@ fn unit_buffer_boundary() {
         ),
         ("empty", b"", ffi::GeoDistance_GEO_DISTANCE_INVALID),
     ] {
-        // SAFETY: bytes contains exactly the readable buffer length passed to both ABIs.
+        // SAFETY: bytes contains exactly the readable buffer length passed to the ABI.
         unsafe {
             assert_eq!(
-                Rust_GeoDistance_Parse_Buffer(bytes.as_ptr().cast(), bytes.len()),
+                GeoDistance_Parse_Buffer(bytes.as_ptr().cast(), bytes.len()),
                 expected,
                 "{name}"
-            );
-            assert_eq!(
-                geo_bencher::GeoDistance_Parse_Buffer(bytes.as_ptr().cast(), bytes.len()),
-                expected,
-                "C: {name}"
             );
         }
     }
@@ -77,37 +62,38 @@ fn unit_buffer_boundary() {
 #[test]
 #[cfg_attr(miri, ignore = "requires live C functions and Redis allocator symbols")]
 fn filter_lifecycle() {
+    let _guard = GlobalGuard::default();
     // SAFETY: FieldSpec contains C scalars, unions and nullable pointers, all valid when zeroed.
     let mut field: ffi::FieldSpec = unsafe { std::mem::zeroed() };
     field.index = 7;
     // SAFETY: null unit selects the default; the linked allocator mocks are initialized.
-    let gf = unsafe { Rust_NewGeoFilter(13.0, 52.0, 10.0, ptr::null(), 0) };
+    let gf = unsafe { NewGeoFilter(13.0, 52.0, 10.0, ptr::null(), 0) };
     let mut error = QueryError::default();
     // SAFETY: gf uniquely owns initialized Redis storage; outputs are disjoint locals.
     unsafe {
         assert_eq!((*gf).fieldIndex, rqe_core::RS_INVALID_FIELD_INDEX);
         assert_eq!((*gf).unitType, ffi::GeoDistance_GEO_DISTANCE_KM);
         assert!((*gf).numericFilters.is_null());
-        Rust_GeoFilter_SetField(gf, &field);
+        GeoFilter_SetField(gf, &field);
         assert_eq!((*gf).fieldIndex, 7);
-        Rust_GeoFilter_SetField(gf, ptr::null());
+        GeoFilter_SetField(gf, ptr::null());
         assert_eq!((*gf).fieldIndex, rqe_core::RS_INVALID_FIELD_INDEX);
-        assert_eq!(Rust_GeoFilter_Validate(gf, error.as_opaque_mut_ptr()), 1);
+        assert_eq!(GeoFilter_Validate(gf, error.as_opaque_mut_ptr()), 1);
         let mut distance = 0.0;
         assert_eq!(
-            Rust_isWithinRadius(gf, encodeGeo(13.001, 52.0), &mut distance),
+            isWithinRadius(gf, encodeGeo(13.001, 52.0), &mut distance),
             1
         );
         assert!((distance - 68.5).abs() < 0.5);
         assert_eq!(
-            Rust_isWithinRadius(gf, encodeGeo(13.001, 52.0), ptr::null_mut()),
+            isWithinRadius(gf, encodeGeo(13.001, 52.0), ptr::null_mut()),
             1
         );
         (*gf).unitType = 42;
-        assert_eq!(Rust_GeoFilter_Validate(gf, error.as_opaque_mut_ptr()), 0);
+        assert_eq!(GeoFilter_Validate(gf, error.as_opaque_mut_ptr()), 0);
         assert_eq!(error.public_message(), Some(c"Invalid GeoFilter unit"));
-        assert_eq!(CStr::from_ptr(Rust_GeoDistance_ToString(42)), c"<badunit>");
-        assert_eq!(Rust_isWithinRadius(gf, 0.0, &mut distance), 0);
+        assert_eq!(CStr::from_ptr(GeoDistance_ToString(42)), c"<badunit>");
+        assert_eq!(isWithinRadius(gf, 0.0, &mut distance), 0);
         assert!(distance.is_nan());
         (*gf).unitType = ffi::GeoDistance_GEO_DISTANCE_KM;
         assert!(
@@ -115,7 +101,7 @@ fn filter_lifecycle() {
                 .unwrap()
                 .is_empty()
         );
-        Rust_GeoFilter_Free(gf);
+        GeoFilter_Free(gf);
     }
 }
 
@@ -125,6 +111,7 @@ fn filter_lifecycle() {
     ignore = "requires the C ArgsCursor and hidden-string implementation"
 )]
 fn legacy_parser_ownership_and_errors() {
+    let _guard = GlobalGuard::default();
     redis_mock::init_redis_module_mock();
     for (name, args, consumed, expected) in [
         ("success", [c"g", c"13", c"52", c"10", c"km"], 5, None),
@@ -186,7 +173,7 @@ fn legacy_parser_ownership_and_errors() {
         // gf is a fresh allocation and all other outputs are initialized disjoint locals.
         unsafe {
             let result =
-                Rust_GeoFilter_LegacyParse(gf, &mut cursor, &mut empty, error.as_opaque_mut_ptr());
+                GeoFilter_LegacyParse(gf, &mut cursor, &mut empty, error.as_opaque_mut_ptr());
             assert_eq!(
                 result == redis_module::REDISMODULE_OK as i32,
                 expected.is_none(),
@@ -214,7 +201,7 @@ fn legacy_parser_ownership_and_errors() {
                     c"g"
                 );
             }
-            Rust_LegacyGeoFilter_Free(gf);
+            LegacyGeoFilter_Free(gf);
             for arg in args {
                 redis_module::raw::RedisModule_FreeString.unwrap()(ptr::null_mut(), arg.cast());
             }
@@ -234,11 +221,11 @@ fn legacy_parser_ownership_and_errors() {
     // SAFETY: an empty cursor reads no arguments; output storage is fresh and disjoint.
     unsafe {
         assert_eq!(
-            Rust_GeoFilter_LegacyParse(gf, &mut cursor, &mut empty, error.as_opaque_mut_ptr()),
+            GeoFilter_LegacyParse(gf, &mut cursor, &mut empty, error.as_opaque_mut_ptr()),
             redis_module::REDISMODULE_ERR as i32
         );
         assert_eq!(error.public_message(), Some(c"first error"));
         assert!(empty);
-        Rust_LegacyGeoFilter_Free(gf);
+        LegacyGeoFilter_Free(gf);
     }
 }

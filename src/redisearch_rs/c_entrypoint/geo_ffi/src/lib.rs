@@ -43,7 +43,7 @@ pub const GEO_LONG_MIN: f64 = geo::hash::GEO_LONG_MIN;
 pub const GEO_LONG_MAX: f64 = geo::hash::GEO_LONG_MAX;
 
 /// Encode longitude and latitude into a 52-bit-aligned geohash score,
-/// or return `INVALID_GEOHASH` (`-1.0`) on invalid coordinates.
+/// or return [`INVALID_GEOHASH`] on invalid coordinates.
 ///
 /// Valid geohash scores are non-negative, so any negative return value
 /// signals an error.
@@ -60,7 +60,9 @@ pub extern "C" fn encodeGeo(lon: f64, lat: f64) -> f64 {
     geo::hash::align_52bits(hash) as f64
 }
 
-const INVALID_GEOHASH: f64 = -1.0;
+/// Sentinel returned by [`encodeGeo`] for invalid coordinates.
+#[cheadergen::config(export)]
+pub const INVALID_GEOHASH: f64 = -1.0;
 
 /// Decode a geohash `f64` back into a `[longitude, latitude]` pair.
 ///
