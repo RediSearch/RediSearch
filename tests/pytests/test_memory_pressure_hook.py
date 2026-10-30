@@ -142,6 +142,8 @@ def test_raw_ratio_reports_the_memory_api(env):
 
 
 N_DOCS = 10
+# The query's build stages are checkpoints too, read before the debug checkpoint's first call.
+BUILD_CHECKPOINTS = 3
 
 
 def _index_with_docs(env):
@@ -158,17 +160,17 @@ def _debug_aggregate(env, *debug_args):
 
 @skip(cluster=True)
 def test_pressure_at_call_stops_a_query_at_a_debug_checkpoint(env):
-    """MEMORY_CHECKPOINT stands in for a real checkpoint: with AT_CALL n the query stops at its
-    n-th read, after n-1 rows, and ON_OOM IGNORE keeps it running."""
+    """MEMORY_CHECKPOINT stands in for a real checkpoint: with AT_CALL n past the build stages
+    the query stops at its n-th read, after n-1 rows, and ON_OOM IGNORE keeps it running."""
     _index_with_docs(env)
 
-    memory_pressure(env, 'AT_CALL', 4)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
     res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
     env.assertEqual(len(res) - 1, 3, message=res)
-    env.assertEqual(status(env)[5], 4)
+    env.assertEqual(status(env)[5], BUILD_CHECKPOINTS + 4)
 
     change_oom_policy(env, 'ignore')
-    memory_pressure(env, 'AT_CALL', 4)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
     res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
     env.assertEqual(len(res) - 1, N_DOCS, message=res)
     change_oom_policy(env, 'return')
@@ -193,20 +195,20 @@ def test_oom_stop_replies_by_on_oom_policy(env):
     _index_with_docs(env)
 
     errors, warnings = _coord_oom_counters(env)
-    memory_pressure(env, 'AT_CALL', 4)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
     res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
     env.assertEqual(len(res['results']), 3, message=res)
     env.assertEqual(res['warning'], [COORD_OOM_WARNING])
     env.assertEqual(_coord_oom_counters(env), (errors, warnings + 1))
 
     change_oom_policy(env, 'fail')
-    memory_pressure(env, 'AT_CALL', 4)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
     env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
                'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1).error().contains(OOM_QUERY_ERROR)
     env.assertEqual(_coord_oom_counters(env), (errors + 1, warnings + 1))
     change_oom_policy(env, 'return')
 
-    memory_pressure(env, 'AT_CALL', 4)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
     res = env.cmd(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n',
                   'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1)
     env.assertEqual([r['id'] for r in res['results']], ['doc0', 'doc1', 'doc2'], message=res)
@@ -219,7 +221,7 @@ def test_oom_stop_ends_the_cursor(env):
     """A cursor read stopped for OOM returns its rows and ends the cursor rather than leaving it
     open as a timeout under ON_TIMEOUT RETURN would."""
     _index_with_docs(env)
-    memory_pressure(env, 'AT_CALL', 4)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
     res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
                           'WITHCURSOR', 'COUNT', 2, 'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1)
     env.assertEqual(len(res) - 1, 2, message=res)
