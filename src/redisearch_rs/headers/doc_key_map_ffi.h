@@ -24,6 +24,16 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Reserve room for at least `total_capacity` entries without changing membership.
+ *
+ * # Safety
+ * `map` must be [valid] for exclusive access and allocated by [`DocKeyMap_New`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void DocKeyMap_EnsureCapacity(struct DocKeyMap *map, size_t total_capacity);
+
+/**
  * Destroy a table; a null pointer is accepted.
  *
  * # Safety
@@ -58,6 +68,18 @@ t_docId DocKeyMap_GetId(const struct DocKeyMap *map, const uint8_t *key, size_t 
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void DocKeyMap_Insert(struct DocKeyMap *map, const uint8_t *key, size_t len, t_docId id);
+
+/**
+ * Populate a backfilled ID without duplicating a candidate maintained by a writer.
+ *
+ * # Safety
+ * `map` must be [valid] for exclusive access and allocated by [`DocKeyMap_New`].
+ * `key` must be [valid] for `len` readable bytes, or null when `len` is zero.
+ * The caller must remove an ID before changing its key.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void DocKeyMap_InsertIfAbsent(struct DocKeyMap *map, const uint8_t *key, size_t len, t_docId id);
 
 /**
  * Report allocated table storage; null denotes disabled acceleration and returns zero.

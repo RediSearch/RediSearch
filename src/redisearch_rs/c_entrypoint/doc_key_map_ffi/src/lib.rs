@@ -41,6 +41,16 @@ impl DocKeyMap {
         self.hasher.hash_one(key)
     }
 
+    /// Reserve room for at least `total_capacity` entries, preserving existing candidates.
+    ///
+    /// Backfill knows its live-document count and can avoid repeated full-table rehashes.
+    pub fn ensure_capacity(&mut self, total_capacity: usize) {
+        self.entries
+            .reserve(total_capacity.saturating_sub(self.entries.len()), |e| {
+                e.hash
+            });
+    }
+
     /// Insert an ID once. The caller must remove it before changing its key.
     pub fn insert(&mut self, key: &[u8], id: DocId) {
         self.insert_hashed(self.hash(key), id)
@@ -50,6 +60,18 @@ impl DocKeyMap {
         debug_assert_ne!(id, 0);
         self.entries
             .insert_unique(hash, Entry { hash, id }, |e| e.hash);
+    }
+
+    /// Populate an ID during backfill, retaining a candidate already maintained by a writer.
+    pub fn insert_if_absent(&mut self, key: &[u8], id: DocId) {
+        self.insert_if_absent_hashed(self.hash(key), id)
+    }
+
+    fn insert_if_absent_hashed(&mut self, hash: u64, id: DocId) {
+        debug_assert_ne!(id, 0);
+        self.entries
+            .entry(hash, |entry| entry.id == id, |entry| entry.hash)
+            .or_insert(Entry { hash, id });
     }
 
     /// Remove exactly one candidate, including when full hashes collide.
@@ -88,6 +110,39 @@ impl DocKeyMap {
 #[unsafe(no_mangle)]
 pub extern "C" fn DocKeyMap_New() -> *mut DocKeyMap {
     Box::into_raw(Box::new(DocKeyMap::default()))
+}
+
+/// Reserve room for at least `total_capacity` entries without changing membership.
+///
+/// # Safety
+/// `map` must be [valid] for exclusive access and allocated by [`DocKeyMap_New`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn DocKeyMap_EnsureCapacity(map: *mut DocKeyMap, total_capacity: usize) {
+    debug_assert!(!map.is_null());
+    // SAFETY: The caller provides exclusive access to a live map.
+    unsafe { &mut *map }.ensure_capacity(total_capacity);
+}
+
+/// Populate a backfilled ID without duplicating a candidate maintained by a writer.
+///
+/// # Safety
+/// `map` must be [valid] for exclusive access and allocated by [`DocKeyMap_New`].
+/// `key` must be [valid] for `len` readable bytes, or null when `len` is zero.
+/// The caller must remove an ID before changing its key.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn DocKeyMap_InsertIfAbsent(
+    map: *mut DocKeyMap,
+    key: *const u8,
+    len: usize,
+    id: DocId,
+) {
+    debug_assert!(!map.is_null());
+    // SAFETY: The caller provides exclusive map access and readable key bytes.
+    unsafe { &mut *map }.insert_if_absent(unsafe { key_bytes(key, len) }, id);
 }
 
 /// Destroy a table; a null pointer is accepted.
@@ -239,5 +294,38 @@ mod tests {
         assert_eq!(map.find(42, |_| true), 0);
         map.insert_hashed(42, count + 1);
         assert_eq!(map.find(42, |_| true), count + 1);
+    }
+    #[test]
+    fn reserve_preserves_collisions_and_avoids_growth_during_backfill() {
+        let mut map = DocKeyMap::default();
+        map.insert_hashed(42, 1);
+        map.insert_hashed(42, 2);
+        map.ensure_capacity(64);
+        let reserved = map.memory_usage();
+        // A smaller request must neither shrink nor underflow the additional capacity.
+        map.ensure_capacity(0);
+        for id in 3..=64 {
+            map.insert_hashed(id, id);
+        }
+        assert_eq!(map.memory_usage(), reserved);
+        assert_eq!(map.find(42, |id| id == 1), 1);
+        assert_eq!(map.find(42, |id| id == 2), 2);
+        for id in 3..=64 {
+            assert_eq!(map.find(id, |candidate| candidate == id), id);
+        }
+    }
+
+    #[test]
+    fn backfill_deduplicates_ids_without_merging_hash_collisions() {
+        let mut map = DocKeyMap::default();
+        map.insert_hashed(42, 1);
+        map.insert_if_absent_hashed(42, 1);
+        map.insert_if_absent_hashed(42, 2);
+        map.insert_if_absent_hashed(42, 2);
+        assert!(map.remove_hashed(42, 1));
+        assert!(!map.remove_hashed(42, 1));
+        assert_eq!(map.find(42, |_| true), 2);
+        assert!(map.remove_hashed(42, 2));
+        assert_eq!(map.find(42, |_| true), 0);
     }
 }
