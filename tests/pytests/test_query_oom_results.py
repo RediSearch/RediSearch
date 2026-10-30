@@ -532,11 +532,20 @@ def test_hybrid_shard_stop_replies_by_on_oom_policy(env):
     (build, depletion, cursor reads), the shard reports it in the shard wording, never as a
     timeout, and the coordinator replies per ON_OOM: under RETURN the rows kept with its OOM
     warning, under FAIL the OOM error (a replay stop only warns). Shard 2 runs no coordinator pipeline, so its calls are its
-    own; every one of them is tried, under both ON_TIMEOUT RETURN and FAIL."""
+    own; every one of them is tried, under both ON_TIMEOUT RETURN and FAIL, with and without
+    workers (background safe depleters, whose stop must outlive the cursor reads that follow)."""
     _hybrid_index(env)
     full = len(env.cmd(*HYBRID)['results'])
     shard = env.getConnection(2)
+    try:
+        for workers in [0, 2]:
+            run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
+            _hybrid_shard_stop_sweep(env, shard, full, workers)
+    finally:
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', 0)
 
+
+def _hybrid_shard_stop_sweep(env, shard, full, workers):
     def shard_calls():
         shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', NEVER)
         env.cmd(*HYBRID)
@@ -561,10 +570,11 @@ def test_hybrid_shard_stop_replies_by_on_oom_policy(env):
             env.assertGreater(calls, 0)
             for at_call in range(1, calls + 1):
                 res = run_at(at_call)
-                env.assertFalse(isinstance(res, Exception), message=(on_timeout, at_call, res))
+                env.assertFalse(isinstance(res, Exception),
+                                message=(workers, on_timeout, at_call, res))
                 env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
                                (len(res['results']) == full and res['warnings'] == []),
-                               message=(on_timeout, at_call, res))
+                               message=(workers, on_timeout, at_call, res))
 
             # Under FAIL a stop in the replay of a shard's buffered cursor read can only warn, as
             # standalone; everywhere else it is the OOM error.
@@ -573,13 +583,14 @@ def test_hybrid_shard_stop_replies_by_on_oom_policy(env):
             for at_call in range(1, calls + 1):
                 res = run_at(at_call)
                 if isinstance(res, Exception):
-                    env.assertContains(OOM_QUERY_ERROR, str(res), message=(on_timeout, at_call))
+                    env.assertContains(OOM_QUERY_ERROR, str(res),
+                                       message=(workers, on_timeout, at_call))
                     errors += 1
                 else:
                     env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
                                    (len(res['results']) == full and res['warnings'] == []),
-                                   message=(on_timeout, at_call, res))
-            env.assertGreater(errors, 0, message=on_timeout)
+                                   message=(workers, on_timeout, at_call, res))
+            env.assertGreater(errors, 0, message=(workers, on_timeout))
     finally:
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
         allShards_change_oom_policy(env, 'return')
@@ -617,6 +628,43 @@ def test_geoshape_collection_stop_on_a_shard_reaches_the_coordinator(env):
         env.assertLess(len(res['results']), N_DOCS, message=res)
     finally:
         allShards_change_oom_policy(env, 'return')
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_hybrid_subquery_stop_follows_on_oom_under_timeout_fail(env):
+    """A subquery stopped for OOM follows ON_OOM, not ON_TIMEOUT, in its depleter and in the
+    merger, with and without workers. Both subqueries match every document here, so under
+    ON_TIMEOUT FAIL with ON_OOM RETURN a stop at any of the first calls (subquery build and
+    depletion, which come before the tail's) still replies every document, through the other
+    subquery, with the OOM warning. Under ON_OOM FAIL those calls reply the OOM error."""
+    _hybrid_index(env)
+    full = len(env.cmd(*HYBRID)['results'])
+    try:
+        for workers in [0, 2]:
+            _set_policies(env, 'fail', 'return', workers)
+            calls = _checkpoint_calls(env, HYBRID)
+            subquery_calls = 0
+            for at_call in range(1, calls + 1):
+                _memory_pressure(env, 'AT_CALL', at_call)
+                res = env.cmd(*HYBRID)
+                _memory_pressure(env, 'RESET')
+                if res['warnings'] == []:
+                    break
+                env.assertEqual(len(res['results']), full, message=(workers, at_call, res))
+                env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=(workers, at_call))
+                subquery_calls += 1
+            env.assertGreater(subquery_calls, 2, message=workers)
+
+            _set_policies(env, 'fail', 'fail', workers)
+            for at_call in range(1, subquery_calls + 1):
+                _memory_pressure(env, 'AT_CALL', at_call)
+                try:
+                    env.expect(*HYBRID).error().contains(OOM_QUERY_ERROR)
+                finally:
+                    _memory_pressure(env, 'RESET')
+    finally:
+        _reset(env)
 
 
 @skip(cluster=True)

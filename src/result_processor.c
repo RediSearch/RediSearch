@@ -2086,6 +2086,8 @@ typedef struct {
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
   rs_wall_clock_ns_t depletionTime;    // Time spent depleting in the background thread (nanoseconds)
   redisearch_thpool_t *pool;           // Thread pool used for depletion jobs
+  QueryStopReason stopReason;          // Why depletion stopped, when a stop request ended it
+  uint32_t memoryCheckCalls;           // QueryMemory_ShouldStop counter for the buffer
 } RPSafeDepleter;
 
 /*
@@ -2179,6 +2181,9 @@ rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(const ResultProcessor *base) 
 static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSync *sync) {
   RPStatus rc;
   bool lock_acquired = false;
+  // The stop checks read the pipeline's timeout state; it is the depleting context's.
+  RS_ASSERT(!self->base.parent->timeout ||
+            self->base.parent->timeout == self->depletingThreadCtx->timeout);
 
   if (sync->take_index_lock) {
     // Try to lock the index for read (non-blocking)
@@ -2210,11 +2215,10 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
-    // Notice a requested stop or a blocked-client (RETURN_STRICT) timeout
-    // promptly when another thread flips its flag.
-    // The wall-clock deadline is already handled by the upstream's own checks.
-    QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
-    if (QueryRequest_ShouldStop(timeout)) {
+    // Check memory, and end at once on a stop whose policy discards the rows (a blocked-client
+    // timeout, an OOM stop under ON_OOM FAIL). Under a RETURN policy the upstream ends the rows;
+    // the wall-clock deadline is handled by the upstream's own checks.
+    if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls)) {
       rc = RS_RESULT_TIMEDOUT;
       break;
     }
@@ -2223,9 +2227,12 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
 
   // Save the last return code from the upstream.
   self->last_rc = rc;
+  if (rc == RS_RESULT_TIMEDOUT) {
+    self->stopReason = RP_StopReason(&self->base);
+  }
 
   // If TIMEOUT with policy FAIL, we can already clear the results - will not be used
-  if (rc == RS_RESULT_TIMEDOUT && self->base.parent->timeoutPolicy == TimeoutPolicy_Fail) {
+  if (rc == RS_RESULT_TIMEDOUT && RP_StopPolicy(&self->base) == TimeoutPolicy_Fail) {
     RPSafeDepleter_ClearResults(self);
   }
 
@@ -2261,6 +2268,7 @@ static void RPSafeDepleter_Deplete(void *arg) {
   } else {
     // Timeout before starting - no need to acquire lock or do any work
     self->last_rc = RS_RESULT_TIMEDOUT;
+    self->stopReason = RP_StopReason(&self->base);
     if (sync->take_index_lock) {
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
       atomic_fetch_add(&sync->num_skipped_lock, 1);
@@ -2285,6 +2293,9 @@ static int RPSafeDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   if (self->cur_idx == array_len(self->results)) {
     // We've reached the end of the array, return the last code from the upstream.
     int rc = self->last_rc;
+    if (rc == RS_RESULT_TIMEDOUT) {
+      RP_RenewStop(base, self->stopReason);
+    }
     self->last_rc = RS_RESULT_EOF;
     return rc;
   }
@@ -2422,6 +2433,7 @@ void RPSafeDepleter_MarkTimedOut(ResultProcessor *base) {
   // depletion_scheduled stays false: WaitForCompletion has no signal to wait
   // for, and Next yields RS_RESULT_TIMEDOUT immediately.
   self->last_rc = RS_RESULT_TIMEDOUT;
+  self->stopReason = RP_StopReason(base);
   base->Next = RPSafeDepleter_Next_Yield;
 }
 
@@ -2638,6 +2650,35 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   return RPHybridMerger_HasReturnCode(self, RS_RESULT_ERROR);
 }
 
+/* Whether the merged rows end on a timeout. An upstream stopped for OOM ended its rows by design:
+ * under ON_OOM FAIL RPHybridMerger_StopFails already ended the query, and under RETURN the tail
+ * must not apply its timeout policy to them; the reply maps the stop from the subquery's own
+ * reason and return code. */
+static bool RPHybridMerger_ReportsTimeout(const RPHybridMerger *self) {
+  for (size_t i = 0; i < self->numUpstreams; i++) {
+    if (self->upstreamReturnCodes[i] == RS_RESULT_TIMEDOUT &&
+        (!self->upstreams[i]->parent ||
+         RP_StopReason(self->upstreams[i]) != QUERY_STOP_REASON_OOM)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Whether a stop ends the query without yielding: each timed-out upstream applies its own
+ * subquery's stop policy, so an OOM stop there follows ON_OOM. */
+static bool RPHybridMerger_StopFails(const RPHybridMerger *self) {
+  for (size_t i = 0; i < self->numUpstreams; i++) {
+    // An upstream outside a pipeline (unit tests) applies the tail's policy.
+    const ResultProcessor *upstream = self->upstreams[i]->parent ? self->upstreams[i] : &self->base;
+    if (self->upstreamReturnCodes[i] == RS_RESULT_TIMEDOUT &&
+        RP_StopPolicy(upstream) == TimeoutPolicy_Fail) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /* Helper function to store a result from an upstream into the hybrid merger's dictionary
   * @param r - the result to store
   * @param hybridResults - the dictionary to store the result in
@@ -2719,7 +2760,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   dictEntry *entry = dictNext(self->iterator);
   if (!entry) {
     // No more results to yield
-    int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    int ret = RPHybridMerger_ReportsTimeout(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
   } else if (QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
     // Timed out before we could yield all results
@@ -2791,7 +2832,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
   if (RPHybridMerger_Error(self)) {
     return RS_RESULT_ERROR;
-  } else if (RPHybridMerger_TimedOut(self) && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
+  } else if (RPHybridMerger_StopFails(self)) {
     // If any of the threads timed out and we're in FAIL mode, return timeout without yielding any result
     return RS_RESULT_TIMEDOUT;
   }
