@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-// // These tests go through a real pipe that miri does not support.
-// #![cfg(not(miri))]
+// These tests go through a real pipe that Miri does not support.
+#![cfg(not(miri))]
 
 use dict::{KeysDictType, MissingFieldDictType, OwnedDict};
 use fork_gc::{
@@ -35,7 +35,7 @@ unsafe extern "C" {
 
 static HEARTBEAT_INSTALLED: Once = Once::new();
 
-unsafe extern "C" fn send_child_heartbeat(_: f64) {}
+const unsafe extern "C" fn send_child_heartbeat(_: f64) {}
 
 fn install_heartbeat_stub() {
     HEARTBEAT_INSTALLED.call_once(|| {
@@ -66,7 +66,7 @@ fn empty_scanner_streams() -> Vec<u8> {
     [
         terminator.as_slice(),
         terminator.as_slice(),
-        &[0xc0], // `collect_tags` serializes Option::<TagEntry>::None as MessagePack nil.
+        &[0xc0], // `collect_tags` serializes Option::<TagFieldHeader>::None as MessagePack nil.
         terminator.as_slice(),
         terminator.as_slice(),
     ]
@@ -99,7 +99,7 @@ impl EmptySpec {
         // SAFETY: a fresh trie with no payload is valid for the empty terms scan.
         spec.terms = unsafe { ffi::NewTrie(None, ffi::TrieSortMode_Trie_Sort_Lex) };
         spec.keysDict = keys_dict.as_mut_ptr();
-        spec.missingFieldDict = missing_field_dict.as_mut_ptr();
+        spec.missing.indexes = missing_field_dict.as_mut_ptr();
 
         Self {
             spec,
@@ -108,7 +108,7 @@ impl EmptySpec {
         }
     }
 
-    fn read_guard(&self) -> mem::ManuallyDrop<IndexSpecReadGuard<'_>> {
+    const fn read_guard(&self) -> mem::ManuallyDrop<IndexSpecReadGuard<'_>> {
         // SAFETY: this fixture owns the spec and does not mutate it while the
         // returned guard is live.
         unsafe { IndexSpecReadGuard::from_locked(&self.spec) }
@@ -117,13 +117,12 @@ impl EmptySpec {
 
 impl Drop for EmptySpec {
     fn drop(&mut self) {
-        // SAFETY: these pointers are owned by the fixture and remain live until
-        // this destructor runs.
-        unsafe {
-            ffi::TrieType_Free(self.spec.terms.cast());
-            ffi::HiddenString_Free(self.spec.specName, true);
-            drop(CString::from_raw(self.spec.obfuscatedName));
-        }
+        // SAFETY: the fixture owns the trie allocated by `NewTrie`.
+        unsafe { ffi::TrieType_Free(self.spec.terms.cast()) };
+        // SAFETY: `NewHiddenString` allocated this owned name.
+        unsafe { ffi::HiddenString_Free(self.spec.specName, true) };
+        // SAFETY: this pointer came from `CString::into_raw` and is still owned here.
+        drop(unsafe { CString::from_raw(self.spec.obfuscatedName) });
     }
 }
 

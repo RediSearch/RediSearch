@@ -27,7 +27,7 @@ struct TrackingAllocator {
   template <class U>
   explicit inline constexpr TrackingAllocator(TrackingAllocator<U> const& other) noexcept;
 
-  [[nodiscard]] inline auto allocate(std::size_t n) noexcept -> value_type*;
+  [[nodiscard]] inline auto allocate(std::size_t n) -> value_type*;
   inline void deallocate(value_type* p, std::size_t n) noexcept;
 
   [[nodiscard]] inline constexpr std::size_t report() const noexcept;
@@ -45,7 +45,7 @@ inline constexpr TrackingAllocator<T>::TrackingAllocator(TrackingAllocator<U> co
 }
 
 template <class T>
-inline auto TrackingAllocator<T>::allocate(std::size_t n) noexcept -> value_type* {
+inline auto TrackingAllocator<T>::allocate(std::size_t n) -> value_type* {
   auto p = Allocator<T>::allocate(n);
   if (p) {
     allocated_ += n * sizeof(value_type);

@@ -54,7 +54,8 @@ typedef struct {
     AGGPlan *plan;                          // Aggregate plan for LIMIT/SORTBY
     RSSearchOptions *searchopts;            // Search options for PARAMS
     CursorConfig *cursorConfig;             // Cursor configuration
-    RequestConfig *reqConfig;               // Request configuration for DIALECT/TIMEOUT
+    RequestConfig *reqConfig;               // Request configuration for DIALECT
+    TimeoutConfig *timeoutConfig;
     QEFlags *reqFlags;                      // Request flags
     size_t *maxResults;                     // Maximum results
     /* Index prefixes from _INDEX_PREFIXES: a borrowed window into the

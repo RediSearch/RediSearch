@@ -110,8 +110,8 @@ TEST_F(ClusterTopologyFromAPITest, EndpointTransportUsesNodeInfoFlags) {
   int tls_shard = findShardByNodeId(topo, NODE_B);
   ASSERT_GE(tcp_shard, 0);
   ASSERT_GE(tls_shard, 0);
-  EXPECT_FALSE(topo->shards[tcp_shard].node.endpoint.isTls);
-  EXPECT_TRUE(topo->shards[tls_shard].node.endpoint.isTls);
+  EXPECT_EQ(topo->shards[tcp_shard].node.endpoint.tls, MREndpointTLS_Off);
+  EXPECT_EQ(topo->shards[tls_shard].node.endpoint.tls, MREndpointTLS_On);
 
   MRClusterTopology_Free(topo);
 }

@@ -2,6 +2,10 @@ codecov:
   require_ci_to_pass: false # Enabling Codecov to report status even if the CI fails
   notify:
     wait_for_ci: false # Enabling Codecov to report coverage even if the CI has not completed
+    # A PR coverage run uploads from 6 parallel jobs (unit, standalone, and each
+    # coordinator shard in flow-pr-pipeline.yml). Without this, Codecov reports on
+    # the first upload and revises the comment and checks as the rest arrive.
+    after_n_builds: 6
 coverage:
   status:
     project: # Configurations for the project coverage status

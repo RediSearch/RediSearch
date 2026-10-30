@@ -282,7 +282,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
 
   // Fetch the JSON root straight off the open handle: RedisJSON validates it is a JSON
   // module type and returns the root without opening the key a second time by name.
-  jsonRoot = JSON_GetJsonFromHandleCompat(k);
+  jsonRoot = JSON_GetJsonFromHandle(k);
   if (!jsonRoot) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL, "Key does not exist or is not a json", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
@@ -298,7 +298,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, RedisModul
   for (; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
 
-    jsonIter = japi->get(jsonRoot, HiddenString_GetUnsafe(field->fieldPath, NULL));
+    jsonIter = JSON_GetWithCompiledPath(jsonRoot, field->compiledPath);
     // if field does not exist or is empty (can happen after JSON.DEL)
     if (!jsonIter) {
       continue;
@@ -339,6 +339,68 @@ done:
     RedisModule_CloseKey(k);
   }
   return rv;
+}
+
+// Use the full loader's field paths, but avoid retrieving values just to check presence.
+static DocumentFieldsProbeResult probeHashFieldsPresent(RedisModuleKey *key,
+                                                        const FieldSpec *fields, t_fieldIndex start,
+                                                        t_fieldIndex end) {
+  if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
+    return DOCUMENT_FIELDS_PROBE_FAILED;
+  }
+  for (t_fieldIndex i = start; i < end; ++i) {
+    int exists = 0;
+    if (RedisModule_HashGet(key, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXISTS,
+                            HiddenString_GetUnsafe(fields[i].fieldPath, NULL), &exists,
+                            NULL) != REDISMODULE_OK) {
+      return DOCUMENT_FIELDS_PROBE_FAILED;
+    }
+    if (exists) {
+      return DOCUMENT_FIELDS_PRESENT;
+    }
+  }
+  return DOCUMENT_FIELDS_ABSENT;
+}
+
+// JSON half of Document_ProbeFieldsPresent. Mirrors the per-field resolution in
+// Document_LoadSchemaFieldJson's field loop: a NULL iterator, or a zero-length result (as can
+// happen after JSON.DEL), means the field is absent.
+static DocumentFieldsProbeResult probeJsonFieldsPresent(RedisModuleKey *key,
+                                                        const FieldSpec *fields, t_fieldIndex start,
+                                                        t_fieldIndex end) {
+  RedisJSON jsonRoot = JSON_GetJsonFromHandle(key);
+  if (!jsonRoot) {
+    return DOCUMENT_FIELDS_PROBE_FAILED;
+  }
+  for (t_fieldIndex i = start; i < end; ++i) {
+    // TODO: Add a JSON path-existence API to avoid temporary iterator allocations.
+    JSONResultsIterator iter = JSON_GetWithCompiledPath(jsonRoot, fields[i].compiledPath);
+    if (!iter) {
+      continue;
+    }
+    size_t len = japi->len(iter);
+    japi->freeIter(iter);
+    if (len > 0) {
+      return DOCUMENT_FIELDS_PRESENT;
+    }
+  }
+  return DOCUMENT_FIELDS_ABSENT;
+}
+
+DocumentFieldsProbeResult Document_ProbeFieldsPresent(const IndexSpec *spec, RedisModuleKey *key,
+                                                      DocumentType type, t_fieldIndex start,
+                                                      t_fieldIndex end) {
+  RS_ASSERT(start <= end && end <= spec->numFields);
+  switch (type) {
+    case DocumentType_Hash:
+      return probeHashFieldsPresent(key, spec->fields, start, end);
+    case DocumentType_Json:
+      return probeJsonFieldsPresent(key, spec->fields, start, end);
+    default:
+      // Disk indexes never reach the selective scan path that calls this probe; any other
+      // type is unexpected here.
+      return DOCUMENT_FIELDS_PROBE_FAILED;
+  }
 }
 
 /* used only by unit tests */
@@ -565,34 +627,34 @@ int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, Quer
   if (opts->score != DEFAULT_SCORE || (opts->options & DOCUMENT_ADD_PARTIAL)) {
     array_append(arguments, globalAddRSstrings[0]);
     array_append(arguments, opts->scoreStr);
-    RedisSearchCtx_LockSpecWrite(ctx);
+    IndexSpec_LockWrite(ctx->spec);
     if (ctx->spec->rule->score_field == NULL) {
       ctx->spec->rule->score_field = rm_strndup(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE));
       IndexSpec_RefreshSpecCache(ctx->spec);
     }
-    RedisSearchCtx_UnlockSpec(ctx);
+    IndexSpec_Unlock(ctx->spec);
   }
 
   if (opts->languageStr) {
     array_append(arguments, globalAddRSstrings[1]);
     array_append(arguments, opts->languageStr);
-    RedisSearchCtx_LockSpecWrite(ctx);
+    IndexSpec_LockWrite(ctx->spec);
     if (ctx->spec->rule->lang_field == NULL) {
       ctx->spec->rule->lang_field = rm_strndup(UNDERSCORE_LANGUAGE, strlen(UNDERSCORE_LANGUAGE));
       IndexSpec_RefreshSpecCache(ctx->spec);
     }
-    RedisSearchCtx_UnlockSpec(ctx);
+    IndexSpec_Unlock(ctx->spec);
   }
 
   if (opts->payload) {
     array_append(arguments, globalAddRSstrings[2]);
     array_append(arguments, opts->payload);
-    RedisSearchCtx_LockSpecWrite(ctx);
+    IndexSpec_LockWrite(ctx->spec);
     if (ctx->spec->rule->payload_field == NULL) {
       ctx->spec->rule->payload_field = rm_strndup(UNDERSCORE_PAYLOAD, strlen(UNDERSCORE_PAYLOAD));
       IndexSpec_RefreshSpecCache(ctx->spec);
     }
-    RedisSearchCtx_UnlockSpec(ctx);
+    IndexSpec_Unlock(ctx->spec);
   }
 
   RedisModuleCallReply *rep = NULL;

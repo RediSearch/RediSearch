@@ -26,7 +26,6 @@
 //! clear the always-timed-out callback another test is still asserting on.
 
 use std::{
-    ffi::c_void,
     num::NonZeroUsize,
     sync::{Mutex, MutexGuard, PoisonError},
 };
@@ -35,26 +34,12 @@ use rqe_core::DocId;
 use rqe_iterators::{RQEIterator, RQEIteratorError};
 use top_k::{ScoreSource as _, TopKIterator, TopKMode};
 use vector_score_source::new_vector_top_k_unfiltered;
-use vector_score_source::test_utils::{TestIndex, asc, make_child, uniform_blob};
+use vector_score_source::test_utils::{MockTimeout, TestIndex, asc, make_child, uniform_blob};
 
 // Provide stubs for C symbols that the linked C archive references but that
 // these tests never exercise (Redis module API surface).
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 extern crate redisearch_rs;
-
-unsafe extern "C" {
-    fn VecSim_SetTimeoutCallbackFunction(
-        cb: Option<unsafe extern "C" fn(*mut c_void) -> std::ffi::c_int>,
-    );
-}
-
-unsafe extern "C" fn always_timed_out(_ctx: *mut c_void) -> std::ffi::c_int {
-    1
-}
-
-unsafe extern "C" fn never_timed_out(_ctx: *mut c_void) -> std::ffi::c_int {
-    0
-}
 
 /// Serializes the two timeout tests against each other: both install a
 /// process-global always-timed-out callback and restore the no-op on drop, so
@@ -70,23 +55,6 @@ fn serialize() -> MutexGuard<'static, ()> {
     TIMEOUT_TEST_LOCK
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
-}
-
-/// Installs the always-timeout callback; restores the no-op on drop so a
-/// panicking assertion cannot leak timeout state to the sibling test.
-struct MockTimeout;
-impl MockTimeout {
-    fn enable() -> Self {
-        // SAFETY: the fn pointer is valid for the whole program.
-        unsafe { VecSim_SetTimeoutCallbackFunction(Some(always_timed_out)) };
-        MockTimeout
-    }
-}
-impl Drop for MockTimeout {
-    fn drop(&mut self) {
-        // SAFETY: the fn pointer is valid for the whole program.
-        unsafe { VecSim_SetTimeoutCallbackFunction(Some(never_timed_out)) };
-    }
 }
 
 /// From `test_vecsim.py::TestTimeoutReached` (KNN branch).

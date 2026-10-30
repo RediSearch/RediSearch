@@ -17,5 +17,7 @@ mod comparison;
 mod debug;
 mod dereference;
 mod hash;
+mod num_to_str;
 mod shared;
 mod string;
+mod to_number;

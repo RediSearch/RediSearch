@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "field_spec.h"
+#include "json.h"
 
 #include <sys/param.h>
 
@@ -25,6 +26,10 @@
 #include "spec.h"
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
+  if (fs->compiledPath) {
+    japi->pathFree(fs->compiledPath);
+    fs->compiledPath = NULL;
+  }
   // if `AS` was not used, name and path are pointing at the same string
   if (fs->fieldPath && fs->fieldName != fs->fieldPath) {
     HiddenString_Free(fs->fieldPath, true);
@@ -92,6 +97,24 @@ const char *FieldSpec_GetTypeNames(int idx) {
   default:
     RS_ABORT_ALWAYS("oops");
   }
+}
+
+/**
+ * True iff `changedFields` names the document field `fs` is fed from
+ * */
+bool FieldSpec_IsInChangeSet(const FieldSpec *fs, RedisModuleString **changedFields,
+                             size_t numChangedFields) {
+  if (!changedFields) {
+    return false;
+  }
+  for (size_t i = 0; i < numChangedFields; ++i) {
+    size_t length = 0;
+    const char *field = RedisModule_StringPtrLen(changedFields[i], &length);
+    if (FieldSpec_PathEquals(fs, field, length)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void FieldSpec_AddError(FieldSpec *fs, ConstErrorMessage withoutUserData, ConstErrorMessage withUserData, RedisModuleString *key) {

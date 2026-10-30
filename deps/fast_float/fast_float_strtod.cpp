@@ -4,6 +4,20 @@
 #include <system_error>
 #include <cerrno>
 
+/* Like fast_float_strtod, but converts only the bytes in [NPTR, END): the string need not be
+ * NUL-terminated, and nothing at or past END is read. */
+extern "C" double fast_float_strtod_n(const char *nptr, const char *end, char **endptr) {
+  double result = 0.0;
+  auto answer = fast_float::from_chars(nptr, end, result);
+  if (answer.ec != std::errc()) {
+    errno = (answer.ec == std::errc::result_out_of_range) ? ERANGE : EINVAL;
+  }
+  if (endptr != NULL) {
+    *endptr = (char *)answer.ptr;
+  }
+  return result;
+}
+
 /* Convert NPTR to a double using the fast_float library.
  *
  * This function behaves similarly to the standard strtod function, converting
@@ -22,14 +36,5 @@
  * If ENDPTR is not NULL, a pointer to the character after the last one used
  * in the number is put in *ENDPTR.  */
 extern "C" double fast_float_strtod(const char *nptr, char **endptr) {
-  double result = 0.0;
-  auto answer = fast_float::from_chars(nptr, nptr + strlen(nptr), result);
-  if (answer.ec != std::errc()) {
-    // Fallback to EINVAL for other errors except ERANGE
-    errno = (answer.ec == std::errc::result_out_of_range) ? ERANGE : EINVAL;
-  }
-  if (endptr != NULL) {
-    *endptr = (char *)answer.ptr;
-  }
-  return result;
+  return fast_float_strtod_n(nptr, nptr + strlen(nptr), endptr);
 }

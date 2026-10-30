@@ -229,9 +229,20 @@ setup_coverage() {
 
 #----------------------------------------------------------------------------------------------
 
+# Redis refuses a cluster bus without TLS unless this is waived (redis/redis#15722), and the
+# clusters started here run on a trusted local bus. Probe the binary: older Redis lacks the option.
+cluster_bus_waiver_args() {
+	if grep -aq 'cluster-bus-port-protected-mode' "$(command -v "$REDIS_SERVER")" &&
+		[[ $RLTEST_ARGS != *cluster_bus_port_protected_mode* ]]; then
+		echo "--cluster_bus_port_protected_mode no"
+	fi
+}
+
+#----------------------------------------------------------------------------------------------
+
 run_env() {
 	if [[ $REDIS_STANDALONE == 0 ]]; then
-		oss_cluster_args="--env oss-cluster --shards-count $SHARDS"
+		oss_cluster_args="--env oss-cluster --shards-count $SHARDS $(cluster_bus_waiver_args)"
 		RLTEST_ARGS+=" ${oss_cluster_args}"
 	fi
 
@@ -616,7 +627,7 @@ elif [[ $REDIS_STANDALONE == 0 ]]; then
 	test_name="OSS cluster tests"
 	# Increase timeout (to 5 min) for tests with coordinator to avoid cluster fail when it take more time for
 	# passing PINGs between shards
-	extra_rltest_args="--env oss-cluster --shards-count $SHARDS --cluster_node_timeout 300000"
+	extra_rltest_args="--env oss-cluster --shards-count $SHARDS --cluster_node_timeout 300000 $(cluster_bus_waiver_args)"
 fi
 
 { (MODARGS="${MODARGS};" RLTEST_ARGS="$RLTEST_ARGS $extra_rltest_args" \

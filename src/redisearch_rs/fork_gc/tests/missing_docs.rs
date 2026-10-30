@@ -38,7 +38,7 @@ fn index(count: u64) -> Box<OpaqueInvertedIndex> {
     Box::new(OpaqueInvertedIndex::DocIdsOnly(ii))
 }
 
-/// Builds an `IndexSpec` with a `missingFieldDict` with the provided entries.
+/// Builds an `IndexSpec` with a `missing.indexes` with the provided entries.
 fn make_spec(
     entries: impl IntoIterator<Item = (&'static [u8], Box<OpaqueInvertedIndex>)>,
 ) -> (ffi::IndexSpec, OwnedDict<MissingFieldDictType>) {
@@ -51,7 +51,7 @@ fn make_spec(
 
     // SAFETY: zeroed IndexSpec is valid for read-only field access through the guard.
     let mut spec: ffi::IndexSpec = unsafe { mem::zeroed() };
-    spec.missingFieldDict = dict.as_mut_ptr();
+    spec.missing.indexes = dict.as_mut_ptr();
     (spec, dict)
 }
 
@@ -200,7 +200,7 @@ fn apply_returns_err_when_field_not_found() {
     assert!(matches!(
         apply_missing_docs(c"nonexistent", delta, &mut *write_guard),
         Err(HandleError::ApplyError(
-            "the field was removed from missingFieldDict before the delta could be applied"
+            "the field was removed from missing.indexes before the delta could be applied"
         ))
     ));
 }

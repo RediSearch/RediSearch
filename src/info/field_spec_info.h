@@ -90,6 +90,9 @@ void AggregatedFieldSpecInfo_Combine(AggregatedFieldSpecInfo *info, const Aggreg
 // Deserializes a FieldSpecInfo from a MRReply.
 AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply);
 
+// Reads vector metrics from a field-statistics map into initialized statistics.
+void FieldSpecStats_DeserializeVectorMetrics(FieldSpecStats *stats, const MRReply *reply);
+
 //Get the total memory usage of all the vector fields in the index (in bytes).
 size_t IndexSpec_VectorIndexesSize(IndexSpec *sp);
 

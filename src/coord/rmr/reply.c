@@ -174,6 +174,8 @@ int MR_ReplyWithMRReply(RedisModule_Reply *reply, MRReply *rep) {
     case MR_REPLY_ATTR:
     case MR_REPLY_PUSH:
     case MR_REPLY_BIGNUM:
+      // Unsupported reply kinds still occupy their slot: callers may have declared the enclosing length.
+      RedisModule_Reply_Null(reply);
       return REDISMODULE_ERR;
 
     case MR_REPLY_NIL:

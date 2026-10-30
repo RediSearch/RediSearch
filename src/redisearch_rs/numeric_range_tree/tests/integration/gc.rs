@@ -457,6 +457,8 @@ fn gc_on_node_without_range() {
                 delta: delta.delta,
                 registers_with_last_block: delta.registers_with_last_block,
                 registers_without_last_block: delta.registers_without_last_block,
+                bounds_with_last_block: delta.bounds_with_last_block,
+                bounds_without_last_block: delta.bounds_without_last_block,
             },
         )
         .unwrap();
@@ -760,4 +762,97 @@ fn compact_if_sparse_below_threshold_is_noop(#[values(false, true)] compress_flo
     let result = tree.compact_if_sparse();
     assert_eq!(result.inverted_index_size_delta, 0);
     assert_eq!(result.node_size_delta, 0);
+}
+
+// ============================================================================
+// Survivor bounds
+// ============================================================================
+
+/// The `(min_val, max_val)` of the range stored at `node_idx`.
+fn bounds_of(tree: &NumericRangeTree, node_idx: numeric_range_tree::NodeIndex) -> (f64, f64) {
+    let range = tree
+        .node(node_idx)
+        .range()
+        .expect("node should hold a range");
+    (range.min_val(), range.max_val())
+}
+
+#[rstest]
+fn gc_tightens_leaf_bounds_to_survivors(#[values(false, true)] compress_floats: bool) {
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for i in 1..=8 {
+        tree.add(i, i as f64, false, false, 0);
+    }
+    assert!(tree.root().is_leaf());
+
+    gc_all_ranges(&mut tree, &|doc_id| (2..=7).contains(&doc_id));
+
+    assert_eq!(bounds_of(&tree, tree.root_index()), (2.0, 7.0));
+}
+
+#[rstest]
+fn gc_resets_bounds_of_emptied_leaf(#[values(false, true)] compress_floats: bool) {
+    let mut tree = build_single_leaf_tree(10, compress_floats);
+
+    gc_all_ranges(&mut tree, &|_| false);
+
+    assert_eq!(
+        bounds_of(&tree, tree.root_index()),
+        (f64::INFINITY, f64::NEG_INFINITY)
+    );
+}
+
+/// Entries written after the fork are folded into the survivor bounds, both when
+/// they land in a new block and when they change the last scanned block (which
+/// makes the parent drop the scan's result for that block).
+#[rstest]
+fn gc_bounds_include_post_fork_writes(#[values(false, true)] last_block_changes: bool) {
+    let mut tree = NumericRangeTree::new(false);
+    // Block 0 holds only deleted documents; block 1 holds the survivors at 100.0,
+    // filled up unless the post-fork writes should append to it. The post-fork
+    // values lie below the survivors, so dropping either set shows in the bounds.
+    let block_1_len = ENTRIES_PER_BLOCK - u64::from(last_block_changes);
+    let mut doc_id = 0;
+    for value in std::iter::repeat_n(1.0, ENTRIES_PER_BLOCK as usize)
+        .chain(std::iter::repeat_n(100.0, block_1_len as usize))
+    {
+        doc_id += 1;
+        tree.add(doc_id, value, false, false, 0);
+    }
+    assert!(tree.root().is_leaf());
+
+    let delta = scan_node_delta(&tree, tree.root_index(), &|id| id > ENTRIES_PER_BLOCK)
+        .expect("block 0 should have GC work");
+    for value in [10.0, 20.0] {
+        doc_id += 1;
+        tree.add(doc_id, value, false, false, 0);
+    }
+
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
+
+    assert_eq!(result.index_gc_info.ignored_last_block, last_block_changes);
+    assert_eq!(bounds_of(&tree, tree.root_index()), (10.0, 100.0));
+}
+
+/// A range retained on an internal node is tightened too. Deltas are applied
+/// children first, so the tree invariants (checked after every apply in test
+/// builds) hold throughout: the parent never becomes narrower than a child.
+#[test]
+fn gc_tightens_retained_internal_range() {
+    let n = SPLIT_TRIGGER * 2;
+    let mut tree = build_tree(n, false, 2);
+    assert!(
+        tree.root().range().is_some(),
+        "root should retain its range"
+    );
+    assert_eq!(bounds_of(&tree, tree.root_index()), (1.0, n as f64));
+
+    gc_all_ranges(&mut tree, &|doc_id| (2..n).contains(&doc_id));
+
+    assert_eq!(bounds_of(&tree, tree.root_index()), (2.0, (n - 1) as f64));
+    let mut leftmost = tree.root_index();
+    while let Some((left, _)) = tree.node(leftmost).child_indices() {
+        leftmost = left;
+    }
+    assert_eq!(bounds_of(&tree, leftmost).0, 2.0);
 }

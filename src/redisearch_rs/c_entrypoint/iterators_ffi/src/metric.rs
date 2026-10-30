@@ -36,26 +36,6 @@ pub unsafe extern "C" fn NewMetricIteratorSortedById(
     unsafe { new_metric_iterator::<true>(ids, metric_list, num, type_) }
 }
 
-#[unsafe(no_mangle)]
-/// Creates a new metric iterator sorted by score.
-///
-/// # Safety
-///
-/// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.
-/// 2. `metric_list` must be a valid pointer to an array of `f64` with at least `num` elements.
-/// 3. The caller must ensure that `ids` and `metric_list` are not null unless `num` is zero.
-/// 4. The memory pointed to by `ids` and `metric_list` will be freed using `RedisModule_Free`,
-///    so the caller must ensure that these pointers were allocated in a compatible manner.
-pub unsafe extern "C" fn NewMetricIteratorSortedByScore(
-    ids: *mut DocId,
-    metric_list: *mut f64,
-    num: usize,
-    type_: MetricType,
-) -> *mut QueryIterator {
-    // SAFETY: All safety preconditions are guaranteed by the caller.
-    unsafe { new_metric_iterator::<false>(ids, metric_list, num, type_) }
-}
-
 /// # Safety
 ///
 /// 1. `ids` must be a valid pointer to an array of `DocId` with at least `num` elements.

@@ -757,3 +757,17 @@ def test_sortable_unf(env):
 
 def test_sortable_NOunf(env):
     unf(env, is_sortable_unf=False)
+
+@skip(cluster=True)
+def test_numeric_operator_param_followed_by_punctuation(env):
+    """A `$param` operand of a numeric comparison ends at the parameter name, whatever follows it."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'm', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc1', 'n', '5', 'm', '1')
+
+    for query in ['(@n>=$p)', '(@n<=-$q)', '( @n >= +$p )', '@n>=$p|@m<$q', '(@n==$five)']:
+        res = env.cmd('FT.SEARCH', 'idx', query, 'PARAMS', '6', 'p', '3', 'q', '-9', 'five', '5', 'NOCONTENT', 'DIALECT', 2)
+        env.assertEqual(res, [1, 'doc1'], message=query)
+
+    env.expect('FT.SEARCH', 'idx', '(@n>=$missing)', 'PARAMS', '2', 'p', '3', 'DIALECT', 2).error() \
+        .contains('Parameter not found `missing`')

@@ -5,10 +5,8 @@ option(DISABLE_TESTS "If tests should be compiled or not" ON)
 
 add_subdirectory(${root}/deps/hiredis hiredis)
 
-if(APPLE)
-    include_directories(/usr/local/opt/openssl/include)
-	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
-else()
+# On macOS, OpenSSL comes from the root CMakeLists.txt (OPENSSL_ROOT_DIR).
+if(NOT APPLE)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-Bsymbolic,-Bsymbolic-functions")
 endif()
 

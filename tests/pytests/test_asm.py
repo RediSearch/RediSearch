@@ -13,6 +13,7 @@ import random
 import re
 import numpy as np
 import threading
+import contextlib
 import time
 import os
 import signal
@@ -1193,3 +1194,157 @@ def test_hybrid_cursor_after_add_shard_migration():
                             f"migration), but got {len(all_results)}. Without the fix "
                             f"(foreground depletion), the cursor returns 0 results because "
                             f"the inverted index memory was freed after migration + GC.")
+
+
+@skip(cluster=False, min_shards=2)
+def test_import_end_drains_with_event_workers():
+    """At WORKERS 0 an ASM import grows the importing shard's pool to MIN_OPERATION_WORKERS, and
+    when the import ends with vector jobs still queued, the whole pool drains them before shrinking
+    to the maintenance floor."""
+    env = Env(clusterNodeTimeout=cluster_node_timeout, moduleArgs='WORKERS 0', enableDebugCommand=True)
+    dim = 8
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32',
+               'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    rng = np.random.default_rng(18989)
+    vectors = {f'doc-{i}:{{{i}}}': create_np_array_typed(rng.random(dim)).tobytes()
+               for i in range(CLUSTER_SLOTS)}
+    with env.getClusterConnectionIfNeeded() as con:
+        pipe = con.pipeline(transaction=False)
+        for key, vector in vectors.items():
+            pipe.execute_command('HSET', key, 'v', vector)
+        pipe.execute()
+    drain_workers(env)
+
+    dest, source = env.getConnection(1), env.getConnection(2)
+
+    def log_path(conn):
+        return os.path.join(conn.execute_command('CONFIG', 'GET', 'dir')[1],
+                            conn.execute_command('CONFIG', 'GET', 'logfile')[1])
+
+    def pool_state():
+        pipe = dest.pipeline(transaction=True)
+        pipe.execute_command(debug_cmd(), 'WORKERS', 'N_THREADS')
+        pipe.execute_command(debug_cmd(), 'WORKERS', 'STATS')
+        n_threads, stats = pipe.execute()
+        stats = to_dict(stats)
+        return n_threads, stats['totalJobsDone'], stats['lowPriorityPendingJobs'] + stats['highPriorityPendingJobs']
+
+    env.assertEqual(pool_state()[0], 1)
+    # Paused, the imported vectors stay queued when the import ends, and the shrink is deferred.
+    dest.execute_command(debug_cmd(), 'WORKERS', 'PAUSE')
+    task_id = import_middle_slot_range(dest, source)
+    with TimeLimit(120, 'the import did not complete'):
+        while not is_migration_complete(dest, task_id) or not is_migration_complete(source, task_id):
+            time.sleep(0.1)
+    n_threads, done, queued = pool_state()
+    env.assertEqual(n_threads, 4)
+    env.assertGreater(queued, 0)
+    with open(log_path(dest)) as f:
+        log = f.read()
+    import_end = log.rfind('Got ASM import completed event')
+    env.assertGreater(import_end, -1)
+    deferred = re.search(r'Deferring the workers threadpool shrink from 4 to 1 threads until (\d+) jobs',
+                         log[import_end:])
+    env.assertTrue(deferred is not None, message='the import end did not defer the shrink')
+    if deferred:
+        env.assertEqual(int(deferred.group(1)), done + queued)
+
+    dest.execute_command(debug_cmd(), 'WORKERS', 'RESUME')
+    samples = []
+    with TimeLimit(60, 'the pool did not shrink to the floor'):
+        while True:
+            samples.append(pool_state())
+            if samples[-1][0] == 1:
+                break
+            time.sleep(0.01)
+    env.assertEqual([s for s in samples if s[2] > 0 and s[0] != 4], [])
+    env.assertEqual(samples[-1][2], 0, message=samples[-1])
+
+    drain_workers(env)
+    # Every job queued by the import ran exactly once.
+    env.assertEqual(getWorkersThpoolStatsFromShard(dest)['totalJobsDone'], done + queued)
+
+    # The source trims the migrated slots after a delay, and that trim is an event of its own,
+    # reported by whichever of the active and background trim paths Redis took.
+    with TimeLimit(30, 'the source did not trim the migrated slots'):
+        while True:
+            with open(log_path(source)) as f:
+                log = f.read()
+            if 'Got ASM trim completed event' in log or 'Got ASM background trim event' in log:
+                break
+            time.sleep(0.1)
+    with TimeLimit(30, 'the shards did not settle on the maintenance floor'):
+        while any(conn.execute_command(debug_cmd(), 'WORKERS', 'N_THREADS') != 1 or
+                  getWorkersThpoolStatsFromShard(conn)['numThreadsAlive'] != 1
+                  for conn in env.getOSSMasterNodesConnectionList()):
+            time.sleep(0.1)
+    env.assertEqual(getWorkersThpoolNumThreadsFromAllShards(env), [1] * env.shardsCount)
+    env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([len(vectors)])
+    for key in list(vectors)[::1024]:
+        res = env.cmd('FT.SEARCH', 'idx', '*=>[KNN 1 @v $b AS score]', 'PARAMS', 2,
+                      'b', vectors[key], 'RETURN', 1, 'score', 'DIALECT', 2)
+        env.assertEqual((res[1], float(res[2][1])), (key, 0.0))
+
+def shard_docs_converge_to_dbsize(env, shards):
+    """Wait until every shard's indexes hold exactly the shard's keys, i.e. no trimmed key left a
+    document behind. FT.SEARCH cannot tell: queries filter out docs of slots the shard does not own."""
+    def check():
+        state = {}
+        for i, conn in enumerate(shards):
+            docs = conn.execute_command('INFO', 'MODULES')['search_total_num_docs_in_indexes']
+            state[i] = (docs, conn.execute_command('DBSIZE'))
+        return all(docs == keys for docs, keys in state.values()), state
+    wait_for_condition(check, 'indexed docs did not converge to DBSIZE')
+
+def trim_after_import_test(env: Env, trim_method: str, expected_events: list, tracking: bool = False):
+    n_docs = 2000
+    create_and_populate_index(env, 'idx', n_docs)
+    shards = env.getOSSMasterNodesConnectionList()
+    for conn in shards:
+        conn.execute_command('DEBUG', 'ASM-TRIM-METHOD', trim_method)
+    shard1, shard2 = env.getConnection(1), env.getConnection(2)
+    with contextlib.ExitStack() as stack:
+        if tracking:
+            # Client-side caching is invalidated key by key, so while any client tracks keys, Redis
+            # trims actively instead of in the background.
+            tracker = stack.enter_context(
+                Redis(port=shard2.connection_pool.connection_kwargs['port'], single_connection_client=True))
+            tracker.execute_command('CLIENT', 'TRACKING', 'ON')
+
+        keys_before = shard2.execute_command('DBSIZE')
+        wait_for_migration_complete(env, shard1, shard2)
+        # The source starts trimming only after a delay that follows the migration.
+        wait_for_condition(lambda: (shard2.execute_command('DBSIZE') < keys_before, {}),
+                           'the source did not trim the migrated slots')
+
+        shard_docs_converge_to_dbsize(env, shards)
+        # No doc lost and none counted twice across the shards.
+        env.expect('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 0).equal([n_docs])
+        # Convergence alone does not show which trim path Redis took.
+        log_file = os.path.join(shard2.execute_command('CONFIG', 'GET', 'dir')[1],
+                                shard2.execute_command('CONFIG', 'GET', 'logfile')[1])
+        with open(log_file) as f:
+            log = f.read()
+        for event in expected_events:
+            env.assertContains(event, log)
+
+# Background trim has a single event: there is no completion event to wait for, and no per-key
+# KEY_TRIMMED notification since we do not subscribe to it.
+BACKGROUND_TRIM_EVENTS = ['Got ASM background trim event']
+ACTIVE_TRIM_EVENTS = ['Got ASM trim started event', 'Got ASM trim completed event']
+
+@skip(cluster=False, min_shards=2)
+def test_background_trim_removes_trimmed_docs():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    # Not forced: with no KEY_TRIMMED subscriber and no tracking client, Redis must choose it.
+    trim_after_import_test(env, 'default', BACKGROUND_TRIM_EVENTS)
+
+@skip(cluster=False, min_shards=2)
+def test_active_trim_removes_trimmed_docs():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    trim_after_import_test(env, 'active', ACTIVE_TRIM_EVENTS)
+
+@skip(cluster=False, min_shards=2)
+def test_tracking_client_trim_removes_trimmed_docs():
+    env = Env(clusterNodeTimeout=cluster_node_timeout)
+    trim_after_import_test(env, 'default', ACTIVE_TRIM_EVENTS, tracking=True)

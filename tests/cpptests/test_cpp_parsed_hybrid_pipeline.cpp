@@ -155,6 +155,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
 
   HybridPipelineParams hybridParams = {0};
   RequestConfig reqConfig = {0};
+  TimeoutConfig timeoutConfig = {0};
   CursorConfig cursorConfig = {0};
 
   ParseHybridCommandCtx cmd = {
@@ -163,6 +164,7 @@ HybridRequest* ParseAndBuildHybridRequest(RedisModuleCtx *ctx, const char* index
     .tailPlan = &hybridReq->tailPipeline->ap,
     .hybridParams = &hybridParams,
     .reqConfig = &reqConfig,
+    .timeoutConfig = &timeoutConfig,
     .cursorConfig = &cursorConfig
   };
 
