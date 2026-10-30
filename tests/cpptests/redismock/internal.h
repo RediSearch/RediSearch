@@ -324,6 +324,8 @@ struct RedisModuleCtx {
   KVDB *db = NULL;
   uint32_t dbid = 0;
   std::string last_error;  // Store the last error message from ReplyWithError
+  int ctx_flags = 0;                   // Returned by RedisModule_GetContextFlags
+  std::vector<std::string> reply_log;  // Collection open/close calls, for reply builder tests
 
   RedisModuleCtx(uint32_t dbid = 0);
 

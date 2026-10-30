@@ -35,10 +35,7 @@ typedef struct HybridRequest {
 
     arrayof(AREQ*) requests;
     size_t nrequests;
-    QueryError tailPipelineError;
     Pipeline *tailPipeline;
-    RequestConfig reqConfig;
-    CursorConfig cursorConfig;
     RPStatus *subqueriesReturnCodes;  // Array to store return codes from each subquery
     RedisSearchCtx *sctx;
     QEFlags reqflags;
@@ -51,10 +48,6 @@ typedef struct HybridRequest {
     // Heap-allocated and owned by HybridRequest — freed in HybridRequest_Free.
     HybridDebugParams *debugParams;
 
-    // Thread pool ID used for coordinator depletion and tail continuation jobs.
-    // Set once before pipeline construction; read by BuildDistributedDepletionPipeline
-    // and scheduleHybridTail.
-    int poolId;
     // Index of the K value argument in the MRCommand for SHARD_K_RATIO
     // optimization.
     // Set during command building, used by command modifier callback. -1 if
@@ -87,6 +80,10 @@ static inline void HybridRequest_SetExecutionStage(HybridRequest *req, QueryTime
 // Propagates a hybrid timeout to every subquery AREQ so blocked RPNet waits
 // observe the abort after their channels are woken.
 void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req);
+
+// A parked MR pop may be blocked on the hybrid request's own channel or a
+// subquery's channel. Wake every possible reader after publishing cancellation.
+void HybridRequest_WakeAbortChannels(HybridRequest *req);
 
 static inline bool HybridRequest_RequiresThreadsSyncResults(HybridRequest *req) {
   return req->base.async.requiresAggregateResultsSync;
@@ -162,6 +159,17 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t a
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground);
 
 /**
+ * Once every subquery has been fully depleted, free each one's result-processor chain below its
+ * depleter and drop its disk snapshot, so a parked cursor serving buffered rows pins no
+ * snapshot. Does nothing for in-memory indexes and in profile mode, which reads per-processor
+ * stats at reply time. Later teardown (AREQ_Free) walks only what is left of the chain.
+ *
+ * Call only after depletion has finished on every subquery, with no depleting thread still
+ * reading from the chain.
+ */
+void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req);
+
+/**
  * Open the score key in the tail lookup for writing the final score.
  * If a score alias is provided, create a new key with that alias.
  * Otherwise, use the default score key.
@@ -229,6 +237,8 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  * Owner-only: see the ownership contract on QueryRequest.
  */
 void HybridRequest_Free(HybridRequest *req);
+
+QueryError *HybridRequest_GetFatalError(HybridRequest *req);
 
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 

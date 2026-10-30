@@ -120,3 +120,21 @@ fn test_into_iterator(#[values(false, true)] compress_floats: bool) {
     assert!(count > 0, "iterator should yield at least one node");
     assert_eq!(n_leaves, tree.num_leaves());
 }
+
+#[test]
+fn test_post_order_yields_children_before_parent() {
+    let tree = build_tree(SPLIT_TRIGGER * 8, false, 0);
+    assert!(tree.num_leaves() > 2, "need a multi-level tree");
+
+    let order: Vec<_> = tree.indexed_post_order_iter().map(|(idx, _)| idx).collect();
+    assert_eq!(order.len(), tree.iter().count(), "every node exactly once");
+    assert_eq!(order.last(), Some(&tree.root_index()));
+    for (pos, &idx) in order.iter().enumerate() {
+        if let Some((left, right)) = tree.node(idx).child_indices() {
+            for child in [left, right] {
+                let child_pos = order.iter().position(|&i| i == child).unwrap();
+                assert!(child_pos < pos, "child must come before its parent");
+            }
+        }
+    }
+}

@@ -24,12 +24,6 @@ use string_utils::obfuscation::obfuscate_text;
 use crate::util::{deserialize, serialize};
 use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 
-/// The term's inverted index was removed between the child's scan and the
-/// parent's apply (a race between GC and a concurrent term/document drop).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the term's inverted index was removed before the delta could be applied")]
-pub struct TermNotFound;
-
 /// One term's worth of GC work, as it travels the pipe.
 ///
 /// `T` lets the child serialize borrowed term bytes without copying; the
@@ -78,10 +72,8 @@ pub fn collect_terms(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::
 }
 
 /// Decode one terms message from `reader`.
-pub fn receive_terms(
-    reader: &mut impl Read,
-) -> Result<Option<TermEntry<TrieTerm>>, HandleError<TermNotFound>> {
-    deserialize::<Option<TermEntry>, TermNotFound>(reader, "decoding terms entry").map(|entry| {
+pub fn receive_terms(reader: &mut impl Read) -> Result<Option<TermEntry<TrieTerm>>, HandleError> {
+    deserialize::<Option<TermEntry>>(reader, "decoding terms entry").map(|entry| {
         entry.map(|entry| TermEntry {
             // SAFETY: terms messages are produced by `collect_terms`, which only serializes
             // non-empty terms returned by the terms trie iterator.
@@ -116,9 +108,11 @@ pub fn apply_terms(
     term: &TrieTerm,
     delta: GcScanDelta,
     guard: &mut IndexSpecWriteGuard<'_>,
-) -> Result<GcApplyStats, HandleError<TermNotFound>> {
+) -> Result<GcApplyStats, HandleError> {
     let Some(ii) = guard.keys_dict_mut().fetch_mut(term) else {
-        return Err(HandleError::Custom(TermNotFound));
+        return Err(HandleError::ApplyError(
+            "the term's inverted index was removed before the delta could be applied",
+        ));
     };
 
     let info = ii.apply_gc(delta);
@@ -161,7 +155,7 @@ pub fn apply_terms(
 /// Reads one [`TermEntry`] from the pipe, applies its delta, updates stats, and
 /// returns `Ok(HandleOutcome::Collected)`. A serialised `None` returns
 /// `Ok(HandleOutcome::Done)`.
-pub fn handle_terms(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<TermNotFound>> {
+pub fn handle_terms(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError> {
     crate::util::handle_one(
         fgc,
         |reader| receive_terms(reader),

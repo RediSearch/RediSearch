@@ -20,6 +20,7 @@
 #include "index_result_rs.h"
 #include "spec.h"
 #include "util/arr/arr.h"
+#include "rmutil/rm_assert.h"
 
 typedef struct {
   KHTableEntry khBase;
@@ -27,7 +28,16 @@ typedef struct {
 } khIdxEntry;
 
 #define ENTRIES_PER_BLOCK 32
+#define ENTRIES_BLOCK_SIZE (ENTRIES_PER_BLOCK * sizeof(khIdxEntry))
 #define TERM_BLOCK_SIZE 128
+
+// Offset writers keep their capacity across reuse, so only small ones are pooled. Their number is bounded by
+// the retained table, since a document with more unique terms than it holds releases the pool on reset.
+#define MAX_RETAINED_VVW_BYTES 256
+#define MAX_POOLED_VVWS FORWARD_INDEX_MAX_RETAINED_BUCKETS
+// Initial table size cap; larger documents grow the table on demand. Kept well under
+// FORWARD_INDEX_MAX_RETAINED_BUCKETS so a freshly sized table is never released on its first reset.
+#define MAX_PRESIZED_TERMS (FORWARD_INDEX_MAX_RETAINED_BUCKETS / 4)
 
 static int khtCompare(const KHTableEntry *entBase, const void *s, size_t n, uint32_t h) {
   khIdxEntry *ee = (khIdxEntry *)entBase;
@@ -47,7 +57,7 @@ static uint32_t khtHash(const KHTableEntry *entBase) {
 
 static KHTableEntry *allocBucketEntry(void *ptr) {
   BlkAlloc *alloc = ptr;
-  void *p = BlkAlloc_Alloc(alloc, sizeof(khIdxEntry), ENTRIES_PER_BLOCK * sizeof(khIdxEntry));
+  void *p = BlkAlloc_Alloc(alloc, sizeof(khIdxEntry), ENTRIES_BLOCK_SIZE);
   return p;
 }
 
@@ -60,6 +70,9 @@ static size_t estimtateTermCount(const Document *doc) {
   size_t nChars = 0;
   for (size_t ii = 0; ii < doc->numFields; ++ii) {
     DocumentField *field = doc->fields + ii;
+    if (!(field->indexAs & INDEXFLD_T_FULLTEXT)) {
+      continue;
+    }
     if (field->unionType == FLD_VAR_T_CSTR || field->unionType == FLD_VAR_T_RMS) {
       size_t n;
       DocumentField_GetValueCStr(field, &n);
@@ -68,7 +81,7 @@ static size_t estimtateTermCount(const Document *doc) {
         nChars += DocumentField_GetArrayValueCStrTotalLen(field);
     }
   }
-  return nChars / CHARS_PER_TERM;
+  return MIN(nChars / CHARS_PER_TERM, MAX_PRESIZED_TERMS);
 }
 
 static void *vvwAlloc(void) {
@@ -94,44 +107,75 @@ static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t i
   }
 }
 
-ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
-  ForwardIndex *idx = rm_malloc(sizeof(ForwardIndex));
-
-  BlkAlloc_Init(&idx->terms);
-  BlkAlloc_Init(&idx->entries);
-
+static void initStorage(ForwardIndex *idx, const Document *doc) {
   static const KHTableProcs procs = {
       .Alloc = allocBucketEntry,
       .Compare = khtCompare,
       .Hash = khtHash,
   };
 
-  size_t termCount = estimtateTermCount(doc);
-  idx->hits = rm_calloc(1, sizeof(*idx->hits));
-  idx->stemmer = NULL;
-  idx->totalFreq = 0;
-
-  KHTable_Init(idx->hits, &procs, &idx->entries, termCount);
-  mempool_options options = {.initialCap = termCount, .alloc = vvwAlloc, .free = vvwFree};
+  BlkAlloc_Init(&idx->terms);
+  BlkAlloc_Init(&idx->entries);
+  KHTable_Init(idx->hits, &procs, &idx->entries, estimtateTermCount(doc));
+  RS_LOG_ASSERT(idx->hits->numBuckets <= FORWARD_INDEX_MAX_RETAINED_BUCKETS, "presized table must be retainable");
+  mempool_options options = {.initialCap = 64, .maxCap = MAX_POOLED_VVWS, .alloc = vvwAlloc, .free = vvwFree};
   idx->vvwPool = mempool_new(&options);
-
-  ForwardIndex_InitCommon(idx, doc, idxFlags);
-  return idx;
 }
 
-static void clearEntry(void *elem, void *pool) {
+// Unlinks the entry from its bucket, so clearing the table costs O(entries) rather than O(buckets).
+static void clearEntry(void *elem, void *arg) {
+  ForwardIndex *idx = arg;
   khIdxEntry *ent = elem;
   ForwardIndexEntry *fwEnt = &ent->ent;
+  idx->hits->buckets[fwEnt->hash % idx->hits->numBuckets] = NULL;
   if (fwEnt->vw) {
-    mempool_release(pool, fwEnt->vw);
+    if (VVW_GetByteLength(fwEnt->vw) > MAX_RETAINED_VVW_BYTES) {
+      VVW_Free(fwEnt->vw);
+    } else {
+      mempool_release(idx->vvwPool, fwEnt->vw);
+    }
     fwEnt->vw = NULL;
   }
 }
 
+static void freeStorage(ForwardIndex *idx) {
+  BlkAlloc_FreeAll(&idx->entries, clearEntry, idx, sizeof(khIdxEntry));
+  BlkAlloc_FreeAll(&idx->terms, NULL, NULL, 0);
+  KHTable_Free(idx->hits);
+  mempool_destroy(idx->vvwPool);
+}
+
+ForwardIndex *NewForwardIndex(Document *doc, uint32_t idxFlags) {
+  ForwardIndex *idx = rm_malloc(sizeof(ForwardIndex));
+  idx->hits = rm_calloc(1, sizeof(*idx->hits));
+  idx->stemmer = NULL;
+  idx->smap = NULL;
+  idx->totalFreq = 0;
+  initStorage(idx, doc);
+  ForwardIndex_InitCommon(idx, doc, idxFlags);
+  return idx;
+}
+
+static size_t countEntries(const ForwardIndex *idx) {
+  size_t n = 0;
+  for (const BlkAllocBlock *block = idx->entries.root; block; block = block->next) {
+    n += block->numUsed / sizeof(khIdxEntry);
+  }
+  return n;
+}
+
 void ForwardIndex_Reset(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
-  BlkAlloc_Clear(&idx->terms, NULL, NULL, 0);
-  BlkAlloc_Clear(&idx->entries, clearEntry, idx->vvwPool, sizeof(khIdxEntry));
-  KHTable_Clear(idx->hits);
+  RS_LOG_ASSERT(countEntries(idx) == idx->hits->numItems, "entry blocks must hold exactly the table's entries");
+  // The entries, term copies and offset writers all scale with the number of unique terms, as does the
+  // table, so its size alone tells whether the previous document left too much behind.
+  if (idx->hits->numBuckets > FORWARD_INDEX_MAX_RETAINED_BUCKETS) {
+    freeStorage(idx);
+    initStorage(idx, doc);
+  } else {
+    BlkAlloc_Clear(&idx->terms, NULL, NULL, 0, TERM_BLOCK_SIZE);
+    BlkAlloc_Clear(&idx->entries, clearEntry, idx, sizeof(khIdxEntry), ENTRIES_BLOCK_SIZE);
+    idx->hits->numItems = 0;
+  }
   if (idx->smap) {
     SynonymMap_Free(idx->smap);
     idx->smap = NULL;
@@ -145,11 +189,8 @@ static inline int hasOffsets(const ForwardIndex *idx) {
 }
 
 void ForwardIndexFree(ForwardIndex *idx) {
-  BlkAlloc_FreeAll(&idx->entries, clearEntry, idx->vvwPool, sizeof(khIdxEntry));
-  BlkAlloc_FreeAll(&idx->terms, NULL, NULL, 0);
-  KHTable_Free(idx->hits);
+  freeStorage(idx);
   rm_free(idx->hits);
-  mempool_destroy(idx->vvwPool);
 
   if (idx->stemmer) {
     idx->stemmer->Free(idx->stemmer);
@@ -323,27 +364,21 @@ ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, u
   }
 }
 
+// Entries are visited in their allocation blocks rather than through the buckets, so iterating costs
+// O(entries) regardless of the table's size.
 ForwardIndexIterator ForwardIndex_Iterate(ForwardIndex *i) {
-  ForwardIndexIterator iter;
-  iter.hits = i->hits;
-  iter.curBucketIdx = 0;
-  iter.curEnt = NULL;
-  return iter;
+  return (ForwardIndexIterator){.block = i->entries.root, .offset = 0};
 }
 
 ForwardIndexEntry *ForwardIndexIterator_Next(ForwardIndexIterator *iter) {
-  KHTable *table = iter->hits;
-
-  while (iter->curEnt == NULL && iter->curBucketIdx < table->numBuckets) {
-    iter->curEnt = table->buckets[iter->curBucketIdx++];
+  while (iter->block && iter->offset >= iter->block->numUsed) {
+    iter->block = iter->block->next;
+    iter->offset = 0;
   }
-
-  if (iter->curEnt == NULL) {
+  if (!iter->block) {
     return NULL;
   }
-
-  KHTableEntry *ret = iter->curEnt;
-  iter->curEnt = ret->next;
-  khIdxEntry *bEnt = (khIdxEntry *)ret;
+  khIdxEntry *bEnt = (khIdxEntry *)(iter->block->data + iter->offset);
+  iter->offset += sizeof(khIdxEntry);
   return &bEnt->ent;
 }

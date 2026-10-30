@@ -11,6 +11,7 @@
 #include "query_ctx.h"
 #include "iterators/iterator_api.h"
 #include "query.h"
+#include "result_processor.h"
 // `RSQueryNode` is defined in `query_node.h` as `typedef struct RSQueryNode { ... } QueryNode;`,
 // i.e. the typedef name is `QueryNode`, not `RSQueryNode`. cheadergen emits the
 // Rust type name `RSQueryNode` as a bare reference, so we surface a matching
@@ -21,88 +22,136 @@ typedef struct RSQueryNode RSQueryNode;
 typedef struct QueryError QueryError;
 
 /**
- * Various modifiers and options that can apply to the entire query or any
- * sub-query of it.
+ * The executable iterator tree built from a parsed query AST.
+ *
+ * A dedicated type rather than a bare root iterator, so it can carry more as
+ * the evaluator grows.
+ *
+ * The tree borrows the [`QueryEvalContext`] it was built from for `'index`:
+ * its iterators read index data reached through that context.
  */
-typedef struct QueryNodeOptions QueryNodeOptions;
+typedef struct QueryIteratorTree QueryIteratorTree;
+
+/**
+ * C-compatible slot range array structure.
+ *
+ * This is a variable-length structure with a flexible array member.
+ */
+typedef struct RedisModuleSlotRangeArray RedisModuleSlotRangeArray;
 
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
 
 /**
- * Build the executable iterator tree for a parsed query AST and return its
- * root [`QueryIterator`].
+ * Build the executable [`QueryIteratorTree`] for a parsed query AST.
  *
  * Assembles the [`QueryEvalCtx`] from the request pieces, then evaluates
- * `qast`'s root node. The returned pointer is never NULL — an empty iterator
- * is substituted when the query produces no results.
+ * `qast`'s root node with [`QueryIteratorTree::new`]. The caller owns the
+ * returned tree and releases it with [`QueryIteratorTree_Free`] or
+ * [`QueryIteratorTree_IntoResultProcessor`].
  *
  * # Safety
  *
  * 1. `qast` must be a non-null pointer to a valid [`QueryAST`] whose `root` is
- *    a valid [`RSQueryNode`]; it (and its `metricRequests`/`config` fields)
- *    must stay valid and exclusively borrowed for the duration of the call. The
- *    root's subtree must meet the token-buffer requirement of
- *    [`Query_EvalNode_Rs`]'s precondition 2, for the same reason.
+ *    a valid [`RSQueryNode`](ffi::RSQueryNode); it (and its
+ *    `metricRequests`/`config` fields) must stay valid and exclusively borrowed
+ *    for the duration of the call. The root's subtree must also satisfy
+ *    invariants (4), (5), and (6) of [`QueryNodeMut::new`], since evaluation
+ *    rewrites tokens in place and reads deferred INKEYS arguments.
  * 2. `opts` must be a non-null pointer to a valid [`RSSearchOptions`].
  * 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
- *    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec).
+ *    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec). `sctx` and the
+ *    request timeout reached through `sctx.timeout` must stay valid at stable
+ *    addresses for the lifetime of the returned tree. Timeout source
+ *    changes and deadline writes may occur only between iterator probes;
+ *    only the blocked-client flag may change concurrently.
+ *    The caller must hold the spec read lock throughout deferred INKEYS
+ *    evaluation, as required by [`QueryEvalContext::new`]. Until the document
+ *    key map is ready, the caller must also hold the GIL for metadata lookup.
  * 4. `status` must be a non-null pointer to a valid [`QueryError`].
  *
  * Together these are exactly the invariants documented on
  * [`QueryEvalContext::new`] for the assembled context, which remains valid for
- * the lifetime of the returned iterator.
+ * the lifetime of the returned tree.
  */
-QueryIterator *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
+struct QueryIteratorTree *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
 
 /**
- * Evaluate a single query AST node, producing the corresponding
- * [`QueryIterator`].
- *
- * Returns a null pointer when the node produces no results (e.g. a
- * missing-field node for a field that has no missing values).
+ * Free a [`QueryIteratorTree`] and every iterator it owns. NULL is a no-op.
  *
  * # Safety
  *
- * 1. `q` must be a non-null pointer to a valid [`QueryEvalCtx`] that satisfies
- *    all the invariants documented on [`QueryEvalContext::new`] and remains
- *    valid for the lifetime of the returned iterator.
- * 2. `n` must be a non-null pointer to a valid [`RSQueryNode`]. Evaluation
- *    rewrites some tokens in place, so every node in the subtree that carries a
- *    rewritable one — see [`QueryNodeMut::token_mut`] — must additionally satisfy
- *    invariant (4) of [`QueryNodeMut::new`]. A parser-produced AST does; one
- *    assembled by hand, with a token borrowing a read-only or length-delimited
- *    string, does not.
- * 3. `eval_config` must be a non-null [`EvalConfig`](ffi::EvalConfig) handle
- *    pointing to a valid [`Config`] that stays valid for the duration of the
- *    call — the snapshot [`QAST_Iterate`] loaded and threaded through the C
- *    dispatcher.
+ * 1. `tree` must be NULL, or a tree returned by [`QAST_Iterate`] that has not
+ *    been freed yet.
+ * 2. The tree's root must not have been freed or handed to another owner.
  */
-QueryIterator *Query_EvalNode_Rs(QueryEvalCtx *q, RSQueryNode *n, const EvalConfig *eval_config);
+void QueryIteratorTree_Free(struct QueryIteratorTree *tree);
 
 /**
- * Whether a query node needs term offset data.
+ * Consume `tree` into the result processor that reads its documents.
+ *
+ * The caller owns the returned processor, whose `Free` callback also frees the
+ * tree's root and `query_slots`.
  *
  * # Safety
  *
- * `scorer_name` must be null or a valid NUL-terminated C string; `opts` must be
- * null or point to a valid [`QueryNodeOptions`].
+ * 1. `tree` must be a tree returned by [`QAST_Iterate`] that has not been
+ *    released yet.
+ * 2. `query_slots` must be NULL, or a [`SlotRangeArray`] allocated with the
+ *    Redis allocator and not owned by anything else.
+ * 3. `sctx` must be a valid [`RedisSearchCtx`] with a non-NULL `timeout` and
+ *    whose `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec), and
+ *    must outlive the returned processor.
  */
-bool queryNeedsOffsets(const char *scorer_name, const struct QueryNodeOptions *opts);
+ResultProcessor *QueryIteratorTree_IntoResultProcessor(struct QueryIteratorTree *tree, const struct RedisModuleSlotRangeArray *query_slots, uint32_t key_space_version, RedisSearchCtx *sctx);
 
 /**
- * Whether the scorer named `scorer_name` needs term offset data.
- *
- * A null `scorer_name` falls back to the configured default scorer
- * ([`ffi::RSGlobalConfig`]'s `defaultScorer`), and a custom or
- * otherwise unrecognised name conservatively needs offsets.
+ * Profile `tree` in place, via [`QueryIteratorTree::into_profiled`].
  *
  * # Safety
  *
- * `scorer_name` must be null or a valid NUL-terminated C string.
+ * 1. `tree` must be a tree returned by [`QAST_Iterate`] that has not been
+ *    released yet.
+ * 2. `tree` must not be accessed through any other pointer, from this or
+ *    another thread, for the duration of the call.
+ *
+ * # Panics
+ *
+ * Aborts the process if `tree` has already been profiled.
  */
-bool scorerNeedsOffsets(const char *scorer_name);
+void QueryIteratorTree_Profile(struct QueryIteratorTree *tree);
+
+/**
+ * Return the root iterator of `tree`, which the tree keeps owning.
+ *
+ * It stops being the root once [`QueryIteratorTree_SetRoot`] or
+ * [`QueryIteratorTree_Profile`] replaces it.
+ *
+ * # Safety
+ *
+ * 1. `tree` must be a tree returned by [`QAST_Iterate`] that has not been
+ *    released yet.
+ */
+QueryIterator *QueryIteratorTree_Root(struct QueryIteratorTree *tree);
+
+/**
+ * Replace the root iterator of `tree` with `root`, as
+ * [`QueryIteratorTree::replace_root`] does.
+ *
+ * The previous root is not freed: `root` must take ownership of it, typically
+ * as a child, or it leaks.
+ *
+ * # Safety
+ *
+ * 1. `tree` must be a tree returned by [`QAST_Iterate`] that has not been
+ *    released yet.
+ * 2. `tree` must not be accessed through any other pointer, from this or
+ *    another thread, for the duration of the call.
+ * 3. `root` must satisfy the safety invariants of
+ *    [`CRQEIterator::new`](rqe_iterators::c2rust::CRQEIterator::new).
+ */
+void QueryIteratorTree_SetRoot(struct QueryIteratorTree *tree, QueryIterator *root);
 
 #ifdef __cplusplus
 }  // extern "C"

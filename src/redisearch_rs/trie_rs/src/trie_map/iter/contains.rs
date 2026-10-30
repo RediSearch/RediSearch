@@ -42,7 +42,6 @@ struct StackItem<'tm, Data> {
 impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
     /// Creates a new contains iterator over the entries of a [`TrieMap`](crate::TrieMap).
     pub(crate) fn new(root: Option<&'tm Node<Data>>, target: &'t [u8]) -> Self {
-        let finder = Finder::new(target);
         Self {
             stack: root
                 .into_iter()
@@ -53,9 +52,31 @@ impl<'tm, 't, Data> ContainsIter<'tm, 't, Data> {
                 })
                 .collect(),
             key: vec![],
-            finder,
+            finder: Finder::new(target),
             timeout: IteratorTimeoutState::no_timeout(),
         }
+    }
+
+    /// Copy the target fragment into the iterator, detaching it from the
+    /// borrow it was built from. Mirrors
+    /// [`Finder::into_owned`](memchr::memmem::Finder::into_owned), which
+    /// does the actual copying.
+    ///
+    /// Lets a caller that folds or otherwise rewrites the target into a
+    /// temporary still hand out a lazy iterator, instead of draining the
+    /// walk while the temporary is alive.
+    pub fn into_owned(self) -> ContainsIter<'tm, 'static, Data> {
+        ContainsIter {
+            stack: self.stack,
+            key: self.key,
+            finder: self.finder.into_owned(),
+            timeout: self.timeout,
+        }
+    }
+
+    /// Creates a new empty iterator, that yields no entries.
+    pub(crate) fn empty() -> Self {
+        Self::new(None, &[][..])
     }
 
     pub(crate) fn set_timeout(&mut self, timeout: Option<Instant>) {

@@ -87,7 +87,7 @@ static bool blockedClientTimedOut(void *arg) {
  *******************************************************************************************************************/
 
 static int UnlockSpec_and_ReturnRPResult(RedisSearchCtx *sctx, int result_status) {
-  RedisSearchCtx_UnlockSpec(sctx);
+  IndexSpec_Unlock(sctx->spec);
   return result_status;
 }
 
@@ -133,6 +133,12 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   } else {
     if (it->current->dmd) {
       *dmd = it->current->dmd;
+      // Borrowed before a slot deletion may have been registered (e.g. held in the optimizer heap
+      // across cursor reads), so DocTable_Borrow's check did not cover it.
+      if (DocTable_HasPendingDeletions(docs) && DocTable_IsDocPendingDeletion(docs, *dmd)) {
+        DMD_Return(*dmd);
+        return false;
+      }
     } else {
       *dmd = DocTable_Borrow(docs, it->lastDocId);
     }
@@ -216,7 +222,8 @@ static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadat
 
   // Check query slots (internal command filtering)
   if (self->querySlots && (__atomic_load_n(&key_space_version, __ATOMIC_RELAXED) != self->keySpaceVersion)) {
-    int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
+    // Disk DMDs do not carry the slot (see SearchDisk_GetDocumentMetadata), so hash their key.
+    const uint16_t slot = self->sctx->spec->diskSpec ? RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr)) : dmd->slot;
     if (!SlotRangeArray_ContainsSlot(self->querySlots, slot)) {
       return false;
     }
@@ -291,13 +298,13 @@ static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
 
   QueryIterator *it = self->iterator;
 
-  // Already locked by us, or borrowed from an outer scope that has held the lock
-  // since the iterators were built - nothing to lock or revalidate either way.
-  if (sctx->lock_state != SPEC_LOCK_UNSET) {
+  // This thread has held the lock since the iterators were built or last
+  // revalidated, so neither acquisition nor revalidation is needed.
+  if (IndexSpec_IsLocked(sctx->spec)) {
     return REVALIDATE_CONTINUE;
   }
 
-  RedisSearchCtx_LockSpecRead(sctx);
+  IndexSpec_LockRead(sctx->spec);
 
   ValidateStatus rc = it->Revalidate(it, sctx->spec);
 
@@ -997,6 +1004,8 @@ typedef struct {
   // Per-key load profiling buffer (nkeys entries), allocated only for
   // `FT.PROFILE ... LOAD`; NULL otherwise. Populated by the Rust loader.
   LoadFieldProfile *profileFields;
+  // Owned format-specific cache; NULL for whole-document HASH loading.
+  struct LoaderCache *cache;
   QueryError status;
 } RPLoader;
 
@@ -1034,26 +1043,28 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 
   int ret;
   if (self->load_all) {
-      LoadAllKeysOptions opts = {
-          .sctx = self->sctx,
-          .dmd = dmd,
-          .force_string = true,
-          .status = &self->status,
-      };
-      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
+    LoadAllKeysOptions opts = {
+        .sctx = self->sctx,
+        .dmd = dmd,
+        .force_string = true,
+        .status = &self->status,
+        .cache = self->cache,
+    };
+    ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
-      LoadIndividualKeysOptions opts = {
-          .sctx = self->sctx,
-          .dmd = dmd,
-          .keys = self->keys,
-          .nkeys = self->nkeys,
-          .force_string = true,
-          .force_load = self->forceLoad,
-          .cached_only = false,
-          .status = &self->status,
-          .profile_fields = self->profileFields,
-      };
-      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
+    LoadIndividualKeysOptions opts = {
+        .sctx = self->sctx,
+        .dmd = dmd,
+        .keys = self->keys,
+        .nkeys = self->nkeys,
+        .force_string = true,
+        .force_load = self->forceLoad,
+        .cached_only = false,
+        .status = &self->status,
+        .profile_fields = self->profileFields,
+        .cache = self->cache,
+    };
+    ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
 
   // if loading the document has failed, we keep the row as it was.
@@ -1071,9 +1082,11 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 // Result_ExpiredDoc carries no fields - its document was deleted or re-indexed between
 // the iterator yielding it and the safe loader loading it (the safe loader releases the
 // spec read lock to take the GIL, so a concurrent re-index can pop the doc's metadata in
-// that window) - so serializing it would produce a doc id followed by a nil field-array
-// (RESP2 $-1). Callers drop such results (see rpSafeLoader_Load); the plain loader runs
-// with Redis locked throughout and never sees them.
+// that window). Both loaders drop such results right after loading (see rploaderNext and
+// rpSafeLoader_Load); the plain loader runs with Redis locked throughout and rarely sees
+// them. This is the invariant the serializers assert: no flagged row reaches them, so the
+// field map is always declared. Should one slip through in a release build, it serializes
+// as an empty field map, not as a stray null that would break the declared length.
 static inline bool loaderResultIsEmittable(const SearchResult *r) {
   return !(SearchResult_GetFlags(r) & Result_ExpiredDoc);
 }
@@ -1114,6 +1127,7 @@ static void rploaderFreeInternal(ResultProcessor *base) {
   QueryError_ClearError(&lc->status);
   rm_free(lc->keys);
   rm_free(lc->profileFields);
+  LoaderCache_Free(lc->cache);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1136,9 +1150,11 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     self->load_all = false;
   } else {
     self->load_all = true;
-    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED); // TODO: turn on only for HASH specs
+    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED);  // TODO: turn on only for HASH specs
   }
 
+  DocumentType type = sctx && sctx->spec ? sctx->spec->rule->type : DocumentType_Hash;
+  self->cache = LoaderCache_New(type, self->keys, self->nkeys);
   self->lk = lk;
 }
 
@@ -1365,7 +1381,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // let's lock Redis to provide safe access to Redis keyspace
 
   // First, we verify that we unlocked the spec before we lock Redis.
-  RedisSearchCtx_UnlockSpec(sctx);
+  IndexSpec_Unlock(sctx->spec);
 
   bool isQueryProfile = rp->parent->isProfile;
   rs_wall_clock rpStartTime;
@@ -2050,7 +2066,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
   if (sync->take_index_lock) {
     // Try to lock the index for read (non-blocking)
     // If a writer is waiting, this will fail immediately to prevent deadlock
-    int lock_rc = RedisSearchCtx_TryLockSpecRead(self->depletingThreadCtx);
+    int lock_rc = IndexSpec_TryLockRead(self->depletingThreadCtx->spec);
     if (lock_rc != REDISMODULE_OK) {
       // Failed to acquire lock - likely a writer is waiting
       // Set error status and return without depleting
@@ -2098,7 +2114,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
 
   // Unlock the index if we locked it
   if (lock_acquired) {
-    RedisSearchCtx_UnlockSpec(self->depletingThreadCtx);
+    IndexSpec_Unlock(self->depletingThreadCtx->spec);
   }
 
 }
@@ -2112,6 +2128,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
  * Signals completion by setting done_depleting to `true` and broadcasting to condition variable.
  */
 static void RPSafeDepleter_Deplete(void *arg) {
+  IndexSpec_AssertLockNotHeld();
   RPSafeDepleter *self = (RPSafeDepleter *)arg;
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
 
@@ -2136,6 +2153,7 @@ static void RPSafeDepleter_Deplete(void *arg) {
   // Record the depletion time
   self->depletionTime = rs_wall_clock_elapsed_ns(&depletionStart);
 
+  IndexSpec_AssertLockNotHeld();
   // Signal completion
   RPSafeDepleter_SignalDone(self, sync);
 }
@@ -2193,7 +2211,7 @@ static inline int RPSafeDepleter_WaitForDepletionToStart(DepleterSync *sync, Red
       // Release the main thread's lock - depleters that acquired locks have
       // their own
       // This prevents deadlock: SafeLoader needs GIL, Writer holds GIL waiting for write lock
-      RedisSearchCtx_UnlockSpec(lockedCtx);
+      IndexSpec_Unlock(lockedCtx->spec);
       // Mark the index as released
       sync->index_released = true;
       return RS_RESULT_OK;
@@ -2359,7 +2377,7 @@ void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters) {
 * waiting for depletion to finish:
 * 0. Some sanity checks, will return an error if it detected an invalid state
 * 1. It will start a thread for every safe depleter
-* 2. Wait for all the threads to take their own read lock and then unlock the lock it held - we assume the lock was taken in the query thread
+* 2. When take_index_lock is set, transfer the caller's read lock to the depleters.
 * 3. If any depleter failed to acquire its lock, drain the group and return
 *    RS_RESULT_ERROR — the failure is fatal and the caller aborts before any
 *    reply, and an error return must not leave background threads writing
@@ -2368,13 +2386,14 @@ void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters) {
 * for its own completion, so consumers observe results in completion order.
 */
 int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status) {
-  RS_ASSERT(lockedCtx != NULL && lockedCtx->lock_state == SPEC_LOCK_READ);
+  RS_ASSERT(lockedCtx != NULL);
   DepleterSync *sync = NULL;
   // Verify we are in a sane state before starting the depletion process
   if (!verifyInvariants(safeDepleters, &sync)) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE, "Failed to start background depletion");
     return RS_RESULT_ERROR;
   }
+  RS_ASSERT(!sync->take_index_lock || IndexSpec_IsReadLocked(lockedCtx->spec));
 
   // TODO: Check timeout before attempting to start threads
   // This would lead to returning an error from one of the shards, maybe failing the entire command
@@ -2751,15 +2770,18 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
    ret->upstreams = upstreams;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 
-   // Calculate maximal dictionary size based on scoring type
-   size_t maximalSize;
+   size_t window;
    if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-     maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;
+     window = hybridScoringCtx->rrfCtx.window;
    } else {
-     maximalSize = hybridScoringCtx->linearCtx.window * numUpstreams;
+     window = hybridScoringCtx->linearCtx.window;
    }
-   // Pre-size the dictionary to avoid multiple resizes during accumulation
-   dictExpand(ret->hybridResults, maximalSize);
+   // WINDOW bounds consumption, not the number of documents that actually exist. Limit eager
+   // allocation and let the dictionary grow as results arrive. Check before multiplying to avoid
+   // overflow when computing the initial capacity.
+   const size_t maxPresize = 65536;
+   size_t initialSize = window > maxPresize / numUpstreams ? maxPresize : window * numUpstreams;
+   dictExpand(ret->hybridResults, initialSize);
 
    ret->iterator = NULL;
 

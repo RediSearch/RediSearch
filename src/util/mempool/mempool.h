@@ -41,6 +41,9 @@ void *mempool_get(struct mempool_t *p);
 /* Release an allocated instance to the pool */
 void mempool_release(struct mempool_t *p, void *ptr);
 
+/* Number of released entries currently held by the pool */
+size_t mempool_size(const struct mempool_t *p);
+
 /* destroy the pool, releasing all entries in it and destroying its internal array */
 void mempool_destroy(struct mempool_t *p);
 

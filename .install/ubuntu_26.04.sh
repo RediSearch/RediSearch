@@ -3,7 +3,7 @@ set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
 MODE=$1 # whether to install using sudo or not
 
-apt_install git wget build-essential lcov openssl libssl-dev \
+apt_install git wget build-essential openssl libssl-dev \
     unzip rsync clang curl libclang-dev gdb libcrypt-dev
 
 # We need Python headers to build psutil@5.x.y from

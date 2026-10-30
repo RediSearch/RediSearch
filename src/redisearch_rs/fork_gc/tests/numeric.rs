@@ -97,10 +97,10 @@ impl TestSpec {
 }
 
 impl SpecWriteAccess for TestSpec {
-    fn with_write<T, C>(
+    fn with_write<T>(
         &mut self,
-        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError<C>>,
-    ) -> Result<T, HandleError<C>> {
+        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError>,
+    ) -> Result<T, HandleError> {
         self.lock_attempts += 1;
         if self.fail_lock_on_attempt == Some(self.lock_attempts) {
             return Err(HandleError::SpecDeleted);
@@ -589,7 +589,7 @@ fn handle_numeric_with_accepts_empty_node_stream_without_locking_spec() {
 mod round_trip {
     use super::*;
     use inverted_index::GcScanDelta;
-    use numeric_range_tree::{Hll, NodeGcDelta};
+    use numeric_range_tree::{Hll, NodeGcDelta, ValueBounds};
     use proptest::prelude::*;
 
     proptest! {
@@ -600,6 +600,8 @@ mod round_trip {
             generation in any::<u32>(),
             registers_with_last_block in any::<[u8; Hll::size()]>(),
             registers_without_last_block in any::<[u8; Hll::size()]>(),
+            // NaN would fail the equality check on its own.
+            bounds in prop::array::uniform4(any::<f64>().prop_filter("not NaN", |v| !v.is_nan())),
         ) {
             let node = NumericNodeDelta {
                 position,
@@ -608,11 +610,13 @@ mod round_trip {
                     delta: GcScanDelta::empty_for_testing(),
                     registers_with_last_block,
                     registers_without_last_block,
+                    bounds_with_last_block: ValueBounds { min: bounds[0], max: bounds[1] },
+                    bounds_without_last_block: ValueBounds { min: bounds[2], max: bounds[3] },
                 },
             };
 
             let mut buf = Vec::new();
-            Some(node)
+            Some(&node)
                 .serialize(&mut rmp_serde::Serializer::new(&mut buf))
                 .unwrap();
 
@@ -629,6 +633,8 @@ mod round_trip {
                 decoded.delta.registers_without_last_block,
                 registers_without_last_block
             );
+            prop_assert_eq!(decoded.delta.bounds_with_last_block, node.delta.bounds_with_last_block);
+            prop_assert_eq!(decoded.delta.bounds_without_last_block, node.delta.bounds_without_last_block);
             prop_assert_eq!(cursor.position(), buf.len() as u64, "decode left trailing bytes");
         }
     }

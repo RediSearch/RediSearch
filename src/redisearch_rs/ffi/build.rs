@@ -40,6 +40,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "VecSimQueryReply_GetIterator",
             "VecSimQueryReply_IteratorFree",
             "VecSimQueryReply_IteratorNext",
+            "VecSimQueryReply_Len",
             "VecSimQueryResult_GetId",
             "VecSimQueryResult_GetScore",
         ],
@@ -67,6 +68,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "VecSimIndex_IndexSize",
             "VecSimIndex_New",
             "VecSimIndex_PreferAdHocSearch",
+            "VecSimIndex_RangeQuery",
             "VecSimIndex_TopKQuery",
             "VecSimParams_GetQueryBlobSize",
             "VecSimTieredIndex_AcquireSharedLocks",
@@ -124,8 +126,21 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["RM_SCAN_KEY_API_FIX", "RSGlobalConfig"],
     },
     HeaderAllowlist {
+        path: "src/doc_id_meta.h",
+        fns: &["DocIdMeta_Get"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/doc_table.h",
-        fns: &["DMD_Free", "DocTable_Exists", "DocTable_Put"],
+        fns: &[
+            "DMD_Free",
+            "DocTable_Exists",
+            "DocTable_Put",
+            "DocTable_KeyEquals",
+            "DocTable_StartKeyMap",
+            "DocTable_BuildKeyMapBatch",
+        ],
         types: &[],
         vars: &[],
     },
@@ -176,18 +191,8 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/iterators/hybrid_reader.h",
-        fns: &[
-            "HybridIterator_GetChild",
-            "HybridIterator_GetMaxBatchIteration",
-            "HybridIterator_GetMaxBatchSize",
-            "HybridIterator_GetNumIterations",
-            "HybridIterator_GetOwnKeyRef",
-            "HybridIterator_GetSearchModeString",
-            "HybridIterator_IsBatchMode",
-            "HybridIterator_SetKeyHandle",
-            "RS_VecSimCheckTimeout",
-        ],
+        path: "src/iterators/vector_top_k.h",
+        fns: &["RS_VecSimCheckTimeout"],
         types: &[],
         vars: &[],
     },
@@ -208,7 +213,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/json.h",
-        fns: &["JSON_GetJsonFromHandleCompat"],
+        fns: &["JSON_GetJsonFromHandle"],
         types: &[],
         vars: &["RedisJSONAPI_MIN_API_VER", "japi", "japi_ver"],
     },
@@ -237,12 +242,14 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/query.h",
-        fns: &[
-            "Query_EvalNode",
-            "QueryIterator_IsBlockedClientTimedOut",
-            "tag_strtolower",
-        ],
-        types: &["QueryAST", "QueryEvalCtx"],
+        fns: &["QueryIterator_IsBlockedClientTimedOut"],
+        types: &["QueryAST"],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/query_ctx.h",
+        fns: &[],
+        types: &["QueryEvalCtx"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -276,7 +283,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/redisearch.h",
         fns: &[],
         types: &["RSToken"],
-        vars: &[],
+        vars: &["BAD_POINTER_ADDR"],
     },
     HeaderAllowlist {
         path: "src/doc_id_meta.h",
@@ -286,7 +293,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/result_processor.h",
-        fns: &["RPProfile_IncrementCount"],
+        fns: &["RPProfile_IncrementCount", "RPQueryIterator_New"],
         types: &["RPStatus"],
         vars: &[],
     },
@@ -359,6 +366,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "IndexSpec_AcquireWriteLock",
             "IndexSpec_AddTerm",
+            "IndexSpec_CreateField",
             "IndexSpec_DecrementNumTerms",
             "IndexSpec_DecrementTrieTermCount",
             "IndexSpec_GetFieldWithLength",
@@ -398,8 +406,12 @@ const HEADERS: &[HeaderAllowlist] = &[
             "TagIndex_DeleteTagValue",
             "TagIndex_Ensure",
             "TagIndex_Free",
+            "TagIndex_GetSuffixMatches",
+            "TagIndex_GetSuffixWildcardMatches",
+            "TagIndex_HasSuffix",
             "TagIndex_Index",
             "TagIndex_OpenIndex",
+            "TagIndex_OpenReader",
         ],
         types: &[],
         vars: &[],
@@ -423,7 +435,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/trie/rune_util.h",
         fns: &["runesToStr", "strToLowerRunes", "strToRunes"],
-        types: &[],
+        types: &["rune"],
         vars: &["MAX_RUNE_STR_LEN"],
     },
     HeaderAllowlist {
@@ -463,7 +475,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "array_len_func",
             "array_new_sz",
         ],
-        types: &[],
+        types: &["array_hdr_t"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -492,7 +504,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/util/strconv.h",
-        fns: &["unicode_tolower_fn"],
+        fns: &["nu_utf8_read_fn", "nu_utf8_write_fn", "unicode_tolower_fn"],
         types: &[],
         vars: &[],
     },
@@ -585,6 +597,9 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     "rqe_iterator_type.h",
     // `IteratorsConfig` is embedded by value in `RSGlobalConfig` (src/config.h).
     "rqe_iterators.h",
+    // `QueryIteratorTree` is referenced by `AREQ` (src/aggregate/aggregate.h)
+    // and `QueryPipelineParams` (src/pipeline/pipeline.h).
+    "query_eval.h",
     // `src/rlookup.h` has `static inline` accessors that dereference
     // `RLookupKey` / `RLookupIterator` fields, so the full struct bodies in
     // these three are required. (`rlookup_ffi.h` includes `search_result_rs.h`

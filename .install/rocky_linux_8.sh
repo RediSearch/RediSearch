@@ -11,7 +11,7 @@ dnf_install dnf-plugins-core
 
 # Keep the large group out of list mode; package checks below cover build deps.
 if [[ "${CHECK_DEPS:-0}" != 1 ]] && ! rpm -q gcc gcc-c++ make >/dev/null 2>&1; then
-    _sh "$MODE dnf groupinstall \"Development Tools\" -yqq < /dev/null"
+    _sh "$MODE dnf groupinstall \"Development Tools\" -yqq --nobest < /dev/null"
 fi
 
 # powertools (Rocky/Alma) or codeready-builder (RHEL) is needed to install epel

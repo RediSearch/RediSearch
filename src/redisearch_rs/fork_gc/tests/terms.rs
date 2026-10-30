@@ -20,7 +20,7 @@ use dict::{KeysDictType, OwnedDict};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
     HandleError,
-    terms::{TermEntry, TermNotFound, apply_terms, collect_terms, receive_terms},
+    terms::{TermEntry, apply_terms, collect_terms, receive_terms},
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
@@ -298,7 +298,9 @@ fn apply_returns_err_when_term_not_found() {
         let mut write_guard = spec.write();
         assert!(matches!(
             apply_terms(&trie_term(b"nonexistent"), delta, &mut write_guard),
-            Err(HandleError::Custom(TermNotFound))
+            Err(HandleError::ApplyError(
+                "the term's inverted index was removed before the delta could be applied"
+            ))
         ));
     }
 }

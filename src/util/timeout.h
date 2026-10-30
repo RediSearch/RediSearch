@@ -66,7 +66,7 @@ static inline void rs_timerremaining(struct timespec *a, struct timespec *b, str
 #define TIMEOUT_COUNTER_LIMIT QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT
 
 static inline int TimedOut(const struct timespec *timeout) {
-  static struct timespec now;
+  struct timespec now;
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
   if (__builtin_expect(rs_timer_ge(&now, timeout), 0)) {
     return TIMED_OUT;

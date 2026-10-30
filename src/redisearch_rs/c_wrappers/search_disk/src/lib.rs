@@ -128,6 +128,29 @@ impl SearchDiskHandle {
         api.new_geo_on_disk(disk_spec, gf, field_index, snapshot)
     }
 
+    /// Build an iterator over documents missing `field_index` at indexing time.
+    ///
+    /// # Safety
+    ///
+    /// 1. The wrapped disk spec must remain valid for `'index`.
+    /// 2. [`SEARCH_ENTERPRISE_ITERATORS`] must be initialized.
+    /// 3. `snapshot` must belong to this disk spec and remain valid for `'index`.
+    /// 4. There must be no other live reference to the wrapped spec for `'index`.
+    pub unsafe fn new_missing_iterator<'index>(
+        self,
+        field_index: FieldIndex,
+        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
+        let api = SEARCH_ENTERPRISE_ITERATORS
+            .get()
+            .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
+
+        // SAFETY: `new` establishes pointer validity; preconditions (1)/(4)
+        // uphold the lifetime and exclusive access of this reference.
+        let disk_spec = unsafe { &mut *self.0.as_ptr() };
+        api.new_missing_on_disk(disk_spec, field_index, snapshot)
+    }
+
     /// Build a term iterator backed by this on-disk index.
     ///
     /// Consumes the handle and delegates to the registered enterprise term

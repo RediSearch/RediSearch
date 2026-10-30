@@ -6,6 +6,7 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 from common import *
+import json
 
 
 @skip(no_json=True)
@@ -93,6 +94,124 @@ def test_doc_level_load_returns_root_for_matching_document(env):
     waitForIndex(env, "idx")
 
     res = env.cmd("FT.SEARCH", "idx", "@name:carol")
+    res[2][1] = json.loads(res[2][1])
+    env.assertEqual(res, [1, "doc:1", ["$", {"name": "carol"}]])
+
+
+@skip(no_json=True)
+def test_load_all_sortable_root_field(env):
+    """MOD-19631: a SORTABLE schema field on the JSON root (`$`) makes the
+    root key value-available from the sorting vector. Load-all must still
+    populate it from the document instead of crashing the server. The
+    non-SORTABLE case guards that the default path is unchanged."""
+    cases = [
+        # (field type, extra schema args, JSON document, expected loaded `$`).
+        # A scalar root is loaded as its plain value, not as serialized JSON.
+        ("TEXT", ["SORTABLE"], '"hello"', "hello"),
+        ("TAG", ["SORTABLE"], '"hello"', "hello"),
+        ("NUMERIC", ["SORTABLE"], "42", "42"),
+        ("TEXT", ["SORTABLE", "NOINDEX"], '"hello"', "hello"),
+        ("TEXT", [], '"hello"', "hello"),
+    ]
+    for field_type, extra, doc, expected in cases:
+        env.flush()
+        env.expect(
+            "FT.CREATE", "idx", "ON", "JSON", "SCHEMA", "$", field_type, *extra
+        ).ok()
+        env.cmd("JSON.SET", "doc:1", "$", doc)
+        waitForIndex(env, "idx")
+        msg = f"{field_type} {extra}"
+
+        res = env.cmd("FT.SEARCH", "idx", "*")
+        env.assertEqual(res[0], 1, message=msg)
+        env.assertEqual(res[1], "doc:1", message=msg)
+        env.assertEqual(to_dict(res[2])["$"], expected, message=msg)
+
+        res = env.cmd("FT.AGGREGATE", "idx", "*", "LOAD", "*")
+        env.assertEqual(res[0], 1, message=msg)
+        env.assertEqual(to_dict(res[1])["$"], expected, message=msg)
+
+
+@skip(no_json=True)
+def test_load_all_sortable_array_root_field(env):
+    """MOD-19631: a SORTABLE `$` over an array root. The sorting vector and the loaded
+    document may hold different values; load-all must return the whole root from the
+    document, consistently for `FT.SEARCH` and `FT.AGGREGATE ... LOAD *`."""
+    env.expect("FT.CREATE", "idx", "ON", "JSON", "SCHEMA", "$", "TEXT", "SORTABLE").ok()
+    env.cmd("JSON.SET", "doc:1", "$", '["a", "b"]')
+    waitForIndex(env, "idx")
+
+    res = env.cmd("FT.SEARCH", "idx", "*")
     env.assertEqual(res[0], 1)
-    env.assertEqual(res[1], "doc:1")
-    env.assertGreater(len(res[2]), 0)
+    env.assertEqual(json.loads(to_dict(res[2])["$"]), ["a", "b"])
+
+    res = env.cmd("FT.AGGREGATE", "idx", "*", "LOAD", "*")
+    env.assertEqual(res[0], 1)
+    env.assertEqual(json.loads(to_dict(res[1])["$"]), ["a", "b"])
+
+
+@skip(cluster=True, no_json=True)
+def test_return_json_paths_across_documents(env):
+    """Explicit RETURN mixes compiled paths, multi-values, and the __key sentinel."""
+    env.expect(
+        "FT.CREATE", "idx", "ON", "JSON", "SCHEMA",
+        "$.name", "AS", "name", "TEXT",
+        "$.order", "AS", "order", "NUMERIC", "SORTABLE",
+    ).ok()
+    conn = getConnectionByEnv(env)
+    for order, name, price, tags in [
+        (1, "alice", 10, ["red", "blue"]),
+        (2, "bob", 20, ["green"]),
+    ]:
+        conn.execute_command(
+            "JSON.SET", f"doc:{order}", "$",
+            json.dumps({"order": order, "name": name, "price": price, "tags": tags}),
+        )
+
+    env.expect(
+        "FT.SEARCH", "idx", "*", "SORTBY", "order", "ASC",
+        "RETURN", "9", "name", "$.price", "AS", "price",
+        "$.tags", "AS", "tags", "__key", "$.missing", "DIALECT", "3",
+    ).equal([
+        2,
+        "doc:1", ["name", '["alice"]', "price", "[10]",
+                  "tags", '[["red","blue"]]', "__key", "doc:1"],
+        "doc:2", ["name", '["bob"]', "price", "[20]",
+                  "tags", '[["green"]]', "__key", "doc:2"],
+    ])
+
+
+@skip(cluster=True, no_json=True)
+def test_multiple_json_load_stages_keep_their_path_order(env):
+    """Each LOAD stage has its own cache, reused for documents and cursor reads."""
+    env.expect(
+        "FT.CREATE", "idx", "ON", "JSON", "SCHEMA", "$.name", "AS", "name", "TEXT",
+    ).ok()
+    conn = getConnectionByEnv(env)
+    for name, price in [("alice", 10), ("bob", 20), ("carol", 30)]:
+        conn.execute_command(
+            "JSON.SET", f"doc:{name}", "$", json.dumps({"name": name, "price": price}),
+        )
+
+    reply = env.cmd(
+        "FT.AGGREGATE", "idx", "*",
+        "LOAD", "4", "$.price", "AS", "price", "__key",
+        "APPLY", "@price * 2", "AS", "double",
+        "SORTBY", "2", "@price", "ASC",
+        "LOAD", "4", "name", "$.missing", "AS", "optional",
+        "DIALECT", "2",
+        "WITHCURSOR", "COUNT", "1",
+    )
+    rows = []
+    while True:
+        batch, cursor = reply
+        rows.extend(batch[1:])
+        if cursor == 0:
+            break
+        reply = env.cmd("FT.CURSOR", "READ", "idx", cursor, "COUNT", "1")
+
+    env.assertEqual(rows, [
+        ["price", "10", "__key", "doc:alice", "double", "20", "name", "alice"],
+        ["price", "20", "__key", "doc:bob", "double", "40", "name", "bob"],
+        ["price", "30", "__key", "doc:carol", "double", "60", "name", "carol"],
+    ])

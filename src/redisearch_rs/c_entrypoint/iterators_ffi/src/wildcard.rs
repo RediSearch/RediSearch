@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
-
 use ffi::QueryIterator;
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
@@ -39,47 +37,4 @@ pub const unsafe extern "C" fn IsWildcardIterator(it: *const QueryIterator) -> b
         it.type_,
         IteratorType::Wildcard | IteratorType::InvIdxWildcard
     )
-}
-
-/// Creates a new wildcard iterator from a query evaluation context.
-///
-/// There are three possible code paths:
-///
-/// 1. **Disk index** — when [`spec.diskSpec`](ffi::IndexSpec::diskSpec) is non-null, delegates to
-///    the enterprise iterator API via
-///    [`rqe_iterators::wildcard::new_wildcard_iterator_on_disk`].
-/// 2. **[`index_all`](ffi::SchemaRule::index_all) optimized** — when [`SchemaRule`](ffi::SchemaRule)`.index_all` is set, delegates to
-///    [`rqe_iterators::wildcard::new_wildcard_iterator_optimized`].
-/// 3. **Fallback** — creates a simple [`Wildcard`] iterator that yields all
-///    document ids up to [`docTable.maxDocId`](ffi::DocTable::maxDocId).
-///
-/// # Safety
-///
-/// 1. `q` must be a non-null pointer to a valid [`QueryEvalCtx`](ffi::QueryEvalCtx)
-///    that remains valid for the lifetime of the returned iterator.
-/// 2. `q.sctx` must be a non-null pointer to a valid
-///    [`RedisSearchCtx`](ffi::RedisSearchCtx) that remains valid for the lifetime
-///    of the returned iterator.
-/// 3. `q.sctx.spec` must be a non-null pointer to a valid [`IndexSpec`](ffi::IndexSpec) that
-///    remains valid for the lifetime of the returned iterator.
-/// 4. `q.sctx.spec.rule`, when non-null, must point to a valid [`SchemaRule`](ffi::SchemaRule).
-/// 5. When [`SchemaRule`](ffi::SchemaRule)`.index_all` is true, the preconditions of
-///    [`rqe_iterators::wildcard::new_wildcard_iterator_optimized`] must also hold.
-/// 6. `q.docTable` must be a non-null pointer to a valid [`DocTable`](ffi::DocTable).
-/// 7. `q.sctx.spec.diskSpec`, when non-null, must point to a valid
-///    [`RedisSearchDiskIndexSpec`](ffi::RedisSearchDiskIndexSpec) that remains valid for the
-///    lifetime of the returned iterator, and the disk iterator backend must be initialized.
-/// 8. When `q.sctx.spec.diskSpec` is non-null, `q.sctx.diskSnapshot` must be a **non-null**
-///    [`RedisSearchDiskSnapshot`](ffi::RedisSearchDiskSnapshot) handle for `q.sctx.spec.diskSpec`
-///    that remains valid for the lifetime of the returned iterator. The disk path requires a
-///    point-in-time view: a null snapshot alongside a non-null `diskSpec` makes the call panic.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NewWildcardIterator(
-    q: *const ffi::QueryEvalCtx,
-    weight: f64,
-) -> *mut QueryIterator {
-    let query = NonNull::new(q.cast_mut()).expect("q is null");
-    // SAFETY: Caller guarantees all preconditions of `new_wildcard_iterator`.
-    let it = unsafe { rqe_iterators::wildcard::new_wildcard_iterator(query, weight) };
-    RQEIteratorWrapper::boxed_new(it)
 }

@@ -34,6 +34,7 @@ use query_term::RSQueryTerm;
 
 pub mod boxed;
 pub mod c2rust;
+mod composite;
 pub mod config;
 pub mod deferred;
 pub mod empty;
@@ -460,6 +461,16 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         token: &ffi::RSToken,
         field_index: FieldIndex,
         weight: f64,
+        snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
+    ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
+
+    /// Iterate over documents missing the given schema field.
+    ///
+    /// An unwritten field returns an empty iterator, not an error.
+    fn new_missing_on_disk<'index>(
+        &self,
+        index: &'index mut ffi::RedisSearchDiskIndexSpec,
+        field_index: FieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 

@@ -19,6 +19,8 @@
 #include <exception>  // std::exception
 #include <execution>  // std::unseq
 #include <numeric>    // std::transform_reduce
+#include <bit>        // std::bit_cast
+#include <cstdint>    // std::uint64_t
 
 namespace RediSearch {
 namespace GeoShape {
@@ -110,19 +112,23 @@ auto doc_to_string(doc_type<cs> const& doc) -> string {
 //       return ss.str();
 //     }};
 
+// from_wkt without the validity check.
+template <typename cs>
+auto parse_wkt(std::string_view wkt) -> geom_type<cs> {
+  if (wkt.starts_with("POI")) {
+    return bg::from_wkt<point_type<cs>>(std::string{wkt});
+  } else if (wkt.starts_with("POL")) {
+    auto poly = bg::from_wkt<poly_type<cs>>(std::string{wkt});
+    bg::correct(poly);
+    return poly;
+  } else {
+    throw std::runtime_error{"unknown geometry type"};
+  }
+}
+
 template <typename cs>
 auto from_wkt(std::string_view wkt) -> geom_type<cs> {
-  const auto geom = [&]() -> geom_type<cs> {
-    if (wkt.starts_with("POI")) {
-      return bg::from_wkt<point_type<cs>>(std::string{wkt});
-    } else if (wkt.starts_with("POL")) {
-      auto poly = bg::from_wkt<poly_type<cs>>(std::string{wkt});
-      bg::correct(poly);
-      return poly;
-    } else {
-      throw std::runtime_error{"unknown geometry type"};
-    }
-  }();
+  const auto geom = parse_wkt<cs>(wkt);
   std::visit(
       [](auto const& geom) -> void {
         // TODO: GEOMETRY - add flag to allow user to ascertain validity of input
@@ -152,6 +158,30 @@ constexpr auto geometry_reporter =
                    std::begin(inners), std::end(inners), outer_size, std::plus{},
                    [](auto const& hole) { return hole.get_allocator().report(); });
              }};
+
+template <typename cs>
+constexpr auto same_point = [](point_type<cs> const& a, point_type<cs> const& b) -> bool {
+  static_assert(sizeof(double) == sizeof(std::uint64_t));
+  return std::bit_cast<std::uint64_t>(bg::get<0>(a)) ==
+             std::bit_cast<std::uint64_t>(bg::get<0>(b)) &&
+         std::bit_cast<std::uint64_t>(bg::get<1>(a)) == std::bit_cast<std::uint64_t>(bg::get<1>(b));
+};
+// std::equal, not std::ranges::equal: libc++'s version uses a structured binding, where ADL
+// finds bg::get for Geographic points and fails to compile.
+template <typename cs>
+constexpr auto same_ring = [](auto const& a, auto const& b) -> bool {
+  return std::equal(std::begin(a), std::end(a), std::begin(b), std::end(b), same_point<cs>);
+};
+template <typename cs>
+constexpr auto same_geometry = overload{
+    [](point_type<cs> const& a, point_type<cs> const& b) -> bool { return same_point<cs>(a, b); },
+    [](poly_type<cs> const& a, poly_type<cs> const& b) -> bool {
+      return same_ring<cs>(a.outer(), b.outer()) &&
+             std::equal(std::begin(a.inners()), std::end(a.inners()), std::begin(b.inners()),
+                        std::end(b.inners()), same_ring<cs>);
+    },
+    // point vs polygon
+    [](auto const&, auto const&) -> bool { return false; }};
 
 template <typename cs>
 constexpr auto within_filter = overload{
@@ -212,6 +242,51 @@ bool RTree<cs>::remove(t_docId id) {
         return true;
       })
       .value_or(false);
+}
+
+template <typename cs>
+bool RTree<cs>::relabel(t_docId old_id, t_docId new_id) {
+  auto it = docLookup_.find(old_id);
+  if (it == docLookup_.end()) {
+    return false;
+  }
+  if (old_id == new_id) {
+    return true;
+  }
+  if (docLookup_.contains(new_id)) {
+    return false;
+  }
+  // Boost R-tree values are immutable: remove the pair, re-insert the box under new_id. The box
+  // is rebuilt as remove() does, so it compares equal to the stored one.
+  auto doc = make_doc<cs>(it->second, old_id);
+  if (rtree_.remove(doc) != 1) {
+    // Missed for some SPHERICAL points: Boost's spherical expand drops a point box's ULPs from the
+    // node box, so remove's exact covered_by check skips the leaf.
+    return false;
+  }
+  doc.second = new_id;
+  rtree_.insert(doc);
+  // Move-construct, not move-assign: StatefulAllocators never compare equal, so assignment would
+  // copy and skew allocated_.
+  auto geom = std::move(it->second);
+  docLookup_.erase(it);
+  docLookup_.emplace(new_id, std::move(geom));
+  return true;
+}
+
+template <typename cs>
+bool RTree<cs>::holds(std::string_view wkt, t_docId id) const {
+  const auto stored = lookup(id);
+  if (!stored) {
+    return false;
+  }
+  try {
+    // No is_valid: an exact match of a stored geometry is valid.
+    return std::visit(same_geometry<cs>, parse_wkt<cs>(wkt), *stored);
+  } catch (const std::exception&) {
+    // The fallback insert reports the parse error.
+    return false;
+  }
 }
 
 template <typename cs>

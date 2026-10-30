@@ -19,9 +19,9 @@
 extern "C" {
 #endif
 
-// create workers thread pool
+// create workers thread pool, sized as workersThreadPool_SetNumWorkers would size it
 // returns REDISMODULE_OK if thread pool created, REDISMODULE_ERR otherwise
-int workersThreadPool_CreatePool(size_t worker_count);
+int workersThreadPool_CreatePool(void);
 
 // Set the number of workers according to the configuration and server state
 // Should only be called from the main thread

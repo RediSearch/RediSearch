@@ -28,7 +28,6 @@ extern "C" {
  *
  * The term string is copied into a Rust-owned `NulTerminatedBytes` allocation.
  * Bytes are stored as-is without any UTF-8 conversion.
- * The returned pointer must be freed with [`Term_Free`].
  *
  * # Safety
  *
@@ -36,8 +35,8 @@ extern "C" {
  * - `tok->str` may be NULL, in which case the resulting term will have a
  *   NULL `str` field.
  * - If not NULL, `tok->str` must be a valid byte slice of `tok->len` bytes.
- * - The returned pointer is heap-allocated and must be freed with
- *   [`Term_Free`].
+ * - The returned pointer is a [`Box`] allocation whose ownership must be
+ *   handed to a Rust consumer (e.g. an iterator), which drops it.
  */
 struct RSQueryTerm *NewQueryTerm(const RSToken *tok, int id);
 
@@ -106,17 +105,6 @@ const char *QueryTerm_GetStrAndLen(const struct RSQueryTerm *term, size_t *out_l
  * allocated by [`NewQueryTerm`].
  */
 void QueryTerm_SetIDFs(struct RSQueryTerm *term, double idf, double bm25_idf);
-
-/**
- * Free an [`RSQueryTerm`] previously allocated by [`NewQueryTerm`].
- *
- * # Safety
- *
- * - `t` may be NULL (in which case this is a no-op).
- * - If non-NULL, `t` must have been allocated by [`NewQueryTerm`].
- * - After this call, `t` is dangling and must not be used.
- */
-void Term_Free(struct RSQueryTerm *t);
 
 #ifdef __cplusplus
 }  // extern "C"

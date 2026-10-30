@@ -18,7 +18,6 @@ lending-iterator.workspace = true
 libc.workspace = true
 thin_vec.workspace = true
 trie_rs = { workspace = true }
-rqe_wildcard = { workspace = true }
 redis-module.workspace = true
 workspace_hack.workspace = true
 

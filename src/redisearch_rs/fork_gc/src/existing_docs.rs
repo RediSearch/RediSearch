@@ -17,12 +17,6 @@ use inverted_index::GcScanDelta;
 use crate::util::{deserialize, serialize};
 use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 
-/// The `existingDocs` inverted index was removed between the child's scan and
-/// the parent's apply (a race between GC and a concurrent index drop).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the existingDocs inverted index was removed before the delta could be applied")]
-pub struct ExistingDocsDeleted;
-
 /// Collect the GC delta for the spec's `existingDocs` inverted index and write
 /// it to `writer`.
 ///
@@ -51,15 +45,17 @@ pub fn collect_existing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard)
 /// Returns [`GcApplyStats`] the caller flushes to the spec and the GC via
 /// [`GcApplyStats::apply`].
 ///
-/// Returns `Err(HandleError::Custom(ExistingDocsDeleted))` when the spec has no
-/// `existingDocs` index, which can happen if the index was removed between
+/// Returns [`HandleError::ApplyError`] when the spec has no `existingDocs`
+/// index, which can happen if the index was removed between
 /// the child's scan and the parent's apply.
 pub fn apply_existing_docs(
     delta: GcScanDelta,
     guard: &mut IndexSpecWriteGuard<'_>,
-) -> Result<GcApplyStats, HandleError<ExistingDocsDeleted>> {
+) -> Result<GcApplyStats, HandleError> {
     let Some(ii) = guard.existing_docs_mut() else {
-        return Err(HandleError::Custom(ExistingDocsDeleted));
+        return Err(HandleError::ApplyError(
+            "the existingDocs inverted index was removed before the delta could be applied",
+        ));
     };
 
     let info = ii.apply_gc(delta);
@@ -91,9 +87,7 @@ pub fn apply_existing_docs(
 /// `existingDocs` inverted index under the write lock, and updates statistics
 /// on both the spec and the GC. A serialised `None` returns
 /// `Ok(HandleOutcome::Done)`.
-pub fn handle_existing_docs(
-    fgc: &mut ForkGC,
-) -> Result<HandleOutcome, HandleError<ExistingDocsDeleted>> {
+pub fn handle_existing_docs(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError> {
     crate::util::handle_one(
         fgc,
         |reader| deserialize(reader, "decoding existing-docs entry"),

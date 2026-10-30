@@ -75,6 +75,7 @@
 #include <assert.h>
 
 #include "../parse.h"
+#include "util/arr/arr.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
@@ -93,6 +94,16 @@ static size_t unescapen(char *s, size_t sz) {
   }
 
   return (size_t)(dst - s);
+}
+
+// Unescape a field name into a parse-owned copy: the query text belongs to the caller.
+static void unescapeFieldName(QueryParseCtx *ctx, QueryToken *tok) {
+  if (memchr(tok->s, '\\', tok->len)) {
+    char *unescaped = rm_strndup(tok->s, tok->len);
+    tok->len = unescapen(unescaped, tok->len);
+    tok->s = unescaped;
+    array_ensure_append_1(ctx->unescapedNames, unescaped);
+  }
 }
 
 // reduce B and C to a single intersection node
@@ -201,18 +212,18 @@ static const char ToksepParserMap_g[256] = {
 
 /**
  * Copy of toksep.h function to use a different map
- * Function reads string pointed to by `s` and indicates the length of the next
- * token in `tokLen`. `s` is set to NULL if this is the last token.
+ * Function reads string pointed to by `s`, up to `end` or a NUL, and indicates the
+ * length of the next token in `tokLen`. `s` is set to NULL if this is the last token.
  */
-static inline char *toksep2(char **s, size_t *tokLen) {
-  uint8_t *pos = (uint8_t *)*s;
-  char *orig = *s;
+static inline const char *toksep2(const char **s, const char *end, size_t *tokLen) {
+  const uint8_t *pos = (const uint8_t *)*s;
+  const char *orig = *s;
   int escaped = 0;
-  for (; *pos; ++pos) {
+  for (; (const char *)pos < end && *pos; ++pos) {
     if (ToksepParserMap_g[*pos] && !escaped) {
-      *s = (char *)++pos;
-      *tokLen = ((char *)pos - orig) - 1;
-      if (!*pos) {
+      *s = (const char *)++pos;
+      *tokLen = ((const char *)pos - orig) - 1;
+      if ((const char *)pos == end || !*pos) {
         *s = NULL;
       }
       return orig;
@@ -222,7 +233,7 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 
   // Didn't find a terminating token. Use a simpler length calculation
   *s = NULL;
-  *tokLen = (char *)pos - orig;
+  *tokLen = (const char *)pos - orig;
   return orig;
 };
 
@@ -259,8 +270,8 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 %type verbatim { QueryNode * }
 %destructor verbatim { QueryNode_Free($$); }
 
-%type termlist { QueryNode * }
-%destructor termlist { QueryNode_Free($$); }
+%type tag_termlist { QueryNode * }
+%destructor tag_termlist { QueryNode_Free($$); }
 
 %type union { QueryNode *}
 %destructor union { QueryNode_Free($$); }
@@ -456,17 +467,17 @@ text_expr(A) ::= LP text_expr(B) RP . {
 /////////////////////////////////////////////////////////////////
 
 attribute(A) ::= ATTRIBUTE(B) COLON param_term(C). {
-  const char *value = rm_strndup(C.s, C.len);
+  const char *value = C.s;
   size_t value_len = C.len;
   if (C.type == QT_PARAM_TERM) {
     size_t found_value_len;
-    const char *found_value = Param_DictGet(ctx->opts->params, value, &found_value_len, ctx->status);
+    const char *found_value = Param_DictGet(ctx->opts->params, C.s, C.len, &found_value_len, ctx->status);
     if (found_value) {
-      rm_free((char*)value);
-      value = rm_strndup(found_value, found_value_len);
+      value = found_value;
       value_len = found_value_len;
     }
   }
+  value = rm_strndup(value, value_len);
   A = (QueryAttribute){ .name = B.s, .namelen = B.len, .value = value, .vallen = value_len };
 }
 
@@ -509,45 +520,22 @@ text_expr(A) ::= text_expr(B) ARROW LB attribute_list(C) RB . {
 /////////////////////////////////////////////////////////////////
 
 text_expr(A) ::= EXACT(B) . [TERMLIST] {
-  char *str = rm_strndup(B.s, B.len);
-  char *s = str;
+  const char *str = B.s;
+  const char *end = B.s + B.len;
 
   A = NewPhraseNode(0);
 
   while (str != NULL) {
     // get the next token
     size_t tokLen = 0;
-    char *tok = toksep2(&str, &tokLen);
+    const char *tok = toksep2(&str, end, &tokLen);
     if(tokLen > 0) {
       QueryNode *C = NewTokenNode(ctx, rm_normalize(tok, tokLen), -1);
       QueryNode_AddChild(A, C);
     }
   }
 
-  rm_free(s);
   A->pn.exact = 1;
-  A->opts.flags |= QueryNode_Verbatim;
-}
-
-text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
-  // Quoted/verbatim string should not be handled as parameters
-  // Also need to add the leading '$' which was consumed by the lexer
-  char *s = rm_malloc(B.len + 1);
-  *s = '$';
-  memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
-  rm_free(s);
-  A->opts.flags |= QueryNode_Verbatim;
-}
-
-text_expr(A) ::= SQUOTE ATTRIBUTE(B) SQUOTE. [TERMLIST] {
-  // Single quoted/verbatim string should not be handled as parameters
-  // Also need to add the leading '$' which was consumed by the lexer
-  char *s = rm_malloc(B.len + 1);
-  *s = '$';
-  memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
-  rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }
 
@@ -567,13 +555,14 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
   A = B;
 }
 
-termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
+// Tag evaluation normalizes the words once, per the field's case sensitivity.
+tag_termlist(A) ::= param_term_case(B) param_term_case(C). [TERMLIST]  {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
 
-termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
+tag_termlist(A) ::= tag_termlist(B) param_term_case(C) . [TERMLIST] {
   A = B;
   QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
@@ -655,7 +644,7 @@ text_expr(A) ::= PERCENT PERCENT PERCENT param_term(B) PERCENT PERCENT PERCENT. 
 /////////////////////////////////////////////////////////////////
 
 modifier(A) ::= MODIFIER(B) . {
-  B.len = unescapen((char*)B.s, B.len);
+  unescapeFieldName(ctx, &B);
   A.tok = B;
   if (ctx->sctx->spec) {
     A.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
@@ -666,6 +655,7 @@ modifier(A) ::= MODIFIER(B) . {
 }
 
 modifierlist(A) ::= modifier(B) OR term(C). {
+  unescapeFieldName(ctx, &C);
   if (ctx->sctx->spec) {
     if (!FIELD_IS(B.fs, INDEXFLD_T_FULLTEXT)) {
       REPORT_WRONG_FIELD_TYPE(B, SPEC_TEXT_STR);
@@ -694,6 +684,7 @@ modifierlist(A) ::= modifier(B) OR term(C). {
 
 
 modifierlist(A) ::= modifierlist(B) OR term(C). {
+  unescapeFieldName(ctx, &C);
   if (ctx->sctx->spec) {
     FieldName second = { .tok = C, .fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, C.s, C.len) };
     if (!second.fs) {
@@ -720,7 +711,9 @@ expr(A) ::= ISMISSING LP modifier(B) RP . {
     reportSyntaxError(ctx->status, &B.tok, "'ismissing' requires defining the field with '" SPEC_INDEXMISSING_STR "'");
     A = NULL;
   } else {
-    A = NewMissingNode(B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewMissingNode(ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -734,7 +727,9 @@ expr(A) ::= modifier(B) COLON LB tag_list(C) RB . {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_TAG_STR);
     QueryNode_Free(C);
   } else if (C) {
-    A = NewTagNode(B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewTagNode(ctx->sctx->spec ? B.fs : NULL);
     QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
 
     // Set the children count on C to 0 so they won't get recursively free'd
@@ -758,7 +753,7 @@ tag_list(A) ::= verbatim(B) . [TAGLIST] {
   QueryNode_AddChild(A, B);
 }
 
-tag_list(A) ::= termlist(B) . [TAGLIST] {
+tag_list(A) ::= tag_termlist(B) . [TAGLIST] {
   A = NewPhraseNode(0);
   QueryNode_AddChild(A, B);
 }
@@ -778,7 +773,7 @@ tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
   A = B;
 }
 
-tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
+tag_list(A) ::= tag_list(B) OR tag_termlist(C) . [TAGLIST] {
   QueryNode_AddChild(B, C);
   A = B;
 }
@@ -794,7 +789,9 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
     QueryParam_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    A = NewNumericNode(C, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(C, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -848,7 +845,9 @@ expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-    QueryNode* E = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    QueryNode* E = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
     A = not_step(E);
   }
 }
@@ -859,7 +858,9 @@ expr(A) ::= modifier(B) EQUALS param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -869,7 +870,9 @@ expr(A) ::= modifier(B) GT param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -879,7 +882,9 @@ expr(A) ::= modifier(B) GE param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -889,7 +894,9 @@ expr(A) ::= modifier(B) LT param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -899,7 +906,9 @@ expr(A) ::= modifier(B) LE param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
-    A = NewNumericNode(qp, B.fs);
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    A = NewNumericNode(qp, ctx->sctx->spec ? B.fs : NULL);
   }
 }
 
@@ -914,7 +923,9 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     QueryParam_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    C->gf->fieldSpec = B.fs;
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    GeoFilter_SetField(C->gf, ctx->sctx->spec ? B.fs : NULL);
     A = NewGeofilterNode(C);
   }
 }
@@ -941,7 +952,9 @@ expr(A) ::= modifier(B) COLON geometry_query(C). {
     QueryNode_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    C->gmn.geomq->fs = B.fs;
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
+    // otherwise it is uninitialised parser-stack garbage, not NULL.
+    GeometryQuery_SetField(C->gmn.geomq, ctx->sctx->spec ? B.fs : NULL);
     A = C;
   }
 }
@@ -1090,7 +1103,12 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
   } else if (T.len == strlen("KNN") && !strncasecmp("KNN", T.s, T.len)) {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
-    A->vn.vq->field = C.fs;
+    // `C.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set — unset
+    // when the coordinator parses a KNN clause with no local spec, purely to read
+    // `k`/`shardWindowRatio` for shard-fanout planning (prepareOptionalTopKCase); the node
+    // itself is never evaluated. Otherwise `C.fs` is uninitialised parser-stack garbage, not
+    // NULL - only pass it through under the same condition already guarding `FIELD_IS` above.
+    VectorQuery_SetField(A->vn.vq, ctx->sctx->spec ? C.fs : NULL);
     VectorQuery_SetDefaultScoreField(A->vn.vq, C.tok.s, C.tok.len);
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
@@ -1131,7 +1149,9 @@ expr(A) ::= modifier(B) COLON LSQB vector_range_command(C) RSQB. {
     REPORT_WRONG_FIELD_TYPE(B, SPEC_VECTOR_STR);
     QueryNode_Free(C);
   } else if (C) {
-    C->vn.vq->field = B.fs;
+    // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set — see the
+    // `vector_command` rule above for when it is not.
+    VectorQuery_SetField(C->vn.vq, ctx->sctx->spec ? B.fs : NULL);
     A = C;
   }
 }

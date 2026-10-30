@@ -20,20 +20,6 @@ use numeric_range_tree::{NodeGcDelta, NodeIndex, NumericRangeTree};
 use crate::util::{SpecWriteAccess, deserialize, serialize};
 use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 
-/// A numeric tree error with a message explaining the specific issue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("{msg}")]
-pub struct TreeError {
-    msg: &'static str,
-}
-
-impl TreeError {
-    /// Build a [`HandleError::Custom`] carrying `msg`.
-    const fn new(msg: &'static str) -> HandleError<Self> {
-        HandleError::Custom(Self { msg })
-    }
-}
-
 /// A numeric or geo field scanned by the child process.
 ///
 /// The child uses borrowed field-name bytes to avoid copies; the parent
@@ -47,7 +33,7 @@ pub struct NumericField<T = Box<[u8]>> {
 }
 
 /// A single node delta in the numeric GC wire protocol.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct NumericNodeDelta {
     pub position: u32,
     pub generation: u32,
@@ -61,8 +47,8 @@ pub struct NumericNodeDelta {
 ///
 /// The index survives the lock releases between nodes because a spec's field array
 /// is only ever appended to. [`Self::get_mut`] re-checks the tree's unique id
-/// regardless, so a future violation of that invariant surfaces as a [`TreeError`]
-/// instead of applying deltas to an unrelated tree.
+/// regardless, so a future violation of that invariant surfaces as an apply
+/// error instead of applying deltas to an unrelated tree.
 #[derive(Clone, Copy)]
 struct ResolvedTree {
     field_index: usize,
@@ -73,25 +59,25 @@ impl ResolvedTree {
     /// Find the field named `field_name` and resolve it, after checking that its
     /// numeric tree is the one the child scanned.
     ///
-    /// Returns [`TreeError`] when no field matches, the field has no tree,
-    /// or the tree's unique id differs from `unique_id`.
+    /// Returns an apply error when no field matches, the field has no tree, or
+    /// the tree's unique id differs from `unique_id`.
     fn resolve(
         guard: &mut IndexSpecWriteGuard<'_>,
         field_name: &[u8],
         unique_id: u32,
-    ) -> Result<Self, HandleError<TreeError>> {
+    ) -> Result<Self, HandleError> {
         let (field_index, fs) = guard
             .field_specs_mut()
             .iter_mut()
             .enumerate()
             .find(|(_, fs)| fs.field_name().secret_value().to_bytes() == field_name)
-            .ok_or(TreeError::new(
+            .ok_or(HandleError::ApplyError(
                 "no field in the spec matches the scanned field name",
             ))?;
 
         let tree = fs
             .tree()
-            .ok_or(TreeError::new("the field has no numeric tree"))?;
+            .ok_or(HandleError::ApplyError("the field has no numeric tree"))?;
 
         Self::check_unique_id(tree, unique_id)?;
 
@@ -106,12 +92,12 @@ impl ResolvedTree {
     fn get_mut<'g>(
         &self,
         guard: &'g mut IndexSpecWriteGuard<'_>,
-    ) -> Result<&'g mut NumericRangeTree, HandleError<TreeError>> {
+    ) -> Result<&'g mut NumericRangeTree, HandleError> {
         let tree = guard
             .field_specs_mut()
             .get_mut(self.field_index)
             .and_then(|fs| fs.tree_mut())
-            .ok_or(TreeError::new(
+            .ok_or(HandleError::ApplyError(
                 "the numeric tree was dropped while its deltas were being applied",
             ))?;
 
@@ -121,12 +107,9 @@ impl ResolvedTree {
     }
 
     /// Confirm `tree` is the one the child scanned.
-    fn check_unique_id(
-        tree: &NumericRangeTree,
-        unique_id: u32,
-    ) -> Result<(), HandleError<TreeError>> {
+    fn check_unique_id(tree: &NumericRangeTree, unique_id: u32) -> Result<(), HandleError> {
         if u32::from(tree.unique_id()) != unique_id {
-            return Err(TreeError::new(
+            return Err(HandleError::ApplyError(
                 "the field's numeric tree is not the one the child scanned",
             ));
         }
@@ -209,7 +192,7 @@ fn apply_node_stream(
     field_name: &[u8],
     unique_id: u32,
     stats: &mut GcApplyStats,
-) -> Result<Option<ResolvedTree>, HandleError<TreeError>> {
+) -> Result<Option<ResolvedTree>, HandleError> {
     let mut resolved_tree = None;
 
     while let Some(node) = deserialize(&mut *reader, "decoding numeric node")? {
@@ -240,7 +223,7 @@ fn trim_empty_nodes(
     spec: &mut impl SpecWriteAccess,
     resolved_tree: ResolvedTree,
     stats: &mut GcApplyStats,
-) -> Result<(), HandleError<TreeError>> {
+) -> Result<(), HandleError> {
     spec.with_write(|guard| {
         let result = resolved_tree.get_mut(guard)?.compact_if_sparse();
 
@@ -262,11 +245,11 @@ pub fn handle_numeric_with(
     spec: &mut impl SpecWriteAccess,
     stats: &mut GcApplyStats,
     clean_numeric_empty_nodes: bool,
-) -> Result<HandleOutcome, HandleError<TreeError>> {
+) -> Result<HandleOutcome, HandleError> {
     let Some(NumericField {
         field_name,
         unique_id,
-    }) = deserialize::<Option<NumericField>, TreeError>(reader, "decoding numeric field")?
+    }) = deserialize::<Option<NumericField>>(reader, "decoding numeric field")?
     else {
         return Ok(HandleOutcome::Done);
     };
@@ -283,7 +266,7 @@ pub fn handle_numeric_with(
 /// Handle one field off `fgc`'s pipe, flushing the tallied [`GcApplyStats`] to the spec and the GC.
 ///
 /// Return [`HandleOutcome::Done`] once the child has sent every field.
-pub fn handle_numeric(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<TreeError>> {
+pub fn handle_numeric(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError> {
     let mut spec = fgc.index_spec();
     let mut stats = GcApplyStats::default();
     let clean_numeric_empty_nodes = fgc.clean_numeric_empty_nodes();

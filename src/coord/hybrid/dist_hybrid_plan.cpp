@@ -69,7 +69,7 @@ int HybridRequest_BuildDistributedDepletionPipeline(HybridRequest *req) {
       // The depleter will feed results to the hybrid merger
       RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq);
       ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread,
-                                                     ConcurrentSearch_GetPool(req->poolId));
+                                                     ConcurrentSearch_GetPool());
       pushResultProcessor(qctx, depleter);
       if (qctx->isProfile) {
         pushResultProcessor(qctx, RPProfile_New(qctx->endProc, qctx));

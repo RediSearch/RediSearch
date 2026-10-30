@@ -347,26 +347,26 @@ typedef union RawTermRecord_Active {
  */
 typedef union RawTermRecord_Active RSTermRecord;
 
-#ifndef THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
-#define THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED
+#ifndef THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U32_DEFINED
+#define THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U32_DEFINED
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct ThinVec_Box_RawIndexResult_Active__u16 {
-  struct Header_u16 *ptr;
-} ThinVec_Box_RawIndexResult_Active__u16;
-#endif /* THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+typedef struct ThinVec_Box_RawIndexResult_Active__u32 {
+  struct Header_u32 *ptr;
+} ThinVec_Box_RawIndexResult_Active__u32;
+#endif /* THINVEC_BOX_RAWINDEXRESULT_ACTIVE__U32_DEFINED */
 
-#ifndef SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
-#define SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
+#ifndef MEDIUMTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
+#define MEDIUMTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED
 /**
- * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
+ * A [`ThinVec`] with `u32` capacity, supporting up to ~4 billion elements.
  *
- * This is useful when you know the vector will never exceed 65,535 elements
- * and want to minimize header overhead (4 bytes instead of 16).
+ * This is useful when you want a balance between capacity and header size
+ * (8 bytes instead of 16).
  */
-typedef struct ThinVec_Box_RawIndexResult_Active__u16 SmallThinVec_Box_RawIndexResult_Active;
-#endif /* SMALLTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED */
+typedef struct ThinVec_Box_RawIndexResult_Active__u32 MediumThinVec_Box_RawIndexResult_Active;
+#endif /* MEDIUMTHINVEC_BOX_RAWINDEXRESULT_ACTIVE_DEFINED */
 
 #ifndef RAWOWNEDAGGREGATERESULT_ACTIVE_DEFINED
 #define RAWOWNEDAGGREGATERESULT_ACTIVE_DEFINED
@@ -380,7 +380,7 @@ typedef struct RawOwnedAggregateResult_Active {
   /**
    * The records making up this aggregate result, each owned by this aggregate.
    */
-  SmallThinVec_Box_RawIndexResult_Active records;
+  MediumThinVec_Box_RawIndexResult_Active records;
   /**
    * A map of the aggregate kind of the underlying records
    */
@@ -409,26 +409,26 @@ typedef struct ThinVec_MetricEntry__u64 {
  */
 typedef struct ThinVec_MetricEntry__u64 MetricsVec;
 
-#ifndef THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
-#define THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED
+#ifndef THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U32_DEFINED
+#define THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U32_DEFINED
 /**
  * See the crate's top level documentation for a description of this type.
  */
-typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 {
-  struct Header_u16 *ptr;
-} ThinVec_SharedPtr_Active__RawIndexResult_Active__u16;
-#endif /* THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U16_DEFINED */
+typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u32 {
+  struct Header_u32 *ptr;
+} ThinVec_SharedPtr_Active__RawIndexResult_Active__u32;
+#endif /* THINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE__U32_DEFINED */
 
-#ifndef SMALLTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
-#define SMALLTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
+#ifndef MEDIUMTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
+#define MEDIUMTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED
 /**
- * A [`ThinVec`] with `u16` capacity, supporting up to 65,535 elements.
+ * A [`ThinVec`] with `u32` capacity, supporting up to ~4 billion elements.
  *
- * This is useful when you know the vector will never exceed 65,535 elements
- * and want to minimize header overhead (4 bytes instead of 16).
+ * This is useful when you want a balance between capacity and header size
+ * (8 bytes instead of 16).
  */
-typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u16 SmallThinVec_SharedPtr_Active__RawIndexResult_Active;
-#endif /* SMALLTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED */
+typedef struct ThinVec_SharedPtr_Active__RawIndexResult_Active__u32 MediumThinVec_SharedPtr_Active__RawIndexResult_Active;
+#endif /* MEDIUMTHINVEC_SHAREDPTR_ACTIVE__RAWINDEXRESULT_ACTIVE_DEFINED */
 
 #ifndef RAWBORROWEDAGGREGATERESULT_ACTIVE_DEFINED
 #define RAWBORROWEDAGGREGATERESULT_ACTIVE_DEFINED
@@ -447,7 +447,7 @@ typedef struct RawBorrowedAggregateResult_Active {
    * equivalent to a `&'a RSIndexResult<'a>`; in [`ref_mode::Suspended`] mode it is
    * an inert raw pointer that survives lock release/reacquire cycles.
    */
-  SmallThinVec_SharedPtr_Active__RawIndexResult_Active records;
+  MediumThinVec_SharedPtr_Active__RawIndexResult_Active records;
   /**
    * A map of the aggregate kind of the underlying records
    */
@@ -470,7 +470,7 @@ typedef struct RawBorrowedAggregateResult_Active {
  *
  * `RawAggregateResult` is part of a union in
  * [`super::result_data::RawResultData`], so it needs to have a known size. That
- * is why both payloads hold their children in a [`SmallThinVec`] rather than the
+ * is why both payloads hold their children in a [`MediumThinVec`] rather than the
  * std `Vec`, which is not `#[repr(C)]`.
  *
  * The C code should always use `AggregateResult_New` to construct a new instance of this type

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! GC collection and application for the `missingFieldDict` inverted indexes.
+//! GC collection and application for the `missing.indexes` inverted indexes.
 
 use std::ffi::{CStr, CString};
 use std::io::{self, Read, Write};
@@ -19,12 +19,6 @@ use inverted_index::GcScanDelta;
 use serde::{Deserialize, Serialize};
 
 use crate::util::{deserialize, serialize};
-/// The field was removed from `missingFieldDict` between the child's scan and
-/// the parent's apply.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("the field was removed from missingFieldDict before the delta could be applied")]
-pub struct FieldNotFound;
-
 /// One missing-field inverted index's GC work, as it travels the pipe.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MissingDocsEntry<T = Vec<u8>> {
@@ -34,7 +28,7 @@ pub struct MissingDocsEntry<T = Vec<u8>> {
     pub delta: GcScanDelta,
 }
 
-/// Collect GC deltas for every entry in the spec's `missingFieldDict` and write
+/// Collect GC deltas for every entry in the spec's `missing.indexes` and write
 /// them to the parent process.
 ///
 /// Iterates the dict and, for each entry with a non-null inverted index,
@@ -71,8 +65,8 @@ pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) 
 /// Decode one missing-docs message from `reader`.
 pub fn receive_missing_docs(
     reader: &mut impl Read,
-) -> Result<Option<(CString, GcScanDelta)>, HandleError<FieldNotFound>> {
-    deserialize::<Option<MissingDocsEntry>, FieldNotFound>(reader, "decoding missing-docs entry")?
+) -> Result<Option<(CString, GcScanDelta)>, HandleError> {
+    deserialize::<Option<MissingDocsEntry>>(reader, "decoding missing-docs entry")?
         .map(|MissingDocsEntry { field_name, delta }| {
             CString::from_vec_with_nul(field_name)
                 .map(|field_name| (field_name, delta))
@@ -91,11 +85,13 @@ pub fn apply_missing_docs(
     field_name: &CStr,
     delta: GcScanDelta,
     guard: &mut IndexSpecWriteGuard<'_>,
-) -> Result<GcApplyStats, HandleError<FieldNotFound>> {
+) -> Result<GcApplyStats, HandleError> {
     let hidden = OwnedHiddenString::new(field_name);
 
     let Some(ii) = guard.missing_field_dict_mut().fetch_mut(&hidden) else {
-        return Err(HandleError::Custom(FieldNotFound));
+        return Err(HandleError::ApplyError(
+            "the field was removed from missing.indexes before the delta could be applied",
+        ));
     };
 
     let gc_info = ii.apply_gc(delta);
@@ -114,7 +110,7 @@ pub fn apply_missing_docs(
     };
 
     Ok(GcApplyStats {
-        // `records_removed` is 0: missingFieldDict entries are not counted
+        // `records_removed` is 0: missing.indexes entries are not counted
         // on insertion (they are internal bookkeeping), so we do not count
         // them on removal either.
         records_removed: 0,
@@ -133,7 +129,7 @@ pub fn apply_missing_docs(
 /// returns `Ok(HandleOutcome::Done)`.
 ///
 /// Errors map to corresponding `FGCError` variants at the FFI layer.
-pub fn handle_missing_docs(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<FieldNotFound>> {
+pub fn handle_missing_docs(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError> {
     crate::util::handle_one(
         fgc,
         |reader| receive_missing_docs(reader),

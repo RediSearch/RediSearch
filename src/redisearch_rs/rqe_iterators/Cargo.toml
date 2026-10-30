@@ -48,7 +48,6 @@ approx.workspace = true
 decorum.workspace = true
 insta.workspace = true
 iterators_ffi = { path = "../c_entrypoint/iterators_ffi" }
-pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
 query_term_ffi = { path = "../c_entrypoint/query_term_ffi" }
 rqe_iterators = { path = ".", features = ["unittest"] }

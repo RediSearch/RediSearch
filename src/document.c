@@ -21,6 +21,7 @@
 #include "tokenize.h"
 #include "rmalloc.h"
 #include "indexer.h"
+#include "indexer_internal.h"
 #include "tag_index.h"
 #include "geometry/geometry_api.h"
 #include "aggregate/expr/expression.h"
@@ -69,6 +70,7 @@ static void freeDocumentContext(void *p) {
 
   rm_free(aCtx->fspecs);
   rm_free(aCtx->fdatas);
+  rm_free(aCtx->fieldChanges);
   if (aCtx->specName) {
     HiddenString_Free(aCtx->specName, true);
   }
@@ -82,9 +84,6 @@ static void freeDocumentContext(void *p) {
 
 static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   Document *doc = aCtx->doc;
-  aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
-  aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
-  aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
 
   aCtx->fspecs = rm_realloc(aCtx->fspecs, sizeof(*aCtx->fspecs) * doc->numFields);
   aCtx->fdatas = rm_realloc(aCtx->fdatas, sizeof(*aCtx->fdatas) * doc->numFields);
@@ -156,25 +155,8 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     aCtx->stateFlags &= ~ACTX_F_INDEXABLES;
   }
 
-  if (!hasTextFields) {
-    aCtx->stateFlags |= ACTX_F_TEXTINDEXED;
-  } else {
-    aCtx->stateFlags &= ~ACTX_F_TEXTINDEXED;
-  }
-
-  if (!hasOtherFields) {
-    aCtx->stateFlags |= ACTX_F_OTHERINDEXED;
-  } else {
-    aCtx->stateFlags &= ~ACTX_F_OTHERINDEXED;
-  }
-
   if ((aCtx->stateFlags & ACTX_F_SORTABLES) && RSSortingVector_Length(&aCtx->sv) == 0) {
     aCtx->sv = RSSortingVector_New(sp->numSortableFields);
-  }
-
-  int empty = (RSSortingVector_Length(&aCtx->sv) == 0) && !hasTextFields && !hasOtherFields;
-  if (empty) {
-    aCtx->stateFlags |= ACTX_F_EMPTY;
   }
 
   if ((aCtx->options & DOCUMENT_ADD_NOSAVE) == 0 && numTextIndexable &&
@@ -188,10 +170,17 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   return 0;
 }
 
+// Contract documented on the declaration in document.h.
+bool AddDocumentCtx_ShouldRelabelField(const RSAddDocumentCtx *aCtx, t_fieldIndex f_idx) {
+  return AddDocumentCtx_FieldChange(aCtx, f_idx) == ChangedFieldInd_VerifiedNo && aCtx->oldDocId != 0;
+}
+
 RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *status) {
 
   if (!actxPool_g) {
+    // Bounded because each pooled context keeps its forward index alive.
     mempool_options mopts = {.initialCap = 16,
+                             .maxCap = 16,
                              .alloc = allocDocumentContext,
                              .free = freeDocumentContext};
     mempool_test_set_global(&actxPool_g, &mopts);
@@ -204,13 +193,13 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->totalTokens = 0;
   aCtx->docFlags = 0;
   aCtx->sctx = NULL;
-  aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;
   aCtx->disk.batch = NULL;
-  aCtx->disk.oldDocId = 0;
+  aCtx->oldDocId = 0;
   aCtx->disk.oldDocLen = 0;
   aCtx->disk.openKey = NULL;
+  aCtx->fieldChanges = NULL;
   if (aCtx->specFlags & Index_Async) {
     HiddenString_Clone(sp->specName, &aCtx->specName);
   }
@@ -300,7 +289,8 @@ static int AddDocumentCtx_ReplaceMerge(RSAddDocumentCtx *aCtx, RedisSearchCtx *s
 
   // Keep hold of the new fields.
   Document_MakeStringsOwner(aCtx->doc);
-  AddDocumentCtx_SetDocument(aCtx, sctx->spec);
+  int rc = AddDocumentCtx_SetDocument(aCtx, sctx->spec);
+  RS_LOG_ASSERT(rc == 0, "SetDocument cannot fail on a document reloaded from the schema");
   return 0;
 }
 
@@ -344,6 +334,9 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
       }
     }
   }
+
+  rm_free(aCtx->fieldChanges);
+  aCtx->fieldChanges = NULL;
 
   // Destroy the common fields:
   if (!(aCtx->stateFlags & ACTX_F_NOFREEDOC)) {
@@ -454,9 +447,16 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     ForwardIndexTokenizerCtx tokCtx;
     ByteOffsetWriter *curOffsetWriter = NULL;
     RSByteOffsetField *curOffsetField = NULL;
+    uint32_t offsetsBefore = 0;
     if (aCtx->byteOffsets) {
       curOffsetField = RSByteOffsets_AddField(aCtx->byteOffsets, fs->ftId, aCtx->totalTokens + 1);
-      curOffsetWriter = &aCtx->offsetsWriter;
+      offsetsBefore = ByteOffsetWriter_Count(&aCtx->offsetsWriter);
+      // A multi-value field's byte offsets are relative to each value's own string, and its
+      // positions can have gaps (see multiTextOffsetDelta below) RSByteOffsetIterator cannot
+      // step over, so such a field stores no offsets even when MULTI_TEXT_SLOP is 0 or 1.
+      if (valueCount == 1) {
+        curOffsetWriter = &aCtx->offsetsWriter;
+      }
     }
 
     uint32_t options = TOKENIZE_DEFAULT_OPTIONS;
@@ -502,7 +502,7 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       }
       uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;
 
-      if (curOffsetField) {
+      if (curOffsetWriter) {
         curOffsetField->lastTokPos = lastTokPos;
       }
       aCtx->totalTokens = lastTokPos;
@@ -512,6 +512,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
     }
     // Decrease the last increment
     aCtx->tokenizer->ctx.lastOffset -= multiTextOffsetDelta;
+    // Enforce the RSByteOffsetField offset-range contract.
+    RS_ASSERT(!curOffsetField || ByteOffsetWriter_Count(&aCtx->offsetsWriter) - offsetsBefore ==
+                                     curOffsetField->lastTokPos - curOffsetField->firstTokPos + 1);
   }
 
   return 0;
@@ -611,6 +614,13 @@ FIELD_BULK_INDEXER(geometryIndexer) {
   const GeometryApi *api = GeometryApi_Get(rt);
   RedisModuleString *errMsg;
   if (!fdata->isMulti) {
+    if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index)) {
+      if (GeometryIndex_RelabelField(rt, aCtx->oldDocId, aCtx->doc->docId)) {
+        return 0;
+      }
+      // Refused: the old entry is gone. Insert and count it as indexed.
+      aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
+    }
     if (!api->addGeomStr(rt, fdata->format, fdata->str, fdata->strlen, aCtx->doc->docId, &errMsg)) {
       QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_BAD_VAL, "Error indexing geoshape", ": %s",
                              RedisModule_StringPtrLen(errMsg, NULL));
@@ -697,6 +707,11 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
     fdata->numVec = field->blobArrLen;
   } else if (field->unionType == FLD_VAR_T_NULL) {
     fdata->isNull = 1;
+    // This is for JSON docs where fields are unverified_change since SKN is not supported for it
+    // here we know that it did change so we mark it
+    if (aCtx->fieldChanges) {
+      aCtx->fieldChanges[fs->index] = ChangedFieldInd_VerifiedYes;
+    }
     return 0; // Skipping indexing missing vector
   }
   if (fdata->vecLen != fs->vectorOpts.expBlobSize) {
@@ -716,11 +731,16 @@ FIELD_BULK_INDEXER(vectorIndexer) {
     QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Could not open vector for indexing");
     return -1;
   }
-  char *curr_vec = (char *)fdata->vector;
+  if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index) &&
+      VectorIndex_RelabelField(vecsim, aCtx->oldDocId, aCtx->doc->docId)) {
+    return 0;
+  }
+  const char *curr_vec = (const char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
     VecSimIndex_AddVector(vecsim, curr_vec, aCtx->doc->docId);
     curr_vec += fdata->vecLen;
   }
+  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, 1);
   return 0;
 }
 
@@ -881,13 +901,6 @@ FIELD_BULK_APPLIER(tagApplier) {
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_TAG, 1);
 }
 
-FIELD_BULK_APPLIER(vectorApplier) {
-  // The VecSim insert itself runs in `applyVectorInserts` for disk mode
-  // (after the batch commits) and inline in `vectorIndexer` for memory mode.
-  // The applier only handles the global-stats bump, which is mode-independent.
-  FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_VECTOR, 1);
-}
-
 FIELD_BULK_APPLIER(numericApplier) {
   // Per-spec numeric stats are bumped by `numericIndexer` in both modes.
   // The applier only handles the global field-docs counter.
@@ -908,7 +921,11 @@ FIELD_BULK_APPLIER(geometryApplier) {
   // TODO: when geometry lands on the per-document disk write batch, move the
   // R-tree mutation here. Today `geometryIndexer` does the insert inline and
   // asserts disk-mode is disabled.
-  (void)aCtx; (void)field; (void)fs; (void)fdata;
+  (void)field;
+  (void)fdata;
+  if (AddDocumentCtx_ShouldRelabelField(aCtx, fs->index)) {
+    return;
+  }
   FieldsGlobalStats_UpdateFieldDocsIndexed(INDEXFLD_T_GEOMETRY, 1);
 }
 
@@ -970,7 +987,8 @@ void IndexerBulkApply(RSAddDocumentCtx *aCtx, const DocumentField *field,
       case IXFLDPOS_TAG:      tagApplier(aCtx, field, fs, fdata);      break;
       case IXFLDPOS_NUMERIC:  numericApplier(aCtx, field, fs, fdata);  break;
       case IXFLDPOS_GEO:      geoApplier(aCtx, field, fs, fdata);      break;
-      case IXFLDPOS_VECTOR:   vectorApplier(aCtx, field, fs, fdata);   break;
+      // No vector applier: an entry that moved can be an indexing or relabeling op, and only the insert
+      // sites know which happened. They keep both counters instead.
       case IXFLDPOS_GEOMETRY: geometryApplier(aCtx, field, fs, fdata); break;
       case IXFLDPOS_FULLTEXT: break;
     }
@@ -1045,7 +1063,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   ExprEval evaluator = {0};
   LoadIndividualKeysOptions opts = {0};
 
-  RedisSearchCtx_LockSpecRead(sctx);
+  IndexSpec_LockRead(sctx->spec);
   dmd = IndexSpec_BorrowDocByKeyR(sctx->spec, sctx->redisCtx, key);
   if (!dmd) {
     // We don't know the document...
@@ -1093,7 +1111,7 @@ done:
   RLookup_Cleanup(&lookup_s);
   ExprAST_Free(e);
   DMD_Return(dmd);
-  RedisSearchCtx_UnlockSpec(sctx);
+  IndexSpec_Unlock(sctx->spec);
   return rc;
 }
 

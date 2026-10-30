@@ -13,10 +13,12 @@ bench = false
 workspace = true
 
 [dependencies]
+dict.workspace = true
 document.workspace = true
 ffi.workspace = true
 field.workspace = true
 geo.workspace = true
+hidden_string.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
 inverted_index = { workspace = true, features = ["test_utils"] }
@@ -25,7 +27,6 @@ inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi", features = [
 ] }
 libc.workspace = true
 numeric_range_tree = { workspace = true, features = ["test-utils"] }
-numeric_range_tree_ffi = { path = "../c_entrypoint/numeric_range_tree_ffi" }
 query_error.workspace = true
 redis-module.workspace = true
 redis_mock.workspace = true

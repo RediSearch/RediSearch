@@ -125,7 +125,7 @@ where
 ///
 /// Concretely:
 ///
-/// 1. C calls `Profile_AddIters` → [`CRQEIterator::into_profiled`](crate::c2rust::CRQEIterator::into_profiled)
+/// 1. The tree's root is profiled with [`CRQEIterator::into_profiled`](crate::c2rust::CRQEIterator::into_profiled)
 /// 2. `into_profiled` calls [`CRQEIterator::profile_children`](crate::c2rust::CRQEIterator::profile_children),
 ///    which invokes the C vtable `ProfileChildren` callback
 /// 3. For Rust compound iterators, that callback is [`rust_profile_children`],
@@ -328,11 +328,11 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
 
     // SAFETY:
     // 1. `spec_ref` is a valid pointer to an `IndexSpec`.
-    // 2. C has already acquired the read lock through `RedisSearchCtx_LockSpecRead`
+    // 2. C has already acquired the read lock through `IndexSpec_LockRead`
     //    (see handleSpecLockAndRevalidate in result_processor.c).
-    // 3. C releases it again through `RedisSearchCtx_UnlockSpec`.
-    // 4. `RedisSearchCtx_LockSpecRead` pauses rehashing on the keys dict.
-    // 5. `missingFieldDict` is left fully rehashed on insert (see indexer.c).
+    // 3. C releases it again through `IndexSpec_Unlock`.
+    // 4. `IndexSpec_LockRead` pauses rehashing on the keys dict.
+    // 5. `missing.indexes` is left fully rehashed on insert (see indexer.c).
     let guard = unsafe { index_spec::IndexSpecReadGuard::from_locked(spec_ref) };
 
     match wrapper.inner.revalidate(&guard) {
