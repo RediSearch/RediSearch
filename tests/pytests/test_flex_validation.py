@@ -205,7 +205,7 @@ def test_disk_json_accepts_multi_value_text_and_tag_jsonpath(env):
 
     # Without an alias, only the disk validation rejects a path that failed to compile.
     for field_type in ['TEXT', 'TAG']:
-        env.expect('FT.CREATE', 'idx_bad', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
+        env.expect('FT.CREATE', f'idx_bad_{field_type}', 'ON', 'JSON', 'SKIPINITIALSCAN', 'SCHEMA',
                    '$.words[', field_type) \
             .error().contains('Invalid JSONPath')
 
