@@ -24,7 +24,7 @@ use std::mem::{self, ManuallyDrop};
 
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 use fork_gc::HandleError;
-use fork_gc::tags::{TagError, apply_tag_entry, collect_tags, receive_tag_entry};
+use fork_gc::tags::{apply_tag_entry, collect_tags, receive_tag_entry};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::{DocId, opaque::InvertedIndex};
 use serde::Serialize as _;
@@ -416,7 +416,7 @@ fn a_message_for_an_unknown_field_is_rejected() {
     entries[0].field_name = Box::from(&b"other"[..]);
 
     let err = apply_tag_entry(entries.remove(0), &mut test.write_guard()).unwrap_err();
-    assert!(matches!(err, HandleError::Custom(TagError { .. })));
+    assert!(matches!(err, HandleError::ApplyError(_)));
     assert_eq!(
         err.to_string(),
         "no field in the spec matches the scanned field name"
