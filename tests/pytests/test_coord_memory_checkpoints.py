@@ -721,3 +721,38 @@ def test_aggregate_withcount_io_thread_stop_dispatches():
     wait_for_condition(lambda: (cursor_count(env, 'big') == 0, {}),
                        'Timeout waiting for the shard cursors to end')
     expect_clean_end(env, coord)
+
+
+@skip(cluster=False)
+def test_tagvals_merge_stop():
+    """The coordinator FT.TAGVALS merge runs the memory checkpoint per value it adds. FT.TAGVALS has
+    no warning channel, so a stop replies the OOM error, under ON_OOM RETURN and FAIL alike; ON_OOM
+    IGNORE merges every value. Nothing else in the coordinator process
+    checks memory for FT.TAGVALS, so `AT_CALL` counts only the merge."""
+    env = Env(protocol=3)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    n_values = 50
+    for i in range(n_values):
+        conn.execute_command('HSET', f'doc{i}', 't', f'v{i}')
+    coord = env.getConnection(1)
+    try:
+        for oom_policy in OOM_POLICIES:
+            allShards_change_oom_policy(env, oom_policy)
+            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 10)
+            try:
+                res = coord.execute_command('FT.TAGVALS', 'idx', 't')
+            except ResponseError as e:
+                res = e
+            finally:
+                coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+            if oom_policy == 'ignore':
+                env.assertEqual(set(res), {f'v{i}' for i in range(n_values)},
+                                message=(oom_policy, res))
+            else:
+                env.assertTrue(isinstance(res, ResponseError), message=(oom_policy, res))
+                env.assertContains(OOM_QUERY_ERROR, str(res), message=oom_policy)
+            expect_clean_end(env, coord)
+    finally:
+        allShards_change_oom_policy(env, 'return')
+
