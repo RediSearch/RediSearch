@@ -122,8 +122,8 @@ pub struct GcApplyInfo {
     /// Callers maintaining per-spec totals should add this signed value to their counter.
     pub block_count_delta: i64,
 
-    /// Whether or not we ignored the last block in the index, since it changed
-    /// compared to the time we performed the scan
+    /// Whether the last block's delta was dropped because the block changed since the
+    /// scan and could not be rescanned (no liveness source given, or it would not decode).
     pub ignored_last_block: bool,
 }
 
@@ -137,14 +137,51 @@ impl IndexBlock {
     /// block?" without relying on pointer identity — pointer equality won't be stable
     /// if blocks are ever decoded into temporary buffers rather than read in place.
     ///
+    /// `check_first` looks for a dead entry before re-encoding anything, for a block the
+    /// caller expects clean; it is ignored with a `repair` callback, which must see every
+    /// surviving entry.
+    ///
     /// `None` is returned when there is nothing to repair in this block.
     pub(crate) fn repair<'block, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
         &'block self,
         block_idx: usize,
         doc_exist: impl Fn(DocId) -> bool,
         mut repair: Option<impl FnMut(&RSIndexResult<'block>, &RepairContext<'block>)>,
+        check_first: bool,
         _encoder: PhantomData<E>,
     ) -> std::io::Result<Option<RepairType>> {
+        // A snapshot keeps a block it expects clean with no data; see `gc_snapshot`. There is
+        // nothing to repair in it, and it must not pass for a block whose every entry is gone.
+        if self.buffer.is_empty() && self.num_entries > 0 {
+            debug_assert!(
+                repair.is_none(),
+                "a scan with a repair callback must snapshot every block"
+            );
+            return Ok(None);
+        }
+
+        // A block that turns out clean costs a decode either way; re-encoding it as we go
+        // is the waste. When the caller expects it clean, look before encoding. Not with a
+        // repair callback: that must see every surviving entry, clean block or not.
+        if check_first && repair.is_none() {
+            let mut cursor = std::io::Cursor::new(&self.buffer[..]);
+            let mut last_read_doc_id = None;
+            let mut result = D::base_result();
+            let mut any_dead = false;
+            while self.buffer.len() as u64 > cursor.position() {
+                let base = D::base_id(self, last_read_doc_id.unwrap_or(self.first_doc_id));
+                D::decode(&mut cursor, base, &mut result)?;
+                if !doc_exist(result.doc_id) {
+                    any_dead = true;
+                    break;
+                }
+                last_read_doc_id = Some(result.doc_id);
+            }
+            if !any_dead {
+                return Ok(None);
+            }
+        }
+
         let mut cursor: std::io::Cursor<&'block [u8]> = std::io::Cursor::new(&self.buffer);
         let mut last_read_doc_id = None;
         let mut result = D::base_result();
@@ -194,8 +231,14 @@ impl IndexBlock {
                 n_unique_docs_removed: unique_read,
             }))
         } else if block_changed {
+            // The replacement blocks grew by doubling; they are long-lived, so give the
+            // slack back (the fork parent gets them tight through serde anyway).
+            let mut blocks = tmp_inverted_index.blocks;
+            for block in blocks.iter_mut() {
+                block.buffer.shrink_to_fit();
+            }
             Ok(Some(RepairType::Replace {
-                blocks: SmallVec::from_iter(tmp_inverted_index.blocks),
+                blocks: SmallVec::from_iter(blocks),
                 n_unique_docs_removed: unique_read - unique_write,
             }))
         } else {
@@ -204,11 +247,53 @@ impl IndexBlock {
     }
 }
 
+/// Which blocks [`InvertedIndex::gc_snapshot`](crate::InvertedIndex::gc_snapshot) copies
+/// with their data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GcSnapshotScope {
+    /// Only the blocks whose doc-ID range holds a gone document: enough for a scan
+    /// without a repair callback, which skips the other blocks anyway.
+    DirtyBlocks,
+    /// Every block: for a scan whose repair callback must see every surviving entry,
+    /// such as the numeric tree's cardinality repair.
+    AllBlocks,
+}
+
+/// Tells a GC scan which documents are gone.
+pub trait DocLiveness {
+    /// Whether document `id` still exists.
+    fn exists(&self, id: DocId) -> bool;
+
+    /// Whether any document in `first..=last` may be gone.
+    ///
+    /// `false` lets a scan skip the range without decoding it, and lets
+    /// [`InvertedIndex::gc_snapshot`](crate::InvertedIndex::gc_snapshot) copy the
+    /// range's blocks without their data, so it must be exact: a `false` for a range
+    /// that does hold a gone document hides that document's entries from the GC until
+    /// a later cycle asks again. `true` is always safe.
+    fn any_gone(&self, _first: DocId, _last: DocId) -> bool {
+        true
+    }
+
+    /// How many documents in `first..=last` are gone, when the source can count them
+    /// cheaply. A count lets a scan look for a dead entry before re-encoding a block
+    /// that most likely has none; `None`, the default, keeps the one-pass scan.
+    fn gone_in_range(&self, _first: DocId, _last: DocId) -> Option<usize> {
+        None
+    }
+}
+
+impl<F: Fn(DocId) -> bool> DocLiveness for F {
+    fn exists(&self, id: DocId) -> bool {
+        self(id)
+    }
+}
+
 impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// Scan the index for blocks that can be garbage collected. A block can be garbage collected
-    /// if any of its records point to documents that no longer exist. The `doc_exist`
-    /// callback is used to check if a document exists. It should return `true` if the document
-    /// exists and `false` otherwise.
+    /// if any of its records point to documents that no longer exist, according to `doc_exist`;
+    /// see [`DocLiveness`]. Blocks it rules clean are skipped without being decoded, unless
+    /// `repair` is given.
     ///
     /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
     ///
@@ -221,13 +306,35 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// This function returns a delta if GC is needed, or `None` if no GC is needed.
     pub fn scan_gc(
         &self,
-        doc_exist: impl Fn(DocId) -> bool,
+        doc_exist: impl DocLiveness,
         mut repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &RepairContext<'call>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
+        let (Some(first), Some(last)) = (self.blocks.first(), self.blocks.last()) else {
+            return Ok(None);
+        };
+        if !doc_exist.any_gone(first.first_doc_id, last.last_doc_id) {
+            return Ok(None);
+        }
+        // `repair` must see every surviving entry, so blocks are only skipped without it.
+        let skip_clean_blocks = repair.is_none();
         let mut results = Vec::new();
 
         for (i, block) in self.blocks.iter().enumerate() {
-            let repair = block.repair(i, &doc_exist, repair.as_mut(), PhantomData::<E>)?;
+            if skip_clean_blocks && !doc_exist.any_gone(block.first_doc_id, block.last_doc_id) {
+                continue;
+            }
+            // Fewer deleted IDs in the block's range than entries: most likely none of them
+            // is in this block (a rare term's block spans many IDs), so check before encoding.
+            let check_first = doc_exist
+                .gone_in_range(block.first_doc_id, block.last_doc_id)
+                .is_some_and(|gone| gone < block.num_entries as usize);
+            let repair = block.repair(
+                i,
+                |id| doc_exist.exists(id),
+                repair.as_mut(),
+                check_first,
+                PhantomData::<E>,
+            )?;
 
             if let Some(repair) = repair {
                 results.push(BlockGcScanResult { index: i, repair });
@@ -247,7 +354,23 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
 
     /// Apply the deltas of a garbage collection scan to the index. This will modify the index
     /// by deleting or repairing blocks as needed.
+    ///
+    /// A delta for the last block is dropped if that block grew since the scan; see
+    /// [`Self::apply_gc_with`] to rescan it instead.
     pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
+        self.apply_gc_with(delta, None)
+    }
+
+    /// [`Self::apply_gc`], but when the scanned last block grew since the scan and `live`
+    /// is given, the block is rescanned here, under the caller's exclusive access, so a
+    /// busy index's tail is collected instead of denied until a quieter cycle. That block
+    /// is then judged by `live` as it is now while the other deltas reflect the scan; the
+    /// mix is safe because a gone document never comes back.
+    pub fn apply_gc_with(
+        &mut self,
+        delta: GcScanDelta,
+        live: Option<&dyn DocLiveness>,
+    ) -> GcApplyInfo {
         let GcScanDelta {
             last_block_idx,
             last_block_num_entries,
@@ -270,7 +393,8 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             .get(last_block_idx)
             .is_some_and(|b| b.num_entries != last_block_num_entries);
 
-        // If the last block has changed, then we need to ignore any deltas that refer to it
+        // If the last block has changed, its delta is stale: rescan the block as it is now,
+        // or drop the delta.
         if last_block_changed {
             let remove_stale_delta = deltas
                 .last()
@@ -279,7 +403,25 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             if remove_stale_delta {
                 deltas.pop();
             }
-            info.ignored_last_block = true;
+            let rescanned = live.map(|live| {
+                self.blocks[last_block_idx].repair(
+                    last_block_idx,
+                    |id| live.exists(id),
+                    None::<fn(&RSIndexResult<'_>, &RepairContext<'_>)>,
+                    false,
+                    PhantomData::<E>,
+                )
+            });
+            match rescanned {
+                Some(Ok(Some(repair))) => deltas.push(BlockGcScanResult {
+                    index: last_block_idx,
+                    repair,
+                }),
+                // Rescanned and clean.
+                Some(Ok(None)) => {}
+                // Nothing to rescan with, or the block would not decode: the next cycle's.
+                None | Some(Err(_)) => info.ignored_last_block = true,
+            }
         }
 
         // There is no point in moving everything to a new vector if there are no deltas

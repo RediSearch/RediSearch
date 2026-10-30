@@ -189,13 +189,43 @@ impl NumericIndex {
         }
     }
 
+    /// A full private copy of the index for a GC scan without the lock; the HLL
+    /// recomputation needs every surviving entry, so no block is left out. See
+    /// [`InvertedIndex::gc_snapshot`](inverted_index::InvertedIndex::gc_snapshot).
+    pub fn gc_snapshot(&self, live: &impl inverted_index::DocLiveness) -> Option<Self> {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx
+                .gc_snapshot(live, inverted_index::GcSnapshotScope::AllBlocks)
+                .map(Self::Uncompressed),
+            NumericIndex::Compressed(idx) => idx
+                .gc_snapshot(live, inverted_index::GcSnapshotScope::AllBlocks)
+                .map(Self::Compressed),
+        }
+    }
+
+    /// See [`InvertedIndex::doc_id_range`](inverted_index::InvertedIndex::doc_id_range).
+    pub fn doc_id_range(&self) -> Option<std::ops::RangeInclusive<DocId>> {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.doc_id_range(),
+            NumericIndex::Compressed(idx) => idx.doc_id_range(),
+        }
+    }
+
+    /// See [`InvertedIndex::last_block_doc_id_range`](inverted_index::InvertedIndex::last_block_doc_id_range).
+    pub fn last_block_doc_id_range(&self) -> Option<std::ops::RangeInclusive<DocId>> {
+        match self {
+            NumericIndex::Uncompressed(idx) => idx.last_block_doc_id_range(),
+            NumericIndex::Compressed(idx) => idx.last_block_doc_id_range(),
+        }
+    }
+
     /// Scan the index for blocks that can be garbage collected.
     ///
     /// The `doc_exist` callback returns `true` if the document still exists.
     /// Returns `Ok(Some(delta))` if GC is needed, `Ok(None)` otherwise.
     pub fn scan_gc<F>(
         &self,
-        doc_exist: impl Fn(DocId) -> bool,
+        doc_exist: impl inverted_index::DocLiveness,
         repair_fn: Option<F>,
     ) -> std::io::Result<Option<inverted_index::GcScanDelta>>
     where

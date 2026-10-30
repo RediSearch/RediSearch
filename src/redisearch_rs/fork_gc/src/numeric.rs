@@ -167,9 +167,7 @@ pub fn scan_numeric_node(
     if u32::from(tree.unique_id()) != key.unique_id {
         return None;
     }
-    let delta = tree
-        .try_node(node_idx)?
-        .scan_gc(&|id| spec.doc_exists(id))?;
+    let delta = tree.try_node(node_idx)?.scan_gc(|id| spec.doc_exists(id))?;
     Some(NumericNodeDelta {
         position: node_idx.position(),
         generation: node_idx.generation(),
@@ -210,7 +208,7 @@ pub fn collect_numeric(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io
         for node_delta in tree
             .indexed_post_order_iter()
             .filter_map(|(node_idx, node)| {
-                node.scan_gc(&|id| spec.doc_exists(id))
+                node.scan_gc(|id| spec.doc_exists(id))
                     .map(|delta| NumericNodeDelta {
                         position: node_idx.position(),
                         generation: node_idx.generation(),
