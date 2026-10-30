@@ -13,17 +13,29 @@ use super::{
 };
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::{GeoFilter, IndexFlags};
+use geo::{DistanceUnit, FilterError, RadiusFilter};
 use index_result::RSIndexResult;
 use rqe_core::DocId;
 
-// Manually define some C functions, because we'll create a circular dependency if we use the FFI
-// crate to make them automatically.
-unsafe extern "C" {
-    /// Checks if a value (distance) is within the given geo filter.
-    ///
-    /// # Safety
-    /// The [`GeoFilter`] should not be null and a valid instance
-    unsafe fn isWithinRadius(gf: *const GeoFilter, d: f64, distance: *mut f64) -> bool;
+/// Interpret a C unit without constructing an invalid Rust enum.
+pub const fn geo_unit_from_c(unit: ffi::GeoDistance) -> Option<DistanceUnit> {
+    match unit {
+        ffi::GeoDistance_GEO_DISTANCE_KM => Some(DistanceUnit::Kilometers),
+        ffi::GeoDistance_GEO_DISTANCE_M => Some(DistanceUnit::Meters),
+        ffi::GeoDistance_GEO_DISTANCE_FT => Some(DistanceUnit::Feet),
+        ffi::GeoDistance_GEO_DISTANCE_MI => Some(DistanceUnit::Miles),
+        _ => None,
+    }
+}
+
+/// Validate shared C filter storage for use by Rust query evaluation and readers.
+pub fn geo_filter_from_c(filter: &GeoFilter) -> Result<RadiusFilter, FilterError> {
+    RadiusFilter::new(
+        filter.lon,
+        filter.lat,
+        filter.radius,
+        geo_unit_from_c(filter.unitType),
+    )
 }
 
 /// A reader that filters out records that do not match a given geo filter. It is used to
@@ -160,8 +172,9 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
             // SAFETY: the caller must ensure the result is numeric
             let value = unsafe { result.as_numeric_unchecked_mut() };
 
-            // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-            let in_radius = unsafe { isWithinRadius(&*self.geo_filter, *value, value) };
+            let (in_radius, distance) = geo_filter_from_c(&self.geo_filter)
+                .map_or((false, f64::NAN), |filter| filter.contains_score(*value));
+            *value = distance;
 
             if in_radius {
                 return Ok(true);
@@ -189,8 +202,9 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
         // SAFETY: the caller must ensure the result is numeric
         let value = unsafe { result.as_numeric_unchecked_mut() };
 
-        // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-        let in_radius = unsafe { isWithinRadius(&*self.geo_filter, *value, value) };
+        let (in_radius, distance) = geo_filter_from_c(&self.geo_filter)
+            .map_or((false, f64::NAN), |filter| filter.contains_score(*value));
+        *value = distance;
 
         if in_radius {
             Ok(true)

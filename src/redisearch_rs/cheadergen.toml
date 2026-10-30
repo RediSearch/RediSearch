@@ -56,7 +56,7 @@ typedef uint64_t t_fieldMask;
 [header.field]
 
 [header.geo_ffi]
-includes = ["geo_index.h"]
+includes = ["geo_filter.h", "field_spec.h", "rmutil/args.h"]
 
 [header.fork_gc_ffi]
 includes = ["fork_gc.h", "search_ctx.h"]

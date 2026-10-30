@@ -18,7 +18,7 @@ use rqe_core::{DocId, FieldMask};
 
 pub use self::core::{IndexReaderCore, RawIndexReaderCore};
 pub use field_mask::FilterMaskReader;
-pub use geo::FilterGeoReader;
+pub use geo::{FilterGeoReader, geo_filter_from_c, geo_unit_from_c};
 pub use numeric::{FilterNumericReader, NumericFilter};
 
 /// Outcome of [`ResumableReader::refresh_pointers`].

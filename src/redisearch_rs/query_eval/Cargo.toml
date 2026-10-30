@@ -42,6 +42,7 @@ workspace_hack.workspace = true
 
 [dev-dependencies]
 geo.workspace = true
+geo_ffi = { path = "../c_entrypoint/geo_ffi" }
 inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi" }
 query = { workspace = true, features = ["unittest"] }
 query_flags.workspace = true

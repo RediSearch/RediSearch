@@ -7,7 +7,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "geo_index.h"
+#include "geo_filter.h"
+#include "field_spec.h"
+#include "rmutil/args.h"
 
 /**
  * An opaque query error which can be passed by value to C.
@@ -42,6 +44,11 @@ typedef struct QueryError QueryError;
  */
 #define GEO_RANGE_COUNT 9
 
+/**
+ * Sentinel returned by [`encodeGeo`] for invalid coordinates.
+ */
+#define INVALID_GEOHASH -1.0
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -54,7 +61,7 @@ extern "C" {
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-GeoDistance Rust_GeoDistance_Parse(const char *s);
+GeoDistance GeoDistance_Parse(const char *s);
 
 /**
  * Parse a length-delimited unit. Buffers shorter than 16 bytes use their NUL
@@ -65,12 +72,12 @@ GeoDistance Rust_GeoDistance_Parse(const char *s);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-GeoDistance Rust_GeoDistance_Parse_Buffer(const char *s, size_t len);
+GeoDistance GeoDistance_Parse_Buffer(const char *s, size_t len);
 
 /**
  * Canonical spelling, or `<badunit>` for any unknown integer.
  */
-const char *Rust_GeoDistance_ToString(GeoDistance unit);
+const char *GeoDistance_ToString(GeoDistance unit);
 
 /**
  * Release a Redis-allocated filter and its owned numeric-filter array.
@@ -83,7 +90,7 @@ const char *Rust_GeoDistance_ToString(GeoDistance unit);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void Rust_GeoFilter_Free(GeoFilter *gf);
+void GeoFilter_Free(GeoFilter *gf);
 
 /**
  * Parse legacy arguments, initializing `gf` even on failure. The field name
@@ -98,7 +105,7 @@ void Rust_GeoFilter_Free(GeoFilter *gf);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int Rust_GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *has_empty, struct QueryError *status);
+int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *has_empty, struct QueryError *status);
 
 /**
  * Set the stable field index, or clear it when no local field specification exists.
@@ -109,7 +116,7 @@ int Rust_GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *has_em
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void Rust_GeoFilter_SetField(GeoFilter *gf, const FieldSpec *fs);
+void GeoFilter_SetField(GeoFilter *gf, const FieldSpec *fs);
 
 /**
  * Validate a filter, preserving the first error already in `status`.
@@ -120,7 +127,7 @@ void Rust_GeoFilter_SetField(GeoFilter *gf, const FieldSpec *fs);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int Rust_GeoFilter_Validate(const GeoFilter *gf, struct QueryError *status);
+int GeoFilter_Validate(const GeoFilter *gf, struct QueryError *status);
 
 /**
  * Release a legacy filter, including its hidden field-name wrapper.
@@ -128,33 +135,21 @@ int Rust_GeoFilter_Validate(const GeoFilter *gf, struct QueryError *status);
  * # Safety
  * `gf` must be a [valid] Redis allocation containing an initialized, uniquely
  * owned [`LegacyGeoFilter`], including after failed parsing. Its base must
- * satisfy [`Rust_GeoFilter_Free`]. The field wrapper, if present, must still
+ * satisfy [`GeoFilter_Free`]. The field wrapper, if present, must still
  * borrow a live name buffer and must not have been freed.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void Rust_LegacyGeoFilter_Free(LegacyGeoFilter *gf);
+void LegacyGeoFilter_Free(LegacyGeoFilter *gf);
 
 /**
  * Allocate an unvalidated filter; a null unit selects kilometers.
  *
  * # Safety
- * A non-null `unit` must satisfy [`Rust_GeoDistance_Parse_Buffer`]. The Redis
+ * A non-null `unit` must satisfy [`GeoDistance_Parse_Buffer`]. The Redis
  * allocator API must be initialized and remain unchanged during this call.
  */
-GeoFilter *Rust_NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
-
-/**
- * Return radius membership and optionally write the distance in meters.
- * Invalid filters return no match and NaN distance.
- *
- * # Safety
- * `gf` must be [valid] for shared reads. `distance` may be null; otherwise it
- * must be [valid] and exclusively writable, without overlapping `gf`.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-int Rust_isWithinRadius(const GeoFilter *gf, double score, double *distance);
+GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
 
 /**
  * Decode a geohash `f64` back into a `[longitude, latitude]` pair.
@@ -170,7 +165,7 @@ void decodeGeo(double bits, double *xy);
 
 /**
  * Encode longitude and latitude into a 52-bit-aligned geohash score,
- * or return `INVALID_GEOHASH` (`-1.0`) on invalid coordinates.
+ * or return [`INVALID_GEOHASH`] on invalid coordinates.
  *
  * Valid geohash scores are non-negative, so any negative return value
  * signals an error.
@@ -183,6 +178,18 @@ double encodeGeo(double lon, double lat);
  * All coordinates are in degrees. Returns distance in meters.
  */
 double geohashGetDistance(double lon1, double lat1, double lon2, double lat2);
+
+/**
+ * Return radius membership and optionally write the distance in meters.
+ * Invalid filters return no match and NaN distance.
+ *
+ * # Safety
+ * `gf` must be [valid] for shared reads. `distance` may be null; otherwise it
+ * must be [valid] and exclusively writable, without overlapping `gf`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int isWithinRadius(const GeoFilter *gf, double score, double *distance);
 
 /**
  * Return `true` if the distance between two lon/lat points is within `radius`

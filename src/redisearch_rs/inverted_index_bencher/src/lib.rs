@@ -20,15 +20,6 @@ pub mod benchers;
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 #[unsafe(no_mangle)]
-pub extern "C" fn isWithinRadius(
-    _gf: *const ::ffi::GeoFilter,
-    _d: f64,
-    _distance: *mut f64,
-) -> bool {
-    panic!("isWithinRadius should not be called by any of the benchmarks");
-}
-
-#[unsafe(no_mangle)]
 pub extern "C" fn DocTable_Exists(_dt: *const ::ffi::DocTable, _d: DocId) -> bool {
     panic!("DocTable_Exists should not be called by any of the benchmarks");
 }

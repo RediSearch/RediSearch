@@ -13,6 +13,7 @@ extern crate redisearch_rs;
 
 mod fuzzy;
 mod geo;
+mod geo_abi;
 mod geometry;
 mod ids;
 mod iterator_tree;

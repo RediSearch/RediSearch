@@ -12,7 +12,7 @@
 #include <stopwords.h>
 #include <redisearch.h>
 #include "numeric_filter.h"
-#include "geo_index.h"
+#include "geo_filter.h"
 #include "config.h"
 #include "rlookup.h"
 #include "util/dict.h"
