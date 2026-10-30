@@ -18,6 +18,7 @@ use index_result::RSIndexResult;
 use inverted_index::IndexReader as _;
 use inverted_index::numeric::{PreparedValue, StoredValue};
 use rqe_core::DocId;
+use serde::{Deserialize, Serialize};
 
 use crate::index::{NumericIndex, NumericIndexReader};
 
@@ -47,7 +48,7 @@ impl std::hash::Hash for NumericValue {
 ///
 /// [`Self::EMPTY`] describes the empty set; it is also the bounds of a range that
 /// has never held an entry or that GC emptied.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ValueBounds {
     /// Smallest value in the set.
     pub min: f64,
