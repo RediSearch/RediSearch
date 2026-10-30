@@ -55,6 +55,13 @@ typedef uint64_t t_fieldMask;
 
 [header.field]
 
+[header.geo_ffi]
+includes = ["rmutil/args.h"]
+after_includes = """
+typedef struct FieldSpec FieldSpec;
+typedef struct HiddenString HiddenString;
+"""
+
 [header.fork_gc_ffi]
 includes = ["fork_gc.h", "search_ctx.h"]
 
