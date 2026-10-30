@@ -47,6 +47,7 @@
 #include "suggest.h"
 #include "alias.h"
 #include "module.h"
+#include "query_memory.h"
 #include "info/info_command.h"
 #include "reply.h"
 #include "resp3.h"
@@ -231,7 +232,8 @@ static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
 // TODO: add heuristics
 // Assumes the GIL is held by the caller
 static inline bool estimateOOM(void) {
-  return RedisMemory_isOutOfMemory();
+  const float forcedRatio = QueryMemory_GetForcedRatio();
+  return forcedRatio >= 0 ? forcedRatio >= REDIS_MEMORY_OOM_RATIO : RedisMemory_isOutOfMemory();
 }
 
 // OOM guardrail for queries function

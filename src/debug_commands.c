@@ -33,6 +33,8 @@
 #include "phonetic_manager.h"
 #include "gc.h"
 #include "module.h"
+#include "query_memory.h"
+#include "util/redis_mem_info.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "util/workers.h"
@@ -3665,6 +3667,80 @@ DEBUG_COMMAND(VecSimMockTimeout) {
 }
 
 /**
+ * FT.DEBUG MEMORY_PRESSURE <subcommand>
+ * Fake memory pressure for the query memory checkpoints (QueryMemory_ShouldStop), process-wide,
+ * so tests can stop queries for OOM on a Redis without a real memory limit or memory API.
+ *   RATIO <ratio>         - every checkpoint memory read, and the query entry guard, see <ratio>
+ *                           instead of the real used-memory ratio. A negative ratio restores it.
+ *   AT_CALL <n>           - the n-th checkpoint call from now (1-based) reports pressure; 0 disarms.
+ *   READ_INTERVAL <n>     - checkpoints read memory every n calls; 0 restores the default.
+ *   RESET                 - undo all of the above.
+ *   STATUS                - [ratio, <r>, at_call, <n>, checkpoint_calls, <n>, read_interval, <n>,
+ *                            raw_ratio, <the server's real ratio, or null without the memory API>]
+ * ON_OOM IGNORE still disables the checkpoints and the entry guard.
+ */
+DEBUG_COMMAND(MemoryPressure) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcasecmp("RESET", op) || !strcasecmp("STATUS", op)) {
+    if (argc != 3) {
+      return RedisModule_WrongArity(ctx);
+    }
+    if (!strcasecmp("RESET", op)) {
+      QueryMemory_ResetFakePressure();
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+    RedisModule_ReplyWithArray(ctx, 10);
+    RedisModule_ReplyWithSimpleString(ctx, "ratio");
+    RedisModule_ReplyWithDouble(ctx, QueryMemory_GetForcedRatio());
+    RedisModule_ReplyWithSimpleString(ctx, "at_call");
+    RedisModule_ReplyWithLongLong(ctx, (long long)QueryMemory_GetPressureAtCall());
+    RedisModule_ReplyWithSimpleString(ctx, "checkpoint_calls");
+    RedisModule_ReplyWithLongLong(ctx, (long long)QueryMemory_GetCheckpointCalls());
+    RedisModule_ReplyWithSimpleString(ctx, "read_interval");
+    RedisModule_ReplyWithLongLong(ctx, QueryMemory_GetRatioReadInterval());
+    RedisModule_ReplyWithSimpleString(ctx, "raw_ratio");
+    if (RedisModule_GetRawUsedMemoryRatio) {
+      RedisModule_ReplyWithDouble(ctx, RedisMemory_GetRawUsedMemoryRatio());
+    } else {
+      RedisModule_ReplyWithNull(ctx);
+    }
+    return REDISMODULE_OK;
+  }
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  if (!strcasecmp("RATIO", op)) {
+    double ratio;
+    if (RedisModule_StringToDouble(argv[3], &ratio) != REDISMODULE_OK) {
+      return RedisModule_ReplyWithError(ctx, "Invalid ratio");
+    }
+    QueryMemory_SetForcedRatio((float)ratio);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  long long n;
+  if (RedisModule_StringToLongLong(argv[3], &n) != REDISMODULE_OK || n < 0) {
+    return RedisModule_ReplyWithError(ctx, "Invalid count");
+  }
+  if (!strcasecmp("AT_CALL", op)) {
+    QueryMemory_SetPressureAtCall((uint64_t)n);
+  } else if (!strcasecmp("READ_INTERVAL", op)) {
+    if (n > UINT32_MAX) {
+      return RedisModule_ReplyWithError(ctx, "Invalid count");
+    }
+    QueryMemory_SetRatioReadInterval((uint32_t)n);
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid command for 'MEMORY_PRESSURE'");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
  * FT.DEBUG MOCK_REVALIDATE_TIMEOUT <enable|disable|status>
  * Make every iterator revalidation report VALIDATE_TIMEOUT, globally
  * enable - every revalidation reports a timeout, as if the query ran out of time while re-seeking
@@ -3988,6 +4064,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
+                               {"MEMORY_PRESSURE", MemoryPressure},
                                {"MOCK_REVALIDATE_TIMEOUT", MockRevalidateTimeout},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
