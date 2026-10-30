@@ -14,7 +14,6 @@
 #include "index_result.h"
 #include "iterators/iterator_api.h"
 #include "search_ctx.h"
-#include "geo_ffi.h"
 #include "query_node.h"
 #include "obfuscation/hidden.h"
 
@@ -56,6 +55,7 @@ typedef struct {
   HiddenString *field;
 } LegacyGeoFilter;
 
+#include "geo_ffi.h"
 
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
