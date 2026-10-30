@@ -374,7 +374,7 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
  * @param stats Caller-allocated, zero-initialized stats out-parameter
  *              (MUST NOT be NULL; RS_ASSERT)
  */
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
+DiskGCRunResult SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
@@ -1057,6 +1057,12 @@ bool SearchDisk_RegisterSlotTrim(RedisSearchDiskIndexSpec *index, const SearchDi
                                  size_t numRanges, uint64_t *trimId, t_docId *maxDocId);
 void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
                                        SearchDiskPendingSlotTrimCallback callback, void *ctx);
+SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(RedisSearchDiskIndexSpec *index,
+                                                     uint64_t trimId, size_t maxScanned,
+                                                     SearchDiskSlotTrimCallback callback,
+                                                     void *ctx);
+bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
+                                   const SearchDiskSlotTrimBatch *batch);
 bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index);
 #ifdef __cplusplus
 }

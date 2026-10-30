@@ -226,6 +226,67 @@ typedef struct {
   IndexSpecSlotTrimJob *job;
 } DiskSlotTrimContext;
 
+static bool trimMemoryIndexes(void *ctx, const t_docId *ids, size_t numIds, uint64_t totalDocLen,
+                              const SearchDiskSlotTrimBatch *batch, bool exhausted) {
+  DiskSlotTrimContext *trim = ctx;
+  IndexSpec *spec = trim->spec;
+  pthread_mutex_lock(&diskApplyLock);
+  if (diskJobsPaused) {
+    pthread_mutex_unlock(&diskApplyLock);
+    return false;
+  }
+  IndexSpec_IncrActiveWrites(spec);
+  IndexSpec_LockWrite(spec);
+  bool applied = spec->stats.scoring.numDocuments >= numIds &&
+                 spec->stats.scoring.totalDocsLen >= totalDocLen &&
+                 SearchDisk_ApplySlotTrimBatch(spec->diskSpec, batch);
+  if (applied) {
+    for (size_t i = 0; i < numIds; ++i) IndexSpec_RemoveDocFromMemoryIndexes(spec, ids[i]);
+    spec->stats.scoring.numDocuments -= numIds;
+    spec->stats.scoring.totalDocsLen -= totalDocLen;
+    IndexSpec_DeferGCDeletes(spec, numIds);
+    if (exhausted) {
+      DocTable_RemovePendingDeletion(&spec->docs, trim->job->pending);
+      trim->job->pending = NULL;
+      trim->job->finished = true;
+    }
+  }
+  IndexSpec_Unlock(spec);
+  IndexSpec_DecrActiveWrites(spec);
+  pthread_mutex_unlock(&diskApplyLock);
+  return applied;
+}
+
+IndexSpecDiskSlotTrimResult IndexSpec_RunDiskSlotTrim(IndexSpecSlotTrimJob *job) {
+  if (job->finished) return INDEX_DISK_TRIM_FINISHED;
+  pthread_rwlock_rdlock(&diskJobRunLock);
+  if (atomic_load(&diskJobsStopped)) {
+    pthread_rwlock_unlock(&diskJobRunLock);
+    return INDEX_DISK_TRIM_CANCELLED;
+  }
+  StrongRef running = WeakRef_Promote(job->specRef);
+  IndexSpec *spec = StrongRef_Get(running);
+  IndexSpecDiskSlotTrimResult result = INDEX_DISK_TRIM_CANCELLED;
+  pthread_mutex_lock(&diskApplyLock);
+  bool paused = diskJobsPaused;
+  pthread_mutex_unlock(&diskApplyLock);
+  if (spec && spec->diskSpec && paused) {
+    result = INDEX_DISK_TRIM_RETRY;
+  } else if (spec && spec->diskSpec) {
+    DiskSlotTrimContext context = {.spec = spec, .job = job};
+    SearchDiskSlotTrimResult status = SearchDisk_RunSlotTrimBatch(
+        spec->diskSpec, job->trimId, SLOT_CLEANUP_CHUNK_DOC_LIMIT, trimMemoryIndexes, &context);
+    result = status == SEARCH_DISK_TRIM_FINISHED ? INDEX_DISK_TRIM_FINISHED
+             : status == SEARCH_DISK_TRIM_MORE   ? INDEX_DISK_TRIM_MORE
+                                                 : INDEX_DISK_TRIM_RETRY;
+    RS_LOG_ASSERT_ALWAYS((result == INDEX_DISK_TRIM_FINISHED) == job->finished,
+                         "slot cleanup completion must follow the final applied batch");
+  }
+  if (running.rm) StrongRef_Release(running);
+  pthread_rwlock_unlock(&diskJobRunLock);
+  return result;
+}
+
 void IndexSpec_FreeDiskSlotTrim(IndexSpecSlotTrimJob *job) {
   if (!job) return;
   WeakRef_Release(job->specRef);

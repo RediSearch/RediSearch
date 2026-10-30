@@ -690,6 +690,8 @@ typedef struct IndexSpecSlotTrimJob IndexSpecSlotTrimJob;
 IndexSpecSlotTrimJob *IndexSpec_RegisterDiskSlotTrim(StrongRef specRef,
                                                    const SearchDiskSlotRange *ranges,
                                                    size_t numRanges);
+// Worker, without the GIL: scan and apply one bounded batch, retaining progress for the next turn.
+IndexSpecDiskSlotTrimResult IndexSpec_RunDiskSlotTrim(IndexSpecSlotTrimJob *job);
 // Release only after worker calls stop. Unfinished intent and query hiding remain for resumption.
 void IndexSpec_FreeDiskSlotTrim(IndexSpecSlotTrimJob *job);
 // Main thread, after disk restore: install pending filters and schedule unfinished backend jobs.
