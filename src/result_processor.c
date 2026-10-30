@@ -2093,11 +2093,11 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
-    // Notice a blocked-client (RETURN_STRICT) timeout promptly when the
-    // main-thread callback flips the borrowed flag.
+    // Notice a requested stop or a blocked-client (RETURN_STRICT) timeout
+    // promptly when another thread flips its flag.
     // The wall-clock deadline is already handled by the upstream's own checks.
     QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+    if (QueryRequest_ShouldStop(timeout)) {
       rc = RS_RESULT_TIMEDOUT;
       break;
     }

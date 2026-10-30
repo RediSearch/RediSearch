@@ -102,10 +102,10 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // clean the search result
      r = SearchResult_New();
 
-     // Honour a main-thread timeout flag at the row boundary: buffering
-     // stages (safe loader, sorter yield) can keep emitting from internal
-     // buffers without re-touching upstream's per-row timeout check.
-     if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
+     // Honour a requested stop or a main-thread timeout flag at the row
+     // boundary: buffering stages (safe loader, sorter yield) can keep emitting
+     // from internal buffers without re-touching upstream's per-row timeout check.
+     if (areq && QueryRequest_ShouldStop(&areq->base.timeout)) {
        *rc = RS_RESULT_TIMEDOUT;
        break;
      }

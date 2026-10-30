@@ -225,6 +225,12 @@ void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout);
 bool QueryRequestTimeout_RequestStop(QueryRequestTimeout *timeout, QueryStopReason reason);
 
 /**
+ * Reports whether QueryRequestTimeout_RequestStop was called in the current
+ * cycle. A single relaxed load, cheap enough for any loop.
+ */
+bool QueryRequestTimeout_IsStopRequested(const QueryRequestTimeout *timeout);
+
+/**
  * Returns the reason recorded by QueryRequestTimeout_RequestStop for the
  * current cycle, or NONE when no stop was requested. Reports only explicit
  * requests: a timeout detected by the active source alone leaves it NONE.
@@ -294,6 +300,15 @@ bool QueryRequestTimeout_IsTimedOutExact(const QueryRequestTimeout *timeout);
  * concurrency requirements as QueryRequestTimeout_IsTimedOutExact.
  */
 bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout);
+
+/**
+ * Reports whether a row or reply loop should stop producing: a stop was
+ * requested, or the blocked-client timeout callback fired. Unlike
+ * QueryRequestTimeout_IsTimedOut it never reads the clock, so it suits
+ * per-row checks that previously used IsBlockedClientTimedOut; unlike that
+ * call it must not be used to decide who owns the reply.
+ */
+bool QueryRequest_ShouldStop(const QueryRequestTimeout *timeout);
 
 /**
  * Primary timeout operation. A stop requested through

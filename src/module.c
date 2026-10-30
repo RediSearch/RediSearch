@@ -3589,7 +3589,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   if (!profile) {
     for (int i = 0; i < count; ++i) {
       rCtx->processReply(replies[i], rCtx);
-      if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+      if (!fromTimeout && QueryRequest_ShouldStop(&req->base.timeout)) {
         goto cleanup;
       }
     }
@@ -3609,7 +3609,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
       rCtx->processReply(mr_reply, rCtx);
-      if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+      if (!fromTimeout && QueryRequest_ShouldStop(&req->base.timeout)) {
         goto cleanup;
       }
     }
