@@ -161,6 +161,15 @@ impl<'query> MetricsVec<'query> {
         self.inner.append(&mut other.inner);
     }
 
+    /// Appends a copy of every entry in `other`, leaving `other` untouched.
+    ///
+    /// The copying counterpart to [`concat`](Self::concat), for callers that collect from
+    /// a collection they do not own — or one they will collect from again for the next
+    /// document.
+    pub fn extend_copied(&mut self, other: &Self) {
+        self.inner.extend_from_slice(other.inner.as_slice());
+    }
+
     /// Drops all entries.
     pub fn reset(&mut self) {
         self.inner.clear();
