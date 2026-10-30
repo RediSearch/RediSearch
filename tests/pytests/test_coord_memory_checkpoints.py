@@ -475,3 +475,102 @@ def test_search_short_reply_reads_memory_resp3():
 def test_search_short_reply_reads_memory_resp2():
     """As the RESP3 case; RESP2 has no warning channel but counts the stop."""
     _test_search_short_reply_reads_memory(Env(protocol=2))
+
+
+AGGREGATE = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n', 'TIMEOUT', 100000)
+
+
+def aggregate_rows(env, res):
+    return res['results'] if env.protocol == 3 else res[1:]
+
+
+def stopped_at_first_read(env, coord, query):
+    """Runs `query` on the coordinator with memory forced over the limit after the entry guard,
+    before its pipeline fetches the first shard reply, so its memory read before that fetch stops
+    it. Shard 1 shares the forced ratio, so the outcome alone does not prove where the stop came
+    from; the FT.SEARCH tests above place the pressure precisely."""
+    sync_point(coord, 'CLEAR')
+    sync_point(coord, 'ARM', 'BeforeRPNetNext')
+    try:
+        thread, result = run_in_thread(coord, query)
+        wait_for_sync_point(coord, 'BeforeRPNetNext')
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+        sync_point(coord, 'SIGNAL', 'BeforeRPNetNext')
+        thread.join(timeout=30)
+        env.assertFalse(thread.is_alive())
+    finally:
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        sync_point(coord, 'CLEAR')
+    return result[0] if result else None
+
+
+def _test_aggregate_stream_stop(env):
+    skipIfNoEnableAssert(env)
+    create_index(env)
+    coord = env.getConnection(1)
+    try:
+        for query in (AGGREGATE, AGGREGATE + ('WITHCURSOR', 'COUNT', 5)):
+            for timeout_policy in TIMEOUT_POLICIES:
+                for oom_policy in OOM_POLICIES:
+                    set_policies(env, timeout_policy, oom_policy)
+                    case = ('WITHCURSOR' in query, timeout_policy, oom_policy)
+                    errors, warnings = coord_oom_counters(coord)
+                    res = stopped_at_first_read(env, coord, query)
+                    if 'WITHCURSOR' in query and not isinstance(res, ResponseError):
+                        # A stopped read ends the cursor.
+                        res, cursor = res
+                        if oom_policy == 'return':
+                            env.assertEqual(cursor, 0, message=case)
+                    if oom_policy == 'fail':
+                        env.assertTrue(isinstance(res, ResponseError), message=(case, res))
+                        env.assertContains(OOM_QUERY_ERROR, str(res), message=case)
+                        env.assertEqual(coord_oom_counters(coord), (errors + 1, warnings),
+                                        message=case)
+                    elif oom_policy == 'return':
+                        # Replies already queued when the stream stops are still drained into the
+                        # reply, so with this little data it can be complete.
+                        env.assertLessEqual(len(aggregate_rows(env, res)), N_DOCS,
+                                            message=(case, res))
+                        env.assertEqual(coord_oom_counters(coord), (errors, warnings + 1),
+                                        message=case)
+                        if env.protocol == 3:
+                            env.assertContains(COORD_OOM_WARNING, res['warning'],
+                                               message=(case, res))
+                    else:
+                        env.assertEqual(len(aggregate_rows(env, res)),
+                                        5 if 'WITHCURSOR' in query else N_DOCS,
+                                        message=(case, res))
+                    expect_clean_end(env, coord)
+    finally:
+        reset_policies(env)
+
+
+@skip(cluster=False)
+def test_aggregate_stream_stop_resp3():
+    """The coordinator FT.AGGREGATE reads memory once per shard reply it takes from the channel (and
+    the IO thread once per reply before resending): a stop ends the stream and the reply is the rows
+    taken or already queued with the coordinator OOM warning, or the OOM error under ON_OOM FAIL.
+    With and without WITHCURSOR, under every timeout policy. WITHCOUNT is not covered here: its
+    deferred pipeline never parked at the sync point used to place the pressure."""
+    _test_aggregate_stream_stop(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_aggregate_stream_stop_resp2():
+    """As the RESP3 case; RESP2 has no warning channel."""
+    _test_aggregate_stream_stop(Env(protocol=2))
+
+
+@skip(cluster=False)
+def test_aggregate_profile_is_not_stopped():
+    """FT.PROFILE reads the shard stream to its end to collect the shards' profiles, so the
+    coordinator stream checkpoints leave it out: under pressure it still replies in full."""
+    env = Env(protocol=3)
+    skipIfNoEnableAssert(env)
+    create_index(env)
+    coord = env.getConnection(1)
+    res = stopped_at_first_read(env, coord, ('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*',
+                                             'LOAD', 1, '@n'))
+    env.assertFalse(isinstance(res, Exception), message=res)
+    env.assertEqual(len(res['Results']['results']), N_DOCS, message=res)
+    expect_clean_end(env, coord)

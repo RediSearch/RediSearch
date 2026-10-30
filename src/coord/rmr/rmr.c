@@ -653,6 +653,8 @@ struct MRIteratorCtx {
   short pending;    // Number of shards with more results (not depleted)
   short inProcess;  // Number of currently running commands on shards
   bool timedOut;    // whether the coordinator experienced a timeout
+  bool memoryCheckpoint;
+  bool memoryStopped;  // set on the IO thread, read by the reader
   // reference counter of the iterator.
   // When it reaches 0, both readers and the writer agree that the iterator can be released
   int8_t itRefCount;
@@ -728,6 +730,18 @@ short MRIterator_GetPending(MRIterator *it) {
 
 bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx) {
   return __atomic_load_n(&ctx->timedOut, __ATOMIC_ACQUIRE);
+}
+
+bool MRIteratorCallback_HasMemoryCheckpoint(MRIteratorCallbackCtx *ctx) {
+  return ctx->it->ctx.memoryCheckpoint;
+}
+
+void MRIteratorCallback_SetMemoryStopped(MRIteratorCallbackCtx *ctx) {
+  __atomic_store_n(&ctx->it->ctx.memoryStopped, true, __ATOMIC_RELAXED);
+}
+
+bool MRIterator_IsMemoryStopped(MRIterator *it) {
+  return __atomic_load_n(&it->ctx.memoryStopped, __ATOMIC_RELAXED);
 }
 
 void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx) {
@@ -999,6 +1013,7 @@ static MRIterator *createIterator(MRCommand cmd, const MRIteratorConfig *config)
       .ioRuntime = ioRuntime,
       .privateDataDestructor = config->cbPrivateDataDestructor,
       .commandModifier = config->commandModifier,
+      .memoryCheckpoint = config->memoryCheckpoint,
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
     .len = 1,

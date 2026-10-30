@@ -21,6 +21,7 @@
 #include "redismodule.h"
 #include "rmr/rmr.h"
 #include "rmutil/rm_assert.h"
+#include "query_memory.h"
 
 static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut);
 
@@ -169,6 +170,17 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
         shardTimedOut = true;
       }
     }
+  }
+
+  // Without a cursor every reply is resent at once, so replies pile up in the channel while the
+  // reader is slower than the shards: read memory once per reply, and on pressure stop resending.
+  // This reply is kept; the reader stops its request.
+  MRIteratorCtx *itCtx = MRIteratorCallback_GetCtx(ctx);
+  if (cursorId != CURSOR_EOF && !cmd->forCursor && !cmd->forProfiling &&
+      MRIteratorCallback_HasMemoryCheckpoint(ctx) && !MRIteratorCallback_GetTimedOut(itCtx) &&
+      QueryMemory_ShouldStopNow(NULL)) {
+    MRIteratorCallback_SetMemoryStopped(ctx);
+    MRIteratorCallback_SetTimedOut(itCtx);
   }
 
   // Push the reply down the chain, to be picked up by getNextReply

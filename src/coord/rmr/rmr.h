@@ -202,6 +202,8 @@ typedef void (*MRCommandModifier)(MRCommand *cmd, size_t numShards, void *privat
  *                               other's state (see MRIterator_ArmShardCursorRead)
  *                               must share a runtime so those touches stay on one
  *                               IO thread.
+ * @param memoryCheckpoint       The per-reply callback reads memory before it resends a
+ *                               command (see MRIteratorCallback_HasMemoryCheckpoint).
  */
 typedef struct {
   MRIteratorCallback successCB;
@@ -210,6 +212,7 @@ typedef struct {
   void (*cbPrivateDataDestructor)(void *);
   MRCommandModifier commandModifier;
   IORuntimeCtx *ioRuntime;
+  bool memoryCheckpoint;
 } MRIteratorConfig;
 
 // Trigger all the commands in the iterator to be sent.
@@ -280,6 +283,15 @@ bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx);
 void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx);
 
 void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx);
+
+/* Whether the iterator was created with MRIteratorConfig.memoryCheckpoint. */
+bool MRIteratorCallback_HasMemoryCheckpoint(MRIteratorCallbackCtx *ctx);
+
+/* Memory ran short while shard replies were landing: called on the IO thread, which has no
+ * request to stop, together with MRIteratorCallback_SetTimedOut so no command is resent. The
+ * reader polls MRIterator_IsMemoryStopped and stops its request. Sticky. */
+void MRIteratorCallback_SetMemoryStopped(MRIteratorCallbackCtx *ctx);
+bool MRIterator_IsMemoryStopped(MRIterator *it);
 
 void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
 

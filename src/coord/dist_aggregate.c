@@ -215,8 +215,7 @@ static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       }
     }
     iterCtx->numResponded++;
-    bool timedOut =
-        QueryRequestTimeout_IsBlockedClientTimedOut(&iterCtx->areq->base.timeout);
+    bool timedOut = QueryRequest_ShouldStop(&iterCtx->areq->base.timeout);
     if (timedOut || isError || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
       if (timedOut) {
         MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
@@ -249,7 +248,7 @@ static void withCountErrorCb(MRIteratorCallbackCtx *ctx) {
   // remaining shards to netCursorCallback and stop accumulating their totals. Wait
   // for the other shards (or a timeout) so their counts are still summed. On a
   // timeout we must dispatch.
-  bool timedOut = QueryRequestTimeout_IsBlockedClientTimedOut(&iterCtx->areq->base.timeout);
+  bool timedOut = QueryRequest_ShouldStop(&iterCtx->areq->base.timeout);
   if (timedOut || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
     if (timedOut) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
@@ -324,6 +323,7 @@ static void rpnetCreateIterator(RPNet *nc) {
     .cbPrivateData = iterCtx,
     .cbPrivateDataDestructor = aggregateIteratorContext_Free,
     .commandModifier = cmdModifier,
+    .memoryCheckpoint = true,
   });
   nc->cmd = replyShape;
 
@@ -348,8 +348,8 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_START, areq_timed_out, nc->areq);
 #endif
 
-  // Check if the request timed out before starting the iterator
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&nc->areq->base.timeout)) {
+  // Check if the request timed out or was stopped before starting the iterator
+  if (QueryRequest_ShouldStop(&nc->areq->base.timeout)) {
     return RS_RESULT_TIMEDOUT;
   }
 

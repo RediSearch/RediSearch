@@ -16,6 +16,7 @@
 
 #include "value_ffi.h"
 #include "rpnet.h"
+#include "query_memory.h"
 #include "pipeline_execution.h"
 #include "rmr/chan.h"
 #include "rmr/reply.h"
@@ -611,6 +612,26 @@ void RPNet_resetCurrent(RPNet *nc) {
     nc->current.meta = NULL;
 }
 
+// Memory, before each fetch of a shard reply: the IO thread's read (MRIterator_IsMemoryStopped)
+// or this one. Stops the request with reason OOM and wakes its channel. Left out: hybrid
+// subqueries, until their reply maps an OOM stop, and FT.PROFILE, whose profile collection reads
+// the stream to its end and would spin on a stopped one.
+static bool rpnetMemoryStops(RPNet *nc) {
+  QueryRequestTimeout *timeout = &nc->areq->base.timeout;
+  if (!nc->it || nc->hybridSubquery != RPNET_HYBRID_NONE || nc->cmd.forProfiling ||
+      QueryRequest_ShouldStop(timeout)) {
+    return false;
+  }
+  if (MRIterator_IsMemoryStopped(nc->it)) {
+    QueryRequestTimeout_RequestStop(timeout, QUERY_STOP_REASON_OOM);
+  } else if (!QueryMemory_ShouldStopNow(timeout)) {
+    return false;
+  }
+  // Every stop requester wakes the channel, whoever pops it.
+  QueryRequestAsyncState_WakeAbortChannel(&nc->areq->base.async);
+  return true;
+}
+
 static int rpnetRead(ResultProcessor *self, SearchResult *r, bool draining) {
   RPNet *nc = (RPNet *)self;
   PipelineAccess *access = self->parent->executionAccess;
@@ -666,6 +687,11 @@ static int rpnetRead(ResultProcessor *self, SearchResult *r, bool draining) {
 
   // get the next reply from the channel
   while (!root) {
+    if (!draining && rpnetMemoryStops(nc)) {
+      // Without a cursor, so the shards' cursors are deleted rather than read.
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      return RS_RESULT_TIMEDOUT;
+    }
     // RETURN_STRICT uses the blocked-client source, so only clock-based cycles
     // reach this check.
     if (!draining && areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
@@ -675,7 +701,8 @@ static int rpnetRead(ResultProcessor *self, SearchResult *r, bool draining) {
       // a `CURSOR READ` command.
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
       return RS_RESULT_TIMEDOUT;
-    } else if (!draining && nc->it && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
+    } else if (!draining && nc->it && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it)) &&
+               !MRIterator_IsMemoryStopped(nc->it)) {
       // if timeout was set in previous reads, reset it. Drain-only must keep
       // the flag set so the post-drain callback dispatches CURSOR DEL.
       MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));
