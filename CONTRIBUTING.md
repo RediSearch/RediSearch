@@ -85,6 +85,13 @@ By contributing code to this Redis project in any form, you agree to the Redis S
 5. Exactly one release-notes checkbox must be checked. CI enforces this.
 6. After review begins, address comments with follow-up commits. Do not force-push or rewrite history unless a maintainer asks you to.
 
+### Fast-track approval
+
+PR authors with repository write access can request Jira-based policy approval
+through **Actions → Request Fast-Track Approval**, run from `master`.
+See the [shared fast-track guide](https://github.com/redislabsdev/redisearch-ci-common/blob/v1/scripts/fast_track/README.md)
+for eligibility, setup, and usage. Required CI and merge rules still apply.
+
 ## Testing Requirements
 
 Run the tests that match the area you changed. Useful commands include:
