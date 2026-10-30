@@ -49,6 +49,19 @@ int ApplyOomStop(const struct QueryRequestTimeout *timeout, RSOomPolicy oomPolic
  */
 bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err);
 
+/**
+ * Per-row stop check of the inline reply loops, before each upstream read: a
+ * requested stop, a blocked-client timeout or memory pressure. The reply grows
+ * the client output buffer, which only the memory ratio sees, so this is the
+ * loop's only memory check. On true `rc` is RS_RESULT_TIMEDOUT, which the
+ * caller maps like a pipeline stop (ApplyOomStop for an OOM stop). An OOM stop
+ * under ON_OOM RETURN does not end the loop, as in AggregateResults: the rows
+ * the pipeline's stages already hold still reach the reply, and the stop ends
+ * the stream at the pipeline's root.
+ */
+bool ReplyLoop_ShouldStop(struct QueryRequestTimeout *timeout, RSOomPolicy oomPolicy,
+                          uint32_t *counter, int *rc);
+
 void destroyResults(SearchResult **results);
 
 typedef struct CommonPipelineCtx {

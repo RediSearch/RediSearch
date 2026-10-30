@@ -72,6 +72,20 @@ bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err) {
   return true;
 }
 
+static bool oomStopKeepsBufferedRows(const QueryRequestTimeout *timeout, RSOomPolicy oomPolicy) {
+  return QueryRequestTimeout_GetStopReason(timeout) == QUERY_STOP_REASON_OOM &&
+         oomPolicy != OomPolicy_Fail && !QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+}
+
+bool ReplyLoop_ShouldStop(QueryRequestTimeout *timeout, RSOomPolicy oomPolicy, uint32_t *counter,
+                          int *rc) {
+  if (!QueryMemory_ShouldStop(timeout, counter) || oomStopKeepsBufferedRows(timeout, oomPolicy)) {
+    return false;
+  }
+  *rc = RS_RESULT_TIMEDOUT;
+  return true;
+}
+
  void destroyResults(SearchResult **results) {
    if (results) {
      for (size_t i = 0; i < array_len(results); i++) {
@@ -112,11 +126,6 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 // Compiler eliminates the function completely in release builds - zero overhead
 static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 #endif
-
-static bool oomStopKeepsBufferedRows(const QueryRequestTimeout *timeout, RSOomPolicy oomPolicy) {
-  return QueryRequestTimeout_GetStopReason(timeout) == QUERY_STOP_REASON_OOM &&
-         oomPolicy != OomPolicy_Fail && !QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
-}
 
  SearchResult **AggregateResults(ResultProcessor *rp, const CommonPipelineCtx *ctx, int *rc) {
    AREQ *areq = ctx->areq;

@@ -87,7 +87,8 @@ def expect_empty_with_oom_warning(env, res):
 def test_build_checkpoints_stop_before_execution(env):
     """Every build stage reads memory once: under pressure ON_OOM RETURN replies an empty result
     with the OOM warning and ON_OOM FAIL the OOM error, before any row is read, with and without
-    workers. Past the build stages nothing stops the query."""
+    workers. The first call past the build stages is a runtime checkpoint (the reply loop's,
+    before the second row), so it truncates instead."""
     create_index(env)
     for workers in worker_counts(env):
         for at_call in range(1, BUILD_CHECKPOINTS + 1):
@@ -99,8 +100,8 @@ def test_build_checkpoints_stop_before_execution(env):
                     env.assertEqual(len(run_at_call(env, at_call, *query)['results']), N_DOCS)
 
         res = run_at_call(env, BUILD_CHECKPOINTS + 1, *AGGREGATE)
-        env.assertEqual(len(res['results']), N_DOCS, message=res)
-        env.assertEqual(res['warning'], [], message=res)
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+        env.assertEqual(len(res['results']), 1, message=res)
 
 
 @skip(cluster=True)
@@ -174,22 +175,20 @@ def hybrid_result_count(res):
 @skip(cluster=True)
 def test_hybrid_build_checkpoint_fails_before_execution(env):
     """Under ON_OOM FAIL, FT.HYBRID reads memory after building each subquery, and pressure at
-    either fails the query with the OOM error before it runs. Under ON_OOM RETURN it does not read
-    memory at build."""
+    either fails the query with the OOM error before it runs. Under ON_OOM RETURN a stop there
+    replies the OOM warning instead."""
     create_hybrid_index(env)
     full = hybrid_result_count(env.cmd(*HYBRID))
     env.assertGreater(full, 0)
     with oom_policy(env, 'fail'):
         for workers in worker_counts(env):
-            # Calls from 3 on are the tail's buffering checkpoints, which fail it the same way.
+            # Calls from 3 on are runtime checkpoints, which fail it the same way.
             for at_call in (1, 2, 3):
                 expect_oom_error_at_call(env, at_call, *HYBRID)
-    memory_pressure(env, 'AT_CALL', 1)
-    try:
-        env.assertEqual(hybrid_result_count(env.cmd(*HYBRID)), full)
-        env.assertEqual(checkpoint_calls(env), 0)
-    finally:
-        memory_pressure(env, 'RESET')
+    # Under ON_OOM RETURN a subquery stopped at build reads nothing and the query replies the
+    # OOM warning.
+    res = run_at_call(env, 1, *HYBRID)
+    env.assertEqual(res[res.index('warnings') + 1], [COORD_OOM_WARNING], message=res)
 
 
 @skip(cluster=False)
@@ -550,8 +549,9 @@ def test_expression_stop_ends_the_stream(env):
     create_index(env)
     k = 4
     for workers in worker_counts(env):
-        # With workers the safe loader buffers and loads every row first.
-        at_call = BUILD_CHECKPOINTS + (2 * N_DOCS if workers else 0) + k
+        # With workers the safe loader buffers and loads every row first. The expression's calls
+        # alternate with the reply loop's (or AggregateResults'), so its k-th is 2k - 1 later.
+        at_call = BUILD_CHECKPOINTS + (2 * N_DOCS if workers else 0) + 2 * k - 1
         for query in (APPLY, FILTER):
             res = run_at_call(env, at_call, *query)
             if workers:
