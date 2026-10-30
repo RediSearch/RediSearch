@@ -28,11 +28,12 @@ void *MRChannel_Pop(MRChannel *chan);
 void *MRChannel_TryPop(MRChannel *chan);
 
 /* Pop an item, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or abort
- * flag (re-checked on each wait entry; pair with MRChannel_WakeAbort). `timedOut`
- * set if deadline expired. At least one of `abstime` / `abortFlag` must be non-NULL;
- * callers wanting an indefinite blocking pop should use MRChannel_Pop. */
+ * flags (either one aborts; re-checked on each wait entry; pair with
+ * MRChannel_WakeAbort). `timedOut` set if deadline expired. At least one of
+ * `abstime` / `abortFlag` / `stopFlag` must be non-NULL; callers wanting an
+ * indefinite blocking pop should use MRChannel_Pop. */
 void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstime,
-                               atomic_bool *abortFlag, bool *timedOut);
+                               atomic_bool *abortFlag, atomic_bool *stopFlag, bool *timedOut);
 
 /* Wake any thread currently blocked in MRChannel_PopWithTimeout so it re-evaluates
  * its abort flag. Safe to call even if no reader is blocked. */

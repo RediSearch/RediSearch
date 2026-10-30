@@ -1017,8 +1017,9 @@ MRReply *MRIterator_Next(MRIterator *it) {
 }
 
 MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime,
-                                    atomic_bool *abortFlag, bool *timedOut) {
-  return MRChannel_PopWithTimeout(it->ctx.chan, abstime, abortFlag, timedOut);
+                                    atomic_bool *abortFlag, atomic_bool *stopFlag,
+                                    bool *timedOut) {
+  return MRChannel_PopWithTimeout(it->ctx.chan, abstime, abortFlag, stopFlag, timedOut);
 }
 
 struct MRChannel *MRIterator_GetChannel(MRIterator *it) {
