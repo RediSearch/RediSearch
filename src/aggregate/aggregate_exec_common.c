@@ -47,6 +47,22 @@
    RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
  }
 
+int ApplyOomStop(const QueryRequestTimeout *timeout, RSOomPolicy oomPolicy, QueryError *err,
+                 int rc) {
+  if (rc != RS_RESULT_TIMEDOUT ||
+      QueryRequestTimeout_GetStopReason(timeout) != QUERY_STOP_REASON_OOM) {
+    return rc;
+  }
+  if (oomPolicy == OomPolicy_Fail) {
+    if (QueryError_IsOk(err)) {
+      QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    }
+    return RS_RESULT_ERROR;
+  }
+  QueryError_SetQueryOOMWarning(err);
+  return RS_RESULT_EOF;
+}
+
  void destroyResults(SearchResult **results) {
    if (results) {
      for (size_t i = 0; i < array_len(results); i++) {
@@ -102,10 +118,10 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // clean the search result
      r = SearchResult_New();
 
-     // Honour a main-thread timeout flag at the row boundary: buffering
-     // stages (safe loader, sorter yield) can keep emitting from internal
-     // buffers without re-touching upstream's per-row timeout check.
-     if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
+     // Honour a requested stop or a main-thread timeout flag at the row
+     // boundary: buffering stages (safe loader, sorter yield) can keep emitting
+     // from internal buffers without re-touching upstream's per-row timeout check.
+     if (areq && QueryRequest_ShouldStop(&areq->base.timeout)) {
        *rc = RS_RESULT_TIMEDOUT;
        break;
      }

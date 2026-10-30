@@ -83,6 +83,15 @@ typedef struct QueryError QueryError;
  *           - Controls whether the pause applies to the coordinator pipeline or shard-level processing.
  *           - If specified, the pause applies only to the coordinator, not the shards.
  *
+ *       - **`MEMORY_CHECKPOINT [INTERNAL_ONLY]`**:
+ *         - Inserts an RP, at the TIMEOUT_AFTER_N position, that calls the query memory
+ *           checkpoint before every upstream read; once it says to stop, the RP reports a
+ *           timeout. Drive it with `_FT.DEBUG MEMORY_PRESSURE`. No timeout policy restriction
+ *           beyond the coordinator-wide one.
+ *         - **`INTERNAL_ONLY` (optional)**: in a multi-shard cluster, adds it to the shard
+ *           pipelines instead of the coordinator's (FT.SEARCH has none, so it needs the flag
+ *           there). Not combinable with TIMEOUT_AFTER_N or the pause commands.
+ *
  *   - `<DEBUG_PARAMS_COUNT>`:
  *     - Specifies the number of expected arguments in `<DEBUG_QUERY_ARGS>`.
  *     - Ensures correct parsing of debug arguments.

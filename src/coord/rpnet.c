@@ -380,10 +380,11 @@ int getNextReply(RPNet *nc) {
   }
   // Pop wake mechanisms: the abort flag is flipped by the FAIL / RETURN-STRICT
   // timeout callback via MRChannel_WakeAbort. Under RETURN the flag is never
-  // flipped: aggregate streams degrade to a blocking pop (legacy RETURN waits
+  // flipped: aggregate streams wait without a deadline (legacy RETURN waits
   // beyond the deadline for in-flight shard replies), while hybrid streams get
   // the in-band wall-clock deadline from getAbsTimeout — see its doc for why.
-  // An unarmed timeout source provides neither mechanism and uses MRIterator_Next.
+  // The request's stop flag aborts the pop in every timeout kind, including
+  // unarmed; whoever requests the stop wakes the channel.
 #ifdef ENABLE_ASSERT
   // Sync point (debug): park BG when it is about to wait for the next shard
   // reply. Reaching this site implies any previously admitted reply has been
@@ -397,13 +398,13 @@ int getNextReply(RPNet *nc) {
       timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
           ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
           : NULL;
+  RS_Atomic(bool) *stopFlag = QueryRequestTimeout_GetStopFlag(timeout);
   bool popTimedOut = false;
   rs_wall_clock waitStart;
   if (nc->profileBreakdown) rs_wall_clock_init(&waitStart);
   MRReply *root = nc->drainOnly ? MRIterator_TryNext(nc->it)
-                  : deadline || abortFlag
-                      ? MRIterator_NextWithTimeout(nc->it, deadline, abortFlag, &popTimedOut)
-                      : MRIterator_Next(nc->it);
+                                : MRIterator_NextWithTimeout(nc->it, deadline, abortFlag, stopFlag,
+                                                             &popTimedOut);
   if (nc->profileBreakdown) {
     accumulateSince(&nc->breakdown.waitTime, &waitStart);
     if (root) nc->breakdown.replies++;
@@ -416,7 +417,7 @@ int getNextReply(RPNet *nc) {
     if (nc->drainOnly) {
       return RS_RESULT_EOF;
     }
-    if (popTimedOut || QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+    if (popTimedOut || QueryRequest_ShouldStop(timeout)) {
       return RS_RESULT_TIMEDOUT;
     }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
@@ -590,11 +591,14 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
 #endif
 
-  // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
-  // may already hold a buffered reply (the NULL-reply check below wouldn't fire
-  // and we'd silently return rows). Skipped during the timer's own drain.
-  if (QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
-      QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
+  // Surface a requested stop, and RETURN_STRICT timeouts on follow-up cursor
+  // reads, where the channel may already hold a buffered reply (the NULL-reply
+  // check below wouldn't fire and we'd silently return rows). Skipped during
+  // the timer's own drain.
+  if (!nc->drainOnly &&
+      (QueryRequest_UsesReplyCallback(&areq->base)
+           ? QueryRequest_ShouldStop(&areq->base.timeout)
+           : QueryRequestTimeout_IsStopRequested(&areq->base.timeout))) {
     return RS_RESULT_TIMEDOUT;
   }
 

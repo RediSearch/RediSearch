@@ -27,6 +27,7 @@
 #include "rlookup_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
+#include "query_memory.h"
 
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
@@ -2093,11 +2094,11 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
-    // Notice a blocked-client (RETURN_STRICT) timeout promptly when the
-    // main-thread callback flips the borrowed flag.
+    // Notice a requested stop or a blocked-client (RETURN_STRICT) timeout
+    // promptly when another thread flips its flag.
     // The wall-clock deadline is already handled by the upstream's own checks.
     QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+    if (QueryRequest_ShouldStop(timeout)) {
       rc = RS_RESULT_TIMEDOUT;
       break;
     }
@@ -3002,6 +3003,33 @@ static ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sc
   ret->base.Free = RPTimeoutAfterCount_Free;
 
   return &ret->base;
+}
+
+typedef struct {
+  ResultProcessor base;
+  RedisSearchCtx *sctx;
+  uint32_t counter;
+} RPMemoryCheckpoint;
+
+static int RPMemoryCheckpoint_Next(ResultProcessor *base, SearchResult *r) {
+  RPMemoryCheckpoint *self = (RPMemoryCheckpoint *)base;
+  if (QueryMemory_ShouldStop(self->sctx->timeout, &self->counter)) {
+    return RS_RESULT_TIMEDOUT;
+  }
+  return base->upstream->Next(base->upstream, r);
+}
+
+static void RPMemoryCheckpoint_Free(ResultProcessor *base) {
+  rm_free(base);
+}
+
+void PipelineAddMemoryCheckpoint(QueryProcessingCtx *qctx, RedisSearchCtx *sctx) {
+  RPMemoryCheckpoint *rp = rm_calloc(1, sizeof(*rp));
+  rp->sctx = sctx;
+  rp->base.type = RP_MEMORY_CHECKPOINT;
+  rp->base.Next = RPMemoryCheckpoint_Next;
+  rp->base.Free = RPMemoryCheckpoint_Free;
+  addResultProcessor(qctx, &rp->base);
 }
 
 typedef struct {

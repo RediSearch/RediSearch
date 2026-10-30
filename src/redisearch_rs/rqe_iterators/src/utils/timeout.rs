@@ -7,7 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ptr::NonNull;
+use std::{
+    ptr::NonNull,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use ffi::{QueryIterator_IsBlockedClientTimedOut, QueryRequestTimeout, RedisSearchCtx};
 pub use timeout::{DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutCheckResult, TimeoutChecker};
@@ -24,8 +27,8 @@ use crate::{RQEIteratorError, utils::timespec::deadline_passed};
 ///   play. ([`DeadlineTimeoutChecker`] is the same check against a deadline captured up front;
 ///   it is not what a query iterator gets, because a query's deadline moves — see
 ///   [`TimeoutContextDeadline`].)
-/// * [`TimeoutContextRequest`] — reads the request's active timeout source on each probe,
-///   including its blocked-client flag.
+/// * [`TimeoutContextRequest`] — reads the request's stop flag and its active timeout source on
+///   each probe, including its blocked-client flag.
 ///
 /// Iterators are generic over this trait so the dispatch is monomorphized
 /// in the hot path.
@@ -151,14 +154,18 @@ pub struct TimeoutContextRequest {
 }
 
 impl TimeoutContextRequest {
-    /// Build a context that reads the request's active timeout source at each probe.
+    /// Build a context that reads the request's stop flag and active timeout source at each
+    /// probe.
+    ///
+    /// A requested stop is reported on every probe, in every timeout kind, without waiting for
+    /// the amortized clock check.
     ///
     /// # Safety
     ///
     /// `timeout` must stay [valid] at a stable address for as long as this context and any
     /// iterator built from it are used. Source changes and deadline writes must occur only
     /// between probes, after the previous execution cycle has stopped. Only the blocked-client
-    /// flag may be updated concurrently.
+    /// flag and the stop flag may be updated concurrently, and only atomically.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn new(timeout: NonNull<QueryRequestTimeout>, granularity: u32) -> Self {
@@ -176,6 +183,14 @@ impl TimeoutContextRequest {
 impl TimeoutChecker for TimeoutContextRequest {
     #[inline(always)]
     fn check_timeout(&mut self) -> TimeoutCheckResult {
+        // SAFETY: the constructor contract keeps the request valid at a stable, aligned address.
+        // Projecting the field reads nothing.
+        let stop_requested = unsafe { &raw mut (*self.timeout.as_ptr()).stopRequested };
+        // SAFETY: the flag lives outside the source union and is valid in every kind. C only
+        // accesses it atomically, so an atomic view of it does not race.
+        if unsafe { AtomicBool::from_ptr(stop_requested) }.load(Ordering::Relaxed) {
+            return TimeoutCheckResult::TimedOut;
+        }
         // SAFETY: the constructor contract keeps the request valid and its kind stable
         // for this probe. Only the active union member is accessed below.
         match unsafe { (*self.timeout.as_ptr()).kind } {

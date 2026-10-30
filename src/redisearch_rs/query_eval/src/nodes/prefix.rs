@@ -98,7 +98,7 @@ pub(crate) fn eval<'index>(
     // Resolved here, with every other read of `ctx`, because `Expansion` borrows
     // it mutably for the rest of the expansion.
     // SAFETY: the request timeout outlives query evaluation. Its source is fixed for this execution
-    // cycle; only the blocked-client flag may change concurrently, through the C atomic API.
+    // cycle; only the atomic flags may change concurrently, through the C atomic API.
     let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ctx.sctx().timeout) };
 
     let expansion = Expansion {

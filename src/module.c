@@ -47,6 +47,7 @@
 #include "suggest.h"
 #include "alias.h"
 #include "module.h"
+#include "query_memory.h"
 #include "info/info_command.h"
 #include "reply.h"
 #include "resp3.h"
@@ -231,7 +232,8 @@ static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
 // TODO: add heuristics
 // Assumes the GIL is held by the caller
 static inline bool estimateOOM(void) {
-  return RedisMemory_isOutOfMemory();
+  const float forcedRatio = QueryMemory_GetForcedRatio();
+  return forcedRatio >= 0 ? forcedRatio >= REDIS_MEMORY_OOM_RATIO : RedisMemory_isOutOfMemory();
 }
 
 // OOM guardrail for queries function
@@ -3589,7 +3591,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   if (!profile) {
     for (int i = 0; i < count; ++i) {
       rCtx->processReply(replies[i], rCtx);
-      if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+      if (!fromTimeout && QueryRequest_ShouldStop(&req->base.timeout)) {
         goto cleanup;
       }
     }
@@ -3609,7 +3611,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
       rCtx->processReply(mr_reply, rCtx);
-      if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+      if (!fromTimeout && QueryRequest_ShouldStop(&req->base.timeout)) {
         goto cleanup;
       }
     }
@@ -3637,6 +3639,16 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   }
 
 cleanup:
+  // A merge loop that stopped for OOM replies what the heap holds with the OOM warning, or the
+  // OOM error under ON_OOM FAIL; the reply callback reads both.
+  if (!fromTimeout &&
+      QueryRequestTimeout_GetStopReason(&req->base.timeout) == QUERY_STOP_REASON_OOM) {
+    if (req->base.reqConfig.oomPolicy != OomPolicy_Fail) {
+      req->queryOOM = true;
+    } else if (QueryError_IsOk(&req->base.reply.err)) {
+      QueryError_SetCode(&req->base.reply.err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    }
+  }
   if (rCtx) {
     // Call postProcess even on early exits (e.g. timeouts) so that partially
     // processed special cases like KNN can flush their internal queues into
