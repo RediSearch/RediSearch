@@ -61,16 +61,13 @@ fn make_fork_gc() -> (Box<ForkGC>, io::PipeReader, io::PipeWriter) {
 }
 
 /// Encode the empty stream produced by each scanner in protocol order.
+///
+/// Every scanner terminates its stream with a serialized `None`, which
+/// MessagePack encodes as a single nil byte.
 fn empty_scanner_streams() -> Vec<u8> {
-    let terminator = usize::MAX.to_ne_bytes();
-    [
-        terminator.as_slice(),
-        terminator.as_slice(),
-        &[0xc0], // `collect_tags` serializes Option::<TagEntry>::None as MessagePack nil.
-        terminator.as_slice(),
-        terminator.as_slice(),
-    ]
-    .concat()
+    const SCANNERS: usize = 5;
+    const MSGPACK_NIL: u8 = 0xc0;
+    vec![MSGPACK_NIL; SCANNERS]
 }
 
 /// Write the empty stream produced by each scanner.
