@@ -65,7 +65,7 @@ extern "C" {
  *    request timeout reached through `sctx.timeout` must stay valid at stable
  *    addresses for the lifetime of the returned tree. Timeout source
  *    changes and deadline writes may occur only between iterator probes;
- *    only the blocked-client flag may change concurrently.
+ *    only the atomic flags may change concurrently.
  *    The caller must hold the spec read lock throughout deferred INKEYS
  *    evaluation, as required by [`QueryEvalContext::new`]. Until the document
  *    key map is ready, the caller must also hold the GIL for metadata lookup.

@@ -131,6 +131,16 @@ typedef enum {
   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE,  // Execution thread checks a monotonic deadline.
 } QueryRequestTimeoutKind;
 
+/** Why a query execution cycle was asked to stop. */
+typedef enum {
+  QUERY_STOP_REASON_NONE = 0,
+  // The time budget ran out, detected by a site that propagates it to the other threads of the
+  // cycle. The timeout sources keep reporting their own expiry independently of this reason.
+  QUERY_STOP_REASON_TIMEOUT,
+  // Process memory crossed the out-of-memory threshold.
+  QUERY_STOP_REASON_OOM,
+} QueryStopReason;
+
 /**
  * Request-owned timeout state retained for the request's entire lifetime.
  *
@@ -152,6 +162,9 @@ typedef enum {
  * - During a CLOCK_DEADLINE cycle, the deadline is immutable. The counter is
  *   shared across amortized call sites but is not atomic, so calls to
  *   IsTimedOut for one request must be serialized.
+ * - In every kind, including UNARMED, any thread may request a stop
+ *   concurrently with timeout checks (QueryRequestTimeout_RequestStop). The
+ *   stop lives outside the source union, so it never disturbs the active source.
  *
  * The owning QueryRequest must outlive every direct pointer, source-specific
  * pointer, and foreign-language handle borrowed from this object.
@@ -170,6 +183,11 @@ typedef struct QueryRequestTimeout {
       uint8_t counter;
     } clock;
   } source;
+
+  // Cycle-scoped stop request. stopReason is written once, by the first requester, before
+  // stopRequested is published; checkpoints read only the flag.
+  RS_Atomic(bool) stopRequested;
+  RS_Atomic(int) stopReason;  // QueryStopReason
 } QueryRequestTimeout;
 
 /** Initializes timeout as UNARMED, copying config into owned storage. */
@@ -180,7 +198,8 @@ void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const TimeoutConfig 
  */
 void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout);
 /**
- * Starts a cycle using kind as its timeout source.
+ * Starts a cycle using kind as its timeout source, clearing any stop request
+ * left by the previous cycle.
  *
  * BLOCKED_CLIENT clears the atomic marker. CLOCK_DEADLINE derives a new
  * deadline from config.queryTimeoutMS and resets the shared counter; a zero
@@ -195,6 +214,30 @@ void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTi
  * checks; it communicates only the marker value, not other memory.
  */
 void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout);
+
+/**
+ * Asks the current cycle to stop for `reason`, which must not be NONE. Callable
+ * from any thread, in every kind, concurrently with timeout checks. The first
+ * request wins: later ones keep its reason and return false.
+ *
+ * The stop is cleared only by Init and BeginCycle; Reset keeps it.
+ */
+bool QueryRequestTimeout_RequestStop(QueryRequestTimeout *timeout, QueryStopReason reason);
+
+/**
+ * Returns the reason recorded by QueryRequestTimeout_RequestStop for the
+ * current cycle, or NONE when no stop was requested. Reports only explicit
+ * requests: a timeout detected by the active source alone leaves it NONE.
+ */
+QueryStopReason QueryRequestTimeout_GetStopReason(const QueryRequestTimeout *timeout);
+
+/**
+ * Borrows the stop flag published by QueryRequestTimeout_RequestStop, for waits
+ * that take an abort flag. Unlike the blocked-client flag it is valid in every
+ * kind. Access must use RS_Atomic operations, and the pointer must not be
+ * retained across BeginCycle.
+ */
+RS_Atomic(bool) *QueryRequestTimeout_GetStopFlag(QueryRequestTimeout *timeout);
 
 /**
  * Borrows the active BLOCKED_CLIENT flag for a wait that cannot use the
@@ -222,9 +265,10 @@ struct timespec *QueryRequestTimeout_GetClockDeadlineForUpdate(QueryRequestTimeo
 
 /**
  * Reports whether the request has timed out, independently of how the timeout
- * is detected, without amortizing clock checks:
+ * is detected, without amortizing clock checks. A stop requested through
+ * QueryRequestTimeout_RequestStop reports true in every kind; otherwise:
  *
- * - UNARMED always returns false.
+ * - UNARMED returns false.
  * - BLOCKED_CLIENT reads the flag published by the blocked-client callback.
  * - CLOCK_DEADLINE compares the monotonic clock with the active deadline.
  *
@@ -243,13 +287,18 @@ bool QueryRequestTimeout_IsTimedOutExact(const QueryRequestTimeout *timeout);
  * only the blocked-client atomic flag. It deliberately returns false for
  * CLOCK_DEADLINE so migrating those call sites does not introduce new clock
  * checks that could change product behavior.
+ * It ignores QueryRequestTimeout_RequestStop: many callers use it to ask
+ * whether the timeout callback already owns the reply, which a stop request
+ * never implies.
  * Avoid using this call unless strictly needed. It has the same cycle and
  * concurrency requirements as QueryRequestTimeout_IsTimedOutExact.
  */
 bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout);
 
 /**
- * Primary timeout operation:
+ * Primary timeout operation. A stop requested through
+ * QueryRequestTimeout_RequestStop reports true on every call, in every kind,
+ * without touching the counter; otherwise:
  *
  * - UNARMED and BLOCKED_CLIENT preserve the exact operation's behavior and
  *   leave the request counter unchanged.

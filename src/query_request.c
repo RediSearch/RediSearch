@@ -23,10 +23,20 @@
 #include "util/misc.h"
 #include "util/timeout.h"
 
+static void QueryRequestTimeout_ClearStop(QueryRequestTimeout *timeout) {
+  atomic_store_explicit(&timeout->stopReason, QUERY_STOP_REASON_NONE, memory_order_relaxed);
+  atomic_store_explicit(&timeout->stopRequested, false, memory_order_relaxed);
+}
+
+static inline bool QueryRequestTimeout_IsStopRequested(const QueryRequestTimeout *timeout) {
+  return atomic_load_explicit(&timeout->stopRequested, memory_order_relaxed);
+}
+
 void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const TimeoutConfig *config) {
   RS_ASSERT(config);
   RS_ASSERT(config->queryTimeoutMS >= 0);
   timeout->config = *config;
+  QueryRequestTimeout_ClearStop(timeout);
   QueryRequestTimeout_Reset(timeout);
 }
 
@@ -35,6 +45,7 @@ void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout) {
 }
 
 void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTimeoutKind kind) {
+  QueryRequestTimeout_ClearStop(timeout);
   switch (kind) {
     case QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT:
       RS_AtomicBoolStoreRelaxed(&timeout->source.blockedClientTimedOut, false);
@@ -71,6 +82,30 @@ void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout) {
   RS_AtomicBoolStoreRelaxed(&timeout->source.blockedClientTimedOut, true);
 }
 
+bool QueryRequestTimeout_RequestStop(QueryRequestTimeout *timeout, QueryStopReason reason) {
+  RS_ASSERT(reason != QUERY_STOP_REASON_NONE);
+  int expected = QUERY_STOP_REASON_NONE;
+  if (!atomic_compare_exchange_strong_explicit(&timeout->stopReason, &expected, (int)reason,
+                                               memory_order_relaxed, memory_order_relaxed)) {
+    return false;
+  }
+  // Release pairs with the acquire in GetStopReason, so a reader that sees the flag sees the
+  // reason too.
+  atomic_store_explicit(&timeout->stopRequested, true, memory_order_release);
+  return true;
+}
+
+QueryStopReason QueryRequestTimeout_GetStopReason(const QueryRequestTimeout *timeout) {
+  if (!atomic_load_explicit(&timeout->stopRequested, memory_order_acquire)) {
+    return QUERY_STOP_REASON_NONE;
+  }
+  return (QueryStopReason)atomic_load_explicit(&timeout->stopReason, memory_order_relaxed);
+}
+
+RS_Atomic(bool) *QueryRequestTimeout_GetStopFlag(QueryRequestTimeout *timeout) {
+  return &timeout->stopRequested;
+}
+
 RS_Atomic(bool) *QueryRequestTimeout_GetBlockedClientFlag(QueryRequestTimeout *timeout) {
   RS_ASSERT(timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   return &timeout->source.blockedClientTimedOut;
@@ -91,6 +126,9 @@ struct timespec *QueryRequestTimeout_GetClockDeadlineForUpdate(QueryRequestTimeo
 }
 
 bool QueryRequestTimeout_IsTimedOutExact(const QueryRequestTimeout *timeout) {
+  if (QueryRequestTimeout_IsStopRequested(timeout)) {
+    return true;
+  }
   switch (timeout->kind) {
     case QUERY_REQUEST_TIMEOUT_UNARMED:
       return false;
@@ -108,12 +146,15 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
     case QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE:
       return false;
     case QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT:
-      return QueryRequestTimeout_IsTimedOutExact(timeout);
+      return RS_AtomicBoolLoadRelaxed(&timeout->source.blockedClientTimedOut);
   }
   RS_ABORT_ALWAYS("Invalid query timeout kind");
 }
 
 bool QueryRequestTimeout_IsTimedOut(QueryRequestTimeout *timeout) {
+  if (QueryRequestTimeout_IsStopRequested(timeout)) {
+    return true;
+  }
   // Only clock reads are expensive enough to amortize. Other sources retain
   // the exact semantics of QueryRequestTimeout_IsTimedOutExact.
   if (timeout->kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
