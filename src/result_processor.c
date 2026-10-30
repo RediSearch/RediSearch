@@ -296,13 +296,7 @@ static void RP_RenewStop(const ResultProcessor *rp, QueryStopReason reason) {
   }
 }
 
-/*
- * Memory checkpoint of a buffering processor's fill: true when the fill must end now. Under a
- * RETURN stop policy the fill goes on instead: upstream reads nothing new once the query is
- * stopped, so the fill ends on upstream's RS_RESULT_TIMEDOUT and keeps the rows buffering stages
- * upstream already held.
- */
-static bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
+bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
   return rp->parent->timeout && QueryMemory_ShouldStop(rp->parent->timeout, counter) &&
          RP_StopPolicy(rp) != TimeoutPolicy_Return;
 }
@@ -3295,6 +3289,8 @@ typedef struct {
   RPStatus last_rc;                // Last return code from upstream
   uint32_t depleted_results;       // Total number of results depleted
   rs_wall_clock_ns_t depletionTime; // Time spent depleting upstream results
+  QueryStopReason stopReason;       // Why depletion stopped, when a stop request ended it
+  uint32_t memoryCheckCalls;        // QueryMemory_ShouldStop counter for the buffer
 } RPDepleter;
 
 /**
@@ -3319,6 +3315,13 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
     self->depleted_results++;
+    if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls)) {
+      rc = RS_RESULT_TIMEDOUT;
+      break;
+    }
+  }
+  if (rc == RS_RESULT_TIMEDOUT) {
+    self->stopReason = RP_StopReason(&self->base);
   }
 
   // Record depletion time
@@ -3340,6 +3343,9 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   if (self->cur_idx >= array_len(self->results)) {
     // Return the last code from upstream (EOF or TIMEDOUT)
     int ret = self->last_rc;
+    if (ret == RS_RESULT_TIMEDOUT) {
+      RP_RenewStop(base, self->stopReason);
+    }
     self->last_rc = RS_RESULT_EOF;
     return ret;
   }
@@ -3362,11 +3368,10 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   // Call the sync depletion function directly
   RPDepleter_Deplete(self);
 
-  // Only TimeoutPolicy_Return yields buffered results on timeout; FAIL and
+  // Only a RETURN stop policy yields buffered results on a stop; FAIL and
   // RETURN-STRICT propagate TIMEDOUT immediately since the buffer will be
   // discarded by the serializer anyway.
-  if (self->last_rc == RS_RESULT_TIMEDOUT &&
-      base->parent->timeoutPolicy != TimeoutPolicy_Return) {
+  if (self->last_rc == RS_RESULT_TIMEDOUT && RP_StopPolicy(base) != TimeoutPolicy_Return) {
     self->last_rc = RS_RESULT_EOF;
     return RS_RESULT_TIMEDOUT;
   }
