@@ -42,9 +42,12 @@ typedef struct {
 
 
   heap_t *heap;                 // heap for results
-  RSIndexResult *resArr;        // keeps RSIndexResult
+  RSIndexResult **resChunks;    // keeps RSIndexResult; the heap points into these chunks
+  size_t numResChunks;
+  size_t resChunkSize;
+  size_t numPooled;             // result slots handed out so far
   OptimizerCompareFunc cmp;     // compare function
-  RSIndexResult *pooledResult;  // memory pool
+  RSIndexResult *pooledResult;  // next free slot in resChunks
 
   IteratorsConfig *config;       // Copy of current RSglobalconfig.IteratorsConfig
   t_fieldIndex numericFieldIndex; // field index for numeric filter
