@@ -98,6 +98,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "deps/rmutil/args.h",
+        fns: &["AC_GetString", "AC_GetDouble", "AC_GetStringNC"],
+        types: &["ArgsCursor", "ACStatus", "ACType"],
+        vars: &["AC_F_NOADVANCE"],
+    },
+    HeaderAllowlist {
         path: "src/aggregate/aggregate.h",
         fns: &[],
         types: &[
@@ -146,7 +152,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/geo_index.h",
         fns: &["GeoFilter_Free", "GeoFilter_Validate", "NewGeoFilter"],
-        types: &[],
+        types: &["LegacyGeoFilter"],
         vars: &[],
     },
     HeaderAllowlist {

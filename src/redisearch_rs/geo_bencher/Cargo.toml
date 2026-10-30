@@ -1,0 +1,32 @@
+[package]
+name = "geo_bencher"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+test = false
+bench = false
+
+[[bench]]
+name = "filters"
+harness = false
+
+[build-dependencies]
+build_utils.workspace = true
+
+[dependencies]
+criterion.workspace = true
+ffi.workspace = true
+geo_ffi = { path = "../c_entrypoint/geo_ffi" }
+query_error.workspace = true
+redis-module.workspace = true
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+rqe_core.workspace = true
+rqe_iterators.workspace = true
+workspace_hack.workspace = true

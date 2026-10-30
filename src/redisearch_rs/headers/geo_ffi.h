@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "geo_index.h"
 
 /**
  * An opaque query error which can be passed by value to C.
@@ -44,6 +45,116 @@ typedef struct QueryError QueryError;
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Parse a NUL-terminated distance unit.
+ *
+ * # Safety
+ * `s` must be [valid] for reads through its NUL terminator.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+GeoDistance Rust_GeoDistance_Parse(const char *s);
+
+/**
+ * Parse a length-delimited unit. Buffers shorter than 16 bytes use their NUL
+ * prefix; longer buffers are invalid, matching the query parser's buffer ABI.
+ *
+ * # Safety
+ * `s` must be non-null and [valid] for `len` readable bytes when `len < 16`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+GeoDistance Rust_GeoDistance_Parse_Buffer(const char *s, size_t len);
+
+/**
+ * Canonical spelling, or `<badunit>` for any unknown integer.
+ */
+const char *Rust_GeoDistance_ToString(GeoDistance unit);
+
+/**
+ * Release a Redis-allocated filter and its owned numeric-filter array.
+ *
+ * # Safety
+ * `gf` must be a live, uniquely owned, [valid] Redis allocation containing a
+ * [`GeoFilter`]. Its numeric array must satisfy
+ * [`rqe_iterators::free_geo_numeric_filters`]. The Redis allocator API must be
+ * initialized and remain unchanged during this call. No references may survive.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void Rust_GeoFilter_Free(GeoFilter *gf);
+
+/**
+ * Parse legacy arguments, initializing `gf` even on failure. The field name
+ * borrows the command argument buffer. Empty numbers set `has_empty` to true.
+ *
+ * # Safety
+ * All pointers must be non-null, [valid], exclusively writable and mutually
+ * disjoint. `gf` is uninitialized storage without owned resources. `ac` is an
+ * initialized cursor with `offset <= argc` and readable NUL-terminated arguments
+ * that outlive the returned filter. `status` is initialized query-error storage.
+ * The Redis API must be initialized and remain unchanged during this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int Rust_GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *has_empty, struct QueryError *status);
+
+/**
+ * Set the stable field index, or clear it when no local field specification exists.
+ *
+ * # Safety
+ * `gf` must be [valid] and exclusively writable. A non-null `fs` must be [valid]
+ * for shared reads, without overlapping `gf`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void Rust_GeoFilter_SetField(GeoFilter *gf, const FieldSpec *fs);
+
+/**
+ * Validate a filter, preserving the first error already in `status`.
+ *
+ * # Safety
+ * `gf` must be [valid] for shared reads. `status` must be [valid], initialized
+ * query-error storage exclusively writable and not overlapping `gf`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int Rust_GeoFilter_Validate(const GeoFilter *gf, struct QueryError *status);
+
+/**
+ * Release a legacy filter, including its hidden field-name wrapper.
+ *
+ * # Safety
+ * `gf` must be a [valid] Redis allocation containing an initialized, uniquely
+ * owned [`LegacyGeoFilter`], including after failed parsing. Its base must
+ * satisfy [`Rust_GeoFilter_Free`]. The field wrapper, if present, must still
+ * borrow a live name buffer and must not have been freed.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void Rust_LegacyGeoFilter_Free(LegacyGeoFilter *gf);
+
+/**
+ * Allocate an unvalidated filter; a null unit selects kilometers.
+ *
+ * # Safety
+ * A non-null `unit` must satisfy [`Rust_GeoDistance_Parse_Buffer`]. The Redis
+ * allocator API must be initialized and remain unchanged during this call.
+ */
+GeoFilter *Rust_NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
+
+/**
+ * Return radius membership and optionally write the distance in meters.
+ * Invalid filters return no match and NaN distance.
+ *
+ * # Safety
+ * `gf` must be [valid] for shared reads. `distance` may be null; otherwise it
+ * must be [valid] and exclusively writable, without overlapping `gf`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int Rust_isWithinRadius(const GeoFilter *gf, double score, double *distance);
 
 /**
  * Decode a geohash `f64` back into a `[longitude, latitude]` pair.
