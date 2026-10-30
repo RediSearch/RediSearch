@@ -343,6 +343,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "QueryRequest",
             "DocTableDiskAPI",
             "IndexDiskAPI",
+            "SlotMigrationAPI",
             "MetricsDiskAPI",
             "RedisSearchDisk",
             "RedisSearchDiskAPI",
