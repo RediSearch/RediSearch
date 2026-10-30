@@ -174,7 +174,13 @@ typedef struct ResultProcessor {
 } ResultProcessor;
 
 /** `sctx` must carry the owning request's non-NULL timeout state. */
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr,
+                                     const RedisModuleSlotRangeArray *querySlots,
+                                     uint32_t slotsVersion, RedisSearchCtx *sctx, bool isProfiled);
+
+/** Read candidate counts from a profiled Index processor. */
+void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded,
+                                        uint64_t *notDiscarded);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
