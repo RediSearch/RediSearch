@@ -10,13 +10,14 @@
 #include "query_optimizer.h"
 
 #include <string.h>
+#include <math.h>
 
-#include "iterators/optimizer_reader.h"
 #include "iterators_ffi.h"
 #include "query_eval_ffi.h"
 #include "aggregate/aggregate_plan.h"
 #include "field.h"
 #include "field_spec.h"
+#include "numeric_score_source.h"
 #include "obfuscation/hidden.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
@@ -31,6 +32,9 @@
 #include "spec.h"
 #include "util/arr/arr.h"
 #include "vector_index.h"
+#include "numeric_filter.h"
+#include "redis_index.h"
+
 
 QOptimizer *QOptimizer_New() {
   return rm_calloc(1, sizeof(QOptimizer));
@@ -257,9 +261,56 @@ static void updateRootIter(AREQ *req, QueryIterator *root, QueryIterator *new) {
   }
 }
 
+// The strategy the profile reports for `qOpt`. Only the two strategies that
+// reach the numeric top-k iterator are representable; every other optimizer type
+// builds a different plan and never gets here.
+static NumericOptimizerMode numericOptimizerMode(const QOptimizer *qOpt) {
+  return qOpt->type == Q_OPT_HYBRID ? NUMERIC_OPTIMIZER_MODE_HYBRID
+                                    : NUMERIC_OPTIMIZER_MODE_PARTIAL_RANGE;
+}
+
+// Build a Rust numeric top-k iterator for the sort field, a drop-in for the C
+// OptimizerIterator. Opens the field's numeric range tree and hands the residual
+// query (`root`) to the Rust reducer as the filter child. Returns NULL on an
+// allocation-size overflow (oversized OFFSET/LIMIT), so callers surface
+// QUERY_ERROR_CODE_LIMIT exactly as with the C optimizer.
+static QueryIterator *newNumericTopKFromOptimizer(QOptimizer *qOpt, QueryIterator *root) {
+  size_t resArr_alloc_size;
+  if (__builtin_add_overflow(qOpt->limit, 1, &resArr_alloc_size)) return NULL;
+  if (__builtin_mul_overflow(resArr_alloc_size, sizeof(RSIndexResult), &resArr_alloc_size)) return NULL;
+
+  IndexSpec *spec = qOpt->sctx->spec;
+  const FieldSpec *field =
+      IndexSpec_GetFieldWithLength(spec, qOpt->fieldName, strlen(qOpt->fieldName));
+  NumericRangeTree *tree = openNumericOrGeoIndex(spec, (FieldSpec *)field, DONT_CREATE_INDEX);
+  if (!tree) {
+    // No numeric index for the field: nothing to scan. `NewNumericTopKIterator`
+    // has not adopted `root` yet, so free it here, as the C optimizer does.
+    root->Free(root);
+    return NewEmptyIterator();
+  }
+
+  // Mirror the optimizer: with no explicit numeric range, scan the whole field.
+  NumericFilter *nf = qOpt->nf;
+  bool ownNf = false;
+  if (!nf) {
+    nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc, field->index, NULL);
+    ownNf = true;
+  }
+  FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index},
+                                  .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
+  QueryIterator *it = NewNumericTopKIterator(tree, nf, qOpt->asc, qOpt->limit, spec->docs.size,
+                                             numericOptimizerMode(qOpt), root, qOpt->sctx,
+                                             &filterCtx);
+  // The Rust source copies the filter by value, so a synthesized one can be
+  // released immediately.
+  if (ownNf) NumericFilter_Free(nf);
+  return it;
+}
+
 // wraps root with an OptimizerIterator, leaving root in place if that fails
 static int setOptimizerRoot(AREQ *req, QOptimizer *opt, QueryIterator *root, QueryError *status) {
-  QueryIterator *optimized = NewOptimizerIterator(opt, root, &req->ast.config);
+  QueryIterator *optimized = newNumericTopKFromOptimizer(opt, root);
   if (!optimized) {
     QueryError_SetError(status, QUERY_ERROR_CODE_LIMIT, "OFFSET/LIMIT too large for optimizer allocation");
     return REDISMODULE_ERR;

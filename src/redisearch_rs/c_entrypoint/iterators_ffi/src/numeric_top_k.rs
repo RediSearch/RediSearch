@@ -19,7 +19,7 @@ use ffi::{DocTable, DocTable_Exists, QueryIterator, RedisSearchCtx};
 use field::FieldFilterContext;
 use inverted_index::NumericFilter;
 use numeric_range_tree::NumericRangeTree;
-use numeric_score_source::{DocValidity, NewNumericTopK, new_numeric_top_k};
+use numeric_score_source::{DocValidity, NewNumericTopK, NumericOptimizerMode, new_numeric_top_k};
 use rqe_core::DocId;
 use rqe_iterators::{
     FieldExpirationChecker,
@@ -67,6 +67,11 @@ impl DocValidity for DocTableValidity {
 /// `filter` is read once to copy the numeric range parameters; it is not
 /// retained after this call.
 ///
+/// `mode` is the strategy the query plan chose, reported as the profile's
+/// `Optimizer mode`. It is not acted on, and it is not derivable here: a filtered
+/// range whose window never widens is
+/// [`PartialRange`](NumericOptimizerMode::PartialRange) despite having a child.
+///
 /// # Safety
 ///
 /// 1. `tree` is non-null and [valid] for a [`NumericRangeTree`] that outlives the
@@ -92,6 +97,7 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     ascending: bool,
     k: usize,
     num_docs: usize,
+    mode: NumericOptimizerMode,
     child: *mut QueryIterator,
     sctx: *const RedisSearchCtx,
     filter_ctx: *const FieldFilterContext,
@@ -128,7 +134,7 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     // SAFETY: guaranteed by 1.
     let reduced = unsafe {
         new_numeric_top_k(
-            tree, filter, ascending, k, num_docs, validity, expiration, timeout, child,
+            tree, filter, ascending, k, num_docs, mode, validity, expiration, timeout, child,
         )
     };
     match reduced {
