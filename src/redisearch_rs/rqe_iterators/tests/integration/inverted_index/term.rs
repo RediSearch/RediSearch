@@ -368,6 +368,10 @@ mod not_miri {
     #[test]
     fn term_revalidate_after_index_disappears() {
         let test = TermRevalidateTest::new(10);
+        // Declared before the iterator so it outlives the iterator's borrow of it.
+        let dummy = inverted_index::InvertedIndex::<inverted_index::full::Full>::new(
+            test.test.context.term_inverted_index().flags(),
+        );
         let mut it = test.create_iterator();
 
         // First, verify the iterator works normally and read at least one document
@@ -385,11 +389,7 @@ mod not_miri {
         // replaced by swapping the reader's stored index pointer to a
         // different (dummy) index. Redis_OpenInvertedIndex will still
         // return the original, so the pointer comparison will fail.
-        let flags = test.test.context.term_inverted_index().flags();
-        let dummy = Box::leak(Box::new(inverted_index::InvertedIndex::<
-            inverted_index::full::Full,
-        >::new(flags)));
-        let mut dummy_ref: &inverted_index::InvertedIndex<inverted_index::full::Full> = dummy;
+        let mut dummy_ref = &dummy;
 
         it.swap_index(&mut dummy_ref);
 
@@ -397,16 +397,6 @@ mod not_miri {
             .revalidate(&*test.test.context.spec_read())
             .expect("revalidate failed");
         assert_eq!(status, RQEValidateStatus::Aborted);
-
-        // Swap back and free the dummy for proper cleanup.
-        it.swap_index(&mut dummy_ref);
-        // SAFETY: `dummy_ref` now points back to the leaked dummy allocation.
-        drop(unsafe {
-            Box::from_raw(
-                dummy_ref as *const _
-                    as *mut inverted_index::InvertedIndex<inverted_index::full::Full>,
-            )
-        });
     }
 
     #[test]
@@ -594,25 +584,18 @@ mod not_miri {
             // erases its concrete type, so the swap is performed on a fresh
             // concrete iterator before the single aborting resume rather than
             // between resumes of the same iterator.)
+            //
+            // Declared before the iterator so it outlives the iterator's borrow of it.
+            let dummy = inverted_index::InvertedIndex::<inverted_index::full::Full>::new(
+                test.test.context.term_inverted_index().flags(),
+            );
             let mut it = Box::new(test.create_iterator());
-            let flags = test.test.context.term_inverted_index().flags();
-            let dummy_ptr = Box::into_raw(Box::new(inverted_index::InvertedIndex::<
-                inverted_index::full::Full,
-            >::new(flags)));
-            // SAFETY: `dummy_ptr` was just allocated and is valid.
-            let mut dummy_ref: &inverted_index::InvertedIndex<inverted_index::full::Full> =
-                unsafe { &*dummy_ptr };
+            let mut dummy_ref = &dummy;
             it.swap_index(&mut dummy_ref);
 
             let outcome = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
                 .expect("resume should not fail in this test");
             assert!(matches!(outcome, ResumeOutcome::Aborted));
-
-            // The aborting resume consumed and dropped the iterator; its reader
-            // held a non-owning pointer to the dummy index, so the dummy is still
-            // leaked. Free it.
-            // SAFETY: `dummy_ptr` was allocated via `Box::into_raw` and not freed.
-            drop(unsafe { Box::from_raw(dummy_ptr) });
         }
 
         #[test]
