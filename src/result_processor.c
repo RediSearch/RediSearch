@@ -710,6 +710,10 @@ typedef struct {
   // The heap. We use a min-max heap here
   mm_heap_t *pq;
 
+  // How many results the heap keeps. The heap's capacity may start below this bound and grows on
+  // insert, so it is not the bound.
+  size_t maxResults;
+
   // the compare function for the heap. We use it to test if a result needs to be added to the heap
   RPSorterCompareFunc cmp;
 
@@ -793,7 +797,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   }
 
   // If the queue is not full - we just push the result into it
-  if (self->pq->count < self->pq->size) {
+  if (self->pq->count < self->maxResults) {
 
     // The pooled result currently borrows `it->current` from the source
     // iterator; the next Read() overwrites that slot, so the borrow would
@@ -879,6 +883,10 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
       h1, h2, self->fieldcmp.ascendMap, qerr);
 }
 
+// Caps the up-front heap allocation: `maxresults` comes from the user's LIMIT or SORTBY MAX and
+// may be orders of magnitude larger than the number of matching documents.
+#define SORTER_INITIAL_HEAP_CAPACITY 1024
+
 static void srDtor(void *p) {
   if (p) {
     SearchResult_Destroy(p);
@@ -895,7 +903,9 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
   ret->fieldcmp.keys = keys;
   ret->fieldcmp.nkeys = nkeys;
 
-  ret->pq = mmh_init_with_size(maxresults, ret->cmp, ret->cmpCtx, srDtor);
+  ret->maxResults = maxresults;
+  ret->pq = mmh_init_with_size(MIN(maxresults, SORTER_INITIAL_HEAP_CAPACITY), ret->cmp, ret->cmpCtx,
+                               srDtor);
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
   *ret->pooledResult = SearchResult_New();
   ret->base.Next = rpsortNext_Accum;
