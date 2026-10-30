@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 decorum.workspace = true
+rqe_core.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true
 
