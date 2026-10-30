@@ -151,14 +151,17 @@ pub fn collect_numeric(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io
             }),
         )?;
 
-        for node_delta in tree.indexed_iter().filter_map(|(node_idx, node)| {
-            node.scan_gc(&|id| spec.doc_exists(id))
-                .map(|delta| NumericNodeDelta {
-                    position: node_idx.position(),
-                    generation: node_idx.generation(),
-                    delta,
-                })
-        }) {
+        for node_delta in tree
+            .indexed_post_order_iter()
+            .filter_map(|(node_idx, node)| {
+                node.scan_gc(&|id| spec.doc_exists(id))
+                    .map(|delta| NumericNodeDelta {
+                        position: node_idx.position(),
+                        generation: node_idx.generation(),
+                        delta,
+                    })
+            })
+        {
             serialize(writer, Some(node_delta))?;
         }
 

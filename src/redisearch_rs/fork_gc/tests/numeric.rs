@@ -18,7 +18,9 @@ use fork_gc::util::SpecWriteAccess;
 use fork_gc::{GcApplyStats, HandleError, HandleOutcome};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use numeric_range_tree::NumericRangeTree;
-use numeric_range_tree::test_utils::{build_single_leaf_tree, build_tree_at_split_edge};
+use numeric_range_tree::test_utils::{
+    SPLIT_TRIGGER, build_single_leaf_tree, build_tree, build_tree_at_split_edge,
+};
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
@@ -493,6 +495,41 @@ fn roundtrip_applies_gc_to_tree() {
         handle_numeric_with(&mut cursor, &mut test, &mut GcApplyStats::default(), false).unwrap(),
         HandleOutcome::Done
     );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn roundtrip_clears_retained_internal_ranges_children_first() {
+    let tree = build_tree(SPLIT_TRIGGER * 2, false, 2);
+    assert!(!tree.root().is_leaf());
+    assert!(tree.root().range().is_some());
+    let expected_order: Vec<_> = tree
+        .indexed_post_order_iter()
+        .map(|(idx, _)| (idx.position(), idx.generation()))
+        .collect();
+    let mut test = TestSpec::create(vec![(c"price", FieldSpecType::Numeric.into(), Some(tree))]);
+    let buf = collect_stream(&test);
+    let fields = decode_fields(&buf);
+    let actual_order: Vec<_> = fields[0]
+        .entries
+        .iter()
+        .map(|entry| (entry.position, entry.generation))
+        .collect();
+    assert_eq!(actual_order, expected_order);
+
+    let mut cursor = Cursor::new(&buf);
+    let mut stats = GcApplyStats::default();
+    assert_eq!(
+        handle_numeric_with(&mut cursor, &mut test, &mut stats, false).unwrap(),
+        HandleOutcome::Collected
+    );
+    assert_eq!(test.trees[0].num_entries(), 0);
+    assert!(stats.bytes_collected > 0);
+    assert_eq!(
+        handle_numeric_with(&mut cursor, &mut test, &mut stats, false).unwrap(),
+        HandleOutcome::Done
+    );
+    assert_eq!(cursor.position(), buf.len() as u64);
 }
 
 /// A stale arena index is counted as a miss rather than failing the field stream.
