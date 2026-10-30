@@ -9,10 +9,14 @@ from includes import *
 from common import *
 from RLTest import Env
 
+def _index_profile(count):
+    return ['Type', 'Index', 'Results processed', count,
+            'Deleted candidates discarded', 0, 'Candidates not discarded', count]
+
+
 # search result processors
 search_result_processors = [
-    ['Type', 'Index', 'Results processed', ANY,
-     'Deleted candidates discarded', 0, 'Candidates not discarded', ANY],
+    _index_profile(ANY),
     ['Type', 'Scorer', 'Results processed', ANY],
     ['Type', 'Sorter', 'Results processed', ANY],
     ['Type', 'Loader', 'Results processed', ANY],
@@ -20,8 +24,7 @@ search_result_processors = [
 ]
 
 search_result_processors_background_depletion = [
-    ['Type', 'Index', 'Results processed', ANY,
-     'Deleted candidates discarded', 0, 'Candidates not discarded', ANY],
+    _index_profile(ANY),
     ['Type', 'Scorer', 'Results processed', ANY],
     ['Type', 'Sorter', 'Results processed', ANY],
     ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY, 'Results processed', ANY],
@@ -69,8 +72,7 @@ def _make_shard_standalone_profile(search_rp, vsim_rp):
 expected_shard_standalone_profile = _make_shard_standalone_profile(
     search_result_processors,
     [
-        ['Type', 'Index', 'Results processed', ANY,
-         'Deleted candidates discarded', 0, 'Candidates not discarded', ANY],
+        _index_profile(ANY),
         ['Type', 'Metrics Applier', 'Results processed', ANY],
         ['Type', 'Vector Normalizer', 'Results processed', ANY],
         ['Type', 'Loader', 'Results processed', ANY],
@@ -81,8 +83,7 @@ expected_shard_standalone_profile = _make_shard_standalone_profile(
 expected_shard_standalone_profile_background_depletion = _make_shard_standalone_profile(
     search_result_processors_background_depletion,
     [
-        ['Type', 'Index', 'Results processed', ANY,
-         'Deleted candidates discarded', 0, 'Candidates not discarded', ANY],
+        _index_profile(ANY),
         ['Type', 'Metrics Applier', 'Results processed', ANY],
         ['Type', 'Vector Normalizer', 'Results processed', ANY],
         ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY, 'Results processed', ANY],
@@ -120,8 +121,7 @@ _VSIM_SHARD_CLUSTER_PROFILE = [
     ],
     'Result processors profile',
     [
-        ['Type', 'Index', 'Results processed', ANY,
-         'Deleted candidates discarded', 0, 'Candidates not discarded', ANY],
+        _index_profile(ANY),
         ['Type', 'Metrics Applier', 'Results processed', ANY],
         ['Type', 'Scorer', 'Results processed', ANY],
         ['Type', 'Vector Normalizer', 'Results processed', ANY],
@@ -163,8 +163,7 @@ def _make_extra_loader_shard_cluster_profile(iterators_profile):
             iterators_profile,
             'Result processors profile',
             [
-                ['Type', 'Index', 'Results processed', ANY,
-                 'Deleted candidates discarded', 0, 'Candidates not discarded', ANY],
+                _index_profile(ANY),
                 ['Type', 'Scorer', 'Results processed', ANY],
                 ['Type', 'Sorter', 'Results processed', ANY],
                 ['Type', 'Loader', 'Results processed', ANY],
@@ -184,8 +183,7 @@ def _make_extra_loader_shard_cluster_profile(iterators_profile):
             ],
             'Result processors profile',
             [
-                ['Type', 'Index', 'Results processed', ANY,
-                 'Deleted candidates discarded', 0, 'Candidates not discarded', ANY],
+                _index_profile(ANY),
                 ['Type', 'Metrics Applier', 'Results processed', ANY],
                 ['Type', 'Scorer', 'Results processed', ANY],
                 ['Type', 'Vector Normalizer', 'Results processed', ANY],
@@ -399,8 +397,7 @@ query_and_profile = [
                 ],
                 'Result processors profile',
                 [
-                    ['Type', 'Index', 'Results processed', 2,
-                     'Deleted candidates discarded', 0, 'Candidates not discarded', 2],
+                    _index_profile(2),
                     ['Type', 'Scorer', 'Results processed', 2],
                     ['Type', 'Sorter', 'Results processed', 2],
                     ['Type', 'Loader', 'Results processed', 2],
@@ -415,8 +412,7 @@ query_and_profile = [
                 ['Type', 'VECTOR', 'Number of reading operations', 4, 'Vector search mode', 'STANDARD_KNN'],
                 'Result processors profile',
                 [
-                    ['Type', 'Index', 'Results processed', 4,
-                     'Deleted candidates discarded', 0, 'Candidates not discarded', 4],
+                    _index_profile(4),
                     ['Type', 'Metrics Applier', 'Results processed', 4],
                     ['Type', 'Vector Normalizer', 'Results processed', 4],
                     ['Type', 'Loader', 'Results processed', 4],
@@ -480,8 +476,7 @@ query_and_profile = [
                 },
                 'Result processors profile',
                 [
-                    ['Type', 'Index', 'Results processed', ANY,
-                     'Deleted candidates discarded', 0, 'Candidates not discarded', ANY],
+                    _index_profile(ANY),
                     ['Type', 'Scorer', 'Results processed', ANY],
                     ['Type', 'Sorter', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
@@ -531,8 +526,7 @@ query_and_profile = [
                 ],
                 'Result processors profile',
                 [
-                    ['Type', 'Index', 'Results processed', 2,
-                     'Deleted candidates discarded', 0, 'Candidates not discarded', 2],
+                    _index_profile(2),
                     ['Type', 'Scorer', 'Results processed', 2],
                     ['Type', 'Sorter', 'Results processed', 2],
                     ['Type', 'Loader', 'Results processed', 2],
@@ -547,8 +541,7 @@ query_and_profile = [
                 ['Type', 'VECTOR', 'Number of reading operations', 4, 'Vector search mode', 'STANDARD_KNN'],
                 'Result processors profile',
                 [
-                    ['Type', 'Index', 'Results processed', 4,
-                     'Deleted candidates discarded', 0, 'Candidates not discarded', 4],
+                    _index_profile(4),
                     ['Type', 'Metrics Applier', 'Results processed', 4],
                     ['Type', 'Vector Normalizer', 'Results processed', 4],
                     ['Type', 'Loader', 'Results processed', 4],
@@ -605,8 +598,7 @@ query_and_profile = [
                 },
                 'Result processors profile',
                 [
-                    ['Type', 'Index', 'Results processed', ANY,
-                     'Deleted candidates discarded', 0, 'Candidates not discarded', ANY],
+                    _index_profile(ANY),
                     ['Type', 'Scorer', 'Results processed', ANY],
                     ['Type', 'Sorter', 'Results processed', ANY],
                     ['Type', 'Loader', 'Results processed', ANY],
