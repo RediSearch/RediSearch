@@ -1272,6 +1272,12 @@ typedef struct RPSafeLoader {
   // aggregate-results sync. When set, the loader performs the GIL deadlock-
   // avoidance handshake around the GIL (see aggregate.h).
   QueryRequest *request;
+
+  // Why the buffer or load stopped, when a stop request ended it.
+  QueryStopReason stopReason;
+  // QueryMemory_ShouldStop counters for the buffer and for the values loaded under the GIL.
+  uint32_t bufferMemoryCheckCalls;
+  uint32_t loadMemoryCheckCalls;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -1352,6 +1358,10 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 
   int rc = self->last_buffered_rc;
   self->last_buffered_rc = RS_RESULT_OK;
+  if (rc == RS_RESULT_TIMEDOUT) {
+    RP_RenewStop(&self->base_loader.base, self->stopReason);
+  }
+  self->stopReason = QUERY_STOP_REASON_NONE;
   // We CANNOT return `RS_RESULT_OK` HERE, since it will be interpreted as a
   // success while no population of the result was done.
   // So if the last rc was `RS_RESULT_OK`, we need to continue activating the
@@ -1366,10 +1376,31 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 
 static void rpSafeLoader_Load(RPSafeLoader *self) {
   SearchResult *curr_res;
+  // The pipeline's timeout state, NULL where it runs without memory checkpoints (hybrid).
+  QueryRequestTimeout *timeout = self->base_loader.base.parent->timeout;
+  // A stop requested while buffering already chose to load the whole buffer (RETURN), so only
+  // memory found short while loading cuts the load.
+  const bool checkMemory = timeout && !QueryRequestTimeout_IsStopRequested(timeout);
+  bool stopped = false;
 
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
+    // Only an OOM stop cuts the load: a timeout's callback waits for this worker, as before.
+    if (!stopped && checkMemory && QueryMemory_ShouldStop(timeout, &self->loadMemoryCheckCalls) &&
+        QueryRequestTimeout_GetStopReason(timeout) == QUERY_STOP_REASON_OOM) {
+      // The loaded prefix is yielded; the yield phase then ends on the stop.
+      stopped = true;
+      self->last_buffered_rc = RS_RESULT_TIMEDOUT;
+      self->stopReason = QueryRequestTimeout_GetStopReason(timeout);
+    }
+    if (stopped) {
+      // An empty slot, which the yield phase skips. Not counted in skippedResults: the row still
+      // matched the query.
+      SearchResult_Destroy(curr_res);
+      *curr_res = SearchResult_New();
+      continue;
+    }
     rpLoader_loadDocument(&self->base_loader, curr_res);
     if (!loaderResultIsEmittable(curr_res)) {
       // The document was deleted/re-indexed between buffering and load (the safe loader
@@ -1425,17 +1456,27 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
     resToBuffer = SearchResult_New();
+    if (RP_FillShouldStop(rp, &self->bufferMemoryCheckCalls)) {
+      result_status = RS_RESULT_TIMEDOUT;
+      break;
+    }
   }
   rp->parent->resultLimit = bufferLimit; // Restore the result limit
+  // A stop requested by the last row's checkpoint under a RETURN stop policy still ends the query
+  // after this buffer.
+  if (result_status == RS_RESULT_OK && RP_StopReason(rp) != QUERY_STOP_REASON_NONE) {
+    result_status = RS_RESULT_TIMEDOUT;
+  }
 
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
-      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
+       !(result_status == RS_RESULT_TIMEDOUT && RP_StopPolicy(rp) == TimeoutPolicy_Return)) ||
       IsBufferEmpty(self)) {
     return result_status;
   }
   // save the last buffered result code to return when we done yielding the buffered results.
   self->last_buffered_rc = result_status;
+  self->stopReason = RP_StopReason(rp);
 
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
@@ -1658,6 +1699,9 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   sl->last_buffered_rc = RS_RESULT_OK;
   sl->request = NULL;
+  sl->stopReason = QUERY_STOP_REASON_NONE;
+  sl->bufferMemoryCheckCalls = 0;
+  sl->loadMemoryCheckCalls = 0;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
