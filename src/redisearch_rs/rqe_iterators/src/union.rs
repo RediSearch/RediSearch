@@ -18,9 +18,13 @@
 //! - If `true`, returns after finding the first matching child without aggregating.
 //! - If `false`, collects results from all children with the same document.
 
-use index_result::{MetricsVec, RSIndexResult};
+use index_result::{
+    MetricsVec, RSIndexResult, RSResultKind, RawBorrowedAggregateResult, RawIndexResult,
+};
+use ref_mode::{Ref, Suspended};
+use rqe_core::{DocId, FieldMask};
 
-use crate::{RQEValidateStatus, ResumeOutcome};
+use crate::{RQEIterator, RQEValidateStatus, ResumeOutcome, composite::repush_borrowed_entries};
 
 pub use crate::union_flat::UnionFlat;
 pub use crate::union_heap::UnionHeap;
@@ -120,6 +124,74 @@ pub(crate) fn restore_gathered_metrics<'index, const QUICK_EXIT: bool>(
     }
     gathered.concat(&mut result.metrics);
     result.metrics = gathered;
+}
+
+/// Whether `result` is a borrowed union aggregate, the only representation a
+/// union rebuilds in place.
+///
+/// [`current`](RQEIterator::current) hands the result out mutably, so a
+/// consumer may have replaced it. The exact kind is required: `is_aggregate()`
+/// also admits `HybridMetric`, whose children are owned boxes. So is the
+/// borrowed representation: an owned `Union` aggregate boxes its children into
+/// the result's own allocation, out of the rebuild's reach, so a resume would
+/// re-narrow pointers nothing re-validated.
+pub(crate) fn result_is_borrowed_union<Rf: Ref>(result: &RawIndexResult<'_, Rf>) -> bool {
+    result.kind() == RSResultKind::Union
+        && result
+            .as_aggregate()
+            .is_some_and(|aggregate| aggregate.as_borrowed().is_some())
+}
+
+/// Whether the rebuilt aggregate still has a child behind it.
+///
+/// `#[must_use]` sits on the type so it covers every producer: an
+/// [`Unbacked`](Self::Unbacked) that nobody looks at is a result published with
+/// nothing backing the document it claims.
+#[must_use = "an unbacked aggregate no longer describes a document; the caller \
+              must rebuild it or abort the resume"]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RebuildOutcome {
+    /// At least one survivor sits on the result's document, and the aggregate
+    /// now borrows exactly those survivors. The result stands as a description
+    /// of that document, and re-narrowing it is sound.
+    Backed,
+    /// No survivor sits on the result's document, so the aggregate came out
+    /// empty. Re-narrowing it is still sound — it points nowhere — but it no
+    /// longer describes a document, so the composite must rebuild it before
+    /// publishing it or report [`ResumeOutcome::Aborted`] instead.
+    Unbacked,
+}
+
+/// Rebuild a suspended union's borrowed entries from its just-resumed children.
+///
+/// [`repush_borrowed_entries`] does the rebuilding and owns its contract; this
+/// adds the union's verdict, which needs a single contributor, and skips the
+/// union suspended before its first read.
+pub(crate) fn rebuild_borrowed_entries<'a, 'child, R, const QUICK_EXIT: bool>(
+    aggregate: &mut RawBorrowedAggregateResult<'a, Suspended>,
+    doc_id: DocId,
+    freq: &mut u32,
+    field_mask: &mut FieldMask,
+    children: impl IntoIterator<Item = &'child mut R>,
+) -> RebuildOutcome
+where
+    R: RQEIterator<'a> + 'child,
+{
+    if aggregate.is_empty() {
+        // Nothing borrowed, so nothing to rebuild. The union holds an empty
+        // aggregate before its first read, after a rewind, and after a skip a
+        // child error interrupted; none of them publishes a document, and
+        // aborting the last would drop a cursor's remaining results.
+        return RebuildOutcome::Backed;
+    }
+
+    let contributors =
+        repush_borrowed_entries::<_, QUICK_EXIT>(aggregate, doc_id, freq, field_mask, children);
+    if contributors == 0 {
+        RebuildOutcome::Unbacked
+    } else {
+        RebuildOutcome::Backed
+    }
 }
 
 // ============================================================================

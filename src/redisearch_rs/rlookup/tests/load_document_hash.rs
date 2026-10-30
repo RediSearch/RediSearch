@@ -433,7 +433,7 @@ mod load_field {
         format
             .open(key_name)
             .expect("hash key opens")
-            .load_field(key, row)
+            .load_field_at(0, key, row)
             .expect("load_field succeeds");
     }
 

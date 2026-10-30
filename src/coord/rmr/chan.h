@@ -36,16 +36,19 @@ void *MRChannel_TryPop(MRChannel *chan);
 
 // Wait for readable input or a one-shot unblock without removing an item. An
 // ownership waiter must not steal rows from a drainer before gaining admission.
-// Cancellation is checked before sleeping and on natural wakes; no wake is required
-// for another consumer to drain. The caller retains the channel for the whole wait.
-void MRChannel_WaitReadable(MRChannel *chan, const RS_Atomic(bool) * cancel);
+// Cancellation (either flag) is checked before sleeping and on natural wakes; no wake
+// is required for another consumer to drain. The caller retains the channel for the
+// whole wait.
+void MRChannel_WaitReadable(MRChannel *chan, const RS_Atomic(bool) * cancel,
+                            const RS_Atomic(bool) * stopFlag);
 
 /* Pop an item, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or abort
- * flag (re-checked on each wait entry; pair with MRChannel_WakeAbort). `timedOut`
- * set if deadline expired. At least one of `abstime` / `abortFlag` must be non-NULL;
- * callers wanting an indefinite blocking pop should use MRChannel_Pop. */
+ * flags (either one aborts; re-checked on each wait entry; pair with
+ * MRChannel_WakeAbort). `timedOut` set if deadline expired. At least one of
+ * `abstime` / `abortFlag` / `stopFlag` must be non-NULL; callers wanting an
+ * indefinite blocking pop should use MRChannel_Pop. */
 void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstime,
-                               RS_Atomic(bool) * abortFlag, bool *timedOut);
+                               RS_Atomic(bool) * abortFlag, RS_Atomic(bool) * stopFlag, bool *timedOut);
 
 /* Wake any thread currently blocked in MRChannel_PopWithTimeout so it re-evaluates
  * its abort flag. Safe to call even if no reader is blocked. */

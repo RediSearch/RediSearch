@@ -9,6 +9,7 @@
 
 #include "hybrid/hybrid_request.h"
 #include "config.h"
+#include "query_memory.h"
 #include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
@@ -109,12 +110,12 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         }
 
         // Parse subquery: Convert AST to iterator tree
-        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq),
-                                      areq->reqflags, &areq->base.reply.err);
+        areq->iteratorTree = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq),
+                                          areq->reqflags, &areq->base.reply.err);
         rs_wall_clock parseClock;
         if (isProfile) {
           // Add a Profile iterators before every iterator in the tree
-          Profile_AddIters(&areq->rootiter);
+          QueryIteratorTree_Profile(areq->iteratorTree);
           // Initialize parseClock after adding profile iterators, we want that to be accounted in the parsing timing
           rs_wall_clock_init(&parseClock);
           // Calculate the time elapsed for subquery parsing (AST to iterator + profile setup)
@@ -126,6 +127,12 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         rc = AREQ_BuildPipeline(areq, &areq->base.reply.err);
         if (isProfile) {
           areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
+        }
+        // Only FAIL is decided here: the hybrid reply does not map an OOM stop yet, so under
+        // RETURN a stop requested now would reply as a timeout.
+        if (rc == REDISMODULE_OK && areq->base.reqConfig.oomPolicy == OomPolicy_Fail) {
+          rc = QueryMemory_CheckBeforeExecution(&areq->base.timeout, areq->base.reqConfig.oomPolicy,
+                                                &areq->base.reply.err);
         }
         if (rc != REDISMODULE_OK) {
             break;
@@ -359,7 +366,9 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize the tail pipeline that will merge results from all requests
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
-    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->base.timeout.config.timeoutPolicy, &hybridReq->base.reply.err);
+    Pipeline_Initialize(hybridReq->tailPipeline, &hybridReq->base);
+    // No memory checkpoints in hybrid pipelines (see AREQ_BuildPipelineWithAggregationParams).
+    hybridReq->tailPipeline->qctx.timeout = NULL;
     QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
     // Capture the background-scan-OOM warning flag while the spec is guaranteed
     // alive (main-thread command handling). The reply path reads only this
@@ -372,7 +381,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->base.timeout.config.timeoutPolicy, &requests[i]->base.reply.err);
+        Pipeline_Initialize(&requests[i]->pipeline, &requests[i]->base);
     }
     hybridReq->profileClocks.initClock = now;
 

@@ -777,7 +777,7 @@ def test_search_errors():
 
 def test_with_fields():
     # No workers at all, so the reload indexes vectors synchronously.
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0', redisConfigFile=min_maintenance_workers_conf(0))
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -1043,7 +1043,7 @@ def test_hybrid_query_batches_mode_with_text():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
     # The expected results at the default EF_RUNTIME rely on overwritten vectors leaving the graph at
     # once, which only in-place writes do while the GC is held off.
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 MIN_MAINTENANCE_WORKERS 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000', redisConfigFile=min_maintenance_workers_conf(0))
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -1122,7 +1122,7 @@ def test_hybrid_query_batches_mode_with_tags():
     # Set high GC threshold so to eliminate sanitizer warnings from of false leaks from forks (MOD-6229)
     # The expected results rely on overwritten vectors leaving the graph at once, which only in-place
     # writes do while the GC is held off.
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000 MIN_MAINTENANCE_WORKERS 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 10000', redisConfigFile=min_maintenance_workers_conf(0))
     conn = getConnectionByEnv(env)
     # Index size is chosen so that batches mode will be selected by the heuristics.
     dim = 2
@@ -1520,7 +1520,7 @@ def test_hybrid_query_scorer_slop_ranking():
 @skip(cluster=False)
 def test_single_entry():
     # No workers at all, so the reload indexes vectors synchronously.
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0', redisConfigFile=min_maintenance_workers_conf(0))
     # This test should test 3 shards with only one entry. 2 shards should return an empty response to the coordinator.
     # Execution should finish without failure.
     conn = getConnectionByEnv(env)
@@ -1539,7 +1539,7 @@ def test_single_entry():
 
 def test_hybrid_query_adhoc_bf_mode():
     # No workers at all, so the reload indexes vectors synchronously.
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0', redisConfigFile=min_maintenance_workers_conf(0))
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -2148,7 +2148,7 @@ class TestIndexMultiValueJsonReload:
     def __init__(self):
         skipTest(no_json=True)
         # No workers at all, so DEBUG RELOAD rebuilds the SVS graph synchronously (see _check_svs).
-        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0 MIN_MAINTENANCE_WORKERS 0')
+        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0', redisConfigFile=min_maintenance_workers_conf(0))
         self.dim = 4
         self.per_doc = 5
         # Scale factor to avoid FLOAT16/BFLOAT16 overflow: using 1/8 keeps values and distances within
@@ -2913,7 +2913,7 @@ def test_vector_only_update_no_reindex():
 @skip(cluster=True)
 def test_switch_write_mode_multiple_indexes():
     # Tests the in-place <-> async switch, so WORKERS 0 must leave the pool empty.
-    env = Env(moduleArgs='MIN_MAINTENANCE_WORKERS 0')
+    env = Env(redisConfigFile=min_maintenance_workers_conf(0))
     conn = getConnectionByEnv(env)
     dim = 32
     n_indexes = 100
@@ -3043,3 +3043,16 @@ def test_hybrid_adhoc_int8_uint8_cosine():
                         message=f'{data_type}: expected exact self-match distance to be 0. res = {res}')
 
         conn.execute_command('FLUSHALL')
+
+
+@skip(cluster=True)
+def testVectorDimensionSizeOverflow(env):
+    """Reject overflowing schema dimensions before VecSim estimates or allocates storage."""
+    for algorithm in ['FLAT', 'HNSW', 'SVS-VAMANA']:
+        for dim in [2**62, 2**62 + 1, 2**61]:
+            env.expect('FT.CREATE', 'overflow', 'SCHEMA', 'v', 'VECTOR', algorithm, 6,
+                       'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'COSINE') \
+                .error().contains('Invalid vector DIM: vector size is too large')
+    env.expect('FT.CREATE', 'valid', 'SCHEMA', 'v', 'VECTOR', 'FLAT', 6,
+               'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'COSINE').ok()
+    env.expect('FT.SEARCH', 'valid', '*').equal([0])

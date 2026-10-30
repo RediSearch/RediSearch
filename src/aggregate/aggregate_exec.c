@@ -24,6 +24,7 @@
 #include "search_ctx.h"
 #include "aggregate.h"
 #include "aggregate_exec_common.h"
+#include "query_memory.h"
 #include "cursor.h"
 #include "concurrent_ctx.h"
 #include "rmutil/util.h"
@@ -436,6 +437,11 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
   UNUSED(before);
 }
 #endif
+static int applyOomStop(AREQ *req, int rc) {
+  return ApplyOomStop(&req->base.timeout, req->base.reqConfig.oomPolicy,
+                      AREQ_QueryProcessingCtx(req)->err, rc);
+}
+
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
     .timeout = &req->base.timeout,
@@ -469,6 +475,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   }
 
   startPipelineCommon(&ctx, rp, results, r, rc);
+  *rc = applyOomStop(req, *rc);
 
   // Pipeline done without timing out; advance the marker so a timeout from here on
   // is attributed to the REPLY stage.
@@ -748,16 +755,16 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
     prepareSendChunkReply_Resp2(req, reply, qctx);
 
     // Once we get here, we want to return the results we got from the pipeline (with no error).
-    // RETURN can also buffer (ON_OOM FAIL); its recovered prefix remains valid
-    // even though the final status preserves the timeout warning.
-    const bool buffered_partial_2 = state->results != NULL &&
-                                   req->base.timeout.config.timeoutPolicy != TimeoutPolicy_Fail;
+    // Rows buffered before a timeout (see startPipelineCommon) are replied, not dropped, under
+    // RETURN_STRICT and RETURN.
+    const bool buffered_2 = state->results != NULL &&
+                            req->base.timeout.config.timeoutPolicy != TimeoutPolicy_Fail;
     if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
-        (!buffered_partial_2 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
+        (!buffered_2 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_2;
     }
 
-    // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
+    // Results buffered by startPipelineCommon
     if (state->results != NULL) {
       populateReplyWithResults(reply, state->results, req, cv, &schema);
       state->results = NULL;
@@ -782,6 +789,8 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
     }
 
 done_2:
+    // A stop for OOM in the reply loop keeps the rows already serialized.
+    rc = applyOomStop(req, rc);
     finishRespSchema(req, reply, cv, &schema);
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
@@ -858,8 +867,8 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   }
   if (QueryError_HasQueryOOMWarning(qctx->err)) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
-    // We use the cluster warning since shard level warning sent via empty reply bailout
-    RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
+    // A shard stopped for OOM reports the shard wording, which the coordinator recognizes.
+    RedisModule_Reply_SimpleString(reply, IsInternal(req) ? QUERY_WOOM_SHARD : QUERY_WOOM_COORD);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
   }
   // The shard-timed-out flag is set by the coord-side RPNet when a shard reply
@@ -986,10 +995,12 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     RespSchema schema = {0};
     prepareSendChunkReply_Resp3(req, reply);
 
-    const bool buffered_partial_3 = state->results != NULL &&
-                                   req->base.timeout.config.timeoutPolicy != TimeoutPolicy_Fail;
+    // Rows buffered before a timeout (see startPipelineCommon) are replied, not dropped, under
+    // RETURN_STRICT and RETURN.
+    const bool buffered_3 = state->results != NULL &&
+                            req->base.timeout.config.timeoutPolicy != TimeoutPolicy_Fail;
     if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
-        (!buffered_partial_3 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
+        (!buffered_3 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_3;
     }
 
@@ -1018,6 +1029,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
 done_3:
+    rc = applyOomStop(req, rc);
     state->cursor_done = state->cursor_done || shouldSetCursorDone(req, rc);
 
     finishRespSchema(req, reply, cv, &schema);
@@ -1087,6 +1099,11 @@ static void executeOwnedChunk(PipelineAccess *access, void *data) {
   int rc = RS_RESULT_EOF;
   AggregateResultsContinue(qctx->endProc, req, &rc, &req->base.reply.results);
   if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return;
+  // Still owned after a stop: no timeout callback recovers it, so map it here as startPipeline does.
+  CommonPipelineCtx stopCtx = {
+      .timeout = &req->base.timeout, .oomPolicy = req->base.reqConfig.oomPolicy, .areq = req};
+  Pipeline_CollectStopResults(&stopCtx, qctx->endProc, &rc, &req->base.reply.results);
+  rc = applyOomStop(req, rc);
   req->base.reply.rc = rc;
 
   if (rc != RS_RESULT_TIMEDOUT) AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
@@ -1304,6 +1321,32 @@ static AREQ *blockedClientReqCtx_getRequest(const blockedClientReqCtx *BCRctx) {
   return BCRctx->req;
 }
 
+// Caller holds the spec read lock; it remains held on both success and failure.
+static int prepareExecutionPlanWithKeyMapFallback(AREQ *req, QueryError *status) {
+  RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+  RedisModuleCtx *outctx = sctx->redisCtx;
+  bool keyMapFallback = req->searchopts.inkeys && !sctx->spec->diskSpec &&
+                        sctx->spec->docs.keyMapState != DocKeyMap_Ready;
+  rs_wall_clock fallbackGILStart;
+  if (keyMapFallback) {
+    // Main-thread writers acquire the GIL before the spec lock.
+    IndexSpec_Unlock(sctx->spec);
+    RedisModule_ThreadSafeContextLock(outctx);
+    if (IsProfile(req)) rs_wall_clock_init(&fallbackGILStart);
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait("KeyMapFallbackGIL");
+#endif
+    IndexSpec_LockRead(sctx->spec);
+  }
+  int planStatus = prepareExecutionPlan(req, status);
+  if (keyMapFallback) {
+    if (IsProfile(req)) {
+      AREQ_QueryProcessingCtx(req)->queryGILTime += rs_wall_clock_elapsed_ns(&fallbackGILStart) + 1;
+    }
+    RedisModule_ThreadSafeContextUnlock(outctx);
+  }
+  return planStatus;
+}
 
 static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
   RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
@@ -1381,8 +1424,8 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
 
   // Lock spec. Should be released on the BG thread by every downstream path.
   IndexSpec_LockRead(sctx->spec);
-
-  if (prepareExecutionPlan(req, status) != REDISMODULE_OK) {
+  int planStatus = prepareExecutionPlanWithKeyMapFallback(req, status);
+  if (planStatus != REDISMODULE_OK) {
     IndexSpec_Unlock(sctx->spec);
     goto error;
   }
@@ -1434,6 +1477,15 @@ cleanup:
   blockedClientReqCtx_destroy(BCRctx);
 }
 
+// Memory checkpoint between build stages. FT.EXPLAIN builds a plan it never runs, so it is exempt.
+static int checkBuildMemory(AREQ *req, QueryError *status) {
+  if (!IsSearch(req) && !IsAggregate(req)) {
+    return REDISMODULE_OK;
+  }
+  return QueryMemory_CheckBeforeExecution(&req->base.timeout, req->base.reqConfig.oomPolicy,
+                                          status);
+}
+
 // Assumes the spec is guarded by its own lock (for read), such that races with
 // main-thread/GC updates are avoided.
 static int prepareExecutionPlan(AREQ *req, QueryError *status) {
@@ -1441,6 +1493,11 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   RSSearchOptions *opts = &req->searchopts;
   QueryAST *ast = &req->ast;
+
+  // Memory may have grown since the entry guard, while the query waited for a worker.
+  if (checkBuildMemory(req, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
 
   // Open the per-query disk snapshot here, under the spec read lock the caller is holding.
   // This pins the on-disk view to the same point in time as the in-memory trie/stats that
@@ -1457,7 +1514,7 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
   // Setting the timeout context should be done in the same thread that executes the query.
   SearchCtx_UpdateCurrentTime(sctx);
 
-  req->rootiter = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
+  req->iteratorTree = QAST_Iterate(ast, opts, sctx, AREQ_RequestFlags(req), status);
 
   // check possible optimization after creation of QueryIterator tree
   if (IsOptimized(req)) {
@@ -1468,20 +1525,22 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
   // FT.PROFILE's reply is produced by sendChunk, which reports a timeout as a
   // Warning rather than an error; skip the hard-fail here and let it handle it.
+  // An OOM stop is not a timeout: it ends the pipeline at its first read instead.
   if (req->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
       req->base.timeout.config.timeoutPolicy == TimeoutPolicy_Fail && !IsProfile(req)) {
-    if (QueryRequestTimeout_IsTimedOutExact(&req->base.timeout)) {
+    if (QueryRequestTimeout_IsTimedOutExact(&req->base.timeout) &&
+        QueryRequestTimeout_GetStopReason(&req->base.timeout) != QUERY_STOP_REASON_OOM) {
       QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
     }
   }
 
-  if (QueryError_HasError(status)) {
+  if (QueryError_HasError(status) || checkBuildMemory(req, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
   if (IsProfile(req)) {
     // Add a Profile iterators before every iterator in the tree
-    Profile_AddIters(&req->rootiter);
+    QueryIteratorTree_Profile(req->iteratorTree);
   }
 
   rs_wall_clock parseClock;
@@ -1497,6 +1556,10 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
   if (is_profile) {
     req->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
+  }
+
+  if (rc == REDISMODULE_OK && checkBuildMemory(req, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
   }
 
   if (IsDebug(req)) {

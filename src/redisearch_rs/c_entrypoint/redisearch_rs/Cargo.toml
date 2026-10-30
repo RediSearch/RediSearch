@@ -25,7 +25,6 @@ default = []
 mock_allocator = []
 
 [build-dependencies]
-build_utils = { path = "../../build_utils" }
 quote.workspace = true
 syn = { workspace = true, features = ["full", "parsing"] }
 toml.workspace = true
@@ -38,6 +37,7 @@ fork_gc_ffi = { path = "../fork_gc_ffi" }
 geo_ffi = { path = "../geo_ffi" }
 idf_ffi = { path = "../idf_ffi" }
 inverted_index_ffi = { path = "../inverted_index_ffi" }
+doc_key_map_ffi = { path = "../doc_key_map_ffi" }
 iterators_ffi = { path = "../iterators_ffi" }
 metrics_ffi = { path = "../metrics_ffi" }
 query_error_ffi = { path = "../query_error_ffi" }
@@ -56,6 +56,7 @@ trie_rdb_ffi = { path = "../trie_rdb_ffi" }
 ttl_table_ffi = { path = "../ttl_table_ffi" }
 types_ffi = { path = "../types_ffi" }
 numeric_range_tree_ffi = { path = "../numeric_range_tree_ffi" }
+over_aligned_alloc = { workspace = true }
 varint_ffi = { path = "../varint_ffi" }
 value_ffi = { path = "../value_ffi" }
 workspace_hack.workspace = true

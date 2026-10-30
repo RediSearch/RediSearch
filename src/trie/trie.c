@@ -236,8 +236,13 @@ Vector *Trie_CollectFuzzy(const Trie *t, const char *str, size_t len, size_t num
     return NULL;
   }
 
-  heap_t *pq = rm_malloc(heap_sizeof(num));
-  heap_init(pq, cmpEntries, NULL, num);
+  // `num` comes straight from FT.SUGGET's MAX. The heap never holds more than
+  // the trie's entries, and heap_size() reports its capacity as an int, so
+  // bound the capacity by both. At least one slot keeps the fill-then-evict
+  // loop below from polling an empty heap.
+  size_t capacity = MIN(num, MIN(MAX(t->size, 1), (size_t)INT_MAX));
+  heap_t *pq = rm_malloc(heap_sizeof(capacity));
+  heap_init(pq, cmpEntries, NULL, capacity);
 
   DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, mode);
 

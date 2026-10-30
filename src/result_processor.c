@@ -28,6 +28,7 @@
 #include "rlookup_ffi.h"
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
+#include "query_memory.h"
 
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
@@ -134,6 +135,12 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   } else {
     if (it->current->dmd) {
       *dmd = it->current->dmd;
+      // Borrowed before a slot deletion may have been registered (e.g. held in the optimizer heap
+      // across cursor reads), so DocTable_Borrow's check did not cover it.
+      if (DocTable_HasPendingDeletions(docs) && DocTable_IsDocPendingDeletion(docs, *dmd)) {
+        DMD_Return(*dmd);
+        return false;
+      }
     } else {
       *dmd = DocTable_Borrow(docs, it->lastDocId);
     }
@@ -217,7 +224,8 @@ static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadat
 
   // Check query slots (internal command filtering)
   if (self->querySlots && (__atomic_load_n(&key_space_version, __ATOMIC_RELAXED) != self->keySpaceVersion)) {
-    int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
+    // Disk DMDs do not carry the slot (see SearchDisk_GetDocumentMetadata), so hash their key.
+    const uint16_t slot = self->sctx->spec->diskSpec ? RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr)) : dmd->slot;
     if (!SlotRangeArray_ContainsSlot(self->querySlots, slot)) {
       return false;
     }
@@ -258,6 +266,40 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
   } else {
     SearchResult_DeepCopyAndOwnIndexResult(res);
   }
+}
+
+/*
+ * The timeout policy a buffering processor applies when its upstream stops (RS_RESULT_TIMEDOUT).
+ * A stop for memory pressure follows ON_OOM instead of ON_TIMEOUT: FAIL returns the stop, RETURN
+ * hands the buffered rows downstream right away under every timeout policy, since no timeout
+ * callback waits to drain them. The stage that replies maps the stop to the ON_OOM outcome.
+ */
+static RSTimeoutPolicy RP_StopPolicy(const ResultProcessor *rp) {
+  const QueryProcessingCtx *qctx = rp->parent;
+  if (qctx->timeout && QueryRequestTimeout_GetStopReason(qctx->timeout) == QUERY_STOP_REASON_OOM) {
+    return qctx->oomPolicy == OomPolicy_Fail ? TimeoutPolicy_Fail : TimeoutPolicy_Return;
+  }
+  return qctx->timeoutPolicy;
+}
+
+static QueryStopReason RP_StopReason(const ResultProcessor *rp) {
+  const QueryRequestTimeout *timeout = rp->parent->timeout;
+  return timeout ? QueryRequestTimeout_GetStopReason(timeout) : QUERY_STOP_REASON_NONE;
+}
+
+/*
+ * A stop request lasts one cycle, but a buffered prefix may be yielded over several cursor reads.
+ * The read that yields its end requests the stop again, so that read replies the stop's outcome.
+ */
+static void RP_RenewStop(const ResultProcessor *rp, QueryStopReason reason) {
+  if (reason != QUERY_STOP_REASON_NONE) {
+    QueryRequestTimeout_RequestStop(rp->parent->timeout, reason);
+  }
+}
+
+bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
+  return rp->parent->timeout && QueryMemory_ShouldStop(rp->parent->timeout, counter) &&
+         RP_StopPolicy(rp) != TimeoutPolicy_Return;
 }
 
 typedef enum {
@@ -754,6 +796,8 @@ typedef struct {
   // When set, score ties are broken by this key's value instead of the doc id.
   const RLookupKey *scoreTieBreakKey;
 
+  // QueryMemory_ShouldStop counter for the heap's growth.
+  uint32_t memoryCheckCalls;
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
@@ -793,7 +837,8 @@ static void rpsortFree(ResultProcessor *rp) {
 
 #define RESULT_QUEUED RS_RESULT_MAX + 1
 
-static void rpsortAccumulate(ResultProcessor *rp) {
+// Returns true when the row grew the heap rather than replacing one it holds.
+static bool rpsortAccumulate(ResultProcessor *rp) {
   RPSorter *self = (RPSorter *)rp;
 
   // If the queue is not full - we just push the result into it
@@ -812,6 +857,7 @@ static void rpsortAccumulate(ResultProcessor *rp) {
     // we need to allocate a new result for the next iteration
     self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
     *self->pooledResult = SearchResult_New();
+    return true;
   } else {
     // find the min result
     SearchResult *minh = mmh_peek_min(self->pq);
@@ -830,6 +876,7 @@ static void rpsortAccumulate(ResultProcessor *rp) {
     }
     // clear the result in preparation for the next iteration
     SearchResult_Clear(self->pooledResult);
+    return false;
   }
 }
 
@@ -857,14 +904,17 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r, PipelineAc
     rp->Drain = rpsortDrain_Yield;
     return rpsortNext_Yield(rp, r);
   }
-  if (rc != RS_RESULT_OK) {
-    if (rc == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy != TimeoutPolicy_Fail) {
-      rp->Next = rpsortNext_Yield;
+  if (rc == RS_RESULT_OK) {
+    // The heap grows only on insert; once full, each row replaces one it holds.
+    if (!rpsortAccumulate(rp) || !RP_FillShouldStop(rp, &self->memoryCheckCalls)) {
+      return RESULT_QUEUED;
     }
-    return rc;
+    rc = RS_RESULT_TIMEDOUT;
   }
-  rpsortAccumulate(rp);
-  return RESULT_QUEUED;
+  if (rc == RS_RESULT_TIMEDOUT && RP_StopPolicy(rp) != TimeoutPolicy_Fail) {
+    rp->Next = rpsortNext_Yield;
+  }
+  return rc;
 }
 
 static int rpsortNext_Accum(ResultProcessor *rp, SearchResult *r) {
@@ -1069,8 +1119,8 @@ typedef struct {
   // Per-key load profiling buffer (nkeys entries), allocated only for
   // `FT.PROFILE ... LOAD`; NULL otherwise. Populated by the Rust loader.
   LoadFieldProfile *profileFields;
-  // Owned; NULL when loading all fields.
-  struct HashFieldNames *fieldNames;
+  // Owned format-specific cache; NULL for whole-document HASH loading.
+  struct LoaderCache *cache;
   QueryError status;
 } RPLoader;
 
@@ -1108,27 +1158,28 @@ static void rpLoader_loadDocument(RPLoader *self, SearchResult *r) {
 
   int ret;
   if (self->load_all) {
-      LoadAllKeysOptions opts = {
-          .sctx = self->sctx,
-          .dmd = dmd,
-          .force_string = true,
-          .status = &self->status,
-      };
-      ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
+    LoadAllKeysOptions opts = {
+        .sctx = self->sctx,
+        .dmd = dmd,
+        .force_string = true,
+        .status = &self->status,
+        .cache = self->cache,
+    };
+    ret = RLookup_LoadDocumentAll(self->lk, SearchResult_GetRowDataMut(r), &opts);
   } else {
-      LoadIndividualKeysOptions opts = {
-          .sctx = self->sctx,
-          .dmd = dmd,
-          .keys = self->keys,
-          .nkeys = self->nkeys,
-          .force_string = true,
-          .force_load = self->forceLoad,
-          .cached_only = false,
-          .status = &self->status,
-          .profile_fields = self->profileFields,
-          .field_names = self->fieldNames,
-      };
-      ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
+    LoadIndividualKeysOptions opts = {
+        .sctx = self->sctx,
+        .dmd = dmd,
+        .keys = self->keys,
+        .nkeys = self->nkeys,
+        .force_string = true,
+        .force_load = self->forceLoad,
+        .cached_only = false,
+        .status = &self->status,
+        .profile_fields = self->profileFields,
+        .cache = self->cache,
+    };
+    ret = RLookup_LoadDocumentIndividual(self->lk, SearchResult_GetRowDataMut(r), &opts);
   }
 
   // if loading the document has failed, we keep the row as it was.
@@ -1205,7 +1256,7 @@ static void rploaderFreeInternal(ResultProcessor *base) {
   QueryError_ClearError(&lc->status);
   rm_free(lc->keys);
   rm_free(lc->profileFields);
-  HashFieldNames_Free(lc->fieldNames);
+  LoaderCache_Free(lc->cache);
 }
 
 static void rploaderFree(ResultProcessor *base) {
@@ -1225,13 +1276,14 @@ static void rploaderNew_setLoadOpts(RPLoader *self, RedisSearchCtx *sctx, RLooku
     if (withProfile) {
       self->profileFields = rm_calloc(nkeys, sizeof(*self->profileFields));
     }
-    self->fieldNames = HashFieldNames_New();
     self->load_all = false;
   } else {
     self->load_all = true;
-    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED); // TODO: turn on only for HASH specs
+    RLookup_EnableOptions(lk, RLOOKUP_OPT_ALLLOADED);  // TODO: turn on only for HASH specs
   }
 
+  DocumentType type = sctx && sctx->spec ? sctx->spec->rule->type : DocumentType_Hash;
+  self->cache = LoaderCache_New(type, self->keys, self->nkeys);
   self->lk = lk;
 }
 
@@ -1293,6 +1345,12 @@ typedef struct RPSafeLoader {
   // aggregate-results sync. When set, the loader performs the GIL deadlock-
   // avoidance handshake around the GIL (see aggregate.h).
   QueryRequest *request;
+
+  // Why the buffer or load stopped, when a stop request ended it.
+  QueryStopReason stopReason;
+  // QueryMemory_ShouldStop counters for the buffer and for the values loaded under the GIL.
+  uint32_t bufferMemoryCheckCalls;
+  uint32_t loadMemoryCheckCalls;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -1375,6 +1433,10 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 
   int rc = self->last_buffered_rc;
   self->last_buffered_rc = RS_RESULT_OK;
+  if (rc == RS_RESULT_TIMEDOUT) {
+    RP_RenewStop(&self->base_loader.base, self->stopReason);
+  }
+  self->stopReason = QUERY_STOP_REASON_NONE;
   // We CANNOT return `RS_RESULT_OK` HERE, since it will be interpreted as a
   // success while no population of the result was done.
   // So if the last rc was `RS_RESULT_OK`, we need to continue activating the
@@ -1389,10 +1451,31 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 
 static void rpSafeLoader_Load(RPSafeLoader *self) {
   SearchResult *curr_res;
+  // The pipeline's timeout state, NULL where it runs without memory checkpoints (hybrid).
+  QueryRequestTimeout *timeout = self->base_loader.base.parent->timeout;
+  // A stop requested while buffering already chose to load the whole buffer (RETURN), so only
+  // memory found short while loading cuts the load.
+  const bool checkMemory = timeout && !QueryRequestTimeout_IsStopRequested(timeout);
+  bool stopped = false;
 
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
+    // Only an OOM stop cuts the load: a timeout's callback waits for this worker, as before.
+    if (!stopped && checkMemory && QueryMemory_ShouldStop(timeout, &self->loadMemoryCheckCalls) &&
+        QueryRequestTimeout_GetStopReason(timeout) == QUERY_STOP_REASON_OOM) {
+      // The loaded prefix is yielded; the yield phase then ends on the stop.
+      stopped = true;
+      self->last_buffered_rc = RS_RESULT_TIMEDOUT;
+      self->stopReason = QueryRequestTimeout_GetStopReason(timeout);
+    }
+    if (stopped) {
+      // An empty slot, which the yield phase skips. Not counted in skippedResults: the row still
+      // matched the query.
+      SearchResult_Destroy(curr_res);
+      *curr_res = SearchResult_New();
+      continue;
+    }
     rpLoader_loadDocument(&self->base_loader, curr_res);
     if (!loaderResultIsEmittable(curr_res)) {
       // The document was deleted/re-indexed between buffering and load (the safe loader
@@ -1506,20 +1589,33 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
     resToBuffer = SearchResult_New();
+    if (RP_FillShouldStop(rp, &self->bufferMemoryCheckCalls)) {
+      result_status = RS_RESULT_TIMEDOUT;
+      break;
+    }
   }
   SearchResult_Destroy(&resToBuffer);
   if (result_status == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) {
     return result_status;
   }
   rp->parent->resultLimit = bufferLimit;  // Restore the result limit
+  // A stop requested by the last row's checkpoint under a RETURN stop policy still ends the query
+  // after this buffer.
+  if (result_status == RS_RESULT_OK && RP_StopReason(rp) != QUERY_STOP_REASON_NONE) {
+    result_status = RS_RESULT_TIMEDOUT;
+  }
 
   // If we exit the loop because we got an error, or we have zero result, return without locking
-  // Redis.
-  if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK) || IsBufferEmpty(self)) {
+  // Redis. An OOM stop under a RETURN stop policy still loads and yields what was buffered.
+  if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
+       !(result_status == RS_RESULT_TIMEDOUT && RP_StopReason(rp) == QUERY_STOP_REASON_OOM &&
+         RP_StopPolicy(rp) == TimeoutPolicy_Return)) ||
+      IsBufferEmpty(self)) {
     return result_status;
   }
   // save the last buffered result code to return when we done yielding the buffered results.
   self->last_buffered_rc = result_status;
+  self->stopReason = RP_StopReason(rp);
 
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
@@ -1786,6 +1882,9 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   sl->last_buffered_rc = RS_RESULT_OK;
   sl->request = NULL;
+  sl->stopReason = QUERY_STOP_REASON_NONE;
+  sl->bufferMemoryCheckCalls = 0;
+  sl->loadMemoryCheckCalls = 0;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -2022,6 +2121,8 @@ typedef struct {
   const RLookupKey *scoreKey;
   SearchResult *pooledResult;
   arrayof(SearchResult *) pool;
+  // QueryMemory_ShouldStop counter for the pool's growth.
+  uint32_t memoryCheckCalls;
 } RPMaxScoreNormalizer;
 
 static void RPMaxScoreNormalizer_Free(ResultProcessor *base) {
@@ -2055,6 +2156,15 @@ static int RPMaxScoreNormalizer_Yield(ResultProcessor *rp, SearchResult *r) {
   return RS_RESULT_OK;
 }
 
+// The accumulation stopped. Unless the stop policy is FAIL, the pooled rows are yielded later,
+// normalized by the max seen so far.
+static int RPMaxScoreNormalizer_Stopped(ResultProcessor *rp) {
+  if (RP_StopPolicy(rp) != TimeoutPolicy_Fail) {
+    rp->Next = RPMaxScoreNormalizer_Yield;
+  }
+  return RS_RESULT_TIMEDOUT;
+}
+
 static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r,
                                               PipelineAccess *access) {
   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
@@ -2065,10 +2175,9 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   if (rc == RS_RESULT_EOF) {
     rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
+  } else if (rc == RS_RESULT_TIMEDOUT) {
+    return RPMaxScoreNormalizer_Stopped(rp);
   } else if (rc != RS_RESULT_OK) {
-    if (rc == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy != TimeoutPolicy_Fail) {
-      rp->Next = RPMaxScoreNormalizer_Yield;
-    }
     return rc;
   }
 
@@ -2081,6 +2190,9 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   // we need to allocate a new result for the next iteration
   self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
   *self->pooledResult = SearchResult_New();
+  if (RP_FillShouldStop(rp, &self->memoryCheckCalls)) {
+    return RPMaxScoreNormalizer_Stopped(rp);
+  }
   return RESULT_QUEUED;
 }
 
@@ -2398,11 +2510,11 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
-    // Notice a blocked-client (RETURN_STRICT) timeout promptly when the
-    // main-thread callback flips the borrowed flag.
+    // Notice a requested stop or a blocked-client (RETURN_STRICT) timeout
+    // promptly when another thread flips its flag.
     // The wall-clock deadline is already handled by the upstream's own checks.
     QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+    if (QueryRequest_ShouldStop(timeout)) {
       rc = RS_RESULT_TIMEDOUT;
       break;
     }
@@ -3279,15 +3391,18 @@ ResultProcessor *RPHybridMerger_New(RedisSearchCtx *sctx,
    ret->upstreams = upstreams;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 
-   // Calculate maximal dictionary size based on scoring type
-   size_t maximalSize;
+   size_t window;
    if (hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
-     maximalSize = hybridScoringCtx->rrfCtx.window * numUpstreams;
+     window = hybridScoringCtx->rrfCtx.window;
    } else {
-     maximalSize = hybridScoringCtx->linearCtx.window * numUpstreams;
+     window = hybridScoringCtx->linearCtx.window;
    }
-   // Pre-size the dictionary to avoid multiple resizes during accumulation
-   dictExpand(ret->hybridResults, maximalSize);
+   // WINDOW bounds consumption, not the number of documents that actually exist. Limit eager
+   // allocation and let the dictionary grow as results arrive. Check before multiplying to avoid
+   // overflow when computing the initial capacity.
+   const size_t maxPresize = 65536;
+   size_t initialSize = window > maxPresize / numUpstreams ? maxPresize : window * numUpstreams;
+   dictExpand(ret->hybridResults, initialSize);
 
    ret->iterator = NULL;
 
@@ -3514,6 +3629,39 @@ static ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sc
 
 typedef struct {
   ResultProcessor base;
+  RedisSearchCtx *sctx;
+  uint32_t counter;
+} RPMemoryCheckpoint;
+
+static int RPMemoryCheckpoint_Next(ResultProcessor *base, SearchResult *r) {
+  RPMemoryCheckpoint *self = (RPMemoryCheckpoint *)base;
+  if (QueryMemory_ShouldStop(self->sctx->timeout, &self->counter)) {
+    return RS_RESULT_TIMEDOUT;
+  }
+  return base->upstream->Next(base->upstream, r);
+}
+
+// A pass-through: recovery drains whatever upstream buffered.
+static RPDrainStatus RPMemoryCheckpoint_Drain(ResultProcessor *base, SearchResult *r) {
+  return base->upstream->Drain(base->upstream, r);
+}
+
+static void RPMemoryCheckpoint_Free(ResultProcessor *base) {
+  rm_free(base);
+}
+
+void PipelineAddMemoryCheckpoint(QueryProcessingCtx *qctx, RedisSearchCtx *sctx) {
+  RPMemoryCheckpoint *rp = rm_calloc(1, sizeof(*rp));
+  rp->sctx = sctx;
+  rp->base.type = RP_MEMORY_CHECKPOINT;
+  rp->base.Next = RPMemoryCheckpoint_Next;
+  rp->base.Free = RPMemoryCheckpoint_Free;
+  rp->base.Drain = RPMemoryCheckpoint_Drain;
+  addResultProcessor(qctx, &rp->base);
+}
+
+typedef struct {
+  ResultProcessor base;
 } RPCrash;
 
 static void RPCrash_Free(ResultProcessor *base) {
@@ -3656,6 +3804,8 @@ typedef struct {
   RPStatus last_rc;                // Last return code from upstream
   uint32_t depleted_results;       // Total number of results depleted
   rs_wall_clock_ns_t depletionTime; // Time spent depleting upstream results
+  QueryStopReason stopReason;       // Why depletion stopped, when a stop request ended it
+  uint32_t memoryCheckCalls;        // QueryMemory_ShouldStop counter for the buffer
 } RPDepleter;
 
 /**
@@ -3681,6 +3831,13 @@ static bool RPDepleter_Deplete(RPDepleter *self) {
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
     self->depleted_results++;
+    if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls)) {
+      rc = RS_RESULT_TIMEDOUT;
+      break;
+    }
+  }
+  if (rc == RS_RESULT_TIMEDOUT) {
+    self->stopReason = RP_StopReason(&self->base);
   }
 
   SearchResult_Destroy(r);
@@ -3702,6 +3859,9 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   if (self->cur_idx >= array_len(self->results)) {
     // Return the last code from upstream (EOF or TIMEDOUT)
     int ret = self->last_rc;
+    if (ret == RS_RESULT_TIMEDOUT) {
+      RP_RenewStop(base, self->stopReason);
+    }
     self->last_rc = RS_RESULT_EOF;
     return ret;
   }

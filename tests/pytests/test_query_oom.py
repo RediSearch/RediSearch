@@ -464,3 +464,64 @@ def test_oom_shards_return_hybrid_profile(env):
     env.assertGreater(res['total_results'], 0, message=f"res: {res}")
     env.assertLess(res['total_results'], n_docs, message=f"res: {res}")
     env.expect('PING').true()
+
+
+def _timeout_return_keeps_rows_under_oom_fail(env):
+    """ON_OOM FAIL buffers the whole result before replying, under every timeout policy. Under
+    ON_TIMEOUT RETURN a timeout must still reply the rows the unbuffered path (ON_OOM RETURN)
+    replies, with the timeout warning."""
+    n_docs, after_n = 100, 20
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(n_docs):
+        conn.execute_command('HSET', f'doc:{i}', 'title', f'hello doc {i}')
+    # (query, reply elements per row in RESP2)
+    queries = (
+        (('FT.SEARCH', 'idx', 'hello', 'RETURN', 1, 'title', 'LIMIT', 0, n_docs), 2),
+        (('FT.SEARCH', 'idx', 'hello', 'NOCONTENT', 'LIMIT', 0, n_docs), 1),
+        (('FT.AGGREGATE', 'idx', 'hello', 'LOAD', 1, '@title'), 1),
+        (('FT.AGGREGATE', 'idx', 'hello'), 1),
+    )
+    res = env.cmd('CONFIG', 'GET', 'search-on-timeout')
+    timeout_policy = res['search-on-timeout'] if isinstance(res, dict) else res[1]
+    env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
+    def run(query):
+        return env.cmd(debug_cmd(), *query, 'TIMEOUT_AFTER_N', after_n, 'DEBUG_PARAMS_COUNT', 2)
+
+    try:
+        for workers in (0, 2):
+            set_workers(env, workers)
+            for query, per_row in queries:
+                allShards_change_oom_policy(env, 'return')
+                unbuffered = run(query)
+                allShards_change_oom_policy(env, 'fail')
+                res = run(query)
+                if env.protocol == 3:
+                    env.assertEqual(res['results'], unbuffered['results'], message=(workers, query))
+                    if workers == 0:
+                        env.assertEqual(len(res['results']), after_n, message=(workers, query, res))
+                    env.assertEqual(res['warning'], ['Timeout limit was reached'],
+                                    message=(workers, query, res))
+                else:
+                    # The RESP2 aggregate count differs between the two paths; compare the rows.
+                    env.assertEqual(res[1:], unbuffered[1:], message=(workers, query))
+                    if workers == 0:
+                        env.assertEqual((len(res) - 1) // per_row, after_n,
+                                        message=(workers, query, res))
+    finally:
+        set_workers(env, 0)
+        allShards_change_oom_policy(env, 'return')
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', timeout_policy).ok()
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_timeout_return_keeps_rows_under_oom_fail_resp3(env):
+    _timeout_return_keeps_rows_under_oom_fail(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=2)
+def test_timeout_return_keeps_rows_under_oom_fail_resp2(env):
+    _timeout_return_keeps_rows_under_oom_fail(env)

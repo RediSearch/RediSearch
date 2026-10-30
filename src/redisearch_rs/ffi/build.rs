@@ -126,8 +126,21 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["RM_SCAN_KEY_API_FIX", "RSGlobalConfig"],
     },
     HeaderAllowlist {
+        path: "src/doc_id_meta.h",
+        fns: &["DocIdMeta_Get"],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
         path: "src/doc_table.h",
-        fns: &["DMD_Free", "DocTable_Exists", "DocTable_Put"],
+        fns: &[
+            "DMD_Free",
+            "DocTable_Exists",
+            "DocTable_Put",
+            "DocTable_KeyEquals",
+            "DocTable_StartKeyMap",
+            "DocTable_BuildKeyMapBatch",
+        ],
         types: &[],
         vars: &[],
     },
@@ -200,7 +213,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/json.h",
-        fns: &["JSON_GetJsonFromHandleCompat"],
+        fns: &["JSON_GetJsonFromHandle"],
         types: &[],
         vars: &["RedisJSONAPI_MIN_API_VER", "japi", "japi_ver"],
     },
@@ -280,7 +293,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/result_processor.h",
-        fns: &["RPProfile_IncrementCount"],
+        fns: &["RPProfile_IncrementCount", "RPQueryIterator_New"],
         types: &["RPStatus", "RPDrainStatus"],
         vars: &[],
     },
@@ -389,6 +402,8 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/tag_index.h",
         fns: &[
             "TagIndex_Commit",
+            "TagIndex_DeleteTagSuffix",
+            "TagIndex_DeleteTagValue",
             "TagIndex_Ensure",
             "TagIndex_Free",
             "TagIndex_GetSuffixMatches",
@@ -572,6 +587,9 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     "rqe_iterator_type.h",
     // `IteratorsConfig` is embedded by value in `RSGlobalConfig` (src/config.h).
     "rqe_iterators.h",
+    // `QueryIteratorTree` is referenced by `AREQ` (src/aggregate/aggregate.h)
+    // and `QueryPipelineParams` (src/pipeline/pipeline.h).
+    "query_eval.h",
     // `src/rlookup.h` has `static inline` accessors that dereference
     // `RLookupKey` / `RLookupIterator` fields, so the full struct bodies in
     // these three are required. (`rlookup_ffi.h` includes `search_result_rs.h`

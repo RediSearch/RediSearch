@@ -301,15 +301,8 @@ void Document_Free(Document *doc);
 struct ForwardIndex;
 struct FieldIndexerData;
 
-// The context has had its forward entries merged in the merge table. We can
-// skip merging its tokens
-#define ACTX_F_TEXTINDEXED 0x01
-
 // The context has had an error and should not be processed further
 #define ACTX_F_ERRORED 0x02
-
-// Non-text fields have been indexed.
-#define ACTX_F_OTHERINDEXED 0x04
 
 // The content has indexable fields
 #define ACTX_F_INDEXABLES 0x08
@@ -317,14 +310,10 @@ struct FieldIndexerData;
 // The content has sortable fields
 #define ACTX_F_SORTABLES 0x10
 
-// Document is entirely empty (no sortables, indexables)
-#define ACTX_F_EMPTY 0x40
-
 #define ACTX_F_NOFREEDOC 0x80
 
 /** Context used when indexing documents */
 typedef struct RSAddDocumentCtx {
-  struct RSAddDocumentCtx *next;  // Next context in the queue
   Document *doc;                   // Document which is being indexed
   RedisSearchCtx *sctx;
 

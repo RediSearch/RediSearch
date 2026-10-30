@@ -248,6 +248,9 @@ typedef struct {
   // are intentionally not coupled to any Flex bigredis-driver settings.
   bool diskDropReadCache;
   bool diskUseDirectReads;
+  // Collect storage-engine statistics for disk indexes, reported by FT.DEBUG DISK_STATS.
+  // Load-time only: statistics must be attached before each index database opens.
+  bool diskStatistics;
   // Per-DB SpeedB open-file cap, and the per-index cost charged against the process-wide file-descriptor reservation
   // (see SearchDisk_CanCreateIndex). Immutable, so a deployment with few, very large indexes must set this at startup
   // rather than raising it later.
@@ -404,11 +407,13 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MULTI_TEXT_SLOP 100
 #define DEFAULT_QUERY_TIMEOUT_MS 500
 // Flex (disk-based indexes) defaults: disk queries are expected to take
-// longer, so they get a higher timeout, and time out with an error instead
-// of returning partial results.
+// longer, so they get a higher timeout, and time out, or stop for memory
+// pressure, with an error instead of returning partial results.
 #define DEFAULT_QUERY_TIMEOUT_MS_FLEX 5000
 #define DEFAULT_TIMEOUT_POLICY TimeoutPolicy_Return
 #define DEFAULT_TIMEOUT_POLICY_FLEX TimeoutPolicy_Fail
+#define DEFAULT_OOM_POLICY OomPolicy_Return
+#define DEFAULT_OOM_POLICY_FLEX OomPolicy_Fail
 #define DEFAULT_MAX_FOREGROUND_TIMEOUT_LIMIT_MS 60000
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
@@ -509,7 +514,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,\
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
     .bgIndexingSleepDurationMicroseconds = DEFAULT_BG_INDEX_SLEEP_DURATION_US, \
-    .requestConfigParams.oomPolicy = OomPolicy_Return,                         \
+    .requestConfigParams.oomPolicy = DEFAULT_OOM_POLICY,                       \
     .minTrimDelayMS = DEFAULT_MIN_TRIM_DELAY,                                  \
     .maxTrimDelayMS = DEFAULT_MAX_TRIM_DELAY,                                  \
     .trimmingStateCheckDelayMS = DEFAULT_TRIMMING_STATE_CHECK_DELAY,           \
@@ -521,6 +526,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .diskWbmBudgetPerIndexMB = DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB,           \
     .diskDropReadCache = false,                                                \
     .diskUseDirectReads = false,                                               \
+    .diskStatistics = false,                                                   \
     .diskMaxOpenFiles = DEFAULT_DISK_MAX_OPEN_FILES,                           \
     .diskAsyncReadPoolSize = DEFAULT_DISK_ASYNC_READ_POOL_SIZE,                \
     .diskAsyncReadQueueFactor = DEFAULT_DISK_ASYNC_READ_QUEUE_FACTOR,          \

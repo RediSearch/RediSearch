@@ -25,6 +25,20 @@ bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isP
 
 void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
+/**
+ * Turns a pipeline that stopped for memory pressure, a RS_RESULT_TIMEDOUT rc
+ * with stop reason QUERY_STOP_REASON_OOM, into the outcome `oomPolicy` asks
+ * for, and returns any other rc unchanged:
+ *
+ * - OomPolicy_Fail: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` (unless it already
+ *   holds an error) and RS_RESULT_ERROR. Only buffering stages can still reply
+ *   with an error, which is why startPipelineCommon buffers under FAIL.
+ * - Otherwise: the query OOM warning in `err` and RS_RESULT_EOF, so the rows
+ *   produced so far are the final, partial result instead of a timeout.
+ */
+int ApplyOomStop(const struct QueryRequestTimeout *timeout, RSOomPolicy oomPolicy,
+                 QueryError *err, int rc);
+
 void destroyResults(SearchResult **results);
 
 // TODO: replace `areq` with the borrowed atomic timed-out flag once it lives
@@ -57,6 +71,13 @@ typedef struct CommonPipelineCtx {
 } CommonPipelineCtx;
 
 void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc);
+
+/**
+ * Appends the rows buffering stages still hold to `results` when `*rc` is a stop whose reply keeps
+ * them: a timeout under ON_TIMEOUT RETURN, or an OOM stop under ON_OOM RETURN (any ON_TIMEOUT).
+ */
+void Pipeline_CollectStopResults(const CommonPipelineCtx *ctx, ResultProcessor *rp, int *rc,
+                                 SearchResult ***results);
 
 /**
  * Legacy shape restriction for invoking `endProc->Drain` after a RETURN-STRICT timeout.

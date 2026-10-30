@@ -90,7 +90,7 @@ impl QueryEvalContext {
     ///    The request timeout reached through `sctx.timeout` must also stay valid
     ///    at a stable address for that lifetime: every probe reads its active
     ///    timeout source. Timeout source changes and deadline writes may occur
-    ///    only between probes; only the blocked-client flag may change concurrently.
+    ///    only between probes; only the atomic flags may change concurrently.
     ///    The nested `sctx.spec.terms` pointer — the index's primary terms trie
     ///    — must be valid and non-null: every path that creates an
     ///    [`IndexSpec`](ffi::IndexSpec) installs a terms trie, unconditionally
@@ -113,6 +113,11 @@ impl QueryEvalContext {
     ///    reads back. A plain allocation holding one [`MetricRequest`] would
     ///    satisfy every other clause here and still make that safe method read
     ///    outside it.
+    ///    While evaluating deferred document keys, the caller must hold the
+    ///    index spec read lock to keep the key map, candidate document metadata,
+    ///    and their keys alive and unmodified.
+    ///    Evaluation of deferred INKEYS nodes also requires the GIL until the
+    ///    document key map is ready.
     /// 3. The caller must have exclusive access to the pointer for the
     ///    lifetime of the returned [`QueryEvalContext`].
     ///

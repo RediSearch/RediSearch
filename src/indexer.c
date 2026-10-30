@@ -49,9 +49,7 @@
 #include "synonym_map.h"
 #include "ttl_table.h"
 #include "ttl_table_rs.h"
-#include "util/block_alloc.h"
 #include "util/dict/dict.h"
-#include "util/khtable.h"
 #include "varint_ffi.h"
 
 extern RedisModuleCtx *RSDummyContext;
@@ -77,46 +75,6 @@ static void writeIndexEntry(IndexSpec *spec, InvertedIndex *idx, ForwardIndexEnt
     spec->stats.offsetVecsSize += VVW_GetByteLength(entry->vw);
     spec->stats.offsetVecRecords += VVW_GetCount(entry->vw);
   }
-}
-
-// Number of terms for each block-allocator block
-#define TERMS_PER_BLOCK 128
-
-// Effectively limits the maximum number of documents whose terms can be merged
-#define MAX_BULK_DOCS 1024
-
-// Entry for the merged dictionary
-typedef struct mergedEntry {
-  KHTableEntry base;        // Base structure
-  ForwardIndexEntry *head;  // First document containing the term
-  ForwardIndexEntry *tail;  // Last document containing the term
-} mergedEntry;
-
-// Boilerplate hashtable compare function
-static int mergedCompare(const KHTableEntry *ent, const void *s, size_t n, uint32_t h) {
-  mergedEntry *e = (mergedEntry *)ent;
-  // 0 return value means "true"
-  return !(e->head->hash == h && e->head->len == n && memcmp(e->head->term, s, n) == 0);
-}
-
-// Boilerplate hash retrieval function. Used for rebalancing the table
-static uint32_t mergedHash(const KHTableEntry *ent) {
-  mergedEntry *e = (mergedEntry *)ent;
-  return e->head->hash;
-}
-
-// Boilerplate dict entry allocator
-static KHTableEntry *mergedAlloc(void *ctx) {
-  return BlkAlloc_Alloc(ctx, sizeof(mergedEntry), sizeof(mergedEntry) * TERMS_PER_BLOCK);
-}
-
-// This function used for debugging, and returns how many items are actually in the list
-static size_t countMerged(mergedEntry *ent) {
-  size_t n = 0;
-  for (ForwardIndexEntry *cur = ent->head; cur; cur = cur->next) {
-    n++;
-  }
-  return n;
 }
 
 // Build the mask of this document's TEXT fields that carry a field-level
@@ -154,7 +112,7 @@ static void indexText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
   // Text fields carrying a field-level expiration for this document; a posting's
   // inline expiration bit is set when its field mask overlaps this one. Read back
-  // from the doc table because `doAssignIds` moved `doc->fieldExpirations` there.
+  // from the doc table because `assignDocId` moved `doc->fieldExpirations` there.
   const t_fieldMask expiringTextFields = docExpiringTextFieldMask(spec, aCtx->doc->docId);
   size_t prevNumTerms = spec->stats.scoring.numTerms;
   ForwardIndexIterator it = ForwardIndex_Iterate(aCtx->fwIdx);
@@ -334,7 +292,7 @@ static RSDocumentMetadata *newDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx 
   Document *doc = aCtx->doc;
 
   // Existing key -> docId mapping (memory-mode analogue of the disk oldDocId
-  // lookup in doAssignIds).
+  // lookup in DiskIndexer_StageDocument).
   uint64_t oldDocId = 0;
   actxDocIdMetaGet(aCtx, sctx, &oldDocId);
   aCtx->oldDocId = oldDocId;
@@ -383,58 +341,51 @@ static RSDocumentMetadata *newDocumentId(RedisSearchCtx *sctx, RSAddDocumentCtx 
 }
 
 /**
- * Performs bulk document ID assignment to all items in the queue.
- * If one item cannot be assigned an ID, it is marked as being errored.
+ * Assigns the document its ID. On failure the document is marked as errored.
  *
  * Disk mode delegates to `DiskIndexer_StageDocument`; memory mode assigns the
  * doc-id and applies all RAM mutations inline here.
  *
  * This function also sets the document's sorting vector, if present.
  */
-static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
+static void assignDocId(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   IndexSpec *spec = ctx->spec;
-  for (; cur; cur = cur->next) {
-    if (cur->stateFlags & ACTX_F_ERRORED) {
-      continue;
+  RS_ASSERT(aCtx->doc);
+  RS_LOG_ASSERT(!aCtx->doc->docId, "docId must be 0");
+  if (SearchDisk_IsEnabled()) {
+    DiskIndexer_StageDocument(aCtx, ctx);
+  } else {
+    bool updated = false;
+    RSDocumentMetadata *md = newDocumentId(ctx, aCtx,
+                                            aCtx->options & DOCUMENT_ADD_REPLACE, &updated);
+    if (!md) {
+      aCtx->stateFlags |= ACTX_F_ERRORED;
+      return;
     }
 
-    RS_ASSERT(cur->doc);
-    if (SearchDisk_IsEnabled()) {
-      DiskIndexer_StageDocument(cur, ctx);
-    } else {
-      RS_LOG_ASSERT(!cur->doc->docId, "docId must be 0");
-      bool updated = false;
-      RSDocumentMetadata *md = newDocumentId(ctx, cur,
-                                              cur->options & DOCUMENT_ADD_REPLACE, &updated);
-      if (!md) {
-        cur->stateFlags |= ACTX_F_ERRORED;
-        continue;
-      }
+    md->maxTermFreq = aCtx->fwIdx->maxTermFreq;
+    md->docLen = aCtx->fwIdx->totalFreq;
+    Indexer_AddNewDocStats(spec, md->docLen);
 
-      md->maxTermFreq = cur->fwIdx->maxTermFreq;
-      md->docLen = cur->fwIdx->totalFreq;
-      Indexer_AddNewDocStats(spec, md->docLen);
-
-      if (RSSortingVector_Length(&cur->sv)) {
-        DocTable_SetSortingVector(&spec->docs, md, cur->sv);
-        cur->sv = RSSortingVector_Empty();
-      }
-
-      if (cur->byteOffsets) {
-        ByteOffsetWriter_Move(&cur->offsetsWriter, cur->byteOffsets);
-        DocTable_SetByteOffsets(md, cur->byteOffsets);
-        cur->byteOffsets = NULL;
-      }
-      Document* doc = cur->doc;
-      const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || FieldExpirations_Len(&doc->fieldExpirations) > 0;
-      if (hasExpiration) {
-        DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime,
-                                  DocTable_TakeFieldExpirations(&doc->fieldExpirations));
-      }
-      DMD_Return(md);
-
-      handle_gc(spec, updated);
+    if (RSSortingVector_Length(&aCtx->sv)) {
+      DocTable_SetSortingVector(&spec->docs, md, aCtx->sv);
+      aCtx->sv = RSSortingVector_Empty();
     }
+
+    if (aCtx->byteOffsets) {
+      ByteOffsetWriter_Move(&aCtx->offsetsWriter, aCtx->byteOffsets);
+      DocTable_SetByteOffsets(md, aCtx->byteOffsets);
+      aCtx->byteOffsets = NULL;
+    }
+    Document* doc = aCtx->doc;
+    const bool hasExpiration = doc->docExpirationTime.tv_sec || doc->docExpirationTime.tv_nsec || FieldExpirations_Len(&doc->fieldExpirations) > 0;
+    if (hasExpiration) {
+      DocTable_UpdateExpiration(&ctx->spec->docs, md, doc->docExpirationTime,
+                                DocTable_TakeFieldExpirations(&doc->fieldExpirations));
+    }
+    DMD_Return(md);
+
+    handle_gc(spec, updated);
   }
 }
 
@@ -482,7 +433,6 @@ static void revertPendingRelabels(RSAddDocumentCtx *aCtx, const IndexSpec *spec,
  * instead of left stranded
  */
 static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
-  if (aCtx->stateFlags & ACTX_F_OTHERINDEXED) return;
   if (aCtx->stateFlags & ACTX_F_ERRORED) {
     revertPendingRelabels(aCtx, sctx->spec, 0);
     return;
@@ -505,15 +455,9 @@ static void bulkIndexFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     }
     IndexerBulkApply(aCtx, doc->fields + ii, fs, fdata);
   }
-  aCtx->stateFlags |= ACTX_F_OTHERINDEXED;
 }
 
 static void reopenCb(void *arg) {}
-
-// Routines for the merged hash table
-#define ACTX_IS_INDEXED(actx)                                           \
-  (((actx)->stateFlags & (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED)) == \
-   (ACTX_F_OTHERINDEXED | ACTX_F_TEXTINDEXED))
 
 // Compute absent fields from the cached INDEXMISSING field indexes.
 // Expiration handling stays in the RAM caller.
@@ -612,8 +556,8 @@ static void writeExistingDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
  * atomic chunk (see `indexText` and `bulkIndexFields`). A later field's
  * failure cannot orphan an earlier field's writes.
  *
- * Doc-table scoring-stat deltas + GC are applied inline in `makeDocumentId` /
- * `doAssignIds`, so there is no `applyDocTable` step here.
+ * Doc-table scoring-stat deltas + GC are applied inline in `assignDocId`, so
+ * there is no `applyDocTable` step here.
  */
 static void indexDocumentMemory(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
                                 FieldExpirationSlice fes) {
@@ -626,20 +570,14 @@ static void indexDocumentMemory(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,
 }
 
 /**
- * Per-document indexing entry point. Performs the shared prelude (state
- * guards, doc-id assignment, field-expiration setup) and dispatches to the
+ * Per-document indexing entry point. Performs the shared prelude (doc-id
+ * assignment, field-expiration setup) and dispatches to the
  * mode-specific pipeline.
  */
 static void Indexer_Process(RSAddDocumentCtx *aCtx) {
-  RSAddDocumentCtx *firstZeroId = aCtx;
   RedisSearchCtx ctx = *aCtx->sctx;
 
-  if (ACTX_IS_INDEXED(aCtx) || aCtx->stateFlags & (ACTX_F_ERRORED)) {
-    // Document is complete or errored. No need for further processing.
-    if (!(aCtx->stateFlags & ACTX_F_EMPTY)) {
-      return;
-    }
-  }
+  RS_LOG_ASSERT(!(aCtx->stateFlags & ACTX_F_ERRORED), "document reached the indexer already errored");
 
   if (!ctx.spec) {
     QueryError_SetCode(&aCtx->status, QUERY_ERROR_CODE_NO_INDEX);
@@ -649,30 +587,13 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
 
   Document *doc = aCtx->doc;
 
-  /**
-   * Document ID & sorting-vector assignment:
-   * In order to hold the GIL for as short a time as possible, we assign
-   * document IDs in bulk. We begin using the first document ID that is assumed
-   * to be zero.
-   *
-   * When merging multiple document IDs, the merge stage scans through the chain
-   * of proposed documents and selects the first document in the chain missing an
-   * ID - the subsequent documents should also all be missing IDs. If none of
-   * the documents are missing IDs then the firstZeroId document is NULL and
-   * no ID assignment takes place.
-   *
-   * Assigning IDs in bulk speeds up indexing of smaller documents by about
-   * 10% overall.
-   */
-  if (firstZeroId != NULL && firstZeroId->doc->docId == 0) {
-    doAssignIds(firstZeroId, &ctx);
-  }
+  assignDocId(aCtx, &ctx);
 
   if (SearchDisk_IsEnabled()) {
     DiskIndexer_IndexDocument(aCtx, &ctx);
   } else {
     // `doc->fieldExpirations` ownership has already been moved into the TTL
-    // table by `doAssignIds` on success. On failure (e.g. `makeDocumentId`
+    // table by `assignDocId` on success. On failure (e.g. `newDocumentId`
     // returned NULL), the array stays attached to `doc` so `Document_Free`
     // can release it.
     struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(&ctx.spec->docs, doc->docId);

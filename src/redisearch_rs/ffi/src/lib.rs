@@ -112,6 +112,13 @@ pub struct QueryProcessingCtx {
     /// Blocking boundaries use it to prepare suspension; ordinary rows do not
     /// acquire or release ownership. Cleared before the driver releases its gate.
     pub executionAccess: *mut std::ffi::c_void,
+    /// The owning request's timeout state. Its stop request tells buffering
+    /// processors why their upstream stopped. Null for a pipeline without a
+    /// request.
+    pub timeout: *mut QueryRequestTimeout,
+    /// The owning request's ON_OOM policy, applied by buffering processors to
+    /// a stop for memory pressure.
+    pub oomPolicy: RSOomPolicy,
 }
 
 impl QueryProcessingCtx {
@@ -135,6 +142,8 @@ impl QueryProcessingCtx {
             canYieldPartialResults: false,
             skipIndexResultDeepCopy: false,
             executionAccess: ptr::null_mut(),
+            timeout: ptr::null_mut(),
+            oomPolicy: RSOomPolicy_OomPolicy_Return,
         };
 
         Box::pin(ctx)

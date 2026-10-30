@@ -47,6 +47,22 @@
    RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
  }
 
+int ApplyOomStop(const QueryRequestTimeout *timeout, RSOomPolicy oomPolicy, QueryError *err,
+                 int rc) {
+  if (rc != RS_RESULT_TIMEDOUT ||
+      QueryRequestTimeout_GetStopReason(timeout) != QUERY_STOP_REASON_OOM) {
+    return rc;
+  }
+  if (oomPolicy == OomPolicy_Fail) {
+    if (QueryError_IsOk(err)) {
+      QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    }
+    return RS_RESULT_ERROR;
+  }
+  QueryError_SetQueryOOMWarning(err);
+  return RS_RESULT_EOF;
+}
+
  void destroyResults(SearchResult **results) {
    if (results) {
      for (size_t i = 0; i < array_len(results); i++) {
@@ -88,6 +104,13 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 #endif
 
+static bool oomStopKeepsBufferedRows(const AREQ *areq) {
+  const QueryRequestTimeout *timeout = &areq->base.timeout;
+  return QueryRequestTimeout_GetStopReason(timeout) == QUERY_STOP_REASON_OOM &&
+         areq->base.reqConfig.oomPolicy != OomPolicy_Fail &&
+         !QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+}
+
  SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
    SearchResult **results = NULL;
    AggregateResultsContinue(rp, areq, rc, &results);
@@ -108,10 +131,12 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // clean the search result
      r = SearchResult_New();
 
-     // Honour a main-thread timeout flag at the row boundary: buffering
-     // stages (safe loader, sorter yield) can keep emitting from internal
-     // buffers without re-touching upstream's per-row timeout check.
-     if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
+     // Honour a requested stop or a main-thread timeout flag at the row
+     // boundary: buffering stages (safe loader, sorter yield) can keep emitting
+     // from internal buffers without re-touching upstream's per-row timeout check.
+     // An OOM stop under ON_OOM RETURN is the exception: those stages then hand
+     // over the rows they already hold (see RP_StopPolicy), and read nothing new.
+     if (areq && QueryRequest_ShouldStop(&areq->base.timeout) && !oomStopKeepsBufferedRows(areq)) {
        *rc = RS_RESULT_TIMEDOUT;
        break;
      }
@@ -139,6 +164,23 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    SearchResult_Destroy(&row);
  }
 
+ // Whether the buffered rows are the reply after a stop: a timeout under ON_TIMEOUT RETURN, or an
+ // OOM stop under ON_OOM RETURN whatever ON_TIMEOUT is (no timeout callback owns that reply).
+ static bool stopRecoversBufferedRows(const CommonPipelineCtx *ctx) {
+   if (QueryRequestTimeout_GetStopReason(ctx->timeout) == QUERY_STOP_REASON_OOM) {
+     return ctx->oomPolicy != OomPolicy_Fail &&
+            !QueryRequestTimeout_IsBlockedClientTimedOut(ctx->timeout);
+   }
+   return ctx->timeout->config.timeoutPolicy == TimeoutPolicy_Return;
+ }
+
+ void Pipeline_CollectStopResults(const CommonPipelineCtx *ctx, ResultProcessor *rp, int *rc,
+                                  SearchResult ***results) {
+   if (*rc == RS_RESULT_TIMEDOUT && stopRecoversBufferedRows(ctx)) {
+     Pipeline_CollectDrainResults(rp, rc, results);
+   }
+ }
+
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
    if (ctx->timeout->config.timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
@@ -148,8 +190,8 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      if (QueryRequestTimeout_IsTimedOutExact(ctx->timeout)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
-     if (canRecover && *rc == RS_RESULT_TIMEDOUT && ctx->timeout->config.timeoutPolicy == TimeoutPolicy_Return) {
-       Pipeline_CollectDrainResults(rp, rc, results);
+     if (canRecover) {
+       Pipeline_CollectStopResults(ctx, rp, rc, results);
      }
    } else {
      // Send the results received from the pipeline as they come (no need to aggregate)

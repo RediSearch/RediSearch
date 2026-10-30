@@ -8,9 +8,9 @@
 from common import *
 import threading
 
-def initEnv(moduleArgs: str = 'WORKERS 1'):
+def initEnv(moduleArgs: str = 'WORKERS 1', **kwargs):
     assert(moduleArgs != '')
-    env = Env(enableDebugCommand=True, moduleArgs=moduleArgs)
+    env = Env(enableDebugCommand=True, moduleArgs=moduleArgs, **kwargs)
     return env
 
 # Regression helper for MOD-18356: a query is parsed (capturing a field index) on the main
@@ -652,7 +652,7 @@ def test_change_workers_number():
     # On start up the threadpool is not initialized. We can change the value of requested threads
     # without actually creating the threads.
     # No maintenance workers, so that WORKERS 0 empties the pool.
-    env = initEnv(moduleArgs='WORKERS 1 MIN_MAINTENANCE_WORKERS 0')
+    env = initEnv(moduleArgs='WORKERS 1', redisConfigFile=min_maintenance_workers_conf(0))
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'text').ok()
     check_threads(env, expected_num_threads_alive=0, expected_n_threads=1)
 

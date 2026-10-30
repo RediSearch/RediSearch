@@ -12,12 +12,12 @@ use document_metadata::DocumentMetadata;
 use libc::size_t;
 use query_error::{QueryError, QueryErrorCode, opaque::OpaqueQueryError};
 use redis_json_api::RedisJsonApi;
-use rlookup::JsonDocumentFormat;
 use rlookup::{DocumentLoader, HashDocumentFormat, HashFieldNames};
 use rlookup::{
     IndexSpec, IndexSpecCache, LoadFieldProfile, OpaqueRLookup, OpaqueRLookupRow, RLookup,
     RLookupKey, RLookupKeyFlag, RLookupKeyFlags, RLookupOptions, RLookupRow,
 };
+use rlookup::{JsonDocumentFormat, JsonPathCache};
 use std::{
     borrow::Cow,
     ffi::{CStr, CString, c_char, c_int},
@@ -663,6 +663,12 @@ pub unsafe extern "C" fn RLookup_LoadRuleFields(
     }
 }
 
+/// Owns the format-specific cache for one loader. C only holds an opaque pointer.
+pub enum LoaderCache {
+    Hash(HashFieldNames),
+    Json(JsonPathCache),
+}
+
 #[repr(C)]
 #[cheadergen::config(export)]
 pub struct LoadAllKeysOptions {
@@ -670,6 +676,8 @@ pub struct LoadAllKeysOptions {
     pub dmd: *const ffi::RSDocumentMetadata,
     pub force_string: bool,
     pub status: *mut OpaqueQueryError,
+    /// Loader-owned [`LoaderCache`]; required for JSON root loading, null for hashes.
+    pub cache: *const LoaderCache,
 }
 
 #[repr(C)]
@@ -688,30 +696,75 @@ pub struct LoadIndividualKeysOptions {
     /// Optional per-key profiling buffer, `nkeys` entries long, for the
     /// `FT.PROFILE ... LOAD` path. Null when profiling is not requested.
     pub profile_fields: *mut LoadFieldProfile,
-    /// Optional [`HashFieldNames`] shared by every document this loader
-    /// processes (see [`HashFieldNames_New`]). Null makes each load build its
-    /// field names afresh.
-    pub field_names: *const HashFieldNames,
+    /// Loader-owned [`LoaderCache`] matching the document type. JSON paths must be
+    /// aligned with the selected keys. Null makes hash loading build field names afresh.
+    pub cache: *const LoaderCache,
 }
 
-/// Create an empty [`HashFieldNames`] cache. Free it with [`HashFieldNames_Free`].
-#[unsafe(no_mangle)]
-pub extern "C" fn HashFieldNames_New() -> *mut HashFieldNames {
-    Box::into_raw(Box::new(HashFieldNames::new()))
-}
-
-/// Free a cache created by [`HashFieldNames_New`]. Null is a no-op.
+/// Create the format-specific cache for one loader. With no keys, JSON loads the root
+/// and hashes need no cache.
+///
+/// Returns null when the RedisJSON API is unavailable.
+/// Free the returned cache with [`LoaderCache_Free`].
 ///
 /// # Safety
 ///
-/// 1. `names` must be null or a pointer returned by [`HashFieldNames_New`]. Each non-null
-///    pointer may be passed here exactly once, by exactly one thread, with no load in
-///    progress on it and no `LoadIndividualKeysOptions` referencing it used afterwards.
+/// 1. For JSON, the RedisJSON module must be initialized.
+/// 2. For JSON with nonzero `nkeys`, `keys` must point to `nkeys` [valid], non-null [`RLookupKey`]s
+///    whose path bytes remain [valid] until the returned cache is freed.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn HashFieldNames_Free(names: *mut HashFieldNames) {
-    if !names.is_null() {
-        // SAFETY: ensured by caller (1.)
-        drop(unsafe { Box::from_raw(names) });
+pub unsafe extern "C" fn LoaderCache_New(
+    doc_type: DocumentType,
+    keys: *const *const RLookupKey,
+    nkeys: size_t,
+) -> *mut LoaderCache {
+    let cache = match doc_type {
+        DocumentType::Hash if nkeys == 0 => return ptr::null_mut(),
+        DocumentType::Hash => LoaderCache::Hash(HashFieldNames::new()),
+        DocumentType::Json => {
+            // SAFETY: ensured by caller (1.).
+            let Some(api) = (unsafe { RedisJsonApi::get() }) else {
+                return ptr::null_mut();
+            };
+            let paths = if nkeys == 0 {
+                // SAFETY: the root path is static.
+                unsafe {
+                    JsonPathCache::new(&api, std::iter::once(Some(redis_json_api::JSON_ROOT)))
+                }
+            } else {
+                // SAFETY: ensured by caller (2.).
+                let keys = unsafe { slice::from_raw_parts(keys, nkeys) };
+                let paths = keys.iter().map(|&key| {
+                    // SAFETY: caller (2.).
+                    let key = unsafe { key.as_ref() }.expect("Key must not be null");
+                    key.path().as_deref()
+                });
+                // SAFETY: ensured by caller (2.).
+                unsafe { JsonPathCache::new(&api, paths) }
+            };
+            LoaderCache::Json(paths)
+        }
+        DocumentType::Unsupported => unimplemented!("unsupported document type"),
+    };
+    Box::into_raw(Box::new(cache))
+}
+
+/// Free a cache returned by [`LoaderCache_New`]. Null is a no-op.
+///
+/// # Safety
+///
+/// `cache` must be null or a [valid] pointer returned by [`LoaderCache_New`]. A non-null
+/// cache must be freed exactly once, with no load in progress and no subsequent uses.
+/// Hash caches must not be accessed concurrently.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LoaderCache_Free(cache: *mut LoaderCache) {
+    if !cache.is_null() {
+        // SAFETY: ensured by the caller.
+        drop(unsafe { Box::from_raw(cache) });
     }
 }
 
@@ -725,6 +778,8 @@ pub unsafe extern "C" fn HashFieldNames_Free(names: *mut HashFieldNames) {
 ///    `dmd`, and `status` fields are themselves [valid], non-null and properly initialized.
 /// 4. `(*opts).sctx->redisCtx` must be a [valid], non-null pointer, and `(*opts).dmd->type` must
 ///    be a valid [`DocumentType`].
+/// 5. `(*opts).cache` must be null or a [valid] pointer returned by [`LoaderCache_New`]
+///    for the document type and kept alive for this call. JSON requires a non-null root cache.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -757,6 +812,9 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
 
     let ctx = NonNull::new(search_ctx.redisCtx).unwrap();
 
+    // SAFETY: ensured by caller (5.).
+    let cache = unsafe { opts.cache.as_ref() };
+
     let res = match dmd.type_() {
         DocumentType::Hash => {
             let format = HashDocumentFormat::new(ctx, opts.force_string);
@@ -774,7 +832,10 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
                 return redis_module::REDISMODULE_ERR as i32;
             };
 
-            let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
+            let Some(LoaderCache::Json(path_cache)) = cache else {
+                panic!("JSON loading requires a JSON cache");
+            };
+            let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion, path_cache);
 
             DocumentLoader::new(dst_row, ctx, dmd, format).load_all(lookup)
         }
@@ -819,8 +880,9 @@ pub unsafe extern "C" fn RLookup_LoadDocumentAll(
 /// 5. If `(*opts).nkeys > 0`, `(*opts).keys` must be a [valid], non-null pointer to `nkeys`
 ///    consecutive `*const ffi::RLookupKey`, each of which must itself be a [valid], non-null
 ///    pointer to a properly initialized key that outlives this call.
-/// 6. `(*opts).field_names` must be null or a pointer returned by [`HashFieldNames_New`] that
-///    has not been freed, and no other thread may access it for the duration of this call.
+/// 6. `(*opts).cache` must be null or a [valid] pointer returned by [`LoaderCache_New`]
+///    for the document type and kept alive for this call. JSON requires a non-null cache
+///    for these keys in the same order. No other thread may access a hash cache during this call.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -882,13 +944,17 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
     let profile = (!opts.profile_fields.is_null())
         .then(|| unsafe { slice::from_raw_parts_mut(opts.profile_fields, opts.nkeys) });
 
+    // SAFETY: ensured by caller (6.).
+    let cache = unsafe { opts.cache.as_ref() };
+
     let res = match dmd.type_() {
         DocumentType::Hash => {
-            let mut format = HashDocumentFormat::new(ctx, opts.force_string);
-            // SAFETY: ensured by caller (6.)
-            if let Some(names) = unsafe { opts.field_names.as_ref() } {
-                format = format.with_field_names(names);
-            }
+            let format = HashDocumentFormat::new(ctx, opts.force_string);
+            let format = match cache {
+                Some(LoaderCache::Hash(names)) => format.with_field_names(names),
+                None => format,
+                Some(LoaderCache::Json(_)) => panic!("Hash loading requires a Hash cache"),
+            };
 
             DocumentLoader::new(dst_row, ctx, dmd, format)
                 .force_load(opts.force_load)
@@ -905,7 +971,10 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
                 return redis_module::REDISMODULE_ERR as i32;
             };
 
-            let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion);
+            let Some(LoaderCache::Json(path_cache)) = cache else {
+                panic!("JSON loading requires a JSON cache");
+            };
+            let format = JsonDocumentFormat::new(ctx, &japi, search_ctx.apiVersion, path_cache);
 
             DocumentLoader::new(dst_row, ctx, dmd, format)
                 .force_load(opts.force_load)

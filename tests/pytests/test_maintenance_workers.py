@@ -195,8 +195,8 @@ def test_graph_repair_deferred_at_workers_0():
 
 @skip(cluster=True)
 def test_no_maintenance_workers_writes_in_place():
-    """MIN_MAINTENANCE_WORKERS 0 keeps the pool empty at WORKERS 0, so vector deletes repair in place."""
-    env = Env(moduleArgs='WORKERS 0 MIN_MAINTENANCE_WORKERS 0', enableDebugCommand=True)
+    """search-min-maintenance-workers 0 keeps the pool empty at WORKERS 0, so vector deletes repair in place."""
+    env = Env(moduleArgs='WORKERS 0', enableDebugCommand=True, redisConfigFile=min_maintenance_workers_conf(0))
     env.assertEqual(getWorkersThpoolNumThreads(env), 0)
     rng = np.random.default_rng(18989)
     _create_indexes(env)
@@ -309,9 +309,9 @@ def test_workers_transitions_under_concurrent_load():
 
 @skip(cluster=True)
 def test_enable_maintenance_workers_at_runtime():
-    """Raising MIN_MAINTENANCE_WORKERS at WORKERS 0 switches live indexes from in-place to deferred
+    """Raising search-min-maintenance-workers at WORKERS 0 switches live indexes from in-place to deferred
     repair."""
-    env = Env(moduleArgs=f'WORKERS 0 MIN_MAINTENANCE_WORKERS 0 {NO_PERIODIC_GC}', enableDebugCommand=True)
+    env = Env(moduleArgs=f'WORKERS 0 {NO_PERIODIC_GC}', enableDebugCommand=True, redisConfigFile=min_maintenance_workers_conf(0))
     rng = np.random.default_rng(18989)
     _create_indexes(env)
     docs = _load_docs(env, rng)
@@ -335,7 +335,7 @@ def test_enable_maintenance_workers_at_runtime():
 
 @skip(cluster=True)
 def test_disable_maintenance_workers_with_pending_repairs():
-    """Dropping MIN_MAINTENANCE_WORKERS to 0 with repairs queued lets them drain before the pool
+    """Dropping search-min-maintenance-workers to 0 with repairs queued lets them drain before the pool
     empties, while new writes already run in place."""
     env = Env(moduleArgs=f'WORKERS 0 {NO_PERIODIC_GC}', enableDebugCommand=True)
     rng = np.random.default_rng(18989)
@@ -344,7 +344,7 @@ def test_disable_maintenance_workers_with_pending_repairs():
     removed_vectors = {}
     queued = _queue_repairs(env, rng, docs, removed_vectors, 40)
 
-    at_resize = _resize_paused_pool(env, [config_cmd(), 'SET', 'MIN_MAINTENANCE_WORKERS', 0])
+    at_resize = _resize_paused_pool(env, ['CONFIG', 'SET', 'search-min-maintenance-workers', 0])
     env.assertEqual(_pending(at_resize), _pending(queued))
     marked = [_marked_deleted(env, i) for i in range(N_INDEXES)]
     keys = list(docs)
@@ -498,12 +498,12 @@ def test_shrink_while_paused_is_deferred():
     docs = _load_docs(env, rng, n=100)
 
     queued = _queue_repairs(env, rng, docs, {}, 10)
-    env.expect(config_cmd(), 'SET', 'MIN_MAINTENANCE_WORKERS', 0).ok()
+    env.expect('CONFIG', 'SET', 'search-min-maintenance-workers', 0).ok()
     env.assertEqual(getWorkersThpoolNumThreads(env), 1)
     env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
     _wait_for_pool_size(env, 0)
     env.assertEqual(_stats(env)['totalJobsDone'], _jobs_done_after(queued))
-    env.expect(config_cmd(), 'SET', 'MIN_MAINTENANCE_WORKERS', 1).ok()
+    env.expect('CONFIG', 'SET', 'search-min-maintenance-workers', 1).ok()
 
     # The load grows the paused pool to MIN_OPERATION_WORKERS and queues the rebuild, and its end
     # must neither wait on the paused pool nor shrink it.
@@ -728,7 +728,7 @@ def test_shrink_to_floor_on_running_pool():
 def test_maintenance_floor_above_workers():
     """A floor above a nonzero WORKERS sizes the pool, both at startup and when WORKERS shrinks
     below it at runtime."""
-    env = Env(moduleArgs='WORKERS 1 MIN_MAINTENANCE_WORKERS 2', enableDebugCommand=True)
+    env = Env(moduleArgs='WORKERS 1', enableDebugCommand=True, redisConfigFile=min_maintenance_workers_conf(2))
     env.assertEqual(getWorkersThpoolNumThreads(env), 2)
     # The pool starts its threads on the first job.
     _create_indexes(env)

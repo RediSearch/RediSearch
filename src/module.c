@@ -48,6 +48,7 @@
 #include "suggest.h"
 #include "alias.h"
 #include "module.h"
+#include "query_memory.h"
 #include "info/info_command.h"
 #include "reply.h"
 #include "resp3.h"
@@ -232,7 +233,8 @@ static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
 // TODO: add heuristics
 // Assumes the GIL is held by the caller
 static inline bool estimateOOM(void) {
-  return RedisMemory_isOutOfMemory();
+  const float forcedRatio = QueryMemory_GetForcedRatio();
+  return forcedRatio >= 0 ? forcedRatio >= REDIS_MEMORY_OOM_RATIO : RedisMemory_isOutOfMemory();
 }
 
 // OOM guardrail for queries function
@@ -698,7 +700,7 @@ static void DropIndex_ReplicateDropIfExists(RedisModuleCtx *ctx, RedisModuleStri
 }
 
 static void DropIndex_UnlinkDocumentKeys(RedisModuleCtx *ctx, DocTable *dt) {
-  DOCTABLE_FOREACH(dt, Redis_UnlinkKeyC(ctx, dmd->keyPtr));
+  DOCTABLE_FOREACH(dt, Redis_UnlinkKey(ctx, dmd->keyPtr, sdslen(dmd->keyPtr)));
 }
 
 /*
@@ -1953,8 +1955,9 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   GC_ThreadPoolDestroy();
   // Destroy the disk GC lock now that the GC pool is gone (no GC thread can take it).
   DiskGC_Cleanup();
-  CleanPool_ThreadPoolDestroy();
+  // Reindex backfills may release the last spec reference into the cleanup pool.
   ReindexPool_ThreadPoolDestroy();
+  CleanPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
   // Index destructors and background work may still need the disk context until pools drain.
   SearchDisk_Close(ctx);
@@ -2307,19 +2310,8 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
 // Prepare a TOPK special case, return a context with the required KNN fields if query is
 // valid and contains KNN section, NULL otherwise (and set proper error in *status* if error
 // was found).
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len, RedisModuleString **argv, int argc, uint dialectVersion, QueryError *status) {
-
-  // First, parse the query params if exists, to set the params in the query parser ctx.
-  dict *params = NULL;
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_len, dict *params, uint dialectVersion, QueryError *status) {
   QueryNode* queryNode = NULL;
-  int paramsOffset = RMUtil_ArgExists("PARAMS", argv, argc, 1);
-  if (paramsOffset > 0) {
-    ArgsCursor ac;
-    ArgsCursor_InitRString(&ac, argv+paramsOffset+1, argc-(paramsOffset+1));
-    if (parseParams(&params, &ac, status) != REDISMODULE_OK) {
-        return NULL;
-    }
-  }
   RedisSearchCtx sctx = {0};
   RSSearchOptions opts = {0};
   opts.params = params;
@@ -2335,11 +2327,12 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_l
 
   // KNN queries are parsed only on dialect versions >=2
   queryNode = RSQuery_ParseRaw_v2(&qpCtx);
+  QueryParseCtx_Cleanup(&qpCtx);
   if (QueryError_HasError(status) || queryNode == NULL) {
     // Query parsing failed.
     goto cleanup;
   }
-  if (QueryNode_NumParams(queryNode) > 0 && paramsOffset == 0) {
+  if (QueryNode_NumParams(queryNode) > 0 && !params) {
     // Query expects params, but no params were given.
     goto cleanup;
   }
@@ -2349,8 +2342,6 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_l
         // Params evaluation failed.
         goto cleanup;
       }
-      Param_DictFree(params);
-      params = NULL;
   }
 
   if (queryNode->type == QN_VECTOR) {
@@ -2370,9 +2361,6 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, size_t query_l
   }
 
 cleanup:
-  if (params) {
-    Param_DictFree(params);
-  }
   if (queryNode) {
     QueryNode_Free(queryNode);
   }
@@ -2539,7 +2527,19 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
     const char *query = searchRequestCtx_Query(req, &queryLen);
     // Note: currently there is only one single case. For extending those cases we should use a trie here.
     if (strcasestr(query, "KNN")) {
-      specialCaseCtx *knnCtx = prepareOptionalTopKCase(query, queryLen, argv, argc, dialect, status);
+      dict *params = NULL;
+      int paramsOffset = RMUtil_ArgExists("PARAMS", argv, argc, 1);
+      if (paramsOffset > 0) {
+        ArgsCursor ac;
+        ArgsCursor_InitRString(&ac, argv + paramsOffset + 1, argc - (paramsOffset + 1));
+        if (parseParams(&params, &ac, status) != REDISMODULE_OK) {
+          return REDISMODULE_ERR;
+        }
+      }
+      specialCaseCtx *knnCtx = prepareOptionalTopKCase(query, queryLen, params, dialect, status);
+      if (params) {
+        Param_DictFree(params);
+      }
       if (QueryError_HasError(status)) {
         return REDISMODULE_ERR;
       }
@@ -3592,7 +3592,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   if (!profile) {
     for (int i = 0; i < count; ++i) {
       rCtx->processReply(replies[i], rCtx);
-      if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+      if (!fromTimeout && QueryRequest_ShouldStop(&req->base.timeout)) {
         goto cleanup;
       }
     }
@@ -3612,7 +3612,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
       rCtx->processReply(mr_reply, rCtx);
-      if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+      if (!fromTimeout && QueryRequest_ShouldStop(&req->base.timeout)) {
         goto cleanup;
       }
     }
@@ -3640,6 +3640,16 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   }
 
 cleanup:
+  // A merge loop that stopped for OOM replies what the heap holds with the OOM warning, or the
+  // OOM error under ON_OOM FAIL; the reply callback reads both.
+  if (!fromTimeout &&
+      QueryRequestTimeout_GetStopReason(&req->base.timeout) == QUERY_STOP_REASON_OOM) {
+    if (req->base.reqConfig.oomPolicy != OomPolicy_Fail) {
+      req->queryOOM = true;
+    } else if (QueryError_IsOk(&req->base.reply.err)) {
+      QueryError_SetCode(&req->base.reply.err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    }
+  }
   if (rCtx) {
     // Call postProcess even on early exits (e.g. timeouts) so that partially
     // processed special cases like KNN can flush their internal queues into

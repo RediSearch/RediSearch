@@ -284,7 +284,7 @@ TEST_F(OwnedRPNetTest, CleanupWakeReleasesIdleWaiterWithoutAReply) {
   std::promise<void> entering;
   auto waiter = std::async(std::launch::async, [&] {
     entering.set_value();
-    MRChannel_WaitReadable(channel, flag);
+    MRChannel_WaitReadable(channel, flag, NULL);
   });
   entering.get_future().wait();
   QueryRequestTimeout_MarkTimedOut(&request->base.timeout);

@@ -1248,7 +1248,7 @@ def test_hpexpire_on_an_unindexed_hash_does_not_abort(env):
     # already holds. SKIPINITIALSCAN leaves the pre-existing hash unindexed, so
     # that index attempt is the document's first DocIdMeta attach -- which goes
     # through RM_SetKeyMeta and needs a write-mode handle. With a read-only one it
-    # failed the publish assert in makeDocumentId and aborted the server.
+    # failed the publish assert in newDocumentId and aborted the server.
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'd1', 'x', 'val', 'y', 'yy')
     env.expect('FT.CREATE', 'idx', 'SKIPINITIALSCAN', 'SCHEMA',

@@ -283,6 +283,14 @@ static IndexSpec *Indexes_LoadSpecFromRdb(RedisModuleIO *rdb, int encver, bool u
   // Duplicate detection is a registry read, so it lives here rather than in the
   // IndexSpec core. It also gates the non-SST on-disk index open below.
   sp->isDuplicate = dictFetchValue(specDict_g, sp->specName) != NULL;
+  // An SST load adopts the saved specId. The load drops every spec first and one
+  // process never saves two specs under the same id, so a clash means a corrupt
+  // RDB. Loading anyway would point the keys' DocIdMeta at the wrong index.
+  if (!sp->isDuplicate && dictFetchValue(specIdDict_g, (void *)(uintptr_t)sp->specId) != NULL) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Saved index id is already in use");
+    IndexSpec_RdbLoadDiscard(sp->own_ref);
+    return NULL;
+  }
   if (SearchDisk_IsEnabled() && !sp->isDuplicate && !SearchDisk_CanRestoreIndex(status)) {
     IndexSpec_RdbLoadDiscard(sp->own_ref);
     return NULL;
@@ -1070,7 +1078,7 @@ void Indexes_UpdateMatchingHashFieldExpiration(RedisModuleCtx *ctx, RedisModuleS
   // first-field-TTL branches below hand this handle to IndexSpec_UpdateDoc, which
   // publishes DocIdMeta through it. A document with no entry yet takes a first
   // metadata attach via RM_SetKeyMeta, which requires REDISMODULE_WRITE and would
-  // otherwise fail the publish assert in makeDocumentId and abort the server.
+  // otherwise fail the publish assert in newDocumentId and abort the server.
   RedisModuleKey *k =
       RedisModule_OpenKey(ctx, key, DOCUMENT_OPEN_KEY_INDEXING_FLAGS | REDISMODULE_WRITE);
   RS_ASSERT(k);
@@ -1356,7 +1364,10 @@ void Indexes_EndLoading() {
 // that was staged in this round.
 void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
   RS_ASSERT(SearchDisk_IsEnabled());
-  dictIterator *iter = dictGetIterator(specDict_g);
+  // Safe iterator: the loop body may look up specDict_g, and an unsafe
+  // iterator lets those lookups advance a pending rehash, which makes the
+  // iterator skip specs or return them twice.
+  dictIterator *iter = dictGetSafeIterator(specDict_g);
   dictEntry *entry = NULL;
   while ((entry = dictNext(iter))) {
     StrongRef spec_ref = dictGetRef(entry);
@@ -1367,6 +1378,9 @@ void Indexes_FinishSSTReplication(RedisModuleCtx *ctx) {
     RS_ASSERT(!sp->diskRegistered);
     bool ok = IndexSpec_SSTRdbOpenAndApply(ctx, sp);
     RS_LOG_ASSERT_ALWAYS(ok, "SST replication: failed to open disk index for spec during LOADING_ENDED");
+    // The spec was published while diskSpec was still NULL, so its usage was
+    // not activated then.
+    SearchDisk_ActivateUsage(sp);
     // GC start was deferred by IndexSpec_StoreAfterRdbLoad for the SST path
     // (diskSpec was NULL there); start it now that the disk handle exists.
     IndexSpec_StartGC(spec_ref, sp, GCPolicy_Disk);

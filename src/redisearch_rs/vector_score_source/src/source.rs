@@ -170,7 +170,8 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
     /// 3. `timeout` must remain valid for the returned source's lifetime. Its active source may
     ///    change only while no operation on the returned source is running. Operations on one
     ///    source must remain serialized because clock checks mutate the request-owned counter;
-    ///    only the C atomic blocked-client marker may be changed concurrently.
+    ///    only the C atomic blocked-client marker and stop flag may be
+    ///    changed concurrently.
     #[expect(clippy::too_many_arguments)]
     pub unsafe fn new(
         index: NonNull<VecSimIndex>,

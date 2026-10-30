@@ -11,7 +11,9 @@
 
 #include "aggregate/aggregate_plan.h"
 #include "query.h"
+#include "query_eval.h"
 #include "query_flags.h"
+#include "query_request.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -130,11 +132,11 @@ typedef struct QueryPipelineParams {
      *  matching documents in the index. */
     const QueryAST *ast;
 
-    /** Root iterator that searches through the index to find matching documents.
-     *  This is the top-level iterator in the search iterator tree, typically a union
-     *  or intersection iterator that coordinates child iterators for different
-     *  search terms and filters. It produces the initial set of candidate documents. */
-    QueryIterator *rootiter;
+    /** Iterator tree that searches through the index to find matching documents.
+     *  Its root is the top-level iterator, typically a union or intersection
+     *  iterator that coordinates child iterators for different search terms and
+     *  filters. It produces the initial set of candidate documents. */
+    QueryIteratorTree *iteratorTree;
 
     /** Slot ranges for the root iterator, used for cluster-aware query execution. */
     const RedisModuleSlotRangeArray *querySlots;
@@ -205,10 +207,10 @@ typedef struct Pipeline {
  * context, and prepares the pipeline for step addition and execution.
  *
  * @param pipeline The pipeline structure to initialize
- * @param timeoutPolicy Policy for handling query timeouts (fail vs. return partial results)
- * @param status Error status object for reporting initialization failures
+ * @param request The owning request: its timeout and ON_OOM policies, its timeout state, and its
+ *        reply error slot, which the running pipeline reports into
  */
-void Pipeline_Initialize(Pipeline *pipeline, RSTimeoutPolicy timeoutPolicy, QueryError *status);
+void Pipeline_Initialize(Pipeline *pipeline, QueryRequest *request);
 
 /**
  * Clean up and free all resources associated with a query pipeline.

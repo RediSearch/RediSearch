@@ -34,6 +34,7 @@ from common import (
     skipIfNoEnableAssert,
     paused_workers,
     drain_workers,
+    min_maintenance_workers_conf,
     verify_command_OK_on_all_shards,
 )
 
@@ -829,7 +830,6 @@ def gc_test_common(env, num_workers, compression_types):
 
         env.assertGreaterEqual(tiered_backend_debug_info['INDEX_SIZE'], DEFAULT_BLOCK_SIZE, message=f"{message_prefix}")
 
-        memory_before_deletion = get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
         size_before = tiered_backend_debug_info['INDEX_SIZE']
         label_count_before = tiered_backend_debug_info['INDEX_LABEL_COUNT']
 
@@ -843,9 +843,9 @@ def gc_test_common(env, num_workers, compression_types):
                         vecs_to_delete,
                         message=f"{message_prefix}: size_before: {size_before}")
 
-        # Memory should remain unchanged
+        # Fine-grained SVS consolidation may reclaim deleted labels while the deletes are still
+        # being processed, so memory can already change before the full GC below.
         after_del_memory = get_vecsim_memory(env, DEFAULT_INDEX_NAME, DEFAULT_FIELD_NAME)
-        env.assertEqual(after_del_memory, memory_before_deletion, message=f"{message_prefix}")
 
         # Index size should reflect the number vectors + marked deleted
         size_after = tiered_backend_debug_info['INDEX_SIZE']
@@ -859,11 +859,15 @@ def gc_test_common(env, num_workers, compression_types):
         if num_workers > 0:
             # With workers: GC jobs should be scheduled to the thread pool
             env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+            workers_stats_before_gc = getWorkersThpoolStats(env)
             forceInvokeGC(env, DEFAULT_INDEX_NAME)
             cur_workers_stats = getWorkersThpoolStats(env)
 
-            # GC background jobs for SVS should be pending in low priority queue.
-            env.assertEqual(cur_workers_stats['lowPriorityPendingJobs'], num_workers, message=f"{message_prefix}")
+            # The full GC adds one job per worker after any fine-grained consolidation jobs that
+            # were already queued by the deletes.
+            expected_pending_jobs = workers_stats_before_gc['lowPriorityPendingJobs'] + num_workers
+            env.assertEqual(cur_workers_stats['lowPriorityPendingJobs'], expected_pending_jobs,
+                            message=f"{message_prefix}: {cur_workers_stats}")
             env.expect(debug_cmd(), 'WORKERS', 'RESUME').ok()
             env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
         else:
@@ -920,7 +924,7 @@ def test_gc_no_workers():
     num_workers = 0
     # No maintenance workers either, so GC runs in place.
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' MIN_MAINTENANCE_WORKERS 0 _FREE_RESOURCE_ON_THREAD FALSE')
+                         f' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=min_maintenance_workers_conf(0))
     gc_test_common(env, num_workers, ['NO_COMPRESSION'])
 
 @skip(cluster=True)
@@ -935,7 +939,7 @@ def test_gc_no_workers_compressed():
     num_workers = 0
     # No maintenance workers either, so GC runs in place.
     env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' MIN_MAINTENANCE_WORKERS 0 _FREE_RESOURCE_ON_THREAD FALSE')
+                         f' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=min_maintenance_workers_conf(0))
     gc_test_common(env, num_workers, _gc_compressed_types())
 
 @skip(cluster=True)

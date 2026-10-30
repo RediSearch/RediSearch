@@ -195,7 +195,7 @@ verify_redis_server() {
 build_redis() {
   # Keep the flow-test server aligned with the Redis revision used by CI.
   local sanitizer=$1
-  local redis_ref=d3abc02fed6664cc0afaf9ffe4e172a99e274f44
+  local redis_ref=559d143b4e0409c452f7d229ba420954b6b647a2
   local redis_url=https://github.com/redis/redis.git
   local redis_src="$HOME/.cache/redisearch-redis-src"
   local redis_prefix="$HOME/.local/redis${sanitizer:+-$sanitizer}"

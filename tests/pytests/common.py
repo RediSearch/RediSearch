@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from packaging import version
 from contextlib import contextmanager
 from functools import wraps
+import functools
 import signal
 import platform
 import itertools
@@ -360,12 +361,21 @@ def getWorkersThpoolStats(env):
 def getWorkersThpoolNumThreads(env):
     return env.cmd(debug_cmd(), "WORKERS", "n_threads")
 
+@functools.lru_cache(maxsize=None)
+def min_maintenance_workers_conf(workers):
+    """Path of a config file that sets search-min-maintenance-workers at startup, for
+    Env(redisConfigFile=...). The setting has no module argument."""
+    fd, path = tempfile.mkstemp(prefix=f'min-maintenance-workers-{workers}-', suffix='.conf')
+    with os.fdopen(fd, 'w') as f:
+        f.write(f'search-min-maintenance-workers {workers}\n')
+    return path
+
 def set_workers(env, workers):
     """Set the worker thread count and verify that the change took effect. The pool never shrinks
-    below MIN_MAINTENANCE_WORKERS."""
+    below search-min-maintenance-workers."""
     verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
-    res = env.cmd(config_cmd(), 'GET', 'MIN_MAINTENANCE_WORKERS')
-    floor = int(res['MIN_MAINTENANCE_WORKERS'] if isinstance(res, dict) else res[0][1])
+    res = env.cmd('CONFIG', 'GET', 'search-min-maintenance-workers')
+    floor = int(res['search-min-maintenance-workers'] if isinstance(res, dict) else res[1])
     expected = [max(int(workers), floor)] * env.shardsCount
     # A shrink to the floor waits for the queued jobs, so it may land a little later.
     with TimeLimit(30, 'workers pool did not reach its size'):
@@ -640,7 +650,7 @@ def verify_command_OK_on_all_shards(env, *args):
 def drain_workers(env):
     """Wait on every shard until queued worker jobs are done. Vector writes are asynchronous
     whenever the workers pool is not empty, which includes WORKERS 0 by default
-    (MIN_MAINTENANCE_WORKERS), so call this before asserting on HNSW-side state."""
+    (search-min-maintenance-workers), so call this before asserting on HNSW-side state."""
     verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'DRAIN')
 
 def create_diverged_index(env, idx='idx'):
@@ -1186,7 +1196,8 @@ class ConditionalExpected:
             func(self.env.expect(*self.query))
         return self
 
-def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32', ids_offset=0, seed=10):
+def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOAT32',
+                          ids_offset=0, seed=10, *, field_name='vector'):
     conn = getConnectionByEnv(env)
     np.random.seed(seed)
     p = conn.pipeline(transaction=False)
@@ -1195,7 +1206,7 @@ def load_vectors_to_redis(env, n_vec, query_vec_index, vec_size, data_type='FLOA
         vector = create_np_array_typed(np.random.rand(vec_size), data_type)
         if i == query_vec_index:
             query_vec = vector
-        p.execute_command('HSET', ids_offset + i, 'vector', vector.tobytes())
+        p.execute_command('HSET', ids_offset + i, field_name, vector.tobytes())
     p.execute()
     return query_vec
 

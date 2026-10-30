@@ -274,7 +274,7 @@ int parseParams (dict **destParams, ArgsCursor *ac, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  dict *params = Param_DictCreate();
+  dict *params = Param_DictCreate(paramsArgs.argc / 2);
   while (!AC_IsAtEnd(&paramsArgs)) {
     size_t param_len;
     const char *param = AC_GetStringNC(&paramsArgs, &param_len);

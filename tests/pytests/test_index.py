@@ -269,3 +269,22 @@ def test_restore_schema_rejects_truncated_payload(env: Env):
     env.expect('_FT._RESTOREIFNX', 'SCHEMA', encode, dump).ok()
     env.expect('HSET', 'doc:2', 't', 'hello', 'n', 2).equal(2)
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([1, 'doc:2'])
+
+@skip(cluster=True)
+def test_forward_index_reuse_after_large_document(env: Env):
+    """Documents indexed after one with enough unique terms to make the pooled forward index release
+    its storage must still get exactly their own terms and positions."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT', 'NOSTEM').ok()
+
+    conn.execute_command('HSET', 'big', 't', ' '.join(f'w{i}' for i in range(40000)))
+    conn.execute_command('HSET', 'small', 't', 'hello brave new world')
+    conn.execute_command('HSET', 'after', 't', 'world new brave hello')
+
+    env.expect('FT.SEARCH', 'idx', 'w39999', 'NOCONTENT').equal([1, 'big'])
+    env.expect('FT.SEARCH', 'idx', '"brave new"', 'NOCONTENT').equal([1, 'small'])
+    env.expect('FT.SEARCH', 'idx', '"new brave"', 'NOCONTENT').equal([1, 'after'])
+    res = env.cmd('FT.SEARCH', 'idx', 'hello', 'NOCONTENT')
+    env.assertEqual(res[0], 2, message=res)
+    env.assertEqual(sorted(res[1:]), ['after', 'small'], message=res)
+    env.expect('FT.SEARCH', 'idx', 'w0', 'NOCONTENT').equal([1, 'big'])

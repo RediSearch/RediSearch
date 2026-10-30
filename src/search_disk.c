@@ -201,7 +201,8 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     .maxOpenFiles = RSGlobalConfig.diskMaxOpenFiles,
   };
   disk_db = disk->basic.open(ctx, &resource_config, RSGlobalConfig.hideUserDataFromLog,
-                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads);
+                             RSGlobalConfig.diskDropReadCache, RSGlobalConfig.diskUseDirectReads,
+                             RSGlobalConfig.diskStatistics);
   if (!disk_db) {
     RedisModule_Log(ctx, "warning", "Search Disk is enabled but could not be initialized");
     return false;
@@ -247,6 +248,7 @@ void SearchDisk_Close(RedisModuleCtx *ctx) {
 // Seeding precedes registry insertion; only visible indexes contribute to quota accounting.
 void SearchDisk_ActivateUsage(IndexSpec *spec) {
   if (disk_db && spec && spec->diskSpec) {
+    RS_ASSERT(specDict_g && StrongRef_Get((StrongRef){dictFetchValue(specDict_g, spec->specName)}) == spec);
     disk->metrics.activateTarget(spec->diskSpec);
   }
 }
@@ -306,10 +308,6 @@ static void SearchDisk_CompleteLogicalOpen(RedisSearchDiskIndexSpec *result, Ind
     // Open atomically registers with BigModule, so the spec needs a
     // matching SearchDisk_CloseIndexOnMainThread before SearchDisk_CloseIndex.
     spec->diskRegistered = true;
-    dictEntry *entry = specDict_g ? dictFind(specDict_g, spec->specName) : NULL;
-    if (entry && StrongRef_Get(dictGetRef(entry)) == spec) {
-      disk->metrics.activateTarget(result);
-    }
     return;
   }
   if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {
@@ -518,6 +516,8 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {
     RS_ASSERT(disk && handle);
     RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
+    // TODO: disk DMDs leave `slot` unset, since disk mode supports neither ASM nor SFLUSH. Whoever
+    // adds them must decide how to provide it (stored on disk, or computed from the key).
     return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time, snapshot);
 }
 
@@ -539,6 +539,11 @@ uint64_t SearchDisk_GetDeletedIdsCount(RedisSearchDiskIndexSpec *handle) {
 size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffer, size_t buffer_size) {
     RS_ASSERT(disk && handle);
     return disk->docTable.getDeletedIds(handle, buffer, buffer_size);
+}
+
+char *SearchDisk_DebugDiskStats(RedisSearchDiskIndexSpec *handle, bool withStatistics) {
+    RS_ASSERT(disk && disk_db && handle);
+    return disk->metrics.debugDiskStats(disk_db, handle, withStatistics, &sdsnewlen);
 }
 
 char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex) {

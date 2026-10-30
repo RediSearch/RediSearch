@@ -476,6 +476,8 @@ typedef struct RPEvaluator {
   RSValue *val;
   const RLookupKey *outkey;
   int isFilter;
+  // QueryMemory_ShouldStop counter for the string arena, which lives as long as the query.
+  uint32_t memoryCheckCalls;
 } RPEvaluator;
 
 #define RESULT_EVAL_ERR RS_RESULT_MAX + 1
@@ -499,6 +501,10 @@ static int rpevalRow(RPEvaluator *pc, SearchResult *r) {
 }
 
 static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
+  // Checked before the next row, so the arena growth of the previous evaluation is counted.
+  if (RP_FillShouldStop(&pc->base, &pc->memoryCheckCalls)) {
+    return RS_RESULT_TIMEDOUT;
+  }
   int rc = pc->base.upstream->Next(pc->base.upstream, r);
   return rc == RS_RESULT_OK ? rpevalRow(pc, r) : rc;
 }

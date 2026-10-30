@@ -193,6 +193,15 @@ class DocIdMetaTest : public ::testing::Test {
     return RMCK_KeyMetaSlotExists(key, getDocIdMetaClassId());
   }
 
+  // Simulates a key loaded clean from storage: only later SetKeyMeta calls mark it dirty again.
+  void clearKeyMetaDirty(RedisModuleString *keyName) {
+    RMCK_KeyMetaClearDirty(RedisModule_StringPtrLen(keyName, nullptr), getDocIdMetaClassId());
+  }
+
+  bool keyMetaIsDirty(RedisModuleString *keyName) {
+    return RMCK_KeyMetaIsDirty(RedisModule_StringPtrLen(keyName, nullptr), getDocIdMetaClassId());
+  }
+
   RedisModuleCtx *ctx;
   RedisModuleString *testKeyName;
   RedisModuleIO *rdbIO;
@@ -454,6 +463,63 @@ TEST_F(DocIdMetaTest, TestSetAfterLastDeleteRecreatesDict) {
   EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 3003), REDISMODULE_OK);
   EXPECT_NE(readKeyMetaAllowZero(testKeyName), 0u);
   verifyDocId(testKeyName, SPEC1_ID, 3003);
+}
+
+// The per-key dict is edited in place once attached. Every such edit must still be reported
+// through SetKeyMeta, or a server that persists key metadata keeps the old doc ids.
+TEST_F(DocIdMetaTest, TestOverwriteOfAttachedDictMarksMetaChanged) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  clearKeyMetaDirty(testKeyName);
+
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1002), REDISMODULE_OK);
+  EXPECT_TRUE(keyMetaIsDirty(testKeyName));
+  verifyDocId(testKeyName, SPEC1_ID, 1002);
+}
+
+TEST_F(DocIdMetaTest, TestAddingSpecToAttachedDictMarksMetaChanged) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  clearKeyMetaDirty(testKeyName);
+
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  EXPECT_TRUE(keyMetaIsDirty(testKeyName));
+}
+
+TEST_F(DocIdMetaTest, TestDeleteNonLastEntryMarksMetaChanged) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  clearKeyMetaDirty(testKeyName);
+
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC1_ID), REDISMODULE_OK);
+  EXPECT_TRUE(keyMetaIsDirty(testKeyName));
+  verifyDocId(testKeyName, SPEC2_ID, 2002);
+}
+
+TEST_F(DocIdMetaTest, TestDeleteOfMissingSpecLeavesMetaClean) {
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  clearKeyMetaDirty(testKeyName);
+
+  EXPECT_EQ(DocIdMeta_Delete(ctx, testKeyName, SPEC2_ID), REDISMODULE_ERR);
+  EXPECT_FALSE(keyMetaIsDirty(testKeyName));
+}
+
+TEST_F(DocIdMetaTest, TestPruneKeepingLiveEntriesMarksMetaChanged) {
+  addTestSpec("idx_live", SPEC1_ID);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC2_ID, 2002), REDISMODULE_OK);
+  clearKeyMetaDirty(testKeyName);
+
+  EXPECT_EQ(DocIdMeta_PruneDeletedSpecs(ctx, testKeyName), REDISMODULE_OK);
+  EXPECT_TRUE(keyMetaIsDirty(testKeyName));
+  verifyDocId(testKeyName, SPEC1_ID, 1001);
+}
+
+TEST_F(DocIdMetaTest, TestPruneWithNothingStaleLeavesMetaClean) {
+  addTestSpec("idx_live", SPEC1_ID);
+  EXPECT_EQ(DocIdMeta_Set(ctx, testKeyName, SPEC1_ID, 1001), REDISMODULE_OK);
+  clearKeyMetaDirty(testKeyName);
+
+  EXPECT_EQ(DocIdMeta_PruneDeletedSpecs(ctx, testKeyName), REDISMODULE_OK);
+  EXPECT_FALSE(keyMetaIsDirty(testKeyName));
 }
 
 TEST_F(DocIdMetaTest, TestClearKeyMetaStoragePreservesClassRegistration) {

@@ -43,7 +43,7 @@ int testBlockAlloc() {
   char *buf4 = BlkAlloc_Alloc(&alloc, 16, 16);
   ASSERT(alloc.last != lastHead);
 
-  BlkAlloc_Clear(&alloc, NULL, NULL, 0);
+  BlkAlloc_Clear(&alloc, NULL, NULL, 0, 16);
   ASSERT(alloc.root == alloc.last && alloc.last == NULL);
   ASSERT(alloc.avail != NULL);
 
@@ -90,7 +90,32 @@ static int testFreeFunc() {
   return 0;
 }
 
+static int testClearFreesOversizedBlocks() {
+  BlkAlloc alloc;
+  BlkAlloc_Init(&alloc);
+  BlkAlloc_Alloc(&alloc, 16, 16);
+  BlkAlloc_Alloc(&alloc, 64, 64);
+  BlkAlloc_Alloc(&alloc, 16, 16);
+
+  BlkAlloc_Clear(&alloc, NULL, NULL, 0, 16);
+  size_t numAvail = 0;
+  for (BlkAllocBlock *blk = alloc.avail; blk; blk = blk->next) {
+    ASSERT(blk->capacity == 16);
+    numAvail++;
+  }
+  ASSERT(numAvail == 2);
+
+  // A request the recycled blocks cannot hold gets a fresh block and leaves them available.
+  BlkAlloc_Alloc(&alloc, 32, 32);
+  ASSERT(alloc.root->capacity == 32);
+  ASSERT(alloc.avail != NULL);
+
+  BlkAlloc_FreeAll(&alloc, NULL, NULL, 0);
+  return 0;
+}
+
 TEST_MAIN({
   TESTFUNC(testBlockAlloc);
+  TESTFUNC(testClearFreesOversizedBlocks);
   TESTFUNC(testFreeFunc);
 })

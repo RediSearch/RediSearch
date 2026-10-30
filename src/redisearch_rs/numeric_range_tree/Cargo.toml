@@ -50,7 +50,6 @@ harness = false
 criterion.workspace = true
 insta = { workspace = true, features = ["filters"] }
 numeric_range_tree = { path = ".", features = ["unittest", "test-utils"] }
-pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
 rstest.workspace = true
 

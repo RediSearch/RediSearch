@@ -33,9 +33,9 @@ else
 fi
 brew_install coreutils
 brew_install make
-# Pin the major version: the unversioned `openssl` formula now resolves to
-# OpenSSL 4, which deprecates APIs Redis's tls.c uses and breaks its -Werror build.
-brew_install openssl@3
+# Pin the major version so the module and the CI-built Redis link the same
+# OpenSSL as the Homebrew Redis package, which ships against openssl@4.
+brew_install openssl@4
 brew_install wget
 # Source (not subprocess) so its list/dry-run DEPS_* records reach the parent
 # install_script.sh — a subprocess's records would vanish on exit, dropping

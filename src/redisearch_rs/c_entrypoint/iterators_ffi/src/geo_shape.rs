@@ -83,7 +83,7 @@ impl MemTracker for ExternalCounter {
 ///    returned iterator, and `sctx` must stay at a stable address for that
 ///    whole window. The request timeout reached through `sctx.timeout` must also remain valid
 ///    at a stable address until the iterator is dropped. Timeout source changes and deadline
-///    writes may happen only between probes; only the blocked-client flag may change concurrently.
+///    writes may happen only between probes; only the atomic flags may change concurrently.
 /// 2. `filter_ctx` must be a non-null pointer to a valid [`FieldFilterContext`].
 /// 3. `ids` must be null, or point to `num` initialized [`DocId`]s allocated via
 ///    `RedisModule_Alloc`. Ownership is transferred to the iterator. When `ids`
