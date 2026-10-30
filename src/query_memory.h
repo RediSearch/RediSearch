@@ -36,7 +36,8 @@ extern "C" {
  *
  * The memory check is off, and only the stop flags are reported, when ON_OOM
  * is IGNORE, when no memory limit is configured, and when the server lacks
- * RedisModule_GetRawUsedMemoryRatio. Callable on any thread, with or without
+ * RedisModule_GetRawUsedMemoryRatio; the fake pressure below overrides the
+ * last two. Callable on any thread, with or without
  * the GIL, concurrently with other checkpoints of the same request; the ON_OOM
  * policy is the global one, read without synchronization. A NULL
  * `timeout` (no owning request) still reports pressure but records no stop.
@@ -49,6 +50,35 @@ bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter);
  */
 void QueryMemory_SetRatioReadInterval(uint32_t interval);
 uint32_t QueryMemory_GetRatioReadInterval(void);
+
+/*
+ * Fake memory pressure, for tests and `_FT.DEBUG MEMORY_PRESSURE`. Process-wide; nothing resets
+ * it except QueryMemory_ResetFakePressure. The ON_OOM IGNORE gate still applies.
+ */
+
+/**
+ * Replaces the memory read of every checkpoint and of the query entry guard
+ * (QueryMemoryGuard) with `ratio`, whether or not the server has the memory
+ * API. A negative ratio restores the real read.
+ */
+void QueryMemory_SetForcedRatio(float ratio);
+/** Returns the forced ratio, or a negative value when the real read is used. */
+float QueryMemory_GetForcedRatio(void);
+
+/**
+ * Makes the `n`-th QueryMemory_ShouldStop call from now (1-based, counted
+ * across all checkpoints and queries, skipping calls that return on an
+ * already requested stop) report memory pressure, regardless of the ratio and
+ * the read interval. Every other call behaves normally. 0 disarms it. Either
+ * way the call count restarts from 0.
+ */
+void QueryMemory_SetPressureAtCall(uint64_t n);
+uint64_t QueryMemory_GetPressureAtCall(void);
+/** Checkpoint calls counted since the last QueryMemory_SetPressureAtCall. */
+uint64_t QueryMemory_GetCheckpointCalls(void);
+
+/** Clears the forced ratio, the positional pressure and the read-interval override. */
+void QueryMemory_ResetFakePressure(void);
 
 #ifdef __cplusplus
 }

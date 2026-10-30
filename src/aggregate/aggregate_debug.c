@@ -85,6 +85,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   int crash_in_c = 0;
   int crash_in_rust = 0;
   int internal_only = 0;
+  int memory_checkpoint = 0;
   ArgsCursor pauseBeforeArgs = {0};
   ArgsCursor pauseAfterArgs = {0};
   ACArgSpec debugArgsSpec[] = {
@@ -99,6 +100,8 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       {.name = "CRASH_IN_RUST", .type = AC_ARGTYPE_BOOLFLAG, .target = &crash_in_rust},
       // optional arg for TIMEOUT_AFTER_N
       {.name = "INTERNAL_ONLY", .type = AC_ARGTYPE_BOOLFLAG, .target = &internal_only},
+      // call the query memory checkpoint before every upstream read
+      {.name = "MEMORY_CHECKPOINT", .type = AC_ARGTYPE_BOOLFLAG, .target = &memory_checkpoint},
       // pause after specific RP after N results
       {.name = "PAUSE_AFTER_RP_N",
        .type = AC_ARGTYPE_SUBARGS_N,
@@ -146,6 +149,25 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     }
 
     PipelineAddCrash(&debug_req->r, CRASH_IN_RUST);
+  }
+
+  if (memory_checkpoint) {
+    if (AC_IsInitialized(&timeoutArgs) || AC_IsInitialized(&pauseAfterArgs) ||
+        AC_IsInitialized(&pauseBeforeArgs)) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "MEMORY_CHECKPOINT is not supported with TIMEOUT_AFTER_N or PAUSE_*_RP_N");
+      return REDISMODULE_ERR;
+    }
+    // Shards receive the coordinator's debug arguments, INTERNAL_ONLY included; standalone and
+    // a single-shard cluster have one pipeline and always take it.
+    const bool add = isClusterCoord(debug_req) ? !internal_only
+                     : IsInternal(&debug_req->r) ? (bool)internal_only
+                                                 : true;
+    if (add) {
+      PipelineAddMemoryCheckpoint(AREQ_QueryProcessingCtx(&debug_req->r),
+                                  AREQ_SearchCtx(&debug_req->r));
+    }
+    return REDISMODULE_OK;
   }
 
   // Handle timeout
