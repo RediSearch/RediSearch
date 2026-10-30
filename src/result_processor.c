@@ -198,15 +198,37 @@ static int refillQueueUsingIterator(RPQueryIterator *self) {
   return RS_RESULT_OK;
 }
 
+// Metadata can outlive both its initial visibility check and the pending trim filter.
+static bool diskDmdIsVisible(IndexSpec *spec, const RSDocumentMetadata *dmd) {
+  if (!dmd->keyPtr) return false;
+  const bool alreadyLocked = IndexSpec_IsLocked(spec);
+  if (!alreadyLocked) IndexSpec_LockRead(spec);
+  bool deleted = SearchDisk_DocIdDeleted(spec->diskSpec, dmd->id);
+  if (!deleted && DocTable_HasPendingDeletions(&spec->docs)) {
+    const uint16_t slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
+    deleted = DocTable_IsDocPendingDeletionForSlot(&spec->docs, dmd->id, slot);
+  }
+  if (!alreadyLocked) IndexSpec_Unlock(spec);
+  return !deleted;
+}
+
+static bool bufferedResultIsVisible(ResultProcessor *rp, const SearchResult *result) {
+  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(result);
+  ResultProcessor *root = rp->parent->rootProc;
+  // Aggregated rows and coordinator results have no local document to validate.
+  if (!dmd || !root || root->type != RP_INDEX) return true;
+  IndexSpec *spec = ((RPQueryIterator *)root)->sctx->spec;
+  return !spec->diskSpec || diskDmdIsVisible(spec, dmd);
+}
+
 /**
  * Validate DMD against sharding/slot filters.
  * Returns true if DMD is valid, false if it should be skipped.
  */
 static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadata *dmd) {
-  // Defensive check: if keyPtr is NULL (allocation failure in disk API), skip this document
-  if (!dmd->keyPtr) {
-    return false;
-  }
+  if (!dmd->keyPtr) return false;
+  IndexSpec *spec = self->sctx->spec;
+  if (spec->diskSpec && !diskDmdIsVisible(spec, dmd)) return false;
 
   // Check trimming (sharding migration)
   if (isTrimming && RedisModule_ShardingGetKeySlot) {
@@ -735,9 +757,14 @@ typedef struct {
 /* Yield - pops the current top result from the heap */
 static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
-  SearchResult *cur_best = mmh_pop_max(self->pq);
-
-  if (cur_best) {
+  SearchResult *cur_best;
+  while ((cur_best = mmh_pop_max(self->pq))) {
+    if (!bufferedResultIsVisible(rp, cur_best)) {
+      rp->parent->skippedResults++;
+      SearchResult_Destroy(cur_best);
+      rm_free(cur_best);
+      continue;
+    }
     SearchResult_Override(r, cur_best);
     rm_free(cur_best);
     return RS_RESULT_OK;
