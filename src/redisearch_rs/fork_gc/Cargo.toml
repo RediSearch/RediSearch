@@ -25,6 +25,7 @@ hidden_string.workspace = true
 field_spec.workspace = true
 global_config.workspace = true
 inverted_index.workspace = true
+lending-iterator.workspace = true
 libc.workspace = true
 nix.workspace = true
 numeric_range_tree.workspace = true
@@ -32,10 +33,12 @@ redis-module.workspace = true
 rmp-serde.workspace = true
 index_spec.workspace = true
 serde.workspace = true
+serde_bytes.workspace = true
 string_utils.workspace = true
 nul_terminated_bytes.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+trie_rs.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]

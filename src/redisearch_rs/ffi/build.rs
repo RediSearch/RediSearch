@@ -402,6 +402,8 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/tag_index.h",
         fns: &[
             "TagIndex_Commit",
+            "TagIndex_DeleteTagSuffix",
+            "TagIndex_DeleteTagValue",
             "TagIndex_Ensure",
             "TagIndex_Free",
             "TagIndex_GetSuffixMatches",

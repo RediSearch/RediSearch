@@ -106,6 +106,29 @@ void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx);
 void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx);
 
 /**
+ * Collect GC delta data for every tag of every TAG field in the spec and send
+ * it to the parent process over the pipe.
+ *
+ * Walks each TAG field's tag index and, for every tag whose posting list has
+ * GC work, sends the field name, the tag index's unique id, the tag, and the
+ * serialised GC delta. Tags that produce no delta, and fields whose postings
+ * live on disk, are skipped. A terminator is sent once every field has been
+ * walked.
+ *
+ * Any write failure, such as a closed fd or a broken pipe, terminates the
+ * child process via `RedisModule_ExitFromChild`.
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ *    alive for the duration of this call.
+ * 2. `sctx` must point to a valid [`ffi::RedisSearchCtx`].
+ * 3. `sctx.spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 4. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
+ */
+void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx);
+
+/**
  * Collect GC delta data for every term in the spec's terms trie and send it
  * to the parent process over the pipe.
  *
@@ -188,6 +211,24 @@ enum FGCError FGC_parentHandleMissingDocs(ForkGC *gc);
  *    alive for the duration of this call.
  */
 enum FGCError FGC_parentHandleNumeric(ForkGC *gc);
+
+/**
+ * Receive and apply the GC delta for one tag value.
+ *
+ * Reads one message from the pipe. Returns [`FGCError::Collected`] after
+ * successfully applying a delta, [`FGCError::Done`] when the child sent the
+ * terminator (all tags processed), or an error variant on pipe, spec, or
+ * tag-index lookup failure.
+ *
+ * Called in a loop (via `COLLECT_FROM_CHILD`) until it returns something other
+ * than [`FGCError::Collected`].
+ *
+ * # Safety
+ *
+ * 1. `gc` must point to a valid [`ffi::ForkGC`], with no other reference to it
+ *    alive for the duration of this call.
+ */
+enum FGCError FGC_parentHandleTags(ForkGC *gc);
 
 /**
  * Receive and apply the GC delta for one term in the spec's terms trie.
