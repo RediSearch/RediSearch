@@ -17,6 +17,7 @@
  #include "util/timeout.h"
  #include "rmalloc.h"
 #include "query_error_ffi.h"
+#include "query_memory.h"
 #include "reply.h"
 #include "rmutil/rm_assert.h"
 #include "util/arr/arr.h"
@@ -63,6 +64,14 @@ int ApplyOomStop(const QueryRequestTimeout *timeout, RSOomPolicy oomPolicy, Quer
   return RS_RESULT_EOF;
 }
 
+bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err) {
+  if (!QueryMemory_ShouldStop(NULL, counter)) {
+    return false;
+  }
+  QueryError_SetQueryOOMWarning(err);
+  return true;
+}
+
  void destroyResults(SearchResult **results) {
    if (results) {
      for (size_t i = 0; i < array_len(results); i++) {
@@ -104,16 +113,16 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 #endif
 
-static bool oomStopKeepsBufferedRows(const AREQ *areq) {
-  const QueryRequestTimeout *timeout = &areq->base.timeout;
+static bool oomStopKeepsBufferedRows(const QueryRequestTimeout *timeout, RSOomPolicy oomPolicy) {
   return QueryRequestTimeout_GetStopReason(timeout) == QUERY_STOP_REASON_OOM &&
-         areq->base.reqConfig.oomPolicy != OomPolicy_Fail &&
-         !QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+         oomPolicy != OomPolicy_Fail && !QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
 }
 
- SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
+ SearchResult **AggregateResults(ResultProcessor *rp, const CommonPipelineCtx *ctx, int *rc) {
+   AREQ *areq = ctx->areq;
    SearchResult **results = array_new(SearchResult *, 8);
    SearchResult r = SearchResult_New();
+   uint32_t memoryCheckCounter = 0;
    while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
      // Decrement the result limit, now that we got a valid result.
      rp->parent->resultLimit--;
@@ -125,12 +134,13 @@ static bool oomStopKeepsBufferedRows(const AREQ *areq) {
      // clean the search result
      r = SearchResult_New();
 
-     // Honour a requested stop or a main-thread timeout flag at the row
-     // boundary: buffering stages (safe loader, sorter yield) can keep emitting
-     // from internal buffers without re-touching upstream's per-row timeout check.
-     // An OOM stop under ON_OOM RETURN is the exception: those stages then hand
-     // over the rows they already hold (see RP_StopPolicy), and read nothing new.
-     if (areq && QueryRequest_ShouldStop(&areq->base.timeout) && !oomStopKeepsBufferedRows(areq)) {
+     // Stop flags and memory at the row boundary: buffering stages can keep
+     // emitting without re-checking upstream, and these rows are what fills
+     // memory. An OOM stop under ON_OOM RETURN keeps collecting what the stages
+     // hold (see RP_StopPolicy). Not on the row that fills the limit, which would
+     // end a full cursor chunk; startPipelineCommon checks the timeout after.
+     if (rp->parent->resultLimit && QueryMemory_ShouldStop(ctx->timeout, &memoryCheckCounter) &&
+         !oomStopKeepsBufferedRows(ctx->timeout, ctx->oomPolicy)) {
        *rc = RS_RESULT_TIMEDOUT;
        break;
      }
@@ -146,7 +156,7 @@ static bool oomStopKeepsBufferedRows(const AREQ *areq) {
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
    if (ctx->timeout->config.timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
-     *results = AggregateResults(rp, ctx->areq, rc);
+     *results = AggregateResults(rp, ctx, rc);
      // Check timeout after aggregation
      if (QueryRequestTimeout_IsTimedOutExact(ctx->timeout)) {
        *rc = RS_RESULT_TIMEDOUT;
@@ -247,7 +257,12 @@ static bool oomStopKeepsBufferedRows(const AREQ *areq) {
    }
 
    SearchResult r = SearchResult_New();
+   uint32_t memoryCheckCounter = 0;
    while (qctx->resultLimit && endProc->Next(endProc, &r) == RS_RESULT_OK) {
+     // Checked once a row exists, so the warning always means a row was left out.
+     if (StoredResults_ShouldStopForMemory(&memoryCheckCounter, qctx->err)) {
+       break;
+     }
      qctx->resultLimit--;
      array_append(stored->results, SearchResult_AllocateMove(&r));
      r = SearchResult_New();
