@@ -374,7 +374,8 @@ def test_reply_loop_stop_truncates_resp2(env):
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_reply_loop_stop_ends_the_cursor(env):
-    """A cursor chunk stopped in the reply loop ends the cursor instead of resuming later."""
+    """A cursor chunk stopped in the reply loop ends the cursor instead of resuming later. Call 1
+    admits the cursor; call 3 is the reply loop's second."""
     _index_with_docs(env)
     query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', 4]
     # The chunk's reply loop makes 3 calls, the last ones of the query.
@@ -660,3 +661,48 @@ def test_geoshape_collection_stop_replies_by_on_oom_policy(env):
         _memory_pressure(env, 'AT_CALL', 1 + N_DOCS)
         env.assertEqual(env.cmd(*query)['total_results'], N_DOCS, message=predicate)
     _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_cursor_admission_rejects_under_memory_pressure(env):
+    """No new client cursor is admitted under memory pressure: the admission check, the first
+    checkpoint call after the build stages, replies the OOM error. A cursor opened before keeps reading, through
+    the reply checkpoints. ON_OOM IGNORE admits it."""
+    _index_with_docs(env)
+    query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', 4]
+    for workers in [0, 2]:
+        _set_policies(env, 'return', 'return', workers)
+        errors, warnings = _oom_counters(env)
+        _memory_pressure(env, 'AT_CALL', B + 1)
+        env.expect(*query).error().contains(OOM_QUERY_ERROR)
+        env.assertEqual(_oom_counters(env), (errors + 1, warnings), message=workers)
+
+        res, cursor = env.cmd(*query)
+        env.assertNotEqual(cursor, 0)
+        _memory_pressure(env, 'AT_CALL', 1)
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        env.assertEqual(len(res['results']), 1, message=(workers, res))
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=workers)
+        env.assertEqual(cursor, 0, message=workers)
+
+    change_oom_policy(env, 'ignore')
+    _memory_pressure(env, 'AT_CALL', 1)
+    res, cursor = env.cmd(*query)
+    env.assertEqual(len(res['results']), 4)
+    env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
+    _reset(env)
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_cursor_admission_rejects_through_the_coordinator(env):
+    """In a cluster the coordinator admits the client's cursor before it fans out; under pressure
+    there the query fails with the OOM error. The shards' cursors for the coordinator are not
+    checked (their pipeline checkpoints stop them with a warning)."""
+    _index_with_docs(env)
+    try:
+        _memory_pressure(env, 'AT_CALL', 1)
+        env.expect(*AGGREGATE, 'WITHCURSOR', 'COUNT', 4).error().contains(OOM_QUERY_ERROR)
+    finally:
+        _memory_pressure(env, 'RESET')

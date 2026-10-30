@@ -17,6 +17,8 @@ COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient
 # FT.SEARCH and FT.AGGREGATE read memory before building the iterators, after them, and after the
 # pipeline; the pipeline checkpoints count from there.
 BUILD_CHECKPOINTS = 3
+# A client cursor is admitted with one more checkpoint call, after the build stages.
+CURSOR_ADMISSION = 1
 N_DOCS = 10
 
 SEARCH = ('FT.SEARCH', 'idx', '*', 'NOCONTENT')
@@ -375,7 +377,7 @@ def test_sorter_stop_over_cursor_reads(env):
     carries the OOM warning and closes the cursor."""
     create_index(env)
     k = 4
-    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + CURSOR_ADMISSION + k)
     try:
         res, cursor = env.cmd(*SORTED_AGGREGATE, 'WITHCURSOR', 'COUNT', 3)
     finally:
@@ -475,7 +477,7 @@ def test_safe_loader_stop_on_the_last_buffered_row_ends_the_cursor(env):
     create_index(env)
     set_workers(env, 2)
     try:
-        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + CURSOR_ADMISSION + 4)
         try:
             res, cursor = env.cmd(*LOADED_AGGREGATE, 'WITHCURSOR', 'COUNT', 4)
         finally:
@@ -518,7 +520,7 @@ def test_withcount_depleter_stop_over_cursor_reads(env):
     carries the OOM warning and closes the cursor."""
     create_index(env)
     k = 4
-    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + CURSOR_ADMISSION + k)
     try:
         res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n',
                               'WITHCURSOR', 'COUNT', 3)
