@@ -131,3 +131,47 @@ def test_json_multi_value_range_stops_for_oom(env):
              _vec(QUERY_VALUE), 'NOCONTENT', 'LIMIT', 0, N_DOCS]
     _expect_stopped_by_policy(env, query, RANGE_MATCHES)
 
+
+KNN_K = 10
+
+
+def _batches_queries():
+    """Filtered KNN queries whose filter keeps docs far from the query vector, so the top k takes
+    more than one batch: on FLAT, and on HNSW in small batches."""
+    params = ['PARAMS', 2, 'b', _vec(QUERY_VALUE)]
+    return {
+        'flat': ['FT.SEARCH', 'hidx', f'(@n:[1 20])=>[KNN {KNN_K} @v $b HYBRID_POLICY BATCHES]',
+                 *params, 'NOCONTENT', 'LIMIT', 0, KNN_K],
+        'hnsw': ['FT.SEARCH', 'hidx',
+                 f'(@n:[90 +inf])=>[KNN {KNN_K} @vh $b HYBRID_POLICY BATCHES BATCH_SIZE 5]',
+                 *params, 'NOCONTENT', 'LIMIT', 0, KNN_K],
+    }
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_knn_batches_stop_for_oom(env):
+    """A filtered KNN in batches checks memory before each further batch; under pressure
+    it stops there with reason OOM, with and without workers and under either ON_TIMEOUT."""
+    _create_hash_index(env)
+    try:
+        for workers in (0, 2):
+            set_workers(env, workers)
+            for timeout_policy in ('return', 'fail'):
+                allShards_change_timeout_policy(env, timeout_policy)
+                for name, query in _batches_queries().items():
+                    env.debugPrint(f'{name} WORKERS {workers} ON_TIMEOUT {timeout_policy}')
+                    # The HNSW batch iterator is approximate: its count is not checked.
+                    _expect_stopped_by_policy(env, query, KNN_K if name == 'flat' else None)
+    finally:
+        allShards_change_timeout_policy(env, 'return')
+        set_workers(env, 0)
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_knn_batches_stop_for_oom_on_shards(env):
+    """Shards stopped between batches report the OOM to the coordinator. Small batches make every
+    shard holding filtered docs fetch more than one."""
+    _create_hash_index(env)
+    _expect_stopped_by_policy(env, _batches_queries()['hnsw'], None)
