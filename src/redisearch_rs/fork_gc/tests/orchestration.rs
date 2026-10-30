@@ -12,7 +12,7 @@
 
 use dict::{KeysDictType, MissingFieldDictType, OwnedDict};
 use fork_gc::{
-    ForkGC, HandleError,
+    ForkGC, Frame, HandleError, HandleOutcome,
     orchestration::{collect_scanners, handle_scanners},
 };
 use index_spec::IndexSpecReadGuard;
@@ -135,7 +135,8 @@ fn child_writes_empty_scanner_streams_in_protocol_order() {
 
     collect_scanners(&mut fgc, &guard);
 
-    let expected = empty_scanner_streams();
+    let mut expected = empty_scanner_streams();
+    Frame::Terminator.encode(&mut expected).unwrap();
     let mut received = vec![0; expected.len() + 1];
     let written = pipe_reader.read(&mut received).unwrap();
     assert_eq!(written, expected.len());
@@ -143,13 +144,13 @@ fn child_writes_empty_scanner_streams_in_protocol_order() {
 }
 
 #[test]
-fn parent_consumes_scanner_terminators_then_eof() {
-    let (mut fgc, _pipe_reader, pipe_writer) = make_fork_gc();
+fn parent_accepts_completion_marker_before_pipe_closes() {
+    let (mut fgc, _pipe_reader, _pipe_writer) = make_fork_gc();
 
     write_empty_scanner_streams(&mut fgc);
-    drop(pipe_writer);
+    Frame::Terminator.encode(&mut fgc.writer()).unwrap();
 
-    assert!(handle_scanners(&mut fgc).is_ok());
+    assert_eq!(handle_scanners(&mut fgc).unwrap(), HandleOutcome::Done);
 }
 
 #[test]
@@ -164,4 +165,20 @@ fn parent_rejects_trailing_data_after_all_scanners() {
         handle_scanners(&mut fgc),
         Err((_, HandleError::Codec { .. }))
     ));
+}
+
+#[test]
+fn parent_rejects_missing_or_truncated_completion_marker() {
+    let marker = usize::MAX.to_ne_bytes();
+    for len in 0..marker.len() {
+        let (mut fgc, _pipe_reader, pipe_writer) = make_fork_gc();
+        write_empty_scanner_streams(&mut fgc);
+        fgc.writer().write_all(&marker[..len]).unwrap();
+        drop(pipe_writer);
+
+        assert!(matches!(
+            handle_scanners(&mut fgc),
+            Err(("parent", HandleError::Codec { .. }))
+        ));
+    }
 }

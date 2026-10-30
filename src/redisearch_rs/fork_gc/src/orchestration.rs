@@ -11,15 +11,16 @@
 //!
 //! The child writes each scanner's stream in a fixed order. The parent must
 //! consume those streams in exactly the same order before verifying the child
-//! closed its pipe.
+//! completed its final heartbeat.
 
 use std::io::Read as _;
 
 use index_spec::IndexSpecReadGuard;
 
 use crate::{
-    ForkGC, HandleError, HandleOutcome,
+    ForkGC, Frame, HandleError, HandleOutcome,
     existing_docs::{collect_existing_docs, handle_existing_docs},
+    frame::TERMINATOR,
     io_result_ext::IoResultExt,
     missing_docs::{collect_missing_docs, handle_missing_docs},
     numeric::{collect_numeric, handle_numeric},
@@ -34,8 +35,8 @@ unsafe extern "C" {
 /// Run all child-side scanners in wire-protocol order.
 ///
 /// Each scanner writes its own terminator. Once all scanner streams are sent,
-/// this function reports the child's final heartbeat and returns so the C
-/// caller can close the child side of the pipe.
+/// this function reports the child's final heartbeat and writes a completion
+/// marker before returning to the C caller.
 pub fn collect_scanners(fgc: &mut ForkGC, spec: &IndexSpecReadGuard<'_>) {
     let index_name = spec
         .display_name(global_config::hide_user_data_from_log())
@@ -61,6 +62,7 @@ pub fn collect_scanners(fgc: &mut ForkGC, spec: &IndexSpecReadGuard<'_>) {
     unsafe { send_child_heartbeat(1.0) };
 
     tracing::debug!(index = %index_name, "ForkGC child scanning indexes end");
+    Frame::Terminator.encode(&mut fgc.writer()).unwrap_or_exit();
 }
 
 fn handle_individual_scanner(
@@ -77,7 +79,7 @@ fn handle_individual_scanner(
     }
 }
 
-/// Consume and apply all scanner streams, then require EOF from the child.
+/// Consume and apply all scanner streams, then require the child's completion marker.
 pub fn handle_scanners(fgc: &mut ForkGC) -> Result<HandleOutcome, (&'static str, HandleError)> {
     tracing::debug!("ForkGC parent starts applying changes");
 
@@ -87,25 +89,22 @@ pub fn handle_scanners(fgc: &mut ForkGC) -> Result<HandleOutcome, (&'static str,
     handle_individual_scanner(fgc, "missing docs", handle_missing_docs)?;
     handle_individual_scanner(fgc, "existing docs", handle_existing_docs)?;
 
-    let mut trailing_byte = [0];
-    match fgc.reader().read(&mut trailing_byte) {
-        Ok(0) => (),
-        Ok(_) => {
-            return Err((
-                "parent",
-                HandleError::codec(
-                    "checking for EOF after the fork-GC scanners",
-                    "expected the child to close its pipe",
-                ),
-            ));
-        }
-        Err(error) => {
-            return Err((
-                "parent",
-                HandleError::codec("checking for EOF after the fork-GC scanners", error),
-            ));
-        }
-    };
+    let mut completion = [0; size_of::<usize>()];
+    fgc.reader().read_exact(&mut completion).map_err(|error| {
+        (
+            "parent",
+            HandleError::codec("reading the fork-GC completion marker", error),
+        )
+    })?;
+    if usize::from_ne_bytes(completion) != TERMINATOR {
+        return Err((
+            "parent",
+            HandleError::codec(
+                "checking the fork-GC completion marker",
+                "expected a terminator after the child's final heartbeat",
+            ),
+        ));
+    }
 
     tracing::debug!("ForkGC parent ends applying changes");
     Ok(HandleOutcome::Done)
