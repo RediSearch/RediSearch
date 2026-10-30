@@ -66,6 +66,32 @@ typedef const void* RedisSearchDiskSnapshot;
 // `SearchDisk_CommitWriteBatch`, `SearchDisk_AbortWriteBatch`, etc.).
 typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
+typedef struct SearchDiskSlotTrimBatch SearchDiskSlotTrimBatch;
+
+// Inclusive Redis Cluster slot interval.
+typedef struct SearchDiskSlotRange {
+  uint16_t start;
+  uint16_t end;
+} SearchDiskSlotRange;
+
+typedef enum {
+  SEARCH_DISK_TRIM_RETRY,
+  SEARCH_DISK_TRIM_MORE,
+  SEARCH_DISK_TRIM_FINISHED,
+} SearchDiskSlotTrimResult;
+
+// Borrowed batch. Under the spec write lock, applyTrimBatch must succeed before
+// updating memory indexes and accounting. Remove the pending filter only after
+// accounting an exhausted batch. False rejects the batch without advancing it.
+typedef bool (*SearchDiskSlotTrimCallback)(void *ctx, const t_docId *ids, size_t numIds,
+                                           uint64_t totalDocLen,
+                                           const SearchDiskSlotTrimBatch *batch, bool exhausted);
+
+// RAM-only enumeration. The ranges are borrowed for the duration of the callback.
+typedef void (*SearchDiskPendingSlotTrimCallback)(void *ctx, uint64_t trimId,
+                                                  const SearchDiskSlotRange *ranges,
+                                                  size_t numRanges, t_docId maxDocId);
+
 // Callback function to allocate memory for the key in the scope of the search module memory
 typedef char* (*AllocateKeyCallback)(const void*, size_t len);
 
@@ -118,6 +144,12 @@ typedef struct AsyncReadResult {
   uint64_t user_data;       // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
 } AsyncReadResult;
 
+typedef enum {
+  DISK_GC_RUN_OK = 0,
+  // Pending changes remain eligible for retry; cycle statistics must not be accumulated.
+  DISK_GC_RUN_RETRY_REQUIRED,
+} DiskGCRunResult;
+
 // Stats reported by a single GC compaction cycle.
 //
 // Populated by `IndexDiskAPI::runGC`: the caller zero-initializes the struct
@@ -158,8 +190,7 @@ typedef struct BasicDiskAPI {
    *        statistics object, reported by `MetricsDiskAPI::debugDiskStats`
    * @return Pointer to the disk context, or NULL on error
    */
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx,
-                           const SearchDiskResourceConfig *resourceConfig,
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, const SearchDiskResourceConfig *resourceConfig,
                            bool logObfuscation, bool dropReadCache, bool useDirectReads,
                            bool enableStatistics);
   void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
@@ -548,8 +579,9 @@ typedef struct IndexDiskAPI {
    *
    * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`, and
    * the Rust-side numeric/wildcard iterator entry points so that every iterator
-   * created for one query observes the same database state. Must be released by
-   * `freeSnapshot` when no iterator is still using it.
+   * created for one query observes the same database state. It also retains deletion
+   * visibility for buffered document metadata. Call `freeSnapshot` only after all
+   * iterators and metadata buffers using this snapshot have been released.
    *
    * @param index Pointer to the index spec
    * @return Snapshot handle, or NULL on error (e.g. index is NULL)
@@ -575,7 +607,7 @@ typedef struct IndexDiskAPI {
    *
    * On return, `stats` is populated with per-cycle counters
    * (see `DiskGCRunStats`). Caller MUST zero-initialize `stats` before the
-   * call; the implementation only writes the fields it knows about.
+   * call. See `DiskGCRunResult` for recoverable failure handling.
    *
    * @param index Pointer to the disk index
    * @param stats Caller-allocated, zero-initialized stats out-parameter
@@ -717,7 +749,19 @@ typedef struct IndexDiskAPI {
   bool (*initializeMissingStorage)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
+/** Disk index operations supporting slot migration. */
 typedef struct SlotMigrationAPI {
+  // Main thread, under the spec write lock; no I/O. Capture a stable maxDocId and
+  // register logical intent with a nonzero trimId. Retain ranges, cutoff and progress
+  // across supported recovery, including before the first batch. Called at the trim
+  // notification after ownership transfer and earlier writes have drained.
+  // This API does not control Redis migration admission.
+  bool (*registerTrim)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
+                       size_t numRanges, uint64_t *trimId, t_docId *maxDocId);
+  // Main thread, under the spec write lock; no I/O. Enumerate restored logical
+  // jobs before queries resume, so Search can reinstall filters and schedule work.
+  void (*forEachPendingTrim)(RedisSearchDiskIndexSpec *index,
+                             SearchDiskPendingSlotTrimCallback callback, void *ctx);
   bool (*hasPendingCleanup)(RedisSearchDiskIndexSpec *index);
 } SlotMigrationAPI;
 
@@ -726,7 +770,7 @@ typedef struct DocTableDiskAPI {
    * @brief Stages a new document insert into `batch`.
    *
    * Assigns a new document ID and stages the document metadata write on `batch`. If
-   * `oldDocId` is provided (non-zero), staging also queues the deletion of the old
+   * `*oldDocId` resolves to a live document, staging also queues deletion of the old
    * doc-table entry, and the old doc is marked deleted in the in-memory bitmap only
    * once the batch commits successfully.
    *
@@ -747,10 +791,10 @@ typedef struct DocTableDiskAPI {
    * @param docLen Sum of the frequencies of all terms in the document
    * @param oldLen Pointer to an integer to store the length of the deleted document
    * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
-   * @param oldDocId Old document ID from DocIdMeta (0 if new document)
+   * @param oldDocId In/out document ID from DocIdMeta; cleared if no live document is replaced
    * @return New document ID, or 0 on error
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId);
 
   /**
    * @brief Returns whether the docId is in the deleted set

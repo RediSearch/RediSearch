@@ -132,9 +132,122 @@ static void scheduleSlotCleanup(IndexSpec *spec, void *slots) {
   if (CleanPool_AddWork(SlotCleanup_Run, ctx) != 0) {
     // Run it here rather than leave the docs hidden but never deleted. Later chunks still move to
     // the pool once it accepts work again.
-    RedisModule_Log(RSDummyContext, "warning", "Could not queue slot cleanup, running it on the main thread");
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Could not queue slot cleanup, running it on the main thread");
     SlotCleanup_Run(ctx);
   }
+}
+
+struct IndexSpecSlotTrimJob {
+  WeakRef specRef;
+  uint64_t trimId;
+  PendingSlotDeletion *pending;
+  bool finished;
+  bool queued;
+  struct IndexSpecSlotTrimJob *next;
+};
+
+// Only shutdown takes this lock exclusively; normal main-thread callbacks never wait for I/O.
+static pthread_rwlock_t diskJobRunLock = PTHREAD_RWLOCK_INITIALIZER;
+static atomic_bool diskJobsStopped = false;
+static pthread_mutex_t diskApplyLock = PTHREAD_MUTEX_INITIALIZER;
+static bool diskJobsPaused;
+static pthread_mutex_t diskJobListLock = PTHREAD_MUTEX_INITIALIZER;
+static IndexSpecSlotTrimJob *diskJobs;
+
+void SlotCleanup_StartDiskJobs(void) {
+  pthread_mutex_lock(&diskApplyLock);
+  diskJobsPaused = false;
+  pthread_mutex_unlock(&diskApplyLock);
+  atomic_store(&diskJobsStopped, false);
+}
+
+void SlotCleanup_PauseDiskJobs(void) {
+  pthread_mutex_lock(&diskApplyLock);
+  diskJobsPaused = true;
+  pthread_mutex_unlock(&diskApplyLock);
+}
+
+void SlotCleanup_ResumeDiskJobs(void) {
+  pthread_mutex_lock(&diskApplyLock);
+  diskJobsPaused = false;
+  pthread_mutex_unlock(&diskApplyLock);
+}
+
+static PendingSlotDeletion *pendingDiskTrim(IndexSpec *spec, uint64_t trimId,
+                                            const SearchDiskSlotRange *ranges, size_t numRanges,
+                                            t_docId maxDocId) {
+  for (PendingSlotDeletion *pending = spec->docs.pendingSlotDeletions; pending;
+       pending = pending->next) {
+    if (pending->diskTrimId == trimId) return pending;
+  }
+  RS_LOG_ASSERT_ALWAYS(numRanges <= INT32_MAX, "too many slot ranges");
+  RedisModuleSlotRangeArray *slots = rm_malloc(SlotRangeArray_SizeOf(numRanges));
+  slots->num_ranges = numRanges;
+  for (size_t i = 0; i < numRanges; ++i) {
+    slots->ranges[i].start = ranges[i].start;
+    slots->ranges[i].end = ranges[i].end;
+  }
+  PendingSlotDeletion *pending =
+      DocTable_AddPendingDeletionWithCutoff(&spec->docs, slots, maxDocId);
+  pending->diskTrimId = trimId;
+  rm_free(slots);
+  return pending;
+}
+
+static IndexSpecSlotTrimJob *newDiskJob(StrongRef ref, uint64_t trimId,
+                                        PendingSlotDeletion *pending) {
+  IndexSpecSlotTrimJob *job = rm_calloc(1, sizeof(*job));
+  job->specRef = StrongRef_Demote(ref);
+  job->trimId = trimId;
+  job->pending = pending;
+  return job;
+}
+
+IndexSpecSlotTrimJob *IndexSpec_RegisterDiskSlotTrim(StrongRef specRef,
+                                                     const SearchDiskSlotRange *ranges,
+                                                     size_t numRanges) {
+  IndexSpec *spec = StrongRef_Get(specRef);
+  if (!spec || !spec->diskSpec || atomic_load(&diskJobsStopped)) return NULL;
+  uint64_t trimId = 0;
+  t_docId maxDocId = 0;
+  IndexSpec_LockWrite(spec);
+  bool registered =
+      SearchDisk_RegisterSlotTrim(spec->diskSpec, ranges, numRanges, &trimId, &maxDocId);
+  RS_LOG_ASSERT_ALWAYS(!registered || trimId != 0, "disk slot cleanup ID must be nonzero");
+  PendingSlotDeletion *pending =
+      registered ? pendingDiskTrim(spec, trimId, ranges, numRanges, maxDocId) : NULL;
+  IndexSpec_Unlock(spec);
+  return registered ? newDiskJob(specRef, trimId, pending) : NULL;
+}
+
+typedef struct {
+  IndexSpec *spec;
+  IndexSpecSlotTrimJob *job;
+} DiskSlotTrimContext;
+
+void IndexSpec_FreeDiskSlotTrim(IndexSpecSlotTrimJob *job) {
+  if (!job) return;
+  WeakRef_Release(job->specRef);
+  rm_free(job);
+}
+
+void SlotCleanup_StopDiskJobs(void) {
+  atomic_store(&diskJobsStopped, true);
+  pthread_rwlock_wrlock(&diskJobRunLock);
+  pthread_rwlock_unlock(&diskJobRunLock);
+  pthread_mutex_lock(&diskJobListLock);
+  IndexSpecSlotTrimJob **link = &diskJobs;
+  while (*link) {
+    IndexSpecSlotTrimJob *job = *link;
+    if (job->queued) {
+      link = &job->next;
+    } else {
+      *link = job->next;
+      IndexSpec_FreeDiskSlotTrim(job);
+    }
+  }
+  pthread_mutex_unlock(&diskJobListLock);
 }
 
 void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots) {
