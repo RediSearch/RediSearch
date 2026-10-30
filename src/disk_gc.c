@@ -61,6 +61,13 @@ static void retireLogicalDeletes(DiskGC *gc, size_t count) {
   IndexsGlobalStats_DecreaseLogicallyDeleted(retired);
 }
 
+static void takeDeferredDeletes(DiskGC *gc, IndexSpec *spec) {
+  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(spec);
+  if (deferred) {
+    recordLogicalDeletes(gc, deferred);
+    atomic_fetch_add(&gc->deletesFromLastRun, deferred);
+  }
+}
 
 // Fold one completed cycle's results into the cumulative per-index counters.
 // Every path that runs a disk GC cycle must funnel its `DiskGCRunStats` through
@@ -87,6 +94,8 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     return false;
   }
 
+  takeDeferredDeletes(gc, sp);
+
   // Hold the read lock across the whole check-and-run so shutdown teardown
   // (DiskGC_LockRunsAndDisable, which takes the write lock) waits for an in-flight run to
   // finish before it closes the diskSpec, and g_diskGcDisabled stops a new run from
@@ -96,8 +105,8 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
 
   // Run GC only when teardown has not disabled it, the index is still disk-backed,
   // background work is not paused, and enough changes accumulated since the last run
-  // (unless forced). The pause check is required: the cycle's compaction waits on a
-  // memtable flush that only a resume can schedule.
+  // (unless forced or slot cleanup is pending). The pause check is required:
+  // compaction waits on a memtable flush that only a resume can schedule.
   size_t num_writes = atomic_load(&gc->writesFromLastRun);
   size_t num_deletes = atomic_load(&gc->deletesFromLastRun);
   size_t num_updates = atomic_load(&gc->updatesFromLastRun);
@@ -111,8 +120,20 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     atomic_fetch_sub(&gc->updatesFromLastRun, num_updates);
 
     DiskGCRunStats stats = {0};
-    SearchDisk_RunGC(sp->diskSpec, &stats);
-    accumulateCycleStats(gc, &stats);
+    const DiskGCRunResult result = SearchDisk_RunGC(sp->diskSpec, &stats);
+    // A trim can publish deleted IDs after the first drain but before storage's
+    // snapshot. Wait for its write-locked accounting before retiring those IDs.
+    IndexSpec_LockRead(sp);
+    takeDeferredDeletes(gc, sp);
+    if (result == DISK_GC_RUN_RETRY_REQUIRED) {
+      if (forced) forced->outcome = GC_DISK_FORCED_RUN_RETRY_REQUIRED;
+      atomic_fetch_add(&gc->writesFromLastRun, num_writes);
+      atomic_fetch_add(&gc->deletesFromLastRun, num_deletes);
+      atomic_fetch_add(&gc->updatesFromLastRun, num_updates);
+    } else {
+      accumulateCycleStats(gc, &stats);
+    }
+    IndexSpec_Unlock(sp);
 
     gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
   }
