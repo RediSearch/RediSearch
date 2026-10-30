@@ -12,12 +12,15 @@ use std::{io::Cursor, mem};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
     HandleError,
-    existing_docs::{apply_existing_docs, collect_existing_docs, scan_existing_docs},
+    existing_docs::{
+        apply_existing_docs, apply_existing_docs_with, collect_existing_docs, scan_existing_docs,
+        snapshot_existing_docs,
+    },
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
-use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
+use inverted_index::{DocId, DocLiveness, GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
@@ -179,7 +182,10 @@ fn scan_existing_docs_matches_the_collected_delta() {
     let collected = rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut Cursor::new(&buf))
         .unwrap()
         .expect("the index has docs to collect");
-    assert_eq!(scan_existing_docs(&guard), Some(collected));
+    assert_eq!(
+        scan_existing_docs(&guard, |id| guard.doc_exists(id)),
+        Some(collected)
+    );
 
     // SAFETY: ii_ptr was created via Box::into_raw above.
     unsafe { drop(Box::from_raw(ii_ptr)) };
@@ -191,5 +197,77 @@ fn scan_existing_docs_returns_none_without_an_index() {
     let spec = make_spec(std::ptr::null_mut());
     // SAFETY: spec is valid and live for the duration of the test.
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
-    assert_eq!(scan_existing_docs(&guard), None);
+    assert_eq!(scan_existing_docs(&guard, |id| guard.doc_exists(id)), None);
+}
+
+/// A snapshot of the index scans to the same delta as the live index.
+#[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
+fn a_snapshot_scans_like_the_live_index() {
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    for doc_id in 1..=3 {
+        ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
+            .unwrap();
+    }
+    let ii_ptr = Box::into_raw(Box::new(OpaqueInvertedIndex::DocIdsOnly(ii)));
+    let spec = make_spec(ii_ptr.cast());
+    // SAFETY: spec and ii_ptr are valid and live for the duration of the test.
+    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+    let exists = |id: DocId| id != 2;
+
+    let live_delta = scan_existing_docs(&guard, exists).expect("doc 2 is gone");
+    let snapshot = snapshot_existing_docs(&guard, &exists).expect("doc 2 is gone");
+    assert_eq!(snapshot.scan_gc(exists).unwrap(), Some(live_delta));
+
+    // SAFETY: ii_ptr was created via Box::into_raw above.
+    unsafe { drop(Box::from_raw(ii_ptr)) };
+}
+
+/// A delta whose last block grew since the scan is rescanned when the apply has a
+/// liveness source, and denied when it has none.
+#[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
+fn apply_with_a_liveness_source_rescans_a_grown_last_block() {
+    // Docs 1 and 2 are gone; the one the writer appends is live.
+    let exists = |id: DocId| id > 2;
+    for (live, denied, collected) in [
+        (Some(&exists as &dyn DocLiveness), 0, true),
+        (None, 1, false),
+    ] {
+        let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+        for doc_id in 1..=2 {
+            ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
+                .unwrap();
+        }
+        let ii_ptr = Box::into_raw(Box::new(OpaqueInvertedIndex::DocIdsOnly(ii)));
+        let mut spec = make_spec(ii_ptr.cast());
+        let delta = {
+            // SAFETY: spec and ii_ptr are valid and live for the duration of the test.
+            let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+            scan_existing_docs(&guard, exists).expect("both docs are gone")
+        };
+        // SAFETY: ii_ptr is live and nothing else accesses it here.
+        let OpaqueInvertedIndex::DocIdsOnly(ii) = (unsafe { &mut *ii_ptr }) else {
+            panic!("the index is a doc-ids-only index");
+        };
+        ii.add_record(&RSIndexResult::build_virt().doc_id(3).build())
+            .unwrap();
+
+        // SAFETY: spec is valid and exclusively accessed for the duration of the test.
+        let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
+        let stats = apply_existing_docs_with(delta, live, &mut guard).unwrap();
+
+        assert_eq!(stats.blocks_denied, denied);
+        assert_eq!(
+            stats.bytes_collected > 0,
+            collected,
+            "the gone docs' bytes are freed"
+        );
+        assert!(
+            guard.existing_docs_mut().is_some(),
+            "doc 3 is live, so the index stays"
+        );
+        // SAFETY: ii_ptr was created via Box::into_raw above and the index was kept.
+        unsafe { drop(Box::from_raw(ii_ptr)) };
+    }
 }

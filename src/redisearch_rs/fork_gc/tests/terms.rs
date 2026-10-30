@@ -21,14 +21,14 @@ use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
     HandleError,
     terms::{
-        TermEntry, TermsCursor, apply_terms, collect_terms, receive_terms, scan_term,
-        scan_terms_after,
+        TermEntry, TermsCursor, apply_terms, apply_terms_with, collect_terms, receive_terms,
+        scan_term, scan_terms_after, snapshot_term,
     },
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
-use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
+use inverted_index::{DocId, DocLiveness, GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
 use serde::Serialize as _;
 
 // Link both Rust-provided and C-provided symbols
@@ -102,6 +102,16 @@ impl TestSpec {
                 doc_count as usize,
             );
         }
+    }
+
+    /// The unique id of `term`'s inverted index, which an apply must quote.
+    fn unique_id(&self, term: &[u8]) -> u32 {
+        u32::from(
+            self._keys_dict
+                .fetch(term)
+                .expect("the term is indexed")
+                .unique_id(),
+        )
     }
 
     fn read_guard(&self) -> mem::ManuallyDrop<IndexSpecReadGuard<'_>> {
@@ -279,6 +289,7 @@ fn receive_entry_returns_term_and_delta() {
     let mut buf = Vec::new();
     Some(TermEntry {
         term: b"apple".as_slice(),
+        unique_id: 7,
         delta: GcScanDelta::empty_for_testing(),
     })
     .serialize(&mut rmp_serde::Serializer::new(&mut buf))
@@ -287,6 +298,7 @@ fn receive_entry_returns_term_and_delta() {
     let mut cursor = Cursor::new(&buf);
     let entry = receive_terms(&mut cursor).unwrap().unwrap();
     assert_eq!(&*entry.term, b"apple");
+    assert_eq!(entry.unique_id, 7);
     assert_eq!(entry.delta, GcScanDelta::empty_for_testing());
     assert_eq!(cursor.position(), buf.len() as u64);
 }
@@ -300,11 +312,32 @@ fn apply_returns_err_when_term_not_found() {
     {
         let mut write_guard = spec.write();
         assert!(matches!(
-            apply_terms(&trie_term(b"nonexistent"), delta, &mut write_guard),
+            apply_terms(&trie_term(b"nonexistent"), 0, delta, &mut write_guard),
             Err(HandleError::ApplyError(
                 "the term's inverted index was removed before the delta could be applied"
             ))
         ));
+    }
+}
+
+/// A delta scanned from an index the term no longer holds, because the term was
+/// dropped and re-added in between, is not applied to the replacement.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn apply_returns_err_when_the_index_was_replaced() {
+    let mut spec = TestSpec::create([(&b"apple"[..], 2)]);
+    let scanned = spec.unique_id(b"apple") + 1;
+    let delta = GcScanDelta::empty_for_testing();
+
+    {
+        let mut write_guard = spec.write();
+        assert!(matches!(
+            apply_terms(&trie_term(b"apple"), scanned, delta, &mut write_guard),
+            Err(HandleError::ApplyError(
+                "the term's inverted index is not the one scanned"
+            ))
+        ));
+        assert!(write_guard.keys_dict_mut().fetch_mut(b"apple").is_some());
     }
 }
 
@@ -313,11 +346,12 @@ fn apply_returns_err_when_term_not_found() {
 #[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
 fn apply_succeeds_and_keeps_entry_when_docs_remain() {
     let mut spec = TestSpec::create([(&b"apple"[..], 2)]);
+    let unique_id = spec.unique_id(b"apple");
     let delta = GcScanDelta::empty_for_testing();
 
     {
         let mut write_guard = spec.write();
-        let stats = apply_terms(&trie_term(b"apple"), delta, &mut write_guard).unwrap();
+        let stats = apply_terms(&trie_term(b"apple"), unique_id, delta, &mut write_guard).unwrap();
 
         assert_eq!(stats.records_removed, 0);
         assert_eq!(stats.terms_removed, 0);
@@ -344,7 +378,8 @@ fn roundtrip_all_docs_deleted_removes_term() {
     // Parent side: apply.
     {
         let mut write_guard = spec.write();
-        let stats = apply_terms(&entry.term, entry.delta, &mut write_guard).unwrap();
+        let stats =
+            apply_terms(&entry.term, entry.unique_id, entry.delta, &mut write_guard).unwrap();
 
         assert!(write_guard.keys_dict_mut().fetch_mut(b"apple").is_none());
         assert!(stats.bytes_collected > 0);
@@ -368,10 +403,12 @@ fn apply_removes_the_collected_term_from_the_suffix_trie() {
 
     assert_eq!(spec.suffix_matches("ple"), ["apple", "maple"]);
 
+    let unique_id = spec.unique_id(b"apple");
     {
         let mut write_guard = spec.write();
         apply_terms(
             &trie_term(b"apple"),
+            unique_id,
             GcScanDelta::empty_for_testing(),
             &mut write_guard,
         )
@@ -396,10 +433,12 @@ fn apply_removes_an_empty_term_without_a_suffix_trie() {
         "no field opted into a suffix trie"
     );
 
+    let unique_id = spec.unique_id(b"apple");
     {
         let mut write_guard = spec.write();
         apply_terms(
             &trie_term(b"apple"),
+            unique_id,
             GcScanDelta::empty_for_testing(),
             &mut write_guard,
         )
@@ -415,6 +454,7 @@ fn apply_removes_an_empty_term_without_a_suffix_trie() {
 fn apply_survives_an_empty_term_missing_from_the_trie() {
     let mut spec = TestSpec::create([(&b"apple"[..], 0)]);
 
+    let unique_id = spec.unique_id(b"apple");
     {
         let mut write_guard = spec.write();
         let removed = write_guard.terms_mut().delete(&trie_term(b"apple"));
@@ -425,6 +465,7 @@ fn apply_survives_an_empty_term_missing_from_the_trie() {
 
         let stats = apply_terms(
             &trie_term(b"apple"),
+            unique_id,
             GcScanDelta::empty_for_testing(),
             &mut write_guard,
         )
@@ -447,8 +488,8 @@ fn scan_term_matches_the_collected_entry() {
 
     let guard = spec.read_guard();
     assert_eq!(
-        scan_term(&guard, &trie_term(b"apple")),
-        Some(collected.delta)
+        scan_term(&guard, &trie_term(b"apple"), |id| guard.doc_exists(id)),
+        Some((collected.unique_id, collected.delta))
     );
 }
 
@@ -459,7 +500,10 @@ fn scan_term_returns_none_without_an_inverted_index() {
     let mut spec = TestSpec::create([]);
     spec.insert_trie_term(b"orphan", 1);
     let guard = spec.read_guard();
-    assert_eq!(scan_term(&guard, &trie_term(b"orphan")), None);
+    assert_eq!(
+        scan_term(&guard, &trie_term(b"orphan"), |id| guard.doc_exists(id)),
+        None
+    );
 }
 
 /// An empty inverted index has nothing to collect.
@@ -468,7 +512,10 @@ fn scan_term_returns_none_without_an_inverted_index() {
 fn scan_term_returns_none_for_an_empty_inverted_index() {
     let spec = TestSpec::create([(&b"empty"[..], 0)]);
     let guard = spec.read_guard();
-    assert_eq!(scan_term(&guard, &trie_term(b"empty")), None);
+    assert_eq!(
+        scan_term(&guard, &trie_term(b"empty"), |id| guard.doc_exists(id)),
+        None
+    );
 }
 
 /// A resumable terms scan that stops after every term finds what the collector
@@ -488,14 +535,89 @@ fn a_terms_scan_resumes_after_the_last_term_visited() {
     let mut cursor = TermsCursor::default();
     let mut found = Vec::new();
     let mut calls = 0;
-    while scan_terms_after(&guard, &mut cursor, || true, &mut found) {
+    while scan_terms_after(
+        &guard,
+        &mut cursor,
+        |id| guard.doc_exists(id),
+        || true,
+        &mut found,
+    ) {
         calls += 1;
         assert!(calls <= 3, "the scan must make progress");
     }
 
     let found: Vec<_> = found
         .into_iter()
-        .map(|(term, delta)| (term.into_bytes().into_vec(), delta))
+        .filter_map(|(term, snapshot)| {
+            let delta = snapshot.scan_gc(|id| guard.doc_exists(id)).ok().flatten()?;
+            Some((term.into_bytes().into_vec(), delta))
+        })
         .collect();
     assert_eq!(found, collected);
+}
+
+/// Append a live record to `term`'s index, as a writer would between a scan and its apply.
+fn append_doc(spec: &mut TestSpec, term: &[u8], doc_id: DocId) {
+    let Some(OpaqueInvertedIndex::DocIdsOnly(ii)) = spec._keys_dict.fetch_mut(term) else {
+        panic!("the term must be indexed as a doc-ids-only index");
+    };
+    ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
+        .unwrap();
+}
+
+/// A delta whose last block grew since the scan is rescanned when the apply has a
+/// liveness source, and denied when it has none.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn apply_with_a_liveness_source_rescans_a_grown_last_block() {
+    // Docs 1 and 2 are gone; the one the writer appends is live.
+    let exists = |id: DocId| id > 2;
+    for (live, denied, removed) in [(Some(&exists as &dyn DocLiveness), 0, 2), (None, 1, 0)] {
+        let mut spec = TestSpec::create([(&b"apple"[..], 2)]);
+        let (unique_id, delta) = scan_term(&spec.read_guard(), &trie_term(b"apple"), exists)
+            .expect("both docs are gone");
+        append_doc(&mut spec, b"apple", 3);
+
+        let mut guard = spec.write();
+        let stats =
+            apply_terms_with(&trie_term(b"apple"), unique_id, delta, live, &mut guard).unwrap();
+
+        assert_eq!(stats.blocks_denied, denied);
+        assert_eq!(stats.records_removed, removed);
+        assert!(
+            guard.keys_dict_mut().fetch_mut(b"apple").is_some(),
+            "doc 3 is live, so the term stays"
+        );
+    }
+}
+
+/// A liveness source that rules whole ID ranges clean, as the in-process GC's does.
+#[derive(Clone, Copy)]
+struct Gone(&'static [DocId]);
+
+impl DocLiveness for Gone {
+    fn exists(&self, id: DocId) -> bool {
+        !self.0.contains(&id)
+    }
+
+    fn any_gone(&self, first: DocId, last: DocId) -> bool {
+        self.0.iter().any(|id| (first..=last).contains(id))
+    }
+}
+
+/// A snapshot taken with a range-aware source, which copies only the blocks that
+/// source finds dirty, scans to the same delta as the live index.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn a_snapshot_with_a_range_aware_source_scans_like_the_live_index() {
+    let spec = TestSpec::create([(&b"apple"[..], 300)]);
+    let guard = spec.read_guard();
+    let term = trie_term(b"apple");
+    let gone = Gone(&[250]);
+
+    let snapshot = snapshot_term(&guard, &term, &gone).expect("doc 250 is gone");
+    let (_, live_delta) = scan_term(&guard, &term, gone).expect("doc 250 is gone");
+
+    assert_eq!(snapshot.scan_gc(gone).unwrap(), Some(live_delta));
+    assert!(snapshot_term(&guard, &term, &Gone(&[])).is_none());
 }
