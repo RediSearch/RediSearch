@@ -241,3 +241,77 @@ def testGeoParseTrailingWhitespace(env):
   conn.execute_command('HSET', 'ws2', 'g', '1.23, 4.56 ')
 
   assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
+
+@skip(cluster=True)
+def testGeoFilterUnits(env):
+  """Literal, parameter and legacy unit parsing select the same radius."""
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('HSET', 'near', 'g', '13.001,52')
+  conn.execute_command('HSET', 'far', 'g', '13.02,52')
+  for unit, radius in [('m', 100), ('KM', 0.1), ('Ft', 328.084), ('mI', 0.0621373)]:
+    for dialect in (1, 2):
+      env.expect('FT.SEARCH', 'idx', f'@g:[13 52 {radius} {unit}]',
+                 'NOCONTENT', 'DIALECT', dialect).equal([1, 'near'])
+      env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 13, 52, radius, unit,
+                 'NOCONTENT', 'DIALECT', dialect).equal([1, 'near'])
+    env.expect('FT.SEARCH', 'idx', '@g:[13 52 $r $u]', 'PARAMS', 4,
+               'r', radius, 'u', unit, 'NOCONTENT', 'DIALECT', 2).equal([1, 'near'])
+    explanation = env.cmd('FT.EXPLAIN', 'idx', f'@g:[13 52 {radius} {unit}]', 'DIALECT', 2)
+    env.assertContains(unit.lower(), explanation)
+
+@skip(cluster=True)
+def testGeoFilterValidation(env):
+  """Validation order and geographic bounds are distinct from indexing bounds."""
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  getConnectionByEnv(env).execute_command('HSET', 'doc', 'g', '13,52')
+  cases = [
+    ('unit first', 181, 91, -1, 'bad', 'Invalid GeoFilter unit'),
+    ('longitude before radius', 181, 0, -1, 'm', 'Invalid GeoFilter lat/lon'),
+    ('latitude outside', 0, -91, 1, 'm', 'Invalid GeoFilter lat/lon'),
+    ('zero radius', 13, 52, 0, 'm', 'Invalid GeoFilter radius'),
+    ('negative radius', 13, 52, -1, 'm', 'Invalid GeoFilter radius'),
+  ]
+  for name, lon, lat, radius, unit, error in cases:
+    env.expect('FT.SEARCH', 'idx', '@g:[$lon $lat $r $u]', 'PARAMS', 8,
+               'lon', lon, 'lat', lat, 'r', radius, 'u', unit, 'DIALECT', 2).error().contains(error)
+  for lon, lat in [(180, 90), (-180, -90), (13, 86)]:
+    env.expect('FT.SEARCH', 'idx', f'@g:[{lon} {lat} 1 m]', 'DIALECT', 2).equal([0])
+  env.expect('FT.SEARCH', 'idx', '@g:[13 85 10000 km]', 'NOCONTENT', 'DIALECT', 2).equal([1, 'doc'])
+  env.expect('FT.SEARCH', 'idx', '@g:[13 86 10000 km]', 'NOCONTENT', 'DIALECT', 2).equal([0])
+  env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 13, 52, 'inf', 'm',
+             'NOCONTENT', 'DIALECT', 2).equal([1, 'doc'])
+
+@skip(cluster=True)
+def testLegacyGeoFilterErrors(env):
+  """Legacy argument conversion retains its exact diagnostics and rejects partial numbers."""
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  prefix = ['FT.SEARCH', 'idx', '*', 'GEOFILTER']
+  env.expect(*prefix, 'g', 13, 52, 1).error().contains('GEOFILTER requires 5 arguments')
+  for offset, label in [(1, 'lon'), (2, 'lat'), (3, 'radius')]:
+    for invalid in ['abc', '1junk', ' 1', '1 ', 'nan', '1\x00junk']:
+      args = ['g', 13, 52, 1, 'm']
+      args[offset] = invalid
+      env.expect(*prefix, *args).error().contains(
+        f'Bad arguments for <{label}>: Could not convert argument to expected type')
+  env.expect(*prefix, 'g', 13, 52, 1, 'yards').error().contains('Unknown distance unit yards')
+
+@skip(cluster=True)
+def testGeoFilterBinaryArguments(env):
+  """Legacy and parameter strings retain their C-string prefix interpretation."""
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  getConnectionByEnv(env).execute_command('HSET', 'doc', 'g', '13,52')
+  env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g\x00unused', 13, 52, 1,
+             'm\x00unused', 'NOCONTENT', 'DIALECT', 2).equal([1, 'doc'])
+  env.expect('FT.SEARCH', 'idx', '@g:[13 52 1 $u]', 'PARAMS', 2,
+             'u', 'm\x00' + 'x' * 20, 'NOCONTENT', 'DIALECT', 2).equal([1, 'doc'])
+  # redis-py decodes errors with replacement even with decode_responses=False.
+  pool = env.getConnection().connection_pool
+  connection = pool.get_connection()
+  try:
+    connection.send_command('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 13, 52, 1, b'\xff\x00ignored')
+    with connection._sock.makefile('rb') as stream:
+      env.assertEqual(stream.readline(), b'-SEARCH_PARSE_ARGS Unknown distance unit \xff\r\n')
+  finally:
+    connection.disconnect()
+    pool.release(connection)
