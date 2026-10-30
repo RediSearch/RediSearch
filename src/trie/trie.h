@@ -94,6 +94,13 @@ size_t Trie_Size(const Trie *t);
  * for a filter that accepts everything. */
 TrieIterator *Trie_IterateAll(Trie *t);
 
+/* Visit, in lexicographic order, every key that sorts strictly after `after` (every key when
+ * `afterLen` is 0), until `visit` returns non-zero. Returns non-zero when `visit` stopped the walk.
+ * Nothing is held between calls, so a caller can resume from the last key it saw after the trie
+ * changed. Requires a Trie_Sort_Lex trie. */
+int Trie_VisitAfter(const Trie *t, const rune *after, size_t afterLen, TrieVisitCallback visit,
+                    void *ctx);
+
 /* Result codes for Trie_DecrementNumDocs */
 typedef enum {
   TRIE_DECR_NOT_FOUND = 0,   /* Representable term absent (invariant violation) */

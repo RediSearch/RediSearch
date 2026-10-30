@@ -50,7 +50,7 @@ pub struct NumericNodeDelta {
 /// regardless, so a future violation of that invariant surfaces as an apply
 /// error instead of applying deltas to an unrelated tree.
 #[derive(Clone, Copy)]
-struct ResolvedTree {
+pub(crate) struct ResolvedTree {
     field_index: usize,
     unique_id: u32,
 }
@@ -89,7 +89,7 @@ impl ResolvedTree {
 
     /// Borrow the resolved tree under the write lock, re-checking that the field
     /// still holds the tree the child scanned.
-    fn get_mut<'g>(
+    pub(crate) fn get_mut<'g>(
         &self,
         guard: &'g mut IndexSpecWriteGuard<'_>,
     ) -> Result<&'g mut NumericRangeTree, HandleError> {
@@ -116,6 +116,65 @@ impl ResolvedTree {
 
         Ok(())
     }
+}
+
+/// The nodes of one NUMERIC or GEO field's tree, named so they can be scanned
+/// one at a time across spec lock releases.
+#[derive(Debug, Clone)]
+pub struct NumericTreeKey {
+    /// Position of the field in the spec's field array, which only grows.
+    pub field_index: usize,
+    /// [`NumericRangeTree::unique_id`] when the nodes were listed.
+    pub unique_id: u32,
+    /// Every node of the tree, children before parents, as [`collect_numeric`]
+    /// visits them.
+    pub nodes: Vec<NodeIndex>,
+}
+
+/// List the nodes of every initialised NUMERIC and GEO tree in the spec.
+pub fn numeric_tree_keys(spec: &IndexSpecReadGuard) -> Vec<NumericTreeKey> {
+    spec.field_specs()
+        .iter()
+        .enumerate()
+        .filter(|(_, fs)| {
+            fs.types()
+                .intersects(FieldSpecType::Numeric | FieldSpecType::Geo)
+        })
+        .filter_map(|(field_index, fs)| {
+            let tree = fs.tree()?;
+            Some(NumericTreeKey {
+                field_index,
+                unique_id: u32::from(tree.unique_id()),
+                nodes: tree
+                    .indexed_post_order_iter()
+                    .map(|(node_idx, _)| node_idx)
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
+/// Run the GC scan of one node of the tree `key` names.
+///
+/// Returns `None` when the field's tree was replaced, the node was removed,
+/// the scan found nothing to collect, or the scan failed.
+pub fn scan_numeric_node(
+    spec: &IndexSpecReadGuard,
+    key: &NumericTreeKey,
+    node_idx: NodeIndex,
+) -> Option<NumericNodeDelta> {
+    let tree = spec.field_specs().get(key.field_index)?.tree()?;
+    if u32::from(tree.unique_id()) != key.unique_id {
+        return None;
+    }
+    let delta = tree
+        .try_node(node_idx)?
+        .scan_gc(&|id| spec.doc_exists(id))?;
+    Some(NumericNodeDelta {
+        position: node_idx.position(),
+        generation: node_idx.generation(),
+        delta,
+    })
 }
 
 /// Collect GC deltas for every numeric and geo field in the spec and write
@@ -171,7 +230,10 @@ pub fn collect_numeric(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io
 /// Apply one node's delta to `tree`.
 ///
 /// Return [`GcApplyStats`] on success or `None` when the node is no longer present in the live tree.
-fn apply_numeric_node(tree: &mut NumericRangeTree, node: NumericNodeDelta) -> Option<GcApplyStats> {
+pub(crate) fn apply_numeric_node(
+    tree: &mut NumericRangeTree,
+    node: NumericNodeDelta,
+) -> Option<GcApplyStats> {
     let result = tree.apply_gc_to_node(
         NodeIndex::from_raw_parts(node.position, node.generation),
         node.delta,
@@ -224,7 +286,7 @@ fn apply_node_stream(
 }
 
 /// Compact the tree if GC left it sparse, recording what the trim freed into `stats`.
-fn trim_empty_nodes(
+pub(crate) fn trim_empty_nodes(
     spec: &mut impl SpecWriteAccess,
     resolved_tree: ResolvedTree,
     stats: &mut GcApplyStats,

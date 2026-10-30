@@ -13,12 +13,15 @@ use std::mem::{self, ManuallyDrop};
 use std::ptr::NonNull;
 
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
-use fork_gc::numeric::{NumericField, NumericNodeDelta, collect_numeric, handle_numeric_with};
+use fork_gc::numeric::{
+    NumericField, NumericNodeDelta, collect_numeric, handle_numeric_with, numeric_tree_keys,
+    scan_numeric_node,
+};
 use fork_gc::util::SpecWriteAccess;
 use fork_gc::{GcApplyStats, HandleError, HandleOutcome};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
-use numeric_range_tree::NumericRangeTree;
 use numeric_range_tree::test_utils::{build_single_leaf_tree, build_tree_at_split_edge};
+use numeric_range_tree::{NodeIndex, NumericRangeTree};
 use serde::Serialize as _;
 
 // Link both Rust-provided and C-provided symbols
@@ -629,4 +632,80 @@ mod round_trip {
             prop_assert_eq!(cursor.position(), buf.len() as u64, "decode left trailing bytes");
         }
     }
+}
+
+/// `numeric_tree_keys` lists every node of every initialised NUMERIC or GEO
+/// tree, children before parents, and scanning those nodes yields the node
+/// deltas `collect_numeric` sends, in the same order.
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn scanning_listed_numeric_nodes_matches_the_collected_stream() {
+    let test = TestSpec::create(vec![
+        (
+            c"price",
+            FieldSpecType::Numeric.into(),
+            Some(build_two_leaf_tree_with_gc_work()),
+        ),
+        (c"no_tree", FieldSpecType::Numeric.into(), None),
+        (c"other", FieldSpecType::Tag.into(), None),
+    ]);
+    let guard = test.read_guard();
+
+    let keys = numeric_tree_keys(&guard);
+    assert_eq!(keys.len(), 1);
+    assert_eq!(keys[0].field_index, 0);
+    assert_eq!(keys[0].unique_id, u32::from(test.trees[0].unique_id()));
+    let expected_nodes: Vec<_> = test.trees[0]
+        .indexed_post_order_iter()
+        .map(|(node_idx, _)| node_idx)
+        .collect();
+    assert_eq!(keys[0].nodes, expected_nodes);
+
+    let scanned: Vec<_> = keys[0]
+        .nodes
+        .iter()
+        .filter_map(|&node_idx| scan_numeric_node(&guard, &keys[0], node_idx))
+        .collect();
+
+    let mut buf = Vec::new();
+    collect_numeric(&mut buf, &guard).unwrap();
+    let fields = decode_fields(&buf);
+    assert_eq!(scanned, fields[0].entries);
+}
+
+/// A key taken before the field's tree was replaced scans to nothing.
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn scan_numeric_node_returns_none_for_a_replaced_tree() {
+    let test = TestSpec::create(vec![(
+        c"price",
+        FieldSpecType::Numeric.into(),
+        Some(build_single_leaf_tree(2)),
+    )]);
+    let guard = test.read_guard();
+
+    let mut key = numeric_tree_keys(&guard).remove(0);
+    key.unique_id = key.unique_id.wrapping_add(1);
+    let node_idx = key.nodes[0];
+    assert!(scan_numeric_node(&guard, &key, node_idx).is_none());
+}
+
+/// A node index whose generation no longer matches (the node was removed and
+/// its slot reused) scans to nothing instead of panicking.
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn scan_numeric_node_returns_none_for_a_removed_node() {
+    let test = TestSpec::create(vec![(
+        c"price",
+        FieldSpecType::Numeric.into(),
+        Some(build_single_leaf_tree(2)),
+    )]);
+    let guard = test.read_guard();
+
+    let key = numeric_tree_keys(&guard).remove(0);
+    let live = key.nodes[0];
+    let stale = NodeIndex::from_raw_parts(live.position(), live.generation().wrapping_add(1));
+    assert!(test.trees[0].try_node(stale).is_none());
+    assert!(scan_numeric_node(&guard, &key, stale).is_none());
+    assert!(scan_numeric_node(&guard, &key, live).is_some());
 }

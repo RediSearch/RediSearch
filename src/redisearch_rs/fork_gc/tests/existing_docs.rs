@@ -12,7 +12,7 @@ use std::{io::Cursor, mem};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
     HandleError,
-    existing_docs::{apply_existing_docs, collect_existing_docs},
+    existing_docs::{apply_existing_docs, collect_existing_docs, scan_existing_docs},
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
@@ -160,4 +160,36 @@ fn roundtrip_all_docs_deleted_clears_index() {
 
     assert!(write_guard.existing_docs_mut().is_none());
     assert!(stats.bytes_collected > 0);
+}
+
+/// `scan_existing_docs` finds the same delta `collect_existing_docs` sends.
+#[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
+fn scan_existing_docs_matches_the_collected_delta() {
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    ii.add_record(&RSIndexResult::build_virt().doc_id(1).build())
+        .unwrap();
+    let ii_ptr = Box::into_raw(Box::new(OpaqueInvertedIndex::DocIdsOnly(ii)));
+    let spec = make_spec(ii_ptr.cast());
+    // SAFETY: spec and ii_ptr are valid and live for the duration of the test.
+    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+
+    let mut buf = Vec::new();
+    collect_existing_docs(&mut buf, &*guard).unwrap();
+    let collected = rmp_serde::from_read::<_, Option<GcScanDelta>>(&mut Cursor::new(&buf))
+        .unwrap()
+        .expect("the index has docs to collect");
+    assert_eq!(scan_existing_docs(&guard), Some(collected));
+
+    // SAFETY: ii_ptr was created via Box::into_raw above.
+    unsafe { drop(Box::from_raw(ii_ptr)) };
+}
+
+/// A spec without an existing-docs index has nothing to scan.
+#[test]
+fn scan_existing_docs_returns_none_without_an_index() {
+    let spec = make_spec(std::ptr::null_mut());
+    // SAFETY: spec is valid and live for the duration of the test.
+    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+    assert_eq!(scan_existing_docs(&guard), None);
 }

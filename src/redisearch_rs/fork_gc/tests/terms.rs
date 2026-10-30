@@ -20,7 +20,10 @@ use dict::{KeysDictType, OwnedDict};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
     HandleError,
-    terms::{TermEntry, apply_terms, collect_terms, receive_terms},
+    terms::{
+        TermEntry, TermsCursor, apply_terms, collect_terms, receive_terms, scan_term,
+        scan_terms_after,
+    },
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
@@ -430,4 +433,69 @@ fn apply_survives_an_empty_term_missing_from_the_trie() {
         assert_eq!(stats.terms_size_removed, b"apple".len());
         assert!(write_guard.keys_dict_mut().fetch_mut(b"apple").is_none());
     }
+}
+
+/// `scan_term` finds the same delta `collect_terms` sends for that term.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn scan_term_matches_the_collected_entry() {
+    let spec = TestSpec::create([(&b"apple"[..], 3)]);
+    let buf = spec.collect();
+    let collected = rmp_serde::from_read::<_, Option<TermEntry>>(&mut Cursor::new(&buf))
+        .unwrap()
+        .expect("the term has docs to collect");
+
+    let guard = spec.read_guard();
+    assert_eq!(
+        scan_term(&guard, &trie_term(b"apple")),
+        Some(collected.delta)
+    );
+}
+
+/// A term with no inverted index has nothing to scan.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn scan_term_returns_none_without_an_inverted_index() {
+    let mut spec = TestSpec::create([]);
+    spec.insert_trie_term(b"orphan", 1);
+    let guard = spec.read_guard();
+    assert_eq!(scan_term(&guard, &trie_term(b"orphan")), None);
+}
+
+/// An empty inverted index has nothing to collect.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn scan_term_returns_none_for_an_empty_inverted_index() {
+    let spec = TestSpec::create([(&b"empty"[..], 0)]);
+    let guard = spec.read_guard();
+    assert_eq!(scan_term(&guard, &trie_term(b"empty")), None);
+}
+
+/// A resumable terms scan that stops after every term finds what the collector
+/// sends, one term per call, and reports terms left until the last one.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn a_terms_scan_resumes_after_the_last_term_visited() {
+    let spec = TestSpec::create([(&b"grape"[..], 1), (&b"apple"[..], 2), (&b"empty"[..], 0)]);
+    let buf = spec.collect();
+    let mut cursor_in = Cursor::new(&buf);
+    let mut collected = Vec::new();
+    while let Some(entry) = rmp_serde::from_read::<_, Option<TermEntry>>(&mut cursor_in).unwrap() {
+        collected.push((entry.term.into_vec(), entry.delta));
+    }
+
+    let guard = spec.read_guard();
+    let mut cursor = TermsCursor::default();
+    let mut found = Vec::new();
+    let mut calls = 0;
+    while scan_terms_after(&guard, &mut cursor, || true, &mut found) {
+        calls += 1;
+        assert!(calls <= 3, "the scan must make progress");
+    }
+
+    let found: Vec<_> = found
+        .into_iter()
+        .map(|(term, delta)| (term.into_bytes().into_vec(), delta))
+        .collect();
+    assert_eq!(found, collected);
 }

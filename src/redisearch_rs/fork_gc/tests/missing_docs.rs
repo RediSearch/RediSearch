@@ -15,7 +15,8 @@ use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
     HandleError,
     missing_docs::{
-        MissingDocsEntry, apply_missing_docs, collect_missing_docs, receive_missing_docs,
+        MissingDocsEntry, apply_missing_docs, collect_missing_docs, missing_field_names,
+        receive_missing_docs, scan_missing_field,
     },
 };
 use hidden_string::OwnedHiddenString;
@@ -278,4 +279,38 @@ fn roundtrip_all_docs_deleted_removes_entry() {
     );
     assert!(stats.bytes_collected > 0);
     assert_eq!(stats.records_removed, 0);
+}
+
+/// `missing_field_names` lists every field in the dict, including those with
+/// nothing to collect, so a thread cycle sees the same fields the child does.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
+fn missing_field_names_lists_every_field() {
+    let (spec, _dict) = make_spec([(&b"field_a"[..], index(1)), (&b"field_b"[..], index(0))]);
+    // SAFETY: `spec` and its dict are live for the duration of the test.
+    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+
+    let mut names = missing_field_names(&guard);
+    names.sort();
+    assert_eq!(names, [c"field_a".to_owned(), c"field_b".to_owned()]);
+}
+
+/// `scan_missing_field` finds the same delta `collect_missing_docs` sends, and
+/// nothing for an unknown or empty field.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
+fn scan_missing_field_matches_the_collected_entry() {
+    let (spec, _dict) = make_spec([(&b"age"[..], index(2)), (&b"empty"[..], index(0))]);
+    // SAFETY: `spec` and its dict are live for the duration of the test.
+    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+
+    let mut buf = Vec::new();
+    collect_missing_docs(&mut buf, &*guard).unwrap();
+    let collected = rmp_serde::from_read::<_, Option<MissingDocsEntry>>(&mut Cursor::new(&buf))
+        .unwrap()
+        .expect("the field has docs to collect");
+
+    assert_eq!(scan_missing_field(&guard, c"age"), Some(collected.delta));
+    assert_eq!(scan_missing_field(&guard, c"empty"), None);
+    assert_eq!(scan_missing_field(&guard, c"unknown"), None);
 }
