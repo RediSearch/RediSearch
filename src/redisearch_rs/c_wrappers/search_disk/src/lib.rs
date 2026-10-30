@@ -110,7 +110,7 @@ impl SearchDiskHandle {
     /// 4. There must be no other live reference to the wrapped spec for `'index`.
     pub unsafe fn new_geo_iterator<'index>(
         self,
-        gf: &'index mut ffi::GeoFilter,
+        gf: &'index mut geo::abi::GeoFilter,
         field_index: ffi::t_fieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {

@@ -7,15 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Parallel C ABI for geographic filters. Production switches in the final port stage.
+//! C ABI for geographic filter parsing, validation, matching and ownership.
 
 use std::{
     ffi::{CStr, c_char, c_int},
     ptr,
 };
 
-use ffi::{GeoFilter, LegacyGeoFilter};
-use geo::{DistanceUnit, RadiusFilter};
+use geo::{DistanceUnit, abi::*};
 use query_error::{QueryError, QueryErrorCode, opaque::OpaqueQueryError};
 use redis_module::raw::{RedisModule_Alloc, RedisModule_Free};
 use rqe_core::RS_INVALID_FIELD_INDEX;
@@ -30,24 +29,13 @@ unsafe extern "C" {
     );
 }
 
-/// Convert the ABI's integer unit into the safe domain.
-pub const fn unit(value: c_int) -> Option<DistanceUnit> {
-    match value {
-        ffi::GeoDistance_GEO_DISTANCE_KM => Some(DistanceUnit::Kilometers),
-        ffi::GeoDistance_GEO_DISTANCE_M => Some(DistanceUnit::Meters),
-        ffi::GeoDistance_GEO_DISTANCE_FT => Some(DistanceUnit::Feet),
-        ffi::GeoDistance_GEO_DISTANCE_MI => Some(DistanceUnit::Miles),
-        _ => None,
-    }
-}
-
 const fn unit_tag(unit: Option<DistanceUnit>) -> c_int {
     match unit {
-        Some(DistanceUnit::Kilometers) => ffi::GeoDistance_GEO_DISTANCE_KM,
-        Some(DistanceUnit::Meters) => ffi::GeoDistance_GEO_DISTANCE_M,
-        Some(DistanceUnit::Feet) => ffi::GeoDistance_GEO_DISTANCE_FT,
-        Some(DistanceUnit::Miles) => ffi::GeoDistance_GEO_DISTANCE_MI,
-        None => ffi::GeoDistance_GEO_DISTANCE_INVALID,
+        Some(DistanceUnit::Kilometers) => GEO_DISTANCE_KM,
+        Some(DistanceUnit::Meters) => GEO_DISTANCE_M,
+        Some(DistanceUnit::Feet) => GEO_DISTANCE_FT,
+        Some(DistanceUnit::Miles) => GEO_DISTANCE_MI,
+        None => GEO_DISTANCE_INVALID,
     }
 }
 
@@ -57,7 +45,7 @@ const fn empty_filter() -> GeoFilter {
         lat: 0.0,
         lon: 0.0,
         radius: 0.0,
-        unitType: ffi::GeoDistance_GEO_DISTANCE_KM,
+        unitType: GEO_DISTANCE_KM,
         numericFilters: ptr::null_mut(),
     }
 }
@@ -164,7 +152,7 @@ pub unsafe extern "C" fn Rust_GeoFilter_Validate(
     debug_assert!(!filter.is_null() && !status.is_null());
     // SAFETY: the filter is initialized and readable for this call.
     let gf = unsafe { &*filter };
-    match RadiusFilter::new(gf.lon, gf.lat, gf.radius, unit(gf.unitType)) {
+    match gf.validated() {
         Ok(_) => 1,
         Err(error) => {
             // SAFETY: status is initialized, exclusive, and does not overlap the filter.
@@ -191,7 +179,7 @@ pub unsafe extern "C" fn Rust_isWithinRadius(
     debug_assert!(!filter.is_null());
     // SAFETY: the filter is readable and was validated before matching begins.
     let gf = unsafe { &*filter };
-    let filter = RadiusFilter::new(gf.lon, gf.lat, gf.radius, unit(gf.unitType)).unwrap();
+    let filter = gf.validated().unwrap();
     let meters = filter.distance(score);
     // SAFETY: any present output is exclusively writable and disjoint from filter.
     if let Some(output) = unsafe { distance.as_mut() } {
@@ -236,7 +224,7 @@ pub unsafe extern "C" fn Rust_LegacyGeoFilter_Free(filter: *mut LegacyGeoFilter)
     let field = unsafe { (*filter).field };
     if !field.is_null() {
         // SAFETY: legacy parsing creates a borrowed HiddenString wrapper, owned by this filter.
-        unsafe { ffi::HiddenString_Free(field, false) };
+        unsafe { ffi::HiddenString_Free(field.cast(), false) };
     }
     // SAFETY: base is the first field of the original allocation and owns its ranges.
     unsafe { Rust_GeoFilter_Free(filter.cast()) };
@@ -308,7 +296,7 @@ pub unsafe extern "C" fn Rust_GeoFilter_LegacyParse(
     let name = unsafe { ffi::AC_GetStringNC(ac, ptr::null_mut()) };
     // SAFETY: ArgsCursor returned the current terminated unit string.
     let unit = unsafe { Rust_GeoDistance_Parse(name) };
-    if unit == ffi::GeoDistance_GEO_DISTANCE_INVALID {
+    if unit == GEO_DISTANCE_INVALID {
         // SAFETY: status is exclusive and name points to a live terminated argument.
         unsafe {
             QueryError_SetWithUserDataFmt(
@@ -335,7 +323,7 @@ pub unsafe extern "C" fn Rust_GeoFilter_LegacyParse(
                 unitType: unit,
                 ..empty_filter()
             },
-            field,
+            field: field.cast(),
         }
     };
     0

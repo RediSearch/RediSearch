@@ -44,7 +44,7 @@ struct GeoFixture {
     ctx: QueryEvalContext,
     node: MockQueryNode,
     // Boxed so its address stays stable while the node holds a raw pointer to it.
-    gf: Box<ffi::GeoFilter>,
+    gf: Box<geo::abi::GeoFilter>,
 }
 
 impl GeoFixture {
@@ -60,18 +60,18 @@ impl GeoFixture {
         // `QueryEvalContext::new` invariants.
         let ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
-        let mut gf = Box::new(ffi::GeoFilter {
+        let mut gf = Box::new(geo::abi::GeoFilter {
             fieldIndex: context.field_spec().index,
             lat,
             lon,
             radius: radius_km,
-            unitType: ffi::GeoDistance_GEO_DISTANCE_KM,
+            unitType: geo::abi::GEO_DISTANCE_KM,
             numericFilters: std::ptr::null_mut(),
         });
 
         let mut node = MockQueryNode::new(QueryNodeType::Geo);
         node.opts_mut().weight = 1.0;
-        node.set_geo_filter(&mut *gf as *mut ffi::GeoFilter);
+        node.set_geo_filter(&mut *gf);
 
         Self {
             _guard,

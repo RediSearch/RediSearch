@@ -43,7 +43,7 @@
 #include "aggregate/aggregate_plan.h"
 #include "aggregate/expr/expression.h"
 #include "field_spec.h"
-#include "geo_index.h"
+#include "geo_filter_ffi.h"
 #include "hiredis/sds.h"
 #include "hybrid/hybrid_cursor_mappings.h"
 #include "language.h"
@@ -596,7 +596,7 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
     LegacyGeoFilter *cur_gf = rm_new(*cur_gf);
     array_ensure_append_1(options->legacy.geo_filters, cur_gf);
-    if (GeoFilter_LegacyParse(cur_gf, ac, hasEmptyFilterValue, status) != REDISMODULE_OK) {
+    if (Rust_GeoFilter_LegacyParse(cur_gf, ac, hasEmptyFilterValue, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else {
@@ -1451,7 +1451,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       LegacyGeoFilter *gf = opts->legacy.geo_filters[ii];
 
       const FieldSpec *fs = IndexSpec_GetField(sctx->spec, gf->field);
-      GeoFilter_SetField(&gf->base, fs);
+      Rust_GeoFilter_SetField(&gf->base, fs);
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
           const char *generalError = fs ? "Field is not a geo field" : "Unknown Field";
@@ -1869,7 +1869,7 @@ void AREQ_Free(AREQ *req) {
     array_free(req->searchopts.legacy.filters);
   }
   if (req->searchopts.legacy.geo_filters) {
-    array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) LegacyGeoFilter_Free(gf));
+    array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) Rust_LegacyGeoFilter_Free(gf));
     array_free(req->searchopts.legacy.geo_filters);
   }
   if (req->searchopts.params) {

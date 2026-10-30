@@ -32,6 +32,7 @@
 #include <assert.h>
 
 #include "../parse.h"
+#include "geo_filter_ffi.h"
 #include "util/arr/arr.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
@@ -2278,7 +2279,7 @@ static YYACTIONTYPE yy_reduce(
     // we keep the capitalization as is
     // `yymsp[-2].minor.yy150.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
     // otherwise it is uninitialised parser-stack garbage, not NULL.
-    GeoFilter_SetField(yymsp[0].minor.yy62->gf, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
+    Rust_GeoFilter_SetField(yymsp[0].minor.yy62->gf, ctx->sctx->spec ? yymsp[-2].minor.yy150.fs : NULL);
     yylhsminor.yy3 = NewGeofilterNode(yymsp[0].minor.yy62);
   }
 }

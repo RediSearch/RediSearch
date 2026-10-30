@@ -19,7 +19,7 @@
 #include "debug_commands.h" // IWYU pragma: keep
 #endif
 
-#include "geo_index.h"
+#include "geo_filter_ffi.h"
 #include "query.h"
 #include "doc_id_meta.h"
 #include "config.h"
@@ -117,7 +117,7 @@ void QueryNode_Free(QueryNode *n) {
       break;
     case QN_GEO:
       if (n->gn.gf) {
-        GeoFilter_Free((void *)n->gn.gf);
+        Rust_GeoFilter_Free((void *)n->gn.gf);
       }
       break;
     case QN_FUZZY:
@@ -1064,8 +1064,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_GEO: {
       const GeoFilter *gf = qs->gn.gf;
       const FieldSpec *geoFs = spec->fields + gf->fieldIndex;
-      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", HiddenString_GetUnsafe(geoFs->fieldName, NULL), gf->lon,
-                       gf->lat, gf->radius, GeoDistance_ToString(gf->unitType));
+      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}",
+                       HiddenString_GetUnsafe(geoFs->fieldName, NULL), gf->lon, gf->lat, gf->radius,
+                       Rust_GeoDistance_ToString(gf->unitType));
     } break;
     case QN_IDS:
       s = sdscat(s, "IDS {");

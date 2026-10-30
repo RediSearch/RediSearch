@@ -13,7 +13,7 @@
 #include <string.h>
 
 #include "query_error_ffi.h"
-#include "geo_index.h"
+#include "geo_filter_ffi.h"
 #include "numeric_filter.h"
 #include "query_internal.h"
 #include "query_error.h"
@@ -31,7 +31,7 @@ QueryParam *NewQueryParam(QueryParamType type) {
 QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *lon, QueryToken *lat, QueryToken *radius, QueryToken *unit) {
   QueryParam *ret = NewQueryParam(QP_GEO_FILTER);
 
-  GeoFilter *gf = NewGeoFilter(0, 0, 0, NULL, 0); // TODO: Just call rm_calloc ?
+  GeoFilter *gf = Rust_NewGeoFilter(0, 0, 0, NULL, 0);  // TODO: Just call rm_calloc ?
   ret->gf = gf;
   QueryParam_InitParams(ret, 4);
   QueryParam_SetParam(q, &ret->params[0], &gf->lon, NULL, lon);
@@ -39,7 +39,7 @@ QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToke
   QueryParam_SetParam(q, &ret->params[2], &gf->radius, NULL, radius);
   assert (unit->type != QT_TERM_CASE);
   if (unit->type == QT_TERM && unit->s) {
-    gf->unitType = GeoDistance_Parse_Buffer(unit->s, unit->len);
+    gf->unitType = Rust_GeoDistance_Parse_Buffer(unit->s, unit->len);
   } else if (unit->type == QT_PARAM_GEO_UNIT) {
     QueryParam_SetParam(q, &ret->params[3], &gf->unitType, NULL, unit);
   } else {
@@ -70,7 +70,7 @@ void QueryParam_Free(QueryParam *p) {
   if (!p) return;
   switch (p->type) {
     case QP_GEO_FILTER:
-      GeoFilter_Free(p->gf);
+      Rust_GeoFilter_Free(p->gf);
       break;
     case QP_NUMERIC_FILTER:
       NumericFilter_Free(p->nf);
@@ -246,7 +246,7 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
     }
 
     case PARAM_GEO_UNIT:
-      *(GeoDistance*)param->target = GeoDistance_Parse(val);
+      *(int *)param->target = Rust_GeoDistance_Parse(val);
       return 1;
 
     case PARAM_VEC: {

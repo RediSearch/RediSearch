@@ -75,6 +75,7 @@
 #include <assert.h>
 
 #include "../parse.h"
+#include "geo_filter_ffi.h"
 #include "util/arr/arr.h"
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
@@ -925,7 +926,7 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
     // `B.fs` is only assigned by the `modifier` rule when `ctx->sctx->spec` is set;
     // otherwise it is uninitialised parser-stack garbage, not NULL.
-    GeoFilter_SetField(C->gf, ctx->sctx->spec ? B.fs : NULL);
+    Rust_GeoFilter_SetField(C->gf, ctx->sctx->spec ? B.fs : NULL);
     A = NewGeofilterNode(C);
   }
 }
