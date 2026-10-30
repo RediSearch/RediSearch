@@ -108,7 +108,7 @@ fn bench_heap_pop_all(c: &mut Criterion) {
                     }
                     heap
                 },
-                |heap| black_box(heap.drain_sorted()),
+                |mut heap| black_box(heap.drain_sorted()),
                 BatchSize::SmallInput,
             )
         },
