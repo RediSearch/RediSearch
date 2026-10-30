@@ -267,6 +267,46 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
   }
 }
 
+/*
+ * The timeout policy a buffering processor applies when its upstream stops (RS_RESULT_TIMEDOUT).
+ * A stop for memory pressure follows ON_OOM instead of ON_TIMEOUT: FAIL returns the stop, RETURN
+ * hands the buffered rows downstream right away under every timeout policy, since no timeout
+ * callback waits to drain them. The stage that replies maps the stop to the ON_OOM outcome.
+ */
+static RSTimeoutPolicy RP_StopPolicy(const ResultProcessor *rp) {
+  const QueryProcessingCtx *qctx = rp->parent;
+  if (qctx->timeout && QueryRequestTimeout_GetStopReason(qctx->timeout) == QUERY_STOP_REASON_OOM) {
+    return qctx->oomPolicy == OomPolicy_Fail ? TimeoutPolicy_Fail : TimeoutPolicy_Return;
+  }
+  return qctx->timeoutPolicy;
+}
+
+static QueryStopReason RP_StopReason(const ResultProcessor *rp) {
+  const QueryRequestTimeout *timeout = rp->parent->timeout;
+  return timeout ? QueryRequestTimeout_GetStopReason(timeout) : QUERY_STOP_REASON_NONE;
+}
+
+/*
+ * A stop request lasts one cycle, but a buffered prefix may be yielded over several cursor reads.
+ * The read that yields its end requests the stop again, so that read replies the stop's outcome.
+ */
+static void RP_RenewStop(const ResultProcessor *rp, QueryStopReason reason) {
+  if (reason != QUERY_STOP_REASON_NONE) {
+    QueryRequestTimeout_RequestStop(rp->parent->timeout, reason);
+  }
+}
+
+/*
+ * Memory checkpoint of a buffering processor's fill: true when the fill must end now. Under a
+ * RETURN stop policy the fill goes on instead: upstream reads nothing new once the query is
+ * stopped, so the fill ends on upstream's RS_RESULT_TIMEDOUT and keeps the rows buffering stages
+ * upstream already held.
+ */
+static bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
+  return rp->parent->timeout && QueryMemory_ShouldStop(rp->parent->timeout, counter) &&
+         RP_StopPolicy(rp) != TimeoutPolicy_Return;
+}
+
 typedef enum {
   REVALIDATE_CONTINUE,         // Proceed with a normal read
   REVALIDATE_VALIDATE_CURRENT, // The iterator moved: use its current result before reading again
@@ -731,6 +771,11 @@ typedef struct {
 
   // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
+  // Why the heap stopped filling, when a stop request (rather than a timeout) ended it.
+  QueryStopReason stopReason;
+
+  // QueryMemory_ShouldStop counter for the heap's growth.
+  uint32_t memoryCheckCalls;
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
@@ -744,6 +789,9 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     return RS_RESULT_OK;
   }
   int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+  if (self->timedOut) {
+    RP_RenewStop(rp, self->stopReason);
+  }
   self->timedOut = false;
   return ret;
 }
@@ -761,6 +809,28 @@ static void rpsortFree(ResultProcessor *rp) {
 
 #define RESULT_QUEUED RS_RESULT_MAX + 1
 
+// The heap fill stopped: upstream timed out, or the query was asked to stop.
+static int rpsortNext_Stopped(ResultProcessor *rp, SearchResult *r) {
+  RPSorter *self = (RPSorter *)rp;
+  RSTimeoutPolicy policy = RP_StopPolicy(rp);
+
+  if (policy == TimeoutPolicy_Fail) {
+    return RS_RESULT_TIMEDOUT;
+  }
+  // Both Return and ReturnStrict switch to Yield mode (so subsequent Next
+  // calls pop the buffered, sorted prefix from the heap). They differ in
+  // who drives that draining: Return surfaces a row inline now, while
+  // ReturnStrict returns TIMEDOUT immediately so the BG unwinds promptly,
+  // and the main-thread drain pops the heap.
+  rp->Next = rpsortNext_Yield;
+  if (policy == TimeoutPolicy_Return) {
+    self->timedOut = true;
+    self->stopReason = RP_StopReason(rp);
+    return rpsortNext_Yield(rp, r);
+  }
+  return RS_RESULT_TIMEDOUT;
+}
+
 static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
 
@@ -772,22 +842,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
   } else if (rc == RS_RESULT_TIMEDOUT) {
-    RSTimeoutPolicy policy = rp->parent->timeoutPolicy;
-
-    if (policy == TimeoutPolicy_Fail) {
-      return rc;
-    }
-    // Both Return and ReturnStrict switch to Yield mode (so subsequent Next
-    // calls pop the buffered, sorted prefix from the heap). They differ in
-    // who drives that draining: Return surfaces a row inline now, while
-    // ReturnStrict returns TIMEDOUT immediately so the BG unwinds promptly,
-    // and the main-thread drain pops the heap.
-    rp->Next = rpsortNext_Yield;
-    if (policy == TimeoutPolicy_Return) {
-      self->timedOut = true;
-      return rpsortNext_Yield(rp, r);
-    }
-    return rc;
+    return rpsortNext_Stopped(rp, r);
   } else if (rc != RS_RESULT_OK) {
     // whoops!
     return rc;
@@ -809,6 +864,10 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     // we need to allocate a new result for the next iteration
     self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
     *self->pooledResult = SearchResult_New();
+    // The heap grows only here; once full, each row replaces one it holds.
+    if (RP_FillShouldStop(rp, &self->memoryCheckCalls)) {
+      return rpsortNext_Stopped(rp, r);
+    }
   } else {
     // find the min result
     SearchResult *minh = mmh_peek_min(self->pq);
@@ -1781,6 +1840,10 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
    bool timedOut;
+   // Why the pool stopped filling, when a stop request (rather than a timeout) ended it.
+   QueryStopReason stopReason;
+   // QueryMemory_ShouldStop counter for the pool's growth.
+   uint32_t memoryCheckCalls;
  } RPMaxScoreNormalizer;
 
 
@@ -1797,6 +1860,9 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    if (length == 0) {
     // We've already yielded all results, return EOF
     int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    if (self->timedOut) {
+      RP_RenewStop(rp, self->stopReason);
+    }
     self->timedOut = false;
     return ret;
    }
@@ -1816,6 +1882,17 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
   return RS_RESULT_OK;
  }
 
+ // The accumulation stopped: under RETURN the pooled rows are normalized by the max seen so far.
+ static int RPMaxScoreNormalizer_Stopped(ResultProcessor *rp, SearchResult *r) {
+   if (RP_StopPolicy(rp) != TimeoutPolicy_Return) {
+     return RS_RESULT_TIMEDOUT;
+   }
+   ((RPMaxScoreNormalizer *)rp)->timedOut = true;
+   ((RPMaxScoreNormalizer *)rp)->stopReason = RP_StopReason(rp);
+   rp->Next = RPMaxScoreNormalizer_Yield;
+   return rp->Next(rp, r);
+ }
+
 static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
   // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
@@ -1824,10 +1901,8 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   if (rc == RS_RESULT_EOF) {
     rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-    self->timedOut = true;
-    rp->Next = RPMaxScoreNormalizer_Yield;
-    return rp->Next(rp, r);
+  } else if (rc == RS_RESULT_TIMEDOUT) {
+    return RPMaxScoreNormalizer_Stopped(rp, r);
   } else if (rc != RS_RESULT_OK) {
     return rc;
   }
@@ -1841,6 +1916,9 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   // we need to allocate a new result for the next iteration
   self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
   *self->pooledResult = SearchResult_New();
+  if (RP_FillShouldStop(rp, &self->memoryCheckCalls)) {
+    return RPMaxScoreNormalizer_Stopped(rp, r);
+  }
   return RESULT_QUEUED;
 }
 

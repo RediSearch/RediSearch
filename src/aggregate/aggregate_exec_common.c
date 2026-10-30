@@ -104,6 +104,13 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 #endif
 
+static bool oomStopKeepsBufferedRows(const AREQ *areq) {
+  const QueryRequestTimeout *timeout = &areq->base.timeout;
+  return QueryRequestTimeout_GetStopReason(timeout) == QUERY_STOP_REASON_OOM &&
+         areq->base.reqConfig.oomPolicy != OomPolicy_Fail &&
+         !QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+}
+
  SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
    SearchResult **results = array_new(SearchResult *, 8);
    SearchResult r = SearchResult_New();
@@ -121,7 +128,9 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // Honour a requested stop or a main-thread timeout flag at the row
      // boundary: buffering stages (safe loader, sorter yield) can keep emitting
      // from internal buffers without re-touching upstream's per-row timeout check.
-     if (areq && QueryRequest_ShouldStop(&areq->base.timeout)) {
+     // An OOM stop under ON_OOM RETURN is the exception: those stages then hand
+     // over the rows they already hold (see RP_StopPolicy), and read nothing new.
+     if (areq && QueryRequest_ShouldStop(&areq->base.timeout) && !oomStopKeepsBufferedRows(areq)) {
        *rc = RS_RESULT_TIMEDOUT;
        break;
      }

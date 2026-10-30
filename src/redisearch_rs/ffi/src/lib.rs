@@ -108,6 +108,13 @@ pub struct QueryProcessingCtx {
     /// value, so any qctx that is zero-initialized outside the constructor
     /// (`{0}`, `calloc`, `memset`) keeps copying. Skipping is opt-in.
     pub skipIndexResultDeepCopy: bool,
+    /// The owning request's timeout state. Its stop request tells buffering
+    /// processors why their upstream stopped. Null for a pipeline without a
+    /// request.
+    pub timeout: *mut QueryRequestTimeout,
+    /// The owning request's ON_OOM policy, applied by buffering processors to
+    /// a stop for memory pressure.
+    pub oomPolicy: RSOomPolicy,
 }
 
 impl QueryProcessingCtx {
@@ -130,6 +137,8 @@ impl QueryProcessingCtx {
             timeoutPolicy: 0,
             canYieldPartialResults: false,
             skipIndexResultDeepCopy: false,
+            timeout: ptr::null_mut(),
+            oomPolicy: RSOomPolicy_OomPolicy_Return,
         };
 
         Box::pin(ctx)
