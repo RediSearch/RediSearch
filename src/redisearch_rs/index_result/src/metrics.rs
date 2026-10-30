@@ -223,6 +223,23 @@ impl<'a> MetricsVec<'a> {
     pub fn push_without_key(&mut self, value: f64) {
         self.inner.push(MetricEntry::without_key(value));
     }
+
+    /// Sets the value carried under `key`, appending a new entry if none carries it yet.
+    ///
+    /// This is the operation for a metric a node mints for *itself*, as opposed to one
+    /// it merely carries on behalf of a child:
+    ///
+    /// - The node's storage is typically reused from one document to the next, so a plain
+    ///   [`push_with_key`](Self::push_with_key) would accumulate an entry per document.
+    /// - When a child already contributed an entry under the same key, this overwrites
+    ///   that entry instead of adding a second one, so the node's value is the one
+    ///   reported.
+    pub fn upsert_with_key(&mut self, key: &'a RLookupKey, value: f64) {
+        match self.find_by_key_mut(key) {
+            Some(entry) => entry.set_value(value),
+            None => self.push_with_key(key, value),
+        }
+    }
 }
 
 impl Default for MetricsVec<'_> {
