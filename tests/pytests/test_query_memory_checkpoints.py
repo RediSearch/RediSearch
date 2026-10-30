@@ -315,6 +315,60 @@ def test_normalizer_stop_normalizes_by_the_partial_max(env):
                 env.assertEqual(len(res['results']), N_DOCS, message=(policy, workers, res))
 
 
+GROUPBY_QUERIES = (
+    ('FT.AGGREGATE', 'idx', '*', 'GROUPBY', 1, '@n', 'REDUCE', 'COUNT', 0, 'AS', 'c'),
+    ('FT.AGGREGATE', 'idx', '*', 'GROUPBY', 0,
+     'REDUCE', 'TOLIST', 1, '@n', 'AS', 'list',
+     'REDUCE', 'COUNT_DISTINCT', 1, '@n', 'AS', 'distinct',
+     'REDUCE', 'QUANTILE', 2, '@n', 0.5, 'AS', 'median',
+     'REDUCE', 'COLLECT', 3, 'FIELDS', 1, '@n', 'AS', 'rows'),
+)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_grouper_stop_yields_no_partial_groups(env):
+    """A GROUPBY stopped while accumulating replies no groups: ON_OOM RETURN an empty result with
+    the OOM warning, ON_OOM FAIL the OOM error, under every timeout policy. It counts rows, not
+    groups, so a stop also lands while rows only grow existing groups."""
+    create_index(env)
+    k = 4
+    for policy in timeout_policies(env):
+        for workers in worker_counts(env):
+            for query in GROUPBY_QUERIES:
+                full = env.cmd(*query)
+                env.assertGreater(len(full['results']), 0)
+                expect_empty_with_oom_warning(env, run_at_call(env, BUILD_CHECKPOINTS + k, *query))
+                with oom_policy(env, 'fail'):
+                    expect_oom_error_at_call(env, BUILD_CHECKPOINTS + k, *query)
+                with oom_policy(env, 'ignore'):
+                    env.assertEqual(run_at_call(env, BUILD_CHECKPOINTS + k, *query)['results'],
+                                    full['results'], message=(policy, workers, query))
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_shard_grouper_stop_leaves_the_other_shards_groups(env):
+    """In a cluster each shard groups its own rows. A shard stopped while grouping replies none
+    and warns; as for a shard timeout, the coordinator merges the other shards' groups, so the
+    aggregates miss the stopped shard's rows, and replies its OOM warning."""
+    create_index(env)
+    conn = getConnectionByEnv(env)
+    total = 60
+    for i in range(N_DOCS, total):
+        conn.execute_command('HSET', f'doc{i}', 'n', i % 3, 't', f'hello{i}')
+    query = ('FT.AGGREGATE', 'idx', '*', 'GROUPBY', 0, 'REDUCE', 'COUNT', 0, 'AS', 'c')
+    # Shard 2's process hosts no coordinator pipeline, so its calls are its own pipeline's.
+    shard = env.getConnection(2)
+    shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', BUILD_CHECKPOINTS + 1)
+    try:
+        res = env.cmd(*query)
+    finally:
+        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+    env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+    env.assertLess(int(res['results'][0]['extra_attributes']['c']), total, message=res)
+
+
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_sorter_stop_over_cursor_reads(env):
