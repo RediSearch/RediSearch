@@ -9,6 +9,7 @@
 
 #include "hybrid/hybrid_request.h"
 #include "config.h"
+#include "query_memory.h"
 #include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
@@ -126,6 +127,10 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         rc = AREQ_BuildPipeline(areq, &areq->base.reply.err);
         if (isProfile) {
           areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
+        }
+        if (rc == REDISMODULE_OK) {
+          rc = QueryMemory_CheckBeforeExecution(&areq->base.timeout, areq->base.reqConfig.oomPolicy,
+                                                &areq->base.reply.err);
         }
         if (rc != REDISMODULE_OK) {
             break;
@@ -351,7 +356,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize the tail pipeline that will merge results from all requests
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
-    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->base.timeout.config.timeoutPolicy, &hybridReq->base.reply.err);
+    Pipeline_Initialize(hybridReq->tailPipeline, &hybridReq->base);
     QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
     // Capture the background-scan-OOM warning flag while the spec is guaranteed
     // alive (main-thread command handling). The reply path reads only this
@@ -364,7 +369,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->base.timeout.config.timeoutPolicy, &requests[i]->base.reply.err);
+        Pipeline_Initialize(&requests[i]->pipeline, &requests[i]->base);
     }
     hybridReq->profileClocks.initClock = now;
 

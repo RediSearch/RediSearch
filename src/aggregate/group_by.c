@@ -15,6 +15,7 @@
 #include "value_ffi.h"
 #include "search_result_ffi.h"
 #include "pipeline/pipeline.h"
+#include "query_memory.h"
 #include "reducer.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
@@ -87,6 +88,10 @@ typedef struct Grouper {
 
   // Used for maintaining state when yielding groups
   khiter_t iter;
+
+  // QueryMemory_ShouldStop counter. Rows, not new groups: reducer state also grows inside
+  // existing groups.
+  uint32_t memoryCheckCalls;
 } Grouper;
 
 static void setAggregateGroupLimitError(const Grouper *g) {
@@ -282,6 +287,11 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
     rc = invokeGroupReducers(g, SearchResult_GetRowDataMut(res), SearchResult_GetDocId(res));
     SearchResult_Clear(res);
+    if (rc == RS_RESULT_OK && base->parent->timeout &&
+        QueryMemory_ShouldStop(base->parent->timeout, &g->memoryCheckCalls)) {
+      // No partial groups: like a timeout, the stop yields none, and Grouper_rpFree frees them.
+      rc = RS_RESULT_TIMEDOUT;
+    }
     if (rc != RS_RESULT_OK) {
       break;
     }

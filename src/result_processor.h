@@ -461,6 +461,14 @@ enum CrashLocation {
 ResultProcessor *RPCrash_New(enum CrashLocation location);
 void PipelineAddCrash(struct AREQ *r, enum CrashLocation location);
 
+/**
+ * Memory checkpoint of a processor that buffers rows or grows per row: true when it must end now
+ * with RS_RESULT_TIMEDOUT. Under a RETURN stop policy it goes on instead: upstream reads nothing
+ * new once the query is stopped, so it ends on upstream's RS_RESULT_TIMEDOUT and keeps the rows
+ * buffering stages upstream already held. Always false for a pipeline without a timeout state.
+ */
+bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter);
+
 /** For debugging purposes
  * Adds a result processor, downstream of the last one, that calls the query memory
  * checkpoint (QueryMemory_ShouldStop) before every upstream read and reports a timeout once it

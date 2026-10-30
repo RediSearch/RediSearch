@@ -142,6 +142,10 @@ def test_raw_ratio_reports_the_memory_api(env):
 
 
 N_DOCS = 10
+# The query's build stages are checkpoints too, read before the debug checkpoint's first call.
+BUILD_CHECKPOINTS = 3
+# A client cursor is admitted with one more checkpoint call, after the build stages.
+CURSOR_ADMISSION = 1
 
 
 def _index_with_docs(env):
@@ -158,17 +162,19 @@ def _debug_aggregate(env, *debug_args):
 
 @skip(cluster=True)
 def test_pressure_at_call_stops_a_query_at_a_debug_checkpoint(env):
-    """MEMORY_CHECKPOINT stands in for a real checkpoint: with AT_CALL n the query stops at its
-    n-th read, after n-1 rows, and ON_OOM IGNORE keeps it running."""
+    """MEMORY_CHECKPOINT stands in for a real checkpoint: with AT_CALL past the build stages the
+    query stops at the debug checkpoint's n-th read, after n-1 rows, and ON_OOM IGNORE keeps it
+    running. The reply loop checks before each row after the first, so the two alternate and
+    the debug checkpoint's 4th call is call BUILD_CHECKPOINTS + 7."""
     _index_with_docs(env)
 
-    memory_pressure(env, 'AT_CALL', 4)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 7)
     res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
     env.assertEqual(len(res) - 1, 3, message=res)
-    env.assertEqual(status(env)[5], 4)
+    env.assertEqual(status(env)[5], BUILD_CHECKPOINTS + 7)
 
     change_oom_policy(env, 'ignore')
-    memory_pressure(env, 'AT_CALL', 4)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 7)
     res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
     env.assertEqual(len(res) - 1, N_DOCS, message=res)
     change_oom_policy(env, 'return')
@@ -189,24 +195,27 @@ def _coord_oom_counters(env):
 def test_oom_stop_replies_by_on_oom_policy(env):
     """A query stopped for OOM ends like the entry guard's OOM, not like a timeout: ON_OOM
     RETURN keeps the rows produced so far and warns, ON_OOM FAIL replies the OOM error, and
-    each bumps the matching INFO counter."""
+    each bumps the matching INFO counter. The debug checkpoint alternates with the reply loop's
+    (or, under FAIL, the buffering) checkpoint, so its 4th call is BUILD_CHECKPOINTS + 7."""
     _index_with_docs(env)
 
     errors, warnings = _coord_oom_counters(env)
-    memory_pressure(env, 'AT_CALL', 4)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 7)
     res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
     env.assertEqual(len(res['results']), 3, message=res)
     env.assertEqual(res['warning'], [COORD_OOM_WARNING])
     env.assertEqual(_coord_oom_counters(env), (errors, warnings + 1))
 
     change_oom_policy(env, 'fail')
-    memory_pressure(env, 'AT_CALL', 4)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 7)
     env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
                'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1).error().contains(OOM_QUERY_ERROR)
     env.assertEqual(_coord_oom_counters(env), (errors + 1, warnings + 1))
     change_oom_policy(env, 'return')
 
-    memory_pressure(env, 'AT_CALL', 4)
+    # The sorter checkpoints every row it buffers too, so the two alternate: the 6th call is
+    # the sorter's 3rd.
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 6)
     res = env.cmd(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n',
                   'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1)
     env.assertEqual([r['id'] for r in res['results']], ['doc0', 'doc1', 'doc2'], message=res)
@@ -217,9 +226,11 @@ def test_oom_stop_replies_by_on_oom_policy(env):
 @skip(cluster=True)
 def test_oom_stop_ends_the_cursor(env):
     """A cursor read stopped for OOM returns its rows and ends the cursor rather than leaving it
-    open as a timeout under ON_TIMEOUT RETURN would."""
+    open as a timeout under ON_TIMEOUT RETURN would. The first chunk takes the build calls and
+    3 more (debug, reply loop, debug) after the cursor's admission; the read's debug calls are
+    the 2 after those and the one after the reply loop's."""
     _index_with_docs(env)
-    memory_pressure(env, 'AT_CALL', 4)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + CURSOR_ADMISSION + 6)
     res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
                           'WITHCURSOR', 'COUNT', 2, 'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1)
     env.assertEqual(len(res) - 1, 2, message=res)

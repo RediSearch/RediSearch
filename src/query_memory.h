@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "config.h"
 #include "query_request.h"
 
 #ifdef __cplusplus
@@ -43,6 +44,19 @@ extern "C" {
  * `timeout` (no owning request) still reports pressure but records no stop.
  */
 bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter);
+
+/**
+ * The memory checkpoint between the build stages of a query, before it reads
+ * its first row. Unless a stop is already requested, reads memory on this call,
+ * whatever the read interval. Under
+ * pressure the OOM stop is requested, and with `oomPolicy` FAIL the query fails
+ * before it runs: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` and REDISMODULE_ERR.
+ * Otherwise REDISMODULE_OK; a requested stop then ends the pipeline at its
+ * first read, which ApplyOomStop replies as an empty result with the OOM
+ * warning. `timeout` must not be NULL.
+ */
+int QueryMemory_CheckBeforeExecution(QueryRequestTimeout *timeout, RSOomPolicy oomPolicy,
+                                     QueryError *err);
 
 /**
  * Debug and test override of QUERY_MEMORY_RATIO_READ_INTERVAL for every

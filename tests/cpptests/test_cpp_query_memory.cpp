@@ -277,3 +277,27 @@ TEST_F(ApplyOomStopTest, ReturnEndsTheResultWithTheOomWarning) {
 }
 
 }  // namespace
+
+TEST_F(QueryMemoryTest, BuildCheckReadsMemoryOnEveryCall) {
+  // At the default interval: the build stages are each checked once per query.
+  QueryError err = QueryError_Default();
+  fakeRatio = 0.5f;
+  EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Fail, &err), REDISMODULE_OK);
+  EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Fail, &err), REDISMODULE_OK);
+  EXPECT_EQ(fakeRatioReads.load(), 2u);
+  EXPECT_TRUE(QueryError_IsOk(&err));
+
+  fakeRatio = 1.0f;
+  EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Fail, &err), REDISMODULE_ERR);
+  EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_OUT_OF_MEMORY);
+  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
+  QueryError_ClearError(&err);
+}
+
+TEST_F(QueryMemoryTest, BuildCheckUnderReturnOnlyRequestsTheStop) {
+  QueryError err = QueryError_Default();
+  fakeRatio = 1.0f;
+  EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Return, &err), REDISMODULE_OK);
+  EXPECT_TRUE(QueryError_IsOk(&err));
+  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
+}

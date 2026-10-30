@@ -267,6 +267,40 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
   }
 }
 
+/*
+ * The timeout policy a buffering processor applies when its upstream stops (RS_RESULT_TIMEDOUT).
+ * A stop for memory pressure follows ON_OOM instead of ON_TIMEOUT: FAIL returns the stop, RETURN
+ * hands the buffered rows downstream right away under every timeout policy, since no timeout
+ * callback waits to drain them. The stage that replies maps the stop to the ON_OOM outcome.
+ */
+static RSTimeoutPolicy RP_StopPolicy(const ResultProcessor *rp) {
+  const QueryProcessingCtx *qctx = rp->parent;
+  if (qctx->timeout && QueryRequestTimeout_GetStopReason(qctx->timeout) == QUERY_STOP_REASON_OOM) {
+    return qctx->oomPolicy == OomPolicy_Fail ? TimeoutPolicy_Fail : TimeoutPolicy_Return;
+  }
+  return qctx->timeoutPolicy;
+}
+
+static QueryStopReason RP_StopReason(const ResultProcessor *rp) {
+  const QueryRequestTimeout *timeout = rp->parent->timeout;
+  return timeout ? QueryRequestTimeout_GetStopReason(timeout) : QUERY_STOP_REASON_NONE;
+}
+
+/*
+ * A stop request lasts one cycle, but a buffered prefix may be yielded over several cursor reads.
+ * The read that yields its end requests the stop again, so that read replies the stop's outcome.
+ */
+static void RP_RenewStop(const ResultProcessor *rp, QueryStopReason reason) {
+  if (reason != QUERY_STOP_REASON_NONE) {
+    QueryRequestTimeout_RequestStop(rp->parent->timeout, reason);
+  }
+}
+
+bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
+  return rp->parent->timeout && QueryMemory_ShouldStop(rp->parent->timeout, counter) &&
+         RP_StopPolicy(rp) != TimeoutPolicy_Return;
+}
+
 typedef enum {
   REVALIDATE_CONTINUE,         // Proceed with a normal read
   REVALIDATE_VALIDATE_CURRENT, // The iterator moved: use its current result before reading again
@@ -731,6 +765,11 @@ typedef struct {
 
   // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
+  // Why the heap stopped filling, when a stop request (rather than a timeout) ended it.
+  QueryStopReason stopReason;
+
+  // QueryMemory_ShouldStop counter for the heap's growth.
+  uint32_t memoryCheckCalls;
 } RPSorter;
 
 /* Yield - pops the current top result from the heap */
@@ -744,6 +783,9 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     return RS_RESULT_OK;
   }
   int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+  if (self->timedOut) {
+    RP_RenewStop(rp, self->stopReason);
+  }
   self->timedOut = false;
   return ret;
 }
@@ -761,6 +803,28 @@ static void rpsortFree(ResultProcessor *rp) {
 
 #define RESULT_QUEUED RS_RESULT_MAX + 1
 
+// The heap fill stopped: upstream timed out, or the query was asked to stop.
+static int rpsortNext_Stopped(ResultProcessor *rp, SearchResult *r) {
+  RPSorter *self = (RPSorter *)rp;
+  RSTimeoutPolicy policy = RP_StopPolicy(rp);
+
+  if (policy == TimeoutPolicy_Fail) {
+    return RS_RESULT_TIMEDOUT;
+  }
+  // Both Return and ReturnStrict switch to Yield mode (so subsequent Next
+  // calls pop the buffered, sorted prefix from the heap). They differ in
+  // who drives that draining: Return surfaces a row inline now, while
+  // ReturnStrict returns TIMEDOUT immediately so the BG unwinds promptly,
+  // and the main-thread drain pops the heap.
+  rp->Next = rpsortNext_Yield;
+  if (policy == TimeoutPolicy_Return) {
+    self->timedOut = true;
+    self->stopReason = RP_StopReason(rp);
+    return rpsortNext_Yield(rp, r);
+  }
+  return RS_RESULT_TIMEDOUT;
+}
+
 static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
 
@@ -772,22 +836,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
   } else if (rc == RS_RESULT_TIMEDOUT) {
-    RSTimeoutPolicy policy = rp->parent->timeoutPolicy;
-
-    if (policy == TimeoutPolicy_Fail) {
-      return rc;
-    }
-    // Both Return and ReturnStrict switch to Yield mode (so subsequent Next
-    // calls pop the buffered, sorted prefix from the heap). They differ in
-    // who drives that draining: Return surfaces a row inline now, while
-    // ReturnStrict returns TIMEDOUT immediately so the BG unwinds promptly,
-    // and the main-thread drain pops the heap.
-    rp->Next = rpsortNext_Yield;
-    if (policy == TimeoutPolicy_Return) {
-      self->timedOut = true;
-      return rpsortNext_Yield(rp, r);
-    }
-    return rc;
+    return rpsortNext_Stopped(rp, r);
   } else if (rc != RS_RESULT_OK) {
     // whoops!
     return rc;
@@ -809,6 +858,10 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     // we need to allocate a new result for the next iteration
     self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
     *self->pooledResult = SearchResult_New();
+    // The heap grows only here; once full, each row replaces one it holds.
+    if (RP_FillShouldStop(rp, &self->memoryCheckCalls)) {
+      return rpsortNext_Stopped(rp, r);
+    }
   } else {
     // find the min result
     SearchResult *minh = mmh_peek_min(self->pq);
@@ -1213,6 +1266,12 @@ typedef struct RPSafeLoader {
   // aggregate-results sync. When set, the loader performs the GIL deadlock-
   // avoidance handshake around the GIL (see aggregate.h).
   QueryRequest *request;
+
+  // Why the buffer or load stopped, when a stop request ended it.
+  QueryStopReason stopReason;
+  // QueryMemory_ShouldStop counters for the buffer and for the values loaded under the GIL.
+  uint32_t bufferMemoryCheckCalls;
+  uint32_t loadMemoryCheckCalls;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -1293,6 +1352,10 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 
   int rc = self->last_buffered_rc;
   self->last_buffered_rc = RS_RESULT_OK;
+  if (rc == RS_RESULT_TIMEDOUT) {
+    RP_RenewStop(&self->base_loader.base, self->stopReason);
+  }
+  self->stopReason = QUERY_STOP_REASON_NONE;
   // We CANNOT return `RS_RESULT_OK` HERE, since it will be interpreted as a
   // success while no population of the result was done.
   // So if the last rc was `RS_RESULT_OK`, we need to continue activating the
@@ -1307,10 +1370,31 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 
 static void rpSafeLoader_Load(RPSafeLoader *self) {
   SearchResult *curr_res;
+  // The pipeline's timeout state, NULL for a pipeline built without a request.
+  QueryRequestTimeout *timeout = self->base_loader.base.parent->timeout;
+  // A stop requested while buffering already chose to load the whole buffer (RETURN), so only
+  // memory found short while loading cuts the load.
+  const bool checkMemory = timeout && !QueryRequestTimeout_IsStopRequested(timeout);
+  bool stopped = false;
 
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
+    // Only an OOM stop cuts the load: a timeout's callback waits for this worker, as before.
+    if (!stopped && checkMemory && QueryMemory_ShouldStop(timeout, &self->loadMemoryCheckCalls) &&
+        QueryRequestTimeout_GetStopReason(timeout) == QUERY_STOP_REASON_OOM) {
+      // The loaded prefix is yielded; the yield phase then ends on the stop.
+      stopped = true;
+      self->last_buffered_rc = RS_RESULT_TIMEDOUT;
+      self->stopReason = QueryRequestTimeout_GetStopReason(timeout);
+    }
+    if (stopped) {
+      // An empty slot, which the yield phase skips. Not counted in skippedResults: the row still
+      // matched the query.
+      SearchResult_Destroy(curr_res);
+      *curr_res = SearchResult_New();
+      continue;
+    }
     rpLoader_loadDocument(&self->base_loader, curr_res);
     if (!loaderResultIsEmittable(curr_res)) {
       // The document was deleted/re-indexed between buffering and load (the safe loader
@@ -1366,17 +1450,27 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
     resToBuffer = SearchResult_New();
+    if (RP_FillShouldStop(rp, &self->bufferMemoryCheckCalls)) {
+      result_status = RS_RESULT_TIMEDOUT;
+      break;
+    }
   }
   rp->parent->resultLimit = bufferLimit; // Restore the result limit
+  // A stop requested by the last row's checkpoint under a RETURN stop policy still ends the query
+  // after this buffer.
+  if (result_status == RS_RESULT_OK && RP_StopReason(rp) != QUERY_STOP_REASON_NONE) {
+    result_status = RS_RESULT_TIMEDOUT;
+  }
 
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
-      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
+       !(result_status == RS_RESULT_TIMEDOUT && RP_StopPolicy(rp) == TimeoutPolicy_Return)) ||
       IsBufferEmpty(self)) {
     return result_status;
   }
   // save the last buffered result code to return when we done yielding the buffered results.
   self->last_buffered_rc = result_status;
+  self->stopReason = RP_StopReason(rp);
 
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
@@ -1599,6 +1693,9 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   sl->last_buffered_rc = RS_RESULT_OK;
   sl->request = NULL;
+  sl->stopReason = QUERY_STOP_REASON_NONE;
+  sl->bufferMemoryCheckCalls = 0;
+  sl->loadMemoryCheckCalls = 0;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
@@ -1781,6 +1878,10 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
    bool timedOut;
+   // Why the pool stopped filling, when a stop request (rather than a timeout) ended it.
+   QueryStopReason stopReason;
+   // QueryMemory_ShouldStop counter for the pool's growth.
+   uint32_t memoryCheckCalls;
  } RPMaxScoreNormalizer;
 
 
@@ -1797,6 +1898,9 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    if (length == 0) {
     // We've already yielded all results, return EOF
     int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    if (self->timedOut) {
+      RP_RenewStop(rp, self->stopReason);
+    }
     self->timedOut = false;
     return ret;
    }
@@ -1816,6 +1920,17 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
   return RS_RESULT_OK;
  }
 
+ // The accumulation stopped: under RETURN the pooled rows are normalized by the max seen so far.
+ static int RPMaxScoreNormalizer_Stopped(ResultProcessor *rp, SearchResult *r) {
+   if (RP_StopPolicy(rp) != TimeoutPolicy_Return) {
+     return RS_RESULT_TIMEDOUT;
+   }
+   ((RPMaxScoreNormalizer *)rp)->timedOut = true;
+   ((RPMaxScoreNormalizer *)rp)->stopReason = RP_StopReason(rp);
+   rp->Next = RPMaxScoreNormalizer_Yield;
+   return rp->Next(rp, r);
+ }
+
 static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
   // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
@@ -1824,10 +1939,8 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   if (rc == RS_RESULT_EOF) {
     rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-    self->timedOut = true;
-    rp->Next = RPMaxScoreNormalizer_Yield;
-    return rp->Next(rp, r);
+  } else if (rc == RS_RESULT_TIMEDOUT) {
+    return RPMaxScoreNormalizer_Stopped(rp, r);
   } else if (rc != RS_RESULT_OK) {
     return rc;
   }
@@ -1841,6 +1954,9 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   // we need to allocate a new result for the next iteration
   self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
   *self->pooledResult = SearchResult_New();
+  if (RP_FillShouldStop(rp, &self->memoryCheckCalls)) {
+    return RPMaxScoreNormalizer_Stopped(rp, r);
+  }
   return RESULT_QUEUED;
 }
 
@@ -1970,6 +2086,8 @@ typedef struct {
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
   rs_wall_clock_ns_t depletionTime;    // Time spent depleting in the background thread (nanoseconds)
   redisearch_thpool_t *pool;           // Thread pool used for depletion jobs
+  QueryStopReason stopReason;          // Why depletion stopped, when a stop request ended it
+  uint32_t memoryCheckCalls;           // QueryMemory_ShouldStop counter for the buffer
 } RPSafeDepleter;
 
 /*
@@ -2063,6 +2181,9 @@ rs_wall_clock_ns_t RPSafeDepleter_GetDepletionTime(const ResultProcessor *base) 
 static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSync *sync) {
   RPStatus rc;
   bool lock_acquired = false;
+  // The stop checks read the pipeline's timeout state; it is the depleting context's.
+  RS_ASSERT(!self->base.parent->timeout ||
+            self->base.parent->timeout == self->depletingThreadCtx->timeout);
 
   if (sync->take_index_lock) {
     // Try to lock the index for read (non-blocking)
@@ -2094,11 +2215,10 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
-    // Notice a requested stop or a blocked-client (RETURN_STRICT) timeout
-    // promptly when another thread flips its flag.
-    // The wall-clock deadline is already handled by the upstream's own checks.
-    QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
-    if (QueryRequest_ShouldStop(timeout)) {
+    // Check memory, and end at once on a stop whose policy discards the rows (a blocked-client
+    // timeout, an OOM stop under ON_OOM FAIL). Under a RETURN policy the upstream ends the rows;
+    // the wall-clock deadline is handled by the upstream's own checks.
+    if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls)) {
       rc = RS_RESULT_TIMEDOUT;
       break;
     }
@@ -2107,9 +2227,12 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
 
   // Save the last return code from the upstream.
   self->last_rc = rc;
+  if (rc == RS_RESULT_TIMEDOUT) {
+    self->stopReason = RP_StopReason(&self->base);
+  }
 
   // If TIMEOUT with policy FAIL, we can already clear the results - will not be used
-  if (rc == RS_RESULT_TIMEDOUT && self->base.parent->timeoutPolicy == TimeoutPolicy_Fail) {
+  if (rc == RS_RESULT_TIMEDOUT && RP_StopPolicy(&self->base) == TimeoutPolicy_Fail) {
     RPSafeDepleter_ClearResults(self);
   }
 
@@ -2145,6 +2268,7 @@ static void RPSafeDepleter_Deplete(void *arg) {
   } else {
     // Timeout before starting - no need to acquire lock or do any work
     self->last_rc = RS_RESULT_TIMEDOUT;
+    self->stopReason = RP_StopReason(&self->base);
     if (sync->take_index_lock) {
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
       atomic_fetch_add(&sync->num_skipped_lock, 1);
@@ -2169,6 +2293,9 @@ static int RPSafeDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   if (self->cur_idx == array_len(self->results)) {
     // We've reached the end of the array, return the last code from the upstream.
     int rc = self->last_rc;
+    if (rc == RS_RESULT_TIMEDOUT) {
+      RP_RenewStop(base, self->stopReason);
+    }
     self->last_rc = RS_RESULT_EOF;
     return rc;
   }
@@ -2306,6 +2433,7 @@ void RPSafeDepleter_MarkTimedOut(ResultProcessor *base) {
   // depletion_scheduled stays false: WaitForCompletion has no signal to wait
   // for, and Next yields RS_RESULT_TIMEDOUT immediately.
   self->last_rc = RS_RESULT_TIMEDOUT;
+  self->stopReason = RP_StopReason(base);
   base->Next = RPSafeDepleter_Next_Yield;
 }
 
@@ -2522,6 +2650,35 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   return RPHybridMerger_HasReturnCode(self, RS_RESULT_ERROR);
 }
 
+/* Whether the merged rows end on a timeout. An upstream stopped for OOM ended its rows by design:
+ * under ON_OOM FAIL RPHybridMerger_StopFails already ended the query, and under RETURN the tail
+ * must not apply its timeout policy to them; the reply maps the stop from the subquery's own
+ * reason and return code. */
+static bool RPHybridMerger_ReportsTimeout(const RPHybridMerger *self) {
+  for (size_t i = 0; i < self->numUpstreams; i++) {
+    if (self->upstreamReturnCodes[i] == RS_RESULT_TIMEDOUT &&
+        (!self->upstreams[i]->parent ||
+         RP_StopReason(self->upstreams[i]) != QUERY_STOP_REASON_OOM)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Whether a stop ends the query without yielding: each timed-out upstream applies its own
+ * subquery's stop policy, so an OOM stop there follows ON_OOM. */
+static bool RPHybridMerger_StopFails(const RPHybridMerger *self) {
+  for (size_t i = 0; i < self->numUpstreams; i++) {
+    // An upstream outside a pipeline (unit tests) applies the tail's policy.
+    const ResultProcessor *upstream = self->upstreams[i]->parent ? self->upstreams[i] : &self->base;
+    if (self->upstreamReturnCodes[i] == RS_RESULT_TIMEDOUT &&
+        RP_StopPolicy(upstream) == TimeoutPolicy_Fail) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /* Helper function to store a result from an upstream into the hybrid merger's dictionary
   * @param r - the result to store
   * @param hybridResults - the dictionary to store the result in
@@ -2603,7 +2760,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   dictEntry *entry = dictNext(self->iterator);
   if (!entry) {
     // No more results to yield
-    int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    int ret = RPHybridMerger_ReportsTimeout(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
   } else if (QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
     // Timed out before we could yield all results
@@ -2675,7 +2832,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
 
   if (RPHybridMerger_Error(self)) {
     return RS_RESULT_ERROR;
-  } else if (RPHybridMerger_TimedOut(self) && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
+  } else if (RPHybridMerger_StopFails(self)) {
     // If any of the threads timed out and we're in FAIL mode, return timeout without yielding any result
     return RS_RESULT_TIMEDOUT;
   }
@@ -3173,6 +3330,8 @@ typedef struct {
   RPStatus last_rc;                // Last return code from upstream
   uint32_t depleted_results;       // Total number of results depleted
   rs_wall_clock_ns_t depletionTime; // Time spent depleting upstream results
+  QueryStopReason stopReason;       // Why depletion stopped, when a stop request ended it
+  uint32_t memoryCheckCalls;        // QueryMemory_ShouldStop counter for the buffer
 } RPDepleter;
 
 /**
@@ -3197,6 +3356,13 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
     self->depleted_results++;
+    if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls)) {
+      rc = RS_RESULT_TIMEDOUT;
+      break;
+    }
+  }
+  if (rc == RS_RESULT_TIMEDOUT) {
+    self->stopReason = RP_StopReason(&self->base);
   }
 
   // Record depletion time
@@ -3218,6 +3384,9 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   if (self->cur_idx >= array_len(self->results)) {
     // Return the last code from upstream (EOF or TIMEDOUT)
     int ret = self->last_rc;
+    if (ret == RS_RESULT_TIMEDOUT) {
+      RP_RenewStop(base, self->stopReason);
+    }
     self->last_rc = RS_RESULT_EOF;
     return ret;
   }
@@ -3240,11 +3409,10 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   // Call the sync depletion function directly
   RPDepleter_Deplete(self);
 
-  // Only TimeoutPolicy_Return yields buffered results on timeout; FAIL and
+  // Only a RETURN stop policy yields buffered results on a stop; FAIL and
   // RETURN-STRICT propagate TIMEDOUT immediately since the buffer will be
   // discarded by the serializer anyway.
-  if (self->last_rc == RS_RESULT_TIMEDOUT &&
-      base->parent->timeoutPolicy != TimeoutPolicy_Return) {
+  if (self->last_rc == RS_RESULT_TIMEDOUT && RP_StopPolicy(base) != TimeoutPolicy_Return) {
     self->last_rc = RS_RESULT_EOF;
     return RS_RESULT_TIMEDOUT;
   }

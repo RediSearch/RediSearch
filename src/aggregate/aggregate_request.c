@@ -1912,7 +1912,7 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
                                             QueryError *status) {
   // Build errors go to the caller's `status`; the running pipeline reports into the request's own
   // error slot, which the reply phase reads whenever (and on whichever thread) it runs.
-  Pipeline_Initialize(&req->pipeline, req->base.timeout.config.timeoutPolicy, &req->base.reply.err);
+  Pipeline_Initialize(&req->pipeline, &req->base);
   if (!IsCoordinator(req)) {
     QueryPipelineParams params = {
       .common = {
