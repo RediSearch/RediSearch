@@ -3639,6 +3639,16 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   }
 
 cleanup:
+  // A merge loop that stopped for OOM replies what the heap holds with the OOM warning, or the
+  // OOM error under ON_OOM FAIL; the reply callback reads both.
+  if (!fromTimeout &&
+      QueryRequestTimeout_GetStopReason(&req->base.timeout) == QUERY_STOP_REASON_OOM) {
+    if (req->base.reqConfig.oomPolicy != OomPolicy_Fail) {
+      req->queryOOM = true;
+    } else if (QueryError_IsOk(&req->base.reply.err)) {
+      QueryError_SetCode(&req->base.reply.err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    }
+  }
   if (rCtx) {
     // Call postProcess even on early exits (e.g. timeouts) so that partially
     // processed special cases like KNN can flush their internal queues into

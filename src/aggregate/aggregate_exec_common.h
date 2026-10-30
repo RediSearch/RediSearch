@@ -25,6 +25,20 @@ bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isP
 
 void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
+/**
+ * Turns a pipeline that stopped for memory pressure, a RS_RESULT_TIMEDOUT rc
+ * with stop reason QUERY_STOP_REASON_OOM, into the outcome `oomPolicy` asks
+ * for, and returns any other rc unchanged:
+ *
+ * - OomPolicy_Fail: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` (unless it already
+ *   holds an error) and RS_RESULT_ERROR. Only buffering stages can still reply
+ *   with an error, which is why startPipelineCommon buffers under FAIL.
+ * - Otherwise: the query OOM warning in `err` and RS_RESULT_EOF, so the rows
+ *   produced so far are the final, partial result instead of a timeout.
+ */
+int ApplyOomStop(const struct QueryRequestTimeout *timeout, RSOomPolicy oomPolicy,
+                 QueryError *err, int rc);
+
 void destroyResults(SearchResult **results);
 
 // TODO: replace `areq` with the borrowed atomic timed-out flag once it lives

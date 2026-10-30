@@ -434,6 +434,11 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
   UNUSED(before);
 }
 #endif
+static int applyOomStop(AREQ *req, int rc) {
+  return ApplyOomStop(&req->base.timeout, req->base.reqConfig.oomPolicy,
+                      AREQ_QueryProcessingCtx(req)->err, rc);
+}
+
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
   CommonPipelineCtx ctx = {
     .timeout = &req->base.timeout,
@@ -467,6 +472,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
   }
 
   startPipelineCommon(&ctx, rp, results, r, rc);
+  *rc = applyOomStop(req, *rc);
 
   // Pipeline done without timing out; advance the marker so a timeout from here on
   // is attributed to the REPLY stage.
@@ -772,6 +778,8 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
     }
 
 done_2:
+    // A stop for OOM in the reply loop keeps the rows already serialized.
+    rc = applyOomStop(req, rc);
     finishRespSchema(req, reply, cv, &schema);
     RedisModule_Reply_ArrayEnd(reply);    // </results>
 
@@ -848,8 +856,8 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   }
   if (QueryError_HasQueryOOMWarning(qctx->err)) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, !IsInternal(req));
-    // We use the cluster warning since shard level warning sent via empty reply bailout
-    RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
+    // A shard stopped for OOM reports the shard wording, which the coordinator recognizes.
+    RedisModule_Reply_SimpleString(reply, IsInternal(req) ? QUERY_WOOM_SHARD : QUERY_WOOM_COORD);
     ProfileWarnings_Add(&profileCtx->warnings, PROFILE_WARNING_TYPE_QUERY_OOM);
   }
   // The shard-timed-out flag is set by the coord-side RPNet when a shard reply
@@ -1005,6 +1013,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
 done_3:
+    rc = applyOomStop(req, rc);
     state->cursor_done = state->cursor_done || shouldSetCursorDone(req, rc);
 
     finishRespSchema(req, reply, cv, &schema);

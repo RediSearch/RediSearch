@@ -14,9 +14,15 @@
 #include <vector>
 
 #include "config.h"
+#include "query_error.h"
+#include "result_processor.h"
 #include "query_memory.h"
 #include "query_request.h"
 #include "redismodule.h"
+
+// aggregate_exec_common.h is not C++-clean; the signature is restated here.
+extern "C" int ApplyOomStop(const QueryRequestTimeout *timeout, RSOomPolicy oomPolicy,
+                            QueryError *err, int rc);
 
 namespace {
 
@@ -225,6 +231,49 @@ TEST_F(QueryMemoryTest, ResetClearsEveryFake) {
   EXPECT_LT(QueryMemory_GetForcedRatio(), 0);
   EXPECT_EQ(QueryMemory_GetPressureAtCall(), 0u);
   EXPECT_EQ(QueryMemory_GetRatioReadInterval(), (uint32_t)QUERY_MEMORY_RATIO_READ_INTERVAL);
+}
+
+class ApplyOomStopTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    TimeoutConfig timeoutConfig = {0, TimeoutPolicy_Return};
+    QueryRequestTimeout_Init(&timeout_, &timeoutConfig);
+  }
+  void TearDown() override {
+    QueryError_ClearError(&err_);
+  }
+  QueryRequestTimeout timeout_ = {};
+  QueryError err_ = QueryError_Default();
+};
+
+TEST_F(ApplyOomStopTest, LeavesOtherOutcomesAlone) {
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  QueryRequestTimeout_RequestStop(&timeout_, QUERY_STOP_REASON_TIMEOUT);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_TRUE(QueryError_IsOk(&err_));
+
+  QueryRequestTimeout_Init(&timeout_, &timeout_.config);
+  QueryRequestTimeout_RequestStop(&timeout_, QUERY_STOP_REASON_OOM);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_EOF), RS_RESULT_EOF);
+  EXPECT_TRUE(QueryError_IsOk(&err_));
+}
+
+TEST_F(ApplyOomStopTest, FailRepliesTheOomErrorAndKeepsAnEarlierOne) {
+  QueryRequestTimeout_RequestStop(&timeout_, QUERY_STOP_REASON_OOM);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(QueryError_GetCode(&err_), QUERY_ERROR_CODE_OUT_OF_MEMORY);
+
+  QueryError_ClearError(&err_);
+  QueryError_SetCode(&err_, QUERY_ERROR_CODE_SYNTAX);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(QueryError_GetCode(&err_), QUERY_ERROR_CODE_SYNTAX);
+}
+
+TEST_F(ApplyOomStopTest, ReturnEndsTheResultWithTheOomWarning) {
+  QueryRequestTimeout_RequestStop(&timeout_, QUERY_STOP_REASON_OOM);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Return, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_EOF);
+  EXPECT_TRUE(QueryError_IsOk(&err_));
+  EXPECT_TRUE(QueryError_HasQueryOOMWarning(&err_));
 }
 
 }  // namespace
