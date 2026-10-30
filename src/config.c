@@ -81,6 +81,7 @@ configPair_t __configPairs[] = {
   {"DEFAULT_DIALECT",                 "search-default-dialect"},
   {"DEFAULT_SCORER",                  "search-default-scorer"},
   {"EXTLOAD",                         "search-ext-load"},
+  {"FORK_GC_CHILD_WAIT_MS",           "search-fork-gc-child-wait-ms"},
   {"FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
   {"FORK_GC_CLEAN_THRESHOLD",         "search-fork-gc-clean-threshold"},
   {"FORK_GC_RETRY_INTERVAL",          "search-fork-gc-retry-interval"},
@@ -1094,6 +1095,17 @@ CONFIG_GETTER(getForkGcCleanThreshold) {
   return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcCleanThreshold);
 }
 
+// FORK_GC_CHILD_WAIT_MS
+CONFIG_SETTER(setForkGcChildWaitMs) {
+  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcChildWaitMs, 0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getForkGcChildWaitMs) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcChildWaitMs);
+}
+
 // FORK_GC_RETRY_INTERVAL
 CONFIG_SETTER(setForkGcRetryInterval) {
   int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcRetryInterval, AC_F_GE1);
@@ -1780,6 +1792,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
          .setValue = setForkGcRetryInterval,
          .getValue = getForkGcRetryInterval},
+        {.name = "FORK_GC_CHILD_WAIT_MS",
+         .helpText = "maximum time (in milliseconds) to wait for the fork gc child to exit on its "
+                     "own before terminating it. The wait is performed without holding the GIL.",
+         .setValue = setForkGcChildWaitMs,
+         .getValue = getForkGcChildWaitMs},
         {.name = "FORK_GC_CLEAN_NUMERIC_EMPTY_NODES",
          .helpText = "clean empty nodes from numeric tree",
          .setValue = setForkGCCleanNumericEmptyNodes,
@@ -2262,6 +2279,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcSleepBeforeExit)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-fork-gc-child-wait-ms", DEFAULT_FORK_GC_CHILD_WAIT_MS,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcChildWaitMs)
     )
   )
 
