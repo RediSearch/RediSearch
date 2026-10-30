@@ -46,6 +46,7 @@ static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
   const char* indexName = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
   RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", indexName);
+  DocTable_FreezeExistence(&spec->docs);
   FGC_childCollectTerms(gc, &sctx);
   FGC_childCollectNumeric(gc, &sctx);
   FGC_childCollectTags(gc, &sctx);
