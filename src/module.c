@@ -2200,7 +2200,30 @@ typedef struct searchReducerCtx {
   specialCaseCtx* reduceSpecialCaseCtxSortby;
 
   MRReply *warning;
+
+  // Whether merging checks for a stop per row (mergeRowShouldStop).
+  bool rowStopChecks;
+  uint32_t rowsSinceMemoryRead;
 } searchReducerCtx;
+
+// Per merged row: the stop flag, and memory every QUERY_MEMORY_RATIO_READ_INTERVAL rows, so one
+// large shard reply cannot run far past the limit before the reducer's read after that reply.
+// Calls QueryMemory_ShouldStopNow only on those rows, which keeps short replies out of the hook's
+// AT_CALL count.
+static bool mergeRowShouldStop(searchReducerCtx *rCtx) {
+  if (!rCtx->rowStopChecks) {
+    return false;
+  }
+  QueryRequestTimeout *timeout = &rCtx->searchCtx->base.timeout;
+  if (QueryRequest_ShouldStop(timeout)) {
+    return true;
+  }
+  if (++rCtx->rowsSinceMemoryRead < QueryMemory_GetRatioReadInterval()) {
+    return false;
+  }
+  rCtx->rowsSinceMemoryRead = 0;
+  return QueryMemory_ShouldStopNow(timeout);
+}
 
 typedef struct {
   searchResult* result;
@@ -2978,6 +3001,9 @@ static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
     RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
     size_t len = MRReply_Length(results);
     for (int j = 0; j < len; ++j) {
+      if (mergeRowShouldStop(rCtx)) {
+        break;
+      }
       res = newResult_resp3(rCtx->cachedResult, results, j, &rCtx->offsets, rCtx->searchCtx->withExplainScores, reduceSpecialCaseCtxSortBy);
       if (res && res->id) {
         rCtx->cachedResult = NULL;
@@ -3015,6 +3041,9 @@ static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
             RSDummyContext, "warning",
             "got a bad reply from redisearch, reply contains less parameters then expected");
         rCtx->errorOccurred = true;
+        break;
+      }
+      if (mergeRowShouldStop(rCtx)) {
         break;
       }
       res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets, rCtx->searchCtx->withExplainScores);
@@ -3146,6 +3175,9 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
 
     bool needScore = rCtx->offsets.score > 0;
     for (int i = 0; i < len; ++i) {
+      if (mergeRowShouldStop(rCtx)) {
+        break;
+      }
       searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, &rCtx->offsets, rCtx->searchCtx->withExplainScores, rCtx->reduceSpecialCaseCtxSortby);
       processSearchReplyResult(res, rCtx);
     }
@@ -3166,6 +3198,9 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
             RSDummyContext, "warning",
             "got a bad reply from redisearch, reply contains less parameters then expected");
         rCtx->errorOccurred = true;
+        break;
+      }
+      if (mergeRowShouldStop(rCtx)) {
         break;
       }
       searchResult *res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets , rCtx->searchCtx->withExplainScores);
@@ -3265,6 +3300,12 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   const bool stopBeforeRows = replyShouldStop(req, stoppedBefore, NULL);
   uint32_t memoryCheckCalls = 0;
 
+  if (stopBeforeRows) {
+    // No row is replied: free the merged results rather than sort them into a new array.
+    while (heap_count(rCtx->pq)) {
+      rm_free(heap_poll(rCtx->pq));
+    }
+  }
   size_t qlen = heap_count(rCtx->pq);
   size_t pos = qlen;
 
@@ -3589,6 +3630,9 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   req->rctx = rCtx;
   // Set searchCtx early so it's available even if we bail out early
   rCtx->searchCtx = req;
+  // The timeout callback's reducer merges what landed; a fan-out stop already kept only the
+  // replies to merge.
+  rCtx->rowStopChecks = !fromTimeout && !stoppedBeforeReducing;
 
   profile = req->profileArgs > 0;
 
