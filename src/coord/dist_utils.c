@@ -181,6 +181,8 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       MRIteratorCallback_HasMemoryCheckpoint(ctx) && !MRIteratorCallback_GetTimedOut(itCtx)) {
 #ifdef ENABLE_ASSERT
     SyncPoint_Wait(SYNC_POINT_BEFORE_CURSOR_RESEND_CHECKPOINT);
+    // A shard's later reads only, not its first reply.
+    if (cmd->rootCommand == C_READ) SyncPoint_Wait(SYNC_POINT_BEFORE_FOLLOW_UP_RESEND_CHECKPOINT);
 #endif
     if (QueryMemory_ShouldStopNow(NULL)) {
       MRIteratorCallback_SetMemoryStopped(ctx);

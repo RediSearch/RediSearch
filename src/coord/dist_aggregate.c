@@ -203,11 +203,12 @@ static inline bool isFirstShardReply(const MRCommand *cmd) {
 // events bypass this callback so dispatch happens exactly once.
 static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
-  AggregateIteratorContext *iterCtx = NULL;
-  MRIterator *it = NULL;
+  // Wired only until dispatch (MRIterator_SwapCallbacks), so every reply here, a shard's first or
+  // a follow-up read of a shard that already answered, is still waiting for the barrier.
+  AggregateIteratorContext *iterCtx =
+      (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
+  MRIterator *it = MRIteratorCallback_GetIterator(ctx);
   if (isFirstShardReply(cmd)) {
-    iterCtx = (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
-    it = MRIteratorCallback_GetIterator(ctx);
     bool isError = MRReply_Type(rep) == MR_REPLY_ERROR;
     if (!isError) {
       long long shardTotal;
