@@ -292,3 +292,41 @@ def test_search_fanout_stop_after_shard_oom_warnings_resp3():
 def test_search_fanout_stop_after_shard_oom_warnings_resp2():
     """As the RESP3 case; RESP2 replies no warning but counts the coordinator stop."""
     _test_search_fanout_stop_after_shard_oom_warnings(Env(protocol=2))
+
+
+def _test_profile_search_fanout_stop(env):
+    skipIfNoEnableAssert(env)
+    create_index(env)
+    coord = env.getConnection(1)
+    query = ('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT', 'LIMIT', 0, N_DOCS,
+             'TIMEOUT', 100000)
+    try:
+        for oom_policy in ('return', 'fail'):
+            allShards_change_oom_policy(env, oom_policy)
+            res = stopped_at_first_reply(env, coord, query)
+            if oom_policy == 'fail':
+                env.assertTrue(isinstance(res, ResponseError), message=res)
+                env.assertContains(OOM_QUERY_ERROR, str(res))
+            elif env.protocol == 3:
+                env.assertEqual(res['Results']['results'], [], message=res)
+                env.assertEqual(res['Results']['warning'], [COORD_OOM_WARNING], message=res)
+                env.assertEqual(res['Profile']['Shards'], [], message=res)
+            else:
+                env.assertEqual(res[0], [0], message=res)
+            expect_clean_end(env, coord)
+    finally:
+        allShards_change_oom_policy(env, 'return')
+
+
+@skip(cluster=False)
+def test_profile_search_fanout_stop_resp3():
+    """FT.PROFILE SEARCH shares the FT.SEARCH fan-out: a stop at the first shard reply discards
+    every reply, so the profile replies no results and no shard profile, with the coordinator
+    OOM warning (ON_OOM RETURN) or the OOM error (ON_OOM FAIL)."""
+    _test_profile_search_fanout_stop(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_profile_search_fanout_stop_resp2():
+    """As the RESP3 case; RESP2 has no warning channel."""
+    _test_profile_search_fanout_stop(Env(protocol=2))
