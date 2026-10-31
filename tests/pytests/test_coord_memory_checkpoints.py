@@ -463,6 +463,60 @@ def _test_search_short_reply_reads_memory(env):
         expect_clean_end(env, coord)
 
 
+def _test_search_merge_reads_memory_within_a_reply(env):
+    skipIfNoEnableAssert(env)
+    create_index(env)
+    coord = env.getConnection(1)
+    interval = 3
+    try:
+        for oom_policy in ('return', 'fail'):
+            allShards_change_oom_policy(env, oom_policy)
+            errors, warnings = coord_oom_counters(coord)
+            # Pressure appears once the merge has started on the first shard reply.
+            setPauseBeforeReduce(env, 1)
+            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'READ_INTERVAL', interval)
+            try:
+                thread, result = run_in_thread(coord, SEARCH)
+                wait_for_condition(lambda: (getIsCoordReducePaused(env) == 1, {}),
+                                   'Timeout waiting for the reducer to pause')
+                coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+                setCoordReduceResume(env)
+                thread.join(timeout=30)
+                env.assertFalse(thread.is_alive())
+            finally:
+                coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+                resetCoordReduceDebug(env)
+            res = result[0]
+            if oom_policy == 'fail':
+                env.assertTrue(isinstance(res, ResponseError), message=res)
+                env.assertContains(OOM_QUERY_ERROR, str(res))
+                env.assertEqual(coord_oom_counters(coord), (errors + 1, warnings))
+            else:
+                # The read on the interval-th row stops the merge before that row.
+                env.assertEqual(len(search_ids(env, res)), interval - 1, message=res)
+                if env.protocol == 3:
+                    env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+                env.assertEqual(coord_oom_counters(coord), (errors, warnings + 1))
+            expect_clean_end(env, coord)
+    finally:
+        allShards_change_oom_policy(env, 'return')
+
+
+@skip(cluster=False)
+def test_search_merge_reads_memory_within_a_reply_resp3():
+    """The coordinator FT.SEARCH merge reads memory every `QUERY_MEMORY_RATIO_READ_INTERVAL` rows
+    within a shard reply, not only after it: pressure during the first reply stops the merge
+    there, with the rows merged so far and the coordinator OOM warning (ON_OOM RETURN) or the OOM
+    error (ON_OOM FAIL)."""
+    _test_search_merge_reads_memory_within_a_reply(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_search_merge_reads_memory_within_a_reply_resp2():
+    """As the RESP3 case; RESP2 has no warning channel."""
+    _test_search_merge_reads_memory_within_a_reply(Env(protocol=2))
+
+
 @skip(cluster=False)
 def test_search_short_reply_reads_memory_resp3():
     """The coordinator FT.SEARCH reply reads memory before its rows, so pressure that appears
