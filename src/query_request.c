@@ -84,8 +84,9 @@ bool QueryRequestTimeout_RequestStop(QueryRequestTimeout *timeout, QueryStopReas
   int expected = QUERY_STOP_REASON_NONE;
   // A losing requester acquires the winner's reason and publishes the flag too, so the stop is
   // visible once any requester returns, even while the winner is still between its two stores.
+  // acq_rel: C11 requires the failure order to be no stronger than the success order.
   const bool won = atomic_compare_exchange_strong_explicit(
-      &timeout->stopReason, &expected, (int)reason, memory_order_release, memory_order_acquire);
+      &timeout->stopReason, &expected, (int)reason, memory_order_acq_rel, memory_order_acquire);
   // Release pairs with the acquire in GetStopReason, so a reader that sees the flag sees the
   // reason too.
   atomic_store_explicit(&timeout->stopRequested, true, memory_order_release);
