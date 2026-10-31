@@ -952,7 +952,10 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     TermData *t_data = terms_data[i];
     ++count;
     RedisModule_ReplyWithStringBuffer(ctx, t_data->term, strlen(t_data->term));
-    // As in TagIndex_SerializeValues: the error in place of the term's groups.
+    // As in TagIndex_SerializeValues: the error in place of the term's groups. The read interval
+    // counts reply elements, so a term in many groups (up to MAX_SYNONYM_GROUP_IDS) brings the
+    // next memory read closer.
+    memoryCheckCounter += array_len(t_data->groupIds);
     if (QueryMemory_ShouldStop(NULL, &memoryCheckCounter)) {
       RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
       break;
