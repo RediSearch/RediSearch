@@ -401,6 +401,25 @@ def test_grouper_stop_inside_one_rows_groups(env):
             expect_oom_error_at_call(env, at_call, *query)
 
 
+@skip(cluster=True)
+def test_grouper_stop_inside_one_rows_existing_groups(env):
+    """A later multi-valued row adds to the groups earlier rows opened, which grows reducer state
+    as much as opening them; the grouper reads memory there too."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    parts = 50
+    for doc in ('a', 'b'):
+        env.cmd('HSET', doc, 't', ','.join(f'p{i}' for i in range(parts)))
+    query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', 'split(@t, ",")', 'AS', 'p',
+             'GROUPBY', 1, '@p', 'REDUCE', 'COUNT', 0, 'AS', 'c')
+    env.assertEqual(env.cmd(*query)[0], parts)
+    # Past the first row's groups, whatever few calls other checkpoints add per row.
+    at_call = BUILD_CHECKPOINTS + parts + 10
+    for workers in worker_counts(env):
+        env.assertEqual(run_at_call(env, at_call, *query), [0], message=workers)
+        with oom_policy(env, 'fail'):
+            expect_oom_error_at_call(env, at_call, *query)
+
+
 @skip(cluster=False)
 @env_spec(protocol=3)
 def test_shard_grouper_stop_leaves_the_other_shards_groups(env):
