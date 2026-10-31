@@ -158,10 +158,11 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
                           "MEMORY_CHECKPOINT is not supported with TIMEOUT_AFTER_N or PAUSE_*_RP_N");
       return REDISMODULE_ERR;
     }
-    // Shards receive the coordinator's debug arguments, INTERNAL_ONLY included; standalone and
-    // a single-shard cluster have one pipeline and always take it.
-    const bool add = isClusterCoord(debug_req) ? !internal_only
-                     : IsInternal(&debug_req->r) ? (bool)internal_only
+    // Shards receive the coordinator's debug arguments, INTERNAL_ONLY included. FT.SEARCH has no
+    // coordinator pipeline, so its shards take the checkpoint either way; standalone and a
+    // single-shard cluster have one pipeline and always take it.
+    const bool add = isClusterCoord(debug_req)   ? !internal_only
+                     : IsInternal(&debug_req->r) ? (internal_only || IsSearch(&debug_req->r))
                                                  : true;
     if (add) {
       PipelineAddMemoryCheckpoint(AREQ_QueryProcessingCtx(&debug_req->r),
