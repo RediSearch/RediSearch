@@ -330,3 +330,60 @@ def test_profile_search_fanout_stop_resp3():
 def test_profile_search_fanout_stop_resp2():
     """As the RESP3 case; RESP2 has no warning channel."""
     _test_profile_search_fanout_stop(Env(protocol=2))
+
+
+@skip(cluster=False)
+def test_search_fanout_stop_then_timeout():
+    """A fan-out stopped for memory still waits for its last shard reply; a blocked-client timeout
+    that fires meanwhile owns the reply: FT.SEARCH replies once (the timeout error under ON_TIMEOUT
+    FAIL, the partial reply under RETURN-STRICT) and releases its blocked client. The remote shards are held before their first read so the timer
+    fires first."""
+    # Workers run the shard queries, so a parked shard still answers SYNC_POINT.
+    env = Env(protocol=3, moduleArgs='WORKERS 1')
+    skipIfNoEnableAssert(env)
+    create_index(env)
+    coord = env.getConnection(1)
+    remote_shards = [env.getConnection(i) for i in range(2, env.shardsCount + 1)]
+    query = ('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, N_DOCS, 'TIMEOUT', 300)
+    try:
+        for timeout_policy in ('FAIL', 'RETURN-STRICT'):
+            set_policies(env, timeout_policy, 'return')
+            for shard in remote_shards:
+                sync_point(shard, 'CLEAR')
+                sync_point(shard, 'ARM', 'BeforeFirstRead')
+            sync_point(coord, 'CLEAR')
+            sync_point(coord, 'ARM', 'BeforeCoordFanout')
+            try:
+                thread, result = run_in_thread(coord, query)
+                wait_for_sync_point(coord, 'BeforeCoordFanout')
+                coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+                sync_point(coord, 'SIGNAL', 'BeforeCoordFanout')
+                for shard in remote_shards:
+                    wait_for_sync_point(shard, 'BeforeFirstRead')
+                # The timer fires while the remote shards are held.
+                thread.join(timeout=30)
+                env.assertFalse(thread.is_alive(), message=timeout_policy)
+            finally:
+                coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+                sync_point(coord, 'CLEAR')
+                for shard in remote_shards:
+                    sync_point(shard, 'SIGNAL', 'BeforeFirstRead')
+                    sync_point(shard, 'CLEAR')
+            res = result[0]
+            if timeout_policy == 'FAIL':
+                env.assertTrue(isinstance(res, ResponseError), message=res)
+                env.assertContains('Timeout limit was reached', str(res), message=res)
+            else:
+                # The timeout's partial reply: every reply was discarded by the stop. Its warning
+                # names the OOM stop when the background reducer merged before the timer, and the
+                # timeout otherwise.
+                env.assertEqual(search_ids(env, res), [], message=res)
+                env.assertContains(res['warning'],
+                                   [[COORD_OOM_WARNING], ['Timeout limit was reached']],
+                                   message=res)
+            wait_for_condition(
+                lambda: (coord.execute_command('INFO', 'CLIENTS')['blocked_clients'] == 0, {}),
+                'Timeout waiting for the blocked client to be released')
+            expect_clean_end(env, coord)
+    finally:
+        reset_policies(env)
