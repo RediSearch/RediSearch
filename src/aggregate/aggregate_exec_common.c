@@ -137,12 +137,15 @@ static bool oomStopKeepsBufferedRows(const QueryRequestTimeout *timeout, RSOomPo
      // Stop flags and memory at the row boundary: buffering stages can keep
      // emitting without re-checking upstream, and these rows are what fills
      // memory. An OOM stop under ON_OOM RETURN keeps collecting what the stages
-     // hold (see RP_StopPolicy). Not on the row that fills the limit, which would
-     // end a full cursor chunk; startPipelineCommon checks the timeout after.
-     if (rp->parent->resultLimit && QueryMemory_ShouldStop(ctx->timeout, &memoryCheckCounter) &&
-         !oomStopKeepsBufferedRows(ctx->timeout, ctx->oomPolicy)) {
-       *rc = RS_RESULT_TIMEDOUT;
-       break;
+     // hold (see RP_StopPolicy), but nothing new from the row source. Not on the
+     // row that fills the limit, which would end a full cursor chunk;
+     // startPipelineCommon checks the stop after.
+     if (rp->parent->resultLimit && QueryMemory_ShouldStop(ctx->timeout, &memoryCheckCounter)) {
+       if (!oomStopKeepsBufferedRows(ctx->timeout, ctx->oomPolicy)) {
+         *rc = RS_RESULT_TIMEDOUT;
+         break;
+       }
+       RP_EndRowSourceOnStop(rp->parent);
      }
    }
 
