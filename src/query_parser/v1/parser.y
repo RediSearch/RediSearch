@@ -47,6 +47,7 @@
 #include <assert.h>
 
 #include "../parse.h"
+#include "geo_filter_ffi.h"
 #include "util/arr.h"
 #include "rmutil/vector.h"
 #include "query_node.h"
@@ -598,7 +599,7 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     A = NewGeofilterNode(C);
     if (ctx->sctx->spec) {
         const FieldSpec *fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-        GeoFilter_SetField(A->gn.gf, fs);
+        Rust_GeoFilter_SetField(A->gn.gf, fs);
         if (!fs) {
             QueryNode_Free(A);
             A = NULL;
@@ -609,8 +610,8 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 geo_filter(A) ::= LSQB num(B) num(C) num(D) TERM(E) RSQB. [NUMBER] {
     A = NewQueryParam(QP_GEO_FILTER);
-    A->gf = NewGeoFilter(B.num, C.num, D.num, E.s, E.len);
-    GeoFilter_Validate(A->gf, ctx->status);
+    A->gf = Rust_NewGeoFilter(B.num, C.num, D.num, E.s, E.len);
+    Rust_GeoFilter_Validate(A->gf, ctx->status);
 }
 
 

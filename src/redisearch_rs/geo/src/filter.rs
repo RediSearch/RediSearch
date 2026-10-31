@@ -126,3 +126,65 @@ impl RadiusFilter {
         haversine_distance(self.lon, self.lat, lon, lat)
     }
 }
+
+/// Shared C layout; validation converts raw fields into the safe domain.
+pub mod abi {
+    use super::{DistanceUnit, FilterError, RadiusFilter};
+    use std::ffi::{c_int, c_void};
+
+    #[cheadergen::config(export)]
+    pub const GEO_DISTANCE_INVALID: c_int = -1;
+    #[cheadergen::config(export)]
+    pub const GEO_DISTANCE_KM: c_int = 0;
+    #[cheadergen::config(export)]
+    pub const GEO_DISTANCE_M: c_int = 1;
+    #[cheadergen::config(export)]
+    pub const GEO_DISTANCE_FT: c_int = 2;
+    #[cheadergen::config(export)]
+    pub const GEO_DISTANCE_MI: c_int = 3;
+
+    /// Unvalidated query parameters and owned numeric ranges.
+    #[cheadergen::config(export)]
+    #[expect(non_snake_case, reason = "C ABI field names")]
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug)]
+    pub struct GeoFilter {
+        /// Stable index, rather than a field pointer invalidated by schema changes.
+        pub fieldIndex: u16,
+        pub lat: f64,
+        pub lon: f64,
+        pub radius: f64,
+        pub unitType: c_int,
+        /// Owned array, released through the iterator subsystem's matching allocator.
+        pub numericFilters: *mut c_void,
+    }
+
+    /// Legacy syntax keeps a borrowed field-name wrapper until schema resolution.
+    #[cheadergen::config(export)]
+    #[repr(C)]
+    pub struct LegacyGeoFilter {
+        pub base: GeoFilter,
+        pub field: *mut c_void,
+    }
+
+    impl GeoFilter {
+        /// Convert untrusted ABI fields into validated radius-query parameters.
+        ///
+        /// # Errors
+        /// Returns the validation errors of [`RadiusFilter::new`].
+        pub fn validated(&self) -> Result<RadiusFilter, FilterError> {
+            RadiusFilter::new(self.lon, self.lat, self.radius, unit(self.unitType))
+        }
+    }
+
+    /// Convert an integer ABI tag to a recognized distance unit.
+    pub const fn unit(value: c_int) -> Option<DistanceUnit> {
+        match value {
+            GEO_DISTANCE_KM => Some(DistanceUnit::Kilometers),
+            GEO_DISTANCE_M => Some(DistanceUnit::Meters),
+            GEO_DISTANCE_FT => Some(DistanceUnit::Feet),
+            GEO_DISTANCE_MI => Some(DistanceUnit::Miles),
+            _ => None,
+        }
+    }
+}

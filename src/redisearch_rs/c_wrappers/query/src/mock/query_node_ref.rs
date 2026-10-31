@@ -188,7 +188,7 @@ impl MockQueryNode {
     }
 
     /// Set the `gf` field of the geo-node union variant.
-    pub fn set_geo_filter(&mut self, gf: *mut ffi::GeoFilter) {
+    pub fn set_geo_filter(&mut self, gf: *mut geo::abi::GeoFilter) {
         self.debug_assert_type(QueryNodeType::Geo);
         // SAFETY: `self.node` is valid and exclusively owned; the node type is
         // Geo, per the assertion above, so the `gn` variant is active.

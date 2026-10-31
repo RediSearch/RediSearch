@@ -565,12 +565,12 @@ fn numeric_variant_geo() {
     let se_score = se_hash.bits as f64;
     let nw_score = nw_hash.bits as f64;
 
-    let geo_filter = ffi::GeoFilter {
+    let geo_filter = geo::abi::GeoFilter {
         fieldIndex: rqe_core::RS_INVALID_FIELD_INDEX,
         lat: 0.0,
         lon: 0.0,
         radius: 1.0,
-        unitType: ffi::GeoDistance_GEO_DISTANCE_M,
+        unitType: geo::abi::GEO_DISTANCE_M,
         numericFilters: std::ptr::null_mut(),
     };
     let filter = inverted_index::NumericFilter {

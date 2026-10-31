@@ -191,8 +191,8 @@ fn legacy_failure() {
             offset: 0,
         };
         let allocations = LIVE.get();
-        let output = redis_mock::allocator::alloc_shim(size_of::<ffi::LegacyGeoFilter>())
-            .cast::<ffi::LegacyGeoFilter>();
+        let output = redis_mock::allocator::alloc_shim(size_of::<geo::abi::LegacyGeoFilter>())
+            .cast::<geo::abi::LegacyGeoFilter>();
         let mut error = QueryError::default();
         let mut empty = false;
         // SAFETY: the cursor references live terminated strings and every output is a disjoint local.
@@ -211,7 +211,8 @@ fn legacy_failure() {
                 (34.0, 7.0, 2)
             );
             // SAFETY: successful parsing creates a live field wrapper borrowing the first argument.
-            let field = unsafe { ffi::HiddenString_GetUnsafe(parsed.field, ptr::null_mut()) };
+            let field =
+                unsafe { ffi::HiddenString_GetUnsafe(parsed.field.cast(), ptr::null_mut()) };
             // SAFETY: the returned borrowed argument remains NUL-terminated and alive.
             assert_eq!(unsafe { CStr::from_ptr(field) }, c"g");
         } else {

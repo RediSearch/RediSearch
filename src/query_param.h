@@ -8,7 +8,7 @@
 */
 #pragma once
 
-#include "geo_index.h"
+#include "geo.h"
 #include "query_parser/tokenizer.h"
 #include "param.h"
 

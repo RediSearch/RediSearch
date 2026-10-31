@@ -107,7 +107,7 @@ impl SearchEnterpriseIterators for MockEnterpriseIterators {
     fn new_geo_on_disk<'index>(
         &self,
         _index: &'index mut ffi::RedisSearchDiskIndexSpec,
-        _gf: &'index mut ffi::GeoFilter,
+        _gf: &'index mut geo::abi::GeoFilter,
         _field_index: ffi::t_fieldIndex,
         _snapshot: std::ptr::NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>> {
