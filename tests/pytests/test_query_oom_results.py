@@ -742,6 +742,79 @@ def test_cursor_admission_rejects_through_the_coordinator(env):
         _memory_pressure(env, 'RESET')
 
 
+def _open_cursors(env):
+    """Client and coordinator-to-shard cursors on `idx`."""
+    info = env.cmd('FT.INFO', 'idx')
+    stats = info['cursor_stats'] if isinstance(info, dict) else to_dict(to_dict(info)['cursor_stats'])
+    return int(stats['index_total']) + int(stats.get('index_total_internal', 0))
+
+
+def _expect_no_open_cursors(env, message):
+    # Shard cursors are freed asynchronously after the coordinator's cursor ends.
+    with TimeLimit(10, f'cursor left open: {message}'):
+        while _open_cursors(env):
+            time.sleep(0.05)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_cursor_admission_rejects_through_the_deferred_reply(env):
+    """With workers, ON_TIMEOUT FAIL and RETURN-STRICT hand the reply to the main thread. A cursor
+    refused there replies the OOM error once, counts it once, unblocks the client and leaves no
+    cursor."""
+    _index_with_docs(env)
+    query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', 4]
+    for on_timeout in ['fail', 'return-strict', 'return']:
+        _set_policies(env, on_timeout, 'return', 2)
+        errors, warnings = _oom_counters(env)
+        _memory_pressure(env, 'AT_CALL', B + 1)
+        env.expect(*query).error().contains(OOM_QUERY_ERROR)
+        _memory_pressure(env, 'RESET')
+        env.assertEqual(_oom_counters(env), (errors + 1, warnings), message=on_timeout)
+        # A second reply to the refused query would be read here instead of PONG.
+        env.assertEqual(env.cmd('PING'), True, message=on_timeout)
+        env.assertEqual(_open_cursors(env), 0, message=on_timeout)
+    _reset(env)
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_cursor_admission_after_the_withcount_fan_out(env):
+    """A WITHCOUNT cursor is admitted on the coordinator after the shards replied and opened
+    their cursors. Wherever pressure lands on the coordinator's process, the query replies rows
+    or the OOM error (at least once: at admission), and no coordinator or shard cursor stays
+    open."""
+    _index_with_docs(env)
+    query = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@name', 'WITHCURSOR', 'COUNT', 4]
+    coordinator = env.getConnection(1)
+
+    def arm(*args):
+        coordinator.execute_command(debug_cmd(), 'MEMORY_PRESSURE', *args)
+
+    arm('AT_CALL', NEVER)
+    _, cursor = env.cmd(*query)
+    calls = coordinator.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+    arm('RESET')
+    if cursor:
+        env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
+    errors = 0
+    try:
+        for at_call in range(1, calls + 1):
+            arm('AT_CALL', at_call)
+            try:
+                _, cursor = env.cmd(*query)
+                if cursor:
+                    env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
+            except redis_exceptions.ResponseError as e:
+                env.assertContains(OOM_QUERY_ERROR, str(e), message=at_call)
+                errors += 1
+            arm('RESET')
+            _expect_no_open_cursors(env, at_call)
+    finally:
+        arm('RESET')
+    env.assertGreater(errors, 0)
+
+
 def _split_dump(reply):
     """A dump stopped for memory ends with the OOM error in place of its next value: returns the
     values before it and whether that last element is the OOM error. A RESP3 set may come back as
