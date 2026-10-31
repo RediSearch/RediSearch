@@ -9,7 +9,9 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+cheadergen.workspace = true
 decorum.workspace = true
+rqe_core.workspace = true
 thiserror.workspace = true
 workspace_hack.workspace = true
 

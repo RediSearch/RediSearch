@@ -7,9 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::CStr;
+use std::ffi::{CStr, c_void};
 
 use decorum::R64;
+use rqe_core::{FieldIndex, RS_INVALID_FIELD_INDEX};
 
 use crate::hash::{GEO_STEP_MAX, GeoHashBits, decode_to_lon_lat, haversine_distance};
 
@@ -111,4 +112,67 @@ impl RadiusFilter {
     pub fn contains(self, distance: f64) -> bool {
         distance <= self.radius_meters
     }
+}
+
+/// C unit code; unrecognized values are rejected by [`Unit::from_raw`].
+#[cheadergen::config(export)]
+pub type GeoDistance = i32;
+#[cheadergen::config(export)]
+pub const GEO_DISTANCE_INVALID: GeoDistance = -1;
+#[cheadergen::config(export)]
+pub const GEO_DISTANCE_KM: GeoDistance = Unit::Kilometers as i32;
+#[cheadergen::config(export)]
+pub const GEO_DISTANCE_M: GeoDistance = Unit::Meters as i32;
+#[cheadergen::config(export)]
+pub const GEO_DISTANCE_FT: GeoDistance = Unit::Feet as i32;
+#[cheadergen::config(export)]
+pub const GEO_DISTANCE_MI: GeoDistance = Unit::Miles as i32;
+
+/// Shared query filter layout. The numeric range allocations are owned by the
+/// query and released by the iterator subsystem, not by copies of this value.
+#[repr(C)]
+#[expect(non_snake_case, reason = "shared C field names")]
+#[cheadergen::config(export)]
+pub struct GeoFilter {
+    /// Stable field index; schema growth can relocate field pointers.
+    pub fieldIndex: FieldIndex,
+    pub lat: f64,
+    pub lon: f64,
+    pub radius: f64,
+    pub unitType: GeoDistance,
+    /// Opaque array of owned numeric range filter pointers.
+    pub numericFilters: *mut *mut c_void,
+}
+
+impl GeoFilter {
+    /// Constructs an unbound filter, deferring validation until query evaluation.
+    pub const fn new(lon: f64, lat: f64, radius: f64, unit: GeoDistance) -> Self {
+        Self {
+            fieldIndex: RS_INVALID_FIELD_INDEX,
+            lat,
+            lon,
+            radius,
+            unitType: unit,
+            numericFilters: std::ptr::null_mut(),
+        }
+    }
+
+    /// Validates this C-facing value into a safe query circle.
+    pub fn radius_filter(&self) -> Result<RadiusFilter, &'static str> {
+        RadiusFilter::new(
+            self.lon,
+            self.lat,
+            self.radius,
+            Unit::from_raw(self.unitType),
+        )
+    }
+}
+
+/// Legacy syntax retains the field name until a schema is available.
+#[repr(C)]
+#[cheadergen::config(export)]
+pub struct LegacyGeoFilter {
+    pub base: GeoFilter,
+    /// Owned HiddenString wrapper borrowing the command argument's bytes.
+    pub field: *mut c_void,
 }

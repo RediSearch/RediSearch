@@ -18,6 +18,6 @@ pub mod hash;
 mod parse;
 mod ranges;
 
-pub use filter::{RadiusFilter, Unit};
+pub use filter::*;
 pub use parse::{Coordinates, ParseGeoError};
 pub use ranges::{GEO_RANGE_COUNT, GeoScoreRange, calc_ranges};

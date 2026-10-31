@@ -24,5 +24,18 @@ class GeoWorkspaceCheck(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_miri_geo_filter_lifecycle(self):
+        root = Path(__file__).resolve().parents[2]
+        result = subprocess.run(
+            [
+                'cargo', '+nightly-2026-05-01', 'miri', 'nextest', 'run',
+                '--manifest-path', 'src/redisearch_rs/Cargo.toml',
+                '-p', 'geo_ffi', '-p', 'geo',
+                '-E', 'test(=filter_lifecycle) | test(=filter::radius_boundary)',
+            ],
+            cwd=root,
+        )
+        self.assertEqual(result.returncode, 0)
+
 if __name__ == '__main__':
     unittest.main()

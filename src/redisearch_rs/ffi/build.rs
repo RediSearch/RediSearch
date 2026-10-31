@@ -98,6 +98,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "deps/rmutil/args.h",
+        fns: &["AC_GetString", "AC_GetStringNC", "AC_GetDouble"],
+        types: &[],
+        vars: &["AC_F_NOADVANCE"],
+    },
+    HeaderAllowlist {
         path: "src/aggregate/aggregate.h",
         fns: &[],
         types: &[
