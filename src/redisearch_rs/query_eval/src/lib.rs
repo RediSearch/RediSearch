@@ -25,7 +25,7 @@ use std::{marker::PhantomData, ptr::NonNull};
 
 use query_types::{QueryNodeOptions, scorers::slop_forces_offsets};
 use rqe_iterators::{
-    Empty, RQEIteratorPrintable, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    Empty, IteratorType, RQEIteratorPrintable, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
 };
 
 // The query wrapper types live in the `query` crate (`c_wrappers/query`), and
@@ -169,6 +169,9 @@ pub struct QueryIteratorTree<'index> {
     // out bound to `'index` (`into_root`) or as a raw pointer, which needs
     // `unsafe` to use beyond the borrow of the context.
     root: CRQEIterator,
+    /// The type of [`Self::root`] before [`Self::into_profiled`] wrapped it,
+    /// which a profile wrapper hides.
+    root_type: IteratorType,
     // FIXME: remove once CRQEIterator has been removed (MOD-14254) so `root` can carry the lifetime itself.
     _ctx: PhantomData<&'index mut QueryEvalContext>,
 }
@@ -179,12 +182,15 @@ impl<'index> QueryIteratorTree<'index> {
     /// Evaluates `root` via [`eval_node`], substituting an [`Empty`] iterator
     /// when it yields none.
     pub fn new(ctx: &'index mut QueryEvalContext, root: QueryNodeMut<'_>, config: Config) -> Self {
-        Self::from_root(into_child_iterator(eval_node(ctx, root, config)))
+        let root = into_child_iterator(eval_node(ctx, root, config));
+        let root_type = root.type_;
+        Self::from_root(root, root_type)
     }
 
-    const fn from_root(root: CRQEIterator) -> Self {
+    const fn from_root(root: CRQEIterator, root_type: IteratorType) -> Self {
         Self {
             root,
+            root_type,
             _ctx: PhantomData,
         }
     }
@@ -196,7 +202,7 @@ impl<'index> QueryIteratorTree<'index> {
     ///
     /// Panics if the tree has already been profiled.
     pub fn into_profiled(self) -> Self {
-        Self::from_root(self.root.into_profiled())
+        Self::from_root(self.root.into_profiled(), self.root_type)
     }
 
     /// Consume the tree into its root iterator, which still borrows the
@@ -210,9 +216,15 @@ impl<'index> QueryIteratorTree<'index> {
         self.root.as_raw()
     }
 
+    /// The type of the root iterator, unchanged by [`Self::into_profiled`].
+    pub const fn root_type(&self) -> IteratorType {
+        self.root_type
+    }
+
     /// Replace the root iterator with `root`, returning the previous one
     /// unfreed, typically because `root` already owns it as a child.
     pub fn replace_root(&mut self, root: CRQEIterator) -> NonNull<ffi::QueryIterator> {
+        self.root_type = root.type_;
         std::mem::replace(&mut self.root, root).into_raw()
     }
 
@@ -231,7 +243,7 @@ impl<'index> QueryIteratorTree<'index> {
     ///    stay valid, as required by the invariants of [`QueryEvalContext::new`].
     /// 2. No other iterator tree may be built from that context.
     pub unsafe fn erase_lifetime(self) -> QueryIteratorTree<'static> {
-        QueryIteratorTree::from_root(self.root)
+        QueryIteratorTree::from_root(self.root, self.root_type)
     }
 }
 
