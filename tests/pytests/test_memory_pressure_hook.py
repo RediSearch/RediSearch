@@ -176,10 +176,12 @@ def test_aggregate_checkpoint_routing(env):
 
 @skip(cluster=True)
 def test_internal_only_checkpoint_runs_in_standalone(env):
-    """Standalone has a single pipeline, so INTERNAL_ONLY still installs the checkpoint there."""
+    """Standalone has a single pipeline, so INTERNAL_ONLY still installs the checkpoint there.
+    The reply loop's checks alternate with the debug checkpoint's, whose 4th call is
+    BUILD_CHECKPOINTS + 7."""
     _index_with_docs(env)
     try:
-        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 7)
         res = _debug_aggregate(env, 'MEMORY_CHECKPOINT', 'INTERNAL_ONLY')
         env.assertEqual(len(res) - 1, 3, message=res)
     finally:
