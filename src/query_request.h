@@ -220,7 +220,9 @@ void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout);
  * from any thread, in every kind, concurrently with timeout checks. The first
  * request wins: later ones keep its reason and return false.
  *
- * The stop is cleared only by Init and BeginCycle; Reset keeps it.
+ * The stop is cleared only by Init and BeginCycle; Reset keeps it. The
+ * timeout checks (IsTimedOut, IsTimedOutExact) do not report it: only sites
+ * that read the stop explicitly observe it.
  */
 bool QueryRequestTimeout_RequestStop(QueryRequestTimeout *timeout, QueryStopReason reason);
 
@@ -271,10 +273,9 @@ struct timespec *QueryRequestTimeout_GetClockDeadlineForUpdate(QueryRequestTimeo
 
 /**
  * Reports whether the request has timed out, independently of how the timeout
- * is detected, without amortizing clock checks. A stop requested through
- * QueryRequestTimeout_RequestStop reports true in every kind; otherwise:
+ * is detected, without amortizing clock checks:
  *
- * - UNARMED returns false.
+ * - UNARMED always returns false.
  * - BLOCKED_CLIENT reads the flag published by the blocked-client callback.
  * - CLOCK_DEADLINE compares the monotonic clock with the active deadline.
  *
@@ -311,9 +312,7 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
 bool QueryRequest_ShouldStop(const QueryRequestTimeout *timeout);
 
 /**
- * Primary timeout operation. A stop requested through
- * QueryRequestTimeout_RequestStop reports true on every call, in every kind,
- * without touching the counter; otherwise:
+ * Primary timeout operation:
  *
  * - UNARMED and BLOCKED_CLIENT preserve the exact operation's behavior and
  *   leave the request counter unchanged.
