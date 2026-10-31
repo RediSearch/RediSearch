@@ -517,6 +517,103 @@ def test_search_merge_reads_memory_within_a_reply_resp2():
     _test_search_merge_reads_memory_within_a_reply(Env(protocol=2))
 
 
+def merged_rows(res, protocol):
+    if protocol == 3:
+        return res['Results']['results'] if 'Results' in res else res['results']
+    return (res[0] if isinstance(res[0], list) else res)[1:]
+
+
+def _test_search_merge_stop_shapes(env):
+    """The merge's row checks under the reply shapes with their own merge code: SORTBY (sort keys,
+    bounded heap), KNN (a K-bounded heap flushed after the merge) and FT.PROFILE. Pressure appears
+    once the reducer starts, so the read on the interval-th merged row stops it."""
+    skipIfNoEnableAssert(env)
+    create_index(env)
+    env.expect('FT.CREATE', 'vidx', 'PREFIX', 1, 'v:', 'SCHEMA', 'v', 'VECTOR', 'FLAT', 6, 'TYPE',
+               'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'v:{i}', 'v', np.array([i, i], dtype=np.float32).tobytes())
+    blob = np.array([0, 0], dtype=np.float32).tobytes()
+    coord = env.getConnection(1)
+    interval = 3
+    queries = {
+        'sortby': ('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n', 'ASC', 'LIMIT', 0, N_DOCS,
+                   'TIMEOUT', 100000),
+        'knn': ('FT.SEARCH', 'vidx', f'*=>[KNN {N_DOCS} @v $b]', 'PARAMS', 2, 'b', blob,
+                'NOCONTENT', 'LIMIT', 0, N_DOCS, 'DIALECT', 2, 'TIMEOUT', 100000),
+        'profile': ('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT', 'LIMIT', 0, N_DOCS,
+                    'TIMEOUT', 100000),
+    }
+    try:
+        for oom_policy in ('return', 'fail'):
+            allShards_change_oom_policy(env, oom_policy)
+            for name, query in queries.items():
+                case = (name, oom_policy)
+                errors, warnings = coord_oom_counters(coord)
+                sync_point(coord, 'CLEAR')
+                sync_point(coord, 'ARM', 'BeforeCoordReducerClaim')
+                coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'READ_INTERVAL', interval)
+                try:
+                    thread, result = run_in_thread(coord, query)
+                    wait_for_sync_point(coord, 'BeforeCoordReducerClaim')
+                    coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+                    sync_point(coord, 'SIGNAL', 'BeforeCoordReducerClaim')
+                    thread.join(timeout=30)
+                    env.assertFalse(thread.is_alive(), message=case)
+                finally:
+                    coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+                    sync_point(coord, 'CLEAR')
+                res = result[0]
+                if oom_policy == 'fail':
+                    env.assertTrue(isinstance(res, ResponseError), message=(case, res))
+                    env.assertContains(OOM_QUERY_ERROR, str(res), message=case)
+                    env.assertEqual(coord_oom_counters(coord), (errors + 1, warnings), message=case)
+                    expect_clean_end(env, coord)
+                    continue
+                rows = merged_rows(res, env.protocol)
+                env.assertEqual(len(rows), interval - 1, message=(case, res))
+                if name == 'sortby' and env.protocol == 3:
+                    ns = [int(r['id'][3:]) for r in rows]
+                    env.assertEqual(ns, sorted(ns), message=(case, res))
+                if env.protocol == 3:
+                    body = res['Results'] if name == 'profile' else res
+                    env.assertEqual(body['warning'], [COORD_OOM_WARNING], message=(case, res))
+                env.assertEqual(coord_oom_counters(coord), (errors, warnings + 1), message=case)
+                expect_clean_end(env, coord)
+    finally:
+        allShards_change_oom_policy(env, 'return')
+
+
+@skip(cluster=False)
+def test_search_merge_stop_shapes_resp3():
+    """See `_test_search_merge_stop_shapes`; ON_OOM RETURN replies the merged rows (SORTBY in
+    order) with the coordinator OOM warning, ON_OOM FAIL the OOM error."""
+    _test_search_merge_stop_shapes(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_search_merge_stop_shapes_resp2():
+    """As the RESP3 case; RESP2 has no warning channel."""
+    _test_search_merge_stop_shapes(Env(protocol=2))
+
+
+@skip(cluster=False)
+def test_search_resp3_warning_follows_results():
+    """The coordinator FT.SEARCH RESP3 map carries `warning` after `results`, in a complete reply
+    and in one an OOM stop cut short (the client library keeps the wire order of map keys)."""
+    env = Env(protocol=3)
+    skipIfNoEnableAssert(env)
+    create_index(env)
+    coord = env.getConnection(1)
+    complete = coord.execute_command(*SEARCH)
+    truncated = stopped_at_first_reply(env, coord, SEARCH)
+    for res in (complete, truncated):
+        keys = list(res.keys())
+        env.assertLess(keys.index('results'), keys.index('warning'), message=keys)
+    env.assertEqual(truncated['warning'], [COORD_OOM_WARNING], message=truncated)
+
+
 @skip(cluster=False)
 def test_search_short_reply_reads_memory_resp3():
     """The coordinator FT.SEARCH reply reads memory before its rows, so pressure that appears
