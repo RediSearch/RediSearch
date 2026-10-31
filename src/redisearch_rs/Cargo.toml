@@ -7,7 +7,7 @@ members = [
     "ffi",
     "field",
     "fnv",
-    "fork_gc",
+    "index_gc",
     "generational_slab",
     "geo",
     "hyperloglog",
@@ -126,7 +126,7 @@ ffi = { path = "./ffi", default-features = false }
 field = { path = "./field" }
 field_spec = { path = "./c_wrappers/field_spec" }
 fnv = { path = "./fnv" }
-fork_gc = { path = "./fork_gc" }
+index_gc = { path = "./index_gc" }
 generational_slab = { path = "./generational_slab" }
 geo = { path = "./geo" }
 global_config = { path = "./c_wrappers/global_config" }

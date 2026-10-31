@@ -13,7 +13,7 @@
 
 #include "doc_id_meta.h"
 #include "forward_index.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "info/global_stats.h"
 #include "info/index_error.h"
 #include "query_error_ffi.h"

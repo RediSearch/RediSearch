@@ -31,7 +31,7 @@
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "phonetic_manager.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "module.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"

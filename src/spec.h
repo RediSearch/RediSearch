@@ -18,7 +18,7 @@
 #include "trie/trie.h"
 #include "sorting_vector.h"
 #include "stopwords.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "synonym_map.h"
 #include "field_spec.h"
 #include "util/dict.h"
