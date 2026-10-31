@@ -13,8 +13,12 @@
 #include "synonym_map.h"
 #include "../charbuf_test_utils.h"
 #include "util/hash/hash.h"
+extern "C" {
+#include "vector_index.h"
+}
 
 #include <initializer_list>
+#include <string>
 #include <vector>
 
 class SchemaFingerprintTest : public ::testing::Test {
@@ -148,6 +152,58 @@ TEST_F(SchemaFingerprintTest, VectorConfigurationIsHashedWithoutRuntimeState) {
   hnsw.epsilon = epsilon;
   params.specificParams.tieredHnswParams.swapJobThreshold++;
   ASSERT_NE(baseline, fp(b));
+}
+
+TEST_F(SchemaFingerprintTest, HnswCompressionAndTrainingThresholdAffectFingerprint) {
+  IndexSpec *plain = parse("idx_plain", {"SCHEMA", "v", "VECTOR", "HNSW", "6", "TYPE", "FLOAT32",
+                                         "DIM", "8", "DISTANCE_METRIC", "L2"});
+  IndexSpec *untrained =
+      parse("idx_sq8_untrained",
+            {"SCHEMA", "v", "VECTOR", "HNSW", "10", "TYPE", "FLOAT32", "DIM", "8",
+             "DISTANCE_METRIC", "L2", "COMPRESSION", "SQ8", "TRAINING_THRESHOLD", "0"});
+  IndexSpec *trained = parse("idx_sq8_trained", {"SCHEMA", "v", "VECTOR", "HNSW", "10", "TYPE",
+                                                 "FLOAT32", "DIM", "8", "DISTANCE_METRIC", "L2",
+                                                 "COMPRESSION", "SQ8", "TRAINING_THRESHOLD", "32"});
+  ASSERT_NE(plain, nullptr);
+  ASSERT_NE(untrained, nullptr);
+  ASSERT_NE(trained, nullptr);
+  ASSERT_NE(fp(plain), fp(untrained));
+  ASSERT_NE(fp(untrained), fp(trained));
+  ASSERT_NE(fp(plain), fp(trained));
+}
+
+TEST_F(SchemaFingerprintTest, ImplicitAndExplicitSq8TrainingDefaultsHashEqually) {
+  IndexSpec *implicit =
+      parse("idx_sq8_implicit", {"SCHEMA", "v", "VECTOR", "HNSW", "8", "TYPE", "FLOAT32", "DIM",
+                                 "8", "DISTANCE_METRIC", "L2", "COMPRESSION", "SQ8"});
+  const std::string threshold = std::to_string(HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD);
+  IndexSpec *explicitDefault =
+      parse("idx_sq8_explicit", {"SCHEMA", "v", "VECTOR", "HNSW", "10", "TYPE", "FLOAT32", "DIM",
+                                 "8", "DISTANCE_METRIC", "L2", "COMPRESSION", "SQ8",
+                                 "TRAINING_THRESHOLD", threshold.c_str()});
+  ASSERT_NE(implicit, nullptr);
+  ASSERT_NE(explicitDefault, nullptr);
+  ASSERT_EQ(fp(implicit), fp(explicitDefault));
+}
+
+TEST_F(SchemaFingerprintTest, Sq8LearnedMeanDoesNotAffectFingerprint) {
+  IndexSpec *sp =
+      parse("idx_sq8_mean", {"SCHEMA", "v", "VECTOR", "HNSW", "8", "TYPE", "FLOAT32", "DIM", "8",
+                             "DISTANCE_METRIC", "L2", "COMPRESSION", "SQ8"});
+  ASSERT_NE(sp, nullptr);
+  auto &hnsw = sp->fields[0]
+                   .vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algoParams
+                   .hnswParams;
+  const uint64_t before = fp(sp);
+  const void *savedMean = hnsw.quantParams;
+  float mean[8] = {1.0f};
+  hnsw.quantParams = mean;
+  const uint64_t withMean = fp(sp);
+  mean[0] = 2.0f;
+  const uint64_t changedMean = fp(sp);
+  hnsw.quantParams = savedMean;
+  ASSERT_EQ(before, withMean);
+  ASSERT_EQ(before, changedMean);
 }
 
 TEST_F(SchemaFingerprintTest, TagGeometryAndRulesAffectFingerprint) {

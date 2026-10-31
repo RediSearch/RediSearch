@@ -364,19 +364,28 @@ def test_flex_blocks_dict_commands(env):
 
 @skip(cluster=True)
 @with_simulate_in_flex(True)
-def test_flex_disk_hnsw_rejects_compression_and_training(env):
-    """Reject in-memory SQ8 options before creating a disk-backed vector field."""
+def test_flex_disk_hnsw_optional_compression_and_training(env):
     for data_type in ('FLOAT32', 'FLOAT16'):
         base = ['TYPE', data_type, 'DIM', 64, 'DISTANCE_METRIC', 'L2',
                 'M', 16, 'EF_CONSTRUCTION', 200, 'EF_RUNTIME', 10, 'RERANK', 'TRUE']
+        for extra in (
+            [],
+            ['COMPRESSION', 'SQ8'],
+            ['COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 0],
+            ['TRAINING_THRESHOLD', 4, 'COMPRESSION', 'SQ8'],
+            ['COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 102400],
+        ):
+            params = [*base, *extra]
+            env.expect('FT.CREATE', 'sq8', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+                       'v', 'VECTOR', 'HNSW', len(params), *params).ok()
+            env.expect('FT.DROPINDEX', 'sq8').ok()
         for extra, error in (
-            (['COMPRESSION', 'SQ8'], 'COMPRESSION is not supported for disk-based vector indexes'),
-            (['COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 0],
-             'COMPRESSION is not supported for disk-based vector indexes'),
-            (['TRAINING_THRESHOLD', 4, 'COMPRESSION', 'SQ8'],
-             'COMPRESSION is not supported for disk-based vector indexes'),
             (['TRAINING_THRESHOLD', 0],
              'TRAINING_THRESHOLD is irrelevant when compression was not requested'),
+            (['COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 102401],
+             'TRAINING_THRESHOLD cannot exceed'),
+            (['COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', -1],
+             'TRAINING_THRESHOLD'),
         ):
             params = [*base, *extra]
             env.expect('FT.CREATE', 'sq8', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',

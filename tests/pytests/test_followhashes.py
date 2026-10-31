@@ -713,7 +713,7 @@ def _assertVectorOnlyChangeKeepsDocId(env, algo):
               'aaaabbbbccccdddd', 'RETURN', '1', 'dist').equal([1, 'doc1', ['dist', '0']])
 
     # Hold the HNSW replacement job so the backend deletion remains observable before the
-    # replacement reuses its slot. The other algorithms do not need worker synchronization.
+    # replacement is inserted. The other algorithms do not need worker synchronization.
     if algo == 'HNSW':
         with paused_workers(env):
             env.expect('HSET', 'doc1', 'vec', 'eeeeffffgggghhhh').equal(0)
@@ -724,9 +724,8 @@ def _assertVectorOnlyChangeKeepsDocId(env, algo):
     env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
                     message='a vector-only change must not reindex')
     if algo == 'HNSW':
-        # The replacement reuses the old backend slot once the queued job can run.
-        _drainUntilBackendField(env, 'vec', 'NUMBER_OF_MARKED_DELETED', 0,
-                                'updateVectors must reuse the backend slot')
+        _drainUntilBackendField(env, 'vec', 'INDEX_LABEL_COUNT', 1,
+                                'the replacement vector must reach the backend')
     # The new value is what a KNN query against it finds -- proof the vector itself was
     # updated, not just the doc-id preserved.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',
