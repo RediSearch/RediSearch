@@ -89,9 +89,9 @@ typedef struct Grouper {
   // Used for maintaining state when yielding groups
   khiter_t iter;
 
-  // QueryMemory_ShouldStop counter. Rows, not new groups: reducer state also grows inside
-  // existing groups.
-  uint32_t memoryCheckCalls;
+  // Rows since the last memory checkpoint. Rows, not new groups: reducer state also grows
+  // inside existing groups.
+  uint32_t rowsSinceMemoryCheck;
 } Grouper;
 
 static void setAggregateGroupLimitError(const Grouper *g) {
@@ -283,14 +283,21 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   uint32_t chunkLimit = base->parent->resultLimit;
   base->parent->resultLimit = UINT32_MAX; // we want to accumulate all the results
   int rc;
+  // The checkpoint runs once per ratio read interval of rows and reads memory on that call. A
+  // call per row costs a few percent of a cheap GROUPBY, and the upstream iterator already reads
+  // the stop flag per row.
+  const uint32_t checkInterval = QueryMemory_GetRatioReadInterval();
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
     rc = invokeGroupReducers(g, SearchResult_GetRowDataMut(res), SearchResult_GetDocId(res));
     SearchResult_Clear(res);
-    if (rc == RS_RESULT_OK && base->parent->timeout &&
-        QueryMemory_ShouldStop(base->parent->timeout, &g->memoryCheckCalls)) {
-      // No partial groups: like a timeout, the stop yields none, and Grouper_rpFree frees them.
-      rc = RS_RESULT_TIMEDOUT;
+    if (rc == RS_RESULT_OK && base->parent->timeout && ++g->rowsSinceMemoryCheck >= checkInterval) {
+      g->rowsSinceMemoryCheck = 0;
+      uint32_t readNow = checkInterval - 1;
+      if (QueryMemory_ShouldStop(base->parent->timeout, &readNow)) {
+        // No partial groups: like a timeout, the stop yields none, and Grouper_rpFree frees them.
+        rc = RS_RESULT_TIMEDOUT;
+      }
     }
     if (rc != RS_RESULT_OK) {
       break;

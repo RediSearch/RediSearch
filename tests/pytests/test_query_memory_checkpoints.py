@@ -332,18 +332,26 @@ def test_grouper_stop_yields_no_partial_groups(env):
     the OOM warning, ON_OOM FAIL the OOM error, under every timeout policy. It counts rows, not
     groups, so a stop also lands while rows only grow existing groups."""
     create_index(env)
-    k = 4
+    # The grouper's checkpoint runs once per READ_INTERVAL rows: its 2nd call, at row 4, stops it.
+    rows_per_check, k = 2, 2
+
+    def at_call(n):
+        memory_pressure(env, 'READ_INTERVAL', rows_per_check)
+        return n
+
     for policy in timeout_policies(env):
         for workers in worker_counts(env):
             for query in GROUPBY_QUERIES:
                 full = env.cmd(*query)
                 env.assertGreater(len(full['results']), 0)
-                expect_empty_with_oom_warning(env, run_at_call(env, BUILD_CHECKPOINTS + k, *query))
+                expect_empty_with_oom_warning(
+                    env, run_at_call(env, at_call(BUILD_CHECKPOINTS + k), *query))
                 with oom_policy(env, 'fail'):
-                    expect_oom_error_at_call(env, BUILD_CHECKPOINTS + k, *query)
+                    expect_oom_error_at_call(env, at_call(BUILD_CHECKPOINTS + k), *query)
                 with oom_policy(env, 'ignore'):
-                    env.assertEqual(run_at_call(env, BUILD_CHECKPOINTS + k, *query)['results'],
-                                    full['results'], message=(policy, workers, query))
+                    env.assertEqual(
+                        run_at_call(env, at_call(BUILD_CHECKPOINTS + k), *query)['results'],
+                        full['results'], message=(policy, workers, query))
 
 
 @skip(cluster=False)
@@ -360,6 +368,8 @@ def test_shard_grouper_stop_leaves_the_other_shards_groups(env):
     query = ('FT.AGGREGATE', 'idx', '*', 'GROUPBY', 0, 'REDUCE', 'COUNT', 0, 'AS', 'c')
     # Shard 2's process hosts no coordinator pipeline, so its calls are its own pipeline's.
     shard = env.getConnection(2)
+    # One grouper checkpoint per row, so the shard's few rows reach it.
+    shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'READ_INTERVAL', 1)
     shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', BUILD_CHECKPOINTS + 1)
     try:
         res = env.cmd(*query)
