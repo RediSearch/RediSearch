@@ -95,6 +95,18 @@ QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
 
+/**
+ * Makes the query's row source (an RP_INDEX root) reply RS_RESULT_TIMEDOUT
+ * instead of reading while a stop is requested, until a read finds the stop
+ * cleared (a later cycle). The row source does not read the stop on its own (a
+ * per-row read costs ~0.4% instructions), so every stage that requests a stop
+ * and keeps pulling rows (ON_OOM RETURN) must call this right after the
+ * request. Call it on the thread that runs the pipeline; stops requested from
+ * other threads are not ended at an RP_INDEX source. No-op for other roots
+ * (RPNet reads the stop itself).
+ */
+void RP_EndRowSourceOnStop(QueryProcessingCtx *qctx);
+
 // Result count to report to the client: matches minus the rows a loader dropped
 // (deleted/re-indexed/expired mid-load). Saturates at zero.
 //
@@ -463,9 +475,10 @@ void PipelineAddCrash(struct AREQ *r, enum CrashLocation location);
 
 /**
  * Memory checkpoint of a processor that buffers rows or grows per row: true when it must end now
- * with RS_RESULT_TIMEDOUT. Under a RETURN stop policy it goes on instead: upstream reads nothing
- * new once the query is stopped, so it ends on upstream's RS_RESULT_TIMEDOUT and keeps the rows
- * buffering stages upstream already held. Always false for a pipeline without a timeout state.
+ * with RS_RESULT_TIMEDOUT. Under a RETURN stop policy it goes on instead: the stop ends the row
+ * source (RP_EndRowSourceOnStop), so upstream reads nothing new, and it ends on upstream's
+ * RS_RESULT_TIMEDOUT and keeps the rows buffering stages upstream already held. Always false for
+ * a pipeline without a timeout state.
  */
 bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter);
 
