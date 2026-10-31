@@ -286,6 +286,15 @@ static QueryStopReason RP_StopReason(const ResultProcessor *rp) {
   return timeout ? QueryRequestTimeout_GetStopReason(timeout) : QUERY_STOP_REASON_NONE;
 }
 
+// The stop reason a buffering processor records when it keeps its rows past a stop.
+static QueryStopReason RP_HoldStop(const ResultProcessor *rp) {
+  const QueryStopReason reason = RP_StopReason(rp);
+  if (reason == QUERY_STOP_REASON_OOM) {
+    rp->parent->oomCut = true;
+  }
+  return reason;
+}
+
 /*
  * A stop request lasts one cycle, but a buffered prefix may be yielded over several cursor reads.
  * The read that yields its end requests the stop again, so that read replies the stop's outcome.
@@ -825,7 +834,7 @@ static int rpsortNext_Stopped(ResultProcessor *rp, SearchResult *r) {
   rp->Next = rpsortNext_Yield;
   if (policy == TimeoutPolicy_Return) {
     self->timedOut = true;
-    self->stopReason = RP_StopReason(rp);
+    self->stopReason = RP_HoldStop(rp);
     return rpsortNext_Yield(rp, r);
   }
   return RS_RESULT_TIMEDOUT;
@@ -1932,7 +1941,7 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
      return RS_RESULT_TIMEDOUT;
    }
    ((RPMaxScoreNormalizer *)rp)->timedOut = true;
-   ((RPMaxScoreNormalizer *)rp)->stopReason = RP_StopReason(rp);
+   ((RPMaxScoreNormalizer *)rp)->stopReason = RP_HoldStop(rp);
    rp->Next = RPMaxScoreNormalizer_Yield;
    return rp->Next(rp, r);
  }
