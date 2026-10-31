@@ -199,7 +199,6 @@ TEST_F(QueryRequestTimeoutTest, RequestedStopIsNotATimeoutInEveryKind) {
 
     EXPECT_TRUE(QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM));
 
-    // The timeout checks stay the hot-path cost they were; stop-check sites read the stop.
     EXPECT_FALSE(QueryRequestTimeout_IsTimedOut(&timeout));
     EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
     EXPECT_TRUE(RS_AtomicBoolLoadRelaxed(QueryRequestTimeout_GetStopFlag(&timeout)));
