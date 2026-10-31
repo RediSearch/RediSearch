@@ -292,9 +292,8 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   uint32_t chunkLimit = base->parent->resultLimit;
   base->parent->resultLimit = UINT32_MAX; // we want to accumulate all the results
   int rc;
-  // The checkpoint runs once per ratio read interval of rows and reads memory on that call. A
-  // call per row costs a few percent of a cheap GROUPBY, and the upstream iterator already reads
-  // the stop flag per row.
+  // The checkpoint runs once per ratio read interval of rows and reads memory on that call: a
+  // call per row costs a few percent of a cheap GROUPBY.
   const uint32_t checkInterval = QueryMemory_GetRatioReadInterval();
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
