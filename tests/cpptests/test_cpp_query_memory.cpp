@@ -76,8 +76,8 @@ TEST_F(QueryMemoryTest, PressureRequestsAnOomStop) {
   fakeRatio = 1.0f;
   EXPECT_TRUE(QueryMemory_ShouldStop(&timeout_, &counter));
   EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
-  // The stop is what every other check of this request now observes.
-  EXPECT_TRUE(QueryRequestTimeout_IsTimedOut(&timeout_));
+  // The stop is what every stop-check site of this request now observes.
+  EXPECT_TRUE(QueryRequestTimeout_IsStopRequested(&timeout_));
 
   // Sticky without reading memory again, even if pressure is gone.
   fakeRatio = 0;
