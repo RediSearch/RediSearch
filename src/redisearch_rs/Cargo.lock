@@ -859,8 +859,10 @@ dependencies = [
 name = "geo"
 version = "0.0.1"
 dependencies = [
+ "cheadergen",
  "decorum",
  "proptest",
+ "rqe_core",
  "thiserror",
  "workspace_hack",
 ]
