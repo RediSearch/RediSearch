@@ -28,14 +28,13 @@ use crate::{Config, Evaluated, QueryEvalContext};
 /// which case the failure is reported via [`status`](QueryEvalContext::status)).
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
-    gf: *mut ffi::GeoFilter,
+    gf: *mut geo::GeoFilter,
     config: Config,
 ) -> Option<Evaluated<'index>> {
-    let status = ctx.status_ptr();
-    // SAFETY: `gf` is a valid, non-null `GeoFilter` (well-formed geo node) and
-    // `status` is the query's valid `QueryError` accumulator
-    // (`QueryEvalContext` invariant (2)).
-    if unsafe { ffi::GeoFilter_Validate(gf, status) } == 0 {
+    debug_assert!(!gf.is_null());
+    // SAFETY: this well-formed geo node owns a live filter.
+    if let Err(error) = unsafe { &*gf }.radius_filter() {
+        ctx.status().set_error(QueryErrorCode::Syntax, error);
         return None;
     }
 

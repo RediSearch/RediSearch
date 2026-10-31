@@ -7,6 +7,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "rmutil/args.h"
+#include "geo.h"
+typedef struct FieldSpec FieldSpec;
 
 /**
  * An opaque query error which can be passed by value to C.
@@ -41,9 +44,93 @@ typedef struct QueryError QueryError;
  */
 #define GEO_RANGE_COUNT 9
 
+/**
+ * Sentinel returned when coordinates cannot be indexed.
+ */
+#define INVALID_GEOHASH -1.0
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Parses a NUL-terminated unit.
+ * # Safety
+ * `s` must be a [valid] C string.
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+GeoDistance GeoDistance_Parse(const char *s);
+
+/**
+ * Parses a length-delimited unit.
+ * # Safety
+ * For lengths below sixteen, `s` must be non-null and [valid] for `len` readable bytes.
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+GeoDistance GeoDistance_Parse_Buffer(const char *s, size_t len);
+
+/**
+ * Returns a static spelling, or `<badunit>` for an invalid unit code.
+ */
+const char *GeoDistance_ToString(GeoDistance unit);
+
+/**
+ * Releases the filter and its owned numeric ranges.
+ * # Safety
+ * `gf` must be a [valid] exclusively owned C Redis allocation, containing initialized
+ * fields. Its numeric ranges must satisfy [`rqe_iterators::free_geo_numeric_filters`].
+ * The C Redis allocator must be initialized and stable during this call.
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void GeoFilter_Free(struct GeoFilter *gf);
+
+/**
+ * Parses five legacy GEOFILTER tokens; errors leave a freeable filter.
+ * # Safety
+ * All pointers must be non-null, [valid] and disjoint. `gf` is exclusively writable
+ * uninitialized storage; `ac` is an exclusive initialized cursor with offset <= argc
+ * and live NUL-terminated argument buffers; `empty` is an initialized exclusive flag;
+ * `status` is an initialized exclusive query error. Argument bytes must outlive the filter.
+ * The C Redis allocator and the cursor's Redis APIs must be initialized and stable.
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int GeoFilter_LegacyParse(struct LegacyGeoFilter *gf, ArgsCursor *ac, bool *empty, struct QueryError *status);
+
+/**
+ * Binds the stable field index, or clears it when `fs` is null.
+ * # Safety
+ * `gf` must be exclusively writable and [valid]; non-null `fs` must be readable and
+ * [valid]. They must not overlap.
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void GeoFilter_SetField(struct GeoFilter *gf, const FieldSpec *fs);
+
+/**
+ * Validates a filter, setting a syntax error on failure.
+ * # Safety
+ * `gf` must be readable and [valid]; `status` must be an exclusively writable,
+ * initialized, [valid] query error, disjoint from `gf`.
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int GeoFilter_Validate(const struct GeoFilter *gf, struct QueryError *status);
+
+/**
+ * Releases a legacy filter, including its borrowed-name wrapper.
+ * # Safety
+ * `gf` must satisfy [`GeoFilter_Free`] and point to a [valid] initialized
+ * [`LegacyGeoFilter`]; any non-null field must be an exclusively owned HiddenString
+ * wrapper created with `takeOwnership=false`.
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void LegacyGeoFilter_Free(struct LegacyGeoFilter *gf);
+
+/**
+ * Allocates an unbound filter; a null unit selects kilometers.
+ * # Safety
+ * A non-null `unit` must satisfy [`GeoDistance_Parse_Buffer`]. The C Redis allocator
+ * must be initialized and remain unchanged throughout the call.
+ */
+struct GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t len);
 
 /**
  * Decode a geohash `f64` back into a `[longitude, latitude]` pair.
@@ -74,24 +161,13 @@ double encodeGeo(double lon, double lat);
 double geohashGetDistance(double lon1, double lat1, double lon2, double lat2);
 
 /**
- * Return `true` if the distance between two lon/lat points is within `radius`
- * meters.
- *
- * If `distance` is non-null, the actual distance (in meters) is written to it.
- *
- * # Panics
- *
- * If any coordinate is non-finite (NaN or infinity). This cannot happen in
- * practice: `lon1`/`lat1` come from `GeoFilter` which is range-checked by
- * `GeoFilter_Validate`, and `lon2`/`lat2` come from `decodeGeo` which
- * produces finite values by construction (integer bit-arithmetic scaled to
- * WGS-84 bounds).
- *
+ * Checks an indexed score and optionally writes its distance in meters.
  * # Safety
- *
- * - `distance` must be either null or a valid pointer to a writable `f64`.
+ * `gf` must be readable, [valid], and pass [`GeoFilter_Validate`]. A non-null
+ * `distance` must be exclusively writable, [valid], and disjoint from `gf`.
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-bool isWithinRadiusLonLat(double lon1, double lat1, double lon2, double lat2, double radius, double *distance);
+int isWithinRadius(const struct GeoFilter *gf, double score, double *distance);
 
 /**
  * Parse a `"lon,lat"` or `"lon lat"` string into separate longitude and

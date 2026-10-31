@@ -10,40 +10,28 @@
 use std::ptr;
 
 use crate::{FilterGeoReader, IndexReader, NumericFilter};
-use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter};
+use geo::{
+    GEO_DISTANCE_M, GeoFilter,
+    hash::{GEO_STEP_MAX, WGS84Coordinates, encode_wgs84},
+};
 use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 use rqe_core::RS_INVALID_FIELD_INDEX;
 
 #[test]
 fn reading_filter_based_on_geo_filter() {
-    /// Implement this FFI call for this test
-    #[unsafe(no_mangle)]
-    pub extern "C" fn isWithinRadius(gf: *const GeoFilter, d: f64, distance: *mut f64) -> bool {
-        if d > unsafe { (*gf).radius } {
-            return false;
-        }
-
-        // Tests changing the distance value
-        unsafe { *distance /= 5.0 };
-
-        true
-    }
-
-    // Make an iterator with three records having different geo distances. The last record will be
-    // filtered out based on the geo distance.
-    let iter = vec![
-        RSIndexResult::build_numeric(5.0).doc_id(10).build(),
-        RSIndexResult::build_numeric(15.0).doc_id(11).build(),
-        RSIndexResult::build_numeric(25.0).doc_id(12).build(),
-    ];
+    let iter = [(10, 0.001), (11, 0.002), (12, 1.0)].map(|(id, lon)| {
+        let score =
+            encode_wgs84(WGS84Coordinates::from_f64(lon, 0.0).unwrap(), GEO_STEP_MAX).bits as f64;
+        RSIndexResult::build_numeric(score).doc_id(id).build()
+    });
 
     let geo_filter = GeoFilter {
         fieldIndex: RS_INVALID_FIELD_INDEX,
         lat: 0.0,
         lon: 0.0,
-        radius: 20.0,
-        unitType: GeoDistance_GEO_DISTANCE_M,
+        radius: 300.0,
+        unitType: GEO_DISTANCE_M,
         numericFilters: ptr::null_mut(),
     };
 
@@ -62,9 +50,12 @@ fn reading_filter_based_on_geo_filter() {
 
     let found = reader.next_record(&mut result).unwrap();
     assert!(found);
-    assert_eq!(result, RSIndexResult::build_numeric(1.0).doc_id(10).build());
+    assert_eq!(result.doc_id, 10);
+    assert!((result.as_numeric().unwrap() - 111.2).abs() < 0.5);
 
     let found = reader.next_record(&mut result).unwrap();
     assert!(found);
-    assert_eq!(result, RSIndexResult::build_numeric(3.0).doc_id(11).build());
+    assert_eq!(result.doc_id, 11);
+    assert!((result.as_numeric().unwrap() - 222.4).abs() < 0.5);
+    assert!(!reader.next_record(&mut result).unwrap());
 }
