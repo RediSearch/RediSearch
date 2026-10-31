@@ -744,7 +744,14 @@ def test_cursor_admission_rejects_through_the_coordinator(env):
 
 def _split_dump(reply):
     """A dump stopped for memory ends with the OOM error in place of its next value: returns the
-    values before it and whether that last element is the OOM error."""
+    values before it and whether that last element is the OOM error. A RESP3 set may come back as
+    a Python set, which has no order: there the OOM error only has to be one of its elements."""
+    if isinstance(reply, (set, frozenset)):
+        errors = [v for v in reply if isinstance(v, redis_exceptions.ResponseError)]
+        stopped = len(errors) == 1 and OOM_QUERY_ERROR in str(errors[0])
+        if len(errors) > int(stopped):
+            raise AssertionError(f'unexpected error elements: {reply}')
+        return [v for v in reply if not isinstance(v, redis_exceptions.ResponseError)], stopped
     reply = list(reply)
     last = reply[-1] if reply else None
     stopped = isinstance(last, redis_exceptions.ResponseError) and OOM_QUERY_ERROR in str(last)
