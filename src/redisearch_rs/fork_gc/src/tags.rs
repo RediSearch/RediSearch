@@ -75,20 +75,6 @@ fn fetch_tag_index_mut(fs: &mut FieldSpec) -> Option<&mut ffi::TagIndex> {
     }
 }
 
-/// A tag GC message could not be applied to the index the child scanned.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("{msg}")]
-pub struct TagError {
-    msg: &'static str,
-}
-
-impl TagError {
-    /// Build a [`HandleError::Custom`] carrying `msg`.
-    const fn new(msg: &'static str) -> HandleError<Self> {
-        HandleError::Custom(Self { msg })
-    }
-}
-
 /// Routing information shared by one field's tag deltas.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound(
@@ -184,16 +170,12 @@ pub fn collect_tags(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::R
 }
 
 /// Decode a field header, or `None` at the end of the TAG scanner's stream.
-pub fn receive_field_header(
-    reader: &mut impl Read,
-) -> Result<Option<TagFieldHeader>, HandleError<TagError>> {
+pub fn receive_field_header(reader: &mut impl Read) -> Result<Option<TagFieldHeader>, HandleError> {
     rmp_serde::from_read(reader).map_err(|e| HandleError::codec("decoding tag field header", e))
 }
 
 /// Decode one tag delta, or `None` at the end of the current field.
-pub fn receive_tag_entry(
-    reader: &mut impl Read,
-) -> Result<Option<TagEntry>, HandleError<TagError>> {
+pub fn receive_tag_entry(reader: &mut impl Read) -> Result<Option<TagEntry>, HandleError> {
     match Frame::decode(reader).map_err(|e| HandleError::codec("reading tag entry", e))? {
         Frame::Data(bytes) => rmp_serde::from_slice(&bytes)
             .map(Some)
@@ -211,21 +193,21 @@ pub fn apply_tag_entry(
     field: &TagFieldHeader,
     entry: TagEntry,
     guard: &mut IndexSpecWriteGuard<'_>,
-) -> Result<GcApplyStats, HandleError<TagError>> {
+) -> Result<GcApplyStats, HandleError> {
     let fs = guard
         .field_specs_mut()
         .iter_mut()
         .find(|fs| fs.field_name().secret_value().to_bytes() == &*field.field_name)
-        .ok_or(TagError::new(
+        .ok_or(HandleError::ApplyError(
             "no field in the spec matches the scanned field name",
         ))?;
 
-    let tag_index = fetch_tag_index_mut(fs).ok_or(TagError::new(
+    let tag_index = fetch_tag_index_mut(fs).ok_or(HandleError::ApplyError(
         "the field no longer has an in-memory tag index",
     ))?;
 
     if tag_index.uniqueId != field.tag_index_unique_id {
-        return Err(TagError::new(
+        return Err(HandleError::ApplyError(
             "the field's tag index is not the one the child scanned",
         ));
     }
@@ -234,7 +216,7 @@ pub fn apply_tag_entry(
     // SAFETY: the tag index owns this trie, and the write guard keeps it live
     // and excludes concurrent changes throughout lookup and application.
     let values = unsafe { &*tag_index.values.cast::<TrieMapOpaque>() };
-    let ii = values.find(&entry.tag).ok_or(TagError::new(
+    let ii = values.find(&entry.tag).ok_or(HandleError::ApplyError(
         "the tag was removed before the delta could be applied",
     ))?;
 
@@ -243,7 +225,7 @@ pub fn apply_tag_entry(
     let ii = unsafe { &mut *ii.cast::<InvertedIndex>().as_ptr() };
 
     if u32::from(ii.unique_id()) != entry.inverted_index_unique_id {
-        return Err(TagError::new(
+        return Err(HandleError::ApplyError(
             "the tag's posting list is not the one the child scanned",
         ));
     }
@@ -264,7 +246,7 @@ pub fn apply_tag_entry(
             )
         } == 0
         {
-            return Err(TagError::new(
+            return Err(HandleError::ApplyError(
                 "the tag could not be removed after its posting list was emptied",
             ));
         }
@@ -300,7 +282,7 @@ pub fn apply_tag_entry(
 /// Handle one field's tag deltas, acquiring the spec lock separately for each tag.
 ///
 /// Returns [`HandleOutcome::Done`] at the end of the TAG scanner's stream.
-pub fn handle_tags(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError<TagError>> {
+pub fn handle_tags(fgc: &mut ForkGC) -> Result<HandleOutcome, HandleError> {
     let Some(field) = receive_field_header(&mut fgc.reader())? else {
         return Ok(HandleOutcome::Done);
     };

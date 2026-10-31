@@ -98,10 +98,10 @@ impl TestSpec {
 }
 
 impl SpecWriteAccess for TestSpec {
-    fn with_write<T, C>(
+    fn with_write<T>(
         &mut self,
-        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError<C>>,
-    ) -> Result<T, HandleError<C>> {
+        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError>,
+    ) -> Result<T, HandleError> {
         self.lock_attempts += 1;
         if self.fail_lock_on_attempt == Some(self.lock_attempts) {
             return Err(HandleError::SpecDeleted);
