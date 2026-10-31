@@ -43,6 +43,7 @@ wildcard_cloudflare.workspace = true
 fnv_ffi = { path = "../c_entrypoint/fnv_ffi" }
 fork_gc_ffi = { path = "../c_entrypoint/fork_gc_ffi" }
 geo_ffi = { path = "../c_entrypoint/geo_ffi" }
+geo_filter_ffi = { path = "../c_entrypoint/geo_filter_ffi" }
 idf_ffi = { path = "../c_entrypoint/idf_ffi" }
 doc_key_map_ffi = { path = "../c_entrypoint/doc_key_map_ffi" }
 inverted_index_ffi = { path = "../c_entrypoint/inverted_index_ffi" }

@@ -2622,6 +2622,7 @@ dependencies = [
  "fnv_ffi",
  "fork_gc_ffi",
  "geo_ffi",
+ "geo_filter_ffi",
  "idf_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
