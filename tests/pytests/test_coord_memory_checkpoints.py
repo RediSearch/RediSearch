@@ -10,6 +10,7 @@ Pressure is per process and the coordinator's process also hosts shard 1, so eac
 pressure where only the coordinator checkpoint under test can see it: a forced ratio set after the
 query passed the entry guard (parked at a sync point), or a calibrated `AT_CALL`."""
 
+import itertools
 import threading
 
 from common import *
@@ -335,8 +336,9 @@ def test_profile_search_fanout_stop_resp2():
 @skip(cluster=False)
 def test_search_fanout_stop_then_timeout():
     """A fan-out stopped for memory still waits for its last shard reply; a blocked-client timeout
-    that fires meanwhile owns the reply: FT.SEARCH replies once (the timeout error under ON_TIMEOUT
-    FAIL, the partial reply under RETURN-STRICT) and releases its blocked client. The remote shards are held before their first read so the timer
+    that fires meanwhile owns the reply, and its warning is the timeout's, as on a shard: FT.SEARCH
+    replies once, with the timeout error (ON_TIMEOUT FAIL) or the timeout's partial result and
+    warning (RETURN-STRICT), and releases its blocked client. The remote shards are held before their first read so the timer
     fires first."""
     # Workers run the shard queries, so a parked shard still answers SYNC_POINT.
     env = Env(protocol=3, moduleArgs='WORKERS 1')
@@ -346,8 +348,13 @@ def test_search_fanout_stop_then_timeout():
     remote_shards = [env.getConnection(i) for i in range(2, env.shardsCount + 1)]
     query = ('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, N_DOCS, 'TIMEOUT', 300)
     try:
-        for timeout_policy in ('FAIL', 'RETURN-STRICT'):
-            set_policies(env, timeout_policy, 'return')
+        for timeout_policy, oom_policy in itertools.product(('FAIL', 'RETURN-STRICT'),
+                                                            ('return', 'fail')):
+            case = (timeout_policy, oom_policy)
+            set_policies(env, timeout_policy, oom_policy)
+            # The held shards run without a timer of their own, which would release them.
+            for shard in remote_shards:
+                shard.execute_command(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
             for shard in remote_shards:
                 sync_point(shard, 'CLEAR')
                 sync_point(shard, 'ARM', 'BeforeFirstRead')
@@ -362,7 +369,7 @@ def test_search_fanout_stop_then_timeout():
                     wait_for_sync_point(shard, 'BeforeFirstRead')
                 # The timer fires while the remote shards are held.
                 thread.join(timeout=30)
-                env.assertFalse(thread.is_alive(), message=timeout_policy)
+                env.assertFalse(thread.is_alive(), message=case)
             finally:
                 coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
                 sync_point(coord, 'CLEAR')
@@ -370,17 +377,19 @@ def test_search_fanout_stop_then_timeout():
                     sync_point(shard, 'SIGNAL', 'BeforeFirstRead')
                     sync_point(shard, 'CLEAR')
             res = result[0]
-            if timeout_policy == 'FAIL':
-                env.assertTrue(isinstance(res, ResponseError), message=res)
-                env.assertContains('Timeout limit was reached', str(res), message=res)
+            if timeout_policy == 'RETURN-STRICT' and oom_policy == 'fail':
+                # Shard 1 shares the forced ratio and fails its own query; the timeout's reply is
+                # that shard error.
+                env.assertTrue(isinstance(res, ResponseError), message=(case, res))
+                env.assertContains(OOM_QUERY_ERROR, str(res), message=(case, res))
+            elif timeout_policy == 'FAIL':
+                env.assertTrue(isinstance(res, ResponseError), message=(case, res))
+                env.assertContains('Timeout limit was reached', str(res), message=(case, res))
             else:
-                # The timeout's partial reply: every reply was discarded by the stop. Its warning
-                # names the OOM stop when the background reducer merged before the timer, and the
-                # timeout otherwise.
-                env.assertEqual(search_ids(env, res), [], message=res)
-                env.assertContains(res['warning'],
-                                   [[COORD_OOM_WARNING], ['Timeout limit was reached']],
-                                   message=res)
+                # Every reply was discarded by the stop.
+                env.assertFalse(isinstance(res, Exception), message=(case, res))
+                env.assertEqual(search_ids(env, res), [], message=(case, res))
+                env.assertEqual(res['warning'], ['Timeout limit was reached'], message=(case, res))
             wait_for_condition(
                 lambda: (coord.execute_command('INFO', 'CLIENTS')['blocked_clients'] == 0, {}),
                 'Timeout waiting for the blocked client to be released')
