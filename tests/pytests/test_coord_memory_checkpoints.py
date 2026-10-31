@@ -831,3 +831,54 @@ def test_aggregate_withcount_reader_stop_resp3():
 def test_aggregate_withcount_reader_stop_resp2():
     """As the RESP3 case; RESP2 has no warning channel."""
     _test_aggregate_withcount_reader_stop(Env(protocol=2))
+
+
+@skip(cluster=False)
+def test_aggregate_withcount_follow_up_read_stop_dispatches():
+    """As `test_aggregate_withcount_io_thread_stop_dispatches`, with the memory stop found on a
+    shard's follow-up cursor read rather than on its first reply: the WITHCOUNT pipeline is still
+    dispatched at once, while the other shards' first replies are held."""
+    env = Env(protocol=3, moduleArgs='WORKERS 1')
+    skipIfNoEnableAssert(env)
+    # Several cursor chunks on the coordinator's own shard, the only one replying.
+    n_docs = 5000 * env.shardsCount
+    env.expect('FT.CREATE', 'big', 'PREFIX', 1, 'big:', 'SCHEMA', 'n', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    pipe = conn.pipeline(transaction=False)
+    for i in range(n_docs):
+        pipe.execute_command('HSET', f'big:{i}', 'n', i)
+    pipe.execute()
+    coord = env.getConnection(1)
+    parked = [env.getConnection(i) for i in range(2, env.shardsCount + 1)]
+    query = ('FT.AGGREGATE', 'big', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'TIMEOUT', 100000)
+    point = 'BeforeFollowUpResendCheckpoint'
+    for shard in parked:
+        sync_point(shard, 'CLEAR')
+        sync_point(shard, 'ARM', 'BeforeFirstRead')
+    sync_point(coord, 'CLEAR')
+    sync_point(coord, 'ARM', point)
+    try:
+        thread, result = run_in_thread(coord, query)
+        for shard in parked:
+            wait_for_sync_point(shard, 'BeforeFirstRead')
+        # A follow-up read of shard 1, the only shard replying, after its first reply.
+        wait_for_sync_point(coord, point)
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+        sync_point(coord, 'SIGNAL', point)
+        thread.join(timeout=30)
+        replied_while_parked = not thread.is_alive()
+    finally:
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        sync_point(coord, 'CLEAR')
+        for shard in parked:
+            sync_point(shard, 'SIGNAL', 'BeforeFirstRead')
+            sync_point(shard, 'CLEAR')
+    thread.join(timeout=30)
+    env.assertTrue(replied_while_parked)
+    res = result[0]
+    env.assertFalse(isinstance(res, Exception), message=res)
+    env.assertLess(len(res['results']), n_docs)
+    env.assertContains(COORD_OOM_WARNING, res['warning'], message=res['warning'])
+    wait_for_condition(lambda: (cursor_count(env, 'big') == 0, {}),
+                       'Timeout waiting for the shard cursors to end')
+    expect_clean_end(env, coord)

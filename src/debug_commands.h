@@ -156,6 +156,7 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_RPNET_START                   "BeforeRPNetStart"
 #define SYNC_POINT_BEFORE_RPNET_NEXT                    "BeforeRPNetNext"
 #define SYNC_POINT_BEFORE_CURSOR_RESEND_CHECKPOINT      "BeforeCursorResendCheckpoint"
+#define SYNC_POINT_BEFORE_FOLLOW_UP_RESEND_CHECKPOINT   "BeforeFollowUpResendCheckpoint"
 #define SYNC_POINT_BEFORE_HYBRID_ARM_READS              "BeforeHybridArmReads"
 #define SYNC_POINT_AFTER_ITERATOR_START                 "AfterIteratorStart"
 #define SYNC_POINT_RPNET_REPLY_ADMITTED                 "RpnetReplyAdmitted"
