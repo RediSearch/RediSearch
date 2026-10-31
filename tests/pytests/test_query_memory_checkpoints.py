@@ -371,14 +371,34 @@ def test_grouper_stop_yields_no_partial_groups(env):
             for query in GROUPBY_QUERIES:
                 full = env.cmd(*query)
                 env.assertGreater(len(full['results']), 0)
-                expect_empty_with_oom_warning(
-                    env, run_at_call(env, at_call(BUILD_CHECKPOINTS + k), *query))
+                res = run_at_call(env, at_call(BUILD_CHECKPOINTS + k), *query)
+                expect_empty_with_oom_warning(env, res)
+                env.assertEqual(res['total_results'], 0, message=(policy, workers, query, res))
                 with oom_policy(env, 'fail'):
                     expect_oom_error_at_call(env, at_call(BUILD_CHECKPOINTS + k), *query)
                 with oom_policy(env, 'ignore'):
                     env.assertEqual(
                         run_at_call(env, at_call(BUILD_CHECKPOINTS + k), *query)['results'],
                         full['results'], message=(policy, workers, query))
+
+
+@skip(cluster=True)
+def test_grouper_stop_inside_one_rows_groups(env):
+    """One row with an array value opens a group per element before the per-row check runs; the
+    grouper also reads memory as that row opens groups, and replies none of them."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    parts = 50
+    env.cmd('HSET', 'doc', 't', ','.join(f'p{i}' for i in range(parts)))
+    query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', 'split(@t, ",")', 'AS', 'p',
+             'GROUPBY', 1, '@p', 'REDUCE', 'COUNT', 0, 'AS', 'c')
+    env.assertEqual(env.cmd(*query)[0], parts)
+    # Calls past the build checkpoints land inside the row's expansion: the grouper's per-row
+    # check runs once per read interval, and at most one other checkpoint runs per row upstream.
+    at_call = BUILD_CHECKPOINTS + 3
+    for workers in worker_counts(env):
+        env.assertEqual(run_at_call(env, at_call, *query), [0], message=workers)
+        with oom_policy(env, 'fail'):
+            expect_oom_error_at_call(env, at_call, *query)
 
 
 @skip(cluster=False)

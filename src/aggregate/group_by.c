@@ -92,6 +92,8 @@ typedef struct Grouper {
   // Rows since the last memory checkpoint. Rows, not new groups: reducer state also grows
   // inside existing groups.
   uint32_t rowsSinceMemoryCheck;
+  // QueryMemory_ShouldStop counter for the groups one multi-valued row opens.
+  uint32_t expansionMemoryCheckCalls;
 } Grouper;
 
 static void setAggregateGroupLimitError(const Grouper *g) {
@@ -209,6 +211,11 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
         setAggregateGroupLimitError(g);
         return RS_RESULT_ERROR;
       }
+      // The array values of one row can open up to maxGroups groups before the per-row check.
+      if (rowExpansion > 1 && g->base.parent->timeout &&
+          QueryMemory_ShouldStop(g->base.parent->timeout, &g->expansionMemoryCheckCalls)) {
+        return RS_RESULT_TIMEDOUT;
+      }
       group = createGroup(g, xarr, xlen);
       kh_set(khid, g->groups, hval, group);
     } else {
@@ -312,9 +319,14 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
     base->parent->skippedResults = 0;
     g->iter = kh_begin(khid);
     return Grouper_rpYield(base, res);
-  } else {
-    return rc;
   }
+  if (rc == RS_RESULT_TIMEDOUT && base->parent->timeout &&
+      QueryRequestTimeout_GetStopReason(base->parent->timeout) == QUERY_STOP_REASON_OOM) {
+    // No group is replied, so none is counted either.
+    base->parent->totalResults = 0;
+    base->parent->skippedResults = 0;
+  }
+  return rc;
 }
 
 static void Grouper_rpFree(ResultProcessor *grrp) {
