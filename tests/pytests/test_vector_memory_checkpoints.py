@@ -12,6 +12,7 @@ returns all of its results."""
 import json
 
 from common import *
+from vecsim_utils import get_tiered_debug_info, wait_for_background_indexing
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
@@ -135,6 +136,15 @@ def test_json_multi_value_range_stops_for_oom(env):
 KNN_K = 10
 
 
+def _create_indexed_hash_index(env):
+    """`_create_hash_index`, waiting until the tiered HNSW field holds every vector: while the
+    flat buffer drains, its exact answers turn into the graph's approximate ones, so the same
+    batched KNN query could return different docs from one call to the next."""
+    _create_hash_index(env)
+    if get_tiered_debug_info(env, 'hidx', 'vh')['ALGORITHM'] == 'TIERED':
+        wait_for_background_indexing(env, 'hidx', 'vh', backend_index_size=N_DOCS)
+
+
 def _batches_queries():
     """Filtered KNN queries whose filter keeps docs far from the query vector, so the top k takes
     more than one batch: on FLAT, and on HNSW in small batches."""
@@ -153,7 +163,7 @@ def _batches_queries():
 def test_knn_batches_stop_for_oom(env):
     """A filtered KNN in batches checks memory before each further batch; under pressure
     it stops there with reason OOM, with and without workers and under either ON_TIMEOUT."""
-    _create_hash_index(env)
+    _create_indexed_hash_index(env)
     try:
         for workers in (0, 2):
             set_workers(env, workers)
@@ -173,5 +183,5 @@ def test_knn_batches_stop_for_oom(env):
 def test_knn_batches_stop_for_oom_on_shards(env):
     """Shards stopped between batches report the OOM to the coordinator. Small batches make every
     shard holding filtered docs fetch more than one."""
-    _create_hash_index(env)
+    _create_indexed_hash_index(env)
     _expect_stopped_by_policy(env, _batches_queries()['hnsw'], None)
