@@ -89,8 +89,9 @@ typedef struct QueryError QueryError;
  *           timeout. Drive it with `_FT.DEBUG MEMORY_PRESSURE`. No timeout policy restriction
  *           beyond the coordinator-wide one.
  *         - **`INTERNAL_ONLY` (optional)**: in a multi-shard cluster, adds it to the shard
- *           pipelines instead of the coordinator's (FT.SEARCH has none, so it needs the flag
- *           there). Not combinable with TIMEOUT_AFTER_N or the pause commands.
+ *           pipelines instead of the coordinator's. FT.SEARCH has no coordinator pipeline, so
+ *           its shards take it with or without the flag. Not combinable with TIMEOUT_AFTER_N or
+ *           the pause commands.
  *
  *   - `<DEBUG_PARAMS_COUNT>`:
  *     - Specifies the number of expected arguments in `<DEBUG_QUERY_ARGS>`.
