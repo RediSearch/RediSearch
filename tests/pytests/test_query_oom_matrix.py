@@ -198,6 +198,7 @@ class Cell:
         self.admission_pressured = shape.kind == 'cursor' and where != 'shards'
         self.complete = complete
         self.complete_keys = [_key_of(shape, r) for r in complete.rows]
+        self.complete_by_key = {_key_of(shape, r): r for r in complete.rows}
         self.complete_counts = {_key_of(shape, r): int(r['c']) for r in complete.rows} \
             if shape.kind == 'groupby' else None
         # Fusion re-ranks: a cut subquery lets docs outside the complete top rows in.
@@ -253,6 +254,12 @@ class Cell:
         if self.shape.order:
             ns = [_n_of(r) for r in got.rows]
             env.assertEqual(ns, sorted(ns, reverse=self.shape.order == 'desc'), message=msg)
+        # A kept row is the complete result's row for its key; GROUPBY counts may be partial and
+        # hybrid fusion scores change with what a cut subquery kept.
+        if self.shape.kind not in ('groupby', 'hybrid'):
+            for r in got.rows:
+                env.assertEqual(r, self.complete_by_key[_key_of(self.shape, r)],
+                                message=('row payload',) + msg)
 
         if got.warnings is not None:
             env.assertTrue(set(got.warnings) <= OOM_WARNINGS, message=('non-OOM warning',) + msg)
@@ -318,10 +325,10 @@ def _matrix(env, where):
     saved = {name: _get_config(env, name) for name in CONFIGS}
     # No deadline: a timeout warning is then always a mislabelled stop. Without the limit
     # override, TIMEOUT 0 with WORKERS 0 is capped with a warning of its own.
-    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', '_MAX_FOREGROUND_TIMEOUT_LIMIT', 0)
-    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'TIMEOUT', 0)
     conns = _targets(env, where)
     try:
+        verify_command_OK_on_all_shards(env, config_cmd(), 'SET', '_MAX_FOREGROUND_TIMEOUT_LIMIT', 0)
+        verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'TIMEOUT', 0)
         for workers in WORKER_COUNTS:
             set_workers(env, workers)
             for on_timeout in ON_TIMEOUT_POLICIES:
