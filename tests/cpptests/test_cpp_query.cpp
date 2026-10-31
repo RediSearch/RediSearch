@@ -974,6 +974,29 @@ TEST_F(QueryTest, testGeoQuery_v2) {
   Indexes_RemoveSpecFromGlobals(ref, false);
 }
 
+TEST_F(QueryTest, testGeoFilterABI) {
+  GeoFilter *filter = NewGeoFilter(2, 48, 1, nullptr, 0);
+  ASSERT_EQ(filter->fieldIndex, RS_INVALID_FIELD_INDEX);
+  ASSERT_EQ(filter->numericFilters, nullptr);
+  ASSERT_EQ(filter->unitType, GEO_DISTANCE_KM);
+  FieldSpec field = {};
+  field.index = 17;
+  GeoFilter_SetField(filter, &field);
+  ASSERT_EQ(filter->fieldIndex, 17);
+  GeoFilter_SetField(filter, nullptr);
+  ASSERT_EQ(filter->fieldIndex, RS_INVALID_FIELD_INDEX);
+  double distance = 0;
+  ASSERT_EQ(isWithinRadius(filter, encodeGeo(2, 48), &distance), 1);
+  ASSERT_LT(distance, 1);
+  ASSERT_EQ(isWithinRadius(filter, encodeGeo(2.1, 48), nullptr), 0);
+  GeoFilter_Free(filter);
+  const char unit[] = "kM\0padding padding";
+  ASSERT_EQ(GeoDistance_Parse(unit), GEO_DISTANCE_KM);
+  ASSERT_EQ(GeoDistance_Parse_Buffer(unit, 15), GEO_DISTANCE_KM);
+  ASSERT_EQ(GeoDistance_Parse_Buffer(unit, 16), GEO_DISTANCE_INVALID);
+  ASSERT_STREQ(GeoDistance_ToString(GEO_DISTANCE_INVALID), "<badunit>");
+}
+
 TEST_F(QueryTest, testFieldSpec_v1) {
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
                                "text",   "weight", "2.0",  "bar",    "numeric"};
