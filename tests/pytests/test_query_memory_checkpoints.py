@@ -587,6 +587,21 @@ def test_withcount_depleter_stop_keeps_the_depleted_rows(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_withcount_depleter_stop_past_the_limit_warns(env):
+    """Depleted rows beyond LIMIT let the pager end the reply before the stop is read; the reply
+    still carries the OOM warning and counts the rows read."""
+    create_index(env)
+    query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'LIMIT', 0, 2)
+    k = 4
+    for policy in timeout_policies(env):
+        res = run_at_call(env, BUILD_CHECKPOINTS + k, *query)
+        env.assertEqual(len(res['results']), 2, message=(policy, res))
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, res))
+        env.assertEqual(res['total_results'], k, message=(policy, res))
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_withcount_depleter_stop_over_cursor_reads(env):
     """Depleted rows read over several cursor reads keep coming, and the read that ends them
     carries the OOM warning and closes the cursor."""

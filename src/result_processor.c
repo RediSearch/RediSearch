@@ -3330,7 +3330,7 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     }
   }
   if (rc == RS_RESULT_TIMEDOUT) {
-    self->stopReason = RP_StopReason(&self->base);
+    self->stopReason = RP_HoldStop(&self->base);
   }
 
   // Record depletion time
