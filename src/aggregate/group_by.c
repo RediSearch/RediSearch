@@ -314,6 +314,8 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
       break;
     }
   }
+  // Without ownership the pipeline's counters belong to its new owner (the timeout recovery), which
+  // decides the reply and its counts, so the OOM count reset below must not run here.
   if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return rc;
   base->parent->resultLimit = chunkLimit; // restore the limit
   if (rc == RS_RESULT_EOF) {
