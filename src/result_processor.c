@@ -1626,10 +1626,23 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
       break;
     }
   }
-  SearchResult_Destroy(&resToBuffer);
   if (result_status == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) {
+    SearchResult_Destroy(&resToBuffer);
     return result_status;
   }
+  // A buffering stage upstream (sorter, normalizer) that keeps its rows past an OOM stop under a
+  // RETURN stop policy hands them over only through Drain: buffer them, so they are loaded too.
+  if (result_status == RS_RESULT_TIMEDOUT && RP_StopReason(rp) == QUERY_STOP_REASON_OOM &&
+      RP_StopPolicy(rp) == TimeoutPolicy_Return) {
+    while (rp->parent->resultLimit &&
+           rp->upstream->Drain(rp->upstream, &resToBuffer) == RP_DRAIN_OK) {
+      rp->parent->resultLimit--;
+      SearchResult_BufferIndexResult(rp, &resToBuffer);
+      currBlock = InsertResult(self, &resToBuffer, currBlock);
+      resToBuffer = SearchResult_New();
+    }
+  }
+  SearchResult_Destroy(&resToBuffer);
   rp->parent->resultLimit = bufferLimit;  // Restore the result limit
   // A stop requested by the last row's checkpoint under a RETURN stop policy still ends the query
   // after this buffer.
