@@ -56,11 +56,11 @@ bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err);
  * loop's only memory check. On true `rc` is RS_RESULT_TIMEDOUT, which the
  * caller maps like a pipeline stop (ApplyOomStop for an OOM stop). An OOM stop
  * under ON_OOM RETURN does not end the loop, as in AggregateResults: the rows
- * the pipeline's stages already hold still reach the reply, and the stop ends
- * the stream at the pipeline's root.
+ * the pipeline's stages already hold still reach the reply, and `qctx`'s row
+ * source is ended (RP_EndRowSourceOnStop).
  */
-bool ReplyLoop_ShouldStop(struct QueryRequestTimeout *timeout, RSOomPolicy oomPolicy,
-                          uint32_t *counter, int *rc);
+bool ReplyLoop_ShouldStop(struct QueryProcessingCtx *qctx, struct QueryRequestTimeout *timeout,
+                          RSOomPolicy oomPolicy, uint32_t *counter, int *rc);
 
 void destroyResults(SearchResult **results);
 

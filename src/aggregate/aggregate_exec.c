@@ -436,8 +436,17 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
 }
 #endif
 static int applyOomStop(AREQ *req, int rc) {
-  return ApplyOomStop(&req->base.timeout, req->base.reqConfig.oomPolicy,
-                      AREQ_QueryProcessingCtx(req)->err, rc);
+  QueryError *err = AREQ_QueryProcessingCtx(req)->err;
+  // A buffering stage that kept its rows past an OOM stop may hold enough of them to fill the
+  // reply's limit or a pager's, so the reply ends without reading the stop's RS_RESULT_TIMEDOUT.
+  // When no later cursor read reports the stop, the reply is cut.
+  const bool lastReply =
+      rc == RS_RESULT_EOF || (rc == RS_RESULT_OK && !(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR));
+  if (lastReply && req->base.reqConfig.oomPolicy != OomPolicy_Fail &&
+      AREQ_QueryProcessingCtx(req)->oomCut) {
+    QueryError_SetQueryOOMWarning(err);
+  }
+  return ApplyOomStop(&req->base.timeout, req->base.reqConfig.oomPolicy, err, rc);
 }
 
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
@@ -787,7 +796,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
     {
       uint32_t memoryCheckCounter = 0;
       while (--rp->parent->resultLimit &&
-             !ReplyLoop_ShouldStop(&req->base.timeout, req->base.reqConfig.oomPolicy,
+             !ReplyLoop_ShouldStop(rp->parent, &req->base.timeout, req->base.reqConfig.oomPolicy,
                                    &memoryCheckCounter, &rc) &&
              (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
         serializeResult(req, reply, state->r, cv, &schema);
@@ -1028,7 +1037,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
 
       uint32_t memoryCheckCounter = 0;
       while (--rp->parent->resultLimit &&
-             !ReplyLoop_ShouldStop(&req->base.timeout, req->base.reqConfig.oomPolicy,
+             !ReplyLoop_ShouldStop(rp->parent, &req->base.timeout, req->base.reqConfig.oomPolicy,
                                    &memoryCheckCounter, &rc) &&
              (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
         serializeResult(req, reply, state->r, cv, &schema);
@@ -1473,11 +1482,9 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
   // FT.PROFILE's reply is produced by sendChunk, which reports a timeout as a
   // Warning rather than an error; skip the hard-fail here and let it handle it.
-  // An OOM stop is not a timeout: it ends the pipeline at its first read instead.
   if (req->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
       req->base.timeout.config.timeoutPolicy == TimeoutPolicy_Fail && !IsProfile(req)) {
-    if (QueryRequestTimeout_IsTimedOutExact(&req->base.timeout) &&
-        QueryRequestTimeout_GetStopReason(&req->base.timeout) != QUERY_STOP_REASON_OOM) {
+    if (QueryRequestTimeout_IsTimedOutExact(&req->base.timeout)) {
       QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
     }
   }
@@ -1508,6 +1515,11 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
   if (rc == REDISMODULE_OK && checkBuildMemory(req, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
+  }
+  // A build checkpoint that stopped the query under ON_OOM RETURN leaves the pipeline to run:
+  // its row source, built only now, must end at its first read.
+  if (rc == REDISMODULE_OK && QueryRequestTimeout_IsStopRequested(&req->base.timeout)) {
+    RP_EndRowSourceOnStop(AREQ_QueryProcessingCtx(req));
   }
 
   if (IsDebug(req)) {

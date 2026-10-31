@@ -101,6 +101,8 @@ typedef struct {
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
+  // The reading Next, restored when RP_EndRowSourceOnStop's stop is cleared by a new cycle.
+  int (*readNext)(ResultProcessor *self, SearchResult *res);
 #ifdef ENABLE_ASSERT
   bool firstRead;  // Debug only: tracks if this is the first read for sync point testing
 #endif
@@ -286,6 +288,15 @@ static QueryStopReason RP_StopReason(const ResultProcessor *rp) {
   return timeout ? QueryRequestTimeout_GetStopReason(timeout) : QUERY_STOP_REASON_NONE;
 }
 
+// The stop reason a buffering processor records when it keeps its rows past a stop.
+static QueryStopReason RP_HoldStop(const ResultProcessor *rp) {
+  const QueryStopReason reason = RP_StopReason(rp);
+  if (reason == QUERY_STOP_REASON_OOM) {
+    rp->parent->oomCut = true;
+  }
+  return reason;
+}
+
 /*
  * A stop request lasts one cycle, but a buffered prefix may be yielded over several cursor reads.
  * The read that yields its end requests the stop again, so that read replies the stop's outcome.
@@ -297,8 +308,11 @@ static void RP_RenewStop(const ResultProcessor *rp, QueryStopReason reason) {
 }
 
 bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
-  return rp->parent->timeout && QueryMemory_ShouldStop(rp->parent->timeout, counter) &&
-         RP_StopPolicy(rp) != TimeoutPolicy_Return;
+  if (!rp->parent->timeout || !QueryMemory_ShouldStop(rp->parent->timeout, counter)) {
+    return false;
+  }
+  RP_EndRowSourceOnStop(rp->parent);
+  return RP_StopPolicy(rp) != TimeoutPolicy_Return;
 }
 
 typedef enum {
@@ -569,6 +583,24 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   return &ret->base;
 }
 
+static int rpQueryItNext_Stopped(ResultProcessor *base, SearchResult *res) {
+  RPQueryIterator *self = (RPQueryIterator *)base;
+  if (!QueryRequestTimeout_IsStopRequested(self->sctx->timeout)) {
+    base->Next = self->readNext;
+    return base->Next(base, res);
+  }
+  return UnlockSpec_and_ReturnRPResult(self->sctx, RS_RESULT_TIMEDOUT);
+}
+
+void RP_EndRowSourceOnStop(QueryProcessingCtx *qctx) {
+  ResultProcessor *root = qctx->rootProc;
+  if (!root || root->type != RP_INDEX || root->Next == rpQueryItNext_Stopped) {
+    return;
+  }
+  ((RPQueryIterator *)root)->readNext = root->Next;
+  root->Next = rpQueryItNext_Stopped;
+}
+
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it) {
   /* On coordinator, the root result processor will be a network result processor and we should ignore it */
   if (it->rootProc && it->rootProc->type == RP_INDEX) {
@@ -819,7 +851,7 @@ static int rpsortNext_Stopped(ResultProcessor *rp, SearchResult *r) {
   rp->Next = rpsortNext_Yield;
   if (policy == TimeoutPolicy_Return) {
     self->timedOut = true;
-    self->stopReason = RP_StopReason(rp);
+    self->stopReason = RP_HoldStop(rp);
     return rpsortNext_Yield(rp, r);
   }
   return RS_RESULT_TIMEDOUT;
@@ -1386,7 +1418,7 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
       // The loaded prefix is yielded; the yield phase then ends on the stop.
       stopped = true;
       self->last_buffered_rc = RS_RESULT_TIMEDOUT;
-      self->stopReason = QueryRequestTimeout_GetStopReason(timeout);
+      self->stopReason = RP_HoldStop(&self->base_loader.base);
     }
     if (stopped) {
       // An empty slot, which the yield phase skips. Not counted in skippedResults: the row still
@@ -1470,7 +1502,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   }
   // save the last buffered result code to return when we done yielding the buffered results.
   self->last_buffered_rc = result_status;
-  self->stopReason = RP_StopReason(rp);
+  self->stopReason = RP_HoldStop(rp);
 
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
@@ -1926,7 +1958,7 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
      return RS_RESULT_TIMEDOUT;
    }
    ((RPMaxScoreNormalizer *)rp)->timedOut = true;
-   ((RPMaxScoreNormalizer *)rp)->stopReason = RP_StopReason(rp);
+   ((RPMaxScoreNormalizer *)rp)->stopReason = RP_HoldStop(rp);
    rp->Next = RPMaxScoreNormalizer_Yield;
    return rp->Next(rp, r);
  }
@@ -2262,7 +2294,7 @@ static void RPSafeDepleter_Deplete(void *arg) {
 
   // Check if timeout was exceeded before starting execution.
   QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
-  bool timed_out = QueryRequestTimeout_IsTimedOutExact(timeout);
+  bool timed_out = QueryRequestTimeout_IsTimedOutOrStopped(timeout);
   if (!timed_out) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
@@ -2762,7 +2794,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     // No more results to yield
     int ret = RPHybridMerger_ReportsTimeout(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
-  } else if (QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
+  } else if (QueryRequestTimeout_IsStopRequested(self->sctx->timeout) ||
+             QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
     // Timed out before we could yield all results
     return RS_RESULT_TIMEDOUT;
   }
@@ -3362,7 +3395,7 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     }
   }
   if (rc == RS_RESULT_TIMEDOUT) {
-    self->stopReason = RP_StopReason(&self->base);
+    self->stopReason = RP_HoldStop(&self->base);
   }
 
   // Record depletion time

@@ -484,6 +484,67 @@ def test_hybrid_stop_replies_by_on_oom_policy_resp2(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_hybrid_build_stop_reads_no_row(env):
+    """A SEARCH subquery stopped at its build checkpoint under ON_OOM RETURN reads no row, with
+    or without workers: the reply holds the vector subquery's rows only, with the OOM warning."""
+    env.expect('FT.CREATE', 'hidx', 'PREFIX', 1, 'h:', 'SCHEMA', 'name', 'TEXT',
+               'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    # The first doc the SEARCH subquery reads is the farthest from the vector query.
+    for i in range(N_DOCS):
+        far = float(N_DOCS - 1 - i)
+        conn.execute_command('HSET', f'h:{i}', 'name', 'hello',
+                             'v', np.array([far, far], dtype=np.float32).tobytes())
+    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB', 'KNN', 2, 'K', 2,
+             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+    nearest = {f'h:{N_DOCS - 1}', f'h:{N_DOCS - 2}'}
+    for workers in [0, 2]:
+        _set_policies(env, 'return', 'return', workers)
+        # Call 1 is the SEARCH subquery's build checkpoint.
+        _memory_pressure(env, 'AT_CALL', 1)
+        res = env.cmd(*query)
+        _memory_pressure(env, 'RESET')
+        env.assertEqual({r['__key'] for r in res['results']}, nearest, message=(workers, res))
+        env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=(workers, res))
+    _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_hybrid_stop_past_the_offset_warns(env):
+    """A tail sorter stopped while filling holds OFFSET + LIMIT rows at most, so the pager can end
+    the reply before the stop is read. Wherever the stop lands, a reply that differs from the
+    complete one carries the OOM warning."""
+    env.expect('FT.CREATE', 'hidx', 'PREFIX', 1, 'h:', 'SCHEMA', 'name', 'TEXT',
+               'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'h:{i}', 'name', f'hello{i}',
+                             'v', np.array([float(i), 0.0], dtype=np.float32).tobytes())
+    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello*', 'VSIM', '@v', '$BLOB', 'LIMIT', 2, 2,
+             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+
+    def keys(res):
+        return [r['__key'] for r in res['results']]
+
+    for workers in [0, 2]:
+        _set_policies(env, 'return', 'return', workers)
+        complete = keys(env.cmd(*query))
+        cuts = 0
+        for at_call in range(1, _checkpoint_calls(env, query) + 1):
+            _memory_pressure(env, 'AT_CALL', at_call)
+            res = env.cmd(*query)
+            _memory_pressure(env, 'RESET')
+            if keys(res) != complete:
+                cuts += 1
+                env.assertEqual(res['warnings'], [COORD_OOM_WARNING],
+                                message=(workers, at_call, res))
+        env.assertGreater(cuts, 0, message=workers)
+    _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_hybrid_reply_loop_stop_truncates(env):
     """FT.HYBRID streams its tail rows into the reply with the same per-row check; a stop there
     ends the stream at the tail's merger, so some stop positions keep a strict prefix of the
@@ -756,9 +817,89 @@ def test_cursor_admission_rejects_through_the_coordinator(env):
         _memory_pressure(env, 'RESET')
 
 
+def _open_cursors(env):
+    """Client and coordinator-to-shard cursors on `idx`."""
+    info = env.cmd('FT.INFO', 'idx')
+    stats = info['cursor_stats'] if isinstance(info, dict) else to_dict(to_dict(info)['cursor_stats'])
+    return int(stats['index_total']) + int(stats.get('index_total_internal', 0))
+
+
+def _expect_no_open_cursors(env, message):
+    # Shard cursors are freed asynchronously after the coordinator's cursor ends.
+    with TimeLimit(10, f'cursor left open: {message}'):
+        while _open_cursors(env):
+            time.sleep(0.05)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_cursor_admission_rejects_through_the_deferred_reply(env):
+    """With workers, ON_TIMEOUT FAIL and RETURN-STRICT hand the reply to the main thread. A cursor
+    refused there replies the OOM error once, counts it once, unblocks the client and leaves no
+    cursor."""
+    _index_with_docs(env)
+    query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', 4]
+    for on_timeout in ['fail', 'return-strict', 'return']:
+        _set_policies(env, on_timeout, 'return', 2)
+        errors, warnings = _oom_counters(env)
+        _memory_pressure(env, 'AT_CALL', B + 1)
+        env.expect(*query).error().contains(OOM_QUERY_ERROR)
+        _memory_pressure(env, 'RESET')
+        env.assertEqual(_oom_counters(env), (errors + 1, warnings), message=on_timeout)
+        # A second reply to the refused query would be read here instead of PONG.
+        env.assertEqual(env.cmd('PING'), True, message=on_timeout)
+        env.assertEqual(_open_cursors(env), 0, message=on_timeout)
+    _reset(env)
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_cursor_admission_after_the_withcount_fan_out(env):
+    """A WITHCOUNT cursor is admitted on the coordinator after the shards replied and opened
+    their cursors. Wherever pressure lands on the coordinator's process, the query replies rows
+    or the OOM error (at least once: at admission), and no coordinator or shard cursor stays
+    open."""
+    _index_with_docs(env)
+    query = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@name', 'WITHCURSOR', 'COUNT', 4]
+    coordinator = env.getConnection(1)
+
+    def arm(*args):
+        coordinator.execute_command(debug_cmd(), 'MEMORY_PRESSURE', *args)
+
+    arm('AT_CALL', NEVER)
+    _, cursor = env.cmd(*query)
+    calls = coordinator.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+    arm('RESET')
+    if cursor:
+        env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
+    errors = 0
+    try:
+        for at_call in range(1, calls + 1):
+            arm('AT_CALL', at_call)
+            try:
+                _, cursor = env.cmd(*query)
+                if cursor:
+                    env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
+            except redis_exceptions.ResponseError as e:
+                env.assertContains(OOM_QUERY_ERROR, str(e), message=at_call)
+                errors += 1
+            arm('RESET')
+            _expect_no_open_cursors(env, at_call)
+    finally:
+        arm('RESET')
+    env.assertGreater(errors, 0)
+
+
 def _split_dump(reply):
     """A dump stopped for memory ends with the OOM error in place of its next value: returns the
-    values before it and whether that last element is the OOM error."""
+    values before it and whether that last element is the OOM error. A RESP3 set may come back as
+    a Python set, which has no order: there the OOM error only has to be one of its elements."""
+    if isinstance(reply, (set, frozenset)):
+        errors = [v for v in reply if isinstance(v, redis_exceptions.ResponseError)]
+        stopped = len(errors) == 1 and OOM_QUERY_ERROR in str(errors[0])
+        if len(errors) > int(stopped):
+            raise AssertionError(f'unexpected error elements: {reply}')
+        return [v for v in reply if not isinstance(v, redis_exceptions.ResponseError)], stopped
     reply = list(reply)
     last = reply[-1] if reply else None
     stopped = isinstance(last, redis_exceptions.ResponseError) and OOM_QUERY_ERROR in str(last)

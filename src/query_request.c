@@ -28,10 +28,6 @@ static void QueryRequestTimeout_ClearStop(QueryRequestTimeout *timeout) {
   atomic_store_explicit(&timeout->stopRequested, false, memory_order_relaxed);
 }
 
-bool QueryRequestTimeout_IsStopRequested(const QueryRequestTimeout *timeout) {
-  return atomic_load_explicit(&timeout->stopRequested, memory_order_relaxed);
-}
-
 void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const TimeoutConfig *config) {
   RS_ASSERT(config);
   RS_ASSERT(config->queryTimeoutMS >= 0);
@@ -85,14 +81,14 @@ void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout) {
 bool QueryRequestTimeout_RequestStop(QueryRequestTimeout *timeout, QueryStopReason reason) {
   RS_ASSERT(reason != QUERY_STOP_REASON_NONE);
   int expected = QUERY_STOP_REASON_NONE;
-  if (!atomic_compare_exchange_strong_explicit(&timeout->stopReason, &expected, (int)reason,
-                                               memory_order_relaxed, memory_order_relaxed)) {
-    return false;
-  }
+  // A losing requester acquires the winner's reason and publishes the flag too, so the stop is
+  // visible once any requester returns, even while the winner is still between its two stores.
+  const bool won = atomic_compare_exchange_strong_explicit(
+      &timeout->stopReason, &expected, (int)reason, memory_order_release, memory_order_acquire);
   // Release pairs with the acquire in GetStopReason, so a reader that sees the flag sees the
   // reason too.
   atomic_store_explicit(&timeout->stopRequested, true, memory_order_release);
-  return true;
+  return won;
 }
 
 QueryStopReason QueryRequestTimeout_GetStopReason(const QueryRequestTimeout *timeout) {
@@ -126,9 +122,6 @@ struct timespec *QueryRequestTimeout_GetClockDeadlineForUpdate(QueryRequestTimeo
 }
 
 bool QueryRequestTimeout_IsTimedOutExact(const QueryRequestTimeout *timeout) {
-  if (QueryRequestTimeout_IsStopRequested(timeout)) {
-    return true;
-  }
   switch (timeout->kind) {
     case QUERY_REQUEST_TIMEOUT_UNARMED:
       return false;
@@ -146,20 +139,17 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
     case QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE:
       return false;
     case QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT:
-      return RS_AtomicBoolLoadRelaxed(&timeout->source.blockedClientTimedOut);
+      return QueryRequestTimeout_IsTimedOutExact(timeout);
   }
   RS_ABORT_ALWAYS("Invalid query timeout kind");
 }
 
-bool QueryRequest_ShouldStop(const QueryRequestTimeout *timeout) {
+bool QueryRequestTimeout_IsTimedOutOrStopped(const QueryRequestTimeout *timeout) {
   return QueryRequestTimeout_IsStopRequested(timeout) ||
-         QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+         QueryRequestTimeout_IsTimedOutExact(timeout);
 }
 
 bool QueryRequestTimeout_IsTimedOut(QueryRequestTimeout *timeout) {
-  if (QueryRequestTimeout_IsStopRequested(timeout)) {
-    return true;
-  }
   // Only clock reads are expensive enough to amortize. Other sources retain
   // the exact semantics of QueryRequestTimeout_IsTimedOutExact.
   if (timeout->kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
