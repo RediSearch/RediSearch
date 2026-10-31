@@ -32,6 +32,7 @@ TEST_F(RPIndexStopTest, RequestedStopEndsTheRowSourceBeforeItReads) {
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, "rpindex_stop", true);
   ASSERT_TRUE(sctx);
 
+  // TIMEOUT 0 keeps the cycle UNARMED: only the stop can end the read.
   QueryRequestTimeout timeout = {};
   TimeoutConfig timeoutConfig = {0, TimeoutPolicy_Return};
   QueryRequestTimeout_Init(&timeout, &timeoutConfig);
