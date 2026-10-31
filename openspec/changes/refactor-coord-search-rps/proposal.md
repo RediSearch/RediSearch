@@ -16,12 +16,13 @@ Consume the collected shard reply array through a source RP, select/order rows
 through bounded sorter RPs, and paginate through the standard pager. Integrate
 with QueryRequest's stored results and common callback machinery in small steps.
 
-No new command, option, persistence format, or intentional breaking behavior is
-proposed. Preserve shard command construction, fanout, successful reply semantics,
-and the current timeout ownership protocol during the initial migration.
+No new command, option, or persistence format is proposed. The approved follow-up
+corrects global KNN membership with numeric final sorting and distance DESC, and
+aligns sort values with standard typed comparison. Preserve fanout and the current
+timeout ownership protocol; see the behavior ledger for observable differences.
 
 This work targets four implementation PRs: mechanical extraction, reply-array
-source and ordinary ordering, KNN paths, and common lifecycle/callbacks. Planning
+source and ordinary ordering, KNN paths, and shared stored-result ownership. Planning
 artifacts accompany the first PR.
 
 The public Drain API and nonblocking strict-timeout handoff belong to the user's
@@ -35,6 +36,17 @@ Either stack may merge first; the design records the integration boundary.
 - [Implementation tasks](tasks.md)
 - [Compatibility requirements](specs/coordinator-search/spec.md)
 
-Status: local design draft following directional agreement in conversation.
-No implementation, runtime verification, issue, or PR has been created for this
-change. Repository review milestones remain to be recorded before broad changes.
+Tracking: [MOD-20150](https://redislabs.atlassian.net/browse/MOD-20150).
+
+Status: four ready-for-review PRs in native stack 11989, following directional
+agreement in conversation:
+
+1. [Extraction](https://github.com/RediSearch/RediSearch/pull/11985)
+2. [Reply source and ordinary ordering](https://github.com/RediSearch/RediSearch/pull/11986)
+3. [KNN reduction](https://github.com/RediSearch/RediSearch/pull/11987)
+4. [Source reply ownership and search fanout](https://github.com/RediSearch/RediSearch/pull/11988)
+
+Local validation and its scope are recorded in the behavior ledger. Remote CI
+and automated review are separate gates. PR 4 also moves shard-reply ownership
+into the source and synchronizes reply admission at timeout. BG/main reduction
+arbitration remains unchanged; abort/drain handoff stays in the Drain stack.
