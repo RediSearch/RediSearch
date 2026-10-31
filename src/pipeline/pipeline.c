@@ -19,6 +19,7 @@ void Pipeline_Initialize(Pipeline *pipeline, QueryRequest *request) {
   pipeline->qctx.timeoutPolicy = request->timeout.config.timeoutPolicy;
   pipeline->qctx.timeout = &request->timeout;
   pipeline->qctx.oomPolicy = request->reqConfig.oomPolicy;
+  pipeline->qctx.oomCut = false;
 }
 
 void Pipeline_Clean(Pipeline *pipeline) {
