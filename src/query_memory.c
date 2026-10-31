@@ -72,9 +72,10 @@ static float readRatio(void) {
 }
 
 static bool oomPolicyIsIgnore(void) {
-  // Global like QueryMemoryGuard's, not the request's snapshot. A plain enum read racing
-  // CONFIG SET sees the old or the new policy, both valid.
-  return RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Ignore;
+  // Global like QueryMemoryGuard's, not the request's snapshot. Atomic because this runs on any
+  // thread while CONFIG SET writes the policy on the main thread.
+  return __atomic_load_n(&RSGlobalConfig.requestConfigParams.oomPolicy, __ATOMIC_RELAXED) ==
+         OomPolicy_Ignore;
 }
 
 bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter) {

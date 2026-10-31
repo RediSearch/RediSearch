@@ -352,7 +352,10 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 #endif
 
   while (1) {
-    if (QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
+    // The row source is where a stop ends a query whose later stages keep running under ON_OOM
+    // RETURN: the timeout check does not read the stop.
+    if (QueryRequestTimeout_IsStopRequested(sctx->timeout) ||
+        QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -413,7 +416,10 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 #endif
 
   while (1) {
-    if (QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
+    // The row source is where a stop ends a query whose later stages keep running under ON_OOM
+    // RETURN: the timeout check does not read the stop.
+    if (QueryRequestTimeout_IsStopRequested(sctx->timeout) ||
+        QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -2139,7 +2145,7 @@ static void RPSafeDepleter_Deplete(void *arg) {
 
   // Check if timeout was exceeded before starting execution.
   QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
-  bool timed_out = QueryRequestTimeout_IsTimedOutExact(timeout);
+  bool timed_out = QueryRequestTimeout_IsTimedOutOrStopped(timeout);
   if (!timed_out) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
@@ -2605,7 +2611,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     // No more results to yield
     int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
-  } else if (QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
+  } else if (QueryRequestTimeout_IsStopRequested(self->sctx->timeout) ||
+             QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
     // Timed out before we could yield all results
     return RS_RESULT_TIMEDOUT;
   }
