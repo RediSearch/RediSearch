@@ -484,6 +484,40 @@ def test_hybrid_stop_replies_by_on_oom_policy_resp2(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_hybrid_stop_past_the_offset_warns(env):
+    """A tail sorter stopped while filling holds OFFSET + LIMIT rows at most, so the pager can end
+    the reply before the stop is read. Wherever the stop lands, a reply that differs from the
+    complete one carries the OOM warning."""
+    env.expect('FT.CREATE', 'hidx', 'PREFIX', 1, 'h:', 'SCHEMA', 'name', 'TEXT',
+               'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'h:{i}', 'name', f'hello{i}',
+                             'v', np.array([float(i), 0.0], dtype=np.float32).tobytes())
+    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello*', 'VSIM', '@v', '$BLOB', 'LIMIT', 2, 2,
+             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+
+    def keys(res):
+        return [r['__key'] for r in res['results']]
+
+    for workers in [0, 2]:
+        _set_policies(env, 'return', 'return', workers)
+        complete = keys(env.cmd(*query))
+        cuts = 0
+        for at_call in range(1, _checkpoint_calls(env, query) + 1):
+            _memory_pressure(env, 'AT_CALL', at_call)
+            res = env.cmd(*query)
+            _memory_pressure(env, 'RESET')
+            if keys(res) != complete:
+                cuts += 1
+                env.assertEqual(res['warnings'], [COORD_OOM_WARNING],
+                                message=(workers, at_call, res))
+        env.assertGreater(cuts, 0, message=workers)
+    _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_hybrid_reply_loop_stop_truncates(env):
     """FT.HYBRID streams its tail rows into the reply with the same per-row check; a stop there
     ends the stream at the tail's merger, so some stop positions keep a strict prefix of the
