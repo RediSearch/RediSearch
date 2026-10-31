@@ -812,6 +812,38 @@ def test_tagvals_merge_stop():
 
 
 
+@skip(cluster=False)
+def test_tagvals_merge_reads_memory_every_interval():
+    """Without `AT_CALL`, the FT.TAGVALS merge reads memory on its `QUERY_MEMORY_RATIO_READ_INTERVAL`-th
+    value: with more values than that and the ratio over the limit, it replies the OOM error."""
+    env = Env(protocol=3)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    n_values = 300
+    for i in range(n_values):
+        conn.execute_command('HSET', f'doc{i}', 't', f'v{i}')
+    coord = env.getConnection(1)
+    env.assertGreater(n_values, coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[3])
+    try:
+        for oom_policy in OOM_POLICIES:
+            allShards_change_oom_policy(env, oom_policy)
+            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+            try:
+                res = coord.execute_command('FT.TAGVALS', 'idx', 't')
+            except ResponseError as e:
+                res = e
+            finally:
+                coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+            if oom_policy == 'ignore':
+                env.assertEqual(len(res), n_values, message=oom_policy)
+            else:
+                env.assertTrue(isinstance(res, ResponseError), message=(oom_policy, res))
+                env.assertContains(OOM_QUERY_ERROR, str(res), message=oom_policy)
+            expect_clean_end(env, coord)
+    finally:
+        allShards_change_oom_policy(env, 'return')
+
+
 def _test_aggregate_withcount_reader_stop(env):
     create_index(env)
     coord = env.getConnection(1)
