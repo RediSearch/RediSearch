@@ -288,6 +288,66 @@ def test_sorter_stop_yields_its_sorted_prefix(env):
 
 
 @skip(cluster=True)
+@env_spec(protocol=3)
+def test_stopped_buffer_reaches_a_safe_loader(env):
+    """With workers a safe loader follows the sorter or normalizer when the reply has content. A
+    stop while they buffer hands their kept rows to the loader, which loads and replies them with
+    the OOM warning under ON_OOM RETURN, under every timeout policy."""
+    create_index(env)
+    env.expect('FT.CREATE', 'bodies', 'SCHEMA', 'body', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'body{i}', 'body', ' '.join(['hello'] * (i + 1)))
+    k = 4
+    sorted_search = ('FT.SEARCH', 'idx', '*', 'SORTBY', 'n', 'DESC', 'LIMIT', 0, N_DOCS)
+    normalized_search = ('FT.SEARCH', 'bodies', 'hello', 'SCORER', 'BM25STD.NORM',
+                         'LIMIT', 0, N_DOCS)
+    set_workers(env, 2)
+    try:
+        for policy in timeout_policies(env):
+            res = run_at_call(env, BUILD_CHECKPOINTS + k, *sorted_search)
+            env.assertEqual(ids(res), first_rows_desc(k), message=(policy, res))
+            env.assertEqual([r['extra_attributes']['n'] for r in res['results']],
+                            [str(i) for i in reversed(range(k))], message=(policy, res))
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, res))
+
+            res = run_at_call(env, BUILD_CHECKPOINTS + k, *normalized_search)
+            env.assertEqual(len(res['results']), k, message=(policy, res))
+            env.assertTrue(all('body' in r['extra_attributes'] for r in res['results']),
+                           message=(policy, res))
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, res))
+    finally:
+        set_workers(env, 0)
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_stopped_buffer_reaches_a_safe_loader_on_shards(env):
+    """As the standalone case, on the shards of a cluster: the remote shards stop after k rows and
+    reply them, loaded, with the shard OOM warning; the coordinator's own shard replies in full."""
+    create_index(env)
+    remote_shards = [env.getConnection(i) for i in range(2, env.shardsCount + 1)]
+    k = 2
+    query = ('FT.SEARCH', 'idx', '*', 'SORTBY', 'n', 'DESC', 'LIMIT', 0, N_DOCS)
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', 2)
+    try:
+        for conn in remote_shards:
+            conn.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', BUILD_CHECKPOINTS + k)
+        try:
+            res = env.cmd(*query)
+        finally:
+            run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+    finally:
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', 0)
+    local_docs = env.getConnection(1).execute_command('KEYS', 'doc*')
+    expected = len(local_docs) + sum(
+        min(k, len(conn.execute_command('KEYS', 'doc*'))) for conn in remote_shards)
+    env.assertEqual(len(res['results']), expected, message=res)
+    env.assertTrue(all('n' in r['extra_attributes'] for r in res['results']), message=res)
+    env.assertEqual(res['warning'], [SHARD_OOM_WARNING], message=res)
+
+
+@skip(cluster=True)
 @env_spec(protocol=2)
 def test_sorter_stop_in_resp2(env):
     """RESP2 replies the sorted prefix without a warning."""
