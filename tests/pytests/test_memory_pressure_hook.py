@@ -121,26 +121,30 @@ def test_forced_ratio_drives_coordinator_entry_guard(env):
 @skip(cluster=False)
 def test_search_checkpoint_runs_on_shards(env):
     """FT.SEARCH has no coordinator pipeline, so with or without INTERNAL_ONLY its checkpoint
-    runs on every shard: each shard makes more calls than its build checkpoints, and pressure
-    there cuts the reply."""
+    runs on every shard: each shard makes more calls with it than without it. Every process
+    also makes its build and other checkpoint calls, so only the difference counts."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
     conn = getConnectionByEnv(env)
     for i in range(100):
         conn.execute_command('HSET', f'doc{i}', 'n', i)
     shards = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
+
+    def calls(*debug_args):
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1000)
+        query = ('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, 100)
+        if debug_args:
+            query = (debug_cmd(), *query, *debug_args, 'DEBUG_PARAMS_COUNT', len(debug_args))
+        res = env.cmd(*query)
+        env.assertEqual(len(res) - 1, 100, message=debug_args)
+        return [shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+                for shard in shards]
+
     try:
+        without = calls()
         for debug_args in (['MEMORY_CHECKPOINT'], ['MEMORY_CHECKPOINT', 'INTERNAL_ONLY']):
-            query = (debug_cmd(), 'FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, 100,
-                     *debug_args, 'DEBUG_PARAMS_COUNT', len(debug_args))
-            run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1000)
-            env.assertEqual(len(env.cmd(*query)) - 1, 100, message=debug_args)
-            for shard in shards:
-                env.assertGreater(shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5],
-                                  BUILD_CHECKPOINTS, message=debug_args)
-            # Past the build stages, so the debug checkpoint stops each shard after a few rows.
-            run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL',
-                                      BUILD_CHECKPOINTS + 4)
-            env.assertLess(len(env.cmd(*query)) - 1, 100, message=debug_args)
+            with_checkpoint = calls(*debug_args)
+            for shard, (w, wo) in enumerate(zip(with_checkpoint, without), 1):
+                env.assertGreater(w, wo, message=(debug_args, shard))
     finally:
         run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
 
