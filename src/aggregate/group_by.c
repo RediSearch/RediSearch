@@ -206,6 +206,7 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
     // per-row check.
     if (rowExpansion > 1 && g->base.parent->timeout &&
         QueryMemory_ShouldStop(g->base.parent->timeout, &g->expansionMemoryCheckCalls)) {
+      RP_EndRowSourceOnStop(g->base.parent);
       return RS_RESULT_TIMEDOUT;
     }
     Group *group = NULL;
@@ -304,6 +305,7 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
       uint32_t readNow = checkInterval - 1;
       if (QueryMemory_ShouldStop(base->parent->timeout, &readNow)) {
         // No partial groups: like a timeout, the stop yields none, and Grouper_rpFree frees them.
+        RP_EndRowSourceOnStop(base->parent);
         rc = RS_RESULT_TIMEDOUT;
       }
     }
