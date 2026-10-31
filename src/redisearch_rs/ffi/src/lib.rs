@@ -119,6 +119,10 @@ pub struct QueryProcessingCtx {
     /// The owning request's ON_OOM policy, applied by buffering processors to
     /// a stop for memory pressure.
     pub oomPolicy: RSOomPolicy,
+    /// Set once a buffering processor keeps rows past a stop for memory
+    /// pressure: those rows can fill the reply before the processor reports
+    /// the stop.
+    pub oomCut: bool,
 }
 
 impl QueryProcessingCtx {
@@ -144,6 +148,7 @@ impl QueryProcessingCtx {
             executionAccess: ptr::null_mut(),
             timeout: ptr::null_mut(),
             oomPolicy: RSOomPolicy_OomPolicy_Return,
+            oomCut: false,
         };
 
         Box::pin(ctx)

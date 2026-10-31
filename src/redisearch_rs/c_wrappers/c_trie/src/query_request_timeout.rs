@@ -20,9 +20,9 @@ use std::{cell::UnsafeCell, ptr::NonNull};
 /// The handle borrows rather than owns the C object. Trie wrappers pass its pointer only for the
 /// duration of their synchronous FFI call; they never retain it. The C timeout state machine owns
 /// source transitions and synchronization: transitions occur between execution cycles, the
-/// blocked-client marker and the stop flag may be changed atomically during a cycle, and
-/// clock-counter calls for one request are serialized. [`QueryRequestTimeoutHandle`] deliberately
-/// does not make those C operations safe to overlap.
+/// blocked-client marker and the stop state (flag and reason) may be changed atomically during a
+/// cycle, and clock-counter calls for one request are serialized. [`QueryRequestTimeoutHandle`]
+/// deliberately does not make those C operations safe to overlap.
 #[repr(transparent)]
 pub struct QueryRequestTimeoutHandle {
     inner: UnsafeCell<ffi::QueryRequestTimeout>,
@@ -42,8 +42,8 @@ impl QueryRequestTimeoutHandle {
     ///
     /// The caller must also uphold the C API's cycle contract: the active source cannot change
     /// during an operation using this handle. Concurrent C access is limited to atomic publication
-    /// or observation of the blocked-client marker and the stop flag; the source discriminator,
-    /// clock deadline, and clock counter cannot be mutated concurrently.
+    /// or observation of the blocked-client marker and the stop state (flag and reason); the source
+    /// discriminator, clock deadline, and clock counter cannot be mutated concurrently.
     pub unsafe fn from_raw<'a>(
         timeout: *mut ffi::QueryRequestTimeout,
     ) -> Option<&'a QueryRequestTimeoutHandle> {
