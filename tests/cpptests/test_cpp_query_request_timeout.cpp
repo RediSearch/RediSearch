@@ -225,6 +225,19 @@ TEST_F(QueryRequestTimeoutTest, FirstStopReasonWins) {
   EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout), QUERY_STOP_REASON_TIMEOUT);
 }
 
+TEST_F(QueryRequestTimeoutTest, LosingStopRequestPublishesTheWinnersStop) {
+  QueryRequestTimeout timeout = {};
+  TimeoutConfig timeoutConfig = {1000, TimeoutPolicy_Fail};
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  // A winner that recorded its reason but has not published the flag yet.
+  timeout.stopReason = QUERY_STOP_REASON_OOM;
+  ASSERT_EQ(QueryRequestTimeout_GetStopReason(&timeout), QUERY_STOP_REASON_NONE);
+
+  EXPECT_FALSE(QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_TIMEOUT));
+  EXPECT_TRUE(RS_AtomicBoolLoadRelaxed(QueryRequestTimeout_GetStopFlag(&timeout)));
+  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout), QUERY_STOP_REASON_OOM);
+}
+
 TEST_F(QueryRequestTimeoutTest, MarkingTheBlockedClientDoesNotRecordAStopReason) {
   QueryRequestTimeout timeout = {};
   TimeoutConfig timeoutConfig = {1000, TimeoutPolicy_Fail};
