@@ -436,8 +436,17 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
 }
 #endif
 static int applyOomStop(AREQ *req, int rc) {
-  return ApplyOomStop(&req->base.timeout, req->base.reqConfig.oomPolicy,
-                      AREQ_QueryProcessingCtx(req)->err, rc);
+  QueryError *err = AREQ_QueryProcessingCtx(req)->err;
+  // A buffering stage that kept its rows past an OOM stop may hold enough of them to fill the
+  // reply's limit or a pager's, so the reply ends without reading the stop's RS_RESULT_TIMEDOUT.
+  // When no later cursor read reports the stop, the reply is cut.
+  const bool lastReply =
+      rc == RS_RESULT_EOF || (rc == RS_RESULT_OK && !(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR));
+  if (lastReply && req->base.reqConfig.oomPolicy != OomPolicy_Fail &&
+      AREQ_QueryProcessingCtx(req)->oomCut) {
+    QueryError_SetQueryOOMWarning(err);
+  }
+  return ApplyOomStop(&req->base.timeout, req->base.reqConfig.oomPolicy, err, rc);
 }
 
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {

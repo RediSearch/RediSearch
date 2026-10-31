@@ -290,6 +290,33 @@ def test_sorter_stop_in_resp2(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_stop_past_the_offset_warns(env):
+    """A stopped sorter or normalizer may hold enough rows past OFFSET to fill LIMIT, so the pager
+    ends the reply before the stop is read; the reply still carries the OOM warning."""
+    create_index(env)
+    env.expect('FT.CREATE', 'bodies', 'SCHEMA', 'body', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'body{i}', 'body', ' '.join(['hello'] * (i + 1)))
+    k = 4
+    queries = (('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n', 'DESC', 'LIMIT', 2, 2),
+               ('FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'DESC', 'LIMIT', 2, 2),
+               ('FT.SEARCH', 'bodies', 'hello', 'SCORER', 'BM25STD.NORM', 'NOCONTENT',
+                'LIMIT', 2, 1))
+    for policy in timeout_policies(env):
+        for workers in worker_counts(env):
+            for query in queries:
+                res = run_at_call(env, BUILD_CHECKPOINTS + k, *query)
+                env.assertEqual(len(res['results']), query[-1],
+                                message=(policy, workers, query, res))
+                env.assertEqual(res['warning'], [COORD_OOM_WARNING],
+                                message=(policy, workers, query, res))
+                res = env.cmd(*query)
+                env.assertEqual(res['warning'], [], message=(policy, workers, query, res))
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_normalizer_stop_normalizes_by_the_partial_max(env):
     """BM25STD.NORM pools every match to find the max score. Stopped while pooling, it replies the
     pooled rows normalized by the max among them, under every timeout policy."""
@@ -332,18 +359,46 @@ def test_grouper_stop_yields_no_partial_groups(env):
     the OOM warning, ON_OOM FAIL the OOM error, under every timeout policy. It counts rows, not
     groups, so a stop also lands while rows only grow existing groups."""
     create_index(env)
-    k = 4
+    # The grouper's checkpoint runs once per READ_INTERVAL rows: its 2nd call, at row 4, stops it.
+    rows_per_check, k = 2, 2
+
+    def at_call(n):
+        memory_pressure(env, 'READ_INTERVAL', rows_per_check)
+        return n
+
     for policy in timeout_policies(env):
         for workers in worker_counts(env):
             for query in GROUPBY_QUERIES:
                 full = env.cmd(*query)
                 env.assertGreater(len(full['results']), 0)
-                expect_empty_with_oom_warning(env, run_at_call(env, BUILD_CHECKPOINTS + k, *query))
+                res = run_at_call(env, at_call(BUILD_CHECKPOINTS + k), *query)
+                expect_empty_with_oom_warning(env, res)
+                env.assertEqual(res['total_results'], 0, message=(policy, workers, query, res))
                 with oom_policy(env, 'fail'):
-                    expect_oom_error_at_call(env, BUILD_CHECKPOINTS + k, *query)
+                    expect_oom_error_at_call(env, at_call(BUILD_CHECKPOINTS + k), *query)
                 with oom_policy(env, 'ignore'):
-                    env.assertEqual(run_at_call(env, BUILD_CHECKPOINTS + k, *query)['results'],
-                                    full['results'], message=(policy, workers, query))
+                    env.assertEqual(
+                        run_at_call(env, at_call(BUILD_CHECKPOINTS + k), *query)['results'],
+                        full['results'], message=(policy, workers, query))
+
+
+@skip(cluster=True)
+def test_grouper_stop_inside_one_rows_groups(env):
+    """One row with an array value opens a group per element before the per-row check runs; the
+    grouper also reads memory as that row opens groups, and replies none of them."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    parts = 50
+    env.cmd('HSET', 'doc', 't', ','.join(f'p{i}' for i in range(parts)))
+    query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', 'split(@t, ",")', 'AS', 'p',
+             'GROUPBY', 1, '@p', 'REDUCE', 'COUNT', 0, 'AS', 'c')
+    env.assertEqual(env.cmd(*query)[0], parts)
+    # Calls past the build checkpoints land inside the row's expansion: the grouper's per-row
+    # check runs once per read interval, and at most one other checkpoint runs per row upstream.
+    at_call = BUILD_CHECKPOINTS + 3
+    for workers in worker_counts(env):
+        env.assertEqual(run_at_call(env, at_call, *query), [0], message=workers)
+        with oom_policy(env, 'fail'):
+            expect_oom_error_at_call(env, at_call, *query)
 
 
 @skip(cluster=False)
@@ -360,6 +415,8 @@ def test_shard_grouper_stop_leaves_the_other_shards_groups(env):
     query = ('FT.AGGREGATE', 'idx', '*', 'GROUPBY', 0, 'REDUCE', 'COUNT', 0, 'AS', 'c')
     # Shard 2's process hosts no coordinator pipeline, so its calls are its own pipeline's.
     shard = env.getConnection(2)
+    # One grouper checkpoint per row, so the shard's few rows reach it.
+    shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'READ_INTERVAL', 1)
     shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', BUILD_CHECKPOINTS + 1)
     try:
         res = env.cmd(*query)
@@ -463,6 +520,22 @@ def test_safe_loader_stop_yields_the_loaded_prefix(env):
             # FT.SEARCH sorts by score before loading, and the sorter checkpoints each row first.
             res = run_at_call(env, BUILD_CHECKPOINTS + 2 * N_DOCS + 3, *LOADED_SEARCH)
             env.assertEqual(loaded_values(res), hellos(range(2)), message=(policy, res))
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, res))
+    finally:
+        set_workers(env, 0)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_safe_loader_stop_on_the_last_row_of_the_limit_warns(env):
+    """A stop found on the row that fills LIMIT leaves no row to read after the buffer, so the reply
+    ends on its limit; it still carries the OOM warning."""
+    create_index(env)
+    set_workers(env, 2)
+    try:
+        for policy in timeout_policies(env):
+            res = run_at_call(env, BUILD_CHECKPOINTS + 4, *LOADED_AGGREGATE, 'LIMIT', 0, 4)
+            env.assertEqual(loaded_values(res), hellos(range(4)), message=(policy, res))
             env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, res))
     finally:
         set_workers(env, 0)
