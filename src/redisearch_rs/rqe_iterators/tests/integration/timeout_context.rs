@@ -251,7 +251,7 @@ fn arm(ctx: &MockContext, kind: ffi::QueryRequestTimeoutKind) {
 
 #[cfg_attr(miri, ignore = "miri has no clock_gettime(CLOCK_MONOTONIC_RAW)")]
 #[test]
-fn a_requested_stop_is_reported_on_the_next_probe_in_every_kind() {
+fn a_requested_stop_is_not_a_timeout() {
     for kind in [
         ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED,
         ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT,
@@ -259,28 +259,15 @@ fn a_requested_stop_is_reported_on_the_next_probe_in_every_kind() {
     ] {
         let ctx = MockContext::new(100, 10);
         arm(&ctx, kind);
-        // A coarse granularity: the stop must not wait for the amortized clock read.
+        // Granularity 1: every probe reads the active source, so only the stop could differ.
         // SAFETY: `ctx` outlives `checker`; only the stop flag changes between probes.
-        let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 100) };
-        assert!(
-            checker.check_timeout().is_ok(),
-            "kind {kind}: nothing to report yet"
-        );
-
+        let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
         set_stop_requested(&ctx, true);
-        assert!(
-            checker.check_timeout().is_err(),
-            "kind {kind}: a requested stop must be reported unamortized",
-        );
-        assert!(
-            checker.check_timeout().is_err(),
-            "kind {kind}: the stop stays reported",
-        );
-
-        set_stop_requested(&ctx, false);
-        assert!(
-            checker.check_timeout().is_ok(),
-            "kind {kind}: a cleared stop must no longer be reported",
-        );
+        for _ in 0..3 {
+            assert!(
+                checker.check_timeout().is_ok(),
+                "kind {kind}: iterator probes leave the stop to the row source",
+            );
+        }
     }
 }
