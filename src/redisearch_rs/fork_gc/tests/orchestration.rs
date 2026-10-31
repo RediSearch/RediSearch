@@ -63,12 +63,7 @@ fn make_fork_gc() -> (Box<ForkGC>, io::PipeReader, io::PipeWriter) {
 /// Encode the empty stream produced by each scanner in protocol order.
 fn empty_scanner_streams() -> Vec<u8> {
     let mut bytes = Vec::new();
-    for _ in 0..2 {
-        Frame::data(&[0xc0]).encode(&mut bytes).unwrap();
-        Frame::Terminator.encode(&mut bytes).unwrap();
-    }
-    bytes.push(0xc0); // TAG field headers retain their existing MessagePack encoding.
-    for _ in 0..2 {
+    for _ in 0..5 {
         Frame::data(&[0xc0]).encode(&mut bytes).unwrap();
         Frame::Terminator.encode(&mut bytes).unwrap();
     }
