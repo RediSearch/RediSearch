@@ -97,6 +97,7 @@ fn filter_lifecycle() {
         let gf = NewGeoFilter(0.0, 0.0, 200000.0, c"m".as_ptr(), 1);
         assert_eq!((*gf).unitType, GEO_DISTANCE_M);
         let mut distance = std::mem::MaybeUninit::uninit();
+        assert_eq!(encodeGeo(181.0, 0.0), -1.0);
         let score = encodeGeo(1.0, 0.0);
         assert_eq!(isWithinRadius(gf, score, distance.as_mut_ptr()), 1);
         let mut distance = distance.assume_init();

@@ -25,7 +25,8 @@ unsafe extern "C" {
 /// # Safety
 /// `s` must be a [valid] C string.
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-pub unsafe fn GeoDistance_Parse(s: *const c_char) -> GeoDistance {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GeoDistance_Parse(s: *const c_char) -> GeoDistance {
     debug_assert!(!s.is_null());
     // SAFETY: the input is a terminated string by the boundary contract.
     Unit::parse(unsafe { CStr::from_ptr(s) }.to_bytes()).map_or(GEO_DISTANCE_INVALID, |u| u as i32)
@@ -35,7 +36,8 @@ pub unsafe fn GeoDistance_Parse(s: *const c_char) -> GeoDistance {
 /// # Safety
 /// For lengths below sixteen, `s` must be non-null and [valid] for `len` readable bytes.
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-pub unsafe fn GeoDistance_Parse_Buffer(s: *const c_char, len: usize) -> GeoDistance {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GeoDistance_Parse_Buffer(s: *const c_char, len: usize) -> GeoDistance {
     if len >= 16 {
         return GEO_DISTANCE_INVALID;
     }
@@ -46,7 +48,8 @@ pub unsafe fn GeoDistance_Parse_Buffer(s: *const c_char, len: usize) -> GeoDista
 }
 
 /// Returns a static spelling, or `<badunit>` for an invalid unit code.
-pub fn GeoDistance_ToString(unit: GeoDistance) -> *const c_char {
+#[unsafe(no_mangle)]
+pub extern "C" fn GeoDistance_ToString(unit: GeoDistance) -> *const c_char {
     Unit::from_raw(unit)
         .map_or(c"<badunit>", Unit::as_c_str)
         .as_ptr()
@@ -56,7 +59,8 @@ pub fn GeoDistance_ToString(unit: GeoDistance) -> *const c_char {
 /// # Safety
 /// A non-null `unit` must satisfy [`GeoDistance_Parse_Buffer`]. The C Redis allocator
 /// must be initialized and remain unchanged throughout the call.
-pub unsafe fn NewGeoFilter(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn NewGeoFilter(
     lon: f64,
     lat: f64,
     radius: f64,
@@ -81,7 +85,8 @@ pub unsafe fn NewGeoFilter(
 /// `gf` must be exclusively writable and [valid]; non-null `fs` must be readable and
 /// [valid]. They must not overlap.
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-pub unsafe fn GeoFilter_SetField(gf: *mut GeoFilter, fs: *const ffi::FieldSpec) {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GeoFilter_SetField(gf: *mut GeoFilter, fs: *const ffi::FieldSpec) {
     debug_assert!(!gf.is_null());
     // SAFETY: the optional field is readable and disjoint from the exclusively writable filter.
     let index = unsafe { fs.as_ref() }.map_or(rqe_core::RS_INVALID_FIELD_INDEX, |fs| fs.index);
@@ -94,7 +99,11 @@ pub unsafe fn GeoFilter_SetField(gf: *mut GeoFilter, fs: *const ffi::FieldSpec) 
 /// `gf` must be readable and [valid]; `status` must be an exclusively writable,
 /// initialized, [valid] query error, disjoint from `gf`.
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-pub unsafe fn GeoFilter_Validate(gf: *const GeoFilter, status: *mut OpaqueQueryError) -> c_int {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GeoFilter_Validate(
+    gf: *const GeoFilter,
+    status: *mut OpaqueQueryError,
+) -> c_int {
     debug_assert!(!gf.is_null());
     // SAFETY: the boundary provides a live, readable filter.
     match unsafe { &*gf }.radius_filter() {
@@ -115,7 +124,12 @@ pub unsafe fn GeoFilter_Validate(gf: *const GeoFilter, status: *mut OpaqueQueryE
 /// `gf` must be readable, [valid], and pass [`GeoFilter_Validate`]. A non-null
 /// `distance` must be exclusively writable, [valid], and disjoint from `gf`.
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-pub unsafe fn isWithinRadius(gf: *const GeoFilter, score: f64, distance: *mut f64) -> c_int {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn isWithinRadius(
+    gf: *const GeoFilter,
+    score: f64,
+    distance: *mut f64,
+) -> c_int {
     debug_assert!(!gf.is_null());
     // SAFETY: the caller supplies a live validated filter.
     let filter = unsafe { &*gf }
@@ -135,7 +149,8 @@ pub unsafe fn isWithinRadius(gf: *const GeoFilter, score: f64, distance: *mut f6
 /// fields. Its numeric ranges must satisfy [`rqe_iterators::free_geo_numeric_filters`].
 /// The C Redis allocator must be initialized and stable during this call.
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-pub unsafe fn GeoFilter_Free(gf: *mut GeoFilter) {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GeoFilter_Free(gf: *mut GeoFilter) {
     debug_assert!(!gf.is_null());
     // SAFETY: the exclusively owned filter transfers its ranges to their original allocator.
     let ranges = unsafe { (*gf).numericFilters };
@@ -151,7 +166,8 @@ pub unsafe fn GeoFilter_Free(gf: *mut GeoFilter) {
 /// [`LegacyGeoFilter`]; any non-null field must be an exclusively owned HiddenString
 /// wrapper created with `takeOwnership=false`.
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-pub unsafe fn LegacyGeoFilter_Free(gf: *mut LegacyGeoFilter) {
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LegacyGeoFilter_Free(gf: *mut LegacyGeoFilter) {
     debug_assert!(!gf.is_null());
     // SAFETY: the initialized legacy filter owns this optional wrapper.
     let field = unsafe { (*gf).field };
@@ -171,7 +187,8 @@ pub unsafe fn LegacyGeoFilter_Free(gf: *mut LegacyGeoFilter) {
 /// `status` is an initialized exclusive query error. Argument bytes must outlive the filter.
 /// The C Redis allocator and the cursor's Redis APIs must be initialized and stable.
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-pub unsafe fn GeoFilter_LegacyParse(
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn GeoFilter_LegacyParse(
     gf: *mut LegacyGeoFilter,
     ac: *mut ffi::ArgsCursor,
     empty: *mut bool,

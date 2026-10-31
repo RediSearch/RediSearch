@@ -130,6 +130,7 @@ pub const GEO_DISTANCE_MI: GeoDistance = Unit::Miles as i32;
 
 /// Shared query filter layout. The numeric range allocations are owned by the
 /// query and released by the iterator subsystem, not by copies of this value.
+#[derive(Clone, Copy)]
 #[repr(C)]
 #[expect(non_snake_case, reason = "shared C field names")]
 #[cheadergen::config(export)]

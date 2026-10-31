@@ -9,9 +9,10 @@
 
 use std::ptr::NonNull;
 
-use ffi::{GeoDistance, GeoFilter, QueryIterator, RedisSearchCtx};
+use ffi::{QueryIterator, RedisSearchCtx};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use geo::hash::InvalidWGS84Coordinates;
+use geo::{GeoDistance, GeoFilter, Unit};
 use inverted_index::NumericFilter;
 use query_types::QueryNodeType;
 
@@ -222,14 +223,8 @@ pub unsafe fn new_geo_range_iterator<'index>(
 }
 
 /// Convert a [`GeoDistance`] unit to metres.
-pub fn extract_geo_unit_factor(unit: GeoDistance) -> f64 {
-    match unit {
-        ffi::GeoDistance_GEO_DISTANCE_M => 1.0,
-        ffi::GeoDistance_GEO_DISTANCE_KM => 1000.0,
-        ffi::GeoDistance_GEO_DISTANCE_FT => 0.3048,
-        ffi::GeoDistance_GEO_DISTANCE_MI => 1609.34,
-        _ => unreachable!("invalid GeoDistance unit"),
-    }
+pub const fn extract_geo_unit_factor(unit: GeoDistance) -> f64 {
+    Unit::from_raw(unit).expect("validated geo unit").meters()
 }
 
 /// Build a geo-radius iterator over all geohash sub-ranges matching `gf`.

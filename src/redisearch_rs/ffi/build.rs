@@ -163,18 +163,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/geo_index.h",
-        fns: &[
-            "GeoFilter_Free",
-            "GeoFilter_Validate",
-            "NewGeoFilter",
-            "GeoDistance_Parse_Buffer",
-            "isWithinRadius",
-        ],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/geometry/geometry_api.h",
         fns: &["GeometryApi_Get"],
         types: &["GeometryApi"],
@@ -589,7 +577,7 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // (`BM25_STD_SCORER_NAME`, `DEFAULT_EXPANDER_NAME`, ...), whose single source
     // of truth is the Rust `query_types` crate.
     "query_types.h",
-    // `geo_index.h` includes `geo_ffi.h` for the Rust geo function declarations.
+    "geo.h",
     "geo_ffi.h",
     // `src/field_spec.h`, `src/info/index_error.h`, and `src/util/timeout.h`
     // contain `static inline` functions calling `QueryError_GetDisplayableError`
@@ -640,6 +628,9 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
 /// `ffi/src/lib.rs`). Blocklisted so bindgen doesn't emit a conflicting
 /// opaque stub when it sees a forward reference.
 const BLOCKLIST_TYPES: &[&str] = &[
+    "GeoFilter",
+    "LegacyGeoFilter",
+    "GeoDistance",
     "IteratorType",
     "QueryNodeType",
     "QASTValidationFlagsSet",

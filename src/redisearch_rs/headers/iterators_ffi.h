@@ -122,7 +122,7 @@ void AddIntersectionIteratorChild(QueryIterator *header, QueryIterator *child);
 /**
  * Frees the `numericFilters` array that
  * [`build_geo_numeric_filters`](rqe_iterators::build_geo_numeric_filters) populated on a
- * [`GeoFilter`](ffi::GeoFilter), together with the per-range `NumericFilter`s it owns.
+ * [`GeoFilter`](geo::GeoFilter), together with the per-range `NumericFilter`s it owns.
  *
  * The array is allocated in Rust, so it must be released with the Rust allocator.
  *

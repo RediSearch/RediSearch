@@ -12,10 +12,6 @@
 //! This crate bridges the pure Rust [`geo`] crate (including its [`geo::hash`]
 //! module), providing the same C API that was previously in `src/rs_geo.c`.
 
-#[expect(
-    non_snake_case,
-    reason = "prepared C API names, not exported until the C swap"
-)]
 mod filter;
 pub use filter::*;
 
@@ -64,7 +60,9 @@ pub extern "C" fn encodeGeo(lon: f64, lat: f64) -> f64 {
     geo::hash::align_52bits(hash) as f64
 }
 
-const INVALID_GEOHASH: f64 = -1.0;
+/// Sentinel returned when coordinates cannot be indexed.
+#[cheadergen::config(export)]
+pub const INVALID_GEOHASH: f64 = -1.0;
 
 /// Decode a geohash `f64` back into a `[longitude, latitude]` pair.
 ///

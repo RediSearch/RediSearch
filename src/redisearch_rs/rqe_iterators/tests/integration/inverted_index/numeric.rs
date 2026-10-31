@@ -9,7 +9,8 @@
 
 use std::ptr::{self, NonNull};
 
-use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, IndexFlags_Index_StoreNumeric};
+use ffi::IndexFlags_Index_StoreNumeric;
+use geo::{GEO_DISTANCE_M, GeoFilter};
 use index_result::RSIndexResult;
 use inverted_index::{
     FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader,
@@ -471,7 +472,7 @@ pub fn geo_filter_stub() -> GeoFilter {
         lat: 0.0,
         lon: 0.0,
         radius: 1.0,
-        unitType: GeoDistance_GEO_DISTANCE_M,
+        unitType: GEO_DISTANCE_M,
         numericFilters: ptr::null_mut(),
     }
 }
@@ -883,7 +884,8 @@ mod variant {
 mod variant_resume {
     use std::ptr;
 
-    use ffi::{GeoFilter, IndexFlags_Index_StoreNumeric};
+    use ffi::IndexFlags_Index_StoreNumeric;
+    use geo::GeoFilter;
     use index_result::RSIndexResult;
     use inverted_index::{DecodedBy, Encoder, InvertedIndex, NumericFilter, RepairContext};
     use numeric_range_tree::{NumericIndex, NumericRangeTree};
@@ -948,7 +950,7 @@ mod variant_resume {
             lat: 0.0,
             lon: 0.0,
             radius: 1_000_000.0,
-            unitType: ffi::GeoDistance_GEO_DISTANCE_M,
+            unitType: geo::GEO_DISTANCE_M,
             numericFilters: ptr::null_mut(),
         }
     }

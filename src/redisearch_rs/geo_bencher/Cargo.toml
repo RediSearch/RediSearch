@@ -12,13 +12,7 @@ workspace = true
 name = "filters"
 harness = false
 
-[build-dependencies]
-build_utils.workspace = true
-
 [dependencies]
 criterion.workspace = true
-ffi.workspace = true
 geo.workspace = true
-redis_mock.workspace = true
-redisearch_rs = { workspace = true, features = ["mock_allocator"] }
 workspace_hack.workspace = true
