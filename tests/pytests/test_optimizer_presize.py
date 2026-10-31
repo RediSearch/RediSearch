@@ -27,12 +27,20 @@ def _n_values(res):
     return [int(fields[1]) for fields in res[2::2]]
 
 
+def _query(*args, filter='@t:{x}'):
+    return (filter, 'SORTBY', 'n', *args, 'RETURN', 1, 'n', 'WITHOUTCOUNT')
+
+
+def _assert_optimized(env, query):
+    profile = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', *query)
+    env.assertContains('Optimizer', str(profile))
+
+
 def _optimized(env, *args, filter='@t:{x}'):
     """Run a FT.SEARCH sorted by @n through the optimizer (WITHOUTCOUNT) and check it is used."""
-    query = ('FT.SEARCH', 'idx', filter, 'SORTBY', 'n', *args, 'RETURN', 1, 'n')
-    profile = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', *query[2:], 'WITHOUTCOUNT')
-    env.assertContains('Optimizer', str(profile))
-    return env.cmd(*query, 'WITHOUTCOUNT')
+    query = _query(*args, filter=filter)
+    _assert_optimized(env, query)
+    return env.cmd('FT.SEARCH', 'idx', *query)
 
 
 @skip(cluster=True)
@@ -42,17 +50,17 @@ def test_optimizer_large_limit_does_not_presize():
     env = Env(freshEnv=True)
     _create_index(env)
     max_results = int(env.cmd(config_cmd(), 'GET', 'MAXSEARCHRESULTS')[0][1])
-    # Profiles the measured query once, so the measurement below is known to take the optimizer.
-    _optimized(env, 'ASC', 'LIMIT', 0, max_results)
+    query = _query('ASC', 'LIMIT', 0, max_results)
 
+    # The baseline precedes every large-LIMIT query: a primed peak would hide an eager allocation.
     # Before Redis 8.10 the peak is sampled only between commands, so this check cannot fail there.
     before = env.cmd('INFO', 'memory')['used_memory_peak']
-    res = env.cmd('FT.SEARCH', 'idx', '@t:{x}', 'SORTBY', 'n', 'ASC', 'LIMIT', 0, max_results,
-                  'RETURN', 1, 'n', 'WITHOUTCOUNT')
+    res = env.cmd('FT.SEARCH', 'idx', *query)
     growth = env.cmd('INFO', 'memory')['used_memory_peak'] - before
 
     env.assertEqual(_n_values(res), list(range(NUM_DOCS)))
     env.assertLess(growth, PEAK_MEMORY_BUDGET)
+    _assert_optimized(env, query)
 
 
 @skip(cluster=True)
