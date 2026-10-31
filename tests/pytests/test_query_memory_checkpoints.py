@@ -527,6 +527,22 @@ def test_safe_loader_stop_yields_the_loaded_prefix(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_safe_loader_stop_on_the_last_row_of_the_limit_warns(env):
+    """A stop found on the row that fills LIMIT leaves no row to read after the buffer, so the reply
+    ends on its limit; it still carries the OOM warning."""
+    create_index(env)
+    set_workers(env, 2)
+    try:
+        for policy in timeout_policies(env):
+            res = run_at_call(env, BUILD_CHECKPOINTS + 4, *LOADED_AGGREGATE, 'LIMIT', 0, 4)
+            env.assertEqual(loaded_values(res), hellos(range(4)), message=(policy, res))
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, res))
+    finally:
+        set_workers(env, 0)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_safe_loader_stop_on_the_last_buffered_row_ends_the_cursor(env):
     """A stop found on the row that fills a cursor read's buffer is not lost: that read replies its
     rows, and the next one ends the cursor with the OOM warning."""

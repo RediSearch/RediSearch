@@ -1401,7 +1401,7 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
       // The loaded prefix is yielded; the yield phase then ends on the stop.
       stopped = true;
       self->last_buffered_rc = RS_RESULT_TIMEDOUT;
-      self->stopReason = QueryRequestTimeout_GetStopReason(timeout);
+      self->stopReason = RP_HoldStop(&self->base_loader.base);
     }
     if (stopped) {
       // An empty slot, which the yield phase skips. Not counted in skippedResults: the row still
@@ -1485,7 +1485,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   }
   // save the last buffered result code to return when we done yielding the buffered results.
   self->last_buffered_rc = result_status;
-  self->stopReason = RP_StopReason(rp);
+  self->stopReason = RP_HoldStop(rp);
 
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
