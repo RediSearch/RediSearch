@@ -330,6 +330,10 @@ TEST_F(QueryRequestTimeoutTest, IsTimedOutOrStoppedReportsEitherInEveryKind) {
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestTimeout_MarkTimedOut(&timeout);
   EXPECT_TRUE(QueryRequestTimeout_IsTimedOutOrStopped(&timeout));
+
+  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  *QueryRequestTimeout_GetClockDeadlineForUpdate(&timeout) = {0, 0};
+  EXPECT_TRUE(QueryRequestTimeout_IsTimedOutOrStopped(&timeout));
 }
 
 TEST_F(QueryRequestTimeoutTest, ShouldStopNeverReadsTheClock) {
