@@ -25,9 +25,10 @@ uint32_t QueryMemory_GetRatioReadInterval(void) {
 }
 
 static bool underMemoryPressure(void) {
-  // Global like QueryMemoryGuard's, not the request's snapshot. A plain enum read racing
-  // CONFIG SET sees the old or the new policy, both valid.
-  if (RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Ignore) {
+  // Global like QueryMemoryGuard's, not the request's snapshot. Atomic because this runs on any
+  // thread while CONFIG SET writes the policy on the main thread.
+  if (__atomic_load_n(&RSGlobalConfig.requestConfigParams.oomPolicy, __ATOMIC_RELAXED) ==
+      OomPolicy_Ignore) {
     return false;
   }
   return RedisMemory_GetRawUsedMemoryRatio() >= REDIS_MEMORY_OOM_RATIO;
