@@ -273,8 +273,8 @@ TEST_F(QueryRequestTimeoutTest, StopRequestedOnAnotherThreadIsObservedWithItsRea
     workerReady.store(true, std::memory_order_release);
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (std::chrono::steady_clock::now() < deadline) {
-      observedReason = QueryRequestTimeout_GetStopReason(&timeout);
-      if (observedReason != QUERY_STOP_REASON_NONE) {
+      if (QueryRequestTimeout_IsStopRequested(&timeout)) {
+        observedReason = QueryRequestTimeout_GetStopReason(&timeout);
         return;
       }
       std::this_thread::yield();
@@ -308,6 +308,29 @@ TEST_F(QueryRequestTimeoutTest, ShouldStopCombinesTheStopAndTheBlockedClientFlag
   EXPECT_TRUE(QueryRequest_ShouldStop(&timeout));
   EXPECT_TRUE(QueryRequestTimeout_IsStopRequested(&timeout));
   EXPECT_FALSE(QueryRequestTimeout_IsBlockedClientTimedOut(&timeout));
+}
+
+TEST_F(QueryRequestTimeoutTest, IsTimedOutOrStoppedReportsEitherInEveryKind) {
+  for (auto kind : {QUERY_REQUEST_TIMEOUT_UNARMED, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT,
+                    QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE}) {
+    QueryRequestTimeout timeout = {};
+    TimeoutConfig timeoutConfig = {60000, TimeoutPolicy_Return};
+    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+    if (kind != QUERY_REQUEST_TIMEOUT_UNARMED) {
+      QueryRequestTimeout_BeginCycle(&timeout, kind);
+    }
+    ASSERT_EQ(timeout.kind, kind);
+    EXPECT_FALSE(QueryRequestTimeout_IsTimedOutOrStopped(&timeout)) << kind;
+    QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM);
+    EXPECT_TRUE(QueryRequestTimeout_IsTimedOutOrStopped(&timeout)) << kind;
+  }
+
+  QueryRequestTimeout timeout = {};
+  TimeoutConfig timeoutConfig = {1000, TimeoutPolicy_Fail};
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  EXPECT_TRUE(QueryRequestTimeout_IsTimedOutOrStopped(&timeout));
 }
 
 TEST_F(QueryRequestTimeoutTest, ShouldStopNeverReadsTheClock) {

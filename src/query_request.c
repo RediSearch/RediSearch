@@ -28,10 +28,6 @@ static void QueryRequestTimeout_ClearStop(QueryRequestTimeout *timeout) {
   atomic_store_explicit(&timeout->stopRequested, false, memory_order_relaxed);
 }
 
-bool QueryRequestTimeout_IsStopRequested(const QueryRequestTimeout *timeout) {
-  return atomic_load_explicit(&timeout->stopRequested, memory_order_relaxed);
-}
-
 void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const TimeoutConfig *config) {
   RS_ASSERT(config);
   RS_ASSERT(config->queryTimeoutMS >= 0);
@@ -148,9 +144,9 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
   RS_ABORT_ALWAYS("Invalid query timeout kind");
 }
 
-bool QueryRequest_ShouldStop(const QueryRequestTimeout *timeout) {
+bool QueryRequestTimeout_IsTimedOutOrStopped(const QueryRequestTimeout *timeout) {
   return QueryRequestTimeout_IsStopRequested(timeout) ||
-         QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+         QueryRequestTimeout_IsTimedOutExact(timeout);
 }
 
 bool QueryRequestTimeout_IsTimedOut(QueryRequestTimeout *timeout) {

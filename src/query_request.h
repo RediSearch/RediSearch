@@ -230,7 +230,9 @@ bool QueryRequestTimeout_RequestStop(QueryRequestTimeout *timeout, QueryStopReas
  * Reports whether QueryRequestTimeout_RequestStop was called in the current
  * cycle. A single relaxed load, cheap enough for any loop.
  */
-bool QueryRequestTimeout_IsStopRequested(const QueryRequestTimeout *timeout);
+static inline bool QueryRequestTimeout_IsStopRequested(const QueryRequestTimeout *timeout) {
+  return RS_AtomicBoolLoadRelaxed(&timeout->stopRequested);
+}
 
 /**
  * Returns the reason recorded by QueryRequestTimeout_RequestStop for the
@@ -309,7 +311,19 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
  * per-row checks that previously used IsBlockedClientTimedOut; unlike that
  * call it must not be used to decide who owns the reply.
  */
-bool QueryRequest_ShouldStop(const QueryRequestTimeout *timeout);
+static inline bool QueryRequest_ShouldStop(const QueryRequestTimeout *timeout) {
+  // QueryRequestTimeout_IsBlockedClientTimedOut, inlined: per-row loops call this.
+  return QueryRequestTimeout_IsStopRequested(timeout) ||
+         (timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT &&
+          RS_AtomicBoolLoadRelaxed(&timeout->source.blockedClientTimedOut));
+}
+
+/**
+ * QueryRequestTimeout_IsTimedOutExact, or a requested stop. For once-per-cycle
+ * decisions that must treat a stop like a detected timeout; hot loops read
+ * QueryRequestTimeout_IsStopRequested next to QueryRequestTimeout_IsTimedOut.
+ */
+bool QueryRequestTimeout_IsTimedOutOrStopped(const QueryRequestTimeout *timeout);
 
 /**
  * Primary timeout operation:
