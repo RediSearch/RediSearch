@@ -845,7 +845,7 @@ fn render_profile(it: &dyn ProfilePrint) -> ReplyValue {
     redis_mock::init_redis_module_mock();
     // SAFETY: the mock replaces every `RedisModule_Reply*` pointer with an
     // implementation that records replies without dereferencing the ctx.
-    let mut replier = unsafe { Replier::new(std::ptr::dangling_mut::<RedisModuleCtx>()) };
+    let mut replier = unsafe { Replier::new(std::ptr::NonNull::<RedisModuleCtx>::dangling()) };
     let mut replies = capture_replies(|| {
         let mut ctx = ProfilePrintCtx::new(false, false);
         let mut map = replier.map();

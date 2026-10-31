@@ -100,7 +100,7 @@ pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut R
 ///    1. the iterator the header was boxed from, and its layout,
 ///    2. that it did not reduce to `Empty`,
 ///    3. that it and what it borrows are alive and exclusively held.
-/// 2. `handle` is null, or points to a [valid] [`RLookupKeyHandle`] that
+/// 2. `handle`, when present, points to a [valid] [`RLookupKeyHandle`] that
 ///    outlives the iterator. The iterator clears the handle's validity flag on
 ///    its way out, so freeing the handle first is a use-after-free at a
 ///    distance: the write lands whenever the iterator is dropped, not during
@@ -113,7 +113,7 @@ pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut R
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 pub unsafe fn set_key_handle<'index>(
     header: NonNull<QueryIterator>,
-    handle: *mut RLookupKeyHandle<'index>,
+    handle: Option<NonNull<RLookupKeyHandle<'index>>>,
 ) {
     // SAFETY: guaranteed by 1.
     let wrapper = unsafe { wrapper_mut::<'index>(header) };

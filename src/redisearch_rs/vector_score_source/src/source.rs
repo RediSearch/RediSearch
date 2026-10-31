@@ -128,20 +128,22 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     /// [`interop::own_key_ref`]: crate::interop::own_key_ref
     pub own_key: Box<*mut RLookupKey<'index>>,
     /// Back-reference to the handle that points to [`own_key`](Self::own_key),
-    /// so dropping this source can mark the key slot dead. Null until
+    /// so dropping this source can mark the key slot dead. [`None`] until
     /// [`interop::set_key_handle`] installs one.
     ///
     /// [`interop::set_key_handle`]: crate::interop::set_key_handle
-    pub key_handle: *mut RLookupKeyHandle<'index>,
+    pub key_handle: Option<NonNull<RLookupKeyHandle<'index>>>,
 }
 
 impl<E: ExpirationChecker> Drop for VectorScoreSource<'_, E> {
     fn drop(&mut self) {
-        if !self.key_handle.is_null() {
-            // SAFETY: a non-null `key_handle` is one the setter's contract
-            // requires to outlive this source.
+        if let Some(key_handle) = self.key_handle {
+            // SAFETY: a present `key_handle` is one the setter's contract
+            // requires to outlive this source. Writing through a raw place
+            // touches only `is_valid`, without asserting exclusive access to
+            // the rest of the C-owned handle.
             unsafe {
-                (*self.key_handle).is_valid = false;
+                (*key_handle.as_ptr()).is_valid = false;
             }
         }
     }
@@ -216,7 +218,7 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
             expiration,
             unfiltered_consumed: false,
             own_key: Box::new(ptr::null_mut()),
-            key_handle: ptr::null_mut(),
+            key_handle: None,
         }
     }
 

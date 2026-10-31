@@ -16,6 +16,7 @@ use std::{
     io::{self, Read, Write},
     mem,
     os::fd::AsRawFd,
+    ptr::NonNull,
     time::Duration,
 };
 
@@ -44,7 +45,7 @@ fn make_fork_gc() -> (ffi::ForkGC, io::PipeReader, io::PipeWriter) {
 fn roundtrip_through_fork_gc() {
     let (mut raw, _pipe_reader, _pipe_writer) = make_fork_gc();
     // SAFETY: raw is a valid ffi::ForkGC for the duration of the test.
-    let fgc = unsafe { ForkGC::from_ptr_mut(&mut raw) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::from(&mut raw)) };
 
     fgc.writer().write_all(b"hello").unwrap();
 
@@ -57,7 +58,7 @@ fn roundtrip_through_fork_gc() {
 fn times_out_when_no_data_available() {
     let (mut raw, _pipe_reader, _pipe_writer) = make_fork_gc();
     // SAFETY: raw is a valid ffi::ForkGC for the duration of the test.
-    let fgc = unsafe { ForkGC::from_ptr_mut(&mut raw) };
+    let fgc = unsafe { ForkGC::from_ptr_mut(NonNull::from(&mut raw)) };
 
     let mut buf = [0u8; 5];
     let err = fgc

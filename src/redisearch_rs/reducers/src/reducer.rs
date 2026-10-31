@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{ffi::c_void, ptr};
+use std::{ffi::c_void, ptr, ptr::NonNull};
 
 /// A safe wrapper around an `ffi::Reducer`.
 #[repr(transparent)]
@@ -34,17 +34,20 @@ impl Reducer {
         })
     }
 
-    /// Create a `Reducer` wrapper from a non-null pointer.
+    /// Borrow `ptr` as a shared [`Reducer`].
     ///
     /// # Safety
     ///
-    /// 1. `ptr` must be a valid non-null pointer to an `ffi::Reducer` that is properly initialized.
-    ///    This also applies to any of its subfields.
+    /// 1. `ptr` must point to an initialized [`ffi::Reducer`] that remains [valid]
+    ///    for the returned lifetime. Its pointees must remain initialized and alive
+    ///    for that lifetime.
+    /// 2. The borrowed reducer must not be mutated for the returned lifetime,
+    ///    except through interior mutability.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub const unsafe fn from_raw<'a>(ptr: *const ffi::Reducer) -> &'a Self {
-        // SAFETY: ensured by caller (1.)
-        unsafe { ptr.cast::<Self>().as_ref().unwrap() }
+    pub const unsafe fn from_raw<'a>(ptr: NonNull<ffi::Reducer>) -> &'a Self {
+        // SAFETY: the caller guarantees validity and shared access for the returned lifetime.
+        unsafe { ptr.cast::<Self>().as_ref() }
     }
 
     /// Set `NewInstance` function pointer.
