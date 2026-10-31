@@ -17,6 +17,7 @@ from redis import ResponseError
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
+SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
 N_DOCS = 30
 # A timeout far longer than the test, so the FAIL and RETURN-STRICT timers never fire.
 SEARCH = ('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, N_DOCS, 'TIMEOUT', 100000)
@@ -236,3 +237,58 @@ def test_entry_guard_counts_the_oom_warning_once_resp3():
 def test_entry_guard_counts_the_oom_warning_once_resp2():
     """As the RESP3 case, without the warning in the reply."""
     _test_entry_guard_counts_the_oom_warning_once(Env(protocol=2))
+
+
+def _test_search_fanout_stop_after_shard_oom_warnings(env):
+    if env.shardsCount < 3:
+        env.skip()
+    create_index(env)
+    coord = env.getConnection(1)
+    remote_shards = [env.getConnection(i) for i in range(2, env.shardsCount + 1)]
+    local_docs = coord.execute_command('KEYS', 'doc*')
+
+    def arm_remote_shards():
+        # Their first checkpoint stops them: an empty reply with the shard OOM warning.
+        for conn in remote_shards:
+            conn.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+
+    def reset_all():
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+
+    # Every checkpoint call of the coordinator process for one query (shard 1's pipeline, the same
+    # count on every run of this query and data, then one read per shard reply); the last is the
+    # last shard reply's read.
+    arm_remote_shards()
+    coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1 << 40)
+    try:
+        coord.execute_command(*SEARCH)
+        last_reply_read = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+    finally:
+        reset_all()
+
+    arm_remote_shards()
+    coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', last_reply_read)
+    errors, warnings = coord_oom_counters(coord)
+    try:
+        res = coord.execute_command(*SEARCH)
+    finally:
+        reset_all()
+    # The last reply is discarded; of the two kept, at least one is a remote shard's warning reply.
+    env.assertContains(sorted(search_ids(env, res)), [[], sorted(local_docs)], message=res)
+    if env.protocol == 3:
+        env.assertEqual(res['warning'], [SHARD_OOM_WARNING, COORD_OOM_WARNING], message=res)
+    env.assertEqual(coord_oom_counters(coord), (errors, warnings + 2 if env.protocol == 3 else warnings + 1))
+    expect_clean_end(env, coord)
+
+
+@skip(cluster=False)
+def test_search_fanout_stop_after_shard_oom_warnings_resp3():
+    """A coordinator stop after shard replies that carry the shard OOM warning replies both
+    warnings, the shard's first, and counts each once."""
+    _test_search_fanout_stop_after_shard_oom_warnings(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_search_fanout_stop_after_shard_oom_warnings_resp2():
+    """As the RESP3 case; RESP2 replies no warning but counts the coordinator stop."""
+    _test_search_fanout_stop_after_shard_oom_warnings(Env(protocol=2))
