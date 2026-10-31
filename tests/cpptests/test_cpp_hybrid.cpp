@@ -127,6 +127,16 @@ TEST_F(HybridApplyOomStopTest, blockedClientTimeoutIsNotRelabelled) {
   EXPECT_FALSE(QueryError_HasQueryOOMWarning(tailErr()));
 }
 
+// Nor does an OOM stop of the tail's own, requested before the deadline fired.
+TEST_F(HybridApplyOomStopTest, blockedClientTimeoutWinsOverATailOomStop) {
+  hreq->base.reqConfig.oomPolicy = OomPolicy_Return;
+  HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestTimeout_RequestStop(&hreq->base.timeout, QUERY_STOP_REASON_OOM);
+  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_FALSE(QueryError_HasQueryOOMWarning(tailErr()));
+}
+
 // A tail timeout of the tail's own, after a subquery's OOM stop was mapped, stays a timeout.
 TEST_F(HybridApplyOomStopTest, tailTimeoutAfterASubqueryOomStopStaysATimeout) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Return;

@@ -301,12 +301,8 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
   qctx->skippedResults = 0;
 }
 
-// A subquery checkpoint stopped the request for memory (its own timeout carries the reason). A
-// blocked-client timeout leaves no reason and must not be relabelled as an OOM stop.
+// A subquery checkpoint stopped the request for memory (its own timeout carries the reason).
 static bool subqueryStoppedForOom(HybridRequest *hreq) {
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
-    return false;
-  }
   for (size_t i = 0; i < hreq->nrequests; ++i) {
     if (QueryRequestTimeout_GetStopReason(&hreq->requests[i]->base.timeout) ==
         QUERY_STOP_REASON_OOM) {
@@ -317,6 +313,11 @@ static bool subqueryStoppedForOom(HybridRequest *hreq) {
 }
 
 int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
+  // The timeout callback owns the reply of a blocked-client timeout: no OOM stop, of a subquery or
+  // of the tail, relabels it.
+  if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+    return rc;
+  }
   const RSOomPolicy oomPolicy = hreq->base.reqConfig.oomPolicy;
   QueryError *err = hreq->tailPipeline->qctx.err;
   if (subqueryStoppedForOom(hreq)) {
