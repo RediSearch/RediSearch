@@ -227,8 +227,20 @@ class Cell:
             # refused at admission.
             env.assertTrue(on_oom == 'fail' or (self.admission_pressured and
                                                 got.first_command_error), message=msg)
+            # Cursor reads before the failing one keep the invariants too.
+            self._check_rows(got, msg)
             return 'error'
 
+        self._check_rows(got, msg)
+        cut = self._is_cut(got)
+        if got.warnings is not None and cut:
+            env.assertNotEqual(got.warnings, [], message=('cut without a warning',) + msg)
+        return 'cut' if cut or got.warnings else None
+
+    def _check_rows(self, got, msg):
+        """The invariants of any reply, cut or not: known rows once each, in order, with no
+        warning but an OOM one."""
+        env = self.env
         keys = [_key_of(self.shape, r) for r in got.rows]
         env.assertEqual(len(keys), len(set(keys)), message=('duplicate rows',) + msg)
         env.assertTrue(set(keys) <= self.universe, message=('unknown rows',) + msg)
@@ -242,19 +254,22 @@ class Cell:
             ns = [_n_of(r) for r in got.rows]
             env.assertEqual(ns, sorted(ns, reverse=self.shape.order == 'desc'), message=msg)
 
-        cut = self._is_cut(got)
         if got.warnings is not None:
             env.assertTrue(set(got.warnings) <= OOM_WARNINGS, message=('non-OOM warning',) + msg)
-            if cut:
-                env.assertNotEqual(got.warnings, [], message=('cut without a warning',) + msg)
-            cut = cut or got.warnings != []
-        return 'cut' if cut else None
 
     def expect_complete(self, got, msg):
         env = self.env
         env.assertEqual(got.error, None, message=msg)
-        env.assertEqual(sorted(self.complete_keys), sorted(_key_of(self.shape, r) for r in got.rows),
-                        message=msg)
+        if self.shape.kind == 'hybrid':
+            # Tied fusion scores may come back in another order; their payloads are scores.
+            env.assertEqual(sorted(self.complete_keys),
+                            sorted(_key_of(self.shape, r) for r in got.rows), message=msg)
+        elif self.shape.order:
+            env.assertEqual(got.rows, self.complete.rows, message=msg)
+        else:
+            def by_key(rows):
+                return sorted(rows, key=lambda r: _key_of(self.shape, r))
+            env.assertEqual(by_key(got.rows), by_key(self.complete.rows), message=msg)
         if got.warnings is not None:
             env.assertEqual(got.warnings, [], message=msg)
 
