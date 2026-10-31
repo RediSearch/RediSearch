@@ -290,6 +290,33 @@ def test_sorter_stop_in_resp2(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_stop_past_the_offset_warns(env):
+    """A stopped sorter or normalizer may hold enough rows past OFFSET to fill LIMIT, so the pager
+    ends the reply before the stop is read; the reply still carries the OOM warning."""
+    create_index(env)
+    env.expect('FT.CREATE', 'bodies', 'SCHEMA', 'body', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'body{i}', 'body', ' '.join(['hello'] * (i + 1)))
+    k = 4
+    queries = (('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n', 'DESC', 'LIMIT', 2, 2),
+               ('FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'DESC', 'LIMIT', 2, 2),
+               ('FT.SEARCH', 'bodies', 'hello', 'SCORER', 'BM25STD.NORM', 'NOCONTENT',
+                'LIMIT', 2, 1))
+    for policy in timeout_policies(env):
+        for workers in worker_counts(env):
+            for query in queries:
+                res = run_at_call(env, BUILD_CHECKPOINTS + k, *query)
+                env.assertEqual(len(res['results']), query[-1],
+                                message=(policy, workers, query, res))
+                env.assertEqual(res['warning'], [COORD_OOM_WARNING],
+                                message=(policy, workers, query, res))
+                res = env.cmd(*query)
+                env.assertEqual(res['warning'], [], message=(policy, workers, query, res))
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_normalizer_stop_normalizes_by_the_partial_max(env):
     """BM25STD.NORM pools every match to find the max score. Stopped while pooling, it replies the
     pooled rows normalized by the max among them, under every timeout policy."""
