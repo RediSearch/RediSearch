@@ -484,6 +484,33 @@ def test_hybrid_stop_replies_by_on_oom_policy_resp2(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_hybrid_build_stop_reads_no_row(env):
+    """A SEARCH subquery stopped at its build checkpoint under ON_OOM RETURN reads no row, with
+    or without workers: the reply holds the vector subquery's rows only, with the OOM warning."""
+    env.expect('FT.CREATE', 'hidx', 'PREFIX', 1, 'h:', 'SCHEMA', 'name', 'TEXT',
+               'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    # The first doc the SEARCH subquery reads is the farthest from the vector query.
+    for i in range(N_DOCS):
+        far = float(N_DOCS - 1 - i)
+        conn.execute_command('HSET', f'h:{i}', 'name', 'hello',
+                             'v', np.array([far, far], dtype=np.float32).tobytes())
+    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB', 'KNN', 2, 'K', 2,
+             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+    nearest = {f'h:{N_DOCS - 1}', f'h:{N_DOCS - 2}'}
+    for workers in [0, 2]:
+        _set_policies(env, 'return', 'return', workers)
+        # Call 1 is the SEARCH subquery's build checkpoint.
+        _memory_pressure(env, 'AT_CALL', 1)
+        res = env.cmd(*query)
+        _memory_pressure(env, 'RESET')
+        env.assertEqual({r['__key'] for r in res['results']}, nearest, message=(workers, res))
+        env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=(workers, res))
+    _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_hybrid_stop_past_the_offset_warns(env):
     """A tail sorter stopped while filling holds OFFSET + LIMIT rows at most, so the pager can end
     the reply before the stop is read. Wherever the stop lands, a reply that differs from the
