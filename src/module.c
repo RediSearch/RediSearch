@@ -3258,7 +3258,9 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   // The reply of an already stopped or timed-out query is the partial one; do not cut it further.
   const bool stoppedBefore = QueryRequestTimeout_IsStopRequested(&req->base.timeout) ||
                              QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout);
-  uint32_t memoryCheckCalls = 0;
+  // The first row reads memory: under ON_OOM RETURN the reducer does not read after its last
+  // merge, and a reply shorter than the read interval would otherwise never read.
+  uint32_t memoryCheckCalls = QueryMemory_GetRatioReadInterval() - 1;
 
   size_t qlen = heap_count(rCtx->pq);
   size_t pos = qlen;

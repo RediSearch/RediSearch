@@ -430,3 +430,44 @@ def test_profile_search_fanout_stop_resp3():
 def test_profile_search_fanout_stop_resp2():
     """As the RESP3 case; RESP2 has no warning channel."""
     _test_profile_search_fanout_stop(Env(protocol=2))
+
+
+def _test_search_short_reply_reads_memory(env):
+    skipIfNoEnableAssert(env)
+    create_index(env)
+    coord = env.getConnection(1)
+    errors, warnings = coord_oom_counters(coord)
+    # Pressure appears after the reducer's last read and before the reply, whose N_DOCS rows are
+    # fewer than the read interval.
+    setPauseBeforeReduce(env, PAUSE_AFTER_LAST_RESULT)
+    try:
+        thread, result = run_in_thread(coord, SEARCH)
+        wait_for_condition(lambda: (getIsCoordReducePaused(env) == 1, {}),
+                           'Timeout waiting for the reducer to pause')
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+        setCoordReduceResume(env)
+        thread.join(timeout=30)
+        env.assertFalse(thread.is_alive())
+    finally:
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        resetCoordReduceDebug(env)
+    res = result[0]
+    env.assertEqual(search_ids(env, res), [], message=res)
+    if env.protocol == 3:
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+    env.assertEqual(coord_oom_counters(coord), (errors, warnings + 1))
+    expect_clean_end(env, coord)
+
+
+@skip(cluster=False)
+def test_search_short_reply_reads_memory_resp3():
+    """The coordinator FT.SEARCH reply loop reads memory on its first row, so pressure that
+    appears after the merge stops a reply shorter than the read interval (ON_OOM RETURN): the
+    results end early with the coordinator OOM warning."""
+    _test_search_short_reply_reads_memory(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_search_short_reply_reads_memory_resp2():
+    """As the RESP3 case; RESP2 has no warning channel but counts the stop."""
+    _test_search_short_reply_reads_memory(Env(protocol=2))
