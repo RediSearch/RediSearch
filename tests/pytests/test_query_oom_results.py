@@ -509,25 +509,19 @@ def test_hybrid_build_stop_reads_no_row(env):
     _reset(env)
 
 
-@skip(cluster=True)
-@env_spec(protocol=3)
-def test_hybrid_subquery_stop_filling_the_window_warns(env):
-    """A subquery sorter stopped while filling holds at most WINDOW rows, so the merger can take
-    them all without reading the subquery's stop. Wherever the stop lands, a reply that differs
-    from the complete one carries the OOM warning."""
+def _hybrid_index_on_a_line(env, name_of):
+    """N_DOCS docs on one vector axis, the i-th named `name_of(i)`."""
     env.expect('FT.CREATE', 'hidx', 'PREFIX', 1, 'h:', 'SCHEMA', 'name', 'TEXT',
                'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
     conn = getConnectionByEnv(env)
     for i in range(N_DOCS):
-        conn.execute_command('HSET', f'h:{i}', 'name', ' '.join(['hello'] * (i + 1)),
+        conn.execute_command('HSET', f'h:{i}', 'name', name_of(i),
                              'v', np.array([float(i), 0.0], dtype=np.float32).tobytes())
-    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
-             'COMBINE', 'RRF', 2, 'WINDOW', 4, 'LIMIT', 0, N_DOCS,
-             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
 
-    def keys(res):
-        return sorted(r['__key'] for r in res['results'])
 
+def _expect_every_hybrid_cut_warns(env, query, keys):
+    """Pressure at every checkpoint call of `query` in turn, with and without workers: a reply
+    whose `keys` differ from the complete one carries the OOM warning, and some stop cuts."""
     for workers in [0, 2]:
         _set_policies(env, 'return', 'return', workers)
         complete = keys(env.cmd(*query))
@@ -542,40 +536,30 @@ def test_hybrid_subquery_stop_filling_the_window_warns(env):
                                 message=(workers, at_call, res))
         env.assertGreater(cuts, 0, message=workers)
     _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_hybrid_subquery_stop_filling_the_window_warns(env):
+    """A subquery sorter stopped while filling holds at most WINDOW rows, so the merger can take
+    them all without reading the subquery's stop."""
+    _hybrid_index_on_a_line(env, lambda i: ' '.join(['hello'] * (i + 1)))
+    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
+             'COMBINE', 'RRF', 2, 'WINDOW', 4, 'LIMIT', 0, N_DOCS,
+             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+    _expect_every_hybrid_cut_warns(env, query,
+                                   lambda res: sorted(r['__key'] for r in res['results']))
 
 
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_hybrid_stop_past_the_offset_warns(env):
     """A tail sorter stopped while filling holds OFFSET + LIMIT rows at most, so the pager can end
-    the reply before the stop is read. Wherever the stop lands, a reply that differs from the
-    complete one carries the OOM warning."""
-    env.expect('FT.CREATE', 'hidx', 'PREFIX', 1, 'h:', 'SCHEMA', 'name', 'TEXT',
-               'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
-    conn = getConnectionByEnv(env)
-    for i in range(N_DOCS):
-        conn.execute_command('HSET', f'h:{i}', 'name', f'hello{i}',
-                             'v', np.array([float(i), 0.0], dtype=np.float32).tobytes())
+    the reply before the stop is read."""
+    _hybrid_index_on_a_line(env, lambda i: f'hello{i}')
     query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello*', 'VSIM', '@v', '$BLOB', 'LIMIT', 2, 2,
              'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
-
-    def keys(res):
-        return [r['__key'] for r in res['results']]
-
-    for workers in [0, 2]:
-        _set_policies(env, 'return', 'return', workers)
-        complete = keys(env.cmd(*query))
-        cuts = 0
-        for at_call in range(1, _checkpoint_calls(env, query) + 1):
-            _memory_pressure(env, 'AT_CALL', at_call)
-            res = env.cmd(*query)
-            _memory_pressure(env, 'RESET')
-            if keys(res) != complete:
-                cuts += 1
-                env.assertEqual(res['warnings'], [COORD_OOM_WARNING],
-                                message=(workers, at_call, res))
-        env.assertGreater(cuts, 0, message=workers)
-    _reset(env)
+    _expect_every_hybrid_cut_warns(env, query, lambda res: [r['__key'] for r in res['results']])
 
 
 @skip(cluster=True)
