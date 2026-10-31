@@ -277,7 +277,10 @@ static inline void SearchResult_BufferIndexResult(ResultProcessor *rp, SearchRes
  */
 static RSTimeoutPolicy RP_StopPolicy(const ResultProcessor *rp) {
   const QueryProcessingCtx *qctx = rp->parent;
-  if (qctx->timeout && QueryRequestTimeout_GetStopReason(qctx->timeout) == QUERY_STOP_REASON_OOM) {
+  // A blocked-client timeout's callback owns the reply and waits for this worker, so it wins over
+  // an earlier OOM stop, as in AggregateResults.
+  if (qctx->timeout && QueryRequestTimeout_GetStopReason(qctx->timeout) == QUERY_STOP_REASON_OOM &&
+      !QueryRequestTimeout_IsBlockedClientTimedOut(qctx->timeout)) {
     return qctx->oomPolicy == OomPolicy_Fail ? TimeoutPolicy_Fail : TimeoutPolicy_Return;
   }
   return qctx->timeoutPolicy;
