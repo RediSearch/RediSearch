@@ -3239,10 +3239,12 @@ static inline void recordSearchTimeoutStage(searchRequestCtx *req, bool isError)
 
 // The reply has started, so a stop here can only truncate it, with the OOM warning: ON_OOM RETURN
 // only. ON_OOM FAIL was decided by the reducer's read after the last reply (reducerShouldStop).
+// A NULL `memoryCheckCalls` reads memory now.
 static bool replyShouldStop(searchRequestCtx *req, bool stoppedBefore, uint32_t *memoryCheckCalls) {
   QueryRequestTimeout *timeout = &req->base.timeout;
   if (stoppedBefore || req->base.reqConfig.oomPolicy == OomPolicy_Fail ||
-      !QueryMemory_ShouldStop(timeout, memoryCheckCalls) ||
+      !(memoryCheckCalls ? QueryMemory_ShouldStop(timeout, memoryCheckCalls)
+                         : QueryMemory_ShouldStopNow(timeout)) ||
       QueryRequestTimeout_GetStopReason(timeout) != QUERY_STOP_REASON_OOM) {
     return false;
   }
@@ -3258,9 +3260,10 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   // The reply of an already stopped or timed-out query is the partial one; do not cut it further.
   const bool stoppedBefore = QueryRequestTimeout_IsStopRequested(&req->base.timeout) ||
                              QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout);
-  // The first row reads memory: under ON_OOM RETURN the reducer does not read after its last
-  // merge, and a reply shorter than the read interval would otherwise never read.
-  uint32_t memoryCheckCalls = QueryMemory_GetRatioReadInterval() - 1;
+  // Under ON_OOM RETURN the reducer does not read after its last merge, so the reply reads once
+  // before its rows: a reply shorter than the read interval, or with no row, would never read.
+  const bool stopBeforeRows = replyShouldStop(req, stoppedBefore, NULL);
+  uint32_t memoryCheckCalls = 0;
 
   size_t qlen = heap_count(rCtx->pq);
   size_t pos = qlen;
@@ -3299,7 +3302,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     // id, the optional sections below, and the trailing "values" placeholder.
     const size_t entries = 2 + req->withScores + req->withPayload + (req->withSortingKeys && req->withSortby) + !req->noContent;
     for (size_t i = rCtx->searchCtx->offset; i < qlen && i < num; ++i) {
-      if (replyShouldStop(req, stoppedBefore, &memoryCheckCalls)) {
+      if (stopBeforeRows || replyShouldStop(req, stoppedBefore, &memoryCheckCalls)) {
         break;
       }
       RedisModule_Reply_MapWithLen(reply, entries); // >> result
@@ -3385,7 +3388,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
 
     for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
-      if (replyShouldStop(req, stoppedBefore, &memoryCheckCalls)) {
+      if (stopBeforeRows || replyShouldStop(req, stoppedBefore, &memoryCheckCalls)) {
         break;
       }
       searchResult *res = results[pos];

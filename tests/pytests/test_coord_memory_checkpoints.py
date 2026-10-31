@@ -286,8 +286,9 @@ def reducer_reads(env, oom_policy):
 
 
 def reply_reads(oom_policy, rows):
-    """Checkpoint calls of the reply loop: one per row, none under ON_OOM FAIL."""
-    return 0 if oom_policy == 'fail' else rows
+    """Checkpoint calls of the reply: one before the rows and one per row, none under ON_OOM
+    FAIL."""
+    return 0 if oom_policy == 'fail' else rows + 1
 
 
 def coordinator_calls_after_fanout(env, coord, query, rows, oom_policy='return'):
@@ -356,9 +357,9 @@ def _test_search_reducer_and_reply_stop(env):
                     expect_clean_end(env, coord)
                     continue
 
-                # The reply loop stops after k rows.
+                # The reply loop stops after k rows (past the read before the rows).
                 errors, warnings = coord_oom_counters(coord)
-                res = run_at_call(coord, first_reducer_read + reducer_reads(env, oom_policy) + k,
+                res = run_at_call(coord, first_reducer_read + reducer_reads(env, oom_policy) + 1 + k,
                                   SEARCH)
                 ids = search_ids(env, res)
                 env.assertEqual(len(ids), N_DOCS if oom_policy == 'ignore' else k,
@@ -436,34 +437,37 @@ def _test_search_short_reply_reads_memory(env):
     skipIfNoEnableAssert(env)
     create_index(env)
     coord = env.getConnection(1)
-    errors, warnings = coord_oom_counters(coord)
-    # Pressure appears after the reducer's last read and before the reply, whose N_DOCS rows are
-    # fewer than the read interval.
-    setPauseBeforeReduce(env, PAUSE_AFTER_LAST_RESULT)
-    try:
-        thread, result = run_in_thread(coord, SEARCH)
-        wait_for_condition(lambda: (getIsCoordReducePaused(env) == 1, {}),
-                           'Timeout waiting for the reducer to pause')
-        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
-        setCoordReduceResume(env)
-        thread.join(timeout=30)
-        env.assertFalse(thread.is_alive())
-    finally:
-        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
-        resetCoordReduceDebug(env)
-    res = result[0]
-    env.assertEqual(search_ids(env, res), [], message=res)
-    if env.protocol == 3:
-        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
-    env.assertEqual(coord_oom_counters(coord), (errors, warnings + 1))
-    expect_clean_end(env, coord)
+    # A page past the last result has no row at all.
+    empty_page = ('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', N_DOCS, 10, 'TIMEOUT', 100000)
+    for query in (SEARCH, empty_page):
+        errors, warnings = coord_oom_counters(coord)
+        # Pressure appears after the reducer's last read and before the reply, whose rows are
+        # fewer than the read interval.
+        setPauseBeforeReduce(env, PAUSE_AFTER_LAST_RESULT)
+        try:
+            thread, result = run_in_thread(coord, query)
+            wait_for_condition(lambda: (getIsCoordReducePaused(env) == 1, {}),
+                               'Timeout waiting for the reducer to pause')
+            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+            setCoordReduceResume(env)
+            thread.join(timeout=30)
+            env.assertFalse(thread.is_alive())
+        finally:
+            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+            resetCoordReduceDebug(env)
+        res = result[0]
+        env.assertEqual(search_ids(env, res), [], message=(query, res))
+        if env.protocol == 3:
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(query, res))
+        env.assertEqual(coord_oom_counters(coord), (errors, warnings + 1), message=query)
+        expect_clean_end(env, coord)
 
 
 @skip(cluster=False)
 def test_search_short_reply_reads_memory_resp3():
-    """The coordinator FT.SEARCH reply loop reads memory on its first row, so pressure that
-    appears after the merge stops a reply shorter than the read interval (ON_OOM RETURN): the
-    results end early with the coordinator OOM warning."""
+    """The coordinator FT.SEARCH reply reads memory before its rows, so pressure that appears
+    after the merge stops a reply shorter than the read interval, or one with no row (ON_OOM
+    RETURN): the results end early with the coordinator OOM warning."""
     _test_search_short_reply_reads_memory(Env(protocol=3))
 
 
