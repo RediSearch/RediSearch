@@ -7,8 +7,19 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "geo_index.h"
+#include "geo.h"
 #include "rmutil/args.h"
+typedef struct FieldSpec FieldSpec;
+
+/**
+ * Unvalidated query parameters and owned numeric ranges.
+ */
+typedef struct GeoFilter GeoFilter;
+
+/**
+ * Legacy syntax keeps a borrowed field-name wrapper until schema resolution.
+ */
+typedef struct LegacyGeoFilter LegacyGeoFilter;
 
 /**
  * An opaque query error which can be passed by value to C.
@@ -57,7 +68,7 @@ const char *Rust_GeoDistance_ToString(int value);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void Rust_GeoFilter_Free(GeoFilter *filter);
+void Rust_GeoFilter_Free(struct GeoFilter *filter);
 
 /**
  * Parse five legacy arguments, retaining cursor progress on failure.
@@ -71,7 +82,7 @@ void Rust_GeoFilter_Free(GeoFilter *filter);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int Rust_GeoFilter_LegacyParse(LegacyGeoFilter *output, ArgsCursor *cursor, bool *empty, struct QueryError *status);
+int Rust_GeoFilter_LegacyParse(struct LegacyGeoFilter *output, ArgsCursor *cursor, bool *empty, struct QueryError *status);
 
 /**
  * Bind a filter to a stable field index; null clears the binding.
@@ -82,7 +93,7 @@ int Rust_GeoFilter_LegacyParse(LegacyGeoFilter *output, ArgsCursor *cursor, bool
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void Rust_GeoFilter_SetField(GeoFilter *filter, const FieldSpec *field);
+void Rust_GeoFilter_SetField(struct GeoFilter *filter, const FieldSpec *field);
 
 /**
  * Validate a filter and set its syntax error, returning one on success.
@@ -93,7 +104,7 @@ void Rust_GeoFilter_SetField(GeoFilter *filter, const FieldSpec *field);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int Rust_GeoFilter_Validate(const GeoFilter *filter, struct QueryError *status);
+int Rust_GeoFilter_Validate(const struct GeoFilter *filter, struct QueryError *status);
 
 /**
  * Release a legacy filter without freeing the argument buffer it borrows.
@@ -105,7 +116,7 @@ int Rust_GeoFilter_Validate(const GeoFilter *filter, struct QueryError *status);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void Rust_LegacyGeoFilter_Free(LegacyGeoFilter *filter);
+void Rust_LegacyGeoFilter_Free(struct LegacyGeoFilter *filter);
 
 /**
  * Allocate an unvalidated filter. A null unit selects kilometers.
@@ -116,7 +127,7 @@ void Rust_LegacyGeoFilter_Free(LegacyGeoFilter *filter);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-GeoFilter *Rust_NewGeoFilter(double lon, double lat, double radius, const char *name, size_t len);
+struct GeoFilter *Rust_NewGeoFilter(double lon, double lat, double radius, const char *name, size_t len);
 
 /**
  * Compare an indexed score to a validated filter, optionally returning meters.
@@ -127,7 +138,7 @@ GeoFilter *Rust_NewGeoFilter(double lon, double lat, double radius, const char *
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int Rust_isWithinRadius(const GeoFilter *filter, double score, double *distance);
+int Rust_isWithinRadius(const struct GeoFilter *filter, double score, double *distance);
 
 #ifdef __cplusplus
 }  // extern "C"

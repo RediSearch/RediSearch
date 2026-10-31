@@ -7,10 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use ffi::{
-    GeoDistance_GEO_DISTANCE_FT, GeoDistance_GEO_DISTANCE_KM, GeoDistance_GEO_DISTANCE_M,
-    GeoDistance_GEO_DISTANCE_MI,
-};
+use geo::abi::{GEO_DISTANCE_FT, GEO_DISTANCE_KM, GEO_DISTANCE_M, GEO_DISTANCE_MI};
 use geo::hash::{GEO_LAT_MAX, GEO_LAT_MIN, GEO_LONG_MAX, GEO_LONG_MIN};
 use rqe_iterators::{build_geo_numeric_filters, extract_geo_unit_factor};
 
@@ -18,25 +15,22 @@ use crate::inverted_index::numeric::geo_filter_stub;
 
 #[test]
 fn unit_factor_meters() {
-    assert_eq!(extract_geo_unit_factor(GeoDistance_GEO_DISTANCE_M), 1.0);
+    assert_eq!(extract_geo_unit_factor(GEO_DISTANCE_M), 1.0);
 }
 
 #[test]
 fn unit_factor_kilometers() {
-    assert_eq!(extract_geo_unit_factor(GeoDistance_GEO_DISTANCE_KM), 1000.0);
+    assert_eq!(extract_geo_unit_factor(GEO_DISTANCE_KM), 1000.0);
 }
 
 #[test]
 fn unit_factor_feet() {
-    assert_eq!(extract_geo_unit_factor(GeoDistance_GEO_DISTANCE_FT), 0.3048);
+    assert_eq!(extract_geo_unit_factor(GEO_DISTANCE_FT), 0.3048);
 }
 
 #[test]
 fn unit_factor_miles() {
-    assert_eq!(
-        extract_geo_unit_factor(GeoDistance_GEO_DISTANCE_MI),
-        1609.34
-    );
+    assert_eq!(extract_geo_unit_factor(GEO_DISTANCE_MI), 1609.34);
 }
 
 // Tests for the five independent validation conditions in `build_geo_numeric_filters`.

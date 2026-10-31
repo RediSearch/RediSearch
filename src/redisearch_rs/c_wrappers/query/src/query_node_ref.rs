@@ -81,7 +81,7 @@ pub enum QueryNode<'a> {
     /// A geographic radius filter.
     Geo {
         /// The geo filter describing the centre point, radius, and unit.
-        gf: *mut ffi::GeoFilter,
+        gf: *mut geo::abi::GeoFilter,
     },
     /// A geometry (WKT) containment/intersection filter.
     Geometry {

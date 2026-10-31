@@ -32,6 +32,7 @@
 #include <assert.h>
 
 #include "../parse.h"
+#include "geo_filter_ffi.h"
 #include "util/arr.h"
 #include "rmutil/vector.h"
 #include "query_node.h"
@@ -1626,7 +1627,7 @@ static YYACTIONTYPE yy_reduce(
     yylhsminor.yy17 = NewGeofilterNode(yymsp[0].minor.yy86);
     if (ctx->sctx->spec) {
         const FieldSpec *fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-        GeoFilter_SetField(yylhsminor.yy17->gn.gf, fs);
+        Rust_GeoFilter_SetField(yylhsminor.yy17->gn.gf, fs);
         if (!fs) {
             QueryNode_Free(yylhsminor.yy17);
             yylhsminor.yy17 = NULL;
@@ -1638,8 +1639,8 @@ static YYACTIONTYPE yy_reduce(
       case 55: /* geo_filter ::= LSQB num num num TERM RSQB */
 {
     yymsp[-5].minor.yy86 = NewQueryParam(QP_GEO_FILTER);
-    yymsp[-5].minor.yy86->gf = NewGeoFilter(yymsp[-4].minor.yy29.num, yymsp[-3].minor.yy29.num, yymsp[-2].minor.yy29.num, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-    GeoFilter_Validate(yymsp[-5].minor.yy86->gf, ctx->status);
+    yymsp[-5].minor.yy86->gf = Rust_NewGeoFilter(yymsp[-4].minor.yy29.num, yymsp[-3].minor.yy29.num, yymsp[-2].minor.yy29.num, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
+    Rust_GeoFilter_Validate(yymsp[-5].minor.yy86->gf, ctx->status);
 }
         break;
       case 56: /* num ::= NUMBER */

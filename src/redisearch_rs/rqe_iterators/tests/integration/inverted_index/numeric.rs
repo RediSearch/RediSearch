@@ -9,7 +9,8 @@
 
 use std::ptr::{self, NonNull};
 
-use ffi::{GeoDistance_GEO_DISTANCE_M, GeoFilter, IndexFlags_Index_StoreNumeric};
+use ffi::IndexFlags_Index_StoreNumeric;
+use geo::abi::{GEO_DISTANCE_M, GeoFilter};
 use index_result::RSIndexResult;
 use inverted_index::{
     FilterNumericReader, IndexReader, InvertedIndex, NumericFilter, NumericReader,
@@ -471,7 +472,7 @@ pub fn geo_filter_stub() -> GeoFilter {
         lat: 0.0,
         lon: 0.0,
         radius: 1.0,
-        unitType: GeoDistance_GEO_DISTANCE_M,
+        unitType: GEO_DISTANCE_M,
         numericFilters: ptr::null_mut(),
     }
 }
@@ -883,7 +884,8 @@ mod variant {
 mod variant_resume {
     use std::ptr;
 
-    use ffi::{GeoFilter, IndexFlags_Index_StoreNumeric};
+    use ffi::IndexFlags_Index_StoreNumeric;
+    use geo::abi::GeoFilter;
     use index_result::RSIndexResult;
     use inverted_index::{DecodedBy, Encoder, InvertedIndex, NumericFilter, RepairContext};
     use numeric_range_tree::{NumericIndex, NumericRangeTree};
@@ -948,7 +950,7 @@ mod variant_resume {
             lat: 0.0,
             lon: 0.0,
             radius: 1_000_000.0,
-            unitType: ffi::GeoDistance_GEO_DISTANCE_M,
+            unitType: geo::abi::GEO_DISTANCE_M,
             numericFilters: ptr::null_mut(),
         }
     }
@@ -1125,10 +1127,8 @@ mod variant_resume {
     #[test]
     /// `Geo` survives a suspend/resume cycle.
     ///
-    /// This one deliberately round-trips *before* the first read, so it can run
-    /// under Miri: `FilterGeoReader`'s radius check calls the C `isWithinRadius`,
-    /// which Miri cannot execute. The post-read continuation is covered by
-    /// [`geo_round_trip_after_read`].
+    /// This one round-trips before the first read; post-read continuation is
+    /// covered by [`geo_round_trip_after_read`].
     fn geo_round_trip() {
         let ctx = MockContext::new(0, 0);
         let geo_filter = super::geo_filter_stub();
@@ -1184,11 +1184,6 @@ mod variant_resume {
     }
 
     #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "FilterGeoReader's radius check calls the C `isWithinRadius`, which Miri cannot \
-                  execute"
-    )]
     /// A positioned `Geo` iterator resumes onto the same arm and keeps reading
     /// where an uninterrupted run would have.
     fn geo_round_trip_after_read() {
@@ -1598,8 +1593,7 @@ mod variant_resume {
     #[cfg_attr(
         miri,
         ignore = "running GC over the index behind the reader's shared borrow is UB under Stacked \
-                  Borrows (see the module doc), and FilterGeoReader's radius check calls the C \
-                  `isWithinRadius`, which Miri cannot execute"
+                  Borrows (see the module doc)"
     )]
     /// `Geo` moves over a point outside the radius — the geo twin of
     /// [`filtered_moved_after_current_document_deleted`], and worth its own test

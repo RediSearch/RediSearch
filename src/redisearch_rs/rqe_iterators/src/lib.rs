@@ -496,7 +496,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     fn new_geo_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
-        gf: &'index mut ffi::GeoFilter,
+        gf: &'index mut geo::abi::GeoFilter,
         field_index: ffi::t_fieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;

@@ -14,7 +14,6 @@
 #include <strings.h>
 
 #include "fast_float/fast_float_strtod.h"
-#include "geo_index.h"
 #include "query_error_ffi.h"
 #include "redismodule.h"
 #include "rmalloc.h"

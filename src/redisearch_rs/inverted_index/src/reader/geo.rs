@@ -12,19 +12,10 @@ use super::{
     SuspendableReader,
 };
 use crate::{DecodedBy, Decoder, InvertedIndex};
-use ffi::{GeoFilter, IndexFlags};
+use ffi::IndexFlags;
+use geo::abi::GeoFilter;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
-
-// Manually define some C functions, because we'll create a circular dependency if we use the FFI
-// crate to make them automatically.
-unsafe extern "C" {
-    /// Checks if a value (distance) is within the given geo filter.
-    ///
-    /// # Safety
-    /// The [`GeoFilter`] should not be null and a valid instance
-    unsafe fn isWithinRadius(gf: *const GeoFilter, d: f64, distance: *mut f64) -> bool;
-}
 
 /// A reader that filters out records that do not match a given geo filter. It is used to
 /// filter records in an index based on their geo location, allowing only those that match the
@@ -160,10 +151,10 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
             // SAFETY: the caller must ensure the result is numeric
             let value = unsafe { result.as_numeric_unchecked_mut() };
 
-            // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-            let in_radius = unsafe { isWithinRadius(&*self.geo_filter, *value, value) };
+            let filter = self.geo_filter.validated().expect("validated geo filter");
+            *value = filter.distance(*value);
 
-            if in_radius {
+            if *value <= filter.radius_meters() {
                 return Ok(true);
             }
         }
@@ -189,10 +180,10 @@ impl<'index, IR: NumericReader<'index>> IndexReader<'index> for FilterGeoReader<
         // SAFETY: the caller must ensure the result is numeric
         let value = unsafe { result.as_numeric_unchecked_mut() };
 
-        // SAFETY: we know the filter is not a null pointer since we hold a reference to it
-        let in_radius = unsafe { isWithinRadius(&*self.geo_filter, *value, value) };
+        let filter = self.geo_filter.validated().expect("validated geo filter");
+        *value = filter.distance(*value);
 
-        if in_radius {
+        if *value <= filter.radius_meters() {
             Ok(true)
         } else {
             self.next_record(result)
