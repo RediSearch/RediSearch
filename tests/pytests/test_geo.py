@@ -241,3 +241,33 @@ def testGeoParseTrailingWhitespace(env):
   conn.execute_command('HSET', 'ws2', 'g', '1.23, 4.56 ')
 
   assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
+
+def testGeoFilterContract(env):
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO', 'text', 'TEXT').ok()
+  conn.execute_command('HSET', 'near', 'g', '12,34')
+  conn.execute_command('HSET', 'far', 'g', '12.01,34')
+  for unit, radius in [('km', 0.5), ('M', 500), ('fT', 1640), ('Mi', 0.31)]:
+    env.expect('FT.SEARCH', 'idx', f'@g:[12 34 {radius} {unit}]',
+               'NOCONTENT', 'DIALECT', 2).equal([1, 'near'])
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 12, 34, radius, unit,
+               'NOCONTENT', 'DIALECT', 2).equal([1, 'near'])
+  for args, error in [
+      (['g', 12, 34, 1], 'GEOFILTER requires 5 arguments'),
+      (['g', 'bad', 34, 1, 'km'], 'Bad arguments for <lon>: Could not convert argument to expected type'),
+      (['g', 12, 'bad', 1, 'km'], 'Bad arguments for <lat>: Could not convert argument to expected type'),
+      (['g', 12, 34, 'bad', 'km'], 'Bad arguments for <radius>: Could not convert argument to expected type'),
+      (['g', 12, 34, 1, 'yards'], 'Unknown distance unit yards'),
+      (['g', 181, 34, -1, 'km'], 'Invalid GeoFilter lat/lon'),
+      (['g', 12, 34, 0, 'km'], 'Invalid GeoFilter radius'),
+      (['g', 12, 34, -1, 'km'], 'Invalid GeoFilter radius'),
+  ]:
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', *args).error().contains(error)
+  for field, error in [('missing', 'Unknown Field'), ('text', 'Field is not a geo field')]:
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', field, 12, 34, 1, 'km',
+               'DIALECT', 1).equal([0])
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', field, 12, 34, 1, 'km',
+               'DIALECT', 2).error().contains(error)
+  result = env.cmd('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 12, 34, 'inf', 'km', 'NOCONTENT')
+  env.assertEqual(result[0], 2)
+  env.assertEqual(sorted(result[1:]), ['far', 'near'])
