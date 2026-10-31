@@ -203,10 +203,11 @@ static inline bool isFirstShardReply(const MRCommand *cmd) {
 // events bypass this callback so dispatch happens exactly once.
 static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRCommand *cmd = MRIteratorCallback_GetCommand(ctx);
+  AggregateIteratorContext *iterCtx = NULL;
+  MRIterator *it = NULL;
   if (isFirstShardReply(cmd)) {
-    AggregateIteratorContext *iterCtx =
-        (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
-    MRIterator *it = MRIteratorCallback_GetIterator(ctx);
+    iterCtx = (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
+    it = MRIteratorCallback_GetIterator(ctx);
     bool isError = MRReply_Type(rep) == MR_REPLY_ERROR;
     if (!isError) {
       long long shardTotal;
@@ -222,9 +223,16 @@ static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       }
       MRIterator_SwapCallbacks(it, netCursorCallback, NULL);
       dispatchDeferred(iterCtx);
+      iterCtx = NULL;
     }
   }
   netCursorCallback(ctx, rep);
+  // netCursorCallback's memory read runs after the decision above: a memory stop found there
+  // dispatches too, rather than waiting for the remaining shards' first replies.
+  if (iterCtx && MRIterator_IsMemoryStopped(it)) {
+    MRIterator_SwapCallbacks(it, netCursorCallback, NULL);
+    dispatchDeferred(iterCtx);
+  }
 }
 
 // WITHCOUNT no-reply termination callback. Stays wired for the iterator's
