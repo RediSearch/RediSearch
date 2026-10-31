@@ -9,9 +9,10 @@
 
 use std::ptr::NonNull;
 
-use ffi::{GeoDistance, GeoFilter, QueryIterator, RedisSearchCtx};
+use ffi::{QueryIterator, RedisSearchCtx};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use geo::hash::InvalidWGS84Coordinates;
+use geo::{DistanceUnit, GeoDistance, GeoFilter};
 use inverted_index::NumericFilter;
 use query_types::QueryNodeType;
 
@@ -118,9 +119,8 @@ pub unsafe fn build_geo_numeric_filters<'index>(
 /// must stay in lockstep with it. Each piece is reclaimed with the allocator
 /// that produced it: the array container with the Rust allocator (`Box::from_raw`
 /// undoing the `Box::into_raw`) and each entry with `NumericFilter_Free` (the C
-/// allocator `NewNumericFilter` used). C's `GeoFilter_Free` calls this — through
-/// the `iterators_ffi` `GeoFilter_FreeNumericFilters` wrapper — instead of
-/// `rm_free`, so the container is freed with the right allocator in every binary.
+/// allocator `NewNumericFilter` used). `GeoFilter_Free` calls this directly,
+/// keeping the container's allocation and release on the Rust side.
 ///
 /// Does nothing when `filters` is NULL.
 ///
@@ -222,14 +222,10 @@ pub unsafe fn new_geo_range_iterator<'index>(
 }
 
 /// Convert a [`GeoDistance`] unit to metres.
-pub fn extract_geo_unit_factor(unit: GeoDistance) -> f64 {
-    match unit {
-        ffi::GeoDistance_GEO_DISTANCE_M => 1.0,
-        ffi::GeoDistance_GEO_DISTANCE_KM => 1000.0,
-        ffi::GeoDistance_GEO_DISTANCE_FT => 0.3048,
-        ffi::GeoDistance_GEO_DISTANCE_MI => 1609.34,
-        _ => unreachable!("invalid GeoDistance unit"),
-    }
+pub const fn extract_geo_unit_factor(unit: GeoDistance) -> f64 {
+    DistanceUnit::from_raw(unit)
+        .expect("validated geo unit")
+        .meters()
 }
 
 /// Build a geo-radius iterator over all geohash sub-ranges matching `gf`.

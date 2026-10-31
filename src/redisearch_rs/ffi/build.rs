@@ -98,6 +98,12 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "deps/rmutil/args.h",
+        fns: &["AC_GetString", "AC_GetStringNC", "AC_GetDouble"],
+        types: &["ArgsCursor"],
+        vars: &["AC_F_NOADVANCE"],
+    },
+    HeaderAllowlist {
         path: "src/aggregate/aggregate.h",
         fns: &[],
         types: &[
@@ -153,18 +159,6 @@ const HEADERS: &[HeaderAllowlist] = &[
     HeaderAllowlist {
         path: "src/forward_index.h",
         fns: &["InvertedIndex_WriteForwardIndexEntry"],
-        types: &[],
-        vars: &[],
-    },
-    HeaderAllowlist {
-        path: "src/geo_index.h",
-        fns: &[
-            "GeoDistance_Parse_Buffer",
-            "GeoFilter_Free",
-            "GeoFilter_Validate",
-            "NewGeoFilter",
-            "isWithinRadius",
-        ],
         types: &[],
         vars: &[],
     },
@@ -583,7 +577,8 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // (`BM25_STD_SCORER_NAME`, `DEFAULT_EXPANDER_NAME`, ...), whose single source
     // of truth is the Rust `query_types` crate.
     "query_types.h",
-    // `geo_index.h` includes `geo_ffi.h` for the Rust geo function declarations.
+    // Geo filters are embedded in legacy search options.
+    "geo.h",
     "geo_ffi.h",
     // `src/field_spec.h`, `src/info/index_error.h`, and `src/util/timeout.h`
     // contain `static inline` functions calling `QueryError_GetDisplayableError`
@@ -634,6 +629,8 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
 /// `ffi/src/lib.rs`). Blocklisted so bindgen doesn't emit a conflicting
 /// opaque stub when it sees a forward reference.
 const BLOCKLIST_TYPES: &[&str] = &[
+    "GeoFilter",
+    "LegacyGeoFilter",
     "IteratorType",
     "QueryNodeType",
     "QASTValidationFlagsSet",

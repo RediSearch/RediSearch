@@ -7,6 +7,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "rmutil/args.h"
+#include "geo.h"
+typedef struct FieldSpec FieldSpec;
 
 /**
  * An opaque query error which can be passed by value to C.
@@ -41,9 +44,79 @@ typedef struct QueryError QueryError;
  */
 #define GEO_RANGE_COUNT 9
 
+/**
+ * Sentinel returned by [`encodeGeo`] for an unindexable coordinate.
+ */
+#define INVALID_GEOHASH -1.0
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Parse a case-insensitive unit.
+ * # Safety
+ * `s` must be a non-null, [valid](std::ptr#safety), NUL-terminated string.
+ */
+GeoDistance GeoDistance_Parse(const char *s);
+
+/**
+ * Parse a bounded unit token, accepting an embedded NUL and rejecting lengths >= 16.
+ * # Safety
+ * `s` must be non-null and [valid](std::ptr#safety) for `len` readable bytes.
+ */
+GeoDistance GeoDistance_Parse_Buffer(const char *s, size_t len);
+
+/**
+ * Return a static canonical unit abbreviation or `<badunit>`.
+ */
+const char *GeoDistance_ToString(GeoDistance unit);
+
+/**
+ * Release a query-owned filter, including its numeric range filters.
+ * # Safety
+ * `gf` must be non-null, [valid](std::ptr#safety), uniquely owned and allocated by the initialized Redis allocator.
+ * Its range array must satisfy [`rqe_iterators::free_geo_numeric_filters`]'s contract.
+ */
+void GeoFilter_Free(struct GeoFilter *gf);
+
+/**
+ * Parse legacy GEOFILTER arguments, leaving failed output safe to free.
+ * # Safety
+ * All pointers must be non-null, non-aliasing and [valid](std::ptr#safety) for exclusive access.
+ * `ac` must be initialized with live arguments, which outlive the filter's field-name resolution;
+ * `status` must be initialized. `gf` must not own allocations on entry. The Redis allocator must be initialized.
+ */
+int GeoFilter_LegacyParse(struct LegacyGeoFilter *gf, ArgsCursor *ac, bool *empty, struct QueryError *status);
+
+/**
+ * Record the field's stable index; null clears the association.
+ * # Safety
+ * `gf` must be non-null, [valid](std::ptr#safety) and exclusively writable; `fs` must be null or valid and not alias `gf`.
+ */
+void GeoFilter_SetField(struct GeoFilter *gf, const FieldSpec *fs);
+
+/**
+ * Return 1 for a valid filter, otherwise set a syntax error and return 0.
+ * # Safety
+ * Both pointers must be non-null, [valid](std::ptr#safety) and disjoint; `status` must be initialized and exclusively writable.
+ */
+int GeoFilter_Validate(const struct GeoFilter *gf, struct QueryError *status);
+
+/**
+ * Release a legacy filter and its borrowed-name wrapper.
+ * # Safety
+ * `gf` must be non-null, [valid](std::ptr#safety) and uniquely owned; its base obeys [`GeoFilter_Free`]'s contract.
+ * Its field is null or an owned [`ffi::NewHiddenString`] wrapper with `takeOwnership=false`.
+ */
+void LegacyGeoFilter_Free(struct LegacyGeoFilter *gf);
+
+/**
+ * Allocate a query filter; a null unit selects kilometers.
+ * # Safety
+ * A non-null `unit` must be [valid](std::ptr#safety) for `len` bytes. The Redis allocator must be initialized.
+ */
+struct GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t len);
 
 /**
  * Decode a geohash `f64` back into a `[longitude, latitude]` pair.
@@ -74,24 +147,11 @@ double encodeGeo(double lon, double lat);
 double geohashGetDistance(double lon1, double lat1, double lon2, double lat2);
 
 /**
- * Return `true` if the distance between two lon/lat points is within `radius`
- * meters.
- *
- * If `distance` is non-null, the actual distance (in meters) is written to it.
- *
- * # Panics
- *
- * If any coordinate is non-finite (NaN or infinity). This cannot happen in
- * practice: `lon1`/`lat1` come from `GeoFilter` which is range-checked by
- * `GeoFilter_Validate`, and `lon2`/`lat2` come from `decodeGeo` which
- * produces finite values by construction (integer bit-arithmetic scaled to
- * WGS-84 bounds).
- *
+ * Check a stored geohash, optionally writing distance in meters.
  * # Safety
- *
- * - `distance` must be either null or a valid pointer to a writable `f64`.
+ * `gf` must be non-null, [valid](std::ptr#safety) and validated. `distance` must be null or valid for exclusive writes, disjoint from `gf`.
  */
-bool isWithinRadiusLonLat(double lon1, double lat1, double lon2, double lat2, double radius, double *distance);
+int isWithinRadius(const struct GeoFilter *gf, double score, double *distance);
 
 /**
  * Parse a `"lon,lat"` or `"lon lat"` string into separate longitude and

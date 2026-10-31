@@ -689,6 +689,7 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
+ "geo",
  "query_term",
  "query_types",
  "redis-module",
@@ -871,13 +872,8 @@ dependencies = [
 name = "geo_bencher"
 version = "0.0.1"
 dependencies = [
- "build_utils",
  "criterion",
- "ffi",
  "geo",
- "query_error",
- "redis_mock",
- "redisearch_rs",
  "workspace_hack",
 ]
 
@@ -887,9 +883,12 @@ version = "0.0.1"
 dependencies = [
  "cheadergen",
  "decorum",
+ "ffi",
  "geo",
  "query_error",
  "redis-module",
+ "rqe_core",
+ "rqe_iterators",
  "tracing",
  "tracing_log_error",
  "workspace_hack",
@@ -1212,6 +1211,7 @@ dependencies = [
  "cheadergen",
  "enumflags2",
  "ffi",
+ "geo",
  "index_result",
  "pretty_assertions",
  "proptest",
@@ -1878,6 +1878,7 @@ dependencies = [
  "build_utils",
  "c_trie",
  "ffi",
+ "geo",
  "inverted_index",
  "query",
  "query_error",
@@ -2806,6 +2807,7 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "ffi",
+ "geo",
  "inverted_index",
  "query_term",
  "redis_mock",
