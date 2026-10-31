@@ -63,10 +63,12 @@ def _range_queries():
 def _checkpoint_calls(env, query):
     """The checkpoint calls `query` makes in each process (each shard in a cluster) when nothing
     stops it, counted by positional pressure armed out of reach."""
-    _memory_pressure(env, 'AT_CALL', 2 ** 62)
-    env.cmd(*query)
-    statuses = run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')
-    _memory_pressure(env, 'RESET')
+    try:
+        _memory_pressure(env, 'AT_CALL', 2 ** 62)
+        env.cmd(*query)
+        statuses = run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')
+    finally:
+        _memory_pressure(env, 'RESET')
     return [status[5] for status in statuses]
 
 
@@ -218,9 +220,10 @@ N_LONG_SEARCH_DOCS = 6000
 
 
 def _long_search_queries():
-    """Range and plain KNN queries on FLAT and HNSW whose single VecSim search visits enough
+    """Range and plain KNN queries on FLAT, HNSW and SVS whose single VecSim search visits enough
     vectors or candidates to call VecSim's stop callback, on every shard of a cluster."""
     params = ['PARAMS', 2, 'b', _vec(QUERY_VALUE)]
+    all_radius = DIM * N_LONG_SEARCH_DOCS ** 2
     return {
         'flat_range': ['FT.SEARCH', 'lidx', f'@v:[VECTOR_RANGE {RADIUS} $b]', *params,
                        'NOCONTENT', 'LIMIT', 0, N_DOCS],
@@ -232,13 +235,17 @@ def _long_search_queries():
                      'NOCONTENT', 'LIMIT', 0, KNN_K],
         'hnsw_knn': ['FT.SEARCH', 'lidx', f'*=>[KNN {KNN_K} @vh $b EF_RUNTIME 1000]', *params,
                      'NOCONTENT', 'LIMIT', 0, KNN_K],
+        'svs_range': ['FT.SEARCH', 'lidx', f'@vs:[VECTOR_RANGE {all_radius} $b]', *params,
+                      'NOCONTENT', 'LIMIT', 0, N_DOCS],
+        'svs_knn': ['FT.SEARCH', 'lidx', f'*=>[KNN {KNN_K} @vs $b]', *params,
+                    'NOCONTENT', 'LIMIT', 0, KNN_K],
     }
 
 
-def _expect_stopped_inside_vecsim(env):
+def _expect_stopped_inside_vecsim(env, queries=None):
     """Each query first reaches a checkpoint inside its VecSim search: a range query calls one more
     after the search, a plain KNN none. Pressure at that first call stops it per ON_OOM."""
-    for name, query in _long_search_queries().items():
+    for name, query in (queries or _long_search_queries()).items():
         env.debugPrint(name)
         after_search = 1 if name.endswith('range') else 0
         for calls in _checkpoint_calls(env, query):
@@ -250,13 +257,18 @@ def _create_long_search_index(env):
     env.expect('FT.CREATE', 'lidx', 'ON', 'HASH', 'SCHEMA',
                'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', DIM, 'DISTANCE_METRIC', 'L2',
                'vh', 'VECTOR', 'HNSW', 6, 'TYPE', 'FLOAT32', 'DIM', DIM,
-               'DISTANCE_METRIC', 'L2').ok()
+               'DISTANCE_METRIC', 'L2',
+               # A wide search window, so an SVS KNN search takes enough steps to poll.
+               'vs', 'VECTOR', 'SVS-VAMANA', 8, 'TYPE', 'FLOAT32', 'DIM', DIM,
+               'DISTANCE_METRIC', 'L2', 'SEARCH_WINDOW_SIZE', 1000).ok()
     pipe = getConnectionByEnv(env).pipeline(transaction=False)
     for i in range(1, N_LONG_SEARCH_DOCS + 1):
-        pipe.execute_command('HSET', f'ldoc{i}', 'v', _vec(i), 'vh', _vec(i))
+        pipe.execute_command('HSET', f'ldoc{i}', 'v', _vec(i), 'vh', _vec(i), 'vs', _vec(i))
     pipe.execute()
-    if get_tiered_debug_info(env, 'lidx', 'vh')['ALGORITHM'] == 'TIERED':
-        wait_for_background_indexing(env, 'lidx', 'vh', backend_index_size=N_LONG_SEARCH_DOCS)
+    for field in ('vh', 'vs'):
+        if get_tiered_debug_info(env, 'lidx', field)['ALGORITHM'] == 'TIERED':
+            wait_for_background_indexing(env, 'lidx', field,
+                                         backend_index_size=N_LONG_SEARCH_DOCS)
 
 
 @skip(cluster=True)
@@ -284,3 +296,32 @@ def test_single_vecsim_search_stops_for_oom_on_shards(env):
     """Shards stopped inside a VecSim search report the OOM to the coordinator."""
     _create_long_search_index(env)
     _expect_stopped_inside_vecsim(env)
+
+
+# The default tiered HNSW flat buffer limit: one VecSim block.
+FLAT_BUFFER_LIMIT = 1024
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_vecsim_search_of_a_full_flat_buffer_stops_for_oom(env):
+    """A tiered HNSW index whose flat buffer is full answers from the buffer's block scan, which
+    stops for OOM too."""
+    env.expect('FT.CREATE', 'bidx', 'ON', 'HASH', 'PREFIX', 1, 'bdoc', 'SCHEMA',
+               'vh', 'VECTOR', 'HNSW', 6, 'TYPE', 'FLOAT32', 'DIM', DIM,
+               'DISTANCE_METRIC', 'L2').ok()
+    params = ['PARAMS', 2, 'b', _vec(QUERY_VALUE)]
+    queries = {
+        'buffer_range': ['FT.SEARCH', 'bidx', f'@vh:[VECTOR_RANGE {RADIUS} $b]', *params,
+                         'NOCONTENT', 'LIMIT', 0, N_DOCS],
+        'buffer_knn': ['FT.SEARCH', 'bidx', f'*=>[KNN {KNN_K} @vh $b]', *params,
+                       'NOCONTENT', 'LIMIT', 0, KNN_K],
+    }
+    with paused_workers(env):
+        pipe = getConnectionByEnv(env).pipeline(transaction=False)
+        for i in range(1, FLAT_BUFFER_LIMIT + 1):
+            pipe.execute_command('HSET', f'bdoc{i}', 'vh', _vec(i))
+        pipe.execute()
+        frontend = to_dict(get_tiered_debug_info(env, 'bidx', 'vh')['FRONTEND_INDEX'])
+        env.assertEqual(frontend['INDEX_SIZE'], FLAT_BUFFER_LIMIT, message=frontend)
+        _expect_stopped_inside_vecsim(env, queries)
