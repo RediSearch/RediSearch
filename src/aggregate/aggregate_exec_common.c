@@ -77,9 +77,13 @@ static bool oomStopKeepsBufferedRows(const QueryRequestTimeout *timeout, RSOomPo
          oomPolicy != OomPolicy_Fail && !QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
 }
 
-bool ReplyLoop_ShouldStop(QueryRequestTimeout *timeout, RSOomPolicy oomPolicy, uint32_t *counter,
-                          int *rc) {
-  if (!QueryMemory_ShouldStop(timeout, counter) || oomStopKeepsBufferedRows(timeout, oomPolicy)) {
+bool ReplyLoop_ShouldStop(QueryProcessingCtx *qctx, QueryRequestTimeout *timeout,
+                          RSOomPolicy oomPolicy, uint32_t *counter, int *rc) {
+  if (!QueryMemory_ShouldStop(timeout, counter)) {
+    return false;
+  }
+  if (oomStopKeepsBufferedRows(timeout, oomPolicy)) {
+    RP_EndRowSourceOnStop(qctx);
     return false;
   }
   *rc = RS_RESULT_TIMEDOUT;
