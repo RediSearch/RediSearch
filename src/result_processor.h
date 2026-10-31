@@ -95,6 +95,16 @@ QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
 
+/**
+ * Makes the query's row source (an RP_INDEX root) reply RS_RESULT_TIMEDOUT
+ * instead of reading while the current cycle's stop is requested; it reads
+ * again once a later cycle cleared the stop. The timeout checks do not read the
+ * stop, so a stage that requests it and keeps pulling rows (ON_OOM RETURN)
+ * calls this to end the query at its source. Pipeline thread only; no-op for
+ * other roots (RPNet reads the stop itself).
+ */
+void RP_EndRowSourceOnStop(QueryProcessingCtx *qctx);
+
 // Result count to report to the client: matches minus the rows a loader dropped
 // (deleted/re-indexed/expired mid-load). Saturates at zero.
 //

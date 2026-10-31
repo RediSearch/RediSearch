@@ -9,6 +9,7 @@
 
 
 #include "gtest/gtest.h"
+#include <string>
 #include "iterator_util.h"
 #include "query_request.h"
 #include "redismock/redismock.h"
@@ -19,51 +20,68 @@
 #include "search_ctx.h"
 #include "spec.h"
 
-class RPIndexStopTest : public ::testing::Test {};
-
-// The timeout checks ignore a requested stop, so the row source's own read is what ends a query
-// whose later stages keep pulling rows under ON_OOM RETURN.
-TEST_F(RPIndexStopTest, RequestedStopEndsTheRowSourceBeforeItReads) {
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  RMCK::flushdb(ctx);
-  QueryError qerr = QueryError_Default();
-  RMCK::ArgvList args(ctx, "FT.CREATE", "rpindex_stop", "ON", "HASH", "SCHEMA", "t", "TEXT");
-  ASSERT_TRUE(Indexes_CreateNewSpec(ctx, args, args.size(), &qerr));
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, "rpindex_stop", true);
-  ASSERT_TRUE(sctx);
-
-  // TIMEOUT 0 keeps the cycle UNARMED: only the stop can end the read.
+class RPIndexStopTest : public ::testing::Test {
+ protected:
+  RedisModuleCtx *ctx = nullptr;
+  RedisSearchCtx *sctx = nullptr;
   QueryRequestTimeout timeout = {};
-  TimeoutConfig timeoutConfig = {0, TimeoutPolicy_Return};
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-  sctx->timeout = &timeout;
+  QueryProcessingCtx qctx = {};
+  MockIterator *mock = nullptr;
+  ResultProcessor *rp = nullptr;
 
-  for (bool stop : {false, true}) {
-    QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-    if (stop) {
-      QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM);
-    }
-    auto *mock = new MockIterator({1, 2, 3});
-    ResultProcessor *rp = RPQueryIterator_New(&mock->base, NULL, 0, sctx);
-    QueryProcessingCtx qctx = {};
-    rp->parent = &qctx;
-    SearchResult res = SearchResult_New();
-
-    // The mock's doc ids are not in the doc table, so an unstopped read skips them to EOF.
-    EXPECT_EQ(rp->Next(rp, &res), stop ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF) << stop;
-    if (stop) {
-      EXPECT_EQ(mock->readCount, 0);
-    } else {
-      EXPECT_GT(mock->readCount, 0);
-    }
-    EXPECT_FALSE(IndexSpec_IsLocked(sctx->spec));
-
-    SearchResult_Destroy(&res);
-    rp->Free(rp);
+  void SetUp() override {
+    ctx = RedisModule_GetThreadSafeContext(NULL);
+    RMCK::flushdb(ctx);
+    // Specs outlive flushdb, so every test gets its own index.
+    static int indexCount = 0;
+    const std::string name = "rpindex_stop" + std::to_string(++indexCount);
+    QueryError qerr = QueryError_Default();
+    RMCK::ArgvList args(ctx, "FT.CREATE", name.c_str(), "ON", "HASH", "SCHEMA", "t", "TEXT");
+    ASSERT_TRUE(Indexes_CreateNewSpec(ctx, args, args.size(), &qerr));
+    sctx = NewSearchCtxC(ctx, name.c_str(), true);
+    ASSERT_TRUE(sctx);
+    // TIMEOUT 0 keeps every cycle UNARMED: only the stop can end a read.
+    TimeoutConfig timeoutConfig = {0, TimeoutPolicy_Return};
+    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+    sctx->timeout = &timeout;
+    mock = new MockIterator({1, 2, 3});
+    rp = RPQueryIterator_New(&mock->base, NULL, 0, sctx);
+    QITR_PushRP(&qctx, rp);
   }
 
-  SearchCtx_Free(sctx);
-  args.clear();
-  RMCK::flushdb(ctx);
-  RedisModule_FreeThreadSafeContext(ctx);
+  void TearDown() override {
+    if (rp) rp->Free(rp);
+    if (sctx) SearchCtx_Free(sctx);
+    RMCK::flushdb(ctx);
+    RedisModule_FreeThreadSafeContext(ctx);
+  }
+
+  // The mock's doc ids are not in the doc table, so a read skips them all to EOF.
+  int next() {
+    SearchResult res = SearchResult_New();
+    const int rc = rp->Next(rp, &res);
+    SearchResult_Destroy(&res);
+    EXPECT_FALSE(IndexSpec_IsLocked(sctx->spec));
+    return rc;
+  }
+};
+
+TEST_F(RPIndexStopTest, AStopAloneDoesNotEndTheRead) {
+  QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM);
+  EXPECT_EQ(next(), RS_RESULT_EOF);
+  EXPECT_GT(mock->readCount, 0);
+}
+
+TEST_F(RPIndexStopTest, EndRowSourceOnStopRepliesTimedOutUntilANewCycle) {
+  QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM);
+  RP_EndRowSourceOnStop(&qctx);
+  RP_EndRowSourceOnStop(&qctx);
+  EXPECT_EQ(next(), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(next(), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(mock->readCount, 0);
+
+  // The next cycle (a cursor read) clears the stop, and the row source reads again.
+  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  EXPECT_EQ(next(), RS_RESULT_EOF);
+  EXPECT_GT(mock->readCount, 0);
 }
