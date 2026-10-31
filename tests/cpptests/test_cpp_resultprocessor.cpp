@@ -10,6 +10,7 @@
 
 #include "result_processor.h"
 #include "query.h"
+#include "query_request.h"
 #include "value_ffi.h"
 #include "gtest/gtest.h"
 #include "search_result_ffi.h"
@@ -115,6 +116,39 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   numFreed = 0;
   QITR_FreeChain(&qitr);
   ASSERT_EQ(2, numFreed);
+  RLookup_Cleanup(&lk);
+}
+
+TEST_F(ResultProcessorTest, sorterEndsOnABlockedClientTimeoutAfterAnOomStop) {
+  // Under ON_OOM RETURN a sorter keeps filling past an OOM stop; a blocked-client timeout that
+  // fires meanwhile ends the fill, since its callback waits for this worker.
+  TimeoutConfig config = {1000, TimeoutPolicy_ReturnStrict};
+  QueryRequestTimeout timeout = {};
+  QueryRequestTimeout_Init(&timeout, &config);
+  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryProcessingCtx qitr = {0};
+  qitr.timeout = &timeout;
+  qitr.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+  qitr.oomPolicy = OomPolicy_Return;
+
+  RLookup lk = RLookup_New();
+  processor1Ctx *p = new processor1Ctx();
+  p->type = RP_SCORER;  // Not an RP_INDEX root: ending the row source must not touch it.
+  p->Next = p1_Next;
+  p->Free = resultProcessor_GenericFree;
+  p->kout = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
+  QITR_PushRP(&qitr, p);
+  ResultProcessor *sorter = RPSorter_NewByScore(NUM_RESULTS, NULL);
+  QITR_PushRP(&qitr, sorter);
+
+  QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  SearchResult r = SearchResult_New();
+  EXPECT_EQ(sorter->Next(sorter, &r), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(p->counter, 1);
+
+  SearchResult_Destroy(&r);
+  QITR_FreeChain(&qitr);
   RLookup_Cleanup(&lk);
 }
 
