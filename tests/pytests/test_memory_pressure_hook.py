@@ -159,6 +159,18 @@ def test_aggregate_checkpoint_routing(env):
 
 
 @skip(cluster=True)
+def test_internal_only_checkpoint_runs_in_standalone(env):
+    """Standalone has a single pipeline, so INTERNAL_ONLY still installs the checkpoint there."""
+    _index_with_docs(env)
+    try:
+        memory_pressure(env, 'AT_CALL', 4)
+        res = _debug_aggregate(env, 'MEMORY_CHECKPOINT', 'INTERNAL_ONLY')
+        env.assertEqual(len(res) - 1, 3, message=res)
+    finally:
+        memory_pressure(env, 'RESET')
+
+
+@skip(cluster=True)
 def test_raw_ratio_reports_the_memory_api(env):
     """STATUS shows whether this Redis exports RedisModule_GetRawUsedMemoryRatio, which the
     checkpoints read: null without it, the real ratio, unaffected by RATIO, with it."""
