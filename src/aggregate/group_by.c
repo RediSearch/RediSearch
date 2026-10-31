@@ -92,7 +92,7 @@ typedef struct Grouper {
   // Rows since the last memory checkpoint. Rows, not new groups: reducer state also grows
   // inside existing groups.
   uint32_t rowsSinceMemoryCheck;
-  // QueryMemory_ShouldStop counter for the groups one multi-valued row opens.
+  // QueryMemory_ShouldStop counter for the groups one multi-valued row reaches.
   uint32_t expansionMemoryCheckCalls;
 } Grouper;
 
@@ -202,6 +202,12 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
                          uint64_t hval, RLookupRow *res, size_t rowExpansion, t_docId docId) {
   // end of the line - create/add to group
   if (xpos == xlen) {
+    // The array values of one row can reach up to maxGroups groups, new or existing, before the
+    // per-row check.
+    if (rowExpansion > 1 && g->base.parent->timeout &&
+        QueryMemory_ShouldStop(g->base.parent->timeout, &g->expansionMemoryCheckCalls)) {
+      return RS_RESULT_TIMEDOUT;
+    }
     Group *group = NULL;
 
     // Get or create the group
@@ -210,11 +216,6 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
       if (kh_size(g->groups) >= g->groupByLimits.maxGroups) {
         setAggregateGroupLimitError(g);
         return RS_RESULT_ERROR;
-      }
-      // The array values of one row can open up to maxGroups groups before the per-row check.
-      if (rowExpansion > 1 && g->base.parent->timeout &&
-          QueryMemory_ShouldStop(g->base.parent->timeout, &g->expansionMemoryCheckCalls)) {
-        return RS_RESULT_TIMEDOUT;
       }
       group = createGroup(g, xarr, xlen);
       kh_set(khid, g->groups, hval, group);
