@@ -737,11 +737,15 @@ bool MRIteratorCallback_HasMemoryCheckpoint(MRIteratorCallbackCtx *ctx) {
 }
 
 void MRIteratorCallback_SetMemoryStopped(MRIteratorCallbackCtx *ctx) {
-  __atomic_store_n(&ctx->it->ctx.memoryStopped, true, __ATOMIC_RELAXED);
+  MRIteratorCtx *itCtx = &ctx->it->ctx;
+  __atomic_store_n(&itCtx->memoryStopped, true, __ATOMIC_RELAXED);
+  // Release: a reader that acquires this timedOut also sees memoryStopped, so it never resets
+  // timedOut for a memory stop it cannot see.
+  __atomic_store_n(&itCtx->timedOut, true, __ATOMIC_RELEASE);
 }
 
 bool MRIterator_IsMemoryStopped(MRIterator *it) {
-  return __atomic_load_n(&it->ctx.memoryStopped, __ATOMIC_RELAXED);
+  return __atomic_load_n(&it->ctx.memoryStopped, __ATOMIC_ACQUIRE);
 }
 
 void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx) {

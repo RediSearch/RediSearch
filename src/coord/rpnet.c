@@ -687,11 +687,6 @@ static int rpnetRead(ResultProcessor *self, SearchResult *r, bool draining) {
 
   // get the next reply from the channel
   while (!root) {
-    if (!draining && rpnetMemoryStops(nc)) {
-      // Without a cursor, so the shards' cursors are deleted rather than read.
-      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
-      return RS_RESULT_TIMEDOUT;
-    }
     // RETURN_STRICT uses the blocked-client source, so only clock-based cycles
     // reach this check.
     if (!draining && areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
@@ -701,8 +696,15 @@ static int rpnetRead(ResultProcessor *self, SearchResult *r, bool draining) {
       // a `CURSOR READ` command.
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
       return RS_RESULT_TIMEDOUT;
-    } else if (!draining && nc->it && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it)) &&
-               !MRIterator_IsMemoryStopped(nc->it)) {
+    }
+    // After the deadline check: an elapsed deadline keeps its ON_TIMEOUT outcome.
+    if (!draining && rpnetMemoryStops(nc)) {
+      // Without a cursor, so the shards' cursors are deleted rather than read.
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      return RS_RESULT_TIMEDOUT;
+    }
+    if (!draining && nc->it && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it)) &&
+        !MRIterator_IsMemoryStopped(nc->it)) {
       // if timeout was set in previous reads, reset it. Drain-only must keep
       // the flag set so the post-drain callback dispatches CURSOR DEL.
       MRIteratorCallback_ResetTimedOut(MRIterator_GetCtx(nc->it));

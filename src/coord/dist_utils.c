@@ -22,6 +22,7 @@
 #include "rmr/rmr.h"
 #include "rmutil/rm_assert.h"
 #include "query_memory.h"
+#include "debug_commands.h"
 
 static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut);
 
@@ -177,10 +178,13 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   // This reply is kept; the reader stops its request.
   MRIteratorCtx *itCtx = MRIteratorCallback_GetCtx(ctx);
   if (cursorId != CURSOR_EOF && !cmd->forCursor && !cmd->forProfiling &&
-      MRIteratorCallback_HasMemoryCheckpoint(ctx) && !MRIteratorCallback_GetTimedOut(itCtx) &&
-      QueryMemory_ShouldStopNow(NULL)) {
-    MRIteratorCallback_SetMemoryStopped(ctx);
-    MRIteratorCallback_SetTimedOut(itCtx);
+      MRIteratorCallback_HasMemoryCheckpoint(ctx) && !MRIteratorCallback_GetTimedOut(itCtx)) {
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_BEFORE_CURSOR_RESEND_CHECKPOINT);
+#endif
+    if (QueryMemory_ShouldStopNow(NULL)) {
+      MRIteratorCallback_SetMemoryStopped(ctx);
+    }
   }
 
   // Push the reply down the chain, to be picked up by getNextReply

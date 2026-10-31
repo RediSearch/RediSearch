@@ -288,8 +288,9 @@ void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx);
 bool MRIteratorCallback_HasMemoryCheckpoint(MRIteratorCallbackCtx *ctx);
 
 /* Memory ran short while shard replies were landing: called on the IO thread, which has no
- * request to stop, together with MRIteratorCallback_SetTimedOut so no command is resent. The
- * reader polls MRIterator_IsMemoryStopped and stops its request. Sticky. */
+ * request to stop. Also sets the timed-out flag (MRIteratorCallback_SetTimedOut), so no command
+ * is resent; a reader that sees that flag also sees the memory stop. The reader polls
+ * MRIterator_IsMemoryStopped and stops its request. Sticky. */
 void MRIteratorCallback_SetMemoryStopped(MRIteratorCallbackCtx *ctx);
 bool MRIterator_IsMemoryStopped(MRIterator *it);
 
