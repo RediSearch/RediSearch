@@ -475,9 +475,10 @@ void PipelineAddCrash(struct AREQ *r, enum CrashLocation location);
 
 /**
  * Memory checkpoint of a processor that buffers rows or grows per row: true when it must end now
- * with RS_RESULT_TIMEDOUT. Under a RETURN stop policy it goes on instead: upstream reads nothing
- * new once the query is stopped, so it ends on upstream's RS_RESULT_TIMEDOUT and keeps the rows
- * buffering stages upstream already held. Always false for a pipeline without a timeout state.
+ * with RS_RESULT_TIMEDOUT. Under a RETURN stop policy it goes on instead: the stop ends the row
+ * source (RP_EndRowSourceOnStop), so upstream reads nothing new, and it ends on upstream's
+ * RS_RESULT_TIMEDOUT and keeps the rows buffering stages upstream already held. Always false for
+ * a pipeline without a timeout state.
  */
 bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter);
 
