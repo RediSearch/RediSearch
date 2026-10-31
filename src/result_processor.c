@@ -286,6 +286,15 @@ static QueryStopReason RP_StopReason(const ResultProcessor *rp) {
   return timeout ? QueryRequestTimeout_GetStopReason(timeout) : QUERY_STOP_REASON_NONE;
 }
 
+// The stop reason a buffering processor records when it keeps its rows past a stop.
+static QueryStopReason RP_HoldStop(const ResultProcessor *rp) {
+  const QueryStopReason reason = RP_StopReason(rp);
+  if (reason == QUERY_STOP_REASON_OOM) {
+    rp->parent->oomCut = true;
+  }
+  return reason;
+}
+
 /*
  * A stop request lasts one cycle, but a buffered prefix may be yielded over several cursor reads.
  * The read that yields its end requests the stop again, so that read replies the stop's outcome.
@@ -819,7 +828,7 @@ static int rpsortNext_Stopped(ResultProcessor *rp, SearchResult *r) {
   rp->Next = rpsortNext_Yield;
   if (policy == TimeoutPolicy_Return) {
     self->timedOut = true;
-    self->stopReason = RP_StopReason(rp);
+    self->stopReason = RP_HoldStop(rp);
     return rpsortNext_Yield(rp, r);
   }
   return RS_RESULT_TIMEDOUT;
@@ -1386,7 +1395,7 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
       // The loaded prefix is yielded; the yield phase then ends on the stop.
       stopped = true;
       self->last_buffered_rc = RS_RESULT_TIMEDOUT;
-      self->stopReason = QueryRequestTimeout_GetStopReason(timeout);
+      self->stopReason = RP_HoldStop(&self->base_loader.base);
     }
     if (stopped) {
       // An empty slot, which the yield phase skips. Not counted in skippedResults: the row still
@@ -1470,7 +1479,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   }
   // save the last buffered result code to return when we done yielding the buffered results.
   self->last_buffered_rc = result_status;
-  self->stopReason = RP_StopReason(rp);
+  self->stopReason = RP_HoldStop(rp);
 
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
@@ -1926,7 +1935,7 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
      return RS_RESULT_TIMEDOUT;
    }
    ((RPMaxScoreNormalizer *)rp)->timedOut = true;
-   ((RPMaxScoreNormalizer *)rp)->stopReason = RP_StopReason(rp);
+   ((RPMaxScoreNormalizer *)rp)->stopReason = RP_HoldStop(rp);
    rp->Next = RPMaxScoreNormalizer_Yield;
    return rp->Next(rp, r);
  }
@@ -3321,7 +3330,7 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     }
   }
   if (rc == RS_RESULT_TIMEDOUT) {
-    self->stopReason = RP_StopReason(&self->base);
+    self->stopReason = RP_HoldStop(&self->base);
   }
 
   // Record depletion time
