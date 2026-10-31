@@ -320,8 +320,7 @@ static inline bool QueryRequest_ShouldStop(const QueryRequestTimeout *timeout) {
 
 /**
  * QueryRequestTimeout_IsTimedOutExact, or a requested stop. For once-per-cycle
- * decisions that must treat a stop like a detected timeout; hot loops read
- * QueryRequestTimeout_IsStopRequested next to QueryRequestTimeout_IsTimedOut.
+ * decisions that must treat a stop like a detected timeout.
  */
 bool QueryRequestTimeout_IsTimedOutOrStopped(const QueryRequestTimeout *timeout);
 
