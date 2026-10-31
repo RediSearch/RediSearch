@@ -914,6 +914,26 @@ def test_dumps_stop_with_the_oom_error_resp3(env):
     _reset(env)
 
 
+@skip(cluster=True)
+def test_syndump_counts_group_ids_toward_the_memory_read(env):
+    """FT.SYNDUMP checks memory once per term, but a term can belong to thousands of groups: the
+    read interval counts the group IDs replied, so pressure is read within the dump even when it
+    has fewer terms than the interval."""
+    env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
+    terms, groups = 3, 60
+    for g in range(groups):
+        env.cmd('FT.SYNUPDATE', 'tidx', f'group{g}', *[f'term{i}' for i in range(terms)])
+    env.assertEqual(len(env.cmd('FT.SYNDUMP', 'tidx')), 2 * terms)
+    try:
+        _memory_pressure(env, 'READ_INTERVAL', 100)
+        _memory_pressure(env, 'RATIO', 2)
+        values, stopped = _split_dump(env.cmd('FT.SYNDUMP', 'tidx'))
+        env.assertTrue(stopped, message=values)
+        env.assertLess(len(values), 2 * terms - 1, message=values)
+    finally:
+        _reset(env)
+
+
 @skip(cluster=False)
 def test_tagvals_shard_stop_through_the_coordinator(env):
     """The coordinator merges the shards' FT.TAGVALS values; a shard's OOM error element is not
