@@ -143,7 +143,7 @@ fn bind_metric_request_key_fills_in_a_valid_handle() {
         let mut key: *mut rlookup::RLookupKey<'_> = std::ptr::null_mut();
         // SAFETY: `id` was just reserved on this context and `key` outlives
         // the handle.
-        let handle = unsafe { ctx.bind_metric_request_key(id, &mut key) };
+        let handle = unsafe { ctx.bind_metric_request_key(id, &mut key) }.as_ptr();
 
         // SAFETY: `handle` is the freshly allocated, fully initialised handle.
         let handle_ref = unsafe { &*handle };
@@ -191,7 +191,8 @@ fn binds_survive_the_array_moving_under_them() {
         // The inner request binds first, as the child subtree finishes first.
         // SAFETY: `inner_id` was just reserved on this context, and `inner_key`
         // outlives the handle.
-        let inner_handle = unsafe { ctx.bind_metric_request_key(inner_id, &mut inner_key) };
+        let inner_handle =
+            unsafe { ctx.bind_metric_request_key(inner_id, &mut inner_key) }.as_ptr();
 
         // A third reservation moves the array out from under the handle just
         // stored, which is what the bind below has to tolerate.
@@ -201,7 +202,8 @@ fn binds_survive_the_array_moving_under_them() {
 
         // SAFETY: `outer_id` was reserved on this context, and `outer_key`
         // outlives the handle.
-        let outer_handle = unsafe { ctx.bind_metric_request_key(outer_id, &mut outer_key) };
+        let outer_handle =
+            unsafe { ctx.bind_metric_request_key(outer_id, &mut outer_key) }.as_ptr();
 
         let requests = ctx.metric_requests();
         assert_eq!(requests.len(), 3);

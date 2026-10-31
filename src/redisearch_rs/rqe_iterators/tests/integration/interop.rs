@@ -15,7 +15,7 @@
 //! Collapsing the two, as this boundary used to, turns a timed-out query into a successful one.
 
 use ffi::{
-    QueryIterator, ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK,
+    ValidateStatus, ValidateStatus_VALIDATE_ABORTED, ValidateStatus_VALIDATE_OK,
     ValidateStatus_VALIDATE_TIMEOUT,
 };
 use rqe_iterators::{
@@ -32,7 +32,7 @@ fn revalidate_through_c_abi(outcome: MockRevalidateResult) -> ValidateStatus {
     let mock = Mock::new([1, 2, 3]);
     mock.data().set_revalidate_result(outcome);
 
-    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(mock);
+    let it = RQEIteratorWrapper::boxed_new(mock).as_ptr();
     // SAFETY: `sctx` is a valid `RedisSearchCtx` owned by the mock context, and its `spec` is the
     // spec the iterator is revalidated against. `boxed_new` populates every callback.
     let status = unsafe {
@@ -123,7 +123,7 @@ fn a_child_timeout_reaches_c_as_a_timeout_through_a_composite() {
         1.0,
         false,
     );
-    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new_compound(intersection);
+    let it = RQEIteratorWrapper::boxed_new_compound(intersection).as_ptr();
 
     // SAFETY: as in `revalidate_through_c_abi`.
     let status = unsafe {
@@ -148,7 +148,7 @@ fn the_debug_switch_reports_a_timeout_without_consulting_the_iterator() {
     let ctx = MockContext::new(100, 10);
     let mock = Mock::new([1, 2, 3]);
     let data = mock.data();
-    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(mock);
+    let it = RQEIteratorWrapper::boxed_new(mock).as_ptr();
 
     rqe_iterators::interop::set_mock_revalidate_timeout(true);
     // SAFETY: as in `revalidate_through_c_abi`.

@@ -13,7 +13,6 @@ use rqe_iterators::{
     Empty, IteratorType, RQEIterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
 };
 use rqe_iterators_test_utils::ContractChecker;
-use std::ptr::NonNull;
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
 
@@ -69,7 +68,7 @@ fn replace_root_hands_back_previous_root() {
 
     let mut tree = QueryIteratorTree::new(&mut ctx, node, Config::default());
     let previous = tree.root_ptr();
-    let new_root = NonNull::new(RQEIteratorWrapper::boxed_new(Empty)).unwrap();
+    let new_root = RQEIteratorWrapper::boxed_new(Empty);
 
     // SAFETY: `new_root` is a freshly boxed, valid iterator that nothing else owns.
     let returned = tree.replace_root(unsafe { CRQEIterator::new(new_root) });

@@ -12,6 +12,7 @@
 use index_result::{RSIndexResult, RawBorrowedAggregateResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
+use std::ptr::NonNull;
 
 use crate::composite::FreeSuspendedShell;
 use crate::union::{
@@ -833,7 +834,7 @@ where
         };
         for i in 0..len {
             // SAFETY: `i` is in bounds of the children buffer.
-            let slot = unsafe { base.add(i) };
+            let slot = NonNull::new(unsafe { base.add(i) }).expect("child slot is non-null");
             // SAFETY: `slot` holds a valid, owned `I`; the helper leaves it
             // holding a valid `I::Suspended`.
             unsafe { crate::boxed::suspend_child_slot_in_place(slot) };
@@ -1045,7 +1046,7 @@ where
             // drop it.
             let i = shell.vacate_next();
             // SAFETY: `i` is in bounds of the children buffer.
-            let elem = unsafe { base.add(i) };
+            let elem = NonNull::new(unsafe { base.add(i) }).expect("child slot is non-null");
             // SAFETY: `elem` holds a valid, owned `S`; the helper rewrites it as
             // a valid `S::Resumed<'a>` on `Unchanged`/`Moved`, and consumes it
             // on `Aborted`/`Err`.

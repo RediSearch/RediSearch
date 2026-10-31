@@ -92,7 +92,7 @@ pub unsafe extern "C" fn NewLazyVectorRangeIteratorFromParams(
 
     let type_ = MetricType::VectorDistance;
     let id_list_result = || RSIndexResult::build_virt().weight(1.0).build();
-    match (yields_metric, order) {
+    let iterator = match (yields_metric, order) {
         (true, ReplyOrder::ById) => {
             RQEIteratorWrapper::boxed_new(MetricLazy::<true>::new(producer, num_estimated, type_))
         }
@@ -109,7 +109,8 @@ pub unsafe extern "C" fn NewLazyVectorRangeIteratorFromParams(
             num_estimated,
             id_list_result(),
         )),
-    }
+    };
+    iterator.as_ptr()
 }
 
 /// Drains a range-query `reply` into the iterator's ids and, when `yields_metric`, the parallel
