@@ -135,6 +135,11 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         if (rc != REDISMODULE_OK) {
             break;
         }
+        // A subquery stopped at build under ON_OOM RETURN reads no row: its depleter, which may
+        // run on another thread, starts only after this.
+        if (QueryRequestTimeout_IsStopRequested(&areq->base.timeout)) {
+          RP_EndRowSourceOnStop(AREQ_QueryProcessingCtx(areq));
+        }
 
         // Obtain the query processing context for the current AREQ
         QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
