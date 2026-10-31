@@ -1011,7 +1011,7 @@ static ResultProcessor *findSafeDepleter(const HybridRequest *hreq, size_t i) {
 // deadlock (see submitHybridTail).
 static void scheduleDepleters(HybridRequest *hreq) {
   if (hreq->base.execution) HREQ_EnableProducerOwnership(hreq);
-  const bool timedOut = QueryRequestTimeout_IsTimedOutExact(&hreq->base.timeout);
+  const bool timedOut = QueryRequestTimeout_IsTimedOutOrStopped(&hreq->base.timeout);
   for (size_t i = 0; i < hreq->nrequests; i++) {
     ResultProcessor *depleter = findSafeDepleter(hreq, i);
     if (timedOut) {

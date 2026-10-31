@@ -57,9 +57,11 @@ bool QueryMemory_ShouldStopNow(QueryRequestTimeout *timeout);
  * its first row, through QueryMemory_ShouldStopNow. Under
  * pressure the OOM stop is requested, and with `oomPolicy` FAIL the query fails
  * before it runs: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` and REDISMODULE_ERR.
- * Otherwise REDISMODULE_OK; a requested stop then ends the pipeline at its
- * first read, which ApplyOomStop replies as an empty result with the OOM
- * warning. `timeout` must not be NULL.
+ * Otherwise REDISMODULE_OK; the caller then ends the pipeline's row source
+ * on a requested stop (RP_EndRowSourceOnStop) once it is built, so the
+ * pipeline ends at its first read: an FT.SEARCH or FT.AGGREGATE then replies
+ * an empty result with the OOM warning (ApplyOomStop), an FT.HYBRID the other
+ * subquery's rows with it. `timeout` must not be NULL.
  */
 int QueryMemory_CheckBeforeExecution(QueryRequestTimeout *timeout, RSOomPolicy oomPolicy,
                                      QueryError *err);

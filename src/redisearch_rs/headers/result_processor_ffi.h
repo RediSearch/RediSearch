@@ -37,6 +37,7 @@ typedef struct QueryProcessingCtx {
   void *executionAccess;
   struct QueryRequestTimeout *timeout;
   RSOomPolicy oomPolicy;
+  bool oomCut;
 } QueryProcessingCtx;
 
 

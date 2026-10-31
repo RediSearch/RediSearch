@@ -175,7 +175,7 @@ TEST_F(QueryRequestTimeoutTest, MainThreadMarkIsObservedByWorker) {
   EXPECT_TRUE(workerObservedTimeout);
 }
 
-TEST_F(QueryRequestTimeoutTest, RequestedStopIsReportedUnamortizedInEveryKind) {
+TEST_F(QueryRequestTimeoutTest, RequestedStopIsNotATimeoutInEveryKind) {
   ScopedRealClockChecks enableClockChecks;
   for (auto kind : {QUERY_REQUEST_TIMEOUT_UNARMED, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT,
                     QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE}) {
@@ -193,26 +193,23 @@ TEST_F(QueryRequestTimeoutTest, RequestedStopIsReportedUnamortizedInEveryKind) {
     EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout), QUERY_STOP_REASON_NONE);
 
     struct timespec deadline = {};
-    uint8_t counter = 0;
     if (kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
       deadline = *QueryRequestTimeout_GetClockDeadline(&timeout);
-      counter = timeout.source.clock.counter;
     }
 
     EXPECT_TRUE(QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM));
 
-    EXPECT_TRUE(QueryRequestTimeout_IsTimedOut(&timeout));
-    EXPECT_TRUE(QueryRequestTimeout_IsTimedOutExact(&timeout));
+    EXPECT_FALSE(QueryRequestTimeout_IsTimedOut(&timeout));
+    EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
     EXPECT_TRUE(RS_AtomicBoolLoadRelaxed(QueryRequestTimeout_GetStopFlag(&timeout)));
     // Ownership checks must not mistake a stop for a fired timeout callback.
     EXPECT_FALSE(QueryRequestTimeout_IsBlockedClientTimedOut(&timeout));
     EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout), QUERY_STOP_REASON_OOM);
     EXPECT_EQ(timeout.kind, kind);
     if (kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
-      // The stop lives outside the source union and bypasses the amortization counter.
+      // The stop lives outside the source union.
       EXPECT_EQ(QueryRequestTimeout_GetClockDeadline(&timeout)->tv_sec, deadline.tv_sec);
       EXPECT_EQ(QueryRequestTimeout_GetClockDeadline(&timeout)->tv_nsec, deadline.tv_nsec);
-      EXPECT_EQ(timeout.source.clock.counter, counter);
     }
   }
 }
@@ -226,6 +223,19 @@ TEST_F(QueryRequestTimeoutTest, FirstStopReasonWins) {
   EXPECT_TRUE(QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_TIMEOUT));
   EXPECT_FALSE(QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM));
   EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout), QUERY_STOP_REASON_TIMEOUT);
+}
+
+TEST_F(QueryRequestTimeoutTest, LosingStopRequestPublishesTheWinnersStop) {
+  QueryRequestTimeout timeout = {};
+  TimeoutConfig timeoutConfig = {1000, TimeoutPolicy_Fail};
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  // A winner that recorded its reason but has not published the flag yet.
+  timeout.stopReason = QUERY_STOP_REASON_OOM;
+  ASSERT_EQ(QueryRequestTimeout_GetStopReason(&timeout), QUERY_STOP_REASON_NONE);
+
+  EXPECT_FALSE(QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_TIMEOUT));
+  EXPECT_TRUE(RS_AtomicBoolLoadRelaxed(QueryRequestTimeout_GetStopFlag(&timeout)));
+  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout), QUERY_STOP_REASON_OOM);
 }
 
 TEST_F(QueryRequestTimeoutTest, MarkingTheBlockedClientDoesNotRecordAStopReason) {
@@ -248,16 +258,16 @@ TEST_F(QueryRequestTimeoutTest, StopSurvivesResetAndIsClearedByTheNextCycle) {
   ASSERT_TRUE(QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM));
 
   QueryRequestTimeout_Reset(&timeout);
-  EXPECT_TRUE(QueryRequestTimeout_IsTimedOutExact(&timeout));
+  EXPECT_TRUE(RS_AtomicBoolLoadRelaxed(QueryRequestTimeout_GetStopFlag(&timeout)));
   EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout), QUERY_STOP_REASON_OOM);
 
   QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
+  EXPECT_FALSE(RS_AtomicBoolLoadRelaxed(QueryRequestTimeout_GetStopFlag(&timeout)));
   EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout), QUERY_STOP_REASON_NONE);
 
   ASSERT_TRUE(QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM));
   QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-  EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
+  EXPECT_FALSE(RS_AtomicBoolLoadRelaxed(QueryRequestTimeout_GetStopFlag(&timeout)));
   EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout), QUERY_STOP_REASON_NONE);
 }
 
@@ -275,7 +285,7 @@ TEST_F(QueryRequestTimeoutTest, StopRequestedOnAnotherThreadIsObservedWithItsRea
     workerReady.store(true, std::memory_order_release);
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (std::chrono::steady_clock::now() < deadline) {
-      if (QueryRequestTimeout_IsTimedOut(&timeout)) {
+      if (QueryRequestTimeout_IsStopRequested(&timeout)) {
         observedReason = QueryRequestTimeout_GetStopReason(&timeout);
         return;
       }
@@ -310,6 +320,33 @@ TEST_F(QueryRequestTimeoutTest, ShouldStopCombinesTheStopAndTheBlockedClientFlag
   EXPECT_TRUE(QueryRequest_ShouldStop(&timeout));
   EXPECT_TRUE(QueryRequestTimeout_IsStopRequested(&timeout));
   EXPECT_FALSE(QueryRequestTimeout_IsBlockedClientTimedOut(&timeout));
+}
+
+TEST_F(QueryRequestTimeoutTest, IsTimedOutOrStoppedReportsEitherInEveryKind) {
+  for (auto kind : {QUERY_REQUEST_TIMEOUT_UNARMED, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT,
+                    QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE}) {
+    QueryRequestTimeout timeout = {};
+    TimeoutConfig timeoutConfig = {60000, TimeoutPolicy_Return};
+    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+    if (kind != QUERY_REQUEST_TIMEOUT_UNARMED) {
+      QueryRequestTimeout_BeginCycle(&timeout, kind);
+    }
+    ASSERT_EQ(timeout.kind, kind);
+    EXPECT_FALSE(QueryRequestTimeout_IsTimedOutOrStopped(&timeout)) << kind;
+    QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM);
+    EXPECT_TRUE(QueryRequestTimeout_IsTimedOutOrStopped(&timeout)) << kind;
+  }
+
+  QueryRequestTimeout timeout = {};
+  TimeoutConfig timeoutConfig = {1000, TimeoutPolicy_Fail};
+  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestTimeout_MarkTimedOut(&timeout);
+  EXPECT_TRUE(QueryRequestTimeout_IsTimedOutOrStopped(&timeout));
+
+  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  *QueryRequestTimeout_GetClockDeadlineForUpdate(&timeout) = {0, 0};
+  EXPECT_TRUE(QueryRequestTimeout_IsTimedOutOrStopped(&timeout));
 }
 
 TEST_F(QueryRequestTimeoutTest, ShouldStopNeverReadsTheClock) {
