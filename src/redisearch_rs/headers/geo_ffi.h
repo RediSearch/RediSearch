@@ -170,26 +170,6 @@ double geohashGetDistance(double lon1, double lat1, double lon2, double lat2);
 int isWithinRadius(const struct GeoFilter *gf, double score, double *distance);
 
 /**
- * Return `true` if the distance between two lon/lat points is within `radius`
- * meters.
- *
- * If `distance` is non-null, the actual distance (in meters) is written to it.
- *
- * # Panics
- *
- * If any coordinate is non-finite (NaN or infinity). This cannot happen in
- * practice: `lon1`/`lat1` come from `GeoFilter` which is range-checked by
- * `GeoFilter_Validate`, and `lon2`/`lat2` come from `decodeGeo` which
- * produces finite values by construction (integer bit-arithmetic scaled to
- * WGS-84 bounds).
- *
- * # Safety
- *
- * - `distance` must be either null or a valid pointer to a writable `f64`.
- */
-bool isWithinRadiusLonLat(double lon1, double lat1, double lon2, double lat2, double radius, double *distance);
-
-/**
  * Parse a `"lon,lat"` or `"lon lat"` string into separate longitude and
  * latitude values. Leading and trailing whitespace around each coordinate
  * value is trimmed.

@@ -1268,7 +1268,6 @@ dependencies = [
  "cheadergen",
  "ffi",
  "field",
- "geo",
  "global_config",
  "index_result",
  "index_spec",

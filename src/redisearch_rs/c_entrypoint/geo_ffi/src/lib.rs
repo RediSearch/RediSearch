@@ -108,43 +108,6 @@ pub extern "C" fn geohashGetDistance(lon1: f64, lat1: f64, lon2: f64, lat2: f64)
     geo::hash::haversine_distance(lon1, lat1, lon2, lat2)
 }
 
-/// Return `true` if the distance between two lon/lat points is within `radius`
-/// meters.
-///
-/// If `distance` is non-null, the actual distance (in meters) is written to it.
-///
-/// # Panics
-///
-/// If any coordinate is non-finite (NaN or infinity). This cannot happen in
-/// practice: `lon1`/`lat1` come from `GeoFilter` which is range-checked by
-/// `GeoFilter_Validate`, and `lon2`/`lat2` come from `decodeGeo` which
-/// produces finite values by construction (integer bit-arithmetic scaled to
-/// WGS-84 bounds).
-///
-/// # Safety
-///
-/// - `distance` must be either null or a valid pointer to a writable `f64`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn isWithinRadiusLonLat(
-    lon1: f64,
-    lat1: f64,
-    lon2: f64,
-    lat2: f64,
-    radius: f64,
-    distance: *mut f64,
-) -> bool {
-    let lon1 = R64::assert(lon1);
-    let lat1 = R64::assert(lat1);
-    let lon2 = R64::assert(lon2);
-    let lat2 = R64::assert(lat2);
-    let dist = geo::hash::haversine_distance(lon1, lat1, lon2, lat2);
-    // SAFETY: caller guarantees `distance` is valid when non-null.
-    if let Some(d) = unsafe { distance.as_mut() } {
-        *d = dist;
-    }
-    dist <= radius
-}
-
 /// Set a [`QueryError`] with a [`ParseGeoError`] message.
 ///
 /// # Panics

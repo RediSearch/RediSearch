@@ -23,7 +23,6 @@ bench = false
 cheadergen.workspace = true
 ffi.workspace = true
 field.workspace = true
-geo.workspace = true
 global_config.workspace = true
 index_result.workspace = true
 index_spec.workspace = true
