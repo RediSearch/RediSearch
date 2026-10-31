@@ -28,10 +28,6 @@ static void QueryRequestTimeout_ClearStop(QueryRequestTimeout *timeout) {
   atomic_store_explicit(&timeout->stopRequested, false, memory_order_relaxed);
 }
 
-static inline bool QueryRequestTimeout_IsStopRequested(const QueryRequestTimeout *timeout) {
-  return atomic_load_explicit(&timeout->stopRequested, memory_order_relaxed);
-}
-
 void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const TimeoutConfig *config) {
   RS_ASSERT(config);
   RS_ASSERT(config->queryTimeoutMS >= 0);
@@ -126,9 +122,6 @@ struct timespec *QueryRequestTimeout_GetClockDeadlineForUpdate(QueryRequestTimeo
 }
 
 bool QueryRequestTimeout_IsTimedOutExact(const QueryRequestTimeout *timeout) {
-  if (QueryRequestTimeout_IsStopRequested(timeout)) {
-    return true;
-  }
   switch (timeout->kind) {
     case QUERY_REQUEST_TIMEOUT_UNARMED:
       return false;
@@ -146,15 +139,12 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
     case QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE:
       return false;
     case QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT:
-      return RS_AtomicBoolLoadRelaxed(&timeout->source.blockedClientTimedOut);
+      return QueryRequestTimeout_IsTimedOutExact(timeout);
   }
   RS_ABORT_ALWAYS("Invalid query timeout kind");
 }
 
 bool QueryRequestTimeout_IsTimedOut(QueryRequestTimeout *timeout) {
-  if (QueryRequestTimeout_IsStopRequested(timeout)) {
-    return true;
-  }
   // Only clock reads are expensive enough to amortize. Other sources retain
   // the exact semantics of QueryRequestTimeout_IsTimedOutExact.
   if (timeout->kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
