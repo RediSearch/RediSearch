@@ -336,7 +336,9 @@ struct OwnedLoaderSource : ResultProcessor {
 class OwnedLoaderDrainTest : public ::testing::Test {
  protected:
   RMCK::Context ctx;
-  IndexSpec spec = {};
+  // The loader reads the document type from the spec's rule.
+  SchemaRule rule = {.type = DocumentType_Hash};
+  IndexSpec spec = {.rule = &rule};
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, &spec);
   QueryProcessingCtx qctx = {};
   RLookup lookup = RLookup_New();
