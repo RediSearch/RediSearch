@@ -1482,11 +1482,9 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
   // FT.PROFILE's reply is produced by sendChunk, which reports a timeout as a
   // Warning rather than an error; skip the hard-fail here and let it handle it.
-  // An OOM stop is not a timeout: it ends the pipeline at its first read instead.
   if (req->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
       req->base.timeout.config.timeoutPolicy == TimeoutPolicy_Fail && !IsProfile(req)) {
-    if (QueryRequestTimeout_IsTimedOutExact(&req->base.timeout) &&
-        QueryRequestTimeout_GetStopReason(&req->base.timeout) != QUERY_STOP_REASON_OOM) {
+    if (QueryRequestTimeout_IsTimedOutExact(&req->base.timeout)) {
       QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
     }
   }
@@ -1517,6 +1515,11 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
   if (rc == REDISMODULE_OK && checkBuildMemory(req, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
+  }
+  // A build checkpoint that stopped the query under ON_OOM RETURN leaves the pipeline to run:
+  // its row source, built only now, must end at its first read.
+  if (rc == REDISMODULE_OK && QueryRequestTimeout_IsStopRequested(&req->base.timeout)) {
+    RP_EndRowSourceOnStop(AREQ_QueryProcessingCtx(req));
   }
 
   if (IsDebug(req)) {
