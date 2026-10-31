@@ -332,7 +332,7 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
     // The subqueries are depleted by now, so the tail is not stopped: the rows the merger holds
     // still reach the reply. A tail timeout without a deadline or stop of the tail's own is the
     // merger reporting the subquery's stop.
-    if (rc == RS_RESULT_TIMEDOUT && !QueryRequestTimeout_IsTimedOutExact(&hreq->base.timeout)) {
+    if (rc == RS_RESULT_TIMEDOUT && !QueryRequestTimeout_IsTimedOutOrStopped(&hreq->base.timeout)) {
       cut = true;
       rc = RS_RESULT_EOF;
     }
@@ -504,7 +504,7 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
     if (rc == RS_RESULT_OK && rp->parent->resultLimit) {
       uint32_t memoryCheckCounter = 0;
       while (--rp->parent->resultLimit &&
-             !ReplyLoop_ShouldStop(&hreq->base.timeout, hreq->base.reqConfig.oomPolicy,
+             !ReplyLoop_ShouldStop(rp->parent, &hreq->base.timeout, hreq->base.reqConfig.oomPolicy,
                                    &memoryCheckCounter, &rc) &&
              (rc = rp->Next(rp, r)) == RS_RESULT_OK) {
         serializeResult_hybrid(hreq, reply, r, cv);
