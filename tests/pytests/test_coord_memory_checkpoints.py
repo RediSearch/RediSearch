@@ -775,3 +775,59 @@ def test_aggregate_withcount_io_thread_stop_dispatches():
     wait_for_condition(lambda: (cursor_count(env, 'big') == 0, {}),
                        'Timeout waiting for the shard cursors to end')
     expect_clean_end(env, coord)
+
+
+def _test_aggregate_withcount_reader_stop(env):
+    create_index(env)
+    coord = env.getConnection(1)
+    query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'TIMEOUT', 100000)
+    try:
+        for oom_policy in ('return', 'fail'):
+            allShards_change_oom_policy(env, oom_policy)
+            # The WITHCOUNT pipeline starts once every shard replied, so its memory reads (one
+            # per fetch: a reply per shard, then the end of the stream) are the coordinator
+            # process's last checkpoint calls. Every shard answers in one chunk, so the IO thread
+            # never reads.
+            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1 << 40)
+            try:
+                coord.execute_command(*query)
+                calls = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+            finally:
+                coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+            first_fetch_read = calls - env.shardsCount
+            errors, warnings = coord_oom_counters(coord)
+            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', first_fetch_read)
+            try:
+                res = coord.execute_command(*query)
+            except ResponseError as e:
+                res = e
+            finally:
+                coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+            if oom_policy == 'fail':
+                env.assertTrue(isinstance(res, ResponseError), message=res)
+                env.assertContains(OOM_QUERY_ERROR, str(res))
+                env.assertEqual(coord_oom_counters(coord), (errors + 1, warnings))
+            else:
+                # The stop before the first fetch leaves only the replies already queued.
+                env.assertLessEqual(len(aggregate_rows(env, res)), N_DOCS, message=res)
+                if env.protocol == 3:
+                    env.assertContains(COORD_OOM_WARNING, res['warning'], message=res)
+                env.assertEqual(coord_oom_counters(coord), (errors, warnings + 1))
+            env.assertEqual(cursor_count(env, 'idx'), 0, message=oom_policy)
+            expect_clean_end(env, coord)
+    finally:
+        allShards_change_oom_policy(env, 'return')
+
+
+@skip(cluster=False)
+def test_aggregate_withcount_reader_stop_resp3():
+    """The WITHCOUNT pipeline reads memory before each fetch of a shard reply: a stop there replies
+    the coordinator OOM warning (ON_OOM RETURN) or the OOM error (ON_OOM FAIL), counts it, and
+    leaves no shard cursor."""
+    _test_aggregate_withcount_reader_stop(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_aggregate_withcount_reader_stop_resp2():
+    """As the RESP3 case; RESP2 has no warning channel."""
+    _test_aggregate_withcount_reader_stop(Env(protocol=2))
