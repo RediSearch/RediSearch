@@ -223,18 +223,18 @@ fn a_probe_reads_the_deadline_out_of_the_search_context() {
     ));
 }
 
-/// Publish or clear the request's stop flag the way `QueryRequestTimeout_RequestStop` does.
-fn set_stop_requested(ctx: &MockContext, stop: bool) {
+/// Publish the request's stop flag the way `QueryRequestTimeout_RequestStop` does.
+fn request_stop(ctx: &MockContext) {
     // SAFETY: the mock owns a valid request timeout for as long as it is alive; projecting the
     // field reads nothing.
     let flag = unsafe { &raw mut (*(*ctx.sctx().as_ptr()).timeout).stopRequested };
     // SAFETY: the flag is aligned and valid, and every access to it in this test is atomic.
     unsafe { std::sync::atomic::AtomicBool::from_ptr(flag) }
-        .store(stop, std::sync::atomic::Ordering::Relaxed);
+        .store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Switch the mock's request timeout to `kind`, with a live deadline and a clear blocked-client
-/// marker so that only the stop flag can report a timeout.
+/// marker so that nothing but the stop flag differs from an unexpired request.
 fn arm(ctx: &MockContext, kind: ffi::QueryRequestTimeoutKind) {
     if kind == ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE {
         set_deadline(ctx, 60);
@@ -262,11 +262,11 @@ fn a_requested_stop_is_not_a_timeout() {
         // Granularity 1: every probe reads the active source, so only the stop could differ.
         // SAFETY: `ctx` outlives `checker`; only the stop flag changes between probes.
         let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
-        set_stop_requested(&ctx, true);
+        request_stop(&ctx);
         for _ in 0..3 {
             assert!(
                 checker.check_timeout().is_ok(),
-                "kind {kind}: iterator probes leave the stop to the row source",
+                "kind {kind}: a requested stop is not a timeout",
             );
         }
     }
