@@ -100,9 +100,9 @@ void QITR_FreeChain(QueryProcessingCtx *qitr);
  * cleared (a later cycle). The row source does not read the stop on its own (a
  * per-row read costs ~0.4% instructions), so every stage that requests a stop
  * and keeps pulling rows (ON_OOM RETURN) must call this right after the
- * request. Call it on the thread that runs the pipeline; stops requested from
- * other threads are not ended at an RP_INDEX source. No-op for other roots
- * (RPNet reads the stop itself).
+ * request. Call it on the pipeline's thread, or before the pipeline is handed
+ * to that thread; stops requested from other threads are not ended at an
+ * RP_INDEX source. No-op for other roots (RPNet reads the stop itself).
  */
 void RP_EndRowSourceOnStop(QueryProcessingCtx *qctx);
 
