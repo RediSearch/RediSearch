@@ -3882,13 +3882,14 @@ static bool RPDepleter_Deplete(RPDepleter *self) {
       break;
     }
   }
-  if (rc == RS_RESULT_TIMEDOUT) {
-    self->stopReason = RP_HoldStop(&self->base);
-  }
 
   SearchResult_Destroy(r);
   rm_free(r);
   if (rc == RS_RESULT_TIMEDOUT && !PipelineAccess_IsOwned(access)) return false;
+  // After the ownership check: RP_HoldStop writes the pipeline's state.
+  if (rc == RS_RESULT_TIMEDOUT) {
+    self->stopReason = RP_HoldStop(&self->base);
+  }
   self->depletionTime += rs_wall_clock_elapsed_ns(&start);
   self->last_rc = rc;
   return true;
