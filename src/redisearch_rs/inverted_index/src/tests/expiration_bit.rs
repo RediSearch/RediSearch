@@ -7,9 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Tests for the per-entry field-expiration bit, which is kept in each
-//! [`IndexBlock`](crate::IndexBlock)'s `expiration_bits` side bitset (indexed by
-//! entry ordinal) rather than inside the encoded entry. These tests exercise the
+//! Tests for the per-entry field-expiration bit, which is kept in the index's
+//! per-block bitsets ([`InvertedIndex::expiration`], indexed by block and entry
+//! ordinal) rather than inside the encoded entry. These tests exercise the
 //! storage/round-trip layer directly by setting the bit on each record, so they
 //! are agnostic to how producers derive it; they check that reads (sequential and
 //! seek) and GC re-encoding recover the right bit per entry.
@@ -18,7 +18,7 @@ use crate::codec::{
     doc_ids_only::DocIdsOnly, fields_only::FieldsOnly, numeric::Numeric,
     raw_doc_ids_only::RawDocIdsOnly,
 };
-use crate::{IndexBlock, IndexReader, InvertedIndex, RepairContext};
+use crate::{IndexReader, InvertedIndex, RepairContext, index::ExpirationBits};
 use ffi::{
     IndexFlags_Index_DocIdsOnly, IndexFlags_Index_StoreFieldFlags, IndexFlags_Index_StoreNumeric,
 };
@@ -27,20 +27,64 @@ use pretty_assertions::assert_eq;
 use rqe_core::DocId;
 
 #[test]
-fn block_bitset_set_and_get() {
-    let mut block = IndexBlock::new(1);
-    assert!(!block.expiration_bit(0));
-    block.set_expiration_bit(3);
-    block.set_expiration_bit(10);
+fn bitset_set_and_get() {
+    let mut bits = ExpirationBits::new();
+    assert!(!bits.contains(0));
+    assert!(bits.is_empty());
+    bits.insert(3);
+    bits.insert(10);
+    assert!(!bits.is_empty());
     for ordinal in 0..16u16 {
         assert_eq!(
-            block.expiration_bit(ordinal),
+            bits.contains(ordinal),
             ordinal == 3 || ordinal == 10,
             "ordinal {ordinal}"
         );
     }
     // Ordinals beyond the grown bitset read as false.
-    assert!(!block.expiration_bit(1000));
+    assert!(!bits.contains(1000));
+}
+
+/// An index whose entries never carry a field-level expiration never allocates the per-block
+/// bitsets, whatever its number of blocks.
+#[test]
+fn no_expiration_allocates_nothing() {
+    let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let per_block = DocId::from(<Numeric as crate::Encoder>::RECOMMENDED_BLOCK_ENTRIES);
+    for doc_id in 1..=3 * per_block {
+        ii.add_record(&numeric(doc_id, false)).unwrap();
+    }
+    assert_eq!(ii.number_of_blocks(), 3);
+    assert!(ii.expiration.is_empty());
+    assert_eq!(ii.expiration_mem_usage(), 0);
+}
+
+/// The first entry with an expiration creates a bitset slot for every block, including the
+/// earlier ones, and the growth it reports matches the index's memory usage.
+#[test]
+fn first_expiration_covers_earlier_blocks() {
+    let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let per_block = DocId::from(<Numeric as crate::Encoder>::RECOMMENDED_BLOCK_ENTRIES);
+    let mut reported = ii.memory_usage();
+    for doc_id in 1..=2 * per_block + 1 {
+        let outcome = ii
+            .add_record(&numeric(doc_id, doc_id == 2 * per_block + 1))
+            .unwrap();
+        reported += outcome.mem_growth as usize;
+    }
+    assert_eq!(ii.number_of_blocks(), 3);
+    assert_eq!(ii.expiration.len(), 3);
+    assert!(ii.expiration[..2].iter().all(ExpirationBits::is_empty));
+    assert!(ii.expiration_bit(2, 0));
+    assert_eq!(reported, ii.memory_usage());
+
+    // Blocks added after that get a slot too.
+    for doc_id in 2 * per_block + 2..=3 * per_block + 1 {
+        reported += ii.add_record(&numeric(doc_id, false)).unwrap().mem_growth as usize;
+    }
+    assert_eq!(ii.number_of_blocks(), 4);
+    assert_eq!(ii.expiration.len(), 4);
+    assert_eq!(reported, ii.memory_usage());
 }
 
 /// Add records with the given (doc_id, has_expiration) and assert a sequential
@@ -262,9 +306,9 @@ fn numeric_seek_reports_expiration_bit_across_blocks() {
         ii.add_record(&numeric(doc_id, has_exp(doc_id))).unwrap();
     }
     assert_eq!(ii.number_of_blocks(), 6);
-    for (i, block) in ii.blocks.iter().enumerate() {
+    for i in 0..ii.number_of_blocks() {
         assert_eq!(
-            block.expiration_bits.mem_usage() > 0,
+            ii.expiration[i].mem_usage() > 0,
             i >= 3,
             "bitset presence of block {i}"
         );
@@ -303,4 +347,255 @@ fn numeric_seek_reports_expiration_bit_across_blocks() {
             "multi-block seek({target})"
         );
     }
+}
+
+/// GC keeps each untouched block's bitset aligned with its block when an earlier block is
+/// deleted, reports the bitsets' heap change, and frees them once no entry with an expiration
+/// survives.
+#[test]
+fn gc_realigns_and_drops_bitsets() {
+    let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let per_block = DocId::from(<Numeric as crate::Encoder>::RECOMMENDED_BLOCK_ENTRIES);
+    // Three full blocks; only the last block's even docs have a TTL.
+    let has_exp = |doc_id: DocId| doc_id > 2 * per_block && doc_id.is_multiple_of(2);
+    for doc_id in 1..=3 * per_block {
+        ii.add_record(&numeric(doc_id, has_exp(doc_id))).unwrap();
+    }
+    assert_eq!(ii.number_of_blocks(), 3);
+
+    let gc = |ii: &mut InvertedIndex<Numeric>, exists: &dyn Fn(DocId) -> bool| {
+        let before = ii.memory_usage();
+        let delta = ii
+            .scan_gc(exists, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
+            .unwrap()
+            .expect("something to collect");
+        let info = ii.apply_gc(delta);
+        assert_eq!(
+            before + info.bytes_allocated - info.bytes_freed,
+            ii.memory_usage()
+        );
+    };
+
+    // Delete the whole first block: the TTL block moves from index 2 to 1.
+    gc(&mut ii, &|doc_id| doc_id > per_block);
+    assert_eq!(ii.number_of_blocks(), 2);
+    assert_eq!(ii.expiration.len(), 2);
+    {
+        let mut reader = ii.reader();
+        let mut result = numeric(0, false);
+        for doc_id in per_block + 1..=3 * per_block {
+            assert!(reader.next_record(&mut result).unwrap());
+            assert_eq!(
+                (result.doc_id, result.has_field_expiration),
+                (doc_id, has_exp(doc_id))
+            );
+        }
+    }
+
+    // Delete every doc with a TTL: the bitsets go away entirely.
+    gc(&mut ii, &|doc_id| !has_exp(doc_id));
+    assert!(ii.expiration.is_empty());
+    assert_eq!(ii.expiration_mem_usage(), 0);
+}
+
+/// Scan, then write more records before applying, as the fork GC does when the parent keeps
+/// indexing during the scan. Checks the memory accounting and every entry's bit after the apply.
+fn gc_with_writes_after_scan(
+    ii: &mut InvertedIndex<Numeric>,
+    exists: impl Fn(DocId) -> bool,
+    after_scan: &[(DocId, bool)],
+) -> crate::GcApplyInfo {
+    let delta = ii
+        .scan_gc(&exists, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
+        .unwrap()
+        .expect("something to collect");
+    for &(doc_id, has_exp) in after_scan {
+        ii.add_record(&numeric(doc_id, has_exp)).unwrap();
+    }
+    let before = ii.memory_usage();
+    let info = ii.apply_gc(delta);
+    assert_eq!(
+        before + info.bytes_allocated - info.bytes_freed,
+        ii.memory_usage()
+    );
+    assert!(ii.expiration.is_empty() || ii.expiration.len() == ii.number_of_blocks());
+    info
+}
+
+/// A write into the last block after the scan makes GC skip that block's repair; the block
+/// keeps its bitset, including the bit of the entry written after the scan.
+#[test]
+fn gc_keeps_bitset_of_last_block_written_after_scan() {
+    let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let per_block = DocId::from(<Numeric as crate::Encoder>::RECOMMENDED_BLOCK_ENTRIES);
+    // One full block and a half-full last block, every third doc with a TTL.
+    let last = per_block + per_block / 2;
+    let has_exp = |doc_id: DocId| doc_id.is_multiple_of(3);
+    for doc_id in 1..=last {
+        ii.add_record(&numeric(doc_id, has_exp(doc_id))).unwrap();
+    }
+    assert_eq!(ii.number_of_blocks(), 2);
+
+    // Collect even docs from both blocks, then append a doc with a TTL to the last block.
+    let exists = |doc_id: DocId| doc_id % 2 == 1 || doc_id > last;
+    let info = gc_with_writes_after_scan(&mut ii, exists, &[(last + 1, true)]);
+    assert!(info.ignored_last_block);
+    assert_eq!(ii.number_of_blocks(), 2);
+
+    let mut reader = ii.reader();
+    let mut result = numeric(0, false);
+    let survivors = (1..=per_block)
+        .filter(|&d| exists(d))
+        .map(|d| (d, has_exp(d)))
+        .chain((per_block + 1..=last).map(|d| (d, has_exp(d))))
+        .chain([(last + 1, true)]);
+    for expected in survivors {
+        assert!(reader.next_record(&mut result).unwrap());
+        assert_eq!((result.doc_id, result.has_field_expiration), expected);
+    }
+    assert!(!reader.next_record(&mut result).unwrap());
+}
+
+/// Blocks appended after the scan keep their bitsets, aligned with their blocks, while an
+/// earlier block is deleted.
+#[test]
+fn gc_keeps_bitsets_of_blocks_appended_after_scan() {
+    let mut ii = InvertedIndex::<Numeric>::new(IndexFlags_Index_StoreNumeric);
+    let per_block = DocId::from(<Numeric as crate::Encoder>::RECOMMENDED_BLOCK_ENTRIES);
+    let has_exp = |doc_id: DocId| doc_id.is_multiple_of(3);
+    for doc_id in 1..=2 * per_block {
+        ii.add_record(&numeric(doc_id, has_exp(doc_id))).unwrap();
+    }
+    assert_eq!(ii.number_of_blocks(), 2);
+
+    // Delete the first block, and fill two more blocks after the scan.
+    let after_scan: Vec<_> = (2 * per_block + 1..=4 * per_block)
+        .map(|d| (d, has_exp(d)))
+        .collect();
+    let info = gc_with_writes_after_scan(&mut ii, |doc_id| doc_id > per_block, &after_scan);
+    assert!(!info.ignored_last_block);
+    assert_eq!(ii.number_of_blocks(), 3);
+
+    let mut reader = ii.reader();
+    let mut result = numeric(0, false);
+    for doc_id in per_block + 1..=4 * per_block {
+        assert!(reader.next_record(&mut result).unwrap());
+        assert_eq!(
+            (result.doc_id, result.has_field_expiration),
+            (doc_id, has_exp(doc_id))
+        );
+    }
+    assert!(!reader.next_record(&mut result).unwrap());
+}
+
+/// The first entry with an expiration lands in a block opened because its delta overflowed
+/// the encoder, and the reported growth still matches the index's memory usage.
+#[test]
+fn expiration_mem_growth_on_delta_overflow_split() {
+    let mut ii = InvertedIndex::<FieldsOnly>::new(IndexFlags_Index_StoreFieldFlags);
+    let mut reported = ii.memory_usage();
+    let records = [(1, false), ((1 << 32) + 5, true), ((1 << 33) + 10, true)];
+    for (doc_id, has_exp) in records {
+        let record = RSIndexResult::build_term()
+            .doc_id(doc_id)
+            .field_mask(0b1)
+            .has_field_expiration(has_exp)
+            .build();
+        reported += ii.add_record(&record).unwrap().mem_growth as usize;
+        assert_eq!(reported, ii.memory_usage(), "after doc {doc_id}");
+    }
+    assert_eq!(ii.number_of_blocks(), 3);
+    assert_eq!(ii.expiration.len(), 3);
+    assert!(ii.expiration[0].is_empty());
+    assert!(ii.expiration_bit(1, 0));
+    assert!(ii.expiration_bit(2, 0));
+}
+
+/// One block whose survivors no longer fit a single block once the entry between them is
+/// collected: `b - a` and `c - b` fit the encoder's `u32` delta, `c - a` does not.
+const SPLIT_DOCS: [(DocId, bool); 4] = [
+    (1, true),
+    ((1 << 31) + 1, false),
+    ((1 << 32) + 1, true),
+    ((1 << 32) + 2, false),
+];
+
+fn split_on_gc_index() -> InvertedIndex<FieldsOnly> {
+    let mut ii = InvertedIndex::<FieldsOnly>::new(IndexFlags_Index_StoreFieldFlags);
+    for (doc_id, has_exp) in SPLIT_DOCS {
+        let record = RSIndexResult::build_term()
+            .doc_id(doc_id)
+            .field_mask(0b1)
+            .has_field_expiration(has_exp)
+            .build();
+        ii.add_record(&record).unwrap();
+    }
+    assert_eq!(ii.number_of_blocks(), 1);
+    ii
+}
+
+fn split_on_gc_scan(ii: &InvertedIndex<FieldsOnly>) -> crate::GcScanDelta {
+    ii.scan_gc(
+        |doc_id| doc_id != SPLIT_DOCS[1].0,
+        None::<fn(&RSIndexResult, &RepairContext<'_>)>,
+    )
+    .unwrap()
+    .expect("something to collect")
+}
+
+/// A repair that splits one block into several carries a bitset per new block, and applying
+/// it keeps each survivor's bit.
+#[test]
+fn gc_replace_with_several_blocks_carries_their_bitsets() {
+    let mut ii = split_on_gc_index();
+    let delta = split_on_gc_scan(&ii);
+    let [block_delta] = delta.deltas.as_slice() else {
+        panic!("expected one block repair, got {:?}", delta.deltas);
+    };
+    let crate::gc::RepairType::Replace {
+        blocks, expiration, ..
+    } = &block_delta.repair
+    else {
+        panic!("expected a Replace, got {:?}", block_delta.repair);
+    };
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(expiration.len(), 2);
+
+    let before = ii.memory_usage();
+    let info = ii.apply_gc(delta);
+    assert_eq!(
+        before + info.bytes_allocated - info.bytes_freed,
+        ii.memory_usage()
+    );
+    assert_eq!(ii.number_of_blocks(), 2);
+    assert_eq!(ii.expiration.len(), 2);
+
+    let mut reader = ii.reader();
+    let mut result = RSIndexResult::build_term().build();
+    for (doc_id, has_exp) in [SPLIT_DOCS[0], SPLIT_DOCS[2], SPLIT_DOCS[3]] {
+        assert!(reader.next_record(&mut result).unwrap());
+        assert_eq!(
+            (result.doc_id, result.has_field_expiration),
+            (doc_id, has_exp)
+        );
+    }
+    assert!(!reader.next_record(&mut result).unwrap());
+}
+
+/// The fork GC ships the scan's delta from the child to the parent with MessagePack, so the
+/// bitsets of a `Replace` must survive the round trip.
+#[test]
+fn gc_delta_with_bitsets_roundtrips_through_messagepack() {
+    use serde::{Deserialize, Serialize};
+
+    let ii = split_on_gc_index();
+    let delta = split_on_gc_scan(&ii);
+    let mut bytes = Vec::new();
+    delta
+        .serialize(&mut rmp_serde::Serializer::new(&mut bytes))
+        .unwrap();
+    let decoded =
+        crate::GcScanDelta::deserialize(&mut rmp_serde::Deserializer::new(bytes.as_slice()))
+            .unwrap();
+    assert_eq!(decoded, delta);
 }
