@@ -101,6 +101,8 @@ typedef struct {
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
+  // The reading Next, restored when RP_EndRowSourceOnStop's stop is cleared by a new cycle.
+  int (*readNext)(ResultProcessor *self, SearchResult *res);
 #ifdef ENABLE_ASSERT
   bool firstRead;  // Debug only: tracks if this is the first read for sync point testing
 #endif
@@ -352,10 +354,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 #endif
 
   while (1) {
-    // The row source is where a stop ends a query whose later stages keep running under ON_OOM
-    // RETURN: the timeout check does not read the stop.
-    if (QueryRequestTimeout_IsStopRequested(sctx->timeout) ||
-        QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
+    if (QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -416,10 +415,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 #endif
 
   while (1) {
-    // The row source is where a stop ends a query whose later stages keep running under ON_OOM
-    // RETURN: the timeout check does not read the stop.
-    if (QueryRequestTimeout_IsStopRequested(sctx->timeout) ||
-        QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
+    if (QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -539,6 +535,24 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   }
 
   return &ret->base;
+}
+
+static int rpQueryItNext_Stopped(ResultProcessor *base, SearchResult *res) {
+  RPQueryIterator *self = (RPQueryIterator *)base;
+  if (!QueryRequestTimeout_IsStopRequested(self->sctx->timeout)) {
+    base->Next = self->readNext;
+    return base->Next(base, res);
+  }
+  return UnlockSpec_and_ReturnRPResult(self->sctx, RS_RESULT_TIMEDOUT);
+}
+
+void RP_EndRowSourceOnStop(QueryProcessingCtx *qctx) {
+  ResultProcessor *root = qctx->rootProc;
+  if (!root || root->type != RP_INDEX || root->Next == rpQueryItNext_Stopped) {
+    return;
+  }
+  ((RPQueryIterator *)root)->readNext = root->Next;
+  root->Next = rpQueryItNext_Stopped;
 }
 
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it) {
