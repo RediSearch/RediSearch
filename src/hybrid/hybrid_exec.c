@@ -329,6 +329,9 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
         hreq->subqueriesReturnCodes[i] = RS_RESULT_EOF;
         cut = true;
       }
+      // A subquery stage that kept its rows past the stop may hold no more than the merger's
+      // WINDOW takes, so the merger never reads the subquery's stop.
+      cut |= AREQ_QueryProcessingCtx(hreq->requests[i])->oomCut;
     }
     // The subqueries are depleted by now, so the tail is not stopped: the rows the merger holds
     // still reach the reply. A tail timeout without a deadline or stop of the tail's own is the
