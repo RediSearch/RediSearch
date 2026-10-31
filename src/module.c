@@ -4728,6 +4728,10 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
     }
   }
 
+  // This callback owns the reply, so its warning is the timeout's even after an OOM stop the
+  // background reducer mapped, as on a shard (RP_StopPolicy). Errors, a shard's included, stay.
+  req->queryOOM = false;
+
   // Check if bailout set an error (e.g., index dropped before fanout)
   // In this case, reply with the error instead of partial results
   if (QueryError_HasError(&request->reply.err)) {
