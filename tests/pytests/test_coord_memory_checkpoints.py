@@ -1045,3 +1045,105 @@ def test_aggregate_withcount_follow_up_read_stop_dispatches():
     wait_for_condition(lambda: (cursor_count(env, 'big') == 0, {}),
                        'Timeout waiting for the shard cursors to end')
     expect_clean_end(env, coord)
+
+
+@skip(cluster=False)
+def test_aggregate_withcount_stopped_before_fanout_does_not_wait_for_shards():
+    """A request already stopped by the ON_OOM RETURN entry guard replies at once, without waiting
+    for any shard's first reply: every other shard is parked and the query still ends with the
+    coordinator OOM warning."""
+    env = Env(protocol=3, moduleArgs='WORKERS 1')
+    skipIfNoEnableAssert(env)
+    create_index(env)
+    coord = env.getConnection(1)
+    parked = [env.getConnection(i) for i in range(2, env.shardsCount + 1)]
+    query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'TIMEOUT', 100000)
+    for shard in parked:
+        sync_point(shard, 'CLEAR')
+        sync_point(shard, 'ARM', 'BeforeFirstRead')
+    try:
+        # Raised before the query, so the entry guard (not a later checkpoint) stops it.
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+        thread, result = run_in_thread(coord, query)
+        thread.join(timeout=30)
+        replied_while_parked = not thread.is_alive()
+    finally:
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        for shard in parked:
+            sync_point(shard, 'SIGNAL', 'BeforeFirstRead')
+            sync_point(shard, 'CLEAR')
+    thread.join(timeout=30)
+    env.assertTrue(replied_while_parked)
+    res = result[0]
+    env.assertFalse(isinstance(res, Exception), message=res)
+    env.assertContains(COORD_OOM_WARNING, res['warning'], message=res)
+    wait_for_condition(lambda: (cursor_count(env, 'idx') == 0, {}),
+                       'Timeout waiting for the shard cursors to end')
+    expect_clean_end(env, coord)
+
+
+def _test_aggregate_withcount_zero_row_pager_io_thread_stop(env, oom_policy):
+    skipIfNoEnableAssert(env)
+    if env.shardsCount < 3:
+        env.skip()
+    # More than one shard cursor chunk on every shard, so first replies are resent.
+    n_docs = 2000 * env.shardsCount
+    env.expect('FT.CREATE', 'big', 'PREFIX', 1, 'big:', 'SCHEMA', 'n', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    pipe = conn.pipeline(transaction=False)
+    for i in range(n_docs):
+        pipe.execute_command('HSET', f'big:{i}', 'n', i)
+    pipe.execute()
+    coord = env.getConnection(1)
+    parked = env.getConnection(2)
+    # The pager reads no row, so only the worker's publication of the IO thread's stop can fail it.
+    query = ('FT.AGGREGATE', 'big', '*', 'WITHCOUNT', 'LIMIT', 0, 0, 'TIMEOUT', 100000)
+    allShards_change_oom_policy(env, oom_policy)
+    errors, warnings = coord_oom_counters(coord)
+    sync_point(parked, 'CLEAR')
+    sync_point(parked, 'ARM', 'BeforeFirstRead')
+    sync_point(coord, 'CLEAR')
+    sync_point(coord, 'ARM', 'BeforeCursorResendCheckpoint')
+    try:
+        thread, result = run_in_thread(coord, query)
+        wait_for_sync_point(parked, 'BeforeFirstRead')
+        wait_for_sync_point(coord, 'BeforeCursorResendCheckpoint')
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+        sync_point(coord, 'SIGNAL', 'BeforeCursorResendCheckpoint')
+        thread.join(timeout=30)
+        replied_while_parked = not thread.is_alive()
+    finally:
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        sync_point(coord, 'CLEAR')
+        sync_point(parked, 'SIGNAL', 'BeforeFirstRead')
+        sync_point(parked, 'CLEAR')
+        allShards_change_oom_policy(env, 'return')
+    thread.join(timeout=30)
+    env.assertTrue(replied_while_parked)
+    res = result[0]
+    if oom_policy == 'fail':
+        env.assertTrue(isinstance(res, ResponseError), message=res)
+        env.assertContains(OOM_QUERY_ERROR, str(res))
+        env.assertEqual(coord_oom_counters(coord), (errors + 1, warnings))
+    else:
+        env.assertFalse(isinstance(res, Exception), message=res)
+        env.assertContains(COORD_OOM_WARNING, res['warning'], message=res)
+        env.assertEqual(coord_oom_counters(coord), (errors, warnings + 1))
+    wait_for_condition(lambda: (cursor_count(env, 'big') == 0, {}),
+                       'Timeout waiting for the shard cursors to end')
+    expect_clean_end(env, coord)
+
+
+@skip(cluster=False)
+def test_aggregate_withcount_zero_row_pager_io_thread_stop_fail():
+    """An IO-thread memory stop on `WITHCOUNT LIMIT 0 0`, whose pager never reads the iterator,
+    still fails the query with the OOM error under ON_OOM FAIL."""
+    _test_aggregate_withcount_zero_row_pager_io_thread_stop(
+        Env(protocol=3, moduleArgs='WORKERS 1'), 'fail')
+
+
+@skip(cluster=False)
+def test_aggregate_withcount_zero_row_pager_io_thread_stop_return():
+    """As the FAIL case; under ON_OOM RETURN the reply carries the coordinator OOM warning."""
+    _test_aggregate_withcount_zero_row_pager_io_thread_stop(
+        Env(protocol=3, moduleArgs='WORKERS 1'), 'return')
