@@ -325,6 +325,17 @@ bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
   return RP_StopPolicy(rp) != TimeoutPolicy_Return;
 }
 
+bool RP_FillShouldCut(ResultProcessor *rp, uint32_t *counter) {
+  const bool heldUpstream = RP_UpstreamHold(rp);
+  if (RP_FillShouldStop(rp, counter)) {
+    return true;
+  }
+  // The checkpoint's stop under RETURN is on a stage that holds no rows upstream of it unless
+  // one was already stopped, so a fresh stop here is this processor's own.
+  const QueryRequestTimeout *timeout = rp->parent->timeout;
+  return !heldUpstream && timeout && QueryRequestTimeout_IsStopRequested(timeout);
+}
+
 typedef enum {
   REVALIDATE_CONTINUE,         // Proceed with a normal read
   REVALIDATE_VALIDATE_CURRENT, // The iterator moved: use its current result before reading again
