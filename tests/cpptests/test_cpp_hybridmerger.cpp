@@ -1601,3 +1601,35 @@ TEST_F(HybridMergerTest, MemoryStopStillSurfacesLaterUpstreamError) {
   QueryMemory_ResetFakePressure();
   RSGlobalConfig.requestConfigParams.oomPolicy = previousPolicy;
 }
+
+TEST_F(HybridMergerTest, MemoryStopStillSurfacesStoppedUpstreamError) {
+  auto previousPolicy = RSGlobalConfig.requestConfigParams.oomPolicy;
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
+  QueryMemory_SetPressureAtCall(1);
+
+  MockUpstream failing(0, {1.0, 2.0}, {}, 0, 2);  // two rows, then ERROR
+  MockUpstream other(0, {1.0, 2.0});
+  arrayof(ResultProcessor *) upstreams = NULL;
+  ResultProcessor *rpFailing = &failing;
+  ResultProcessor *rpOther = &other;
+  array_ensure_append_1(upstreams, rpFailing);
+  array_ensure_append_1(upstreams, rpOther);
+  double weights[] = {0.5, 0.5};
+  HybridScoringContext *scoring = HybridScoringContext_NewLinear(weights, 2, HYBRID_DEFAULT_WINDOW);
+  HybridLookupContext *lookup = CreateDummyLookupContext(2);
+  RPStatus returnCodes[2] = {RS_RESULT_OK, RS_RESULT_OK};
+  ResultProcessor *merger = RPHybridMerger_New(GetDummySearchCtx(), scoring, upstreams, 2, nullptr,
+                                               nullptr, returnCodes, lookup, nullptr);
+  QueryProcessingCtx qitr = {0};
+  QITR_PushRP(&qitr, merger);
+
+  SearchResult r = SearchResult_New();
+  EXPECT_EQ(RS_RESULT_ERROR, merger->Next(merger, &r));
+  EXPECT_EQ(RS_RESULT_ERROR, returnCodes[0]);
+
+  SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookup);
+  merger->Free(merger);
+  QueryMemory_ResetFakePressure();
+  RSGlobalConfig.requestConfigParams.oomPolicy = previousPolicy;
+}

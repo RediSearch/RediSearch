@@ -2784,23 +2784,31 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
    return true;
  }
 
+ /* Discards the rows of a stopped merger's upstream and returns its terminal status.
+  * An upstream is released only once it stops depleting, and its terminal status (an ERROR in
+  * particular) must still surface. Depleters buffer before yielding, so this reads rows already
+  * held and allocates nothing. DEPLETING is returned as is; the caller retries the same upstream. */
+ static int hybridMergerDrainUpstream(ResultProcessor *upstream) {
+   int rc;
+   SearchResult *r = rm_calloc(1, sizeof(*r));
+   *r = SearchResult_New();
+   while ((rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
+     SearchResult_Clear(r);
+   }
+   rm_free(r);
+   return rc;
+ }
+
  /* Helper function to consume results from a single upstream */
  static int hybridMergerConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, size_t upstreamIndex) {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
-   SearchResult *r = rm_calloc(1, sizeof(*r));
-   *r = SearchResult_New();
    ResultProcessor *upstream = self->upstreams[upstreamIndex];
    if (self->memoryStopped) {
-     // Rows are discarded, but an upstream is released only once it stops depleting, and its
-     // terminal status (an ERROR in particular) must still surface. Depleters buffer before
-     // yielding, so this reads rows already held and allocates nothing.
-     while ((rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
-       SearchResult_Clear(r);
-     }
-     rm_free(r);
-     return rc;
+     return hybridMergerDrainUpstream(upstream);
    }
+   SearchResult *r = rm_calloc(1, sizeof(*r));
+   *r = SearchResult_New();
    while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
        double score = SearchResult_GetScore(r);
        consumed++;
@@ -2814,8 +2822,9 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
          // theirs, so the merger must end its consumption whatever the stop policy.
          if (QueryMemory_ShouldStop(self->sctx->timeout, &self->memoryCheckCalls)) {
            self->memoryStopped = true;
-           rc = RS_RESULT_EOF;
-           break;
+           rm_free(r);
+           // The rest of this upstream is discarded, but its real terminal status still counts.
+           return hybridMergerDrainUpstream(upstream);
          }
        } else {
          SearchResult_Clear(r);
