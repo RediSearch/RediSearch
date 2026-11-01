@@ -533,6 +533,36 @@ def test_sorter_stop_over_cursor_reads(env):
     env.assertEqual(cursor, 0)
 
 
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_normalizer_stop_over_cursor_reads(env):
+    """A normalizer stopped while pooling yields its pooled rows across cursor reads, normalized by
+    the max among them; the read that ends them carries the OOM warning and closes the cursor."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'body', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'doc{i}', 'body', ' '.join(['hello'] * (i + 1) + ['x'] * 5))
+    query = ('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'BM25STD.NORM', 'ADDSCORES',
+             'LOAD', 1, '@__key')
+    k = 4
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+    try:
+        res, cursor = env.cmd(*query, 'WITHCURSOR', 'COUNT', 3)
+    finally:
+        memory_pressure(env, 'RESET')
+    rows = res['results']
+    env.assertEqual(len(rows), 3, message=res)
+    env.assertEqual(res['warning'], [], message=res)
+    env.assertNotEqual(cursor, 0)
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+    rows += res['results']
+    env.assertEqual(sorted(r['extra_attributes']['__key'] for r in rows),
+                    [f'doc{i}' for i in range(k)], message=rows)
+    env.assertEqual(max(float(r['extra_attributes']['__score']) for r in rows), 1.0, message=rows)
+    env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+    env.assertEqual(cursor, 0)
+
+
 @skip(cluster=False)
 @env_spec(protocol=3)
 def test_shard_sorter_stop_reaches_the_coordinator(env):
@@ -932,3 +962,58 @@ def test_tag_expansion_checks_memory_per_expanded_value(env):
                 env.assertEqual(res['total_results'], N_PREFIX_TERMS, message=res)
     finally:
         env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 200).ok()
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_suffix_trie_tag_expansion_checks_memory_per_expanded_value(env):
+    """The suffix-trie tag collectors (suffix, contains, anchored wildcard) read memory per matched
+    value, like the plain scan: pressure partway through stops the expansion there. ON_OOM RETURN
+    replies an empty result with the OOM warning, ON_OOM FAIL the OOM error, and the call count
+    shows that no further value was opened."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_PREFIX_TERMS):
+        conn.execute_command('HSET', f'doc{i}', 't', f'pre{i}suf')
+    env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1000).ok()
+    try:
+        for workers in worker_counts(env):
+            for query in (('FT.SEARCH', 'idx', '@t:{*suf}', 'NOCONTENT'),
+                          ('FT.SEARCH', 'idx', '@t:{*pr*}', 'NOCONTENT'),
+                          ('FT.SEARCH', 'idx', "@t:{w'*re*suf'}", 'NOCONTENT')):
+                # Call 1 is the build entry; the later calls are the matched values.
+                for at_call in (5, 250):
+                    memory_pressure(env, 'AT_CALL', at_call)
+                    try:
+                        expect_empty_with_oom_warning(env, env.cmd(*query))
+                        env.assertEqual(checkpoint_calls(env), at_call, message=query)
+                    finally:
+                        memory_pressure(env, 'RESET')
+                    with oom_policy(env, 'fail'):
+                        expect_oom_error_at_call(env, at_call, *query)
+
+                res = env.cmd(*query)
+                env.assertEqual(res['total_results'], N_PREFIX_TERMS, message=res)
+    finally:
+        env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 200).ok()
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_profile_build_checkpoint_stop(env):
+    """FT.PROFILE stopped at any build stage keeps its reply shape under ON_OOM RETURN (empty
+    results, the OOM warning and not a timeout) and fails with the OOM error under ON_OOM FAIL, for
+    SEARCH and AGGREGATE, with and without workers."""
+    create_index(env)
+    profiles = (('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT'),
+                ('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@n'))
+    for workers in worker_counts(env):
+        for at_call in range(1, BUILD_CHECKPOINTS + 1):
+            for query in profiles:
+                res = run_at_call(env, at_call, *query)
+                env.assertContains('Results', res)
+                env.assertContains('Profile', res)
+                expect_empty_with_oom_warning(env, res['Results'])
+                env.assertEqual('Timeout limit was reached' in str(res), False, message=res)
+                with oom_policy(env, 'fail'):
+                    expect_oom_error_at_call(env, at_call, *query)

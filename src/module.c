@@ -3273,7 +3273,8 @@ static inline void recordSearchTimeoutStage(searchRequestCtx *req, bool isError)
 }
 
 // The reply has started, so a stop here can only truncate it, with the OOM warning: ON_OOM RETURN
-// only. ON_OOM FAIL was decided by the reducer's read after the last reply (reducerShouldStop).
+// only. ON_OOM FAIL was decided before the first reply byte (reducerShouldStop, then
+// DistSearchReplyCallback).
 // A NULL `memoryCheckCalls` reads memory now.
 static bool replyShouldStop(searchRequestCtx *req, bool stoppedBefore, uint32_t *memoryCheckCalls) {
   QueryRequestTimeout *timeout = &req->base.timeout;
@@ -4617,6 +4618,16 @@ static int DistSearchReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
     searchReducerCtx *rCtx = req->rctx;
     // If NumReplied > 0 we expect ReducerCtx to be initialized
     RS_ASSERT(rCtx)
+
+    // Pressure can begin after the reducer's last read and before this callback runs. ON_OOM FAIL
+    // cannot fail once the first reply byte is out, so this is its last chance.
+    if (req->base.reqConfig.oomPolicy == OomPolicy_Fail &&
+        QueryMemory_CheckBeforeExecution(&req->base.timeout, OomPolicy_Fail,
+                                         &request->reply.err) == REDISMODULE_ERR) {
+      QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WARN);
+      QueryError_ReplyAndClear(ctx, &request->reply.err);
+      return REDISMODULE_OK;
+    }
 
     RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
