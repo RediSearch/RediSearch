@@ -814,13 +814,6 @@ bool SearchDisk_RegisterSlotTrim(RedisSearchDiskIndexSpec *index, const SearchDi
   return disk->slotMigration.registerTrim(index, ranges, numRanges, trimId, maxDocId);
 }
 
-bool SearchDisk_RegisterSlotTrimAtCutoff(RedisSearchDiskIndexSpec *index,
-                                         const SearchDiskSlotRange *ranges, size_t numRanges,
-                                         t_docId maxDocId, uint64_t *trimId) {
-  RS_ASSERT(disk && disk->slotMigration.registerTrimAtCutoff);
-  return disk->slotMigration.registerTrimAtCutoff(index, ranges, numRanges, maxDocId, trimId);
-}
-
 void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
                                        SearchDiskPendingSlotTrimCallback callback, void *ctx) {
   RS_ASSERT(disk && disk->slotMigration.forEachPendingTrim);
@@ -839,9 +832,4 @@ bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
                                    const SearchDiskSlotTrimBatch *batch) {
   RS_ASSERT(disk && disk->slotMigration.applyTrimBatch);
   return disk->slotMigration.applyTrimBatch(index, batch);
-}
-
-bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk && disk->slotMigration.hasPendingCleanup);
-  return disk->slotMigration.hasPendingCleanup(index);
 }

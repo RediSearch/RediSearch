@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
-#include "slot_cleanup.h"
 
 #include <math.h>
 #include <limits.h>
@@ -3325,7 +3324,6 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
-    SlotCleanup_RdbSaveUnregistered(rdb, sp);
   }
 
   if (needLock) {
@@ -3507,10 +3505,6 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     // the spec destructor (duplicate / cleanup / abort).
     sp->pendingDiskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
     if (!sp->pendingDiskRdbState) {
-      goto cleanup;
-    }
-    if (encver >= INDEX_DISK_UNREGISTERED_TRIMS_VERSION &&
-        !SlotCleanup_RdbLoadUnregistered(rdb, sp)) {
       goto cleanup;
     }
   }
