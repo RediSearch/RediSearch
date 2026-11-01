@@ -270,7 +270,7 @@ impl Expansion<'_> {
         }
     }
 
-    /// See [`memory_stop`].
+    /// See [`memory_stop`](fn@memory_stop).
     fn memory_stop(&mut self) -> bool {
         memory_stop(self.ctx)
     }
