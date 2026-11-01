@@ -248,7 +248,18 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
 
 
 
-class HybridMergerTest : public ::testing::Test {};
+class HybridMergerTest : public ::testing::Test {
+ protected:
+  // The dummy sctx's timeout is shared by every test, and QueryRequestTimeout_Reset keeps a
+  // recorded stop. Clear it here so a memory stop injected by one test cannot truncate another
+  // under shuffle or repeat.
+  void TearDown() override {
+    QueryMemory_ResetFakePressure();
+    QueryRequestTimeout *timeout = GetDummySearchCtx()->timeout;
+    QueryRequestTimeout_BeginCycle(timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    QueryRequestTimeout_Reset(timeout);
+  }
+};
 
 namespace {
 constexpr size_t kMaxInitialAllocation = 65536 * sizeof(void *);
