@@ -14,16 +14,27 @@ use std::{
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, GcApplyInfo, GcScanDelta, IdDelta, IndexBlock,
-    InvertedIndex, gc::BlockGcScanResult, gc::RepairType,
+    InvertedIndex, gc::BlockGcScanResult, gc::RepairType, index::ExpirationBits,
 };
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 use rqe_core::DocId;
-use smallvec::smallvec;
+use smallvec::SmallVec;
 use thin_vec::medium_thin_vec;
 
 use super::{Dummy, encode_ids};
+
+/// Pairs each block with an empty field-expiration bitset, as the repair of an index without
+/// field TTLs does.
+fn without_ttls<const N: usize>(
+    blocks: [IndexBlock; N],
+) -> SmallVec<[(IndexBlock, ExpirationBits); 3]> {
+    blocks
+        .into_iter()
+        .map(|b| (b, ExpirationBits::new()))
+        .collect()
+}
 
 #[test]
 fn index_block_repair_delete() {
@@ -111,13 +122,12 @@ fn index_block_repair_some_deletions() {
     assert_eq!(
         repair_status,
         Some(RepairType::Replace {
-            expiration: Default::default(),
-            blocks: smallvec![IndexBlock {
+            blocks: without_ttls([IndexBlock {
                 first_doc_id: 11,
                 last_doc_id: 11,
                 num_entries: 1,
                 buffer: encode_ids!(Dummy, 11),
-            }],
+            }]),
             n_unique_docs_removed: 2
         })
     );
@@ -223,8 +233,7 @@ fn index_block_repair_delta_too_big() {
     assert_eq!(
         repair_status,
         Some(RepairType::Replace {
-            expiration: Default::default(),
-            blocks: smallvec![
+            blocks: without_ttls([
                 IndexBlock {
                     buffer: {
                         let mut writer = Cursor::new(Vec::new());
@@ -257,7 +266,7 @@ fn index_block_repair_delta_too_big() {
                     first_doc_id: 42,
                     last_doc_id: 42,
                 }
-            ],
+            ]),
             n_unique_docs_removed: 1
         })
     );
@@ -323,13 +332,12 @@ fn ii_scan_gc() {
                 BlockGcScanResult {
                     index: 1,
                     repair: RepairType::Replace {
-                        expiration: Default::default(),
-                        blocks: smallvec![IndexBlock {
+                        blocks: without_ttls([IndexBlock {
                             buffer: encode_ids!(Dummy, 21, 22),
                             num_entries: 2,
                             first_doc_id: 21,
                             last_doc_id: 22,
-                        }],
+                        }]),
                         n_unique_docs_removed: 1
                     },
                 },
@@ -425,21 +433,19 @@ fn ii_apply_gc() {
         BlockGcScanResult {
             index: 1,
             repair: RepairType::Replace {
-                expiration: Default::default(),
-                blocks: smallvec![IndexBlock {
+                blocks: without_ttls([IndexBlock {
                     buffer: encode_ids!(Dummy, 21),
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
-                }],
+                }]),
                 n_unique_docs_removed: 2,
             },
         },
         BlockGcScanResult {
             index: 3,
             repair: RepairType::Replace {
-                expiration: Default::default(),
-                blocks: smallvec![
+                blocks: without_ttls([
                     IndexBlock {
                         buffer: encode_ids!(Dummy, 40),
                         num_entries: 1,
@@ -452,7 +458,7 @@ fn ii_apply_gc() {
                         first_doc_id: 72,
                         last_doc_id: 72,
                     },
-                ],
+                ]),
                 n_unique_docs_removed: 1,
             },
         },
@@ -565,13 +571,12 @@ fn ii_apply_gc_last_block_updated() {
         BlockGcScanResult {
             index: 1,
             repair: RepairType::Replace {
-                expiration: Default::default(),
-                blocks: smallvec![IndexBlock {
+                blocks: without_ttls([IndexBlock {
                     buffer: encode_ids!(Dummy, 21),
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
-                }],
+                }]),
                 n_unique_docs_removed: 2,
             },
         },
@@ -758,13 +763,12 @@ fn ii_apply_gc_entries_tracking_index() {
         deltas: vec![BlockGcScanResult {
             index: 0,
             repair: RepairType::Replace {
-                expiration: Default::default(),
-                blocks: smallvec![IndexBlock {
+                blocks: without_ttls([IndexBlock {
                     buffer: encode_ids!(AllowDupsDummy, 15, 15),
                     num_entries: 2,
                     first_doc_id: 15,
                     last_doc_id: 15,
-                }],
+                }]),
                 n_unique_docs_removed: 1,
             },
         }],

@@ -46,12 +46,9 @@ pub(crate) enum RepairType {
 
     /// The block contains GCed entries, and should be replaced with the following blocks.
     Replace {
-        /// The new blocks to replace this block with
-        blocks: SmallVec<[IndexBlock; 3]>,
-
-        /// The field-expiration bitsets of `blocks`, one per block, or empty when no surviving
-        /// entry has a field-level expiration. See [`InvertedIndex::expiration`].
-        expiration: SmallVec<[ExpirationBits; 3]>,
+        /// The new blocks to replace this block with, each with its field-expiration bitset (see
+        /// [`InvertedIndex::expiration`])
+        blocks: SmallVec<[(IndexBlock, ExpirationBits); 3]>,
 
         /// How many unique documents were removed from the block being replaced.
         n_unique_docs_removed: u32,
@@ -202,8 +199,7 @@ impl IndexBlock {
             }))
         } else if block_changed {
             Ok(Some(RepairType::Replace {
-                blocks: SmallVec::from_iter(tmp_inverted_index.blocks),
-                expiration: SmallVec::from_iter(tmp_inverted_index.expiration),
+                blocks: tmp_inverted_index.take_blocks().collect(),
                 n_unique_docs_removed: unique_read - unique_write,
             }))
         } else {
@@ -301,27 +297,18 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             return info;
         }
 
-        let mut tmp_blocks = ThinVec::with_capacity(self.blocks.len());
-        std::mem::swap(&mut self.blocks, &mut tmp_blocks);
-
-        // `self.expiration` is rebuilt in step with `self.blocks`, but only when some block,
-        // old or new, has a field-expiration bitset: indexes without field TTLs skip it.
         let expiration_heap_before = self.expiration_mem_usage();
-        let track_expiration = !self.expiration.is_empty()
-            || deltas.iter().any(|d| {
-                matches!(&d.repair, RepairType::Replace { expiration, .. } if !expiration.is_empty())
-            });
-        let mut old_expiration = std::mem::take(&mut self.expiration).into_iter();
-        let mut new_expiration: ThinVec<ExpirationBits, BlockCapacity> = if track_expiration {
-            ThinVec::with_capacity(tmp_blocks.len())
-        } else {
-            ThinVec::new()
-        };
+        let n_blocks = self.blocks.len();
+        let had_expiration = !self.expiration.is_empty();
+        let old_blocks = self.take_blocks();
+        self.blocks = ThinVec::with_capacity(n_blocks);
+        if had_expiration {
+            self.expiration = ThinVec::with_capacity(n_blocks);
+        }
 
         let mut deltas = deltas.into_iter().peekable();
 
-        for (block_index, block) in tmp_blocks.into_iter().enumerate() {
-            let old_bits = old_expiration.next().unwrap_or_default();
+        for (block_index, (block, bits)) in old_blocks.enumerate() {
             match deltas.peek() {
                 Some(delta) if delta.index == block_index => {
                     // This block needs to be repaired
@@ -341,41 +328,33 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                         }
                         RepairType::Replace {
                             blocks,
-                            expiration,
                             n_unique_docs_removed,
                         } => {
                             info.entries_removed += block.num_entries as usize;
                             info.bytes_freed += block.mem_usage();
                             self.n_unique_docs -= n_unique_docs_removed;
 
-                            let mut expiration = expiration.into_iter();
-                            for block in blocks {
+                            for (block, bits) in blocks {
                                 info.entries_removed -= block.num_entries as usize;
                                 info.bytes_allocated += block.mem_usage();
-                                self.blocks.push(block);
-                                if track_expiration {
-                                    new_expiration.push(expiration.next().unwrap_or_default());
-                                }
+                                self.push_block(block, bits);
                             }
                         }
                     }
                 }
                 _ => {
                     // This block does not need to be repaired, so just put it back
-                    self.blocks.push(block);
-                    if track_expiration {
-                        new_expiration.push(old_bits);
-                    }
+                    self.push_block(block, bits);
                 }
             }
         }
 
         // Drop the bitsets entirely once no surviving entry has a field-level expiration.
-        if new_expiration.iter().any(|bits| !bits.is_empty()) {
-            new_expiration.shrink_to_fit();
-            self.expiration = new_expiration;
+        if self.expiration.iter().all(ExpirationBits::is_empty) {
+            self.expiration = ThinVec::new();
+        } else {
+            self.expiration.shrink_to_fit();
         }
-        debug_assert!(self.expiration.is_empty() || self.expiration.len() == self.blocks.len());
         let expiration_heap_after = self.expiration_mem_usage();
         if expiration_heap_after > expiration_heap_before {
             info.bytes_allocated += expiration_heap_after - expiration_heap_before;

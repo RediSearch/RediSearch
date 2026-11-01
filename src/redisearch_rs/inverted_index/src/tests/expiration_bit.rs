@@ -552,14 +552,14 @@ fn gc_replace_with_several_blocks_carries_their_bitsets() {
     let [block_delta] = delta.deltas.as_slice() else {
         panic!("expected one block repair, got {:?}", delta.deltas);
     };
-    let crate::gc::RepairType::Replace {
-        blocks, expiration, ..
-    } = &block_delta.repair
-    else {
+    let crate::gc::RepairType::Replace { blocks, .. } = &block_delta.repair else {
         panic!("expected a Replace, got {:?}", block_delta.repair);
     };
-    assert_eq!(blocks.len(), 2);
-    assert_eq!(expiration.len(), 2);
+    let [(_, first_bits), (_, second_bits)] = blocks.as_slice() else {
+        panic!("expected two new blocks, got {blocks:?}");
+    };
+    assert!(first_bits.contains(0));
+    assert!(second_bits.contains(0) && !second_bits.contains(1));
 
     let before = ii.memory_usage();
     let info = ii.apply_gc(delta);
