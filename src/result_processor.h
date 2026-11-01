@@ -528,6 +528,15 @@ void PipelineAddCrash(struct AREQ *r, enum CrashLocation location);
  */
 bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter);
 
+/**
+ * Memory checkpoint of a processor that cuts its own output at its stop: true when it must end now
+ * with RS_RESULT_TIMEDOUT, also under a RETURN stop policy. Rows it already emitted are kept, and
+ * rows a buffering stage upstream still holds are not drained through it. A stop that an upstream
+ * stage already holds rows for (see RP_FillShouldStop) is not its own: this returns false and the
+ * held rows pass.
+ */
+bool RP_FillShouldCut(ResultProcessor *rp, uint32_t *counter);
+
 /** For debugging purposes
  * Adds a result processor, downstream of the last one, that calls the query memory
  * checkpoint (QueryMemory_ShouldStop) before every upstream read and reports a timeout once it
