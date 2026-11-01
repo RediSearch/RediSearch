@@ -2795,6 +2795,8 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
    while ((rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
      SearchResult_Clear(r);
    }
+   // Clearing keeps the row's capacity, which only destroying releases.
+   SearchResult_Destroy(r);
    rm_free(r);
    return rc;
  }
@@ -2831,6 +2833,8 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
          --consumed; // avoid wrong rank in RRF
        }
    }
+   // A cleared row keeps its capacity.
+   SearchResult_Destroy(r);
    rm_free(r);
    return rc;
  }

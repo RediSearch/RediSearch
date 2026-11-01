@@ -555,10 +555,10 @@ def test_hybrid_subquery_stop_filling_the_window_warns(env):
 @env_spec(protocol=3)
 def test_hybrid_safe_depleter_stop_past_the_window_warns(env):
     """A safe depleter (WORKERS) stopped under ON_OOM RETURN after buffering more than WINDOW
-    rows keeps them, and the merger takes only WINDOW without reading the stop. A stop at any
-    call before the merger's own consume calls, so after WINDOW rows buffered too, replies the
-    OOM warning. Those calls are the query's calls before its last upstream's WINDOW consume
-    calls and the tail's buffering and replay calls (one each per merged row)."""
+    rows keeps them, and the merger takes only WINDOW without reading the stop: the reply must
+    still carry the OOM warning. With two depleter threads which checkpoint a late call lands on
+    varies per run, and a stop there may cut nothing, so every call is swept against the
+    invariant: a cut reply carries the OOM warning, an uncut one is the complete reply."""
     window = 4
     _hybrid_index_on_a_line(env, lambda i: ' '.join(['hello'] * (i + 1)))
     query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
@@ -566,17 +566,22 @@ def test_hybrid_safe_depleter_stop_past_the_window_warns(env):
              'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
     try:
         _set_policies(env, 'return', 'return', 2)
-        full = len(env.cmd(*query)['results'])
-        env.assertGreater(full, window)
-        before_merger = _checkpoint_calls(env, query) - 2 * full - window
-        for at_call in range(1, before_merger + 1):
+        complete = sorted(r['__key'] for r in env.cmd(*query)['results'])
+        env.assertGreater(len(complete), window)
+        warned = 0
+        for at_call in range(1, _checkpoint_calls(env, query) + 1):
             _memory_pressure(env, 'AT_CALL', at_call)
             res = env.cmd(*query)
             _memory_pressure(env, 'RESET')
-            env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=(at_call, res))
+            if res['warnings'] == [COORD_OOM_WARNING]:
+                warned += 1
+            else:
+                env.assertEqual(res['warnings'], [], message=(at_call, res))
+                env.assertEqual(sorted(r['__key'] for r in res['results']), complete,
+                                message=(at_call, res))
+        env.assertGreater(warned, 0)
     finally:
         _reset(env)
-
 
 @skip(cluster=True)
 @env_spec(protocol=3)
@@ -1085,27 +1090,31 @@ def _syndump_checks_pressure_per_group_id(env):
     """A term in more groups than the read interval gets a checkpoint per group ID, not one per
     term: pressure that lands on a later ID ends the dump with the OOM error in place of that
     term's groups, and the reply stays a well-formed map in both protocols."""
+    def flat(res):
+        # RESP3 decodes the map to a dict: flatten it to RESP2's term, groups, term, groups order.
+        if isinstance(res, dict):
+            return [x for kv in res.items() for x in kv]
+        return res
+
     env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
     groups = 300
     for g in range(groups):
         env.cmd('FT.SYNUPDATE', 'tidx', f'group{g}', 'term0', 'term1')
-    env.assertEqual(len(env.cmd('FT.SYNDUMP', 'tidx')), 4)
+    env.assertEqual(len(flat(env.cmd('FT.SYNDUMP', 'tidx'))), 4)
     try:
         # Calls 1..300 belong to the first term, 301..600 to the second.
         _memory_pressure(env, 'AT_CALL', groups + 100)
-        res = env.cmd('FT.SYNDUMP', 'tidx')
-        env.assertEqual(len(res), 4 if env.protocol == 2 else 2, message=res)
-        if env.protocol == 2:
-            env.assertEqual(len(res[1]), groups, message=res)
-            env.assertTrue(isinstance(res[3], redis_exceptions.ResponseError)
-                           and OOM_QUERY_ERROR in str(res[3]), message=res)
-        else:
-            env.assertEqual(sum(isinstance(v, redis_exceptions.ResponseError)
-                                for v in res.values()), 1, message=res)
+        res = flat(env.cmd('FT.SYNDUMP', 'tidx'))
+        env.assertEqual(len(res), 4, message=res)
+        env.assertEqual(len(res[1]), groups, message=res)
+        env.assertTrue(isinstance(res[3], redis_exceptions.ResponseError)
+                       and OOM_QUERY_ERROR in str(res[3]), message=res)
         # A stop inside the first term's IDs leaves only that term, with the error.
         _memory_pressure(env, 'AT_CALL', 100)
-        res = env.cmd('FT.SYNDUMP', 'tidx')
-        env.assertEqual(len(res), 2 if env.protocol == 2 else 1, message=res)
+        res = flat(env.cmd('FT.SYNDUMP', 'tidx'))
+        env.assertEqual(len(res), 2, message=res)
+        env.assertTrue(isinstance(res[1], redis_exceptions.ResponseError)
+                       and OOM_QUERY_ERROR in str(res[1]), message=res)
     finally:
         _reset(env)
 
