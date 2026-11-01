@@ -1212,12 +1212,16 @@ def _syndump_checks_pressure_per_group_id(env):
         env.assertEqual(len(res[1]), groups, message=res)
         env.assertTrue(isinstance(res[3], redis_exceptions.ResponseError)
                        and OOM_QUERY_ERROR in str(res[3]), message=res)
-        # A stop inside the first term's IDs leaves only that term, with the error.
+        # A stop inside the first term's IDs leaves only that term, its array holding the IDs
+        # written before the stop and closed by the error.
         _memory_pressure(env, 'AT_CALL', 100)
         res = flat(env.cmd('FT.SYNDUMP', 'tidx'))
         env.assertEqual(len(res), 2, message=res)
-        env.assertTrue(isinstance(res[1], redis_exceptions.ResponseError)
-                       and OOM_QUERY_ERROR in str(res[1]), message=res)
+        env.assertEqual(len(res[1]), 100, message=res)
+        env.assertTrue(isinstance(res[1][-1], redis_exceptions.ResponseError)
+                       and OOM_QUERY_ERROR in str(res[1][-1]), message=res)
+        env.assertFalse(any(isinstance(v, redis_exceptions.ResponseError)
+                            for v in res[1][:-1]), message=res)
     finally:
         _reset(env)
 
