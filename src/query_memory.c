@@ -34,14 +34,7 @@ static bool underMemoryPressure(void) {
   return RedisMemory_GetRawUsedMemoryRatio() >= REDIS_MEMORY_OOM_RATIO;
 }
 
-bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter) {
-  if (timeout && QueryRequest_ShouldStop(timeout)) {
-    return true;
-  }
-  if (++*counter < QueryMemory_GetRatioReadInterval()) {
-    return false;
-  }
-  *counter = 0;
+static bool readMemoryAndStop(QueryRequestTimeout *timeout) {
   if (!underMemoryPressure()) {
     return false;
   }
@@ -50,4 +43,32 @@ bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter) {
     QueryRequestTimeout_RequestStop(timeout, QUERY_STOP_REASON_OOM);
   }
   return true;
+}
+
+bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter) {
+  if (timeout && QueryRequest_ShouldStop(timeout)) {
+    return true;
+  }
+  const uint32_t interval = QueryMemory_GetRatioReadInterval();
+  // Both counters advance on every call, so a site that is called too rarely to reach the
+  // interval alone still triggers a read through the request-wide count.
+  bool due = ++*counter >= interval;
+  if (timeout) {
+    due |= ++timeout->memoryCounter >= interval;
+  }
+  if (!due) {
+    return false;
+  }
+  *counter = 0;
+  if (timeout) {
+    timeout->memoryCounter = 0;
+  }
+  return readMemoryAndStop(timeout);
+}
+
+bool QueryMemory_ShouldStopNow(QueryRequestTimeout *timeout) {
+  if (timeout && QueryRequest_ShouldStop(timeout)) {
+    return true;
+  }
+  return readMemoryAndStop(timeout);
 }
