@@ -18,6 +18,7 @@
 #include "rlookup.h"
 #include "profile/profile.h"
 #include "query_error.h"
+#include "query_request.h"
 #include "query_error_ffi.h"
 #include "reply.h"
 #include "rmalloc.h"
@@ -478,6 +479,8 @@ typedef struct RPEvaluator {
   int isFilter;
   // QueryMemory_ShouldStop counter for the string arena, which lives as long as the query.
   uint32_t memoryCheckCalls;
+  // Set when the last Next ended at this evaluator's own memory cut.
+  bool cut;
 } RPEvaluator;
 
 #define RESULT_EVAL_ERR RS_RESULT_MAX + 1
@@ -502,14 +505,23 @@ static int rpevalRow(RPEvaluator *pc, SearchResult *r) {
 
 static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
   // Checked before the next row, so the arena growth of the previous evaluation is counted.
-  if (RP_FillShouldStop(&pc->base, &pc->memoryCheckCalls)) {
+  if (RP_FillShouldCut(&pc->base, &pc->memoryCheckCalls)) {
+    // A blocked-client timeout's callback still recovers the held rows through Drain.
+    const QueryRequestTimeout *timeout = pc->base.parent->timeout;
+    pc->cut = QueryRequestTimeout_GetStopReason(timeout) == QUERY_STOP_REASON_OOM &&
+              !QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
     return RS_RESULT_TIMEDOUT;
   }
+  pc->cut = false;
   int rc = pc->base.upstream->Next(pc->base.upstream, r);
   return rc == RS_RESULT_OK ? rpevalRow(pc, r) : rc;
 }
 
 static RPDrainStatus rpevalDrainCommon(RPEvaluator *pc, SearchResult *r) {
+  // Recovering the rows upstream holds would evaluate them, which the cut exists to avoid.
+  if (pc->cut) {
+    return RP_DRAIN_EOF;
+  }
   RPDrainStatus rc = pc->base.upstream->Drain(pc->base.upstream, r);
   if (rc != RP_DRAIN_OK) {
     return rc;
