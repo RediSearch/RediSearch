@@ -37,6 +37,11 @@ TEST_F(HybridRequestBasicTest, testHybridRequestCreationBasic) {
   ASSERT_TRUE(hybridReq != nullptr);
   ASSERT_EQ(hybridReq->nrequests, 2);
   ASSERT_TRUE(hybridReq->requests != nullptr);
+  EXPECT_EQ(hybridReq->replyflags, 0);
+  EXPECT_EQ(req1->replyflags, 0);
+  EXPECT_EQ(req2->replyflags, 0);
+  hybridReq->replyflags |= QUERY_REPLY_F_TIMEOUT_CAPPED;
+  req1->replyflags |= QUERY_REPLY_F_TIMEOUT_CAPPED;
 
   // Verify the merge pipeline is initialized
   ASSERT_TRUE(hybridReq->tailPipeline->ap.steps.next != nullptr);
@@ -47,6 +52,9 @@ TEST_F(HybridRequestBasicTest, testHybridRequestCreationBasic) {
   EXPECT_FALSE(req1->base.reply.hasStoredResults);
   EXPECT_FALSE(req2->base.reply.hasStoredResults);
   QueryRequest_ResetReply(&hybridReq->base);
+  QueryRequest_ResetReply(&req1->base);
+  EXPECT_EQ(hybridReq->replyflags, QUERY_REPLY_F_TIMEOUT_CAPPED);
+  EXPECT_EQ(req1->replyflags, QUERY_REPLY_F_TIMEOUT_CAPPED);
   EXPECT_FALSE(hybridReq->base.reply.hasStoredResults);
   EXPECT_EQ(hybridReq->base.reply.results, nullptr);
   HybridRequest_Free(hybridReq);

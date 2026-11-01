@@ -42,6 +42,7 @@ typedef struct ParseHybridCommandCtx {
     // Whether the client explicitly supplied TIMEOUT, and the value it gave.
     bool timeoutSpecified;
     long long clientTimeoutMS;
+    bool timeoutWasCapped;
 } ParseHybridCommandCtx;
 
 // Function for parsing hybrid command arguments - exposed for testing
