@@ -513,7 +513,10 @@ class BufferedDiskQuery {
   } iterator;
   RedisSearchCtx sctx{};
   QueryRequestTimeout timeout{};
-  QueryProcessingCtx processing{};
+  QueryProcessingCtx processing{}, hybridProcessing{};
+  QueryProcessingCtx *activeProcessing = &processing;
+  RLookup sourceLookup = RLookup_New(), tailLookup = RLookup_New();
+  RPStatus upstreamStatus = RS_RESULT_OK;
   ResultProcessor *processor = nullptr;
   SearchResult result;
 
@@ -529,19 +532,36 @@ class BufferedDiskQuery {
     QITR_PushRP(&processing, processor);
   }
 
+  void mergeHybrid() {
+    auto **upstreams = array_new(ResultProcessor *, 1);
+    array_append(upstreams, processor);
+    auto *lookups = static_cast<HybridLookupContext *>(rm_calloc(1, sizeof(HybridLookupContext)));
+    lookups->sourceLookups = array_new(const RLookup *, 1);
+    array_append(lookups->sourceLookups, &sourceLookup);
+    lookups->tailLookup = &tailLookup;
+    auto *scoring = HybridScoringContext_NewRRF(60, 6, false);
+    processor = RPHybridMerger_New(&sctx, scoring, upstreams, 1, nullptr, nullptr,
+                                  &upstreamStatus, lookups, nullptr);
+    activeProcessing = &hybridProcessing;
+    QITR_PushRP(activeProcessing, processor);
+  }
+
   void sortByScore() {
     auto *sorter = RPSorter_NewByScore(6, nullptr);
-    QITR_PushRP(&processing, sorter);
+    QITR_PushRP(activeProcessing, sorter);
     processor = sorter;
   }
 
   uint32_t skipped() const {
-    return processing.skippedResults;
+    return activeProcessing->skippedResults;
   }
 
   ~BufferedDiskQuery() {
     SearchResult_Destroy(&result);
+    QITR_FreeChain(&hybridProcessing);
     QITR_FreeChain(&processing);
+    RLookup_Cleanup(&sourceLookup);
+    RLookup_Cleanup(&tailLookup);
   }
 
   t_docId first() {
@@ -618,8 +638,9 @@ class DiskSlotAsyncVisibilityTest : public DiskSlotVisibilityTest {
       EXPECT_LE(pool->reads.size(), capacity);
       uint16_t ready = 0;
       for (const auto &read : pool->reads) {
-        const char *key = read.id == 1 || read.id == 5 ? "{b}other" : "{a}moving";
-        auto *dmd = allocate(key, strlen(key));
+        const std::string key = std::string(read.id == 1 || read.id == 5 ? "{b}other:" : "{a}moving:") +
+                                std::to_string(read.id);
+        auto *dmd = allocate(key.data(), key.size());
         dmd->id = read.id;
         dmd->slot = 0;
         DMD_Incref(dmd);
@@ -729,6 +750,37 @@ TEST_F(DiskSlotAsyncVisibilityTest, SortedResultsAreFilteredAfterTrimRegistratio
 
 TEST_F(DiskSlotAsyncVisibilityTest, SortedResultsStayHiddenAfterTrimCompletes) {
   BufferedDiskQuery query(ctx, spec, snapshot());
+  query.sortByScore();
+  const auto first = query.first();
+  auto *pending = registerTrim();
+  IndexSpec_LockWrite(spec);
+  pool.deletedIds = {2, 3};
+  DocTable_RemovePendingDeletion(&spec->docs, pending);
+  IndexSpec_Unlock(spec);
+  EXPECT_FALSE(hasPending());
+  auto ids = query.remaining();
+  EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1 : 2);
+  for (auto id : ids) EXPECT_TRUE(id != 2 && id != 3);
+  EXPECT_EQ(ids.size(), first == 2 || first == 3 ? 4 : 3);
+}
+
+TEST_F(DiskSlotAsyncVisibilityTest, HybridSortedResultsAreFilteredAfterTrimRegistration) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  query.mergeHybrid();
+  query.sortByScore();
+  const auto first = query.first();
+  EXPECT_FALSE(hasPending());
+  auto *pending = registerTrim();
+  auto ids = query.remaining();
+  EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1 : 2);
+  for (auto id : ids) EXPECT_TRUE(id != 2 && id != 3);
+  EXPECT_EQ(ids.size(), first == 2 || first == 3 ? 4 : 3);
+  removePending(pending);
+}
+
+TEST_F(DiskSlotAsyncVisibilityTest, HybridSortedResultsStayHiddenAfterTrimCompletes) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  query.mergeHybrid();
   query.sortByScore();
   const auto first = query.first();
   auto *pending = registerTrim();
