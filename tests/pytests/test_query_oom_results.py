@@ -169,6 +169,30 @@ def test_stored_results_replay_stop_ends_the_cursor(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_pressure_after_the_row_that_fills_the_limit_is_no_oom_error(env):
+    """Buffering does not check memory on the row that fills the limit: the check would end a
+    full cursor chunk, or fail it under ON_OOM FAIL, for pressure that arrives after every
+    requested row is held. The call where that check would be is the first replay call, so
+    pressure there stops the replay, which is a truncated reply and never an OOM error."""
+    _index_with_docs(env)
+    count = 4
+    query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', count]
+    for on_oom in ['return', 'fail']:
+        for workers in [0, 2]:
+            _set_policies(env, 'fail', on_oom, workers)
+            errors, warnings = _oom_counters(env)
+            _memory_pressure(env, 'AT_CALL', B + count)
+            res, cursor = env.cmd(*query)
+            message = (on_oom, workers, res)
+            env.assertEqual(res['results'], [], message=message)
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=message)
+            env.assertEqual(cursor, 0, message=message)
+            env.assertEqual(_oom_counters(env)[0], errors, message=message)
+    _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_stored_results_replay_stop_ends_a_timed_out_cursor(env):
     """A buffered cursor chunk that timed out under ON_TIMEOUT RETURN is replied and normally
     keeps its cursor open; cut short while replaying, it ends the cursor too. ON_OOM FAIL makes
@@ -1175,6 +1199,52 @@ def test_tagvals_shard_stop_through_the_coordinator_resp3(env):
         env.expect('FT.TAGVALS', 'tidx', 't').error().contains(OOM_QUERY_ERROR)
     finally:
         run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_shard_cursor_is_exempt_from_admission(env):
+    """A shard's cursor for the coordinator is not admission-checked: pressure armed on shard 2
+    at call B + 1, where a client cursor's admission would reject, lands instead on its first
+    buffered row (ON_TIMEOUT FAIL buffers). The shard keeps replying, so the query has no error,
+    carries the OOM warning, and still holds every other shard's rows. A rejected shard cursor
+    would drop all of its rows without a warning."""
+    _index_with_docs(env)
+    shard = env.getConnection(2)
+    query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', 100]
+
+    def run():
+        res, cursor = env.cmd(*query)
+        names = [row['extra_attributes']['name'] for row in res['results']]
+        warnings = list(res['warning'])
+        while cursor:
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            names += [row['extra_attributes']['name'] for row in res['results']]
+            warnings += res['warning']
+        return names, warnings
+
+    shard_names = {key.decode().replace('doc', 'hello') if isinstance(key, bytes)
+                   else key.replace('doc', 'hello') for key in shard.execute_command('KEYS', 'doc*')}
+    run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
+    try:
+        allShards_change_oom_policy(env, 'return')
+        full, warnings = run()
+        env.assertEqual(sorted(full), sorted(f'hello{i}' for i in range(N_DOCS)))
+        env.assertEqual(warnings, [])
+
+        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', B + 1)
+        try:
+            names, warnings = run()
+        finally:
+            shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        env.assertEqual(len(names), len(set(names)), message=names)
+        env.assertEqual(set(full) - shard_names - set(names), set(), message=names)
+        env.assertContains(COORD_OOM_WARNING, warnings)
+        _expect_no_open_cursors(env, 'shard cursor exemption')
+    finally:
+        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+        allShards_change_oom_policy(env, 'return')
 
 
 @skip(cluster=False)
