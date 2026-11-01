@@ -1475,7 +1475,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   SearchResult *currBlock = NULL;
   QueryRequestTimeout *timeout = rp->parent->timeout;
   // Whether this loader's own checkpoint raised the stop, as opposed to an upstream stage that
-  // holds its rows past a stop and yields them over several reads.
+  // holds its rows past a stop and yields them over several reads. A cursor read clears the stop
+  // flag, so a hold from an earlier read shows only in oomCut, which outlives the reads.
   bool ownStop = false;
   // Get the next result and save it in the buffer
   while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
@@ -1489,7 +1490,8 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
     resToBuffer = SearchResult_New();
-    const bool heldUpstream = timeout && QueryRequestTimeout_IsStopRequested(timeout);
+    const bool heldUpstream =
+        timeout && (rp->parent->oomCut || QueryRequestTimeout_IsStopRequested(timeout));
     const bool fillStopped = RP_FillShouldStop(rp, &self->bufferMemoryCheckCalls);
     ownStop |= !heldUpstream && timeout && QueryRequestTimeout_IsStopRequested(timeout);
     if (fillStopped) {
