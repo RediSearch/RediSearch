@@ -208,6 +208,7 @@ static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   AggregateIteratorContext *iterCtx =
       (AggregateIteratorContext *)MRIteratorCallback_GetPrivateData(ctx);
   MRIterator *it = MRIteratorCallback_GetIterator(ctx);
+  bool dispatch = false;
   if (isFirstShardReply(cmd)) {
     bool isError = MRReply_Type(rep) == MR_REPLY_ERROR;
     if (!isError) {
@@ -223,15 +224,18 @@ static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
         MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
       }
       MRIterator_SwapCallbacks(it, netCursorCallback, NULL);
-      dispatchDeferred(iterCtx);
-      iterCtx = NULL;
+      dispatch = true;
     }
   }
   netCursorCallback(ctx, rep);
-  // netCursorCallback's memory read runs after the decision above: a memory stop found there
+  // Dispatch only after netCursorCallback's memory read, so a worker that starts at once cannot
+  // run RPNet_MemoryStops before this reply's stop is published. A memory stop found there
   // dispatches too, rather than waiting for the remaining shards' first replies.
-  if (iterCtx && MRIterator_IsMemoryStopped(it)) {
+  if (!dispatch && MRIterator_IsMemoryStopped(it)) {
     MRIterator_SwapCallbacks(it, netCursorCallback, NULL);
+    dispatch = true;
+  }
+  if (dispatch) {
     dispatchDeferred(iterCtx);
   }
 }
