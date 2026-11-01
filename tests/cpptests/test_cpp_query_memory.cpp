@@ -147,15 +147,72 @@ TEST_F(QueryMemoryTest, WithoutARequestReportsPressureOnly) {
   EXPECT_TRUE(QueryMemory_ShouldStop(nullptr, &counter));
 }
 
+TEST_F(QueryMemoryTest, SitesBelowTheIntervalShareTheRequestCount) {
+  QueryMemory_SetRatioReadInterval(8);
+  fakeRatio = 1.0f;
+  uint32_t siteA = 0, siteB = 0;
+  // Each site alone stays under the interval; together the eighth call reads.
+  for (int i = 0; i < 4; ++i) {
+    EXPECT_FALSE(QueryMemory_ShouldStop(&timeout_, &siteA));
+  }
+  for (int i = 0; i < 3; ++i) {
+    EXPECT_FALSE(QueryMemory_ShouldStop(&timeout_, &siteB));
+  }
+  EXPECT_EQ(fakeRatioReads.load(), 0u);
+  EXPECT_TRUE(QueryMemory_ShouldStop(&timeout_, &siteB));
+  EXPECT_EQ(fakeRatioReads.load(), 1u);
+  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
+  EXPECT_EQ(timeout_.memoryCounter, 0u);
+  EXPECT_EQ(siteB, 0u);
+}
+
+TEST_F(QueryMemoryTest, APrimedCounterStillReadsImmediately) {
+  QueryMemory_SetRatioReadInterval(8);
+  fakeRatio = 1.0f;
+  uint32_t counter = 7;
+  EXPECT_TRUE(QueryMemory_ShouldStop(&timeout_, &counter));
+  EXPECT_EQ(fakeRatioReads.load(), 1u);
+  EXPECT_EQ(counter, 0u);
+  EXPECT_EQ(timeout_.memoryCounter, 0u);
+}
+
+TEST_F(QueryMemoryTest, WithoutARequestEachSiteCountsAlone) {
+  QueryMemory_SetRatioReadInterval(4);
+  uint32_t siteA = 0, siteB = 0;
+  for (int i = 0; i < 3; ++i) {
+    EXPECT_FALSE(QueryMemory_ShouldStop(nullptr, &siteA));
+    EXPECT_FALSE(QueryMemory_ShouldStop(nullptr, &siteB));
+  }
+  EXPECT_EQ(fakeRatioReads.load(), 0u);
+  EXPECT_FALSE(QueryMemory_ShouldStop(nullptr, &siteA));
+  EXPECT_EQ(fakeRatioReads.load(), 1u);
+}
+
+TEST_F(QueryMemoryTest, ShouldStopNowReadsWithoutTouchingCounters) {
+  timeout_.memoryCounter = 5;
+  fakeRatio = 0.5f;
+  EXPECT_FALSE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_EQ(fakeRatioReads.load(), 1u);
+  EXPECT_EQ(timeout_.memoryCounter, 5u);
+
+  fakeRatio = 1.0f;
+  EXPECT_TRUE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_EQ(fakeRatioReads.load(), 2u);
+  EXPECT_EQ(timeout_.memoryCounter, 5u);
+  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
+
+  // An already requested stop is reported without another read.
+  EXPECT_TRUE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_EQ(fakeRatioReads.load(), 2u);
+}
+
 TEST_F(QueryMemoryTest, ConcurrentCheckpointsStopTheSameRequest) {
-  QueryMemory_SetRatioReadInterval(1);
   fakeRatio = 1.0f;
   std::vector<std::thread> checkpoints;
   std::atomic<int> stopped = 0;
   for (int t = 0; t < 4; ++t) {
     checkpoints.emplace_back([&] {
-      uint32_t counter = 0;
-      if (QueryMemory_ShouldStop(&timeout_, &counter)) {
+      if (QueryMemory_ShouldStopNow(&timeout_)) {
         stopped.fetch_add(1);
       }
     });

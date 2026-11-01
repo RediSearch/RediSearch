@@ -162,6 +162,9 @@ typedef enum {
  * - During a CLOCK_DEADLINE cycle, the deadline is immutable. The counter is
  *   shared across amortized call sites but is not atomic, so calls to
  *   IsTimedOut for one request must be serialized.
+ * - memoryCounter follows the clock counter's rule: it is shared by every
+ *   QueryMemory_ShouldStop call with this request and is not atomic, so those
+ *   calls must be serialized. Concurrent sites use QueryMemory_ShouldStopNow.
  * - In every kind, including UNARMED, any thread may request a stop
  *   concurrently with timeout checks (QueryRequestTimeout_RequestStop). The
  *   stop lives outside the source union, so it never disturbs the active source.
@@ -183,6 +186,11 @@ typedef struct QueryRequestTimeout {
       uint8_t counter;
     } clock;
   } source;
+
+  // Calls of QueryMemory_ShouldStop since the last memory read, across all checkpoint sites.
+  // Outside the union because memory stops do not depend on the timeout kind. Reset by Init and
+  // BeginCycle.
+  uint32_t memoryCounter;
 
   // Cycle-scoped stop request. stopReason is written once, by the first requester, before
   // stopRequested is published; checkpoints read only the flag.
