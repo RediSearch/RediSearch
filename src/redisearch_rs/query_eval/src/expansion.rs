@@ -209,8 +209,6 @@ pub(super) struct Expansion<'a> {
     pub(super) needs_offsets: bool,
     /// Upper bound on the number of terms an expansion may open.
     pub(super) max_expansions: usize,
-    /// Call count of the amortized memory checkpoint in [`push_child`](Self::push_child).
-    pub(super) memory_counter: u32,
 }
 
 impl Expansion<'_> {
@@ -268,8 +266,8 @@ impl Expansion<'_> {
         }
         let timeout = self.ctx.sctx().timeout;
         // SAFETY: `timeout` is the request's timeout, valid for the evaluation (the invariant of
-        // `QueryEvalContext::new`), and `memory_counter` is a valid, exclusive `u32`.
-        unsafe { QueryMemory_ShouldStop(timeout, &mut self.memory_counter) }
+        // `QueryEvalContext::new`), and the counter is a valid, exclusive `u32`.
+        unsafe { QueryMemory_ShouldStop(timeout, self.ctx.memory_counter_mut()) }
     }
 
     /// Whether the expansion cap has been reached, recording the "reached max
