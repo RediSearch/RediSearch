@@ -21,6 +21,10 @@ int RS_VecSimCheckTimeout(QueryRequestTimeout *timeout) {
   return vecsimTimeoutCallback(timeout);
 }
 
+int RS_VecSimShouldStop(void *timeout) {
+  return RS_VecSimCheckMemory(timeout);
+}
+
 int RS_VecSimCheckMemory(QueryRequestTimeout *timeout) {
   // One call short of a read, so this call reads.
   uint32_t counter = QueryMemory_GetRatioReadInterval() - 1;

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "config.h"
+#include "iterators/vector_top_k.h"
 #include "query_error.h"
 #include "result_processor.h"
 #include "query_memory.h"
@@ -221,6 +222,32 @@ TEST_F(QueryMemoryTest, PressureAtCallHonorsOnOomIgnore) {
   QueryMemory_SetPressureAtCall(1);
   EXPECT_FALSE(QueryMemory_ShouldStop(&timeout_, &counter));
   EXPECT_FALSE(QueryRequestTimeout_IsStopRequested(&timeout_));
+}
+
+// VecSim amortizes its stop callback itself, so the callback reads memory on every call.
+TEST_F(QueryMemoryTest, VecSimStopCallbackReadsMemoryOnEveryCall) {
+  fakeRatio = 0.5f;
+  EXPECT_EQ(RS_VecSimShouldStop(&timeout_), 0);
+  EXPECT_EQ(RS_VecSimShouldStop(&timeout_), 0);
+  EXPECT_EQ(fakeRatioReads.load(), 2u);
+  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_NONE);
+
+  fakeRatio = 1.0f;
+  EXPECT_NE(RS_VecSimShouldStop(&timeout_), 0);
+  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
+}
+
+TEST_F(QueryMemoryTest, VecSimStopCallbackReportsAnEarlierStopWithoutReading) {
+  QueryRequestTimeout_RequestStop(&timeout_, QUERY_STOP_REASON_TIMEOUT);
+  EXPECT_NE(RS_VecSimShouldStop(&timeout_), 0);
+  EXPECT_EQ(fakeRatioReads.load(), 0u);
+}
+
+TEST_F(QueryMemoryTest, VecSimStopCallbackIsOffWhenOnOomIsIgnore) {
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
+  fakeRatio = 2.0f;
+  EXPECT_EQ(RS_VecSimShouldStop(&timeout_), 0);
+  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_NONE);
 }
 
 TEST_F(QueryMemoryTest, ResetClearsEveryFake) {
