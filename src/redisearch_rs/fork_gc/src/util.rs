@@ -27,17 +27,17 @@ use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 /// same scope over an exclusively owned synthetic spec.
 pub trait SpecWriteAccess {
     /// Promote and write-lock the spec, then run `apply` under the lock.
-    fn with_write<T, C>(
+    fn with_write<T>(
         &mut self,
-        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError<C>>,
-    ) -> Result<T, HandleError<C>>;
+        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError>,
+    ) -> Result<T, HandleError>;
 }
 
 impl SpecWriteAccess for IndexSpecWeakRef {
-    fn with_write<T, C>(
+    fn with_write<T>(
         &mut self,
-        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError<C>>,
-    ) -> Result<T, HandleError<C>> {
+        apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>) -> Result<T, HandleError>,
+    ) -> Result<T, HandleError> {
         let mut spec_ref = self.promote().ok_or(HandleError::SpecDeleted)?;
         let mut guard = spec_ref.write();
         apply(&mut guard)
@@ -52,11 +52,11 @@ impl SpecWriteAccess for IndexSpecWeakRef {
 /// 2. Promote and write-lock the spec (gone → [`HandleError::SpecDeleted`]).
 /// 3. `apply` the message, then flush the resulting [`GcApplyStats`] to both
 ///    the spec and the fork GC via [`GcApplyStats::apply`].
-pub(crate) fn handle_one<M, C>(
+pub(crate) fn handle_one<M>(
     fgc: &mut ForkGC,
-    receive: impl FnOnce(&mut ForkGCPipeReader<'_>) -> Result<Option<M>, HandleError<C>>,
-    apply: impl FnOnce(M, &mut IndexSpecWriteGuard<'_>) -> Result<GcApplyStats, HandleError<C>>,
-) -> Result<HandleOutcome, HandleError<C>> {
+    receive: impl FnOnce(&mut ForkGCPipeReader<'_>) -> Result<Option<M>, HandleError>,
+    apply: impl FnOnce(M, &mut IndexSpecWriteGuard<'_>) -> Result<GcApplyStats, HandleError>,
+) -> Result<HandleOutcome, HandleError> {
     let Some(message) = receive(&mut fgc.reader())? else {
         return Ok(HandleOutcome::Done);
     };

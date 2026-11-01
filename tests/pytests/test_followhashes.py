@@ -724,8 +724,10 @@ def _assertVectorOnlyChangeKeepsDocId(env, algo):
     env.assertEqual(env.cmd(debug_cmd(), 'DOCIDTOID', 'idx', 'doc1'), first,
                     message='a vector-only change must not reindex')
     if algo == 'HNSW':
-        _drainUntilBackendField(env, 'vec', 'INDEX_LABEL_COUNT', 1,
-                                'the replacement vector must reach the backend')
+        # The replacement gets a new backend id once the queued job can run; the old one stays
+        # marked deleted until the GC compacts it.
+        _drainUntilBackendField(env, 'vec', 'INDEX_SIZE', 2,
+                                'updateVectors must insert the replacement as a new backend element')
     # The new value is what a KNN query against it finds -- proof the vector itself was
     # updated, not just the doc-id preserved.
     env.expect('FT.SEARCH', 'idx', '*=>[KNN 1 @vec $b AS dist]', 'PARAMS', '2', 'b',

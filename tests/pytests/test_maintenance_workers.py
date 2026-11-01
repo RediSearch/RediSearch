@@ -136,7 +136,7 @@ def _resize_paused_pool(env, set_cmd):
 
 def _queue_repairs(env, rng, docs, removed_vectors, n, overwrite=True):
     """With the pool paused, delete `n` docs and, if `overwrite`, overwrite `n` others; returns the
-    paused pool stats, including both repair jobs and replacement insert jobs."""
+    paused pool stats."""
     env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
     keys = list(docs)
     deleted, overwritten = keys[:n], keys[n:2 * n] if overwrite else []
@@ -148,7 +148,7 @@ def _queue_repairs(env, rng, docs, removed_vectors, n, overwrite=True):
 
 
 def _jobs_done_after(queued):
-    """The jobs-done count once every job queued at `queued` has run."""
+    """The jobs-done count once the jobs queued at `queued` have run."""
     return queued['totalJobsDone'] + _pending(queued)
 
 
@@ -569,7 +569,7 @@ def test_shrink_to_floor_waits_for_queue():
     rng = np.random.default_rng(18989)
     _create_indexes(env)
     docs = _load_docs(env, rng)
-    # Queue only graph repairs before requesting the shrink.
+    # Deletes only: an overwrite's insert is queued after the request (see _queue_repairs).
     queued = _queue_repairs(env, rng, docs, {}, N_DELETED, overwrite=False)
     at_resize = _resize_paused_pool(env, [config_cmd(), 'SET', 'WORKERS', 0])
     env.assertEqual(_queued(at_resize), _queued(queued))
