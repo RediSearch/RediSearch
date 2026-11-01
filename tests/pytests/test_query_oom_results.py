@@ -649,6 +649,8 @@ def test_hybrid_shard_stop_replies_by_on_oom_policy(env):
             # Under FAIL a stop in the replay of a shard's buffered cursor read can only warn, as
             # standalone; everywhere else it is the OOM error.
             allShards_change_oom_policy(env, 'fail')
+            # FAIL under ON_TIMEOUT RETURN buffers and replays, so it has checkpoints RETURN lacks.
+            calls = shard_calls()
             errors = 0
             for at_call in range(1, calls + 1):
                 res = run_at(at_call)
@@ -921,6 +923,11 @@ def test_hybrid_coordinator_stop_replies_by_on_oom_policy(env):
             env.assertGreater(warned, 0, message=on_timeout)
 
             allShards_change_oom_policy(env, 'fail')
+            # FAIL under ON_TIMEOUT RETURN buffers and replays, so it has checkpoints RETURN lacks.
+            arm(NEVER)
+            env.cmd(*HYBRID)
+            calls = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+            disarm()
             errors = 0
             for at_call in range(1, calls + 1):
                 res = run_at(at_call)
