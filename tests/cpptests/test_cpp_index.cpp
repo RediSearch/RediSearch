@@ -100,15 +100,6 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   size_t exp_t_fieldMask_memsize = 16;
   ASSERT_EQ(exp_t_fieldMask_memsize, t_fiedlMask_memsize);
 
-  // Details of the memory occupied by InvertedIndex in bytes (64-bit system):
-  // LowMemoryThinVec<IndexBlock, u32> blocks    8
-  // u32 n_uniqe_blocks                          4
-  // flags IndexFlags                            4
-  // u32 gc_marker                               4
-  // ---------------------------------------------
-  // Total                                      20
-  // After padding                              24
-
   size_t exp_idx_no_block_memsize = 32;
 
   if (useFieldMask) {
