@@ -84,8 +84,6 @@ static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats) {
   retireLogicalDeletes(gc, stats->num_cleaned_docs);
 }
 
-// `forced` is only read for its presence: disk GC compacts in-process, so it has no fork slot
-// to wait for and no way to fail to start.
 static bool periodicCb(void *privdata, GCForcedRun *forced) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);

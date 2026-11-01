@@ -579,9 +579,9 @@ typedef struct IndexDiskAPI {
    *
    * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`, and
    * the Rust-side numeric/wildcard iterator entry points so that every iterator
-   * created for one query observes the same database state. It also retains deletion
-   * visibility for buffered document metadata. Call `freeSnapshot` only after all
-   * iterators and metadata buffers using this snapshot have been released.
+   * created for one query observes the same database state. The snapshot must remain
+   * alive until its iterators and outstanding metadata reads have finished.
+   * This does not retain entries in the separate deleted-ID bitmap.
    *
    * @param index Pointer to the index spec
    * @return Snapshot handle, or NULL on error (e.g. index is NULL)
@@ -790,7 +790,7 @@ typedef struct DocTableDiskAPI {
    * @brief Stages a new document insert into `batch`.
    *
    * Assigns a new document ID and stages the document metadata write on `batch`. If
-   * `*oldDocId` resolves to a live document, staging also queues deletion of the old
+   * `oldDocId` is provided (non-zero), staging also queues deletion of the old
    * doc-table entry, and the old doc is marked deleted in the in-memory bitmap only
    * once the batch commits successfully.
    *
@@ -811,10 +811,10 @@ typedef struct DocTableDiskAPI {
    * @param docLen Sum of the frequencies of all terms in the document
    * @param oldLen Pointer to an integer to store the length of the deleted document
    * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
-   * @param oldDocId In/out document ID from DocIdMeta; cleared if no live document is replaced
+   * @param oldDocId Old document ID from DocIdMeta (0 if new document)
    * @return New document ID, or 0 on error
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
 
   /**
    * @brief Returns whether the docId is in the deleted set
