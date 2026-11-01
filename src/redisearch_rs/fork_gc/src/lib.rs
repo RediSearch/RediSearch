@@ -15,6 +15,7 @@
 //! in the `fork_gc_ffi` crate, which is a thin trampoline on top of this
 //! one.
 
+mod codec;
 pub mod existing_docs;
 pub mod fork_gc;
 pub mod frame;

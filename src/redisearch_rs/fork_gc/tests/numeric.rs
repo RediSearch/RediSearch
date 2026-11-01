@@ -707,7 +707,7 @@ fn repaired_numeric_nodes_use_bulk_io() {
             calls: 0,
         };
         serialize(&mut writer, Some(&entry)).unwrap();
-        assert_eq!(writer.calls, 2);
+        assert_eq!(writer.calls, 3);
 
         let mut reader = CountingIo {
             inner: writer.inner.as_slice(),
@@ -715,7 +715,7 @@ fn repaired_numeric_nodes_use_bulk_io() {
         };
         let decoded = deserialize::<Option<NumericNodeDelta>>(&mut reader, "numeric node").unwrap();
         assert_eq!(decoded, Some(entry));
-        assert_eq!(reader.calls, 2);
+        assert_eq!(reader.calls, 3);
         assert!(reader.inner.is_empty());
     }
 }

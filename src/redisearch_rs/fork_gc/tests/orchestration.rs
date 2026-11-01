@@ -65,10 +65,12 @@ fn empty_scanner_streams() -> Vec<u8> {
     let mut bytes = Vec::new();
     for _ in 0..2 {
         Frame::data(&[0xc0]).encode(&mut bytes).unwrap();
+        Frame::Terminator.encode(&mut bytes).unwrap();
     }
     bytes.push(0xc0); // TAG field headers retain their existing MessagePack encoding.
     for _ in 0..2 {
         Frame::data(&[0xc0]).encode(&mut bytes).unwrap();
+        Frame::Terminator.encode(&mut bytes).unwrap();
     }
     bytes
 }
