@@ -1,0 +1,115 @@
+name: Rust CI performance comparison
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  image:
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/task-build-cached-container.yml
+    with:
+      container: ubuntu:focal
+      runner-env: staging-u-x64-medium
+      san: none
+
+  require-image:
+    needs: image
+    if: always()
+    runs-on: ubuntu-slim
+    steps:
+      - name: Require the common experiment image
+        env:
+          IMAGE_READY: ${{ needs.image.outputs.succeeded }}
+        run: test "$IMAGE_READY" = true
+
+  measure:
+    needs: image
+    if: needs.image.outputs.succeeded == 'true'
+    name: ${{ matrix.instance }} / jobs=${{ matrix.jobs }} / repeat=${{ matrix.repeat }}
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        repeat: [1, 2]
+        instance: [m6i.xlarge, r7i.xlarge]
+        jobs: [2, 4]
+    runs-on:
+      - staging-u-x64-medium
+      - ${{ format('ghr-ec2-instance-type:{0}', matrix.instance) }}
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ needs.image.outputs.image }}
+      options: --user root
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    env:
+      LTO: '1'
+      ENABLE_ASSERT: '1'
+      REDISEARCH_GENERATE_HEADERS: '0'
+      RUSTFLAGS: '-Dwarnings'
+      RUST_BACKTRACE: '1'
+      REJSON: '0'
+      LOG: '1'
+      CLEAR_LOGS: '0'
+      SCCACHE_DISABLE: '1'
+      RUSTC_WRAPPER: ''
+      RUSTC_WORKSPACE_WRAPPER: ''
+      BENCH_INSTANCE: ${{ matrix.instance }}
+      BENCH_JOBS: ${{ matrix.jobs }}
+      BENCH_REPEAT: ${{ matrix.repeat }}
+      BENCH_IMAGE: ${{ needs.image.outputs.image }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          submodules: recursive
+      - name: Fix container HOME
+        run: |
+          container_home=$(getent passwd "$(id -un)" | cut -d: -f6)
+          echo "HOME=$container_home" >> "$GITHUB_ENV"
+      - name: Setup build environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          image-built: 'true'
+          print-cpu-info: 'true'
+          setup-sccache: 'false'
+          rust-cache: 'false'
+          build-redis: 'false'
+      - name: Record configuration and verify clean start
+        run: |
+          mkdir -p performance-results
+          test ! -d bin/redisearch_rs
+          git rev-parse HEAD > performance-results/source.txt
+          git submodule status --recursive >> performance-results/source.txt
+          rustc --version > performance-results/toolchain.txt
+          cargo --version >> performance-results/toolchain.txt
+          clang --version >> performance-results/toolchain.txt
+          lscpu > performance-results/cpu.txt
+          cat /proc/meminfo > performance-results/memory-before.txt
+          df -h > performance-results/disk-before.txt
+          # Download locked dependencies before measuring compilation, without restoring binaries.
+          cargo fetch --locked --manifest-path src/redisearch_rs/Cargo.toml
+      - name: Identical module build before Rust tests
+        env:
+          CARGO_BUILD_JOBS: '2'
+        run: python3 .github/scripts/measure-rust-ci.py prepare -- make build TESTS=1
+      - name: Measure Rust compilation and all Rust tests
+        timeout-minutes: 110
+        env:
+          CARGO_BUILD_JOBS: ${{ matrix.jobs }}
+        run: python3 .github/scripts/measure-rust-ci.py rust -- make rust-tests
+      - name: Publish measurements and logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: rust-performance-${{ matrix.instance }}-j${{ matrix.jobs }}-r${{ matrix.repeat }}
+          path: performance-results/
+          retention-days: 14
+          if-no-files-found: warn

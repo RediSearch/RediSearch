@@ -1,105 +1,180 @@
-name: Rust CI performance comparison
+name: Build on Platforms
 
-on:
-  workflow_dispatch:
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
+# Floor, not a grant: every job below declares what it needs, so this only
+# stops a job added later from silently inheriting the repository default.
 permissions: {}
 
+on:
+  workflow_call:
+    inputs:
+      platform:
+        type: string
+        default: all
+      architecture:
+        type: string
+        default: all
+      job-test-config:
+        description: 'JSON mapping of job-type to test-config (e.g. ''{"test": "QUICK=1", "coverage": "", "sanitize": "", "ubsan": ""}''). Use empty string for full tests.'
+        type: string
+        default: '{"test": "QUICK=1", "coverage": "QUICK=1", "sanitize": "QUICK=1"}'
+      ubsan-unit-test-filter:
+        description: 'Optional C/C++ unit-test filter used by UBSan unit-test jobs.'
+        type: string
+        default: ''
+      redis-ref:
+        description: 'Redis version to use (e.g. "7.2.3", "unstable")'
+        type: string
+        required: true
+      rejson-branch:
+        type: string
+        default: master
+        description: 'Branch to use when building RedisJSON for tests'
+      options:
+        type: string
+        default: coordinator,standalone,unit-tests,rejson,fail-fast
+        description: 'Comma-separated list of options: coordinator, standalone, unit-tests, rejson, fail-fast, coverage, sanitize, ubsan, skip-tests'
+      ubsan:
+        description: 'Run selected C/C++ unit tests under alignment UBSan'
+        type: boolean
+        default: false
+      separate-coordinator-job:
+        type: boolean
+        default: false
+        description: "Run coordinator tests in a separate parallel job per platform"
+
+  workflow_dispatch:
+    inputs:
+      performance-comparison:
+        description: 'Run the isolated Rust concurrency/hardware experiment'
+        type: boolean
+        default: false
+      platform:
+        type: choice
+        options:
+          - all
+          - ubuntu:resolute
+          - ubuntu:noble
+          - ubuntu:jammy
+          - ubuntu:focal
+          - rockylinux:8
+          - rockylinux:9
+          - rockylinux:10
+          - debian:bookworm
+          - debian:trixie
+          - amazonlinux:2023
+          - azurelinux:3
+          - alpine:3.23
+          - macos-14
+          - macos-15
+          - macos-26
+          - intel
+        description: 'Platform to test on. Use "all" to test on all platforms'
+        default: all
+      architecture:
+        type: choice
+        options:
+          - all
+          - x86_64
+          - aarch64
+        description: 'Architecture to test on. Use "all" to test on all architectures'
+        default: all
+      test-config:
+        description: Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")
+        type: string
+        default: QUICK=1
+      ubsan-unit-test-filter:
+        description: Optional C/C++ unit-test filter for UBSan jobs
+        type: string
+        default: ''
+      redis-ref:
+        description: 'Redis git ref to use (e.g. "7.2.3", "unstable", or a commit sha)'
+        type: string
+        default: '559d143b4e0409c452f7d229ba420954b6b647a2'
+      rejson-branch:
+        type: string
+        default: master
+        description: 'Branch to use when building RedisJSON for tests (default: master)'
+      unit-tests:
+        description: 'Run unit tests'
+        type: boolean
+        default: true
+      standalone:
+        description: 'Run standalone tests'
+        type: boolean
+        default: true
+      cluster:
+        description: 'Run cluster mode tests'
+        type: boolean
+        default: true
+      rejson:
+        description: 'Include RedisJSON tests'
+        type: boolean
+        default: true
+      fail-fast:
+        description: 'Fail fast on test failures'
+        type: boolean
+        default: true
+      ubsan:
+        description: 'Run selected C/C++ unit tests under alignment UBSan'
+        type: boolean
+        default: false
+      separate-coordinator-job:
+        type: boolean
+        default: false
+        description: "Run coordinator tests in a separate parallel job per platform"
+
 jobs:
-  image:
+  performance-comparison:
+    if: inputs.performance-comparison == true
     permissions:
       contents: read
       packages: write
-    uses: ./.github/workflows/task-build-cached-container.yml
-    with:
-      container: ubuntu:focal
-      runner-env: staging-u-x64-medium
-      san: none
+    uses: ./.github/workflows/task-rust-ci-performance.yml
 
-  measure:
-    needs: image
-    if: needs.image.outputs.succeeded == 'true'
-    name: ${{ matrix.instance }} / jobs=${{ matrix.jobs }} / repeat=${{ matrix.repeat }}
+  generate-matrix:
+    if: inputs.performance-comparison != true
+    permissions: {} # generate-matrix.yml only computes a matrix
+    uses: ./.github/workflows/generate-matrix.yml
+    with:
+      platform: ${{ inputs.platform }}
+      architecture: ${{ inputs.architecture }}
+      include-coverage: ${{ contains(inputs.options, 'coverage') }}
+      include-sanitize: ${{ contains(inputs.options, 'sanitize') }}
+      include-ubsan: ${{ contains(inputs.options, 'ubsan') || inputs.ubsan == true }}
+      separate-coordinator-job: ${{ inputs.separate-coordinator-job }}
+
+  # Unified test matrix - includes Linux and macOS platforms, plus optional coverage, sanitize, and intel
+  test-matrix:
+    name: ${{ matrix.job-type == 'test' && format('{0} ({1})', matrix.platform, matrix.architecture) || format('{0} ({1})', matrix.job-type, matrix.architecture) }}${{ matrix.test-mode == 'standalone' && ' (Standalone)' || (matrix.test-mode == 'coordinator' && ' (Coordinator-only)' || '') }}
+    needs: [generate-matrix]
+    if: ${{ needs.generate-matrix.outputs.has-jobs == 'true' }}
     strategy:
-      fail-fast: false
-      max-parallel: 4
-      matrix:
-        instance: [m6i.xlarge, r7i.xlarge]
-        jobs: [2, 4]
-        repeat: [1, 2]
-    runs-on:
-      - staging-u-x64-medium
-      - ${{ format('ghr-ec2-instance-type:{0}', matrix.instance) }}
-    timeout-minutes: 180
+      matrix: ${{ fromJson(needs.generate-matrix.outputs.matrix) }}
+      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
     permissions:
       contents: read
-      packages: read
-    container:
-      image: ${{ needs.image.outputs.image }}
-      options: --user root
-    defaults:
-      run:
-        shell: bash -l -eo pipefail {0}
-    env:
-      LTO: '1'
-      ENABLE_ASSERT: '1'
-      REDISEARCH_GENERATE_HEADERS: '0'
-      RUSTFLAGS: '-Dwarnings'
-      RUST_BACKTRACE: '1'
-      REJSON: '0'
-      LOG: '1'
-      CLEAR_LOGS: '0'
-      SCCACHE_DISABLE: '1'
-      RUSTC_WRAPPER: ''
-      RUSTC_WORKSPACE_WRAPPER: ''
-      BENCH_INSTANCE: ${{ matrix.instance }}
-      BENCH_JOBS: ${{ matrix.jobs }}
-      BENCH_REPEAT: ${{ matrix.repeat }}
-      BENCH_IMAGE: ${{ needs.image.outputs.image }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          submodules: recursive
-      - name: Fix container HOME
-        run: |
-          container_home=$(getent passwd "$(id -un)" | cut -d: -f6)
-          echo "HOME=$container_home" >> "$GITHUB_ENV"
-      - name: Setup build environment
-        uses: ./.github/actions/setup-build-env
-        with:
-          image-built: 'true'
-          print-cpu-info: 'true'
-          setup-sccache: 'false'
-          rust-cache: 'false'
-          build-redis: 'false'
-      - name: Record configuration and verify clean start
-        run: |
-          mkdir -p performance-results
-          test ! -d bin/redisearch_rs
-          git rev-parse HEAD > performance-results/source.txt
-          git submodule status --recursive >> performance-results/source.txt
-          rustc --version > performance-results/toolchain.txt
-          cargo --version >> performance-results/toolchain.txt
-          clang --version >> performance-results/toolchain.txt
-          lscpu > performance-results/cpu.txt
-          cat /proc/meminfo > performance-results/memory-before.txt
-          df -h > performance-results/disk-before.txt
-          # Download locked dependencies before measuring compilation, without restoring binaries.
-          cargo fetch --locked --manifest-path src/redisearch_rs/Cargo.toml
-      - name: Identical module build before Rust tests
-        env:
-          CARGO_BUILD_JOBS: '2'
-        run: python3 .github/scripts/measure-rust-ci.py prepare -- make build TESTS=1
-      - name: Measure Rust compilation and all Rust tests
-        timeout-minutes: 110
-        env:
-          CARGO_BUILD_JOBS: ${{ matrix.jobs }}
-        run: python3 .github/scripts/measure-rust-ci.py rust -- make rust-tests
-      - name: Publish measurements and logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: rust-performance-${{ matrix.instance }}-j${{ matrix.jobs }}-r${{ matrix.repeat }}
-          path: performance-results/
-          retention-days: 14
-          if-no-files-found: warn
+      packages: write
+      id-token: write # OIDC role assumption for sccache S3 (used inside task-test.yml)
+      actions: write  # Swatinem/rust-cache read/write of GH cache (used inside task-test.yml)
+    uses: ./.github/workflows/task-test.yml
+    secrets: inherit
+    with:
+      platform: ${{ matrix.platform }}
+      architecture: ${{ matrix.architecture }}
+      redis-ref: ${{ inputs.redis-ref }}
+      rejson: ${{ contains(inputs.options, 'rejson') || inputs.rejson == true }}
+      rejson-branch: ${{ inputs.rejson-branch }}
+      # skip-tests is explicit: build the selected matrix, but disable every test step
+      # even if another test option is present through defaults or manual input.
+      coordinator: ${{ !contains(inputs.options, 'skip-tests') && (contains(inputs.options, 'coordinator') || inputs.cluster == true) && (matrix.test-mode == 'coordinator' || matrix.test-mode == 'all') }}
+      standalone: ${{ !contains(inputs.options, 'skip-tests') && (contains(inputs.options, 'standalone') || inputs.standalone == true) && (matrix.test-mode == 'standalone' || matrix.test-mode == 'all') }}
+      unit-tests: ${{ !contains(inputs.options, 'skip-tests') && (contains(inputs.options, 'unit-tests') || inputs.unit-tests == true) && matrix.test-mode != 'coordinator' }}
+      rust-unit-tests: ${{ matrix.job-type != 'ubsan' }}
+      unit-test-filter: ${{ matrix.job-type == 'ubsan' && inputs.ubsan-unit-test-filter || '' }}
+      test-config: ${{ fromJson(inputs.job-test-config || '{}')[matrix.job-type] || inputs.test-config }}
+      coverage: ${{ matrix.job-type == 'coverage' }}
+      san: ${{ matrix.job-type == 'sanitize' && 'address' || matrix.job-type == 'ubsan' && 'alignment' || '' }}
+      fail-fast: ${{ contains(inputs.options, 'fail-fast') || inputs.fail-fast == true }}
+      skip-tests: ${{ contains(inputs.options, 'skip-tests') }}
