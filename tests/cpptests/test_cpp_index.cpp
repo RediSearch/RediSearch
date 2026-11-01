@@ -1532,7 +1532,7 @@ TEST_F(IndexTest, testDiskHnswForwardsOptionalSq8TrainingWithoutChangingSchema) 
         EXPECT_EQ(StrongRef_Get(ref), nullptr);
         ASSERT_TRUE(QueryError_HasError(&err));
         EXPECT_STREQ(QueryError_GetUserError(&err),
-                     "Disk COMPRESSION SQ8 is disabled; enable search-disk-sq8-enabled "
+                     "SEARCH_QUERY_BAD Disk COMPRESSION SQ8 is disabled; enable search-disk-sq8-enabled "
                      "only after all nodes have upgraded");
         QueryError_ClearError(&err);
         continue;
