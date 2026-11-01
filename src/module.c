@@ -4741,7 +4741,8 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
 
   // This callback owns the reply, so its warning is the timeout's even after an OOM stop the
   // background reducer mapped, as on a shard (RP_StopPolicy). Errors, a shard's included, stay.
-  const bool oomStopped = req->queryOOM;
+  // A timer-owned reduction never sets queryOOM, so read the stop itself too.
+  const bool oomStopped = req->queryOOM || searchStoppedForOom(req);
   req->queryOOM = false;
 
   // Check if bailout set an error (e.g., index dropped before fanout)

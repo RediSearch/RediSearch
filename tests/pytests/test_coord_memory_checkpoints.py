@@ -704,3 +704,59 @@ def test_search_fanout_stop_then_timeout():
             expect_clean_end(env, coord)
     finally:
         reset_policies(env)
+
+
+@skip(cluster=False)
+def test_timeout_owned_reduction_after_shard_warning_and_oom_stop():
+    """A shard warning is retained, the coordinator then stops for memory, and the RETURN-STRICT
+    timer claims reduction before the background reducer: the timer owns the reply, so its
+    warning is the timeout's, not the retained shard warning."""
+    env = Env(protocol=3)
+    skipIfNoEnableAssert(env)
+    if env.shardsCount < 3:
+        env.skip()
+    create_index(env)
+    coord = env.getConnection(1)
+    remote_shards = [env.getConnection(i) for i in range(2, env.shardsCount + 1)]
+    timed_search = SEARCH[:-1] + (300,)
+
+    def arm_remote_shards():
+        for conn in remote_shards:
+            conn.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+
+    def reset_all():
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+
+    try:
+        set_policies(env, 'RETURN-STRICT', 'return')
+        # Calibrate the coordinator's checkpoint count; the last one is the last reply's read.
+        arm_remote_shards()
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1 << 40)
+        try:
+            coord.execute_command(*SEARCH)
+            last_reply_read = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+        finally:
+            reset_all()
+
+        arm_remote_shards()
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', last_reply_read)
+        # Hold the background reducer so the timer claims reduction first.
+        sync_point(coord, 'CLEAR')
+        sync_point(coord, 'ARM', 'BeforeCoordReducerClaim')
+        try:
+            thread, result = run_in_thread(coord, timed_search)
+            thread.join(timeout=30)
+            env.assertFalse(thread.is_alive())
+        finally:
+            reset_all()
+            sync_point(coord, 'SIGNAL', 'BeforeCoordReducerClaim')
+            sync_point(coord, 'CLEAR')
+        res = result[0]
+        env.assertFalse(isinstance(res, Exception), message=res)
+        env.assertEqual(res['warning'], ['Timeout limit was reached'], message=res)
+        wait_for_condition(
+            lambda: (coord.execute_command('INFO', 'CLIENTS')['blocked_clients'] == 0, {}),
+            'Timeout waiting for the blocked client to be released')
+        expect_clean_end(env, coord)
+    finally:
+        reset_policies(env)
