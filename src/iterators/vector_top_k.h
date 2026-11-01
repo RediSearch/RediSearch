@@ -26,6 +26,12 @@ int RS_VecSimCheckTimeout(QueryRequestTimeout *timeout);
 // search, which costs more than the read.
 int RS_VecSimCheckMemory(QueryRequestTimeout *timeout);
 
+// The memory checkpoint of a per-document loop (the adhoc-BF scan), where a read per call would
+// cost more than the work between calls. Like RS_VecSimCheckMemory, but reads memory only every
+// QUERY_MEMORY_RATIO_READ_INTERVAL-th call counted by `counter`; every call still observes an
+// already requested stop. `counter` is owned by the caller's scan, zero-initialized.
+int RS_VecSimCheckMemoryEvery(QueryRequestTimeout *timeout, uint32_t *counter);
+
 #ifdef __cplusplus
 }
 #endif
