@@ -30,10 +30,9 @@ to reproduce."""
 from common import *
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
-OOM_WARNINGS = {
-    "Coordinator failed to execute the query due to insufficient memory",
-    "One or more shards failed to execute the query due to insufficient memory",
-}
+COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
+SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
+OOM_WARNINGS = {COORD_OOM_WARNING, SHARD_OOM_WARNING}
 N_DOCS = 24
 N_GROUPS = 4
 # Arms the call counter without firing.
@@ -199,7 +198,7 @@ def _n_of(row):
 class Cell:
     """Checks the replies of one matrix cell against the complete result."""
     def __init__(self, env, shape, where, complete, label):
-        self.env, self.shape, self.label = env, shape, label
+        self.env, self.shape, self.where, self.label = env, shape, where, label
         # Client cursors are admitted on the process the client talks to, never on a shard.
         self.admission_pressured = shape.kind == 'cursor' and where != 'shards'
         self.complete = complete
@@ -269,6 +268,22 @@ class Cell:
 
         if got.warnings is not None:
             env.assertTrue(set(got.warnings) <= OOM_WARNINGS, message=('non-OOM warning',) + msg)
+            if self.where == 'shards' and got.warnings:
+                self._check_shard_only_warnings(got, msg)
+
+    def _check_shard_only_warnings(self, got, msg):
+        """The coordinator's pipelines are never pressured here, so a stopped shard must surface
+        as one warning. FT.AGGREGATE and FT.HYBRID replies carry the coordinator's wording
+        (test_query_oom_results.py pins it for a shard stop); FT.SEARCH's wording on a shard-only
+        stop is not pinned, so any single OOM warning passes. Cursor reads accumulate, so only
+        mixing both wordings is rejected."""
+        env, kind = self.env, self.shape.kind
+        if kind == 'cursor':
+            env.assertEqual(len(set(got.warnings)), 1, message=('mixed warnings',) + msg)
+        elif kind == 'search':
+            env.assertEqual(len(got.warnings), 1, message=('not one warning',) + msg)
+        else:
+            env.assertEqual(got.warnings, [COORD_OOM_WARNING], message=('shard stop warning',) + msg)
 
     def expect_complete(self, got, msg):
         env = self.env
