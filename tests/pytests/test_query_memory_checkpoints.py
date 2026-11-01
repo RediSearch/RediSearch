@@ -452,6 +452,26 @@ def test_grouper_stop_yields_no_partial_groups(env):
 
 
 @skip(cluster=True)
+def test_grouper_stop_ends_the_cursor(env):
+    """A cursor whose GROUPBY is stopped while accumulating replies no groups and is not left
+    open; under ON_OOM FAIL the query fails and no cursor is created."""
+    create_index(env)
+    query = (*GROUPBY_QUERIES[0], 'WITHCURSOR', 'COUNT', 2)
+    # The grouper's checkpoint runs once per READ_INTERVAL rows: its 2nd call, at row 4, stops it.
+    rows_per_check, k = 2, 2
+    for workers in worker_counts(env):
+        memory_pressure(env, 'READ_INTERVAL', rows_per_check)
+        res, cursor = run_at_call(env, BUILD_CHECKPOINTS + k, *query)
+        env.assertEqual(res, [0], message=workers)
+        env.assertEqual(cursor, 0, message=workers)
+        with oom_policy(env, 'fail'):
+            memory_pressure(env, 'READ_INTERVAL', rows_per_check)
+            expect_oom_error_at_call(env, BUILD_CHECKPOINTS + k, *query)
+        env.assertEqual(to_dict(to_dict(env.cmd('FT.INFO', 'idx'))['cursor_stats'])['index_total'],
+                        0, message=workers)
+
+
+@skip(cluster=True)
 def test_grouper_stop_inside_one_rows_groups(env):
     """One row with an array value opens a group per element before the per-row check runs; the
     grouper also reads memory as that row opens groups, and replies none of them."""
