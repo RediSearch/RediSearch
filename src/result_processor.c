@@ -2833,6 +2833,8 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
          --consumed; // avoid wrong rank in RRF
        }
    }
+   // A cleared row keeps its capacity.
+   SearchResult_Destroy(r);
    rm_free(r);
    return rc;
  }
