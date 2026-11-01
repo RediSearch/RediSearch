@@ -19,12 +19,12 @@ use ffi::{
     VecSimIndex_AdhocBfCtx_Free, VecSimIndex_AdhocBfCtx_GetDistanceFrom,
     VecSimIndex_AdhocBfCtx_GetExactDistances, VecSimIndex_AdhocBfCtx_New, VecSimIndex_BasicInfo,
     VecSimIndex_GetDistanceFrom_Unsafe, VecSimIndex_IndexSize, VecSimIndex_PreferAdHocSearch,
-    VecSimIndex_RangeQuery, VecSimIndex_TopKQuery, VecSimMetric_VecSimMetric_Cosine,
-    VecSimParams_GetQueryBlobSize, VecSimQueryParams, VecSimTieredIndex_AcquireSharedLocks,
-    VecSimTieredIndex_ReleaseSharedLocks, VecSimType_VecSimType_BFLOAT16,
-    VecSimType_VecSimType_FLOAT16, VecSimType_VecSimType_FLOAT32, VecSimType_VecSimType_FLOAT64,
-    VecSimType_VecSimType_INT8, VecSimType_VecSimType_INT32, VecSimType_VecSimType_INT64,
-    VecSimType_VecSimType_UINT8,
+    VecSimIndex_PreferAdHocSearchAfterBatch, VecSimIndex_RangeQuery, VecSimIndex_TopKQuery,
+    VecSimMetric_VecSimMetric_Cosine, VecSimParams_GetQueryBlobSize, VecSimQueryParams,
+    VecSimTieredIndex_AcquireSharedLocks, VecSimTieredIndex_ReleaseSharedLocks,
+    VecSimType_VecSimType_BFLOAT16, VecSimType_VecSimType_FLOAT16, VecSimType_VecSimType_FLOAT32,
+    VecSimType_VecSimType_FLOAT64, VecSimType_VecSimType_INT8, VecSimType_VecSimType_INT32,
+    VecSimType_VecSimType_INT64, VecSimType_VecSimType_UINT8,
 };
 use rqe_core::DocId;
 
@@ -173,6 +173,14 @@ impl<'index> IndexRef<'index> {
     pub fn prefer_adhoc(&self, subset_size: usize, k: usize, initial_check: bool) -> bool {
         // SAFETY: `self.inner` upholds its invariant.
         unsafe { VecSimIndex_PreferAdHocSearch(self.inner.as_ptr(), subset_size, k, initial_check) }
+    }
+
+    /// Review an ongoing search using the number of results still needed.
+    pub fn prefer_adhoc_after_batch(&self, subset_size: usize, k: usize, remaining: usize) -> bool {
+        // SAFETY: `self.inner` upholds its invariant.
+        unsafe {
+            VecSimIndex_PreferAdHocSearchAfterBatch(self.inner.as_ptr(), subset_size, k, remaining)
+        }
     }
 
     /// Run a single-shot top-`k` query.

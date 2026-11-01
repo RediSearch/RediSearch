@@ -558,7 +558,9 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             return BatchStrategy::Continue;
         }
 
-        let prefer_adhoc = self.index.prefer_adhoc(self.child_num_estimated, k, false);
+        let prefer_adhoc =
+            self.index
+                .prefer_adhoc_after_batch(self.child_num_estimated, k, self.k_remaining);
         if prefer_adhoc {
             BatchStrategy::SwitchToAdhoc
         } else {

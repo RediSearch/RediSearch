@@ -96,13 +96,18 @@ impl TestIndex {
 
     /// HNSW L2 index of `n` vectors; doc `i` (1..=n) is `[i; dim]`.
     pub fn hnsw(n: usize, dim: usize) -> Self {
+        Self::hnsw_with_metric(n, dim, VecSimMetric_VecSimMetric_L2)
+    }
+
+    /// [`Self::hnsw`] with a configurable distance metric for policy tests.
+    pub fn hnsw_with_metric(n: usize, dim: usize, metric: VecSimMetric) -> Self {
         let params = VecSimParams {
             algo: VecSimAlgo_VecSimAlgo_HNSWLIB,
             algoParams: AlgoParams {
                 hnswParams: HNSWParams {
                     type_: VecSimType_VecSimType_FLOAT32,
                     dim,
-                    metric: VecSimMetric_VecSimMetric_L2,
+                    metric,
                     multi: false,
                     initialCapacity: n,
                     blockSize: 0,

@@ -68,6 +68,7 @@ const HEADERS: &[HeaderAllowlist] = &[
             "VecSimIndex_IndexSize",
             "VecSimIndex_New",
             "VecSimIndex_PreferAdHocSearch",
+            "VecSimIndex_PreferAdHocSearchAfterBatch",
             "VecSimIndex_RangeQuery",
             "VecSimIndex_TopKQuery",
             "VecSimParams_GetQueryBlobSize",
