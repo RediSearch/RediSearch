@@ -1472,19 +1472,28 @@ TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
 
 TEST_F(IndexTest, testDiskHnswForwardsOptionalSq8TrainingWithoutChangingSchema) {
   SimulateInFlexGuard flexGuard;
+  struct RestoreSq8Gate {
+    bool previous = RSGlobalConfig.diskSq8Enabled;
+    ~RestoreSq8Gate() {
+      RSGlobalConfig.diskSq8Enabled = previous;
+    }
+  } restoreSq8Gate;
   struct {
+    bool enabled;
     bool compression;
     const char *threshold;
     size_t expectedThreshold;
   } cases[] = {
-      {false, nullptr, 0},
-      {true, nullptr, HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD},
-      {true, "0", 0},
-      {true, "32", 32},
+      {false, false, nullptr, 0}, {false, true, nullptr, HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD},
+      {false, true, "0", 0},      {false, true, "32", 32},
+      {true, false, nullptr, 0},  {true, true, nullptr, HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD},
+      {true, true, "0", 0},       {true, true, "32", 32},
   };
   for (const char *type : {"FLOAT32", "FLOAT16"}) {
     for (const auto &testCase : cases) {
-      SCOPED_TRACE(::testing::Message() << type << ", compression=" << testCase.compression
+      RSGlobalConfig.diskSq8Enabled = testCase.enabled;
+      SCOPED_TRACE(::testing::Message() << type << ", enabled=" << testCase.enabled
+                                        << ", compression=" << testCase.compression
                                         << ", threshold=" << testCase.expectedThreshold);
       std::vector<const char *> args = {"ON",
                                         "HASH",
@@ -1519,6 +1528,15 @@ TEST_F(IndexTest, testDiskHnswForwardsOptionalSq8TrainingWithoutChangingSchema) 
       QueryError err = QueryError_Default();
       StrongRef ref = IndexSpec_ParseC(nullptr, "idx_disk_sq8", args.data(), args.size(), &err);
       SpecCleanupGuard cleanup(ref);
+      if (testCase.compression && !testCase.enabled) {
+        EXPECT_EQ(StrongRef_Get(ref), nullptr);
+        ASSERT_TRUE(QueryError_HasError(&err));
+        EXPECT_STREQ(QueryError_GetUserError(&err),
+                     "Disk COMPRESSION SQ8 is disabled; enable search-disk-sq8-enabled "
+                     "only after all nodes have upgraded");
+        QueryError_ClearError(&err);
+        continue;
+      }
       ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
       auto *spec = static_cast<IndexSpec *>(StrongRef_Get(ref));
       ASSERT_NE(spec, nullptr);

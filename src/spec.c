@@ -886,6 +886,13 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
   }
   // Disk-mode validation: enforce mandatory parameters
   if (isSpecOnDiskForValidation(sp)) {
+    // Keep this admission gate out of shared parameter validation, which also runs on RDB load.
+    if (hnswParams->quantType == VecSimQuant_SQ8 && !RSGlobalConfig.diskSq8Enabled) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                          "Disk COMPRESSION SQ8 is disabled; enable search-disk-sq8-enabled "
+                          "only after all nodes have upgraded");
+      return 0;
+    }
     if (hnswParams->type != VecSimType_FLOAT32 && hnswParams->type != VecSimType_FLOAT16) {
       const char *typeName = VecSimType_ToString(hnswParams->type);
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,

@@ -1574,7 +1574,10 @@ TEST_F(RdbMockTest, testHnswSq8ValidatesRdbParameters) {
     VecSimParams loaded = {};
     const bool previousFlex = RSGlobalConfig.simulateInFlex;
     RSGlobalConfig.simulateInFlex = test.disk;
+    const bool previousSq8Gate = RSGlobalConfig.diskSq8Enabled;
+    RSGlobalConfig.diskSq8Enabled = false;
     const int result = VecSim_RdbLoad_v5(io, &loaded, specRef, "v");
+    RSGlobalConfig.diskSq8Enabled = previousSq8Gate;
     RSGlobalConfig.simulateInFlex = previousFlex;
     EXPECT_EQ(test.expectedResult, result);
     if (result == REDISMODULE_OK) {

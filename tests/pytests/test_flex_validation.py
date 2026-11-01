@@ -376,6 +376,12 @@ def test_flex_disk_hnsw_optional_compression_and_training(env):
             ['COMPRESSION', 'SQ8', 'TRAINING_THRESHOLD', 102400],
         ):
             params = [*base, *extra]
+            env.expect('CONFIG', 'SET', 'search-disk-sq8-enabled', 'no').ok()
+            if extra:
+                env.expect('FT.CREATE', 'sq8', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
+                           'v', 'VECTOR', 'HNSW', len(params), *params).error().contains(
+                               'enable search-disk-sq8-enabled only after all nodes have upgraded')
+                env.expect('CONFIG', 'SET', 'search-disk-sq8-enabled', 'yes').ok()
             env.expect('FT.CREATE', 'sq8', 'ON', 'HASH', 'SKIPINITIALSCAN', 'SCHEMA',
                        'v', 'VECTOR', 'HNSW', len(params), *params).ok()
             env.expect('FT.DROPINDEX', 'sq8').ok()
