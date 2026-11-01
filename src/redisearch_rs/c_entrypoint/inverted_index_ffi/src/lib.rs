@@ -10,7 +10,7 @@
 //! This module contains the inverted index implementation for the RediSearch module.
 #![allow(non_upper_case_globals)]
 
-pub mod fork_gc;
+pub mod gc;
 
 use std::ffi::c_char;
 
@@ -21,7 +21,7 @@ use ffi::{
 };
 use rqe_core::{DocId, FieldMask};
 
-use fork_gc::{InvertedIndexGCCallback, InvertedIndexGCReader, InvertedIndexGCWriter};
+use gc::{InvertedIndexGCCallback, InvertedIndexGCReader, InvertedIndexGCWriter};
 use index_result::RSIndexResult;
 pub use inverted_index::opaque::InvertedIndex;
 use inverted_index::{
