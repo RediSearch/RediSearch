@@ -714,7 +714,8 @@ def test_loader_drains_a_held_sorter_prefix_under_sustained_pressure(env):
     query = ('FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'DESC', 'MAX', N_DOCS,
              'LOAD', 1, '@t', 'WITHCURSOR', 'COUNT', 1)
     for workers in worker_counts(env):
-        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+        # The cursor admission check is the call right after the build ones.
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 1 + k)
         try:
             res, cursor = env.cmd(*query)
         finally:
