@@ -97,7 +97,6 @@ pub(crate) fn eval<'index>(
         is_disk,
         needs_offsets,
         max_expansions: config.max_prefix_expansions,
-        memory_counter: 0,
     };
 
     // A spec with a suffix trie may only answer a pattern when every queried field

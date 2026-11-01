@@ -26,23 +26,10 @@ use search_disk::SearchDiskHandle;
 
 use crate::{QueryEvalContext, disk};
 
-// Declared outside lib unit tests only: there the stub below defines the same name.
-#[cfg(not(test))]
 unsafe extern "C" {
     /// The amortized query memory checkpoint; see `QueryMemory_ShouldStop` in `query_memory.h`.
     /// A null `timeout` is accepted by the C side, `counter` must not be.
     fn QueryMemory_ShouldStop(timeout: *mut ffi::QueryRequestTimeout, counter: *mut u32) -> bool;
-}
-
-// Stub for lib unit tests so the linker doesn't pull the config closure of `query_memory.c`
-// from the C bundle. Integration tests use the real symbol.
-#[cfg(test)]
-#[unsafe(no_mangle)]
-unsafe extern "C" fn QueryMemory_ShouldStop(
-    _timeout: *mut ffi::QueryRequestTimeout,
-    _counter: *mut u32,
-) -> bool {
-    false
 }
 
 /// Open a search-on-disk reader for a single expanded term, wrapping the
@@ -222,8 +209,6 @@ pub(super) struct Expansion<'a> {
     pub(super) needs_offsets: bool,
     /// Upper bound on the number of terms an expansion may open.
     pub(super) max_expansions: usize,
-    /// Call count of the amortized memory checkpoint in [`push_child`](Self::push_child).
-    pub(super) memory_counter: u32,
 }
 
 impl Expansion<'_> {
@@ -281,8 +266,8 @@ impl Expansion<'_> {
         }
         let timeout = self.ctx.sctx().timeout;
         // SAFETY: `timeout` is the request's timeout, valid for the evaluation (the invariant of
-        // `QueryEvalContext::new`), and `memory_counter` is a valid, exclusive `u32`.
-        unsafe { QueryMemory_ShouldStop(timeout, &mut self.memory_counter) }
+        // `QueryEvalContext::new`), and the counter is a valid, exclusive `u32`.
+        unsafe { QueryMemory_ShouldStop(timeout, self.ctx.memory_counter_mut()) }
     }
 
     /// Whether the expansion cap has been reached, recording the "reached max
