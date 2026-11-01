@@ -1462,9 +1462,12 @@ def test_hybrid_coordinator_merger_stop_replies_by_on_oom_policy(env):
     """The coordinator's merger takes rows from its RPNet upstreams, one checkpoint per row.
     No scope isolates it from shard 1's own pipeline on the shared counter, so the sweep runs
     every call of a WINDOW query, which includes the merger's. Each stop must reply per ON_OOM
-    (RETURN: the full reply or a strict prefix with the OOM warning, FAIL: the OOM error or
-    such a prefix), and every query must finish: a stop that left an upstream undrained would
-    hang the reply or leave a shard cursor open."""
+    (RETURN: the full reply or fewer rows with the OOM warning, FAIL: the OOM error or such a
+    reply), and every query must finish: a stop that left an upstream undrained would
+    hang the reply or leave a shard cursor open. A stop inside shard 1's own pipeline makes the
+    coordinator re-rank the remaining replies, and with tied text scores the WINDOW top-k can
+    pick rows the full reply lacks, so rows are only checked to be indexed keys, unique and at
+    most one window per subquery."""
     window = 4
     query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
              'COMBINE', 'RRF', 2, 'WINDOW', window, 'LIMIT', 0, N_DOCS,
@@ -1515,7 +1518,8 @@ def test_hybrid_coordinator_merger_stop_replies_by_on_oom_policy(env):
                     continue
                 ids = row_ids(res)
                 env.assertEqual(len(ids), len(set(ids)), message=message)
-                env.assertTrue(set(ids) <= set(full), message=message)
+                env.assertTrue(set(ids) <= {f'h:{i}' for i in range(N_DOCS)}, message=message)
+                env.assertLessEqual(len(ids), 2 * window, message=message)
                 env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
                                (ids == full and res['warnings'] == []), message=message)
                 stops += res['warnings'] == [COORD_OOM_WARNING]
