@@ -865,6 +865,54 @@ def test_cursor_admission_after_the_withcount_fan_out(env):
 
 @skip(cluster=False)
 @env_spec(protocol=3)
+def test_shard_cursor_is_exempt_from_admission(env):
+    """A shard's cursor for the coordinator is not admission-checked: pressure armed on shard 2
+    at call B + 1, where a client cursor's admission would reject, lands instead on its first
+    buffered row (ON_TIMEOUT FAIL buffers). The shard keeps replying, so the query has no error,
+    carries the OOM warning, and still holds every other shard's rows and at least the shard's
+    first one. A rejected shard cursor would drop all of its rows without a warning."""
+    _index_with_docs(env)
+    shard = env.getConnection(2)
+    query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', 100]
+
+    def run():
+        res, cursor = env.cmd(*query)
+        names = [row['extra_attributes']['name'] for row in res['results']]
+        warnings = list(res['warning'])
+        while cursor:
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            names += [row['extra_attributes']['name'] for row in res['results']]
+            warnings += res['warning']
+        return names, warnings
+
+    shard_names = {key.decode().replace('doc', 'hello') if isinstance(key, bytes)
+                   else key.replace('doc', 'hello') for key in shard.execute_command('KEYS', 'doc*')}
+    run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
+    try:
+        allShards_change_oom_policy(env, 'return')
+        full, warnings = run()
+        env.assertEqual(sorted(full), sorted(f'hello{i}' for i in range(N_DOCS)))
+        env.assertEqual(warnings, [])
+
+        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', B + 1)
+        try:
+            names, warnings = run()
+        finally:
+            shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        env.assertEqual(len(names), len(set(names)), message=names)
+        env.assertEqual(set(full) - shard_names - set(names), set(), message=names)
+        env.assertContains(COORD_OOM_WARNING, warnings)
+        if shard_names:
+            env.assertGreater(len(shard_names & set(names)), 0, message=(shard_names, names))
+        _expect_no_open_cursors(env, 'shard cursor exemption')
+    finally:
+        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+        allShards_change_oom_policy(env, 'return')
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
 def test_hybrid_coordinator_stop_replies_by_on_oom_policy(env):
     """The coordinator process runs the FT.HYBRID tail and reply loop plus its own shard's
     subqueries, all on one checkpoint counter that no scope splits. Sweeping every position of
