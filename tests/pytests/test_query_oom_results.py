@@ -666,6 +666,32 @@ def test_hybrid_stop_past_the_offset_warns(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_hybrid_tail_stop_fails_over_a_soft_tail_error(env):
+    """A tail APPLY on a field no doc has records a soft error (it only warns); under ON_OOM FAIL
+    a stop at any checkpoint still fails the query with the OOM error, never a reply with rows."""
+    _hybrid_index(env)
+    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
+             'LOAD', 1, '@opt', 'APPLY', '@opt', 'AS', 'x',
+             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+    for workers in [0, 2]:
+        _set_policies(env, 'return', 'fail', workers)
+        complete = env.cmd(*query)
+        failures = 0
+
+        def fails_or_is_complete(res, at_call, calls):
+            nonlocal failures
+            if isinstance(res, redis_exceptions.ResponseError):
+                env.assertContains(OOM_QUERY_ERROR, str(res), message=(workers, at_call, res))
+                failures += 1
+            else:
+                env.assertEqual(res, complete, message=(workers, at_call, res))
+        _sweep_hybrid(env, query, fails_or_is_complete)
+        env.assertGreater(failures, 0, message=workers)
+    _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_hybrid_reply_loop_stop_truncates(env):
     """FT.HYBRID streams its tail rows into the reply with the same per-row check; a stop there
     ends the stream at the tail's merger, so some stop positions keep a strict prefix of the
