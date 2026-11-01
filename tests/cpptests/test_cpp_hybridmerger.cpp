@@ -1633,3 +1633,45 @@ TEST_F(HybridMergerTest, MemoryStopStillSurfacesStoppedUpstreamError) {
   QueryMemory_ResetFakePressure();
   RSGlobalConfig.requestConfigParams.oomPolicy = previousPolicy;
 }
+
+// A blocked-client timeout during the post-stop drain must end it: the timeout callback waits for
+// the merger's thread, so draining a large upstream would block the main thread.
+TEST_F(HybridMergerTest, MemoryStopDrainAbortsOnBlockedClientTimeout) {
+  auto previousPolicy = RSGlobalConfig.requestConfigParams.oomPolicy;
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
+  QueryMemory_SetPressureAtCall(1);
+
+  const size_t kRows = 1000;
+  MockUpstream big(0, std::vector<double>(kRows, 1.0));
+  MockUpstream other(0, {1.0, 2.0});
+  arrayof(ResultProcessor *) upstreams = NULL;
+  ResultProcessor *rpBig = &big;
+  ResultProcessor *rpOther = &other;
+  array_ensure_append_1(upstreams, rpBig);
+  array_ensure_append_1(upstreams, rpOther);
+  double weights[] = {0.5, 0.5};
+  HybridScoringContext *scoring = HybridScoringContext_NewLinear(weights, 2, HYBRID_DEFAULT_WINDOW);
+  HybridLookupContext *lookup = CreateDummyLookupContext(2);
+  RPStatus returnCodes[2] = {RS_RESULT_OK, RS_RESULT_OK};
+  RedisSearchCtx *sctx = GetDummySearchCtx();
+  ResultProcessor *merger = RPHybridMerger_New(sctx, scoring, upstreams, 2, nullptr, nullptr,
+                                               returnCodes, lookup, nullptr);
+  QueryProcessingCtx qitr = {0};
+  QITR_PushRP(&qitr, merger);
+
+  QueryRequestTimeout_BeginCycle(sctx->timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestTimeout_MarkTimedOut(sctx->timeout);
+
+  SearchResult r = SearchResult_New();
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, merger->Next(merger, &r));
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, returnCodes[0]);
+  // Only the row read before the stop, not the remaining kRows - 1.
+  EXPECT_LT(big.counter, 10);
+
+  SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookup);
+  merger->Free(merger);
+  QueryRequestTimeout_Reset(sctx->timeout);
+  QueryMemory_ResetFakePressure();
+  RSGlobalConfig.requestConfigParams.oomPolicy = previousPolicy;
+}
