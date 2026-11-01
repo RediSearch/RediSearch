@@ -1667,7 +1667,7 @@ def test_hybrid_query_cosine():
 
 @skip(cluster=True)
 def test_hnsw_broad_filter_policy(env):
-    """Broad positive and negative filters must not trigger a full scan at k=13."""
+    """Use batches for broad TAGs, but keep BF for uninformative fresh NOT estimates."""
     n, dim = 35000, 128
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'policy:',
                'SCHEMA', 't', 'TAG', 'v', 'VECTOR', 'HNSW', 10,
@@ -1697,11 +1697,12 @@ def test_hnsw_broad_filter_policy(env):
         for k in (12, 13, 50, 200):
             actual = search(filter_query, k)
             info = get_tiered_debug_info(env, 'idx', 'v')
-            env.assertEqual(info['LAST_SEARCH_MODE'], 'HYBRID_BATCHES', message=info)
+            policy = 'ADHOC_BF' if filter_query.startswith('-') and k >= 13 else 'BATCHES'
+            env.assertEqual(info['LAST_SEARCH_MODE'], f'HYBRID_{policy}', message=info)
             env.assertEqual(actual[0], k, message=actual)
             for fields in actual[2::2]:
                 env.assertContains('keep', fields[1], message=actual)
-            forced = search(filter_query, k, 'HYBRID_POLICY BATCHES')
+            forced = search(filter_query, k, f'HYBRID_POLICY {policy}')
             env.assertEqual(actual, forced)
 
     env.assertEqual(search('@t:{rare}', 50), [1, 'policy:1', ['t', 'keep,rare']])

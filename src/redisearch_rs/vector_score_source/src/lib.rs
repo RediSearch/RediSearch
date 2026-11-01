@@ -138,7 +138,8 @@ where
     } else if requested == VecSearchMode_HYBRID_BATCHES {
         TopKMode::ForcedBatches
     } else {
-        let child_est = child.num_estimated().min(source.index_size());
+        // Keep oversized estimates so HNSW can account for potentially expensive filter scans.
+        let child_est = child.num_estimated();
         if source.prefer_adhoc(child_est, k.get(), true) {
             TopKMode::AdhocBF
         } else {

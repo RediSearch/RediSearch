@@ -75,9 +75,9 @@ fn unset_policy_uses_heuristic() {
 fn nearly_complete_batches_continue_but_eventually_fall_back() {
     let (n, dim, k) = (60_000, 76, 200);
     let index = TestIndex::hnsw_with_metric(n, dim, ffi::VecSimMetric_VecSimMetric_Cosine);
-    let mut source = index.source(uniform_blob(1.0, dim), 10, k, n);
+    let mut source = index.source(uniform_blob(1.0, dim), 10, k, 1_000_000);
 
-    assert!(!source.prefer_adhoc(n, k, true));
+    assert!(!source.prefer_adhoc(1_000_000, k, true));
     assert_eq!(source.batch_strategy(k - 1, k), BatchStrategy::Continue);
     // Empty batches must not discard 199 retained results merely because the
     // shrinking filter estimate would favour BF for a new K=200 search.
@@ -95,4 +95,21 @@ fn nearly_complete_batches_continue_but_eventually_fall_back() {
     assert_eq!(source.batch_strategy(0, k), BatchStrategy::Continue);
     assert_eq!(source.batch_strategy(0, k), BatchStrategy::SwitchToAdhoc);
     assert_eq!(source.batch_strategy(k, k), BatchStrategy::Stop);
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn initial_policy_preserves_uncapped_filter_estimate() {
+    let (n, dim, k) = (35_000, 76, 200);
+    let index = TestIndex::hnsw_with_metric(n, dim, ffi::VecSimMetric_VecSimMetric_Cosine);
+    for (estimate, expected) in [
+        (n, TopKMode::AdhocBF),
+        (999_999, TopKMode::AdhocBF),
+        (1_000_000, TopKMode::Batches),
+    ] {
+        let source = index.source(uniform_blob(1.0, dim), 10, k, estimate);
+        let child = make_child((1..=estimate as u64).collect());
+        let it = new_vector_top_k_filtered(source, child, NonZeroUsize::new(k).unwrap(), false);
+        assert_eq!(it.mode(), expected);
+    }
 }
