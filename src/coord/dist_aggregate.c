@@ -419,7 +419,11 @@ static void executeAggregateDeferred(void *arg) {
     }
 
     // The plan may never read the iterator (LIMIT 0 0), so publish its memory stop here.
-    RPNet_MemoryStops(nc);
+    // Same order as rpnetRead: an elapsed deadline keeps its ON_TIMEOUT outcome.
+    if (r->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
+        !QueryRequestTimeout_IsTimedOutExact(&r->base.timeout)) {
+      RPNet_MemoryStops(nc);
+    }
 
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
       // Cursor path: AREQ_StartCursor stashes the AREQ on the new Cursor and
