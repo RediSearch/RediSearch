@@ -50,8 +50,10 @@
 
 int ApplyOomStop(const QueryRequestTimeout *timeout, RSOomPolicy oomPolicy, QueryError *err,
                  int rc) {
+  // A blocked-client timeout's callback owns the reply, so it wins over an earlier OOM stop.
   if (rc != RS_RESULT_TIMEDOUT ||
-      QueryRequestTimeout_GetStopReason(timeout) != QUERY_STOP_REASON_OOM) {
+      QueryRequestTimeout_GetStopReason(timeout) != QUERY_STOP_REASON_OOM ||
+      QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
     return rc;
   }
   if (oomPolicy == OomPolicy_Fail) {
