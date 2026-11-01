@@ -173,17 +173,17 @@ def hybrid_result_count(res):
 
 @skip(cluster=True)
 def test_hybrid_build_checkpoint_fails_before_execution(env):
-    """Under ON_OOM FAIL, FT.HYBRID reads memory after building each subquery, and pressure at
-    either fails the query with the OOM error before it runs. Under ON_OOM RETURN it does not read
-    memory at build."""
+    """Under ON_OOM FAIL, FT.HYBRID reads memory before building the first subquery (where a
+    queued job starts) and after building each one, and pressure at any of them fails the query
+    with the OOM error before it runs. Under ON_OOM RETURN it does not read memory at build."""
     create_hybrid_index(env)
     full = hybrid_result_count(env.cmd(*HYBRID))
     env.assertGreater(full, 0)
     with oom_policy(env, 'fail'):
         for workers in worker_counts(env):
-            for at_call in (1, 2):
+            for at_call in (1, 2, 3):
                 expect_oom_error_at_call(env, at_call, *HYBRID)
-            env.assertEqual(hybrid_result_count(run_at_call(env, 3, *HYBRID)), full)
+            env.assertEqual(hybrid_result_count(run_at_call(env, 4, *HYBRID)), full)
     memory_pressure(env, 'AT_CALL', 1)
     try:
         env.assertEqual(hybrid_result_count(env.cmd(*HYBRID)), full)
