@@ -63,6 +63,33 @@ where
     }
 }
 
+/// C trampoline for [`TermsTrie::visit_after`]: forwards each key to the
+/// `F` behind `ctx`.
+///
+/// # Safety
+///
+/// 1. `ctx` must be a valid `*mut F` for the duration of the call.
+/// 2. `runes` must point to `len` valid runes.
+///
+/// Both hold when the trie invokes this through [`TermsTrie::visit_after`].
+unsafe extern "C" fn visit_trampoline<F>(
+    runes: *const ffi::rune,
+    len: usize,
+    ctx: *mut c_void,
+) -> c_int
+where
+    F: FnMut(&[ffi::rune]) -> ControlFlow<()>,
+{
+    // SAFETY: (1): `ctx` is the `&mut F` forwarded unchanged by the trie.
+    let visit = unsafe { &mut *(ctx as *mut F) };
+    // SAFETY: (2): the walk only visits non-empty keys, held in its own buffer.
+    let runes = unsafe { std::slice::from_raw_parts(runes, len) };
+    match visit(runes) {
+        ControlFlow::Continue(()) => 0,
+        ControlFlow::Break(()) => 1,
+    }
+}
+
 /// Outcome of [`TermsTrie::iterate_fuzzy`].
 ///
 /// Neither variant is a failure: a pattern the trie will not walk is a routine
@@ -513,6 +540,32 @@ impl TermsTrie {
                 Some(range_trampoline::<F>),
                 std::ptr::from_mut(&mut callback).cast(),
                 timeout,
+            );
+        }
+    }
+
+    /// Visit, in lexicographic rune order, every term that sorts strictly
+    /// after `after`, or every term when `after` is empty, until `visit`
+    /// breaks.
+    ///
+    /// Nothing is held between calls, so a caller can stop, let the trie be
+    /// modified, and resume from the last term it saw. Terms added before that
+    /// point in the meantime are not revisited.
+    pub fn visit_after<F>(&self, after: &[ffi::rune], mut visit: F)
+    where
+        F: FnMut(&[ffi::rune]) -> ControlFlow<()>,
+    {
+        // SAFETY: `self` borrows a valid, lexicographically sorted `ffi::Trie`
+        // (terms tries are created with `Trie_Sort_Lex`); `after` points to
+        // `after.len()` runes; and `&mut visit` outlives the call, which is
+        // what the trampoline reconstitutes from `ctx`.
+        unsafe {
+            ffi::Trie_VisitAfter(
+                self.as_ptr(),
+                after.as_ptr(),
+                after.len(),
+                Some(visit_trampoline::<F>),
+                std::ptr::from_mut(&mut visit).cast(),
             );
         }
     }

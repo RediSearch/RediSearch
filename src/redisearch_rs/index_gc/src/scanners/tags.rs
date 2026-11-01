@@ -21,7 +21,10 @@ use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::{GcScanDelta, opaque::InvertedIndex};
 use lending_iterator::LendingIterator;
 use serde::{Deserialize, Serialize};
-use trie_rs::TrieMapOpaque;
+use trie_rs::{
+    TrieMapOpaque,
+    iter::{RangeBoundary, RangeFilter},
+};
 
 use crate::fork::wire::{deserialize, serialize};
 use crate::{DocExistence, ForkPipe, GcApplyStats, GcError, HandleOutcome};
@@ -124,22 +127,9 @@ pub fn collect_tags(
         let field_index = ffi::t_fieldIndex::try_from(field_index)
             .expect("a spec has fewer fields than a field index can count");
 
-        debug_assert!(!tag_index.values.is_null());
-        // SAFETY: the C tag index owns a TrieMapOpaque, kept live and immutable
-        // by the spec guard for the entire traversal.
-        let values = unsafe { &*tag_index.values.cast::<TrieMapOpaque>() };
-        let mut iterator = values.0.lending_iter();
-        while let Some((tag, value)) = iterator.next() {
-            let value = NonNull::new(*value).ok_or_else(|| {
-                io::Error::other("an in-memory tag index has a null posting list")
-            })?;
-
-            // SAFETY: C TagIndex values are Rust opaque inverted indexes.
-            // The spec's read lock prevents their removal during iteration.
-            let ii = unsafe { value.cast::<InvertedIndex>().as_ref() };
-
+        for_each_tag(tag_index, |tag, ii| {
             let Ok(Some(delta)) = ii.scan_gc(|id| docs.contains(id)) else {
-                continue;
+                return Ok(());
             };
 
             serialize(
@@ -151,11 +141,106 @@ pub fn collect_tags(
                     inverted_index_unique_id: u32::from(ii.unique_id()),
                     delta,
                 }),
-            )?;
-        }
+            )
+        })?;
     }
 
     serialize(writer, None::<TagEntry<&[u8]>>)
+}
+
+/// Visit every tag value of `tag_index` with its posting list, in trie order.
+///
+/// Stops at, and returns, the first error `visit` reports.
+fn for_each_tag(
+    tag_index: &ffi::TagIndex,
+    mut visit: impl FnMut(&[u8], &InvertedIndex) -> io::Result<()>,
+) -> io::Result<()> {
+    debug_assert!(!tag_index.values.is_null());
+    // SAFETY: the C tag index owns a TrieMapOpaque, kept live and immutable
+    // by the spec guard for the entire traversal.
+    let values = unsafe { &*tag_index.values.cast::<TrieMapOpaque>() };
+    let mut iterator = values.0.lending_iter();
+    while let Some((tag, value)) = iterator.next() {
+        let value = NonNull::new(*value)
+            .ok_or_else(|| io::Error::other("an in-memory tag index has a null posting list"))?;
+
+        // SAFETY: C TagIndex values are Rust opaque inverted indexes.
+        // The spec's read lock prevents their removal during iteration.
+        let ii = unsafe { value.cast::<InvertedIndex>().as_ref() };
+
+        visit(tag, ii)?;
+    }
+    Ok(())
+}
+
+/// Where a [`scan_tags_after`] walk resumes: a TAG field, and the last tag
+/// value of that field it visited.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct TagsCursor {
+    /// Position of the field in the spec's field array, which only grows.
+    field_index: usize,
+    /// The last tag value visited in that field; `None` before the first.
+    after: Option<Vec<u8>>,
+}
+
+/// Scan the tag values of every in-memory TAG field, in field then
+/// lexicographic order, starting strictly after `cursor`, until `should_stop`
+/// returns `true` after a value or no value is left.
+///
+/// Appends each entry to `found` and moves `cursor` past every value visited,
+/// so a later call resumes after them even if the tag indexes changed in
+/// between. Each entry carries the unique ids [`apply_tag_entry`] checks.
+/// Returns whether `should_stop` ended the walk, in which case values may
+/// remain; a call after the last value returns `false`.
+pub fn scan_tags_after(
+    spec: &IndexSpecReadGuard,
+    cursor: &mut TagsCursor,
+    mut should_stop: impl FnMut() -> bool,
+    found: &mut Vec<TagEntry>,
+) -> bool {
+    let fields = spec.field_specs();
+    while let Some(fs) = fields.get(cursor.field_index) {
+        if fs.types().contains(FieldSpecType::Tag)
+            && let Some(tag_index) = fetch_tag_index(fs)
+        {
+            // SAFETY: an in-memory C tag index owns its values map, created by
+            // `NewTrieMap` as a boxed `TrieMapOpaque`, and the read lock keeps it
+            // alive and unmodified for this borrow.
+            let values = unsafe { &*tag_index.values.cast::<TrieMapOpaque>() };
+            let after = cursor.after.take();
+            let filter = RangeFilter {
+                min: after.as_deref().map(|value| RangeBoundary {
+                    value,
+                    is_included: false,
+                }),
+                max: None,
+            };
+
+            for (tag, &value) in values.0.range_iter(filter) {
+                if !value.is_null() {
+                    // SAFETY: C TagIndex values are Rust opaque inverted indexes,
+                    // kept alive by the read lock.
+                    let ii = unsafe { &*value.cast::<InvertedIndex>() };
+                    if let Ok(Some(delta)) = ii.scan_gc(|id| spec.doc_exists(id)) {
+                        found.push(TagEntry {
+                            field_name: fs.field_name().secret_value().to_bytes().into(),
+                            tag_index_unique_id: tag_index.uniqueId,
+                            tag: tag.as_slice().into(),
+                            inverted_index_unique_id: u32::from(ii.unique_id()),
+                            delta,
+                        });
+                    }
+                }
+                cursor.after = Some(tag);
+                if should_stop() {
+                    return true;
+                }
+            }
+        }
+        cursor.field_index += 1;
+        cursor.after = None;
+    }
+    false
 }
 
 /// Apply one decoded tag message to the field's tag index.
