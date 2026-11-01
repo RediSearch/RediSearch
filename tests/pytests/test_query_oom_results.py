@@ -17,6 +17,7 @@ from test_info_modules import (
     COORD_WARN_ERR_SECTION, OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC,
     info_modules_to_dict,
 )
+import json
 import threading
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
@@ -859,3 +860,77 @@ def test_cursor_admission_after_the_withcount_fan_out(env):
     finally:
         arm('RESET')
     env.assertGreater(errors, 0)
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_hybrid_coordinator_stop_replies_by_on_oom_policy(env):
+    """The coordinator process runs the FT.HYBRID tail and reply loop plus its own shard's
+    subqueries, all on one checkpoint counter that no scope splits. Sweeping every position of
+    that counter reaches every coordinator checkpoint, whatever the thread interleaving, and
+    each stop must reply per ON_OOM: under RETURN the complete reply or a strict prefix of it
+    with the OOM warning, under FAIL the OOM error or such a prefix (a replay stop only warns),
+    never a timeout, a foreign row or a duplicate."""
+    _hybrid_index(env)
+    coord = env.getConnection(1)
+
+    def arm(n):
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', n)
+
+    def disarm():
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+
+    def row_ids(res):
+        return [json.dumps(row, sort_keys=True) for row in res['results']]
+
+    full = row_ids(env.cmd(*HYBRID))
+    env.assertGreater(len(full), 0)
+
+    def run_at(at_call):
+        arm(at_call)
+        try:
+            return env.cmd(*HYBRID)
+        except redis_exceptions.ResponseError as e:
+            return e
+        finally:
+            disarm()
+
+    def check_reply(res, message):
+        ids = row_ids(res)
+        env.assertEqual(len(ids), len(set(ids)), message=message)
+        env.assertTrue(set(ids) <= set(full), message=message)
+        env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
+                       (ids == full and res['warnings'] == []), message=message)
+        return res['warnings'] == [COORD_OOM_WARNING]
+
+    try:
+        for on_timeout in ['return', 'fail']:
+            run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, on_timeout)
+            allShards_change_oom_policy(env, 'return')
+            arm(NEVER)
+            env.cmd(*HYBRID)
+            calls = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+            disarm()
+            env.assertGreater(calls, 0, message=on_timeout)
+
+            warned = 0
+            for at_call in range(1, calls + 1):
+                res = run_at(at_call)
+                env.assertFalse(isinstance(res, Exception), message=(on_timeout, at_call, res))
+                warned += check_reply(res, (on_timeout, at_call, res))
+            env.assertGreater(warned, 0, message=on_timeout)
+
+            allShards_change_oom_policy(env, 'fail')
+            errors = 0
+            for at_call in range(1, calls + 1):
+                res = run_at(at_call)
+                if isinstance(res, Exception):
+                    env.assertContains(OOM_QUERY_ERROR, str(res), message=(on_timeout, at_call))
+                    errors += 1
+                else:
+                    check_reply(res, (on_timeout, at_call, res))
+            env.assertGreater(errors, 0, message=on_timeout)
+    finally:
+        disarm()
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+        allShards_change_oom_policy(env, 'return')
