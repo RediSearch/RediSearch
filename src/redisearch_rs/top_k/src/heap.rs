@@ -661,6 +661,41 @@ mod tests {
     }
 
     #[test]
+    fn heap_with_k_far_above_the_cap_grows_repeatedly_and_keeps_every_candidate() {
+        let k = 4 * INITIAL_CAPACITY_CAP + 7;
+        let mut heap = TopKHeap::new(non_zero_capacity(k), Ascending);
+        // Capacities seen along the way, without repeats. Bounds below avoid
+        // depending on the allocator's exact rounding.
+        let mut capacities = vec![heap.inner.capacity()];
+        // Three candidates beyond K, pushed worst first, so the three worst are evicted.
+        for doc_id in (1..=k as DocId + 3).rev() {
+            heap.push(doc_id, doc_id as f64);
+            let capacity = heap.inner.capacity();
+            assert!(capacity >= heap.len());
+            if capacities.last() != Some(&capacity) {
+                capacities.push(capacity);
+            }
+        }
+        assert_eq!(heap.len(), k);
+        assert!(
+            capacities.len() >= 3,
+            "reaching K takes at least two growth steps: {capacities:?}"
+        );
+        assert!(
+            capacities.iter().any(|&c| c > 2 * INITIAL_CAPACITY_CAP),
+            "capacity must grow past twice the cap before reaching K: {capacities:?}"
+        );
+        assert!(heap.inner.capacity() < 2 * k);
+
+        let ids = heap
+            .drain_sorted()
+            .into_iter()
+            .map(|r| r.scored.doc_id)
+            .collect_vec();
+        assert_eq!(ids, (1..=k as DocId).collect_vec());
+    }
+
+    #[test]
     fn heap_is_empty_and_is_full() {
         let mut heap = TopKHeap::new(non_zero_capacity(2), Ascending);
         assert!(heap.is_empty());
