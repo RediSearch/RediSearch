@@ -35,6 +35,7 @@ jobs:
       RUSTFLAGS: '-Dwarnings'
       RUST_BACKTRACE: '1'
       REJSON: '0'
+      BUILD_INTEL_SVS_OPT: 'yes'
       LOG: '1'
       CLEAR_LOGS: '0'
       SCCACHE_DISABLE: '1'

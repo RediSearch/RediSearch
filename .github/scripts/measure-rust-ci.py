@@ -18,6 +18,7 @@ out.mkdir(exist_ok=True)
 metadata = {key: os.environ.get(key) for key in (
     'BENCH_INSTANCE', 'BENCH_JOBS', 'BENCH_REPEAT', 'BENCH_IMAGE',
     'GITHUB_SHA', 'RUNNER_NAME', 'CARGO_BUILD_JOBS', 'LTO', 'RUSTFLAGS',
+    'BUILD_INTEL_SVS_OPT', 'REJSON',
 )}
 # IMDS only identifies the experimental machine; no credential endpoint is accessed.
 try:
