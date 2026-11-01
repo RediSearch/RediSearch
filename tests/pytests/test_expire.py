@@ -1325,3 +1325,54 @@ def test_hexpire_on_second_field_is_respected_by_search(env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').equal([0])
     # `b` is still valid (long TTL), so a query on `b` still returns the doc.
     env.expect('FT.SEARCH', 'idx', 'world', 'NOCONTENT').equal([1, 'doc:1'])
+
+
+@skip(cluster=True, redis_less_than='8.0')
+def test_field_expiration_survives_fork_gc(env):
+    """The fork GC rewrites inverted-index blocks, and each block's field-expiration bits must
+    move with it: a bit lost in the rewrite makes the reader skip the TTL check, so a document
+    whose field expired is returned again. Covers blocks the GC deletes outright, blocks it
+    re-encodes, and the blocks that shift down behind them, for text, tag and numeric postings
+    (their blocks hold 100 or 1000 entries)."""
+    conn = getConnectionByEnv(env)
+    # Expired fields must stay in the hash, so that only the TTL table hides them.
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'x', 'TEXT', 't', 'TAG', 'n', 'NUMERIC').ok()
+
+    n_docs = 3000
+    # Not a multiple of 100, so every posting kind has a block the GC re-encodes.
+    n_deleted = 1250
+    expired = set()
+    for i in range(1, n_docs + 1):
+        doc = f'doc:{i}'
+        fields = ['FIELDS', 3, 'x', 'hello', 't', 'a', 'n', 1]
+        # HSETEX indexes each document once, with its TTLs already set, so the only postings
+        # the GC collects are those of the documents deleted below.
+        if i % 3 == 1:
+            conn.execute_command('HSETEX', doc, 'PX', 1, *fields)
+            expired.add(doc)
+        elif i % 3 == 2:
+            conn.execute_command('HSETEX', doc, 'PX', 10_000_000, *fields)
+        else:
+            conn.execute_command('HSET', doc, *fields[2:])
+    # https://www.kernel.org/doc/html/latest/core-api/timekeeping.html (CLOCK_REALTIME_COARSE may be off by 10ms)
+    time.sleep(0.015)
+
+    deleted = {f'doc:{i}' for i in range(1, n_deleted + 1)}
+    for doc in deleted:
+        conn.execute_command('DEL', doc)
+    expected = {f'doc:{i}' for i in range(1, n_docs + 1)} - deleted - expired
+
+    def check(when):
+        for query in ['@x:hello', '@t:{a}', '@n:[1 1]']:
+            res = env.cmd('FT.SEARCH', 'idx', query, 'NOCONTENT', 'LIMIT', 0, n_docs)
+            env.assertEqual(res[0], len(expected), message=f'{when}: {query}')
+            env.assertEqual(set(res[1:]), expected, message=f'{when}: {query}')
+
+    check('before GC')
+    forceInvokeGC(env)
+    gc_stats = to_dict(index_info(env)['gc_stats'])
+    env.assertGreater(int(gc_stats['bytes_collected']), 0, message=gc_stats)
+    check('after GC')
+
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '1')
