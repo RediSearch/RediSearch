@@ -17,7 +17,8 @@ use ffi::{
     ResultProcessor,
 };
 use query_eval::{
-    Config, QueryEvalContext, QueryIteratorTree, QueryNodeMut, scorers::BuiltInScorer,
+    Config, DocIdCoverage, QueryEvalContext, QueryIteratorTree, QueryNodeMut,
+    scorers::BuiltInScorer,
 };
 use rqe_iterators::{IteratorsConfig, c2rust::CRQEIterator};
 use slots_tracker::SlotRangeArray;
@@ -239,7 +240,7 @@ pub unsafe extern "C" fn QueryIteratorTree_IntoResultProcessor(
     // SAFETY: `tree` came from `Box::into_raw` and has not been released yet
     // (precondition 1).
     let tree = unsafe { Box::from_raw(tree.as_ptr()) };
-    let dense_ascending_scan = tree.dense_ascending_scan();
+    let dense_ascending_scan = tree.doc_id_coverage() == DocIdCoverage::Dense;
     let root = tree.into_raw_root();
     // SAFETY: `root` is a valid, owning iterator handed over with the tree
     // (precondition 1); `query_slots` and `sctx` satisfy preconditions 2 and 3.

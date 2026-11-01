@@ -156,6 +156,15 @@ impl<'index> Evaluated<'index> {
     }
 }
 
+/// Which document ids the root iterator of a [`QueryIteratorTree`] visits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocIdCoverage {
+    /// Every document id, in ascending order: a wildcard scan.
+    Dense,
+    /// Only the document ids that match, which may be few.
+    Selective,
+}
+
 /// The executable iterator tree built from a parsed query AST.
 ///
 /// A dedicated type rather than a bare root iterator, so it can carry more as
@@ -169,10 +178,10 @@ pub struct QueryIteratorTree<'index> {
     // out bound to `'index` (`into_root`) or as a raw pointer, which needs
     // `unsafe` to use beyond the borrow of the context.
     root: CRQEIterator,
-    /// Whether [`Self::root`] visits every document id in ascending order,
-    /// decided before [`Self::into_profiled`] wraps it in a profile iterator
-    /// that hides its type.
-    dense_ascending_scan: bool,
+    /// Which document ids [`Self::root`] visits, decided before
+    /// [`Self::into_profiled`] wraps it in a profile iterator that hides its
+    /// type.
+    coverage: DocIdCoverage,
     // FIXME: remove once CRQEIterator has been removed (MOD-14254) so `root` can carry the lifetime itself.
     _ctx: PhantomData<&'index mut QueryEvalContext>,
 }
@@ -184,14 +193,14 @@ impl<'index> QueryIteratorTree<'index> {
     /// when it yields none.
     pub fn new(ctx: &'index mut QueryEvalContext, root: QueryNodeMut<'_>, config: Config) -> Self {
         let root = into_child_iterator(eval_node(ctx, root, config));
-        let dense_ascending_scan = is_dense_ascending_scan(&root);
-        Self::from_root(root, dense_ascending_scan)
+        let coverage = DocIdCoverage::of(&root);
+        Self::from_root(root, coverage)
     }
 
-    const fn from_root(root: CRQEIterator, dense_ascending_scan: bool) -> Self {
+    const fn from_root(root: CRQEIterator, coverage: DocIdCoverage) -> Self {
         Self {
             root,
-            dense_ascending_scan,
+            coverage,
             _ctx: PhantomData,
         }
     }
@@ -203,7 +212,7 @@ impl<'index> QueryIteratorTree<'index> {
     ///
     /// Panics if the tree has already been profiled.
     pub fn into_profiled(self) -> Self {
-        Self::from_root(self.root.into_profiled(), self.dense_ascending_scan)
+        Self::from_root(self.root.into_profiled(), self.coverage)
     }
 
     /// Consume the tree into its root iterator, which still borrows the
@@ -217,16 +226,16 @@ impl<'index> QueryIteratorTree<'index> {
         self.root.as_raw()
     }
 
-    /// Whether the root iterator visits every document id in ascending order,
-    /// unchanged by [`Self::into_profiled`].
-    pub const fn dense_ascending_scan(&self) -> bool {
-        self.dense_ascending_scan
+    /// Which document ids the root iterator visits, unchanged by
+    /// [`Self::into_profiled`].
+    pub const fn doc_id_coverage(&self) -> DocIdCoverage {
+        self.coverage
     }
 
     /// Replace the root iterator with `root`, returning the previous one
     /// unfreed, typically because `root` already owns it as a child.
     pub fn replace_root(&mut self, root: CRQEIterator) -> NonNull<ffi::QueryIterator> {
-        self.dense_ascending_scan = is_dense_ascending_scan(&root);
+        self.coverage = DocIdCoverage::of(&root);
         std::mem::replace(&mut self.root, root).into_raw()
     }
 
@@ -245,18 +254,19 @@ impl<'index> QueryIteratorTree<'index> {
     ///    stay valid, as required by the invariants of [`QueryEvalContext::new`].
     /// 2. No other iterator tree may be built from that context.
     pub unsafe fn erase_lifetime(self) -> QueryIteratorTree<'static> {
-        QueryIteratorTree::from_root(self.root, self.dense_ascending_scan)
+        QueryIteratorTree::from_root(self.root, self.coverage)
     }
 }
 
-/// Whether `root` is a wildcard iterator, which yields every document id in
-/// ascending order whether it walks the doc id range or the index's
-/// existing-docs inverted index.
-fn is_dense_ascending_scan(root: &CRQEIterator) -> bool {
-    matches!(
-        root.type_,
-        IteratorType::Wildcard | IteratorType::InvIdxWildcard
-    )
+impl DocIdCoverage {
+    /// [`Self::Dense`] for a wildcard iterator, whether it walks the doc id
+    /// range or the index's existing-docs inverted index.
+    fn of(root: &CRQEIterator) -> Self {
+        match root.type_ {
+            IteratorType::Wildcard | IteratorType::InvIdxWildcard => Self::Dense,
+            _ => Self::Selective,
+        }
+    }
 }
 
 /// Evaluate a single query node, producing the corresponding iterator.

@@ -10,7 +10,7 @@
 use ffi::{IndexFlags_Index_DocIdsOnly, QueryIterator};
 use index_result::RSIndexResult;
 use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly, opaque};
-use query_eval::{Config, QueryEvalContext, QueryIteratorTree, QueryNodeMut};
+use query_eval::{Config, DocIdCoverage, QueryEvalContext, QueryIteratorTree, QueryNodeMut};
 use query_types::QueryNodeType;
 use rqe_iterators::{
     Empty, IteratorType, RQEIterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
@@ -52,10 +52,10 @@ fn into_profiled_wraps_root() {
 }
 
 #[test]
-fn dense_ascending_scan_survives_profiling() {
-    for (node_type, dense_ascending_scan) in [
-        (QueryNodeType::Null, false),
-        (QueryNodeType::Wildcard, true),
+fn doc_id_coverage_survives_profiling() {
+    for (node_type, coverage) in [
+        (QueryNodeType::Null, DocIdCoverage::Selective),
+        (QueryNodeType::Wildcard, DocIdCoverage::Dense),
     ] {
         let mut mock_ctx = MockQueryEvalCtx::new();
         mock_ctx.set_max_doc_id(10);
@@ -68,17 +68,17 @@ fn dense_ascending_scan_survives_profiling() {
         let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
         let tree = QueryIteratorTree::new(&mut ctx, node, Config::default());
-        assert_eq!(tree.dense_ascending_scan(), dense_ascending_scan);
+        assert_eq!(tree.doc_id_coverage(), coverage);
 
         let tree = tree.into_profiled();
-        assert_eq!(tree.dense_ascending_scan(), dense_ascending_scan);
+        assert_eq!(tree.doc_id_coverage(), coverage);
         let it = tree.into_root();
         assert_eq!(it.type_(), IteratorType::Profile);
     }
 }
 
 #[test]
-fn dense_ascending_scan_for_wildcard_on_an_index_all_index() {
+fn dense_doc_id_coverage_for_wildcard_on_an_index_all_index() {
     // On an `INDEXALL ENABLE` index, `*` walks the existing-docs inverted index.
     let ctx = MockContext::new(10, 10);
     let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
@@ -99,7 +99,7 @@ fn dense_ascending_scan_for_wildcard_on_an_index_all_index() {
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     let tree = QueryIteratorTree::new(&mut qctx, node, Config::default());
-    assert!(tree.dense_ascending_scan());
+    assert_eq!(tree.doc_id_coverage(), DocIdCoverage::Dense);
     let it = tree.into_root();
     assert_eq!(it.type_(), IteratorType::InvIdxWildcard);
     drop(it);
@@ -149,12 +149,12 @@ fn replace_root_hands_back_previous_root() {
 }
 
 /// Replace the root of a tree built from `node_type` with `new_root`,
-/// returning the tree's [`QueryIteratorTree::dense_ascending_scan`] before and
+/// returning the tree's [`QueryIteratorTree::doc_id_coverage`] before and
 /// after.
-fn dense_ascending_scan_across_replace_root(
+fn doc_id_coverage_across_replace_root(
     node_type: QueryNodeType,
     new_root: NonNull<QueryIterator>,
-) -> (bool, bool) {
+) -> (DocIdCoverage, DocIdCoverage) {
     let mut mock_ctx = MockQueryEvalCtx::new();
     mock_ctx.set_max_doc_id(10);
     // SAFETY: `mock_ctx` is a fully initialised `QueryEvalCtx` whose pointer
@@ -166,11 +166,11 @@ fn dense_ascending_scan_across_replace_root(
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     let mut tree = QueryIteratorTree::new(&mut ctx, node, Config::default());
-    let before = tree.dense_ascending_scan();
+    let before = tree.doc_id_coverage();
     // SAFETY: the caller hands over `new_root`, a valid iterator that nothing
     // else owns.
     let previous = tree.replace_root(unsafe { CRQEIterator::new(new_root) });
-    let after = tree.dense_ascending_scan();
+    let after = tree.doc_id_coverage();
 
     // SAFETY: `replace_root` handed back ownership of the previous root, which
     // nothing else owns.
@@ -179,16 +179,16 @@ fn dense_ascending_scan_across_replace_root(
 }
 
 #[test]
-fn replace_root_with_a_non_wildcard_clears_dense_ascending_scan() {
+fn replace_root_with_a_non_wildcard_makes_coverage_selective() {
     let new_root = NonNull::new(RQEIteratorWrapper::boxed_new(Empty)).unwrap();
     assert_eq!(
-        dense_ascending_scan_across_replace_root(QueryNodeType::Wildcard, new_root),
-        (true, false)
+        doc_id_coverage_across_replace_root(QueryNodeType::Wildcard, new_root),
+        (DocIdCoverage::Dense, DocIdCoverage::Selective)
     );
 }
 
 #[test]
-fn replace_root_with_an_inverted_index_wildcard_sets_dense_ascending_scan() {
+fn replace_root_with_an_inverted_index_wildcard_makes_coverage_dense() {
     // The iterator `*` evaluates to on an `INDEXALL ENABLE` index.
     let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
     for doc_id in 1..=10 {
@@ -200,7 +200,7 @@ fn replace_root_with_an_inverted_index_wildcard_sets_dense_ascending_scan() {
     let new_root = NonNull::new(RQEIteratorWrapper::boxed_new(wildcard)).unwrap();
 
     assert_eq!(
-        dense_ascending_scan_across_replace_root(QueryNodeType::Null, new_root),
-        (false, true)
+        doc_id_coverage_across_replace_root(QueryNodeType::Null, new_root),
+        (DocIdCoverage::Selective, DocIdCoverage::Dense)
     );
 }
