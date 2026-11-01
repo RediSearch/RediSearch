@@ -20,6 +20,8 @@ use redis_module::raw::RedisModule_ExitFromChild;
 use crate::fork_gc::ForkGCPipeReader;
 use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 
+pub use crate::codec::{deserialize, serialize};
+
 /// Provides closure-scoped access to a live, write-locked [`IndexSpec`](index_spec::IndexSpec).
 ///
 /// The closure prevents the [`IndexSpecWriteGuard`] from outliving the strong
