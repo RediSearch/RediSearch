@@ -127,6 +127,24 @@ TEST_F(HybridApplyOomStopTest, softTailErrorIsReplacedByOomUnderOnOomFail) {
   EXPECT_EQ(HybridRequest_GetFatalError(hreq), tailErr());
 }
 
+// A tail-owned OOM stop replaces a soft tail error the same way.
+TEST_F(HybridApplyOomStopTest, softTailErrorIsReplacedByATailOomStopUnderOnOomFail) {
+  hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
+  QueryError_SetCode(tailErr(), QUERY_ERROR_CODE_NO_PROP_VAL);
+  QueryRequestTimeout_RequestStop(&hreq->base.timeout, QUERY_STOP_REASON_OOM);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(QueryError_GetCode(tailErr()), QUERY_ERROR_CODE_OUT_OF_MEMORY);
+  EXPECT_EQ(HybridRequest_GetFatalError(hreq), tailErr());
+}
+
+TEST_F(HybridApplyOomStopTest, fatalTailErrorIsKeptByATailOomStopUnderOnOomFail) {
+  hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
+  QueryError_SetCode(tailErr(), QUERY_ERROR_CODE_GENERIC);
+  QueryRequestTimeout_RequestStop(&hreq->base.timeout, QUERY_STOP_REASON_OOM);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(QueryError_GetCode(tailErr()), QUERY_ERROR_CODE_GENERIC);
+}
+
 TEST_F(HybridApplyOomStopTest, fatalTailErrorIsKeptUnderOnOomFail) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
   QueryError_SetCode(tailErr(), QUERY_ERROR_CODE_GENERIC);
