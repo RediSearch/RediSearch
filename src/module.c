@@ -952,24 +952,31 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     TermData *t_data = terms_data[i];
     ++count;
     RedisModule_ReplyWithStringBuffer(ctx, t_data->term, strlen(t_data->term));
-    // As in TagIndex_SerializeValues: the error in place of the term's groups. One checkpoint per
-    // group ID (at least one per term), so a term in thousands of groups still advances the read
-    // interval; the checks run before the array so a stop never leaves it half written.
-    bool stop = false;
-    size_t checks = array_len(t_data->groupIds);
-    for (size_t k = 0; k < (checks ? checks : 1) && !stop; ++k) {
-      stop = QueryMemory_ShouldStop(NULL, &memoryCheckCounter);
-    }
-    if (stop) {
+    // One checkpoint per group ID (at least one per term), so a term in thousands of groups
+    // advances the read interval. The first runs before the array opens so a stop there replies
+    // the error in place of the term's groups, as in TagIndex_SerializeValues; later ones run
+    // between ID writes, so reply growth within the term is seen, and the error closes the array.
+    if (QueryMemory_ShouldStop(NULL, &memoryCheckCounter)) {
       RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
       break;
     }
-    RedisModule_ReplyWithArray(ctx, array_len(t_data->groupIds));
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
+    size_t written = 0;
+    bool stop = false;
     for (size_t j = 0; j < array_len(t_data->groupIds); ++j) {
+      if (j > 0 && QueryMemory_ShouldStop(NULL, &memoryCheckCounter)) {
+        RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+        ++written;
+        stop = true;
+        break;
+      }
       // do not return the ~
       RedisModule_ReplyWithStringBuffer(ctx, t_data->groupIds[j] + 1,
                                         strlen(t_data->groupIds[j] + 1));
+      ++written;
     }
+    RedisModule_ReplySetArrayLength(ctx, written);
+    if (stop) break;
   }
 
   RedisModule_ReplySetMapLength(ctx, count);
