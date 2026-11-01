@@ -97,10 +97,20 @@ bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter) {
     return true;
   }
   const bool forcedPressure = isPressureAtThisCall();
-  if (!forcedPressure && ++*counter < QueryMemory_GetRatioReadInterval()) {
+  const uint32_t interval = QueryMemory_GetRatioReadInterval();
+  // Both counters advance on every call, so a site that is called too rarely to reach the
+  // interval alone still triggers a read through the request-wide count.
+  bool due = ++*counter >= interval;
+  if (timeout) {
+    due |= ++timeout->memoryCounter >= interval;
+  }
+  if (!forcedPressure && !due) {
     return false;
   }
   *counter = 0;
+  if (timeout) {
+    timeout->memoryCounter = 0;
+  }
   return memoryStops(timeout, forcedPressure);
 }
 
