@@ -276,6 +276,18 @@ TEST_F(ApplyOomStopTest, ReturnEndsTheResultWithTheOomWarning) {
   EXPECT_TRUE(QueryError_HasQueryOOMWarning(&err_));
 }
 
+TEST_F(ApplyOomStopTest, ABlockedClientTimeoutKeepsItsOutcome) {
+  TimeoutConfig config = {1000, TimeoutPolicy_ReturnStrict};
+  QueryRequestTimeout_Init(&timeout_, &config);
+  QueryRequestTimeout_BeginCycle(&timeout_, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestTimeout_RequestStop(&timeout_, QUERY_STOP_REASON_OOM);
+  QueryRequestTimeout_MarkTimedOut(&timeout_);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Return, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_TRUE(QueryError_IsOk(&err_));
+  EXPECT_FALSE(QueryError_HasQueryOOMWarning(&err_));
+}
+
 }  // namespace
 
 TEST_F(QueryMemoryTest, BuildCheckReadsMemoryOnEveryCall) {
