@@ -1243,6 +1243,12 @@ def test_aggregate_withcount_stopped_before_fanout_does_not_wait_for_shards():
     coord = env.getConnection(1)
     parked = [env.getConnection(i) for i in range(2, env.shardsCount + 1)]
     query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'TIMEOUT', 100000)
+
+    def shard_aggregate_calls():
+        return [env.getConnection(i).execute_command('INFO', 'COMMANDSTATS')
+                .get('cmdstat__FT.AGGREGATE', {}).get('calls', 0)
+                for i in range(1, env.shardsCount + 1)]
+    calls_before = shard_aggregate_calls()
     for shard in parked:
         sync_point(shard, 'CLEAR')
         sync_point(shard, 'ARM', 'BeforeFirstRead')
@@ -1266,6 +1272,8 @@ def test_aggregate_withcount_stopped_before_fanout_does_not_wait_for_shards():
     wait_for_condition(lambda: (cursor_count(env, 'idx') == 0, {}),
                        'Timeout waiting for the shard cursors to end')
     expect_clean_end(env, coord)
+    # The stopped request must not reach the shards at all, not merely be cancelled there.
+    env.assertEqual(shard_aggregate_calls(), calls_before)
 
 
 def _test_aggregate_withcount_zero_row_pager_io_thread_stop(env, oom_policy):

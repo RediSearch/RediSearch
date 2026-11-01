@@ -1044,6 +1044,17 @@ void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *)) {
   IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterStartCb, it);
 }
 
+void MRIterator_DiscardUnstarted(MRIterator *it) {
+  // Nothing was sent, so no shard holds a cursor: without this, the final release would send a
+  // DEL for the initial command, which has no target shard. The writers' ref is never dropped by
+  // a start that never happens, so drop it here to let the reader's release free the iterator.
+  it->ctx.pending = 0;
+  it->ctx.inProcess = 0;
+  int8_t refcount = MRIterator_DecreaseRefCount(it);
+  REFCOUNT_DECR_MSG("MRIterator_DiscardUnstarted", refcount);
+  RS_ASSERT(refcount == 1);
+}
+
 IORuntimeCtx *MRIterator_GetIORuntime(const MRIterator *it) {
   return it->ctx.ioRuntime;
 }

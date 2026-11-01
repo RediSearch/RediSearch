@@ -253,6 +253,10 @@ MRIterator *MR_CreateIteratorTakingCmd(MRCommand *cmd, const MRIteratorConfig *c
  * IO thread. The callback receives the iterator itself. */
 void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *));
 
+/* Retire an iterator that was never passed to MR_StartIterator, so that releasing it frees it
+ * without sending anything to the shards. The caller must be the only user of the iterator. */
+void MRIterator_DiscardUnstarted(MRIterator *it);
+
 MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx);

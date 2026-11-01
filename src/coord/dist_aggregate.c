@@ -961,16 +961,14 @@ static int dispatchAggregateDeferred(AREQ *r, DistQueryDispatchCtx *dispatch,
   // Capture before dispatching: the worker may free the request, and nc with it.
   const bool stopped = QueryRequest_ShouldStop(&r->base.timeout);
   if (stopped) {
-    // Already stopped: no reply is awaited, so shards are only told to drop their cursors.
-    // Not yet visible to the IO thread, so the swap is race-free.
-    MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
-    MRIterator_SwapCallbacks(it, netCursorCallback, NULL);
-  }
-  // Start the fan-out; withCountReplyCb posts executeAggregateDeferred once all
-  // shard first-replies are in.
-  MR_StartIterator(it, iterStartCb);
-  if (stopped) {
+    // Already stopped: no reply is awaited, and the fan-out would only make the shards run an
+    // expensive query nobody reads. The worker still runs to reply and release the request.
+    MRIterator_DiscardUnstarted(it);
     dispatchDeferred(iterCtx);
+  } else {
+    // Start the fan-out; withCountReplyCb posts executeAggregateDeferred once all
+    // shard first-replies are in.
+    MR_StartIterator(it, iterStartCb);
   }
   // Release the dispatcher's StrongRef; the spec is no longer pinned across
   // the async wait. executeAggregateDeferred re-promotes iterCtx->spec_ref.
