@@ -4735,6 +4735,7 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
 
   // This callback owns the reply, so its warning is the timeout's even after an OOM stop the
   // background reducer mapped, as on a shard (RP_StopPolicy). Errors, a shard's included, stay.
+  const bool oomStopped = req->queryOOM;
   req->queryOOM = false;
 
   // Check if bailout set an error (e.g., index dropped before fanout)
@@ -4749,6 +4750,11 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   searchReducerCtx *rCtx = req->rctx;
   // rCtx must be set - either we ran the reducer or waited for it to complete
   RS_ASSERT(rCtx);
+  // A shard warning retained before the OOM stop would otherwise outrank the timeout warning.
+  // The reply it points into is owned by the reducer's replies, so only drop the reference.
+  if (oomStopped) {
+    rCtx->warning = NULL;
+  }
   req->timedOut = true;
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
