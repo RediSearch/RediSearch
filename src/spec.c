@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "slot_cleanup.h"
 
 #include <math.h>
 #include <limits.h>
@@ -1935,16 +1936,6 @@ StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **a
   return IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status);
 }
 
-ScoringIndexStats IndexSpec_GetVisibleScoringStats(const IndexSpec *spec) {
-  ScoringIndexStats stats = spec->stats.scoring;
-  uint64_t hiddenDocuments = 0, hiddenLength = 0;
-  SearchDisk_GetHiddenImportStats(spec->diskSpec, &hiddenDocuments, &hiddenLength);
-  RS_ASSERT(stats.numDocuments >= hiddenDocuments && stats.totalDocsLen >= hiddenLength);
-  stats.numDocuments -= hiddenDocuments;
-  stats.totalDocsLen -= hiddenLength;
-  return stats;
-}
-
 static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIndexStats *stats) {
   stats->numDocs = scoring->numDocuments;
   stats->numTerms = scoring->numTerms;
@@ -1954,8 +1945,7 @@ static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIn
 /* Initialize some index stats that might be useful for scoring functions */
 // Assuming the spec is properly locked before calling this function
 void IndexSpec_GetStats(IndexSpec *sp, RSIndexStats *stats) {
-  ScoringIndexStats visible = IndexSpec_GetVisibleScoringStats(sp);
-  RSIndexStats_FromScoringStats(&visible, stats);
+  RSIndexStats_FromScoringStats(&sp->stats.scoring, stats);
 }
 
 size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp) {
@@ -3068,17 +3058,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   }
 
   // More properties
-  ScoringIndexStats visibleScoring;
-  if (skip_unsafe_ops) {
-    // Crash reporting cannot enter disk visibility tracking, which may acquire locks.
-    visibleScoring = sp->stats.scoring;
-  } else {
-    const bool alreadyLocked = IndexSpec_IsLocked(sp);
-    if (!alreadyLocked) IndexSpec_LockRead(sp);
-    visibleScoring = IndexSpec_GetVisibleScoringStats(sp);
-    if (!alreadyLocked) IndexSpec_Unlock(sp);
-  }
-  RedisModule_InfoAddFieldLongLong(ctx, "number_of_docs", visibleScoring.numDocuments);
+  RedisModule_InfoAddFieldLongLong(ctx, "number_of_docs", sp->stats.scoring.numDocuments);
 
   const bool isDisk = sp->diskSpec != NULL;
   size_t num_records = isDisk ? SearchDisk_GetNumRecords(sp->diskSpec) : sp->stats.numRecords;
@@ -3116,9 +3096,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddFieldULongLong(ctx, "total_inverted_index_blocks", sp->stats.totalInvertedIndexBlocks);
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_averages");
-  RedisModule_InfoAddFieldDouble(
-      ctx, "records_per_doc_avg",
-      visibleScoring.numDocuments ? (float)num_records / (float)visibleScoring.numDocuments : NAN);
+  RedisModule_InfoAddFieldDouble(ctx, "records_per_doc_avg",(float)num_records / (float)sp->stats.scoring.numDocuments);
   double bytes_per_record_avg = num_records ?
     (float)inverted_size / (float)num_records : NAN;
   RedisModule_InfoAddFieldDouble(ctx, "bytes_per_record_avg", bytes_per_record_avg);
@@ -3347,6 +3325,7 @@ void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
     IndexScoringStats_RdbSave(rdb, &sp->stats.scoring);
     TrieType_GenericSave(rdb, sp->terms, false, true);
     SearchDisk_IndexSpecRdbSave(rdb, sp->diskSpec);
+    SlotCleanup_RdbSaveUnregistered(rdb, sp);
   }
 
   if (needLock) {
@@ -3528,6 +3507,10 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     // the spec destructor (duplicate / cleanup / abort).
     sp->pendingDiskRdbState = SearchDisk_LoadRdbToTempObject(rdb);
     if (!sp->pendingDiskRdbState) {
+      goto cleanup;
+    }
+    if (encver >= INDEX_DISK_UNREGISTERED_TRIMS_VERSION &&
+        !SlotCleanup_RdbLoadUnregistered(rdb, sp)) {
       goto cleanup;
     }
   }

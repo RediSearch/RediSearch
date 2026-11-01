@@ -227,11 +227,9 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
 
     /// Excludes documents before selecting the visible top-k results.
     ///
-    /// The filter must remain safe to call until this source and its batches are dropped.
-    pub fn set_document_filter(
-        &mut self,
-        filter: impl Fn(rqe_core::DocId) -> bool + Send + Sync + 'static,
-    ) {
+    /// The predicate must give consistent answers throughout an evaluation, including
+    /// consumption of its returned batches. Install it before reading the source.
+    pub fn set_document_filter(&mut self, filter: impl Fn(DocId) -> bool + Send + Sync + 'static) {
         self.document_filter = Some(std::sync::Arc::new(filter));
     }
 

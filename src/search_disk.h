@@ -368,13 +368,13 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
  *
  * On return, `stats` is populated with per-cycle counters
  * (see `DiskGCRunStats` in `search_disk_api.h`). Caller MUST zero-initialize
- * `stats` before the call.
+ * `stats` before the call. See `DiskGCRunResult` for recoverable failure handling.
  *
  * @param index Pointer to the disk index
  * @param stats Caller-allocated, zero-initialized stats out-parameter
  *              (MUST NOT be NULL; RS_ASSERT)
  */
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
+DiskGCRunResult SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
 
 /**
  * @brief Create an IndexIterator for a term in the inverted index
@@ -423,7 +423,7 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
  *
  * The returned snapshot can be passed to the iterator-creation wrappers so that all
  * iterators created during one query observe the same database state. Must be released
- * by `SearchDisk_FreeSnapshot` after every iterator created from it has been freed.
+ * by `SearchDisk_FreeSnapshot` according to the lifetime contract in `IndexDiskAPI.createSnapshot`.
  *
  * @param index Pointer to the index spec
  * @return Snapshot handle, or NULL on error
@@ -460,10 +460,10 @@ size_t SearchDisk_GetLiveSnapshotCount(void);
  * @param totalFreq Total frequency of the document
  * @param oldLen Pointer to an integer to store the length of the deleted document
  * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
- * @param oldDocId In/out document ID from DocIdMeta; cleared if no live document is replaced
+ * @param oldDocId Old document ID from DocIdMeta (0 if new document)
  * @return New document ID, or 0 on error
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
 
 /**
  * @brief Get document metadata by document ID
@@ -1052,86 +1052,21 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  */
 void SearchDisk_DebugResetCompactionController(void);
 
-/** Return committed, unpublished document counts and lengths; both outputs are required.
- * A NULL index denotes memory mode and yields zero. */
-void SearchDisk_GetHiddenImportStats(RedisSearchDiskIndexSpec *index, uint64_t *documents,
-                                     uint64_t *totalLength);
-
-/** Register incoming slots once per shard before scan/tail indexing. Returns an owned
- * handle or NULL on rejection; release with SearchDisk_FreeSlotImport. */
-SearchDiskSlotImport *SearchDisk_BeginSlotImport(const SearchDiskSlotRange *ranges,
-                                                 size_t numRanges);
-
-/** Publish this shard import after successful transfer and after draining scan, queue
- * and storage/memory apply. Returns false on rejection; does not free the handle. */
-bool SearchDisk_CompleteSlotImport(const SearchDiskSlotImport *import);
-
-/** Mark this shard import cancelled after stopping and draining its indexing work.
- * Returns false on rejection; per-index rollback must follow before freeing the handle. */
-bool SearchDisk_CancelSlotImport(const SearchDiskSlotImport *import);
-
-/** Prepare one index rollback after acknowledged shard cancellation. Returns an owned
- * trim plan or NULL on failure; optional outputs receive the planned count and length. */
-SearchDiskSlotTrim *SearchDisk_PrepareCancelSlotImport(RedisSearchDiskIndexSpec *index,
-                                                       const SearchDiskSlotImport *import,
-                                                       uint64_t *numDocs, uint64_t *totalDocLen);
-
-/** Release the caller-owned import handle after publication or rollback accounting.
- * NULL is a no-op; this does not stop indexing or complete rollback. */
-void SearchDisk_FreeSlotImport(SearchDiskSlotImport *import);
-
-/** Reserve an internal shard cleanup operation for these slots. Returns an owned
- * handle or NULL on rejection; this does not admit or reject a Redis ASM request. */
-SearchDiskSlotMigration *SearchDisk_BeginSlotMigration(const SearchDiskSlotRange *ranges,
-                                                       size_t numRanges);
-
-/** Join one index to an existing shard cleanup operation. Returns an owned trim plan
- * or NULL on failure; optional outputs receive the planned count and length.
- * The ordering and locking contract of SearchDisk_PrepareSlotTrim applies. */
-SearchDiskSlotTrim *SearchDisk_PrepareSlotTrimForMigration(RedisSearchDiskIndexSpec *index,
-                                                           const SearchDiskSlotMigration *migration,
-                                                           uint64_t *numDocs,
-                                                           uint64_t *totalDocLen);
-
-/** Release the caller-owned operation after all participating indexes have joined.
- * Pending index cleanup retains its own reference; NULL is a no-op. */
-void SearchDisk_FreeSlotMigration(SearchDiskSlotMigration *migration);
-
-/** Report whether this disk index has cleanup requiring another GC cycle. */
-bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index);
-
-/** Probe backend cleanup eligibility without reserving it. The answer is advisory;
- * it is not a Redis/Flex migration-start hook. */
-bool SearchDisk_CanStartSlotMigration(RedisSearchDiskIndexSpec *index,
-                                      const SearchDiskSlotRange *ranges, size_t numRanges);
-
-/** Prepare an owned source trim plan, or return NULL on failure. Optional outputs
- * receive its document count and total length. SlotMigrationAPI.prepareTrim defines
- * the caller ordering; collection and storage I/O require no spec write lock. */
-SearchDiskSlotTrim *SearchDisk_PrepareSlotTrim(RedisSearchDiskIndexSpec *index,
-                                               const SearchDiskSlotRange *ranges, size_t numRanges,
-                                               uint64_t *numDocs, uint64_t *totalDocLen);
-
-/** Enumerate at most maxBatchDocs IDs per callback without holding the spec lock.
- * The callback must lock the spec and apply each batch before updating memory indexes
- * and statistics. False can mean partial progress; retry skips applied batches. */
-bool SearchDisk_ApplySlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim,
-                              size_t maxBatchDocs, SearchDiskSlotTrimCallback callback,
-                              void *callbackCtx);
-
-/** Apply a callback-scoped batch to disk visibility while holding the spec write lock.
- * Returns false without applying that batch on failure; performs no storage I/O. */
+// These wrappers follow the thread, locking and persistence contract in SlotMigrationAPI.
+bool SearchDisk_RegisterSlotTrim(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
+                                 size_t numRanges, uint64_t *trimId, t_docId *maxDocId);
+bool SearchDisk_RegisterSlotTrimAtCutoff(RedisSearchDiskIndexSpec *index,
+                                         const SearchDiskSlotRange *ranges, size_t numRanges,
+                                         t_docId maxDocId, uint64_t *trimId);
+void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
+                                       SearchDiskPendingSlotTrimCallback callback, void *ctx);
+SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(RedisSearchDiskIndexSpec *index,
+                                                     uint64_t trimId, size_t maxScanned,
+                                                     SearchDiskSlotTrimCallback callback,
+                                                     void *ctx);
 bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
                                    const SearchDiskSlotTrimBatch *batch);
-
-/** Finish logical bookkeeping after all batches applied, without storage I/O.
- * False leaves the caller-owned plan available for retry. GC reclaims document rows
- * and slot membership after logical completion. */
-bool SearchDisk_FinishSlotTrim(RedisSearchDiskIndexSpec *index, SearchDiskSlotTrim *trim);
-
-/** Release an owned plan; NULL is a no-op. Applied deletions remain pending for GC,
- * while unapplied documents stay live. */
-void SearchDisk_FreeSlotTrim(SearchDiskSlotTrim *trim);
+bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index);
 #ifdef __cplusplus
 }
 #endif

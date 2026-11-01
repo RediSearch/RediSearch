@@ -58,7 +58,7 @@ fn debug_assert_valid_normalized_input(ranges: &[SlotRange]) {
 /// - Sorted by start slot in ascending order
 /// - No overlapping ranges
 /// - No adjacent ranges (they are merged)
-/// - All ranges are valid (start <= end, values in [0, 16383])
+/// - All ranges are valid (`start <= end`, values below [`crate::CLUSTER_SLOTS`])
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct SlotSet {
     /// Vector of slot ranges (start, end), kept sorted and normalized.

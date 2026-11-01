@@ -31,6 +31,7 @@
 #include "rmutil/util.h"
 #include "rmutil/args.h"
 #include "spec.h"
+#include "slot_cleanup.h"
 #include "indexes.h"
 #include "indexes_scan.h"
 #include "util/workers.h"
@@ -1927,6 +1928,7 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   }
   invoked = 1;
 
+  SlotCleanup_StopDiskJobs();
   SearchDisk_StopMetrics();
 
   // First free all indexes

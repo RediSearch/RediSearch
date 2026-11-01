@@ -84,8 +84,6 @@ static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats) {
   retireLogicalDeletes(gc, stats->num_cleaned_docs);
 }
 
-// `forced` is only read for its presence: disk GC compacts in-process, so it has no fork slot
-// to wait for and no way to fail to start.
 static bool periodicCb(void *privdata, GCForcedRun *forced) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
@@ -120,13 +118,13 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     atomic_fetch_sub(&gc->updatesFromLastRun, num_updates);
 
     DiskGCRunStats stats = {0};
-    SearchDisk_RunGC(sp->diskSpec, &stats);
+    const DiskGCRunResult result = SearchDisk_RunGC(sp->diskSpec, &stats);
     // A trim can publish deleted IDs after the first drain but before storage's
     // snapshot. Wait for its write-locked accounting before retiring those IDs.
     IndexSpec_LockRead(sp);
     takeDeferredDeletes(gc, sp);
-    if (stats.retryRequired) {
-      if (forced) forced->outcome = GC_FORCED_RUN_RETRY_REQUIRED;
+    if (result == DISK_GC_RUN_RETRY_REQUIRED) {
+      if (forced) forced->outcome = GC_DISK_FORCED_RUN_RETRY_REQUIRED;
       atomic_fetch_add(&gc->writesFromLastRun, num_writes);
       atomic_fetch_add(&gc->deletesFromLastRun, num_deletes);
       atomic_fetch_add(&gc->updatesFromLastRun, num_updates);
