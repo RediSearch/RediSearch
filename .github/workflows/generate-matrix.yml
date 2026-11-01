@@ -94,6 +94,9 @@ jobs:
           # excluded from "all". Keep "all" stable for existing callers.
           optional_combinations = [
               ('ubuntu:latest', 'x86_64'),
+              # Rolling release: surfaces new toolchains (GCC, glibc, CMake) before
+              # any pinned distro ships them. The official image is x86_64 only.
+              ('archlinux:latest', 'x86_64'),
           ]
 
           platform_filter = os.environ["INPUT_PLATFORM"]

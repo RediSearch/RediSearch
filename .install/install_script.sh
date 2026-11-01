@@ -21,6 +21,7 @@ else
     [[ $OS_NAME == 'Red Hat Enterprise Linux' ]] && OS_NAME='Rocky Linux'
     [[ $OS_NAME == 'Rocky Linux' ]] && VERSION=${VERSION%.*} # remove minor version for Rocky Linux
     [[ $OS_NAME == 'Alpine Linux' ]] && VERSION=${VERSION%.*.*} # remove minor and patch version for Alpine Linux
+    [[ $OS_NAME == 'Arch Linux' ]] && VERSION=rolling # VERSION_ID is a snapshot date, if set at all
     OS=${OS_NAME,,}_${VERSION}
     OS=$(echo $OS | sed 's/[/ ]/_/g') # replace spaces and slashes with underscores
 fi
