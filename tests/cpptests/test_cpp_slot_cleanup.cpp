@@ -735,8 +735,12 @@ TEST_F(DiskSlotAsyncVisibilityTest, EarlyQueryFreeReleasesEveryBufferedMetadataR
   for (auto *dmd : pool.decoded) EXPECT_EQ(dmd->ref_count, 1);
 }
 
-TEST_F(DiskSlotAsyncVisibilityTest, SortedResultsAreFilteredAfterTrimRegistration) {
+class DiskSlotSortedVisibilityTest : public DiskSlotAsyncVisibilityTest,
+                                     public ::testing::WithParamInterface<bool> {};
+
+TEST_P(DiskSlotSortedVisibilityTest, SortedResultsAreFilteredAfterTrimRegistration) {
   BufferedDiskQuery query(ctx, spec, snapshot());
+  if (GetParam()) query.mergeHybrid();
   query.sortByScore();
   const auto first = query.first();
   EXPECT_FALSE(hasPending());
@@ -748,8 +752,9 @@ TEST_F(DiskSlotAsyncVisibilityTest, SortedResultsAreFilteredAfterTrimRegistratio
   removePending(pending);
 }
 
-TEST_F(DiskSlotAsyncVisibilityTest, SortedResultsStayHiddenAfterTrimCompletes) {
+TEST_P(DiskSlotSortedVisibilityTest, SortedResultsStayHiddenAfterTrimCompletes) {
   BufferedDiskQuery query(ctx, spec, snapshot());
+  if (GetParam()) query.mergeHybrid();
   query.sortByScore();
   const auto first = query.first();
   auto *pending = registerTrim();
@@ -764,33 +769,6 @@ TEST_F(DiskSlotAsyncVisibilityTest, SortedResultsStayHiddenAfterTrimCompletes) {
   EXPECT_EQ(ids.size(), first == 2 || first == 3 ? 4 : 3);
 }
 
-TEST_F(DiskSlotAsyncVisibilityTest, HybridSortedResultsAreFilteredAfterTrimRegistration) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
-  query.mergeHybrid();
-  query.sortByScore();
-  const auto first = query.first();
-  EXPECT_FALSE(hasPending());
-  auto *pending = registerTrim();
-  auto ids = query.remaining();
-  EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1 : 2);
-  for (auto id : ids) EXPECT_TRUE(id != 2 && id != 3);
-  EXPECT_EQ(ids.size(), first == 2 || first == 3 ? 4 : 3);
-  removePending(pending);
-}
-
-TEST_F(DiskSlotAsyncVisibilityTest, HybridSortedResultsStayHiddenAfterTrimCompletes) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
-  query.mergeHybrid();
-  query.sortByScore();
-  const auto first = query.first();
-  auto *pending = registerTrim();
-  IndexSpec_LockWrite(spec);
-  pool.deletedIds = {2, 3};
-  DocTable_RemovePendingDeletion(&spec->docs, pending);
-  IndexSpec_Unlock(spec);
-  EXPECT_FALSE(hasPending());
-  auto ids = query.remaining();
-  EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1 : 2);
-  for (auto id : ids) EXPECT_TRUE(id != 2 && id != 3);
-  EXPECT_EQ(ids.size(), first == 2 || first == 3 ? 4 : 3);
-}
+INSTANTIATE_TEST_SUITE_P(
+    QueryKinds, DiskSlotSortedVisibilityTest, ::testing::Bool(),
+    [](const ::testing::TestParamInfo<bool> &info) { return info.param ? "Hybrid" : "Search"; });
