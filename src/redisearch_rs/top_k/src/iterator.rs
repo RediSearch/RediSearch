@@ -253,9 +253,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             // collected is still served and the iterator reaches EOF rather than
             // re-collecting on every subsequent read. Only `rewind` starts a new
             // scan. The source is rewound to release scan-scoped resources; the
-            // yield path needs none of them.
-            self.finalize_collection();
+            // yield path needs none of them. Rewind comes first: a memory stop
+            // lands here under pressure, and finalizing allocates a fresh heap
+            // while the source would still hold its index-sized scan state.
             self.source.rewind();
+            self.finalize_collection();
         }
         result
     }
