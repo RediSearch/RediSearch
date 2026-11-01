@@ -1479,6 +1479,10 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   uint32_t bufferLimit = rp->parent->resultLimit;
   SearchResult resToBuffer = SearchResult_New();
   SearchResult *currBlock = NULL;
+  QueryRequestTimeout *timeout = rp->parent->timeout;
+  // Whether this loader's own checkpoint raised the stop, as opposed to an upstream stage that
+  // holds its rows past a stop and yields them over several reads.
+  bool ownStop = false;
   // Get the next result and save it in the buffer
   while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
     // Decrease the result limit after getting a result from the upstream
@@ -1491,15 +1495,18 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
     resToBuffer = SearchResult_New();
-    if (RP_FillShouldStop(rp, &self->bufferMemoryCheckCalls)) {
+    const bool heldUpstream = timeout && QueryRequestTimeout_IsStopRequested(timeout);
+    const bool fillStopped = RP_FillShouldStop(rp, &self->bufferMemoryCheckCalls);
+    ownStop |= !heldUpstream && timeout && QueryRequestTimeout_IsStopRequested(timeout);
+    if (fillStopped) {
       result_status = RS_RESULT_TIMEDOUT;
       break;
     }
   }
   rp->parent->resultLimit = bufferLimit; // Restore the result limit
-  // A stop requested by the last row's checkpoint under a RETURN stop policy still ends the query
-  // after this buffer.
-  if (result_status == RS_RESULT_OK && RP_StopReason(rp) != QUERY_STOP_REASON_NONE) {
+  // A stop requested by this loader's checkpoint under a RETURN stop policy still ends the query
+  // after this buffer. A stop held upstream ends it when that stage runs out of rows.
+  if (result_status == RS_RESULT_OK && ownStop) {
     result_status = RS_RESULT_TIMEDOUT;
   }
 

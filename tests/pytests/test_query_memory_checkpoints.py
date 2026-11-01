@@ -584,6 +584,32 @@ def test_safe_loader_stop_on_the_last_buffered_row_ends_the_cursor(env):
         set_workers(env, 0)
 
 
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_loader_drains_a_held_sorter_prefix_across_cursor_reads(env):
+    """A sorter stopped under ON_OOM RETURN keeps yielding the rows it holds. A loader below it,
+    reading a row per cursor read, must not take that stop as its own and end the cursor: every
+    held row is returned, sorted, and the last read carries the OOM warning."""
+    create_index(env)
+    k = 4
+    query = ('FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'DESC', 'MAX', N_DOCS,
+             'LOAD', 1, '@t', 'WITHCURSOR', 'COUNT', 1)
+    for workers in worker_counts(env):
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+        try:
+            res, cursor = env.cmd(*query)
+        finally:
+            memory_pressure(env, 'RESET')
+        rows, warnings = list(res['results']), [res['warning']]
+        while cursor:
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            rows += res['results']
+            warnings.append(res['warning'])
+        env.assertEqual([r['extra_attributes']['t'] for r in rows],
+                        [f'hello{i}' for i in reversed(range(k))], message=(workers, rows))
+        env.assertEqual(warnings[-1], [COORD_OOM_WARNING], message=(workers, warnings))
+
+
 N_PREFIX_TERMS = 400
 
 
