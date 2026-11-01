@@ -16,14 +16,14 @@ use hidden_string::OwnedHiddenString;
 use index_gc::{
     DocExistence, GcError,
     scanners::missing_docs::{
-        MissingDocsEntry, apply_missing_docs, collect_missing_docs, missing_field_names,
-        receive_missing_docs, scan_missing_field,
+        MissingDocsEntry, apply_missing_docs, apply_missing_docs_with, collect_missing_docs,
+        missing_field_names, receive_missing_docs, scan_missing_field, snapshot_missing_field,
     },
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
-use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
+use inverted_index::{DocId, DocLiveness, GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
@@ -39,6 +39,17 @@ fn index(count: u64) -> Box<OpaqueInvertedIndex> {
             .unwrap();
     }
     Box::new(OpaqueInvertedIndex::DocIdsOnly(ii))
+}
+
+/// The unique id of `field`'s missing-docs index in `spec`.
+fn unique_id_of(spec: &ffi::IndexSpec, field: &std::ffi::CStr) -> u32 {
+    // SAFETY: the test owns `spec` and nothing mutates it during this read.
+    let guard = unsafe { IndexSpecReadGuard::from_locked(spec) };
+    let ii = guard
+        .missing_field_dict()
+        .fetch(&OwnedHiddenString::new(field))
+        .expect("the field is indexed");
+    u32::from(ii.unique_id())
 }
 
 /// Builds an `IndexSpec` with a `missing.indexes` with the provided entries.
@@ -187,14 +198,16 @@ fn receive_entry_returns_field_name_and_delta() {
         &mut buf,
         Some(MissingDocsEntry {
             field_name: b"age\0".as_slice(),
+            unique_id: 7,
             delta: GcScanDelta::empty_for_testing(),
         }),
     )
     .unwrap();
 
     let mut cursor = Cursor::new(&buf);
-    let (field_name, _delta) = receive_missing_docs(&mut cursor).unwrap().unwrap();
-    assert_eq!(field_name, c"age");
+    let entry = receive_missing_docs(&mut cursor).unwrap().unwrap();
+    assert_eq!(entry.field_name, c"age");
+    assert_eq!(entry.unique_id, 7);
 }
 
 #[test]
@@ -204,6 +217,7 @@ fn receive_entry_rejects_a_field_name_without_a_trailing_nul() {
         &mut buf,
         Some(MissingDocsEntry {
             field_name: b"age".as_slice(),
+            unique_id: 7,
             delta: GcScanDelta::empty_for_testing(),
         }),
     )
@@ -228,7 +242,7 @@ fn apply_returns_err_when_field_not_found() {
     // SAFETY: the test owns the initialized spec; no concurrent access occurs.
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
     assert!(matches!(
-        apply_missing_docs(c"nonexistent", delta, &mut write_guard),
+        apply_missing_docs(c"nonexistent", 0, delta, &mut write_guard),
         Err(GcError::ApplyError(
             "the field was removed from missing.indexes before the delta could be applied"
         ))
@@ -241,10 +255,11 @@ fn apply_returns_err_when_field_not_found() {
 fn apply_succeeds_and_keeps_entry_when_docs_remain() {
     let (mut spec, _dict) = make_spec([(&b"age"[..], index(2))]);
     let delta = GcScanDelta::empty_for_testing();
+    let unique_id = unique_id_of(&spec, c"age");
 
     // SAFETY: the test owns the initialized spec; no concurrent access occurs.
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
-    let stats = apply_missing_docs(c"age", delta, &mut write_guard).unwrap();
+    let stats = apply_missing_docs(c"age", unique_id, delta, &mut write_guard).unwrap();
 
     assert_eq!(stats.records_removed, 0);
     let hidden = OwnedHiddenString::new(c"age");
@@ -272,13 +287,20 @@ fn roundtrip_all_docs_deleted_removes_entry() {
 
     // Parent side: receive.
     let mut cursor = Cursor::new(&buf);
-    let (field_name, delta) = receive_missing_docs(&mut cursor).unwrap().unwrap();
-    assert_eq!(field_name, c"age");
+    let entry = receive_missing_docs(&mut cursor).unwrap().unwrap();
+    assert_eq!(entry.field_name, c"age");
+    assert_eq!(entry.unique_id, unique_id_of(&spec, c"age"));
 
     // Parent side: apply.
     // SAFETY: the test owns the initialized spec; no concurrent access occurs.
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
-    let stats = apply_missing_docs(&field_name, delta, &mut write_guard).unwrap();
+    let stats = apply_missing_docs(
+        &entry.field_name,
+        entry.unique_id,
+        entry.delta,
+        &mut write_guard,
+    )
+    .unwrap();
 
     let hidden = OwnedHiddenString::new(c"age");
     assert!(
@@ -320,9 +342,113 @@ fn scan_missing_field_matches_the_collected_entry() {
         .unwrap()
         .expect("the field has docs to collect");
 
-    assert_eq!(scan_missing_field(&guard, c"age"), Some(collected.delta));
-    assert_eq!(scan_missing_field(&guard, c"empty"), None);
-    assert_eq!(scan_missing_field(&guard, c"unknown"), None);
+    assert_eq!(
+        scan_missing_field(&guard, c"age", |id| guard.doc_exists(id)),
+        Some((collected.unique_id, collected.delta))
+    );
+    assert_eq!(
+        scan_missing_field(&guard, c"empty", |id| guard.doc_exists(id)),
+        None
+    );
+    assert_eq!(
+        scan_missing_field(&guard, c"unknown", |id| guard.doc_exists(id)),
+        None
+    );
+}
+
+/// A snapshot of a field's index scans to the same delta as the live index.
+#[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
+fn a_snapshot_scans_like_the_live_index() {
+    let (spec, _dict) = make_spec([(&b"f"[..], index(3))]);
+    // SAFETY: spec is valid and live for the duration of the test.
+    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+    let field = CString::new("f").unwrap();
+    let exists = |id: DocId| id != 2;
+
+    let (unique_id, live_delta) =
+        scan_missing_field(&guard, &field, exists).expect("doc 2 is gone");
+    let snapshot = snapshot_missing_field(&guard, &field, &exists).expect("doc 2 is gone");
+    assert_eq!(u32::from(snapshot.unique_id()), unique_id);
+    assert_eq!(snapshot.scan_gc(exists).unwrap(), Some(live_delta));
+}
+
+/// A delta whose last block grew since the scan is rescanned when the apply has a
+/// liveness source, and denied when it has none.
+#[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
+fn apply_with_a_liveness_source_rescans_a_grown_last_block() {
+    // Docs 1 and 2 are gone; the one the writer appends is live.
+    let exists = |id: DocId| id > 2;
+    for (live, denied, collected) in [
+        (Some(&exists as &dyn DocLiveness), 0, true),
+        (None, 1, false),
+    ] {
+        let (mut spec, mut dict) = make_spec([(&b"f"[..], index(2))]);
+        let field = CString::new("f").unwrap();
+        let (unique_id, delta) = {
+            // SAFETY: spec is valid and live for the duration of the test.
+            let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+            scan_missing_field(&guard, &field, exists).expect("both docs are gone")
+        };
+        let Some(OpaqueInvertedIndex::DocIdsOnly(ii)) =
+            dict.fetch_mut(&OwnedHiddenString::new(&field))
+        else {
+            panic!("the field is indexed as a doc-ids-only index");
+        };
+        ii.add_record(&RSIndexResult::build_virt().doc_id(3).build())
+            .unwrap();
+
+        // SAFETY: spec is valid and exclusively accessed for the duration of the test.
+        let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
+        let stats = apply_missing_docs_with(&field, unique_id, delta, live, &mut guard).unwrap();
+
+        assert_eq!(stats.blocks_denied, denied);
+        assert_eq!(
+            stats.bytes_collected > 0,
+            collected,
+            "the gone docs' bytes are freed"
+        );
+        assert!(
+            guard
+                .missing_field_dict_mut()
+                .fetch(&OwnedHiddenString::new(&field))
+                .is_some(),
+            "doc 3 is live, so the field's index stays"
+        );
+    }
+}
+
+/// A field whose index was dropped and recreated after the scan keeps its new
+/// postings: the stale delta names the old index and is rejected.
+#[test]
+#[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
+fn a_delta_for_a_replaced_index_is_rejected() {
+    let (mut spec, mut dict) = make_spec([(&b"f"[..], index(2))]);
+    let field = CString::new("f").unwrap();
+    let (unique_id, delta) = {
+        // SAFETY: spec is valid and live for the duration of the test.
+        let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+        scan_missing_field(&guard, &field, |_| false).expect("both docs are gone")
+    };
+    let hidden = OwnedHiddenString::new(&field);
+    assert!(dict.remove(&hidden));
+    dict.try_insert(&hidden, index(2)).unwrap();
+    assert_ne!(unique_id_of(&spec, &field), unique_id);
+
+    // SAFETY: spec is valid and exclusively accessed for the duration of the test.
+    let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
+    assert!(matches!(
+        apply_missing_docs(&field, unique_id, delta, &mut guard),
+        Err(GcError::ApplyError(
+            "the field's missing-docs inverted index is not the one scanned"
+        ))
+    ));
+    let kept = guard
+        .missing_field_dict_mut()
+        .fetch(&hidden)
+        .expect("the replacement stays");
+    assert_eq!(kept.unique_docs(), 2);
 }
 
 /// Reports every doc id the fixtures use as present, whatever the spec's
