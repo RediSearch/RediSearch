@@ -117,6 +117,24 @@ TEST_F(HybridApplyOomStopTest, subqueryOomStopFailsUnderOnOomFail) {
   EXPECT_EQ(HybridRequest_GetFatalError(hreq), tailErr());
 }
 
+// A soft tail error (not a fatal one) must not mask the OOM failure.
+TEST_F(HybridApplyOomStopTest, softTailErrorIsReplacedByOomUnderOnOomFail) {
+  hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
+  QueryError_SetCode(tailErr(), QUERY_ERROR_CODE_NO_PROP_VAL);
+  stopSubqueryForOom(0);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_EOF), RS_RESULT_ERROR);
+  EXPECT_EQ(QueryError_GetCode(tailErr()), QUERY_ERROR_CODE_OUT_OF_MEMORY);
+  EXPECT_EQ(HybridRequest_GetFatalError(hreq), tailErr());
+}
+
+TEST_F(HybridApplyOomStopTest, fatalTailErrorIsKeptUnderOnOomFail) {
+  hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
+  QueryError_SetCode(tailErr(), QUERY_ERROR_CODE_GENERIC);
+  stopSubqueryForOom(0);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_EOF), RS_RESULT_ERROR);
+  EXPECT_EQ(QueryError_GetCode(tailErr()), QUERY_ERROR_CODE_GENERIC);
+}
+
 TEST_F(HybridApplyOomStopTest, subqueryTimeoutIsNotAnOomStop) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
   QueryRequestTimeout_RequestStop(&hreq->requests[0]->base.timeout, QUERY_STOP_REASON_TIMEOUT);
