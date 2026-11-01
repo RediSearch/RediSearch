@@ -14,5 +14,6 @@
 // schema prefix; otherwise an ASCII 0/1 string identifies the present columns.
 // Schema is a trailer so LOAD * can append columns without buffering streaming rows.
 #define INTERNAL_RESP_SCHEMA_TAG "__resp_schema_v1"
+#define INTERNAL_RESP_SCHEMA_REPLY_LEN 3 // tag, rows, schema
 
 #endif

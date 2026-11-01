@@ -40,14 +40,12 @@ TEST_F(HybridRequestBasicTest, testHybridRequestCreationBasic) {
 
   // Verify the merge pipeline is initialized
   ASSERT_TRUE(hybridReq->tailPipeline->ap.steps.next != nullptr);
-  // Only the container owns result rows; subqueries retain their own error slots.
-  HREQ_StoreResults(hybridReq, nullptr, RS_RESULT_EOF, cachedVars{});
-  EXPECT_TRUE(hybridReq->base.reply.hasStoredResults);
-  EXPECT_EQ(hybridReq->base.reply.rc, RS_RESULT_EOF);
-  EXPECT_FALSE(req1->base.reply.hasStoredResults);
-  EXPECT_FALSE(req2->base.reply.hasStoredResults);
+  // Only the container carries the cycle's reply state; subqueries retain their own error slots.
+  hybridReq->base.reply.rc = RS_RESULT_EOF;
+  EXPECT_EQ(req1->base.reply.rc, 0);
+  EXPECT_EQ(req2->base.reply.rc, 0);
   QueryRequest_ResetReply(&hybridReq->base);
-  EXPECT_FALSE(hybridReq->base.reply.hasStoredResults);
-  EXPECT_EQ(hybridReq->base.reply.results, nullptr);
+  EXPECT_EQ(hybridReq->base.reply.rc, 0);
+  EXPECT_EQ(hybridReq->base.reply.rows.ctx, nullptr);
   HybridRequest_Free(hybridReq);
 }

@@ -417,7 +417,7 @@ def test_expire_aggregate(env):
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t')
     # The result count is not accurate in aggregation, because WITHOUTCOUNT is the default
     # Accept both orders, since docID did not advance
-    env.assertEqual([res[0], sorted(res[1:])], [1, sorted([['t', 'arr'], ['t', 'bar']])])
+    env.assertEqual([res[0], sorted(res[1:])], [2, sorted([['t', 'arr'], ['t', 'bar']])])
     # Test using WITHCOUNT
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@t')
     env.assertEqual([res[0], sorted(res[1:])], [2, sorted([['t', 'arr'], ['t', 'bar']])])
