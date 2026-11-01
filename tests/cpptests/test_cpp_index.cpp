@@ -1221,61 +1221,63 @@ TEST_F(IndexTest, testDocTable) {
   DocTable_Free(&dt);
 }
 
-TEST_F(IndexTest, testDocTableFrozenExistence) {
-  char buf[16];
+namespace {
+// Frees the table even when an ASSERT returns early.
+struct ScopedDocTable {
+  DocTable t;
+  ScopedDocTable(size_t cap, size_t maxSize) : t(NewDocTable(cap, maxSize)) {}
+  ~ScopedDocTable() { DocTable_Free(&t); }
+
+  void put(size_t n) {
+    char buf[16];
+    for (size_t i = 0; i < n; i++) {
+      size_t nkey = snprintf(buf, sizeof(buf), "doc_%zu", i);
+      DMD_Return(DocTable_Put(&t, buf, nkey, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash));
+    }
+  }
+};
+}  // namespace
+
+TEST_F(IndexTest, testDocTableLiveBitmap) {
   // A max size below N chains documents in shared buckets.
-  DocTable dt = NewDocTable(10, 10);
-  DocTable other = NewDocTable(10, 10);
-  const int N = 100;
-  for (int i = 0; i < N; i++) {
-    size_t nkey = snprintf(buf, sizeof(buf), "doc_%d", i);
-    DMD_Return(DocTable_Put(&dt, buf, nkey, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash));
-    DMD_Return(DocTable_Put(&other, buf, nkey, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash));
-  }
+  ScopedDocTable dt(10, 10);
+  const size_t N = 100;
+  dt.put(N);
   for (t_docId id = 3; id <= N; id += 3) {
-    DMD_Return(DocTable_DeleteById(&dt, id));
+    DMD_Return(DocTable_DeleteById(&dt.t, id));
   }
 
-  bool before[N + 3];
-  for (t_docId id = 0; id < N + 3; id++) {
-    before[id] = DocTable_Exists(&dt, id);
+  const size_t words = DocTable_LiveBitmapWords(&dt.t);
+  ASSERT_EQ(N / 64 + 1, words);
+  std::vector<uint64_t> live(words);
+  DocTable_FillLiveBitmap(&dt.t, live.data(), words);
+  for (t_docId id = 0; id < words * 64; id++) {
+    ASSERT_EQ(DocTable_Exists(&dt.t, id), (bool)(live[id / 64] & (1ULL << (id % 64))))
+        << "docId " << id;
   }
-  DocTable_FreezeExistence(&dt);
-  for (t_docId id = 0; id < N + 3; id++) {
-    ASSERT_EQ(before[id], DocTable_Exists(&dt, id)) << "docId " << id;
-    ASSERT_EQ(id >= 1 && id <= N, DocTable_Exists(&other, id)) << "docId " << id;
-  }
-  ASSERT_FALSE(DocTable_Exists(&dt, 3));
-  ASSERT_TRUE(DocTable_Exists(&dt, 4));
 
-  // The bitmap is a snapshot, so a later deletion only shows through a DMD lookup.
-  DMD_Return(DocTable_DeleteById(&dt, 4));
-  ASSERT_TRUE(DocTable_Exists(&dt, 4));
-
-  DocTable_Free(&dt);
-  DocTable_Free(&other);
+  // A shorter buffer is filled only up to its own length.
+  std::vector<uint64_t> shorter(words, 0);
+  DocTable_FillLiveBitmap(&dt.t, shorter.data(), 1);
+  ASSERT_EQ(live[0], shorter[0]);
+  ASSERT_EQ(0, shorter[1]);
 }
 
-TEST_F(IndexTest, testDocTableFrozenExistenceSparse) {
-  char buf[16];
-  DocTable dt = NewDocTable(10, 10);
-  const int N = 1000;
-  for (int i = 0; i < N; i++) {
-    size_t nkey = snprintf(buf, sizeof(buf), "doc_%d", i);
-    DMD_Return(DocTable_Put(&dt, buf, nkey, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash));
+TEST_F(IndexTest, testDocTableLiveBitmapSparse) {
+  ScopedDocTable dt(10, 10);
+  const size_t N = 1000;
+  dt.put(N);
+  // 16 live docs for a 16-word bitmap still pay off.
+  for (t_docId id = 1; id <= N; id++) {
+    if (id % 64 && id != N) {
+      DMD_Return(DocTable_DeleteById(&dt.t, id));
+    }
   }
-  // Two live docs under maxDocId N: far too sparse for a bitmap.
-  for (t_docId id = 1; id <= N - 2; id++) {
-    DMD_Return(DocTable_DeleteById(&dt, id));
-  }
-
-  DocTable_FreezeExistence(&dt);
-  DMD_Return(DocTable_DeleteById(&dt, N));
-  ASSERT_FALSE(DocTable_Exists(&dt, N));
-  ASSERT_TRUE(DocTable_Exists(&dt, N - 1));
-  ASSERT_FALSE(DocTable_Exists(&dt, 1));
-
-  DocTable_Free(&dt);
+  ASSERT_EQ(N / 64 + 1, DocTable_LiveBitmapWords(&dt.t));
+  // Below that it does not.
+  DMD_Return(DocTable_DeleteById(&dt.t, 64));
+  DMD_Return(DocTable_DeleteById(&dt.t, 128));
+  ASSERT_EQ(0, DocTable_LiveBitmapWords(&dt.t));
 }
 
 TEST_F(IndexTest, testVarintFieldMask) {

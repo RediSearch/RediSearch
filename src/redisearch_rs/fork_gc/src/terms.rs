@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use string_utils::obfuscation::obfuscate_text;
 
 use crate::util::{deserialize, serialize};
-use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
+use crate::{DocExistence, ForkGC, GcApplyStats, HandleError, HandleOutcome};
 
 /// One term's worth of GC work, as it travels the pipe.
 ///
@@ -53,14 +53,20 @@ pub struct TermEntry<T = Box<[u8]>> {
 /// cycle). Write errors are surfaced to the caller so they can terminate the
 /// child process.
 ///
+/// `docs` says which documents still exist.
+///
 /// [`GcScanDelta`]: inverted_index::GcScanDelta
-pub fn collect_terms(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::Result<()> {
+pub fn collect_terms(
+    writer: &mut impl Write,
+    spec: &IndexSpecReadGuard,
+    docs: &DocExistence,
+) -> io::Result<()> {
     for term in spec.terms() {
         let Some(ii) = spec.keys_dict().fetch(&term) else {
             continue;
         };
 
-        let Ok(Some(delta)) = ii.scan_gc(|id| spec.doc_exists(id)) else {
+        let Ok(Some(delta)) = ii.scan_gc(|id| docs.contains(id)) else {
             continue;
         };
 

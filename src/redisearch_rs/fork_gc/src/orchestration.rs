@@ -18,7 +18,7 @@ use std::io::Read as _;
 use index_spec::IndexSpecReadGuard;
 
 use crate::{
-    ForkGC, Frame, HandleError, HandleOutcome,
+    DocExistence, ForkGC, Frame, HandleError, HandleOutcome,
     existing_docs::{collect_existing_docs, handle_existing_docs},
     frame::TERMINATOR,
     io_result_ext::IoResultExt,
@@ -36,8 +36,9 @@ unsafe extern "C" {
 ///
 /// Each scanner writes its own terminator. Once all scanner streams are sent,
 /// this function reports the child's final heartbeat and writes a completion
-/// marker before returning to the C caller.
-pub fn collect_scanners(fgc: &mut ForkGC, spec: &IndexSpecReadGuard<'_>) {
+/// marker before returning to the C caller. `docs` answers every scanner's
+/// existence checks.
+pub fn collect_scanners(fgc: &mut ForkGC, spec: &IndexSpecReadGuard<'_>, docs: &DocExistence) {
     let index_name = spec
         .display_name(global_config::hide_user_data_from_log())
         .to_string_lossy();
@@ -45,11 +46,11 @@ pub fn collect_scanners(fgc: &mut ForkGC, spec: &IndexSpecReadGuard<'_>) {
 
     {
         let mut writer = fgc.writer();
-        collect_terms(&mut writer, spec).unwrap_or_exit();
-        collect_numeric(&mut writer, spec).unwrap_or_exit();
-        collect_tags(&mut writer, spec).unwrap_or_exit();
-        collect_missing_docs(&mut writer, spec).unwrap_or_exit();
-        collect_existing_docs(&mut writer, spec).unwrap_or_exit();
+        collect_terms(&mut writer, spec, docs).unwrap_or_exit();
+        collect_numeric(&mut writer, spec, docs).unwrap_or_exit();
+        collect_tags(&mut writer, spec, docs).unwrap_or_exit();
+        collect_missing_docs(&mut writer, spec, docs).unwrap_or_exit();
+        collect_existing_docs(&mut writer, spec, docs).unwrap_or_exit();
     }
 
     // SAFETY: this Redis API function pointer is initialized by the module

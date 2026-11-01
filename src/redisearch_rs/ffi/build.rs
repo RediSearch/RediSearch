@@ -136,6 +136,8 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "DMD_Free",
             "DocTable_Exists",
+            "DocTable_FillLiveBitmap",
+            "DocTable_LiveBitmapWords",
             "DocTable_Put",
             "DocTable_KeyEquals",
             "DocTable_StartKeyMap",
