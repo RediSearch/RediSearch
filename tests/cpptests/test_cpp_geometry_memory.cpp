@@ -61,5 +61,16 @@ TEST_P(GeometryMemoryTest, PressureWithoutARequestFailsTheBuild) {
   RedisModule_FreeString(nullptr, err);
 }
 
+// 10 matches are far below the read interval, so only the read at buffer growth can see this.
+TEST_P(GeometryMemoryTest, PressureIsReadAtBufferGrowth) {
+  QueryMemory_SetForcedRatio(1.0f);
+  RedisModuleString *err = nullptr;
+  EXPECT_EQ(within(&err), nullptr);
+  ASSERT_NE(err, nullptr);
+  EXPECT_STREQ(RedisModule_StringPtrLen(err, nullptr),
+               QueryError_StrerrorDefaultMessage(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+  RedisModule_FreeString(nullptr, err);
+}
+
 INSTANTIATE_TEST_SUITE_P(Coords, GeometryMemoryTest,
                          ::testing::Values(GEOMETRY_COORDS_Cartesian, GEOMETRY_COORDS_Geographic));
