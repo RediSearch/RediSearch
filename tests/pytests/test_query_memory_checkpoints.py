@@ -645,6 +645,37 @@ def test_safe_loader_stop_on_the_last_buffered_row_ends_the_cursor(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_safe_loader_stop_on_a_cursor_created_without_workers(env):
+    """A LOAD cursor created with WORKERS 0 holds a plain loader, which the first read after workers
+    are enabled swaps for a safe loader. That loader starts with fresh stop state and counters, so
+    a stop in either phase of that read replies the loaded prefix with the OOM warning and ends the
+    cursor."""
+    create_index(env)
+    count = 5
+    try:
+        for at_call, rows in ((3, range(5, 8)), (count + 3, range(5, 7))):
+            set_workers(env, 0)
+            res, cursor = env.cmd(*LOADED_AGGREGATE, 'WITHCURSOR', 'COUNT', count)
+            env.assertEqual(loaded_values(res), hellos(range(count)), message=(at_call, res))
+            env.assertNotEqual(cursor, 0)
+
+            set_workers(env, 2)
+            # No build checkpoints on a read: the buffer checkpoint runs per buffered row, then
+            # the load checkpoint per loaded row.
+            memory_pressure(env, 'AT_CALL', at_call)
+            try:
+                res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            finally:
+                memory_pressure(env, 'RESET')
+            env.assertEqual(loaded_values(res), hellos(rows), message=(at_call, res))
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(at_call, res))
+            env.assertEqual(cursor, 0, message=at_call)
+    finally:
+        set_workers(env, 0)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_loader_drains_a_held_sorter_prefix_across_cursor_reads(env):
     """A sorter stopped under ON_OOM RETURN keeps yielding the rows it holds. A loader below it,
     reading a row per cursor read, must not take that stop as its own and end the cursor: every
