@@ -662,7 +662,9 @@ mod tests {
 
     #[test]
     fn heap_with_k_far_above_the_cap_grows_repeatedly_and_keeps_every_candidate() {
-        let k = 4 * INITIAL_CAPACITY_CAP + 7;
+        // Two doublings past the cap are enough to exercise repeated growth; Miri's per-push
+        // cost makes the larger K blow the test timeout.
+        let k = if cfg!(miri) { 2 } else { 4 } * INITIAL_CAPACITY_CAP + 7;
         let mut heap = TopKHeap::new(non_zero_capacity(k), Ascending);
         // Capacities seen along the way, without repeats. Bounds below avoid
         // depending on the allocator's exact rounding.
