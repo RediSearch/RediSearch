@@ -314,11 +314,7 @@ fn handle_numeric_with_rejects_a_wrongly_shaped_node_record() {
     )
     .unwrap();
     serialize(&mut buf, Some(0u32)).unwrap();
-    let mut test = TestSpec::create(vec![(
-        c"price",
-        FieldSpecType::Numeric.into(),
-        Some(NumericRangeTree::new(false)),
-    )]);
+    let mut test = TestSpec::create(vec![]);
     let mut stats = GcApplyStats::default();
 
     let error =
@@ -328,6 +324,7 @@ fn handle_numeric_with_rejects_a_wrongly_shaped_node_record() {
     };
     assert_eq!(msg, "decoding numeric node");
     assert!(!source.to_string().is_empty());
+    assert_eq!(test.lock_attempts, 0);
 }
 
 /// The node-stream handler preserves MessagePack decoding failures.
@@ -346,11 +343,7 @@ fn handle_numeric_with_preserves_deserialization_error() {
     fork_gc::Frame::data(&invalid_message_pack)
         .encode(&mut buf)
         .unwrap();
-    let mut test = TestSpec::create(vec![(
-        c"price",
-        FieldSpecType::Numeric.into(),
-        Some(NumericRangeTree::new(false)),
-    )]);
+    let mut test = TestSpec::create(vec![]);
     let mut stats = GcApplyStats::default();
 
     let error =
@@ -362,6 +355,7 @@ fn handle_numeric_with_preserves_deserialization_error() {
             ..
         }
     ));
+    assert_eq!(test.lock_attempts, 0);
 }
 
 /// With trimming requested, the handler applies every node under its own lock
@@ -699,7 +693,8 @@ impl<T: std::io::Read> std::io::Read for CountingIo<T> {
 
 #[test]
 fn repaired_numeric_nodes_use_bulk_io() {
-    for count in [64, 4096] {
+    let counts = if cfg!(miri) { [64, 128] } else { [64, 4096] };
+    for count in counts {
         let tree = build_single_leaf_tree(count);
         let (index, node) = tree.indexed_iter().next().unwrap();
         let entry = NumericNodeDelta {
