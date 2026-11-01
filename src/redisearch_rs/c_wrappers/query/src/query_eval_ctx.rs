@@ -221,6 +221,12 @@ impl QueryEvalContext {
         self.opts().flags & ffi::RSSearchFlags_Search_InOrder != 0
     }
 
+    /// Whether the request asked its term expansions to sample memory even though
+    /// its request flags alone would not (`Search_CheckExpansionMemory`).
+    pub const fn checks_expansion_memory(&self) -> bool {
+        self.opts().flags & ffi::RSSearchFlags_Search_CheckExpansionMemory != 0
+    }
+
     /// The scorer this query requested, as a [`RequestedScorer`].
     ///
     /// This reports only the query's own choice; it does **not** apply any
