@@ -2263,7 +2263,13 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
   // Save the last return code from the upstream.
   self->last_rc = rc;
   if (rc == RS_RESULT_TIMEDOUT) {
-    self->stopReason = RP_StopReason(&self->base);
+    // oomCut is written here, on the depleting thread: the consumer reads it only after observing
+    // done_depleting under the sync lock, which orders this write before the read. A blocked-client
+    // timeout wins over an OOM stop, so it records no OOM cut.
+    const QueryRequestTimeout *timeout = self->base.parent->timeout;
+    self->stopReason = (timeout && QueryRequestTimeout_IsBlockedClientTimedOut(timeout))
+                           ? RP_StopReason(&self->base)
+                           : RP_HoldStop(&self->base);
   }
 
   // If TIMEOUT with policy FAIL, we can already clear the results - will not be used

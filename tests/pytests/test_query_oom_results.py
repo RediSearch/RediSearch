@@ -553,6 +553,33 @@ def test_hybrid_subquery_stop_filling_the_window_warns(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_hybrid_safe_depleter_stop_past_the_window_warns(env):
+    """A safe depleter (WORKERS) stopped under ON_OOM RETURN after buffering more than WINDOW
+    rows keeps them, and the merger takes only WINDOW without reading the stop. A stop at any
+    call before the merger's own consume calls, so after WINDOW rows buffered too, replies the
+    OOM warning. Those calls are the query's calls before its last upstream's WINDOW consume
+    calls and the tail's buffering and replay calls (one each per merged row)."""
+    window = 4
+    _hybrid_index_on_a_line(env, lambda i: ' '.join(['hello'] * (i + 1)))
+    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
+             'COMBINE', 'RRF', 2, 'WINDOW', window, 'LIMIT', 0, N_DOCS,
+             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+    try:
+        _set_policies(env, 'return', 'return', 2)
+        full = len(env.cmd(*query)['results'])
+        env.assertGreater(full, window)
+        before_merger = _checkpoint_calls(env, query) - 2 * full - window
+        for at_call in range(1, before_merger + 1):
+            _memory_pressure(env, 'AT_CALL', at_call)
+            res = env.cmd(*query)
+            _memory_pressure(env, 'RESET')
+            env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=(at_call, res))
+    finally:
+        _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_hybrid_stop_past_the_offset_warns(env):
     """A tail sorter stopped while filling holds OFFSET + LIMIT rows at most, so the pager can end
     the reply before the stop is read."""
