@@ -484,7 +484,7 @@ typedef struct RPEvaluator {
 
 static int rpevalCommon(RPEvaluator *pc, SearchResult *r) {
   // Checked before the next row, so the arena growth of the previous evaluation is counted.
-  if (RP_FillShouldStop(&pc->base, &pc->memoryCheckCalls)) {
+  if (RP_FillShouldCut(&pc->base, &pc->memoryCheckCalls)) {
     return RS_RESULT_TIMEDOUT;
   }
   /** Get the upstream result */
