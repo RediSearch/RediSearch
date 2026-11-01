@@ -1090,27 +1090,31 @@ def _syndump_checks_pressure_per_group_id(env):
     """A term in more groups than the read interval gets a checkpoint per group ID, not one per
     term: pressure that lands on a later ID ends the dump with the OOM error in place of that
     term's groups, and the reply stays a well-formed map in both protocols."""
+    def flat(res):
+        # RESP3 decodes the map to a dict: flatten it to RESP2's term, groups, term, groups order.
+        if isinstance(res, dict):
+            return [x for kv in res.items() for x in kv]
+        return res
+
     env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
     groups = 300
     for g in range(groups):
         env.cmd('FT.SYNUPDATE', 'tidx', f'group{g}', 'term0', 'term1')
-    env.assertEqual(len(env.cmd('FT.SYNDUMP', 'tidx')), 4)
+    env.assertEqual(len(flat(env.cmd('FT.SYNDUMP', 'tidx'))), 4)
     try:
         # Calls 1..300 belong to the first term, 301..600 to the second.
         _memory_pressure(env, 'AT_CALL', groups + 100)
-        res = env.cmd('FT.SYNDUMP', 'tidx')
-        env.assertEqual(len(res), 4 if env.protocol == 2 else 2, message=res)
-        if env.protocol == 2:
-            env.assertEqual(len(res[1]), groups, message=res)
-            env.assertTrue(isinstance(res[3], redis_exceptions.ResponseError)
-                           and OOM_QUERY_ERROR in str(res[3]), message=res)
-        else:
-            env.assertEqual(sum(isinstance(v, redis_exceptions.ResponseError)
-                                for v in res.values()), 1, message=res)
+        res = flat(env.cmd('FT.SYNDUMP', 'tidx'))
+        env.assertEqual(len(res), 4, message=res)
+        env.assertEqual(len(res[1]), groups, message=res)
+        env.assertTrue(isinstance(res[3], redis_exceptions.ResponseError)
+                       and OOM_QUERY_ERROR in str(res[3]), message=res)
         # A stop inside the first term's IDs leaves only that term, with the error.
         _memory_pressure(env, 'AT_CALL', 100)
-        res = env.cmd('FT.SYNDUMP', 'tidx')
-        env.assertEqual(len(res), 2 if env.protocol == 2 else 1, message=res)
+        res = flat(env.cmd('FT.SYNDUMP', 'tidx'))
+        env.assertEqual(len(res), 2, message=res)
+        env.assertTrue(isinstance(res[1], redis_exceptions.ResponseError)
+                       and OOM_QUERY_ERROR in str(res[1]), message=res)
     finally:
         _reset(env)
 
