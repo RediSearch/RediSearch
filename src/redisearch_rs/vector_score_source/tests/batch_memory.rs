@@ -131,3 +131,41 @@ fn a_filter_exhausted_by_its_first_batch_is_not_stopped() {
     assert_eq!(it.metrics().num_batches, 1);
     assert_eq!(stop_reason(&index), QueryStopReason_QUERY_STOP_REASON_NONE);
 }
+
+/// An adhoc scan over the docs `1..=FILTERED` with a k that exceeds them, so it ends by exhausting
+/// the filter: every match is retained with its captured child record.
+fn adhoc_top_k(index: &TestIndex) -> FarFilterTopK<'_> {
+    let k = FILTERED as usize + 5;
+    let source = index.source(uniform_blob(N as f32, DIM), N, k, FILTERED as usize);
+    TopKIterator::new_with_mode(
+        source,
+        Some(make_child((1..=FILTERED).collect())),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        TopKMode::AdhocBF,
+    )
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn an_adhoc_scan_shorter_than_the_read_interval_stops_for_oom_at_its_end() {
+    for index in [TestIndex::flat(N, DIM), TestIndex::hnsw(N, DIM)] {
+        let _pressure = ForcedMemoryRatio::set(1.0);
+        let mut it = adhoc_top_k(&index);
+
+        assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+        assert_eq!(stop_reason(&index), QueryStopReason_QUERY_STOP_REASON_OOM);
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn an_adhoc_scan_below_the_memory_limit_runs_to_the_end() {
+    let index = TestIndex::flat(N, DIM);
+    let _pressure = ForcedMemoryRatio::set(0.99);
+    let mut it = adhoc_top_k(&index);
+
+    let expected: Vec<DocId> = (1..=FILTERED).rev().collect();
+    assert_eq!(collect_ids(&mut it), expected);
+    assert_eq!(stop_reason(&index), QueryStopReason_QUERY_STOP_REASON_NONE);
+}
