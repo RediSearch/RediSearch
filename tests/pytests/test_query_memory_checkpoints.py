@@ -467,6 +467,36 @@ def test_sorter_stop_over_cursor_reads(env):
     env.assertEqual(cursor, 0)
 
 
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_normalizer_stop_over_cursor_reads(env):
+    """A normalizer stopped while pooling yields its pooled rows across cursor reads, normalized by
+    the max among them; the read that ends them carries the OOM warning and closes the cursor."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'body', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'doc{i}', 'body', ' '.join(['hello'] * (i + 1) + ['x'] * 5))
+    query = ('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'BM25STD.NORM', 'ADDSCORES',
+             'LOAD', 1, '@__key')
+    k = 4
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+    try:
+        res, cursor = env.cmd(*query, 'WITHCURSOR', 'COUNT', 3)
+    finally:
+        memory_pressure(env, 'RESET')
+    rows = res['results']
+    env.assertEqual(len(rows), 3, message=res)
+    env.assertEqual(res['warning'], [], message=res)
+    env.assertNotEqual(cursor, 0)
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+    rows += res['results']
+    env.assertEqual(sorted(r['extra_attributes']['__key'] for r in rows),
+                    [f'doc{i}' for i in range(k)], message=rows)
+    env.assertEqual(max(float(r['extra_attributes']['__score']) for r in rows), 1.0, message=rows)
+    env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+    env.assertEqual(cursor, 0)
+
+
 @skip(cluster=False)
 @env_spec(protocol=3)
 def test_shard_sorter_stop_reaches_the_coordinator(env):
