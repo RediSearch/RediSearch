@@ -97,6 +97,18 @@ TEST_F(HybridApplyOomStopTest, mergerTimeoutFromASubqueryOomStopIsNotATimeout) {
   EXPECT_TRUE(QueryError_HasQueryOOMWarning(tailErr()));
 }
 
+// Another subquery's genuine timeout is what the merger reports: it must not be downgraded to a
+// partial reply because a sibling stopped for OOM.
+TEST_F(HybridApplyOomStopTest, concurrentSubqueryTimeoutStaysATimeout) {
+  hreq->base.reqConfig.oomPolicy = OomPolicy_Return;
+  stopSubqueryForOom(0);
+  QueryRequestTimeout_RequestStop(&hreq->requests[1]->base.timeout, QUERY_STOP_REASON_TIMEOUT);
+  hreq->subqueriesReturnCodes[1] = RS_RESULT_TIMEDOUT;
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(hreq->subqueriesReturnCodes[0], RS_RESULT_EOF);
+  EXPECT_EQ(hreq->subqueriesReturnCodes[1], RS_RESULT_TIMEDOUT);
+}
+
 TEST_F(HybridApplyOomStopTest, subqueryOomStopFailsUnderOnOomFail) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
   stopSubqueryForOom(0);
