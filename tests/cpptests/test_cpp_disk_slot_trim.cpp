@@ -1404,7 +1404,7 @@ TEST_F(DiskSlotTrimTest, NotificationRegistrationFailureRetriesFromCronWithoutCr
   EXPECT_FALSE(pendingFilter());
 }
 
-TEST_F(DiskSlotTrimTest, IndexRdbRoundTripPreservesRetainedTrimsAndLegacyStreamAlignment) {
+TEST_F(DiskSlotTrimTest, IndexRdbRoundTripRetainsCleanupOnlyWithSstState) {
   api.basic.indexSpecRdbSave = [](RedisModuleIO *io, RedisSearchDiskIndexSpec *) {
     RedisModule_SaveUnsigned(io, 719);
   };
@@ -1413,7 +1413,11 @@ TEST_F(DiskSlotTrimTest, IndexRdbRoundTripPreservesRetainedTrimsAndLegacyStreamA
     return reinterpret_cast<RedisSearchDiskRdbState *>(rm_malloc(1));
   };
   api.basic.freeRdbState = [](RedisSearchDiskRdbState *saved) { rm_free(saved); };
-  for (int version : {INDEX_SST_SPEC_ID_VERSION, INDEX_CURRENT_VERSION}) {
+  for (const auto [version, useSst] : {std::pair{INDEX_SST_SPEC_ID_VERSION, false},
+                                      std::pair{INDEX_CURRENT_VERSION, false},
+                                      std::pair{INDEX_SST_SPEC_ID_VERSION, true},
+                                      std::pair{INDEX_CURRENT_VERSION, true}}) {
+    SCOPED_TRACE(useSst);
     SCOPED_TRACE(version);
     const char *args[] = {"SCHEMA", "t", "TEXT"};
     QueryError error = QueryError_Default();
@@ -1432,8 +1436,8 @@ TEST_F(DiskSlotTrimTest, IndexRdbRoundTripPreservesRetainedTrimsAndLegacyStreamA
     rm_free(slots);
     auto *io = RMCK_CreateRdbIO();
     for (int record = 0; record < 2; ++record) {
-      IndexSpec_RdbSave(io, source, REDISMODULE_CTX_FLAGS_SST_RDB);
-      if (version == INDEX_SST_SPEC_ID_VERSION) {
+      IndexSpec_RdbSave(io, source, useSst ? REDISMODULE_CTX_FLAGS_SST_RDB : 0);
+      if (useSst && version == INDEX_SST_SPEC_ID_VERSION) {
         // Version 29 ends at the backend state; it has no retained-notification count.
         io->buffer.resize(io->buffer.size() - sizeof(uint64_t));
       }
@@ -1442,9 +1446,10 @@ TEST_F(DiskSlotTrimTest, IndexRdbRoundTripPreservesRetainedTrimsAndLegacyStreamA
     StrongRef_Release(sourceRef);
     io->read_pos = 0;
     for (int record = 0; record < 2; ++record) {
-      IndexSpec *loaded = IndexSpec_RdbLoad(io, version, true, &error);
+      IndexSpec *loaded = IndexSpec_RdbLoad(io, version, useSst, &error);
       ASSERT_NE(loaded, nullptr) << QueryError_GetUserError(&error);
-      if (version == INDEX_CURRENT_VERSION) {
+      EXPECT_EQ(loaded->pendingDiskRdbState != nullptr, useSst);
+      if (useSst && version == INDEX_CURRENT_VERSION) {
         ASSERT_NE(loaded->docs.pendingSlotDeletions, nullptr);
         EXPECT_EQ(loaded->docs.pendingSlotDeletions->maxDocId, 17u);
         EXPECT_EQ(loaded->docs.pendingSlotDeletions->diskTrimId, 0u);
