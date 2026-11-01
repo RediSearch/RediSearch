@@ -20,7 +20,7 @@ extern "C" {
 int RS_VecSimCheckTimeout(QueryRequestTimeout *timeout);
 
 // The memory checkpoint of the Rust vector iterators, taken where they hold a whole VecSim reply.
-// Returns nonzero when the query should stop (see QueryMemory_ShouldStop), which under memory
+// Returns nonzero when the query should stop (see QueryMemory_ShouldStopNow), which under memory
 // pressure first requests the stop with reason OOM. Reads memory on every call: each call follows
 // a VecSim search that costs far more than the read.
 int RS_VecSimCheckMemory(QueryRequestTimeout *timeout);
