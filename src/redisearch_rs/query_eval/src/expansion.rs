@@ -32,6 +32,28 @@ unsafe extern "C" {
     fn QueryMemory_ShouldStop(timeout: *mut ffi::QueryRequestTimeout, counter: *mut u32) -> bool;
 }
 
+/// Whether the query should stop for memory pressure (or an earlier stop), ending an
+/// expansion early. The cap is user-configurable up to `u32::MAX`, so the readers opened
+/// by an expansion can add up to real memory before the build checkpoint runs.
+///
+/// Only the stop is requested: the build checkpoint after the evaluation turns it into
+/// the ON_OOM reply, so the iterators gathered so far are still returned. Only FT.SEARCH and
+/// FT.AGGREGATE take part, plus requests that opt in with
+/// [`checks_expansion_memory`](QueryEvalContext::checks_expansion_memory): FT.EXPLAIN never
+/// runs its plan, and hybrid subqueries opt in as their build reads memory.
+pub(crate) fn memory_stop(ctx: &mut QueryEvalContext) -> bool {
+    if !ctx
+        .req_flags()
+        .intersects(QEFlag::IsSearch | QEFlag::IsAggregate)
+        && !ctx.checks_expansion_memory()
+    {
+        return false;
+    }
+    let timeout = ctx.sctx().timeout;
+    // SAFETY: the counter is a live `u32` and `timeout` is the request's own, or null.
+    unsafe { QueryMemory_ShouldStop(timeout, ctx.memory_counter_mut()) }
+}
+
 /// Open a search-on-disk reader for a single expanded term, wrapping the
 /// enterprise disk iterator as a [`CRQEIterator`].
 ///
@@ -248,28 +270,9 @@ impl Expansion<'_> {
         }
     }
 
-    /// Whether the query should stop for memory pressure (or an earlier stop), ending the
-    /// expansion early. The cap is user-configurable up to `u32::MAX`, so the readers opened
-    /// here can add up to real memory before the build checkpoint runs.
-    ///
-    /// Only the stop is requested: the build checkpoint after the evaluation turns it into
-    /// the ON_OOM reply, so the iterators gathered so far are still returned. Only FT.SEARCH and
-    /// FT.AGGREGATE take part, plus requests that opt in with
-    /// [`checks_expansion_memory`](QueryEvalContext::checks_expansion_memory): FT.EXPLAIN never
-    /// runs its plan, and hybrid subqueries opt in as their build reads memory.
+    /// See [`memory_stop`](fn@memory_stop).
     fn memory_stop(&mut self) -> bool {
-        if !self
-            .ctx
-            .req_flags()
-            .intersects(QEFlag::IsSearch | QEFlag::IsAggregate)
-            && !self.ctx.checks_expansion_memory()
-        {
-            return false;
-        }
-        let timeout = self.ctx.sctx().timeout;
-        // SAFETY: `timeout` is the request's timeout, valid for the evaluation (the invariant of
-        // `QueryEvalContext::new`), and the counter is a valid, exclusive `u32`.
-        unsafe { QueryMemory_ShouldStop(timeout, self.ctx.memory_counter_mut()) }
+        memory_stop(self.ctx)
     }
 
     /// Whether the expansion cap has been reached, recording the "reached max

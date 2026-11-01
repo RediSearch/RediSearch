@@ -489,6 +489,10 @@ static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
     return code == QUERY_ERROR_CODE_NO_PROP_VAL;
 }
 
+bool HybridRequest_IsSoftTailError(const QueryError *err) {
+  return QueryError_HasError(err) && isSoftTailPipelineErrorCode(QueryError_GetCode(err));
+}
+
 /* Borrow the first fatal error. Soft tail errors stay in the request for warning serialization. */
 QueryError *HybridRequest_GetFatalError(HybridRequest *hreq) {
   if (!hreq) return NULL;
