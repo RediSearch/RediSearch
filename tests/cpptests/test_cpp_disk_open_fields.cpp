@@ -303,6 +303,18 @@ TEST_F(DiskSchemaOpenTest, ReplicatedMissingStorageFailureAborts) {
       "");
 }
 
+TEST_F(DiskSchemaOpenTest, ReplicatedResourcePreparationFailureAborts) {
+  Restore<decltype(RedisModule_GetContextFlags)> flags{RedisModule_GetContextFlags};
+  RedisModule_GetContextFlags = [](RedisModuleCtx *) { return REDISMODULE_CTX_FLAGS_REPLICATED; };
+  api.basic.updateMemoryLimit = [](RedisSearchDisk *, size_t, size_t) { return false; };
+  EXPECT_DEATH(
+      {
+        QueryError err = QueryError_Default();
+        create("replicated_prepare_fail", {"title", "TEXT"}, &err);
+      },
+      "");
+}
+
 class DiskSchemaOpenLoadTest : public DiskSchemaOpenTest {
  protected:
   RedisModuleIO *io = nullptr;

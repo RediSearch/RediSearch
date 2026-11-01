@@ -345,6 +345,7 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
                                                bool deleteBeforeOpen, IndexSpec *c_index_spec) {
   RS_ASSERT(disk_db && c_index_spec);
   if (!SearchDisk_PrepareLogicalOpen()) {
+    SearchDisk_CheckOpenResult(ctx, NULL);
     return NULL;
   }
   SearchDiskField *fields = SearchDisk_DescribeFields(c_index_spec);
@@ -415,6 +416,7 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndexWithRdbState(
   RS_ASSERT(disk && disk_db && indexName && rdbState && c_index_spec);
   if (!SearchDisk_PrepareLogicalOpen()) {
     disk->basic.freeRdbState(rdbState);
+    SearchDisk_CheckOpenResult(ctx, NULL);
     return NULL;
   }
   SearchDiskField *fields = SearchDisk_DescribeFields(c_index_spec);
