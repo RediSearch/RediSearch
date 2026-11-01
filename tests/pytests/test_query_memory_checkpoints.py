@@ -174,16 +174,17 @@ def hybrid_result_count(res):
 
 @skip(cluster=True)
 def test_hybrid_build_checkpoint_fails_before_execution(env):
-    """Under ON_OOM FAIL, FT.HYBRID reads memory after building each subquery, and pressure at
-    either fails the query with the OOM error before it runs. Under ON_OOM RETURN a stop there
-    replies the OOM warning instead."""
+    """Under ON_OOM FAIL, FT.HYBRID reads memory before building the first subquery (where a
+    queued job starts) and after building each one, and pressure at any of them fails the query
+    with the OOM error before it runs. Under ON_OOM RETURN a stop there replies the OOM warning
+    instead."""
     create_hybrid_index(env)
     full = hybrid_result_count(env.cmd(*HYBRID))
     env.assertGreater(full, 0)
     with oom_policy(env, 'fail'):
         for workers in worker_counts(env):
-            # Calls from 3 on are runtime checkpoints, which fail it the same way.
-            for at_call in (1, 2, 3):
+            # Calls from 4 on are runtime checkpoints, which fail it the same way.
+            for at_call in (1, 2, 3, 4):
                 expect_oom_error_at_call(env, at_call, *HYBRID)
     # Under ON_OOM RETURN a subquery stopped at build reads nothing and the query replies the
     # OOM warning.
@@ -671,3 +672,39 @@ def test_expression_stop_ends_the_stream(env):
                 expect_oom_error_at_call(env, at_call, *query)
             with oom_policy(env, 'ignore'):
                 env.assertEqual(len(run_at_call(env, at_call, *query)['results']), N_DOCS)
+
+
+N_PREFIX_TERMS = 400
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_term_expansion_checks_memory_per_expanded_term(env):
+    """A prefix or wildcard expansion reads memory as it opens one reader per expanded term, so
+    pressure partway through, past the default MAXPREFIXEXPANSIONS, ends the expansion there: the
+    build stops under ON_OOM RETURN (empty result with the OOM warning) and fails under ON_OOM FAIL.
+    The call count shows that no further term was opened."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_PREFIX_TERMS):
+        conn.execute_command('HSET', f'doc{i}', 't', f'pre{i}')
+    env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1000).ok()
+    try:
+        for workers in worker_counts(env):
+            for query in (('FT.SEARCH', 'idx', '@t:pre*', 'NOCONTENT'),
+                          ('FT.SEARCH', 'idx', "@t:w'pre*'", 'NOCONTENT')):
+                # Call 1 is the build entry; the later calls are the expanded terms.
+                for at_call in (5, 250):
+                    memory_pressure(env, 'AT_CALL', at_call)
+                    try:
+                        expect_empty_with_oom_warning(env, env.cmd(*query))
+                        env.assertEqual(checkpoint_calls(env), at_call)
+                    finally:
+                        memory_pressure(env, 'RESET')
+                    with oom_policy(env, 'fail'):
+                        expect_oom_error_at_call(env, at_call, *query)
+
+                res = env.cmd(*query)
+                env.assertEqual(res['total_results'], N_PREFIX_TERMS, message=res)
+    finally:
+        env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 200).ok()

@@ -108,6 +108,7 @@ pub(crate) fn eval<'index>(
         is_disk,
         needs_offsets,
         max_expansions: config.max_prefix_expansions,
+        memory_counter: 0,
     };
 
     let children = if match_suffix && !suffix_trie.is_null() {
