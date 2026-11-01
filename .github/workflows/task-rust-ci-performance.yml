@@ -6,33 +6,11 @@ on:
 permissions: {}
 
 jobs:
-  image:
-    permissions:
-      contents: read
-      packages: write
-    uses: ./.github/workflows/task-build-cached-container.yml
-    with:
-      container: ubuntu:focal
-      runner-env: staging-u-x64-medium
-      san: none
-
-  require-image:
-    needs: image
-    if: always()
-    runs-on: ubuntu-slim
-    steps:
-      - name: Require the common experiment image
-        env:
-          IMAGE_READY: ${{ needs.image.outputs.succeeded }}
-        run: test "$IMAGE_READY" = true
-
   measure:
-    needs: image
-    if: needs.image.outputs.succeeded == 'true'
     name: ${{ matrix.instance }} / jobs=${{ matrix.jobs }} / repeat=${{ matrix.repeat }}
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 8
       matrix:
         repeat: [1, 2]
         instance: [m6i.xlarge, r7i.xlarge]
@@ -45,7 +23,7 @@ jobs:
       contents: read
       packages: read
     container:
-      image: ${{ needs.image.outputs.image }}
+      image: ghcr.io/redisearch/redisearch-ci@sha256:615f4892c915d92825a256675873b106ddd03464d4e4e30d696d6b41b8f7ece4
       options: --user root
     defaults:
       run:
@@ -65,7 +43,7 @@ jobs:
       BENCH_INSTANCE: ${{ matrix.instance }}
       BENCH_JOBS: ${{ matrix.jobs }}
       BENCH_REPEAT: ${{ matrix.repeat }}
-      BENCH_IMAGE: ${{ needs.image.outputs.image }}
+      BENCH_IMAGE: ghcr.io/redisearch/redisearch-ci@sha256:615f4892c915d92825a256675873b106ddd03464d4e4e30d696d6b41b8f7ece4
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -88,9 +66,14 @@ jobs:
           test ! -d bin/redisearch_rs
           git rev-parse HEAD > performance-results/source.txt
           git submodule status --recursive >> performance-results/source.txt
-          rustc --version > performance-results/toolchain.txt
+          rustc --version --verbose > performance-results/toolchain.txt
           cargo --version >> performance-results/toolchain.txt
-          clang --version >> performance-results/toolchain.txt
+          llvm_major=$(sed -n 's/^LLVM version: \([0-9]*\).*/\1/p' performance-results/toolchain.txt)
+          if command -v "clang-$llvm_major" >/dev/null; then
+            "clang-$llvm_major" --version >> performance-results/toolchain.txt
+          else
+            clang --version >> performance-results/toolchain.txt
+          fi
           lscpu > performance-results/cpu.txt
           cat /proc/meminfo > performance-results/memory-before.txt
           df -h > performance-results/disk-before.txt
