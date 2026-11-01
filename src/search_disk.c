@@ -833,8 +833,3 @@ bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
   RS_ASSERT(disk && disk->slotMigration.applyTrimBatch);
   return disk->slotMigration.applyTrimBatch(index, batch);
 }
-
-bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk && disk->slotMigration.hasPendingCleanup);
-  return disk->slotMigration.hasPendingCleanup(index);
-}
