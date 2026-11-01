@@ -74,6 +74,12 @@ void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
   }
 }
 
+// Whether the subquery's term expansions sample memory. Hybrid reads memory at build under FAIL
+// only (see the checks in the build loop), so the expansion samples follow the same policy.
+static bool subqueryChecksExpansionMemory(const AREQ *areq) {
+  return IsHybridSearchSubquery(areq) && areq->base.reqConfig.oomPolicy == OomPolicy_Fail;
+}
+
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
@@ -98,6 +104,15 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
           rs_wall_clock_init(&areq->profileClocks.initClock);
         }
 
+        // The first subquery's build is the job's first allocation, after any queue wait.
+        // Only FAIL is decided at build; see the check after the pipeline below.
+        if (i == 0 && areq->base.reqConfig.oomPolicy == OomPolicy_Fail &&
+            QueryMemory_CheckBeforeExecution(&areq->base.timeout, areq->base.reqConfig.oomPolicy,
+                                             &areq->base.reply.err) != REDISMODULE_OK) {
+            rc = REDISMODULE_ERR;
+            break;
+        }
+
         // Pin the per-subquery disk view to the same point in time as the in-memory
         // trie/stats that QAST_Iterate is about to consult. Callers hold the spec read
         // lock at this point (matching AREQ_Execute_Callback / HREQ_Execute_Callback).
@@ -107,6 +122,10 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &areq->base.reply.err) != REDISMODULE_OK) {
             rc = REDISMODULE_ERR;
             break;
+        }
+
+        if (subqueryChecksExpansionMemory(areq)) {
+          areq->searchopts.flags |= Search_CheckExpansionMemory;
         }
 
         // Parse subquery: Convert AST to iterator tree
