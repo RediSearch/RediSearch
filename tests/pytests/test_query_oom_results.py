@@ -17,7 +17,6 @@ from test_info_modules import (
     COORD_WARN_ERR_SECTION, OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC,
     info_modules_to_dict,
 )
-import json
 import threading
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
@@ -683,8 +682,9 @@ def test_hybrid_coordinator_stop_replies_by_on_oom_policy(env):
     def disarm():
         coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
 
+    # Keys only: a stopped subquery changes the fused scores of the rows that remain.
     def row_ids(res):
-        return [json.dumps(row, sort_keys=True) for row in res['results']]
+        return [row['__key'] for row in res['results']]
 
     full = row_ids(env.cmd(*HYBRID))
     env.assertGreater(len(full), 0)
