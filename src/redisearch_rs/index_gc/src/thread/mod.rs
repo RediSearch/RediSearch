@@ -176,22 +176,42 @@ impl DocLiveness for DeletedIds<'_> {
 /// denied delta leaves uncollected.
 type Tail = Option<RangeInclusive<DocId>>;
 
-struct Driver<'a, S, G> {
+struct Driver<'a, 'd, S, G> {
     spec: &'a mut S,
     sink: &'a mut G,
     report: LockReport,
-    deleted: DeletedIds<'a>,
+    deleted: DeletedIds<'d>,
     /// Deleted IDs this cycle could not collect every entry of; they stay in the set.
     retained: RoaringTreemap,
 }
 
 type StopCheck<'s> = &'s mut dyn FnMut() -> bool;
 
+/// [`Driver::run`]'s working vectors, kept across its read and write holds, and
+/// across the numeric trees, so a cycle allocates them once per scanner rather
+/// than once per hold.
+struct Buffers<F, E> {
+    /// The copies one read hold took.
+    found: Vec<F>,
+    /// Deltas waiting for the next write hold.
+    pending: Vec<(E, Tail)>,
+}
+
+impl<F, E> Buffers<F, E> {
+    fn new() -> Self {
+        Self {
+            // A hold copies at most one index per key it visits.
+            found: Vec::with_capacity(KEYS_PER_HOLD),
+            pending: Vec::new(),
+        }
+    }
+}
+
 /// A scan-chunk function over a key list made up front: resumes where the
 /// previous chunk stopped. Returns whether keys remain.
 fn keyed<'k, K, E>(
     keys: &'k [K],
-    scan: impl Fn(&IndexSpecReadGuard<'_>, &K) -> Option<E> + 'k,
+    scan: impl Fn(&IndexSpecReadGuard<'_>, &'k K) -> Option<E> + 'k,
 ) -> impl FnMut(&IndexSpecReadGuard<'_>, StopCheck<'_>, &mut Vec<E>) -> bool + 'k {
     let mut next = 0;
     move |guard, should_stop, found| {
@@ -208,7 +228,7 @@ fn keyed<'k, K, E>(
     }
 }
 
-impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, S, G> {
+impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
     fn read<T>(&mut self, scan: impl FnOnce(&IndexSpecReadGuard<'_>) -> T) -> Result<T, GcError> {
         let result = self.spec.with_read(|guard| {
             let start = Instant::now();
@@ -246,29 +266,30 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, S, G> {
     /// and the ID span of its last block, or `Ok(None)` when the copy is clean;
     /// `apply` lands a delta under the write lock. Returns whether any delta was
     /// applied.
+    ///
+    /// `buffers` is left empty, its capacity kept for the next call.
     fn run<F, E>(
         &mut self,
         scanner: &'static str,
+        buffers: &mut Buffers<F, E>,
         mut scan_chunk: impl FnMut(&IndexSpecReadGuard<'_>, StopCheck<'_>, &mut Vec<F>) -> bool,
         mut process: impl FnMut(F) -> std::io::Result<Option<(E, Tail)>>,
         mut apply: impl FnMut(E, &mut IndexSpecWriteGuard<'_>) -> Result<GcApplyStats, GcError>,
     ) -> Result<bool, GcError> {
+        let Buffers { found, pending } = buffers;
         let mut had_work = false;
-        let mut pending: Vec<(E, Tail)> = Vec::new();
 
         loop {
-            let (found, more) = self.read(|guard| {
+            let more = self.read(|guard| {
                 let mut visited = 0;
                 let mut should_stop = || {
                     visited += 1;
                     visited >= KEYS_PER_HOLD
                 };
-                let mut found = Vec::new();
-                let more = scan_chunk(guard, &mut should_stop, &mut found);
-                (found, more)
+                scan_chunk(guard, &mut should_stop, found)
             })?;
 
-            for copy in found {
+            for copy in found.drain(..) {
                 match process(copy) {
                     Ok(Some(entry)) => pending.push(entry),
                     Ok(None) => {}
@@ -280,10 +301,9 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, S, G> {
             }
             if !pending.is_empty() && (!more || pending.len() >= DELTAS_PER_APPLY) {
                 had_work = true;
-                let entries = std::mem::take(&mut pending);
                 let mut retained = std::mem::take(&mut self.retained);
                 let result = self.write(|guard, stats| {
-                    for (entry, tail) in entries {
+                    for (entry, tail) in pending.drain(..) {
                         match apply(entry, guard) {
                             Ok(entry_stats) => {
                                 if entry_stats.blocks_denied > 0
@@ -306,6 +326,8 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, S, G> {
             }
 
             if !more {
+                // An error above can leave copies behind, but the cycle ends with it.
+                debug_assert!(pending.is_empty());
                 return Ok(had_work);
             }
         }
@@ -316,6 +338,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, S, G> {
         let live = self.deleted;
         self.run(
             "terms",
+            &mut Buffers::new(),
             |guard, should_stop, found| {
                 scan_terms_after(guard, &mut cursor, live, should_stop, found)
             },
@@ -337,10 +360,13 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, S, G> {
         // A tree has far fewer nodes than entries, so listing them in one hold is cheap.
         let trees = self.read(numeric_tree_keys)?;
         let live = self.deleted;
+        let mut buffers = Buffers::new();
+        let mut listed = HashSet::new();
         for tree in &trees {
             let resolved = tree.resolved();
             let had_work = self.run(
                 "numeric",
+                &mut buffers,
                 keyed(&tree.nodes, |guard, &node_idx: &NodeIndex| {
                     snapshot_numeric_node(guard, tree, node_idx, &live)
                 }),
@@ -365,7 +391,8 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, S, G> {
 
             // A leaf split since the nodes were listed copied its entries, deleted ones
             // included, into leaves this cycle never scanned; their IDs stay in the set.
-            let listed: HashSet<NodeIndex> = tree.nodes.iter().copied().collect();
+            listed.clear();
+            listed.extend(tree.nodes.iter().copied());
             for range in self.read(|guard| ranges_of_nodes_added_since(guard, tree, &listed))? {
                 self.retained.insert_range(range);
             }
@@ -391,6 +418,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, S, G> {
         let live = self.deleted;
         self.run(
             "tags",
+            &mut Buffers::new(),
             |guard, should_stop, found| {
                 scan_tags_after(guard, &mut cursor, live, should_stop, found)
             },
@@ -412,11 +440,12 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, S, G> {
         let live = self.deleted;
         self.run(
             "missing docs",
+            &mut Buffers::new(),
             keyed(&keys, |guard, field_name: &CString| {
                 snapshot_missing_field(guard, field_name, &live)
-                    .map(|snapshot| (field_name.clone(), snapshot))
+                    .map(|snapshot| (field_name, snapshot))
             }),
-            |(field_name, snapshot): (CString, InvertedIndex)| {
+            |(field_name, snapshot): (&CString, InvertedIndex)| {
                 let tail = snapshot.last_block_doc_id_range();
                 let unique_id = u32::from(snapshot.unique_id());
                 Ok(snapshot
@@ -424,7 +453,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, S, G> {
                     .map(|delta| ((field_name, unique_id, delta), tail)))
             },
             |(field_name, unique_id, delta), guard| {
-                apply_missing_docs_with(&field_name, unique_id, delta, Some(&live), guard)
+                apply_missing_docs_with(field_name, unique_id, delta, Some(&live), guard)
             },
         )?;
         Ok(())
@@ -434,6 +463,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, S, G> {
         let live = self.deleted;
         self.run(
             "existing docs",
+            &mut Buffers::new(),
             keyed(&[()], move |guard, ()| snapshot_existing_docs(guard, &live)),
             |snapshot: InvertedIndex| {
                 let tail = snapshot.last_block_doc_id_range();
@@ -504,7 +534,8 @@ pub fn run_cycle(
         retained,
         ..
     } = driver;
-    let collected = &dead - retained;
+    let mut collected = dead;
+    collected -= retained;
     spec.with_write(|guard| {
         if let Some(set) = guard.deleted_docs_mut() {
             set.prune(&collected);
