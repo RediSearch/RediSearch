@@ -16,6 +16,7 @@ use std::mem;
 
 use index_gc::DocExistence;
 use index_spec::IndexSpecReadGuard;
+use inverted_index::DocLiveness;
 use roaring::RoaringTreemap;
 use rqe_core::DocId;
 
@@ -185,4 +186,62 @@ fn ids_above_the_max_doc_id_of_the_set_fall_back_to_the_lookup() {
 
     assert!(docs.contains(5));
     assert!(!docs.contains(20));
+}
+
+/// `any_gone` must be exact for a range the snapshot answers for: a `false` hides
+/// that range's gone docs from the scan. Checked against `contains` on every range.
+fn assert_any_gone_matches_contains(docs: &DocExistence, ids: std::ops::RangeInclusive<DocId>) {
+    for first in ids.clone() {
+        for last in first..=*ids.end() {
+            let expected = (first..=last).any(|id| !docs.contains(id));
+            assert_eq!(
+                (&docs).any_gone(first, last),
+                expected,
+                "range {first}..={last}"
+            );
+        }
+    }
+}
+
+#[test]
+fn any_gone_from_the_bitmap_matches_contains() {
+    // Gone ids at both ends of a word and across a word boundary.
+    let table = TestTable::new(
+        10,
+        (1..=130).map(|id| (id, [1, 63, 64, 65, 129].contains(&id))),
+    );
+    let guard = table.guard();
+    let docs = DocExistence::snapshot(&guard);
+    assert_any_gone_matches_contains(&docs, 1..=130);
+}
+
+#[test]
+fn any_gone_from_the_ids_matches_contains() {
+    let table = TestTable::new(1, []);
+    let guard = table.guard();
+    let ids: RoaringTreemap = (1..=40)
+        .filter(|id| ![3, 17, 18, 40].contains(id))
+        .collect();
+    let docs = DocExistence::with_ids(&guard, ids, 40);
+    assert_any_gone_matches_contains(&docs, 1..=40);
+}
+
+/// Past what the snapshot answers for, `contains` asks the table, so `any_gone`
+/// cannot rule the range clean.
+#[test]
+fn any_gone_past_the_snapshot_may_be_gone() {
+    let table = TestTable::new(1, []);
+    let guard = table.guard();
+
+    let bitmap = DocExistence::with_bitmap(&guard, Box::new([u64::MAX]), 10);
+    assert!(!(&bitmap).any_gone(1, 10));
+    assert!((&bitmap).any_gone(1, 11));
+
+    let short = DocExistence::with_bitmap(&guard, Box::new([u64::MAX]), DocId::MAX);
+    assert!(!(&short).any_gone(1, 63));
+    assert!((&short).any_gone(1, 64));
+
+    let ids = DocExistence::with_ids(&guard, (1..=10).collect(), 10);
+    assert!(!(&ids).any_gone(1, 10));
+    assert!((&ids).any_gone(10, 11));
 }

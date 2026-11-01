@@ -10,6 +10,7 @@
 //! Document existence checks for the child-side scanners.
 
 use index_spec::IndexSpecReadGuard;
+use inverted_index::DocLiveness;
 use roaring::RoaringTreemap;
 use rqe_core::DocId;
 
@@ -33,7 +34,13 @@ pub struct DocExistence<'a> {
 enum LiveDocs {
     /// One bit per document id: the cheapest check, but sized by the maximum
     /// document id, which only grows because ids are never reused.
-    Bitmap(Box<[u64]>),
+    Bitmap {
+        words: Box<[u64]>,
+        /// The ids the bitmap answers for but does not hold: the gone documents,
+        /// since ids are assigned in sequence. Answers [`DocLiveness::any_gone`],
+        /// which `words` could only answer by visiting every id of a range.
+        gone: RoaringTreemap,
+    },
     /// The live ids alone, sized by their count, for a table whose maximum
     /// document id makes [`LiveDocs::Bitmap`] too large. A check costs a
     /// binary search instead of one load.
@@ -47,6 +54,7 @@ impl<'a> DocExistence<'a> {
     /// right while the table does not change, as in the forked child. Above
     /// that they come from [`IndexSpecReadGuard::doc_exists`].
     pub fn snapshot(spec: &'a IndexSpecReadGuard<'a>) -> Self {
+        let max_doc_id = spec.doc_table().maxDocId;
         let live = spec.live_doc_bitmap().map_or_else(
             || {
                 let mut ids = RoaringTreemap::new();
@@ -55,26 +63,26 @@ impl<'a> DocExistence<'a> {
                 });
                 LiveDocs::Ids(ids)
             },
-            LiveDocs::Bitmap,
+            |words| LiveDocs::bitmap(words, max_doc_id),
         );
         Self {
             spec,
             live,
-            max_doc_id: spec.doc_table().maxDocId,
+            max_doc_id,
         }
     }
 
     /// Like [`DocExistence::snapshot`], but answering from `words` for ids up
     /// to `max_doc_id`, so tests can make the bitmap and the lookup disagree.
     #[cfg(feature = "unittest")]
-    pub const fn with_bitmap(
+    pub fn with_bitmap(
         spec: &'a IndexSpecReadGuard<'a>,
         words: Box<[u64]>,
         max_doc_id: DocId,
     ) -> Self {
         Self {
             spec,
-            live: LiveDocs::Bitmap(words),
+            live: LiveDocs::bitmap(words, max_doc_id),
             max_doc_id,
         }
     }
@@ -98,7 +106,7 @@ impl<'a> DocExistence<'a> {
     pub fn contains(&self, id: DocId) -> bool {
         if id <= self.max_doc_id {
             match &self.live {
-                LiveDocs::Bitmap(words) => {
+                LiveDocs::Bitmap { words, .. } => {
                     if let Some(word) = usize::try_from(id / 64).ok().and_then(|i| words.get(i)) {
                         return word & (1 << (id % 64)) != 0;
                     }
@@ -108,6 +116,61 @@ impl<'a> DocExistence<'a> {
         }
         self.spec.doc_exists(id)
     }
+}
+
+impl DocLiveness for &DocExistence<'_> {
+    fn exists(&self, id: DocId) -> bool {
+        self.contains(id)
+    }
+
+    fn any_gone(&self, first: DocId, last: DocId) -> bool {
+        match &self.live {
+            LiveDocs::Bitmap { words, gone } => {
+                // Past what the bitmap answers for, `contains` asks the table, so a
+                // range reaching there may hold a gone id.
+                if last > bitmap_last_id(words, self.max_doc_id) {
+                    return true;
+                }
+                let mut gone = gone.iter();
+                gone.advance_to(first);
+                gone.next().is_some_and(|id| id <= last)
+            }
+            // Counted rather than kept as a gone set, which this table's maximum
+            // document id makes as large as the bitmap it replaces.
+            LiveDocs::Ids(ids) => {
+                last > self.max_doc_id || ids.range_cardinality(first..=last) <= last - first
+            }
+        }
+    }
+}
+
+impl LiveDocs {
+    fn bitmap(words: Box<[u64]>, max_doc_id: DocId) -> Self {
+        let last = bitmap_last_id(&words, max_doc_id);
+        let unset = words.iter().enumerate().flat_map(|(i, &word)| {
+            let base = i as DocId * 64;
+            let mut unset = !word;
+            std::iter::from_fn(move || {
+                (unset != 0).then(|| {
+                    let bit = unset.trailing_zeros();
+                    unset &= unset - 1;
+                    base + DocId::from(bit)
+                })
+            })
+        });
+        let gone = RoaringTreemap::from_sorted_iter(
+            unset.skip_while(|&id| id == 0).take_while(|&id| id <= last),
+        )
+        .expect("bit positions are visited in increasing order");
+        Self::Bitmap { words, gone }
+    }
+}
+
+/// The last id `words` answers for: the bitmap's end or `max_doc_id`, whichever comes first.
+fn bitmap_last_id(words: &[u64], max_doc_id: DocId) -> DocId {
+    (words.len() as DocId * 64)
+        .saturating_sub(1)
+        .min(max_doc_id)
 }
 
 /// Kept out of line so that [`DocExistence::contains`], with only the bitmap
