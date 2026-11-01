@@ -965,9 +965,10 @@ def _test_aggregate_withcount_stopped_before_fanout(env):
         for oom_policy in OOM_POLICIES:
             allShards_change_oom_policy(env, oom_policy)
             errors, warnings = coord_oom_counters(coord)
-            # Under ON_OOM RETURN the entry guard requests the stop and the query goes on: the
-            # WITHCOUNT first-reply barrier and the stream see the requested stop.
-            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+            # The entry guard answers a RATIO pressure at once, so the stop is requested at the
+            # coordinator's first build checkpoint (AT_CALL 1), after the guard and before the
+            # fan-out is dispatched. Under ON_OOM RETURN the query goes on to the stopped dispatch.
+            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
             try:
                 res = coord.execute_command(*query)
             except ResponseError as e:
@@ -994,7 +995,7 @@ def _test_aggregate_withcount_stopped_before_fanout(env):
 
 @skip(cluster=False)
 def test_aggregate_withcount_stopped_before_fanout_resp3():
-    """A stop requested before the fan-out (the ON_OOM RETURN entry guard) ends a coordinator
+    """A stop requested before the fan-out (a build checkpoint under ON_OOM RETURN) ends a coordinator
     FT.AGGREGATE WITHCOUNT once with the ON_OOM outcome and leaves no shard cursor."""
     _test_aggregate_withcount_stopped_before_fanout(Env(protocol=3))
 
@@ -1163,7 +1164,7 @@ def test_aggregate_withcount_follow_up_read_stop_dispatches():
 
 @skip(cluster=False)
 def test_aggregate_withcount_stopped_before_fanout_does_not_wait_for_shards():
-    """A request already stopped by the ON_OOM RETURN entry guard replies at once, without waiting
+    """A request already stopped by a build checkpoint (ON_OOM RETURN) replies at once, without waiting
     for any shard's first reply: every other shard is parked and the query still ends with the
     coordinator OOM warning."""
     env = Env(protocol=3, moduleArgs='WORKERS 1')
@@ -1176,8 +1177,9 @@ def test_aggregate_withcount_stopped_before_fanout_does_not_wait_for_shards():
         sync_point(shard, 'CLEAR')
         sync_point(shard, 'ARM', 'BeforeFirstRead')
     try:
-        # Raised before the query, so the entry guard (not a later checkpoint) stops it.
-        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+        # The first checkpoint call is the coordinator's first build checkpoint, past the entry
+        # guard (which answers a RATIO pressure itself) and before the fan-out is dispatched.
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
         thread, result = run_in_thread(coord, query)
         thread.join(timeout=30)
         replied_while_parked = not thread.is_alive()
