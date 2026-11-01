@@ -253,9 +253,9 @@ class Cell:
         env.assertLessEqual(len(keys), len(self.complete_keys), message=msg)
         if self.shape.kind == 'groupby':
             for r in got.rows:
-                env.assertLessEqual(int(r['c']),
-                                    self.complete_counts.get(_key_of(self.shape, r), 0),
-                                    message=msg)
+                # A returned group holds at least one row.
+                env.assertTrue(1 <= int(r['c']) <= self.complete_counts.get(_key_of(self.shape, r), 0),
+                               message=msg)
         if self.shape.order:
             ns = [_n_of(r) for r in got.rows]
             env.assertEqual(ns, sorted(ns, reverse=self.shape.order == 'desc'), message=msg)
