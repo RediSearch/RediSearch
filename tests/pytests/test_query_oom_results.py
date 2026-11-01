@@ -555,10 +555,11 @@ def test_hybrid_subquery_stop_filling_the_window_warns(env):
 @env_spec(protocol=3)
 def test_hybrid_safe_depleter_stop_past_the_window_warns(env):
     """A safe depleter (WORKERS) stopped under ON_OOM RETURN after buffering more than WINDOW
-    rows keeps them, and the merger takes only WINDOW without reading the stop. A stop at any
-    call before the merger's own consume calls, so after WINDOW rows buffered too, replies the
-    OOM warning. Those calls are the query's calls before its last upstream's WINDOW consume
-    calls and the tail's buffering and replay calls (one each per merged row)."""
+    rows keeps them, and the merger takes only WINDOW without reading the stop: the reply carries
+    the OOM warning. The calls ahead of the tail's three per merged row are the two depleters'
+    and the merger's own. The merger starts on the first depleter once it ends, while the other
+    still runs, so which of them takes a late call varies per run and a stop there may cut
+    nothing. The swept calls are the first half of those: depleter calls only."""
     window = 4
     _hybrid_index_on_a_line(env, lambda i: ' '.join(['hello'] * (i + 1)))
     query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
@@ -568,8 +569,9 @@ def test_hybrid_safe_depleter_stop_past_the_window_warns(env):
         _set_policies(env, 'return', 'return', 2)
         full = len(env.cmd(*query)['results'])
         env.assertGreater(full, window)
-        before_merger = _checkpoint_calls(env, query) - 2 * full - window
-        for at_call in range(1, before_merger + 1):
+        depleter_only = (_checkpoint_calls(env, query) - 3 * full) // 2
+        env.assertGreater(depleter_only, window)
+        for at_call in range(1, depleter_only + 1):
             _memory_pressure(env, 'AT_CALL', at_call)
             res = env.cmd(*query)
             _memory_pressure(env, 'RESET')
