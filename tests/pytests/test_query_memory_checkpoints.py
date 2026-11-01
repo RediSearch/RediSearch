@@ -481,7 +481,7 @@ def test_normalizer_stop_over_cursor_reads(env):
     query = ('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'BM25STD.NORM', 'ADDSCORES',
              'LOAD', 1, '@__key')
     k = 4
-    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + CURSOR_ADMISSION + k)
     try:
         res, cursor = env.cmd(*query, 'WITHCURSOR', 'COUNT', 3)
     finally:
