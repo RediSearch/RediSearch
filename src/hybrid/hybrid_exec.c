@@ -312,6 +312,20 @@ static bool subqueryStoppedForOom(HybridRequest *hreq) {
   return false;
 }
 
+// A subquery that ran out of time for its own reason: a stop for timeout, or an elapsed deadline
+// with no memory stop. The collapsed depletion result cannot tell it from a memory-stopped sibling.
+static bool subqueryTimedOutWithoutOom(HybridRequest *hreq) {
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    const QueryRequestTimeout *timeout = &hreq->requests[i]->base.timeout;
+    const QueryStopReason reason = QueryRequestTimeout_GetStopReason(timeout);
+    if (reason == QUERY_STOP_REASON_TIMEOUT ||
+        (reason != QUERY_STOP_REASON_OOM && QueryRequestTimeout_IsTimedOutExact(timeout))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Under FAIL a soft tail error is not selected as fatal, so it must not mask the OOM failure.
 // The tail slot outranks the subquery slots when the fatal error is selected, so an OOM installed
 // on it would hide a sibling subquery's fatal error: returns false then, leaving the slot alone.
@@ -945,8 +959,10 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
     bool depletionTimedOut = false;
     bool depletionStopped = false;
     if (rc != RS_RESULT_OK) {
-      if (rc == RS_RESULT_TIMEDOUT && subqueryStoppedForOom(req)) {
-        // Stopped for memory: ON_OOM decides, whatever ON_TIMEOUT is.
+      if (rc == RS_RESULT_TIMEDOUT && subqueryStoppedForOom(req) &&
+          (req->base.reqConfig.oomPolicy == OomPolicy_Fail || !subqueryTimedOutWithoutOom(req))) {
+        // Stopped for memory: ON_OOM decides, whatever ON_TIMEOUT is. Under ON_OOM RETURN a
+        // sibling's genuine timeout is left to ON_TIMEOUT.
         if (req->base.reqConfig.oomPolicy == OomPolicy_Fail) {
           if (!QueryError_HasError(status)) {
             QueryError_SetCode(status, QUERY_ERROR_CODE_OUT_OF_MEMORY);

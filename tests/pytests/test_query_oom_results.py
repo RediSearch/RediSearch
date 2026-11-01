@@ -1120,10 +1120,19 @@ def test_cursor_admission_after_the_withcount_fan_out(env):
     env.assertGreater(errors, 0)
 
 
+def _is_oom_error(v):
+    return isinstance(v, redis_exceptions.ResponseError) and OOM_QUERY_ERROR in str(v)
+
+
 def _split_dump(reply):
     """A dump stopped for memory ends with the OOM error in place of its next value: returns the
     values before it and whether that last element is the OOM error. A RESP3 set may come back as
-    a Python set, which has no order: there the OOM error only has to be one of its elements."""
+    a Python set, which has no order: there the OOM error only has to be one of its elements.
+    A RESP3 map is flattened to key, value order. A stop between FT.SYNDUMP group IDs puts the
+    error at the end of the last term's group array: it counts as stopped, and that array is
+    returned without the error."""
+    if isinstance(reply, dict):
+        reply = [x for kv in reply.items() for x in kv]
     if isinstance(reply, (set, frozenset)):
         errors = [v for v in reply if isinstance(v, redis_exceptions.ResponseError)]
         stopped = len(errors) == 1 and OOM_QUERY_ERROR in str(errors[0])
@@ -1134,6 +1143,11 @@ def _split_dump(reply):
     last = reply[-1] if reply else None
     stopped = isinstance(last, redis_exceptions.ResponseError) and OOM_QUERY_ERROR in str(last)
     values = reply[:-1] if stopped else reply
+    if isinstance(last, list) and last and _is_oom_error(last[-1]):
+        stopped = True
+        values = reply[:-1] + [last[:-1]]
+        if any(isinstance(v, redis_exceptions.ResponseError) for v in last[:-1]):
+            raise AssertionError(f'error element before the end: {reply}')
     if any(isinstance(v, redis_exceptions.ResponseError) for v in values):
         raise AssertionError(f'error element before the end: {reply}')
     return values, stopped
@@ -1239,8 +1253,9 @@ def _syndump_checks_pressure_per_group_id(env):
         res = flat(env.cmd('FT.SYNDUMP', 'tidx'))
         env.assertEqual(len(res), 4, message=res)
         env.assertEqual(len(res[1]), groups, message=res)
-        env.assertTrue(isinstance(res[3], redis_exceptions.ResponseError)
-                       and OOM_QUERY_ERROR in str(res[3]), message=res)
+        env.assertEqual(len(res[3]), 100, message=res)
+        env.assertTrue(isinstance(res[3][-1], redis_exceptions.ResponseError)
+                       and OOM_QUERY_ERROR in str(res[3][-1]), message=res)
         # A stop inside the first term's IDs leaves only that term, its array holding the IDs
         # written before the stop and closed by the error.
         _memory_pressure(env, 'AT_CALL', 100)
