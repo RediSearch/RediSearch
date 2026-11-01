@@ -21,6 +21,7 @@ import threading
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
+SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
 TIMEOUT_WARNING = "Timeout limit was reached"
 N_DOCS = 10
 # Larger than any test's checkpoint call count: arms the call counter without firing.
@@ -139,6 +140,84 @@ def test_stored_results_replay_stop_truncates_resp2(env):
     env.assertEqual(len(env.cmd(*AGGREGATE)) - 1, 3)
     _memory_pressure(env, 'AT_CALL', _replay_call(env, AGGREGATE, N_DOCS, 3))
     env.assertEqual(len(env.cmd(*AGGREGATE)) - 1, 2)
+    _reset(env)
+
+
+def _profile_rows(env, res):
+    """The result rows of an FT.PROFILE reply, in the shape of the bare command's reply."""
+    return res['Results']['results'] if env.protocol == 3 else res[0][1:]
+
+
+def _bare_rows(env, res):
+    return res['results'] if env.protocol == 3 else res[1:]
+
+
+def _check_profile_replay_stop(env):
+    _index_with_docs(env)
+    search = ['FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, 2 * N_DOCS]
+    for on_oom in ['return', 'fail']:
+        for workers in [0, 2]:
+            _set_policies(env, 'fail', on_oom, workers)
+            for bare in [AGGREGATE, search]:
+                kind = bare[0].split('.')[1]
+                profile = ['FT.PROFILE', 'idx', kind, 'QUERY', *bare[2:]]
+                message = (on_oom, workers, kind)
+
+                _memory_pressure(env, 'AT_CALL', _replay_call(env, bare, N_DOCS, 3))
+                expected = _bare_rows(env, env.cmd(*bare))
+                env.assertEqual(len(expected), 2, message=message)
+
+                _memory_pressure(env, 'AT_CALL', _replay_call(env, profile, N_DOCS, 3))
+                res = env.cmd(*profile)
+                _memory_pressure(env, 'RESET')
+                env.assertEqual(_profile_rows(env, res), expected, message=(message, res))
+
+                shards = get_shards_profile(env, res)
+                env.assertEqual(len(shards), 1, message=(message, res))
+                shard = to_dict(shards[0])
+                env.assertContains('Result processors profile', shard)
+                env.assertContains('Warning', shard)
+                env.assertContains(SHARD_OOM_WARNING, shard['Warning'], message=(message, res))
+                if kind == 'SEARCH':
+                    env.assertContains('Iterators profile', shard)
+                if env.protocol == 3:
+                    env.assertEqual(set(res.keys()), {'Results', 'Profile'}, message=(message, res))
+                    env.assertEqual(res['Results']['warning'], [COORD_OOM_WARNING],
+                                    message=(message, res))
+                else:
+                    env.assertEqual(len(res), 2, message=(message, res))
+    _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_profile_stored_results_replay_stop_truncates(env):
+    """FT.PROFILE serializes through its own wrapper and warning list: a replay stopped for OOM
+    keeps the bare command's partial rows, reports the OOM warning, and leaves the profile
+    section complete, under both ON_OOM policies."""
+    _check_profile_replay_stop(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=2)
+def test_profile_stored_results_replay_stop_truncates_resp2(env):
+    """RESP2 FT.PROFILE has no warning channel in the results, but the profile section still
+    carries the OOM warning next to the same partial rows as the bare command."""
+    _check_profile_replay_stop(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_profile_buffered_results_stop_fails_under_on_oom_fail(env):
+    """Under ON_OOM FAIL a stop while buffering fails the profiled query with the OOM error."""
+    _index_with_docs(env)
+    profile = ['FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', *AGGREGATE[2:]]
+    for workers in [0, 2]:
+        _set_policies(env, 'fail', 'fail', workers)
+        # The replay is the last N_DOCS calls and buffering checks every row but the one that
+        # fills the limit, so the third buffering call is this far from the end.
+        _memory_pressure(env, 'AT_CALL', _checkpoint_calls(env, profile) - (2 * N_DOCS - 1) + 3)
+        env.expect(*profile).error().contains(OOM_QUERY_ERROR)
     _reset(env)
 
 
