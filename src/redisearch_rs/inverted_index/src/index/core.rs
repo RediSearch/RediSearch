@@ -59,8 +59,9 @@ pub struct InvertedIndex<E> {
     /// [`IndexBlock`] so the block's size and layout stay as they were before field-expiration
     /// tracking (MOD-20225).
     ///
-    /// Invariant: empty, or exactly as long as `blocks` whenever [`Self::add_entry`] and
-    /// [`Self::apply_gc`] are not running.
+    /// Invariant: empty, or exactly as long as `blocks`. [`Self::push_block`] is the only place
+    /// either grows, and blocks leave only with their bitset, through [`Self::take_block`] and
+    /// [`Self::take_blocks`].
     pub(crate) expiration: ThinVec<ExpirationBits, BlockCapacity>,
 
     /// The encoder to use when adding new entries to the index
@@ -222,40 +223,6 @@ impl<E: Encoder> InvertedIndex<E> {
             .is_some_and(|bits| bits.contains(ordinal))
     }
 
-    /// Record that entry `ordinal` of block `block_idx` belongs to a document with a field-level
-    /// expiration, creating [`Self::expiration`] on first use. Returns the heap growth in bytes.
-    fn set_expiration_bit(&mut self, block_idx: usize, ordinal: u16) -> usize {
-        let before = self.expiration.mem_usage()
-            + self
-                .expiration
-                .get(block_idx)
-                .map_or(0, ExpirationBits::mem_usage);
-        if self.expiration.len() <= block_idx {
-            let missing = block_idx + 1 - self.expiration.len();
-            self.expiration.reserve_exact(missing);
-            self.expiration
-                .extend(std::iter::repeat_with(ExpirationBits::new).take(missing));
-        }
-        self.expiration[block_idx].insert(ordinal);
-        self.expiration.mem_usage() + self.expiration[block_idx].mem_usage() - before
-    }
-
-    /// Extend a non-empty [`Self::expiration`] with empty bitsets until it covers every block.
-    /// Returns the heap growth in bytes.
-    fn sync_expiration_len(&mut self) -> usize {
-        let missing = self.blocks.len().saturating_sub(self.expiration.len());
-        if self.expiration.is_empty() || missing == 0 {
-            return 0;
-        }
-        let before = self.expiration.mem_usage();
-        // Grow exactly, as `Self::add_block` grows `blocks`: an index with field TTLs pays a
-        // second reallocation per new block, but holds no spare bitset slots.
-        self.expiration.reserve_exact(missing);
-        self.expiration
-            .extend(std::iter::repeat_with(ExpirationBits::new).take(missing));
-        self.expiration.mem_usage() - before
-    }
-
     /// Add a new record to the index. Returns an [`AddRecordOutcome`] reporting how many bytes
     /// the index's memory usage grew by and how many new index blocks the write created (0 in
     /// the common case, up to 2 when a new block was needed for the encoded delta and/or the
@@ -304,7 +271,7 @@ impl<E: Encoder> InvertedIndex<E> {
 
         // We take ownership of the block since we are going to keep using self. So we can't have a
         // mutable reference to the block we are working with at the same time.
-        let mut block = self.take_block(doc_id, same_doc);
+        let (mut block, mut bits) = self.take_block(doc_id, same_doc);
         let mut mem_growth = 0;
 
         let delta_base = E::delta_base(&block);
@@ -322,7 +289,7 @@ impl<E: Encoder> InvertedIndex<E> {
                 let new_block = IndexBlock::new(doc_id);
 
                 // We won't use the block so make sure to put it back
-                mem_growth += self.add_block(block);
+                mem_growth += self.add_block(block, std::mem::take(&mut bits));
                 block = new_block;
 
                 E::Delta::zero()
@@ -339,12 +306,13 @@ impl<E: Encoder> InvertedIndex<E> {
         // has increased (if any).
         let buf_growth = block.buffer.capacity() - buf_cap;
 
-        // Record the document-level field-expiration bit for this entry at its
-        // ordinal within the block — which is the current `num_entries`, before
-        // the bump below. The codec (the `buffer` above) is untouched. The block
-        // is out of `self.blocks`, and goes back at index `self.blocks.len()`.
+        // The codec does not carry the field-expiration flag: it goes into the block's bitset,
+        // at the entry's ordinal within the block — the current `num_entries`, before the bump
+        // below.
         let buf_growth = if has_field_expiration {
-            buf_growth + self.set_expiration_bit(self.blocks.len(), block.num_entries)
+            let bits_before = bits.mem_usage();
+            bits.insert(block.num_entries);
+            buf_growth + bits.mem_usage() - bits_before
         } else {
             buf_growth
         };
@@ -354,9 +322,7 @@ impl<E: Encoder> InvertedIndex<E> {
         block.last_doc_id = doc_id;
 
         // We took ownership of the block so put it back
-        mem_growth += self.add_block(block);
-        mem_growth += self.sync_expiration_len();
-        debug_assert!(self.expiration.is_empty() || self.expiration.len() == self.blocks.len());
+        mem_growth += self.add_block(block, bits);
 
         if !same_doc {
             self.n_unique_docs += 1;
@@ -382,8 +348,8 @@ impl<E: Encoder> InvertedIndex<E> {
         self.blocks.last().map(|b| b.last_doc_id)
     }
 
-    /// Take a block that can be written to.
-    fn take_block(&mut self, doc_id: DocId, same_doc: bool) -> IndexBlock {
+    /// Take a block that can be written to, with its field-expiration bitset.
+    fn take_block(&mut self, doc_id: DocId, same_doc: bool) -> (IndexBlock, ExpirationBits) {
         if self.blocks.is_empty()
             || (
                 // If the block is full
@@ -396,19 +362,32 @@ impl<E: Encoder> InvertedIndex<E> {
                         >= E::RECOMMENDED_BLOCK_ENTRIES
             )
         {
-            IndexBlock::new(doc_id)
+            (IndexBlock::new(doc_id), ExpirationBits::new())
         } else {
-            self.blocks
+            let block = self
+                .blocks
                 .pop()
-                .expect("to get the last block since we know there is one")
+                .expect("to get the last block since we know there is one");
+            (block, self.expiration.pop().unwrap_or_default())
         }
+    }
+
+    /// Move every block out of the index, in order, each with its field-expiration bitset.
+    pub(crate) fn take_blocks(
+        &mut self,
+    ) -> impl Iterator<Item = (IndexBlock, ExpirationBits)> + use<E> {
+        let mut bits = std::mem::take(&mut self.expiration).into_iter();
+        std::mem::take(&mut self.blocks)
+            .into_iter()
+            .map(move |block| (block, bits.next().unwrap_or_default()))
     }
 
     /// Add a block back to the index. This allows us to control the growth strategy used by the
     /// `blocks` vector.
     ///
-    /// It returns how many bytes have been added to the size of the heap allocation backing the blocks vector.
-    fn add_block(&mut self, block: IndexBlock) -> usize {
+    /// It returns how many bytes have been added to the size of the heap allocations backing the
+    /// blocks vector and [`Self::expiration`].
+    fn add_block(&mut self, block: IndexBlock, bits: ExpirationBits) -> usize {
         let had_allocated = self.blocks.has_allocated();
         let mem_growth = if self.blocks.len() == self.blocks.capacity() {
             self.blocks.reserve_exact(1);
@@ -425,8 +404,27 @@ impl<E: Encoder> InvertedIndex<E> {
             0
         };
 
+        mem_growth + self.push_block(block, bits)
+    }
+
+    /// Append `block` with its field-expiration bitset `bits`. Returns how many bytes
+    /// [`Self::expiration`]'s own allocation grew by; the growth of `blocks` and of `bits` is the
+    /// caller's to count.
+    pub(crate) fn push_block(&mut self, block: IndexBlock, bits: ExpirationBits) -> usize {
         self.blocks.push(block);
-        mem_growth
+        if self.expiration.is_empty() && bits.is_empty() {
+            return 0;
+        }
+        let before = self.expiration.mem_usage();
+        // The first non-empty bitset creates the array, with empty bitsets for the blocks before
+        // it. Grow exactly, as `Self::add_block` grows `blocks`: an index with field TTLs pays a
+        // second reallocation per new block, but holds no spare bitset slots.
+        let missing = self.blocks.len() - self.expiration.len();
+        self.expiration.reserve_exact(missing);
+        self.expiration
+            .extend(std::iter::repeat_with(ExpirationBits::new).take(missing - 1));
+        self.expiration.push(bits);
+        self.expiration.mem_usage() - before
     }
 
     /// Returns the number of unique documents in the index.
