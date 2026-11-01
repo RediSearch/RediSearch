@@ -731,6 +731,38 @@ def test_loader_drains_a_held_sorter_prefix_under_sustained_pressure(env):
         env.assertEqual(warnings[-1], [COORD_OOM_WARNING], message=(workers, warnings))
 
 
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_loader_load_phase_keeps_a_held_sorter_prefix_under_sustained_pressure(env):
+    """Same as above, but each read buffers several held rows, so the request-wide checkpoint
+    counter, due on every call here, also falls inside the loader's load loop. That stop is the
+    sorter's hold, not the loader's own: no held row may be dropped, and the stream ends when the
+    sorter drains."""
+    create_index(env)
+    k = 7
+    query = ('FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'DESC', 'MAX', N_DOCS,
+             'LOAD', 1, '@t', 'WITHCURSOR', 'COUNT', 3)
+    for workers in worker_counts(env):
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+        try:
+            res, cursor = env.cmd(*query)
+        finally:
+            memory_pressure(env, 'RESET')
+        rows, warnings = list(res['results']), [res['warning']]
+        memory_pressure(env, 'READ_INTERVAL', 1)
+        memory_pressure(env, 'RATIO', '1.5')
+        try:
+            while cursor:
+                res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+                rows += res['results']
+                warnings.append(res['warning'])
+        finally:
+            memory_pressure(env, 'RESET')
+        env.assertEqual([r['extra_attributes']['t'] for r in rows],
+                        [f'hello{i}' for i in reversed(range(k))], message=(workers, rows))
+        env.assertEqual(warnings[-1], [COORD_OOM_WARNING], message=(workers, warnings))
+
+
 N_PREFIX_TERMS = 400
 
 
