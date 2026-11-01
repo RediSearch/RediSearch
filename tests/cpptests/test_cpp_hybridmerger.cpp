@@ -14,6 +14,7 @@
 #include "gtest/gtest.h"
 #include "search_result_ffi.h"
 #include "config.h"
+#include "query_memory.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"  // For HybridLookupContext
 #include "search_result.h"
@@ -1564,4 +1565,37 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   SearchResult_Destroy(&r);
   CleanupDummyLookupContext(lookupCtx);
   hybridMerger->Free(hybridMerger);
+}
+
+// A memory stop on the first upstream must not hide a later upstream's terminal error: the
+// drained upstream still buffers rows before it ends in ERROR.
+TEST_F(HybridMergerTest, MemoryStopStillSurfacesLaterUpstreamError) {
+  auto previousPolicy = RSGlobalConfig.requestConfigParams.oomPolicy;
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
+  QueryMemory_SetPressureAtCall(1);
+
+  MockUpstream stopped(0, {1.0, 2.0});
+  MockUpstream failing(0, {1.0, 2.0}, {}, 0, 2);  // two rows, then ERROR
+  arrayof(ResultProcessor *) upstreams = NULL;
+  array_ensure_append_1(upstreams, &stopped);
+  array_ensure_append_1(upstreams, &failing);
+  double weights[] = {0.5, 0.5};
+  HybridScoringContext *scoring = HybridScoringContext_NewLinear(weights, 2, HYBRID_DEFAULT_WINDOW);
+  HybridLookupContext *lookup = CreateDummyLookupContext(2);
+  RPStatus returnCodes[2] = {RS_RESULT_OK, RS_RESULT_OK};
+  ResultProcessor *merger = RPHybridMerger_New(GetDummySearchCtx(), scoring, upstreams, 2, nullptr,
+                                               nullptr, returnCodes, lookup, nullptr);
+  QueryProcessingCtx qitr = {0};
+  QITR_PushRP(&qitr, merger);
+
+  SearchResult r = SearchResult_New();
+  EXPECT_EQ(RS_RESULT_ERROR, merger->Next(merger, &r));
+  EXPECT_EQ(RS_RESULT_EOF, returnCodes[0]);
+  EXPECT_EQ(RS_RESULT_ERROR, returnCodes[1]);
+
+  SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookup);
+  merger->Free(merger);
+  QueryMemory_ResetFakePressure();
+  RSGlobalConfig.requestConfigParams.oomPolicy = previousPolicy;
 }
