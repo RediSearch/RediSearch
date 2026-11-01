@@ -1063,7 +1063,6 @@ SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(RedisSearchDiskIndexSpec *i
                                                      void *ctx);
 bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
                                    const SearchDiskSlotTrimBatch *batch);
-bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index);
 #ifdef __cplusplus
 }
 #endif
