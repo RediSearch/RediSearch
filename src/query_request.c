@@ -33,6 +33,7 @@ void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const TimeoutConfig 
   RS_ASSERT(config->queryTimeoutMS >= 0);
   timeout->config = *config;
   QueryRequestTimeout_ClearStop(timeout);
+  timeout->memoryCounter = 0;
   QueryRequestTimeout_Reset(timeout);
 }
 
@@ -42,6 +43,7 @@ void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout) {
 
 void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTimeoutKind kind) {
   QueryRequestTimeout_ClearStop(timeout);
+  timeout->memoryCounter = 0;
   switch (kind) {
     case QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT:
       RS_AtomicBoolStoreRelaxed(&timeout->source.blockedClientTimedOut, false);
