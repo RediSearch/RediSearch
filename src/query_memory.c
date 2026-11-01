@@ -80,15 +80,8 @@ static bool oomPolicyIsIgnore(void) {
          OomPolicy_Ignore;
 }
 
-bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter) {
-  if (timeout && QueryRequest_ShouldStop(timeout)) {
-    return true;
-  }
-  const bool forcedPressure = isPressureAtThisCall();
-  if (!forcedPressure && ++*counter < QueryMemory_GetRatioReadInterval()) {
-    return false;
-  }
-  *counter = 0;
+// The memory read of a checkpoint: requests the OOM stop under pressure.
+static bool memoryStops(QueryRequestTimeout *timeout, bool forcedPressure) {
   if (oomPolicyIsIgnore() || !(forcedPressure || readRatio() >= REDIS_MEMORY_OOM_RATIO)) {
     return false;
   }
@@ -99,12 +92,39 @@ bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter) {
   return true;
 }
 
+bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter) {
+  if (timeout && QueryRequest_ShouldStop(timeout)) {
+    return true;
+  }
+  const bool forcedPressure = isPressureAtThisCall();
+  const uint32_t interval = QueryMemory_GetRatioReadInterval();
+  // Both counters advance on every call, so a site that is called too rarely to reach the
+  // interval alone still triggers a read through the request-wide count.
+  bool due = ++*counter >= interval;
+  if (timeout) {
+    due |= ++timeout->memoryCounter >= interval;
+  }
+  if (!forcedPressure && !due) {
+    return false;
+  }
+  *counter = 0;
+  if (timeout) {
+    timeout->memoryCounter = 0;
+  }
+  return memoryStops(timeout, forcedPressure);
+}
+
+bool QueryMemory_ShouldStopNow(QueryRequestTimeout *timeout) {
+  if (timeout && QueryRequest_ShouldStop(timeout)) {
+    return true;
+  }
+  return memoryStops(timeout, isPressureAtThisCall());
+}
+
 int QueryMemory_CheckBeforeExecution(QueryRequestTimeout *timeout, RSOomPolicy oomPolicy,
                                      QueryError *err) {
   RS_ASSERT(timeout);
-  // Build stages run once per query, so the counter starts one call short of a read.
-  uint32_t counter = QueryMemory_GetRatioReadInterval() - 1;
-  if (!QueryMemory_ShouldStop(timeout, &counter) || oomPolicy != OomPolicy_Fail ||
+  if (!QueryMemory_ShouldStopNow(timeout) || oomPolicy != OomPolicy_Fail ||
       QueryRequestTimeout_GetStopReason(timeout) != QUERY_STOP_REASON_OOM) {
     return REDISMODULE_OK;
   }
