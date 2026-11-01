@@ -22,6 +22,7 @@
 use query::mock::{MockQueryNode, TokenNodeType};
 use query_error::QueryErrorCode;
 use query_eval::{Config, EvalResult, QueryEvalContext, QueryNodeMut, eval_node};
+use query_flags::QEFlag;
 use rqe_core::{FieldMask, RS_FIELDMASK_ALL};
 use rqe_iterators::{IteratorType, RQEIterator};
 use rqe_iterators_test_utils::ContractChecker;
@@ -510,4 +511,22 @@ fn eval_contains_on_field_without_suffix_support_errors() {
     assert_eq!(collect_doc_ids(&mut it), Vec::<u64>::new());
     drop(it);
     assert_eq!(fixture.status_code(), QueryErrorCode::Generic);
+}
+
+#[test]
+fn eval_prefix_memory_counter_persists_across_nodes() {
+    // Each expansion is far below the read interval, so memory is ever read only if the
+    // amortization counter lives on the context and not on the expansion.
+    let mut fixture = PrefixFixture::new("ap", true, false);
+    // SAFETY: the fixture exclusively owns the `QueryEvalCtx`, and nothing is evaluating.
+    unsafe {
+        (*fixture._context.qctx().as_ptr()).reqFlags = QEFlag::IsSearch as u32;
+    }
+
+    drop(fixture.eval());
+    let after_first = *fixture.ctx.memory_counter_mut();
+    assert!(after_first > 0, "the expansion must sample memory");
+
+    drop(fixture.eval());
+    assert_eq!(*fixture.ctx.memory_counter_mut(), 2 * after_first);
 }
