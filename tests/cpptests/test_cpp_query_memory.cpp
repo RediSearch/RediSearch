@@ -307,6 +307,54 @@ TEST_F(QueryMemoryTest, VecSimStopCallbackIsOffWhenOnOomIsIgnore) {
   EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_NONE);
 }
 
+TEST_F(QueryMemoryTest, ShouldStopNowForcedRatioRequestsAnOomStop) {
+  timeout_.memoryCounter = 5;
+  QueryMemory_SetForcedRatio(0.5f);
+  EXPECT_FALSE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_FALSE(QueryRequestTimeout_IsStopRequested(&timeout_));
+
+  QueryMemory_SetForcedRatio(1.0f);
+  EXPECT_TRUE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
+  // The forced ratio replaces the memory read entirely.
+  EXPECT_EQ(fakeRatioReads.load(), 0u);
+  EXPECT_EQ(timeout_.memoryCounter, 5u);
+}
+
+TEST_F(QueryMemoryTest, ShouldStopNowForcedRatioHonorsOnOomIgnore) {
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
+  QueryMemory_SetForcedRatio(5.0f);
+  for (int i = 0; i < 10; ++i) {
+    EXPECT_FALSE(QueryMemory_ShouldStopNow(&timeout_));
+  }
+  EXPECT_FALSE(QueryRequestTimeout_IsStopRequested(&timeout_));
+}
+
+TEST_F(QueryMemoryTest, ShouldStopNowPressureAtCallStopsOnlyTheNthCall) {
+  timeout_.memoryCounter = 5;
+  QueryMemory_SetPressureAtCall(3);
+  EXPECT_FALSE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_FALSE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_EQ(QueryMemory_GetCheckpointCalls(), 2u);
+  EXPECT_FALSE(QueryRequestTimeout_IsStopRequested(&timeout_));
+
+  EXPECT_TRUE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_EQ(QueryMemory_GetCheckpointCalls(), 3u);
+  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
+  EXPECT_EQ(timeout_.memoryCounter, 5u);
+
+  // Calls that return on the requested stop are not counted.
+  EXPECT_TRUE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_EQ(QueryMemory_GetCheckpointCalls(), 3u);
+}
+
+TEST_F(QueryMemoryTest, ShouldStopNowPressureAtCallHonorsOnOomIgnore) {
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
+  QueryMemory_SetPressureAtCall(1);
+  EXPECT_FALSE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_FALSE(QueryRequestTimeout_IsStopRequested(&timeout_));
+}
+
 TEST_F(QueryMemoryTest, ResetClearsEveryFake) {
   QueryMemory_SetForcedRatio(2.0f);
   QueryMemory_SetPressureAtCall(5);
