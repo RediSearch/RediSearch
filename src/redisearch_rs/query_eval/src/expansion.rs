@@ -18,12 +18,30 @@
 use std::{marker::PhantomData, ops::ControlFlow, ptr::NonNull};
 
 use field::FieldMaskOrIndex;
+use query_flags::QEFlag;
 use query_term::RSQueryTerm;
 use rqe_core::FieldMask;
 use rqe_iterators::{build_term_iterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper};
 use search_disk::SearchDiskHandle;
 
 use crate::{QueryEvalContext, disk};
+
+unsafe extern "C" {
+    /// The amortized query memory checkpoint; see `QueryMemory_ShouldStop` in `query_memory.h`.
+    /// A null `timeout` is accepted by the C side, `counter` must not be.
+    fn QueryMemory_ShouldStop(timeout: *mut ffi::QueryRequestTimeout, counter: *mut u32) -> bool;
+}
+
+// Stub for lib unit tests so the linker doesn't pull the config closure of `query_memory.c`
+// from the C bundle. Integration tests use the real symbol.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+unsafe extern "C" fn QueryMemory_ShouldStop(
+    _timeout: *mut ffi::QueryRequestTimeout,
+    _counter: *mut u32,
+) -> bool {
+    false
+}
 
 /// Open a search-on-disk reader for a single expanded term, wrapping the
 /// enterprise disk iterator as a [`CRQEIterator`].
@@ -202,6 +220,8 @@ pub(super) struct Expansion<'a> {
     pub(super) needs_offsets: bool,
     /// Upper bound on the number of terms an expansion may open.
     pub(super) max_expansions: usize,
+    /// Call count of the amortized memory checkpoint in [`push_child`](Self::push_child).
+    pub(super) memory_counter: u32,
 }
 
 impl Expansion<'_> {
@@ -212,7 +232,7 @@ impl Expansion<'_> {
     /// `num_docs` is the term's document count, used only on the disk path for
     /// the IDF.
     pub(crate) fn push_child(&mut self, num_docs: usize, term_bytes: &[u8]) -> ControlFlow<()> {
-        if self.cap_reached() {
+        if self.cap_reached() || self.memory_stop() {
             return ControlFlow::Break(());
         }
         self.push_child_ignoring_cap(num_docs, term_bytes);
@@ -239,6 +259,28 @@ impl Expansion<'_> {
         ) {
             self.children.push(it);
         }
+    }
+
+    /// Whether the query should stop for memory pressure (or an earlier stop), ending the
+    /// expansion early. The cap is user-configurable up to `u32::MAX`, so the readers opened
+    /// here can add up to real memory before the build checkpoint runs.
+    ///
+    /// Only the stop is requested: the build checkpoint after the evaluation turns it into
+    /// the ON_OOM reply, so the iterators gathered so far are still returned. Only FT.SEARCH and
+    /// FT.AGGREGATE take part: FT.EXPLAIN never runs its plan, and the hybrid reply does not map
+    /// an OOM stop yet.
+    fn memory_stop(&mut self) -> bool {
+        if !self
+            .ctx
+            .req_flags()
+            .intersects(QEFlag::IsSearch | QEFlag::IsAggregate)
+        {
+            return false;
+        }
+        let timeout = self.ctx.sctx().timeout;
+        // SAFETY: `timeout` is the request's timeout, valid for the evaluation (the invariant of
+        // `QueryEvalContext::new`), and `memory_counter` is a valid, exclusive `u32`.
+        unsafe { QueryMemory_ShouldStop(timeout, &mut self.memory_counter) }
     }
 
     /// Whether the expansion cap has been reached, recording the "reached max

@@ -222,3 +222,39 @@ def test_build_checkpoint_stop_on_shards_reaches_the_coordinator(env):
 
     res = env.cmd(*AGGREGATE)
     env.assertEqual(len(res['results']), N_DOCS, message=res)
+
+
+N_PREFIX_TERMS = 400
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_term_expansion_checks_memory_per_expanded_term(env):
+    """A prefix or wildcard expansion reads memory as it opens one reader per expanded term, so
+    pressure partway through, past the default MAXPREFIXEXPANSIONS, ends the expansion there: the
+    build stops under ON_OOM RETURN (empty result with the OOM warning) and fails under ON_OOM FAIL.
+    The call count shows that no further term was opened."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_PREFIX_TERMS):
+        conn.execute_command('HSET', f'doc{i}', 't', f'pre{i}')
+    env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1000).ok()
+    try:
+        for workers in worker_counts(env):
+            for query in (('FT.SEARCH', 'idx', '@t:pre*', 'NOCONTENT'),
+                          ('FT.SEARCH', 'idx', "@t:w'pre*'", 'NOCONTENT')):
+                # Call 1 is the build entry; the later calls are the expanded terms.
+                for at_call in (5, 250):
+                    memory_pressure(env, 'AT_CALL', at_call)
+                    try:
+                        expect_empty_with_oom_warning(env, env.cmd(*query))
+                        env.assertEqual(checkpoint_calls(env), at_call)
+                    finally:
+                        memory_pressure(env, 'RESET')
+                    with oom_policy(env, 'fail'):
+                        expect_oom_error_at_call(env, at_call, *query)
+
+                res = env.cmd(*query)
+                env.assertEqual(res['total_results'], N_PREFIX_TERMS, message=res)
+    finally:
+        env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 200).ok()
