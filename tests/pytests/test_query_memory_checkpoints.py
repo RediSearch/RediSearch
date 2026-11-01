@@ -702,8 +702,8 @@ def test_expression_stop_ends_the_stream(env):
     """APPLY and FILTER keep their string results for the whole query, so they check memory per
     row. Stopped while rows still stream from the index, the stream ends with the rows already
     produced and the OOM warning; ON_OOM FAIL replies the OOM error. With workers the safe loader
-    has read every row before the first row reaches the expression, so under RETURN nothing is
-    cut and the complete result has no warning; only FAIL cuts what it holds."""
+    has read every row before the first row reaches the expression; the expression cuts the rows
+    it has not evaluated instead of draining them, so the reply is the same as without workers."""
     create_index(env)
     k = 4
     for workers in worker_counts(env):
@@ -712,12 +712,8 @@ def test_expression_stop_ends_the_stream(env):
         at_call = BUILD_CHECKPOINTS + (2 * N_DOCS if workers else 0) + 2 * k - 1
         for query in (APPLY, FILTER):
             res = run_at_call(env, at_call, *query)
-            if workers:
-                env.assertEqual(len(res['results']), N_DOCS, message=(query, res))
-                env.assertEqual(res['warning'], [], message=(query, res))
-            else:
-                env.assertEqual(len(res['results']), k - 1, message=(query, res))
-                env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(query, res))
+            env.assertEqual(len(res['results']), k - 1, message=(workers, query, res))
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(workers, query, res))
             with oom_policy(env, 'fail'):
                 expect_oom_error_at_call(env, at_call, *query)
             with oom_policy(env, 'ignore'):
