@@ -20,9 +20,7 @@
 #include <vector>
 extern "C" {
 #include "indexes.h"
-#include "disk_indexer.h"
-#include "doc_id_meta.h"
-#include "forward_index.h"
+#include "indexer.h"
 #include "search_disk.h"
 #include "vector_index.h"
 #include "geometry_index.h"
@@ -36,7 +34,7 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand);
 
 namespace {
 struct TrimState {
-  bool registerAccepted = true, readAccepted = true, liveReplacement = true;
+  bool registerAccepted = true, readAccepted = true;
   bool logicalPending = false, pendingCleanup = false, emptyBatch = false;
   uint64_t trimId = 42;
   t_docId maxDocId = 5;
@@ -45,20 +43,21 @@ struct TrimState {
   std::vector<SearchDiskSlotRange> ranges;
   std::function<void(size_t)> beforeBatch;
   RedisModuleCmdFunc forceGC = nullptr;
-  RedisModuleEventCallback persistenceEvent = nullptr, sstEvent = nullptr;
+  RedisModuleEventCallback persistenceEvent = nullptr, sstEvent = nullptr, cronEvent = nullptr;
   size_t windowsOpened = 0, windowsClosed = 0, flushes = 0;
   bool lastReopenGate = false;
 } state;
 
-class PersistenceEventHooks {
+class ServerEventHooks {
   decltype(RedisModule_SubscribeToServerEvent) subscribe = RedisModule_SubscribeToServerEvent;
   decltype(RedisModule_GetContextFlags) flags = RedisModule_GetContextFlags;
 
  public:
-  PersistenceEventHooks() {
+  ServerEventHooks() {
     RedisModule_GetContextFlags = [](RedisModuleCtx *) { return REDISMODULE_CTX_FLAGS_SST_RDB; };
     RedisModule_SubscribeToServerEvent = [](RedisModuleCtx *, RedisModuleEvent event,
                                             RedisModuleEventCallback callback) {
+      if (event.id == RedisModuleEvent_CronLoop.id) state.cronEvent = callback;
       if (event.id == RedisModuleEvent_Persistence.id) state.persistenceEvent = callback;
       if (event.id == RedisModuleEvent_SSTReplication.id) state.sstEvent = callback;
       return REDISMODULE_OK;
@@ -67,7 +66,7 @@ class PersistenceEventHooks {
     RedisModule_SubscribeToServerEvent = subscribe;
   }
 
-  ~PersistenceEventHooks() {
+  ~ServerEventHooks() {
     if (state.persistenceEvent) {
       state.persistenceEvent(RSDummyContext, RedisModuleEvent_Persistence,
                              REDISMODULE_SUBEVENT_PERSISTENCE_FAILED, nullptr);
@@ -91,7 +90,7 @@ class DiskSlotTrimTest : public ::testing::Test {
   RedisSearchDiskAPI api{};
   RedisSearchDiskAPI *savedDisk = nullptr;
   RedisSearchDisk *savedDb = nullptr;
-  bool savedFlex = false;
+  bool savedFlex = false, savedLoading = false;
   StrongRef ref{};
   IndexSpec *spec = nullptr;
   IndexSpecSlotTrimJob *job = nullptr;
@@ -107,6 +106,8 @@ class DiskSlotTrimTest : public ::testing::Test {
     savedDisk = disk;
     savedDb = disk_db;
     savedFlex = isFlex;
+    savedLoading = g_isLoading;
+    g_isLoading = false;
     savedEnableGC = RSGlobalConfig.gcConfigParams.enableGC;
     RSGlobalConfig.gcConfigParams.enableGC = false;
     const char *args[] = {"SCHEMA",
@@ -232,47 +233,9 @@ class DiskSlotTrimTest : public ::testing::Test {
     disk = savedDisk;
     disk_db = savedDb;
     isFlex = savedFlex;
+    g_isLoading = savedLoading;
     if (ref.rm) Indexes_RemoveSpecFromGlobals(ref, false);
     RSGlobalConfig.gcConfigParams.enableGC = savedEnableGC;
-  }
-
-  void reindexSurvivingKey(t_docId oldId, bool live, uint32_t newLength) {
-    auto *key = RedisModule_CreateString(RSDummyContext, "trim_survivor", 13);
-    RMCK::hset(RSDummyContext, "trim_survivor", "field", "value");
-    ASSERT_EQ(DocIdMeta_Set(RSDummyContext, key, spec->specId, oldId), REDISMODULE_OK);
-    api.index.createWriteBatch = [](RedisSearchDiskIndexSpec *) {
-      return reinterpret_cast<SearchDiskWriteBatchHandle *>(&state);
-    };
-    api.index.commitWriteBatch = [](SearchDiskWriteBatchHandle *) { return true; };
-    state.liveReplacement = live;
-    api.docTable.putDocument = [](RedisSearchDiskIndexSpec *, SearchDiskWriteBatchHandle *,
-                                  const char *, size_t, float, uint32_t, uint32_t, uint32_t,
-                                  uint32_t *oldLength, t_expirationTimePoint, t_docId *oldId) {
-      EXPECT_NE(*oldId, 0u);
-      if (!state.liveReplacement) *oldId = 0;
-      *oldLength = 0;
-      return t_docId{6};
-    };
-    Document document{};
-    Document_Init(&document, key, 1.0, DEFAULT_LANGUAGE, DocumentType_Hash);
-    RSAddDocumentCtx context{};
-    context.doc = &document;
-    context.spec = spec;
-    context.fwIdx = NewForwardIndex(&document, spec->flags);
-    context.fwIdx->totalFreq = newLength;
-    RedisSearchCtx search = SEARCH_CTX_STATIC(RSDummyContext, spec);
-    DiskIndexer_StageDocument(&context, &search);
-    EXPECT_EQ(context.oldDocId, live ? oldId : 0u);
-    DiskIndexer_IndexDocument(&context, &search);
-    uint64_t stored = 0;
-    EXPECT_EQ(DocIdMeta_Get(RSDummyContext, key, spec->specId, &stored), REDISMODULE_OK);
-    EXPECT_EQ(stored, 6u);
-    ForwardIndexFree(context.fwIdx);
-    Document_Free(&document);
-    auto *storedKey = RedisModule_OpenKey(RSDummyContext, key, REDISMODULE_WRITE);
-    RedisModule_DeleteKey(storedKey);
-    RedisModule_CloseKey(storedKey);
-    RedisModule_FreeString(RSDummyContext, key);
   }
 
   IndexSpecDiskSlotTrimResult trim() {
@@ -327,7 +290,7 @@ class DiskSlotTrimTest : public ::testing::Test {
   }
 };
 
-TEST_F(DiskSlotTrimTest, ReaderReadyRetirementRunsWithoutNewWrites) {
+TEST_F(DiskSlotTrimTest, PendingPhysicalCleanupRunsWithoutNewWrites) {
   const auto threshold = RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold;
   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 1000;
   GCContext_OnDelete(&gc);
@@ -802,26 +765,6 @@ TEST_F(DiskSlotTrimTest, InlineForcedGcReportsFailureAndThenDone) {
   RMCK_GetLastError(RSDummyContext).clear();
 }
 
-TEST_F(DiskSlotTrimTest, SurvivingDeletedIdIsCountedAsANewInsert) {
-  spec->stats.scoring.numDocuments = 3;
-  spec->stats.scoring.totalDocsLen = 21;
-  EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
-  reindexSurvivingKey(1, false, 11);
-  EXPECT_EQ(spec->stats.scoring.numDocuments, 1u);
-  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 11u);
-  EXPECT_EQ(collector()->updatesFromLastRun.load(), 0u);
-  EXPECT_EQ(collector()->writesFromLastRun.load(), 1u);
-}
-
-TEST_F(DiskSlotTrimTest, LiveZeroLengthReplacementKeepsTheDocumentCount) {
-  spec->stats.scoring.numDocuments = 1;
-  spec->stats.scoring.totalDocsLen = 0;
-  reindexSurvivingKey(1, true, 0);
-  EXPECT_EQ(spec->stats.scoring.numDocuments, 1u);
-  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 0u);
-  EXPECT_EQ(collector()->updatesFromLastRun.load(), 1u);
-}
-
 TEST_F(DiskSlotTrimTest, BlockedForcedGcRepliesWithTheActualRunOutcome) {
   static std::mutex mutex;
   static std::condition_variable completed;
@@ -1025,6 +968,40 @@ TEST_F(DiskSlotTrimTest, AutomaticCleanupRequeuesBehindOtherCleanPoolWork) {
 }
 
 #ifdef ENABLE_ASSERT
+TEST_F(DiskSlotTrimTest, RegisteredCronWaitsForInitializationAndLoadingBeforeRetrying) {
+  ServerEventHooks hooks;
+  ASSERT_NE(state.cronEvent, nullptr);
+  startCleanPool();
+  SlotCleanup_FailNextDiskEnqueues(1);
+  scheduleAutomaticTrim();
+  CleanPool_Wait();
+  ASSERT_TRUE(state.logicalPending);
+  ASSERT_EQ(state.applyCalls, 0u);
+
+  auto *initializedDb = disk_db;
+  disk_db = nullptr;
+  state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
+  CleanPool_Wait();
+  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_TRUE(pendingFilter());
+
+  disk_db = initializedDb;
+  g_isLoading = true;
+  state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
+  CleanPool_Wait();
+  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_TRUE(state.logicalPending);
+
+  g_isLoading = false;
+  state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
+  CleanPool_Wait();
+  EXPECT_EQ(state.registrations, 1u);
+  EXPECT_EQ(state.applyCalls, 1u);
+  EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_FALSE(state.logicalPending);
+  EXPECT_FALSE(pendingFilter());
+}
+
 TEST_F(DiskSlotTrimTest, RejectedInitialEnqueueRetainsIntentUntilCronRetry) {
   startCleanPool();
   const auto caller = std::this_thread::get_id();
@@ -1214,7 +1191,7 @@ TEST_F(DiskSlotTrimTest, RestoreReinstallsTheSavedCutoffAndResumesWithoutRegistr
 
 TEST_F(DiskSlotTrimTest, SuccessfulHotRestartKeepsCleanupPausedAfterSaveEnds) {
   mockConsistencyWindows();
-  PersistenceEventHooks hooks;
+  ServerEventHooks hooks;
   ASSERT_NE(state.persistenceEvent, nullptr);
   state.persistenceEvent(RSDummyContext, RedisModuleEvent_Persistence,
                          REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START, nullptr);
@@ -1235,7 +1212,7 @@ TEST_F(DiskSlotTrimTest, SuccessfulHotRestartKeepsCleanupPausedAfterSaveEnds) {
 
 TEST_F(DiskSlotTrimTest, FailedHotRestartSaveResumesCleanup) {
   mockConsistencyWindows();
-  PersistenceEventHooks hooks;
+  ServerEventHooks hooks;
   ASSERT_NE(state.persistenceEvent, nullptr);
   state.persistenceEvent(RSDummyContext, RedisModuleEvent_Persistence,
                          REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START, nullptr);
@@ -1250,9 +1227,52 @@ TEST_F(DiskSlotTrimTest, FailedHotRestartSaveResumesCleanup) {
   EXPECT_FALSE(pendingFilter());
 }
 
+TEST_F(DiskSlotTrimTest, SuccessfulSstResumesAutomaticCleanupThroughCron) {
+  mockConsistencyWindows();
+  ServerEventHooks hooks;
+  ASSERT_NE(state.sstEvent, nullptr);
+  ASSERT_NE(state.cronEvent, nullptr);
+  startCleanPool();
+
+  state.sstEvent(RSDummyContext, RedisModuleEvent_SSTReplication,
+                 REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT, nullptr);
+  scheduleAutomaticTrim();
+  CleanPool_Wait();
+  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_TRUE(state.logicalPending);
+  EXPECT_TRUE(pendingFilter());
+
+  for (const auto event :
+       {REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT, REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK}) {
+    state.sstEvent(RSDummyContext, RedisModuleEvent_SSTReplication, event, nullptr);
+    state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
+    CleanPool_Wait();
+    EXPECT_EQ(state.applyCalls, 0u);
+    EXPECT_EQ(state.batchApplyCalls, 0u);
+    EXPECT_TRUE(state.logicalPending);
+    EXPECT_TRUE(pendingFilter());
+  }
+  EXPECT_EQ(state.windowsOpened, 1u);
+  EXPECT_EQ(state.windowsClosed, 0u);
+
+  state.sstEvent(RSDummyContext, RedisModuleEvent_SSTReplication,
+                 REDISMODULE_SUBEVENT_SST_REPL_POST_FORK, nullptr);
+  EXPECT_EQ(state.windowsClosed, 1u);
+  EXPECT_TRUE(state.lastReopenGate);
+  state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
+  CleanPool_Wait();
+  EXPECT_EQ(state.registrations, 1u);
+  EXPECT_EQ(state.applyCalls, 1u);
+  EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_FALSE(state.logicalPending);
+  EXPECT_FALSE(pendingFilter());
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
+}
+
 TEST_F(DiskSlotTrimTest, SstCheckpointKeepsCleanupPausedUntilAbort) {
   mockConsistencyWindows();
-  PersistenceEventHooks hooks;
+  ServerEventHooks hooks;
   ASSERT_NE(state.sstEvent, nullptr);
   state.sstEvent(RSDummyContext, RedisModuleEvent_SSTReplication,
                  REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT, nullptr);
