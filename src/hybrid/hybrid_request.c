@@ -74,6 +74,12 @@ void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
   }
 }
 
+// Whether the subquery's term expansions sample memory. Hybrid reads memory at build under FAIL
+// only (see the checks in the build loop), so the expansion samples follow the same policy.
+static bool subqueryChecksExpansionMemory(const AREQ *areq) {
+  return IsHybridSearchSubquery(areq) && areq->base.reqConfig.oomPolicy == OomPolicy_Fail;
+}
+
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
@@ -116,6 +122,10 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &areq->base.reply.err) != REDISMODULE_OK) {
             rc = REDISMODULE_ERR;
             break;
+        }
+
+        if (subqueryChecksExpansionMemory(areq)) {
+          areq->searchopts.flags |= Search_CheckExpansionMemory;
         }
 
         // Parse subquery: Convert AST to iterator tree
