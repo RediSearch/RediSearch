@@ -556,8 +556,9 @@ def test_sorter_stop_over_cursor_reads(env):
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_normalizer_stop_over_cursor_reads(env):
-    """A normalizer stopped while pooling yields its pooled rows across cursor reads, normalized by
-    the max among them; the read that ends them carries the OOM warning and closes the cursor."""
+    """A normalizer stopped while pooling recovers its pooled rows through the pipeline drain, which
+    ends the query: the cursor read that sees the stop replies a chunk of them, normalized by the
+    max among them, with the OOM warning and closes the cursor."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'body', 'TEXT').ok()
     conn = getConnectionByEnv(env)
     for i in range(N_DOCS):
@@ -572,12 +573,8 @@ def test_normalizer_stop_over_cursor_reads(env):
         memory_pressure(env, 'RESET')
     rows = res['results']
     env.assertEqual(len(rows), 3, message=res)
-    env.assertEqual(res['warning'], [], message=res)
-    env.assertNotEqual(cursor, 0)
-    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-    rows += res['results']
-    env.assertEqual(sorted(r['extra_attributes']['__key'] for r in rows),
-                    [f'doc{i}' for i in range(k)], message=rows)
+    env.assertTrue({r['extra_attributes']['__key'] for r in rows} <= {f'doc{i}' for i in range(k)},
+                   message=rows)
     env.assertEqual(max(float(r['extra_attributes']['__score']) for r in rows), 1.0, message=rows)
     env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
     env.assertEqual(cursor, 0)
@@ -652,10 +649,19 @@ def test_safe_loader_stop_yields_the_loaded_prefix(env):
                     env.assertEqual(loaded_values(res), hellos(range(N_DOCS)),
                                     message=(policy, at_call, res))
 
-            # FT.SEARCH sorts by score before loading, and the sorter checkpoints each row first.
-            res = run_at_call(env, BUILD_CHECKPOINTS + 2 * N_DOCS + 3, *LOADED_SEARCH)
-            env.assertEqual(loaded_values(res), hellos(range(2)), message=(policy, res))
-            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, res))
+            # FT.SEARCH sorts by score before loading, and the sorter checkpoints each row first,
+            # so the loader's calls start N_DOCS later than in the aggregate above.
+            for at_call, rows in ((N_DOCS + 4, range(4)), (2 * N_DOCS + 3, range(2))):
+                res = run_at_call(env, BUILD_CHECKPOINTS + at_call, *LOADED_SEARCH)
+                env.assertEqual(loaded_values(res), hellos(rows), message=(policy, at_call, res))
+                env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, at_call, res))
+
+                with oom_policy(env, 'fail'):
+                    expect_oom_error_at_call(env, BUILD_CHECKPOINTS + at_call, *LOADED_SEARCH)
+                with oom_policy(env, 'ignore'):
+                    res = run_at_call(env, BUILD_CHECKPOINTS + at_call, *LOADED_SEARCH)
+                    env.assertEqual(loaded_values(res), hellos(range(N_DOCS)),
+                                    message=(policy, at_call, res))
     finally:
         set_workers(env, 0)
 
@@ -786,9 +792,10 @@ def test_expression_stop_ends_the_stream(env):
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_loader_drains_a_held_sorter_prefix_across_cursor_reads(env):
-    """A sorter stopped under ON_OOM RETURN keeps yielding the rows it holds. A loader below it,
-    reading a row per cursor read, must not take that stop as its own and end the cursor: every
-    held row is returned, sorted, and the last read carries the OOM warning."""
+    """A sorter stopped under ON_OOM RETURN recovers the rows it holds through the pipeline drain,
+    which ends the query. A loader below it must not take that stop as its own: the read that sees
+    the stop replies up to COUNT of the held rows, sorted, with the OOM warning and closes the
+    cursor."""
     create_index(env)
     k = 4
     query = ('FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'DESC', 'MAX', N_DOCS,
@@ -805,16 +812,18 @@ def test_loader_drains_a_held_sorter_prefix_across_cursor_reads(env):
             rows += res['results']
             warnings.append(res['warning'])
         env.assertEqual([r['extra_attributes']['t'] for r in rows],
-                        [f'hello{i}' for i in reversed(range(k))], message=(workers, rows))
+                        [f'hello{i}' for i in reversed(range(k))][:1], message=(workers, rows))
         env.assertEqual(warnings[-1], [COORD_OOM_WARNING], message=(workers, warnings))
+        env.assertEqual(cursor, 0, message=(workers, cursor))
 
 
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_loader_drains_a_held_sorter_prefix_under_sustained_pressure(env):
-    """Same as above, but the pressure stays on through the cursor reads, so the loader's own
-    checkpoint fires first in every read after the sorter's stop. The loader must still see the
-    sorter's hold (the stop flag is cleared per read) and leave the end of the stream to it."""
+    """Same as above, but the pressure stays on for any cursor read, so the loader's own checkpoint
+    would fire first in a read after the sorter's stop. The loader must still leave the stop to the
+    sorter's drain: the first read replies the head of the held rows and closes the cursor, so no
+    later read happens."""
     create_index(env)
     k = 4
     query = ('FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'DESC', 'MAX', N_DOCS,
@@ -837,8 +846,9 @@ def test_loader_drains_a_held_sorter_prefix_under_sustained_pressure(env):
         finally:
             memory_pressure(env, 'RESET')
         env.assertEqual([r['extra_attributes']['t'] for r in rows],
-                        [f'hello{i}' for i in reversed(range(k))], message=(workers, rows))
+                        [f'hello{i}' for i in reversed(range(k))][:1], message=(workers, rows))
         env.assertEqual(warnings[-1], [COORD_OOM_WARNING], message=(workers, warnings))
+        env.assertEqual(cursor, 0, message=(workers, cursor))
 
 
 @skip(cluster=True)
@@ -846,8 +856,8 @@ def test_loader_drains_a_held_sorter_prefix_under_sustained_pressure(env):
 def test_loader_load_phase_keeps_a_held_sorter_prefix_under_sustained_pressure(env):
     """Same as above, but each read buffers several held rows, so the request-wide checkpoint
     counter, due on every call here, also falls inside the loader's load loop. That stop is the
-    sorter's hold, not the loader's own: no held row may be dropped, and the stream ends when the
-    sorter drains."""
+    sorter's, not the loader's own: the read replies the first COUNT held rows, sorted, with the
+    OOM warning and closes the cursor."""
     create_index(env)
     k = 7
     query = ('FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'DESC', 'MAX', N_DOCS,
@@ -869,8 +879,9 @@ def test_loader_load_phase_keeps_a_held_sorter_prefix_under_sustained_pressure(e
         finally:
             memory_pressure(env, 'RESET')
         env.assertEqual([r['extra_attributes']['t'] for r in rows],
-                        [f'hello{i}' for i in reversed(range(k))], message=(workers, rows))
+                        [f'hello{i}' for i in reversed(range(k))][:3], message=(workers, rows))
         env.assertEqual(warnings[-1], [COORD_OOM_WARNING], message=(workers, warnings))
+        env.assertEqual(cursor, 0, message=(workers, cursor))
 
 
 N_PREFIX_TERMS = 400

@@ -88,6 +88,26 @@ def expect_clean_end(env, conn):
     env.assertEqual(conn.execute_command('INFO', 'CLIENTS')['blocked_clients'], 0)
 
 
+def last_fanout_reply_read(coord, query):
+    """The coordinator process's checkpoint call number of the last shard reply's read: every call
+    until the reducer is about to start (shard 1's pipeline, the same count on every run of this
+    query and data, then one read per shard reply). The reducer is held before it claims, so none
+    of its own or the reply's calls are counted."""
+    sync_point(coord, 'CLEAR')
+    sync_point(coord, 'ARM', 'BeforeCoordReducerClaim')
+    coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1 << 40)
+    try:
+        thread, result = run_in_thread(coord, query)
+        wait_for_sync_point(coord, 'BeforeCoordReducerClaim')
+        calls = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+    finally:
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        sync_point(coord, 'SIGNAL', 'BeforeCoordReducerClaim')
+        sync_point(coord, 'CLEAR')
+    thread.join(timeout=30)
+    return calls
+
+
 def stopped_at_first_reply(env, coord, query):
     """Runs `query` on the coordinator with memory forced over the limit after the entry guard and
     before the fan-out, so its first shard reply stops it."""
@@ -236,6 +256,7 @@ def test_entry_guard_counts_the_oom_warning_once_resp2():
 
 
 def _test_search_fanout_stop_after_shard_oom_warnings(env):
+    skipIfNoEnableAssert(env)
     if env.shardsCount < 3:
         env.skip()
     create_index(env)
@@ -251,18 +272,37 @@ def _test_search_fanout_stop_after_shard_oom_warnings(env):
     def reset_all():
         run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
 
-    # The fan-out's last call is the last shard reply's read.
-    last_reply_read = coordinator_calls_after_fanout(env, coord, SEARCH, N_DOCS) - 1
+    arm_remote_shards()
+    try:
+        last_reply_read = last_fanout_reply_read(coord, SEARCH)
+    finally:
+        reset_all()
 
+    # The last remote shard is held before its first read, so its reply is the last to land and
+    # the one the stop discards; the local shard's reply and the other remote's are kept.
+    held = remote_shards[-1]
+    sync_point(held, 'CLEAR')
+    sync_point(held, 'ARM', 'BeforeFirstRead')
     arm_remote_shards()
     coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', last_reply_read)
     errors, warnings = coord_oom_counters(coord)
     try:
-        res = coord.execute_command(*SEARCH)
+        thread, result = run_in_thread(coord, SEARCH)
+        wait_for_sync_point(held, 'BeforeFirstRead')
+        wait_for_condition(
+            lambda: (coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+                     == last_reply_read - 1, {}),
+            'Timeout waiting for the kept shard replies')
+        sync_point(held, 'SIGNAL', 'BeforeFirstRead')
+        thread.join(timeout=30)
+        env.assertFalse(thread.is_alive())
     finally:
         reset_all()
-    # The last reply is discarded; of the two kept, at least one is a remote shard's warning reply.
-    env.assertContains(sorted(search_ids(env, res)), [[], sorted(local_docs)], message=res)
+        sync_point(held, 'SIGNAL', 'BeforeFirstRead')
+        sync_point(held, 'CLEAR')
+    res = result[0]
+    # The kept replies are the local shard's documents and a remote shard's warning reply.
+    env.assertEqual(sorted(search_ids(env, res)), sorted(local_docs), message=res)
     if env.protocol == 3:
         env.assertEqual(res['warning'], [SHARD_OOM_WARNING, COORD_OOM_WARNING], message=res)
     env.assertEqual(coord_oom_counters(coord), (errors, warnings + 2 if env.protocol == 3 else warnings + 1))
@@ -273,13 +313,17 @@ def _test_search_fanout_stop_after_shard_oom_warnings(env):
 def test_search_fanout_stop_after_shard_oom_warnings_resp3():
     """A coordinator stop after shard replies that carry the shard OOM warning replies both
     warnings, the shard's first, and counts each once."""
-    _test_search_fanout_stop_after_shard_oom_warnings(Env(protocol=3))
+    _test_search_fanout_stop_after_shard_oom_warnings(
+        Env(protocol=3, moduleArgs='WORKERS 1'))
 
 
 @skip(cluster=False)
 def test_search_fanout_stop_after_shard_oom_warnings_resp2():
     """As the RESP3 case; RESP2 replies no warning but counts the coordinator stop."""
-    _test_search_fanout_stop_after_shard_oom_warnings(Env(protocol=2))
+    _test_search_fanout_stop_after_shard_oom_warnings(
+        Env(protocol=2, moduleArgs='WORKERS 1'))
+
+
 def reducer_reads(env, oom_policy):
     """Memory reads of the coordinator FT.SEARCH reducer: one after each merged shard reply but the
     last, which only ON_OOM FAIL reads (its last chance to fail before replying)."""
@@ -639,6 +683,64 @@ def test_search_short_reply_reads_memory_resp3():
 def test_search_short_reply_reads_memory_resp2():
     """As the RESP3 case; RESP2 has no warning channel but counts the stop."""
     _test_search_short_reply_reads_memory(Env(protocol=2))
+
+
+def _test_profile_search_short_reply_reads_memory(env):
+    skipIfNoEnableAssert(env)
+    create_index(env)
+    coord = env.getConnection(1)
+    profile = ('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT', 'LIMIT', 0, N_DOCS,
+               'TIMEOUT', 100000)
+    # A page past the last result has no row at all.
+    empty_page = profile[:7] + (N_DOCS, 10) + profile[9:]
+    try:
+        for oom_policy, query in itertools.product(('return', 'fail'), (profile, empty_page)):
+            case = (oom_policy, query)
+            allShards_change_oom_policy(env, oom_policy)
+            errors, warnings = coord_oom_counters(coord)
+            # Pressure appears after the merge, so only the profile's reply checkpoint sees it.
+            setPauseBeforeReduce(env, PAUSE_AFTER_LAST_RESULT)
+            try:
+                thread, result = run_in_thread(coord, query)
+                wait_for_condition(lambda: (getIsCoordReducePaused(env) == 1, {}),
+                                   'Timeout waiting for the reducer to pause')
+                coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+                setCoordReduceResume(env)
+                thread.join(timeout=30)
+                env.assertFalse(thread.is_alive())
+            finally:
+                coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+                resetCoordReduceDebug(env)
+            res = result[0]
+            if oom_policy == 'fail':
+                env.assertTrue(isinstance(res, ResponseError), message=(case, res))
+                env.assertContains(OOM_QUERY_ERROR, str(res), message=case)
+                env.assertEqual(coord_oom_counters(coord), (errors + 1, warnings), message=case)
+            else:
+                # The reply read comes before the first row, so the nested results are empty.
+                env.assertEqual(merged_rows(res, env.protocol), [], message=(case, res))
+                if env.protocol == 3:
+                    env.assertEqual(res['Results']['warning'], [COORD_OOM_WARNING],
+                                    message=(case, res))
+                env.assertEqual(coord_oom_counters(coord), (errors, warnings + 1), message=case)
+            expect_clean_end(env, coord)
+    finally:
+        allShards_change_oom_policy(env, 'return')
+
+
+@skip(cluster=False)
+def test_profile_search_short_reply_reads_memory_resp3():
+    """FT.PROFILE SEARCH replies its nested results through the same reply checkpoint as
+    FT.SEARCH: pressure that starts at the reply boundary, after the merge, ends the nested
+    results before their first row with the coordinator OOM warning (ON_OOM RETURN), or fails
+    the query with the OOM error before any reply byte (ON_OOM FAIL)."""
+    _test_profile_search_short_reply_reads_memory(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_profile_search_short_reply_reads_memory_resp2():
+    """As the RESP3 case; RESP2 has no warning channel but counts the stop."""
+    _test_profile_search_short_reply_reads_memory(Env(protocol=2))
 
 
 @skip(cluster=False)
@@ -1251,12 +1353,11 @@ def test_timeout_owned_reduction_after_shard_warning_and_oom_stop():
 
     try:
         set_policies(env, 'RETURN-STRICT', 'return')
-        # Calibrate the coordinator's checkpoint count; the last one is the last reply's read.
+        # Only the fan-out's reads are counted: the reducer's and the reply's never run here, as
+        # the timer takes reduction before the held reducer.
         arm_remote_shards()
-        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1 << 40)
         try:
-            coord.execute_command(*SEARCH)
-            last_reply_read = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+            last_reply_read = last_fanout_reply_read(coord, SEARCH)
         finally:
             reset_all()
 
@@ -1272,6 +1373,42 @@ def test_timeout_owned_reduction_after_shard_warning_and_oom_stop():
         finally:
             reset_all()
             sync_point(coord, 'SIGNAL', 'BeforeCoordReducerClaim')
+            sync_point(coord, 'CLEAR')
+        res = result[0]
+        env.assertFalse(isinstance(res, Exception), message=res)
+        env.assertEqual(res['warning'], ['Timeout limit was reached'], message=res)
+        wait_for_condition(
+            lambda: (coord.execute_command('INFO', 'CLIENTS')['blocked_clients'] == 0, {}),
+            'Timeout waiting for the blocked client to be released')
+        expect_clean_end(env, coord)
+    finally:
+        reset_policies(env)
+
+
+@skip(cluster=False)
+def test_timeout_after_reducer_claim_beats_the_fanout_oom_stop():
+    """The fan-out recorded an OOM stop under ON_OOM FAIL, the background reducer claims reduction
+    and is held there, and the RETURN-STRICT timer fires meanwhile: the timeout callback owns the
+    reply, so it replies the timeout's partial result and warning, not the OOM error the reducer
+    would map from the stop. The reducer self-releases, since the callback blocks the main thread
+    that would signal it."""
+    env = Env(protocol=3)
+    skipIfNoEnableAssert(env)
+    create_index(env)
+    coord = env.getConnection(1)
+    timed_search = SEARCH[:-1] + (300,)
+    try:
+        set_policies(env, 'RETURN-STRICT', 'fail')
+        last_reply_read = last_fanout_reply_read(coord, SEARCH)
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', last_reply_read)
+        sync_point(coord, 'CLEAR')
+        sync_point(coord, 'ARM', 'CoordSearchReducerClaimed', 1500)
+        try:
+            thread, result = run_in_thread(coord, timed_search)
+            thread.join(timeout=30)
+            env.assertFalse(thread.is_alive())
+        finally:
+            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
             sync_point(coord, 'CLEAR')
         res = result[0]
         env.assertFalse(isinstance(res, Exception), message=res)
