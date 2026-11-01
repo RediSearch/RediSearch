@@ -394,12 +394,12 @@ def test_grouper_stop_ends_the_cursor(env):
     rows_per_check, k = 2, 2
     for workers in worker_counts(env):
         memory_pressure(env, 'READ_INTERVAL', rows_per_check)
-        res, cursor = run_at_call(env, BUILD_CHECKPOINTS + k, *query)
+        res, cursor = run_at_call(env, BUILD_CHECKPOINTS + CURSOR_ADMISSION + k, *query)
         env.assertEqual(res, [0], message=workers)
         env.assertEqual(cursor, 0, message=workers)
         with oom_policy(env, 'fail'):
             memory_pressure(env, 'READ_INTERVAL', rows_per_check)
-            expect_oom_error_at_call(env, BUILD_CHECKPOINTS + k, *query)
+            expect_oom_error_at_call(env, BUILD_CHECKPOINTS + CURSOR_ADMISSION + k, *query)
         env.assertEqual(to_dict(to_dict(env.cmd('FT.INFO', 'idx'))['cursor_stats'])['index_total'],
                         0, message=workers)
 
