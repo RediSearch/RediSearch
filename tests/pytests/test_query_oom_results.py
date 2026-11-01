@@ -37,9 +37,11 @@ def _memory_pressure(env, *args):
 def _checkpoint_calls(env, query):
     """Checkpoint calls `query` makes when nothing fires (STATUS counts them while armed)."""
     _memory_pressure(env, 'AT_CALL', NEVER)
-    env.cmd(*query)
+    res = env.cmd(*query)
     calls = _memory_pressure(env, 'STATUS')[5]
     _memory_pressure(env, 'RESET')
+    if 'WITHCURSOR' in query and res[1] != 0:
+        env.cmd('FT.CURSOR', 'DEL', 'idx', res[1])
     return calls
 
 
@@ -260,7 +262,8 @@ def test_pressure_after_the_row_that_fills_the_limit_is_no_oom_error(env):
         for workers in [0, 2]:
             _set_policies(env, 'fail', on_oom, workers)
             errors, warnings = _oom_counters(env)
-            _memory_pressure(env, 'AT_CALL', B + count)
+            # The safe loader adds per-row checkpoints under workers, so calibrate the call.
+            _memory_pressure(env, 'AT_CALL', _replay_call(env, query, count, 1))
             res, cursor = env.cmd(*query)
             message = (on_oom, workers, res)
             env.assertEqual(res['results'], [], message=message)
@@ -662,6 +665,32 @@ def test_hybrid_stop_past_the_offset_warns(env):
     query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello*', 'VSIM', '@v', '$BLOB', 'LIMIT', 2, 2,
              'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
     _expect_every_hybrid_cut_warns(env, query, lambda res: [r['__key'] for r in res['results']])
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_hybrid_tail_stop_fails_over_a_soft_tail_error(env):
+    """A tail APPLY on a field no doc has records a soft error (it only warns); under ON_OOM FAIL
+    a stop at any checkpoint still fails the query with the OOM error, never a reply with rows."""
+    _hybrid_index(env)
+    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
+             'LOAD', 1, '@opt', 'APPLY', '@opt', 'AS', 'x',
+             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+    for workers in [0, 2]:
+        _set_policies(env, 'return', 'fail', workers)
+        complete = env.cmd(*query)
+        failures = 0
+
+        def fails_or_is_complete(res, at_call, calls):
+            nonlocal failures
+            if isinstance(res, redis_exceptions.ResponseError):
+                env.assertContains(OOM_QUERY_ERROR, str(res), message=(workers, at_call, res))
+                failures += 1
+            else:
+                env.assertEqual(res, complete, message=(workers, at_call, res))
+        _sweep_hybrid(env, query, fails_or_is_complete)
+        env.assertGreater(failures, 0, message=workers)
+    _reset(env)
 
 
 @skip(cluster=True)

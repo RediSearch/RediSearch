@@ -312,6 +312,21 @@ static bool subqueryStoppedForOom(HybridRequest *hreq) {
   return false;
 }
 
+// Under FAIL a soft tail error is not selected as fatal, so it must not mask the OOM failure.
+// The tail slot outranks the subquery slots when the fatal error is selected, so an OOM installed
+// on it would hide a sibling subquery's fatal error: returns false then, leaving the slot alone.
+static bool clearSoftTailErrorForOom(HybridRequest *hreq, QueryError *err) {
+  for (size_t i = 0; i < hreq->nrequests; ++i) {
+    if (QueryError_HasError(&hreq->requests[i]->base.reply.err)) {
+      return false;
+    }
+  }
+  if (HybridRequest_IsSoftTailError(err)) {
+    QueryError_ClearError(err);
+  }
+  return true;
+}
+
 int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
   // The timeout callback owns the reply of a blocked-client timeout: no OOM stop, of a subquery or
   // of the tail, relabels it.
@@ -347,20 +362,8 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
       rc = RS_RESULT_EOF;
     }
     if (cut && oomPolicy == OomPolicy_Fail) {
-      // The tail slot outranks the subquery slots when the fatal error is selected, so an OOM
-      // installed on it would hide a sibling subquery's fatal error.
-      bool subqueryFailed = false;
-      for (size_t i = 0; i < hreq->nrequests; ++i) {
-        subqueryFailed |= QueryError_HasError(&hreq->requests[i]->base.reply.err);
-      }
-      if (!subqueryFailed) {
-        // A soft tail error is not selected as fatal, so it must not mask the OOM failure.
-        if (HybridRequest_IsSoftTailError(err)) {
-          QueryError_ClearError(err);
-        }
-        if (QueryError_IsOk(err)) {
-          QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
-        }
+      if (clearSoftTailErrorForOom(hreq, err) && QueryError_IsOk(err)) {
+        QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
       }
       return RS_RESULT_ERROR;
     }
@@ -374,6 +377,10 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
       rc == RS_RESULT_EOF || (rc == RS_RESULT_OK && !(hreq->reqflags & QEXEC_F_IS_CURSOR));
   if (lastReply && oomPolicy != OomPolicy_Fail && hreq->tailPipeline->qctx.oomCut) {
     QueryError_SetQueryOOMWarning(err);
+  }
+  if (oomPolicy == OomPolicy_Fail && rc == RS_RESULT_TIMEDOUT &&
+      QueryRequestTimeout_GetStopReason(&hreq->base.timeout) == QUERY_STOP_REASON_OOM) {
+    clearSoftTailErrorForOom(hreq, err);
   }
   return ApplyOomStop(&hreq->base.timeout, oomPolicy, err, rc);
 }
