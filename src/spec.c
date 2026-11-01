@@ -3148,6 +3148,8 @@ static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp, FieldSpec *fs) {
   };
 }
 
+// Point each field's in-memory handle (vector diskCtx, TAG disk index) at the
+// storage the disk layer opened for it. Call after every sp->diskSpec open.
 static void IndexSpec_BindFieldsStorage(IndexSpec *sp) {
   RS_ASSERT(sp->diskSpec);
   for (size_t i = 0; i < sp->numFields; ++i) {

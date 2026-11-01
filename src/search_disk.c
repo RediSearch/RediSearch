@@ -316,11 +316,11 @@ static void SearchDisk_CompleteLogicalOpen(RedisSearchDiskIndexSpec *result, Ind
                     "Failed to restore disk resource state after an index open failure");
   }
 }
-static SearchDiskFieldOpen *SearchDisk_DescribeFields(const IndexSpec *sp) {
-  SearchDiskFieldOpen *fields = sp->numFields ? rm_calloc(sp->numFields, sizeof(*fields)) : NULL;
+static SearchDiskField *SearchDisk_DescribeFields(const IndexSpec *sp) {
+  SearchDiskField *fields = sp->numFields ? rm_calloc(sp->numFields, sizeof(*fields)) : NULL;
   for (size_t i = 0; i < sp->numFields; ++i) {
     const FieldSpec *fs = sp->fields + i;
-    fields[i] = (SearchDiskFieldOpen){
+    fields[i] = (SearchDiskField){
         .fieldIndex = fs->index,
         .types = fs->types,
         .indexMissing = FieldSpec_IndexesMissing(fs),
@@ -347,7 +347,7 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const Hidden
   if (!SearchDisk_PrepareLogicalOpen()) {
     return NULL;
   }
-  SearchDiskFieldOpen *fields = SearchDisk_DescribeFields(c_index_spec);
+  SearchDiskField *fields = SearchDisk_DescribeFields(c_index_spec);
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(
       ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen,
@@ -417,7 +417,7 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndexWithRdbState(
     disk->basic.freeRdbState(rdbState);
     return NULL;
   }
-  SearchDiskFieldOpen *fields = SearchDisk_DescribeFields(c_index_spec);
+  SearchDiskField *fields = SearchDisk_DescribeFields(c_index_spec);
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(
       ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, fields,

@@ -146,7 +146,7 @@ typedef struct SearchDiskResourceConfig {
 } SearchDiskResourceConfig;
 
 /** A schema field borrowed by the index-open APIs. */
-typedef struct SearchDiskFieldOpen {
+typedef struct SearchDiskField {
   t_fieldIndex fieldIndex;
   FieldType types;
   bool indexMissing;
@@ -154,7 +154,7 @@ typedef struct SearchDiskFieldOpen {
   const char *fieldName;
   size_t fieldNameLen;
   const VecSimParams *vectorParams;
-} SearchDiskFieldOpen;
+} SearchDiskField;
 
 typedef struct BasicDiskAPI {
   /**
@@ -207,7 +207,7 @@ typedef struct BasicDiskAPI {
                                              const HiddenString *indexName,
                                              const char *obfuscatedName, size_t obfuscatedNameLen,
                                              DocumentType type, bool deleteBeforeOpen,
-                                             const SearchDiskFieldOpen *fields, size_t numFields,
+                                             const SearchDiskField *fields, size_t numFields,
                                              const SearchDiskCompactionCallbacks *callbacks,
                                              void *private_data);
   /**
@@ -302,7 +302,7 @@ typedef struct BasicDiskAPI {
   RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(
       RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
       const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
-      RedisSearchDiskRdbState *rdbState, const SearchDiskFieldOpen *fields, size_t numFields,
+      RedisSearchDiskRdbState *rdbState, const SearchDiskField *fields, size_t numFields,
       const SearchDiskCompactionCallbacks *callbacks, void *private_data);
 
   /**
@@ -733,10 +733,6 @@ typedef struct IndexDiskAPI {
    */
   QueryIterator *(*newMissingIterator)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex,
                                        RedisSearchDiskSnapshot *snapshot, QueryError *status);
-  /** Legacy initializer; schema-aware index open already prepares shared missing storage.
-   * Must be idempotent. Returns false on preparation failure.
-   * ctx must allow Redis BigModule CF registration; index must be a live disk index. */
-  bool (*initializeMissingStorage)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {

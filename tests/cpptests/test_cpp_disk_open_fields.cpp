@@ -64,8 +64,8 @@ class DiskSchemaOpenTest : public ::testing::Test {
   static inline int closeIndexSpecCalls = 0;
   static inline int rdbStateToken = 0;
 
-  static bool recordSchema(RedisModuleCtx *ctx, void *privateData,
-                           const SearchDiskFieldOpen *fields, size_t n) {
+  static bool recordSchema(RedisModuleCtx *ctx, void *privateData, const SearchDiskField *fields,
+                           size_t n) {
     auto *index = reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData);
     EXPECT_EQ(ctx, RSDummyContext);
     numFieldsAtOpen.push_back(reinterpret_cast<IndexSpec *>(index)->numFields);
@@ -113,7 +113,7 @@ class DiskSchemaOpenTest : public ::testing::Test {
     // The mock uses the C spec as an opaque disk handle.
     api.basic.openIndexSpec = [](RedisModuleCtx *ctx, RedisSearchDisk *, const HiddenString *,
                                  const char *, size_t, DocumentType, bool,
-                                 const SearchDiskFieldOpen *fields, size_t n,
+                                 const SearchDiskField *fields, size_t n,
                                  const SearchDiskCompactionCallbacks *, void *privateData) {
       events.emplace_back("openIndex");
       return recordSchema(ctx, privateData, fields, n)
@@ -122,8 +122,8 @@ class DiskSchemaOpenTest : public ::testing::Test {
     };
     api.basic.openIndexSpecWithRdbState =
         [](RedisModuleCtx *ctx, RedisSearchDisk *, const HiddenString *, const char *, size_t,
-           DocumentType, RedisSearchDiskRdbState *state, const SearchDiskFieldOpen *fields,
-           size_t n, const SearchDiskCompactionCallbacks *, void *privateData) {
+           DocumentType, RedisSearchDiskRdbState *state, const SearchDiskField *fields, size_t n,
+           const SearchDiskCompactionCallbacks *, void *privateData) {
           EXPECT_EQ(state, reinterpret_cast<RedisSearchDiskRdbState *>(&rdbStateToken));
           events.emplace_back("openIndexWithRdbState");
           return recordSchema(ctx, privateData, fields, n)
