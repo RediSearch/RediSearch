@@ -256,7 +256,7 @@ impl Expansion<'_> {
     /// the ON_OOM reply, so the iterators gathered so far are still returned. Only FT.SEARCH and
     /// FT.AGGREGATE take part, plus requests that opt in with
     /// [`checks_expansion_memory`](QueryEvalContext::checks_expansion_memory): FT.EXPLAIN never
-    /// runs its plan, and the hybrid reply maps an OOM stop under FAIL only.
+    /// runs its plan, and hybrid subqueries opt in as their build reads memory.
     fn memory_stop(&mut self) -> bool {
         if !self
             .ctx

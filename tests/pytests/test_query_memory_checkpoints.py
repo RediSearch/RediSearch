@@ -740,8 +740,8 @@ def test_term_expansion_checks_memory_per_expanded_term(env):
 def test_hybrid_term_expansion_checks_memory_under_fail(env):
     """A hybrid text branch reads memory per expanded term under ON_OOM FAIL, so pressure inside the
     expansion ends it there and fails the query with the OOM error through the post-build check;
-    the call count shows that no further term was opened. Under ON_OOM RETURN, hybrid does not
-    read memory at build and the expansion takes no part."""
+    the call count shows that no further term was opened. Under ON_OOM RETURN the same stop
+    replies the OOM warning instead."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT',
                'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
     conn = getConnectionByEnv(env)
@@ -764,11 +764,8 @@ def test_hybrid_term_expansion_checks_memory_under_fail(env):
                         env.assertEqual(checkpoint_calls(env), at_call)
                     finally:
                         memory_pressure(env, 'RESET')
-            memory_pressure(env, 'AT_CALL', 5)
-            try:
-                env.assertEqual(hybrid_result_count(env.cmd(*query)), full)
-                env.assertEqual(checkpoint_calls(env), 0)
-            finally:
-                memory_pressure(env, 'RESET')
+            # The other subquery keeps counting its own checkpoints, so only the reply is pinned.
+            res = run_at_call(env, 5, *query)
+            env.assertEqual(res[res.index('warnings') + 1], [COORD_OOM_WARNING], message=res)
     finally:
         env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 200).ok()
