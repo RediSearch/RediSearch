@@ -586,10 +586,19 @@ def test_safe_loader_stop_yields_the_loaded_prefix(env):
                     env.assertEqual(loaded_values(res), hellos(range(N_DOCS)),
                                     message=(policy, at_call, res))
 
-            # FT.SEARCH sorts by score before loading, and the sorter checkpoints each row first.
-            res = run_at_call(env, BUILD_CHECKPOINTS + 2 * N_DOCS + 3, *LOADED_SEARCH)
-            env.assertEqual(loaded_values(res), hellos(range(2)), message=(policy, res))
-            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, res))
+            # FT.SEARCH sorts by score before loading, and the sorter checkpoints each row first,
+            # so the loader's calls start N_DOCS later than in the aggregate above.
+            for at_call, rows in ((N_DOCS + 4, range(4)), (2 * N_DOCS + 3, range(2))):
+                res = run_at_call(env, BUILD_CHECKPOINTS + at_call, *LOADED_SEARCH)
+                env.assertEqual(loaded_values(res), hellos(rows), message=(policy, at_call, res))
+                env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, at_call, res))
+
+                with oom_policy(env, 'fail'):
+                    expect_oom_error_at_call(env, BUILD_CHECKPOINTS + at_call, *LOADED_SEARCH)
+                with oom_policy(env, 'ignore'):
+                    res = run_at_call(env, BUILD_CHECKPOINTS + at_call, *LOADED_SEARCH)
+                    env.assertEqual(loaded_values(res), hellos(range(N_DOCS)),
+                                    message=(policy, at_call, res))
     finally:
         set_workers(env, 0)
 
