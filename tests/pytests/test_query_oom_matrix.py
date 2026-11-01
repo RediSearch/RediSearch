@@ -50,7 +50,8 @@ WORKER_COUNTS = (0, 2)
 
 ORIGIN = np.array([0.0, 0.0], dtype=np.float32).tobytes()
 # L2 is squared: docs 0..15 lie within the radius of the origin.
-RADIUS = 2 * 15 ** 2
+RADIUS_DOCS = 15
+RADIUS = 2 * RADIUS_DOCS ** 2
 
 
 class Shape:
@@ -111,10 +112,15 @@ def _parse(kind, res):
     return [_pairs(r) for r in res[1:]], None
 
 
+def _search_total(res):
+    return res['total_results'] if isinstance(res, dict) else res[0]
+
 class Stopped:
-    """One reply of a pressured run: rows, warnings, or the error it ended with."""
-    def __init__(self, rows=(), warnings=None, error=None, first_command_error=False):
-        self.rows, self.warnings, self.error = list(rows), warnings, error
+    """One reply of a pressured run: rows, warnings, or the error it ended with. `total` is the
+    reply's total count, kept for FT.SEARCH only: the other shapes' totals differ by shape and
+    topology (cursor chunks, hybrid fusion, the coordinator's WITHCOUNT)."""
+    def __init__(self, rows=(), warnings=None, error=None, first_command_error=False, total=None):
+        self.rows, self.warnings, self.error, self.total = list(rows), warnings, error, total
         self.first_command_error = first_command_error
 
 
@@ -126,7 +132,7 @@ def _run(env, shape):
         except redis_exceptions.ResponseError as e:
             return Stopped(error=str(e), first_command_error=True)
         rows, warnings = _parse(shape.kind, res)
-        return Stopped(rows, warnings)
+        return Stopped(rows, warnings, total=_search_total(res) if shape.kind == 'search' else None)
 
     rows, warnings = [], [] if env.protocol == 3 else None
     try:
@@ -279,6 +285,8 @@ class Cell:
             env.assertEqual(by_key(got.rows), by_key(self.complete.rows), message=msg)
         if got.warnings is not None:
             env.assertEqual(got.warnings, [], message=msg)
+        if got.total is not None:
+            env.assertEqual(got.total, self.complete.total, message=('total_results',) + msg)
 
 
 CONFIGS = ('ON_OOM', 'ON_TIMEOUT', 'WORKERS', 'TIMEOUT', '_MAX_FOREGROUND_TIMEOUT_LIMIT')
@@ -346,10 +354,35 @@ def _matrix(env, where):
                 verify_command_OK_on_all_shards(env, config_cmd(), 'SET', name, saved[name])
 
 
+def _expect_seeded(env, shape, complete, label):
+    """The complete result is the oracle of every pressured run, so it must match the seeded data
+    (see _create_index) rather than merely be nonempty."""
+    rows = complete.rows
+    if shape.kind == 'groupby':
+        env.assertEqual({int(float(r['g'])): int(r['c']) for r in rows},
+                        {g: N_DOCS // N_GROUPS for g in range(N_GROUPS)}, message=label)
+        return
+    keys = [_key_of(shape, r) for r in rows]
+    env.assertEqual(len(keys), len(set(keys)), message=('duplicate rows',) + label)
+    if shape.kind in ('search', 'hybrid'):
+        docs = [int(k[len('doc'):]) for k in keys]
+    else:
+        docs = [int(_n_of(r)) for r in rows]
+    # VECTOR_RANGE sits on the radius boundary, so only its interior is pinned.
+    if shape is SHAPES['range']:
+        env.assertTrue(set(range(RADIUS_DOCS)) <= set(docs) <= set(range(RADIUS_DOCS + 1)),
+                       message=('range rows',) + label)
+    else:
+        env.assertEqual(sorted(docs), list(range(N_DOCS)), message=label)
+    if shape.kind == 'search':
+        for r, doc in zip(rows, docs):
+            env.assertEqual(int(_n_of(r)), doc, message=('row payload',) + label)
+        env.assertEqual(complete.total, len(rows), message=('total_results',) + label)
+
 def _sweep(env, conns, where, shape, on_oom, label):
     complete = _run(env, shape)
     env.assertEqual(complete.error, None, message=label)
-    env.assertGreater(len(complete.rows), 0, message=label)
+    _expect_seeded(env, shape, complete, label)
     cell = Cell(env, shape, where, complete, label)
 
     calls = _checkpoint_calls(env, conns, shape)
