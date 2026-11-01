@@ -264,9 +264,13 @@ def _test_search_fanout_stop_after_shard_oom_warnings(env):
     remote_shards = [env.getConnection(i) for i in range(2, env.shardsCount + 1)]
     local_docs = coord.execute_command('KEYS', 'doc*')
 
+    # The held shard replies normally: stopped at a build checkpoint it would never reach the
+    # sync point that holds it.
+    held = remote_shards[-1]
+
     def arm_remote_shards():
-        # Their first checkpoint stops them: an empty reply with the shard OOM warning.
-        for conn in remote_shards:
+        # The other remotes' first checkpoint stops them: an empty reply with the shard OOM warning.
+        for conn in remote_shards[:-1]:
             conn.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
 
     def reset_all():
@@ -280,7 +284,6 @@ def _test_search_fanout_stop_after_shard_oom_warnings(env):
 
     # The last remote shard is held before its first read, so its reply is the last to land and
     # the one the stop discards; the local shard's reply and the other remote's are kept.
-    held = remote_shards[-1]
     sync_point(held, 'CLEAR')
     sync_point(held, 'ARM', 'BeforeFirstRead')
     arm_remote_shards()
