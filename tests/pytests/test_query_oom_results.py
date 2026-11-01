@@ -37,9 +37,11 @@ def _memory_pressure(env, *args):
 def _checkpoint_calls(env, query):
     """Checkpoint calls `query` makes when nothing fires (STATUS counts them while armed)."""
     _memory_pressure(env, 'AT_CALL', NEVER)
-    env.cmd(*query)
+    res = env.cmd(*query)
     calls = _memory_pressure(env, 'STATUS')[5]
     _memory_pressure(env, 'RESET')
+    if 'WITHCURSOR' in query and res[1] != 0:
+        env.cmd('FT.CURSOR', 'DEL', 'idx', res[1])
     return calls
 
 
@@ -260,7 +262,8 @@ def test_pressure_after_the_row_that_fills_the_limit_is_no_oom_error(env):
         for workers in [0, 2]:
             _set_policies(env, 'fail', on_oom, workers)
             errors, warnings = _oom_counters(env)
-            _memory_pressure(env, 'AT_CALL', B + count)
+            # The safe loader adds per-row checkpoints under workers, so calibrate the call.
+            _memory_pressure(env, 'AT_CALL', _replay_call(env, query, count, 1))
             res, cursor = env.cmd(*query)
             message = (on_oom, workers, res)
             env.assertEqual(res['results'], [], message=message)
