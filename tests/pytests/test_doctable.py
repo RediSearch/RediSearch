@@ -37,12 +37,13 @@ def testDocTable():
     env.expect('ft.drop', 'idx').ok()
 
 
-def _assertWildcardScanSkipsDeleted(env, numDocs):
+def _assertWildcardScanSkipsDeleted(env, numDocs, createOptions=()):
     """A wildcard query walks every docId up to the table's maxDocId and prefetches metadata of
     the ids ahead of it. Holes in the id range (deleted docs) and the ids past the last doc must
     neither change the results nor read out of bounds."""
     conn = getConnectionByEnv(env)
-    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', *createOptions,
+               'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
     for i in range(numDocs):
         conn.execute_command('HSET', f'doc{i}', 'n', i)
     # Single holes, a run longer than the prefetch distance, and the tail of the table.
@@ -77,3 +78,9 @@ def testWildcardScanWithDeletedDocsInChainedTable():
     # A doc table smaller than the number of docs, so buckets hold chains of several docs.
     env = Env(moduleArgs='MAXDOCTABLESIZE 100')
     _assertWildcardScanSkipsDeleted(env, 1000)
+
+
+@skip(cluster=True)
+def testWildcardScanWithDeletedDocsIndexAll(env):
+    # With INDEXALL, `*` walks the existing-docs inverted index instead of the docId range.
+    _assertWildcardScanSkipsDeleted(env, 1000, ('INDEXALL', 'ENABLE'))
