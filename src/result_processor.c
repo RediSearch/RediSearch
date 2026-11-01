@@ -2662,6 +2662,9 @@ dictType dictTypeHybridSearchResult = {
  RPStatus* upstreamReturnCodes;   // Final return codes from each upstream
  HybridLookupContext *lookupCtx;  // Lookup context for field merging
  HybridExplainContext *explainCtx; // EXPLAINSCORE wrapper context; NULL ⇒ no wrapping
+ uint32_t memoryCheckCalls;       // QueryMemory_ShouldStop counter for the held rows
+ bool memoryStopped;              // A stop request ended consumption; later upstreams are only drained
+ QueryStopReason heldStop;        // Why the merger kept its rows past a stop, if it did
 
 } RPHybridMerger;
 
@@ -2712,6 +2715,13 @@ static bool RPHybridMerger_StopFails(const RPHybridMerger *self) {
     }
   }
   return false;
+}
+
+/* Whether the held rows are still yielded after a stop: under ON_OOM RETURN they are the reply,
+ * unless a blocked-client timeout, whose callback owns the reply, came after. */
+static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
+  return self->heldStop == QUERY_STOP_REASON_OOM &&
+         !QueryRequestTimeout_IsBlockedClientTimedOut(self->sctx->timeout);
 }
 
 /* Helper function to store a result from an upstream into the hybrid merger's dictionary
@@ -2768,6 +2778,16 @@ static bool RPHybridMerger_StopFails(const RPHybridMerger *self) {
    SearchResult *r = rm_calloc(1, sizeof(*r));
    *r = SearchResult_New();
    ResultProcessor *upstream = self->upstreams[upstreamIndex];
+   if (self->memoryStopped) {
+     // Rows stay unread, but an upstream is released only once it stops depleting.
+     rc = upstream->Next(upstream, r);
+     if (rc == RS_RESULT_OK) {
+       SearchResult_Clear(r);
+       rc = RS_RESULT_EOF;
+     }
+     rm_free(r);
+     return rc;
+   }
    while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
        double score = SearchResult_GetScore(r);
        consumed++;
@@ -2777,6 +2797,13 @@ static bool RPHybridMerger_StopFails(const RPHybridMerger *self) {
        if (hybridMergerStoreUpstreamResult(self, r, upstreamIndex, score)) {
          r = rm_calloc(1, sizeof(*r));
          *r = SearchResult_New();
+         // The dictionary grows only here. The stop is the tail's own: the upstreams already ended
+         // theirs, so the merger must end its consumption whatever the stop policy.
+         if (QueryMemory_ShouldStop(self->sctx->timeout, &self->memoryCheckCalls)) {
+           self->memoryStopped = true;
+           rc = RS_RESULT_EOF;
+           break;
+         }
        } else {
          SearchResult_Clear(r);
          --consumed; // avoid wrong rank in RRF
@@ -2797,7 +2824,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     // No more results to yield
     int ret = RPHybridMerger_ReportsTimeout(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
-  } else if (QueryRequestTimeout_IsStopRequested(self->sctx->timeout) ||
+  } else if ((QueryRequestTimeout_IsStopRequested(self->sctx->timeout) &&
+              !RPHybridMerger_KeepsRowsPastStop(self)) ||
              QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
     // Timed out before we could yield all results
     return RS_RESULT_TIMEDOUT;
@@ -2871,6 +2899,14 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   } else if (RPHybridMerger_StopFails(self)) {
     // If any of the threads timed out and we're in FAIL mode, return timeout without yielding any result
     return RS_RESULT_TIMEDOUT;
+  }
+  if (self->memoryStopped) {
+    // The stop is the tail's own, so the tail's policy applies (an OOM stop follows ON_OOM).
+    // Under RETURN the rows held so far are the reply, with the warning guaranteed by oomCut.
+    if (RP_StopPolicy(&self->base) != TimeoutPolicy_Return) {
+      return RS_RESULT_TIMEDOUT;
+    }
+    self->heldStop = RP_HoldStop(&self->base);
   }
 
   // Initialize iterator for yield phase

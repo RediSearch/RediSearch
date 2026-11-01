@@ -729,7 +729,9 @@ def test_hybrid_subquery_stop_follows_on_oom_under_timeout_fail(env):
                 _memory_pressure(env, 'AT_CALL', at_call)
                 res = env.cmd(*HYBRID)
                 _memory_pressure(env, 'RESET')
-                if res['warnings'] == []:
+                # The merger's own consume calls follow the subqueries': they keep only the rows
+                # read so far.
+                if res['warnings'] == [] or len(res['results']) < full:
                     break
                 env.assertEqual(len(res['results']), full, message=(workers, at_call, res))
                 env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=(workers, at_call))
@@ -742,6 +744,49 @@ def test_hybrid_subquery_stop_follows_on_oom_under_timeout_fail(env):
                 try:
                     env.expect(*HYBRID).error().contains(OOM_QUERY_ERROR)
                 finally:
+                    _memory_pressure(env, 'RESET')
+    finally:
+        _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_hybrid_merger_consume_stop_replies_by_on_oom_policy(env):
+    """The merger checks memory per row it takes from its upstreams, which already ended their
+    own rows. Its stop follows ON_OOM, never ON_TIMEOUT, with and without workers: under RETURN
+    the rows taken so far are the reply with the OOM warning (a stop at the first row of the
+    last upstream loses the rest of its window), under FAIL the reply is the OOM error. The
+    last upstream's consume calls are the WINDOW calls before the tail's buffering and replay
+    calls (one each per merged row); the first upstream's may interleave with a subquery's."""
+    window = 4
+    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
+             'COMBINE', 'RRF', 2, 'WINDOW', window, 'LIMIT', 0, N_DOCS,
+             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+    _hybrid_index_on_a_line(env, lambda i: ' '.join(['hello'] * (i + 1)))
+    try:
+        for workers in [0, 2]:
+            _set_policies(env, 'return', 'return', workers)
+            full = len(env.cmd(*query)['results'])
+            env.assertGreater(full, window, message=workers)
+            last_upstream_call = _checkpoint_calls(env, query) - 2 * full - window
+
+            for on_timeout, on_oom in [('return', 'return'), ('fail', 'return'),
+                                       ('return', 'fail'), ('fail', 'fail')]:
+                _set_policies(env, on_timeout, on_oom, workers)
+                for n in range(1, window + 1):
+                    _memory_pressure(env, 'AT_CALL', last_upstream_call + n)
+                    errors, warnings = _oom_counters(env)
+                    message = (workers, on_timeout, on_oom, n)
+                    if on_oom == 'fail':
+                        env.expect(*query).error().contains(OOM_QUERY_ERROR)
+                        env.assertEqual(_oom_counters(env), (errors + 1, warnings),
+                                        message=message)
+                    else:
+                        res = env.cmd(*query)
+                        env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=message)
+                        env.assertLessEqual(len(res['results']), full, message=message)
+                        if n == 1:
+                            env.assertLess(len(res['results']), full, message=message)
                     _memory_pressure(env, 'RESET')
     finally:
         _reset(env)
