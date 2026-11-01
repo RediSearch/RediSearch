@@ -775,9 +775,13 @@ def test_coordinator_withcount_depleter_stop_rebases_the_total(env):
     create_index(env)
     query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'LIMIT', 0, N_DOCS,
              'FILTER', '@n < 5')
-    before = checkpoint_calls(env)
-    env.cmd(*query)
-    calls = checkpoint_calls(env) - before
+    # Calls are counted only while a position is armed; an unreachable one measures the run.
+    memory_pressure(env, 'AT_CALL', 2**62)
+    try:
+        env.cmd(*query)
+        calls = checkpoint_calls(env)
+    finally:
+        memory_pressure(env, 'RESET')
     env.assertGreater(calls, BUILD_CHECKPOINTS, message=calls)
 
     stopped = 0
