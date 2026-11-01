@@ -212,13 +212,20 @@ static bool diskDmdIsVisible(IndexSpec *spec, const RSDocumentMetadata *dmd) {
   return !deleted;
 }
 
+static IndexSpec *hybridMergerSpec(ResultProcessor *rp);
+
 static bool bufferedResultIsVisible(ResultProcessor *rp, const SearchResult *result) {
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(result);
   ResultProcessor *root = rp->parent->rootProc;
   // Aggregated rows and coordinator results have no local document to validate.
-  if (!dmd || !root || root->type != RP_INDEX) return true;
-  IndexSpec *spec = ((RPQueryIterator *)root)->sctx->spec;
-  return !spec->diskSpec || diskDmdIsVisible(spec, dmd);
+  if (!dmd || !root) return true;
+  IndexSpec *spec = NULL;
+  if (root->type == RP_INDEX) {
+    spec = ((RPQueryIterator *)root)->sctx->spec;
+  } else if (root->type == RP_HYBRID_MERGER) {
+    spec = hybridMergerSpec(root);
+  }
+  return !spec || !spec->diskSpec || diskDmdIsVisible(spec, dmd);
 }
 
 /**
@@ -2749,6 +2756,10 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
    // Free the processor itself
    rm_free(self);
  }
+
+static IndexSpec *hybridMergerSpec(ResultProcessor *rp) {
+  return ((RPHybridMerger *)rp)->sctx->spec;
+}
 
  const RLookupKey *RPHybridMerger_GetScoreKey(ResultProcessor *rp) {
    if (!rp || rp->type != RP_HYBRID_MERGER) {
