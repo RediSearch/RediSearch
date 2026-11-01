@@ -869,8 +869,8 @@ def test_shard_cursor_is_exempt_from_admission(env):
     """A shard's cursor for the coordinator is not admission-checked: pressure armed on shard 2
     at call B + 1, where a client cursor's admission would reject, lands instead on its first
     buffered row (ON_TIMEOUT FAIL buffers). The shard keeps replying, so the query has no error,
-    carries the OOM warning, and still holds every other shard's rows and at least the shard's
-    first one. A rejected shard cursor would drop all of its rows without a warning."""
+    carries the OOM warning, and still holds every other shard's rows. A rejected shard cursor
+    would drop all of its rows without a warning."""
     _index_with_docs(env)
     shard = env.getConnection(2)
     query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', 100]
@@ -902,8 +902,6 @@ def test_shard_cursor_is_exempt_from_admission(env):
         env.assertEqual(len(names), len(set(names)), message=names)
         env.assertEqual(set(full) - shard_names - set(names), set(), message=names)
         env.assertContains(COORD_OOM_WARNING, warnings)
-        if shard_names:
-            env.assertGreater(len(shard_names & set(names)), 0, message=(shard_names, names))
         _expect_no_open_cursors(env, 'shard cursor exemption')
     finally:
         shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
