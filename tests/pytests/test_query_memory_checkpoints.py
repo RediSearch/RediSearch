@@ -707,11 +707,12 @@ def test_withcount_depleter_stop_over_cursor_reads(env):
 @skip(cluster=False)
 @env_spec(protocol=3)
 def test_coordinator_withcount_depleter_stop_rebases_the_total(env):
-    """The coordinator preloads the shard-summed WITHCOUNT total, so a depleter stopped after k
-    rows must rebase it on the rows it holds, or the local FILTER after LIMIT leaves the total
-    counting rows nobody evaluated. Pressure is armed on the coordinator process only and swept
-    over every checkpoint call of one run, so the test does not depend on which call is the
-    depleter's; a reply that stopped there must count exactly the rows it returns."""
+    """The coordinator preloads the shard-summed WITHCOUNT total. Under an OOM stop the total
+    counts the rows read minus what FILTER removed, so it never drops below the rows returned.
+    Only the depleter's own stop rebases it on the rows it holds. Pressure is armed on the
+    coordinator process only and swept over every checkpoint call of one run, so the test does
+    not depend on which call is the depleter's: every stopped reply is bounded, and at least one
+    (the depleter's) counts exactly the rows it returns."""
     create_index(env)
     query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'LIMIT', 0, N_DOCS,
              'FILTER', '@n < 5')
@@ -725,12 +726,16 @@ def test_coordinator_withcount_depleter_stop_rebases_the_total(env):
     env.assertGreater(calls, BUILD_CHECKPOINTS, message=calls)
 
     stopped = 0
+    rebased = 0
     for n in range(BUILD_CHECKPOINTS + 1, calls + 1):
         res = run_at_call(env, n, *query)
         if res['warning'] == [COORD_OOM_WARNING] and res['results']:
             stopped += 1
-            env.assertEqual(res['total_results'], len(res['results']), message=(n, res))
+            env.assertLessEqual(len(res['results']), res['total_results'], message=(n, res))
+            env.assertLessEqual(res['total_results'], N_DOCS, message=(n, res))
+            rebased += res['total_results'] == len(res['results'])
     env.assertGreater(stopped, 0)
+    env.assertGreater(rebased, 0)
 
 
 APPLY = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', 'upper(@t)', 'AS', 'u')
