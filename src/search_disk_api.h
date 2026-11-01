@@ -755,13 +755,11 @@ typedef struct SlotMigrationAPI {
   // register logical intent with a nonzero trimId. Retain ranges, cutoff and progress
   // across supported recovery, including before the first batch. Called at the trim
   // notification after ownership transfer and earlier writes have drained.
+  // Valid normalized ranges must register successfully; false denotes a contract failure.
+  // Existing documents must not change slots while cleanup is pending.
   // This API does not control Redis migration admission.
   bool (*registerTrim)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
                        size_t numRanges, uint64_t *trimId, t_docId *maxDocId);
-  // Retry a retained notification with its original cutoff, never the current allocator value.
-  // On failure, no backend job is created; Search retains and serializes the notification.
-  bool (*registerTrimAtCutoff)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
-                               size_t numRanges, t_docId maxDocId, uint64_t *trimId);
   // Main thread, under the spec write lock; no I/O. Enumerate restored logical
   // jobs before queries resume, so Search can reinstall filters and schedule work.
   void (*forEachPendingTrim)(RedisSearchDiskIndexSpec *index,
@@ -771,18 +769,19 @@ typedef struct SlotMigrationAPI {
   // reclaimed its records. Invoke callback at most once, including an empty batch
   // to commit progress or completion. No progress mutation outside the callback.
   // FINISHED requires successful application of the final exhausted batch.
+  // RETRY denotes a stale scan, storage failure or declined callback; caller-contract
+  // violations are fatal. maxScanned must be positive and trimId must be pending.
   SearchDiskSlotTrimResult (*runTrimBatch)(RedisSearchDiskIndexSpec *index, uint64_t trimId,
                                            size_t maxScanned, SearchDiskSlotTrimCallback callback,
                                            void *ctx);
-  // Callback only, under spec write lock; no I/O. Validate current batch without
+  // Callback only, under spec write lock. Write doc-table tombstones before publishing
+  // deleted IDs and progress. Validate current batch without
   // mutation on failure. On success update deleted IDs, advance progress and,
   // for the exhausted batch, clear logical intent. Search updates VecSim and stats
   // before unlocking; all changes must share the checkpoint capture boundary.
-  // Revalidate concurrent deletes/renames so stale batches can be retried without
+  // Revalidate concurrent deletions so stale batches can be retried without
   // double accounting. Applied batches cannot be applied again, even after GC.
   bool (*applyTrimBatch)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotTrimBatch *batch);
-  // Physical reclamation eligibility, independent of logical job completion.
-  bool (*hasPendingCleanup)(RedisSearchDiskIndexSpec *index);
 } SlotMigrationAPI;
 
 typedef struct DocTableDiskAPI {
