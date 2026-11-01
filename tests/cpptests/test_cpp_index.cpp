@@ -1280,6 +1280,18 @@ TEST_F(IndexTest, testDocTableLiveBitmapSparse) {
   ASSERT_EQ(0, DocTable_LiveBitmapWords(&dt.t));
 }
 
+TEST_F(IndexTest, testDocTableLiveBitmapMaxBytes) {
+  // Only the counters are read, so a table this large needs no documents. Every docId is live,
+  // so the per-doc bound allows any size and only the absolute cap applies.
+  DocTable t = {};
+  const t_docId capDocIds = (t_docId)(64 << 20) * 8;  // LIVE_BITMAP_MAX_BYTES, in bits
+  t.size = capDocIds;
+  t.maxDocId = capDocIds - 1;
+  ASSERT_EQ(capDocIds / 64, DocTable_LiveBitmapWords(&t));
+  t.maxDocId = capDocIds;
+  ASSERT_EQ(0, DocTable_LiveBitmapWords(&t));
+}
+
 TEST_F(IndexTest, testVarintFieldMask) {
   t_fieldMask x = 127;
   size_t expected[] = {0, 2, 1, 1, 2, 0, 2, 0, 2, 3, 0, 0, 3, 0, 0, 4};

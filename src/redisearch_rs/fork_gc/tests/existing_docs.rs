@@ -33,6 +33,12 @@ const fn make_spec(existing_docs: *mut ffi::InvertedIndex) -> ffi::IndexSpec {
     spec
 }
 
+/// An existence snapshot for tests that never look a document up.
+/// [`DocExistence::snapshot`] calls C functions that miri cannot run.
+fn unqueried_existence<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
+    DocExistence::with_bitmap(guard, Box::default(), 0)
+}
+
 /// When the spec has no `existingDocs` index, the child writes `None`.
 #[test]
 fn no_existing_docs_writes_only_terminator() {
@@ -41,7 +47,7 @@ fn no_existing_docs_writes_only_terminator() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
+    collect_existing_docs(&mut buf, &guard, &unqueried_existence(&guard)).unwrap();
 
     let mut cursor = Cursor::new(&buf);
     assert!(
@@ -64,7 +70,7 @@ fn empty_existing_docs_writes_only_terminator() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
+    collect_existing_docs(&mut buf, &guard, &unqueried_existence(&guard)).unwrap();
 
     let mut cursor = Cursor::new(&buf);
     assert!(
