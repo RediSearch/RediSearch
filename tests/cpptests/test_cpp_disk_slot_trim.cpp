@@ -62,7 +62,7 @@ class DiskSlotTrimTest : public ::testing::Test {
     isFlex = true;
     api.docTable.getDeletedIdsCount = [](RedisSearchDiskIndexSpec *) { return uint64_t{0}; };
     api.index.isBackgroundWorkPaused = [](RedisSearchDiskIndexSpec *) { return false; };
-    api.slotMigration.hasPendingCleanup = [](RedisSearchDiskIndexSpec *) { return false; };
+
     gc.gcCtx = DiskGC_Create(ref, &gc.callbacks);
     spec->gc = &gc;
   }
@@ -137,7 +137,7 @@ TEST_F(DiskSlotTrimTest, ReaderReadyRetirementRunsWithoutNewWrites) {
   static size_t runs;
   ready = false;
   runs = 0;
-  api.slotMigration.hasPendingCleanup = [](RedisSearchDiskIndexSpec *) { return ready; };
+
   api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
     ++runs;
     ready = false;

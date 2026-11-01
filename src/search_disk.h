@@ -1052,7 +1052,6 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  */
 void SearchDisk_DebugResetCompactionController(void);
 
-bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index);
 #ifdef __cplusplus
 }
 #endif
