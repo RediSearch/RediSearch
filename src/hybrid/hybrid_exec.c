@@ -335,8 +335,14 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
     }
     // The subqueries are depleted by now, so the tail is not stopped: the rows the merger holds
     // still reach the reply. A tail timeout without a deadline or stop of the tail's own is the
-    // merger reporting the subquery's stop.
-    if (rc == RS_RESULT_TIMEDOUT && !QueryRequestTimeout_IsTimedOutOrStopped(&hreq->base.timeout)) {
+    // merger reporting the subquery's stop, unless another subquery's genuine timeout (the OOM
+    // ones are mapped above) is what the merger reports.
+    bool subqueryTimedOut = false;
+    for (size_t i = 0; i < hreq->nrequests; ++i) {
+      subqueryTimedOut |= hreq->subqueriesReturnCodes[i] == RS_RESULT_TIMEDOUT;
+    }
+    if (rc == RS_RESULT_TIMEDOUT && !subqueryTimedOut &&
+        !QueryRequestTimeout_IsTimedOutOrStopped(&hreq->base.timeout)) {
       cut = true;
       rc = RS_RESULT_EOF;
     }
