@@ -784,6 +784,14 @@ static int rpnetRead(ResultProcessor *self, SearchResult *r, bool draining) {
       SyncPoint_WaitUntil(SYNC_POINT_RPNET_REPLY_ADMITTED, areq_timed_out, nc->areq);
     }
 #endif
+    // The IO thread can stop after the pre-pop check yet before queueing this reply. Publish it
+    // now: a satisfied LIMIT may never call rpnetRead again. The reply is kept, as for a stop
+    // seen earlier, and the next read returns the stop.
+    if (!draining && nc->it && MRIterator_IsMemoryStopped(nc->it) &&
+        (areq->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
+         !QueryRequestTimeout_IsTimedOutExact(&areq->base.timeout))) {
+      RPNet_MemoryStops(nc);
+    }
     if (resp3) { // RESP3
       nc->curIdx = 0;
       // For WITHCOUNT, totalResults was set once at Phase B start by
