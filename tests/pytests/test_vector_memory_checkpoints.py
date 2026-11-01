@@ -325,3 +325,63 @@ def test_vecsim_search_of_a_full_flat_buffer_stops_for_oom(env):
         frontend = to_dict(get_tiered_debug_info(env, 'bidx', 'vh')['FRONTEND_INDEX'])
         env.assertEqual(frontend['INDEX_SIZE'], FLAT_BUFFER_LIMIT, message=frontend)
         _expect_stopped_inside_vecsim(env, queries)
+
+
+ADHOC_MATCHES = 15
+ADHOC_K = 20
+
+def _adhoc_queries():
+    """Filtered KNN forced to an adhoc brute-force scan whose K exceeds the filter's matches, so
+    the scan walks every match and ends without a further batch."""
+    params = ['PARAMS', 2, 'b', _vec(QUERY_VALUE)]
+    flt = f'(@n:[1 {ADHOC_MATCHES}])'
+    return {
+        'flat': ['FT.SEARCH', 'hidx',
+                 f'{flt}=>[KNN {ADHOC_K} @v $b HYBRID_POLICY ADHOC_BF]',
+                 *params, 'NOCONTENT', 'LIMIT', 0, ADHOC_K],
+        'hnsw': ['FT.SEARCH', 'hidx',
+                 f'{flt}=>[KNN {ADHOC_K} @vh $b HYBRID_POLICY ADHOC_BF]',
+                 *params, 'NOCONTENT', 'LIMIT', 0, ADHOC_K],
+    }
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_knn_adhoc_stops_for_oom(env):
+    """An adhoc-BF scan checks memory per matching doc, which retains a captured child record
+    each; under pressure it stops there with reason OOM, with and without workers and under
+    either ON_TIMEOUT."""
+    _create_indexed_hash_index(env)
+    try:
+        for workers in (0, 2):
+            set_workers(env, workers)
+            for timeout_policy in ('return', 'fail'):
+                allShards_change_timeout_policy(env, timeout_policy)
+                for name, query in _adhoc_queries().items():
+                    env.debugPrint(f'{name} WORKERS {workers} ON_TIMEOUT {timeout_policy}')
+                    _expect_stopped_by_policy(env, query, ADHOC_MATCHES)
+    finally:
+        allShards_change_timeout_policy(env, 'return')
+        set_workers(env, 0)
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_knn_adhoc_stops_for_oom_anywhere_in_the_scan(env):
+    """Pressure landing on the first, a middle, the last doc of the scan, or on the read after
+    it, stops the query: the per-doc checkpoint is amortized over READ_INTERVAL calls, but a
+    positional pressure and the closing read do not wait for it."""
+    _create_indexed_hash_index(env)
+    try:
+        allShards_change_oom_policy(env, 'fail')
+        for workers in (0, 2):
+            set_workers(env, workers)
+            for name, query in _adhoc_queries().items():
+                for at_call in (1, 2, ADHOC_MATCHES // 2, ADHOC_MATCHES, ADHOC_MATCHES + 1):
+                    env.debugPrint(f'{name} WORKERS {workers} AT_CALL {at_call}')
+                    _memory_pressure(env, 'READ_INTERVAL', 1000)
+                    _memory_pressure(env, 'AT_CALL', at_call)
+                    env.expect(*query).error().contains(OOM_QUERY_ERROR)
+                    _memory_pressure(env, 'RESET')
+    finally:
+        allShards_change_oom_policy(env, 'return')
+        _memory_pressure(env, 'RESET')
+        set_workers(env, 0)

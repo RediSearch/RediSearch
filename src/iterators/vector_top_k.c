@@ -30,3 +30,7 @@ int RS_VecSimCheckMemory(QueryRequestTimeout *timeout) {
   uint32_t counter = QueryMemory_GetRatioReadInterval() - 1;
   return QueryMemory_ShouldStop(timeout, &counter);
 }
+
+int RS_VecSimCheckMemoryEvery(QueryRequestTimeout *timeout, uint32_t *counter) {
+  return QueryMemory_ShouldStop(timeout, counter);
+}
