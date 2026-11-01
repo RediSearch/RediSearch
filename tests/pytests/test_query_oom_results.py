@@ -686,6 +686,8 @@ def _hybrid_shard_stop_sweep(env, shard, full, workers):
             # Under FAIL a stop in the replay of a shard's buffered cursor read can only warn, as
             # standalone; everywhere else it is the OOM error.
             allShards_change_oom_policy(env, 'fail')
+            # FAIL under ON_TIMEOUT RETURN buffers and replays, so it has checkpoints RETURN lacks.
+            calls = shard_calls()
             errors = 0
             for at_call in range(1, calls + 1):
                 res = run_at(at_call)
@@ -1041,11 +1043,17 @@ def test_dumps_stop_with_the_oom_error_resp3(env):
     conn = getConnectionByEnv(env)
     for i in range(N_DOCS):
         conn.execute_command('HSET', f't{i}', 't', f'tag{i}')
+        conn.execute_command('FT.DICTADD', 'dict', f'term{i}')
         conn.execute_command('FT.SYNUPDATE', 'tidx', f'group{i}', f'syn{i}')
     _memory_pressure(env, 'AT_CALL', 3)
     res = env.cmd('FT.TAGVALS', 'tidx', 't')
     values, stopped = _split_dump(res)
     env.assertEqual((len(values), stopped), (2, True), message=res)
+    _memory_pressure(env, 'AT_CALL', 3)
+    res = env.cmd('FT.DICTDUMP', 'dict')
+    values, stopped = _split_dump(res)
+    env.assertEqual((len(values), stopped), (2, True), message=res)
+    env.assertTrue(all(v.startswith('term') for v in values), message=res)
     _memory_pressure(env, 'AT_CALL', 3)
     res = env.cmd('FT.SYNDUMP', 'tidx')
     env.assertEqual(len(res), 3, message=res)
@@ -1139,6 +1147,29 @@ def test_tagvals_shard_stop_through_the_coordinator(env):
 
 @skip(cluster=False)
 @env_spec(protocol=3)
+def test_tagvals_shard_stop_through_the_coordinator_resp3(env):
+    """Under RESP3 the shards' FT.TAGVALS sets reach the reducer as sets and the merged reply is a
+    set: a shard's OOM error is one member of it, or the whole reply when no shard got to a value."""
+    env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f't{i}', 't', f'tag{i}')
+    try:
+        _memory_pressure(env, 'AT_CALL', 1)
+        res = env.cmd('FT.TAGVALS', 'tidx', 't')
+        values, stopped = _split_dump(res)
+        env.assertTrue(stopped, message=res)
+        env.assertLess(len(values), N_DOCS, message=res)
+        env.assertTrue(all(v.startswith('tag') for v in values), message=res)
+
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+        env.expect('FT.TAGVALS', 'tidx', 't').error().contains(OOM_QUERY_ERROR)
+    finally:
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
 def test_hybrid_coordinator_stop_replies_by_on_oom_policy(env):
     """The coordinator process runs the FT.HYBRID tail and reply loop plus its own shard's
     subqueries, all on one checkpoint counter that no scope splits. Sweeping every position of
@@ -1197,6 +1228,11 @@ def test_hybrid_coordinator_stop_replies_by_on_oom_policy(env):
             env.assertGreater(warned, 0, message=on_timeout)
 
             allShards_change_oom_policy(env, 'fail')
+            # FAIL under ON_TIMEOUT RETURN buffers and replays, so it has checkpoints RETURN lacks.
+            arm(NEVER)
+            env.cmd(*HYBRID)
+            calls = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+            disarm()
             errors = 0
             for at_call in range(1, calls + 1):
                 res = run_at(at_call)
