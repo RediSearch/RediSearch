@@ -418,6 +418,9 @@ static void executeAggregateDeferred(void *arg) {
       qctx->totalResults = totalResults;
     }
 
+    // The plan may never read the iterator (LIMIT 0 0), so publish its memory stop here.
+    RPNet_MemoryStops(nc);
+
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
       // Cursor path: AREQ_StartCursor stashes the AREQ on the new Cursor and
       // emits the first chunk via runCursor. Not routed through executePlan
@@ -946,9 +949,21 @@ static int dispatchAggregateDeferred(AREQ *r, DistQueryDispatchCtx *dispatch,
   r->sctx->redisCtx = NULL;
   // Defer the unblock to executeAggregateDeferred.
   dispatch->bc = NULL;
+  MRIterator *it = nc->it;
+  // Capture before dispatching: the worker may free the request, and nc with it.
+  const bool stopped = QueryRequest_ShouldStop(&r->base.timeout);
+  if (stopped) {
+    // Already stopped: no reply is awaited, so shards are only told to drop their cursors.
+    // Not yet visible to the IO thread, so the swap is race-free.
+    MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
+    MRIterator_SwapCallbacks(it, netCursorCallback, NULL);
+  }
   // Start the fan-out; withCountReplyCb posts executeAggregateDeferred once all
   // shard first-replies are in.
-  MR_StartIterator(nc->it, iterStartCb);
+  MR_StartIterator(it, iterStartCb);
+  if (stopped) {
+    dispatchDeferred(iterCtx);
+  }
   // Release the dispatcher's StrongRef; the spec is no longer pinned across
   // the async wait. executeAggregateDeferred re-promotes iterCtx->spec_ref.
   IndexSpecRef_Release(strong_ref);

@@ -616,7 +616,7 @@ void RPNet_resetCurrent(RPNet *nc) {
 // or this one. Stops the request with reason OOM and wakes its channel. Left out: hybrid
 // subqueries, until their reply maps an OOM stop, and FT.PROFILE, whose profile collection reads
 // the stream to its end and would spin on a stopped one.
-static bool rpnetMemoryStops(RPNet *nc) {
+bool RPNet_MemoryStops(RPNet *nc) {
   QueryRequestTimeout *timeout = &nc->areq->base.timeout;
   if (!nc->it || nc->hybridSubquery != RPNET_HYBRID_NONE || nc->cmd.forProfiling ||
       QueryRequest_ShouldStop(timeout)) {
@@ -698,7 +698,7 @@ static int rpnetRead(ResultProcessor *self, SearchResult *r, bool draining) {
       return RS_RESULT_TIMEDOUT;
     }
     // After the deadline check: an elapsed deadline keeps its ON_TIMEOUT outcome.
-    if (!draining && rpnetMemoryStops(nc)) {
+    if (!draining && RPNet_MemoryStops(nc)) {
       // Without a cursor, so the shards' cursors are deleted rather than read.
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
       return RS_RESULT_TIMEDOUT;
