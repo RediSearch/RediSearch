@@ -169,9 +169,10 @@ pub struct QueryIteratorTree<'index> {
     // out bound to `'index` (`into_root`) or as a raw pointer, which needs
     // `unsafe` to use beyond the borrow of the context.
     root: CRQEIterator,
-    /// The type of [`Self::root`] before [`Self::into_profiled`] wrapped it,
-    /// which a profile wrapper hides.
-    root_type: IteratorType,
+    /// Whether [`Self::root`] visits every document id in ascending order,
+    /// decided before [`Self::into_profiled`] wraps it in a profile iterator
+    /// that hides its type.
+    dense_ascending_scan: bool,
     // FIXME: remove once CRQEIterator has been removed (MOD-14254) so `root` can carry the lifetime itself.
     _ctx: PhantomData<&'index mut QueryEvalContext>,
 }
@@ -183,14 +184,14 @@ impl<'index> QueryIteratorTree<'index> {
     /// when it yields none.
     pub fn new(ctx: &'index mut QueryEvalContext, root: QueryNodeMut<'_>, config: Config) -> Self {
         let root = into_child_iterator(eval_node(ctx, root, config));
-        let root_type = root.type_;
-        Self::from_root(root, root_type)
+        let dense_ascending_scan = is_dense_ascending_scan(&root);
+        Self::from_root(root, dense_ascending_scan)
     }
 
-    const fn from_root(root: CRQEIterator, root_type: IteratorType) -> Self {
+    const fn from_root(root: CRQEIterator, dense_ascending_scan: bool) -> Self {
         Self {
             root,
-            root_type,
+            dense_ascending_scan,
             _ctx: PhantomData,
         }
     }
@@ -202,7 +203,7 @@ impl<'index> QueryIteratorTree<'index> {
     ///
     /// Panics if the tree has already been profiled.
     pub fn into_profiled(self) -> Self {
-        Self::from_root(self.root.into_profiled(), self.root_type)
+        Self::from_root(self.root.into_profiled(), self.dense_ascending_scan)
     }
 
     /// Consume the tree into its root iterator, which still borrows the
@@ -216,15 +217,16 @@ impl<'index> QueryIteratorTree<'index> {
         self.root.as_raw()
     }
 
-    /// The type of the root iterator, unchanged by [`Self::into_profiled`].
-    pub const fn root_type(&self) -> IteratorType {
-        self.root_type
+    /// Whether the root iterator visits every document id in ascending order,
+    /// unchanged by [`Self::into_profiled`].
+    pub const fn dense_ascending_scan(&self) -> bool {
+        self.dense_ascending_scan
     }
 
     /// Replace the root iterator with `root`, returning the previous one
     /// unfreed, typically because `root` already owns it as a child.
     pub fn replace_root(&mut self, root: CRQEIterator) -> NonNull<ffi::QueryIterator> {
-        self.root_type = root.type_;
+        self.dense_ascending_scan = is_dense_ascending_scan(&root);
         std::mem::replace(&mut self.root, root).into_raw()
     }
 
@@ -243,8 +245,18 @@ impl<'index> QueryIteratorTree<'index> {
     ///    stay valid, as required by the invariants of [`QueryEvalContext::new`].
     /// 2. No other iterator tree may be built from that context.
     pub unsafe fn erase_lifetime(self) -> QueryIteratorTree<'static> {
-        QueryIteratorTree::from_root(self.root, self.root_type)
+        QueryIteratorTree::from_root(self.root, self.dense_ascending_scan)
     }
+}
+
+/// Whether `root` is a wildcard iterator, which yields every document id in
+/// ascending order whether it walks the doc id range or the index's
+/// existing-docs inverted index.
+fn is_dense_ascending_scan(root: &CRQEIterator) -> bool {
+    matches!(
+        root.type_,
+        IteratorType::Wildcard | IteratorType::InvIdxWildcard
+    )
 }
 
 /// Evaluate a single query node, producing the corresponding iterator.

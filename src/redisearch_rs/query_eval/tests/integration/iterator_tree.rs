@@ -7,12 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use ffi::{IndexFlags_Index_DocIdsOnly, QueryIterator};
+use index_result::RSIndexResult;
+use inverted_index::{InvertedIndex, doc_ids_only::DocIdsOnly, opaque};
 use query_eval::{Config, QueryEvalContext, QueryIteratorTree, QueryNodeMut};
 use query_types::QueryNodeType;
 use rqe_iterators::{
     Empty, IteratorType, RQEIterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    inverted_index::Wildcard as InvIdxWildcard,
 };
-use rqe_iterators_test_utils::ContractChecker;
+use rqe_iterators_test_utils::{ContractChecker, MockContext};
 use std::ptr::NonNull;
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
@@ -48,10 +52,10 @@ fn into_profiled_wraps_root() {
 }
 
 #[test]
-fn root_type_sees_through_profile() {
-    for (node_type, root_type) in [
-        (QueryNodeType::Null, IteratorType::Empty),
-        (QueryNodeType::Wildcard, IteratorType::Wildcard),
+fn dense_ascending_scan_survives_profiling() {
+    for (node_type, dense_ascending_scan) in [
+        (QueryNodeType::Null, false),
+        (QueryNodeType::Wildcard, true),
     ] {
         let mut mock_ctx = MockQueryEvalCtx::new();
         mock_ctx.set_max_doc_id(10);
@@ -64,13 +68,46 @@ fn root_type_sees_through_profile() {
         let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
         let tree = QueryIteratorTree::new(&mut ctx, node, Config::default());
-        assert_eq!(tree.root_type(), root_type);
+        assert_eq!(tree.dense_ascending_scan(), dense_ascending_scan);
 
         let tree = tree.into_profiled();
-        assert_eq!(tree.root_type(), root_type);
+        assert_eq!(tree.dense_ascending_scan(), dense_ascending_scan);
         let it = tree.into_root();
         assert_eq!(it.type_(), IteratorType::Profile);
     }
+}
+
+#[test]
+fn dense_ascending_scan_for_wildcard_on_an_index_all_index() {
+    // On an `INDEXALL ENABLE` index, `*` walks the existing-docs inverted index.
+    let ctx = MockContext::new(10, 10);
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    for doc_id in 1..=10 {
+        let record = RSIndexResult::build_virt().doc_id(doc_id).build();
+        ii.add_record(&record).unwrap();
+    }
+    let existing_docs = Box::into_raw(Box::new(opaque::InvertedIndex::DocIdsOnly(ii)));
+    ctx.spec_write().rule_mut().set_index_all(true);
+    ctx.spec_write().set_existing_docs_ptr(existing_docs.cast());
+
+    // SAFETY: `MockContext` builds a valid `QueryEvalCtx` whose spec, rule and
+    // doc table outlive `qctx` and the tree built from it.
+    let mut qctx = unsafe { QueryEvalContext::new(ctx.qctx()) };
+    let mock_node = MockQueryNode::new(QueryNodeType::Wildcard);
+    // SAFETY: `mock_node` is a valid `RSQueryNode`, not accessed elsewhere
+    // while `node` is alive.
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
+
+    let tree = QueryIteratorTree::new(&mut qctx, node, Config::default());
+    assert!(tree.dense_ascending_scan());
+    let it = tree.into_root();
+    assert_eq!(it.type_(), IteratorType::InvIdxWildcard);
+    drop(it);
+
+    ctx.spec_write().set_existing_docs_ptr(std::ptr::null_mut());
+    // SAFETY: `existing_docs` came from `Box::into_raw` above, and the iterator
+    // reading it was dropped.
+    drop(unsafe { Box::from_raw(existing_docs) });
 }
 
 #[test]
@@ -111,27 +148,59 @@ fn replace_root_hands_back_previous_root() {
     drop(unsafe { CRQEIterator::new(new_root) });
 }
 
-#[test]
-fn replace_root_updates_root_type() {
+/// Replace the root of a tree built from `node_type` with `new_root`,
+/// returning the tree's [`QueryIteratorTree::dense_ascending_scan`] before and
+/// after.
+fn dense_ascending_scan_across_replace_root(
+    node_type: QueryNodeType,
+    new_root: NonNull<QueryIterator>,
+) -> (bool, bool) {
     let mut mock_ctx = MockQueryEvalCtx::new();
     mock_ctx.set_max_doc_id(10);
     // SAFETY: `mock_ctx` is a fully initialised `QueryEvalCtx` whose pointer
     // fields are all valid, and it outlives `ctx` and the tree built from it.
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
-    let mock_node = MockQueryNode::new(QueryNodeType::Wildcard);
+    let mock_node = MockQueryNode::new(node_type);
     // SAFETY: `mock_node` is a valid `RSQueryNode`, not accessed elsewhere
     // while `node` is alive.
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
     let mut tree = QueryIteratorTree::new(&mut ctx, node, Config::default());
-    assert_eq!(tree.root_type(), IteratorType::Wildcard);
-
-    let new_root = NonNull::new(RQEIteratorWrapper::boxed_new(Empty)).unwrap();
-    // SAFETY: `new_root` is a freshly boxed, valid iterator that nothing else owns.
+    let before = tree.dense_ascending_scan();
+    // SAFETY: the caller hands over `new_root`, a valid iterator that nothing
+    // else owns.
     let previous = tree.replace_root(unsafe { CRQEIterator::new(new_root) });
-    assert_eq!(tree.root_type(), IteratorType::Empty);
+    let after = tree.dense_ascending_scan();
 
     // SAFETY: `replace_root` handed back ownership of the previous root, which
     // nothing else owns.
     drop(unsafe { CRQEIterator::new(previous) });
+    (before, after)
+}
+
+#[test]
+fn replace_root_with_a_non_wildcard_clears_dense_ascending_scan() {
+    let new_root = NonNull::new(RQEIteratorWrapper::boxed_new(Empty)).unwrap();
+    assert_eq!(
+        dense_ascending_scan_across_replace_root(QueryNodeType::Wildcard, new_root),
+        (true, false)
+    );
+}
+
+#[test]
+fn replace_root_with_an_inverted_index_wildcard_sets_dense_ascending_scan() {
+    // The iterator `*` evaluates to on an `INDEXALL ENABLE` index.
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    for doc_id in 1..=10 {
+        let record = RSIndexResult::build_virt().doc_id(doc_id).build();
+        ii.add_record(&record).unwrap();
+    }
+    let wildcard = InvIdxWildcard::new(ii.reader(), 1.0);
+    assert_eq!(wildcard.type_(), IteratorType::InvIdxWildcard);
+    let new_root = NonNull::new(RQEIteratorWrapper::boxed_new(wildcard)).unwrap();
+
+    assert_eq!(
+        dense_ascending_scan_across_replace_root(QueryNodeType::Null, new_root),
+        (false, true)
+    );
 }
