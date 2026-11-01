@@ -17,6 +17,7 @@
 #include <sys/param.h>
 
 #include "aggregate/aggregate.h"
+#include "coord/rpnet.h"
 #include "types_ffi.h"
 #include "value_ffi.h"
 #include "result_processor.h"
@@ -3487,6 +3488,13 @@ static void RPDepleter_Deplete(RPDepleter *self) {
   }
   if (rc == RS_RESULT_TIMEDOUT) {
     self->stopReason = RP_HoldStop(&self->base);
+    // The coordinator preloads the shard-summed WITHCOUNT total and RPNet never touches it, so a
+    // downstream FILTER would decrement it only for the rows held here. Rebase on the held rows,
+    // as standalone does by counting rows as they stream.
+    ResultProcessor *root = self->base.parent->rootProc;
+    if (root && root->type == RP_NETWORK && ((RPNet *)root)->withCount) {
+      self->base.parent->totalResults = self->depleted_results;
+    }
   }
 
   // Record depletion time
