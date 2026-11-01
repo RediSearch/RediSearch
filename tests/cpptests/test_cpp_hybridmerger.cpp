@@ -1577,8 +1577,10 @@ TEST_F(HybridMergerTest, MemoryStopStillSurfacesLaterUpstreamError) {
   MockUpstream stopped(0, {1.0, 2.0});
   MockUpstream failing(0, {1.0, 2.0}, {}, 0, 2);  // two rows, then ERROR
   arrayof(ResultProcessor *) upstreams = NULL;
-  array_ensure_append_1(upstreams, &stopped);
-  array_ensure_append_1(upstreams, &failing);
+  ResultProcessor *rpStopped = &stopped;
+  ResultProcessor *rpFailing = &failing;
+  array_ensure_append_1(upstreams, rpStopped);
+  array_ensure_append_1(upstreams, rpFailing);
   double weights[] = {0.5, 0.5};
   HybridScoringContext *scoring = HybridScoringContext_NewLinear(weights, 2, HYBRID_DEFAULT_WINDOW);
   HybridLookupContext *lookup = CreateDummyLookupContext(2);
