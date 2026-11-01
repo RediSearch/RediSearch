@@ -1057,7 +1057,6 @@ bool SearchDisk_RegisterSlotTrim(RedisSearchDiskIndexSpec *index, const SearchDi
                                  size_t numRanges, uint64_t *trimId, t_docId *maxDocId);
 void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
                                        SearchDiskPendingSlotTrimCallback callback, void *ctx);
-bool SearchDisk_HasPendingSlotCleanup(RedisSearchDiskIndexSpec *index);
 #ifdef __cplusplus
 }
 #endif

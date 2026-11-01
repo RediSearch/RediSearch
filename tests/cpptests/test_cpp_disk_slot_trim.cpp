@@ -34,7 +34,7 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand);
 namespace {
 struct TrimState {
   bool registerAccepted = true, readAccepted = true;
-  bool logicalPending = false, pendingCleanup = false, emptyBatch = false;
+  bool logicalPending = false, emptyBatch = false;
   uint64_t trimId = 42;
   t_docId maxDocId = 5;
   size_t registrations = 0, applyCalls = 0, gcRuns = 0;
@@ -134,9 +134,6 @@ class DiskSlotTrimTest : public ::testing::Test {
     api.docTable.getDeletedIdsCount = [](RedisSearchDiskIndexSpec *) { return uint64_t{0}; };
     gc.gcCtx = DiskGC_Create(ref, &gc.callbacks);
     spec->gc = &gc;
-    api.slotMigration.hasPendingCleanup = [](RedisSearchDiskIndexSpec *) {
-      return state.pendingCleanup;
-    };
     api.slotMigration.registerTrim = [](RedisSearchDiskIndexSpec *,
                                         const SearchDiskSlotRange *ranges, size_t count,
                                         uint64_t *trimId, t_docId *maxDocId) {

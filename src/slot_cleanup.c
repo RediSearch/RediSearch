@@ -214,11 +214,11 @@ IndexSpecSlotTrimJob *IndexSpec_RegisterDiskSlotTrim(StrongRef specRef,
   IndexSpec_LockWrite(spec);
   bool registered =
       SearchDisk_RegisterSlotTrim(spec->diskSpec, ranges, numRanges, &trimId, &maxDocId);
-  RS_LOG_ASSERT_ALWAYS(!registered || trimId != 0, "disk slot cleanup ID must be nonzero");
-  PendingSlotDeletion *pending =
-      registered ? pendingDiskTrim(spec, trimId, ranges, numRanges, maxDocId) : NULL;
+  RS_LOG_ASSERT_ALWAYS(registered, "valid slot cleanup registration must succeed");
+  RS_LOG_ASSERT_ALWAYS(trimId != 0, "disk slot cleanup ID must be nonzero");
+  PendingSlotDeletion *pending = pendingDiskTrim(spec, trimId, ranges, numRanges, maxDocId);
   IndexSpec_Unlock(spec);
-  return registered ? newDiskJob(specRef, trimId, pending) : NULL;
+  return newDiskJob(specRef, trimId, pending);
 }
 
 typedef struct {
