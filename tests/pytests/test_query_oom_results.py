@@ -1120,10 +1120,19 @@ def test_cursor_admission_after_the_withcount_fan_out(env):
     env.assertGreater(errors, 0)
 
 
+def _is_oom_error(v):
+    return isinstance(v, redis_exceptions.ResponseError) and OOM_QUERY_ERROR in str(v)
+
+
 def _split_dump(reply):
     """A dump stopped for memory ends with the OOM error in place of its next value: returns the
     values before it and whether that last element is the OOM error. A RESP3 set may come back as
-    a Python set, which has no order: there the OOM error only has to be one of its elements."""
+    a Python set, which has no order: there the OOM error only has to be one of its elements.
+    A RESP3 map is flattened to key, value order. A stop between FT.SYNDUMP group IDs puts the
+    error at the end of the last term's group array: it counts as stopped, and that array is
+    returned without the error."""
+    if isinstance(reply, dict):
+        reply = [x for kv in reply.items() for x in kv]
     if isinstance(reply, (set, frozenset)):
         errors = [v for v in reply if isinstance(v, redis_exceptions.ResponseError)]
         stopped = len(errors) == 1 and OOM_QUERY_ERROR in str(errors[0])
@@ -1134,6 +1143,11 @@ def _split_dump(reply):
     last = reply[-1] if reply else None
     stopped = isinstance(last, redis_exceptions.ResponseError) and OOM_QUERY_ERROR in str(last)
     values = reply[:-1] if stopped else reply
+    if isinstance(last, list) and last and _is_oom_error(last[-1]):
+        stopped = True
+        values = reply[:-1] + [last[:-1]]
+        if any(isinstance(v, redis_exceptions.ResponseError) for v in last[:-1]):
+            raise AssertionError(f'error element before the end: {reply}')
     if any(isinstance(v, redis_exceptions.ResponseError) for v in values):
         raise AssertionError(f'error element before the end: {reply}')
     return values, stopped
@@ -1239,8 +1253,9 @@ def _syndump_checks_pressure_per_group_id(env):
         res = flat(env.cmd('FT.SYNDUMP', 'tidx'))
         env.assertEqual(len(res), 4, message=res)
         env.assertEqual(len(res[1]), groups, message=res)
-        env.assertTrue(isinstance(res[3], redis_exceptions.ResponseError)
-                       and OOM_QUERY_ERROR in str(res[3]), message=res)
+        env.assertEqual(len(res[3]), 100, message=res)
+        env.assertTrue(isinstance(res[3][-1], redis_exceptions.ResponseError)
+                       and OOM_QUERY_ERROR in str(res[3][-1]), message=res)
         # A stop inside the first term's IDs leaves only that term, its array holding the IDs
         # written before the stop and closed by the error.
         _memory_pressure(env, 'AT_CALL', 100)
@@ -1436,4 +1451,74 @@ def test_hybrid_coordinator_stop_replies_by_on_oom_policy(env):
     finally:
         disarm()
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+        allShards_change_oom_policy(env, 'return')
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_hybrid_coordinator_merger_stop_replies_by_on_oom_policy(env):
+    """The coordinator's merger takes rows from its RPNet upstreams, one checkpoint per row.
+    No scope isolates it from shard 1's own pipeline on the shared counter, so the sweep runs
+    every call of a WINDOW query, which includes the merger's. Each stop must reply per ON_OOM
+    (RETURN: the full reply or a strict prefix with the OOM warning, FAIL: the OOM error or
+    such a prefix), and every query must finish: a stop that left an upstream undrained would
+    hang the reply or leave a shard cursor open."""
+    window = 4
+    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
+             'COMBINE', 'RRF', 2, 'WINDOW', window, 'LIMIT', 0, N_DOCS,
+             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+    _hybrid_index(env)
+    coord = env.getConnection(1)
+
+    def arm(n):
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', n)
+
+    def disarm():
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+
+    def row_ids(res):
+        return [row['__key'] for row in res['results']]
+
+    def run_at(at_call):
+        arm(at_call)
+        try:
+            return env.cmd(*query)
+        except redis_exceptions.ResponseError as e:
+            return e
+        finally:
+            disarm()
+
+    try:
+        allShards_change_oom_policy(env, 'return')
+        full = row_ids(env.cmd(*query))
+        env.assertGreater(len(full), 0)
+
+        for on_oom in ['return', 'fail']:
+            allShards_change_oom_policy(env, on_oom)
+            arm(NEVER)
+            env.cmd(*query)
+            calls = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+            disarm()
+            env.assertGreater(calls, 0, message=on_oom)
+
+            stops = 0
+            for at_call in range(1, calls + 1):
+                with TimeLimit(30, f'hybrid hung: {on_oom} {at_call}'):
+                    res = run_at(at_call)
+                message = (on_oom, at_call, res)
+                if isinstance(res, Exception):
+                    env.assertEqual(on_oom, 'fail', message=message)
+                    env.assertContains(OOM_QUERY_ERROR, str(res), message=message)
+                    stops += 1
+                    continue
+                ids = row_ids(res)
+                env.assertEqual(len(ids), len(set(ids)), message=message)
+                env.assertTrue(set(ids) <= set(full), message=message)
+                env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
+                               (ids == full and res['warnings'] == []), message=message)
+                stops += res['warnings'] == [COORD_OOM_WARNING]
+            env.assertGreater(stops, 0, message=on_oom)
+            _expect_no_open_cursors(env, f'coordinator merger stop {on_oom}')
+    finally:
+        disarm()
         allShards_change_oom_policy(env, 'return')
