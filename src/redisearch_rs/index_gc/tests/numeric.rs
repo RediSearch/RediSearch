@@ -15,13 +15,13 @@ use std::ptr::NonNull;
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 use index_gc::scanners::numeric::{
     NumericField, NumericNodeDelta, collect_numeric, handle_numeric_with, numeric_tree_keys,
-    scan_numeric_node,
+    scan_numeric_node, snapshot_numeric_node,
 };
 use index_gc::spec_access::SpecWriteAccess;
 use index_gc::{DocExistence, GcApplyStats, GcError, HandleOutcome};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use numeric_range_tree::test_utils::{
-    SPLIT_TRIGGER, build_single_leaf_tree, build_tree, build_tree_at_split_edge,
+    ENTRIES_PER_BLOCK, SPLIT_TRIGGER, build_single_leaf_tree, build_tree, build_tree_at_split_edge,
 };
 use numeric_range_tree::{NodeIndex, NumericRangeTree};
 
@@ -795,7 +795,9 @@ fn scanning_listed_numeric_nodes_matches_the_collected_stream() {
     let scanned: Vec<_> = keys[0]
         .nodes
         .iter()
-        .filter_map(|&node_idx| scan_numeric_node(&guard, &keys[0].id, node_idx))
+        .filter_map(|&node_idx| {
+            scan_numeric_node(&guard, &keys[0].id, node_idx, |id| guard.doc_exists(id))
+        })
         .collect();
 
     let mut buf = Vec::new();
@@ -818,7 +820,7 @@ fn scan_numeric_node_returns_none_for_a_replaced_tree() {
     let mut key = numeric_tree_keys(&guard).remove(0);
     key.id.unique_id = key.id.unique_id.wrapping_add(1);
     let node_idx = key.nodes[0];
-    assert!(scan_numeric_node(&guard, &key.id, node_idx).is_none());
+    assert!(scan_numeric_node(&guard, &key.id, node_idx, |id| guard.doc_exists(id)).is_none());
 }
 
 /// A node index whose generation no longer matches (the node was removed and
@@ -837,8 +839,42 @@ fn scan_numeric_node_returns_none_for_a_removed_node() {
     let live = key.nodes[0];
     let stale = NodeIndex::from_raw_parts(live.position(), live.generation().wrapping_add(1));
     assert!(test.trees[0].try_node(stale).is_none());
-    assert!(scan_numeric_node(&guard, &key.id, stale).is_none());
-    assert!(scan_numeric_node(&guard, &key.id, live).is_some());
+    assert!(scan_numeric_node(&guard, &key.id, stale, |id| guard.doc_exists(id)).is_none());
+    assert!(scan_numeric_node(&guard, &key.id, live, |id| guard.doc_exists(id)).is_some());
+}
+
+/// A node snapshot scans to the same delta as the live node, spans the node's doc
+/// IDs, and is not taken for a replaced tree.
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn a_node_snapshot_scans_like_the_live_node() {
+    // More docs than one block holds, so the last block's span is a strict tail.
+    let docs = ENTRIES_PER_BLOCK + 2;
+    let test = TestSpec::create(vec![(
+        c"price",
+        FieldSpecType::Numeric.into(),
+        Some(build_single_leaf_tree(docs)),
+    )]);
+    let guard = test.read_guard();
+    let mut key = numeric_tree_keys(&guard).remove(0);
+    let node_idx = key.nodes[0];
+    let exists = |id: u64| id != 3;
+
+    let live = scan_numeric_node(&guard, &key.id, node_idx, exists).expect("doc 3 is gone");
+    let scanned = snapshot_numeric_node(&guard, &key.id, node_idx, &exists)
+        .expect("doc 3 is gone")
+        .scan(exists)
+        .unwrap()
+        .expect("doc 3 is gone");
+    assert_eq!(scanned.node, live);
+    assert_eq!(scanned.doc_id_range, Some(1..=docs));
+    assert_eq!(
+        scanned.last_block_doc_id_range,
+        Some(ENTRIES_PER_BLOCK + 1..=docs)
+    );
+
+    key.id.unique_id = key.id.unique_id.wrapping_add(1);
+    assert!(snapshot_numeric_node(&guard, &key.id, node_idx, &exists).is_none());
 }
 
 /// Reports every doc id the fixtures use as present, whatever the spec's

@@ -12,48 +12,79 @@
 use std::io::{self, Write};
 
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
-use inverted_index::GcScanDelta;
-use rqe_core::DocId;
+use inverted_index::{DocLiveness, GcScanDelta, GcSnapshotScope, opaque::InvertedIndex};
+use serde::{Deserialize, Serialize};
 
 use crate::fork::wire::{deserialize, serialize};
-use crate::{DocExistence, ForkPipe, GcApplyStats, GcError, HandleOutcome};
+use crate::{ForkPipe, GcApplyStats, GcError, HandleOutcome};
+
+/// The `existingDocs` index's GC work, as it travels the pipe.
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExistingDocsEntry {
+    /// Unique id of the inverted index scanned, so the delta is not applied to a
+    /// replacement created after the scan.
+    pub unique_id: u32,
+    /// What the scan found to collect.
+    pub delta: GcScanDelta,
+}
 
 /// Collect the GC delta for the spec's `existingDocs` inverted index and write
 /// it to `writer`.
 ///
-/// When a scan produces a delta, it is serialised in `Some`. A serialised
-/// `None` always follows to terminate the stream.
+/// When a scan produces a delta, it is serialised as `Some` [`ExistingDocsEntry`].
+/// A serialised `None` always follows to terminate the stream.
 ///
 /// Scan errors are silently ignored (same block is retried on the next GC
 /// cycle). Write errors are surfaced to the caller so they can terminate the
 /// child process.
 ///
-/// `docs` says which documents still exist.
+/// `live` says which documents are gone.
 ///
 /// [`GcScanDelta`]: inverted_index::GcScanDelta
 pub fn collect_existing_docs(
     writer: &mut impl Write,
     spec: &IndexSpecReadGuard,
-    docs: &DocExistence,
+    live: impl DocLiveness + Copy,
 ) -> io::Result<()> {
-    if let Some(delta) = scan(spec, |id| docs.contains(id)) {
-        serialize(writer, Some(delta))?;
+    if let Some(entry) = scan_existing_docs(spec, live) {
+        serialize(writer, Some(entry))?;
     }
 
-    serialize(writer, None::<GcScanDelta>)
+    serialize(writer, None::<ExistingDocsEntry>)
 }
 
-/// Run the GC scan of the spec's `existingDocs` inverted index.
+/// Run the GC scan of the spec's `existingDocs` inverted index, returning the
+/// index's unique id with the delta.
 ///
 /// Returns `None` when the spec has no such index, the scan found nothing to
 /// collect, or the scan failed; a failed scan is retried on the next cycle.
-pub fn scan_existing_docs(spec: &IndexSpecReadGuard) -> Option<GcScanDelta> {
-    scan(spec, |id| spec.doc_exists(id))
+pub fn scan_existing_docs(
+    spec: &IndexSpecReadGuard,
+    live: impl DocLiveness + Copy,
+) -> Option<ExistingDocsEntry> {
+    let ii = spec.existing_docs()?;
+    Some(ExistingDocsEntry {
+        unique_id: u32::from(ii.unique_id()),
+        delta: ii.scan_gc(live).ok().flatten()?,
+    })
 }
 
-/// [`scan_existing_docs`], with `exists` saying which documents remain.
-fn scan(spec: &IndexSpecReadGuard, exists: impl Fn(DocId) -> bool) -> Option<GcScanDelta> {
-    spec.existing_docs()?.scan_gc(exists).ok().flatten()
+/// A private copy of what a GC scan of the `existingDocs` index has to decode;
+/// see [`InvertedIndex::gc_snapshot`].
+pub fn snapshot_existing_docs(
+    spec: &IndexSpecReadGuard,
+    live: &impl DocLiveness,
+) -> Option<InvertedIndex> {
+    spec.existing_docs()?
+        .gc_snapshot(live, GcSnapshotScope::DirtyBlocks)
+}
+
+/// [`apply_existing_docs_with`] without a liveness source: a grown last block is left for the next cycle.
+pub fn apply_existing_docs(
+    entry: ExistingDocsEntry,
+    guard: &mut IndexSpecWriteGuard<'_>,
+) -> Result<GcApplyStats, GcError> {
+    apply_existing_docs_with(entry, None, guard)
 }
 
 /// Apply a pre-decoded GC delta to the spec's `existingDocs` inverted index.
@@ -62,10 +93,15 @@ fn scan(spec: &IndexSpecReadGuard, exists: impl Fn(DocId) -> bool) -> Option<GcS
 /// [`GcApplyStats::apply`].
 ///
 /// Returns [`GcError::ApplyError`] when the spec has no `existingDocs`
-/// index, which can happen if the index was removed between
-/// the child's scan and the parent's apply.
-pub fn apply_existing_docs(
-    delta: GcScanDelta,
+/// index, or has one other than the index scanned: it can be removed, and
+/// recreated, between the scan and the apply.
+///
+/// With `live`, a last block that grew since the scan is rescanned against it under
+/// the write lock instead of being denied; it must be the source the scan used, see
+/// [`InvertedIndex::gc_snapshot`](inverted_index::InvertedIndex::gc_snapshot).
+pub fn apply_existing_docs_with(
+    entry: ExistingDocsEntry,
+    live: Option<&dyn DocLiveness>,
     guard: &mut IndexSpecWriteGuard<'_>,
 ) -> Result<GcApplyStats, GcError> {
     let Some(ii) = guard.existing_docs_mut() else {
@@ -73,8 +109,13 @@ pub fn apply_existing_docs(
             "the existingDocs inverted index was removed before the delta could be applied",
         ));
     };
+    if u32::from(ii.unique_id()) != entry.unique_id {
+        return Err(GcError::ApplyError(
+            "the existingDocs inverted index is not the one scanned",
+        ));
+    }
 
-    let info = ii.apply_gc(delta);
+    let info = ii.apply_gc_with(entry.delta, live);
 
     let (extra, remaining_blocks) = if ii.unique_docs() == 0 {
         let extra = ii.memory_usage();
@@ -99,7 +140,7 @@ pub fn apply_existing_docs(
 
 /// Parent-side handler for the `existingDocs` GC protocol.
 ///
-/// Reads an optional [`GcScanDelta`] from the pipe, applies it to the spec's
+/// Reads an optional [`ExistingDocsEntry`] from the pipe, applies it to the spec's
 /// `existingDocs` inverted index under the write lock, and updates statistics
 /// on both the spec and the GC. A serialised `None` returns
 /// `Ok(HandleOutcome::Done)`.
