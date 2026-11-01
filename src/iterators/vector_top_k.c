@@ -22,9 +22,9 @@ int RS_VecSimCheckTimeout(QueryRequestTimeout *timeout) {
 }
 
 int RS_VecSimCheckMemory(QueryRequestTimeout *timeout) {
-  // One call short of a read, so this call reads.
-  uint32_t counter = QueryMemory_GetRatioReadInterval() - 1;
-  return QueryMemory_ShouldStop(timeout, &counter);
+  // One call per VecSim search, so it reads every time; and it shares no request counter, so it
+  // is safe on any thread.
+  return QueryMemory_ShouldStopNow(timeout);
 }
 
 int RS_VecSimCheckMemoryEvery(QueryRequestTimeout *timeout, uint32_t *counter) {
