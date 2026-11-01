@@ -1026,9 +1026,11 @@ def test_cursor_admission_rejects_under_memory_pressure(env):
         env.assertEqual(cursor, 0, message=workers)
 
     change_oom_policy(env, 'ignore')
-    _memory_pressure(env, 'AT_CALL', 1)
+    # Pressure lands on the admission call; it is one-shot, so later reads see none.
+    _memory_pressure(env, 'AT_CALL', B + 1)
     res, cursor = env.cmd(*query)
     env.assertEqual(len(res['results']), 4)
+    env.assertNotEqual(cursor, 0)
     env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
     _reset(env)
 
