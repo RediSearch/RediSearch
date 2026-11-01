@@ -406,6 +406,11 @@ auto RTree<cs>::query(const RedisSearchCtx *sctx, const FieldFilterContext* filt
     QueryRequestTimeout* const timeout = sctx ? sctx->timeout : nullptr;
     uint32_t memoryCheckCounter = 0;
     for (const t_docId id : results) {
+      // Every doubling reads memory regardless of the interval: it is the largest allocation here
+      // and the interval alone can skip the last one.
+      if (num == cap) {
+        memoryCheckCounter = QueryMemory_GetRatioReadInterval() - 1;
+      }
       // Only a stop for memory abandons the collection (timeouts are left to the iterator's own
       // checks). The request carries the stop, and the build checkpoint replies it; without a
       // request the build fails instead.
