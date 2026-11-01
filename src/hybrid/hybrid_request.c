@@ -98,6 +98,14 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
           rs_wall_clock_init(&areq->profileClocks.initClock);
         }
 
+        // The first subquery's build is the job's first allocation, after any queue wait.
+        if (i == 0 &&
+            QueryMemory_CheckBeforeExecution(&areq->base.timeout, areq->base.reqConfig.oomPolicy,
+                                             &areq->base.reply.err) != REDISMODULE_OK) {
+            rc = REDISMODULE_ERR;
+            break;
+        }
+
         // Pin the per-subquery disk view to the same point in time as the in-memory
         // trie/stats that QAST_Iterate is about to consult. Callers hold the spec read
         // lock at this point (matching AREQ_Execute_Callback / HREQ_Execute_Callback).
