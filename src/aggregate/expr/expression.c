@@ -18,6 +18,7 @@
 #include "rlookup.h"
 #include "profile/profile.h"
 #include "query_error.h"
+#include "query_request.h"
 #include "query_error_ffi.h"
 #include "reply.h"
 #include "rmalloc.h"
