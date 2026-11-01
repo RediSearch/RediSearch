@@ -647,30 +647,38 @@ def test_term_expansion_checks_memory_per_expanded_term(env):
 
 
 @skip(cluster=True)
-def test_term_expansion_counter_is_shared_across_expansion_nodes(env):
-    """Each prefix expands fewer terms than the default read interval, so memory is read during
-    expansion only if the amortization counter is shared by the whole query: forced pressure then
-    stops the walk after one interval's worth of calls instead of expanding every term.
-
-    Runs the shard command directly because the coordinator's entry guard would reject the query
-    under the forced ratio before any expansion."""
-    n_prefixes, terms_per_prefix = 4, 100
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+def test_hybrid_term_expansion_checks_memory_under_fail(env):
+    """A hybrid text branch reads memory per expanded term under ON_OOM FAIL, so pressure inside the
+    expansion ends it there and fails the query with the OOM error through the post-build check;
+    the call count shows that no further term was opened. Under ON_OOM RETURN, hybrid does not
+    read memory at build and the expansion takes no part."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT',
+               'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
     conn = getConnectionByEnv(env)
-    for p in range(n_prefixes):
-        for i in range(terms_per_prefix):
-            conn.execute_command('HSET', f'doc{p}_{i}', 't', f'p{p}x{i}')
-    env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
-    interval = memory_pressure(env, 'STATUS')[7]
-    env.assertLess(terms_per_prefix, interval)
-    env.assertGreater(n_prefixes * terms_per_prefix, interval)
-    query = ('_FT.SEARCH', 'idx', '|'.join(f'@t:p{p}x*' for p in range(n_prefixes)), 'NOCONTENT')
+    for i in range(N_PREFIX_TERMS):
+        conn.execute_command('HSET', f'doc{i}', 't', f'pre{i}',
+                             'v', np.array([i, 0]).astype(np.float32).tobytes())
+    env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1000).ok()
+    query = ('FT.HYBRID', 'idx', 'SEARCH', '@t:pre*', 'VSIM', '@v', '$blob',
+             'PARAMS', 2, 'blob', np.array([0, 0]).astype(np.float32).tobytes())
     try:
-        # Armed far away only so that calls are counted; it never reports pressure itself.
-        memory_pressure(env, 'AT_CALL', 10**9)
-        memory_pressure(env, 'RATIO', '1.5')
-        env.cmd(*query)
-        # One build entry call, then one per expanded term up to the first read.
-        env.assertLess(checkpoint_calls(env), 1 + interval + BUILD_CHECKPOINTS)
+        full = hybrid_result_count(env.cmd(*query))
+        env.assertGreater(full, 0)
+        for workers in worker_counts(env):
+            with oom_policy(env, 'fail'):
+                # Call 1 is the pre-build read; the later calls are the expanded terms.
+                for at_call in (5, 250):
+                    memory_pressure(env, 'AT_CALL', at_call)
+                    try:
+                        env.expect(*query).error().contains(OOM_QUERY_ERROR)
+                        env.assertEqual(checkpoint_calls(env), at_call)
+                    finally:
+                        memory_pressure(env, 'RESET')
+            memory_pressure(env, 'AT_CALL', 5)
+            try:
+                env.assertEqual(hybrid_result_count(env.cmd(*query)), full)
+                env.assertEqual(checkpoint_calls(env), 0)
+            finally:
+                memory_pressure(env, 'RESET')
     finally:
-        memory_pressure(env, 'RESET')
+        env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 200).ok()
