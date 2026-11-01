@@ -3662,8 +3662,9 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
 
 cleanup:
   // A merge loop that stopped for OOM replies what the heap holds with the OOM warning, or the
-  // OOM error under ON_OOM FAIL; the reply callback reads both.
-  if (!fromTimeout &&
+  // OOM error under ON_OOM FAIL; the reply callback reads both. Not once the timeout callback
+  // owns the reply: its timeout reply wins over an OOM stop, as in ApplyOomStop.
+  if (!fromTimeout && !QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout) &&
       QueryRequestTimeout_GetStopReason(&req->base.timeout) == QUERY_STOP_REASON_OOM) {
     if (req->base.reqConfig.oomPolicy != OomPolicy_Fail) {
       req->queryOOM = true;
