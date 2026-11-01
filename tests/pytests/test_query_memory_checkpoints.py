@@ -610,6 +610,38 @@ def test_loader_drains_a_held_sorter_prefix_across_cursor_reads(env):
         env.assertEqual(warnings[-1], [COORD_OOM_WARNING], message=(workers, warnings))
 
 
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_loader_drains_a_held_sorter_prefix_under_sustained_pressure(env):
+    """Same as above, but the pressure stays on through the cursor reads, so the loader's own
+    checkpoint fires first in every read after the sorter's stop. The loader must still see the
+    sorter's hold (the stop flag is cleared per read) and leave the end of the stream to it."""
+    create_index(env)
+    k = 4
+    query = ('FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'DESC', 'MAX', N_DOCS,
+             'LOAD', 1, '@t', 'WITHCURSOR', 'COUNT', 1)
+    for workers in worker_counts(env):
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+        try:
+            res, cursor = env.cmd(*query)
+        finally:
+            memory_pressure(env, 'RESET')
+        rows, warnings = list(res['results']), [res['warning']]
+        # Armed after the cursor exists, so only the reads see it.
+        memory_pressure(env, 'READ_INTERVAL', 1)
+        memory_pressure(env, 'RATIO', '1.5')
+        try:
+            while cursor:
+                res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+                rows += res['results']
+                warnings.append(res['warning'])
+        finally:
+            memory_pressure(env, 'RESET')
+        env.assertEqual([r['extra_attributes']['t'] for r in rows],
+                        [f'hello{i}' for i in reversed(range(k))], message=(workers, rows))
+        env.assertEqual(warnings[-1], [COORD_OOM_WARNING], message=(workers, warnings))
+
+
 N_PREFIX_TERMS = 400
 
 
