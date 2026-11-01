@@ -2789,13 +2789,20 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
  /* Discards the rows of a stopped merger's upstream and returns its terminal status.
   * An upstream is released only once it stops depleting, and its terminal status (an ERROR in
   * particular) must still surface. Depleters buffer before yielding, so this reads rows already
-  * held and allocates nothing. DEPLETING is returned as is; the caller retries the same upstream. */
- static int hybridMergerDrainUpstream(ResultProcessor *upstream) {
+  * held and allocates nothing. DEPLETING is returned as is; the caller retries the same upstream.
+  * A blocked-client timeout ends the drain with TIMEDOUT: its callback owns the reply and waits for
+  * this thread, so a long drain would stall the main thread. The depleters are released by the
+  * callback's wait, as for any merger that stops consuming early. */
+ static int hybridMergerDrainUpstream(ResultProcessor *upstream, const QueryRequestTimeout *timeout) {
    int rc;
    SearchResult *r = rm_calloc(1, sizeof(*r));
    *r = SearchResult_New();
    while ((rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
      SearchResult_Clear(r);
+     if (QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+       rc = RS_RESULT_TIMEDOUT;
+       break;
+     }
    }
    // Clearing keeps the row's capacity, which only destroying releases.
    SearchResult_Destroy(r);
@@ -2809,7 +2816,7 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
    int rc = RS_RESULT_OK;
    ResultProcessor *upstream = self->upstreams[upstreamIndex];
    if (self->memoryStopped) {
-     return hybridMergerDrainUpstream(upstream);
+     return hybridMergerDrainUpstream(upstream, self->sctx->timeout);
    }
    SearchResult *r = rm_calloc(1, sizeof(*r));
    *r = SearchResult_New();
@@ -2828,7 +2835,7 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
            self->memoryStopped = true;
            rm_free(r);
            // The rest of this upstream is discarded, but its real terminal status still counts.
-           return hybridMergerDrainUpstream(upstream);
+           return hybridMergerDrainUpstream(upstream, self->sctx->timeout);
          }
        } else {
          SearchResult_Clear(r);
