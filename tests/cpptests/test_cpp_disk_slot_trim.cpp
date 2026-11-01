@@ -13,6 +13,7 @@
 #include "geometry/geometry_api.h"
 #include "slot_cleanup.h"
 #include "slot_ranges.h"
+#include <algorithm>
 #include <functional>
 #include <mutex>
 #include <condition_variable>
@@ -42,6 +43,7 @@ struct TrimState {
   size_t registrations = 0, applyCalls = 0, gcRuns = 0;
   size_t batchCount = 1, batchesApplied = 0, batchApplyCalls = 0, failBatch = SIZE_MAX;
   std::vector<SearchDiskSlotRange> ranges;
+  std::vector<t_docId> retriedCutoffs, completedTrims;
   std::function<void(size_t)> beforeBatch;
   RedisModuleCmdFunc forceGC = nullptr;
   RedisModuleEventCallback persistenceEvent = nullptr, sstEvent = nullptr, cronEvent = nullptr;
@@ -1373,6 +1375,71 @@ TEST_F(DiskSlotTrimTest, RejectedNotificationSurvivesRdbBeforeRegistration) {
   EXPECT_FALSE(pendingFilter());
 }
 
+TEST_F(DiskSlotTrimTest, OverlappingRejectedNotificationsRetainSeparateCutoffsAndComplete) {
+  const SearchDiskSlotRange range{7, 9};
+  state.registerAccepted = false;
+  state.maxDocId = 3;
+  job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
+  state.maxDocId = 5;
+  auto *second = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
+  ASSERT_NE(job, nullptr);
+  ASSERT_NE(second, nullptr);
+  state.maxDocId = 50;
+  api.slotMigration.registerTrimAtCutoff =
+      [](RedisSearchDiskIndexSpec *, const SearchDiskSlotRange *ranges, size_t count,
+         t_docId cutoff, uint64_t *trimId) {
+        EXPECT_EQ(count, 1u);
+        EXPECT_EQ(ranges[0].start, 7);
+        EXPECT_EQ(ranges[0].end, 9);
+        state.retriedCutoffs.push_back(cutoff);
+        if (!state.registerAccepted) return false;
+        *trimId = cutoff;
+        return true;
+      };
+  EXPECT_EQ(IndexSpec_RunDiskSlotTrim(job), INDEX_DISK_TRIM_RETRY);
+  EXPECT_EQ(IndexSpec_RunDiskSlotTrim(second), INDEX_DISK_TRIM_RETRY);
+  EXPECT_EQ(state.retriedCutoffs, (std::vector<t_docId>{3, 5}));
+  ASSERT_NE(spec->docs.pendingSlotDeletions, nullptr);
+  ASSERT_NE(spec->docs.pendingSlotDeletions->next, nullptr);
+  EXPECT_EQ(spec->docs.pendingSlotDeletions->next->next, nullptr);
+  TrimRdbBuffer buffer;
+  SlotCleanup_RdbSaveUnregistered(buffer.io(), spec);
+  EXPECT_EQ(buffer.values.front(), 2u);
+  IndexSpec_FreeDiskSlotTrim(job);
+  job = nullptr;
+  IndexSpec_FreeDiskSlotTrim(second);
+  while (spec->docs.pendingSlotDeletions) {
+    DocTable_RemovePendingDeletion(&spec->docs, spec->docs.pendingSlotDeletions);
+  }
+  ASSERT_TRUE(SlotCleanup_RdbLoadUnregistered(buffer.io(), spec));
+  ASSERT_NE(spec->docs.pendingSlotDeletions, nullptr);
+  ASSERT_NE(spec->docs.pendingSlotDeletions->next, nullptr);
+  EXPECT_EQ(spec->docs.pendingSlotDeletions->next->next, nullptr);
+  state.retriedCutoffs.clear();
+  api.slotMigration.runTrimBatch =
+      [](RedisSearchDiskIndexSpec *, uint64_t trimId, size_t,
+         SearchDiskSlotTrimCallback callback, void *ctx) {
+        const t_docId id = trimId == 3 ? 1 : 4;
+        if (!callback(ctx, &id, 1, 1,
+                      reinterpret_cast<SearchDiskSlotTrimBatch *>(&state), true)) {
+          return SEARCH_DISK_TRIM_RETRY;
+        }
+        state.completedTrims.push_back(trimId);
+        return SEARCH_DISK_TRIM_FINISHED;
+      };
+  state.registerAccepted = true;
+  startCleanPool();
+  IndexSpec_ResumeDiskSlotTrims(spec);
+  CleanPool_Wait();
+  std::sort(state.retriedCutoffs.begin(), state.retriedCutoffs.end());
+  std::sort(state.completedTrims.begin(), state.completedTrims.end());
+  EXPECT_EQ(state.retriedCutoffs, (std::vector<t_docId>{3, 5}));
+  EXPECT_EQ(state.completedTrims, (std::vector<t_docId>{3, 5}));
+  EXPECT_EQ(spec->docs.pendingSlotDeletions, nullptr);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 3u);
+  EXPECT_EQ(state.batchApplyCalls, 2u);
+}
+
 TEST_F(DiskSlotTrimTest, RetainedNotificationRdbRejectsTruncatedAndInvalidRanges) {
   for (const auto &values : std::vector<std::vector<uint64_t>>{{1, 3},
                                                                {1, 3, 0},
@@ -1432,6 +1499,7 @@ TEST_F(DiskSlotTrimTest, IndexRdbRoundTripRetainsCleanupOnlyWithSstState) {
     slots->ranges[0] = {7, 9};
     if (version == INDEX_CURRENT_VERSION) {
       DocTable_AddPendingDeletionWithCutoff(&source->docs, slots, 17);
+      DocTable_AddPendingDeletionWithCutoff(&source->docs, slots, 23);
     }
     rm_free(slots);
     auto *io = RMCK_CreateRdbIO();
@@ -1451,10 +1519,17 @@ TEST_F(DiskSlotTrimTest, IndexRdbRoundTripRetainsCleanupOnlyWithSstState) {
       EXPECT_EQ(loaded->pendingDiskRdbState != nullptr, useSst);
       if (useSst && version == INDEX_CURRENT_VERSION) {
         ASSERT_NE(loaded->docs.pendingSlotDeletions, nullptr);
-        EXPECT_EQ(loaded->docs.pendingSlotDeletions->maxDocId, 17u);
-        EXPECT_EQ(loaded->docs.pendingSlotDeletions->diskTrimId, 0u);
+        auto *first = loaded->docs.pendingSlotDeletions;
+        ASSERT_NE(first->next, nullptr);
+        EXPECT_EQ(first->next->next, nullptr);
+        std::vector<t_docId> cutoffs{first->maxDocId, first->next->maxDocId};
+        std::sort(cutoffs.begin(), cutoffs.end());
+        EXPECT_EQ(cutoffs, (std::vector<t_docId>{17, 23}));
+        EXPECT_EQ(first->diskTrimId, 0u);
+        EXPECT_EQ(first->next->diskTrimId, 0u);
         EXPECT_TRUE(DocTable_IsDocPendingDeletionForSlot(&loaded->docs, 17, 7));
-        EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&loaded->docs, 18, 7));
+        EXPECT_TRUE(DocTable_IsDocPendingDeletionForSlot(&loaded->docs, 23, 7));
+        EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&loaded->docs, 24, 7));
       } else {
         EXPECT_EQ(loaded->docs.pendingSlotDeletions, nullptr);
       }
