@@ -3921,9 +3921,11 @@ static bool RPDepleter_Deplete(RPDepleter *self) {
     self->stopReason = RP_HoldStop(&self->base);
     // The coordinator preloads the shard-summed WITHCOUNT total and RPNet never touches it, so a
     // downstream FILTER would decrement it only for the rows held here. Rebase on the held rows,
-    // as standalone does by counting rows as they stream.
+    // as standalone does by counting rows as they stream. An ordinary deadline keeps the exact
+    // total the WITHCOUNT barrier supplied.
     ResultProcessor *root = self->base.parent->rootProc;
-    if (root && root->type == RP_NETWORK && ((RPNet *)root)->withCount) {
+    if (self->stopReason == QUERY_STOP_REASON_OOM && root && root->type == RP_NETWORK &&
+        ((RPNet *)root)->withCount) {
       self->base.parent->totalResults = self->depleted_results;
     }
   }
