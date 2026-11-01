@@ -62,7 +62,7 @@ impl MetricRequestId {
 ///
 /// # Mutability
 ///
-/// Most fields are read-only during evaluation, but three are mutated:
+/// Most fields are read-only during evaluation, but four are mutated:
 ///
 /// - `tokenId` — monotonically incremented to assign a unique ID to each
 ///   token iterator created during evaluation.
@@ -71,6 +71,8 @@ impl MetricRequestId {
 /// - `inNotSubTree` — temporarily set to `true` while evaluating the child of
 ///   a `NOT` node so that descendant `UNION` nodes know they can exit early
 ///   on the first match. Restored to its previous value afterwards.
+/// - `memoryCounter` — the amortization count of the term-expansion memory
+///   checkpoint, advanced through [`memory_counter_mut`](QueryEvalContext::memory_counter_mut).
 pub struct QueryEvalContext(NonNull<ffi::QueryEvalCtx>);
 
 impl QueryEvalContext {
@@ -537,6 +539,13 @@ impl QueryEvalContext {
         let prev = inner.inNotSubTree;
         inner.inNotSubTree = value;
         prev
+    }
+
+    /// The amortization counter of the query memory checkpoint for term expansions, shared by
+    /// every expansion node of this evaluation so that the count survives from one node to the
+    /// next.
+    pub const fn memory_counter_mut(&mut self) -> &mut u32 {
+        &mut self.as_mut().memoryCounter
     }
 
     /// Build the [`AnyTimeoutContext`] a query iterator should use for this

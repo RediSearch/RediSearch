@@ -2779,11 +2779,11 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
    *r = SearchResult_New();
    ResultProcessor *upstream = self->upstreams[upstreamIndex];
    if (self->memoryStopped) {
-     // Rows stay unread, but an upstream is released only once it stops depleting.
-     rc = upstream->Next(upstream, r);
-     if (rc == RS_RESULT_OK) {
+     // Rows are discarded, but an upstream is released only once it stops depleting, and its
+     // terminal status (an ERROR in particular) must still surface. Depleters buffer before
+     // yielding, so this reads rows already held and allocates nothing.
+     while ((rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
        SearchResult_Clear(r);
-       rc = RS_RESULT_EOF;
      }
      rm_free(r);
      return rc;

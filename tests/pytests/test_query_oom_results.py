@@ -1028,7 +1028,7 @@ def test_dumps_stop_with_the_oom_error_resp3(env):
 
 @skip(cluster=True)
 def test_syndump_counts_group_ids_toward_the_memory_read(env):
-    """FT.SYNDUMP checks memory once per term, but a term can belong to thousands of groups: the
+    """A term can belong to thousands of groups, and FT.SYNDUMP checkpoints once per group ID: the
     read interval counts the group IDs replied, so pressure is read within the dump even when it
     has fewer terms than the interval."""
     env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
@@ -1044,6 +1044,46 @@ def test_syndump_counts_group_ids_toward_the_memory_read(env):
         env.assertLess(len(values), 2 * terms - 1, message=values)
     finally:
         _reset(env)
+
+
+def _syndump_checks_pressure_per_group_id(env):
+    """A term in more groups than the read interval gets a checkpoint per group ID, not one per
+    term: pressure that lands on a later ID ends the dump with the OOM error in place of that
+    term's groups, and the reply stays a well-formed map in both protocols."""
+    env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
+    groups = 300
+    for g in range(groups):
+        env.cmd('FT.SYNUPDATE', 'tidx', f'group{g}', 'term0', 'term1')
+    env.assertEqual(len(env.cmd('FT.SYNDUMP', 'tidx')), 4)
+    try:
+        # Calls 1..300 belong to the first term, 301..600 to the second.
+        _memory_pressure(env, 'AT_CALL', groups + 100)
+        res = env.cmd('FT.SYNDUMP', 'tidx')
+        env.assertEqual(len(res), 4 if env.protocol == 2 else 2, message=res)
+        if env.protocol == 2:
+            env.assertEqual(len(res[1]), groups, message=res)
+            env.assertTrue(isinstance(res[3], redis_exceptions.ResponseError)
+                           and OOM_QUERY_ERROR in str(res[3]), message=res)
+        else:
+            env.assertEqual(sum(isinstance(v, redis_exceptions.ResponseError)
+                                for v in res.values()), 1, message=res)
+        # A stop inside the first term's IDs leaves only that term, with the error.
+        _memory_pressure(env, 'AT_CALL', 100)
+        res = env.cmd('FT.SYNDUMP', 'tidx')
+        env.assertEqual(len(res), 2 if env.protocol == 2 else 1, message=res)
+    finally:
+        _reset(env)
+
+
+@skip(cluster=True)
+def test_syndump_checks_pressure_per_group_id(env):
+    _syndump_checks_pressure_per_group_id(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_syndump_checks_pressure_per_group_id_resp3(env):
+    _syndump_checks_pressure_per_group_id(env)
 
 
 @skip(cluster=False)
