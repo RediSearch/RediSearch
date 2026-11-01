@@ -26,6 +26,8 @@ use search_disk::SearchDiskHandle;
 
 use crate::{QueryEvalContext, disk};
 
+// Declared outside lib unit tests only: there the stub below defines the same name.
+#[cfg(not(test))]
 unsafe extern "C" {
     /// The amortized query memory checkpoint; see `QueryMemory_ShouldStop` in `query_memory.h`.
     /// A null `timeout` is accepted by the C side, `counter` must not be.
