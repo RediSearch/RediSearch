@@ -33,9 +33,6 @@ pub unsafe extern "C" fn FGC_childScanIndexes(gc: *mut ffi::ForkGC, spec: *mut f
     let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
     // SAFETY: caller guarantees (2).
     let spec = unsafe { &*spec };
-    // SAFETY: caller guarantees (2) and (3), and the forked child never changes the doc table
-    // again. Passing the spec's own field matters: the bitmap answers only for that address.
-    unsafe { ffi::DocTable_FreezeExistence(&spec.docs) };
     // SAFETY: caller guarantees (3). We don't actually hold a read lock, but when the Fork GC code
     // runs it holds the Redis GIL (so no other thread would be touching any shared Redis state),
     // then forks and the child has only one thread with exclusive access to the index spec.

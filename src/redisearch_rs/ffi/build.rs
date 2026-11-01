@@ -136,7 +136,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "DMD_Free",
             "DocTable_Exists",
-            "DocTable_FreezeExistence",
             "DocTable_Put",
             "DocTable_KeyEquals",
             "DocTable_StartKeyMap",

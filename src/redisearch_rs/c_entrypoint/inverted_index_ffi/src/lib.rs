@@ -443,11 +443,10 @@ pub unsafe extern "C" fn InvertedIndex_GcDelta_Scan(
     // SAFETY: The caller must ensure the `spec` field of the `RedisSearchCtx` is a valid
     // pointer to an `IndexSpec`
     let spec = unsafe { &*sctx.spec };
-    // A reference, not a copy: `DocTable_Exists` recognizes the frozen table by its address.
-    let doc_table = &spec.docs;
+    let doc_table = spec.docs;
 
     // SAFETY: We know `doc_table` is a valid `DocTable` because it just got it off the spec
-    let doc_exists = |id| unsafe { DocTable_Exists(doc_table, id) };
+    let doc_exists = |id| unsafe { DocTable_Exists(&doc_table, id) };
 
     // SAFETY: The caller must ensure `idx` is a valid pointer to an `InvertedIndex`
     let ii = unsafe { &*idx };
