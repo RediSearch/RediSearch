@@ -564,6 +564,27 @@ TEST_F(FGCTestTag, testDeleteDuringGCCleanup) {
   ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
 }
 
+TEST_F(FGCTestTag, testDeferredDeletesAreTakenByTheNextRun) {
+  RS::addDocument(ctx, ism, "doc1", "f1", "hello");
+  RS::addDocument(ctx, ism, "doc2", "f1", "hello");
+  IndexSpec *spec = get_spec(ism);
+  // Delete off the GC's books, the way slot cleanup does, then hand the count over.
+  IndexSpec_LockWrite(spec);
+  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, 1));
+  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, 2));
+  IndexSpec_Unlock(spec);
+  IndexSpec_DeferGCDeletes(spec, 2);
+  ASSERT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 0);
+  ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
+
+  runGC();
+
+  // The run took the count: none is left on the spec, and the stat it raised was settled again.
+  EXPECT_EQ(IndexSpec_TakeGCDeferredDeletes(spec), 0);
+  EXPECT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 0);
+  EXPECT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
+}
+
 /**
  * Test that simulates a pipe error during GC to trigger the error path.
  * This test verifies that the error handling doesn't cause double-free or other issues.

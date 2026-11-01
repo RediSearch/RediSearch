@@ -133,6 +133,12 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
   } else {
     if (it->current->dmd) {
       *dmd = it->current->dmd;
+      // Borrowed before a slot deletion may have been registered (e.g. held in the optimizer heap
+      // across cursor reads), so DocTable_Borrow's check did not cover it.
+      if (DocTable_HasPendingDeletions(docs) && DocTable_IsDocPendingDeletion(docs, *dmd)) {
+        DMD_Return(*dmd);
+        return false;
+      }
     } else {
       *dmd = DocTable_Borrow(docs, it->lastDocId);
     }
@@ -216,7 +222,8 @@ static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadat
 
   // Check query slots (internal command filtering)
   if (self->querySlots && (__atomic_load_n(&key_space_version, __ATOMIC_RELAXED) != self->keySpaceVersion)) {
-    int slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
+    // Disk DMDs do not carry the slot (see SearchDisk_GetDocumentMetadata), so hash their key.
+    const uint16_t slot = self->sctx->spec->diskSpec ? RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr)) : dmd->slot;
     if (!SlotRangeArray_ContainsSlot(self->querySlots, slot)) {
       return false;
     }

@@ -1305,7 +1305,7 @@ CONFIG_SETTER(setUpgradeIndex) {
   ArgsCursor rule_prefixes = {0};
 
   ACArgSpec argopts[] = {
-      SPEC_FOLLOW_HASH_ARGS_DEF(rule){.name = NULL},
+      SPEC_FOLLOW_HASH_ARGS_DEF(rule, &rule_prefixes){.name = NULL},
   };
 
   ACArgSpec *errarg = NULL;
@@ -2796,6 +2796,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.diskUseDirectReads)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_disk-statistics", 0,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.diskStatistics)
     )
   )
 

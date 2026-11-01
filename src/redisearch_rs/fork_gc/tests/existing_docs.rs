@@ -12,9 +12,7 @@ use std::{io::Cursor, mem};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
     Frame, HandleError,
-    existing_docs::{
-        ExistingDocsDeleted, apply_existing_docs, collect_existing_docs, receive_existing_docs,
-    },
+    existing_docs::{apply_existing_docs, collect_existing_docs, receive_existing_docs},
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
@@ -153,7 +151,9 @@ fn apply_returns_err_when_existing_docs_absent() {
     let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut apply_spec) };
     assert!(matches!(
         apply_existing_docs(delta, &mut *guard),
-        Err(HandleError::Custom(ExistingDocsDeleted))
+        Err(HandleError::ApplyError(
+            "the existingDocs inverted index was removed before the delta could be applied"
+        ))
     ));
 }
 
