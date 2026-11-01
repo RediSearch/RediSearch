@@ -347,12 +347,20 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
       rc = RS_RESULT_EOF;
     }
     if (cut && oomPolicy == OomPolicy_Fail) {
-      // A soft tail error is not selected as fatal, so it must not mask the OOM failure.
-      if (HybridRequest_IsSoftTailError(err)) {
-        QueryError_ClearError(err);
+      // The tail slot outranks the subquery slots when the fatal error is selected, so an OOM
+      // installed on it would hide a sibling subquery's fatal error.
+      bool subqueryFailed = false;
+      for (size_t i = 0; i < hreq->nrequests; ++i) {
+        subqueryFailed |= QueryError_HasError(&hreq->requests[i]->base.reply.err);
       }
-      if (QueryError_IsOk(err)) {
-        QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+      if (!subqueryFailed) {
+        // A soft tail error is not selected as fatal, so it must not mask the OOM failure.
+        if (HybridRequest_IsSoftTailError(err)) {
+          QueryError_ClearError(err);
+        }
+        if (QueryError_IsOk(err)) {
+          QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+        }
       }
       return RS_RESULT_ERROR;
     }
