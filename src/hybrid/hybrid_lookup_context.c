@@ -1,7 +1,20 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "hybrid_lookup_context.h"
+
+#include <stddef.h>
+
 #include "aggregate/aggregate_plan.h"
-#include "util/arr.h"
 #include "aggregate/aggregate.h"
+#include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 #ifdef __cplusplus
 extern "C" {

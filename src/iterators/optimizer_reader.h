@@ -46,8 +46,6 @@ typedef struct {
   OptimizerCompareFunc cmp;     // compare function
   RSIndexResult *pooledResult;  // memory pool
 
-  TimeoutCtx timeoutCtx;        // Timeout parameters
-
   IteratorsConfig *config;       // Copy of current RSglobalconfig.IteratorsConfig
   t_fieldIndex numericFieldIndex; // field index for numeric filter
 } OptimizerIterator;
@@ -57,6 +55,10 @@ extern "C" {
 #endif
 
 QueryIterator *NewOptimizerIterator(QOptimizer *q_opt, QueryIterator *root, IteratorsConfig *config);
+
+// Accessors for profile printing.
+const QueryIterator *OptimizerIterator_GetChild(const QueryIterator *it);
+const char *OptimizerIterator_GetOptimizationType(const QueryIterator *it);
 
 #ifdef __cplusplus
 }

@@ -10,7 +10,8 @@
 use std::{hint::black_box, io::Cursor, vec};
 
 use criterion::{BatchSize, Criterion};
-use inverted_index::{Decoder, Encoder, RSIndexResult, raw_doc_ids_only::RawDocIdsOnly};
+use index_result::RSIndexResult;
+use inverted_index::{Decoder, Encoder, raw_doc_ids_only::RawDocIdsOnly};
 
 pub struct Bencher {
     test_values: Vec<TestValue>,

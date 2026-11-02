@@ -8,7 +8,7 @@
 */
 
 #include "gtest/gtest.h"
-#include "query_error.h"
+#include "query_error_ffi.h"
 #include "rmalloc.h"
 #include <string.h>
 #include <string>

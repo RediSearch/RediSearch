@@ -1,0 +1,13 @@
+[package]
+name = "tracing_assert"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[dependencies]
+tracing.workspace = true
+workspace_hack.workspace = true
+
+[lints]
+workspace = true

@@ -12,7 +12,7 @@
 use numeric_range_tree::NumericRangeTree;
 use rstest::rstest;
 
-use numeric_range_tree::test_utils::{SPLIT_TRIGGER, build_tree, walk_with_depth};
+use numeric_range_tree::test_utils::{SPLIT_TRIGGER, build_tree, gc_all_ranges, walk_with_depth};
 
 #[test]
 fn test_new_tree() {
@@ -28,31 +28,47 @@ fn test_new_tree() {
 fn test_add_basic() {
     let mut tree = NumericRangeTree::new(false);
 
-    let result = tree.add(1, 5.0, false, 0);
+    let result = tree.add(1, 5.0, false, false, 0);
     assert_eq!(tree.num_entries(), 1);
     assert_eq!(tree.last_doc_id(), 1);
     assert!(result.size_delta > 0);
 
-    let result = tree.add(2, 10.0, false, 0);
+    let result = tree.add(2, 10.0, false, false, 0);
     assert_eq!(tree.num_entries(), 2);
     assert_eq!(tree.last_doc_id(), 2);
     assert!(result.size_delta > 0);
 }
 
 #[test]
+fn test_has_multivalued_docs_tracks_repeated_doc_ids() {
+    let mut tree = NumericRangeTree::new(false);
+    assert!(!tree.has_multivalued_docs());
+
+    // Distinct doc ids leave every doc in a single range, whatever the
+    // multivalue flag says.
+    tree.add(1, 5.0, false, true, 0);
+    tree.add(2, 10.0, false, true, 0);
+    assert!(!tree.has_multivalued_docs());
+
+    // A second value for the same doc can land in another range.
+    tree.add(2, 20.0, false, true, 0);
+    assert!(tree.has_multivalued_docs());
+}
+
+#[test]
 fn test_duplicate_doc_id_rejected() {
     let mut tree = NumericRangeTree::new(false);
 
-    tree.add(5, 10.0, false, 0);
+    tree.add(5, 10.0, false, false, 0);
     assert_eq!(tree.num_entries(), 1);
 
     // Duplicate should be rejected
-    let result = tree.add(5, 20.0, false, 0);
+    let result = tree.add(5, 20.0, false, false, 0);
     assert_eq!(result.size_delta, 0);
     assert_eq!(tree.num_entries(), 1);
 
     // Lower doc_id should also be rejected
-    let result = tree.add(3, 15.0, false, 0);
+    let result = tree.add(3, 15.0, false, false, 0);
     assert_eq!(result.size_delta, 0);
     assert_eq!(tree.num_entries(), 1);
 }
@@ -61,11 +77,11 @@ fn test_duplicate_doc_id_rejected() {
 fn test_duplicate_doc_id_allowed_with_multi() {
     let mut tree = NumericRangeTree::new(false);
 
-    tree.add(5, 10.0, true, 0);
+    tree.add(5, 10.0, false, true, 0);
     assert_eq!(tree.num_entries(), 1);
 
     // Duplicate allowed with is_multi=true
-    let result = tree.add(5, 20.0, true, 0);
+    let result = tree.add(5, 20.0, false, true, 0);
     assert!(result.size_delta > 0);
     assert_eq!(tree.num_entries(), 2);
 }
@@ -94,7 +110,7 @@ fn test_inverted_indexes_size() {
     let initial_size = tree.inverted_indexes_size();
 
     let mut tree2 = NumericRangeTree::new(false);
-    tree2.add(1, 5.0, false, 0);
+    tree2.add(1, 5.0, false, false, 0);
     let size_after_add = tree2.inverted_indexes_size();
     assert!(size_after_add > initial_size);
 }
@@ -130,9 +146,9 @@ fn test_mem_usage() {
     let mut tree = NumericRangeTree::new(false);
     let mem_before = tree.mem_usage();
 
-    tree.add(1, 5.0, false, 0);
-    tree.add(2, 10.0, false, 0);
-    tree.add(3, 15.0, false, 0);
+    tree.add(1, 5.0, false, false, 0);
+    tree.add(2, 10.0, false, false, 0);
+    tree.add(3, 15.0, false, false, 0);
 
     let mem_after = tree.mem_usage();
     assert!(mem_after > mem_before);
@@ -143,7 +159,7 @@ fn test_multiple_sequential_adds() {
     let mut tree = NumericRangeTree::new(false);
 
     for i in 1..=100 {
-        let result = tree.add(i as u64, i as f64, false, 0);
+        let result = tree.add(i as u64, i as f64, false, false, 0);
         assert!(result.size_delta >= 0);
     }
 
@@ -191,7 +207,7 @@ fn test_split_with_identical_values() {
     // so the size-overflow path (MAXIMUM_RANGE_SIZE) with card > 1 won't
     // trigger. The tree should remain a single leaf.
     for i in 1..=500u64 {
-        tree.add(i, 42.0, false, 0);
+        tree.add(i, 42.0, false, false, 0);
     }
 
     assert_eq!(tree.num_entries(), 500);
@@ -199,6 +215,110 @@ fn test_split_with_identical_values() {
         tree.root().is_leaf(),
         "identical values should not cause a split (cardinality = 1)"
     );
+}
+
+/// Distinct f64s that collapse onto one stored f32 must count as one value.
+///
+/// Estimating cardinality over the inputs instead made such a leaf look
+/// high-cardinality, split it, and strand an empty child — the compression route into
+/// the MOD-16877 crash. Preparing values on the way in closes it: no split fires.
+///
+/// The stale-`min_val` route is covered by
+/// `test_gc_tightens_leaf_bounds_before_split`.
+#[test]
+fn test_compression_collapse_does_not_inflate_cardinality() {
+    let mut tree = NumericRangeTree::new(true); // float compression ON
+
+    // Distinct f64 values tightly clustered within a single f32 rounding bucket
+    // around 100.5 (exactly representable in f32). Each differs from the next by
+    // 1e-7 — far above the f64 ULP near 100.5 (~1e-14), so they are distinct to
+    // the HLL cardinality estimator, but far below the f32 ULP near 100.5
+    // (~7.6e-6), so all round to the same stored f32 (100.5), well within the
+    // 0.01 compression threshold.
+    let value_at = |i: u64| 100.5 + (i - 1) as f64 * 1e-7;
+
+    // Well past the point where the old cardinality estimate would have split.
+    for i in 1..=(SPLIT_TRIGGER + 8) {
+        tree.add(i, value_at(i), false, false, 0);
+    }
+
+    assert!(
+        tree.root().is_leaf(),
+        "collapsing values are one stored value, so no split should fire (got {} leaves)",
+        tree.num_leaves()
+    );
+
+    let range = tree.root().range().unwrap();
+    assert_eq!(
+        range.cardinality(),
+        1,
+        "cardinality must count stored values, not the inputs that collapsed onto them"
+    );
+    assert_eq!(
+        (range.min_val(), range.max_val()),
+        (100.5, 100.5),
+        "bounds must describe the stored value a reader will decode"
+    );
+    assert_eq!(tree.empty_leaves(), 0);
+
+    // The add that used to hit the underflow. Nothing was ever stranded, so the
+    // counter is not touched.
+    let next = SPLIT_TRIGGER + 9;
+    tree.add(next, value_at(next), false, false, 0);
+    assert_eq!(tree.empty_leaves(), 0);
+}
+
+/// GC resets a leaf's bounds to its survivors, so a later split does not strand an
+/// empty child.
+///
+/// Collecting the only document below 100.0 used to leave `min_val` at 0.0 while
+/// every survivor was `>= 100.0`. With a majority of survivors on 100.0, the median
+/// was 100.0, and comparing it against the stale `min_val` split at 100.0, sent
+/// every entry right and left the left child empty (the MOD-16877 route with float
+/// compression off).
+#[test]
+fn test_gc_tightens_leaf_bounds_before_split() {
+    let mut tree = NumericRangeTree::new(false); // float compression OFF
+
+    /// Number of documents sharing the value 100.0. They must remain a majority of
+    /// the leaf's entries once the split fires, so that the median lands on 100.0:
+    /// the loop below adds at most `SPLIT_TRIGGER` further entries.
+    const MAJORITY: u64 = 40;
+
+    tree.add(1, 0.0, false, false, 0);
+    for doc_id in 2..=(MAJORITY + 1) {
+        tree.add(doc_id, 100.0, false, false, 0);
+    }
+    assert!(tree.root().is_leaf());
+
+    gc_all_ranges(&mut tree, &|doc_id| doc_id != 1);
+    assert_eq!(tree.num_entries(), MAJORITY as usize);
+    let range = tree.root().range().unwrap();
+    assert_eq!((range.min_val(), range.max_val()), (100.0, 100.0));
+
+    // Push cardinality over the split threshold using distinct values strictly
+    // greater than 100.0, so 100.0 stays the smallest surviving value.
+    let mut doc_id = MAJORITY + 2;
+    let mut split_fired = false;
+    for i in 1..=SPLIT_TRIGGER {
+        tree.add(doc_id, 100.0 + i as f64, false, false, 0);
+        doc_id += 1;
+        if tree.num_leaves() == 2 {
+            split_fired = true;
+            break;
+        }
+    }
+    assert!(split_fired, "distinct values should trigger a split");
+
+    assert_eq!(tree.root().split_value(), Some(100.0_f64.next_up()));
+    let (left_idx, right_idx) = tree.root().child_indices().unwrap();
+    assert_eq!(
+        tree.node(left_idx).range().unwrap().num_docs(),
+        MAJORITY as u32,
+        "every 100.0 entry belongs in the left child"
+    );
+    assert!(tree.node(right_idx).range().unwrap().num_docs() > 0);
+    assert_eq!(tree.empty_leaves(), 0);
 }
 
 #[test]
@@ -211,7 +331,7 @@ fn test_deep_tree_balancing() {
     // The depth imbalance invariant in `check_tree_invariants` (which runs
     // after every `add`) enforces the real bound.
     for i in 1..=5000u64 {
-        tree.add(i, i as f64, false, 0);
+        tree.add(i, i as f64, false, false, 0);
     }
 }
 
@@ -226,7 +346,7 @@ fn test_deep_tree_balancing_descending() {
     // The depth imbalance invariant in `check_tree_invariants` (which runs
     // after every `add`) enforces the real bound.
     for i in (1..=5000u64).rev() {
-        tree.add(5001 - i, i as f64, true, 0);
+        tree.add(5001 - i, i as f64, false, true, 0);
     }
 }
 
@@ -244,13 +364,13 @@ fn test_deep_tree_balancing_mixed() {
         if batch % 2 == 0 {
             // Ascending batch
             for v in (batch * 500 + 1)..=(batch * 500 + 500) {
-                tree.add(doc_id, v as f64, true, 0);
+                tree.add(doc_id, v as f64, false, true, 0);
                 doc_id += 1;
             }
         } else {
             // Descending batch
             for v in ((batch * 500 + 1)..=(batch * 500 + 500)).rev() {
-                tree.add(doc_id, v as f64, true, 0);
+                tree.add(doc_id, v as f64, false, true, 0);
                 doc_id += 1;
             }
         }
@@ -323,4 +443,48 @@ fn test_max_depth_range_removes_deep_ranges(#[values(false, true)] compress_floa
             );
         }
     });
+}
+
+/// A leaf holding nothing but comparably-equal zeros must not split.
+///
+/// Under float compression, alternating `±5e-324` collapses onto `+0.0` and `-0.0`.
+/// Every comparison in the tree treats those as equal, so there is no split point that
+/// separates them: the size-triggered split path needs `cardinality > 1`, and if
+/// cardinality counts the two zeros separately the split fires anyway and strands an
+/// empty child — the degenerate shape this work exists to remove.
+#[test]
+#[cfg_attr(miri, ignore = "Too slow to run under miri")]
+fn test_compressed_signed_zero_collapse_does_not_split() {
+    let mut tree = NumericRangeTree::new(true); // float compression ON
+
+    // One past the size-triggered split threshold, alternating the sign.
+    let n = NumericRangeTree::MAXIMUM_RANGE_SIZE as u64 + 1;
+    for doc_id in 1..=n {
+        let value = if doc_id % 2 == 0 { 5e-324 } else { -5e-324 };
+        tree.add(doc_id, value, false, false, 0);
+    }
+
+    if let Some((left, right)) = tree.root().child_indices() {
+        let docs = |idx| tree.node(idx).range().map_or(0, |r| r.num_docs());
+        panic!(
+            "split with no value to split on: children hold {} and {} documents, \
+             and empty_leaves is {}",
+            docs(left),
+            docs(right),
+            tree.empty_leaves(),
+        );
+    }
+
+    let range = tree.root().range().expect("a leaf keeps its range");
+    assert_eq!(
+        (range.min_val(), range.max_val()),
+        (0.0, 0.0),
+        "every stored value compares equal to zero"
+    );
+    assert_eq!(
+        range.cardinality(),
+        1,
+        "the two signed zeros must count as one value"
+    );
+    assert_eq!(tree.empty_leaves(), 0);
 }

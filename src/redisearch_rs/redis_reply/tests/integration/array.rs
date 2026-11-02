@@ -46,6 +46,29 @@ fn test_array_builder_mixed_types() {
 }
 
 #[test]
+fn test_array_builder_string_buffer() {
+    let mut replier = init();
+    let reply = capture_single_reply(|| {
+        let mut arr = replier.array();
+        arr.string_buffer(b"hello");
+        arr.string_buffer(b"world");
+    });
+    insta::assert_debug_snapshot!(reply, @r#"[b"hello", b"world"]"#);
+}
+
+#[test]
+fn test_array_builder_string_buffer_mixed() {
+    let mut replier = init();
+    let reply = capture_single_reply(|| {
+        let mut arr = replier.array();
+        arr.long_long(1);
+        arr.string_buffer(b"text");
+        arr.simple_string(c"simple");
+    });
+    insta::assert_debug_snapshot!(reply, @r#"[1, b"text", "simple"]"#);
+}
+
+#[test]
 fn test_array_builder_empty_array_element() {
     let mut replier = init();
     let reply = capture_single_reply(|| {

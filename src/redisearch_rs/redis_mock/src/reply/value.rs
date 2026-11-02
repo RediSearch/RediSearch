@@ -20,6 +20,8 @@ pub enum ReplyValue {
     Double(f64),
     /// A simple string reply.
     SimpleString(String),
+    /// A string buffer (bulk string) reply.
+    StringBuffer(String),
     /// An array reply containing zero or more values.
     Array(Vec<ReplyValue>),
     /// A map reply containing key-value pairs.
@@ -36,6 +38,7 @@ impl ReplyValue {
             ReplyValue::LongLong(n) => format!("{n}"),
             ReplyValue::Double(d) => format!("{d}"),
             ReplyValue::SimpleString(s) => format!("{s:?}"),
+            ReplyValue::StringBuffer(s) => format!("b{s:?}"),
             ReplyValue::Array(elements) => {
                 let inner: Vec<String> = elements.iter().map(|e| e.format_compact()).collect();
                 format!("[{}]", inner.join(", "))
@@ -72,6 +75,7 @@ impl fmt::Debug for ReplyValue {
                     ReplyValue::LongLong(n) => write!(self.f, "{n}"),
                     ReplyValue::Double(d) => write!(self.f, "{d}"),
                     ReplyValue::SimpleString(s) => write!(self.f, "{s:?}"),
+                    ReplyValue::StringBuffer(s) => write!(self.f, "b{s:?}"),
                     ReplyValue::Array(elements) => {
                         if elements.is_empty() {
                             write!(self.f, "[]")

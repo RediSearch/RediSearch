@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from RLTest import Env
 from common import *
 
@@ -194,3 +201,43 @@ def testGeoLargeRadiusDecreaseStep(env):
   res = env.cmd('FT.SEARCH', 'idx', '@g:[30.0 85.0 620 km]', 'NOCONTENT')
   env.assertGreaterEqual(res[0], 2, message=res)
   env.assertNotContains('doc4', res)
+
+@skip(cluster=True)
+def testGeoParseNaN(env):
+  """NaN is rejected by Rust parseGeo (R64 rejects non-finite values),
+  so documents with NaN coordinates fail to index."""
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+
+  conn.execute_command('HSET', 'nan_lon', 'g', 'NaN,1.0')
+  conn.execute_command('HSET', 'nan_lat', 'g', '1.0,NaN')
+  conn.execute_command('HSET', 'nan_both', 'g', 'NaN,NaN')
+
+  assertInfoField(env, 'idx', 'hash_indexing_failures', 3)
+
+@skip(cluster=True)
+def testGeoParseInfinity(env):
+  """inf/-inf/infinity are rejected by Rust parseGeo (R64 rejects
+  non-finite values), so documents with infinite coordinates fail to
+  index."""
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+
+  conn.execute_command('HSET', 'inf_lon', 'g', 'inf,1.0')
+  conn.execute_command('HSET', 'neg_inf_lon', 'g', '-inf,1.0')
+  conn.execute_command('HSET', 'inf_lat', 'g', '1.0,inf')
+  conn.execute_command('HSET', 'infinity_lon', 'g', 'infinity,1.0')
+
+  assertInfoField(env, 'idx', 'hash_indexing_failures', 4)
+
+@skip(cluster=True)
+def testGeoParseTrailingWhitespace(env):
+  """Trailing whitespace after a coordinate value is accepted by Rust
+  parseGeo (trim() strips it before parsing)."""
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+
+  conn.execute_command('HSET', 'ws1', 'g', '1.23,4.56 ')
+  conn.execute_command('HSET', 'ws2', 'g', '1.23, 4.56 ')
+
+  assertInfoField(env, 'idx', 'hash_indexing_failures', 0)

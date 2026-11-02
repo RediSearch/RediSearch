@@ -1,0 +1,197 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+//! Lightweight mock for [`ffi::QueryEvalCtx`] that avoids linking any C code
+//! to stay Miri-compatible.
+
+use std::{
+    alloc::{Layout, alloc_zeroed, dealloc},
+    ptr::NonNull,
+};
+
+use query_error::QueryError;
+use query_flags::QEFlags;
+use rqe_iterators::IteratorsConfig;
+
+/// Owns all the heap-allocated structs that a [`ffi::QueryEvalCtx`] points to.
+///
+/// Uses raw pointers for storage to avoid Stacked Borrows violations (see
+/// `rqe_iterators_test_utils::MockContext` for the rationale).
+pub struct MockQueryEvalCtx {
+    sctx: *mut ffi::RedisSearchCtx,
+    spec: *mut ffi::IndexSpec,
+    opts: *mut ffi::RSSearchOptions,
+    status: *mut QueryError,
+    metric_requests_p: *mut *mut rlookup::MetricRequest<'static>,
+    doc_table: *mut ffi::DocTable,
+    config: *mut IteratorsConfig,
+    qctx: *mut ffi::QueryEvalCtx,
+    timeout: *mut ffi::QueryRequestTimeout,
+}
+
+impl Drop for MockQueryEvalCtx {
+    fn drop(&mut self) {
+        // SAFETY: each pointer was allocated in `with_req_flags` and is
+        // exclusively owned by this struct; layouts match those used at
+        // allocation time.
+        unsafe {
+            dealloc(self.spec.cast(), Layout::new::<ffi::IndexSpec>());
+            dealloc(self.sctx.cast(), Layout::new::<ffi::RedisSearchCtx>());
+            dealloc(self.opts.cast(), Layout::new::<ffi::RSSearchOptions>());
+            drop(Box::from_raw(self.status));
+            // Reclaiming an appended list means `array_free`, a C symbol this
+            // mock deliberately doesn't invoke, so it can only refuse to be the
+            // one that appended. A test that needs to is a test that needs
+            // `rqe_iterators_test_utils::TestContext` instead, whose teardown
+            // does free the list.
+            debug_assert!(
+                (*self.metric_requests_p).is_null(),
+                "this mock cannot free an appended metric-request list"
+            );
+            dealloc(
+                self.metric_requests_p.cast(),
+                Layout::new::<*mut rlookup::MetricRequest<'static>>(),
+            );
+            dealloc(self.doc_table.cast(), Layout::new::<ffi::DocTable>());
+            drop(Box::from_raw(self.config));
+            dealloc(self.qctx.cast(), Layout::new::<ffi::QueryEvalCtx>());
+            dealloc(
+                self.timeout.cast(),
+                Layout::new::<ffi::QueryRequestTimeout>(),
+            );
+        }
+    }
+}
+
+impl MockQueryEvalCtx {
+    pub fn new() -> Self {
+        Self::with_req_flags(QEFlags::empty())
+    }
+
+    pub fn with_req_flags(flags: QEFlags) -> Self {
+        // SAFETY: all allocations are zeroed and non-null-checked; pointer
+        // fields are immediately initialised to valid, owned allocations.
+        unsafe {
+            let spec = alloc_zeroed(Layout::new::<ffi::IndexSpec>()).cast::<ffi::IndexSpec>();
+            assert!(!spec.is_null());
+
+            let sctx =
+                alloc_zeroed(Layout::new::<ffi::RedisSearchCtx>()).cast::<ffi::RedisSearchCtx>();
+            assert!(!sctx.is_null());
+
+            (*sctx).spec = spec;
+            let timeout = alloc_zeroed(Layout::new::<ffi::QueryRequestTimeout>())
+                .cast::<ffi::QueryRequestTimeout>();
+            assert!(!timeout.is_null());
+            (*timeout).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+            (*sctx).timeout = timeout;
+
+            let opts =
+                alloc_zeroed(Layout::new::<ffi::RSSearchOptions>()).cast::<ffi::RSSearchOptions>();
+            assert!(!opts.is_null());
+            (*opts).slop = 42;
+
+            let status = Box::into_raw(Box::new(QueryError::default()));
+
+            // The head of the metric-request list, left null: the list is a
+            // tracked array, whose empty state is a null head and whose
+            // non-empty one is an interior pointer just past a length header.
+            // Seeding it with a plain allocation would look non-empty while
+            // having no header, so the first append would read and reallocate
+            // from outside it. Appending through this mock is refused outright
+            // in `drop`, for want of a C symbol to free the result with.
+            let metric_requests_p =
+                alloc_zeroed(Layout::new::<*mut rlookup::MetricRequest<'static>>())
+                    .cast::<*mut rlookup::MetricRequest<'static>>();
+            assert!(!metric_requests_p.is_null());
+
+            let doc_table = alloc_zeroed(Layout::new::<ffi::DocTable>()).cast::<ffi::DocTable>();
+            assert!(!doc_table.is_null());
+
+            let config = Box::into_raw(Box::new(IteratorsConfig {
+                max_prefix_expansions: 200,
+                min_term_prefix: 2,
+                min_stem_length: 4,
+                min_union_iter_heap: 20,
+            }));
+
+            let qctx = alloc_zeroed(Layout::new::<ffi::QueryEvalCtx>()).cast::<ffi::QueryEvalCtx>();
+            assert!(!qctx.is_null());
+
+            (*qctx).sctx = sctx;
+            (*qctx).opts = opts;
+            (*qctx).status = status
+                .cast::<query_error::opaque::OpaqueQueryError>()
+                .cast::<ffi::QueryError>();
+            (*qctx).metricRequestsP = metric_requests_p.cast();
+            (*qctx).docTable = doc_table;
+            (*qctx).reqFlags = flags.bits();
+            (*qctx).config = (config as *mut IteratorsConfig).cast();
+            (*qctx).tokenId = 0;
+            (*qctx).inNotSubTree = false;
+
+            Self {
+                sctx,
+                spec,
+                opts,
+                status,
+                metric_requests_p,
+                doc_table,
+                config,
+                qctx,
+                timeout,
+            }
+        }
+    }
+
+    pub fn as_non_null(&mut self) -> NonNull<ffi::QueryEvalCtx> {
+        NonNull::new(self.qctx).expect("qctx should not be null")
+    }
+
+    pub fn sctx_ptr(&self) -> *mut ffi::RedisSearchCtx {
+        self.sctx
+    }
+
+    pub fn metric_requests_p(&self) -> *mut *mut rlookup::MetricRequest<'static> {
+        self.metric_requests_p
+    }
+
+    pub fn doc_table_ptr(&self) -> *mut ffi::DocTable {
+        self.doc_table
+    }
+
+    pub fn opts_ptr(&self) -> *mut ffi::RSSearchOptions {
+        self.opts
+    }
+
+    pub fn set_max_doc_id(&mut self, max_doc_id: rqe_core::DocId) {
+        // SAFETY: `self.doc_table` is a valid, exclusively-owned allocation.
+        unsafe { (*self.doc_table).maxDocId = max_doc_id }
+    }
+
+    /// Set `spec.diskSpec` to a non-null sentinel so that
+    /// `!spec.diskSpec.is_null()` holds (simulating search-on-disk mode).
+    ///
+    /// The pointer is dangling — only use this for code paths that check
+    /// the pointer for null but never dereference it.
+    pub fn enable_disk_mode(&mut self) {
+        // SAFETY: `self.spec` is a valid, exclusively-owned allocation.
+        unsafe { (*self.spec).diskSpec = std::ptr::NonNull::dangling().as_ptr() }
+    }
+
+    /// Select a non-expired Blocked Client Timeout source.
+    pub fn enable_blocked_client_timeout(&mut self) {
+        // SAFETY: `self.timeout` is a valid, exclusively-owned allocation. Its
+        // zeroed union storage represents a false blocked-client atomic flag.
+        unsafe {
+            (*self.timeout).kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
+        }
+    }
+}

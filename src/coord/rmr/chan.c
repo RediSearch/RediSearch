@@ -29,8 +29,9 @@ struct MRChannel {
 #include "chan.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
-#include "search_ctx.h"
 #include "util/timeout.h"
+
+struct timespec;
 
 // Note: pthread_condattr_setclock only supports CLOCK_MONOTONIC (not CLOCK_MONOTONIC_RAW)
 // The timeout parameter (abstimeMono) is in CLOCK_MONOTONIC_RAW, so we convert it
@@ -86,7 +87,8 @@ void MRChannel_Push(MRChannel *chan, void *ptr) {
     chan->head = chan->tail = item;
   }
   chan->size++;
-  pthread_cond_broadcast(&chan->cond);
+  // Each channel has a single consumer, so a push wakes at most one waiter.
+  pthread_cond_signal(&chan->cond);
   pthread_mutex_unlock(&chan->lock);
 }
 
@@ -116,6 +118,15 @@ static void *popHeadAndUnlock(MRChannel *chan) {
   void *ret = item->ptr;
   rm_free(item);
   return ret;
+}
+
+void *MRChannel_TryPop(MRChannel *chan) {
+  pthread_mutex_lock(&chan->lock);
+  if (!chan->size) {
+    pthread_mutex_unlock(&chan->lock);
+    return NULL;
+  }
+  return popHeadAndUnlock(chan);
 }
 
 void *MRChannel_Pop(MRChannel *chan) {
@@ -168,7 +179,7 @@ void *MRChannel_PopWithTimeout(MRChannel *chan, const struct timespec *abstimeMo
   pthread_mutex_lock(&chan->lock);
   while (!chan->size) {
     // Sticky abort flipped by another thread (e.g. timeout callback + MRChannel_WakeAbort).
-    if (abortFlag && atomic_load_explicit(abortFlag, memory_order_acquire)) goto aborted;
+    if (abortFlag && atomic_load_explicit(abortFlag, memory_order_relaxed)) goto aborted;
     // One-shot unblock via MRChannel_Unblock; reset for the next pop.
     if (!chan->wait) { chan->wait = true; goto aborted; }
     // Park until pushed/broadcast/deadline. Re-checks all conditions on wake.
@@ -186,7 +197,8 @@ aborted:
 
 void MRChannel_WakeAbort(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
-  pthread_cond_broadcast(&chan->cond);
+  // Only the channel's single consumer can be waiting to observe the abort.
+  pthread_cond_signal(&chan->cond);
   pthread_mutex_unlock(&chan->lock);
 }
 

@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{SharedValue, util::debug_assert_warn};
+use crate::SharedValue;
 use std::ops::{Deref, DerefMut};
+use tracing_assert::debug_assert_warn;
 
 pub type Array = Collection<SharedValue>;
 pub type Map = Collection<(SharedValue, SharedValue)>;

@@ -171,9 +171,29 @@ typedef struct RedisJSONAPI {
   // use the previous array API to get the values(e.g. getAt, etc.)
   const void* (*getArray)(RedisJSON json, size_t *len, JSONArrayType *type);
 
+  ////////////////
+  // V8 entries //
+  ////////////////
+  // Get a RedisJSON root from an already-open RedisModuleKey handle.
+  // Returns NULL if the key is NULL, is not a module type, or does not hold JSON.
+  // The caller owns the key handle and must keep it open while using the returned RedisJSON.
+  RedisJSON (*getJsonFromHandle)(RedisModuleKey *redis_key);
+
+  ////////////////
+  // V9 entries //
+  ////////////////
+  // Like `get`, but evaluates a path compiled by either path parser.
+  JSONResultsIterator (*getWithPath)(RedisJSON json, JSONPath path);
+
+  /////////////////
+  // V10 entries //
+  /////////////////
+  // Like pathParse, but without a Redis context or error-message output.
+  JSONPath (*pathParseNoErrorMsg)(const char *path);
+
 } RedisJSONAPI;
 
-#define RedisJSONAPI_LATEST_API_VER 7
+#define RedisJSONAPI_LATEST_API_VER 10
 #ifdef __cplusplus
 }
 #endif

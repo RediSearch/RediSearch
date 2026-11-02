@@ -16,7 +16,8 @@ export DEBIAN_FRONTEND=noninteractive
 # LLVM_FULL_VERSION (e.g. "21.1.8").
 #
 # Environment variables:
-#   LLVM_INSTALL_DIR  — Where to unpack tarball installs (default: /usr/local/llvm)
+#   LLVM_INSTALL_DIR  — Where to unpack tarball installs (default: /usr/local/llvm,
+#                       or ~/.local/llvm on macOS)
 # =============================================================================
 
 OS_TYPE=$(uname -s)
@@ -27,17 +28,39 @@ source "$(dirname "${BASH_SOURCE[0]}")/LLVM_VERSION.sh"
 LLVM_VER="${LLVM_VERSION}"
 LLVM_FULL_VER="${LLVM_FULL_VERSION}"
 
-INSTALL_DIR="${LLVM_INSTALL_DIR:-/usr/local/llvm}"
+if [[ "$OS_TYPE" == "Darwin" ]]; then
+    # Avoid root-owned /usr/local for the default macOS install.
+    INSTALL_DIR="${LLVM_INSTALL_DIR:-${HOME}/.local/llvm}"
+else
+    INSTALL_DIR="${LLVM_INSTALL_DIR:-/usr/local/llvm}"
+fi
 MODE="${1:-}"
 
+# On Linux this script is `source`d by the OS script (deps_lib.sh already in
+# scope); on macOS the OS script executes it as a subprocess, so pull deps_lib.sh
+# in ourselves. It self-guards against re-sourcing (won't reset DEPS_*).
+if ! command -v _dry_line >/dev/null 2>&1; then
+    source "$(dirname "${BASH_SOURCE[0]}")/deps_lib.sh"
+fi
+
 # Download and unpack the official LLVM tarball into $INSTALL_DIR.
-# Works on any glibc-based Linux. Will NOT work on musl/Alpine.
+# Supports glibc-based Linux and Apple-silicon macOS, not musl/Alpine.
 install_from_tarball() {
     local tarball_name
-    case "$ARCH" in
-        x86_64)  tarball_name="LLVM-${LLVM_FULL_VER}-Linux-X64.tar.xz" ;;
-        aarch64) tarball_name="LLVM-${LLVM_FULL_VER}-Linux-ARM64.tar.xz" ;;
-        *)       echo "ERROR: unsupported arch ${ARCH}"; return 1 ;;
+    local -a tar_excludes=()
+    local priv="$MODE"
+    case "${OS_TYPE}-${ARCH}" in
+        Linux-x86_64)  tarball_name="LLVM-${LLVM_FULL_VER}-Linux-X64.tar.xz" ;;
+        Linux-aarch64) tarball_name="LLVM-${LLVM_FULL_VER}-Linux-ARM64.tar.xz" ;;
+        Darwin-arm64)
+            tarball_name="LLVM-${LLVM_FULL_VER}-macOS-ARM64.tar.xz"
+            # Save disk by omitting LLVM archives; keep lib/clang runtime archives.
+            # Omit bundled C++ runtimes so Apple's linker uses system libc++.
+            tar_excludes=(--exclude '*/lib/lib*.a' --exclude '*/lib/libc++*' --exclude '*/lib/libunwind*')
+            # Keep the default user-owned; honor MODE for custom install paths.
+            [[ -z "${LLVM_INSTALL_DIR:-}" ]] && priv=""
+            ;;
+        *) echo "ERROR: no official LLVM tarball for ${OS_TYPE} ${ARCH}"; return 1 ;;
     esac
 
     local url="https://github.com/llvm/llvm-project/releases/download/llvmorg-${LLVM_FULL_VER}/${tarball_name}"
@@ -49,12 +72,90 @@ install_from_tarball() {
     curl -fSL --retry 3 -o "${tmpdir}/${tarball_name}" "$url"
 
     echo ">>> Extracting to ${INSTALL_DIR}..."
-    $MODE mkdir -p "$INSTALL_DIR"
-    $MODE tar -xf "${tmpdir}/${tarball_name}" -C "$INSTALL_DIR" --strip-components=1
+    $priv mkdir -p "$INSTALL_DIR"
+    $priv tar -xf "${tmpdir}/${tarball_name}" -C "$INSTALL_DIR" --strip-components=1 "${tar_excludes[@]}"
     rm -rf "$tmpdir"
 
     export_path_gha
+    if [[ "$OS_TYPE" == "Darwin" ]]; then
+        enable_libcxx_availability_annotations
+        export_sdkroot
+        update_llvm_profile "${INSTALL_DIR}/bin"
+    else
+        link_tools_for_fresh_shells
+    fi
     echo ">>> LLVM ${LLVM_FULL_VER} installed to ${INSTALL_DIR}"
+}
+
+# Keep modern libc++ headers (e.g. std::atomic_ref), but enable their fallbacks
+# for symbols absent from the deployment target's system libc++, as Homebrew does.
+enable_libcxx_availability_annotations() {
+    local cfg="${INSTALL_DIR}/include/c++/v1/__config_site"
+    local off="#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 0"
+    if ! grep -q "^${off}\$" "$cfg" && ! grep -q "_LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 1" "$cfg"; then
+        echo "ERROR: unexpected availability setting in ${cfg}" >&2
+        return 1
+    fi
+    sed "s/^${off}\$/#define _LIBCPP_HAS_VENDOR_AVAILABILITY_ANNOTATIONS 1/" "$cfg" | $priv tee "${cfg}.tmp" > /dev/null
+    $priv mv "${cfg}.tmp" "$cfg"
+}
+
+# Upstream clang and bindgen's libclang need an explicit SDK to find system headers.
+export_sdkroot() {
+    local sdk
+    sdk=$(xcrun --sdk macosx --show-sdk-path)
+    [[ -n "${GITHUB_ENV:-}" ]] && echo "SDKROOT=${sdk}" >> "$GITHUB_ENV"
+    export SDKROOT="$sdk"
+}
+
+# Prints "yes" when Homebrew would pour a bottle of $1 on this OS, "no" when it
+# would compile it from source, and nothing if the check itself fails.
+# Formula#bottle accounts for older-OS bottles Homebrew accepts as compatible.
+brew_bottle_available() {
+    brew ruby -e "print(Formula['$1'].bottle ? 'yes' : 'no')" 2>/dev/null || true
+}
+
+# Fresh-shell usability for the tarball install: export_path_gha only covers
+# GitHub Actions steps (via $GITHUB_PATH/$GITHUB_ENV) and the shell that ran
+# this script. A user following the manual flow — `make bootstrap` now,
+# `make build LTO=1` from a later shell — has no ${INSTALL_DIR}/bin on PATH,
+# so build.sh cannot find clang-${LLVM_VER} and LTO refuses to enable. The
+# package-manager install paths don't have this problem (they land versioned
+# binaries in /usr/bin), so mirror that: symlink the tools build.sh looks up
+# — and llvm-config, through which bindgen's clang-sys locates libclang
+# (`llvm-config --libdir`) without needing a persisted LIBCLANG_PATH — into
+# /usr/local/bin, which is on the default PATH of every supported distro.
+# Same pattern rocky_linux_8.sh uses for its gcc-toolset shims.
+link_tools_for_fresh_shells() {
+    local bindir="${INSTALL_DIR}/bin"
+    local destdir="/usr/local/bin"
+    local tool target
+
+    if ! $MODE mkdir -p "$destdir"; then
+        echo "ERROR: cannot create ${destdir}; rerun with sudo or add ${bindir} to PATH manually" >&2
+        return 1
+    fi
+
+    # ld.lld-${LLVM_VER} matters beyond fresh shells: once lld-${LLVM_VER} is
+    # on PATH, build.sh links with -fuse-ld=lld-${LLVM_VER}, and clang
+    # resolves that name by looking for an executable literally called
+    # ld.lld-${LLVM_VER} — distro packages ship one, the tarball only ships
+    # unversioned ld.lld.
+    for tool in "clang-${LLVM_VER}" "clang++-${LLVM_VER}" "lld-${LLVM_VER}" "ld.lld-${LLVM_VER}" ld.lld llvm-config; do
+        # The tarball ships some of these only under their unversioned
+        # names; resolve to whichever exists.
+        target="${bindir}/${tool}"
+        [[ -e "$target" ]] || target="${bindir}/${tool%-${LLVM_VER}}"
+        if [[ ! -e "$target" ]]; then
+            echo "ERROR: expected LLVM tool '${tool}' not found under ${bindir}" >&2
+            return 1
+        fi
+
+        if ! $MODE ln -sf "$target" "${destdir}/${tool}"; then
+            echo "ERROR: failed to link ${destdir}/${tool} -> ${target}" >&2
+            return 1
+        fi
+    done
 }
 
 # Wire up $INSTALL_DIR/bin for GitHub Actions and the current shell.
@@ -68,6 +169,29 @@ export_path_gha() {
     fi
     export PATH="${bindir}:${PATH}"
     export LIBCLANG_PATH="${INSTALL_DIR}/lib"
+}
+
+llvm_major() {
+    { "$1" --version 2>/dev/null || true; } | head -1 | sed -En \
+        -e 's/.*[Vv]ersion[[:space:]]+([0-9]+).*/\1/p' \
+        -e 's/.*[[:space:]]LLD[[:space:]]+([0-9]+).*/\1/p' \
+        -e 's/^LLD[[:space:]]+([0-9]+).*/\1/p'
+}
+
+accept_native_llvm() {
+    local clang_cmd="$1"
+    local lld_cmd="$2"
+
+    command -v "$clang_cmd" &>/dev/null || return 1
+    command -v "$lld_cmd" &>/dev/null || return 1
+
+    local actual
+    actual=$(llvm_major "$clang_cmd")
+    [[ "$actual" == "$LLVM_VER" ]] || return 1
+
+    # RHEL-family puts shared libs in /usr/lib64; expose for bindgen/clang-sys.
+    [[ -n "${GITHUB_ENV:-}" ]] && echo "LIBCLANG_PATH=/usr/lib64" >> "$GITHUB_ENV"
+    export LIBCLANG_PATH=/usr/lib64
 }
 
 # ---------------------------------------------------------------------------
@@ -86,6 +210,14 @@ fi
 install_llvm() {
     # ----- macOS (Homebrew) ---------------------------------------------------
     if [[ "$OS_TYPE" == "Darwin" ]]; then
+        # Homebrew drops bottles for older macOS releases (llvm@21 has none for
+        # macOS 14), and building LLVM from source takes hours.
+        if [[ "$ARCH" == arm64 && "$(brew_bottle_available "llvm@${LLVM_VER}")" == no ]]; then
+            echo ">>> macOS — no Homebrew bottle for llvm@${LLVM_VER}; using the official tarball"
+            install_from_tarball
+            return
+        fi
+
         echo ">>> macOS — installing via Homebrew"
         brew install "llvm@${LLVM_VER}"
 
@@ -123,8 +255,12 @@ install_llvm() {
         apt_get_cmd "$MODE" update -qq
 
         # 1) Try native distro packages first (e.g. Ubuntu 26.04 ships clang-21).
+        # llvm-${LLVM_VER} supplies llvm-ar/llvm-ranlib, which CMake's IPO
+        # (LTO) archive rules need; with --no-install-recommends
+        # clang-${LLVM_VER} doesn't pull it in.
         if apt_get_cmd "$MODE" install -y --no-install-recommends \
-                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "libclang-${LLVM_VER}-dev" 2>/dev/null; then
+                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "libclang-${LLVM_VER}-dev" \
+                "llvm-${LLVM_VER}" 2>/dev/null; then
             echo ">>> Installed clang-${LLVM_VER} from native apt repos"
         else
             # 2) Fall back to apt.llvm.org third-party repo.
@@ -136,12 +272,30 @@ install_llvm() {
             if apt-cache show software-properties-common &>/dev/null; then
                 spc_pkg="software-properties-common"
             fi
+            # wget stays: llvm.sh uses it to fetch the repo signing key.
             apt_get_cmd "$MODE" install -y --no-install-recommends \
-                lsb-release wget $spc_pkg gnupg ca-certificates
-            wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
-            chmod +x /tmp/llvm.sh
-            if $MODE /tmp/llvm.sh "$LLVM_VER"; then
+                lsb-release wget curl $spc_pkg gnupg ca-certificates
+            # Fetch, chmod and exec stay inside the condition: `set -e` does
+            # not fire there, so any failure falls through to the tarball
+            # instead of aborting bootstrap. Retrying is the caller's job --
+            # CI wraps this script and the bootstrap that runs it.
+            #
+            # --proto/--proto-redir hold the transfer on HTTPS across
+            # redirects; the result is executed with $MODE, so an http://
+            # downgrade would be code execution. --connect-timeout/--max-time
+            # bound the attempt so a stalled host reaches the tarball.
+            if curl -fsSL --proto '=https' --proto-redir '=https' \
+                    --connect-timeout 20 --max-time 60 \
+                    -o /tmp/llvm.sh https://apt.llvm.org/llvm.sh \
+                    && chmod +x /tmp/llvm.sh \
+                    && $MODE /tmp/llvm.sh "$LLVM_VER"; then
                 rm -f /tmp/llvm.sh
+                # llvm.sh installs the toolchain but does not always leave the
+                # libclang development package/symlink that clang-sys and the
+                # list-mode verifier require.
+                apt_get_cmd "$MODE" install -y --no-install-recommends \
+                    "clang-${LLVM_VER}" "lld-${LLVM_VER}" "libclang-${LLVM_VER}-dev" \
+                    "llvm-${LLVM_VER}"
             else
                 # 3) Last resort: official pre-built tarball.
                 echo ">>> apt.llvm.org failed — falling back to official tarball"
@@ -156,11 +310,13 @@ install_llvm() {
         echo ">>> Alpine Linux — trying apk packages"
         # Alpine 3.23+ has llvm21 in main; 3.22 only has llvm20.
         # Official tarballs are glibc-based and won't work here.
+        local installed_ver=""
         if $MODE apk add --no-cache "llvm${LLVM_VER}" "clang${LLVM_VER}" "clang${LLVM_VER}-libclang" "lld${LLVM_VER}" 2>/dev/null; then
             echo ">>> Installed llvm${LLVM_VER} from Alpine repos"
+            installed_ver="$LLVM_VER"
             # Create unversioned symlinks so bindgen/clang-sys can find llvm-config and clang.
             for tool in llvm-config clang clang++ lld ld.lld; do
-                if [ -f "/usr/bin/${tool}-${LLVM_VER}" ] && [ ! -e "/usr/bin/${tool}" ]; then
+                if [[ -f "/usr/bin/${tool}-${LLVM_VER}" && ! -e "/usr/bin/${tool}" ]]; then
                     $MODE ln -s "${tool}-${LLVM_VER}" "/usr/bin/${tool}"
                 fi
             done
@@ -169,17 +325,39 @@ install_llvm() {
             # Install matching libclang for bindgen — package name is version-specific.
             local default_ver
             default_ver=$(clang --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.' | head -1 | tr -d '.')
-            if [ -n "$default_ver" ]; then
+            if [[ -n "$default_ver" ]]; then
                 $MODE apk add --no-cache "clang${default_ver}-libclang" 2>/dev/null || true
+                installed_ver="$default_ver"
             fi
         else
             echo "ERROR: No LLVM package available. Upgrade to Alpine 3.23+ or use edge."
             return 1
         fi
+        install_alpine_static_llvm_libs "$installed_ver"
+        ;;
+
+    # ----- DNF-based (RHEL, Rocky, AlmaLinux, Fedora, Amazon Linux 2023) ------
+    rhel|rocky|almalinux|centos|fedora|amzn)
+        # Try native distro packages first — they're built against the system
+        # glibc/libstdc++ so no version-mismatch issues with the tarball.
+        if $MODE dnf install -y --nobest --skip-broken \
+                "clang-${LLVM_VER}" "lld-${LLVM_VER}" "clang-devel-${LLVM_VER}" 2>/dev/null \
+                && accept_native_llvm "clang-${LLVM_VER}" "lld-${LLVM_VER}"; then
+            echo ">>> Installed clang-${LLVM_VER} from native dnf repos"
+        elif $MODE dnf install -y --nobest --skip-broken clang lld clang-devel 2>/dev/null \
+                && accept_native_llvm clang lld; then
+            echo ">>> Installed default clang from native dnf repos (may not be ${LLVM_VER})"
+        elif $MODE yum install -y clang lld clang-devel 2>/dev/null \
+                && accept_native_llvm clang lld; then
+            echo ">>> Installed clang from native yum repos"
+        else
+            echo ">>> Native packages unavailable or wrong LLVM major — falling back to official tarball"
+            install_from_tarball
+        fi
         ;;
 
     # ----- Everything else: official tarball ----------------------------------
-    # Rocky, CentOS, RHEL, AlmaLinux, Fedora, Amazon Linux, Mariner, Azure Linux
+    # Mariner, Azure Linux, and anything else
     *)
         echo ">>> ${distro} ${distro_version} — installing from official tarball"
         install_from_tarball
@@ -187,6 +365,205 @@ install_llvm() {
 
     esac
 }
+
+# clang/lld/llvm-config/libclang matching the required LLVM major already available?
+_clang_ok() {
+    command -v "clang-${LLVM_VER}" >/dev/null 2>&1 &&
+        [[ "$(llvm_major "clang-${LLVM_VER}")" == "$LLVM_VER" ]] && return 0
+    command -v clang >/dev/null 2>&1 && [[ "$(llvm_major clang)" == "$LLVM_VER" ]]
+}
+
+_lld_ok() {
+    local tool actual
+    for tool in "lld-${LLVM_VER}" "ld.lld-${LLVM_VER}"; do
+        command -v "$tool" >/dev/null 2>&1 || continue
+        actual=$(llvm_major "$tool")
+        [[ "$actual" == "$LLVM_VER" ]] && return 0
+    done
+    for tool in lld ld.lld; do
+        command -v "$tool" >/dev/null 2>&1 || continue
+        actual=$(llvm_major "$tool")
+        [[ "$actual" == "$LLVM_VER" ]] && return 0
+    done
+    return 1
+}
+
+_llvm_config_cmd() {
+    local candidate resolved actual brew_prefix
+    for candidate in "llvm-config-${LLVM_VER}" "llvm-config${LLVM_VER}" llvm-config \
+            "/usr/lib/llvm${LLVM_VER}/bin/llvm-config" \
+            "/usr/lib/llvm-${LLVM_VER}/bin/llvm-config" \
+            "${INSTALL_DIR}/bin/llvm-config"; do
+        resolved=$(command -v "$candidate" 2>/dev/null || true)
+        [[ -n "$resolved" ]] || continue
+        actual=$("$resolved" --version 2>/dev/null | sed -En 's/^([0-9]+).*/\1/p')
+        [[ "$actual" == "$LLVM_VER" ]] && { echo "$resolved"; return 0; }
+    done
+
+    if [[ "$OS_TYPE" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+        brew_prefix=$(brew --prefix 2>/dev/null || true)
+        if [[ -n "$brew_prefix" ]]; then
+            candidate="${brew_prefix}/opt/llvm@${LLVM_VER}/bin/llvm-config"
+            if [[ -x "$candidate" ]]; then
+                actual=$("$candidate" --version 2>/dev/null | sed -En 's/^([0-9]+).*/\1/p')
+                [[ "$actual" == "$LLVM_VER" ]] && { echo "$candidate"; return 0; }
+            fi
+        fi
+    fi
+
+    return 1
+}
+
+_libclang_ok() {
+    local cfg="$1"
+    local libdir dir lib resolved
+
+    libdir=$("$cfg" --libdir 2>/dev/null || true)
+    for dir in "$libdir" "${LIBCLANG_PATH:-}" /usr/lib64 /usr/lib \
+            "/usr/lib/llvm${LLVM_VER}/lib" "/usr/lib/llvm-${LLVM_VER}/lib" \
+            "${INSTALL_DIR}/lib"; do
+        [[ -n "$dir" ]] || continue
+        for lib in "$dir"/libclang.so "$dir"/libclang.so.* "$dir"/libclang-"$LLVM_VER".so \
+                "$dir"/libclang-"$LLVM_VER".so.* "$dir"/libclang.dylib \
+                "$dir"/libclang-"$LLVM_VER".dylib "$dir"/libclang.a; do
+            [[ -e "$lib" ]] || continue
+            resolved=$(readlink -f "$lib" 2>/dev/null || printf '%s' "$lib")
+            case "$lib $resolved" in
+                *"/llvm${LLVM_VER}/"*|*"/llvm-${LLVM_VER}/"*|*"/llvm@${LLVM_VER}/"*|\
+                *"lib/llvm${LLVM_VER}/"*|*"lib/llvm-${LLVM_VER}/"*|*"${INSTALL_DIR}/lib/"*|\
+                *"libclang-${LLVM_VER}.so"*|*"libclang.so.${LLVM_VER}"*)
+                    return 0
+                    ;;
+            esac
+            command -v strings >/dev/null 2>&1 &&
+                strings "$lib" 2>/dev/null | grep -aEq "(clang|LLVM) version ${LLVM_VER}\\." &&
+                return 0
+        done
+    done
+    return 1
+}
+
+_llvm_ok_for() {
+    local LLVM_VER="$1"
+    local cfg
+    _clang_ok || return 1
+    _lld_ok || return 1
+    cfg=$(_llvm_config_cmd) || return 1
+    _libclang_ok "$cfg"
+}
+
+_llvm_ok() { _llvm_ok_for "$LLVM_VER"; }
+
+_alpine_installed_llvm_major() {
+    local tool actual dir
+    for tool in "clang-${LLVM_VER}" clang; do
+        command -v "$tool" >/dev/null 2>&1 || continue
+        actual=$(llvm_major "$tool")
+        [[ -n "$actual" ]] && { echo "$actual"; return 0; }
+    done
+    for dir in /usr/lib/llvm[0-9]*; do
+        [[ -d "$dir" ]] || continue
+        echo "${dir##*llvm}"
+    done | sort -V | tail -1
+}
+
+_alpine_uses_default_llvm_fallback() {
+    # Alpine 3.23+ has the pinned LLVM major in main. Older supported Alpine
+    # releases use the distro default LLVM from the fallback branch below.
+    local version major rest minor
+    version=$(cat /etc/alpine-release 2>/dev/null || true)
+    major="${version%%.*}"
+    rest="${version#*.}"
+    minor="${rest%%.*}"
+    [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ ]] || return 1
+    (( major < 3 || (major == 3 && minor < 23) ))
+}
+
+_alpine_llvm_ok() {
+    local installed_ver
+    _llvm_ok && return 0
+    _alpine_uses_default_llvm_fallback || return 1
+    installed_ver=$(_alpine_installed_llvm_major)
+    [[ -n "$installed_ver" ]] || return 1
+    _llvm_ok_for "$installed_ver"
+}
+
+_llvm_check_ok() {
+    if [[ -f /etc/alpine-release ]] && command -v apk >/dev/null 2>&1; then
+        _alpine_llvm_ok
+    else
+        _llvm_ok
+    fi
+}
+
+install_alpine_static_llvm_libs() {
+    local installed_ver="$1"
+    local libdir linker_script
+    [[ -n "$installed_ver" ]] || return 0
+
+    # Static LLVM/clang libraries for bindgen-static mode (redis-module musl target
+    # in document_metadata uses bindgen-static, which links clang-sys statically).
+    # compiler-rt: the python test venv builds its sdist-only deps with clang
+    # (see test_deps/install_python_deps.sh), whose baked-in --rtlib=compiler-rt
+    # needs the runtime present.
+    apk_install "llvm${installed_ver}-static" ncurses-static zlib-static zstd-static compiler-rt
+
+    # Alpine ships component .a files but no combined libLLVM-<ver>.a.
+    # clang-sys emits cargo:rustc-link-lib=LLVM-<ver> which the linker resolves to
+    # libLLVM-<ver>.a. GNU ar's thin-archive mode (`ar rcT`) flattens the nested
+    # component archives into member headers ld.lld cannot parse ("could not get
+    # the buffer for a child of the archive"), so provide a GROUP() linker script
+    # instead — both ld.lld and GNU ld accept a text script in place of an
+    # archive, and it costs no disk space.
+    libdir="/usr/lib/llvm${installed_ver}/lib"
+    linker_script="${libdir}/libLLVM-${installed_ver}.a"
+    if [[ ! -e "$linker_script" ]]; then
+        if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
+            [[ -d "$libdir" ]] && DEPS_MISSING="$DEPS_MISSING libLLVM-${installed_ver}.a"
+            return 0
+        fi
+        # Build the GROUP() from a glob expanded at run/paste time (not baked in
+        # now — that produced a ~200-path one-liner in dry-run). The glob still
+        # expands before tee creates the output file, so the archive never lists
+        # itself. shellcheck disable=SC2086
+        _sh "libs=\$(echo ${libdir}/libLLVM*.a /usr/lib/libzstd.a); echo \"GROUP( \$libs )\" | $MODE tee ${linker_script} > /dev/null"
+    fi
+}
+
+# list: record the LLVM toolchain (build-critical) presence; dry-run: print the
+# install command it would run, gated on presence; real: unchanged. This script
+# installs clang + llvm-config + lld as one unit, and _llvm_ok verifies the
+# right-version toolchain is usable — so record both `clang` and `llvm`.
+if [[ "${CHECK_DEPS:-0}" == 1 ]]; then
+    if _llvm_check_ok; then
+        DEPS_OK="$DEPS_OK clang llvm"
+        if [[ -f /etc/alpine-release ]] && command -v apk >/dev/null 2>&1; then
+            install_alpine_static_llvm_libs "$(_alpine_installed_llvm_major)"
+        fi
+    else
+        DEPS_MISSING="$DEPS_MISSING clang llvm"
+    fi
+    return 0 2>/dev/null || exit 0
+fi
+if [[ "${DRY_RUN:-0}" == 1 ]]; then
+    if ! _llvm_check_ok; then
+        _dry_dependency_status llvm install-required "major $LLVM_VER"
+        # LLVM's install is a multi-branch, per-OS fallback (native pkgs →
+        # apt.llvm.org → official tarball, plus PATH linking) with runtime
+        # decisions no static print can reproduce correctly on every OS. So emit
+        # the real installer invocation — exactly what bootstrap runs — which
+        # does the right thing on any OS. </dev/null so its internal apt/dnf/apk
+        # can't consume the rest of a pasted dry-run.
+        _llvm_script="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/install_llvm.sh"
+        _dry_line "bash \"${_llvm_script}\" ${MODE} < /dev/null"
+    else
+        _dry_dependency_status llvm satisfied
+        if [[ -f /etc/alpine-release ]] && command -v apk >/dev/null 2>&1; then
+            install_alpine_static_llvm_libs "$(_alpine_installed_llvm_major)"
+        fi
+    fi
+    return 0 2>/dev/null || exit 0
+fi
 
 install_llvm
 

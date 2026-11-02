@@ -15,14 +15,14 @@
 //!
 //! - [`DocIdMinHeap::replace_root`]: O(log n) in-place root replacement with single sift-down
 //! - [`DocIdMinHeap::as_slice`]: Direct access to heap data for manual traversal
-use ffi::t_docId;
+use rqe_core::DocId;
 
 /// An entry in the [`DocIdMinHeap`], pairing a document ID with the index of
 /// the child iterator that produced it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HeapEntry {
     /// The document ID at this position.
-    pub doc_id: t_docId,
+    pub doc_id: DocId,
     /// Index into the parent union's `children` vector.
     pub child_idx: usize,
 }
@@ -117,7 +117,7 @@ impl DocIdMinHeap {
     /// # Complexity
     ///
     /// O(log n) - bubbles up to restore heap property.
-    pub fn push(&mut self, doc_id: t_docId, child_idx: usize) {
+    pub fn push(&mut self, doc_id: DocId, child_idx: usize) {
         self.data.push(HeapEntry { doc_id, child_idx });
         self.sift_up(self.data.len() - 1);
     }
@@ -160,7 +160,7 @@ impl DocIdMinHeap {
     /// # Complexity
     ///
     /// O(log n) - single sift-down operation.
-    pub fn replace_root(&mut self, doc_id: t_docId, child_idx: usize) {
+    pub fn replace_root(&mut self, doc_id: DocId, child_idx: usize) {
         debug_assert!(!self.data.is_empty(), "cannot replace root of empty heap");
         self.data[0] = HeapEntry { doc_id, child_idx };
         self.sift_down(0);

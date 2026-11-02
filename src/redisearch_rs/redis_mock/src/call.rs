@@ -63,10 +63,10 @@ impl MockCallReply {
 /// 2. cmdname must be a valid C string.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RedisModule_CallHgetAll(
-    ctx: *mut ffi::RedisModuleCtx,
+    ctx: *mut redis_module::RedisModuleCtx,
     cmdname: *const c_char,
     _fmt: *const c_char,
-    _keyname: *mut ffi::RedisModuleString,
+    _keyname: *mut redis_module::RedisModuleString,
 ) -> *mut redis_module::raw::RedisModuleCallReply {
     // Check if this is an HGETALL command
 

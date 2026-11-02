@@ -12,7 +12,7 @@
 #include "aggregate/expr/exprast.h"
 #include "aggregate/functions/function.h"
 #include "util/arr.h"
-#include "value.h"
+#include "value_ffi.h"
 
 class ExprTest : public ::testing::Test {
  public:

@@ -9,15 +9,14 @@
 
 //! A trie-based structure for accumulating counts per key.
 //!
-//! [`TrieCount`] wraps a [`TrieMap<u64>`] to efficiently track counts associated
-//! with byte-string keys. It is memory-efficient for keys with shared prefixes.
+//! See [`TrieCount`] for details.
 
 use crate::TrieMap;
 
 /// A trie structure for accumulating counts per key.
 ///
-/// This structure efficiently tracks counts for byte-string keys using a trie,
-/// which is memory-efficient when keys share common prefixes.
+/// Wraps a [`TrieMap`]`<u64>` to track counts for byte-string keys, staying
+/// memory-efficient when keys share common prefixes.
 ///
 /// # Example
 ///
@@ -45,8 +44,7 @@ pub struct TrieCount {
 impl TrieCount {
     /// Create a new empty [`TrieCount`].
     ///
-    /// No allocation is performed on creation.
-    /// Memory is allocated only when the first key is added.
+    /// See [`TrieMap::new`] for allocation behavior.
     pub fn new() -> Self {
         Self::default()
     }

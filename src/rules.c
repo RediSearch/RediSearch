@@ -7,13 +7,30 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "rules.h"
-#include "rlookup_load_document.h"
+
+#include <stdint.h>
+#include <string.h>
+#include <strings.h>
+
+#include "triemap_ffi.h"
 #include "aggregate/expr/expression.h"
 #include "aggregate/expr/exprast.h"
 #include "document.h"
 #include "json.h"
 #include "rdb.h"
 #include "fast_float/fast_float_strtod.h"
+#include "util/likely.h"
+#include "spec.h"
+#include "rmutil/rm_assert.h"
+#include "doc_table.h"
+#include "inverted_index.h"
+#include "query_error_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
+#include "util/dict/dict.h"
+#include "value_ffi.h"
+
 
 TrieMap *SchemaPrefixes_g = NULL;
 
@@ -83,7 +100,11 @@ void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx) {
   legacySpecRules = NULL;
 }
 
-SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *status) {
+// Shared body for SchemaRule_Create / SchemaRule_CreateWithPrefixesAC. The
+// prefix list is taken from `prefixes_ac` if non-NULL, otherwise from
+// `args->prefixes` (count `args->nprefixes`). The cursor, if used, is consumed.
+static SchemaRule *SchemaRule_CreateInternal(SchemaRuleArgs *args, ArgsCursor *prefixes_ac,
+                                             StrongRef ref, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
 
   if (DocumentType_Parse(args->type, &rule->type, status) == REDISMODULE_ERR) {
@@ -94,6 +115,14 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
   rule->lang_field = args->lang_field ? rm_strdup(args->lang_field) : NULL;
   rule->score_field = args->score_field ? rm_strdup(args->score_field) : NULL;
   rule->payload_field = args->payload_field ? rm_strdup(args->payload_field) : NULL;
+  if (rule->type == DocumentType_Json) {
+    if (rule->lang_field) {
+      rule->compiled_lang_path = japi->pathParseNoErrorMsg(rule->lang_field);
+    }
+    if (rule->score_field) {
+      rule->compiled_score_path = japi->pathParseNoErrorMsg(rule->score_field);
+    }
+  }
 
   if (args->score_default) {
     double score;
@@ -109,7 +138,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
   }
 
   if (args->lang_default) {
-    RSLanguage lang = RSLanguage_Find(args->lang_default, 0);
+    RSLanguage lang = RSLanguage_Find(args->lang_default, strlen(args->lang_default));
     if (lang == RS_LANG_UNSUPPORTED) {
       QueryError_SetError(status, QUERY_ERROR_CODE_ADD_ARGS, "Invalid language");
       goto error;
@@ -119,10 +148,33 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     rule->lang_default = DEFAULT_LANGUAGE;
   }
 
-  rule->prefixes = array_new(HiddenUnicodeString*, args->nprefixes);
-  for (int i = 0; i < args->nprefixes; ++i) {
-    HiddenUnicodeString* p = NewHiddenUnicodeString(args->prefixes[i]);
-    array_append(rule->prefixes, p);
+  if (prefixes_ac) {
+    size_t nprefixes = AC_NumRemaining(prefixes_ac);
+    if (unlikely(nprefixes > MAX_SCHEMA_PREFIXES)) {
+      QueryError_SetWithoutUserDataFmt(
+          status, QUERY_ERROR_CODE_LIMIT,
+          "Number of prefixes (%zu) exceeds maximum allowed (%d)",
+          nprefixes, MAX_SCHEMA_PREFIXES);
+      goto error;
+    }
+    rule->prefixes = array_new(HiddenUnicodeString*, nprefixes);
+    for (size_t i = 0; i < nprefixes; ++i) {
+      size_t prefix_len = 0;
+      const char *prefix = AC_GetStringNC(prefixes_ac, &prefix_len);
+      array_append(rule->prefixes, NewHiddenUnicodeStringWithLen(prefix, prefix_len));
+    }
+  } else {
+    if (unlikely(args->nprefixes > MAX_SCHEMA_PREFIXES)) {
+      QueryError_SetWithoutUserDataFmt(
+          status, QUERY_ERROR_CODE_LIMIT,
+          "Number of prefixes (%d) exceeds maximum allowed (%d)",
+          args->nprefixes, MAX_SCHEMA_PREFIXES);
+      goto error;
+    }
+    rule->prefixes = array_new(HiddenUnicodeString*, args->nprefixes);
+    for (int i = 0; i < args->nprefixes; ++i) {
+      array_append(rule->prefixes, NewHiddenUnicodeString(args->prefixes[i]));
+    }
   }
 
   if (rule->filter_exp_str) {
@@ -154,6 +206,15 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
 error:
   SchemaRule_Free(rule);
   return NULL;
+}
+
+SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *status) {
+  return SchemaRule_CreateInternal(args, NULL, ref, status);
+}
+
+SchemaRule *SchemaRule_CreateWithPrefixesAC(SchemaRuleArgs *args, ArgsCursor *prefixes_ac,
+                                            StrongRef ref, QueryError *status) {
+  return SchemaRule_CreateInternal(args, prefixes_ac, ref, status);
 }
 
 /*.
@@ -194,6 +255,12 @@ void SchemaRule_FilterFields(IndexSpec *spec) {
 }
 
 void SchemaRule_Free(SchemaRule *rule) {
+  if (rule->compiled_lang_path) {
+    japi->pathFree(rule->compiled_lang_path);
+  }
+  if (rule->compiled_score_path) {
+    japi->pathFree(rule->compiled_score_path);
+  }
   rm_free((void *)rule->lang_field);
   rm_free((void *)rule->score_field);
   rm_free((void *)rule->payload_field);
@@ -258,8 +325,8 @@ done:
   return lang;
 }
 
-RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
-                               RedisJSON jsonRoot, const char *kname) {
+RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonRoot,
+                               const char *kname) {
   int rv = REDISMODULE_ERR;
   JSONResultsIterator jsonIter = NULL;
   RSLanguage lang = rule->lang_default;
@@ -276,7 +343,7 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  jsonIter = japi->get(jsonRoot, rule->lang_field);
+  jsonIter = JSON_GetWithCompiledPath(jsonRoot, rule->compiled_lang_path);
   if (!jsonIter) {
     goto done;
   }
@@ -331,8 +398,8 @@ done:
   return score;
 }
 
-double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
-                                RedisJSON jsonRoot, const char *kname) {
+double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule, RedisJSON jsonRoot,
+                            const char *kname) {
   double score = rule->score_default;
   JSONResultsIterator jsonIter = NULL;
   RedisJSON scoreJson = NULL;
@@ -346,7 +413,7 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  jsonIter = japi->get(jsonRoot, rule->score_field);
+  jsonIter = JSON_GetWithCompiledPath(jsonRoot, rule->compiled_score_path);
   if (jsonIter == NULL) {
     goto done;
   }
@@ -386,8 +453,9 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
 #define RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK 32
   char *prefixes[RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK];
   uint64_t exist = 0;
+  uint64_t nprefixes_u64 = 0;
   double score_default = 0.0;
-  RSLanguage lang_default = DEFAULT_LANGUAGE;
+  uint64_t lang_default_u64 = DEFAULT_LANGUAGE;
   bool index_all = false;
   SchemaRule *rule = NULL;
   IndexSpec *sp = NULL;
@@ -395,7 +463,18 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
   int ret = REDISMODULE_OK;
   args.type = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
 
-  args.nprefixes = LoadUnsigned_IOError(rdb, goto cleanup);
+  nprefixes_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+
+  RS_ASSERT(MAX_SCHEMA_PREFIXES <= UINT32_MAX);
+  if (unlikely(nprefixes_u64 > MAX_SCHEMA_PREFIXES)) {
+    QueryError_SetWithoutUserDataFmt(
+        status, QUERY_ERROR_CODE_LIMIT,
+        "RDB Load: Number of prefixes (%llu) exceeds maximum allowed (%d)",
+        (unsigned long long)nprefixes_u64, MAX_SCHEMA_PREFIXES);
+    ret = REDISMODULE_ERR;
+    goto cleanup;
+  }
+  args.nprefixes = (unsigned int)nprefixes_u64;
   if (args.nprefixes <= RULEARGS_INITIAL_NUM_PREFIXES_ON_STACK) {
     args.prefixes = (const char **)prefixes;
     memset(args.prefixes, 0, args.nprefixes * sizeof(*args.prefixes));
@@ -424,7 +503,14 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
     args.payload_field = LoadStringBuffer_IOError(rdb, &len, goto cleanup);
   }
   score_default = LoadDouble_IOError(rdb, goto cleanup);
-  lang_default = LoadUnsigned_IOError(rdb, goto cleanup);
+  lang_default_u64 = LoadUnsigned_IOError(rdb, goto cleanup);
+  if (lang_default_u64 >= RS_LANG_UNSUPPORTED) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                     "RDB Load: Invalid default language (%llu)",
+                                     (unsigned long long)lang_default_u64);
+    ret = REDISMODULE_ERR;
+    goto cleanup;
+  }
   if (encver >= INDEX_INDEXALL_VERSION) {
     index_all = LoadUnsigned_IOError(rdb, goto cleanup);
   }
@@ -435,7 +521,7 @@ int SchemaRule_RdbLoad(StrongRef ref, RedisModuleIO *rdb, int encver, QueryError
     goto cleanup;
   }
   rule->score_default = score_default;
-  rule->lang_default = lang_default;
+  rule->lang_default = (RSLanguage)lang_default_u64;
   rule->index_all = index_all;
 
   // No need to validate the reference here, since we are loading it from the RDB
@@ -513,7 +599,8 @@ bool SchemaRule_FilterPasses(EvalCtx *r, RSExpr *filter_exp) {
          RSValue_BoolTest(r->res);
 }
 
-bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type) {
+bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, DocumentType type,
+                            RedisModuleKey *openKey) {
   // check type
   if (type != sp->rule->type) {
     return false;
@@ -545,7 +632,7 @@ bool SchemaRule_ShouldIndex(struct IndexSpec *sp, RedisModuleString *keyname, Do
 
     RedisSearchCtx sctx = { .redisCtx = RSDummyContext };
     QueryError status = QueryError_Default();
-    RLookup_LoadRuleFields(&sctx, &r->lk, &r->row, sp, keyCstr, &status);
+    RLookup_LoadRuleFields(&sctx, &r->lk, &r->row, sp, keyCstr, openKey, &status);
     QueryError_ClearError(&status); // TODO: report errors
 
     ret = SchemaRule_FilterPasses(r, rule->filter_exp);

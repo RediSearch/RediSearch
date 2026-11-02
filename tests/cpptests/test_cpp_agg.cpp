@@ -10,6 +10,7 @@
 
 #include "gtest/gtest.h"
 #include "aggregate/aggregate.h"
+#include "search_result_ffi.h"
 #include "redismock/redismock.h"
 #include "redismock/util.h"
 #include "redismock/internal.h"
@@ -37,7 +38,7 @@ TEST_F(AggTest, testBasic) {
   RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "ON", "HASH",
                       "SCHEMA", "t1", "TEXT", "SORTABLE", "t2", "NUMERIC",
                       "sortable", "t3", "TEXT");
-  auto spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
+  auto spec = Indexes_CreateNewSpec(ctx, args, args.size(), &qerr);
   ASSERT_TRUE(spec);
 
   // Try to create a document...
@@ -55,9 +56,9 @@ TEST_F(AggTest, testBasic) {
   RedisModule_CloseKey(kk);
   RedisModule_FreeString(ctx, vtmp);
 
-  AREQ *rr = AREQ_New();
   RMCK::ArgvList aggArgs(ctx, "*");
-  rv = AREQ_Compile(rr, ctx, aggArgs, aggArgs.size(), false, &qerr);
+  AREQ *rr = AREQ_New(aggArgs, aggArgs.size());
+  rv = AREQ_Compile(rr, ctx, 0, false, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
   ASSERT_FALSE(QueryError_HasError(&qerr));
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->specName, true);
@@ -92,7 +93,7 @@ TEST_F(AggTest, testBasic) {
   ASSERT_EQ(3, count);
 
   SearchResult_Destroy(&res);
-  AREQ_DecrRef(rr);
+  AREQ_Free(rr);
   IndexSpec_Free(spec);
   args.clear();
   aggArgs.clear();
@@ -100,6 +101,37 @@ TEST_F(AggTest, testBasic) {
 }
 
 #endif // HAVE_RM_SCANCURSOR_CREATE
+
+TEST_F(AggTest, GroupBySealsEveryLookup) {
+  RMCK::Context ctx;
+  RMCK::ArgvList args(ctx, "*", "APPLY", "1", "AS", "first", "GROUPBY", "1", "@first", "REDUCE",
+                      "COUNT", "0", "AS", "count", "APPLY", "@count + 1", "AS", "count", "GROUPBY",
+                      "0", "REDUCE", "SUM", "1", "@count", "AS", "total");
+  QueryError status = QueryError_Default();
+  AREQ *req = AREQ_New(args, args.size());
+  ASSERT_EQ(AREQ_Compile(req, ctx, 0, false, &status), REDISMODULE_OK);
+  AREQ_AddRequestFlags(req, QEXEC_F_IS_COORDINATOR);
+  ASSERT_EQ(AREQ_BuildPipeline(req, &status), REDISMODULE_OK) << QueryError_GetUserError(&status);
+
+  AGGPlan *plan = AREQ_AGGPlan(req);
+  size_t count = 0;
+  for (const DLLIST_node *node = plan->steps.next; node != &plan->steps; node = node->next) {
+    const PLN_BaseStep *step = DLLIST_ITEM(node, PLN_BaseStep, llnodePln);
+    if (step->type != PLN_T_GROUP) {
+      continue;
+    }
+    RLookup *lookup = AGPLN_GetLookup(plan, step, AGPLN_GETLOOKUP_PREV);
+    EXPECT_DEATH(RLookup_SetCache(lookup, nullptr), "sealed");
+    ++count;
+  }
+  EXPECT_EQ(count, 2);
+  RLookup *last = AGPLN_GetLookup(plan, nullptr, AGPLN_GETLOOKUP_LAST);
+  EXPECT_DEATH(RLookup_SetCache(last, nullptr), "sealed");
+  // The seal protects existing keys, but coordinator replies can still add fields.
+  EXPECT_NE(RLookup_GetKey_Write(last, "late", RLOOKUP_F_NOFLAGS), nullptr);
+  AREQ_Free(req);
+  QueryError_ClearError(&status);
+}
 
 class RPMock : public ResultProcessor {
  public:
@@ -168,7 +200,8 @@ TEST_F(AggTest, testGroupBy) {
   RLookupKey *score_out = RLookup_GetKey_Write(&rk_out, "SCORE", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&rk_out, "COUNT", RLOOKUP_F_NOFLAGS);
 
-  Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1);
+  Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1,
+                            GroupByLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
   ASSERT_TRUE(gr != NULL);
 
   ArgsCursor args = {0};
@@ -212,7 +245,8 @@ TEST_F(AggTest, testGroupSplit) {
   gen.kvalue = RLookup_GetKey_Write(&lk_in, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *val_out = RLookup_GetKey_Write(&lk_out, "value", RLOOKUP_F_NOFLAGS);
   RLookupKey *count_out = RLookup_GetKey_Write(&lk_out, "COUNT", RLOOKUP_F_NOFLAGS);
-  Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1);
+  Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1,
+                            GroupByLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
   ArgsCursor args = {0};
   ReducerOptions opt = {0};
   opt.args = &args;
@@ -302,14 +336,14 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
 
   auto scenario = [&](QEFlags flags, auto... args) -> bool {
     QueryError qerr = QueryError_Default();
-    AREQ *rr = AREQ_New();
-    AREQ_AddRequestFlags(rr, flags);
     RMCK::ArgvList aggArgs(ctx, "*", args...);
-    int rv = AREQ_Compile(rr, ctx, aggArgs, aggArgs.size(), false, &qerr);
+    AREQ *rr = AREQ_New(aggArgs, aggArgs.size());
+    AREQ_AddRequestFlags(rr, flags);
+    int rv = AREQ_Compile(rr, ctx, 0, false, &qerr);
     EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
     bool res = rr->searchopts.flags & Search_CanSkipRichResults;
     QueryError_ClearError(&qerr);
-    AREQ_DecrRef(rr);
+    AREQ_Free(rr);
     return res;
   };
 

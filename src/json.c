@@ -8,12 +8,27 @@
 */
 
 #include "json.h"
-#include "document.h"
-#include "rmutil/rm_assert.h"
-#include "vector_index.h"
 
 #include <math.h>
 #include <string.h>
+#include <assert.h>
+#include <stdint.h>
+#include <stdio.h>
+
+#include "value_ffi.h"
+#include "document.h"
+#include "rmutil/rm_assert.h"
+#include "vector_index.h"
+#include "VecSim/vec_sim_common.h"
+#include "inverted_index.h"
+#include "query_error_ffi.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "search_ctx.h"
+#include "search_disk_api.h"
+#include "util/arr/arr.h"
+
+struct RedisModuleCtx;
 
 // REJSON APIs
 RedisJSONAPI *japi = NULL;
@@ -52,6 +67,17 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
                                          (RedisModuleEventCallback) ModuleChangeHandler);
     }
     return 0;
+}
+
+RedisJSON JSON_GetJsonFromHandle(RedisModuleKey *key) {
+  if (!japi || !key) {
+    return NULL;
+  }
+  return japi->getJsonFromHandle(key);
+}
+
+JSONResultsIterator JSON_GetWithCompiledPath(RedisJSON root, JSONPath path) {
+  return path ? japi->getWithPath(root, path) : NULL;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -564,7 +590,12 @@ switch (params->algo) {
   if (!multi)
     goto fail;
 
-  if (!(df->blobArr = rm_malloc(fs->vectorOpts.expBlobSize * len))) {
+  size_t alloc_size;
+  if (__builtin_mul_overflow(fs->vectorOpts.expBlobSize, len, &alloc_size)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to allocate memory for multi-vector field");
+    goto fail;
+  }
+  if (!(df->blobArr = rm_malloc(alloc_size))) {
     goto fail;
   }
   df->blobSize = fs->vectorOpts.expBlobSize;
@@ -669,7 +700,12 @@ void JSONIterable_Clean(JSONIterable *iterable) {
 }
 
 int JSON_StoreTextInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df, QueryError *status) {
-  df->multiVal = rm_calloc(len , sizeof(*df->multiVal));
+  size_t alloc_size;
+  if (__builtin_mul_overflow(len, sizeof(*df->multiVal), &alloc_size)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_GENERIC, "Failed to allocate memory for text field");
+    return REDISMODULE_ERR;
+  }
+  df->multiVal = rm_calloc(1, alloc_size);
   int i = 0, nulls = 0;
   size_t strlen;
   RedisJSON json;
@@ -1105,13 +1141,13 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   return rv;
 }
 
-void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName) {
-  QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_INVAL_PATH,
-                         "Invalid JSONPath", " '%s' in attribute '%s' in index '%s'",
-                         HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
-  RedisModule_FreeString(RSDummyContext, err_msg);
+void JSONParse_error(QueryError *status, const HiddenString *path, const HiddenString *fieldName,
+                     const HiddenString *indexName) {
+  QueryError_SetWithUserDataFmt(
+      status, QUERY_ERROR_CODE_INVAL_PATH, "Invalid JSONPath",
+      " '%s' in attribute '%s' in index '%s'", HiddenString_GetUnsafe(path, NULL),
+      HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
 }
-
 
 #ifdef ENABLE_ASSERT
 #include "json_test_api.h"

@@ -4,6 +4,9 @@
 !.install
 !.install/**
 !.rust-nightly
+!.cheadergen-version
+!.nextest-version
+!.cargo-llvm-cov-version
 !rust-toolchain.toml
 !.github/workflows/task-get-config.yml
 

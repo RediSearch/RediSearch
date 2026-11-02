@@ -12,7 +12,8 @@
 //! This module provides functions to dump tree state for debugging purposes.
 //! These are used by the FT.DEBUG commands (NUMIDX_SUMMARY, DUMP_NUMIDX, DUMP_NUMIDXTREE).
 
-use inverted_index::{IndexReader, RSIndexResult};
+use index_result::RSIndexResult;
+use inverted_index::IndexReader;
 use redis_reply::{ArrayBuilder, MapBuilder, RedisModuleCtx, Replier};
 
 use crate::{NodeIndex, NumericIndex, NumericRange, NumericRangeNode, NumericRangeTree};

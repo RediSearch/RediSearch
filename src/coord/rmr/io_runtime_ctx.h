@@ -81,6 +81,12 @@ void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, voi
 
 void IORuntimeCtx_RequestCompleted(IORuntimeCtx *io_runtime_ctx);
 
+/* Counterpart of IORuntimeCtx_RequestCompleted for a logical request that
+ * shares an already-scheduled job instead of being scheduled itself (e.g. a
+ * sibling iterator started under another iterator's start job). Event-loop
+ * thread only. */
+void IORuntimeCtx_RequestStarted(IORuntimeCtx *io_runtime_ctx);
+
 // Clears the pendingTopology request that may be queued to be updated, and return the topology that was pending.
 void IORuntimeCtx_Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx);
 uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx);

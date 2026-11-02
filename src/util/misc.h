@@ -9,13 +9,31 @@
 #ifndef RS_MISC_H
 #define RS_MISC_H
 
+#include <stdbool.h>
+
 #include "redismodule.h"
-#include "query_error.h"
+
+typedef struct QueryError QueryError;
 
 /**
  * This handler crashes
  */
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Record the calling thread as the process main thread. Called at module
+ * init; unit-test mains call it in their setup. */
+void MainThread_Set(void);
+
+/* True when called from the thread recorded by MainThread_Set. */
+bool MainThread_Is(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 // null-unsafe
 int GetRedisErrorCodeLength(const char* error);

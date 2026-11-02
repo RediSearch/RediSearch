@@ -9,8 +9,11 @@
 
 #pragma once
 
+#include <stdbool.h>
+
 #include "redismodule.h"
-#include "query_error.h"
+
+typedef struct QueryError QueryError;
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,6 +29,10 @@ struct HybridRequest;
  *
  * **Syntax:**
  *   _FT.DEBUG FT.HYBRID <index> SEARCH <query> VSIM <vector_args> [options] <DEBUG_PARAMS> DEBUG_PARAMS_COUNT <count>
+ *
+ * On a multi-shard coordinator, query debug requires `ON_TIMEOUT RETURN`. `ON_TIMEOUT FAIL` and
+ * `ON_TIMEOUT RETURN-STRICT` use blocked-client timeout callbacks and are rejected with
+ * `_FT.DEBUG for Coordinator is only supported with ON_TIMEOUT RETURN`.
  *
   * **Parameters:**
  *   - `TIMEOUT_AFTER_N_SEARCH <N>`: Timeout after N results from search component
@@ -85,9 +92,11 @@ int applyHybridDebugTimeout(struct HybridRequest *hreq, const HybridDebugParams 
  * @param ctx Redis module context
  * @param argv Command arguments (starting with "FT.HYBRID")
  * @param argc Number of arguments
+ * @param internal Whether the command came from a coordinator
  * @return REDISMODULE_OK on success, REDISMODULE_ERR on error
  */
-int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                               bool internal);
 
 #ifdef __cplusplus
 }

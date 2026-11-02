@@ -7,16 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "doc_table.h"
+#include "doc_key_map_ffi.h"
+
 #include <sys/param.h>
 #include <string.h>
-#include <stdio.h>
+
 #include "redismodule.h"
-#include "util/fnv.h"
-#include "triemap.h"
-#include "sortable.h"
+#include "sorting_vector_ffi.h"
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
+#include "buffer.h"
+#include "rules.h"
+#include "search_disk.h"
+
+struct timespec;
+
+static inline uint16_t keySlot(const char *key, size_t len) {
+  return (uint16_t)RedisModule_ClusterKeySlotC(key, len);
+}
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size) {
@@ -27,7 +36,6 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .memsize = 0,
       .sortablesSize = 0,
       .maxSize = max_size,
-      .dim = NewDocIdMap(),
   };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
   ret.memsize = cap * sizeof(*ret.buckets) + sizeof(DocTable);
@@ -86,6 +94,9 @@ static RSDocumentMetadata *DocTable_DmdUnchain(DocTable *t, t_docId docId) {
 
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
   RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
+  if (dmd && DocTable_HasPendingDeletions(t) && DocTable_IsDocPendingDeletion(t, dmd)) {
+    return NULL;
+  }
   if (dmd) {
     DMD_Incref(dmd);
   }
@@ -112,12 +123,60 @@ bool DocTable_Exists(const DocTable *t, t_docId docId) {
   return false;
 }
 
-const RSDocumentMetadata *DocTable_BorrowByKeyR(const DocTable *t, RedisModuleString *s) {
-  const char *kstr;
-  size_t klen;
-  kstr = RedisModule_StringPtrLen(s, &klen);
-  t_docId id = DocTable_GetId(t, kstr, klen);
-  return DocTable_Borrow(t, id);
+DocKeyMapActivation DocTable_StartKeyMap(DocTable *t) {
+  if (t->keyMapState != DocKeyMap_Inactive) return DocKeyMapActivation_Unchanged;
+  t->keyMap = DocKeyMap_New();
+  t->keyMapState = DocTable_IsEmpty(t) ? DocKeyMap_Ready : DocKeyMap_Building;
+  return t->keyMapState == DocKeyMap_Ready ? DocKeyMapActivation_Ready
+                                           : DocKeyMapActivation_NeedsBackfill;
+}
+
+void DocTable_KeyMapIteratorReleaseNext(DocTableKeyMapIterator *iter) {
+  DMD_Return(iter->next);
+  iter->next = NULL;
+}
+
+bool DocTable_BuildKeyMapBatch(DocTable *t, DocTableKeyMapIterator *iter, size_t budget) {
+  RS_ASSERT(t->keyMapState != DocKeyMap_Inactive);
+  if (t->keyMapState == DocKeyMap_Ready) return true;
+  if (!budget) return false;
+  if (!iter->initialized) {
+    iter->endBucket = t->cap;
+    iter->initialized = true;
+    // Reserve on the background thread, before backfill can cause large rehashes.
+    DocKeyMap_EnsureCapacity(t->keyMap, t->size - 1);
+  }
+
+  RSDocumentMetadata *dmd = iter->next;
+  // Unlinking clears nextInChain. A retained deleted DMD stays alive, but cannot
+  // lead us to the remaining entries; restarting is safe because insertion is idempotent.
+  if (!dmd || (dmd->flags & Document_Deleted)) {
+    dmd = t->buckets[iter->bucket].root;
+  }
+  DocTable_KeyMapIteratorReleaseNext(iter);
+  // The spec lock pins the chain throughout the batch; only the yield needs a borrow.
+  while (iter->bucket < iter->endBucket && budget > 0) {
+    --budget;
+    if (dmd) {
+      DocKeyMap_InsertIfAbsent(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
+      dmd = dmd->nextInChain;
+    }
+    if (!dmd) {
+      ++iter->bucket;
+      if (iter->bucket < iter->endBucket) {
+        dmd = t->buckets[iter->bucket].root;
+      }
+    }
+  }
+  if (iter->bucket == iter->endBucket) {
+    t->keyMapState = DocKeyMap_Ready;
+    return true;
+  }
+  if (dmd) {
+    DMD_Incref(dmd);
+    iter->next = dmd;
+  }
+  return false;
 }
 
 static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *dmd) {
@@ -154,18 +213,14 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
   // Adding the dmd to the chain
   dmd->nextInChain = chain->root;
   chain->root = dmd;
+  if (t->keyMap) {
+    DocKeyMap_Insert(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), docId);
+  }
 }
 
-/** Get the docId of a key if it exists in the table, or 0 if it doesn't */
-t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n) {
-  return DocIdMap_Get(&dt->dim, s, n);
-}
-
-/* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
- * document */
 int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len) {
   /* Get the metadata */
-  if (!dmd || !data) {
+  if (!dmd || !data || !(dmd->flags & Document_HasPayloadSlot)) {
     return 0;
   }
 
@@ -190,6 +245,17 @@ int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, 
   return 1;
 }
 
+void DocTable_ClearPayload(DocTable *t, RSDocumentMetadata *dmd) {
+  if (!dmd || !hasPayload(dmd->flags)) {
+    return;
+  }
+  t->memsize -= sizeof(RSPayload) + dmd->payload->len;
+  rm_free(dmd->payload->data);
+  rm_free(dmd->payload);
+  dmd->payload = NULL;
+  dmd->flags &= ~Document_HasPayload;
+}
+
 /* Set the sorting vector for a document. If the vector is empty we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done
  */
@@ -198,7 +264,7 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
     return 0;
   }
 
-  RS_LOG_ASSERT(RSSortingVector_Length(&v), "Sorting vector does not exist");  // tested in doAssignIds()
+  RS_LOG_ASSERT(RSSortingVector_Length(&v), "Sorting vector does not exist");  // tested in assignDocId()
 
   /* Set the new vector and the flags accordingly */
   dmd->sortVector = v;
@@ -236,56 +302,75 @@ static inline int64_t expirationTimePointToNs(t_expirationTimePoint t) {
   return (int64_t)t.tv_sec * 1000000000LL + (int64_t)t.tv_nsec;
 }
 
-// Inlines the doc-level TTL on the DMD unconditionally so the result-processor
-// can drop the TTL-table lookup, and only routes field-level expirations into
-// the TTL table. This keeps the table strictly an HFE store, which lets
-// iterators use `t->ttl == NULL` as their per-spec gate. Takes ownership of
-// `sortedFieldWithExpiration` either by handing it to the table or freeing it
-// when there are no field-level entries to register.
-void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, arrayof(FieldExpiration) sortedFieldWithExpiration) {
-  dmd->expirationTimeNs = expirationTimePointToNs(ttl);
-  if (array_len(sortedFieldWithExpiration) > 0) {
+void DocTable_SetDocExpiration(RSDocumentMetadata *dmd, t_expirationTimePoint ttl) {
+  __atomic_store_n(&dmd->expirationTimeNs, expirationTimePointToNs(ttl), __ATOMIC_RELAXED);
+}
+
+// Sets the doc-level TTL on the DMD and delegates the per-field entry to
+// DocTable_UpdateFieldExpiration. The doc-level TTL is inlined on the DMD so
+// the result-processor can skip the TTL-table lookup; the table itself stays
+// strictly an HFE store, which lets iterators use `t->ttl == NULL` as their
+// per-spec gate. Takes ownership of `sortedFieldWithExpiration`.
+void DocTable_UpdateExpiration(DocTable *t, RSDocumentMetadata* dmd, t_expirationTimePoint ttl, FieldExpirations sortedFieldWithExpiration) {
+  DocTable_SetDocExpiration(dmd, ttl);
+  DocTable_UpdateFieldExpiration(t, dmd, sortedFieldWithExpiration);
+}
+
+void DocTable_UpdateFieldExpiration(DocTable *t, RSDocumentMetadata *dmd,
+                                    FieldExpirations sortedFieldWithExpiration) {
+  // Drop any prior entry before reinserting; TimeToLiveTable_Add asserts on
+  // duplicate ids. Remove is a no-op when the docId is not registered.
+  if (t->ttl) {
+    TimeToLiveTable_Remove(t->ttl, dmd->id);
+  }
+  if (FieldExpirations_Len(&sortedFieldWithExpiration) > 0) {
     TimeToLiveTable_VerifyInit(&t->ttl, t->maxSize);
     TimeToLiveTable_Add(t->ttl, dmd->id, sortedFieldWithExpiration);
   } else {
-    array_free(sortedFieldWithExpiration);
+    FieldExpirations_Free(&sortedFieldWithExpiration);
+    if (t->ttl && TimeToLiveTable_IsEmpty(t->ttl)) {
+      TimeToLiveTable_Destroy(&t->ttl);
+    }
   }
 }
 
 bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct timespec* expirationPoint) {
-  if (dmd->expirationTimeNs == 0) {
+  // Relaxed atomic load: pairs with the relaxed store in DocTable_UpdateExpiration
+  // so reader/writer concurrency under the spec read lock is well-defined under
+  // the C abstract machine. Ordering relative to other index mutations is not
+  // required — the value is a self-contained timestamp compared against `now`.
+  int64_t exp = __atomic_load_n(&dmd->expirationTimeNs, __ATOMIC_RELAXED);
+  if (exp == 0) {
     return false;
   }
-  return dmd->expirationTimeNs <= expirationTimePointToNs(*expirationPoint);
+  return exp <= expirationTimePointToNs(*expirationPoint);
 }
 
 void DocTable_ClearExpirationData(DocTable *t) {
   // Walk every DMD: doc-level TTL lives inline on the DMD (not in the TTL
   // table), and field-level TTL is only present for docs that are also in
   // the table. Either may be set, so a single sweep over all DMDs is the
-  // simplest correct path.
-  DOCTABLE_FOREACH(t, dmd->expirationTimeNs = 0);
+  // simplest correct path. Caller holds the write lock (see header), but use
+  // the relaxed atomic store to match the access pattern everywhere else.
+  DOCTABLE_FOREACH(t, __atomic_store_n(&dmd->expirationTimeNs, 0, __ATOMIC_RELAXED));
   TimeToLiveTable_Destroy(&t->ttl);
 }
 
-/* Put a new document into the table, assign it an incremental id and store the metadata in the
- * table.
- *
- * Return 0 if the document is already in the index  */
-RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score, RSDocumentFlags flags,
-                                 const char *payload, size_t payloadSize, DocumentType type) {
+/* Put a new document into the table with a fresh incremental id. The key -> docId
+ * mapping is published separately by the caller via DocIdMeta; there is no key-based
+ * dedup here, so callers must detect an existing document before calling. */
+RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double score,
+                                 RSDocumentFlags flags, const char *payload, size_t payloadSize,
+                                 DocumentType type) {
 
-  t_docId xid = DocIdMap_Get(&t->dim, s, n);
-  // if the document is already in the index, return 0
-  if (xid) {
-    return (RSDocumentMetadata *)DocTable_Borrow(t, xid);
-  }
   t_docId docId = ++t->maxDocId;
 
-  RSDocumentMetadata *dmd;
   if (payload && payloadSize) {
+    flags |= Document_HasPayload | Document_HasPayloadSlot;
+  }
+  RSDocumentMetadata *dmd;
+  if (flags & Document_HasPayloadSlot) {
     dmd = rm_calloc(1, sizeof(*dmd));
-    flags |= Document_HasPayload;
     t->memsize += sizeof(RSDocumentMetadata);
   } else {
     size_t leanSize = sizeof(*dmd) - sizeof(RSPayload *);
@@ -295,6 +380,7 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
 
   sds keyPtr = sdsnewlen(s, n);
   dmd->keyPtr = keyPtr;
+  dmd->slot = keySlot(s, n);
   dmd->score = score;
   dmd->flags = flags;
   dmd->maxTermFreq = 1;
@@ -316,7 +402,6 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
   DocTable_Set(t, docId, dmd);
   ++t->size;
   t->memsize += sdsAllocSize(keyPtr);
-  DocIdMap_Put(&t->dim, s, n, docId);
   DMD_Incref(dmd); // Reference for the caller
   return dmd;
 }
@@ -375,72 +460,86 @@ void DocTable_Free(DocTable *t) {
     }
   }
   rm_free(t->buckets);
+  DocKeyMap_Free(t->keyMap);
+  t->keyMap = NULL;
+  t->keyMapState = DocKeyMap_Inactive;
   TimeToLiveTable_Destroy(&t->ttl);
-  DocIdMap_Free(&t->dim);
+  while (t->pendingSlotDeletions) {
+    DocTable_RemovePendingDeletion(t, t->pendingSlotDeletions);
+  }
 }
 
-RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n) {
-  t_docId docId = DocIdMap_Get(&t->dim, s, n);
-
-  if (docId && docId <= t->maxDocId) {
-
-    RSDocumentMetadata *md = DocTable_DmdUnchain(t, docId);
-    if (!md) {
-      return NULL;
-    }
-
-    // The TTL table holds field-level (HEXPIRE) entries only. Remove is a
-    // no-op if this doc never had one, and the IsEmpty check destroys the
-    // table once the last HFE doc leaves the index, restoring the iterator
-    // gate to its NULL "no HFE in this spec" state.
-    if (t->ttl) {
-      TimeToLiveTable_Remove(t->ttl, md->id);
-      if (TimeToLiveTable_IsEmpty(t->ttl)) {
-        TimeToLiveTable_Destroy(&t->ttl);
-      }
-    }
-
-    // Assuming we already locked the spec for write, and we don't have multiple writers,
-    // all the next operations don't need to be atomic
-    md->flags |= Document_Deleted;
-
-    t->memsize -= sdsAllocSize(md->keyPtr);
-    if (!hasPayload(md->flags)) {
-      t->memsize -= sizeof(RSDocumentMetadata) - sizeof(RSPayload *);
-    } else {
-      t->memsize -= sizeof(RSDocumentMetadata);
-      t->memsize -= md->payload->len + sizeof(RSPayload);
-    }
-    if (RSSortingVector_Length(&md->sortVector)) {
-      t->sortablesSize -= RSSortingVector_GetMemorySize(&md->sortVector);
-    }
-
-    DocIdMap_Delete(&t->dim, s, n);
-    --t->size;
-    // Move ownership of the metadata to the caller, without changing the ref count
-    return md;
+// Remove a document from the table by its internal docId (unified unlink-driven
+// delete path). Ownership of the returned DMD moves to the caller; NULL if absent.
+RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
+  if (!docId || docId > t->maxDocId) {
+    return NULL;
   }
-  return NULL;
+
+  RSDocumentMetadata *md = DocTable_DmdUnchain(t, docId);
+  if (!md) {
+    return NULL;
+  }
+
+  if (t->keyMap) {
+    bool removed = DocKeyMap_Remove(t->keyMap, (const uint8_t *)md->keyPtr, sdslen(md->keyPtr), docId);
+    RS_LOG_ASSERT(removed || t->keyMapState == DocKeyMap_Building,
+                  "missing key map entry for deleted document");
+  }
+
+  // Drop the doc's per-field TTL entry, if any, and tear down the table
+  // once the last entry is gone so iterators can use the NULL gate again.
+  if (t->ttl) {
+    TimeToLiveTable_Remove(t->ttl, md->id);
+    if (TimeToLiveTable_IsEmpty(t->ttl)) {
+      TimeToLiveTable_Destroy(&t->ttl);
+    }
+  }
+
+  // Assuming we already locked the spec for write, and we don't have multiple writers,
+  // all the next operations don't need to be atomic
+  md->flags |= Document_Deleted;
+
+  t->memsize -= sdsAllocSize(md->keyPtr);
+  t->memsize -= (md->flags & Document_HasPayloadSlot)
+                    ? sizeof(RSDocumentMetadata)
+                    : sizeof(RSDocumentMetadata) - sizeof(RSPayload *);
+  if (hasPayload(md->flags)) {
+    t->memsize -= md->payload->len + sizeof(RSPayload);
+  }
+  if (RSSortingVector_Length(&md->sortVector)) {
+    t->sortablesSize -= RSSortingVector_GetMemorySize(&md->sortVector);
+  }
+
+  --t->size;
+  // Move ownership of the metadata to the caller, without changing the ref count
+  return md;
 }
 
-// Not thread safe. Assumes the caller has locked the spec for write
-int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const char *to_str,
-                     size_t to_len) {
-  t_docId id = DocIdMap_Get(&t->dim, from_str, from_len);
-  if (id == 0) {
-    return REDISMODULE_ERR;
+// Not thread safe. Assumes the caller has locked the spec for write.
+// Update the stored key of an existing document (by docId) after a RENAME. The
+// key -> docId mapping is untouched (it rides with the Redis key metadata).
+void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *to_str, size_t to_len) {
+  RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
+  if (!dmd) {
+    return;
   }
-  DocIdMap_Delete(&t->dim, from_str, from_len);
-  DocIdMap_Put(&t->dim, to_str, to_len, id);
-  RSDocumentMetadata *dmd = DocTable_GetOwn(t, id);
+  if (t->keyMap) {
+    bool removed = DocKeyMap_Remove(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), docId);
+    RS_LOG_ASSERT(removed || t->keyMapState == DocKeyMap_Building,
+                  "missing key map entry for renamed document");
+  }
   t->memsize -= sdsAllocSize(dmd->keyPtr);
   sdsfree(dmd->keyPtr);
   dmd->keyPtr = sdsnewlen(to_str, to_len);
+  dmd->slot = keySlot(to_str, to_len);
+  if (t->keyMap) {
+    DocKeyMap_Insert(t->keyMap, (const uint8_t *)to_str, to_len, docId);
+  }
   t->memsize += sdsAllocSize(dmd->keyPtr);
-  return REDISMODULE_OK;
 }
 
-void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
+int DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
   long long deletedElements = 0;
   t->size = RedisModule_LoadUnsigned(rdb);
   t->maxDocId = RedisModule_LoadUnsigned(rdb);
@@ -448,6 +547,12 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     t->maxSize = RedisModule_LoadUnsigned(rdb);
   } else {
     t->maxSize = MIN(RSGlobalConfig.maxDocTableSize, t->maxDocId);
+  }
+
+  if (t->size > 1 && t->maxSize == 0) {
+    RedisModule_LogIOError(rdb, "warning",
+                           "DocTable_LegacyRdbLoad: non-empty table has zero capacity");
+    return REDISMODULE_ERR;
   }
 
   if (t->maxDocId > t->maxSize) {
@@ -462,6 +567,13 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     t->memsize -= t->cap * sizeof(DMDChain);
     t->cap = t->maxSize;
     rm_free(t->buckets);
+    t->buckets = NULL;
+    size_t alloc_size;
+    if (__builtin_mul_overflow(t->cap, sizeof(DMDChain), &alloc_size)) {
+      RedisModule_LogIOError(rdb, "warning", "DocTable_LegacyRdbLoad: allocation overflow");
+      t->cap = 0;
+      return REDISMODULE_ERR;
+    }
     t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
     t->memsize += t->cap * sizeof(DMDChain);
   }
@@ -477,9 +589,10 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
     dmd->id = encver < INDEX_MIN_COMPACTED_DOCTABLE_VERSION ? i : RedisModule_LoadUnsigned(rdb);
     dmd->keyPtr = sdsnewlen(tmpPtr, len);
+    dmd->slot = keySlot(tmpPtr, len);
     RedisModule_Free(tmpPtr);
 
-    dmd->flags = RedisModule_LoadUnsigned(rdb);
+    dmd->flags = RedisModule_LoadUnsigned(rdb) | Document_HasPayloadSlot;
     dmd->maxTermFreq = 1;
     dmd->docLen = 1;
     if (encver > 1) {
@@ -505,13 +618,24 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
         dmd->payload->data = buf;
         dmd->payload->len--;
         t->memsize += dmd->payload->len + sizeof(RSPayload);
-      } else if ((dmd->flags & Document_Deleted) && (encver == INDEX_MIN_EXPIRE_VERSION)) {
-        RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
+      } else {
+        // A deleted doc's payload is not loaded, so its flag must not tell DMD_Free there is one.
+        dmd->flags &= ~Document_HasPayload;
+        if (encver == INDEX_MIN_EXPIRE_VERSION) {
+          RedisModule_Free(RedisModule_LoadStringBuffer(rdb, NULL));  // throw this string to garbage
+        }
       }
     }
     dmd->sortVector = RSSortingVector_Empty();
     if (dmd->flags & Document_HasSortVector) {
-      dmd->sortVector = SortingVector_RdbLoad(rdb);
+      dmd->sortVector = RSSortingVector_LegacyRdbLoad(rdb);
+      // A failed read leaves the stream unusable; the reads below would consume garbage.
+      if (RedisModule_IsIOError(rdb)) {
+        RedisModule_LogIOError(rdb, "warning",
+                               "DocTable_LegacyRdbLoad: IO error while loading document %zu", i);
+        DMD_Free(dmd);
+        return REDISMODULE_ERR;
+      }
       t->sortablesSize += RSSortingVector_GetMemorySize(&dmd->sortVector);
     }
 
@@ -522,57 +646,86 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
       dmd->byteOffsets = LoadByteOffsets(bufTmp);
       rm_free(bufTmp);
       RedisModule_Free(tmp);
+      if (!dmd->byteOffsets) {
+        RedisModule_LogIOError(rdb, "warning",
+                               "DocTable_LegacyRdbLoad: truncated byte offsets for doc id %llu",
+                               (unsigned long long)dmd->id);
+        DMD_Free(dmd);
+        return REDISMODULE_ERR;
+      }
     }
 
     if (dmd->flags & Document_Deleted) {
       ++deletedElements;
       DMD_Free(dmd);
     } else {
-      DocIdMap_Put(&t->dim, dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
       DocTable_Set(t, dmd->id, dmd);
       t->memsize += sizeof(RSDocumentMetadata) + len;
     }
   }
   t->size -= deletedElements;
+  return REDISMODULE_OK;
 }
 
 t_docId DocTable_GetMaxDocId(const DocTable *t) {
   return t->maxDocId;
 }
 
-DocIdMap NewDocIdMap() {
-
-  TrieMap *m = NewTrieMap();
-  return (DocIdMap){m};
+PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t, const RedisModuleSlotRangeArray *slots) {
+  PendingSlotDeletion *pending = rm_malloc(sizeof(*pending));
+  pending->slots = SlotRangeArray_Clone(slots);
+  pending->maxDocId = t->maxDocId;
+  pending->next = t->pendingSlotDeletions;
+  t->pendingSlotDeletions = pending;
+  t->memsize += sizeof(*pending) + SlotRangeArray_SizeOf(slots->num_ranges);
+  return pending;
 }
 
-t_docId DocIdMap_Get(const DocIdMap *m, const char *s, size_t n) {
-
-  void *val = TrieMap_Find(m->tm, (char *)s, n);
-  if (val && val != TRIEMAP_NOTFOUND) {
-    return *((t_docId *)val);
+void DocTable_RemovePendingDeletion(DocTable *t, PendingSlotDeletion *pending) {
+  PendingSlotDeletion **link = &t->pendingSlotDeletions;
+  while (*link != pending) {
+    RS_LOG_ASSERT(*link, "pending slot deletion is not in this table");
+    link = &(*link)->next;
   }
-  return 0;
+  *link = pending->next;
+  t->memsize -= sizeof(*pending) + SlotRangeArray_SizeOf(pending->slots->num_ranges);
+  rm_free(pending->slots);
+  rm_free(pending);
 }
 
-void *_docIdMap_replace(void *oldval, void *newval) {
-  if (oldval) {
-    rm_free(oldval);
+bool DocTable_IsDocPendingDeletion(const DocTable *t, const RSDocumentMetadata *dmd) {
+  for (const PendingSlotDeletion *p = t->pendingSlotDeletions; p; p = p->next) {
+    if (PendingSlotDeletion_Covers(p, dmd)) {
+      return true;
+    }
   }
-  return newval;
+  return false;
 }
 
-void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId) {
+// The spec lock pins the DMD and its key; no refcount change is needed for comparison.
+typedef struct {
+  const DocTable *table;
+  const char *key;
+  size_t len;
+} DocKeyLookup;
 
-  t_docId *pd = rm_malloc(sizeof(t_docId));
-  *pd = docId;
-  TrieMap_Add(m->tm, s, n, pd, _docIdMap_replace);
+bool DocTable_KeyEquals(const DocTable *t, t_docId id, const char *key, size_t len) {
+  const RSDocumentMetadata *dmd = DocTable_GetOwn(t, id);
+  return dmd && sdslen(dmd->keyPtr) == len && memcmp(dmd->keyPtr, key, len) == 0 &&
+         (!DocTable_HasPendingDeletions(t) || !DocTable_IsDocPendingDeletion(t, dmd));
 }
 
-void DocIdMap_Free(DocIdMap *m) {
-  TrieMap_Free(m->tm, rm_free);
+static bool docKeyMatches(const void *ctx, uint64_t id) {
+  const DocKeyLookup *lookup = ctx;
+  return DocTable_KeyEquals(lookup->table, id, lookup->key, lookup->len);
 }
 
-int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n) {
-  return TrieMap_Delete(m->tm, s, n, rm_free);
+t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len) {
+  RS_ASSERT(t->keyMapState == DocKeyMap_Ready);
+  DocKeyLookup lookup = {.table = t, .key = key, .len = len};
+  return DocKeyMap_GetId(t->keyMap, (const uint8_t *)key, len, &lookup, docKeyMatches);
+}
+
+size_t DocTable_KeyMapMemoryUsage(const DocTable *t) {
+  return DocKeyMap_MemoryUsage(t->keyMap);
 }

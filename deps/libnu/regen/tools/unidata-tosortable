@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+
+import sys
+
+
+# http://unicode.org/reports/tr44/#GC_Values_Table
+def pass_code(category: str, decomps: str) -> bool:
+	LETTERS = ('Ll', 'Lu', 'Lt', 'Lo')
+	NUMBERS = ('Nl', 'Nd', 'No')
+	PUNCTUATION = ('Pc', 'Pd', 'Ps', 'Pe', 'Pi', 'Pf', 'Po')
+	SYMBOLS = ('Sc', 'Sm')
+	return (category in LETTERS or category in NUMBERS or category in PUNCTUATION
+		or category in SYMBOLS) and decomps.find('<') < 0  # exclude <control>, <compat>, etc
+
+
+if __name__ == '__main__':
+	for line in sys.stdin:
+		assert isinstance(line, str)
+
+		codepoint, _, category, _, decomps = line.strip().split(';')[0:5]
+		if pass_code(category, decomps):
+			print(codepoint)

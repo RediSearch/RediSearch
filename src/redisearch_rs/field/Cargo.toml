@@ -6,7 +6,8 @@ license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
-ffi.workspace = true
+cheadergen.workspace = true
+rqe_core.workspace = true
 workspace_hack.workspace = true
 
 [lints]

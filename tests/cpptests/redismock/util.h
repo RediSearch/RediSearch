@@ -102,8 +102,12 @@ class ArgvList {
     clear();
   }
 
+  RedisModuleString **data() {
+    return m_list.data();
+  }
+
   operator RedisModuleString **() {
-    return &m_list[0];
+    return data();
   }
 
   size_t size() const {

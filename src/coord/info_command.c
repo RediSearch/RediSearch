@@ -7,9 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "info_command.h"
-#include "resp3.h"
+
+#include <stdbool.h>
+#include <string.h>
+
 #include "info/field_spec_info.h"
 #include "../src/reply_macros.h"
+#include "info/index_error.h"
+#include "module.h"
+#include "query_error.h"
+#include "query_error_ffi.h"
+#include "redismodule.h"
+#include "reply.h"
+#include "rlookup_ffi.h"
+#include "rmalloc.h"
+#include "rmr/rmr.h"
+#include "rmutil/rm_assert.h"
+#include "util/arr/arr.h"
+
+struct MRCtx;
 
 // Type of field returned in INFO
 typedef enum {
@@ -48,7 +64,9 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "indexing", .type = InfoField_WholeSum},
     {.name = "percent_indexed", .type = InfoField_DoubleAverage},
     {.name = "hash_indexing_failures", .type = InfoField_WholeSum},
+    {.name = "total_indexing_time", .type = InfoField_DoubleSum},
     {.name = "number_of_uses", .type = InfoField_Max},
+    {.name = "number_of_admin_ops", .type = InfoField_Max},
     {.name = "cleaning", .type = InfoField_WholeSum}};
 
 static InfoFieldSpec gcSpecs[] = {
@@ -65,6 +83,7 @@ static InfoFieldSpec cursorSpecs[] = {
     {.name = "global_total", .type = InfoField_WholeSum},
     {.name = "index_capacity", .type = InfoField_WholeSum},
     {.name = "index_total", .type = InfoField_WholeSum},
+    {.name = "index_total_internal", .type = InfoField_WholeSum},
 };
 
 static InfoFieldSpec dialectSpecs[] = {
@@ -104,7 +123,6 @@ typedef struct {
   MRReply *indexDef;
   MRReply *indexSchema;
   MRReply *indexOptions;
-  size_t *errorIndexes;
   InfoValue toplevelValues[NUM_FIELDS_SPEC];
   AggregatedFieldSpecInfo *fieldSpecInfo_arr;
   IndexError indexError;
@@ -163,6 +181,20 @@ static void convertField(InfoValue *dst, MRReply *src, InfoFieldType type) {
   dst->isSet = 1;
 }
 
+static const char *fieldSchemaType(const MRReply *indexSchema, size_t fieldIndex) {
+  if (!indexSchema || fieldIndex >= MRReply_Length(indexSchema)) {
+    return NULL;
+  }
+  const MRReply *schema = MRReply_ArrayElement(indexSchema, fieldIndex);
+  // RESP2 schema entries can end with bare flags, so preserve their array format.
+  for (size_t i = 0; i + 1 < MRReply_Length(schema); i += 2) {
+    if (MRReply_StringEquals(MRReply_ArrayElement(schema, i), "type", false)) {
+      return MRReply_String(MRReply_ArrayElement(schema, i + 1), NULL);
+    }
+  }
+  return NULL;
+}
+
 // Extract an array of FieldSpecInfo from MRReply
 void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) {
   // Input validations
@@ -180,13 +212,17 @@ void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) 
 
   // Something went wrong (number of fields mismatch)
   if (array_len(fields->fieldSpecInfo_arr) != len) {
-    QueryError_SetError(error, QUERY_ERROR_CODE_BAD_VAL, "Inconsistent index state");
+    QueryError_SetError(error, QUERY_ERROR_CODE_BAD_VAL, INCONSISTENT_INDEX_STATE);
     return;
   }
 
   for (size_t i = 0; i < len; i++) {
     MRReply *serializedFieldSpecInfo = MRReply_ArrayElement(src, i);
     AggregatedFieldSpecInfo fieldSpecInfo = AggregatedFieldSpecInfo_Deserialize(serializedFieldSpecInfo);
+    const char *type = fieldSchemaType(fields->indexSchema, i);
+    if (type && strcmp(type, "VECTOR") == 0) {
+      FieldSpecStats_DeserializeVectorMetrics(&fieldSpecInfo.stats, serializedFieldSpecInfo);
+    }
     AggregatedFieldSpecInfo_Combine(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
     AggregatedFieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
   }
@@ -309,7 +345,6 @@ static void cleanInfoReply(InfoFields *fields) {
     fields->fieldSpecInfo_arr = NULL;
   }
   IndexError_Clear(fields->indexError);
-  rm_free(fields->errorIndexes);
 }
 
 static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue *values,
@@ -397,7 +432,6 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
 int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // Summarize all aggregate replies
   InfoFields fields = { .indexError = IndexError_Init() };
-  size_t numErrored = 0;
   MRReply *firstError = NULL;
   RedisModuleCtx *ctx = MRCtx_GetRedisCtx(mc);
 
@@ -408,17 +442,10 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
   QueryError error = QueryError_Default();
 
-  for (size_t ii = 0; ii < count; ++ii) {
+  for (size_t ii = 0; ii < count && !firstError; ++ii) {
     int type = MRReply_Type(replies[ii]);
     if (type == MR_REPLY_ERROR) {
-      if (!fields.errorIndexes) {
-        fields.errorIndexes = rm_calloc(count, sizeof(*fields.errorIndexes));
-      }
-      fields.errorIndexes[ii] = 1;
-      numErrored++;
-      if (!firstError) {
-        firstError = replies[ii];
-      }
+      firstError = replies[ii];
       continue;
     }
 
@@ -435,7 +462,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   // Now we've received all the replies.
-  if (numErrored == count) {
+  if (firstError) {
     // Reply with error
     MR_ReplyWithMRReply(reply, firstError);
   } else if (QueryError_HasError(&error)) {

@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "khtable.h"
-#include <stdlib.h>
+
 #include <string.h>
+
 #include "rmalloc.h"
 
 static uint32_t primes[] = {5ul,         11ul,        23ul,      47ul,       97ul,       199ul,
@@ -39,11 +40,6 @@ void KHTable_Init(KHTable *table, const KHTableProcs *procs, void *ctx, size_t e
 
 void KHTable_Free(KHTable *table) {
   rm_free(table->buckets);
-}
-
-void KHTable_Clear(KHTable *table) {
-  memset(table->buckets, 0, sizeof(*table->buckets) * table->numBuckets);
-  table->numItems = 0;
 }
 
 static int KHTable_Rehash(KHTable *table) {

@@ -16,10 +16,13 @@ workspace = true
 test_utils = []
 
 [dependencies]
+cheadergen.workspace = true
 lending-iterator.workspace = true
 libc.workspace = true
 memchr.workspace = true
-wildcard.workspace = true
+rqe_wildcard.workspace = true
+timeout.workspace = true
+utf8parse.workspace = true
 workspace_hack.workspace = true
 
 [dev-dependencies]
@@ -27,4 +30,3 @@ insta.workspace = true
 proptest = { workspace = true, features = ["std"] }
 proptest-derive.workspace = true
 trie_rs = { workspace = true, features = ["test_utils"] }
-fs-err.workspace = true

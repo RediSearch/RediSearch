@@ -7,4 +7,4 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #pragma once
-#include "ttl_table/ttl_table.h"
+#include "redisearch_rs/headers/ttl_table.h"

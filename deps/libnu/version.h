@@ -6,7 +6,7 @@
 /** @defgroup other Other
  */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -24,7 +24,7 @@ extern "C" {
 NU_EXPORT
 const char* nu_version(void);
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

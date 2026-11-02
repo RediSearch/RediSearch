@@ -8,11 +8,14 @@
 */
 
 #include "obfuscation_api.h"
-#include "rmalloc.h"
+
+#include <inttypes.h>
+#include <string.h>
+#include <stdio.h>
+#include <time.h>
 
 #include "query_node.h"
-
-#include <string.h>
+#include "query_types.h"
 
 void Obfuscate_Index(const Sha1 *hash, char* buffer) {
   const char prefix[] = "Index@";
@@ -21,15 +24,15 @@ void Obfuscate_Index(const Sha1 *hash, char* buffer) {
 }
 
 void Obfuscate_Field(t_uniqueId fieldId, char* buffer) {
-  sprintf(buffer, "Field@%zu", fieldId);
+  sprintf(buffer, "Field@%" PRIu64, fieldId);
 }
 
 void Obfuscate_FieldPath(t_uniqueId fieldId, char* buffer) {
-  sprintf(buffer, "FieldPath@%zu", fieldId);
+  sprintf(buffer, "FieldPath@%" PRIu64, fieldId);
 }
 
 void Obfuscate_Document(t_uniqueId docId, char* buffer) {
-  sprintf(buffer, "Document@%zu", docId);
+  sprintf(buffer, "Document@%" PRIu64, docId);
 }
 
 void Obfuscate_KeyWithTime(struct timespec spec, char* buffer) {
@@ -93,8 +96,6 @@ const char *Obfuscate_QueryNode(struct RSQueryNode *node) {
       return "Tag";
     case QN_FUZZY:
       return "Fuzzy";
-    case QN_LEXRANGE:
-      return "LexRange";
     case QN_VECTOR:
       return "Vector";
     case QN_NULL:

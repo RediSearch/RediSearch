@@ -14,14 +14,29 @@
 typedef struct GeometryQuery {
     GEOMETRY_FORMAT format;
     QueryType query_type;
-    const FieldSpec *fs;
+    t_fieldIndex fieldIndex;  // stable index of the geometry field into IndexSpec.fields;
+                              // re-derive the FieldSpec* from this at evaluation time - a
+                              // pointer captured at parse time may already be freed by then
     const char *str;
     size_t str_len;
 } GeometryQuery;
 
 void GeometryQuery_Free(GeometryQuery *geomq);
 
+// Sets `geomq->fieldIndex` from `fs` (or RS_INVALID_FIELD_INDEX if NULL).
+void GeometryQuery_SetField(GeometryQuery *geomq, const FieldSpec *fs);
+
 GeometryIndex *OpenGeometryIndex(FieldSpec *fs, bool create_if_missing);
 
 // Remove indexed data for the given document ID
 void GeometryIndex_RemoveId(IndexSpec *spec, t_docId id);
+
+/**
+ * Move a GEOSHAPE field's entry from oldDocId to newDocId without re-parsing. Same contract as
+ * VectorIndex_RelabelField: returns whether it moved; on a refusal the old entry is dropped.
+ */
+bool GeometryIndex_RelabelField(GeometryIndex *idx, t_docId oldDocId, t_docId newDocId);
+
+// True iff docId holds exactly the geometry `str` parses to. WKT only.
+bool GeometryIndex_HoldsGeom(const GeometryIndex *idx, t_docId docId, GEOMETRY_FORMAT format,
+                             const char *str, size_t len);

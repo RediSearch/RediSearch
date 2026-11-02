@@ -21,7 +21,9 @@ char* nu_utf16le_write(uint32_t unicode, char *utf16) {
 
 	if (utf16 != 0) {
 		switch (codepoint_len) {
-			case 2: nu_htoles((uint16_t)(unicode), utf16); break;
+			case 2:
+				nu_htoles((uint16_t)(unicode), utf16);
+				break;
 			default: { /* len == 4 */
 				uint16_t c0 = 0, c1 = 0;
 				b4_utf16(unicode, &c0, &c1);

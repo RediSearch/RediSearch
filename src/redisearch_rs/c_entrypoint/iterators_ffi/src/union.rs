@@ -9,15 +9,20 @@
 
 //! FFI bridge for the Rust union iterators.
 
-use std::{ffi::c_char, ptr::NonNull};
+use std::{
+    ffi::{CStr, c_char},
+    ptr::NonNull,
+};
 
-use ffi::{IteratorsConfig, QueryIterator, QueryNodeType};
+use ffi::QueryIterator;
+use query_types::QueryNodeType;
 
-use crate::profile::Profile_AddIters;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    RQEIterator, UnionVariant, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
-    union_opaque::UnionOpaque, union_reducer::new_union_iterator,
+    IteratorsConfig, RQEIterator,
+    c2rust::CRQEIterator,
+    interop::RQEIteratorWrapper,
+    union_opaque::{UnionOpaque, build_union, build_union_with_q_str},
 };
 
 /// Concrete [`RQEIteratorWrapper`] used to expose a [`UnionOpaque`] to C.
@@ -28,32 +33,6 @@ use rqe_iterators::{
 /// via [`RQEIteratorWrapper::ref_from_header_ptr`] /
 /// [`RQEIteratorWrapper::mut_ref_from_header_ptr`].
 type UnionWrapper<'index> = RQEIteratorWrapper<UnionOpaque<'index, CRQEIterator>>;
-
-/// `ProfileChildren` callback for union iterators.
-///
-/// Profiles each child in-place via [`Profile_AddIters`].
-/// Returns the same pointer (mutation is in-place).
-///
-/// # Safety
-///
-/// `base` must be a valid, owning pointer to a `UnionWrapper` created via
-/// [`NewUnionIterator`].
-unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut QueryIterator {
-    debug_assert!(!base.is_null());
-    // SAFETY: caller guarantees `base` is valid and points to a union wrapper.
-    let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(base) };
-    for child in wrapper.inner.children_mut() {
-        // SAFETY: CRQEIterator is #[repr(transparent)] over NonNull<QueryIterator>,
-        // which is layout-compatible with *mut QueryIterator (same size/alignment).
-        // The cast to *mut *mut QueryIterator is therefore valid for in-place mutation.
-        // `Profile_AddIters` writes back a valid, non-null `QueryIterator*`,
-        // preserving the `NonNull` invariant.
-        let slot = child as *mut CRQEIterator as *mut *mut QueryIterator;
-        // SAFETY: `Profile_AddIters` is a valid function pointer.
-        unsafe { Profile_AddIters(slot) };
-    }
-    base
-}
 
 // ============================================================================
 // FFI: Constructor
@@ -66,69 +45,10 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
 /// `its` must have been allocated with `rm_malloc` / `RedisModule_Alloc`.
 unsafe fn free_iterators_array(its: *mut *mut QueryIterator) {
     // SAFETY: Redis allocator must be initialized before this is called.
-    let free_fn = unsafe { ffi::RedisModule_Free.expect("Redis allocator not initialized") };
+    let free_fn =
+        unsafe { redis_module::RedisModule_Free.expect("Redis allocator not initialized") };
     // SAFETY: `its` was allocated via the Redis allocator; the caller guarantees this.
     unsafe { free_fn(its.cast::<std::ffi::c_void>()) };
-}
-
-/// Build a union iterator from a `Vec` of already-owned [`CRQEIterator`] children.
-///
-/// Applies the same reduction and variant-selection logic as [`NewUnionIterator`]:
-/// empty children are removed, a single surviving child is returned directly, and
-/// multiple children are placed in a flat or heap union depending on
-/// `min_union_iter_heap`.
-///
-/// Intended for internal Rust callers that create their own boxed iterators and
-/// want to combine them into a union without going through the C ABI.
-pub(crate) fn build_union_from_children(
-    children: Vec<CRQEIterator>,
-    quick_exit: bool,
-    min_union_iter_heap: usize,
-    type_: QueryNodeType,
-    q_str: *const c_char,
-    weight: f64,
-) -> *mut QueryIterator {
-    use rqe_iterators::union_reducer::NewUnionIterator as NewUI;
-    match new_union_iterator(children, quick_exit, min_union_iter_heap) {
-        NewUI::ReducedEmpty(empty) => RQEIteratorWrapper::boxed_new(empty),
-        NewUI::ReducedSingle(child) => child.into_raw().as_ptr(),
-        NewUI::Flat(flat) => {
-            let mut dispatch = UnionOpaque {
-                variant: UnionVariant::FlatFull(flat),
-                query_node_type: type_,
-                query_string: q_str,
-            };
-            dispatch.set_result_weight(weight);
-            RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children))
-        }
-        NewUI::FlatQuick(flat) => {
-            let mut dispatch = UnionOpaque {
-                variant: UnionVariant::FlatQuick(flat),
-                query_node_type: type_,
-                query_string: q_str,
-            };
-            dispatch.set_result_weight(weight);
-            RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children))
-        }
-        NewUI::Heap(heap) => {
-            let mut dispatch = UnionOpaque {
-                variant: UnionVariant::HeapFull(heap),
-                query_node_type: type_,
-                query_string: q_str,
-            };
-            dispatch.set_result_weight(weight);
-            RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children))
-        }
-        NewUI::HeapQuick(heap) => {
-            let mut dispatch = UnionOpaque {
-                variant: UnionVariant::HeapQuick(heap),
-                query_node_type: type_,
-                query_string: q_str,
-            };
-            dispatch.set_result_weight(weight);
-            RQEIteratorWrapper::boxed_new_inner(dispatch, Some(union_profile_children))
-        }
-    }
 }
 
 /// Creates a new union iterator, applying reduction rules and choosing between
@@ -145,6 +65,8 @@ pub(crate) fn build_union_from_children(
 ///    callbacks are set.
 /// 3. Null entries in `its` are treated as empty iterators.
 /// 4. `config` must be a valid non-null pointer to an [`IteratorsConfig`].
+/// 5. `q_str` must be null or a valid, NUL-terminated C string that outlives
+///    the returned iterator — the requirement of [`build_union`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewUnionIterator(
     its: *mut *mut QueryIterator,
@@ -158,7 +80,7 @@ pub unsafe extern "C" fn NewUnionIterator(
     debug_assert!(num >= 0, "NewUnionIterator called with negative num: {num}");
     let num = num.max(0) as usize;
     // SAFETY: caller guarantees config is valid (4).
-    let min_union_iter_heap = unsafe { (*config).minUnionIterHeap } as usize;
+    let min_union_iter_heap = unsafe { (*config).min_union_iter_heap } as usize;
 
     // Build Vec<CRQEIterator> from the C array.
     let children: Vec<CRQEIterator> = (0..num)
@@ -178,90 +100,31 @@ pub unsafe extern "C" fn NewUnionIterator(
     // SAFETY: its was allocated via rm_malloc per the function's safety contract (1).
     unsafe { free_iterators_array(its) };
 
-    build_union_from_children(
-        children,
-        quick_exit,
-        min_union_iter_heap,
-        type_,
-        q_str,
-        weight,
-    )
+    let union = if q_str.is_null() {
+        build_union(children, quick_exit, min_union_iter_heap, type_, weight)
+    } else {
+        // SAFETY: by contract (5), a non-null `q_str` is a valid, NUL-terminated
+        // C string that outlives the returned iterator.
+        let q_str = unsafe { CStr::from_ptr(q_str) };
+        // SAFETY: by contract (5), `q_str` outlives the returned iterator.
+        unsafe {
+            build_union_with_q_str(
+                children,
+                quick_exit,
+                min_union_iter_heap,
+                type_,
+                q_str,
+                weight,
+            )
+        }
+    };
+
+    union.as_ptr()
 }
 
 // ============================================================================
 // FFI: Profile accessors
 // ============================================================================
-
-/// Returns the number of child iterators (including exhausted ones).
-///
-/// # Safety
-///
-/// 1. `it` must be a valid non-null pointer to a non-reduced union iterator
-///    created via [`NewUnionIterator`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn GetUnionIteratorNumChildren(it: *const QueryIterator) -> usize {
-    debug_assert!(!it.is_null());
-    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
-    debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
-    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
-    let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    wrapper.inner.num_children_total()
-}
-
-/// Returns a non-owning raw pointer to the child at `idx`.
-///
-/// # Safety
-///
-/// 1. `it` must be a valid non-null pointer to a non-reduced union iterator
-///    created via [`NewUnionIterator`].
-/// 2. `idx` must be less than [`GetUnionIteratorNumChildren`]`(it)`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn GetUnionIteratorChild(
-    it: *const QueryIterator,
-    idx: usize,
-) -> *const QueryIterator {
-    debug_assert!(!it.is_null());
-    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
-    debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
-    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
-    let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    match wrapper.inner.child_at(idx) {
-        Some(child) => child.as_ref() as *const QueryIterator,
-        None => std::ptr::null(),
-    }
-}
-
-/// Returns the [`QueryNodeType`] stored in the union iterator.
-///
-/// # Safety
-///
-/// 1. `it` must be a valid non-null pointer to a non-reduced union iterator
-///    created via [`NewUnionIterator`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn GetUnionIteratorQueryNodeType(it: *const QueryIterator) -> QueryNodeType {
-    debug_assert!(!it.is_null());
-    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
-    debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
-    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
-    let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    wrapper.inner.query_node_type
-}
-
-/// Returns the query string pointer stored in the union iterator, or null.
-///
-/// # Safety
-///
-/// 1. `it` must be a valid non-null pointer to a non-reduced union iterator
-///    created via [`NewUnionIterator`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn GetUnionIteratorQueryString(it: *const QueryIterator) -> *const c_char {
-    debug_assert!(!it.is_null());
-    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
-    debug_assert_eq!(unsafe { (*it).type_ }, IteratorType::Union);
-    // SAFETY: caller guarantees `it` is valid and points to a union iterator (1).
-    let wrapper = unsafe { UnionWrapper::ref_from_header_ptr(it) };
-    wrapper.inner.query_string
-}
 
 // ============================================================================
 // FFI: Query optimizer support

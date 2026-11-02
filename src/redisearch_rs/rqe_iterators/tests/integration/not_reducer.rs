@@ -9,14 +9,15 @@
 
 //! Tests for [`new_not_iterator`].
 
-use std::time::Duration;
-
-use ffi::t_docId;
+use rqe_core::DocId;
 use rqe_iterators::{
     Empty, IteratorType, RQEIterator, SkipToOutcome, Wildcard,
     not_reducer::{NewNotIterator, new_not_iterator},
+    utils::NoTimeoutChecker,
 };
 use rqe_iterators_test_utils::MockContext;
+
+use rqe_iterators_test_utils::ContractChecker;
 
 use crate::utils::Mock;
 
@@ -24,15 +25,15 @@ use crate::utils::Mock;
 /// returning the result alongside the context (to keep it alive).
 fn call_new_not_iterator<'a, I>(
     child: I,
-    max_doc_id: t_docId,
+    max_doc_id: DocId,
     ctx: &'a MockContext,
-) -> NewNotIterator<'a, I>
+) -> NewNotIterator<'a, I, NoTimeoutChecker>
 where
     I: RQEIterator<'a> + 'a,
 {
     // SAFETY: `MockContext` guarantees valid FFI structures for the lifetime
-    // of the context.
-    unsafe { new_not_iterator(child, max_doc_id, 1.0, Duration::ZERO, true, ctx.qctx()) }
+    // of the context. `NoTimeoutChecker` disables timeout checks at zero runtime cost.
+    unsafe { new_not_iterator(child, max_doc_id, 1.0, NoTimeoutChecker, ctx.qctx()) }
 }
 
 // ---------------------------------------------------------------------------
@@ -45,7 +46,8 @@ fn empty_child_reduces_to_wildcard() {
     let result = call_new_not_iterator(Empty, 10, &ctx);
 
     match result {
-        NewNotIterator::ReducedWildcard(mut it) => {
+        NewNotIterator::ReducedWildcard(it) => {
+            let mut it = ContractChecker::new(it);
             // NOT(empty) = everything → wildcard.
             assert!(
                 matches!(
@@ -74,7 +76,8 @@ fn empty_child_reduced_wildcard_has_zero_freq() {
     let result = call_new_not_iterator(Empty, 5, &ctx);
 
     match result {
-        NewNotIterator::ReducedWildcard(mut it) => {
+        NewNotIterator::ReducedWildcard(it) => {
+            let mut it = ContractChecker::new(it);
             // The reducer sets freq = 0 on the current result.
             let current = it.current().expect("wildcard should have a current result");
             assert_eq!(current.freq, 0);
@@ -96,7 +99,8 @@ fn wildcard_child_reduces_to_empty() {
     let result = call_new_not_iterator(child, 10, &ctx);
 
     match result {
-        NewNotIterator::ReducedEmpty(mut it) => {
+        NewNotIterator::ReducedEmpty(it) => {
+            let mut it = ContractChecker::new(it);
             // NOT(wildcard) = nothing → empty.
             assert_eq!(it.type_(), IteratorType::Empty);
             assert!(it.read().unwrap().is_none());
@@ -118,9 +122,10 @@ fn non_optimized_path_returns_not_iterator() {
     let child = Mock::new([2, 5, 8]);
     let result = call_new_not_iterator(child, 10, &ctx);
 
-    let NewNotIterator::Not(mut it) = result else {
+    let NewNotIterator::Not(it) = result else {
         panic!("Expected Not variant");
     };
+    let mut it = ContractChecker::new(it);
     assert_eq!(it.type_(), IteratorType::Not);
 
     let mut seen = Vec::new();
@@ -137,9 +142,10 @@ fn non_optimized_skip_to_works() {
     let child = Mock::new([3, 7]);
     let result = call_new_not_iterator(child, 10, &ctx);
 
-    let NewNotIterator::Not(mut it) = result else {
+    let NewNotIterator::Not(it) = result else {
         panic!("Expected Not variant");
     };
+    let mut it = ContractChecker::new(it);
     // skip_to a doc not in child → Found.
     let outcome = it.skip_to(5).unwrap().unwrap();
     assert!(matches!(outcome, SkipToOutcome::Found(doc) if doc.doc_id == 5));
@@ -157,7 +163,7 @@ fn non_optimized_skip_to_works() {
 fn optimized_path_returns_not_optimized_iterator() {
     let ctx = MockContext::new(10, 10);
     // SAFETY: No iterators have been created from this context yet.
-    unsafe { ctx.set_index_all(true) };
+    ctx.spec_write().rule_mut().set_index_all(true);
 
     let child = Mock::new([2, 5, 8]);
     let result = call_new_not_iterator(child, 10, &ctx);
@@ -192,7 +198,7 @@ fn not_child_access() {
 fn not_child_access_optimized() {
     let ctx = MockContext::new(10, 10);
     // SAFETY: No iterators have been created from this context yet.
-    unsafe { ctx.set_index_all(true) };
+    ctx.spec_write().rule_mut().set_index_all(true);
 
     let child = Mock::new([3, 6]);
     let result = call_new_not_iterator(child, 10, &ctx);
@@ -215,11 +221,12 @@ fn weight_is_propagated() {
     let weight = 0.42;
 
     // SAFETY: MockContext guarantees valid FFI structures.
-    let result = unsafe { new_not_iterator(child, 5, weight, Duration::ZERO, true, ctx.qctx()) };
+    let result = unsafe { new_not_iterator(child, 5, weight, NoTimeoutChecker, ctx.qctx()) };
 
-    let NewNotIterator::Not(mut it) = result else {
+    let NewNotIterator::Not(it) = result else {
         panic!("Expected Not variant");
     };
+    let mut it = ContractChecker::new(it);
     let doc = it.read().unwrap().unwrap();
     assert_eq!(doc.doc_id, 1);
     assert!(

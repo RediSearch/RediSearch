@@ -1,0 +1,178 @@
+name: Fix CI failures on auto-backport PR (Codex agent)
+
+# Companion to task-backport_pr.yml. When a backport PR's CI fails, a
+# write-level human comments `/backport-fix`; a Codex agent makes a minimal
+# fix and addresses in-scope reviewer feedback. Additional
+# `/backport-context <text>` comments from write-level users are collected.
+#
+# PRIVILEGE SEPARATION (same shape as the create flow)
+#   The Codex agent step runs with **no GitHub token and no command network**: it
+#   only makes the fix commit in a pre-made clone and writes a manifest of what it
+#   did and which feedback it addressed (see pr-backport-auto-fix.md). A separate
+#   deterministic step (scripts/auto_backport/apply_fix.py) holds the scoped App
+#   write token and performs every mutation — fast-forward-pushing the commit,
+#   posting the summary/replies, resolving threads (with a live re-check), editing
+#   the PR body — validating the manifest as data (branch must match context;
+#   thread/comment ids must be ones the resolve step handed the agent).
+#
+# Deliberately NOT wired to CI-failure events: a human opts in per PR.
+#
+# Expected "skipped" runs are normal: GitHub can't filter on comment body, so any
+# non-`/backport-fix` comment produces a skipped job (Actions tab only).
+
+on:
+  issue_comment:
+    types: [created]
+
+# Read-only default token for the resolve step (PR metadata, CI logs, review
+# threads/comments). The App write token is minted late and only reaches Apply.
+permissions:
+  contents: read
+  actions: read          # resolve_fix.py: read the failed "Pull Request Flow" run + job logs
+  pull-requests: read    # resolve_fix.py: gh pr view + GraphQL read of review threads
+  issues: read           # resolve_fix.py: read /backport-context + general PR comments
+
+concurrency:
+  group: backport-agent-fix-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+env:
+  # /tmp is writable under the codex workspace-write sandbox; $RUNNER_TEMP is not
+  # guaranteed to be.
+  BACKPORT_WORK: /tmp/backport-fix-work
+  BACKPORT_FIX_MANIFEST_FILE: /tmp/backport-fix-manifest.json
+
+jobs:
+  backport-fix:
+    name: Auto-fix CI failure via Codex
+    runs-on: ubuntu-slim
+    timeout-minutes: 45
+
+    # The resolver verifies repository write permission before invoking Codex.
+    if: >
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+      startsWith(github.event.comment.body, '/backport-fix')
+
+    steps:
+      # Checkout master so the resolve script + prompt are present (an old
+      # backport branch may carry neither). Read-only default token; literal
+      # `master` keeps it out of the S7631 forked-checkout pattern.
+      - name: Checkout master
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: master
+          fetch-depth: 0
+          # Don't persist the checkout token in `.git/config`: the Codex step can
+          # read the workspace. The clone-prep step sets its own temporary auth.
+          persist-credentials: false
+
+      - name: Configure git identity
+        # Global so the pre-made clone (and the agent's fix commit in it) inherit
+        # the bot identity.
+        run: |
+          git config --global user.name "redis-pr-app[bot]"
+          git config --global user.email "redis-pr-app[bot]@users.noreply.github.com"
+
+      # resolve_fix.py (read-only default token): eligibility, failed-run + log
+      # tails, and the write-level reviewer feedback the agent may address.
+      - name: Resolve PR, eligibility, and failure context
+        id: ctx
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER_FROM_ISSUE: ${{ github.event.issue.number }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: python3 scripts/auto_backport/resolve_fix.py
+
+      # Stash the prompt outside the checkout (an old backport branch won't carry
+      # it) so the Codex step can read it after we clone the branch.
+      - name: Stash auto-fix prompt
+        id: stash-prompt
+        if: steps.ctx.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          prompt_dst="${RUNNER_TEMP}/pr-backport-auto-fix.md"
+          cp .github/codex/prompts/pr-backport-auto-fix.md "$prompt_dst"
+          echo "prompt_file=$prompt_dst" >> "$GITHUB_OUTPUT"
+
+      # Deterministic prep: a writable clone checked out on the backport branch,
+      # with base + original commit fetched, so the agent needs zero network.
+      # Read-only token; branch name already validated by resolve_fix.py.
+      - name: Prepare working clone for the agent
+        if: steps.ctx.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.ctx.outputs.branch }}
+          BASE_BRANCH: ${{ steps.ctx.outputs.base }}
+          ORIGINAL_SHA: ${{ steps.ctx.outputs.original_sha }}
+        run: |
+          set -euo pipefail
+          rm -rf "$BACKPORT_WORK"
+          git clone --no-tags --reference-if-able "${GITHUB_WORKSPACE}/.git" \
+            "https://github.com/${GITHUB_REPOSITORY}" "$BACKPORT_WORK"
+          git -C "$BACKPORT_WORK" config http.https://github.com/.extraheader \
+            "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          git -C "$BACKPORT_WORK" fetch --no-tags origin "$BRANCH"
+          if [ -n "$BASE_BRANCH" ] && [ "$BASE_BRANCH" != "master" ]; then
+            git -C "$BACKPORT_WORK" fetch --no-tags origin \
+              "+refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}" || true
+          fi
+          [ -n "$ORIGINAL_SHA" ] && git -C "$BACKPORT_WORK" fetch --no-tags origin "$ORIGINAL_SHA" || true
+          git -C "$BACKPORT_WORK" checkout -B "$BRANCH" "origin/$BRANCH"
+          # Drop the read credential so the agent inherits nothing.
+          git -C "$BACKPORT_WORK" config --unset-all http.https://github.com/.extraheader || true
+
+      - name: Run /pr-backport-auto-fix via Codex (no token, no network)
+        if: steps.ctx.outputs.skip != 'true'
+        uses: openai/codex-action@52fe01ec70a42f454c9d2ebd47598f9fd6893d56 # v1.11
+        env:
+          # Deliberately NO GH_TOKEN — the agent makes a local commit + a manifest.
+          BACKPORT_FIX_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
+        with:
+          openai-api-key: ${{ secrets.OPEN_AI_BACKPORT_AGENT_KEY }}
+          prompt-file: ${{ steps.stash-prompt.outputs.prompt_file }}
+          # workspace-write + NO network override: the agent's shell commands are
+          # network-isolated (the model API call is made by the codex runtime, not
+          # a sandboxed command). Nothing the agent runs can push or exfiltrate.
+          sandbox: workspace-write
+          safety-strategy: drop-sudo
+
+      - name: 🔑 Generate GitHub App Token (for the apply step only)
+        id: generate-app-token
+        if: steps.ctx.outputs.skip != 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.GH_PR_APP_ID }}
+          private-key: ${{ secrets.GH_PR_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write       # fast-forward-push the fix commit
+          permission-pull-requests: write  # comment, reply, resolve threads, edit body
+          # A fix touching .github/workflows/* needs the workflows grant to push.
+          permission-workflows: write
+
+      # Restore the applier + its deps from the trusted commit before running
+      # them with the token — the Codex step (workspace-write) could have
+      # overwritten scripts/auto_backport/*; `.git` is read-only to the agent, so
+      # HEAD is trustworthy.
+      - name: Restore trusted apply scripts
+        if: steps.ctx.outputs.skip != 'true'
+        # Restore tracked files AND remove agent-created untracked ones, so an
+        # injected module on the applier's `sys.path[0]` can't hijack an import
+        # when it runs with the token (see the create workflow for detail).
+        run: |
+          git checkout HEAD -- scripts/auto_backport
+          git clean -ffdx scripts/auto_backport
+
+      # apply_fix.py is the ONLY component that holds the write token. It
+      # validates the manifest (branch match, thread/comment ids ⊆ context),
+      # sanitizes the agent's clone `.git`, and pushes / comments / resolves via
+      # argument arrays + GraphQL.
+      - name: Apply fix manifest
+        if: steps.ctx.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ steps.generate-app-token.outputs.token }}
+          BACKPORT_FIX_CONTEXT_FILE: ${{ steps.ctx.outputs.context_file }}
+        run: python3 scripts/auto_backport/apply_fix.py

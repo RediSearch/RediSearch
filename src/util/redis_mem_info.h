@@ -46,3 +46,19 @@ static inline float RedisMemory_GetUsedMemoryRatio(void) {
 // Returns 0 if maxmemory is 0
 // TODO: remove this function and use RedisMemory_GetUsedMemoryRatio instead after benchmarking
 float RedisMemory_GetUsedMemoryRatioUnified(RedisModuleCtx *ctx);
+
+
+// Each term is a ratio against its own budget: the RAM + flash quota for the first, max_ram (folded
+// with max_process_mem) for the other two. The swapout term is the one the engine itself regulates,
+// and usually the higher of the two RAM terms, though not always — see RedisMemory_GetFlexRatios
+// for what each of the underlying INFO fields counts.
+typedef struct {
+  float total_memory_ratio;
+  float ram_ratio;
+  float ram_for_swapout_ratio;
+} RedisMemoryFlexRatios;
+
+// Read the Flex memory state, in one INFO call. A budget of 0 yields a 0 ratio for the terms that
+// divide by it, so an absent bigredis section cannot report pressure.
+// GIL must be held before calling this function.
+RedisMemoryFlexRatios RedisMemory_GetFlexRatios(RedisModuleCtx *ctx);

@@ -9,6 +9,7 @@
 
 use redis_module::RedisString;
 
+use crate::JsonPath;
 use crate::KeyValuesIterator;
 use crate::RedisJsonApi;
 use crate::ResultsIter;
@@ -107,17 +108,14 @@ impl<'a> JsonValueRef<'a> {
 
     /// Return the length of the value if it is an Object or Array
     pub fn len(&self) -> Option<usize> {
-        let vtable = self.api.vtable();
-        let get_len = vtable
-            .getLen
-            .expect("RedisJSON API function `getLen` not available");
+        let get_len = vtable_fn!(self.api, getLen);
 
         let mut out: usize = 0;
 
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_len(self.ptr, &raw mut out) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
         } else {
             None
@@ -131,10 +129,7 @@ impl<'a> JsonValueRef<'a> {
 
     /// Returns the type of this `JsonValue`.
     pub fn get_type(&self) -> JsonType {
-        let vtable = self.api.vtable();
-        let get_type = vtable
-            .getType
-            .expect("RedisJSON API function `getType` not available");
+        let get_type = vtable_fn!(self.api, getType);
 
         // Safety: `ptr` is valid by construction.
         let raw = unsafe { get_type(self.ptr) };
@@ -144,17 +139,14 @@ impl<'a> JsonValueRef<'a> {
 
     /// Returns the i64 value of this `JsonValue`s if it is a Number or `None` otherwise.
     pub fn get_int(&self) -> Option<i64> {
-        let vtable = self.api.vtable();
-        let get_int = vtable
-            .getInt
-            .expect("RedisJSON API function `getInt` not available");
+        let get_int = vtable_fn!(self.api, getInt);
 
         let mut out: i64 = 0;
 
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_int(self.ptr, &raw mut out) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
         } else {
             None
@@ -163,17 +155,14 @@ impl<'a> JsonValueRef<'a> {
 
     /// Returns the f64 value of this `JsonValue`s if it is a Number or `None` otherwise.
     pub fn get_double(&self) -> Option<f64> {
-        let vtable = self.api.vtable();
-        let get_double = vtable
-            .getDouble
-            .expect("RedisJSON API function `getDouble` not available");
+        let get_double = vtable_fn!(self.api, getDouble);
 
         let mut out: f64 = 0.0;
 
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_double(self.ptr, &raw mut out) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
         } else {
             None
@@ -182,17 +171,14 @@ impl<'a> JsonValueRef<'a> {
 
     /// Returns the boolean value of this `JsonValue`s if it is a Boolean or `None` otherwise.
     pub fn get_bool(&self) -> Option<bool> {
-        let vtable = self.api.vtable();
-        let get_boolean = vtable
-            .getBoolean
-            .expect("RedisJSON API function `getBoolean` not available");
+        let get_boolean = vtable_fn!(self.api, getBoolean);
 
         let mut out: i32 = 0;
 
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_boolean(self.ptr, &raw mut out) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out != 0)
         } else {
             None
@@ -201,10 +187,7 @@ impl<'a> JsonValueRef<'a> {
 
     /// Returns the string value of this `JsonValue`s if it is a String or `None` otherwise.
     pub fn get_str(&self) -> Option<&str> {
-        let vtable = self.api.vtable();
-        let get_string = vtable
-            .getString
-            .expect("RedisJSON API function `getString` not available");
+        let get_string = vtable_fn!(self.api, getString);
 
         let mut str: *const c_char = std::ptr::null();
         let mut len: usize = 0;
@@ -212,7 +195,7 @@ impl<'a> JsonValueRef<'a> {
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_string(self.ptr, &raw mut str, &raw mut len) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             // Safety: `getString` returns `OK` it promises to return a valid c string.
             let bytes = unsafe { slice::from_raw_parts(str.cast::<u8>(), len) };
 
@@ -226,16 +209,13 @@ impl<'a> JsonValueRef<'a> {
     ///
     /// Only available with RedisJSON API v6 and later.
     pub fn get_at(&self, idx: usize) -> Option<JsonValue<'_>> {
-        let vtable = self.api.vtable();
-        let get_at = vtable
-            .getAt
-            .expect("RedisJSON API function `getAt` not available");
+        let get_at = vtable_fn!(self.api, getAt);
 
         let mut out = JsonValue::new(self.api);
 
         // Safety: `ptr` is valid by construction, we correctly allocated the `JsonValue` before.
         let status = unsafe { get_at(self.ptr, idx, out.as_ptr()) };
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
         } else {
             None
@@ -251,26 +231,30 @@ impl<'a> JsonValueRef<'a> {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn key_values(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
     ) -> Option<KeyValuesIterator<'_>> {
-        let vtable = self.api.vtable();
-        let get_key_values = vtable
-            .getKeyValues
-            .expect("RedisJSON API function `getKeyValues` not available");
+        let (ptr, len) = if let Some(len) = self.len()
+            && len > 0
+        {
+            let get_key_values = vtable_fn!(self.api, getKeyValues);
 
-        // Safety: `ptr` is valid by construction.
-        let ptr = unsafe { get_key_values(self.ptr) };
-        // TODO this should have been a mutable pointer (we mutate the underlying iterator in subsequent calls after all)
-        let ptr = NonNull::new(ptr.cast_mut())?;
+            // Safety: `ptr` is valid by construction.
+            let ptr = unsafe { get_key_values(self.ptr) };
+            // TODO this should have been a mutable pointer (we mutate the underlying iterator in subsequent calls after all)
+            let ptr = NonNull::new(ptr.cast_mut())?;
+
+            (Some(ptr), len)
+        } else {
+            (None, 0)
+        };
 
         // Safety: (1.): ensured by caller. (2.): we obtained this pointer from `getKeyValues`.
-        Some(unsafe { KeyValuesIterator::from_non_null(ptr, ctx, self.api) })
+        Some(unsafe { KeyValuesIterator::from_non_null(ptr, ctx, self.api, len) })
     }
 
     /// Returns an iterator over values matched by `path`.
     pub fn get(&self, path: &CStr) -> Option<ResultsIter<'_>> {
-        let api = self.api.vtable();
-        let get = api.get.expect("RedisJSON API function `get` not available");
+        let get = vtable_fn!(self.api, get);
 
         // Safety: `ptr` is valid by construction and CStr ensures `ptr` is a valid c string.
         let ptr = unsafe { get(self.ptr, path.as_ptr()) };
@@ -278,6 +262,25 @@ impl<'a> JsonValueRef<'a> {
         let ptr = NonNull::new(ptr.cast_mut())?;
 
         // Safety: we obtained this pointer from `get`.
+        Some(unsafe { ResultsIter::from_non_null(ptr, self.api) })
+    }
+
+    /// Returns an iterator over values matched by a compiled [`JsonPath`].
+    ///
+    /// # Safety
+    ///
+    /// The compiled `path` must remain [valid]
+    /// until the returned iterator is dropped.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub unsafe fn get_with_path(&self, path: &JsonPath) -> Option<ResultsIter<'_>> {
+        let get_with_path = vtable_fn!(self.api, getWithPath);
+
+        // SAFETY: `self.ptr` and `path` are live RedisJSON handles by construction.
+        let ptr = unsafe { get_with_path(self.ptr, path.ptr.as_ptr()) };
+        let ptr = NonNull::new(ptr.cast_mut())?;
+
+        // SAFETY: we obtained this pointer from `getWithPath`.
         Some(unsafe { ResultsIter::from_non_null(ptr, self.api) })
     }
 
@@ -289,19 +292,16 @@ impl<'a> JsonValueRef<'a> {
     #[inline]
     pub unsafe fn serialize(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
     ) -> Result<RedisString, SerializeError> {
-        let api = self.api.vtable();
-        let get_json = api
-            .getJSON
-            .expect("RedisJSON API function `getJSON` not available");
+        let get_json = vtable_fn!(self.api, getJSON);
 
-        let mut str: *mut ffi::RedisModuleString = std::ptr::null_mut();
+        let mut str: *mut redis_module::RedisModuleString = std::ptr::null_mut();
 
         // Safety: ensured by caller (1.) and ptr is valid by construction.
         let status = unsafe { get_json(self.ptr, ctx, &mut str) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Ok(RedisString::from_redis_module_string(
                 ctx.cast(),
                 str.cast(),
@@ -330,13 +330,8 @@ impl<'a> JsonValue<'a> {
     ///
     /// Only available with RedisJSON API v6 and later.
     pub(crate) fn new(api: &'a RedisJsonApi) -> Self {
-        let vtable = api.vtable();
-        let alloc_json = vtable
-            .allocJson
-            .expect("RedisJSON API function `allocJson` not available");
-        let free = vtable
-            .freeJson
-            .expect("RedisJSON API function `freeJson` not available");
+        let alloc_json = vtable_fn!(api, allocJson);
+        let free = vtable_fn!(api, freeJson);
 
         // Safety: the redis json module is initialized at this point
         let ptr = unsafe { alloc_json() };

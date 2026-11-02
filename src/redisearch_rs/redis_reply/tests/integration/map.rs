@@ -33,6 +33,38 @@ fn test_map_builder_empty() {
 }
 
 #[test]
+fn test_map_kv_simple_string() {
+    let mut replier = init();
+    let reply = capture_single_reply(|| {
+        let mut map = replier.map();
+        map.kv_simple_string(c"Type", c"NUMERIC");
+        map.kv_simple_string(c"Term", c"0 - 100");
+    });
+    insta::assert_debug_snapshot!(reply, @r#"{"Type": "NUMERIC", "Term": "0 - 100"}"#);
+}
+
+#[test]
+fn test_map_kv_string_buffer() {
+    let mut replier = init();
+    let reply = capture_single_reply(|| {
+        let mut map = replier.map();
+        map.kv_string_buffer(c"Field", b"my_field");
+        map.kv_long_long(c"count", 5);
+    });
+    insta::assert_debug_snapshot!(reply, @r#"{"Field": b"my_field", "count": 5}"#);
+}
+
+#[test]
+fn test_map_kv_string_buffer_empty() {
+    let mut replier = init();
+    let reply = capture_single_reply(|| {
+        let mut map = replier.map();
+        map.kv_string_buffer(c"data", b"");
+    });
+    insta::assert_debug_snapshot!(reply, @r#"{"data": b""}"#);
+}
+
+#[test]
 fn test_map_with_nested_array() {
     let mut replier = init();
     let reply = capture_single_reply(|| {

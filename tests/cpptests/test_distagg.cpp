@@ -12,6 +12,7 @@
 #include "aggregate/aggregate.h"
 #include "tests/cpptests/redismock/util.h"
 #include "common.h"
+#include "util/misc.h"
 
 #include <vector>
 
@@ -34,7 +35,6 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 //        'SORTBY', '2', '@avg_price', 'DESC']
 
 static void testAverage() {
-  AREQ *r = AREQ_New();
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "sony",                                        // nl
                     "GROUPBY", "1", "@brand",                           // nl
@@ -42,8 +42,9 @@ static void testAverage() {
                     "REDUCE", "count", "0",                             // nl
                     "sortby", "2", "@avg_price", "DESC"                 // nl
   );
+  AREQ *r = AREQ_New(vv, vv.size());
   QueryError status{QueryErrorCode(0)};
-  int rc = AREQ_Compile(r, ctx, vv, vv.size(), false, &status);
+  int rc = AREQ_Compile(r, ctx, 0, false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
     abort();
@@ -73,7 +74,7 @@ static void testAverage() {
   printf("Printing local plan\n");
   AGPLN_Dump(plan);
 
-  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
+  AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
 
   RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
   rc = AREQ_BuildPipeline(r, &status);
@@ -82,7 +83,7 @@ static void testAverage() {
     printf("ERROR!!!: %s\n", QueryError_GetUserError(&status));
     AGPLN_Dump(plan);
   }
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 /**
@@ -93,16 +94,16 @@ static void testAverage() {
                ]
  */
 static void testCountDistinct() {
-  AREQ *r = AREQ_New();
-  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
                     "REDUCE", "COUNT_DISTINCT", "1", "@title", "AS", "count_distinct(title)",  // nl
                     "REDUCE", "COUNT", "0"                                                     // nl
   );
+  AREQ *r = AREQ_New(vv, vv.size());
+  AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   QueryError status{QueryErrorCode(0)};
-  int rc = AREQ_Compile(r, ctx, vv, vv.size(), false, &status);
+  int rc = AREQ_Compile(r, ctx, 0, false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
     abort();
@@ -119,7 +120,7 @@ static void testCountDistinct() {
   assert(dstp);
 
   AREQDIST_UpstreamInfo us = {0};
-  rc = AREQ_BuildDistributedPipeline(r, &us, &status);
+  rc = AREQ_BuildDistributedPipeline(r, &us, NULL, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't build distributed pipeline: %s\n", QueryError_GetUserError(&status));
   }
@@ -128,19 +129,19 @@ static void testCountDistinct() {
   for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 static void testSplit() {
-  AREQ *r = AREQ_New();
-  AREQ_AddRequestFlags(r, QEXEC_F_BUILDPIPELINE_NO_ROOT); // mark for coordinator pipeline
   RMCK::Context ctx{};
   RMCK::ArgvList vv(ctx, "*",                                                                  // nl
                     "GROUPBY", "1", "@brand",                                                  // nl
                     "REDUCE", "COUNT_DISTINCT", "1", "@title", "AS", "count_distinct(title)",  // nl
                     "REDUCE", "COUNT", "0"                                                     // nl
   );
+  AREQ *r = AREQ_New(vv, vv.size());
+  AREQ_AddRequestFlags(r, QEXEC_F_IS_COORDINATOR); // mark for coordinator pipeline
   QueryError status{QueryErrorCode(0)};
-  int rc = AREQ_Compile(r, ctx, vv, vv.size(), false, &status);
+  int rc = AREQ_Compile(r, ctx, 0, false, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
     abort();
@@ -157,7 +158,7 @@ static void testSplit() {
   assert(dstp);
 
   AREQDIST_UpstreamInfo us = {0};
-  rc = AREQ_BuildDistributedPipeline(r, &us, &status);
+  rc = AREQ_BuildDistributedPipeline(r, &us, NULL, &status);
   if (rc != REDISMODULE_OK) {
     printf("Couldn't build distributed pipeline: %s\n", QueryError_GetUserError(&status));
   }
@@ -166,11 +167,12 @@ static void testSplit() {
   for (size_t ii = 0; ii < array_len(us.serialized); ++ii) {
     printf("Serialized[%lu]: %s\n", ii, us.serialized[ii]);
   }
-  AREQ_DecrRef(r);
+  AREQ_Free(r);
 }
 
 int main(int, char **) {
   RS::InstallSegvStackTraceHandler();
+  MainThread_Set();
   RMCK::init();
   testAverage();
   testCountDistinct();

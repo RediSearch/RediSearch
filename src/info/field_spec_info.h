@@ -17,12 +17,20 @@
 #include "redis_index.h"
 #include "vector_index.h"
 #include "obfuscation/hidden.h"
+#include "search_disk_api.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct FieldSpecStats {
   union {
     VectorIndexStats vecStats;
   };
   FieldType type;
+  // Optional disk-backed FT.INFO metrics; each `available` flag gates output.
+  PerFieldTextDiskMetrics textDisk;
+  PerFieldCfDiskMetrics cfDisk;
 } FieldSpecStats;
 
 // Same as AggregatedFieldSpecInfo but local to a specific field inside a shard
@@ -45,7 +53,7 @@ typedef struct {
 } AggregatedFieldSpecInfo;
 
 // Get the information of the field 'fs' in the index 'sp'.
-FieldSpecInfo FieldSpec_GetInfo(FieldSpec *fs, bool obfuscate);
+FieldSpecInfo FieldSpec_GetInfo(const IndexSpec *sp, FieldSpec *fs, bool obfuscate);
 
 // Create stack allocated FieldSpecInfo.
 FieldSpecInfo FieldSpecInfo_Init();
@@ -82,8 +90,15 @@ void AggregatedFieldSpecInfo_Combine(AggregatedFieldSpecInfo *info, const Aggreg
 // Deserializes a FieldSpecInfo from a MRReply.
 AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply);
 
+// Reads vector metrics from a field-statistics map into initialized statistics.
+void FieldSpecStats_DeserializeVectorMetrics(FieldSpecStats *stats, const MRReply *reply);
+
 //Get the total memory usage of all the vector fields in the index (in bytes).
 size_t IndexSpec_VectorIndexesSize(IndexSpec *sp);
 
 //Get the combined stats of all vector fields in the index.
 VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp);
+
+#ifdef __cplusplus
+}
+#endif

@@ -12,17 +12,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "field_spec.h"
-#include "query_error.h"
 #include "redismodule.h"
 
-#define FLEX_MAX_INDEX_COUNT 10
-
-/**
- * @brief Check if the number of indexes is within the limit
- *
- * @return true if the number of indexes is within the limit, false otherwise
- */
-bool SearchDisk_CheckLimitNumberOfIndexes(size_t nIndexes);
+typedef struct QueryError QueryError;
 
 /**
  * @brief Mark a field as unsupported in Flex indexes

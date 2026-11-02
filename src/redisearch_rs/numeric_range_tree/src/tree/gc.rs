@@ -13,28 +13,41 @@
 //! the normal insert/query hot paths. It handles applying GC deltas from
 //! child processes, trimming empty leaves, and compacting the node slab.
 
+use rqe_core::DocId;
 use std::collections::HashMap;
 
-use inverted_index::{GcApplyInfo, GcScanDelta, IndexBlock, RSIndexResult};
+use index_result::RSIndexResult;
+use inverted_index::numeric::StoredValue;
+use inverted_index::{GcApplyInfo, GcScanDelta};
+use serde::{Deserialize, Serialize};
 
 use super::{NumericRangeTree, TrimEmptyLeavesResult};
 use crate::NumericRangeNode;
 use crate::arena::{NodeArena, NodeIndex};
-use crate::range::Hll;
+use crate::range::{Hll, ValueBounds};
 
 /// GC delta data for a single node, as computed by the child process.
 ///
-/// Contains the inverted index GC delta plus the HyperLogLog registers
-/// captured during the scan. One `NodeGcDelta` is produced per DFS node
-/// that had GC work.
-#[derive(Debug)]
+/// Contains the inverted index GC delta plus the HyperLogLog registers and
+/// value bounds of the surviving entries, captured during the scan. One
+/// [`NodeGcDelta`] is produced per DFS node that had GC work.
+///
+/// The registers and bounds come in two versions because the parent drops the
+/// scan's result for the last block if that block changed since the fork.
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct NodeGcDelta {
     /// The inverted index GC scan delta.
     pub delta: GcScanDelta,
     /// HLL registers including the last scanned block's cardinality.
+    #[serde(with = "serde_bytes")]
     pub registers_with_last_block: [u8; Hll::size()],
     /// HLL registers excluding the last scanned block's cardinality.
+    #[serde(with = "serde_bytes")]
     pub registers_without_last_block: [u8; Hll::size()],
+    /// Bounds of the surviving entries, including the last scanned block.
+    pub bounds_with_last_block: ValueBounds,
+    /// Bounds of the surviving entries, excluding the last scanned block.
+    pub bounds_without_last_block: ValueBounds,
 }
 
 /// Result of applying GC to a single node.
@@ -61,6 +74,9 @@ pub struct CompactIfSparseResult {
     /// The change in the tree's node memory usage, in bytes.
     /// Positive values indicate growth, negative values indicate shrinkage.
     pub node_size_delta: i64,
+    /// Net change in inverted-index block count across all dropped leaves. Always non-positive
+    /// (trimming only removes blocks).
+    pub block_count_delta: i32,
 }
 
 impl NumericRangeNode {
@@ -71,17 +87,14 @@ impl NumericRangeNode {
     ///
     /// Returns `Some(NodeGcDelta)` if the node had GC work, `None` otherwise
     /// (either the node has no range, or no documents were deleted).
-    pub fn scan_gc(&self, doc_exists: &dyn Fn(ffi::t_docId) -> bool) -> Option<NodeGcDelta> {
+    pub fn scan_gc(&self, doc_exists: &dyn Fn(DocId) -> bool) -> Option<NodeGcDelta> {
         let range = self.range()?;
 
-        // Pointer to the last block of the index. Used inside the repair
-        // closure to route each entry's HLL contribution into the correct
-        // accumulator.
-        let last_block_ptr: *const IndexBlock = range
-            .entries()
-            .last_block()
-            .map(|b| b as *const IndexBlock)
-            .unwrap_or(std::ptr::null());
+        // The logical index of the last block — used inside the repair closure to route
+        // each entry's HLL contribution into the correct accumulator. Comparing by
+        // logical index instead of pointer equality is robust to future changes that
+        // produce blocks via owned snapshots (where block addresses can shift).
+        let last_block_idx = range.entries().num_blocks().saturating_sub(1);
 
         // HLL tracking for cardinality (re)estimation.
         //
@@ -89,16 +102,20 @@ impl NumericRangeNode {
         // `last_block_hll` accumulates only the last block.
         let mut majority_hll = Hll::new();
         let mut last_block_hll = Hll::new();
+        let mut majority_bounds = ValueBounds::EMPTY;
+        let mut last_block_bounds = ValueBounds::EMPTY;
 
-        let mut repair_fn = |res: &RSIndexResult<'_>, block: &IndexBlock| {
-            // SAFETY: We know this is a numeric index result
-            let value = unsafe { res.as_numeric_unchecked() };
-            let target = if std::ptr::eq(block, last_block_ptr) {
-                &mut last_block_hll
+        let mut repair_fn = |res: &RSIndexResult, ctx: &inverted_index::RepairContext<'_>| {
+            // SAFETY: We know this is a numeric index result. Scanned straight out of
+            // the index, so already in stored form.
+            let value = StoredValue::from_decoded(unsafe { res.as_numeric_unchecked() });
+            let (hll, bounds) = if ctx.block_idx == last_block_idx {
+                (&mut last_block_hll, &mut last_block_bounds)
             } else {
-                &mut majority_hll
+                (&mut majority_hll, &mut majority_bounds)
             };
-            target.add(&value.into());
+            hll.add(&value.into());
+            bounds.include(value.get());
         };
 
         let delta = range
@@ -107,13 +124,16 @@ impl NumericRangeNode {
             .ok()
             .flatten()?;
 
-        // Merge majority into last_block to get "with last block" registers.
+        // Merge majority into last_block to get the "with last block" statistics.
         last_block_hll.merge(&majority_hll);
+        last_block_bounds.merge(majority_bounds);
 
         Some(NodeGcDelta {
             delta,
             registers_with_last_block: *last_block_hll.registers(),
             registers_without_last_block: *majority_hll.registers(),
+            bounds_with_last_block: last_block_bounds,
+            bounds_without_last_block: majority_bounds,
         })
     }
 }
@@ -152,12 +172,17 @@ impl NumericRangeTree {
         // Apply GC delta to the index.
         let info: GcApplyInfo = range.entries_mut().apply_gc(delta.delta);
 
-        // Reset cardinality with proper HLL recalculation.
-        range.reset_cardinality_after_gc(
+        range.reset_stats_after_gc(
             info.ignored_last_block,
             n_new_blocks_since_fork,
-            &delta.registers_with_last_block,
-            &delta.registers_without_last_block,
+            (
+                &delta.registers_with_last_block,
+                &delta.registers_without_last_block,
+            ),
+            (
+                delta.bounds_with_last_block,
+                delta.bounds_without_last_block,
+            ),
         );
 
         // Track empty ranges (only count leaves, and only on transition to empty).
@@ -180,7 +205,7 @@ impl NumericRangeTree {
             self.stats.inverted_indexes_size += info.bytes_allocated - info.bytes_freed;
         }
 
-        #[cfg(all(feature = "unittest", not(miri)))]
+        #[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
         self.check_tree_invariants();
 
         Some(SingleNodeGcResult {
@@ -213,6 +238,7 @@ impl NumericRangeTree {
         CompactIfSparseResult {
             inverted_index_size_delta: rv.size_delta,
             node_size_delta: -(slab_freed as i64),
+            block_count_delta: rv.block_count_delta,
         }
     }
 
@@ -257,12 +283,12 @@ impl NumericRangeTree {
     /// Removes leaf nodes that have no documents and prunes the tree structure
     /// accordingly. Returns information about what changed.
     pub fn trim_empty_leaves(&mut self) -> TrimEmptyLeavesResult {
-        #[cfg(all(feature = "unittest", not(miri)))]
+        #[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
         let (stats_before, revision_id_before) = (self.stats, self.revision_id);
 
         let result = self._trim_empty_leaves();
 
-        #[cfg(all(feature = "unittest", not(miri)))]
+        #[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
         {
             self.check_trim_delta_invariants(stats_before, revision_id_before, &result);
             self.check_tree_invariants();
@@ -324,6 +350,7 @@ impl NumericRangeTree {
                 let br = Self::balance_node(nodes, node_idx);
                 rv.size_delta += br.size_delta;
                 rv.num_ranges_delta += br.num_ranges_delta;
+                rv.block_count_delta += br.block_count_delta;
                 if let NumericRangeNode::Internal(internal) = &mut nodes[node_idx] {
                     internal.max_depth = br.new_depth;
                 }
@@ -348,6 +375,7 @@ impl NumericRangeTree {
         if let Some(r) = nodes[node_idx].take_range() {
             rv.size_delta -= r.memory_usage() as i64;
             rv.num_ranges_delta -= 1;
+            rv.block_count_delta -= r.entries().num_blocks() as i32;
         }
 
         if right_empty {
@@ -381,11 +409,13 @@ impl NumericRangeTree {
                 rv.num_leaves_delta -= 1;
                 rv.size_delta -= leaf.range.memory_usage() as i64;
                 rv.num_ranges_delta -= 1;
+                rv.block_count_delta -= leaf.range.entries().num_blocks() as i32;
             }
             NumericRangeNode::Internal(internal) => {
                 if let Some(range) = internal.range.as_ref() {
                     rv.size_delta -= range.memory_usage() as i64;
                     rv.num_ranges_delta -= 1;
+                    rv.block_count_delta -= range.entries().num_blocks() as i32;
                 }
             }
         }

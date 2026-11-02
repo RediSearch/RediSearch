@@ -8,13 +8,19 @@
 */
 #include "rtree.hpp"
 #include "search_ctx.h"
+#include "iterators_ffi.h"  // NewGeometryQueryIterator
+#include "rmalloc.h"        // rm_malloc
 
 #include <string>     // std::string, std::char_traits
 #include <sstream>    // std::stringstream
+#include <memory>     // std::unique_ptr
 #include <algorithm>  // ranges::for_each, views::transform
+#include <ranges>     // ranges::subrange, views::transform
 #include <exception>  // std::exception
 #include <execution>  // std::unseq
 #include <numeric>    // std::transform_reduce
+#include <bit>        // std::bit_cast
+#include <cstdint>    // std::uint64_t
 
 namespace RediSearch {
 namespace GeoShape {
@@ -106,19 +112,23 @@ auto doc_to_string(doc_type<cs> const& doc) -> string {
 //       return ss.str();
 //     }};
 
+// from_wkt without the validity check.
+template <typename cs>
+auto parse_wkt(std::string_view wkt) -> geom_type<cs> {
+  if (wkt.starts_with("POI")) {
+    return bg::from_wkt<point_type<cs>>(std::string{wkt});
+  } else if (wkt.starts_with("POL")) {
+    auto poly = bg::from_wkt<poly_type<cs>>(std::string{wkt});
+    bg::correct(poly);
+    return poly;
+  } else {
+    throw std::runtime_error{"unknown geometry type"};
+  }
+}
+
 template <typename cs>
 auto from_wkt(std::string_view wkt) -> geom_type<cs> {
-  const auto geom = [&]() -> geom_type<cs> {
-    if (wkt.starts_with("POI")) {
-      return bg::from_wkt<point_type<cs>>(std::string{wkt});
-    } else if (wkt.starts_with("POL")) {
-      auto poly = bg::from_wkt<poly_type<cs>>(std::string{wkt});
-      bg::correct(poly);
-      return poly;
-    } else {
-      throw std::runtime_error{"unknown geometry type"};
-    }
-  }();
+  const auto geom = parse_wkt<cs>(wkt);
   std::visit(
       [](auto const& geom) -> void {
         // TODO: GEOMETRY - add flag to allow user to ascertain validity of input
@@ -148,6 +158,30 @@ constexpr auto geometry_reporter =
                    std::begin(inners), std::end(inners), outer_size, std::plus{},
                    [](auto const& hole) { return hole.get_allocator().report(); });
              }};
+
+template <typename cs>
+constexpr auto same_point = [](point_type<cs> const& a, point_type<cs> const& b) -> bool {
+  static_assert(sizeof(double) == sizeof(std::uint64_t));
+  return std::bit_cast<std::uint64_t>(bg::get<0>(a)) ==
+             std::bit_cast<std::uint64_t>(bg::get<0>(b)) &&
+         std::bit_cast<std::uint64_t>(bg::get<1>(a)) == std::bit_cast<std::uint64_t>(bg::get<1>(b));
+};
+// std::equal, not std::ranges::equal: libc++'s version uses a structured binding, where ADL
+// finds bg::get for Geographic points and fails to compile.
+template <typename cs>
+constexpr auto same_ring = [](auto const& a, auto const& b) -> bool {
+  return std::equal(std::begin(a), std::end(a), std::begin(b), std::end(b), same_point<cs>);
+};
+template <typename cs>
+constexpr auto same_geometry = overload{
+    [](point_type<cs> const& a, point_type<cs> const& b) -> bool { return same_point<cs>(a, b); },
+    [](poly_type<cs> const& a, poly_type<cs> const& b) -> bool {
+      return same_ring<cs>(a.outer(), b.outer()) &&
+             std::equal(std::begin(a.inners()), std::end(a.inners()), std::begin(b.inners()),
+                        std::end(b.inners()), same_ring<cs>);
+    },
+    // point vs polygon
+    [](auto const&, auto const&) -> bool { return false; }};
 
 template <typename cs>
 constexpr auto within_filter = overload{
@@ -208,6 +242,51 @@ bool RTree<cs>::remove(t_docId id) {
         return true;
       })
       .value_or(false);
+}
+
+template <typename cs>
+bool RTree<cs>::relabel(t_docId old_id, t_docId new_id) {
+  auto it = docLookup_.find(old_id);
+  if (it == docLookup_.end()) {
+    return false;
+  }
+  if (old_id == new_id) {
+    return true;
+  }
+  if (docLookup_.contains(new_id)) {
+    return false;
+  }
+  // Boost R-tree values are immutable: remove the pair, re-insert the box under new_id. The box
+  // is rebuilt as remove() does, so it compares equal to the stored one.
+  auto doc = make_doc<cs>(it->second, old_id);
+  if (rtree_.remove(doc) != 1) {
+    // Missed for some SPHERICAL points: Boost's spherical expand drops a point box's ULPs from the
+    // node box, so remove's exact covered_by check skips the leaf.
+    return false;
+  }
+  doc.second = new_id;
+  rtree_.insert(doc);
+  // Move-construct, not move-assign: StatefulAllocators never compare equal, so assignment would
+  // copy and skew allocated_.
+  auto geom = std::move(it->second);
+  docLookup_.erase(it);
+  docLookup_.emplace(new_id, std::move(geom));
+  return true;
+}
+
+template <typename cs>
+bool RTree<cs>::holds(std::string_view wkt, t_docId id) const {
+  const auto stored = lookup(id);
+  if (!stored) {
+    return false;
+  }
+  try {
+    // No is_valid: an exact match of a stored geometry is valid.
+    return std::visit(same_geometry<cs>, parse_wkt<cs>(wkt), *stored);
+  } catch (const std::exception&) {
+    // The fallback insert reports the parse error.
+    return false;
+  }
 }
 
 template <typename cs>
@@ -301,17 +380,43 @@ template <typename cs>
 auto RTree<cs>::query(const RedisSearchCtx *sctx, const FieldFilterContext* filterCtx, std::string_view wkt, QueryType query_type, RedisModuleString** err_msg) const
     -> QueryIterator* {
   try {
-    using alloc_type = Allocator::TrackingAllocator<CPPQueryIterator>;
-    auto alloc = alloc_type{allocated_};
     const auto query_geom = from_wkt<cs>(wkt);
     const auto qbegin = query_begin(query_type, query_geom);
     const auto results =
         std::ranges::subrange{qbegin, rtree_.qend()} | std::views::transform(get_id<cs>);
-    const auto qi = std::allocator_traits<alloc_type>::allocate(alloc, 1);
-    // Use REDISEARCH_UNINITIALIZED counter to skip timeout checks when skipTimeoutChecks is set
-    const uint32_t timeoutCounter = (sctx && sctx->time.skipTimeoutChecks) ? REDISEARCH_UNINITIALIZED : 0;
-    std::allocator_traits<alloc_type>::construct(alloc, qi, sctx, filterCtx, results, allocated_, timeoutCounter);
-    return qi->base();
+
+    // Collect the matching document IDs into a single Redis-allocated array and
+    // hand it to the Rust GeoShape iterator, which takes ownership (freeing it
+    // with RedisModule_Free), sorts it, and reports its size to `allocated_`.
+    //
+    // Traverse the rtree query exactly once: each step evaluates the (expensive)
+    // geometry predicate, so a sizing pass would double that cost. We grow a
+    // Redis-allocated buffer geometrically as matches arrive; the only
+    // reallocations are cheap t_docId memmoves, never predicate re-evaluations.
+    // A final shrink makes the allocation exact, so it matches the size reported
+    // to `allocated_` and leaves no untracked slack. rm_malloc/rm_realloc keep
+    // the buffer inside module memory accounting; the iterator tracks its size
+    // in `allocated_`.
+    std::size_t num = 0;
+    std::size_t cap = 0;
+    const auto rm_deleter = [](t_docId* p) noexcept { rm_free(p); };
+    std::unique_ptr<t_docId[], decltype(rm_deleter)> ids{nullptr, rm_deleter};
+    for (const t_docId id : results) {
+      if (num == cap) {
+        cap = cap ? cap * 2 : 16;
+        // rm_realloc frees the old block, so release it from the guard first and
+        // re-seat the guard on the new block before any further work can throw.
+        ids.reset(static_cast<t_docId*>(rm_realloc(ids.release(), cap * sizeof(t_docId))));
+      }
+      ids[num++] = id;
+    }
+    if (num != cap) {
+      // Shrink the over-allocated buffer to the exact size. Reached only when
+      // num > 0 (an empty result keeps cap == 0), so num * sizeof(t_docId) is
+      // never zero here.
+      ids.reset(static_cast<t_docId*>(rm_realloc(ids.release(), num * sizeof(t_docId))));
+    }
+    return NewGeometryQueryIterator(sctx, filterCtx, ids.release(), num, &allocated_);
   } catch (const std::exception& e) {
     if (err_msg) {
       *err_msg = RedisModule_CreateString(nullptr, e.what(), std::strlen(e.what()));

@@ -197,7 +197,7 @@ void RS_dictReleaseIterator(dictIterator *iter);
 dictEntry *RS_dictGetRandomKey(dict *d);
 unsigned int RS_dictGetSomeKeys(dict *d, dictEntry **des, unsigned int count);
 void RS_dictGetStats(char *buf, size_t bufsize, dict *d);
-uint64_t RS_dictGenHashFunction(const void *key, int len);
+uint64_t RS_dictGenHashFunction(const void *key, size_t len);
 uint64_t RS_dictGenCaseHashFunction(const unsigned char *buf, int len);
 void RS_dictEmpty(dict *d, void(callback)(void*));
 void RS_dictEnableResize(void);

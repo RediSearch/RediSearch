@@ -7,7 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{FilterMaskReader, IndexReader, RSIndexResult};
+use crate::{FilterMaskReader, IndexReader};
+use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 
 #[test]

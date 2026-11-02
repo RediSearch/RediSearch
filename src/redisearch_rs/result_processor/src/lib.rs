@@ -18,8 +18,13 @@
 //! the database indexes.
 
 pub mod counter;
-#[cfg(test)]
-mod test_utils;
+/// Test harness (`Chain`, `from_iter`, `ResultRP`) for driving result processors in pure Rust.
+///
+/// Exposed behind the `test-utils` feature so other crates (e.g. `redisearch_disk`) can build
+/// their own result processors against the real [`Context`]/[`Upstream`] machinery in tests,
+/// since [`Context`] has no public constructor. Always available to this crate's own tests.
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_utils;
 
 use pin_project::pin_project;
 use search_result::SearchResult;
@@ -139,6 +144,30 @@ impl Context<'_> {
         // Safety: We trust that the pointer to the parent context, if set, is
         // set to an appropriate structure.
         unsafe { query_processing_context_ptr.as_ref() }
+    }
+
+    /// Decrease the pipeline's running total result count by `n`.
+    ///
+    /// A result is counted (`totalResults++`) by the index processor as soon as it is produced
+    /// upstream (`setSearchResult`, `result_processor.c`). A processor that later drops a result it
+    /// received must subtract it back, exactly as the C scorer does on `RS_SCORE_FILTEROUT`
+    /// (`result_processor.c`'s `totalResults--`). The disk async loader uses this when it skips a
+    /// document (non-resident key, or a docid that changed under the query).
+    ///
+    /// No-op when the processor has no parent.
+    pub fn subtract_total_results(&mut self, n: u32) {
+        // Safety: the parent pointer, if non-null, is the `QueryProcessingCtx` the C pipeline
+        // installed on this result processor; it outlives the processor, the chain runs on a single
+        // thread, and the C pipeline mutates this same field. Provenance comes from the raw pointer
+        // C provided, so writing through it is sound.
+        let parent = unsafe { self.ptr.as_ref() }.parent.cast_mut();
+        if !parent.is_null() {
+            // SAFETY: `parent` is non-null (checked above) and points to the `QueryProcessingCtx`
+            // the C pipeline installed on this processor; it outlives the processor and the chain
+            // runs on a single thread, so taking a transient `&mut` to update `totalResults` is sound.
+            let parent = unsafe { &mut *parent };
+            parent.totalResults = parent.totalResults.saturating_sub(n);
+        }
     }
 }
 
@@ -314,6 +343,27 @@ where
 
         // Safety: we know the ptr we get from Box::into_raw is never null
         unsafe { NonNull::new_unchecked(ptr) }
+    }
+
+    /// Reborrows the concrete [`ResultProcessor`] implementation `P` behind a raw
+    /// `ffi::ResultProcessor` pointer previously produced by [`Self::into_ptr`].
+    ///
+    /// Lets an FFI entry point that only has the raw `rp` pointer reach into the concrete
+    /// Rust-side state, without going through the `next`/`free` VTable.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ptr` must have come from [`Self::into_ptr`] for this exact `P` and not yet been freed.
+    /// 2. The returned reference must not be used to move out of the wrapped `result_processor`.
+    /// 3. No `&mut` to the pointee may exist or be created concurrently for lifetime `'a`.
+    #[inline]
+    pub unsafe fn inner_from_raw<'a>(ptr: NonNull<ffi::ResultProcessor>) -> &'a P {
+        let ptr = ptr.cast::<Self>();
+        debug_assert!(ptr.is_aligned());
+        // Safety: invariant 1, upheld by the caller.
+        unsafe { Self::debug_assert_same_type(ptr.cast()) };
+        // Safety: invariants 1 and 2, upheld by the caller.
+        unsafe { &(*ptr.as_ptr()).result_processor }
     }
 
     /// Constructs a `Box<ResultProcessor>` from a raw pointer.

@@ -17,6 +17,7 @@ use inverted_index::NumericFilter;
 
 use super::NumericRangeTree;
 use crate::arena::{NodeArena, NodeIndex};
+use crate::window::RangeWindow;
 use crate::{NumericRange, NumericRangeNode};
 
 impl NumericRangeTree {
@@ -24,7 +25,7 @@ impl NumericRangeTree {
     ///
     /// Returns a vector of references to ranges that overlap with the filter's
     /// min/max bounds. The ranges are returned in order based on the filter's
-    /// ascending/descending preference.
+    /// ascending/descending preference, and are pairwise disjoint.
     ///
     /// # Optimization Goal
     ///
@@ -33,21 +34,25 @@ impl NumericRangeTree {
     /// is completely contained within the filter bounds, we return that single
     /// range instead of descending to its children—this is why internal nodes
     /// retain their ranges up to `max_depth_range`.
-    ///
-    /// # Offset Handling
-    ///
-    /// The `filter.offset` and `filter.limit` parameters enable pagination.
-    /// We track the running total of documents and skip ranges until we've
-    /// passed the offset. See `recursive_find_ranges` for the special handling
-    /// of the first overlapping leaf.
     pub fn find<'a>(&'a self, filter: &NumericFilter) -> Vec<&'a NumericRange> {
+        self.find_windowed(filter, RangeWindow::UNBOUNDED)
+    }
+
+    /// Like [`find`](Self::find), but returns only the ranges covering `window`.
+    ///
+    /// Ranges are returned whole, so the result overshoots the window's bounds.
+    pub fn find_windowed<'a>(
+        &'a self,
+        filter: &NumericFilter,
+        window: RangeWindow,
+    ) -> Vec<&'a NumericRange> {
         let mut ranges = Vec::with_capacity(8);
-        let mut total = 0usize;
+        let mut cursor = WindowCursor::new(window);
 
-        Self::recursive_find_ranges(&mut ranges, &self.nodes, self.root, filter, &mut total);
+        Self::recursive_find_ranges(&mut ranges, &self.nodes, self.root, filter, &mut cursor);
 
-        #[cfg(all(feature = "unittest", not(miri)))]
-        Self::check_find_invariants(&ranges, filter, total);
+        #[cfg(all(feature = "unittest", debug_assertions, not(miri)))]
+        self.check_find_invariants(&ranges, filter, window);
 
         ranges
     }
@@ -73,10 +78,9 @@ impl NumericRangeTree {
         nodes: &'a NodeArena,
         node_idx: NodeIndex,
         filter: &NumericFilter,
-        total: &mut usize,
+        cursor: &mut WindowCursor,
     ) {
-        // Check if we've reached the limit
-        if filter.limit > 0 && *total >= filter.offset.saturating_add(filter.limit) {
+        if cursor.is_covered() {
             return;
         }
 
@@ -95,8 +99,7 @@ impl NumericRangeTree {
 
             // If the range is completely contained in the search bounds, add it
             if contained {
-                *total += num_docs as usize;
-                if *total > filter.offset {
+                if cursor.admit(num_docs as usize) {
                     ranges.push(range);
                 }
                 return;
@@ -118,7 +121,7 @@ impl NumericRangeTree {
                             nodes,
                             internal.left_index(),
                             filter,
-                            total,
+                            cursor,
                         );
                     }
                     if max >= internal.value {
@@ -127,7 +130,7 @@ impl NumericRangeTree {
                             nodes,
                             internal.right_index(),
                             filter,
-                            total,
+                            cursor,
                         );
                     }
                 } else {
@@ -138,7 +141,7 @@ impl NumericRangeTree {
                             nodes,
                             internal.right_index(),
                             filter,
-                            total,
+                            cursor,
                         );
                     }
                     if min <= internal.value {
@@ -147,35 +150,62 @@ impl NumericRangeTree {
                             nodes,
                             internal.left_index(),
                             filter,
-                            total,
+                            cursor,
                         );
                     }
                 }
             }
             NumericRangeNode::Leaf(leaf) => {
-                let num_docs = leaf.range.num_docs();
-                *total += if *total == 0 && filter.offset == 0 {
-                    // This is the first range of the result set.
-                    // It the range _overlaps_ with the filter range,
-                    // but isn't contained within it, it might contain documents
-                    // that sit outside the filter range.
-                    // For example, if the filter range is [10, 20] and the leaf range is [5, 11],
-                    // the leaf range contains documents that are outside the filter range.
-                    //
-                    // If we sum its `num_docs` to the running total, we may
-                    // end up overcounting the number of documents that match
-                    // the filter range, thus returning less documents than expected.
-                    // We choose the opposite strategy: we potentially return _more_ documents
-                    // than necessary, leaving it to the result set iterator to precisely filter
-                    // out the ones that sit outside the filter range.
+                // This range only overlaps the filter, so an unknown number of its
+                // documents sit outside it. Counting them all could cover `limit` on
+                // the very first range, ending the traversal before a single match is
+                // collected. `1` — the smallest count that still admits the range —
+                // errs the other way, returning too many ranges rather than too few.
+                let num_docs = if cursor.at_window_start() {
                     1
                 } else {
-                    num_docs as usize
+                    leaf.range.num_docs() as usize
                 };
-                if *total > filter.offset {
+                if cursor.admit(num_docs) {
                     ranges.push(&leaf.range);
                 }
             }
         }
+    }
+}
+
+/// Position of a traversal within its [`RangeWindow`].
+///
+/// Counts the documents passed so far and decides from that which ranges to
+/// keep. An unbounded window keeps every range and counts nothing.
+struct WindowCursor {
+    window: RangeWindow,
+    /// Documents passed so far.
+    total: usize,
+}
+
+impl WindowCursor {
+    const fn new(window: RangeWindow) -> Self {
+        Self { window, total: 0 }
+    }
+
+    /// Whether the end of the window is reached and the traversal can stop.
+    const fn is_covered(&self) -> bool {
+        self.window.limit > 0 && self.total >= self.window.offset.saturating_add(self.window.limit)
+    }
+
+    /// Whether the next range counted will be the first one kept.
+    const fn at_window_start(&self) -> bool {
+        self.total == 0 && self.window.offset == 0
+    }
+
+    /// Count a range's documents, returning whether the range sits past `offset`
+    /// and must be kept.
+    const fn admit(&mut self, num_docs: usize) -> bool {
+        if !self.window.is_bounded() {
+            return true;
+        }
+        self.total += num_docs;
+        self.total > self.window.offset
     }
 }

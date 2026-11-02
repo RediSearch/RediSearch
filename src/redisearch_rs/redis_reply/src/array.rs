@@ -9,7 +9,7 @@
 
 use std::ffi::CStr;
 
-use ffi::RedisModule_ReplySetArrayLength;
+use redis_module::RedisModule_ReplySetArrayLength;
 
 use crate::map::MapBuilder;
 use crate::replier::Replier;
@@ -48,6 +48,12 @@ impl ArrayBuilder<'_> {
     /// Add a simple string to the array.
     pub fn simple_string(&mut self, s: &CStr) {
         self.replier.simple_string(s);
+        self.len += 1;
+    }
+
+    /// Add a string buffer (bulk string) to the array.
+    pub fn string_buffer(&mut self, buf: &[u8]) {
+        self.replier.string_buffer(buf);
         self.len += 1;
     }
 

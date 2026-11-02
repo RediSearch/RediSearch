@@ -10,53 +10,84 @@
 #pragma once
 
 #include "rmr/rmr.h"
-#include "util/references.h"
-#include "../../config.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef enum  {
-  TYPE_SEARCH,
-  TYPE_VSIM,
-} MappingType;
-
+/**
+ * Context for SHARD_K_RATIO optimization in FT.HYBRID commands.
+ * Contains information needed to calculate and apply effectiveK.
+ */
 typedef struct {
-  char * targetShard;
-  uint16_t targetShardIdx;
-  long long cursorId;
-} CursorMapping;
-
-typedef struct {
-  MappingType type;
-  arrayof(CursorMapping) mappings;
-} CursorMappings;
-
-// forward declaration of QueryError
-typedef struct QueryError QueryError;
+  size_t originalK;         // Original K value from query
+  double shardWindowRatio;  // Ratio for shard window optimization
+  int kArgIndex;            // Index of the K value argument in the MRCommand
+} HybridKnnContext;
 
 /**
- * Process hybrid cursor mappings synchronously
- * Populates the searchMappings and vsimMappings arrays with cursor mappings from all shards.
- * Handles shard errors by recording them in the status parameter while continuing to process all shards.
- * Returns true even if all shards fail with warnings (e.g., OOM), resulting in empty mapping arrays and allowing the caller to handle the warnings.
- * @param cmd The MRCommand to execute
- * @param searchMappings Empty array to populate with search cursor mappings
- * @param vsimMappings Empty array to populate with vector similarity cursor mappings
- * @param status QueryError pointer to store warning/error information
- * @param oomPolicy OOM policy to determine error handling behavior
- * @param timeoutPolicy Timeout policy to determine timeout error handling behavior
- * @param maxPrefixSearch Output: set to true if SEARCH subquery reported max prefix expansion warning
- * @param maxPrefixVsim Output: set to true if VSIM subquery reported max prefix expansion warning
- * @return true if processing completed (even with warnings), false on fatal errors; status will contain error/warning information
+ * Shared state of the FT.HYBRID arming fan-out (the `cbPrivateData` of the
+ * `_FT.HYBRID` iterator). The fan-out's reply callback arms and dispatches
+ * each shard's cursor-read placeholders on the two sibling read iterators, so
+ * every published shard cursor id lives in a live iterator command from the
+ * moment it is known — cleanup on abort is then the standard rmr teardown
+ * (DEL-swap / timed-out arming), with no coordinator-side cursor bookkeeping.
+ *
+ * All fields are touched only on the iterators' shared IO thread. The sibling
+ * iterators are safe to dereference without references of our own: each keeps
+ * its writers' reference until every placeholder is armed or resolved, which
+ * only this fan-out's callbacks do.
  */
-bool ProcessHybridCursorMappings(const MRCommand *cmd, StrongRef searchMappings, StrongRef vsimMappings, QueryError *status, RSOomPolicy oomPolicy, RSTimeoutPolicy timeoutPolicy, bool *maxPrefixSearch, bool *maxPrefixVsim);
+typedef struct {
+  MRIterator *searchIt;
+  MRIterator *vsimIt;
+  HybridKnnContext *knnCtx;  // KNN context for SHARD_K_RATIO optimization (may be NULL)
+} HybridArmingCtx;
+
+/** Destructor for HybridArmingCtx (the fan-out iterator's cbPrivateDataDestructor). */
+void HybridArmingCtx_Free(void *p);
 
 /**
- * Release resources associated with a cursor mapping
+ * Per-reply callback of the `_FT.HYBRID` arming fan-out. Parses the shard's
+ * cursor mapping, forwards mapping-stage warnings into both read streams, and
+ * arms (or resolves) this shard's placeholder on each read iterator. Shard
+ * errors are cloned into both read streams, where rpnetNext applies the
+ * timeout/OOM policies.
  */
-void CursorMapping_Release(CursorMapping *mapping);
+void hybridArmingCallback(MRIteratorCallbackCtx *ctx, MRReply *rep);
+
+/**
+ * No-reply counterpart of hybridArmingCallback (dead connection mid-flight):
+ * surfaces a cluster error into both read streams and resolves the shard's
+ * placeholders. Notify-only per the MRIteratorErrorCallback contract.
+ */
+void hybridArmingErrorCallback(MRIteratorCallbackCtx *ctx);
+
+/**
+ * Start callback of the `_FT.HYBRID` arming fan-out: validates shard
+ * connections, expands both sibling read iterators' placeholders, and
+ * dispatches the fan-out — all within one scheduled IO job, i.e. one topology
+ * snapshot, so the three iterators cannot observe different shard counts and
+ * a per-shard index addresses the same shard on all of them.
+ */
+void hybridArmingStartCb(void *p);
+
+/**
+ * Apply SHARD_K_RATIO optimization to an MRCommand based on the provided
+ * HybridKnnContext. Computes the effective per-shard K and rewrites the K
+ * argument in the command in-place. No-op for single-shard deployments or
+ * when the ratio disables the optimization.
+ *
+ * Exposed primarily as the inner logic of HybridKnnCommandModifier so that
+ * it can be unit-tested without replicating the callback context layout.
+ */
+void HybridKnnApplyShardKRatio(MRCommand *cmd, size_t numShards, const HybridKnnContext *knnCtx);
+
+/**
+ * Command modifier for the arming fan-out (privateData is the HybridArmingCtx).
+ * Called from iterStartCb on the IO thread before commands are sent to shards.
+ */
+void HybridKnnCommandModifier(MRCommand *cmd, size_t numShards, void *privateData);
 
 #ifdef __cplusplus
 }

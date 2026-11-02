@@ -1,0 +1,6 @@
+---
+source: rqe_iterators/tests/integration/profile_print.rs
+assertion_line: 216
+expression: reply
+---
+{"Type": "OPTIONAL", "Child iterator": {"Type": "EMPTY"}}

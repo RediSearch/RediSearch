@@ -18,11 +18,11 @@ Arguments provided: `$ARGUMENTS`
 1. Check the arguments provided above:
    - If a crate name is provided, run benchmarks for that crate:
      ```bash
-     cd src/redisearch_rs && cargo bench -p <crate_name>
+     cargo bench --manifest-path src/redisearch_rs/Cargo.toml -p <crate_name>
      ```
    - If both crate and bench name are provided, run the specific bench:
      ```bash
-     cd src/redisearch_rs && cargo bench -p <crate_name> <bench_name>
+     cargo bench --manifest-path src/redisearch_rs/Cargo.toml -p <crate_name> <bench_name>
      ```
 2. **Run benchmarks only once.** If the output is too large or truncated, extract the timing data from the saved output file rather than re-running the benchmarks.
 3. Once the benchmarks are complete, generate a summary comparing the average run times between the Rust and C implementations.
@@ -32,9 +32,9 @@ Arguments provided: `$ARGUMENTS`
 
 ```bash
 # Bench given crate
-cd src/redisearch_rs && cargo bench -p rqe_iterators_bencher
-cd src/redisearch_rs && cargo bench -p inverted_index_bencher
+cargo bench --manifest-path src/redisearch_rs/Cargo.toml -p rqe_iterators_bencher
+cargo bench --manifest-path src/redisearch_rs/Cargo.toml -p inverted_index_bencher
 
 # Run a specific benchmark
-cd src/redisearch_rs && cargo bench -p rqe_iterators_bencher "Iterator - InvertedIndex - Numeric - Read Dense"
+cargo bench --manifest-path src/redisearch_rs/Cargo.toml -p rqe_iterators_bencher "Iterator - InvertedIndex - Numeric - Read Dense"
 ```

@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import copy
 
 from common import *
@@ -28,12 +35,21 @@ def test_acl_search_commands(env):
         'FT._ALIASDELIFX', 'FT._CREATEIFNX', 'FT._ALIASADDIFNX', 'FT._ALTERIFNX',
         'FT._DROPINDEXIFX', 'FT.DROPINDEX', 'FT.TAGVALS', 'FT._DROPIFX',
         'FT.DROP', 'FT.GET', 'FT.SYNADD', 'FT.ADD', 'FT.MGET', 'FT.DEL',
-        '_FT.CONFIG', '_FT.DEBUG', 'FT.SAFEADD'
+        '_FT.CONFIG', '_FT.DEBUG', 'FT.SAFEADD', 'FT.ALIASLIST'
     ]
     if not env.isCluster():
-        commands.append('FT.CONFIG')
+        if RS_TEST_ENTERPRISE:
+            # These are unrelated: FT.CONFIG has no public alias on enterprise
+            # (only _FT.CONFIG, already in the base list above), while
+            # FT._RESTOREIFNX is separately registered as public there.
+            commands.append('FT._RESTOREIFNX')
+        else:
+            commands.append('FT.CONFIG')
     if env.env != 'enterprise':
-        commands.extend(['search.CLUSTERINFO', 'search.CLUSTERREFRESH', 'search.CLUSTERSET'])
+        commands.extend(['search.CLUSTERINFO', 'search.CLUSTERREFRESH'])
+        if RS_TEST_ENTERPRISE:
+            # Internal (so outside every ACL category) on OSS only
+            commands.append('search.CLUSTERSET')
 
     # Use a set since the order of the response is not consistent.
     env.assertEqual(set(res), set(commands))
@@ -76,7 +92,7 @@ def test_acl_non_default_user(env):
         # `test` should not be able to run `search` commands that are not `read`,
         # like `FT.CREATE`
         try:
-            conn.execute_command('FT.CREATE', 'idx', '*', "hello")
+            conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT')
             env.assertTrue(False)
         except Exception as e:
             env.assertContains("User test has no permissions to run the 'FT.CREATE' command", str(e))
@@ -171,7 +187,10 @@ def test_internal_commands(env):
     env.expect('_FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').error().contains("unknown command")
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
-    env.expect('_FT.SEARCH', 'idx', '*').error().contains("unknown command")
+    # On enterprise _FT.SEARCH is proxy-filtered rather than internal, so it's
+    # reachable when talking directly to the shard (as this test does).
+    if not RS_TEST_ENTERPRISE:
+        env.expect('_FT.SEARCH', 'idx', '*').error().contains("unknown command")
 
     # Promote the connection to internal
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
@@ -225,6 +244,7 @@ def test_acl_key_permissions_validation(env):
         ['FT.SPELLCHECK', no_perm_index, 'name'],
         ['FT.ALIASADD', 'myAlias', no_perm_index],
         ['FT.ALIASUPDATE', 'myAlias', no_perm_index],
+        ['FT.ALIASLIST', no_perm_index],
         ['FT.ALTER', no_perm_index, 'SCHEMA', 'ADD', 'n2', 'NUMERIC', 'SORTABLE'],
         ['FT.EXPLAIN', no_perm_index, '*'],
         ['FT.EXPLAINCLI', no_perm_index, '*'],
@@ -281,3 +301,45 @@ def test_acl_key_permissions_validation(env):
                 "Document already exists",
             ]
             env.assertTrue(any([err in str(e) for err in possible_errors]))
+
+@skip(cluster=False)
+def test_clusterset_requires_internal_connection(env):
+    """A user with the `search` category must not be able to change the
+    coordinator topology; internal connections still can."""
+    if RS_TEST_ENTERPRISE or env.env == 'enterprise':
+        # Enterprise keeps SEARCH.CLUSTERSET public and excludes it from the proxy instead
+        env.skip()
+    env.cmd(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER')
+    validation_timeout = env.cmd(config_cmd(), 'GET', 'TOPOLOGY_VALIDATION_TIMEOUT')[0][1]
+    # Don't wait for the unreachable topology below to be validated
+    env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', 1)
+    topology = env.cmd('SEARCH.CLUSTERINFO')
+    unreachable_topology = ['SEARCH.CLUSTERSET', 'MYID', '1', 'RANGES', '1',
+                            'SHARD', '1', 'SLOTRANGE', '0', '16383',
+                            'ADDR', '127.0.0.1:9', 'MASTER']
+
+    conn = env.getConnection()
+    conn.execute_command('ACL', 'SETUSER', 'searcher', 'on', '>pass', '~*', '&*', '+@search')
+    try:
+        conn.execute_command('AUTH', 'searcher', 'pass')
+        try:
+            conn.execute_command(*unreachable_topology)
+            env.assertTrue(False, message='SEARCH.CLUSTERSET accepted a topology from a search user')
+        except redis.ResponseError as e:
+            env.assertContains('unknown command', str(e))
+        env.assertEqual(env.cmd('SEARCH.CLUSTERINFO'), topology)
+        search_commands = [cmd.lower() for cmd in env.cmd('ACL', 'CAT', 'search')]
+        env.assertFalse('search.clusterset' in search_commands)
+
+        env.cmd('DEBUG', 'MARK-INTERNAL-CLIENT')
+        env.expect(*unreachable_topology).ok()
+        wait_for_condition(
+            lambda: (env.cmd('SEARCH.CLUSTERINFO')[5][0][7] == 9, {}),
+            'Failed waiting for topology to be applied'
+        )
+    finally:
+        # Restore the real topology and settings for the following tests
+        env.cmd('SEARCH.CLUSTERREFRESH')
+        env.cmd(debug_cmd(), 'RESUME_TOPOLOGY_UPDATER')
+        env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', validation_timeout)
+        env.cmd('ACL', 'DELUSER', 'searcher')

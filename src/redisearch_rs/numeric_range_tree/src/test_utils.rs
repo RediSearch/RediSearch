@@ -12,7 +12,7 @@
 //! Gated behind the `test_utils` feature so that production builds do not
 //! include these utilities.
 
-use inverted_index::{Encoder, IndexBlock, RSIndexResult, numeric::Numeric};
+use inverted_index::{Encoder, numeric::Numeric};
 
 use crate::{NodeGcDelta, NodeIndex, NumericRangeNode, NumericRangeTree};
 
@@ -45,7 +45,7 @@ pub const DEEP_TREE_ENTRIES: u64 = {
 pub fn build_tree(n: u64, compress_floats: bool, max_depth_range: usize) -> NumericRangeTree {
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=n {
-        tree.add(i, i as f64, false, max_depth_range);
+        tree.add(i, i as f64, false, false, max_depth_range);
     }
     tree
 }
@@ -58,7 +58,7 @@ pub fn build_single_leaf_tree(count: u64) -> NumericRangeTree {
     let mut tree = NumericRangeTree::new(false);
     for i in 1..=count {
         let value = (i % 4 + 1) as f64;
-        tree.add(i, value, false, 0);
+        tree.add(i, value, false, false, 0);
     }
     assert!(
         tree.root().is_leaf(),
@@ -74,7 +74,7 @@ pub fn build_large_tree() -> NumericRangeTree {
     let mut tree = NumericRangeTree::new(false);
     for i in 1..=50_000u64 {
         let value = ((i - 1) % 5000 + 1) as f64;
-        tree.add(i, value, false, 0);
+        tree.add(i, value, false, false, 0);
     }
     tree
 }
@@ -121,32 +121,20 @@ pub fn scan_node_delta(
     scan_node_delta_with_hll(tree, node_idx, doc_exist, |_| ([0u8; 64], [0u8; 64]))
 }
 
-/// Like [`scan_node_delta`] but with custom HLL register values.
+/// Like [`scan_node_delta`] but with custom HLL register values. Everything else
+/// comes from [`NumericRangeNode::scan_gc`].
 pub fn scan_node_delta_with_hll(
     tree: &NumericRangeTree,
     node_idx: NodeIndex,
     doc_exist: &dyn Fn(u64) -> bool,
     hll_fn: impl Fn(&inverted_index::GcScanDelta) -> ([u8; 64], [u8; 64]),
 ) -> Option<NodeGcDelta> {
-    let node = tree.node(node_idx);
-    node.range()
-        .and_then(|range| -> Option<inverted_index::GcScanDelta> {
-            range
-                .entries()
-                .scan_gc(
-                    doc_exist,
-                    None::<for<'index> fn(&RSIndexResult<'index>, &IndexBlock)>,
-                )
-                .expect("scan_gc should not fail")
-        })
-        .map(|delta| {
-            let (hll_with, hll_without) = hll_fn(&delta);
-            NodeGcDelta {
-                delta,
-                registers_with_last_block: hll_with,
-                registers_without_last_block: hll_without,
-            }
-        })
+    let mut delta = tree.node(node_idx).scan_gc(doc_exist)?;
+    (
+        delta.registers_with_last_block,
+        delta.registers_without_last_block,
+    ) = hll_fn(&delta.delta);
+    Some(delta)
 }
 
 /// Scan all nodes in the tree and collect GC deltas for nodes that have work.
@@ -167,12 +155,13 @@ fn scan_all_dfs(
     doc_exist: &dyn Fn(u64) -> bool,
     deltas: &mut Vec<(NodeIndex, NodeGcDelta)>,
 ) {
-    if let Some(delta) = tree.node(node_idx).scan_gc(doc_exist) {
-        deltas.push((node_idx, delta));
-    }
+    // Children before parents, matching the order fork GC emits deltas in.
     if let Some((left, right)) = tree.node(node_idx).child_indices() {
         scan_all_dfs(tree, left, doc_exist, deltas);
         scan_all_dfs(tree, right, doc_exist, deltas);
+    }
+    if let Some(delta) = tree.node(node_idx).scan_gc(doc_exist) {
+        deltas.push((node_idx, delta));
     }
 }
 

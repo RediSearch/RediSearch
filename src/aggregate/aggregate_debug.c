@@ -7,8 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "aggregate_debug.h"
+
+#include <stdbool.h>
+#include <stddef.h>
+
+#include "debug_commands.h"
 #include "module.h"
 #include "result_processor.h"
+#include "aggregate/aggregate.h"
+#include "config.h"
+#include "query_error_ffi.h"
+#include "query_flags.h"
+#include "rmalloc.h"
+#include "rmutil/args.h"
+#include "rmutil/rm_assert.h"
+#include "search_ctx.h"
+#include "shard_window_ratio.h"
+
+static const char timeoutAfterNBlockedClientError[] =
+    "TIMEOUT_AFTER_N is not supported with blocked-client timeout handling";
 
 /*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the
    coordinator. Since shard replies are always empty, the coordinator might get stuck indefinitely
@@ -20,15 +37,25 @@
 
 AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status) {
 
-  AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, status);
+  AREQ_Debug_params debug_params = parseAggregateDebugParamsCount(argv, argc, status);
   if (debug_params.debug_params_count == 0) {
     return NULL;
   }
 
-  AREQ_Debug *debug_req = rm_realloc(AREQ_New(), sizeof(*debug_req));
-  debug_req->debug_params = debug_params;
+  AREQ_Debug *debug_req = AREQ_New_AREQ_Debug(argv, argc);
+  debug_req->requestedTimeoutPolicy = debug_req->r.base.timeout.config.timeoutPolicy;
 
   AREQ *r = &debug_req->r;
+  // Point the debug tail into the request's held argv rather than the caller's, which may be
+  // freed before parseAndCompileDebug runs on a worker thread.
+  unsigned long long debug_argv_count =
+      debug_params.debug_params_count + 2;  // + `DEBUG_PARAMS_COUNT` `<count>`
+  debug_params.debug_argv = r->base.args.argv + (argc - debug_argv_count);
+  debug_req->debug_params = debug_params;
+
+  // Holds the full argv; `parseArgc` excludes the debug tail so parsing stops
+  // before it.
+  r->base.args.parseArgc = (uint32_t)(argc - debug_argv_count);
   AREQ_AddRequestFlags(r, QEXEC_F_DEBUG);
 
   return debug_req;
@@ -47,6 +74,8 @@ static bool isClusterCoord(AREQ_Debug *debug_req) {
 int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   RedisModuleString **debug_argv = debug_req->debug_params.debug_argv;
   unsigned long long debug_params_count = debug_req->debug_params.debug_params_count;
+  // The tail borrows the held argv; it must still follow the parsed arguments.
+  RS_ASSERT(debug_argv == debug_req->r.base.args.argv + debug_req->r.base.args.parseArgc);
 
   // Parse the debug params
   // For example debug_params = TIMEOUT_AFTER_N 2 [INTERNAL_ONLY]
@@ -126,54 +155,55 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid TIMEOUT_AFTER_N count");
       return REDISMODULE_ERR;
     }
+    if ((debug_req->r.reqflags & QEXEC_F_IS_AGGREGATE) &&
+        debug_req->requestedTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
+      return REDISMODULE_ERR;
+    }
     if (!isClusterCoord(debug_req)) {
       // Shard/SA: debug timeout is only supported with RETURN or FAIL (without background workers)
-      if (debug_req->r.reqConfig.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT RETURN-STRICT");
+      if (debug_req->requestedTimeoutPolicy == TimeoutPolicy_ReturnStrict) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            timeoutAfterNBlockedClientError);
         return REDISMODULE_ERR;
       }
-      if (debug_req->r.reqConfig.timeoutPolicy == TimeoutPolicy_Fail && (debug_req->r.reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N is not supported with ON_TIMEOUT FAIL if WORKERS > 0");
+      if (debug_req->requestedTimeoutPolicy == TimeoutPolicy_Fail && IsCursor(&debug_req->r)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "TIMEOUT_AFTER_N with WITHCURSOR is not supported with ON_TIMEOUT FAIL");
+        return REDISMODULE_ERR;
+      }
+      if (debug_req->requestedTimeoutPolicy == TimeoutPolicy_Fail && (debug_req->r.reqflags & QEXEC_F_RUN_IN_BACKGROUND)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
         return REDISMODULE_ERR;
       }
       // Add timeout to the shard/SA pipeline
       // Note, this will add a result processor as the downstream of the last result processor
       // (rpidnext for SA, or RPNext for cluster)
       // Take this into account when adding more debug types that are modifying the rp pipeline.
-      PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
-      AREQ_SetSkipTimeoutChecks(&debug_req->r, false);
+      PipelineAddTimeoutAfterCountClock(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
 
     } else if (internal_only) {
       // Coordinator with INTERNAL_ONLY: timeout applies only in the shard query pipeline, not the coordinator
-      if (debug_req->r.reqConfig.queryTimeoutMS == 0 && results_count == 0) {
+      if (debug_req->r.base.timeout.config.queryTimeoutMS == 0 && results_count == 0) {
           // In RESP3, timeout warning from empty shard replies is now propagated (MOD-12640).
           // In RESP2, we still need to force a timeout to avoid infinite loop.
           if (debug_req->r.protocol != 3) {
             RedisModule_Log(RSDummyContext, "debug",
                             "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
                             "to avoid infinite loop (RESP2 only)");
-            debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
-            SearchCtx_UpdateTime(debug_req->r.sctx, debug_req->r.reqConfig.queryTimeoutMS);
-            // The original TIMEOUT 0 caused skipTimeoutChecks=true. Now that we've
-            // forced a real timeout, we must re-enable timeout checking so RPNet
-            // actually respects the forced timeout.
-            AREQ_SetSkipTimeoutChecks(&debug_req->r, false);
+            debug_req->r.base.timeout.config.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
+            // This late TIMEOUT change must rearm the coordinator deadline.
+            QueryRequestTimeout_BeginCycle(&debug_req->r.base.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
           }
       }
     } else {
       // Coordinator without INTERNAL_ONLY: debug timeout only supported with RETURN policy
-      if (debug_req->r.reqConfig.timeoutPolicy != TimeoutPolicy_Return) {
-        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "TIMEOUT_AFTER_N for Coordinator is only supported with ON_TIMEOUT RETURN");
+      if (debug_req->requestedTimeoutPolicy != TimeoutPolicy_Return) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, timeoutAfterNBlockedClientError);
         return REDISMODULE_ERR;
       }
       // Add timeout to the coordinator pipeline
-      PipelineAddTimeoutAfterCount(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
-      // RPTimeoutAfterCount simulates a timeout by setting sctx->time.timeout to "now".
-      // RPNet checks skipTimeoutChecks before checking TimedOut, so we must ensure
-      // timeout checking is enabled for the simulation to be respected.
-      // This is needed when queryTimeoutMS==0 (disabled), which causes
-      // shouldCheckInPipelineTimeout to return false and skipTimeoutChecks to be true.
-      AREQ_SetSkipTimeoutChecks(&debug_req->r, false);
+      PipelineAddTimeoutAfterCountClock(AREQ_QueryProcessingCtx(&debug_req->r), AREQ_SearchCtx(&debug_req->r), results_count);
     }
     return REDISMODULE_OK;
   }
@@ -233,21 +263,12 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-AREQ_Debug_params parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status) {
+AREQ_Debug_params parseAggregateDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status) {
   AREQ_Debug_params debug_params = {0};
-  // Verify DEBUG_PARAMS_COUNT exists in its expected position
-  size_t n;
-  const char *arg = RedisModule_StringPtrLen(argv[argc - 2], &n);
-  if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
-    return debug_params;
-  }
 
-  unsigned long long debug_params_count;
-  // The count of debug params is the last argument in argv
-  if (RedisModule_StringToULongLong(argv[argc - 1], &debug_params_count) != REDISMODULE_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid DEBUG_PARAMS_COUNT count");
-    return debug_params;
+  unsigned long long debug_params_count = 0;
+  if (parseDebugParamsCount(argv, argc, status, &debug_params_count) != 0) {
+      return debug_params;
   }
 
   debug_params.debug_params_count = debug_params_count;

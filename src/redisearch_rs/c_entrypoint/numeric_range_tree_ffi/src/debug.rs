@@ -14,8 +14,8 @@
 //! - DUMP_NUMIDX: Index entries dump
 //! - DUMP_NUMIDXTREE: Tree structure dump
 
-use ffi::RedisModuleCtx;
 use numeric_range_tree::NumericRangeTree;
+use redis_module::RedisModuleCtx;
 
 /// Reply with a summary of the numeric range tree (for NUMIDX_SUMMARY).
 ///

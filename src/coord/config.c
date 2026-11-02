@@ -8,16 +8,18 @@
 */
 
 #include "config.h"
-#include "util/config_macros.h"
-#include "rmr/rmr.h"
-
-#include "rmutil/util.h"
-#include "rmutil/strings.h"
-#include "hiredis/hiredis.h"
-#include "module.h"
 
 #include <string.h>
-#include <stdlib.h>
+#include <limits.h>
+#include <stdint.h>
+
+#include "util/config_macros.h"
+#include "rmr/rmr.h"
+#include "module.h"
+#include "hiredis/sds.h"
+#include "rmutil/args.h"
+
+struct timeval;
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -321,10 +323,17 @@ static RSConfigOptions clusterOptions_g = {
 
 SearchClusterConfig clusterConfig = {0};
 
-/* Detect the cluster type, by trying to see if we are running inside RLEC.
- * If we cannot determine, we return OSS type anyway
- */
+bool RS_UsesProxyCoordination(void) {
+  return clusterConfig.type == ClusterType_RedisLabs;
+}
+
 MRClusterType DetectClusterType() {
+#ifndef RS_CLUSTER_ENTERPRISE
+  // Flex reports rlec_version even when using native OSS clustering.
+  if (RedisModule_GetContextFlags(RSDummyContext) & REDISMODULE_CTX_FLAGS_CLUSTER) {
+    return ClusterType_RedisOSS;
+  }
+#endif
   RedisModuleCallReply *r = RedisModule_Call(RSDummyContext, "INFO", "c", "SERVER");
   MRClusterType ret = ClusterType_RedisOSS;
 

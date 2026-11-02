@@ -80,4 +80,11 @@ Starting with Redis 8, RediSearch is licensed under your choice of: (i) Redis So
 
 ## Code contributions
 
-By contributing code to this Redis module in any form, including sending a pull request via GitHub, a code fragment or patch via private email or public discussion groups, you agree to release your code under the terms of the Redis Software Grant and Contributor License Agreement. Please see the CONTRIBUTING.md file in this source distribution for more information. For security bugs and vulnerabilities, please see SECURITY.md.
+Contributions are welcome — bug fixes, improvements, and new feature proposals alike, from both human and AI-assisted contributors.
+
+- **Getting started, setup, coding standards, and the PR workflow:** see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+- **Proposing a feature or other large change** (new commands, new index types, behavior or persistence changes): RediSearch uses a lightweight, framework-neutral spec-driven workflow so the design is reviewed before code is written — see [`docs/CONTRIBUTING-specs.md`](docs/CONTRIBUTING-specs.md).
+- **Coding agents:** repo conventions and the contribution workflow are summarized for automated tooling in [`AGENTS.md`](AGENTS.md).
+- **Security bugs and vulnerabilities:** see [`SECURITY.md`](SECURITY.md).
+
+By contributing code to this Redis module in any form, including sending a pull request via GitHub, a code fragment or patch via private email or public discussion groups, you agree to release your code under the terms of the Redis Software Grant and Contributor License Agreement. Please see the CONTRIBUTING.md file in this source distribution for more information.

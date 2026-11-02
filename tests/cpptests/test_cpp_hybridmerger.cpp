@@ -10,17 +10,22 @@
 
 #include "result_processor.h"
 #include "query.h"
+#include "query_request.h"
 #include "gtest/gtest.h"
+#include "search_result_ffi.h"
 #include "config.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"  // For HybridLookupContext
 #include "search_result.h"
+#include "sorting_vector_ffi.h"
 #include "hiredis/sds.h"
 #include "doc_table.h"
 
 #include <vector>
 #include <string>
 #include <set>
+#include <algorithm>
+#include <climits>
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
@@ -150,16 +155,14 @@ struct MockUpstream : public ResultProcessor {
 };
 
 // Static dummy RedisSearchCtx for tests - reused across all tests
-// The context has skipTimeoutChecks set to true to avoid timeout checks in tests
 static RedisSearchCtx* GetDummySearchCtx() {
+  static QueryRequestTimeout timeout = {};
   static RedisSearchCtx dummySctx = {
     .redisCtx = NULL,
-    .key_ = NULL,
     .spec = NULL,
-    .time = {.current = {0, 0}, .timeout = {0, 0}, .skipTimeoutChecks = true},
+    .currentTime = {0, 0},
+    .timeout = &timeout,
     .apiVersion = 0,
-    .expanded = 0,
-    .flags = RS_CTX_UNSET,
   };
   return &dummySctx;
 }
@@ -219,10 +222,10 @@ ResultProcessor* CreateLinearHybridMerger(ResultProcessor **upstreams, size_t nu
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
 
-  // Use static dummy search context for tests (with skipTimeoutChecks = true)
+  // Use static dummy search context for tests.
   RedisSearchCtx *sctx = GetDummySearchCtx();
 
-  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, dummyReturnCodes, lookupCtx);
+  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, nullptr, nullptr, dummyReturnCodes, lookupCtx, nullptr);
 }
 
 // Helper function to create hybrid merger with RRF scoring
@@ -234,15 +237,101 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
   // Create dummy return codes array for tests that don't need to track return codes
   static RPStatus dummyReturnCodes[8] = {RS_RESULT_OK}; // Static array, supports up to 8 upstreams for tests
 
-  // Use static dummy search context for tests (with skipTimeoutChecks = true)
+  // Use static dummy search context for tests.
   RedisSearchCtx *sctx = GetDummySearchCtx();
 
-  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, NULL, NULL, dummyReturnCodes, lookupCtx);
+  return RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, numUpstreams, nullptr, nullptr, dummyReturnCodes, lookupCtx, nullptr);
 }
 
 
 
 class HybridMergerTest : public ::testing::Test {};
+
+namespace {
+constexpr size_t kMaxInitialAllocation = 65536 * sizeof(void *);
+void *(*callocBeforeCapture)(size_t, size_t) = nullptr;
+size_t largestCallocRequest = 0;
+
+void *captureConstructorCalloc(size_t count, size_t size) {
+  size_t bytes = size && count > SIZE_MAX / size ? SIZE_MAX : count * size;
+  largestCallocRequest = std::max(largestCallocRequest, bytes);
+  // These tests never insert into the dictionary. Serving a smaller empty table lets the
+  // pre-fix constructor finish and report its request without exhausting memory.
+  return callocBeforeCapture(1, std::min(bytes, kMaxInitialAllocation));
+}
+
+struct CaptureConstructorAllocations {
+  CaptureConstructorAllocations() {
+    largestCallocRequest = 0;
+    callocBeforeCapture = RedisModule_Calloc;
+    RedisModule_Calloc = captureConstructorCalloc;
+  }
+  ~CaptureConstructorAllocations() {
+    RedisModule_Calloc = callocBeforeCapture;
+  }
+};
+}  // namespace
+
+TEST_F(HybridMergerTest, InitialAllocationIsBoundedForBothScoringMethods) {
+  for (bool linear : {false, true}) {
+    for (size_t window : {size_t(1), size_t(21845), size_t(21846), size_t(INT_MAX), SIZE_MAX}) {
+      SCOPED_TRACE(::testing::Message() << "linear=" << linear << " window=" << window);
+      double weights[] = {0.2, 0.3, 0.5};
+      HybridScoringContext *scoring = linear
+          ? HybridScoringContext_NewLinear(weights, 3, window)
+          : HybridScoringContext_NewRRF(60, window, false);
+      RPStatus returnCodes[3] = {RS_RESULT_OK, RS_RESULT_OK, RS_RESULT_OK};
+      auto upstreams = array_new(ResultProcessor *, 3);
+      ResultProcessor *merger;
+      {
+        CaptureConstructorAllocations capture;
+        merger = RPHybridMerger_New(GetDummySearchCtx(), scoring, upstreams, 3, nullptr, nullptr,
+                                   returnCodes, nullptr, nullptr);
+      }
+      EXPECT_LE(largestCallocRequest, kMaxInitialAllocation);
+      merger->Free(merger);
+    }
+  }
+}
+
+TEST_F(HybridMergerTest, ResultsCanGrowBeyondInitialCapacity) {
+  const size_t documentCount = 65537;
+  for (bool linear : {false, true}) {
+    SCOPED_TRACE(::testing::Message() << "linear=" << linear);
+    QueryProcessingCtx qitr = {0};
+    MockUpstream documents(0, std::vector<double>(documentCount, 1.0));
+    MockUpstream empty;
+    auto upstreams = array_new(ResultProcessor *, 2);
+    array_append(upstreams, &documents);
+    array_append(upstreams, &empty);
+    double weights[] = {0.5, 0.5};
+    HybridScoringContext *scoring = linear
+        ? HybridScoringContext_NewLinear(weights, 2, documentCount)
+        : HybridScoringContext_NewRRF(60, documentCount, false);
+    RPStatus returnCodes[2] = {RS_RESULT_OK, RS_RESULT_OK};
+    HybridLookupContext *lookup = CreateDummyLookupContext(2);
+    ResultProcessor *merger = RPHybridMerger_New(GetDummySearchCtx(), scoring, upstreams, 2,
+                                               nullptr, nullptr, returnCodes, lookup, nullptr);
+    QITR_PushRP(&qitr, merger);
+    SearchResult result = SearchResult_New();
+    std::set<t_docId> seen;
+    int status;
+    while ((status = merger->Next(merger, &result)) == RS_RESULT_OK) {
+      t_docId id = SearchResult_GetDocId(&result);
+      EXPECT_TRUE(seen.insert(id).second);
+      EXPECT_GE(id, 1);
+      EXPECT_LE(id, documentCount);
+      double expected = linear ? 0.5 : 1.0 / (60 + id);
+      EXPECT_NEAR(expected, SearchResult_GetScore(&result), 1e-12);
+      SearchResult_Clear(&result);
+    }
+    EXPECT_EQ(status, RS_RESULT_EOF);
+    EXPECT_EQ(seen.size(), documentCount);
+    SearchResult_Destroy(&result);
+    CleanupDummyLookupContext(lookup);
+    QITR_FreeChain(&qitr);
+  }
+}
 
 /*
  * Test that hybrid merger correctly merges and scores results from two upstreams with the same documents (full intersection)
@@ -1290,6 +1379,11 @@ TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
   HybridLookupContext *lookupCtx = CreateDummyLookupContext(3);
   ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 3, weights, lookupCtx);
 
+  // Attach the merger to a query processing context: like every buffering RP it
+  // reads its qctx (here, the index-result copy decision) during Next().
+  QueryProcessingCtx qitr = {0};
+  QITR_PushRP(&qitr, hybridMerger);
+
   // Process and verify that the most severe error (RS_RESULT_ERROR) is returned
   SearchResult r = SearchResult_New();
   int result;
@@ -1442,10 +1536,15 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   // Create dummy lookup context
   HybridLookupContext *lookupCtx = CreateDummyLookupContext(3);
 
-  // Use static dummy search context for tests (with skipTimeoutChecks = true)
+  // Use static dummy search context for tests.
   RedisSearchCtx *sctx = GetDummySearchCtx();
 
-  ResultProcessor *hybridMerger = RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, 3, NULL, NULL, returnCodes, lookupCtx);
+  ResultProcessor *hybridMerger = RPHybridMerger_New(sctx, hybridScoringCtx, upstreams, 3, nullptr, nullptr, returnCodes, lookupCtx, nullptr);
+
+  // Attach the merger to a query processing context: like every buffering RP it
+  // reads its qctx (here, the index-result copy decision) during Next().
+  QueryProcessingCtx qitr = {0};
+  QITR_PushRP(&qitr, hybridMerger);
 
   // Process results - this should capture the return codes
   SearchResult r = SearchResult_New();

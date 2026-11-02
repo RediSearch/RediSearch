@@ -116,8 +116,7 @@ int _nu_strcoll(const char *lhs, const char *lhs_limit,
 			if (w1 < w2) {
 				cmp = -1;
 				break;
-			}
-			else if (w1 > w2) {
+			} else if (w1 > w2) {
 				cmp = 1;
 				break;
 			}
@@ -148,8 +147,7 @@ int _nu_strcoll(const char *lhs, const char *lhs_limit,
 	if (cmp == 0) {
 		if (rp < rhs_limit && lp >= lhs_limit) {
 			cmp = -1;
-		}
-		else if (lp < lhs_limit && rp >= rhs_limit) {
+		} else if (lp < lhs_limit && rp >= rhs_limit) {
 			cmp = 1;
 		}
 	}
@@ -213,8 +211,7 @@ const char* _nu_strchr(const char *lhs, const char *lhs_limit,
 				if (u != u2) {
 					break;
 				}
-			}
-			while (u2 != 0);
+			} while (u2 != 0);
 		}
 
 		p = np;
@@ -301,8 +298,7 @@ const char* _nu_strstr(const char *haystack, const char *haystack_limit,
 		if (h0 < haystack_limit) {
 			h0 = it1(h0, 0);
 		}
-	}
-	while (h0 != 0 && h0 < haystack_limit);
+	} while (h0 != 0 && h0 < haystack_limit);
 
 	return 0;
 }

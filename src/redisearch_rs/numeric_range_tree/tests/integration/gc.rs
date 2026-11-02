@@ -28,7 +28,7 @@ fn build_tree_with_post_fork_writes(compress_floats: bool) -> (NumericRangeTree,
     let n = ENTRIES_PER_BLOCK * 2;
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=n {
-        tree.add(i, 42.0, false, 0);
+        tree.add(i, 42.0, false, false, 0);
     }
     assert!(tree.root().is_leaf());
 
@@ -40,7 +40,7 @@ fn build_tree_with_post_fork_writes(compress_floats: bool) -> (NumericRangeTree,
 
     // Simulate parent writes after fork.
     for i in (n + 1)..=(n + ENTRIES_PER_BLOCK) {
-        tree.add(i, 42.0, false, 0);
+        tree.add(i, 42.0, false, false, 0);
     }
 
     (tree, delta)
@@ -55,7 +55,7 @@ fn build_single_leaf_tree(count: u64, compress_floats: bool) -> NumericRangeTree
     for i in 1..=count {
         // Cycle through 4 distinct values to keep cardinality low.
         let value = (i % 4 + 1) as f64;
-        tree.add(i, value, false, 0);
+        tree.add(i, value, false, false, 0);
     }
     assert!(
         tree.root().is_leaf(),
@@ -260,7 +260,7 @@ fn hll_cardinality_is_recomputed_correctly_when_last_block_fully_emptied(
         } else {
             3.0
         };
-        tree.add(i, value, false, 0);
+        tree.add(i, value, false, false, 0);
     }
     assert!(tree.root().is_leaf());
     let cardinality = tree.root().range().unwrap().cardinality();
@@ -278,7 +278,7 @@ fn hll_cardinality_is_recomputed_correctly_when_last_block_fully_emptied(
     // Simulate parent writes after scan: add 1 entry with value 4.0 to
     // the last block (block 2, still has room). This changes block 2's
     // num_entries, triggering ignored_last_block = true during apply.
-    tree.add(n + 1, 4.0, false, 0);
+    tree.add(n + 1, 4.0, false, false, 0);
 
     // Apply GC delta.
     let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
@@ -309,7 +309,7 @@ fn gc_delete_all_and_repopulate(#[values(false, true)] compress_floats: bool) {
     // Mirror C `testNumericCompleteGCAndRepopulation`.
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=100u64 {
-        tree.add(i, (i % 10 + 1) as f64, false, 0);
+        tree.add(i, (i % 10 + 1) as f64, false, false, 0);
     }
     assert_eq!(tree.num_entries(), 100);
 
@@ -322,7 +322,7 @@ fn gc_delete_all_and_repopulate(#[values(false, true)] compress_floats: bool) {
 
     // Repopulate with new docs (IDs must be > last_doc_id = 100).
     for i in 101..=150u64 {
-        tree.add(i, (i % 10 + 1) as f64, false, 0);
+        tree.add(i, (i % 10 + 1) as f64, false, false, 0);
     }
     assert_eq!(tree.num_entries(), 50);
 
@@ -346,7 +346,7 @@ fn gc_intensive_alternating_deletes(#[values(false, true)] compress_floats: bool
     let n = ENTRIES_PER_BLOCK * 2;
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=n {
-        tree.add(i, 42.0, false, 0);
+        tree.add(i, 42.0, false, false, 0);
     }
     assert_eq!(tree.num_entries(), n as usize);
     assert!(tree.root().is_leaf(), "single value should not split");
@@ -457,6 +457,8 @@ fn gc_on_node_without_range() {
                 delta: delta.delta,
                 registers_with_last_block: delta.registers_with_last_block,
                 registers_without_last_block: delta.registers_without_last_block,
+                bounds_with_last_block: delta.bounds_with_last_block,
+                bounds_without_last_block: delta.bounds_without_last_block,
             },
         )
         .unwrap();
@@ -645,7 +647,7 @@ fn apply_gc_tracks_ignored_last_block(#[values(false, true)] compress_floats: bo
     let n = ENTRIES_PER_BLOCK + partial;
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=n {
-        tree.add(i, 42.0, false, 0);
+        tree.add(i, 42.0, false, false, 0);
     }
     assert!(tree.root().is_leaf());
     // Block 0: full (ENTRIES_PER_BLOCK entries)
@@ -657,7 +659,7 @@ fn apply_gc_tracks_ignored_last_block(#[values(false, true)] compress_floats: bo
 
     // Add one entry after scan → goes to block 1 (still not full),
     // changing its num_entries vs scan time.
-    tree.add(n + 1, 42.0, false, 0);
+    tree.add(n + 1, 42.0, false, false, 0);
 
     let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
 
@@ -685,7 +687,7 @@ fn apply_gc_ignored_last_block_no_delta(#[values(false, true)] compress_floats: 
     let n = ENTRIES_PER_BLOCK + partial;
     let mut tree = NumericRangeTree::new(compress_floats);
     for i in 1..=n {
-        tree.add(i, 42.0, false, 0);
+        tree.add(i, 42.0, false, false, 0);
     }
     assert!(tree.root().is_leaf());
     // Block 0: ENTRIES_PER_BLOCK entries (doc IDs 1..=ENTRIES_PER_BLOCK) — full
@@ -706,7 +708,7 @@ fn apply_gc_ignored_last_block_no_delta(#[values(false, true)] compress_floats: 
 
     // Simulate parent writes after fork: add entries to block 1 (not full).
     // Use a different value (99.0) so cardinality should increase.
-    tree.add(n + 1, 99.0, false, 0);
+    tree.add(n + 1, 99.0, false, false, 0);
 
     let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
 
@@ -760,4 +762,97 @@ fn compact_if_sparse_below_threshold_is_noop(#[values(false, true)] compress_flo
     let result = tree.compact_if_sparse();
     assert_eq!(result.inverted_index_size_delta, 0);
     assert_eq!(result.node_size_delta, 0);
+}
+
+// ============================================================================
+// Survivor bounds
+// ============================================================================
+
+/// The `(min_val, max_val)` of the range stored at `node_idx`.
+fn bounds_of(tree: &NumericRangeTree, node_idx: numeric_range_tree::NodeIndex) -> (f64, f64) {
+    let range = tree
+        .node(node_idx)
+        .range()
+        .expect("node should hold a range");
+    (range.min_val(), range.max_val())
+}
+
+#[rstest]
+fn gc_tightens_leaf_bounds_to_survivors(#[values(false, true)] compress_floats: bool) {
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for i in 1..=8 {
+        tree.add(i, i as f64, false, false, 0);
+    }
+    assert!(tree.root().is_leaf());
+
+    gc_all_ranges(&mut tree, &|doc_id| (2..=7).contains(&doc_id));
+
+    assert_eq!(bounds_of(&tree, tree.root_index()), (2.0, 7.0));
+}
+
+#[rstest]
+fn gc_resets_bounds_of_emptied_leaf(#[values(false, true)] compress_floats: bool) {
+    let mut tree = build_single_leaf_tree(10, compress_floats);
+
+    gc_all_ranges(&mut tree, &|_| false);
+
+    assert_eq!(
+        bounds_of(&tree, tree.root_index()),
+        (f64::INFINITY, f64::NEG_INFINITY)
+    );
+}
+
+/// Entries written after the fork are folded into the survivor bounds, both when
+/// they land in a new block and when they change the last scanned block (which
+/// makes the parent drop the scan's result for that block).
+#[rstest]
+fn gc_bounds_include_post_fork_writes(#[values(false, true)] last_block_changes: bool) {
+    let mut tree = NumericRangeTree::new(false);
+    // Block 0 holds only deleted documents; block 1 holds the survivors at 100.0,
+    // filled up unless the post-fork writes should append to it. The post-fork
+    // values lie below the survivors, so dropping either set shows in the bounds.
+    let block_1_len = ENTRIES_PER_BLOCK - u64::from(last_block_changes);
+    let mut doc_id = 0;
+    for value in std::iter::repeat_n(1.0, ENTRIES_PER_BLOCK as usize)
+        .chain(std::iter::repeat_n(100.0, block_1_len as usize))
+    {
+        doc_id += 1;
+        tree.add(doc_id, value, false, false, 0);
+    }
+    assert!(tree.root().is_leaf());
+
+    let delta = scan_node_delta(&tree, tree.root_index(), &|id| id > ENTRIES_PER_BLOCK)
+        .expect("block 0 should have GC work");
+    for value in [10.0, 20.0] {
+        doc_id += 1;
+        tree.add(doc_id, value, false, false, 0);
+    }
+
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
+
+    assert_eq!(result.index_gc_info.ignored_last_block, last_block_changes);
+    assert_eq!(bounds_of(&tree, tree.root_index()), (10.0, 100.0));
+}
+
+/// A range retained on an internal node is tightened too. Deltas are applied
+/// children first, so the tree invariants (checked after every apply in test
+/// builds) hold throughout: the parent never becomes narrower than a child.
+#[test]
+fn gc_tightens_retained_internal_range() {
+    let n = SPLIT_TRIGGER * 2;
+    let mut tree = build_tree(n, false, 2);
+    assert!(
+        tree.root().range().is_some(),
+        "root should retain its range"
+    );
+    assert_eq!(bounds_of(&tree, tree.root_index()), (1.0, n as f64));
+
+    gc_all_ranges(&mut tree, &|doc_id| (2..n).contains(&doc_id));
+
+    assert_eq!(bounds_of(&tree, tree.root_index()), (2.0, (n - 1) as f64));
+    let mut leftmost = tree.root_index();
+    while let Some((left, _)) = tree.node(leftmost).child_indices() {
+        leftmost = left;
+    }
+    assert_eq!(bounds_of(&tree, leftmost).0, 2.0);
 }
