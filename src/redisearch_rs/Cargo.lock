@@ -701,6 +701,7 @@ dependencies = [
  "cc",
  "document",
  "enumflags2",
+ "libc",
  "query_term",
  "query_types",
  "redis-module",
