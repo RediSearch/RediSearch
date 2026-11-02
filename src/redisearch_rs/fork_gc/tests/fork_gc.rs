@@ -73,10 +73,13 @@ fn times_out_when_no_data_available() {
 /// decodes whole and in order.
 #[test]
 fn read_ahead_fetches_many_messages_in_one_read() {
+    // Written before any read, so the batch must fit the smallest pipe a test may
+    // get (a page, under per-user pipe limits); 100 small messages take about 1 KiB.
+    const MESSAGES: u32 = 100;
     let (mut raw, pipe_reader, _pipe_writer) = make_fork_gc();
     // SAFETY: raw is a valid ffi::ForkGC for the duration of the test.
     let fgc = unsafe { ForkGC::from_ptr_mut(&mut raw) };
-    for i in 0..1000u32 {
+    for i in 0..MESSAGES {
         serialize(&mut fgc.writer(), i).unwrap();
     }
 
@@ -86,10 +89,26 @@ fn read_ahead_fetches_many_messages_in_one_read() {
             !has_bytes_waiting(&pipe_reader),
             "the first read took every message the pipe held"
         );
-        for i in 1..1000u32 {
+        for i in 1..MESSAGES {
             assert_eq!(deserialize::<u32>(&mut fgc.reader(), "next").unwrap(), i);
         }
     });
+}
+
+/// A closure that unwinds still uninstalls the buffer, so the next cycle can
+/// install its own.
+#[test]
+fn read_ahead_is_uninstalled_when_the_closure_unwinds() {
+    let (mut raw, _pipe_reader, _pipe_writer) = make_fork_gc();
+    // SAFETY: raw is a valid ffi::ForkGC for the duration of the test.
+    let fgc = unsafe { ForkGC::from_ptr_mut(&mut raw) };
+
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fgc.with_read_ahead(|_| panic!("the closure unwinds"))
+    }));
+
+    assert!(unwound.is_err());
+    assert!(raw.readBuffer.is_null());
 }
 
 /// A message larger than the read-ahead buffer still decodes, as do the small

@@ -32,6 +32,19 @@ struct ReadAhead {
     end: usize,
 }
 
+/// Owns the buffer [`ForkGC::with_read_ahead`] installs, so it is uninstalled and
+/// freed even when the closure unwinds.
+struct ReadAheadScope<'a>(&'a mut ForkGC);
+
+impl Drop for ReadAheadScope<'_> {
+    fn drop(&mut self) {
+        let buffer = std::mem::replace(&mut self.0.0.readBuffer, std::ptr::null_mut());
+        // SAFETY: `with_read_ahead` installed `buffer` from `Box::into_raw`, and no
+        // reader outlives the closure, the only code that could reach it.
+        drop(unsafe { Box::from_raw(buffer.cast::<ReadAhead>()) });
+    }
+}
+
 /// Safe wrapper around [`ffi::ForkGC`].
 #[repr(transparent)]
 pub struct ForkGC(ffi::ForkGC);
@@ -117,18 +130,14 @@ impl ForkGC {
     /// are dropped with the buffer, so `f` must consume the whole stream it reads.
     pub fn with_read_ahead<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         debug_assert!(self.0.readBuffer.is_null(), "read-ahead is not reentrant");
-        let buffer = Box::into_raw(Box::new(ReadAhead {
+        let buffer = Box::new(ReadAhead {
             data: vec![0; READ_AHEAD_SIZE].into_boxed_slice(),
             start: 0,
             end: 0,
-        }));
-        self.0.readBuffer = buffer.cast();
-        let result = f(self);
-        self.0.readBuffer = std::ptr::null_mut();
-        // SAFETY: `buffer` came from `Box::into_raw` above, and no reader outlives
-        // `f`, the only code that could reach it through `readBuffer`.
-        drop(unsafe { Box::from_raw(buffer) });
-        result
+        });
+        self.0.readBuffer = Box::into_raw(buffer).cast();
+        let scope = ReadAheadScope(self);
+        f(scope.0)
     }
 
     /// Return a weak reference to the GC's index spec.
