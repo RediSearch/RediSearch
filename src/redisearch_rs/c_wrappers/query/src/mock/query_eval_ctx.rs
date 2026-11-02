@@ -89,7 +89,8 @@ impl MockQueryEvalCtx {
             let timeout = alloc_zeroed(Layout::new::<ffi::QueryRequestTimeout>())
                 .cast::<ffi::QueryRequestTimeout>();
             assert!(!timeout.is_null());
-            (*timeout).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+            (*timeout).timeout.kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
             (*sctx).timeout = timeout;
 
             let opts =
@@ -190,7 +191,7 @@ impl MockQueryEvalCtx {
         // SAFETY: `self.timeout` is a valid, exclusively-owned allocation. Its
         // zeroed union storage represents a false blocked-client atomic flag.
         unsafe {
-            (*self.timeout).kind =
+            (*self.timeout).timeout.kind =
                 ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
         }
     }

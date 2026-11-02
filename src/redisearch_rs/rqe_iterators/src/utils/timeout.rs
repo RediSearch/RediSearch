@@ -164,7 +164,7 @@ impl TimeoutContextRequest {
     pub unsafe fn new(timeout: NonNull<QueryRequestTimeout>, granularity: u32) -> Self {
         // SAFETY: projecting a union field does not read it. The clock checker only reads
         // the field when a later probe sees CLOCK_DEADLINE as the active source.
-        let deadline = unsafe { &raw mut (*timeout.as_ptr()).source.clock.deadline };
+        let deadline = unsafe { &raw mut (*timeout.as_ptr()).timeout.source.clock.deadline };
         let deadline = NonNull::new(deadline).expect("projected from a non-null request timeout");
         // SAFETY: the caller keeps the request timeout at a stable address and changes its
         // source only between execution cycles, when no probe can run.
@@ -178,7 +178,7 @@ impl TimeoutChecker for TimeoutContextRequest {
     fn check_timeout(&mut self) -> TimeoutCheckResult {
         // SAFETY: the constructor contract keeps the request valid and its kind stable
         // for this probe. Only the active union member is accessed below.
-        match unsafe { (*self.timeout.as_ptr()).kind } {
+        match unsafe { (*self.timeout.as_ptr()).timeout.kind } {
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED => TimeoutCheckResult::Ok,
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE => {
                 TimeoutChecker::check_timeout(&mut self.clock)

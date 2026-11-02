@@ -328,11 +328,11 @@ static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, boo
 }
 
 static bool handleSendChunkError_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, const QueryError *err, int rc) {
-  if (err && ShouldReplyWithError(QueryError_GetCode(err), hreq->base.timeout.config.timeoutPolicy, IsProfile(hreq))) {
+  if (err && ShouldReplyWithError(QueryError_GetCode(err), hreq->base.timeout.timeout.config.timeoutPolicy, IsProfile(hreq))) {
     QueryErrorsGlobalStats_UpdateError(QueryError_GetCode(err), 1, COORD_ERR_WARN);
     RedisModule_Reply_Error(reply, QueryError_GetUserError(err));
     return true;
-  } else if (ShouldReplyWithTimeoutError(rc, hreq->base.timeout.config.timeoutPolicy, IsProfile(hreq))) {
+  } else if (ShouldReplyWithTimeoutError(rc, hreq->base.timeout.timeout.config.timeoutPolicy, IsProfile(hreq))) {
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, COORD_ERR_WARN);
     ReplyWithTimeoutError(reply);
     return true;
@@ -546,7 +546,7 @@ void HREQ_ReplyOrStoreError(HybridRequest *hreq, RedisModuleCtx *ctx, QueryError
     QueryError_CloneFrom(status, &hreq->base.reply.err);
     // Clear the original to avoid leaking heap-allocated strings.
     QueryError_ClearError(status);
-  } else if (!ShouldReplyWithError(QueryError_GetCode(status), hreq->base.timeout.config.timeoutPolicy, IsProfile(hreq))) {
+  } else if (!ShouldReplyWithError(QueryError_GetCode(status), hreq->base.timeout.timeout.config.timeoutPolicy, IsProfile(hreq))) {
     // Error is a timeout under a non-fail policy, which must not surface as an
     // error: reply an empty result set with the timeout warning instead.
     common_hybrid_query_reply_empty(ctx, QueryError_GetCode(status),
@@ -790,8 +790,8 @@ int HybridRequest_ReserveSubCursors(HybridRequest *req, QueryError *status) {
         RS_ASSERT(QueryError_HasError(status));
         return REDISMODULE_ERR;
       }
-      cursor->queryTimeoutMS = (size_t)areq->base.timeout.config.queryTimeoutMS;
-      cursor->queryTimeoutPolicy = areq->base.timeout.config.timeoutPolicy;
+      cursor->queryTimeoutMS = (size_t)areq->base.timeout.timeout.config.queryTimeoutMS;
+      cursor->queryTimeoutPolicy = areq->base.timeout.timeout.config.timeoutPolicy;
       cursor->query = &areq->base;
       areq->base.cursorInfo.id = cursor->id;
       areq->base.cursorInfo.cursor = cursor;
@@ -845,7 +845,7 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
 
     bool depletionTimedOut = false;
     if (rc != RS_RESULT_OK) {
-      if (rc == RS_RESULT_TIMEDOUT && req->base.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
+      if (rc == RS_RESULT_TIMEDOUT && req->base.timeout.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
         // RETURN policy: keep cursors with partial results, emit warning in reply
         depletionTimedOut = true;
       } else {
@@ -1222,7 +1222,7 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
     // Multi-threaded execution path
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(sctx->spec);
 
-    RSTimeoutPolicy timeoutPolicy = hreq->base.timeout.config.timeoutPolicy;
+    RSTimeoutPolicy timeoutPolicy = hreq->base.timeout.timeout.config.timeoutPolicy;
     RedisModuleCmdFunc replyCallback = NULL;
     RedisModuleCmdFunc timeoutCallback = NULL;
     rs_wall_clock_ms_t timeoutMS = 0;
@@ -1232,7 +1232,7 @@ static int HybridRequest_BuildPipelineAndExecute(HybridRequest *hreq, HybridPipe
           ? HybridQueryCursorReplyCallback
           : HybridQueryReplyCallback;
 
-      timeoutMS = hreq->base.timeout.config.queryTimeoutMS;
+      timeoutMS = hreq->base.timeout.timeout.config.queryTimeoutMS;
 
       if (timeoutPolicy == TimeoutPolicy_Fail) {
         timeoutCallback = HybridQueryTimeoutFailCallback;
@@ -1331,12 +1331,12 @@ void printHybridProfile(RedisModule_Reply *reply, void *ctx) {
 }
 
 static void fallbackToReturnForInlineExecution(HybridRequest *hreq) {
-  RS_ASSERT(hreq->base.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict);
-  hreq->base.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
+  RS_ASSERT(hreq->base.timeout.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict);
+  hreq->base.timeout.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
   hreq->tailPipeline->qctx.timeoutPolicy = TimeoutPolicy_Return;
   for (size_t i = 0; i < hreq->nrequests; i++) {
     AREQ *subquery = hreq->requests[i];
-    subquery->base.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
+    subquery->base.timeout.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
     subquery->pipeline.qctx.timeoutPolicy = TimeoutPolicy_Return;
   }
 }
@@ -1346,8 +1346,8 @@ static void fallbackToReturnForInlineExecution(HybridRequest *hreq) {
 static bool shouldCheckInPipelineTimeoutHybrid(RedisModuleCtx* ctx, HybridRequest *hreq) {
   // We should check for timeout in pipeline only if timeout is > 0
   // and when the policy is RETURN or the policy is FAIL, without workers.
-  return hreq->base.timeout.config.queryTimeoutMS > 0 &&
-         (hreq->base.timeout.config.timeoutPolicy == TimeoutPolicy_Return || !RunInThread(ctx));
+  return hreq->base.timeout.timeout.config.queryTimeoutMS > 0 &&
+         (hreq->base.timeout.timeout.config.timeoutPolicy == TimeoutPolicy_Return || !RunInThread(ctx));
 
 }
 
@@ -1401,7 +1401,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   cmd.search = hybridRequest->requests[SEARCH_INDEX];
   cmd.vector = hybridRequest->requests[VECTOR_INDEX];
   cmd.reqConfig = &hybridRequest->base.reqConfig;
-  cmd.timeoutConfig = &hybridRequest->base.timeout.config;
+  cmd.timeoutConfig = &hybridRequest->base.timeout.timeout.config;
   cmd.cursorConfig = &hybridRequest->base.cursorConfig;
   cmd.hybridParams = rm_calloc(1, sizeof(HybridPipelineParams));
   cmd.tailPlan = &hybridRequest->tailPipeline->ap;
@@ -1417,7 +1417,7 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   if (internal) {
     if (TimeoutConfig_ApplyCoordinatorElapsedTime(
-            &hybridRequest->base.timeout.config, hybridRequest->profileClocks.coordDispatchTime)) {
+            &hybridRequest->base.timeout.timeout.config, hybridRequest->profileClocks.coordDispatchTime)) {
       freeHybridParams(cmd.hybridParams);
       DefaultCleanup(hybridRequest);
       return replyForHybridPreExecutionTimeout(ctx, internal, profileOptions);
@@ -1425,13 +1425,13 @@ int hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     // Subqueries must use the container budget after coordinator elapsed time is deducted.
     for (size_t i = 0; i < hybridRequest->nrequests; i++) {
       AREQ *subquery = hybridRequest->requests[i];
-      subquery->base.timeout.config.queryTimeoutMS = hybridRequest->base.timeout.config.queryTimeoutMS;
+      subquery->base.timeout.timeout.config.queryTimeoutMS = hybridRequest->base.timeout.timeout.config.queryTimeoutMS;
     }
   }
 
   // Inline shard/standalone execution cannot provide RETURN_STRICT's blocked-client callback.
   // Keep every policy snapshot owned by the hybrid request on this request-local RETURN fallback.
-  if (!RunInThread(ctx) && hybridRequest->base.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  if (!RunInThread(ctx) && hybridRequest->base.timeout.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     fallbackToReturnForInlineExecution(hybridRequest);
   }
 

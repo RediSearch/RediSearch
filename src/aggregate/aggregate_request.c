@@ -610,7 +610,7 @@ static ParseAggPlanContext makeParseAggPlanContext(AREQ *req) {
     .plan = AREQ_AGGPlan(req),
     .reqflags = &req->reqflags,
     .reqConfig = &req->base.reqConfig,
-    .timeoutConfig = &req->base.timeout.config,
+    .timeoutConfig = &req->base.timeout.timeout.config,
     .searchopts = &req->searchopts,
     .prefixesOffset = &req->prefixesOffset,
     .cursorConfig = &req->base.cursorConfig,
@@ -1372,20 +1372,20 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
 
   // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
   // are disabled; the state flag drives the RESP3 MaxTimeoutCapped warning.
-  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->base.timeout.config.queryTimeoutMS)) {
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->base.timeout.timeout.config.queryTimeoutMS)) {
     req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
 
   if (IsInternal(req) &&
-      TimeoutConfig_ApplyCoordinatorElapsedTime(&req->base.timeout.config, req->profileClocks.coordDispatchTime)) {
+      TimeoutConfig_ApplyCoordinatorElapsedTime(&req->base.timeout.timeout.config, req->profileClocks.coordDispatchTime)) {
     QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
     goto error;
   }
 
   // Shard/standalone inline execution has no blocked-client timeout callback,
   // which RETURN_STRICT requires. Quietly fall back to RETURN for this request.
-  if (!IsCoordinator(req) && req->base.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict && !RunInThread(ctx)) {
-    req->base.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
+  if (!IsCoordinator(req) && req->base.timeout.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict && !RunInThread(ctx)) {
+    req->base.timeout.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
   }
 
   // Verify we got slots requested if needed
@@ -1912,7 +1912,7 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
                                             QueryError *status) {
   // Build errors go to the caller's `status`; the running pipeline reports into the request's own
   // error slot, which the reply phase reads whenever (and on whichever thread) it runs.
-  Pipeline_Initialize(&req->pipeline, req->base.timeout.config.timeoutPolicy, &req->base.reply.err);
+  Pipeline_Initialize(&req->pipeline, req->base.timeout.timeout.config.timeoutPolicy, &req->base.reply.err);
   if (!IsCoordinator(req)) {
     QueryPipelineParams params = {
       .common = {

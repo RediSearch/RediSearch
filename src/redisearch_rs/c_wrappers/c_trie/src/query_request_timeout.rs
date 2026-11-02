@@ -59,13 +59,13 @@ impl QueryRequestTimeoutHandle {
         let timeout = self.inner.get();
         // SAFETY: `from_raw` guarantees the object is live, and its cycle
         // contract makes `kind` immutable while this handle is in use.
-        let kind = unsafe { (*timeout).kind };
+        let kind = unsafe { (*timeout).timeout.kind };
         if kind != ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE {
             return None;
         }
         // SAFETY: the object is live, as above. Taking the place's address
         // reads nothing.
-        let clock = unsafe { &raw const (*timeout).source.clock };
+        let clock = unsafe { &raw const (*timeout).timeout.source.clock };
         // SAFETY: `kind` selects `clock` as the active union member, and the
         // cycle contract keeps its deadline immutable. Reading only this field
         // leaves the non-atomic counter and the atomic marker untouched.

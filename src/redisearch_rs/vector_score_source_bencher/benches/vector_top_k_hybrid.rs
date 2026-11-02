@@ -145,7 +145,7 @@ fn run_rust(
     // storage alive and UNARMED until `source` is dropped.
     let timeout = UnsafeCell::new(unsafe { std::mem::zeroed::<QueryRequestTimeout>() });
     unsafe {
-        (*timeout.get()).kind = QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
+        (*timeout.get()).timeout.kind = QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
     }
 
     // SAFETY: `index` and `timeout` live for the duration of this benchmark invocation.

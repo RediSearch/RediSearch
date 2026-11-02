@@ -131,6 +131,23 @@ typedef enum {
   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE,  // Execution thread checks a monotonic deadline.
 } QueryRequestTimeoutKind;
 
+/** Timeout configuration and the active source. */
+typedef struct QueryRequestTimeoutState {
+  TimeoutConfig config;
+
+  // The active source is changed only between execution cycles, while no
+  // consumer can observe the union.
+  QueryRequestTimeoutKind kind;
+  union {
+    RS_Atomic(bool) blockedClientTimedOut;
+    struct {
+      struct timespec deadline;
+      // Shared by all amortized timeout callers during the clock cycle.
+      uint8_t counter;
+    } clock;
+  } source;
+} QueryRequestTimeoutState;
+
 /** Cycle-scoped memory-limit state. */
 typedef struct QueryRequestMemoryState {
   // Set when process memory crossed the out-of-memory threshold.
@@ -168,20 +185,7 @@ typedef struct QueryRequestMemoryState {
  * pointer, and foreign-language handle borrowed from this object.
  */
 typedef struct QueryRequestTimeout {
-  TimeoutConfig config;
-
-  // The active source is changed only between execution cycles, while no
-  // consumer can observe the union.
-  QueryRequestTimeoutKind kind;
-  union {
-    RS_Atomic(bool) blockedClientTimedOut;
-    struct {
-      struct timespec deadline;
-      // Shared by all amortized timeout callers during the clock cycle.
-      uint8_t counter;
-    } clock;
-  } source;
-
+  QueryRequestTimeoutState timeout;
   QueryRequestMemoryState memory;
 } QueryRequestTimeout;
 
@@ -436,7 +440,7 @@ static inline int QueryRequest_GetExecutionPhase(const QueryRequest *request) {
 // Execution phases attribute blocked-client timeout callbacks. Other timeout
 // sources do not use them, and a published timeout freezes the observed phase.
 static inline void QueryRequest_SetExecutionPhase(QueryRequest *request, int phase) {
-  if (request->timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT &&
+  if (request->timeout.timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT &&
       !QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
     QueryRequestAsyncState_SetExecutionPhase(&request->async, phase);
   }

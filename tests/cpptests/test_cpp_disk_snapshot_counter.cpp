@@ -288,7 +288,7 @@ TEST_F(HybridStartCursorsTest, SuccessfulDepletionReleasesUpstreamAndSnapshotBef
 TEST_F(HybridStartCursorsTest, PartialTimeoutUnderReturnPolicyKeepsTheChainForTheTeardown) {
   // In-flight disk reads are drained when the iterators are freed, which must not delay the reply.
   upstreamRc = RS_RESULT_TIMEDOUT;
-  hybrid.base.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
+  hybrid.base.timeout.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
   ASSERT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
   EXPECT_FALSE(released());
   EXPECT_TRUE(freedIds.empty());

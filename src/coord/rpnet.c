@@ -115,7 +115,7 @@ static RSValue *MRReply_ToValue(MRReply *r) {
 static const struct timespec *getAbsTimeout(const RPNet *nc) {
   RS_ASSERT(nc->areq);
   if (nc->hybridSubquery == RPNET_HYBRID_NONE ||
-      nc->areq->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
+      nc->areq->base.timeout.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
     return NULL;
   }
   return QueryRequestTimeout_GetClockDeadline(&nc->areq->base.timeout);
@@ -168,7 +168,7 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   if (nc->profileBreakdown) accumulateSince(&nc->breakdown.freeTime, &freeStart);
   RPNet_resetCurrent(nc);
 
-  if (shard_timed_out && nc->areq->base.timeout.config.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
+  if (shard_timed_out && nc->areq->base.timeout.timeout.config.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -209,7 +209,7 @@ static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
   switch (QueryWarningCode_GetCodeFromMessage(warning_str)) {
     case QUERY_WARNING_CODE_TIMED_OUT:
       nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
-      if (nc->areq->base.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
+      if (nc->areq->base.timeout.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
         return RS_RESULT_TIMEDOUT;
       }
       break;
@@ -394,7 +394,7 @@ int getNextReply(RPNet *nc) {
   QueryRequestTimeout *timeout = &nc->areq->base.timeout;
   const struct timespec *deadline = getAbsTimeout(nc);
   RS_Atomic(bool) *abortFlag =
-      timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+      timeout->timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
           ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
           : NULL;
   bool popTimedOut = false;
@@ -634,7 +634,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   while (!root) {
     // RETURN_STRICT uses the blocked-client source, so only clock-based cycles
     // reach this check.
-    if (areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+    if (areq->base.timeout.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
         QueryRequestTimeout_IsTimedOutExact(&areq->base.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
@@ -665,7 +665,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       // TODO - use should_return_error after it is changed to support RequestConfig ptr
       if (errCode == QUERY_ERROR_CODE_GENERIC ||
           errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
-          ((errCode == QUERY_ERROR_CODE_TIMED_OUT) && nc -> areq ->base.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) ||
+          ((errCode == QUERY_ERROR_CODE_TIMED_OUT) && nc -> areq ->base.timeout.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) ||
           ((errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) && nc -> areq ->base.reqConfig.oomPolicy == OomPolicy_Fail)) {
         // The shard reply already contains the prefixed error string — set it directly
         // without re-prefixing via QueryError_SetError.

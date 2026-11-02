@@ -122,7 +122,8 @@ impl MockContext {
 
             // Initialize RedisSearchCtx
             (*sctx_ptr).spec = spec_ptr;
-            (*timeout_ptr).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+            (*timeout_ptr).timeout.kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
             (*sctx_ptr).timeout = timeout_ptr;
 
             // Initialize QueryEvalCtx
