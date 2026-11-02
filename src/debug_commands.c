@@ -57,6 +57,7 @@
 #include "concurrent_ctx.h"
 #include "config.h"
 #include "doc_table.h"
+#include "deleted_docs_ffi.h"
 #include "field_spec.h"
 #include "geometry/geometry_types.h"
 #include "hiredis/sds.h"
@@ -3895,6 +3896,10 @@ DEBUG_COMMAND(GetMaxDocId) {
   return REDISMODULE_OK;
 }
 
+static void replyDeletedId(void *ctx, t_docId id) {
+  RedisModule_ReplyWithLongLong(ctx, id);
+}
+
 // FT.DEBUG DUMP_DELETED_IDS INDEX_NAME
 DEBUG_COMMAND(DumpDeletedIds) {
   if (!debugCommandsEnabled(ctx)) {
@@ -3935,8 +3940,13 @@ DEBUG_COMMAND(DumpDeletedIds) {
       }
       rm_free(buffer);
     }
+  } else if (sctx->spec->docs.deletedDocs) {
+    // The THREAD GC policy tracks an in-memory index's deleted IDs until a cycle collects them.
+    const struct DeletedDocs *deleted = sctx->spec->docs.deletedDocs;
+    RedisModule_ReplyWithArray(sctx->redisCtx, DeletedDocs_Len(deleted));
+    DeletedDocs_ForEach(deleted, replyDeletedId, sctx->redisCtx);
   } else {
-    // In-memory index - we do not hold a deleted-ids set here, so we return an empty array
+    // Other in-memory indexes hold no deleted-ids set, so we return an empty array
     RedisModule_ReplyWithEmptyArray(sctx->redisCtx);
   }
 
