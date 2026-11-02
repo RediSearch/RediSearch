@@ -29,7 +29,7 @@ use crate::{QueryEvalContext, disk};
 unsafe extern "C" {
     /// The amortized query memory checkpoint; see `QueryMemory_ShouldStop` in `query_memory.h`.
     /// A null `timeout` is accepted by the C side, `counter` must not be.
-    fn QueryMemory_ShouldStop(timeout: *mut ffi::QueryRequestTimeout, counter: *mut u32) -> bool;
+    fn QueryMemory_ShouldStop(timeout: *mut ffi::QueryRequestLimits, counter: *mut u32) -> bool;
 }
 
 /// Whether the query should stop for memory pressure (or an earlier stop), ending an
@@ -49,7 +49,7 @@ pub(crate) fn memory_stop(ctx: &mut QueryEvalContext) -> bool {
     {
         return false;
     }
-    let timeout = ctx.sctx().timeout;
+    let timeout = ctx.sctx().limits;
     // SAFETY: the counter is a live `u32` and `timeout` is the request's own, or null.
     unsafe { QueryMemory_ShouldStop(timeout, ctx.memory_counter_mut()) }
 }

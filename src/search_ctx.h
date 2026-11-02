@@ -21,7 +21,7 @@
 extern "C" {
 #endif
 
-struct QueryRequestTimeout;
+struct QueryRequestLimits;
 
 #if defined(__FreeBSD__)
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
@@ -40,7 +40,7 @@ typedef struct RedisSearchCtx {
   struct timespec currentTime;
   // Borrowed request timeout, wired when the request adopts this search context.
   // NULL when there is no owning request.
-  struct QueryRequestTimeout *timeout;
+  struct QueryRequestLimits *limits;
   uint8_t apiVersion; // API Version to allow for backward compatibility / alternative functionality
   // Per-query disk snapshot (optional, NULL when no snapshot has been taken or when the
   // backing index has no disk component). Used by the disk-iterator construction paths
@@ -66,7 +66,7 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .redisCtx = ctx,
                           .spec = sp,
                           .currentTime = { 0, 0 },
-                          .timeout = NULL,
+                          .limits = NULL,
                           .diskSnapshot = NULL,};
   return sctx;
 }

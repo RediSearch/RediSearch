@@ -97,9 +97,9 @@ TEST_F(ResultProcessorTest, sorterEndsOnABlockedClientTimeoutAfterAnOomStop) {
   // Under ON_OOM RETURN a sorter keeps filling past an OOM stop; a blocked-client timeout that
   // fires meanwhile ends the fill, since its callback waits for this worker.
   TimeoutConfig config = {1000, TimeoutPolicy_ReturnStrict};
-  QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, &config);
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits timeout = {};
+  QueryRequestLimits_Init(&timeout, &config);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryProcessingCtx qitr = {0};
   qitr.timeout = &timeout;
   qitr.timeoutPolicy = TimeoutPolicy_ReturnStrict;
@@ -115,8 +115,8 @@ TEST_F(ResultProcessorTest, sorterEndsOnABlockedClientTimeoutAfterAnOomStop) {
   ResultProcessor *sorter = RPSorter_NewByScore(NUM_RESULTS, NULL);
   QITR_PushRP(&qitr, sorter);
 
-  QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM);
-  QueryRequestTimeout_MarkTimedOut(&timeout);
+  QueryRequestLimits_RequestMemoryStop(&timeout);
+  QueryRequestLimits_MarkTimedOut(&timeout);
   SearchResult r = SearchResult_New();
   EXPECT_EQ(sorter->Next(sorter, &r), RS_RESULT_TIMEDOUT);
   EXPECT_EQ(p->counter, 1);
