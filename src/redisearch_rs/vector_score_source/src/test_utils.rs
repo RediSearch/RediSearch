@@ -85,7 +85,7 @@ impl TestIndex {
         }));
         // Keep the intended state explicit rather than depending only on the enum's numeric value.
         unsafe {
-            (*timeout.get()).kind = QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
+            (*timeout.get()).timeout.kind = QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
         }
         Self {
             index,

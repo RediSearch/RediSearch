@@ -1262,7 +1262,7 @@ impl TestContext {
             Box::new(unsafe { std::mem::zeroed::<ffi::QueryRequestTimeout>() })
         });
 
-        request_timeout.kind = if skip_checks {
+        request_timeout.timeout.kind = if skip_checks {
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED
         } else {
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
@@ -1273,8 +1273,8 @@ impl TestContext {
         // timeout remains at a stable address until after `sctx` is freed.
         unsafe {
             if !skip_checks {
-                request_timeout.source.clock.deadline = timeout;
-                request_timeout.source.clock.counter = 0;
+                request_timeout.timeout.source.clock.deadline = timeout;
+                request_timeout.timeout.source.clock.counter = 0;
             }
             self.sctx.as_mut().timeout = request_timeout.as_mut();
         }

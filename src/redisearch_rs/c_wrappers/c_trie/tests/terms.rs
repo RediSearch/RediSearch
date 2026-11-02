@@ -36,8 +36,8 @@ fn trie_term(term: &str) -> TrieTerm {
 fn clock_timeout(deadline: ffi::timespec) -> ffi::QueryRequestTimeout {
     // SAFETY: every field in the C timeout struct accepts an all-zero value.
     let mut timeout: ffi::QueryRequestTimeout = unsafe { mem::zeroed() };
-    timeout.kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
-    timeout.source.clock.deadline = deadline;
+    timeout.timeout.kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+    timeout.timeout.source.clock.deadline = deadline;
     timeout
 }
 
@@ -330,8 +330,9 @@ fn retained_timeout_handle_follows_source_changes_between_walks() {
         // SAFETY: the walk above is complete, so the handle is not currently being used by C.
         // The `UnsafeCell`-backed handle permits C-owned state to change between operations.
         unsafe {
-            (*timeout_ptr).source.blockedClientTimedOut = true;
-            (*timeout_ptr).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
+            (*timeout_ptr).timeout.source.blockedClientTimedOut = true;
+            (*timeout_ptr).timeout.kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
         }
         let mut blocked_client_hits = HashSet::new();
         trie.iterate_contains(&runes, true, true, Some(timeout_handle), |term, _| {
@@ -345,9 +346,10 @@ fn retained_timeout_handle_follows_source_changes_between_walks() {
 
         // SAFETY: as above, the previous walk is complete before selecting the clock member.
         unsafe {
-            (*timeout_ptr).source.clock.deadline = deadline;
-            (*timeout_ptr).source.clock.counter = 0;
-            (*timeout_ptr).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+            (*timeout_ptr).timeout.source.clock.deadline = deadline;
+            (*timeout_ptr).timeout.source.clock.counter = 0;
+            (*timeout_ptr).timeout.kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
         }
         let mut rearmed_clock_hits = HashSet::new();
         trie.iterate_contains(&runes, true, true, Some(timeout_handle), |term, _| {

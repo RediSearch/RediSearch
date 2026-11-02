@@ -641,7 +641,7 @@ static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
   }
 
   subqueryRequest->base.reqConfig = *parsedCmdCtx->reqConfig;
-  subqueryRequest->base.timeout.config = *parsedCmdCtx->timeoutConfig;
+  subqueryRequest->base.timeout.timeout.config = *parsedCmdCtx->timeoutConfig;
 
   // Copy max results limits
   subqueryRequest->maxSearchResults = maxHybridResults;

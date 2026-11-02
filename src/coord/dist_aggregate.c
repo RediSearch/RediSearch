@@ -699,7 +699,7 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(req)->rootProc;
   // STRICT serializes on the main thread after the worker hands off the pipeline.
   // Collect available profiles without waiting for shards that may need this thread.
-  if (req->base.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  if (req->base.timeout.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     rpnet->drainOnly = true;
   }
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {

@@ -710,7 +710,7 @@ static int HybridRequest_prepareForExecution(HybridRequest *hreq,
     cmd.hybridParams = &hybridParams;
     cmd.tailPlan = &hreq->tailPipeline->ap;
     cmd.reqConfig = &hreq->base.reqConfig;
-    cmd.timeoutConfig = &hreq->base.timeout.config;
+    cmd.timeoutConfig = &hreq->base.timeout.timeout.config;
     cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
 
     // Only detects the profile prefix; nothing borrows from the job's argv here.

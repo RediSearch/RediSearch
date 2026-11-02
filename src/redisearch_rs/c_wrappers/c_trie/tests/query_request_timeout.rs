@@ -25,7 +25,7 @@ use c_trie::QueryRequestTimeoutHandle;
 const fn timeout_of_kind(kind: ffi::QueryRequestTimeoutKind) -> ffi::QueryRequestTimeout {
     // SAFETY: every field in the C timeout struct accepts an all-zero value.
     let mut timeout: ffi::QueryRequestTimeout = unsafe { mem::zeroed() };
-    timeout.kind = kind;
+    timeout.timeout.kind = kind;
     timeout
 }
 
@@ -33,7 +33,7 @@ const fn timeout_of_kind(kind: ffi::QueryRequestTimeoutKind) -> ffi::QueryReques
 fn clock_deadline_is_reported_for_a_clock_cycle() {
     let mut timeout =
         timeout_of_kind(ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-    timeout.source.clock.deadline = ffi::timespec {
+    timeout.timeout.source.clock.deadline = ffi::timespec {
         tv_sec: 12,
         tv_nsec: 34,
     };
