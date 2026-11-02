@@ -289,24 +289,12 @@ static void RP_HoldStop(const ResultProcessor *rp) {
   if (rp->parent->limits && QueryRequestLimits_IsMemoryStopped(rp->parent->limits)) {
     rp->parent->oomCut = true;
   }
-  return reason;
 }
 
-// Whether an upstream stage holds rows past a stop. A cursor read clears the stop flag, so a hold
-// from an earlier read shows only in oomCut, which outlives the reads.
+// Whether an upstream stage holds rows past a memory stop. The stop lasts the whole request.
 static bool RP_UpstreamHold(const ResultProcessor *rp) {
-  const QueryRequestLimits *timeout = rp->parent->limits;
-  return timeout && (rp->parent->oomCut || QueryRequestLimits_IsMemoryStopped(timeout));
-}
-
-/*
- * A stop request lasts one cycle, but a buffered prefix may be yielded over several cursor reads.
- * The read that yields its end requests the stop again, so that read replies the stop's outcome.
- */
-static void RP_RenewStop(const ResultProcessor *rp, QueryStopReason reason) {
-  if (reason != QUERY_STOP_REASON_NONE) {
-    QueryRequestLimits_RequestStop(rp->parent->limits, reason);
-  }
+  const QueryRequestLimits *limits = rp->parent->limits;
+  return limits && QueryRequestLimits_IsMemoryStopped(limits);
 }
 
 /*
@@ -1297,8 +1285,6 @@ typedef struct RPSafeLoader {
   // avoidance handshake around the GIL (see aggregate.h).
   QueryRequest *request;
 
-  // Why the buffer or load stopped, when a stop request ended it.
-  QueryStopReason stopReason;
   // QueryMemory_ShouldStop counters for the buffer and for the values loaded under the GIL.
   uint32_t bufferMemoryCheckCalls;
   uint32_t loadMemoryCheckCalls;
@@ -1382,10 +1368,6 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 
   int rc = self->last_buffered_rc;
   self->last_buffered_rc = RS_RESULT_OK;
-  if (rc == RS_RESULT_TIMEDOUT) {
-    RP_RenewStop(&self->base_loader.base, self->stopReason);
-  }
-  self->stopReason = QUERY_STOP_REASON_NONE;
   // We CANNOT return `RS_RESULT_OK` HERE, since it will be interpreted as a
   // success while no population of the result was done.
   // So if the last rc was `RS_RESULT_OK`, we need to continue activating the
@@ -1417,7 +1399,7 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
       // The loaded prefix is yielded; the yield phase then ends on the stop.
       stopped = true;
       self->last_buffered_rc = RS_RESULT_TIMEDOUT;
-      self->stopReason = RP_HoldStop(&self->base_loader.base);
+      RP_HoldStop(&self->base_loader.base);
     }
     if (stopped) {
       // An empty slot, which the yield phase skips. Not counted in skippedResults: the row still
@@ -1508,7 +1490,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   }
   // save the last buffered result code to return when we done yielding the buffered results.
   self->last_buffered_rc = result_status;
-  self->stopReason = RP_HoldStop(rp);
+  RP_HoldStop(rp);
 
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
@@ -1731,7 +1713,6 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   sl->last_buffered_rc = RS_RESULT_OK;
   sl->request = NULL;
-  sl->stopReason = QUERY_STOP_REASON_NONE;
   sl->bufferMemoryCheckCalls = 0;
   sl->loadMemoryCheckCalls = 0;
 
