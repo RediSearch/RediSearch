@@ -130,7 +130,8 @@ def wait_ready(client, args, count):
         if (int(info.get("num_docs", 0)) == count
                 and int(info.get("indexing", 0)) == 0
                 and int(backend.get("INDEX_SIZE", -1)) == count
-                and int(frontend.get("INDEX_SIZE", 0)) == 0):
+                and int(frontend.get("INDEX_SIZE", 0)) == 0
+                and int(vec.get("BACKGROUND_INDEXING", 0)) == 0):
             if int(info.get("hash_indexing_failures", 0)):
                 raise ValueError("document indexing failures reported by FT.INFO")
             return
@@ -157,7 +158,6 @@ def prepare(client, args, bundle):
         if (doc_id + 1) % 500 == 0:
             pipe.execute()
     pipe.execute()
-    client.execute_command("_FT.DEBUG", "WORKERS", "DRAIN")
     wait_ready(client, args, len(bundle.vectors))
     metadata = {"bundle_id": bundle.bundle_id, "prefix": args.prefix,
                 "graph_id": args.graph_id or str(uuid.uuid4()), "engine": args.engine,

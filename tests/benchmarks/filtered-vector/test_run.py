@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import redis
@@ -100,6 +101,21 @@ class RunnerTests(unittest.TestCase):
             retry.call_with_retry(fail, lambda error: None)
         self.assertEqual(len(attempts), 1)
         client.close()
+
+    def test_readiness_waits_for_background_indexing(self):
+        class Client:
+            polls = 0
+
+            def execute_command(self, *command):
+                if command[0] == "FT.INFO":
+                    return [b"num_docs", 2, b"indexing", 0]
+                self.polls += 1
+                return [b"INDEX_SIZE", 2, b"BACKGROUND_INDEXING", int(self.polls == 1)]
+
+        client = Client()
+        with patch.object(run.time, "sleep"):
+            run.wait_ready(client, self.args, 2)
+        self.assertEqual(client.polls, 2)
 
 
 if __name__ == "__main__":
