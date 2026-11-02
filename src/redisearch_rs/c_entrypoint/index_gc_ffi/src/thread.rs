@@ -9,7 +9,8 @@
 
 //! C ABI entrypoint for the in-process GC driver.
 
-use index_gc::{ForkPipe, GcError, thread::run_cycle};
+use index_gc::{GcError, thread::run_cycle};
+use index_spec::IndexSpecWeakRef;
 use tracing::Level;
 use tracing_log_error::log_error;
 
@@ -25,20 +26,25 @@ use crate::ForkGCError;
 ///
 /// # Safety
 ///
-/// 1. `gc` must point to a valid [`ffi::IndexGC`] that nothing else references for
-///    the duration of this call: in particular no other GC cycle runs on it. The
-///    main thread's deletion counter is an atomic the C side updates in place, not
-///    a reference to the struct.
+/// 1. `gc` must point to a valid [`ffi::IndexGC`] on which no other GC cycle runs
+///    for the duration of this call. The main thread may update its deletion
+///    counter meanwhile, so this call borrows only the fields it uses.
 /// 2. The calling thread must not hold any spec lock.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ThreadGC_runScanners(gc: *mut ffi::IndexGC) -> ForkGCError {
     debug_assert!(!gc.is_null(), "ThreadGC_runScanners needs a GC");
-    // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkPipe::from_ptr_mut(gc) };
-    let mut spec = fgc.index_spec();
-    let clean_numeric_empty_nodes = fgc.clean_numeric_empty_nodes();
+    // SAFETY: (1) `gc` is valid, and the field is read in place, without a reference
+    // to the struct.
+    let index = unsafe { (*gc).index };
+    // SAFETY: `index` is a valid WeakRef for as long as the GC exists.
+    let mut spec = unsafe { IndexSpecWeakRef::from_raw(index) };
+    // SAFETY: as for `index`.
+    let clean_numeric_empty_nodes = unsafe { (*gc).cleanNumericEmptyNodes } != 0;
+    // SAFETY: (1) no other cycle touches the stats while this one runs, and the main
+    // thread's updates go to other fields.
+    let stats = unsafe { &mut (*gc).stats };
 
-    match run_cycle(&mut spec, fgc, clean_numeric_empty_nodes) {
+    match run_cycle(&mut spec, stats, clean_numeric_empty_nodes) {
         Ok(report) => {
             tracing::debug!(
                 read_locks = report.read_locks,
