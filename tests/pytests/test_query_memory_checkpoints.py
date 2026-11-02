@@ -764,10 +764,11 @@ def test_coordinator_withcount_depleter_stop_rebases_the_total(env):
     Only the depleter's own stop rebases it on the rows it holds. Pressure is armed on the
     coordinator process only and swept over every checkpoint call of one run, so the test does
     not depend on which call is the depleter's: every stopped reply is bounded, and at least one
-    (the depleter's) counts exactly the rows it returns."""
+    (the depleter's, holding fewer rows than FILTER_BOUND) counts exactly the rows it returns."""
     create_index(env)
+    FILTER_BOUND = 5
     query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'LIMIT', 0, N_DOCS,
-             'FILTER', '@n < 5')
+             'FILTER', f'@n < {FILTER_BOUND}')
     # Calls are counted only while a position is armed; an unreachable one measures the run.
     memory_pressure(env, 'AT_CALL', 2**62)
     try:
@@ -785,7 +786,10 @@ def test_coordinator_withcount_depleter_stop_rebases_the_total(env):
             stopped += 1
             env.assertLessEqual(len(res['results']), res['total_results'], message=(n, res))
             env.assertLessEqual(res['total_results'], N_DOCS, message=(n, res))
-            rebased += res['total_results'] == len(res['results'])
+            # Equality with all FILTER_BOUND rows is reachable without the rebase (all rows
+            # were already read), so only a partial depletion proves it.
+            rebased += (res['total_results'] == len(res['results'])
+                        and len(res['results']) < FILTER_BOUND)
     env.assertGreater(stopped, 0)
     env.assertGreater(rebased, 0)
 
