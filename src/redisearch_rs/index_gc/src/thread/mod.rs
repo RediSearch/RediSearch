@@ -48,9 +48,10 @@ use std::{collections::HashSet, ffi::CString, ops::RangeInclusive, time::Instant
 use c_trie::TrieTerm;
 use deleted_docs::{DeletedDocs, RoaringTreemap};
 use index_spec::{IndexSpecReadGuard, IndexSpecWeakRef, IndexSpecWriteGuard};
-use inverted_index::{DocId, DocLiveness, opaque::InvertedIndex};
+use inverted_index::{DocId, opaque::InvertedIndex};
 use numeric_range_tree::NodeIndex;
 
+use crate::liveness::GoneIds;
 use crate::{
     GcApplyStats, GcError,
     scanners::existing_docs::{
@@ -140,39 +141,6 @@ pub struct LockReport {
     pub max_write_hold: std::time::Duration,
 }
 
-/// The documents deleted before a cycle began, as the cycle's only source of
-/// liveness: a borrowed copy of the doc table's set, so a check needs no doc
-/// table and no lock. Documents deleted later are left for the next cycle.
-///
-/// This rests on two facts about doc IDs: one is never reused, and a document's
-/// entries are all written before its ID can be deleted (both under the spec
-/// write lock), so a listed ID neither comes back nor gains entries the cycle
-/// could miss.
-#[derive(Debug, Clone, Copy)]
-pub struct DeletedIds<'a>(&'a RoaringTreemap);
-
-impl<'a> DeletedIds<'a> {
-    /// Answer liveness questions from `ids`, the IDs known gone.
-    pub const fn new(ids: &'a RoaringTreemap) -> Self {
-        Self(ids)
-    }
-}
-
-impl DocLiveness for DeletedIds<'_> {
-    fn exists(&self, id: DocId) -> bool {
-        !self.0.contains(id)
-    }
-
-    fn any_gone(&self, first: DocId, last: DocId) -> bool {
-        // Seek to the first gone ID at or after `first` rather than count the range: a
-        // count ranks inside every container it touches, which on a dense bitmap
-        // container is a scan of its words.
-        let mut ids = self.0.iter();
-        ids.advance_to(first);
-        ids.next().is_some_and(|id| id <= last)
-    }
-}
-
 /// The doc IDs a scanned index's last block spanned when it was copied: what a
 /// denied delta leaves uncollected.
 type Tail = Option<RangeInclusive<DocId>>;
@@ -181,7 +149,12 @@ struct Driver<'a, 'd, S, G> {
     spec: &'a mut S,
     sink: &'a mut G,
     report: LockReport,
-    deleted: DeletedIds<'d>,
+    /// The documents deleted before the cycle began, copied from the doc table's set,
+    /// so a check needs no doc table and no lock. This rests on two facts about doc
+    /// IDs: one is never reused, and a document's entries are all written before its
+    /// ID can be deleted (both under the spec write lock), so a listed ID neither
+    /// comes back nor gains entries the cycle could miss.
+    deleted: &'d GoneIds,
     /// Deleted IDs this cycle could not collect every entry of; they stay in the set.
     retained: RoaringTreemap,
 }
@@ -525,12 +498,13 @@ pub fn run_cycle(
         Some(dead) if !dead.is_empty() => dead,
         _ => return Ok(report),
     };
+    let gone = GoneIds::from_set(dead);
 
     let mut driver = Driver {
         spec,
         sink,
         report,
-        deleted: DeletedIds(&dead),
+        deleted: &gone,
         retained: RoaringTreemap::new(),
     };
 
@@ -548,7 +522,7 @@ pub fn run_cycle(
         retained,
         ..
     } = driver;
-    let mut collected = dead;
+    let mut collected = gone.into_set();
     collected -= retained;
     let held = spec
         .with_write(|guard| {
