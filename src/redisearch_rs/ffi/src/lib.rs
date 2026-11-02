@@ -108,9 +108,9 @@ pub struct QueryProcessingCtx {
     /// value, so any qctx that is zero-initialized outside the constructor
     /// (`{0}`, `calloc`, `memset`) keeps copying. Skipping is opt-in.
     pub skipIndexResultDeepCopy: bool,
-    /// The owning request's timeout state. Its stop request tells buffering
-    /// processors why their upstream stopped. Null for a pipeline without a
-    /// request.
+    /// The owning request's limits. Its memory stop is sticky for the request
+    /// and tells buffering processors their upstream stopped for memory rather
+    /// than a timeout. Null for a pipeline without a request.
     pub limits: *mut QueryRequestLimits,
     /// The owning request's ON_OOM policy, applied by buffering processors to
     /// a stop for memory pressure.
