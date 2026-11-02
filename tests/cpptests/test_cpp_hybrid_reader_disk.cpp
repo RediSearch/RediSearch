@@ -30,7 +30,7 @@
 // vecsimTimeoutCallback is a global function pointer in vector_top_k.c, deliberately kept
 // non-static so tests can swap it to simulate timeouts.
 extern "C" {
-extern int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout);
+extern int (*vecsimTimeoutCallback)(QueryRequestLimits *timeout);
 }
 
 // operator delete reads obj->allocator after destruction; keep the allocator's shared_ptr alive across delete.
@@ -185,7 +185,7 @@ protected:
 
         QueryIterator *iter = NewVectorTopKIterator(
             (VecSimIndex *)index, queryVec.data(), sizeof(queryVec), &qParams, k,
-            /*can_trim_deep_results*/ true, &child->base, mockCtx->sctx.timeout,
+            /*can_trim_deep_results*/ true, &child->base, mockCtx->sctx.limits,
             &mockCtx->sctx, &filterCtx);
         return {index, iter, child};
     }
@@ -318,7 +318,7 @@ TEST_F(HybridReaderDiskTest, TimeoutReturnsTimedOut) {
 
     // Swap the global timeout callback to simulate a timeout on every check.
     auto *saved = vecsimTimeoutCallback;
-    vecsimTimeoutCallback = [](QueryRequestTimeout *) -> int { return 1; };
+    vecsimTimeoutCallback = [](QueryRequestLimits *) -> int { return 1; };
 
     EXPECT_EQ(it->Read(it), ITERATOR_TIMEOUT);
 

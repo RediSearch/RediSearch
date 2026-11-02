@@ -147,7 +147,7 @@ class ParseHybridTest : public ::testing::Test {
     result.tailPlan = &hybridRequest->tailPipeline->ap;
     result.hybridParams = &hybridParams;
     result.reqConfig = &hybridRequest->base.reqConfig;
-    result.timeoutConfig = &hybridRequest->base.timeout.config;
+    result.timeoutConfig = &hybridRequest->base.limits.timeout.config;
     result.cursorConfig = &hybridRequest->base.cursorConfig;
     result.coordDispatchTime = &hybridRequest->profileClocks.coordDispatchTime;
   }
@@ -193,8 +193,8 @@ TEST_F(ParseHybridTest, testBasicValidInput) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
-  ASSERT_EQ(result.search->base.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
-  ASSERT_EQ(result.vector->base.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.search->base.limits.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.vector->base.limits.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
 
   // Verify dialect is set to default
   ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 2);
@@ -213,8 +213,8 @@ TEST_F(ParseHybridTest, testValidInputWithParams) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set to default
-  ASSERT_EQ(result.search->base.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
-  ASSERT_EQ(result.vector->base.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.search->base.limits.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
+  ASSERT_EQ(result.vector->base.limits.timeout.config.queryTimeoutMS, DEFAULT_QUERY_TIMEOUT_MS);
 
   // Verify dialect is set to default
   ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 2);
@@ -231,8 +231,8 @@ TEST_F(ParseHybridTest, testValidInputWithReqConfig) {
   assertRRFScoringCtx(HYBRID_DEFAULT_RRF_CONSTANT, HYBRID_DEFAULT_WINDOW);
 
   // Verify timeout is set correctly
-  ASSERT_EQ(result.search->base.timeout.config.queryTimeoutMS, 240);
-  ASSERT_EQ(result.vector->base.timeout.config.queryTimeoutMS, 240);
+  ASSERT_EQ(result.search->base.limits.timeout.config.queryTimeoutMS, 240);
+  ASSERT_EQ(result.vector->base.limits.timeout.config.queryTimeoutMS, 240);
 
   // Verify dialect is set correctly
   ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 2);
@@ -292,11 +292,11 @@ TEST_F(ParseHybridTest, testConfigSnapshotUsedForParseDefaults) {
 
   parseCommand(args);
 
-  EXPECT_NE(result.timeoutConfig, &result.search->base.timeout.config);
-  EXPECT_NE(result.timeoutConfig, &result.vector->base.timeout.config);
+  EXPECT_NE(result.timeoutConfig, &result.search->base.limits.timeout.config);
+  EXPECT_NE(result.timeoutConfig, &result.vector->base.limits.timeout.config);
   ASSERT_EQ(result.timeoutConfig->queryTimeoutMS, 1234);
-  ASSERT_EQ(result.search->base.timeout.config.queryTimeoutMS, 1234);
-  ASSERT_EQ(result.vector->base.timeout.config.queryTimeoutMS, 1234);
+  ASSERT_EQ(result.search->base.limits.timeout.config.queryTimeoutMS, 1234);
+  ASSERT_EQ(result.vector->base.limits.timeout.config.queryTimeoutMS, 1234);
   ASSERT_EQ(result.reqConfig->dialectVersion, 4);
   ASSERT_EQ(result.search->base.reqConfig.dialectVersion, 4);
   ASSERT_EQ(result.vector->base.reqConfig.dialectVersion, 4);
