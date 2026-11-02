@@ -1470,6 +1470,64 @@ def test_aggregate_withcount_withcursor_stop_return():
         Env(protocol=3, moduleArgs='WORKERS 1'), 'return')
 
 
+def _test_cursor_read_stop(env):
+    skipIfNoEnableAssert(env)
+    create_index(env)
+    coord = env.getConnection(1)
+    first_chunk = 5
+    try:
+        for timeout_policy in TIMEOUT_POLICIES:
+            for oom_policy in ('return', 'fail'):
+                set_policies(env, timeout_policy, oom_policy)
+                case = (timeout_policy, oom_policy)
+                # The first chunk runs without pressure and leaves a live coordinator cursor.
+                reply, cursor = coord.execute_command(*AGGREGATE, 'WITHCURSOR', 'COUNT', first_chunk)
+                env.assertNotEqual(cursor, 0, message=case)
+                env.assertEqual(len(aggregate_rows(env, reply)), first_chunk, message=case)
+                errors, warnings = coord_oom_counters(coord)
+                # Reading every remaining row needs a shard reply beyond the buffered one, so the
+                # memory read before that fetch stops the read.
+                res = stopped_at_first_read(
+                    env, coord, ('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', N_DOCS))
+                if oom_policy == 'fail':
+                    env.assertTrue(isinstance(res, ResponseError), message=(case, res))
+                    env.assertContains(OOM_QUERY_ERROR, str(res), message=case)
+                    env.assertEqual(coord_oom_counters(coord), (errors + 1, warnings),
+                                    message=case)
+                else:
+                    env.assertFalse(isinstance(res, Exception), message=(case, res))
+                    reply, cursor = res
+                    # A stopped read ends the cursor.
+                    env.assertEqual(cursor, 0, message=(case, res))
+                    env.assertLess(len(aggregate_rows(env, reply)), N_DOCS - first_chunk,
+                                   message=(case, res))
+                    if env.protocol == 3:
+                        env.assertContains(COORD_OOM_WARNING, reply['warning'],
+                                           message=(case, res))
+                    env.assertEqual(coord_oom_counters(coord), (errors, warnings + 1),
+                                    message=case)
+                wait_for_condition(lambda: (cursor_count(env, 'idx') == 0, {}),
+                                   'Timeout waiting for the shard and coordinator cursors to end')
+                expect_clean_end(env, coord)
+    finally:
+        reset_policies(env)
+
+
+@skip(cluster=False)
+def test_cursor_read_stop_resp3():
+    """A memory stop found by a later FT.CURSOR READ on an existing coordinator cursor, not by the
+    FT.AGGREGATE that created it, ends the cursor: the read replies the rows it already took with
+    the coordinator OOM warning and cursor id 0, or the OOM error under ON_OOM FAIL, counts the
+    outcome once, and leaves no shard or coordinator cursor."""
+    _test_cursor_read_stop(Env(protocol=3))
+
+
+@skip(cluster=False)
+def test_cursor_read_stop_resp2():
+    """As the RESP3 case; RESP2 has no warning channel."""
+    _test_cursor_read_stop(Env(protocol=2))
+
+
 @skip(cluster=False)
 def test_timeout_owned_reduction_after_shard_warning_and_oom_stop():
     """A shard warning is retained, the coordinator then stops for memory, and the RETURN-STRICT
