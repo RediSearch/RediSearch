@@ -674,6 +674,22 @@ def test_search_resp3_warning_follows_results():
 
 
 @skip(cluster=False)
+def test_profile_search_resp3_warning_follows_results():
+    """The nested `Results` map of a coordinator FT.PROFILE SEARCH reply orders `warning` after
+    `results` too, in a complete reply and in one an OOM stop cut short."""
+    env = Env(protocol=3)
+    skipIfNoEnableAssert(env)
+    create_index(env)
+    coord = env.getConnection(1)
+    profile = ('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT', 'LIMIT', 0, N_DOCS,
+               'TIMEOUT', 100000)
+    truncated = stopped_at_first_reply(env, coord, profile)
+    keys = list(truncated['Results'].keys())
+    env.assertLess(keys.index('results'), keys.index('warning'), message=keys)
+    env.assertEqual(truncated['Results']['warning'], [COORD_OOM_WARNING], message=truncated)
+
+
+@skip(cluster=False)
 def test_search_short_reply_reads_memory_resp3():
     """The coordinator FT.SEARCH reply reads memory before its rows, so pressure that appears
     after the merge stops a reply shorter than the read interval, or one with no row: the results
