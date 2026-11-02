@@ -1647,13 +1647,33 @@ TEST_F(HybridMergerTest, MemoryStopStillSurfacesStoppedUpstreamError) {
 
 // A blocked-client timeout during the post-stop drain must end it: the timeout callback waits for
 // the merger's thread, so draining a large upstream would block the main thread.
+struct TimeoutDuringDrainUpstream : public MockUpstream {
+  QueryRequestLimits *limits = nullptr;
+  int markAtCall = 0;
+
+  TimeoutDuringDrainUpstream(const std::vector<double> &scores, int markAtCall)
+      : MockUpstream(0, scores), markAtCall(markAtCall) {
+    this->Next = [](ResultProcessor *rp, SearchResult *res) -> int {
+      auto *p = static_cast<TimeoutDuringDrainUpstream *>(rp);
+      int rc = MockUpstream::NextFn(rp, res);
+      // Published from inside the read, so the timeout can only arrive after the stop.
+      if (p->counter == p->markAtCall) {
+        QueryRequestLimits_MarkTimedOut(p->limits);
+      }
+      return rc;
+    };
+  }
+};
+
 TEST_F(HybridMergerTest, MemoryStopDrainAbortsOnBlockedClientTimeout) {
   auto previousPolicy = RSGlobalConfig.requestConfigParams.oomPolicy;
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
   QueryMemory_SetPressureAtCall(1);
 
   const size_t kRows = 1000;
-  MockUpstream big(0, std::vector<double>(kRows, 1.0));
+  // The first row is stored and its checkpoint records the stop; the timeout is published while
+  // the drain reads the second.
+  TimeoutDuringDrainUpstream big(std::vector<double>(kRows, 1.0), 2);
   MockUpstream other(0, {1.0, 2.0});
   arrayof(ResultProcessor *) upstreams = NULL;
   ResultProcessor *rpBig = &big;
@@ -1671,13 +1691,15 @@ TEST_F(HybridMergerTest, MemoryStopDrainAbortsOnBlockedClientTimeout) {
   QITR_PushRP(&qitr, merger);
 
   QueryRequestLimits_BeginCycle(sctx->limits, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  QueryRequestLimits_MarkTimedOut(sctx->limits);
+  big.limits = sctx->limits;
 
   SearchResult r = SearchResult_New();
   EXPECT_EQ(RS_RESULT_TIMEDOUT, merger->Next(merger, &r));
   EXPECT_EQ(RS_RESULT_TIMEDOUT, returnCodes[0]);
-  // Only the row read before the stop, not the remaining kRows - 1.
-  EXPECT_LT(big.counter, 10);
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(sctx->limits));
+  // The first row, which stopped the merger, and the one that carried the timeout; not the
+  // remaining kRows - 2.
+  EXPECT_EQ(big.counter, 2);
 
   SearchResult_Destroy(&r);
   CleanupDummyLookupContext(lookup);
