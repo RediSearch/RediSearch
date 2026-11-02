@@ -25,7 +25,7 @@ use std::mem::{self, ManuallyDrop};
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 use fork_gc::HandleError;
 use fork_gc::tags::{
-    TagEntry, TagError, TagFieldHeader, apply_tag_entry, collect_tags, receive_field_header,
+    TagEntry, TagFieldHeader, apply_tag_entry, collect_tags, receive_field_header,
     receive_tag_entry,
 };
 use index_result::RSIndexResult;
@@ -512,7 +512,7 @@ fn a_message_for_an_unknown_field_is_rejected() {
 
     let (field, entry) = entries.remove(0);
     let err = apply_tag_entry(&field, entry, &mut test.write_guard()).unwrap_err();
-    assert!(matches!(err, HandleError::Custom(TagError { .. })));
+    assert!(matches!(err, HandleError::ApplyError(_)));
     assert_eq!(
         err.to_string(),
         "no field in the spec matches the scanned field name"
@@ -582,7 +582,7 @@ fn a_truncated_message_is_a_codec_error() {
 
     for len in 0..buf.len() {
         let mut reader = Cursor::new(&buf[..len]);
-        let mut decode = || -> Result<(), HandleError<TagError>> {
+        let mut decode = || -> Result<(), HandleError> {
             while receive_field_header(&mut reader)?.is_some() {
                 while receive_tag_entry(&mut reader)?.is_some() {}
             }
