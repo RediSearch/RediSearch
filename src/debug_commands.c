@@ -3669,7 +3669,7 @@ DEBUG_COMMAND(DumpSchema) {
   return REDISMODULE_OK;
 }
 
-static inline int TimedOut_Always(QueryRequestTimeout *timeout) {
+static inline int TimedOut_Always(QueryRequestLimits *timeout) {
   (void)timeout; // Unused parameter
   return TIMED_OUT;
 }
@@ -3677,7 +3677,7 @@ static inline int TimedOut_Always(QueryRequestTimeout *timeout) {
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
 // Defined in vector_top_k.c, called from the Rust vector top-k scan.
-extern int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout);
+extern int (*vecsimTimeoutCallback)(QueryRequestLimits *timeout);
 
 /**
  * FT.DEBUG VECSIM_MOCK_TIMEOUT <enable|disable>
