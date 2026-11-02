@@ -446,7 +446,7 @@ static int applyOomStop(AREQ *req, int rc) {
       AREQ_QueryProcessingCtx(req)->oomCut) {
     QueryError_SetQueryOOMWarning(err);
   }
-  return ApplyOomStop(&req->base.timeout, req->base.reqConfig.oomPolicy, err, rc);
+  return ApplyOomStop(&req->base.limits, req->base.reqConfig.oomPolicy, err, rc);
 }
 
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {

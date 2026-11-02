@@ -1916,7 +1916,7 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
   if (IsHybrid(req)) {
     // The hybrid reply does not map an OOM stop yet, so hybrid pipelines run without memory
     // checkpoints: a stop there would reply as a timeout.
-    req->pipeline.qctx.timeout = NULL;
+    req->pipeline.qctx.limits = NULL;
   }
   if (!IsCoordinator(req)) {
     QueryPipelineParams params = {

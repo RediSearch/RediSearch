@@ -277,16 +277,16 @@ static RSTimeoutPolicy RP_StopPolicy(const ResultProcessor *rp) {
   const QueryProcessingCtx *qctx = rp->parent;
   // A blocked-client timeout's callback owns the reply and waits for this worker, so it wins over
   // an earlier OOM stop, as in AggregateResults.
-  if (qctx->timeout && QueryRequestTimeout_GetStopReason(qctx->timeout) == QUERY_STOP_REASON_OOM &&
-      !QueryRequestTimeout_IsBlockedClientTimedOut(qctx->timeout)) {
+  if (qctx->limits && QueryRequestLimits_IsMemoryStopped(qctx->limits) &&
+      !QueryRequestLimits_IsBlockedClientTimedOut(qctx->limits)) {
     return qctx->oomPolicy == OomPolicy_Fail ? TimeoutPolicy_Fail : TimeoutPolicy_Return;
   }
   return qctx->timeoutPolicy;
 }
 
 static QueryStopReason RP_StopReason(const ResultProcessor *rp) {
-  const QueryRequestTimeout *timeout = rp->parent->timeout;
-  return timeout ? QueryRequestTimeout_GetStopReason(timeout) : QUERY_STOP_REASON_NONE;
+  const QueryRequestLimits *timeout = rp->parent->limits;
+  return timeout ? QueryRequestLimits_GetStopReason(timeout) : QUERY_STOP_REASON_NONE;
 }
 
 // The stop reason a buffering processor records when it keeps its rows past a stop.
@@ -304,7 +304,7 @@ static QueryStopReason RP_HoldStop(const ResultProcessor *rp) {
  */
 static void RP_RenewStop(const ResultProcessor *rp, QueryStopReason reason) {
   if (reason != QUERY_STOP_REASON_NONE) {
-    QueryRequestTimeout_RequestStop(rp->parent->timeout, reason);
+    QueryRequestLimits_RequestStop(rp->parent->limits, reason);
   }
 }
 
@@ -315,7 +315,7 @@ static void RP_RenewStop(const ResultProcessor *rp, QueryStopReason reason) {
  * RS_RESULT_TIMEDOUT and keeps the rows buffering stages upstream already held.
  */
 static bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
-  if (!rp->parent->timeout || !QueryMemory_ShouldStop(rp->parent->timeout, counter)) {
+  if (!rp->parent->limits || !QueryMemory_ShouldStop(rp->parent->limits, counter)) {
     return false;
   }
   RP_EndRowSourceOnStop(rp->parent);

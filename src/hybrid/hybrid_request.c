@@ -379,7 +379,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     AGPLN_Init(&hybridReq->tailPipeline->ap);
     Pipeline_Initialize(hybridReq->tailPipeline, &hybridReq->base);
     // No memory checkpoints in hybrid pipelines (see AREQ_BuildPipelineWithAggregationParams).
-    hybridReq->tailPipeline->qctx.timeout = NULL;
+    hybridReq->tailPipeline->qctx.limits = NULL;
     QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
     // Capture the background-scan-OOM warning flag while the spec is guaranteed
     // alive (main-thread command handling). The reply path reads only this

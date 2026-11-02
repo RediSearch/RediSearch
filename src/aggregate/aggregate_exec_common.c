@@ -51,8 +51,8 @@ int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryE
                  int rc) {
   // A blocked-client timeout's callback owns the reply, so it wins over an earlier OOM stop.
   if (rc != RS_RESULT_TIMEDOUT ||
-      QueryRequestTimeout_GetStopReason(timeout) != QUERY_STOP_REASON_OOM ||
-      QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+      !QueryRequestLimits_IsMemoryStopped(timeout) ||
+      QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
     return rc;
   }
   if (oomPolicy == OomPolicy_Fail) {
@@ -107,10 +107,10 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 #endif
 
 static bool oomStopKeepsBufferedRows(const AREQ *areq) {
-  const QueryRequestTimeout *timeout = &areq->base.timeout;
-  return QueryRequestTimeout_GetStopReason(timeout) == QUERY_STOP_REASON_OOM &&
+  const QueryRequestLimits *timeout = &areq->base.limits;
+  return QueryRequestLimits_IsMemoryStopped(timeout) &&
          areq->base.reqConfig.oomPolicy != OomPolicy_Fail &&
-         !QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+         !QueryRequestLimits_IsBlockedClientTimedOut(timeout);
 }
 
  SearchResult **AggregateResults(ResultProcessor *rp, AREQ *areq, int *rc) {
@@ -132,7 +132,7 @@ static bool oomStopKeepsBufferedRows(const AREQ *areq) {
      // from internal buffers without re-touching upstream's per-row timeout check.
      // An OOM stop under ON_OOM RETURN is the exception: those stages then hand
      // over the rows they already hold (see RP_StopPolicy), and read nothing new.
-     if (areq && QueryRequest_ShouldStop(&areq->base.timeout) && !oomStopKeepsBufferedRows(areq)) {
+     if (areq && QueryRequest_ShouldStop(&areq->base.limits) && !oomStopKeepsBufferedRows(areq)) {
        *rc = RS_RESULT_TIMEDOUT;
        break;
      }
