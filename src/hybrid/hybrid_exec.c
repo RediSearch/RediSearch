@@ -303,7 +303,7 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
 
 // ApplyOomStop for the tail pipeline, whose error slot the hybrid reply reads.
 static int hybridApplyOomStop(HybridRequest *hreq, int rc) {
-  return ApplyOomStop(&hreq->base.timeout, hreq->base.reqConfig.oomPolicy,
+  return ApplyOomStop(&hreq->base.limits, hreq->base.reqConfig.oomPolicy,
                       hreq->tailPipeline->qctx.err, rc);
 }
 

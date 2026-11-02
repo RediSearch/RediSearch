@@ -115,9 +115,9 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
 static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 #endif
 
-static bool oomStopKeepsBufferedRows(const QueryRequestTimeout *timeout, RSOomPolicy oomPolicy) {
-  return QueryRequestTimeout_GetStopReason(timeout) == QUERY_STOP_REASON_OOM &&
-         oomPolicy != OomPolicy_Fail && !QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+static bool oomStopKeepsBufferedRows(const QueryRequestLimits *timeout, RSOomPolicy oomPolicy) {
+  return QueryRequestLimits_IsMemoryStopped(timeout) &&
+         oomPolicy != OomPolicy_Fail && !QueryRequestLimits_IsBlockedClientTimedOut(timeout);
 }
 
  SearchResult **AggregateResults(ResultProcessor *rp, const CommonPipelineCtx *ctx, int *rc) {
@@ -142,8 +142,8 @@ static bool oomStopKeepsBufferedRows(const QueryRequestTimeout *timeout, RSOomPo
      // hold (see RP_StopPolicy), but nothing new from the row source. Not on the
      // row that fills the limit, which would end a full cursor chunk;
      // startPipelineCommon checks the stop after.
-     if (rp->parent->resultLimit && QueryMemory_ShouldStop(ctx->timeout, &memoryCheckCounter)) {
-       if (!oomStopKeepsBufferedRows(ctx->timeout, ctx->oomPolicy)) {
+     if (rp->parent->resultLimit && QueryMemory_ShouldStop(ctx->limits, &memoryCheckCounter)) {
+       if (!oomStopKeepsBufferedRows(ctx->limits, ctx->oomPolicy)) {
          *rc = RS_RESULT_TIMEDOUT;
          break;
        }
@@ -163,7 +163,7 @@ static bool oomStopKeepsBufferedRows(const QueryRequestTimeout *timeout, RSOomPo
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx, rc);
      // Check timeout after aggregation; a stop raised while filling the limit ends it the same way.
-     if (QueryRequestTimeout_IsTimedOutOrStopped(ctx->timeout)) {
+     if (QueryRequestLimits_IsTimedOutOrStopped(ctx->limits)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
    } else {

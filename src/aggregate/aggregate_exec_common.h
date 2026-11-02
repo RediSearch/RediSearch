@@ -52,7 +52,7 @@ bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err);
 void destroyResults(SearchResult **results);
 
 typedef struct CommonPipelineCtx {
-  struct QueryRequestTimeout *timeout;
+  struct QueryRequestLimits *limits;
   RSOomPolicy oomPolicy;
 
   // AREQ for the request being executed; its debug pause loop releases itself
@@ -62,7 +62,7 @@ typedef struct CommonPipelineCtx {
 
 /**
  * Buffers the pipeline's rows until EOF, an error, the result limit or a stop
- * (the stop flags of `ctx->timeout`, or memory pressure, which requests an OOM
+ * (the stop flags of `ctx->limits`, or memory pressure, which requests an OOM
  * stop; an OOM stop under ON_OOM RETURN keeps collecting what the stages
  * hold). A stop returns the rows buffered so far with RS_RESULT_TIMEDOUT in
  * `rc`.
