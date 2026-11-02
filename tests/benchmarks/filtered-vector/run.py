@@ -96,7 +96,7 @@ def query_command(args, bundle, case, policy):
     query = f"(@filter:{{{tag}}})=>[KNN {case['k']} @vec $query{options} AS distance]"
     blob = bundle.queries[case["query_id"]].astype("<f4", copy=False).tobytes()
     return ["FT.SEARCH", args.index, query, "PARAMS", 2, "query", blob,
-            "SORTBY", "distance", "ASC", "RETURN", 1, "distance", "LIMIT", 0,
+            "SORTBY", "distance", "ASC", "NOCONTENT", "WITHSORTKEYS", "LIMIT", 0,
             case["k"], "TIMEOUT", args.timeout_ms, "DIALECT", 2]
 
 
@@ -110,8 +110,10 @@ def parse_reply(reply, prefix):
         key = text(reply[offset])
         if not key.startswith(prefix) or not key[len(prefix):].isdigit():
             raise ValueError(f"unexpected document key: {key}")
-        fields = pairs(reply[offset + 1])
-        distance = float(fields["distance"])
+        sort_key = text(reply[offset + 1])
+        if not sort_key.startswith("#"):
+            raise ValueError("expected a numeric vector-distance sort key")
+        distance = float(sort_key[1:])
         if not math.isfinite(distance):
             raise ValueError("non-finite returned distance")
         ids.append(int(key[len(prefix):]))

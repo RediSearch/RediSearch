@@ -40,14 +40,20 @@ class RunnerTests(unittest.TestCase):
 
     def test_parse_valid_and_empty_replies(self):
         self.assertEqual(run.parse_reply([0], "doc:"), ([], []))
-        reply = [2, b"doc:7", [b"distance", b"0.5"], b"doc:8", [b"distance", b"2"]]
+        reply = [2, b"doc:7", b"#0.5", b"doc:8", b"#2"]
         self.assertEqual(run.parse_reply(reply, "doc:"), ([7, 8], [0.5, 2.0]))
 
     def test_reject_malformed_and_nonfinite_replies(self):
-        for reply in ([1, b"else:7", [b"distance", b"0"]],
-                      [1, b"doc:7"], [1, b"doc:7", [b"distance", b"nan"]]):
+        for reply in ([1, b"else:7", b"#0"], [1, b"doc:7"],
+                      [1, b"doc:7", b"#nan"], [1, b"doc:7", b"$0.5"]):
             with self.subTest(reply=reply), self.assertRaises(ValueError):
                 run.parse_reply(reply, "doc:")
+
+    def test_query_uses_flex_compatible_distance_reply(self):
+        command = run.query_command(self.args, self.bundle, self.case, "BATCHES")
+        self.assertIn("NOCONTENT", command)
+        self.assertIn("WITHSORTKEYS", command)
+        self.assertNotIn("RETURN", command)
 
     def test_disk_schema_has_explicit_parameters(self):
         self.args.rerank = "true"
