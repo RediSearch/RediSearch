@@ -628,11 +628,6 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
   if (!VectorIndex_GetBlobSize(hnswParams->dim, hnswParams->type, &blobSize, status)) {
     return 0;
   }
-  if (hnswParams->quantType != VecSimQuant_NONE && SearchDisk_IsEnabledForValidation()) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
-                        "COMPRESSION is not supported for disk-based vector indexes");
-    return 0;
-  }
   const VecSimParams *estimateParams = primaryParams;
   if (hnswParams->quantType == VecSimQuant_SQ8) {
     estimateParams = params;
@@ -891,6 +886,13 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
   }
   // Disk-mode validation: enforce mandatory parameters
   if (isSpecOnDiskForValidation(sp)) {
+    // Keep this admission gate out of shared parameter validation, which also runs on RDB load.
+    if (hnswParams->quantType == VecSimQuant_SQ8 && !RSGlobalConfig.diskSq8Enabled) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                          "Disk COMPRESSION SQ8 is disabled; enable search-disk-sq8-enabled "
+                          "only after all nodes have upgraded");
+      return 0;
+    }
     if (hnswParams->type != VecSimType_FLOAT32 && hnswParams->type != VecSimType_FLOAT16) {
       const char *typeName = VecSimType_ToString(hnswParams->type);
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
@@ -3790,6 +3792,7 @@ static void fingerprintVectorParams(Sha1Context *hash, const VecSimParams *param
       RS_ASSERT(p->primaryIndexParams);
       if (p->primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
         Sha1_UpdateU64(hash, p->specificParams.tieredHnswParams.swapJobThreshold);
+        Sha1_UpdateU64(hash, p->specificParams.tieredHnswParams.QuantNormalizationSetSize);
       } else {
         RS_ASSERT(p->primaryIndexParams->algo == VecSimAlgo_SVS);
         Sha1_UpdateU64(hash, p->specificParams.tieredSVSParams.trainingTriggerThreshold);
@@ -3799,6 +3802,7 @@ static void fingerprintVectorParams(Sha1Context *hash, const VecSimParams *param
     }
     case VecSimAlgo_HNSWLIB: {
       const HNSWParams *p = &params->algoParams.hnswParams;
+      Sha1_UpdateU64(hash, p->quantType);
       Sha1_UpdateU64(hash, p->type);
       Sha1_UpdateU64(hash, p->dim);
       Sha1_UpdateU64(hash, p->metric);

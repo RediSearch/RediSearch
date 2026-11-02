@@ -68,7 +68,7 @@ static bool isPressureAtThisCall(void) {
 
 static float readRatio(void) {
   const float forced = QueryMemory_GetForcedRatio();
-  return forced >= 0 ? forced : RedisMemory_GetRawUsedMemoryRatio();
+  return forced >= 0 ? forced : RedisMemory_GetUsedMemoryRatioEstimate();
 }
 
 static bool oomPolicyIsIgnore(void) {
@@ -78,20 +78,19 @@ static bool oomPolicyIsIgnore(void) {
          OomPolicy_Ignore;
 }
 
-// The memory read of a checkpoint: requests the OOM stop under pressure.
-static bool memoryStops(QueryRequestTimeout *timeout, bool forcedPressure) {
+// The memory read of a checkpoint: requests the memory stop under pressure.
+static bool memoryStops(QueryRequestLimits *limits, bool forcedPressure) {
   if (oomPolicyIsIgnore() || !(forcedPressure || readRatio() >= REDIS_MEMORY_OOM_RATIO)) {
     return false;
   }
-  if (timeout) {
-    // A lost race keeps the earlier reason; the query stops either way.
-    QueryRequestTimeout_RequestStop(timeout, QUERY_STOP_REASON_OOM);
+  if (limits) {
+    QueryRequestLimits_RequestMemoryStop(limits);
   }
   return true;
 }
 
-bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter) {
-  if (timeout && QueryRequest_ShouldStop(timeout)) {
+bool QueryMemory_ShouldStop(QueryRequestLimits *limits, uint32_t *counter) {
+  if (limits && QueryRequest_ShouldStop(limits)) {
     return true;
   }
   const bool forcedPressure = isPressureAtThisCall();
@@ -99,22 +98,22 @@ bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter) {
   // Both counters advance on every call, so a site that is called too rarely to reach the
   // interval alone still triggers a read through the request-wide count.
   bool due = ++*counter >= interval;
-  if (timeout) {
-    due |= ++timeout->memoryCounter >= interval;
+  if (limits) {
+    due |= ++limits->memory.counter >= interval;
   }
   if (!forcedPressure && !due) {
     return false;
   }
   *counter = 0;
-  if (timeout) {
-    timeout->memoryCounter = 0;
+  if (limits) {
+    limits->memory.counter = 0;
   }
-  return memoryStops(timeout, forcedPressure);
+  return memoryStops(limits, forcedPressure);
 }
 
-bool QueryMemory_ShouldStopNow(QueryRequestTimeout *timeout) {
-  if (timeout && QueryRequest_ShouldStop(timeout)) {
+bool QueryMemory_ShouldStopNow(QueryRequestLimits *limits) {
+  if (limits && QueryRequest_ShouldStop(limits)) {
     return true;
   }
-  return memoryStops(timeout, isPressureAtThisCall());
+  return memoryStops(limits, isPressureAtThisCall());
 }
