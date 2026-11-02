@@ -158,7 +158,7 @@ impl TimeoutContextRequest {
     /// `timeout` must stay [valid] at a stable address for as long as this context and any
     /// iterator built from it are used. Source changes and deadline writes must occur only
     /// between probes, after the previous execution cycle has stopped. Only the blocked-client
-    /// flag and the stop state (flag and reason) may be updated concurrently, and only atomically.
+    /// marker and the memory stop flag may be updated concurrently, and only atomically.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn new(timeout: NonNull<QueryRequestTimeout>, granularity: u32) -> Self {

@@ -23,16 +23,15 @@
 #include "util/misc.h"
 #include "util/timeout.h"
 
-static void QueryRequestTimeout_ClearStop(QueryRequestTimeout *timeout) {
-  atomic_store_explicit(&timeout->stopReason, QUERY_STOP_REASON_NONE, memory_order_relaxed);
-  atomic_store_explicit(&timeout->stopRequested, false, memory_order_relaxed);
+static void QueryRequestTimeout_ClearMemoryStop(QueryRequestTimeout *timeout) {
+  RS_AtomicBoolStoreRelaxed(&timeout->memory.stopped, false);
 }
 
 void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const TimeoutConfig *config) {
   RS_ASSERT(config);
   RS_ASSERT(config->queryTimeoutMS >= 0);
   timeout->config = *config;
-  QueryRequestTimeout_ClearStop(timeout);
+  QueryRequestTimeout_ClearMemoryStop(timeout);
   QueryRequestTimeout_Reset(timeout);
 }
 
@@ -41,7 +40,7 @@ void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout) {
 }
 
 void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTimeoutKind kind) {
-  QueryRequestTimeout_ClearStop(timeout);
+  QueryRequestTimeout_ClearMemoryStop(timeout);
   switch (kind) {
     case QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT:
       RS_AtomicBoolStoreRelaxed(&timeout->source.blockedClientTimedOut, false);
@@ -78,29 +77,12 @@ void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout) {
   RS_AtomicBoolStoreRelaxed(&timeout->source.blockedClientTimedOut, true);
 }
 
-bool QueryRequestTimeout_RequestStop(QueryRequestTimeout *timeout, QueryStopReason reason) {
-  RS_ASSERT(reason != QUERY_STOP_REASON_NONE);
-  int expected = QUERY_STOP_REASON_NONE;
-  // A losing requester acquires the winner's reason and publishes the flag too, so the stop is
-  // visible once any requester returns, even while the winner is still between its two stores.
-  // acq_rel: C11 requires the failure order to be no stronger than the success order.
-  const bool won = atomic_compare_exchange_strong_explicit(
-      &timeout->stopReason, &expected, (int)reason, memory_order_acq_rel, memory_order_acquire);
-  // Release pairs with the acquire in GetStopReason, so a reader that sees the flag sees the
-  // reason too.
-  atomic_store_explicit(&timeout->stopRequested, true, memory_order_release);
-  return won;
+void QueryRequestTimeout_RequestMemoryStop(QueryRequestTimeout *timeout) {
+  RS_AtomicBoolStoreRelaxed(&timeout->memory.stopped, true);
 }
 
-QueryStopReason QueryRequestTimeout_GetStopReason(const QueryRequestTimeout *timeout) {
-  if (!atomic_load_explicit(&timeout->stopRequested, memory_order_acquire)) {
-    return QUERY_STOP_REASON_NONE;
-  }
-  return (QueryStopReason)atomic_load_explicit(&timeout->stopReason, memory_order_relaxed);
-}
-
-RS_Atomic(bool) *QueryRequestTimeout_GetStopFlag(QueryRequestTimeout *timeout) {
-  return &timeout->stopRequested;
+RS_Atomic(bool) *QueryRequestTimeout_GetMemoryStopFlag(QueryRequestTimeout *timeout) {
+  return &timeout->memory.stopped;
 }
 
 RS_Atomic(bool) *QueryRequestTimeout_GetBlockedClientFlag(QueryRequestTimeout *timeout) {

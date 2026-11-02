@@ -131,15 +131,11 @@ typedef enum {
   QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE,  // Execution thread checks a monotonic deadline.
 } QueryRequestTimeoutKind;
 
-/** Why a query execution cycle was asked to stop. */
-typedef enum {
-  QUERY_STOP_REASON_NONE = 0,
-  // The time budget ran out, detected by a site that propagates it to the other threads of the
-  // cycle. The timeout sources keep reporting their own expiry independently of this reason.
-  QUERY_STOP_REASON_TIMEOUT,
-  // Process memory crossed the out-of-memory threshold.
-  QUERY_STOP_REASON_OOM,
-} QueryStopReason;
+/** Cycle-scoped memory-limit state. */
+typedef struct QueryRequestMemoryState {
+  // Set when process memory crossed the out-of-memory threshold.
+  RS_Atomic(bool) stopped;
+} QueryRequestMemoryState;
 
 /**
  * Request-owned timeout state retained for the request's entire lifetime.
@@ -162,9 +158,11 @@ typedef enum {
  * - During a CLOCK_DEADLINE cycle, the deadline is immutable. The counter is
  *   shared across amortized call sites but is not atomic, so calls to
  *   IsTimedOut for one request must be serialized.
- * - In every kind, including UNARMED, any thread may request a stop
- *   concurrently with timeout checks (QueryRequestTimeout_RequestStop). The
- *   stop lives outside the source union, so it never disturbs the active source.
+ * - In every kind, including UNARMED, any thread may set the memory stop
+ *   concurrently with timeout checks (QueryRequestTimeout_RequestMemoryStop).
+ *   It lives outside the source union, so it never disturbs the active source.
+ * - Like the blocked-client marker, the memory stop is atomic with relaxed
+ *   ordering: it communicates only its own value, not other memory.
  *
  * The owning QueryRequest must outlive every direct pointer, source-specific
  * pointer, and foreign-language handle borrowed from this object.
@@ -184,10 +182,7 @@ typedef struct QueryRequestTimeout {
     } clock;
   } source;
 
-  // Cycle-scoped stop request. stopReason is written once, by the first requester, before
-  // stopRequested is published; checkpoints read only the flag.
-  RS_Atomic(bool) stopRequested;
-  RS_Atomic(int) stopReason;  // QueryStopReason
+  QueryRequestMemoryState memory;
 } QueryRequestTimeout;
 
 /** Initializes timeout as UNARMED, copying config into owned storage. */
@@ -198,7 +193,7 @@ void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const TimeoutConfig 
  */
 void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout);
 /**
- * Starts a cycle using kind as its timeout source, clearing any stop request
+ * Starts a cycle using kind as its timeout source, clearing any memory stop
  * left by the previous cycle.
  *
  * BLOCKED_CLIENT clears the atomic marker. CLOCK_DEADLINE derives a new
@@ -210,36 +205,33 @@ void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout);
 void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTimeoutKind kind);
 /**
  * Atomically publishes a timeout to readers of the active BLOCKED_CLIENT
- * cycle. This is the only state transition permitted concurrently with timeout
- * checks; it communicates only the marker value, not other memory.
+ * cycle. Together with QueryRequestTimeout_RequestMemoryStop, this is the only
+ * state transition permitted concurrently with timeout checks; it communicates
+ * only the marker value, not other memory.
  */
 void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout);
 
 /**
- * Asks the current cycle to stop for `reason`, which must not be NONE. Callable
- * from any thread, in every kind, concurrently with timeout checks. The first
- * request wins: later ones keep its reason and return false.
+ * Asks the current cycle to stop because memory ran out. Callable from any
+ * thread, in every kind, concurrently with timeout checks.
  *
  * The stop is cleared only by Init and BeginCycle; Reset keeps it. The
- * timeout checks (IsTimedOut, IsTimedOutExact) do not report it: only sites
- * that read the stop explicitly observe it.
+ * timeout checks (IsTimedOut, IsTimedOutExact, IsBlockedClientTimedOut) do not
+ * report it: only sites that read it explicitly observe it.
  */
-bool QueryRequestTimeout_RequestStop(QueryRequestTimeout *timeout, QueryStopReason reason);
+void QueryRequestTimeout_RequestMemoryStop(QueryRequestTimeout *timeout);
+
+/** Reports whether QueryRequestTimeout_RequestMemoryStop was called in the current cycle. */
+static inline bool QueryRequestTimeout_IsMemoryStopped(const QueryRequestTimeout *timeout) {
+  return RS_AtomicBoolLoadRelaxed(&timeout->memory.stopped);
+}
 
 /**
- * Returns the reason recorded by QueryRequestTimeout_RequestStop for the
- * current cycle, or NONE when no stop was requested. Reports only explicit
- * requests: a timeout detected by the active source alone leaves it NONE.
+ * Borrows the memory stop flag, for waits that take an abort flag. Unlike the
+ * blocked-client flag it is valid in every kind. Access must use RS_Atomic
+ * operations, and the pointer must not be retained across BeginCycle.
  */
-QueryStopReason QueryRequestTimeout_GetStopReason(const QueryRequestTimeout *timeout);
-
-/**
- * Borrows the stop flag published by QueryRequestTimeout_RequestStop, for waits
- * that take an abort flag. Unlike the blocked-client flag it is valid in every
- * kind. Access must use RS_Atomic operations, and the pointer must not be
- * retained across BeginCycle.
- */
-RS_Atomic(bool) *QueryRequestTimeout_GetStopFlag(QueryRequestTimeout *timeout);
+RS_Atomic(bool) *QueryRequestTimeout_GetMemoryStopFlag(QueryRequestTimeout *timeout);
 
 /**
  * Borrows the active BLOCKED_CLIENT flag for a wait that cannot use the
@@ -288,8 +280,8 @@ bool QueryRequestTimeout_IsTimedOutExact(const QueryRequestTimeout *timeout);
  * only the blocked-client atomic flag. It deliberately returns false for
  * CLOCK_DEADLINE so migrating those call sites does not introduce new clock
  * checks that could change product behavior.
- * It ignores QueryRequestTimeout_RequestStop: many callers use it to ask
- * whether the timeout callback already owns the reply, which a stop request
+ * It ignores QueryRequestTimeout_RequestMemoryStop: many callers use it to ask
+ * whether the timeout callback already owns the reply, which a memory stop
  * never implies.
  * Avoid using this call unless strictly needed. It has the same cycle and
  * concurrency requirements as QueryRequestTimeout_IsTimedOutExact.
