@@ -359,6 +359,16 @@ fn eval_lex_range<'index>(
         unreachable!("lex range evaluation requires a lex range node")
     };
 
+    // The bound this clause carries, for profiling output. The grammar builds
+    // one node per clause and leaves the other side unbounded, so naming it
+    // tells two clauses on the same field apart, which the node type alone does
+    // not. Which side it bounds is not in here; `FT.EXPLAIN` spells that out.
+    let clause_bound = match (begin, end) {
+        (Bound::Included(bound) | Bound::Excluded(bound), _)
+        | (Bound::Unbounded, Bound::Included(bound) | Bound::Excluded(bound)) => Some(bound),
+        (Bound::Unbounded, Bound::Unbounded) => None,
+    };
+
     // Compare against the values as they were indexed, which is what
     // `RSTokenMut::normalize_tag` arranges for a tag token. A bound is a plain
     // string rather than a token, so it takes the same two passes directly. Both
@@ -376,13 +386,28 @@ fn eval_lex_range<'index>(
         field.index,
         max_prefix_expansions,
     );
-    let iter = build_union(
-        children,
-        true,
-        config.min_union_iter_heap,
-        QueryNodeType::LexRange,
-        effective_weight,
-    );
+    let iter = match clause_bound {
+        // SAFETY: the bound is owned by the AST node and, unlike a token, is
+        // never rewritten during evaluation, so it outlives the query iterator
+        // that retains it for profiling.
+        Some(q_str) => unsafe {
+            build_union_with_q_str(
+                children,
+                true,
+                config.min_union_iter_heap,
+                QueryNodeType::LexRange,
+                q_str,
+                effective_weight,
+            )
+        },
+        None => build_union(
+            children,
+            true,
+            config.min_union_iter_heap,
+            QueryNodeType::LexRange,
+            effective_weight,
+        ),
+    };
     Some(Evaluated::RustCompound(iter))
 }
 

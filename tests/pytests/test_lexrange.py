@@ -11,6 +11,7 @@ The syntax is gated behind `ENABLE_UNSTABLE_FEATURES`; see
 `docs/CONTRIBUTING-unstable-features.md`.
 """
 
+import re
 import time
 
 from RLTest import Env
@@ -638,16 +639,30 @@ def testExpansionCapStopsTheWalk():
 
 
 
-# The deadline is per shard, and a cluster reports the first shard that trips
-# it; the error below is asserted on a single shard.
-@skip(cluster=True)
-def testRangeWalkCarriesTheQueryDeadline(env):
-    """A range query stops on the query deadline rather than running to the end.
+# How many values the deadline test indexes. Large enough that the walk cannot
+# reach the end of them inside the 1ms budget even on a release build: at 20000
+# it finished within the budget and the assertion below did not hold.
+DEADLINE_VALUES = 100000
 
-    The expansion cap bounds how many readers a range opens, not how many values
-    it visits: a value whose reader does not open leaves the count where it was.
-    The deadline is what ends such a walk, so it is installed on the walk itself,
-    the way the prefix and wildcard walks install it.
+
+# The walk is timed per shard, so the reader count below only holds on one.
+@skip(cluster=True)
+def testRangeWalkStopsAtTheQueryDeadline(env):
+    """The deadline ends the walk itself, not merely the query around it.
+
+    The expansion cap counts readers opened, not values visited, so a value
+    whose reader does not open leaves the count where it was and the cap cannot
+    bound the walk on its own.
+
+    What is asserted is how many readers the range opened, which is the walk's
+    own progress: `FT.PROFILE LIMITED` reports it, and without the deadline on
+    the walk it is one reader per indexed value. An error from `ON_TIMEOUT FAIL`
+    would not do, because the pipeline's own deadline check raises the same
+    error whether or not the walk stopped early.
+
+    The mechanism is covered directly, and without depending on timing, by
+    `an_elapsed_deadline_stops_the_walk_early` in `trie_rs` and
+    `eval_tag_lex_range_walk_stops_at_the_deadline` in `query_eval`.
     """
     enable_unstable_features(env)
     conn = create_index(env, 'v', 'TAG')
@@ -655,17 +670,21 @@ def testRangeWalkCarriesTheQueryDeadline(env):
     # thing that can end the walk early.
     run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '1000000')
     pl = conn.pipeline(transaction=False)
-    for i in range(20000):
-        pl.execute_command('HSET', f'doc{i:05d}', 'v', f'v{i:05d}')
+    for i in range(DEADLINE_VALUES):
+        pl.execute_command('HSET', f'doc{i:06d}', 'v', f'v{i:06d}')
     pl.execute()
 
     try:
         run_command_on_all_shards(env, config_cmd(), 'SET', 'TIMEOUT', '1')
-        run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL')
-        env.expect('FT.SEARCH', 'idx', '@v:>{""}', 'LIMIT', '0', '0', 'DIALECT', '2') \
-            .error().contains('Timeout limit was reached')
-    finally:
+        # RETURN rather than FAIL, so the profile comes back to be read.
         run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+        res = str(env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'LIMITED', 'QUERY',
+                          '@v:>{""}', 'LIMIT', '0', '0', 'DIALECT', '2'))
+        opened = re.search(r'The number of iterators in the union is (\d+)', res)
+        env.assertIsNotNone(opened, message=f'no union in the profile: {res}')
+        if opened:
+            env.assertLess(int(opened.group(1)), DEADLINE_VALUES, message=res)
+    finally:
         run_command_on_all_shards(env, config_cmd(), 'SET', 'TIMEOUT', '500')
         run_command_on_all_shards(env, config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', '200')
 
@@ -844,13 +863,25 @@ def testExplain(env):
 
 @skip(cluster=True)
 def testProfile(env):
-    """The range is executed as a union of the per-value readers it expanded to."""
+    """The range is executed as a union of the per-value readers it expanded to,
+    and that union names the bound its clause carries.
+
+    Without the bound, two range clauses on one field print as two identical
+    `LEXRANGE` unions with nothing to tell them apart. Which side the bound
+    closes is not in here; `FT.EXPLAIN` is where that is spelled out.
+    """
     enable_unstable_features(env)
     build_index(env)
 
-    res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@name:>{charlie}', 'NOCONTENT',
-                  'DIALECT', '2')
-    env.assertContains('LEXRANGE', str(res))
+    res = str(env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '@name:>{charlie}',
+                      'NOCONTENT', 'DIALECT', '2'))
+    env.assertContains('LEXRANGE - charlie', res)
+
+    # Two clauses over one field, each union naming its own bound.
+    res = str(env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY',
+                      '@name:>{bob} @name:<={dave}', 'NOCONTENT', 'DIALECT', '2'))
+    env.assertContains('LEXRANGE - bob', res)
+    env.assertContains('LEXRANGE - dave', res)
 
 
 # ---------------------------------------------------------------------------

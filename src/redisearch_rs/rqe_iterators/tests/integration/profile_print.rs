@@ -338,6 +338,24 @@ fn union_with_query_string() {
     insta::assert_debug_snapshot!(reply);
 }
 
+#[test]
+fn union_lexrange_with_bound() {
+    use query_types::QueryNodeType;
+    use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
+
+    let mut replier = init();
+    let children = vec![rqe_iterators::Empty];
+    let flat = UnionFullFlat::new(children);
+    let query_str = std::ffi::CString::new("bob").unwrap();
+    let iter = UnionOpaque {
+        variant: UnionVariant::FlatFull(flat),
+        query_node_type: QueryNodeType::LexRange,
+        query_string: Some(query_str.as_c_str()),
+    };
+    let reply = print(&mut replier, &iter, false);
+    insta::assert_debug_snapshot!(reply);
+}
+
 // ── Term (inverted index) ───────────────────────────────────────
 
 #[test]
