@@ -426,6 +426,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         // Replace heap with a fresh one; drain_sorted consumes the old one.
         let old_heap = std::mem::replace(&mut *self.heap, TopKHeap::new(self.k, self.order));
         *self.results = old_heap.drain_sorted();
+        self.source.finish_collection();
         self.yield_pos = 0;
         self.phase = Phase::Yielding;
     }

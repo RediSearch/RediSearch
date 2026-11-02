@@ -190,6 +190,15 @@ pub trait ScoreSource {
     /// can produce.
     fn num_estimated(&self) -> usize;
 
+    /// Release scan resources after results have been collected into the iterator's buffer.
+    ///
+    /// Called by [`TopKIterator`] before yielding buffered results, including partial results
+    /// after an error. Must preserve state needed to yield those results and profile counters.
+    /// The default is a no-op.
+    ///
+    /// [`TopKIterator`]: crate::TopKIterator
+    fn finish_collection(&mut self) {}
+
     /// Rewind the source to its initial state so batch iteration can restart.
     fn rewind(&mut self);
 
