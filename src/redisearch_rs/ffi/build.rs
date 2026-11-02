@@ -442,9 +442,14 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/trie/rune_util.h",
-        fns: &["runesToStr", "strToLowerRunes", "strToRunes"],
+        fns: &[
+            "runesToStr",
+            "runesToStrInto",
+            "strToLowerRunes",
+            "strToRunes",
+        ],
         types: &["rune"],
-        vars: &["MAX_RUNE_STR_LEN"],
+        vars: &["MAX_RUNE_STR_LEN", "RUNE_MAX_UTF8_LEN"],
     },
     HeaderAllowlist {
         path: "src/trie/trie.h",

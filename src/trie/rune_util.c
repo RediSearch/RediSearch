@@ -49,35 +49,25 @@ rune runeFold(rune r) {
   return __fold((uint32_t)r);
 }
 
+size_t runesToStrInto(const rune *in, size_t len, char *out) {
+  char *end = out;
+  for (size_t i = 0; i < len && in[i]; i++) {
+    end = nu_utf8_write(in[i], end);
+  }
+  return end - out;
+}
+
 char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   if (len > MAX_RUNE_STR_LEN) {
     *utflen = 0;
     return NULL;
   }
 
-  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
-  uint32_t *unicode = u_stack_buffer;
-
-  if (len > SSO_MAX_LENGTH - 1) {
-    unicode = rm_malloc((len + 1) * sizeof(*unicode));
-    if (!unicode) {
-      *utflen = 0;
-      return NULL;
-    }
-  }
-
-  for (int i = 0; i < len; i++) {
-    unicode[i] = (uint32_t)in[i];
-  }
-  unicode[len] = 0;
-
-  size_t bytelen = nu_bytelen(unicode, nu_utf8_write);
-  char *ret = rm_calloc(1, bytelen + 1);
-
-  nu_writestr(unicode, ret, nu_utf8_write);
-  if (unicode != u_stack_buffer) {
-    rm_free(unicode);
-  }
+  char buf[MAX_RUNE_STR_LEN * RUNE_MAX_UTF8_LEN];
+  size_t bytelen = runesToStrInto(in, len, buf);
+  char *ret = rm_malloc(bytelen + 1);
+  memcpy(ret, buf, bytelen);
+  ret[bytelen] = '\0';
   *utflen = bytelen;
   return ret;
 }

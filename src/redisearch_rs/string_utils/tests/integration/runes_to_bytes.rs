@@ -75,17 +75,30 @@ fn exceeds_limit() {
     assert_eq!(err.len, MAX_RUNE_STR_LEN + 1);
 }
 
-/// The Rust encoder agrees with the C one on every rune, each alone and each
-/// between two others, and reuses its buffer across calls.
+/// `runesToStr` and the buffered `runesToStrInto` it is built on agree on every
+/// rune, each alone and between two others, and a reused buffer keeps no stale bytes.
 #[test]
-fn the_buffered_encoder_matches_the_c_one_on_every_rune() {
+fn the_buffered_encoder_matches_the_allocating_one_on_every_rune() {
     let mut out = vec![b'x'; 8];
     for rune in 0..=u16::MAX {
         for runes in [&[rune][..], &[0x41, rune, 0x7FF]] {
             runes_to_bytes_into(runes, &mut out).unwrap();
-            assert_eq!(out, runes_to_bytes(runes).unwrap(), "runes {runes:x?}");
+            assert_eq!(out, c_runes_to_str(runes), "runes {runes:x?}");
         }
     }
+}
+
+/// The C `runesToStr`'s bytes, read before freeing them.
+fn c_runes_to_str(runes: &[u16]) -> Vec<u8> {
+    let mut len = 0;
+    // SAFETY: `runes` is valid for `runes.len()` reads and within `MAX_RUNE_STR_LEN`.
+    let ptr = unsafe { ffi::runesToStr(runes.as_ptr(), runes.len(), &mut len) };
+    assert!(!ptr.is_null());
+    // SAFETY: `runesToStr` returned `len` initialized bytes at `ptr`.
+    let bytes = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len) }.to_vec();
+    // SAFETY: `ptr` came from the module allocator, which the test binary mocks.
+    unsafe { redis_module::RedisModule_Free.unwrap()(ptr.cast()) };
+    bytes
 }
 
 #[test]

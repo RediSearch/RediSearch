@@ -12,8 +12,6 @@
 //! A rune ([`u16`]) is a UTF-16 code unit; tries store and look up terms as
 //! rune arrays.
 
-use std::ptr::NonNull;
-
 /// Maximum number of runes (lowercased codepoints) allowed in a single conversion.
 pub const MAX_RUNE_STR_LEN: usize = ffi::MAX_RUNE_STR_LEN as usize;
 
@@ -24,9 +22,9 @@ pub struct RuneStrTooLong {
     pub len: usize,
 }
 
-/// [`runes_to_bytes`] into `out`, replacing its contents, so a caller converting
-/// many keys reuses one buffer. Encodes in Rust, the same way: each rune by its
-/// own value, surrogates included, stopping at the first zero rune.
+/// Encode `runes` as UTF-8 into `out`, replacing its contents, so a caller
+/// converting many keys reuses one buffer. Each rune is encoded by its own value,
+/// surrogates included, and the first zero rune ends the input.
 ///
 /// Returns [`Err(`[`RuneStrTooLong`]`)`] if `runes` exceeds
 /// [`MAX_RUNE_STR_LEN`], leaving `out` empty.
@@ -35,44 +33,20 @@ pub fn runes_to_bytes_into(runes: &[ffi::rune], out: &mut Vec<u8>) -> Result<(),
     if runes.len() > MAX_RUNE_STR_LEN {
         return Err(RuneStrTooLong { len: runes.len() });
     }
-    for &rune in runes.iter().take_while(|&&rune| rune != 0) {
-        match rune {
-            0..0x80 => out.push(rune as u8),
-            0x80..0x800 => {
-                out.extend_from_slice(&[0xC0 | (rune >> 6) as u8, 0x80 | (rune & 0x3F) as u8])
-            }
-            _ => out.extend_from_slice(&[
-                0xE0 | (rune >> 12) as u8,
-                0x80 | ((rune >> 6) & 0x3F) as u8,
-                0x80 | (rune & 0x3F) as u8,
-            ]),
-        }
-    }
+    out.reserve(runes.len() * ffi::RUNE_MAX_UTF8_LEN as usize);
+    // SAFETY: `runes` is valid for `runes.len()` reads, and `out` has room for the
+    // `RUNE_MAX_UTF8_LEN` bytes per rune `runesToStrInto` may write.
+    let len = unsafe { ffi::runesToStrInto(runes.as_ptr(), runes.len(), out.as_mut_ptr().cast()) };
+    // SAFETY: `runesToStrInto` initialized the first `len` bytes, within the capacity.
+    unsafe { out.set_len(len) };
     Ok(())
 }
 
-/// Convert a rune slice into a byte slice using UFT-8 encoding mechanism
-/// without validating actual unicode code points.
-///
-/// Returns [`Err(`[`RuneStrTooLong`]`)`] if `runes` exceeds
-/// [`MAX_RUNE_STR_LEN`].
+/// [`runes_to_bytes_into`] into a new vector.
 pub fn runes_to_bytes(runes: &[ffi::rune]) -> Result<Vec<u8>, RuneStrTooLong> {
-    let mut len: usize = 0;
-    // SAFETY: `runes` is a valid slice of `runes.len()` runes; `runesToStr`
-    // returns a freshly allocated, NUL-terminated buffer of `len` bytes, or NULL
-    // when the slice exceeds `MAX_RUNE_STR_LEN`.
-    let ptr = unsafe { ffi::runesToStr(runes.as_ptr(), runes.len(), &mut len) };
-    let Some(ptr) = NonNull::new(ptr) else {
-        return Err(RuneStrTooLong { len: runes.len() });
-    };
-    // SAFETY: `ptr` points to `len` valid bytes written by the call above.
-    let bytes = unsafe { std::slice::from_raw_parts(ptr.as_ptr().cast::<u8>(), len) }.to_vec();
-    // SAFETY: `RedisModule_Free` is set during module init and not mutated
-    // afterwards.
-    let rm_free = unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
-    // SAFETY: `ptr` was allocated by the module allocator inside `runesToStr`.
-    unsafe { rm_free(ptr.as_ptr().cast::<std::ffi::c_void>()) };
-    Ok(bytes)
+    let mut out = Vec::new();
+    runes_to_bytes_into(runes, &mut out)?;
+    Ok(out)
 }
 
 /// Convert a UTF-8 string to a lowercase array of runes ([`u16`]) for trie
