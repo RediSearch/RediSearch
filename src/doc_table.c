@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "doc_table.h"
+#include "doc_key_map_ffi.h"
 
 #include <sys/param.h>
 #include <string.h>
@@ -18,6 +19,7 @@
 #include "config.h"
 #include "buffer.h"
 #include "rules.h"
+#include "search_disk.h"
 
 struct timespec;
 
@@ -121,6 +123,62 @@ bool DocTable_Exists(const DocTable *t, t_docId docId) {
   return false;
 }
 
+DocKeyMapActivation DocTable_StartKeyMap(DocTable *t) {
+  if (t->keyMapState != DocKeyMap_Inactive) return DocKeyMapActivation_Unchanged;
+  t->keyMap = DocKeyMap_New();
+  t->keyMapState = DocTable_IsEmpty(t) ? DocKeyMap_Ready : DocKeyMap_Building;
+  return t->keyMapState == DocKeyMap_Ready ? DocKeyMapActivation_Ready
+                                           : DocKeyMapActivation_NeedsBackfill;
+}
+
+void DocTable_KeyMapIteratorReleaseNext(DocTableKeyMapIterator *iter) {
+  DMD_Return(iter->next);
+  iter->next = NULL;
+}
+
+bool DocTable_BuildKeyMapBatch(DocTable *t, DocTableKeyMapIterator *iter, size_t budget) {
+  RS_ASSERT(t->keyMapState != DocKeyMap_Inactive);
+  if (t->keyMapState == DocKeyMap_Ready) return true;
+  if (!budget) return false;
+  if (!iter->initialized) {
+    iter->endBucket = t->cap;
+    iter->initialized = true;
+    // Reserve on the background thread, before backfill can cause large rehashes.
+    DocKeyMap_EnsureCapacity(t->keyMap, t->size - 1);
+  }
+
+  RSDocumentMetadata *dmd = iter->next;
+  // Unlinking clears nextInChain. A retained deleted DMD stays alive, but cannot
+  // lead us to the remaining entries; restarting is safe because insertion is idempotent.
+  if (!dmd || (dmd->flags & Document_Deleted)) {
+    dmd = t->buckets[iter->bucket].root;
+  }
+  DocTable_KeyMapIteratorReleaseNext(iter);
+  // The spec lock pins the chain throughout the batch; only the yield needs a borrow.
+  while (iter->bucket < iter->endBucket && budget > 0) {
+    --budget;
+    if (dmd) {
+      DocKeyMap_InsertIfAbsent(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), dmd->id);
+      dmd = dmd->nextInChain;
+    }
+    if (!dmd) {
+      ++iter->bucket;
+      if (iter->bucket < iter->endBucket) {
+        dmd = t->buckets[iter->bucket].root;
+      }
+    }
+  }
+  if (iter->bucket == iter->endBucket) {
+    t->keyMapState = DocKeyMap_Ready;
+    return true;
+  }
+  if (dmd) {
+    DMD_Incref(dmd);
+    iter->next = dmd;
+  }
+  return false;
+}
+
 static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *dmd) {
   uint32_t bucket = DocTable_GetBucket(t, docId);
   if (bucket >= t->cap && t->cap < t->maxSize) {
@@ -155,6 +213,9 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
   // Adding the dmd to the chain
   dmd->nextInChain = chain->root;
   chain->root = dmd;
+  if (t->keyMap) {
+    DocKeyMap_Insert(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), docId);
+  }
 }
 
 int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len) {
@@ -399,6 +460,9 @@ void DocTable_Free(DocTable *t) {
     }
   }
   rm_free(t->buckets);
+  DocKeyMap_Free(t->keyMap);
+  t->keyMap = NULL;
+  t->keyMapState = DocKeyMap_Inactive;
   TimeToLiveTable_Destroy(&t->ttl);
   while (t->pendingSlotDeletions) {
     DocTable_RemovePendingDeletion(t, t->pendingSlotDeletions);
@@ -415,6 +479,12 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
   RSDocumentMetadata *md = DocTable_DmdUnchain(t, docId);
   if (!md) {
     return NULL;
+  }
+
+  if (t->keyMap) {
+    bool removed = DocKeyMap_Remove(t->keyMap, (const uint8_t *)md->keyPtr, sdslen(md->keyPtr), docId);
+    RS_LOG_ASSERT(removed || t->keyMapState == DocKeyMap_Building,
+                  "missing key map entry for deleted document");
   }
 
   // Drop the doc's per-field TTL entry, if any, and tear down the table
@@ -454,10 +524,18 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *to_str, size_t 
   if (!dmd) {
     return;
   }
+  if (t->keyMap) {
+    bool removed = DocKeyMap_Remove(t->keyMap, (const uint8_t *)dmd->keyPtr, sdslen(dmd->keyPtr), docId);
+    RS_LOG_ASSERT(removed || t->keyMapState == DocKeyMap_Building,
+                  "missing key map entry for renamed document");
+  }
   t->memsize -= sdsAllocSize(dmd->keyPtr);
   sdsfree(dmd->keyPtr);
   dmd->keyPtr = sdsnewlen(to_str, to_len);
   dmd->slot = keySlot(to_str, to_len);
+  if (t->keyMap) {
+    DocKeyMap_Insert(t->keyMap, (const uint8_t *)to_str, to_len, docId);
+  }
   t->memsize += sdsAllocSize(dmd->keyPtr);
 }
 
@@ -622,4 +700,32 @@ bool DocTable_IsDocPendingDeletion(const DocTable *t, const RSDocumentMetadata *
     }
   }
   return false;
+}
+
+// The spec lock pins the DMD and its key; no refcount change is needed for comparison.
+typedef struct {
+  const DocTable *table;
+  const char *key;
+  size_t len;
+} DocKeyLookup;
+
+bool DocTable_KeyEquals(const DocTable *t, t_docId id, const char *key, size_t len) {
+  const RSDocumentMetadata *dmd = DocTable_GetOwn(t, id);
+  return dmd && sdslen(dmd->keyPtr) == len && memcmp(dmd->keyPtr, key, len) == 0 &&
+         (!DocTable_HasPendingDeletions(t) || !DocTable_IsDocPendingDeletion(t, dmd));
+}
+
+static bool docKeyMatches(const void *ctx, uint64_t id) {
+  const DocKeyLookup *lookup = ctx;
+  return DocTable_KeyEquals(lookup->table, id, lookup->key, lookup->len);
+}
+
+t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len) {
+  RS_ASSERT(t->keyMapState == DocKeyMap_Ready);
+  DocKeyLookup lookup = {.table = t, .key = key, .len = len};
+  return DocKeyMap_GetId(t->keyMap, (const uint8_t *)key, len, &lookup, docKeyMatches);
+}
+
+size_t DocTable_KeyMapMemoryUsage(const DocTable *t) {
+  return DocKeyMap_MemoryUsage(t->keyMap);
 }

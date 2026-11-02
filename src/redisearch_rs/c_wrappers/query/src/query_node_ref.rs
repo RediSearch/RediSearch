@@ -98,10 +98,10 @@ pub enum QueryNode<'a> {
     /// A filter by explicit document key names.
     Ids {
         /// The key names to match against: `RedisModuleString`s borrowed
-        /// from storage owned by the request (its held argv). Opaque to Rust.
+        /// from storage owned by the request (its held argv).
         keys: &'a [*mut redis_module::raw::RedisModuleString],
-        /// Document IDs resolved from [`keys`](Self::Ids::keys) on the main
-        /// thread during query construction.
+        /// IDs resolved from [`keys`](Self::Ids::keys) before evaluation, or
+        /// [`None`] when evaluation must resolve through the lookup map.
         doc_ids: Option<&'a [DocId]>,
     },
     /// Matches every document in the index (the `*` query).
@@ -456,6 +456,9 @@ impl QueryNodeMut<'_> {
     ///    case-insensitive field those of [`RSTokenMut::normalize_tag`]. The
     ///    parser allocates every token that way, and query expansion leaves tag
     ///    subtrees alone.
+    /// 6. Every [`QueryNodeType::Ids`] node without pre-resolved document IDs
+    ///    must borrow non-null, live Redis strings in its key array. The request
+    ///    retains those strings for the entire evaluation.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn new(ptr: NonNull<ffi::RSQueryNode>) -> Self {

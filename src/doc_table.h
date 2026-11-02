@@ -18,6 +18,7 @@
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
 #include "slot_ranges.h"
+typedef struct DocKeyMap DocKeyMap;
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,8 +42,8 @@ static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *d
  * new
  * incremental ids to inserted keys.
  *
- * The key -> docId direction is stored on the Redis key as key-metadata (see
- * doc_id_meta.{h,c}), not here; the DocTable only maps docId -> RSDocumentMetadata.
+ * In-memory indexes also maintain a key -> docId map protected by the spec lock.
+ * Redis key metadata (doc_id_meta.{h,c}) remains available to its other consumers.
  *
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of
  * the
@@ -62,6 +63,12 @@ typedef struct PendingSlotDeletion {
   struct PendingSlotDeletion *next;
 } PendingSlotDeletion;
 
+typedef enum {
+  DocKeyMap_Inactive,
+  DocKeyMap_Building,
+  DocKeyMap_Ready,
+} DocKeyMapState;
+
 typedef struct {
   size_t size;
   t_docId maxSize;          // the maximum size this table is allowed to grow to
@@ -71,6 +78,9 @@ typedef struct {
   size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
+  // Allocated on first INKEYS use; disk indexes never activate it.
+  DocKeyMap *keyMap;
+  DocKeyMapState keyMapState;
   // Holds field-level expirations only; created lazily on the first HEXPIRE
   // and destroyed when the last entry is removed. Iterators use a NULL check
   // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
@@ -91,6 +101,39 @@ typedef struct {
 
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size);
+
+typedef enum {
+  DocKeyMapActivation_Unchanged,
+  DocKeyMapActivation_Ready,
+  DocKeyMapActivation_NeedsBackfill,
+} DocKeyMapActivation;
+
+/* Caller holds the spec write lock and has checked storage-mode eligibility. */
+DocKeyMapActivation DocTable_StartKeyMap(DocTable *t);
+// Task-owned and zero-initialized. Only next is retained across batch boundaries.
+typedef struct {
+  RSDocumentMetadata *next;
+  uint32_t bucket;
+  uint32_t endBucket;
+  bool initialized;
+} DocTableKeyMapIterator;
+
+/* Caller holds the spec write lock. Visits at most budget documents/empty buckets.
+ * Returns true when the map is ready. Use one iterator for the entire build. */
+bool DocTable_BuildKeyMapBatch(DocTable *t, DocTableKeyMapIterator *iter, size_t budget);
+
+/* Release a parked DMD on completion or cancellation, including after the table is freed. */
+void DocTable_KeyMapIteratorReleaseNext(DocTableKeyMapIterator *iter);
+
+/* Caller holds the spec read or write lock and keyMap is ready. */
+t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len);
+
+/* Match a visible document key. Caller holds the spec read or write lock, pinning the DMD and its
+ * key. */
+bool DocTable_KeyEquals(const DocTable *t, t_docId id, const char *key, size_t len);
+
+/* Key-map allocation, including unused capacity; zero when disabled. */
+size_t DocTable_KeyMapMemoryUsage(const DocTable *t);
 
 #define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize)
 

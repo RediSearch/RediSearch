@@ -188,9 +188,9 @@ impl MockData {
         self
     }
 
-    /// Make `revalidate` report [`Moved`](rqe_iterators::RQEValidateStatus::Moved)
-    /// onto the position it already holds, as an iterator may to hand back a
-    /// republished result object.
+    /// Make `revalidate` and `resume` report a move onto the position the mock
+    /// already holds, as an iterator may to hand back a republished result
+    /// object.
     pub fn set_revalidate_moves_in_place(&mut self, in_place: bool) -> &mut Self {
         self.0.borrow_mut().revalidate_moves_in_place = in_place;
         self
@@ -728,13 +728,14 @@ impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for Moc
         // [`MockData`] — mirrors what `Mock::revalidate` does on the legacy
         // path, so tests driving suspend/resume see the same per-mock
         // outcomes as before.
-        let (revalidate_result, resume_error, reseeks_past_end) = {
+        let (revalidate_result, resume_error, reseeks_past_end, moves_in_place) = {
             let mut data = self.data.0.borrow_mut();
             data.validation_count += 1;
             (
                 data.revalidate_result,
                 data.resume_error,
                 data.resume_reseeks_past_end,
+                data.revalidate_moves_in_place,
             )
         };
         // Injected resume failure (see `MockData::set_error_on_resume`): drop the
@@ -766,6 +767,8 @@ impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for Moc
             return Ok(rqe_iterators::ResumeOutcome::Moved(active));
         }
         let moved = match revalidate_result {
+            // See `MockData::set_revalidate_moves_in_place`.
+            _ if moves_in_place && self.next_index != past_end_cursor(N) => true,
             MockRevalidateResult::Ok => false,
             MockRevalidateResult::Move => {
                 if self.next_index < N {

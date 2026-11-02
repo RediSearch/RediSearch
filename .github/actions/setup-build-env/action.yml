@@ -1,7 +1,7 @@
 name: Setup build environment
 description: |
   Post-checkout environment setup shared by the RediSearch CI task workflows
-  (task-build, task-test, task-test-unit, task-test-flow, task-miri).
+  (task-build, task-test, task-test-unit, task-test-flow, task-rust-standalone-tests).
 
   This action MUST run after `actions/checkout` (its own `uses:` references and
   the local nested actions it calls only exist on disk once the repo is checked
