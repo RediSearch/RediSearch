@@ -18,7 +18,7 @@ use std::{
 
 use string_utils::runes::runes_to_bytes;
 
-use crate::{LoweredPattern, QueryRequestTimeoutHandle, TrieTerm};
+use crate::{LoweredPattern, QueryRequestLimitsHandle, TrieTerm};
 
 /// Adapts a [`ffi::TrieRangeCallback`] to a Rust closure handed back through
 /// the opaque `ctx` pointer for every matching term.
@@ -277,7 +277,7 @@ impl TermsTrie {
         pattern: &[ffi::rune],
         prefix: bool,
         suffix: bool,
-        timeout: Option<&QueryRequestTimeoutHandle>,
+        timeout: Option<&QueryRequestLimitsHandle>,
         mut callback: F,
     ) where
         F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
@@ -292,7 +292,7 @@ impl TermsTrie {
         if suffix && pattern.is_empty() {
             return;
         }
-        let timeout = timeout.map_or(ptr::null_mut(), QueryRequestTimeoutHandle::as_mut_ptr);
+        let timeout = timeout.map_or(ptr::null_mut(), QueryRequestLimitsHandle::as_mut_ptr);
         // SAFETY: `self` borrows a valid `ffi::Trie`; `pattern` points to
         // `pattern.len()` runes; `&mut callback` stays alive for the whole
         // call, so the `ctx` the trampoline reconstitutes is valid; and
@@ -488,7 +488,7 @@ impl TermsTrie {
     pub fn iterate_wildcard<F>(
         &self,
         pattern: &LoweredPattern,
-        timeout: Option<&QueryRequestTimeoutHandle>,
+        timeout: Option<&QueryRequestLimitsHandle>,
         mut callback: F,
     ) where
         F: FnMut(&[ffi::rune], usize) -> ControlFlow<()>,
@@ -499,7 +499,7 @@ impl TermsTrie {
         if pattern.is_empty() {
             return;
         }
-        let timeout = timeout.map_or(ptr::null_mut(), QueryRequestTimeoutHandle::as_mut_ptr);
+        let timeout = timeout.map_or(ptr::null_mut(), QueryRequestLimitsHandle::as_mut_ptr);
         // SAFETY: `self` borrows a valid `ffi::Trie`; `pattern` addresses its
         // content runes followed by the readable zero sentinel the matcher
         // requires (`LoweredPattern` invariant); `&mut callback` stays alive for
