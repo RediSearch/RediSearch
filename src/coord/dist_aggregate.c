@@ -1030,8 +1030,10 @@ static void execDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   // Last chance to stop before the fan-out: past this point shards run the query. A RETURN stop
   // is recorded and dispatchAggregateDeferred skips the fan-out; FAIL replies the error. Profile
-  // is exempt as in RPNet_MemoryStops.
+  // is exempt as in RPNet_MemoryStops. An elapsed clock deadline keeps its ON_TIMEOUT outcome.
   if (HasWithCount(r) && !IsProfile(r) &&
+      (r->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
+       !QueryRequestTimeout_IsTimedOutExact(&r->base.timeout)) &&
       QueryMemory_CheckBeforeExecution(&r->base.timeout, r->base.reqConfig.oomPolicy, status) !=
           REDISMODULE_OK) {
     goto err;
