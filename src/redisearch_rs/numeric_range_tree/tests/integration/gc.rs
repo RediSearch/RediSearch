@@ -178,6 +178,40 @@ fn apply_gc_to_node_with_a_liveness_source_rescans_a_grown_last_block(
     }
 }
 
+/// A leaf that split since it was scanned keeps its range as an internal node, and its
+/// children hold copies of the entries a rescan would remove. Its grown last block is
+/// denied instead, so its bounds still cover its children until a later cycle, which
+/// lists the children, collects them first.
+#[rstest]
+fn a_leaf_that_split_since_its_scan_is_denied_not_rescanned(
+    #[values(false, true)] compress_floats: bool,
+) {
+    const MAX_DEPTH_RANGE: usize = 2;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for i in 1..=4 {
+        tree.add(i, 42.0, false, false, MAX_DEPTH_RANGE);
+    }
+    let live = |doc_id: u64| doc_id > 2;
+    let delta = scan_node_delta(&tree, tree.root_index(), &live).expect("docs 1 and 2 are gone");
+    // Distinct values split the leaf; the root keeps its range and its last block grows.
+    let last = 4 + SPLIT_TRIGGER;
+    for i in 5..=last {
+        tree.add(i, i as f64, false, false, MAX_DEPTH_RANGE);
+    }
+    assert!(!tree.root().is_leaf(), "the leaf split");
+
+    let live_dyn: &dyn inverted_index::DocLiveness = &live;
+    let result = tree
+        .apply_gc_to_node_with(tree.root_index(), delta, Some(live_dyn))
+        .unwrap();
+
+    assert!(result.index_gc_info.ignored_last_block);
+    assert!(!result.index_gc_info.rescanned_last_block);
+    let range = tree.root().range().expect("the root retains its range");
+    assert!(range.min_val() <= 5.0, "min {}", range.min_val());
+    assert!(range.max_val() >= last as f64, "max {}", range.max_val());
+}
+
 /// A rescan can delete the grown last block outright. The statistics are then
 /// rebuilt from whatever follows it, found by document ID, not from a block count
 /// the delete made stale: here the only block goes, and nothing is folded back.
