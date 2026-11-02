@@ -825,8 +825,23 @@ void HybridRequest_Execute(HybridRequest *hreq, RedisModuleCtx *ctx, RedisSearch
     RedisModule_EndReply(reply);
 }
 
+// The one cause the shard reports for a depleted cursor reply. A memory stop wins over a sibling's
+// own timeout, so mixed causes carry only the OOM warning, as on the non-cursor path.
+typedef enum {
+  DEPLETION_OUTCOME_COMPLETE,
+  DEPLETION_OUTCOME_TIMED_OUT,
+  DEPLETION_OUTCOME_STOPPED_FOR_OOM,
+} DepletionOutcome;
+
+static DepletionOutcome selectDepletionOutcome(HybridRequest *hreq, bool depletionTimedOut) {
+  if (subqueryStoppedForOom(hreq)) {
+    return DEPLETION_OUTCOME_STOPPED_FOR_OOM;
+  }
+  return depletionTimedOut ? DEPLETION_OUTCOME_TIMED_OUT : DEPLETION_OUTCOME_COMPLETE;
+}
+
 static inline void replyWithCursors(RedisModuleCtx *replyCtx, HybridRequest *hreq,
-                                     bool timedOut) {
+                                     DepletionOutcome outcome) {
     RedisModule_Reply _reply = RedisModule_NewReply(replyCtx), *reply = &_reply;
     // Send map of cursor IDs as response
     RedisModule_Reply_Map(reply);
@@ -841,12 +856,12 @@ static inline void replyWithCursors(RedisModuleCtx *replyCtx, HybridRequest *hre
       }
     }
     RedisModule_ReplyKV_Array(reply, "warnings"); // >warnings
-    if (timedOut) {
+    if (outcome == DEPLETION_OUTCOME_TIMED_OUT) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, SHARD_ERR_WARN);
       RedisModule_Reply_SimpleString(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT));
     }
     // A depletion stopped for memory: the shard wording, which the coordinator maps to ON_OOM.
-    if (subqueryStoppedForOom(hreq)) {
+    if (outcome == DEPLETION_OUTCOME_STOPPED_FOR_OOM) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1,
                                              SHARD_ERR_WARN);
       RedisModule_Reply_SimpleString(reply, QUERY_WOOM_SHARD);
@@ -1021,7 +1036,7 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
     if (!QueryRequest_UsesReplyCallback(&req->base)) {
       // If we are not using reply callback, we should reply with the cursors here
       QueryRequest_RecordInlineReply(&req->base);
-      replyWithCursors(replyCtx, req, depletionTimedOut);
+      replyWithCursors(replyCtx, req, selectDepletionOutcome(req, depletionTimedOut));
     } // else the reply callback replies
 
     return REDISMODULE_OK;
@@ -1286,7 +1301,7 @@ static int HybridQueryCursorReplyCallback(RedisModuleCtx *ctx, RedisModuleString
   }
 
   // Reply only; the container parks the cursors at its teardown.
-  replyWithCursors(ctx, req, false);
+  replyWithCursors(ctx, req, selectDepletionOutcome(req, false));
   return REDISMODULE_OK;
 }
 
