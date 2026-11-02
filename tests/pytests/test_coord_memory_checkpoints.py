@@ -212,6 +212,107 @@ def test_search_fanout_stop_keeps_earlier_replies():
         allShards_change_oom_policy(env, 'return')
 
 
+KNN_K = 10
+# SORTBY a field other than the distance keeps the coordinator's separate K heap in play. `n`
+# runs against the distance order, so the reply order shows the heap's rows were re-sorted.
+KNN_QUERY = ('FT.SEARCH', 'idx', f'*=>[KNN {KNN_K} @v $b]', 'PARAMS', 2, 'b',
+             np.zeros(2, dtype=np.float32).tobytes(), 'SORTBY', 'n', 'DIALECT', 2)
+
+
+def create_knn_index(env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE',
+               'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        # Distance to the query vector grows with i, all distinct.
+        conn.execute_command('HSET', f'doc{i}', 'n', N_DOCS - i,
+                             'v', np.array([i, 0], dtype=np.float32).tobytes())
+
+
+def knn_expected_ids(doc_ids):
+    """The ids the KNN reply holds for `doc_ids`: the nearest K, in `n` order."""
+    nearest = sorted(doc_ids, key=lambda d: int(d[3:]))[:KNN_K]
+    return sorted(nearest, key=lambda d: N_DOCS - int(d[3:]))
+
+
+def _test_knn_search_fanout_stop_keeps_earlier_replies(env):
+    skipIfNoEnableAssert(env)
+    create_knn_index(env)
+    coord = env.getConnection(1)
+    others = [env.getConnection(i) for i in range(2, env.shardsCount + 1)]
+    local_docs = coord.execute_command('KEYS', 'doc*')
+    env.assertGreater(len(local_docs), 0)
+
+    full = search_ids(env, coord.execute_command(*KNN_QUERY))
+    env.assertEqual(full, knn_expected_ids([f'doc{i}' for i in range(N_DOCS)]))
+
+    def checkpoint_calls():
+        return coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+
+    # As in test_search_fanout_stop_keeps_earlier_replies: calibrate the checkpoint calls up to
+    # the first shard reply's read.
+    coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1 << 40)
+    coord.execute_command(*KNN_QUERY)
+    calls = checkpoint_calls()
+    coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+    first_reply_read = calls - len(others)
+
+    try:
+        for oom_policy in ('return', 'fail'):
+            allShards_change_oom_policy(env, oom_policy)
+            errors, warnings = coord_oom_counters(coord)
+            for shard in others:
+                sync_point(shard, 'CLEAR')
+                sync_point(shard, 'ARM', 'BeforeFirstRead')
+            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', first_reply_read + 1)
+            try:
+                thread, result = run_in_thread(coord, KNN_QUERY)
+                for shard in others:
+                    wait_for_sync_point(shard, 'BeforeFirstRead')
+                wait_for_condition(lambda: (checkpoint_calls() == first_reply_read, {}),
+                                   'Timeout waiting for the first shard reply')
+                for shard in others:
+                    sync_point(shard, 'SIGNAL', 'BeforeFirstRead')
+                thread.join(timeout=30)
+                env.assertFalse(thread.is_alive())
+            finally:
+                coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+                for shard in others:
+                    sync_point(shard, 'CLEAR')
+            res = result[0]
+            if oom_policy == 'fail':
+                env.assertTrue(isinstance(res, ResponseError), message=res)
+                env.assertContains(OOM_QUERY_ERROR, str(res))
+                env.assertEqual(coord_oom_counters(coord), (errors + 1, warnings), message=res)
+            else:
+                # Shard 1's reply only, so its nearest K rows.
+                ids = search_ids(env, res)
+                env.assertEqual(ids, knn_expected_ids(local_docs), message=res)
+                env.assertLessEqual(len(ids), KNN_K)
+                if env.protocol == 3:
+                    env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+                env.assertEqual(coord_oom_counters(coord), (errors, warnings + 1), message=res)
+            expect_clean_end(env, coord)
+    finally:
+        allShards_change_oom_policy(env, 'return')
+
+
+@skip(cluster=False)
+def test_knn_search_fanout_stop_keeps_earlier_replies_resp3():
+    """A stop at the second shard reply of a clustered KNN query keeps the first: the coordinator
+    fills its K heap, bounded by the kept rows, from that shard's nearest rows only and warns
+    (ON_OOM RETURN), or fails (ON_OOM FAIL)."""
+    # Workers run the shard queries, so a shard parked at a sync point still answers SYNC_POINT.
+    _test_knn_search_fanout_stop_keeps_earlier_replies(Env(protocol=3, moduleArgs='WORKERS 1'))
+
+
+@skip(cluster=False)
+def test_knn_search_fanout_stop_keeps_earlier_replies_resp2():
+    """As the RESP3 case; RESP2 has no warning channel, so ON_OOM RETURN is told by the partial
+    result and the counter."""
+    _test_knn_search_fanout_stop_keeps_earlier_replies(Env(protocol=2, moduleArgs='WORKERS 1'))
+
+
 def _test_entry_guard_counts_the_oom_warning_once(env):
     create_index(env)
     coord = env.getConnection(1)
