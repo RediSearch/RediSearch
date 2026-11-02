@@ -2648,7 +2648,7 @@ dictType dictTypeHybridSearchResult = {
  HybridLookupContext *lookupCtx;  // Lookup context for field merging
  HybridExplainContext *explainCtx; // EXPLAINSCORE wrapper context; NULL ⇒ no wrapping
  uint32_t memoryCheckCalls;       // QueryMemory_ShouldStop counter for the held rows
- bool memoryStopped;              // A stop request ended consumption; later upstreams are only drained
+ bool memoryStopped;              // The merger's own memory check stopped it; later upstreams are only drained
  bool heldPastStop;              // The merger kept its rows past a memory stop
 
 } RPHybridMerger;
