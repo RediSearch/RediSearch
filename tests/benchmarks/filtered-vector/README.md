@@ -5,7 +5,15 @@ AUTO policy, against the frozen artifacts and independent FP32 oracle in
 `VectorSimilarity/tests/benchmark/filtered`. It changes no engine behavior.
 The same runner supports RAM and disk; Enterprise supplies disk setup and cache protocols.
 
+Start a VecSim-only algorithm POC with the native runner in the
+[shared benchmark draft](https://github.com/RedisAI/VectorSimilarity/pull/1093).
+Its `tests/benchmark/filtered/POC-GUIDE.md` connects the native, Redis, disk and
+customer stages. Native scan/batch baselines use precomputed eligibility and a
+checksummed HNSW graph; they do not include this runner's Redis command costs.
+
 ## First run
+
+Use Python 3.12 or newer; dependencies are pinned with wheel hashes.
 
 Use a dedicated standalone server with `search-on-timeout fail`, workers enabled,
 and debug commands available for index readiness and backend verification. Redis 8.6+
@@ -15,7 +23,7 @@ policy and algorithm runs. Use `REDIS_PASSWORD`, `--username`, and `--tls` if ne
 the password is not written to artifacts.
 
 ```sh
-python -m pip install -r tests/benchmarks/filtered-vector/requirements.txt
+python -m pip install --only-binary=:all: --require-hashes -r tests/benchmarks/filtered-vector/requirements.txt
 SHARED=deps/VectorSimilarity/tests/benchmark/filtered
 # Before the shared benchmark dependency lands, set SHARED to that PR's checkout.
 python "$SHARED/filtered_bench.py" prepare --output /tmp/filtered-synthetic \
@@ -96,7 +104,12 @@ all three policies, zero/fewer-than-k cases, and scoring against the independent
 It is an adapter compatibility check, not a performance measurement of this source tip.
 Run the 10K fixture against each candidate's freshly built module before full campaigns.
 
-Subsequent layers are a native VecSim/disk kernel adapter with the same bundle, richer
+Subsequent layers are a native disk kernel adapter with the same bundle, richer
 numeric/text predicates, concurrent load, mutation-aware correctness, multi-value docs,
 and instrumented strategy/I/O counters. Customer replay belongs in its source repository;
 business-score/group-by output must not be scored as filtered vector top-k recall.
+
+For a new native algorithm such as NaviX, add its actual RQE/VecSim integration
+before extending this runner's accepted policies. The current batch API does not
+receive filter eligibility. Use an explicit strategy route and diagnostic marker
+to prove the candidate ran; AUTO can otherwise choose ADHOC and bypass it.
