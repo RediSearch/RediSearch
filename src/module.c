@@ -3626,6 +3626,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   searchReducerCtx *rCtx = NULL;
   int profile = 0;
   size_t num = 0;
+  size_t keptRowsBound = SIZE_MAX;
   // A stop requested before reducing (in the fan-out) leaves the replies kept so far to merge.
   const bool stoppedBeforeReducing = QueryRequestTimeout_IsStopRequested(&req->base.timeout);
 
@@ -3714,7 +3715,6 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   // Init results heap. After an OOM stop only the kept rows can fill it, so do not allocate for
   // the requested limit under memory pressure.
   num = req->requestedResultsCount;
-  size_t keptRowsBound = SIZE_MAX;
   if (searchStoppedForOom(req)) {
     keptRowsBound = searchRepliesRowBound(req, count, replies);
     if (keptRowsBound < num) {
