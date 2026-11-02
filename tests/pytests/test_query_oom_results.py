@@ -890,38 +890,40 @@ def test_geoshape_collection_stop_replies_by_on_oom_policy(env):
     checkpoint comes before the iterators, so call 1 + N_DOCS is the collection's last id: only
     the collection's checkpoint can empty the reply there (later calls are the pipeline's and
     the reply's, past the first rows)."""
-    env.expect('FT.CREATE', 'gidx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
-    conn = getConnectionByEnv(env)
-    for i in range(N_DOCS):
-        conn.execute_command('HSET', f'g{i}', 'geom', 'POLYGON((0 0, 0 20, 20 20, 20 0, 0 0))')
-    queries = {
-        'within': 'POLYGON((-1 -1, -1 21, 21 21, 21 -1, -1 -1))',
-        'contains': 'POINT(5 5)',
-        'intersects': 'POINT(5 5)',
-        'disjoint': 'POLYGON((100 100, 100 110, 110 110, 110 100, 100 100))',
-    }
-    for predicate, shape in queries.items():
-        query = ['FT.SEARCH', 'gidx', f'@geom:[{predicate} $shape]', 'PARAMS', 2, 'shape', shape,
-                 'NOCONTENT', 'DIALECT', 3]
-        env.assertEqual(env.cmd(*query)['total_results'], N_DOCS, message=predicate)
-        for workers in [0, 2]:
-            _set_policies(env, 'return', 'fail', workers)
-            errors, warnings = _oom_counters(env)
-            _memory_pressure(env, 'AT_CALL', 1 + N_DOCS)
-            env.expect(*query).error().equal(f'SEARCH_OOM {OOM_QUERY_ERROR}')
-            env.assertEqual(_oom_counters(env), (errors + 1, warnings),
-                            message=(predicate, workers))
+    try:
+        env.expect('FT.CREATE', 'gidx', 'SCHEMA', 'geom', 'GEOSHAPE', 'FLAT').ok()
+        conn = getConnectionByEnv(env)
+        for i in range(N_DOCS):
+            conn.execute_command('HSET', f'g{i}', 'geom', 'POLYGON((0 0, 0 20, 20 20, 20 0, 0 0))')
+        queries = {
+            'within': 'POLYGON((-1 -1, -1 21, 21 21, 21 -1, -1 -1))',
+            'contains': 'POINT(5 5)',
+            'intersects': 'POINT(5 5)',
+            'disjoint': 'POLYGON((100 100, 100 110, 110 110, 110 100, 100 100))',
+        }
+        for predicate, shape in queries.items():
+            query = ['FT.SEARCH', 'gidx', f'@geom:[{predicate} $shape]', 'PARAMS', 2, 'shape', shape,
+                     'NOCONTENT', 'DIALECT', 3]
+            env.assertEqual(env.cmd(*query)['total_results'], N_DOCS, message=predicate)
+            for workers in [0, 2]:
+                _set_policies(env, 'return', 'fail', workers)
+                errors, warnings = _oom_counters(env)
+                _memory_pressure(env, 'AT_CALL', 1 + N_DOCS)
+                env.expect(*query).error().equal(f'SEARCH_OOM {OOM_QUERY_ERROR}')
+                env.assertEqual(_oom_counters(env), (errors + 1, warnings),
+                                message=(predicate, workers))
 
-            _set_policies(env, 'return', 'return', workers)
-            _memory_pressure(env, 'AT_CALL', 1 + N_DOCS)
-            res = env.cmd(*query)
-            env.assertEqual((res['results'], res['warning']), ([], [COORD_OOM_WARNING]),
-                            message=(predicate, workers, res))
+                _set_policies(env, 'return', 'return', workers)
+                _memory_pressure(env, 'AT_CALL', 1 + N_DOCS)
+                res = env.cmd(*query)
+                env.assertEqual((res['results'], res['warning']), ([], [COORD_OOM_WARNING]),
+                                message=(predicate, workers, res))
 
-        _set_policies(env, 'return', 'ignore', 0)
-        _memory_pressure(env, 'AT_CALL', 1 + N_DOCS)
-        env.assertEqual(env.cmd(*query)['total_results'], N_DOCS, message=predicate)
-    _reset(env)
+            _set_policies(env, 'return', 'ignore', 0)
+            _memory_pressure(env, 'AT_CALL', 1 + N_DOCS)
+            env.assertEqual(env.cmd(*query)['total_results'], N_DOCS, message=predicate)
+    finally:
+        _reset(env)
 
 
 @skip(cluster=False)
