@@ -41,6 +41,7 @@ extern "C" {
 #include <stdio.h>
 #include <time.h>
 #include <float.h>
+#include <algorithm>
 #include <iterator>  // std::size
 #include <vector>
 #include <cstdint>
@@ -1267,29 +1268,47 @@ TEST_F(IndexTest, testDocTableLiveBitmapSparse) {
   ScopedDocTable dt(10, 10);
   const size_t N = 1000;
   dt.put(N);
-  // 16 live docs for a 16-word bitmap still pay off.
-  for (t_docId id = 1; id <= N; id++) {
-    if (id % 64 && id != N) {
-      DMD_Return(DocTable_DeleteById(&dt.t, id));
-    }
+  for (t_docId id = 2; id < N; id++) {
+    DMD_Return(DocTable_DeleteById(&dt.t, id));
   }
+  // Two live docs still get a bitmap of every docId: only its total size is bounded.
   ASSERT_EQ(N / 64 + 1, DocTable_LiveBitmapWords(&dt.t));
-  // Below that it does not.
-  DMD_Return(DocTable_DeleteById(&dt.t, 64));
-  DMD_Return(DocTable_DeleteById(&dt.t, 128));
-  ASSERT_EQ(0, DocTable_LiveBitmapWords(&dt.t));
 }
 
 TEST_F(IndexTest, testDocTableLiveBitmapMaxBytes) {
-  // Only the counters are read, so a table this large needs no documents. Every docId is live,
-  // so the per-doc bound allows any size and only the absolute cap applies.
+  // Only maxDocId is read, so a table this large needs no documents.
   DocTable t = {};
   const t_docId capDocIds = (t_docId)(64 << 20) * 8;  // LIVE_BITMAP_MAX_BYTES, in bits
-  t.size = capDocIds;
   t.maxDocId = capDocIds - 1;
   ASSERT_EQ(capDocIds / 64, DocTable_LiveBitmapWords(&t));
   t.maxDocId = capDocIds;
   ASSERT_EQ(0, DocTable_LiveBitmapWords(&t));
+}
+
+static void collectLiveId(void *ctx, t_docId docId) {
+  static_cast<std::vector<t_docId> *>(ctx)->push_back(docId);
+}
+
+TEST_F(IndexTest, testDocTableForEachLiveId) {
+  // A max size below N chains documents in shared buckets.
+  ScopedDocTable dt(10, 10);
+  const size_t N = 100;
+  dt.put(N);
+  for (t_docId id = 3; id <= N; id += 3) {
+    DMD_Return(DocTable_DeleteById(&dt.t, id));
+  }
+
+  std::vector<t_docId> ids;
+  DocTable_ForEachLiveId(&dt.t, collectLiveId, &ids);
+  std::sort(ids.begin(), ids.end());
+  std::vector<t_docId> expected;
+  for (t_docId id = 0; id <= N + 10; id++) {
+    if (DocTable_Exists(&dt.t, id)) {
+      expected.push_back(id);
+    }
+  }
+  ASSERT_EQ(N - N / 3, expected.size());
+  ASSERT_EQ(expected, ids);
 }
 
 TEST_F(IndexTest, testVarintFieldMask) {

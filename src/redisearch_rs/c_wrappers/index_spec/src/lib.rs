@@ -10,7 +10,7 @@
 //! Safe wrapper around [`ffi::IndexSpec`].
 
 use std::{
-    ffi::{CStr, c_char},
+    ffi::{CStr, c_char, c_void},
     ops::Deref,
     ptr,
     ptr::NonNull,
@@ -367,7 +367,7 @@ impl<'lock> IndexSpecReadGuard<'lock> {
     }
 
     /// Snapshot which documents exist, as a bitmap indexed by document id, or [`None`] when
-    /// the document table is too sparse or too large for a bitmap to pay off.
+    /// the table's maximum document id makes the bitmap too large to allocate.
     ///
     /// Within the table's current maximum document id, bit `id` agrees with
     /// [`doc_exists`](Self::doc_exists) until the table next changes.
@@ -381,6 +381,21 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         // SAFETY: docs is a valid DocTable as above, and `live` holds `words` writable words.
         unsafe { ffi::DocTable_FillLiveBitmap(&self.0.docs, live.as_mut_ptr(), words) };
         Some(live)
+    }
+
+    /// Call `f` once with the id of every document [`doc_exists`](Self::doc_exists)
+    /// reports, in no particular order.
+    pub fn for_each_live_doc<F: FnMut(rqe_core::DocId)>(&self, mut f: F) {
+        unsafe extern "C" fn call<F: FnMut(rqe_core::DocId)>(ctx: *mut c_void, id: ffi::t_docId) {
+            // SAFETY: `ctx` is the `&mut F` passed below, which outlives the walk.
+            let f = unsafe { &mut *ctx.cast::<F>() };
+            f(id);
+        }
+        // SAFETY: docs is a valid DocTable as above, and `ctx` points to `f`, which
+        // `call::<F>` reads back as an `F`.
+        unsafe {
+            ffi::DocTable_ForEachLiveId(&self.0.docs, Some(call::<F>), (&raw mut f).cast());
+        }
     }
 
     /// Return the inverted index tracking all existing (live) document IDs, if present.

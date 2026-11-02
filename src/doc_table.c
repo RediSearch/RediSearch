@@ -123,27 +123,37 @@ bool DocTable_Exists(const DocTable *t, t_docId docId) {
   return false;
 }
 
-// docIds are never reused, so heavy churn leaves maxDocId far above size. Past one live doc per
-// 64 docIds, building and reading the bitmap stops being cheap next to the DMD loads it saves.
-#define LIVE_BITMAP_MAX_BYTES_PER_DOC 8
-// Bounds the allocation however large the table is (64 MiB covers 512M docIds).
+// Bounds the bitmap's allocation (64 MiB covers 512M docIds).
 #define LIVE_BITMAP_MAX_BYTES (64 << 20)
 
 size_t DocTable_LiveBitmapWords(const DocTable *t) {
   const size_t words = t->maxDocId / 64 + 1;
-  const size_t bytes = words * sizeof(uint64_t);
-  if (bytes > LIVE_BITMAP_MAX_BYTES_PER_DOC * t->size || bytes > LIVE_BITMAP_MAX_BYTES) {
+  if (words * sizeof(uint64_t) > LIVE_BITMAP_MAX_BYTES) {
     return 0;
   }
   return words;
 }
 
+// Whether `md`, reached by walking the buckets, is a doc DocTable_Exists reports.
+static inline bool isLiveDmd(const DocTable *t, const RSDocumentMetadata *md) {
+  return md->id && md->id <= t->maxDocId && !(md->flags & Document_Deleted);
+}
+
 void DocTable_FillLiveBitmap(const DocTable *t, uint64_t *live, size_t words) {
   for (size_t i = 0; i < t->cap; ++i) {
     for (const RSDocumentMetadata *md = t->buckets[i].root; md != NULL; md = md->nextInChain) {
-      if (md->id && md->id <= t->maxDocId && md->id / 64 < words &&
-          !(md->flags & Document_Deleted)) {
+      if (isLiveDmd(t, md) && md->id / 64 < words) {
         live[md->id / 64] |= 1ULL << (md->id % 64);
+      }
+    }
+  }
+}
+
+void DocTable_ForEachLiveId(const DocTable *t, DocTable_LiveIdCallback cb, void *ctx) {
+  for (size_t i = 0; i < t->cap; ++i) {
+    for (const RSDocumentMetadata *md = t->buckets[i].root; md != NULL; md = md->nextInChain) {
+      if (isLiveDmd(t, md)) {
+        cb(ctx, md->id);
       }
     }
   }

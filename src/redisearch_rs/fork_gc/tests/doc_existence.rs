@@ -7,15 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-// The lookup fallback and the bitmap snapshot call `DocTable_Exists`,
-// `DocTable_LiveBitmapWords` and `DocTable_FillLiveBitmap`, C functions miri
-// cannot run.
+// The lookup fallback and the snapshot call `DocTable_Exists`,
+// `DocTable_LiveBitmapWords`, `DocTable_FillLiveBitmap` and
+// `DocTable_ForEachLiveId`, C functions miri cannot run.
 #![cfg(not(miri))]
 
 use std::mem;
 
 use fork_gc::DocExistence;
 use index_spec::IndexSpecReadGuard;
+use roaring::RoaringTreemap;
 use rqe_core::DocId;
 
 // Link both Rust-provided and C-provided symbols
@@ -69,7 +70,7 @@ impl TestTable {
         }
     }
 
-    fn guard(&self) -> mem::ManuallyDrop<IndexSpecReadGuard<'_>> {
+    const fn guard(&self) -> mem::ManuallyDrop<IndexSpecReadGuard<'_>> {
         // SAFETY: the table owns `spec` and does not change it while the guard lives.
         unsafe { IndexSpecReadGuard::from_locked(&self.spec) }
     }
@@ -91,16 +92,36 @@ fn snapshot_of_chained_buckets_matches_the_lookup() {
 }
 
 #[test]
-fn snapshot_of_a_sparse_table_uses_the_lookup() {
+fn snapshot_of_a_sparse_table_keeps_the_bitmap() {
     // Two live docs under a maximum doc id of 1000.
     let table = TestTable::new(10, (1..=1000).map(|id| (id, id < 999)));
     let guard = table.guard();
-    assert!(guard.live_doc_bitmap().is_none());
+    assert!(guard.live_doc_bitmap().is_some());
 
     let docs = DocExistence::snapshot(&guard);
     for id in [0, 1, 998, 999, 1000, 1001] {
         assert_eq!(docs.contains(id), guard.doc_exists(id), "doc id {id}");
     }
+}
+
+#[test]
+fn snapshot_past_the_bitmap_cap_keeps_the_live_ids() {
+    // A maximum doc id past the bitmap's byte cap (512M doc ids), with a
+    // deleted doc chained among the live ones.
+    const FAR: DocId = 600_000_000;
+    let ids = [1, 7, 11, FAR - 10, FAR];
+    let table = TestTable::new(10, ids.map(|id| (id, id == 11)));
+    let guard = table.guard();
+    assert!(guard.live_doc_bitmap().is_none());
+
+    let docs = DocExistence::snapshot(&guard);
+    let near = [0, 1, 2, 7, 11, 12];
+    let far = [FAR - 11, FAR - 10, FAR - 1, FAR, FAR + 1];
+    for id in near.into_iter().chain(far) {
+        assert_eq!(docs.contains(id), guard.doc_exists(id), "doc id {id}");
+    }
+    assert!(docs.contains(FAR));
+    assert!(!docs.contains(11));
 }
 
 #[test]
@@ -138,4 +159,30 @@ fn ids_past_the_bitmap_fall_back_to_the_lookup() {
     assert!(docs.contains(63));
     assert!(!docs.contains(64));
     assert!(!docs.contains(DocId::MAX));
+}
+
+#[test]
+fn ids_answer_up_to_their_max_doc_id() {
+    // The table is empty, so only the set can report these docs as present.
+    let table = TestTable::new(1, []);
+    let guard = table.guard();
+    let ids: RoaringTreemap = [2, 5, 1 << 40].into_iter().collect();
+    let docs = DocExistence::with_ids(&guard, ids, 1 << 40);
+
+    assert!(docs.contains(2));
+    assert!(!docs.contains(3));
+    assert!(docs.contains(1 << 40));
+    assert!(!docs.contains((1 << 40) - 1));
+}
+
+#[test]
+fn ids_above_the_max_doc_id_of_the_set_fall_back_to_the_lookup() {
+    let table = TestTable::new(1, []);
+    let guard = table.guard();
+    // An id in the set but above the max doc id is never read from the set.
+    let ids: RoaringTreemap = [5, 20].into_iter().collect();
+    let docs = DocExistence::with_ids(&guard, ids, 10);
+
+    assert!(docs.contains(5));
+    assert!(!docs.contains(20));
 }
