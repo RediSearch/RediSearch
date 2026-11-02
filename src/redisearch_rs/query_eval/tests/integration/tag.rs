@@ -192,6 +192,10 @@ enum Timeout {
     /// [`EXPIRED_DEADLINE`] with `skipTimeoutChecks` set, which stops the
     /// evaluator installing it on the trie iterator at all.
     ExpiredButSkipped,
+    /// A blocked-client cycle whose cancellation marker is already published.
+    /// It carries no deadline, so a walk that only reads the clock deadline
+    /// sees nothing to enforce.
+    BlockedClientCancelled,
 }
 
 /// The two request flags tag evaluation reads as "this is a hybrid
@@ -590,6 +594,7 @@ impl TagFixture {
             Timeout::NoTimeout => {}
             Timeout::Expired => context.set_search_time(EXPIRED_DEADLINE, false),
             Timeout::ExpiredButSkipped => context.set_search_time(EXPIRED_DEADLINE, true),
+            Timeout::BlockedClientCancelled => context.set_blocked_client_cancelled(),
         }
 
         // Genuinely added to `context`'s spec, not a standalone allocation:
@@ -2439,6 +2444,35 @@ fn eval_tag_lex_range_walk_ignores_the_deadline_when_checks_are_skipped() {
         .eval()
         .expect("skipTimeoutChecks disables the deadline");
     assert_eq!(drain_doc_ids(&mut it).len(), TIMEOUT_VALUES as usize);
+}
+
+#[test]
+fn eval_tag_lex_range_walk_stops_when_the_blocked_client_is_cancelled() {
+    // A background query under `ON_TIMEOUT FAIL` or `RETURN_STRICT` runs a
+    // blocked-client cycle, which publishes a marker instead of a deadline. The
+    // trie iterator has no deadline to enforce in that case, so the walk has to
+    // observe the marker itself or it keeps opening readers -- and keeps the
+    // spec read lock -- after the client is gone.
+    let mut fixture = TagFixture::new(TagOptions {
+        values: generated(TIMEOUT_VALUES, 100),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        max_prefix_expansions: Some(TIMEOUT_VALUES + 1),
+        timeout: Timeout::BlockedClientCancelled,
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("the walk starts before it observes the marker");
+    let ids = drain_doc_ids(&mut it);
+    assert!(!ids.is_empty());
+    assert!(
+        (ids.len() as u32) < TIMEOUT_VALUES,
+        "the walk opened {} of {TIMEOUT_VALUES} readers",
+        ids.len()
+    );
 }
 
 #[test]

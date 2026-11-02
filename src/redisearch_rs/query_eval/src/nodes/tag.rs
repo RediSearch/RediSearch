@@ -48,6 +48,20 @@ fn clock_deadline(ctx: &QueryEvalContext) -> Option<ffi::timespec> {
     timeout.clock_deadline()
 }
 
+/// Whether the request has been cancelled by the blocked-client callback.
+///
+/// A background query under `ON_TIMEOUT FAIL` or `RETURN_STRICT` runs a
+/// blocked-client cycle, which publishes a flag instead of a clock deadline, so
+/// [`clock_deadline`] reports nothing for it and a deadline-driven walk would
+/// run on past the client's timeout while holding the spec read lock.
+fn blocked_client_cancelled(ctx: &QueryEvalContext) -> bool {
+    // SAFETY: as in `clock_deadline` -- a non-null request timeout is an
+    // initialized C object that outlives query evaluation, and the handle lives
+    // only for the single flag read below.
+    let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ctx.sctx().timeout) };
+    timeout.is_some_and(QueryRequestTimeoutHandle::blocked_client_timed_out)
+}
+
 /// The `(timeout, skip_timeout_checks)` pair the suffix trie lookups take: the
 /// clock deadline when there is one, otherwise a zeroed deadline with checks
 /// skipped.
@@ -442,11 +456,16 @@ fn range_boundary(bound: &Bound<Vec<u8>>) -> Option<RangeBoundary<'_>> {
     }
 }
 
+/// Values walked between two blocked-client cancellation probes, matching the
+/// cadence `trie_rs` uses between its own clock probes.
+const CANCELLATION_CHECK_GRANULARITY: u32 = 100;
+
 /// Open one reader per value the range covers, up to the expansion cap.
 ///
 /// The cap counts readers opened, not values visited, and a value whose reader
 /// cannot be opened leaves it where it was, so the walk carries the request
-/// deadline as the pattern walk in [`collect_filtered_readers`] does.
+/// deadline as the pattern walk in [`collect_filtered_readers`] does, and
+/// observes a blocked-client cancellation, which carries no deadline.
 fn collect_range_readers(
     ctx: &mut QueryEvalContext,
     index: TagIndexRef,
@@ -463,12 +482,23 @@ fn collect_range_readers(
     );
 
     let mut children = Vec::new();
+    let mut until_cancellation_check = CANCELLATION_CHECK_GRANULARITY;
     while let Some((value, _)) = values.next() {
         if children.len() == max_prefix_expansions {
             ctx.status()
                 .warnings_mut()
                 .set_reached_max_prefix_expansions();
             break;
+        }
+        // The deadline installed above covers a clock cycle. A blocked-client
+        // cycle carries no deadline, so without this the walk would not observe
+        // that the client has already timed out.
+        until_cancellation_check -= 1;
+        if until_cancellation_check == 0 {
+            until_cancellation_check = CANCELLATION_CHECK_GRANULARITY;
+            if blocked_client_cancelled(ctx) {
+                break;
+            }
         }
         children.extend(open_reader_child(ctx, index, value, field_index));
     }
