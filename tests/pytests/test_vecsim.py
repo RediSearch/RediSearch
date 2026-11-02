@@ -3072,7 +3072,9 @@ def test_max_knn_k_returns_every_match():
     for i in range(1, n + 1):
         vec = create_np_array_typed([i] * dim).tobytes()
         conn.execute_command('HSET', f'doc{i}', 'v', vec, 'vh', vec, 't', 'even' if i % 2 == 0 else 'odd')
-    blob = create_np_array_typed([n / 2] * dim).tobytes()
+    # Off-grid query so every doc has a distinct distance: equidistant docs may come back in a
+    # different order from FLAT and HNSW.
+    blob = create_np_array_typed([n / 2 + 0.25] * dim).tobytes()
     for prefix, policy in (('*', ''), ('(@t:{even})', 'HYBRID_POLICY BATCHES'),
                            ('(@t:{even})', 'HYBRID_POLICY ADHOC_BF')):
         def search(field, k):
