@@ -12,7 +12,7 @@
 use std::ffi::{CStr, CString};
 use std::io::{self, Read, Write};
 
-use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
+use crate::{DocExistence, ForkGC, GcApplyStats, HandleError, HandleOutcome};
 use hidden_string::OwnedHiddenString;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
@@ -45,9 +45,15 @@ pub struct MissingDocsEntry<T = Vec<u8>> {
 /// cycle). Write errors are surfaced to the caller so they can terminate the
 /// child process.
 ///
+/// `docs` says which documents still exist.
+///
 /// [`GcScanDelta`]: inverted_index::GcScanDelta
-pub fn collect_missing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::Result<()> {
-    let doc_exists = |id| spec.doc_exists(id);
+pub fn collect_missing_docs(
+    writer: &mut impl Write,
+    spec: &IndexSpecReadGuard,
+    docs: &DocExistence,
+) -> io::Result<()> {
+    let doc_exists = |id| docs.contains(id);
 
     for entry in spec.missing_field_dict().iter() {
         let Ok(Some(deltas)) = entry.val().scan_gc(doc_exists) else {

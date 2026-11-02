@@ -11,7 +11,7 @@ use std::{io::Cursor, mem};
 
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
-    HandleError,
+    DocExistence, HandleError,
     existing_docs::{apply_existing_docs, collect_existing_docs},
 };
 use index_result::RSIndexResult;
@@ -33,6 +33,12 @@ const fn make_spec(existing_docs: *mut ffi::InvertedIndex) -> ffi::IndexSpec {
     spec
 }
 
+/// An existence snapshot for tests that never look a document up.
+/// [`DocExistence::snapshot`] calls C functions that miri cannot run.
+fn unqueried_existence<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
+    DocExistence::with_bitmap(guard, Box::default(), 0)
+}
+
 /// When the spec has no `existingDocs` index, the child writes `None`.
 #[test]
 fn no_existing_docs_writes_only_terminator() {
@@ -41,7 +47,7 @@ fn no_existing_docs_writes_only_terminator() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &guard).unwrap();
+    collect_existing_docs(&mut buf, &guard, &unqueried_existence(&guard)).unwrap();
 
     let mut cursor = Cursor::new(&buf);
     assert!(
@@ -64,7 +70,7 @@ fn empty_existing_docs_writes_only_terminator() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &guard).unwrap();
+    collect_existing_docs(&mut buf, &guard, &unqueried_existence(&guard)).unwrap();
 
     let mut cursor = Cursor::new(&buf);
     assert!(
@@ -95,7 +101,7 @@ fn existing_docs_with_deleted_entries_writes_delta() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &guard).unwrap();
+    collect_existing_docs(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
 
     let mut cursor = Cursor::new(&buf);
     let delta = deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
@@ -144,7 +150,7 @@ fn roundtrip_all_docs_deleted_clears_index() {
     {
         // SAFETY: the test owns the initialized spec; no concurrent access occurs.
         let read_guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
-        collect_existing_docs(&mut buf, &read_guard).unwrap();
+        collect_existing_docs(&mut buf, &read_guard, &DocExistence::snapshot(&read_guard)).unwrap();
     }
 
     let mut cursor = Cursor::new(&buf);
@@ -164,4 +170,44 @@ fn roundtrip_all_docs_deleted_clears_index() {
 
     assert!(write_guard.existing_docs_mut().is_none());
     assert!(stats.bytes_collected > 0);
+}
+
+/// Reports every doc id the fixtures use as present, whatever the spec's
+/// document table says, as a snapshot taken before those docs were deleted.
+fn all_live<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
+    const WORDS: usize = 1 << 14;
+    DocExistence::with_bitmap(
+        guard,
+        vec![u64::MAX; WORDS].into_boxed_slice(),
+        (WORDS * 64 - 1) as u64,
+    )
+}
+
+/// The scanner must answer existence from `docs`: the fixture's document table
+/// is empty, so a scanner that looked docs up itself would collect them all.
+#[test]
+fn docs_live_in_the_snapshot_are_kept() {
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    for id in 1..=2 {
+        ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
+            .unwrap();
+    }
+    let ii_ptr = Box::into_raw(Box::new(OpaqueInvertedIndex::DocIdsOnly(ii)));
+    let spec = make_spec(ii_ptr.cast());
+    // SAFETY: spec and ii_ptr are valid and live for the duration of the test.
+    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+
+    let mut buf = Vec::new();
+    collect_existing_docs(&mut buf, &guard, &all_live(&guard)).unwrap();
+
+    let mut cursor = Cursor::new(&buf);
+    assert!(
+        deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(cursor.position() as usize, buf.len());
+
+    // SAFETY: ii_ptr was created via Box::into_raw above.
+    unsafe { drop(Box::from_raw(ii_ptr)) };
 }

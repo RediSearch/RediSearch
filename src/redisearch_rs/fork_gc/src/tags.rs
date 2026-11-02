@@ -23,7 +23,7 @@ use lending_iterator::LendingIterator;
 use serde::{Deserialize, Serialize};
 use trie_rs::TrieMapOpaque;
 
-use crate::{ForkGC, Frame, GcApplyStats, HandleError, HandleOutcome};
+use crate::{DocExistence, ForkGC, Frame, GcApplyStats, HandleError, HandleOutcome};
 
 /// Return the in-memory C tag index behind `fs`.
 ///
@@ -118,7 +118,13 @@ impl<T: serde_bytes::Serialize> TagEntry<T> {
 ///
 /// Scan failures skip the tag, leaving it for the next GC cycle. Write errors are
 /// surfaced so the caller can terminate the child process.
-pub fn collect_tags(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::Result<()> {
+///
+/// `docs` says which documents still exist.
+pub fn collect_tags(
+    writer: &mut impl Write,
+    spec: &IndexSpecReadGuard,
+    docs: &DocExistence,
+) -> io::Result<()> {
     for (fs, tag_index) in spec
         .field_specs()
         .iter()
@@ -143,7 +149,7 @@ pub fn collect_tags(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::R
             // The spec's read lock prevents their removal during iteration.
             let ii = unsafe { value.cast::<InvertedIndex>().as_ref() };
 
-            let Ok(Some(delta)) = ii.scan_gc(|id| spec.doc_exists(id)) else {
+            let Ok(Some(delta)) = ii.scan_gc(|id| docs.contains(id)) else {
                 continue;
             };
 

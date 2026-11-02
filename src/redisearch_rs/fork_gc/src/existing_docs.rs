@@ -15,7 +15,7 @@ use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
 
 use crate::util::{deserialize, serialize};
-use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
+use crate::{DocExistence, ForkGC, GcApplyStats, HandleError, HandleOutcome};
 
 /// Collect the GC delta for the spec's `existingDocs` inverted index and write
 /// it to `writer`.
@@ -27,9 +27,15 @@ use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
 /// cycle). Write errors are surfaced to the caller so they can terminate the
 /// child process.
 ///
+/// `docs` says which documents still exist.
+///
 /// [`GcScanDelta`]: inverted_index::GcScanDelta
-pub fn collect_existing_docs(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::Result<()> {
-    let doc_exists = |id| spec.doc_exists(id);
+pub fn collect_existing_docs(
+    writer: &mut impl Write,
+    spec: &IndexSpecReadGuard,
+    docs: &DocExistence,
+) -> io::Result<()> {
+    let doc_exists = |id| docs.contains(id);
 
     if let Some(ii) = spec.existing_docs()
         && let Ok(Some(deltas)) = ii.scan_gc(doc_exists)
