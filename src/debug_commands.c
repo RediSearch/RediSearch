@@ -3705,8 +3705,8 @@ DEBUG_COMMAND(MemoryPressure) {
     RedisModule_ReplyWithSimpleString(ctx, "read_interval");
     RedisModule_ReplyWithLongLong(ctx, QueryMemory_GetRatioReadInterval());
     RedisModule_ReplyWithSimpleString(ctx, "raw_ratio");
-    if (RedisModule_GetRawUsedMemoryRatio) {
-      RedisModule_ReplyWithDouble(ctx, RedisMemory_GetRawUsedMemoryRatio());
+    if (RedisModule_GetUsedMemoryRatioEstimate) {
+      RedisModule_ReplyWithDouble(ctx, RedisMemory_GetUsedMemoryRatioEstimate());
     } else {
       RedisModule_ReplyWithNull(ctx);
     }
