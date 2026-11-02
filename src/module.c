@@ -3048,7 +3048,7 @@ static void debugCheckAndPauseBeforeReduce(searchReducerCtx *rCtx) {
     while (CoordReduceDebugCtx_IsPaused()) {
       // Check if timed out - break to avoid deadlock with timeout callback
       // (timeout callback waits for reducer to complete, but we're paused)
-      if (QueryRequestTimeout_IsBlockedClientTimedOut(&rCtx->searchCtx->base.timeout)) {
+      if (QueryRequestLimits_IsBlockedClientTimedOut(&rCtx->searchCtx->base.limits)) {
         CoordReduceDebugCtx_SetPause(false);
         break;
       }
@@ -3469,7 +3469,7 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
 static bool should_return_error(const searchRequestCtx *req, QueryErrorCode errCode) {
   // Check if this is a timeout error with non-fail policy
   if (errCode == QUERY_ERROR_CODE_TIMED_OUT) {
-    return req->base.timeout.config.timeoutPolicy == TimeoutPolicy_Fail;
+    return req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail;
   }
   // Check if this is an OOM error with non-fail policy
   if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
@@ -3504,7 +3504,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   if (CoordReduceDebugCtx_GetPauseBeforeN() == COORD_REDUCE_PAUSE_BEFORE_REDUCER_INIT) {
     CoordReduceDebugCtx_SetPause(true);
     while (CoordReduceDebugCtx_IsPaused()) {
-      if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+      if (QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
         CoordReduceDebugCtx_SetPause(false);
         break;
       }
@@ -3514,7 +3514,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
 #endif
 
   // No reduction is needed if the timeout callback already replied.
-  if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+  if (!fromTimeout && QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     goto cleanup;
   }
 
@@ -3621,7 +3621,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
     CoordReduceDebugCtx_SetPause(true);
     while (CoordReduceDebugCtx_IsPaused()) {
       // Check if timed out - break to avoid deadlock with timeout callback
-      if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+      if (QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
         CoordReduceDebugCtx_SetPause(false);
         break;
       }
@@ -3651,11 +3651,11 @@ cleanup:
 
   // Reduction/post-processing done, about to hand off the reply: advance the marker
   // so a timeout from here on is attributed to REPLY (frozen once already timed out).
-  if (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+  if (!QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
   }
 
-  if (bc && !fromTimeout && !QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+  if (bc && !fromTimeout && !QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     RedisModule_BlockedClientMeasureTimeEnd(bc);
   }
   QueryRequest_SignalResultsComplete(&req->base);
@@ -3965,12 +3965,12 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   // Arm RETURN before dispatch so time spent in the coordinator queue is part of the deadline.
   // initQueryTimeout already resolved the command override and foreground cap.
-  r->base.timeout.config.queryTimeoutMS = (long long)queryTimeoutMS;
+  r->base.limits.timeout.config.queryTimeoutMS = (long long)queryTimeoutMS;
   if (timeoutWasCapped) {
     r->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
-  if (r->base.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
-    QueryRequestTimeout_BeginCycle(&r->base.timeout,
+  if (r->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
+    QueryRequestLimits_BeginCycle(&r->base.limits,
                                    QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   }
 
@@ -3979,7 +3979,7 @@ int DistAggregateCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
   r->profileClocks.coordStartTime = coordInitialTime;
 
-  RSTimeoutPolicy policy = r->base.timeout.config.timeoutPolicy;
+  RSTimeoutPolicy policy = r->base.limits.timeout.config.timeoutPolicy;
   if (policy == TimeoutPolicy_Fail || policy == TimeoutPolicy_ReturnStrict) {
     reply_cb = DistAggregateReplyCallback;
     timeout_cb = (policy == TimeoutPolicy_Fail) ? DistAggregateTimeoutFailCallback
@@ -4079,15 +4079,15 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
   HybridRequest *hreq = MakeDefaultHybridRequest(sctx, argv, argc);
   // Arm RETURN before dispatch so time spent in the coordinator queue is part of the deadline.
   // initQueryTimeout already resolved the command override and foreground cap.
-  hreq->base.timeout.config.queryTimeoutMS = (long long)queryTimeoutMS;
+  hreq->base.limits.timeout.config.queryTimeoutMS = (long long)queryTimeoutMS;
   if (timeoutWasCapped) {
     hreq->requests[SEARCH_INDEX]->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
   for (size_t i = 0; i < hreq->nrequests; i++) {
     AREQ *subquery = hreq->requests[i];
-    subquery->base.timeout.config.queryTimeoutMS = hreq->base.timeout.config.queryTimeoutMS;
+    subquery->base.limits.timeout.config.queryTimeoutMS = hreq->base.limits.timeout.config.queryTimeoutMS;
   }
-  if (hreq->base.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
+  if (hreq->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
     HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   }
   // The tail and sub sctxs aliased this handler's ctx, which dies when the
@@ -4098,7 +4098,7 @@ int DistHybridCommandInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int
     AREQ_SearchCtx(hreq->requests[i])->redisCtx = NULL;
   }
 
-  RSTimeoutPolicy policy = hreq->base.timeout.config.timeoutPolicy;
+  RSTimeoutPolicy policy = hreq->base.limits.timeout.config.timeoutPolicy;
   hreq->base.async.requiresAggregateResultsSync = (policy == TimeoutPolicy_ReturnStrict);
 
   RedisModuleCmdFunc reply_cb = NULL, timeout_cb = NULL;
@@ -4306,7 +4306,7 @@ static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
   // Clear the original status after cloning (or if timeout owns reply) to avoid double-free or
   // leaks
   QueryError_ClearError(status);
-  if (!QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
+  if (!QueryRequestLimits_IsBlockedClientTimedOut(&request->limits)) {
     RedisModule_BlockedClientMeasureTimeEnd(bc);
   }
   RedisModule_UnblockClient(bc, request);
@@ -4408,7 +4408,7 @@ static int FlatSearchCommandHandler(searchRequestCtx *req) {
   int argc = req->base.args.argc;
   QueryError status = QueryError_Default();
 
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     RedisModule_UnblockClient(bc, &req->base);
     return REDISMODULE_OK;
   }
@@ -4429,7 +4429,7 @@ static int FlatSearchCommandHandler(searchRequestCtx *req) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("AfterCoordSearchPrepare");
 #endif
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     MRCommand_Free(&cmd);
     RedisModule_UnblockClient(bc, &req->base);
     return REDISMODULE_OK;
@@ -4446,7 +4446,7 @@ static void DistSearchCommandHandler(void *pd) {
   if (req->profileArgs) {
     req->coordQueueTime = rs_wall_clock_now_ns() - req->coordStartTime;
   }
-  if (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+  if (!QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
   }
   FlatSearchCommandHandler(req);
@@ -4550,7 +4550,7 @@ static int DistSearchTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString 
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   if (request) {
     searchRequestCtx *req = QueryRequest_GetSearch(request);
-    QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+    QueryRequestLimits_MarkTimedOut(&req->base.limits);
     recordSearchTimeoutStage(req, /*isError=*/true);
   }
 
@@ -4576,7 +4576,7 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   struct MRCtx *mrctx = req->mrctx;
 
   // Signal timeout to stop accepting new replies in searchFanoutCallback
-  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  QueryRequestLimits_MarkTimedOut(&req->base.limits);
 
   recordSearchTimeoutStage(req, /*isError=*/false);
 
@@ -4631,9 +4631,9 @@ static RedisModuleBlockedClient *DistSearchBlockClientWithTimeout(RedisModuleCtx
   // Block client with timeout callback - timeout is in milliseconds from query arg or global config
   BlockedClientTimeoutCB timeoutCallback = NULL;
 
-  if (request->timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
+  if (request->limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
     timeoutCallback = DistSearchTimeoutFailCallback;
-  } else if (request->timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  } else if (request->limits.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     timeoutCallback = DistSearchTimeoutPartialCallback;
   } else {
     queryTimeout = 0;
@@ -4748,8 +4748,8 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   req->spec_ref = StrongRef_Demote(spec_ref);
   req->coordStartTime = coordInitialTime;
-  const bool useBlockedClientTimeout = req->base.timeout.config.timeoutPolicy != TimeoutPolicy_Return;
-  QueryRequestTimeout_BeginCycle(&req->base.timeout, useBlockedClientTimeout
+  const bool useBlockedClientTimeout = req->base.limits.timeout.config.timeoutPolicy != TimeoutPolicy_Return;
+  QueryRequestLimits_BeginCycle(&req->base.limits, useBlockedClientTimeout
                                                          ? QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
                                                          : QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   req->base.async.requiresAggregateResultsSync = true;
@@ -4758,7 +4758,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   // NumShards is used as a hint for reply capacity - unsafe read is fine.
   struct MRCtx *mrctx = MR_CreateCtx(ctx, NULL, req, NumShards);
   if (useBlockedClientTimeout) {
-    MRCtx_SetAbortFlag(mrctx, QueryRequestTimeout_GetBlockedClientFlag(&req->base.timeout));
+    MRCtx_SetAbortFlag(mrctx, QueryRequestLimits_GetBlockedClientFlag(&req->base.limits));
   }
   // FT.SEARCH coordinator should validate connections before sending the command to the cluster
   MRCtx_SetValidateConnections(mrctx, true);
@@ -5167,7 +5167,7 @@ static int DEBUG_FlatSearchCommandHandler(searchRequestCtx *req) {
   int argc = req->base.args.argc;
   QueryError status = QueryError_Default();
 
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     RedisModule_UnblockClient(bc, &req->base);
     return REDISMODULE_OK;
   }
@@ -5206,7 +5206,7 @@ static int DEBUG_FlatSearchCommandHandler(searchRequestCtx *req) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("AfterCoordSearchPrepare");
 #endif
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     MRCommand_Free(&cmd);
     RedisModule_UnblockClient(bc, &req->base);
     return REDISMODULE_OK;
@@ -5223,7 +5223,7 @@ static void DEBUG_DistSearchCommandHandler(void *pd) {
   if (req->profileArgs) {
     req->coordQueueTime = rs_wall_clock_now_ns() - req->coordStartTime;
   }
-  if (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+  if (!QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
     searchReqCtx_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_PIPELINE);
   }
   DEBUG_FlatSearchCommandHandler(req);
