@@ -115,7 +115,7 @@ def _expect_stopped_by_policy(env, query, n_results, at_calls=None):
 @env_spec(protocol=3)
 def test_range_stops_for_oom(env):
     """A vector range query checks memory once VecSim has its reply and before copying it; under
-    pressure it stops with reason OOM, with and without workers and under either ON_TIMEOUT."""
+    pressure it stops for memory, with and without workers and under either ON_TIMEOUT."""
     _create_indexed_hash_index(env)
     try:
         for workers in (0, 2):
@@ -187,7 +187,7 @@ def _batches_queries():
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_knn_batches_stop_for_oom(env):
-    """A filtered KNN in batches stops with reason OOM at its first checkpoint, with and without
+    """A filtered KNN in batches stops for memory at its first checkpoint, with and without
     workers and under either ON_TIMEOUT. That is VecSim's stop callback at the start of the first
     batch; batch_memory.rs pins the read before each further batch."""
     _create_indexed_hash_index(env)
