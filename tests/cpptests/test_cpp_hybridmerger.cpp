@@ -255,7 +255,7 @@ class HybridMergerTest : public ::testing::Test {
   // under shuffle or repeat.
   void TearDown() override {
     QueryMemory_ResetFakePressure();
-    QueryRequestLimits *timeout = GetDummySearchCtx()->timeout;
+    QueryRequestLimits *timeout = GetDummySearchCtx()->limits;
     QueryRequestLimits_BeginCycle(timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     QueryRequestLimits_Reset(timeout);
   }

@@ -2202,7 +2202,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
   bool lock_acquired = false;
   // The stop checks read the pipeline's timeout state; it is the depleting context's.
   RS_ASSERT(!self->base.parent->limits ||
-            self->base.parent->limits == self->depletingThreadCtx->timeout);
+            self->base.parent->limits == self->depletingThreadCtx->limits);
 
   if (sync->take_index_lock) {
     // Try to lock the index for read (non-blocking)
