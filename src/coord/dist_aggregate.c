@@ -436,6 +436,12 @@ static void executeAggregateDeferred(void *arg) {
         !QueryRequestTimeout_IsTimedOutExact(&r->base.timeout)) {
       RPNet_MemoryStops(nc);
     }
+    // Such a plan ends EOF, which ApplyOomStop leaves as is, so a requested OOM stop puts its
+    // warning on the reply here. Under ON_OOM FAIL the buffering pipeline sees the stop and fails.
+    if (QueryRequestTimeout_GetStopReason(&r->base.timeout) == QUERY_STOP_REASON_OOM &&
+        r->base.reqConfig.oomPolicy != OomPolicy_Fail) {
+      QueryError_SetQueryOOMWarning(qctx->err);
+    }
 
     if (AREQ_RequestFlags(r) & QEXEC_F_IS_CURSOR) {
       // Cursor path: AREQ_StartCursor stashes the AREQ on the new Cursor and
