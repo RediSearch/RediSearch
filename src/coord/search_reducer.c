@@ -8,6 +8,8 @@
  */
 
 #include "search_reducer.h"
+#include "result_processor.h"
+#include "search_result_ffi.h"
 #include "aggregate/aggregate.h"
 #include "aggregate/aggregate_debug.h"
 #include "concurrent_ctx.h"
@@ -68,6 +70,10 @@ typedef struct searchReducerCtx {
   specialCaseCtx *reduceSpecialCaseCtxSortby;
 
   MRReply *warning;
+  QueryProcessingCtx qctx;
+  arrayof(SearchResult *) results;
+  MRReply **replies;
+  bool pipeline;
 } searchReducerCtx;
 
 typedef struct {
@@ -86,6 +92,14 @@ void CoordSearchReducer_Free(searchRequestCtx *r) {
     }
     if (rctx->reduceSpecialCaseCtxKnn && rctx->reduceSpecialCaseCtxKnn->knn.pq) {
       heap_destroy(rctx->reduceSpecialCaseCtxKnn->knn.pq);
+    }
+    QITR_FreeChain(&rctx->qctx);
+    if (rctx->results) {
+      for (size_t i = 0; i < array_len(rctx->results); ++i) {
+        SearchResult_Destroy(rctx->results[i]);
+        rm_free(rctx->results[i]);
+      }
+      array_free(rctx->results);
     }
     rm_free(rctx);
   }
@@ -149,7 +163,7 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
   }
 }
 
-searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j,
+searchResult *newResult_resp2(searchResult *cached, MRReply *arr, size_t j,
                               searchReplyOffsets *offsets, int explainScores) {
   int scoreOffset = offsets->score;
   int fieldsOffset = offsets->firstField;
@@ -205,7 +219,7 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j,
   return res;
 }
 
-searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j,
+searchResult *newResult_resp3(searchResult *cached, MRReply *results, size_t j,
                               searchReplyOffsets *offsets, bool explainScores,
                               specialCaseCtx *reduceSpecialCaseCtxSortBy) {
   searchResult *res = cached ? cached : rm_malloc(sizeof *res);
@@ -222,7 +236,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j,
   if (!result_id || MRReply_Type(result_id) != MR_REPLY_STRING) {
     // We crash in development env, and return NULL (such that an error is raised)
     // in production.
-    RS_LOG_ASSERT_FMT(false, "Expected id %d to exist, and be a string", j);
+    RS_LOG_ASSERT_FMT(false, "Expected id %zu to exist, and be a string", j);
     res->id = NULL;
     return res;
   }
@@ -658,6 +672,170 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
   }
 }
 
+/* MRCtx owns the immutable reply backing until request cleanup. A coordinator
+ * docId is a (reply index, row ordinal) locator, never a local document-table id.
+ * This keeps payloads, explanations and nested RESP values lossless without
+ * copying every candidate's output fields into a second representation. */
+typedef struct {
+  ResultProcessor base;
+  searchReducerCtx *ctx;
+  int count;
+  uint32_t shard;
+  size_t row;
+  MRReply *current;
+  bool fromTimeout;
+} RPSearchReply;
+
+static MRReply *searchReplyBody(const searchRequestCtx *req, MRReply *reply) {
+  if (!reply || MRReply_Type(reply) == MR_REPLY_ERROR || !req->profileArgs) return reply;
+  return MRCtx_GetCommandProtocol(req->mrctx) == 3 ? MRReply_MapElement(reply, "Results")
+                                                   : MRReply_ArrayElement(reply, 0);
+}
+
+static void searchResultView(searchReducerCtx *ctx, const SearchResult *row, searchResult *view) {
+  uint64_t locator = SearchResult_GetDocId(row);
+  MRReply *body = searchReplyBody(ctx->searchCtx, ctx->replies[locator >> 32]);
+  uint32_t offset = (uint32_t)locator;
+  *view = (searchResult){0};
+  if (MRReply_Type(body) == MR_REPLY_MAP) {
+    newResult_resp3(view, MRReply_MapElement(body, "results"), offset, &ctx->offsets,
+                    ctx->searchCtx->withExplainScores, ctx->reduceSpecialCaseCtxSortby);
+  } else {
+    newResult_resp2(view, body, 1 + (size_t)offset * ctx->offsets.step, &ctx->offsets,
+                    ctx->searchCtx->withExplainScores);
+  }
+}
+
+static int compareSearchRows(const void *a, const void *b, const void *context) {
+  searchReducerCtx *ctx = (searchReducerCtx *)context;
+  searchResult left, right;
+  searchResultView(ctx, a, &left);
+  searchResultView(ctx, b, &right);
+  return -cmp_results(&left, &right, ctx->searchCtx);
+}
+
+static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
+  RPSearchReply *source = (RPSearchReply *)base;
+  searchReducerCtx *ctx = source->ctx;
+  while (source->shard < (uint32_t)source->count) {
+    {
+      if (!source->current) {
+        if (ctx->searchCtx->profileArgs &&
+            MRReply_Type(ctx->replies[source->shard]) == MR_REPLY_ERROR) {
+          ++source->shard;
+          continue;
+        }
+        MRReply *body = searchReplyBody(ctx->searchCtx, ctx->replies[source->shard]);
+        if (!body || MRReply_Type(body) == MR_REPLY_ERROR ||
+            (MRReply_Type(body) != MR_REPLY_MAP &&
+             (MRReply_Type(body) != MR_REPLY_ARRAY || !MRReply_Length(body)))) {
+          goto next_shard;
+        }
+        source->current = body;
+        if (MRReply_Type(body) == MR_REPLY_MAP) {
+          MRReply *warning = MRReply_MapElement(body, "warning");
+          RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY,
+                        "invalid warning record");
+          if (!ctx->warning && warning && MRReply_Length(warning)) ctx->warning = warning;
+          MRReply *total = MRReply_MapElement(body, "total_results");
+          if (!total || !MRReply_MapElement(body, "results")) {
+            ctx->errorOccurred = true;
+            goto next_shard;
+          }
+          ctx->totalReplies += MRReply_Integer(total);
+          source->row = 0;
+        } else {
+          ctx->totalReplies += MRReply_Integer(MRReply_ArrayElement(body, 0));
+          source->row = 0;
+        }
+      }
+      MRReply *body = source->current;
+      bool resp3 = MRReply_Type(body) == MR_REPLY_MAP;
+      MRReply *rows = resp3 ? MRReply_MapElement(body, "results") : body;
+      size_t len = MRReply_Length(rows);
+      size_t step = resp3 ? 1 : ctx->offsets.step;
+      size_t offset = resp3 ? source->row : 1 + source->row * step;
+      if (offset < len) {
+        // Shard row counts are bounded by MAX_SEARCH_REQUEST_RESULTS.
+        if (source->row > UINT32_MAX) {
+          ctx->errorOccurred = true;
+          goto next_shard;
+        }
+        if (step > len - offset) {
+          ctx->errorOccurred = true;
+          goto next_shard;
+        }
+        SearchResult_SetDocId(row, ((uint64_t)source->shard << 32) | source->row++);
+        searchResult view;
+        searchResultView(ctx, row, &view);
+#ifdef ENABLE_ASSERT
+        debugCheckAndPauseBeforeReduce(ctx);
+#endif
+        if (!view.id) {
+          ctx->errorOccurred = true;
+          continue;
+        }
+        SearchResult_SetScore(row, view.score);
+#ifdef ENABLE_ASSERT
+        CoordReduceDebugCtx_IncrementReduceCount();
+#endif
+        return RS_RESULT_OK;
+      }
+      if (resp3) processResultFormat(&ctx->searchCtx->format, body);
+    }
+  next_shard:
+    source->current = NULL;
+    ++source->shard;
+    // Preserve the reducer's shard-boundary cancellation point during migration.
+    if (!source->fromTimeout &&
+        QueryRequestTimeout_IsBlockedClientTimedOut(&ctx->searchCtx->base.timeout)) {
+      return RS_RESULT_EOF;
+    }
+  }
+  return RS_RESULT_EOF;
+}
+
+static void searchReplyFree(ResultProcessor *base) {
+  rm_free(base);
+}
+
+static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **replies,
+                                 bool fromTimeout) {
+  ctx->pipeline = true;
+  ctx->replies = replies;
+  ctx->qctx.err = &ctx->searchCtx->base.reply.err;
+  ctx->qctx.timeoutPolicy = ctx->searchCtx->base.timeout.config.timeoutPolicy;
+  ctx->qctx.resultLimit = UINT32_MAX;
+  ctx->qctx.skipIndexResultDeepCopy = true;
+  RPSearchReply *source = rm_calloc(1, sizeof(*source));
+  source->base =
+      (ResultProcessor){.Next = searchReplyNext, .Free = searchReplyFree, .type = RP_SEARCH_REPLY};
+  source->ctx = ctx;
+  source->count = count;
+  source->fromTimeout = fromTimeout;
+  QITR_PushRP(&ctx->qctx, &source->base);
+  QITR_PushRP(&ctx->qctx, RPSorter_NewByComparator(ctx->searchCtx->requestedResultsCount,
+                                                   compareSearchRows, ctx));
+  if (ctx->searchCtx->limit != 0) {
+    QITR_PushRP(&ctx->qctx, RPPager_New(ctx->searchCtx->offset, ctx->searchCtx->limit));
+  }
+  QueryRequest_SetEndProcRef(&ctx->searchCtx->base, &ctx->qctx.endProc);
+  ctx->results = array_new(SearchResult *, 8);
+  SearchResult row = SearchResult_New();
+  // A count-only request still consumes envelopes but has no candidates to sort.
+  ResultProcessor *end = ctx->qctx.endProc;
+  if (ctx->searchCtx->limit == 0) end = ctx->qctx.rootProc;
+  while (end->Next(end, &row) == RS_RESULT_OK) {
+    if (ctx->searchCtx->limit != 0) {
+      array_append(ctx->results, SearchResult_AllocateMove(&row));
+      row = SearchResult_New();
+    } else {
+      SearchResult_Clear(&row);
+    }
+  }
+  SearchResult_Destroy(&row);
+}
+
 /************************ Result post processing callbacks ********************/
 
 static void noOpPostProcess(searchReducerCtx *rCtx) {
@@ -721,17 +899,23 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   // Number of results to actually return
   size_t num = req->offset + req->limit;
 
-  size_t qlen = heap_count(rCtx->pq);
+  size_t qlen = rCtx->pipeline ? array_len(rCtx->results) : heap_count(rCtx->pq);
   size_t pos = qlen;
+  size_t first = rCtx->pipeline ? 0 : req->offset;
 
   // Load the results from the heap into a sorted array. Free the items in
   // the heap one-by-one so that we don't have to go through them again
   searchResult **results = rm_malloc(sizeof(*results) * qlen);
-  while (pos) {
-    results[--pos] = heap_poll(rCtx->pq);
+  if (rCtx->pipeline) {
+    for (size_t i = 0; i < qlen; ++i) {
+      results[i] = rm_calloc(1, sizeof(*results[i]));
+      searchResultView(rCtx, rCtx->results[i], results[i]);
+    }
+  } else {
+    while (pos) results[--pos] = heap_poll(rCtx->pq);
+    heap_free(rCtx->pq);
+    rCtx->pq = NULL;
   }
-  heap_free(rCtx->pq);
-  rCtx->pq = NULL;
 
   //-------------------------------------------------------------------------------------------
   // RESP2 is a flat array: total, then each result's fields in sequence.
@@ -787,7 +971,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     // id, the optional sections below, and the trailing "values" placeholder.
     const size_t entries = 2 + req->withScores + req->withPayload +
                            (req->withSortingKeys && req->withSortby) + !req->noContent;
-    for (size_t i = rCtx->searchCtx->offset; i < qlen && i < num; ++i) {
+    for (size_t i = first; i < qlen && i < num; ++i) {
       RedisModule_Reply_MapWithLen(reply, entries);  // >> result
       searchResult *res = results[i];
 
@@ -833,7 +1017,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   {
     RedisModule_Reply_LongLong(reply, rCtx->totalReplies);
 
-    for (pos = rCtx->searchCtx->offset; pos < qlen && pos < num; pos++) {
+    for (pos = first; pos < qlen && pos < num; pos++) {
       searchResult *res = results[pos];
       RedisModule_Reply_StringBuffer(reply, res->id, res->idLen);
       if (req->withScores) {
@@ -1077,7 +1261,14 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
     }
   }
 
-  if (!profile) {
+  if (!rCtx->reduceSpecialCaseCtxKnn) {
+    heap_free(rCtx->pq);
+    rCtx->pq = NULL;
+    reduceSearchPipeline(rCtx, count, replies, fromTimeout);
+    if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+      goto cleanup;
+    }
+  } else if (!profile) {
     for (int i = 0; i < count; ++i) {
       rCtx->processReply(replies[i], rCtx);
       if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
