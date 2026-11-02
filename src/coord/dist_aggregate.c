@@ -22,6 +22,7 @@
 #include "aggregate/aggregate.h"
 #include "dist_plan.h"
 #include "module.h"
+#include "query_memory.h"
 #include "profile/profile.h"
 #include "resp3.h"
 #include "config.h"
@@ -400,6 +401,9 @@ static void executeAggregateDeferred(void *arg) {
                 "Expected RP_NETWORK root for distributed aggregate");
   RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
   long long totalResults = iterCtx->totalResults;
+  // A memory stop releases the barrier before every shard's first reply is summed.
+  const bool barrierReleasedEarly = MRIterator_IsMemoryStopped(nc->it) &&
+                                    iterCtx->numResponded < MRIterator_GetNumShards(nc->it);
 
   bool timedOut = QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout);
 
@@ -418,7 +422,11 @@ static void executeAggregateDeferred(void *arg) {
 
     // Copy the WITHCOUNT total (accumulated on the IO thread by withCountReplyCb)
     // into qctx so the result emitter picks it up.
-    if (nc->withCount) {
+    if (nc->withCount && barrierReleasedEarly) {
+      // The barrier holds only part of the shards' totals, which could be below the rows the
+      // pipeline reads. Count rows as they stream instead, as without WITHCOUNT.
+      nc->withCount = false;
+    } else if (nc->withCount) {
       qctx->totalResults = totalResults;
     }
 
@@ -1011,6 +1019,15 @@ static void execDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int
 
   if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, numShards, status) !=
       REDISMODULE_OK) {
+    goto err;
+  }
+
+  // Last chance to stop before the fan-out: past this point shards run the query. A RETURN stop
+  // is recorded and dispatchAggregateDeferred skips the fan-out; FAIL replies the error. Profile
+  // is exempt as in RPNet_MemoryStops.
+  if (HasWithCount(r) && !IsProfile(r) &&
+      QueryMemory_CheckBeforeExecution(&r->base.timeout, r->base.reqConfig.oomPolicy, status) !=
+          REDISMODULE_OK) {
     goto err;
   }
 

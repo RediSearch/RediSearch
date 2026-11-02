@@ -968,9 +968,10 @@ def _test_aggregate_withcount_stopped_before_fanout(env):
         for oom_policy in OOM_POLICIES:
             allShards_change_oom_policy(env, oom_policy)
             errors, warnings = coord_oom_counters(coord)
-            # The entry guard answers a RATIO pressure at once, so the stop is requested at the
-            # coordinator's first build checkpoint (AT_CALL 1), after the guard and before the
-            # fan-out is dispatched. Under ON_OOM RETURN the query goes on to the stopped dispatch.
+            # The entry guard answers a RATIO pressure at once, so AT_CALL 1 is the coordinator's
+            # pre-fan-out checkpoint in execDistAggregate: no shard checkpoint can run before it,
+            # as nothing is dispatched yet. Under ON_OOM RETURN the query goes on to the stopped
+            # dispatch.
             coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
             try:
                 res = coord.execute_command(*query)
@@ -1253,8 +1254,8 @@ def test_aggregate_withcount_stopped_before_fanout_does_not_wait_for_shards():
         sync_point(shard, 'CLEAR')
         sync_point(shard, 'ARM', 'BeforeFirstRead')
     try:
-        # The first checkpoint call is the coordinator's first build checkpoint, past the entry
-        # guard (which answers a RATIO pressure itself) and before the fan-out is dispatched.
+        # The first checkpoint call is the coordinator's pre-fan-out checkpoint in
+        # execDistAggregate, past the entry guard (which answers a RATIO pressure itself).
         coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
         thread, result = run_in_thread(coord, query)
         thread.join(timeout=30)
