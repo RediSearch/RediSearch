@@ -2,6 +2,7 @@ from types import SimpleNamespace
 import unittest
 
 import numpy as np
+import redis
 
 import run
 
@@ -79,6 +80,20 @@ class RunnerTests(unittest.TestCase):
         self.bundle.bundle_id = "expected"
         with self.assertRaisesRegex(ValueError, "bundle_id"):
             run.reuse(Client(), self.args, self.bundle)
+
+    def test_transport_failure_is_not_retried(self):
+        client = run.connection(self.args)
+        retry = client.connection_pool.connection_kwargs["retry"]
+        attempts = []
+
+        def fail():
+            attempts.append(1)
+            raise redis.TimeoutError("injected timeout")
+
+        with self.assertRaises(redis.TimeoutError):
+            retry.call_with_retry(fail, lambda error: None)
+        self.assertEqual(len(attempts), 1)
+        client.close()
 
 
 if __name__ == "__main__":

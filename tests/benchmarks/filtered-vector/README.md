@@ -66,7 +66,7 @@ the oracle, including rounding in small fixtures.
 `results.jsonl` contains every case/policy/repetition with returned IDs, scores, latency,
 and status. The exact oracle runs separately. `run.json` records bundle/graph identities,
 declared server revision, optional module SHA256, runner/dependency revisions, schema,
-server/module/index metadata, hardware and memory. Supply additional controlled host
+server/module/index metadata, client hardware and server memory. Supply controlled server host
 settings with `--environment-json`; keep credentials out of that file.
 
 The timing scope is one client round trip with one outstanding request, including Redis

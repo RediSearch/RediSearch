@@ -16,6 +16,8 @@ import time
 import uuid
 
 import redis
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 
 
 POLICIES = ("AUTO", "BATCHES", "ADHOC_BF")
@@ -196,6 +198,14 @@ def artifact_hash(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def connection(args):
+    # Retrying a timed request would hide failures and execute an unrecorded warm-up.
+    return redis.Redis(host=args.host, port=args.port, username=args.username,
+                       password=os.environ.get("REDIS_PASSWORD"), ssl=args.tls,
+                       protocol=2, socket_timeout=max(30, args.timeout_ms / 500),
+                       socket_connect_timeout=10, retry=Retry(NoBackoff(), 0))
+
+
 def run(args):
     shared = shared_module(args.shared_root)
     bundle = shared.load_bundle(args.bundle)
@@ -208,10 +218,7 @@ def run(args):
         raise ValueError("document prefix must not include the benchmark metadata key")
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=False)
-    client = redis.Redis(host=args.host, port=args.port, username=args.username,
-                         password=os.environ.get("REDIS_PASSWORD"), ssl=args.tls,
-                         protocol=2, socket_timeout=max(30, args.timeout_ms / 500),
-                         socket_connect_timeout=10)
+    client = connection(args)
     require_fail_on_timeout(client)
     metadata = prepare(client, args, bundle) if args.prepare else reuse(client, args, bundle)
     environment = json.loads(Path(args.environment_json).read_text()) if args.environment_json else {}
@@ -226,7 +233,7 @@ def run(args):
                 "shared_revision": revision(args.shared_root),
                 "declared_server_source_revision": args.source_revision,
                 "module_sha256": artifact_hash(args.module_artifact) if args.module_artifact else None,
-                "hardware": {"platform": platform.platform(), "machine": platform.machine(),
+                "client_hardware": {"platform": platform.platform(), "machine": platform.machine(),
                              "processor": platform.processor(), "logical_cpus": os.cpu_count()},
                 "server": json_value(client.info("server")),
                 "modules": json_value(client.execute_command("MODULE", "LIST")),
