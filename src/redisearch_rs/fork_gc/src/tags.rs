@@ -78,19 +78,21 @@ fn fetch_tag_index_mut(fs: &mut FieldSpec) -> Option<&mut ffi::TagIndex> {
 
 /// One tag value's worth of GC work, as it travels the pipe.
 ///
-/// Each message names its field and tag index, so the parent can route and
-/// check it on its own. `T` lets the child serialize borrowed field and tag
-/// bytes without copying; the parent deserializes the default owned form.
+/// Each message locates its field and tag index, so the parent can route and
+/// check it on its own. `T` lets the child serialize borrowed tag bytes without
+/// copying; the parent deserializes the default owned form.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(bound(
     serialize = "T: serde_bytes::Serialize",
     deserialize = "T: serde_bytes::Deserialize<'de>"
 ))]
 pub struct TagEntry<T = Box<[u8]>> {
-    /// Name of the TAG field the tag belongs to.
-    #[serde(with = "serde_bytes")]
-    pub field_name: T,
-    /// Unique id of the field's tag index.
+    /// Position of the TAG field in the spec's fields. Fields are only ever
+    /// appended, so a position names one field for the spec's lifetime.
+    pub field_index: ffi::t_fieldIndex,
+    /// Unique id of the field's tag index. Ids come from a wrapping counter, so
+    /// this only tells a replaced index apart from the scanned one at
+    /// [`Self::field_index`], not one field from another.
     pub tag_index_unique_id: u32,
     /// The tag value, possibly empty (`INDEXEMPTY`).
     #[serde(with = "serde_bytes")]
@@ -113,12 +115,14 @@ pub fn collect_tags(
     spec: &IndexSpecReadGuard,
     docs: &DocExistence,
 ) -> io::Result<()> {
-    for (fs, tag_index) in spec
+    for (field_index, tag_index) in spec
         .field_specs()
         .iter()
-        .filter_map(|fs| fetch_tag_index(fs).map(|tag_index| (fs, tag_index)))
+        .enumerate()
+        .filter_map(|(i, fs)| fetch_tag_index(fs).map(|tag_index| (i, tag_index)))
     {
-        let field_name = fs.field_name().secret_value().to_bytes();
+        let field_index = ffi::t_fieldIndex::try_from(field_index)
+            .expect("a spec has fewer fields than a field index can count");
 
         debug_assert!(!tag_index.values.is_null());
         // SAFETY: the C tag index owns a TrieMapOpaque, kept live and immutable
@@ -141,7 +145,7 @@ pub fn collect_tags(
             serialize(
                 writer,
                 Some(TagEntry {
-                    field_name,
+                    field_index,
                     tag_index_unique_id: tag_index.uniqueId,
                     tag,
                     inverted_index_unique_id: u32::from(ii.unique_id()),
@@ -164,10 +168,9 @@ pub fn apply_tag_entry(
 ) -> Result<GcApplyStats, HandleError> {
     let fs = guard
         .field_specs_mut()
-        .iter_mut()
-        .find(|fs| fs.field_name().secret_value().to_bytes() == &*entry.field_name)
+        .get_mut(usize::from(entry.field_index))
         .ok_or(HandleError::ApplyError(
-            "no field in the spec matches the scanned field name",
+            "the spec has no field at the scanned position",
         ))?;
 
     let tag_index = fetch_tag_index_mut(fs).ok_or(HandleError::ApplyError(

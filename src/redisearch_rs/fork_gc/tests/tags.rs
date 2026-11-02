@@ -431,14 +431,14 @@ fn each_dirty_tag_carries_its_fields_routing_data() {
     let entries = receive_all(&collect_tags_from(&test));
     let routed: Vec<_> = entries
         .iter()
-        .map(|e| (&*e.field_name, e.tag_index_unique_id, &*e.tag))
+        .map(|e| (e.field_index, e.tag_index_unique_id, &*e.tag))
         .collect();
     assert_eq!(
         routed,
         [
-            (b"colours".as_slice(), colours, b"blue".as_slice()),
-            (b"colours", colours, b"red"),
-            (b"sizes", sizes, b"xl"),
+            (1, colours, b"blue".as_slice()),
+            (1, colours, b"red"),
+            (2, sizes, b"xl"),
         ]
     );
 }
@@ -450,7 +450,7 @@ fn the_empty_tag_round_trips() {
 
     let entries = receive_all(&collect_tags_from(&test));
     assert_eq!(entries.len(), 1);
-    assert_eq!(&*entries[0].field_name, b"tags");
+    assert_eq!(entries[0].field_index, 0);
     assert_eq!(entries[0].tag_index_unique_id, test.tag_index(0).uniqueId);
     assert!(entries[0].tag.is_empty());
 }
@@ -497,20 +497,20 @@ fn applying_a_delta_drops_an_emptied_tag_and_reports_what_it_freed() {
     );
 }
 
-/// The field name is what routes a message to its index, so a name the spec does
-/// not know is a parent-side error rather than a silent no-op.
+/// The field position is what routes a message to its index, so a position the
+/// spec does not have is a parent-side error rather than a silent no-op.
 #[test]
 fn a_message_for_an_unknown_field_is_rejected() {
     let mut test = TestSpec::create(vec![Field::tag(c"tags", &[b"red"], 3, false)]);
     let mut entries = receive_all(&collect_tags_from(&test));
-    entries[0].field_name = Box::from(&b"other"[..]);
+    entries[0].field_index = 1;
 
     let entry = entries.remove(0);
     let err = apply_tag_entry(entry, &mut test.write_guard()).unwrap_err();
     assert!(matches!(err, HandleError::ApplyError(_)));
     assert_eq!(
         err.to_string(),
-        "no field in the spec matches the scanned field name"
+        "the spec has no field at the scanned position"
     );
 }
 
@@ -625,7 +625,7 @@ fn a_message_for_a_non_tag_field_is_rejected_before_union_access() {
         other.spec.__bindgen_anon_1.tagOpts.tagIndex = std::ptr::without_provenance_mut(1);
         let mut test = TestSpec::create(vec![Field::tag(c"tags", &[b"red"], 3, false), other]);
         let mut entry = test.scan();
-        entry.field_name = Box::from(&b"other"[..]);
+        entry.field_index = 1;
         let error = apply_tag_entry(entry, &mut test.write_guard()).unwrap_err();
         assert_eq!(
             error.to_string(),
@@ -740,7 +740,6 @@ fn routing_bytes_use_bulk_io_and_preserve_binary_values() {
     for len in [16, 4096] {
         let mut entry = test.scan();
         let bytes: Box<[u8]> = (0..len).map(|i| (i % 256) as u8).collect();
-        entry.field_name = bytes.clone();
         entry.tag = bytes.clone();
         let mut writer = CountingWriter::default();
         serialize(&mut writer, Some(entry)).unwrap();
@@ -749,7 +748,6 @@ fn routing_bytes_use_bulk_io_and_preserve_binary_values() {
             calls: 0,
         };
         let decoded = receive_tag_entry(&mut reader).unwrap().unwrap();
-        assert_eq!(decoded.field_name, bytes);
         assert_eq!(decoded.tag, bytes);
         assert!(reader.bytes.is_empty());
         counts.push((writer.calls, reader.calls));
