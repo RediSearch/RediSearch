@@ -30,5 +30,5 @@ typedef struct QueryEvalCtx {
   // Amortization counter of QueryMemory_ShouldStop for the term expansions of this evaluation.
   // Shared by every expansion node: each expands fewer terms than the read interval by default,
   // so a counter per node would never reach a memory read.
-  uint32_t memoryCounter;
+  uint32_t memoryCheckCounter;
 } QueryEvalCtx;
