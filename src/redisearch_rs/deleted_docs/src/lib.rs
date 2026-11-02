@@ -53,6 +53,11 @@ impl DeletedDocs {
         self.ids -= collected;
     }
 
+    /// The IDs the set holds, in increasing order.
+    pub fn iter(&self) -> impl Iterator<Item = DocId> + '_ {
+        self.ids.iter()
+    }
+
     /// How many IDs the set holds.
     pub fn len(&self) -> u64 {
         self.ids.len()

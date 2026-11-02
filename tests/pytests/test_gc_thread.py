@@ -220,3 +220,17 @@ def testScheduledThreadGCCollectsWithoutForking():
         'the scheduled thread GC did not collect')
 
     env.assertEqual(total_forks(env), forks_before)
+
+
+@skip(cluster=True)
+def testDumpDeletedIdsListsWhatTheNextCycleCollects():
+    env = thread_gc_env()
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT').ok()
+    for i in range(1, 11):
+        conn.execute_command('HSET', f'doc:{i}', 't', f'hello{i}')
+    conn.execute_command('DEL', 'doc:2', 'doc:5', 'doc:7')
+
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([2, 5, 7])
+    forceInvokeGC(env, 'idx')
+    env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([])
