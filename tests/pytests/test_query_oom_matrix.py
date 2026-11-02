@@ -14,8 +14,7 @@ query makes (measured per cell, never hard-coded, so new checkpoints do not brea
 outcomes per stop site are the per-stack tests' job; here every reply is checked against the
 invariants every site must keep, whatever the site:
 - ON_OOM IGNORE: the complete result.
-- Otherwise: no error but the OOM error (only under ON_OOM FAIL, or at client cursor admission on
-  the coordinator's process), never a timeout; no duplicate rows, no rows outside the complete
+- Otherwise: no error but the OOM error (only under ON_OOM FAIL), never a timeout; no duplicate rows, no rows outside the complete
   result (FT.HYBRID: outside the index, since fusion re-ranks a cut subquery), sorted shapes still
   sorted; a reply that differs from the complete one carries an OOM warning wherever the protocol
   has a warning channel.
@@ -199,8 +198,6 @@ class Cell:
     """Checks the replies of one matrix cell against the complete result."""
     def __init__(self, env, shape, where, complete, label):
         self.env, self.shape, self.where, self.label = env, shape, where, label
-        # Client cursors are admitted on the process the client talks to, never on a shard.
-        self.admission_pressured = shape.kind == 'cursor' and where != 'shards'
         self.complete = complete
         self.complete_keys = [_key_of(shape, r) for r in complete.rows]
         self.complete_by_key = {_key_of(shape, r): r for r in complete.rows}
@@ -229,10 +226,7 @@ class Cell:
 
         if got.error is not None:
             env.assertContains(OOM_QUERY_ERROR, got.error, message=msg)
-            # RETURN replies an OOM error only where it cannot keep rows: a client cursor
-            # refused at admission.
-            env.assertTrue(on_oom == 'fail' or (self.admission_pressured and
-                                                got.first_command_error), message=msg)
+            env.assertEqual(on_oom, 'fail', message=msg)
             # Cursor reads before the failing one keep the invariants too.
             self._check_rows(got, msg)
             return 'error'
