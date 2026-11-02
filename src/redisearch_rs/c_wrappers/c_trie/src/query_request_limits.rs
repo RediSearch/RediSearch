@@ -20,7 +20,7 @@ use std::{cell::UnsafeCell, ptr::NonNull};
 /// The handle borrows rather than owns the C object. Trie wrappers pass its pointer only for the
 /// duration of their synchronous FFI call; they never retain it. The C timeout state machine owns
 /// source transitions and synchronization: transitions occur between execution cycles, the
-/// blocked-client marker and the memory stop flag may be changed atomically during a cycle, and
+/// blocked-client marker and the memory stop flag may be changed atomically while a request runs, and
 /// clock-counter calls for one request are serialized. [`QueryRequestLimitsHandle`] deliberately
 /// does not make those C operations safe to overlap.
 #[repr(transparent)]

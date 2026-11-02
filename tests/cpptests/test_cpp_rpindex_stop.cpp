@@ -72,16 +72,11 @@ TEST_F(RPIndexStopTest, AStopAloneDoesNotEndTheRead) {
   EXPECT_GT(mock->readCount, 0);
 }
 
-TEST_F(RPIndexStopTest, EndRowSourceOnStopRepliesTimedOutUntilANewCycle) {
+TEST_F(RPIndexStopTest, EndRowSourceOnStopRepliesTimedOut) {
   QueryRequestLimits_RequestMemoryStop(&limits);
   RP_EndRowSourceOnStop(&qctx);
   RP_EndRowSourceOnStop(&qctx);
   EXPECT_EQ(next(), RS_RESULT_TIMEDOUT);
   EXPECT_EQ(next(), RS_RESULT_TIMEDOUT);
   EXPECT_EQ(mock->readCount, 0);
-
-  // The next cycle (a cursor read) clears the stop, and the row source reads again.
-  QueryRequestLimits_BeginCycle(&limits, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-  EXPECT_EQ(next(), RS_RESULT_EOF);
-  EXPECT_GT(mock->readCount, 0);
 }

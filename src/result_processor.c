@@ -100,8 +100,6 @@ typedef struct {
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
-  // The reading Next, restored when RP_EndRowSourceOnStop's stop is cleared by a new cycle.
-  int (*readNext)(ResultProcessor *self, SearchResult *res);
 #ifdef ENABLE_ASSERT
   bool firstRead;  // Debug only: tracks if this is the first read for sync point testing
 #endif
@@ -537,12 +535,8 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
 }
 
 static int rpQueryItNext_Stopped(ResultProcessor *base, SearchResult *res) {
-  RPQueryIterator *self = (RPQueryIterator *)base;
-  if (!QueryRequestLimits_IsMemoryStopped(self->sctx->limits)) {
-    base->Next = self->readNext;
-    return base->Next(base, res);
-  }
-  return UnlockSpec_and_ReturnRPResult(self->sctx, RS_RESULT_TIMEDOUT);
+  (void)res;
+  return UnlockSpec_and_ReturnRPResult(((RPQueryIterator *)base)->sctx, RS_RESULT_TIMEDOUT);
 }
 
 void RP_EndRowSourceOnStop(QueryProcessingCtx *qctx) {
@@ -550,7 +544,6 @@ void RP_EndRowSourceOnStop(QueryProcessingCtx *qctx) {
   if (!root || root->type != RP_INDEX || root->Next == rpQueryItNext_Stopped) {
     return;
   }
-  ((RPQueryIterator *)root)->readNext = root->Next;
   root->Next = rpQueryItNext_Stopped;
 }
 

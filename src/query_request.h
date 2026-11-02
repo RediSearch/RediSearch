@@ -148,13 +148,13 @@ typedef struct QueryRequestTimeoutState {
   } source;
 } QueryRequestTimeoutState;
 
-/** Cycle-scoped memory-limit state. */
+/** Request-scoped memory-limit state. */
 typedef struct QueryRequestMemoryState {
   // Set when process memory crossed the out-of-memory threshold.
   RS_Atomic(bool) stopped;
 
   // Calls of QueryMemory_ShouldStop since the last memory read, across all checkpoint sites.
-  // Reset by Init and BeginCycle.
+  // Request-scoped like the stop: reset only by Init.
   uint32_t counter;
 } QueryRequestMemoryState;
 
@@ -188,6 +188,8 @@ typedef struct QueryRequestMemoryState {
  *   It lives outside the source union, so it never disturbs the active source.
  * - Like the blocked-client marker, the memory stop is atomic with relaxed
  *   ordering: it communicates only its own value, not other memory.
+ * - The memory stop is request-scoped: a memory stop ends the request, so only
+ *   Init clears it; Reset and BeginCycle leave it alone.
  *
  * The owning QueryRequest must outlive every direct pointer, source-specific
  * pointer, and foreign-language handle borrowed from this object.
@@ -205,8 +207,7 @@ void QueryRequestLimits_Init(QueryRequestLimits *limits, const TimeoutConfig *co
  */
 void QueryRequestLimits_Reset(QueryRequestLimits *limits);
 /**
- * Starts a cycle using kind as its timeout source, clearing any memory stop
- * left by the previous cycle.
+ * Starts a cycle using kind as its timeout source.
  *
  * BLOCKED_CLIENT clears the atomic marker. CLOCK_DEADLINE derives a new
  * deadline from config.queryTimeoutMS and resets the shared counter; a zero
@@ -224,16 +225,16 @@ void QueryRequestLimits_BeginCycle(QueryRequestLimits *limits, QueryRequestTimeo
 void QueryRequestLimits_MarkTimedOut(QueryRequestLimits *limits);
 
 /**
- * Asks the current cycle to stop because memory ran out. Callable from any
+ * Asks the request to stop because memory ran out. Callable from any
  * thread, in every kind, concurrently with timeout checks.
  *
- * The stop is cleared only by Init and BeginCycle; Reset keeps it. The
+ * The stop is cleared only by Init; Reset and BeginCycle keep it. The
  * timeout checks (IsTimedOut, IsTimedOutExact, IsBlockedClientTimedOut) do not
  * report it: only sites that read it explicitly observe it.
  */
 void QueryRequestLimits_RequestMemoryStop(QueryRequestLimits *limits);
 
-/** Reports whether QueryRequestLimits_RequestMemoryStop was called in the current cycle. */
+/** Reports whether QueryRequestLimits_RequestMemoryStop was called for the request. */
 static inline bool QueryRequestLimits_IsMemoryStopped(const QueryRequestLimits *limits) {
   return RS_AtomicBoolLoadRelaxed(&limits->memory.stopped);
 }
@@ -241,7 +242,7 @@ static inline bool QueryRequestLimits_IsMemoryStopped(const QueryRequestLimits *
 /**
  * Borrows the memory stop flag, for waits that take an abort flag. Unlike the
  * blocked-client flag it is valid in every kind. Access must use RS_Atomic
- * operations, and the pointer must not be retained across BeginCycle.
+ * operations. The pointer is valid for the request's lifetime.
  */
 RS_Atomic(bool) *QueryRequestLimits_GetMemoryStopFlag(QueryRequestLimits *limits);
 
