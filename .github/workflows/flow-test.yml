@@ -66,6 +66,7 @@ on:
           - macos-15
           - macos-26
           - intel
+          - archlinux:latest
         description: 'Platform to test on. Use "all" to test on all platforms'
         default: all
       architecture:
