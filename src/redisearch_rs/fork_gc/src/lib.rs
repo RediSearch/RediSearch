@@ -16,6 +16,7 @@
 //! one.
 
 mod codec;
+pub mod doc_existence;
 pub mod existing_docs;
 pub mod fork_gc;
 pub mod frame;
@@ -29,6 +30,7 @@ pub mod tags;
 pub mod terms;
 pub mod util;
 
+pub use doc_existence::DocExistence;
 pub use fork_gc::ForkGC;
 pub use frame::Frame;
 pub use handle::{HandleError, HandleOutcome};

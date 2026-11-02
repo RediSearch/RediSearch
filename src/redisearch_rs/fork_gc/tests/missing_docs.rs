@@ -13,7 +13,7 @@ use dict::MissingFieldDictType;
 use dict::OwnedDict;
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
-    HandleError,
+    DocExistence, HandleError,
     missing_docs::{
         MissingDocsEntry, apply_missing_docs, collect_missing_docs, receive_missing_docs,
     },
@@ -66,7 +66,7 @@ fn empty_dict_writes_only_terminator() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_missing_docs(&mut buf, &guard).unwrap();
+    collect_missing_docs(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
 
     let mut cursor = Cursor::new(&buf);
     assert!(
@@ -86,7 +86,7 @@ fn empty_inverted_index_is_skipped() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_missing_docs(&mut buf, &guard).unwrap();
+    collect_missing_docs(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
 
     let mut cursor = Cursor::new(&buf);
     assert!(
@@ -110,7 +110,7 @@ fn entry_with_deleted_docs_writes_delta_frame() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_missing_docs(&mut buf, &guard).unwrap();
+    collect_missing_docs(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
 
     let mut cursor = Cursor::new(&buf);
 
@@ -136,7 +136,7 @@ fn multiple_entries_write_multiple_delta_frames() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_missing_docs(&mut buf, &guard).unwrap();
+    collect_missing_docs(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
 
     let mut cursor = Cursor::new(&buf);
 
@@ -266,7 +266,7 @@ fn roundtrip_all_docs_deleted_removes_entry() {
     {
         // SAFETY: the test owns the initialized spec; no concurrent access occurs.
         let read_guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
-        collect_missing_docs(&mut buf, &read_guard).unwrap();
+        collect_missing_docs(&mut buf, &read_guard, &DocExistence::snapshot(&read_guard)).unwrap();
     }
 
     // Parent side: receive.
@@ -288,4 +288,35 @@ fn roundtrip_all_docs_deleted_removes_entry() {
     );
     assert!(stats.bytes_collected > 0);
     assert_eq!(stats.records_removed, 0);
+}
+
+/// Reports every doc id the fixtures use as present, whatever the spec's
+/// document table says, as a snapshot taken before those docs were deleted.
+fn all_live<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
+    const WORDS: usize = 1 << 14;
+    DocExistence::with_bitmap(
+        guard,
+        vec![u64::MAX; WORDS].into_boxed_slice(),
+        (WORDS * 64 - 1) as u64,
+    )
+}
+
+/// The scanner must answer existence from `docs`: the fixture's document table
+/// is empty, so a scanner that looked docs up itself would collect them all.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `missingFieldDictType`")]
+fn docs_live_in_the_snapshot_are_kept() {
+    let (spec, _dict) = make_spec([(&b"age"[..], index(3))]);
+    // SAFETY: the test owns the initialized spec; no concurrent access occurs.
+    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+    let mut buf = Vec::new();
+    collect_missing_docs(&mut buf, &guard, &all_live(&guard)).unwrap();
+
+    let mut cursor = Cursor::new(&buf);
+    assert!(
+        deserialize::<Option<MissingDocsEntry>>(&mut cursor, "test message")
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(cursor.position(), buf.len() as u64);
 }
