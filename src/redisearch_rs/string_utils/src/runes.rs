@@ -24,6 +24,33 @@ pub struct RuneStrTooLong {
     pub len: usize,
 }
 
+/// [`runes_to_bytes`] into `out`, replacing its contents, so a caller converting
+/// many keys reuses one buffer. Encodes in Rust, the same way: each rune by its
+/// own value, surrogates included, stopping at the first zero rune.
+///
+/// Returns [`Err(`[`RuneStrTooLong`]`)`] if `runes` exceeds
+/// [`MAX_RUNE_STR_LEN`], leaving `out` empty.
+pub fn runes_to_bytes_into(runes: &[ffi::rune], out: &mut Vec<u8>) -> Result<(), RuneStrTooLong> {
+    out.clear();
+    if runes.len() > MAX_RUNE_STR_LEN {
+        return Err(RuneStrTooLong { len: runes.len() });
+    }
+    for &rune in runes.iter().take_while(|&&rune| rune != 0) {
+        match rune {
+            0..0x80 => out.push(rune as u8),
+            0x80..0x800 => {
+                out.extend_from_slice(&[0xC0 | (rune >> 6) as u8, 0x80 | (rune & 0x3F) as u8])
+            }
+            _ => out.extend_from_slice(&[
+                0xE0 | (rune >> 12) as u8,
+                0x80 | ((rune >> 6) & 0x3F) as u8,
+                0x80 | (rune & 0x3F) as u8,
+            ]),
+        }
+    }
+    Ok(())
+}
+
 /// Convert a rune slice into a byte slice using UFT-8 encoding mechanism
 /// without validating actual unicode code points.
 ///
