@@ -306,10 +306,10 @@ TEST_F(HybridStartCursorsTest, TimeoutUnderFailPolicyKeepsTheChainForTheTeardown
 // both into a timeout, which ON_TIMEOUT must still decide under ON_OOM RETURN.
 TEST_F(HybridStartCursorsTest, SiblingDeadlineBesideAnOomStopFollowsTheTimeoutPolicy) {
   TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = TimeoutPolicy_Fail};
-  QueryRequestTimeout_Init(&first.base.timeout, &timeoutConfig);
-  QueryRequestTimeout_Init(&second.base.timeout, &timeoutConfig);
-  QueryRequestTimeout_RequestStop(&first.base.timeout, QUERY_STOP_REASON_OOM);
-  *QueryRequestTimeout_GetClockDeadlineForUpdate(&second.base.timeout) = {0, 0};
+  QueryRequestLimits_Init(&first.base.limits, &timeoutConfig);
+  QueryRequestLimits_Init(&second.base.limits, &timeoutConfig);
+  QueryRequestLimits_RequestMemoryStop(&first.base.limits);
+  *QueryRequestLimits_GetClockDeadlineForUpdate(&second.base.limits) = {0, 0};
   hybrid.base.reqConfig.oomPolicy = OomPolicy_Return;
   upstreamRc = RS_RESULT_TIMEDOUT;
   EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_ERR);
@@ -318,9 +318,9 @@ TEST_F(HybridStartCursorsTest, SiblingDeadlineBesideAnOomStopFollowsTheTimeoutPo
 
 TEST_F(HybridStartCursorsTest, OomStopAloneIgnoresTheTimeoutPolicy) {
   TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = TimeoutPolicy_Fail};
-  QueryRequestTimeout_Init(&first.base.timeout, &timeoutConfig);
-  QueryRequestTimeout_Init(&second.base.timeout, &timeoutConfig);
-  QueryRequestTimeout_RequestStop(&first.base.timeout, QUERY_STOP_REASON_OOM);
+  QueryRequestLimits_Init(&first.base.limits, &timeoutConfig);
+  QueryRequestLimits_Init(&second.base.limits, &timeoutConfig);
+  QueryRequestLimits_RequestMemoryStop(&first.base.limits);
   hybrid.base.reqConfig.oomPolicy = OomPolicy_Return;
   upstreamRc = RS_RESULT_TIMEDOUT;
   EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);

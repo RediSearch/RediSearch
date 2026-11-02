@@ -59,7 +59,7 @@ bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err);
  * the pipeline's stages already hold still reach the reply, and `qctx`'s row
  * source is ended (RP_EndRowSourceOnStop).
  */
-bool ReplyLoop_ShouldStop(struct QueryProcessingCtx *qctx, struct QueryRequestTimeout *timeout,
+bool ReplyLoop_ShouldStop(struct QueryProcessingCtx *qctx, struct QueryRequestLimits *timeout,
                           RSOomPolicy oomPolicy, uint32_t *counter, int *rc);
 
 void destroyResults(SearchResult **results);

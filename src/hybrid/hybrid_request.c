@@ -106,7 +106,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
 
         // The first subquery's build is the job's first allocation, after any queue wait.
         if (i == 0 &&
-            QueryMemory_CheckBeforeExecution(&areq->base.timeout, areq->base.reqConfig.oomPolicy,
+            QueryMemory_CheckBeforeExecution(&areq->base.limits, areq->base.reqConfig.oomPolicy,
                                              &areq->base.reply.err) != REDISMODULE_OK) {
             rc = REDISMODULE_ERR;
             break;
@@ -147,7 +147,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
           areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
         }
         if (rc == REDISMODULE_OK) {
-          rc = QueryMemory_CheckBeforeExecution(&areq->base.timeout, areq->base.reqConfig.oomPolicy,
+          rc = QueryMemory_CheckBeforeExecution(&areq->base.limits, areq->base.reqConfig.oomPolicy,
                                                 &areq->base.reply.err);
         }
         if (rc != REDISMODULE_OK) {
@@ -155,7 +155,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         }
         // A subquery stopped at build under ON_OOM RETURN reads no row: its depleter, which may
         // run on another thread, starts only after this.
-        if (QueryRequestTimeout_IsStopRequested(&areq->base.timeout)) {
+        if (QueryRequestLimits_IsMemoryStopped(&areq->base.limits)) {
           RP_EndRowSourceOnStop(AREQ_QueryProcessingCtx(areq));
         }
 

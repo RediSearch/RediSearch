@@ -1389,7 +1389,7 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 static void rpSafeLoader_Load(RPSafeLoader *self) {
   SearchResult *curr_res;
   // The pipeline's timeout state, NULL for a pipeline built without a request.
-  QueryRequestTimeout *timeout = self->base_loader.base.parent->timeout;
+  QueryRequestLimits *timeout = self->base_loader.base.parent->limits;
   // A stop requested while buffering already chose to load the whole buffer (RETURN), and an
   // upstream hold ends the stream when that stage drains, so only memory found short while loading,
   // with nothing held upstream, cuts the load.

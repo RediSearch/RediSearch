@@ -304,22 +304,18 @@ static void finishSendChunk_HREQ(HybridRequest *hreq, SearchResult **results, Se
 // A subquery checkpoint stopped the request for memory (its own timeout carries the reason).
 static bool subqueryStoppedForOom(HybridRequest *hreq) {
   for (size_t i = 0; i < hreq->nrequests; ++i) {
-    if (QueryRequestTimeout_GetStopReason(&hreq->requests[i]->base.timeout) ==
-        QUERY_STOP_REASON_OOM) {
+    if (QueryRequestLimits_IsMemoryStopped(&hreq->requests[i]->base.limits)) {
       return true;
     }
   }
   return false;
 }
 
-// A subquery that ran out of time for its own reason: a stop for timeout, or an elapsed deadline
-// with no memory stop. The collapsed depletion result cannot tell it from a memory-stopped sibling.
+// A subquery whose deadline elapsed with no memory stop. The collapsed depletion result cannot tell it from a memory-stopped sibling.
 static bool subqueryTimedOutWithoutOom(HybridRequest *hreq) {
   for (size_t i = 0; i < hreq->nrequests; ++i) {
-    const QueryRequestTimeout *timeout = &hreq->requests[i]->base.timeout;
-    const QueryStopReason reason = QueryRequestTimeout_GetStopReason(timeout);
-    if (reason == QUERY_STOP_REASON_TIMEOUT ||
-        (reason != QUERY_STOP_REASON_OOM && QueryRequestTimeout_IsTimedOutExact(timeout))) {
+    const QueryRequestLimits *limits = &hreq->requests[i]->base.limits;
+    if (!QueryRequestLimits_IsMemoryStopped(limits) && QueryRequestLimits_IsTimedOutExact(limits)) {
       return true;
     }
   }
@@ -344,7 +340,7 @@ static bool clearSoftTailErrorForOom(HybridRequest *hreq, QueryError *err) {
 int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
   // The timeout callback owns the reply of a blocked-client timeout: no OOM stop, of a subquery or
   // of the tail, relabels it.
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&hreq->base.limits)) {
     return rc;
   }
   const RSOomPolicy oomPolicy = hreq->base.reqConfig.oomPolicy;
@@ -353,8 +349,7 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
     bool cut = false;
     for (size_t i = 0; i < hreq->nrequests; ++i) {
       if (hreq->subqueriesReturnCodes[i] == RS_RESULT_TIMEDOUT &&
-          QueryRequestTimeout_GetStopReason(&hreq->requests[i]->base.timeout) ==
-              QUERY_STOP_REASON_OOM) {
+          QueryRequestLimits_IsMemoryStopped(&hreq->requests[i]->base.limits)) {
         hreq->subqueriesReturnCodes[i] = RS_RESULT_EOF;
         cut = true;
       }
@@ -371,7 +366,7 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
       subqueryTimedOut |= hreq->subqueriesReturnCodes[i] == RS_RESULT_TIMEDOUT;
     }
     if (rc == RS_RESULT_TIMEDOUT && !subqueryTimedOut &&
-        !QueryRequestTimeout_IsTimedOutOrStopped(&hreq->base.timeout)) {
+        !QueryRequestLimits_IsTimedOutOrStopped(&hreq->base.limits)) {
       cut = true;
       rc = RS_RESULT_EOF;
     }
@@ -393,10 +388,10 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
     QueryError_SetQueryOOMWarning(err);
   }
   if (oomPolicy == OomPolicy_Fail && rc == RS_RESULT_TIMEDOUT &&
-      QueryRequestTimeout_GetStopReason(&hreq->base.timeout) == QUERY_STOP_REASON_OOM) {
+      QueryRequestLimits_IsMemoryStopped(&hreq->base.limits)) {
     clearSoftTailErrorForOom(hreq, err);
   }
-  return ApplyOomStop(&hreq->base.timeout, oomPolicy, err, rc);
+  return ApplyOomStop(&hreq->base.limits, oomPolicy, err, rc);
 }
 
 static void HREQ_populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results,
@@ -547,7 +542,7 @@ static bool serializeAndReplyResults_hybrid(HybridRequest *hreq, RedisModule_Rep
     if (rc == RS_RESULT_OK && rp->parent->resultLimit) {
       uint32_t memoryCheckCounter = 0;
       while (--rp->parent->resultLimit &&
-             !ReplyLoop_ShouldStop(rp->parent, &hreq->base.timeout, hreq->base.reqConfig.oomPolicy,
+             !ReplyLoop_ShouldStop(rp->parent, &hreq->base.limits, hreq->base.reqConfig.oomPolicy,
                                    &memoryCheckCounter, &rc) &&
              (rc = rp->Next(rp, r)) == RS_RESULT_OK) {
         serializeResult_hybrid(hreq, reply, r, cv);
@@ -986,7 +981,7 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
         }
         depletionStopped = true;
       } else if (rc == RS_RESULT_TIMEDOUT &&
-                 req->base.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
+                 req->base.limits.config.timeoutPolicy == TimeoutPolicy_Return) {
         // RETURN policy: keep cursors with partial results, emit warning in reply
         depletionTimedOut = true;
       } else {

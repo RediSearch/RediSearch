@@ -74,12 +74,12 @@ bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err) {
   return true;
 }
 
-static bool oomStopKeepsBufferedRows(const QueryRequestTimeout *timeout, RSOomPolicy oomPolicy) {
-  return QueryRequestTimeout_GetStopReason(timeout) == QUERY_STOP_REASON_OOM &&
-         oomPolicy != OomPolicy_Fail && !QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+static bool oomStopKeepsBufferedRows(const QueryRequestLimits *timeout, RSOomPolicy oomPolicy) {
+  return QueryRequestLimits_IsMemoryStopped(timeout) &&
+         oomPolicy != OomPolicy_Fail && !QueryRequestLimits_IsBlockedClientTimedOut(timeout);
 }
 
-bool ReplyLoop_ShouldStop(QueryProcessingCtx *qctx, QueryRequestTimeout *timeout,
+bool ReplyLoop_ShouldStop(QueryProcessingCtx *qctx, QueryRequestLimits *timeout,
                           RSOomPolicy oomPolicy, uint32_t *counter, int *rc) {
   if (!QueryMemory_ShouldStop(timeout, counter)) {
     return false;

@@ -796,7 +796,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
     {
       uint32_t memoryCheckCounter = 0;
       while (--rp->parent->resultLimit &&
-             !ReplyLoop_ShouldStop(rp->parent, &req->base.timeout, req->base.reqConfig.oomPolicy,
+             !ReplyLoop_ShouldStop(rp->parent, &req->base.limits, req->base.reqConfig.oomPolicy,
                                    &memoryCheckCounter, &rc) &&
              (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
         serializeResult(req, reply, state->r, cv, &schema);
@@ -1037,7 +1037,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
 
       uint32_t memoryCheckCounter = 0;
       while (--rp->parent->resultLimit &&
-             !ReplyLoop_ShouldStop(rp->parent, &req->base.timeout, req->base.reqConfig.oomPolicy,
+             !ReplyLoop_ShouldStop(rp->parent, &req->base.limits, req->base.reqConfig.oomPolicy,
                                    &memoryCheckCounter, &rc) &&
              (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
         serializeResult(req, reply, state->r, cv, &schema);
