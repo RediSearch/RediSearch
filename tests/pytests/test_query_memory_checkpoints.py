@@ -218,7 +218,7 @@ def test_build_checkpoint_stop_on_shards_reaches_the_coordinator(env):
     env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
     # The FT.SEARCH coordinator replies the shards' wording, with the unstopped shard's rows.
     res = at_first_shard_call(*SEARCH)
-    env.assertEqual(sorted(ids(res)), sorted(local_docs), message=res)
+    env.assertEqual(sorted(r['id'] for r in res['results']), sorted(local_docs), message=res)
     env.assertEqual(res['warning'], [SHARD_OOM_WARNING], message=res)
 
     with oom_policy(env, 'fail'):
