@@ -15,7 +15,7 @@ use std::{
     time::Instant,
 };
 
-use c_trie::QueryRequestTimeoutHandle;
+use c_trie::QueryRequestLimitsHandle;
 use fat_array::{FatArray, FatArrayRef};
 use lending_iterator::LendingIterator as _;
 use query::{QueryNode, WildcardMode};
@@ -29,6 +29,7 @@ use rqe_iterators::{
 };
 use trie_rs::{TrieMap, TrieMapOpaque, iter::PatternMode};
 
+use super::wildcard_query::below_min_term_prefix;
 use crate::{
     Config, Evaluated, QueryEvalContext, QueryNodeMut, expansion::memory_stop, into_child_iterator,
 };
@@ -38,9 +39,9 @@ fn clock_deadline(ctx: &QueryEvalContext) -> Option<ffi::timespec> {
     // SAFETY: a non-null request timeout is an initialized C object, aligned by its allocation,
     // that outlives query evaluation; the handle lives only for the single deadline read below,
     // so it never outlives the request. Its source is fixed for this execution cycle; only the
-    // atomic flags may change concurrently, through the C atomic API. Nothing in the
-    // evaluator holds a Rust reference to the timeout object.
-    let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ctx.sctx().timeout) }?;
+    // blocked-client marker and the memory stop flag may change concurrently, through the C
+    // atomic API. Nothing in the evaluator holds a Rust reference to the timeout object.
+    let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ctx.sctx().limits) }?;
     timeout.clock_deadline()
 }
 
@@ -183,6 +184,7 @@ fn eval_child<'index>(
             effective_weight,
             field,
             case_sensitive,
+            min_term_prefix,
             max_prefix_expansions,
             config,
         ),
@@ -336,6 +338,7 @@ fn eval_wildcard<'index>(
     effective_weight: f64,
     field: &ffi::FieldSpec,
     case_sensitive: bool,
+    min_term_prefix: usize,
     max_prefix_expansions: usize,
     config: Config,
 ) -> Option<Evaluated<'index>> {
@@ -350,6 +353,9 @@ fn eval_wildcard<'index>(
     let pattern = tok_ref
         .as_bytes()
         .expect("a tag wildcard token must carry a string");
+    if below_min_term_prefix(pattern, min_term_prefix) {
+        return None;
+    }
 
     let children = if pattern.is_empty() {
         // Not `b""`: an empty slice's pointer dangles, while this one points at
