@@ -218,8 +218,6 @@ def test_raw_ratio_reports_the_memory_api(env):
 N_DOCS = 10
 # The query's build stages are checkpoints too, read before the debug checkpoint's first call.
 BUILD_CHECKPOINTS = 3
-# A client cursor is admitted with one more checkpoint call, after the build stages.
-CURSOR_ADMISSION = 1
 
 
 def _index_with_docs(env):
@@ -301,10 +299,9 @@ def test_oom_stop_replies_by_on_oom_policy(env):
 def test_oom_stop_ends_the_cursor(env):
     """A cursor read stopped for OOM returns its rows and ends the cursor rather than leaving it
     open as a timeout under ON_TIMEOUT RETURN would. The first chunk takes the build calls and
-    3 more (debug, reply loop, debug) after the cursor's admission; the read's debug calls are
-    the 2 after those and the one after the reply loop's."""
+    3 more (debug, reply loop, debug); the read's debug calls are BUILD_CHECKPOINTS + 4 and + 6."""
     _index_with_docs(env)
-    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + CURSOR_ADMISSION + 6)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 6)
     res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
                           'WITHCURSOR', 'COUNT', 2, 'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1)
     env.assertEqual(len(res) - 1, 2, message=res)
