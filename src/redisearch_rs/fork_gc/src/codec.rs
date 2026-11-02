@@ -7,98 +7,136 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{self, Read, Write};
 
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::{Frame, HandleError};
+use crate::HandleError;
 
 const CHUNK_SIZE: usize = 64 * 1024;
 
-/// Serialize one MessagePack message using bounded buffers and bulk pipe writes.
+/// Set in a chunk's length header on the last chunk of a message, so no separate
+/// frame has to mark the message's end.
+const LAST_CHUNK: usize = 1 << (usize::BITS - 1);
+
+const HEADER_SIZE: usize = size_of::<usize>();
+
+/// Serialize one MessagePack message as length-prefixed chunks of at most
+/// [`CHUNK_SIZE`] bytes, the last flagged with [`LAST_CHUNK`].
+///
+/// Each chunk is a single write, so a message that fits one chunk costs one
+/// write: one message per dirty key makes per-message writes the cost that counts.
 pub fn serialize<T: Serialize>(writer: &mut impl Write, message: T) -> io::Result<()> {
-    let mut chunks = ChunkWriter(&mut *writer);
-    let mut buffered = BufWriter::with_capacity(CHUNK_SIZE, &mut chunks);
-    let result = message
-        .serialize(&mut rmp_serde::Serializer::new(&mut buffered))
-        .map_err(io::Error::other)
-        .and_then(|()| buffered.flush());
-    // A failed message must not flush another partial chunk on drop.
-    let _ = buffered.into_parts();
-    result?;
-    Frame::<&[u8]>::Terminator.encode(writer)
+    let mut chunks = ChunkWriter {
+        writer,
+        buffer: vec![0; HEADER_SIZE],
+    };
+    message
+        .serialize(&mut rmp_serde::Serializer::new(&mut chunks))
+        .map_err(io::Error::other)?;
+    // A failed message never reaches here, so its last chunk is never sent flagged.
+    chunks.send(LAST_CHUNK)?;
+    chunks.writer.flush()
 }
 
-/// Decode one MessagePack message without reading past its terminating frame.
+/// Decode one MessagePack message without reading past its last chunk.
 pub fn deserialize<T: DeserializeOwned>(
     reader: &mut impl Read,
     context: &'static str,
 ) -> Result<T, HandleError> {
-    let chunks = ChunkReader {
+    let mut chunks = ChunkReader {
         reader,
-        remaining: 0,
-        finished: false,
+        chunk: Vec::new(),
+        position: 0,
+        last: false,
     };
-    let mut buffered = BufReader::with_capacity(CHUNK_SIZE, chunks);
-    let message =
-        rmp_serde::from_read(&mut buffered).map_err(|e| HandleError::codec(context, e))?;
-    match buffered.read(&mut [0]) {
-        Ok(0) => Ok(message),
-        Ok(_) => Err(HandleError::codec(
+    let message = rmp_serde::from_read(&mut chunks).map_err(|e| HandleError::codec(context, e))?;
+    if !chunks.last || chunks.position != chunks.chunk.len() {
+        return Err(HandleError::codec(
             context,
             "trailing bytes in MessagePack message",
-        )),
-        Err(error) => Err(HandleError::codec(context, error)),
+        ));
+    }
+    Ok(message)
+}
+
+/// Collects a chunk behind room for its header, sending each full chunk as it fills.
+struct ChunkWriter<W> {
+    writer: W,
+    /// A header's worth of space, then the chunk's bytes so far.
+    buffer: Vec<u8>,
+}
+
+impl<W: Write> ChunkWriter<W> {
+    /// Write the buffered chunk, with `flags` in its header, and start the next one.
+    fn send(&mut self, flags: usize) -> io::Result<()> {
+        let len = self.buffer.len() - HEADER_SIZE;
+        self.buffer[..HEADER_SIZE].copy_from_slice(&(len | flags).to_ne_bytes());
+        self.writer.write_all(&self.buffer)?;
+        self.buffer.truncate(HEADER_SIZE);
+        Ok(())
     }
 }
 
-struct ChunkWriter<W>(W);
-
 impl<W: Write> Write for ChunkWriter<W> {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        for chunk in bytes.chunks(CHUNK_SIZE) {
-            Frame::data(chunk).encode(&mut self.0)?;
+    fn write(&mut self, mut bytes: &[u8]) -> io::Result<usize> {
+        let written = bytes.len();
+        while !bytes.is_empty() {
+            // A full chunk is sent only once more bytes arrive, so the message's last
+            // chunk is always the one still buffered when serialization ends.
+            if self.buffer.len() == HEADER_SIZE + CHUNK_SIZE {
+                self.send(0)?;
+            }
+            let room = HEADER_SIZE + CHUNK_SIZE - self.buffer.len();
+            let (now, rest) = bytes.split_at(bytes.len().min(room));
+            self.buffer.extend_from_slice(now);
+            bytes = rest;
         }
-        Ok(bytes.len())
+        Ok(written)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.0.flush()
+        Ok(())
     }
 }
 
+/// Reads a message's chunks one whole chunk at a time: a header read, then a
+/// payload read, so MessagePack's small reads never reach the pipe.
 struct ChunkReader<R> {
     reader: R,
-    remaining: usize,
-    finished: bool,
+    chunk: Vec<u8>,
+    position: usize,
+    last: bool,
 }
 
 impl<R: Read> Read for ChunkReader<R> {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
-        if bytes.is_empty() || self.finished {
+        if bytes.is_empty() {
             return Ok(0);
         }
-        if self.remaining == 0 {
-            let mut header = [0; size_of::<usize>()];
-            self.reader.read_exact(&mut header)?;
-            self.remaining = usize::from_ne_bytes(header);
-            if self.remaining == usize::MAX {
-                self.finished = true;
+        if self.position == self.chunk.len() {
+            if self.last {
                 return Ok(0);
             }
-            if !(1..=CHUNK_SIZE).contains(&self.remaining) {
+            let mut header = [0; HEADER_SIZE];
+            self.reader.read_exact(&mut header)?;
+            let header = usize::from_ne_bytes(header);
+            let len = header & !LAST_CHUNK;
+            if !(1..=CHUNK_SIZE).contains(&len) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "invalid GC chunk size",
                 ));
             }
+            self.last = header & LAST_CHUNK != 0;
+            self.chunk.resize(len, 0);
+            self.reader.read_exact(&mut self.chunk)?;
+            self.position = 0;
         }
-        let count = bytes.len().min(self.remaining);
-        let read = self.reader.read(&mut bytes[..count])?;
-        if read == 0 {
-            return Err(io::ErrorKind::UnexpectedEof.into());
-        }
-        self.remaining -= read;
-        Ok(read)
+        let available = &self.chunk[self.position..];
+        let n = bytes.len().min(available.len());
+        bytes[..n].copy_from_slice(&available[..n]);
+        self.position += n;
+        Ok(n)
     }
 }

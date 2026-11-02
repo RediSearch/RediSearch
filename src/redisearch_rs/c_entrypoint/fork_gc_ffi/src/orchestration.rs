@@ -57,7 +57,7 @@ pub unsafe extern "C" fn FGC_parentHandleFromChild(gc: *mut ffi::ForkGC) -> FGCE
     // SAFETY: caller guarantees (1).
     let fgc = unsafe { ForkGC::from_ptr_mut(gc) };
 
-    match handle_scanners(fgc) {
+    match fgc.with_read_ahead(handle_scanners) {
         Ok(HandleOutcome::Collected) => FGCError::Collected,
         Ok(HandleOutcome::Done) => FGCError::Done,
         Err((scanner, error @ HandleError::Codec { .. })) => {

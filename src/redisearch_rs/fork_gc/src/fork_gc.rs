@@ -22,6 +22,16 @@ use index_spec::IndexSpecWeakRef;
 /// Poll timeout used by the parent-side pipe reader.
 const POLL_TIMEOUT: Duration = Duration::from_mins(3);
 
+/// Size of the parent's read-ahead buffer; see [`ForkGC::with_read_ahead`].
+const READ_AHEAD_SIZE: usize = 64 * 1024;
+
+/// Pipe bytes the parent has read but not yet consumed.
+struct ReadAhead {
+    data: Box<[u8]>,
+    start: usize,
+    end: usize,
+}
+
 /// Safe wrapper around [`ffi::ForkGC`].
 #[repr(transparent)]
 pub struct ForkGC(ffi::ForkGC);
@@ -88,11 +98,37 @@ impl ForkGC {
             ManuallyDrop::new(unsafe { io::PipeReader::from_raw_fd(fd) })
         });
 
+        // SAFETY: a non-null `readBuffer` is the live `ReadAhead` that
+        // `with_read_ahead` installed, and the reader's borrow of `self` keeps
+        // this the only reference to it.
+        let read_ahead = unsafe { self.0.readBuffer.cast::<ReadAhead>().as_mut() };
+
         ForkGCPipeReader {
             pipe_reader,
+            read_ahead,
             timeout,
             _borrow: PhantomData,
         }
+    }
+
+    /// Run `f` with the parent's pipe reads going through a read-ahead buffer, so
+    /// one poll and read can fetch many small messages instead of each message
+    /// costing a poll and read per frame. Bytes still buffered when `f` returns
+    /// are dropped with the buffer, so `f` must consume the whole stream it reads.
+    pub fn with_read_ahead<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        debug_assert!(self.0.readBuffer.is_null(), "read-ahead is not reentrant");
+        let buffer = Box::into_raw(Box::new(ReadAhead {
+            data: vec![0; READ_AHEAD_SIZE].into_boxed_slice(),
+            start: 0,
+            end: 0,
+        }));
+        self.0.readBuffer = buffer.cast();
+        let result = f(self);
+        self.0.readBuffer = std::ptr::null_mut();
+        // SAFETY: `buffer` came from `Box::into_raw` above, and no reader outlives
+        // `f`, the only code that could reach it through `readBuffer`.
+        drop(unsafe { Box::from_raw(buffer) });
+        result
     }
 
     /// Return a weak reference to the GC's index spec.
@@ -156,15 +192,31 @@ impl Write for ForkGCPipeWriter<'_> {
 /// lifetime.
 pub struct ForkGCPipeReader<'a> {
     pipe_reader: Option<ManuallyDrop<io::PipeReader>>,
+    read_ahead: Option<&'a mut ReadAhead>,
     timeout: Duration,
     _borrow: PhantomData<&'a mut ForkGC>,
 }
 
 impl Read for ForkGCPipeReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match &mut self.pipe_reader {
-            Some(pr) => read_with_timeout(&mut **pr, buf, self.timeout),
-            None => Err(io::Error::from_raw_os_error(libc::EBADF)),
+        // An invalidated pipe fails even with bytes still buffered.
+        let Some(pr) = &mut self.pipe_reader else {
+            return Err(io::Error::from_raw_os_error(libc::EBADF));
+        };
+        let Some(ahead) = self.read_ahead.as_deref_mut() else {
+            return read_with_timeout(&mut **pr, buf, self.timeout);
+        };
+        if ahead.start == ahead.end {
+            if buf.len() >= ahead.data.len() {
+                return read_with_timeout(&mut **pr, buf, self.timeout);
+            }
+            ahead.end = read_with_timeout(&mut **pr, &mut ahead.data, self.timeout)?;
+            ahead.start = 0;
         }
+        let available = &ahead.data[ahead.start..ahead.end];
+        let n = buf.len().min(available.len());
+        buf[..n].copy_from_slice(&available[..n]);
+        ahead.start += n;
+        Ok(n)
     }
 }

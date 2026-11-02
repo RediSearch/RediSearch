@@ -60,6 +60,9 @@ typedef struct ForkGC {
   int pipe_read_fd;
   int pipe_write_fd;
   struct pollfd pollfd_read[1]; // pollfd to poll the read pipe so that we don't block while read
+  // Read-ahead buffer for the parent's pipe reads: set by FGC_parentHandleFromChild for as long
+  // as it reads, NULL otherwise.
+  void *readBuffer;
 
   struct timespec retryInterval;
   RS_Atomic(size_t) deletedOrUpdatedDocsFromLastRun;
