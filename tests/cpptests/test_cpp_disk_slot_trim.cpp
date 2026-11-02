@@ -37,7 +37,6 @@ namespace {
 struct TrimState {
   bool registerAccepted = true, readAccepted = true;
   bool logicalPending = false, emptyBatch = false;
-  uint64_t trimId = 42;
   t_docId maxDocId = 5;
   size_t registrations = 0, applyCalls = 0, gcRuns = 0;
   size_t batchCount = 1, batchesApplied = 0, batchApplyCalls = 0, failBatch = SIZE_MAX;
@@ -147,25 +146,30 @@ class DiskSlotTrimTest : public ::testing::Test {
     spec->gc = &gc;
     api.slotMigration.registerTrim = [](RedisSearchDiskIndexSpec *,
                                         const SearchDiskSlotRange *ranges, size_t count,
-                                        uint64_t *trimId, t_docId *maxDocId) {
+                                        t_docId *maxDocId) {
       ++state.registrations;
       if (!state.registerAccepted) return false;
       state.logicalPending = true;
       state.ranges.assign(ranges, ranges + count);
-      *trimId = state.trimId;
       *maxDocId = state.maxDocId;
       return true;
     };
     api.slotMigration.forEachPendingTrim =
         [](RedisSearchDiskIndexSpec *, SearchDiskPendingSlotTrimCallback callback, void *ctx) {
           if (state.logicalPending) {
-            callback(ctx, state.trimId, state.ranges.data(), state.ranges.size(), state.maxDocId);
+            callback(ctx, state.ranges.data(), state.ranges.size(), state.maxDocId);
           }
         };
-    api.slotMigration.runTrimBatch = [](RedisSearchDiskIndexSpec *index, uint64_t trimId,
-                                        size_t maxScanned, SearchDiskSlotTrimCallback callback,
-                                        void *ctx) {
-      EXPECT_EQ(trimId, state.trimId);
+    api.slotMigration.runTrimBatch = [](RedisSearchDiskIndexSpec *index,
+                                        const SearchDiskSlotRange *ranges, size_t numRanges,
+                                        t_docId maxDocId, size_t maxScanned,
+                                        SearchDiskSlotTrimCallback callback, void *ctx) {
+      EXPECT_EQ(maxDocId, state.maxDocId);
+      EXPECT_EQ(numRanges, state.ranges.size());
+      for (size_t i = 0; i < numRanges; ++i) {
+        EXPECT_EQ(ranges[i].start, state.ranges[i].start);
+        EXPECT_EQ(ranges[i].end, state.ranges[i].end);
+      }
       EXPECT_GE(maxScanned, 3u);
       ++state.applyCalls;
       if (!state.readAccepted) return SEARCH_DISK_TRIM_RETRY;
@@ -596,3 +600,29 @@ TEST_F(DiskSlotTrimTest, PausedWorkerDoesNotBeginAStorageScan) {
 }
 
 }  // namespace
+
+TEST_F(DiskSlotTrimTest, DuplicateRegistrationDoesNotShareAWorkerOrResetProgress) {
+  state.batchCount = 2;
+  spec->stats.scoring.numDocuments = 6;
+  spec->stats.scoring.totalDocsLen = 42;
+  const SearchDiskSlotRange range{0, 100};
+  job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
+  ASSERT_NE(job, nullptr);
+  EXPECT_EQ(IndexSpec_RunDiskSlotTrim(job), INDEX_DISK_TRIM_MORE);
+  auto *pending = spec->docs.pendingSlotDeletions;
+  EXPECT_EQ(IndexSpec_RegisterDiskSlotTrim(ref, &range, 1), nullptr);
+  EXPECT_EQ(spec->docs.pendingSlotDeletions, pending);
+  EXPECT_EQ(pending->next, nullptr);
+  EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_EQ(IndexSpec_RunDiskSlotTrim(job), INDEX_DISK_TRIM_FINISHED);
+  EXPECT_EQ(spec->docs.pendingSlotDeletions, nullptr);
+  // A new identical intent is not suppressed by the finished worker object.
+  auto *later = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
+  ASSERT_NE(later, nullptr);
+  state.batchesApplied = 0;
+  state.batchCount = 1;
+  state.emptyBatch = true;
+  EXPECT_EQ(IndexSpec_RunDiskSlotTrim(later), INDEX_DISK_TRIM_FINISHED);
+  IndexSpec_FreeDiskSlotTrim(later);
+  EXPECT_EQ(spec->docs.pendingSlotDeletions, nullptr);
+}
