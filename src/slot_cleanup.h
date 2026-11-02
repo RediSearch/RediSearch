@@ -33,7 +33,8 @@ void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots);
 void SlotCleanup_StartDiskJobs(void);
 // Main-thread cron retries jobs retained after queue rejection or storage failure.
 void SlotCleanup_RetryDiskJobs(void);
-// Capture boundary: drain RAM-only batch apply, then reject new batches until resume.
+// Capture boundary: wait for in-flight tombstone writes and memory updates, then
+// reject new batches until resume. A capture can wait for storage I/O.
 // Slot-CF scans do not hold this gate and cannot delay a capture.
 void SlotCleanup_PauseDiskJobs(void);
 void SlotCleanup_ResumeDiskJobs(void);
