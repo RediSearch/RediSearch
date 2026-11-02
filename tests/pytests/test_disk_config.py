@@ -126,3 +126,17 @@ def test_disk_statistics_config_set_at_load_time():
         env.skip()
     env.expect('CONFIG', 'GET', 'search-_disk-statistics').equal(['search-_disk-statistics', 'yes'])
     env.stop()
+
+
+@skip(cluster=True, redis_less_than="8.8")
+def test_disk_sq8_config_defaults_and_runtime_update():
+    env = Env(noDefaultModuleArgs=True)
+    if env.env == 'existing-env':
+        env.skip()
+    env.expect('CONFIG', 'GET', 'search-disk-sq8-enabled').equal(
+        ['search-disk-sq8-enabled', 'no'])
+    for value in ['yes', 'no']:
+        env.expect('CONFIG', 'SET', 'search-disk-sq8-enabled', value).ok()
+        env.expect('CONFIG', 'GET', 'search-disk-sq8-enabled').equal(
+            ['search-disk-sq8-enabled', value])
+    env.stop()

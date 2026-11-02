@@ -125,12 +125,12 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   StrongRef ref = IndexSpec_ParseC(redisCtx, "idx", args.data(), args.size(), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(redisCtx, (IndexSpec *)StrongRef_Get(ref));
   // This direct QAST test bypasses the QueryRequest that owns timeout state in production.
-  QueryRequestTimeout timeout = {};
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 0;
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-  ctx.timeout = &timeout;
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  ctx.limits = &timeout;
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
   ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "title", "hello"));
