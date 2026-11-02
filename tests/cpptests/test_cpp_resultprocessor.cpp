@@ -101,7 +101,7 @@ TEST_F(ResultProcessorTest, sorterEndsOnABlockedClientTimeoutAfterAnOomStop) {
   QueryRequestLimits_Init(&timeout, &config);
   QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryProcessingCtx qitr = {0};
-  qitr.timeout = &timeout;
+  qitr.limits = &timeout;
   qitr.timeoutPolicy = TimeoutPolicy_ReturnStrict;
   qitr.oomPolicy = OomPolicy_Return;
 
