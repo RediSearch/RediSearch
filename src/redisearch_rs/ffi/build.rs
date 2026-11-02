@@ -640,6 +640,7 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
 /// opaque stub when it sees a forward reference.
 const BLOCKLIST_TYPES: &[&str] = &[
     "IteratorType",
+    "pthread_rwlock_t", // defined directly in `ffi/src/lib.rs`
     "QueryNodeType",
     "QASTValidationFlagsSet",
     "QueryNodeOptions",
