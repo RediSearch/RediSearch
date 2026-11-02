@@ -240,6 +240,56 @@ fn expiration_bit_survives_gc() {
     assert!(!reader.next_record(&mut result).unwrap());
 }
 
+#[test]
+fn expiration_bits_survive_in_the_copied_prefix() {
+    // The entries before the first dead one are copied as bytes rather than
+    // re-encoded, so their bits must be copied too, at the same ordinals.
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    let entries: &[(DocId, bool)] = &[
+        (10, true),
+        (11, false),
+        (12, true),
+        (13, false),
+        (14, true),
+        (15, false),
+    ];
+    for &(doc_id, has_exp) in entries {
+        let rec = RSIndexResult::build_virt()
+            .doc_id(doc_id)
+            .has_field_expiration(has_exp)
+            .build();
+        ii.add_record(&rec).unwrap();
+    }
+
+    // Only 13 is gone: 10, 11 and 12 form the copied prefix, 14 and 15 follow it.
+    let delta = ii
+        .scan_gc(
+            |doc_id| doc_id != 13,
+            None::<fn(&RSIndexResult, &RepairContext<'_>)>,
+        )
+        .expect("scan_gc ok")
+        .expect("scan_gc found an entry to remove");
+    ii.apply_gc(delta);
+
+    let mut reader = ii.reader();
+    let mut result = RSIndexResult::build_virt().build();
+    for &(doc_id, has_exp) in &[
+        (10u64, true),
+        (11, false),
+        (12, true),
+        (14, true),
+        (15, false),
+    ] {
+        assert!(reader.next_record(&mut result).unwrap());
+        assert_eq!(result.doc_id, doc_id);
+        assert_eq!(
+            result.has_field_expiration, has_exp,
+            "GC must preserve the expiration bit for doc {doc_id}"
+        );
+    }
+    assert!(!reader.next_record(&mut result).unwrap());
+}
+
 /// Numeric record for `doc_id` with the given field-expiration bit.
 fn numeric(doc_id: DocId, has_exp: bool) -> RSIndexResult<'static> {
     RSIndexResult::build_numeric(1.5)
