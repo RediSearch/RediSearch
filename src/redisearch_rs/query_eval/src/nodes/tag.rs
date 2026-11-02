@@ -34,6 +34,7 @@ use trie_rs::{
     iter::{PatternMode, RangeBoundary, RangeFilter, RangeLendingIter},
 };
 
+use super::wildcard_query::below_min_term_prefix;
 use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, into_child_iterator};
 
 /// The request's clock deadline, or `None` when it has no clock-based timeout.
@@ -186,6 +187,7 @@ fn eval_child<'index>(
             effective_weight,
             field,
             case_sensitive,
+            min_term_prefix,
             max_prefix_expansions,
             config,
         ),
@@ -482,6 +484,7 @@ fn eval_wildcard<'index>(
     effective_weight: f64,
     field: &ffi::FieldSpec,
     case_sensitive: bool,
+    min_term_prefix: usize,
     max_prefix_expansions: usize,
     config: Config,
 ) -> Option<Evaluated<'index>> {
@@ -496,6 +499,9 @@ fn eval_wildcard<'index>(
     let pattern = tok_ref
         .as_bytes()
         .expect("a tag wildcard token must carry a string");
+    if below_min_term_prefix(pattern, min_term_prefix) {
+        return None;
+    }
 
     let children = if pattern.is_empty() {
         // Not `b""`: an empty slice's pointer dangles, while this one points at

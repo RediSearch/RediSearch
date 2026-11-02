@@ -16,7 +16,6 @@ harness = false
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true, features = ["std"] }
-proptest-derive = { workspace = true }
 rand.workspace = true
 
 [lints]

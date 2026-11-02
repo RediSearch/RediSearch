@@ -533,6 +533,15 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
 char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex);
 
 /**
+ * @brief Debug: storage-engine stats text of a disk index, for FT.DEBUG DISK_STATS.
+ *
+ * @param withStatistics Also append the sections shared by every index (block cache and
+ *        statistics enabled by search-_disk-statistics)
+ * @return sds text (release with sdsfree), or NULL if it could not be produced
+ */
+char *SearchDisk_DebugDiskStats(RedisSearchDiskIndexSpec *handle, bool withStatistics);
+
+/**
  * @brief Replace the key name in document metadata for a given document ID
  *
  * Used when a Redis key is renamed - updates the document metadata to reflect
@@ -918,6 +927,11 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
  * @param index Pointer to the disk index spec
  */
 void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Debug only: see `compactNonGcStorage` in search_disk_api.h.
+ */
+bool SearchDisk_CompactNonGcStorage(RedisSearchDiskIndexSpec* index);
 
 /**
  * @brief Pause background flush and compaction work on the index's database.

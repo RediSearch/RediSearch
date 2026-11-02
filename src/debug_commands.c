@@ -1061,6 +1061,10 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_ReplyWithError(
         ctx, "GC DID NOT RUN: no child process could be created within TIMEOUT");
   }
+  if (outcome && *outcome == GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE) {
+    return RedisModule_ReplyWithError(
+        ctx, "COMPACT_ALL did not complete (background work paused or compaction cancelled)");
+  }
   return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
 
@@ -1085,12 +1089,51 @@ static bool rejectForcedGCWhileBgWorkPaused(RedisModuleCtx *ctx, IndexSpec *sp) 
   return false;
 }
 
-// FT.DEBUG GC_FORCEINVOKE [TIMEOUT]
+// Reads GC_FORCEINVOKE's optional arguments after the index name, in any order: a TIMEOUT and
+// the COMPACT_ALL flag (default off). Replies with an error and returns false when they are
+// invalid.
+static bool parseForcedGCArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                              const IndexSpec *sp, long long *timeout, bool *compactAll) {
+  // Disk GC cycles (SpeedB compaction) take longer than fork GC, so disk
+  // indexes get a higher default timeout.
+  *timeout = sp->diskSpec ? 60000 : 30000;
+  *compactAll = false;
+  bool timeoutSet = false;
+  for (int i = 3; i < argc; i++) {
+    if (!*compactAll && !strcasecmp(RedisModule_StringPtrLen(argv[i], NULL), "COMPACT_ALL")) {
+      *compactAll = true;
+    } else if (!timeoutSet) {
+      if (RedisModule_StringToLongLong(argv[i], timeout) != REDISMODULE_OK || *timeout < 0) {
+        RedisModule_ReplyWithError(ctx, "Invalid TIMEOUT value");
+        return false;
+      }
+      timeoutSet = true;
+    } else {
+      RedisModule_WrongArity(ctx);
+      return false;
+    }
+  }
+  if (*compactAll && !sp->diskSpec) {
+    RedisModule_ReplyWithError(ctx, "COMPACT_ALL requires a disk index");
+    return false;
+  }
+  // The compaction runs on the GC thread; without one it would block the main thread.
+  if (*compactAll && !sp->gc) {
+    RedisModule_ReplyWithError(ctx, "COMPACT_ALL requires the index's GC, which is disabled");
+    return false;
+  }
+  return true;
+}
+
+// FT.DEBUG GC_FORCEINVOKE <index> [TIMEOUT] [COMPACT_ALL]
+// COMPACT_ALL makes the cycle also flush and fully compact the rest of the index's disk storage,
+// so its on-disk state, and the metrics derived from it, settle. Writes still in flight are not
+// waited for: with vector fields, run WORKERS DRAIN first.
 DEBUG_COMMAND(GCForceInvoke) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  if (argc < 3 || argc > 4) {
+  if (argc < 3 || argc > 5) {
     return RedisModule_WrongArity(ctx);
   }
   StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
@@ -1104,12 +1147,10 @@ DEBUG_COMMAND(GCForceInvoke) {
     return REDISMODULE_OK;
   }
 
-  // Disk GC cycles (SpeedB compaction) take longer than fork GC, so disk
-  // indexes get a higher default timeout.
-  long long timeout = sp->diskSpec ? 60000 : 30000;
-  if (argc == 4 &&
-      (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK || timeout < 0)) {
-    return RedisModule_ReplyWithError(ctx, "Invalid TIMEOUT value");
+  long long timeout;
+  bool compactAll;
+  if (!parseForcedGCArgs(ctx, argv, argc, sp, &timeout, &compactAll)) {
+    return REDISMODULE_OK;
   }
 
   // Indexes normally own a GCContext (`sp->gc`). Routing the forced invoke
@@ -1131,6 +1172,7 @@ DEBUG_COMMAND(GCForceInvoke) {
       forkWaitMs = timeout / 2 > 0 ? timeout / 2 : 1;
     }
     GCForcedRun forced = GCForcedRun_New(forkWaitMs, GC_FORCED_RUN_RETRY_INTERVAL_MS);
+    forced.compactAll = compactAll;
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(
         ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, GCForcedRunOutcomeFree, timeout);
     GCContext_ForceInvoke(sp->gc, bc, forced);
@@ -3845,6 +3887,42 @@ DEBUG_COMMAND(NumericBucketMap) {
   return REDISMODULE_OK;
 }
 
+// FT.DEBUG DISK_STATS <index> [VERBOSE]
+// Storage-engine level and block-cache stats for every column family of a disk
+// index. VERBOSE appends the sections shared by every index, so callers pass it
+// for one index per shard.
+DEBUG_COMMAND(DiskStats) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3 && argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  bool withStatistics = false;
+  if (argc == 4) {
+    if (strcasecmp(RedisModule_StringPtrLen(argv[3], NULL), "VERBOSE")) {
+      return RedisModule_ReplyWithError(ctx, "Expected VERBOSE");
+    }
+    withStatistics = true;
+  }
+  GET_SEARCH_CTX(argv[2])
+
+  if (!sctx->spec->diskSpec) {
+    RedisModule_ReplyWithError(sctx->redisCtx, "DISK_STATS is only supported on disk indexes");
+  } else {
+    char *text = SearchDisk_DebugDiskStats(sctx->spec->diskSpec, withStatistics);
+    if (!text) {
+      RedisModule_ReplyWithError(sctx->redisCtx, "Disk stats are unavailable");
+    } else {
+      RedisModule_ReplyWithStringBuffer(sctx->redisCtx, text, sdslen(text));
+      sdsfree(text);
+    }
+  }
+
+  SearchCtx_Free(sctx);
+  return REDISMODULE_OK;
+}
+
 /**
  * FT.DEBUG REGISTER_TEST_SCORERS
  * Register the test scorers for testing purposes.
@@ -3956,6 +4034,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
                                {"NUMERIC_BUCKET_MAP", NumericBucketMap},
+                               {"DISK_STATS", DiskStats},
                                {"DISK_IO_CONTROL", DiskIOControl},
                                {"REGISTER_TEST_SCORERS", RegisterTestScorers},
                                {"SET_MAX_INDEXES", SetMaxIndexes},

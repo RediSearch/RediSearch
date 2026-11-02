@@ -35,6 +35,13 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '30000').equal('DONE')
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'notanumber').error().contains('Invalid TIMEOUT value')
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '-1').error().contains('Invalid TIMEOUT value')
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '30000', '30000').error().contains(
+            'wrong number of arguments')
+
+    def testGcForceInvokeCompactAllNeedsDiskIndex(self):
+        """COMPACT_ALL compacts disk storage, so on a RAM index it is an error."""
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'COMPACT_ALL').error().contains(
+            'COMPACT_ALL requires a disk index')
 
     def testHashSubkeyNotifications(self):
         """The probe answers whether this server can name the fields a hash command wrote.
@@ -52,6 +59,18 @@ class TestDebugCommands(object):
         """No disk snapshot is ever taken on a RAM index, so the counter stays at zero."""
         self.env.expect(debug_cmd(), 'DISK_LIVE_SNAPSHOTS').equal(0)
         self.env.expect(debug_cmd(), 'DISK_LIVE_SNAPSHOTS', 'extra').error().contains(
+            'wrong number of arguments')
+
+    def testDiskStatsRequiresDiskIndex(self):
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx').error().contains(
+            'only supported on disk indexes')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'verbose').error().contains(
+            'only supported on disk indexes')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'other').error().contains('Expected VERBOSE')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'invalid_idx').error().contains(
+            'Can not create a search ctx')
+        self.env.expect(debug_cmd(), 'DISK_STATS').error().contains('wrong number of arguments')
+        self.env.expect(debug_cmd(), 'DISK_STATS', 'idx', 'VERBOSE', 'extra').error().contains(
             'wrong number of arguments')
 
     def testDebugHelp(self):
@@ -112,6 +131,7 @@ class TestDebugCommands(object):
             'GET_MAX_DOC_ID',
             'DUMP_DELETED_IDS',
             'NUMERIC_BUCKET_MAP',
+            'DISK_STATS',
             'DISK_IO_CONTROL',
             'REGISTER_TEST_SCORERS',
             'SET_MAX_INDEXES',

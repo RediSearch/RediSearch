@@ -427,6 +427,7 @@ static size_t indexSpecTotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t
   }
 
   res += sp->docs.memsize;
+  res += DocTable_KeyMapMemoryUsage(&sp->docs);
   res += sp->docs.sortablesSize;
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
   res += tags_overhead ? tags_overhead : IndexSpec_collect_tags_overhead(sp);
@@ -625,11 +626,6 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
   HNSWParams *hnswParams = &primaryParams->algoParams.hnswParams;
   size_t blobSize;
   if (!VectorIndex_GetBlobSize(hnswParams->dim, hnswParams->type, &blobSize, status)) {
-    return 0;
-  }
-  if (hnswParams->quantType != VecSimQuant_NONE && SearchDisk_IsEnabledForValidation()) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
-                        "COMPRESSION is not supported for disk-based vector indexes");
     return 0;
   }
   const VecSimParams *estimateParams = primaryParams;
@@ -890,6 +886,13 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
   }
   // Disk-mode validation: enforce mandatory parameters
   if (isSpecOnDiskForValidation(sp)) {
+    // Keep this admission gate out of shared parameter validation, which also runs on RDB load.
+    if (hnswParams->quantType == VecSimQuant_SQ8 && !RSGlobalConfig.diskSq8Enabled) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                          "Disk COMPRESSION SQ8 is disabled; enable search-disk-sq8-enabled "
+                          "only after all nodes have upgraded");
+      return 0;
+    }
     if (hnswParams->type != VecSimType_FLOAT32 && hnswParams->type != VecSimType_FLOAT16) {
       const char *typeName = VecSimType_ToString(hnswParams->type);
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
@@ -1758,29 +1761,88 @@ inline static bool isSpecOnDiskForValidation(const IndexSpec *sp) {
   return SearchDisk_IsEnabledForValidation();
 }
 
-void handleBadArguments(IndexSpec *spec, const char *badarg, QueryError *status, ACArgSpec *non_flex_argopts) {
-  if (isSpecOnDiskForValidation(spec)) {
-    bool isKnownArg = false;
-    for (int i = 0; non_flex_argopts[i].name; i++) {
-      if (strcasecmp(badarg, non_flex_argopts[i].name) == 0) {
-        isKnownArg = true;
-        break;
-      }
+static bool containsArgument(const char *arg, const ACArgSpec *argopts) {
+  for (int i = 0; argopts[i].name; ++i) {
+    if (strcasecmp(arg, argopts[i].name) == 0) {
+      return true;
     }
-    if (isKnownArg) {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
-        "Unsupported argument for Flex index:", " `%s`", badarg);
-    } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s`", badarg);
-    }
+  }
+  return false;
+}
+
+static void handleBadArguments(const char *badarg, bool unsupportedOption, QueryError *status) {
+  if (unsupportedOption) {
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_FLEX_UNSUPPORTED_FT_CREATE_ARGUMENT,
+                                  "Unsupported argument for Flex index:", " `%s`", badarg);
   } else {
-    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument", " `%s`", badarg);
+    QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_ARG_UNRECOGNIZED, "Unknown argument",
+                                  " `%s`", badarg);
   }
 }
 
-/* The format currently is FT.CREATE {index} [NOOFFSETS] [NOFIELDS]
-    SCHEMA {field} [TEXT [WEIGHT {weight}]] | [NUMERIC]
-  */
+int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
+                           QueryError *status) {
+  *options = (IndexSpecOptions){.flags = INDEX_DEFAULT_FLAGS, .timeout = -1};
+  int dummy;
+  size_t dummy2;
+  int rc = AC_OK;
+  ACArgSpec *errarg = NULL;
+  ACArgSpec flex_argopts[] = {
+    {.name = "ON", .target = &options->rule.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "PREFIX", .target = &options->prefixes, .type = AC_ARGTYPE_SUBARGS},
+    {.name = "FILTER", .target = &options->rule.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "LANGUAGE", .target = &options->rule.lang_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "LANGUAGE_FIELD", .target = &options->rule.lang_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "SCORE", .target = &options->rule.score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = "SCORE_FIELD", .target = &options->rule.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    {.name = SPEC_STOPWORDS_STR, .target = &options->stopwords, .type = AC_ARGTYPE_SUBARGS},
+    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &options->flags, Index_SkipInitialScan)},
+    {.name = NULL}
+  };
+  ACArgSpec non_flex_argopts[] = {
+    {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &options->flags,
+                Index_StoreTermOffsets | Index_StoreByteOffsets)},
+    {AC_MKUNFLAG(SPEC_NOHL_STR, &options->flags, Index_StoreByteOffsets)},
+    {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &options->flags, Index_StoreFieldFlags)},
+    {AC_MKUNFLAG(SPEC_NOFREQS_STR, &options->flags, Index_StoreFreqs)},
+    {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &options->flags, Index_WideSchema)},
+    {AC_MKBITFLAG(SPEC_ASYNC_STR, &options->flags, Index_Async)},
+    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &options->flags, Index_SkipInitialScan)},
+
+    // For compatibility
+    {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
+    {.name = "ON", .target = &options->rule.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
+    SPEC_FOLLOW_HASH_ARGS_DEF(&options->rule, &options->prefixes)
+    {.name = SPEC_TEMPORARY_STR, .target = &options->timeout, .type = AC_ARGTYPE_LLONG},
+    {.name = SPEC_STOPWORDS_STR, .target = &options->stopwords, .type = AC_ARGTYPE_SUBARGS},
+    {.name = NULL}
+  };
+  ACArgSpec *argopts = flex ? flex_argopts : non_flex_argopts;
+  rc = AC_ParseArgSpec(ac, argopts, &errarg);
+  if (rc == AC_ERR_ENOENT && flex) {
+    const char *arg;
+    AC_GetString(ac, &arg, NULL, AC_F_NOADVANCE);
+    options->unsupportedOption = containsArgument(arg, non_flex_argopts);
+  }
+  if (rc != AC_OK) {
+    if (rc != AC_ERR_ENOENT) {
+      QERR_MKBADARGS_AC(status, errarg->name, rc);
+      return REDISMODULE_ERR;
+    }
+  }
+  if ((options->flags & Index_WideSchema) && !(options->flags & Index_StoreFieldFlags)) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        SPEC_SCHEMA_EXPANDABLE_STR " cannot be used with " SPEC_NOFIELDS_STR);
+    return REDISMODULE_ERR;
+  }
+
+  if (options->timeout != -1) {
+    options->flags |= Index_Temporary;
+  }
+  options->timeout *= 1000;  // convert to ms
+
+  return REDISMODULE_OK;
+}
 
 static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
                                            ArgsCursor *ac, QueryError *status) {
@@ -1790,73 +1852,27 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
 
   IndexSpec_MakeKeyless(spec);
 
-  ArgsCursor acStopwords = {0};
-
-  long long timeout = -1;
-  int dummy;
-  size_t dummy2;
-  SchemaRuleArgs rule_args = {0};
-  ArgsCursor rule_prefixes = {0};
-  int rc = AC_OK;
-  ACArgSpec *errarg = NULL;
-  ACArgSpec flex_argopts[] = {
-    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS},
-    {.name = "FILTER", .target = &rule_args.filter_exp_str, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "LANGUAGE", .target = &rule_args.lang_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "LANGUAGE_FIELD", .target = &rule_args.lang_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "SCORE", .target = &rule_args.score_default, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = "SCORE_FIELD", .target = &rule_args.score_field, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
-    {.name = NULL}
-  };
-  ACArgSpec non_flex_argopts[] = {
-    {AC_MKUNFLAG(SPEC_NOOFFSETS_STR, &spec->flags,
-                Index_StoreTermOffsets | Index_StoreByteOffsets)},
-    {AC_MKUNFLAG(SPEC_NOHL_STR, &spec->flags, Index_StoreByteOffsets)},
-    {AC_MKUNFLAG(SPEC_NOFIELDS_STR, &spec->flags, Index_StoreFieldFlags)},
-    {AC_MKUNFLAG(SPEC_NOFREQS_STR, &spec->flags, Index_StoreFreqs)},
-    {AC_MKBITFLAG(SPEC_SCHEMA_EXPANDABLE_STR, &spec->flags, Index_WideSchema)},
-    {AC_MKBITFLAG(SPEC_ASYNC_STR, &spec->flags, Index_Async)},
-    {AC_MKBITFLAG(SPEC_SKIPINITIALSCAN_STR, &spec->flags, Index_SkipInitialScan)},
-
-    // For compatibility
-    {.name = "NOSCOREIDX", .target = &dummy, .type = AC_ARGTYPE_BOOLFLAG},
-    {.name = "ON", .target = &rule_args.type, .len = &dummy2, .type = AC_ARGTYPE_STRING},
-    SPEC_FOLLOW_HASH_ARGS_DEF(&rule_args)
-    {.name = SPEC_TEMPORARY_STR, .target = &timeout, .type = AC_ARGTYPE_LLONG},
-    {.name = SPEC_STOPWORDS_STR, .target = &acStopwords, .type = AC_ARGTYPE_SUBARGS},
-    {.name = NULL}
-  };
-  ACArgSpec *argopts = isSpecOnDiskForValidation(spec) ? flex_argopts : non_flex_argopts;
-  rc = AC_ParseArgSpec(ac, argopts, &errarg);
-  if (rc != AC_OK) {
-    if (rc != AC_ERR_ENOENT) {
-      QERR_MKBADARGS_AC(status, errarg->name, rc);
-      goto failure;
-    }
-  }
-  if ((spec->flags & Index_WideSchema) && !(spec->flags & Index_StoreFieldFlags)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
-                        SPEC_SCHEMA_EXPANDABLE_STR " cannot be used with " SPEC_NOFIELDS_STR);
+  IndexSpecOptions options;
+  int rc = IndexSpec_ParseOptions(ac, isSpecOnDiskForValidation(spec), &options, status);
+  spec->flags = options.flags;
+  SchemaRuleArgs *rule_args = &options.rule;
+  ArgsCursor *rule_prefixes = &options.prefixes;
+  ArgsCursor *acStopwords = &options.stopwords;
+  if (rc != REDISMODULE_OK) {
     goto failure;
   }
-
-  if (timeout != -1) {
-    // When disk validation is active, argopts is set to flex_argopts, which does not include SPEC_TEMPORARY_STR
+  if (spec->flags & Index_Temporary) {
     RS_ASSERT(!SearchDisk_IsEnabled());
-    spec->flags |= Index_Temporary;
   }
-  spec->timeout = timeout * 1000;  // convert to ms
+  spec->timeout = options.timeout;
 
-  if (rule_prefixes.argc > 0) {
-    spec->rule = SchemaRule_CreateWithPrefixesAC(&rule_args, &rule_prefixes, spec_ref, status);
+  if (rule_prefixes->argc > 0) {
+    spec->rule = SchemaRule_CreateWithPrefixesAC(rule_args, rule_prefixes, spec_ref, status);
   } else {
-    rule_args.nprefixes = 1;
+    rule_args->nprefixes = 1;
     static const char *empty_prefix[] = {""};
-    rule_args.prefixes = empty_prefix;
-    spec->rule = SchemaRule_Create(&rule_args, spec_ref, status);
+    rule_args->prefixes = empty_prefix;
+    spec->rule = SchemaRule_Create(rule_args, spec_ref, status);
   }
   if (!spec->rule) {
     goto failure;
@@ -1880,18 +1896,18 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     }
   }
 
-  if (AC_IsInitialized(&acStopwords)) {
+  if (AC_IsInitialized(acStopwords)) {
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
     }
-    spec->stopwords = NewStopWordListAC(&acStopwords);
+    spec->stopwords = NewStopWordListAC(acStopwords);
     spec->flags |= Index_HasCustomStopwords;
   }
 
   if (!AC_AdvanceIfMatch(ac, SPEC_SCHEMA_STR)) {
     if (AC_NumRemaining(ac)) {
       const char *badarg = AC_GetStringNC(ac, NULL);
-      handleBadArguments(spec, badarg, status, non_flex_argopts);
+      handleBadArguments(badarg, options.unsupportedOption, status);
     } else {
       QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "No schema found");
     }
@@ -2066,6 +2082,14 @@ void addPendingIndexDrop() {
 
 void removePendingIndexDrop() {
   __atomic_sub_fetch(&pendingIndexDropCount_g, 1, __ATOMIC_RELAXED);
+}
+
+int CleanPool_AddWork(void (*work)(void *), void *arg) {
+  return redisearch_thpool_add_work(cleanPool, work, arg, THPOOL_PRIORITY_HIGH);
+}
+
+void CleanPool_Wait() {
+  redisearch_thpool_wait(cleanPool);
 }
 
 size_t CleanInProgressOrPending() {
@@ -3073,10 +3097,9 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", doc_table_size / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
-  // No in-memory key trie (it's Redis key-metadata); reported as 0, field kept
-  // for backward compatibility.
-  RedisModule_InfoAddFieldDouble(ctx, "key_table_size", 0.0);
   if (!skip_unsafe_ops) {
+    // A crash can interrupt a map mutation; inspecting its allocation would reenter Rust.
+    RedisModule_InfoAddFieldDouble(ctx, "key_table_size", DocTable_KeyMapMemoryUsage(&sp->docs) / (float)0x100000);
     // Skip when unsafe - tag overhead calls dictFetchValue which can trigger dict rehashing with rm_free
     RedisModule_InfoAddFieldDouble(ctx, "tag_overhead_size_mb", IndexSpec_collect_tags_overhead(sp) / (float)0x100000);
     RedisModule_InfoAddFieldDouble(ctx, "text_overhead_size_mb", IndexSpec_collect_text_overhead(sp) / (float)0x100000);
@@ -3769,6 +3792,7 @@ static void fingerprintVectorParams(Sha1Context *hash, const VecSimParams *param
       RS_ASSERT(p->primaryIndexParams);
       if (p->primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
         Sha1_UpdateU64(hash, p->specificParams.tieredHnswParams.swapJobThreshold);
+        Sha1_UpdateU64(hash, p->specificParams.tieredHnswParams.QuantNormalizationSetSize);
       } else {
         RS_ASSERT(p->primaryIndexParams->algo == VecSimAlgo_SVS);
         Sha1_UpdateU64(hash, p->specificParams.tieredSVSParams.trainingTriggerThreshold);
@@ -3778,6 +3802,7 @@ static void fingerprintVectorParams(Sha1Context *hash, const VecSimParams *param
     }
     case VecSimAlgo_HNSWLIB: {
       const HNSWParams *p = &params->algoParams.hnswParams;
+      Sha1_UpdateU64(hash, p->quantType);
       Sha1_UpdateU64(hash, p->type);
       Sha1_UpdateU64(hash, p->dim);
       Sha1_UpdateU64(hash, p->metric);
@@ -4047,18 +4072,13 @@ int IndexSpec_UpdateDocForAlter(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
 }
 
 // Shared helper: update stats and clean up auxiliary indexes after a document deletion.
-// Caller must hold the spec write lock.
+// Caller must hold the spec write lock, and notifies the GC itself (see IndexSpec_DeleteDocById_Unsafe).
 static void indexSpec_OnDocDeleted(IndexSpec *spec, t_docId docId, uint32_t docLen) {
   // Update the stats
   RS_LOG_ASSERT(spec->stats.scoring.totalDocsLen >= docLen, "totalDocsLen is smaller than docLen");
   spec->stats.scoring.totalDocsLen -= docLen;
   RS_LOG_ASSERT(spec->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
   spec->stats.scoring.numDocuments--;
-
-  // Increment the index's garbage collector's scanning frequency after document deletions
-  if (spec->gc) {
-    GCContext_OnDelete(spec->gc);
-  }
 
   // VecSim fields clear deleted data on the fly
   if (spec->flags & Index_HasVecSim) {
@@ -4150,6 +4170,9 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
   dropDocIdMeta(ctx, key, openKey, spec->specId);
 
   indexSpec_OnDocDeleted(spec, docId, docLen);
+  if (spec->gc) {
+    GCContext_OnDelete(spec->gc);
+  }
 }
 
 int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key,
@@ -4165,37 +4188,37 @@ int IndexSpec_DeleteDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   return REDISMODULE_OK;
 }
 
-// Delete a document by its internal docId. The de-indexing entry point driven by
-// the DocIdMeta `unlink` callback on physical key removal (both modes). Acquires
-// the spec write lock; no-op if the docId is not present.
-void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
-  IndexSpec_IncrActiveWrites(spec);
-  IndexSpec_LockWrite(spec);
-
+bool IndexSpec_DeleteDocById_Unsafe(IndexSpec *spec, t_docId docId) {
   uint32_t docLen = 0;
 
   if (SearchDisk_IsEnabled()) {
     RS_LOG_ASSERT(spec->diskSpec, "disk handle is unexpectedly NULL");
     if (!SearchDisk_DeleteDocumentById(spec->diskSpec, docId, &docLen)) {
       // Document not found on disk
-      IndexSpec_DecrActiveWrites(spec);
-      IndexSpec_Unlock(spec);
-      return;
+      return false;
     }
   } else {
     RSDocumentMetadata *md = DocTable_DeleteById(&spec->docs, docId);
     if (!md) {
       // Document not found in the in-memory table
-      IndexSpec_DecrActiveWrites(spec);
-      IndexSpec_Unlock(spec);
-      return;
+      return false;
     }
     docLen = md->docLen;
     DMD_Return(md);
   }
 
   indexSpec_OnDocDeleted(spec, docId, docLen);
+  return true;
+}
 
+// The de-indexing entry point driven by the DocIdMeta `unlink` callback on physical key removal
+// (both modes).
+void IndexSpec_DeleteDocById(IndexSpec *spec, t_docId docId) {
+  IndexSpec_IncrActiveWrites(spec);
+  IndexSpec_LockWrite(spec);
+  if (IndexSpec_DeleteDocById_Unsafe(spec, docId) && spec->gc) {
+    GCContext_OnDelete(spec->gc);
+  }
   IndexSpec_DecrActiveWrites(spec);
   IndexSpec_Unlock(spec);
 }
