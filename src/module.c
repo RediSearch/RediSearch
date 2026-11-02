@@ -2199,6 +2199,8 @@ typedef struct searchReducerCtx {
   specialCaseCtx* reduceSpecialCaseCtxSortby;
 
   MRReply *warning;
+  // The OOM error in the request's reply is the coordinator's own fan-out stop, not a shard's.
+  bool oomErrorMapped;
 } searchReducerCtx;
 
 typedef struct {
@@ -2225,20 +2227,26 @@ static searchRequestCtx* searchRequestCtx_New(void) {
   return rm_calloc(1, sizeof(searchRequestCtx));
 }
 
+static void searchReducerCtx_Free(searchReducerCtx *rctx) {
+  if (!rctx) {
+    return;
+  }
+  if (rctx->pq) {
+    heap_destroy(rctx->pq);
+  }
+  if (rctx->reduceSpecialCaseCtxKnn && rctx->reduceSpecialCaseCtxKnn->knn.pq) {
+    heap_destroy(rctx->reduceSpecialCaseCtxKnn->knn.pq);
+    rctx->reduceSpecialCaseCtxKnn->knn.pq = NULL;
+  }
+  rm_free(rctx);
+}
+
 void searchRequestCtx_Free(searchRequestCtx *r) {
 #ifdef ENABLE_ASSERT
   SyncPoint_Wait("CoordSearchRequestFree");
 #endif
-  searchReducerCtx *rctx = r->rctx;
-  if (rctx) {
-    if (rctx->pq) {
-      heap_destroy(rctx->pq);
-    }
-    if (rctx->reduceSpecialCaseCtxKnn && rctx->reduceSpecialCaseCtxKnn->knn.pq) {
-      heap_destroy(rctx->reduceSpecialCaseCtxKnn->knn.pq);
-    }
-    rm_free(rctx);
-  }
+  searchReducerCtx_Free(r->rctx);
+  r->rctx = NULL;
   if(r->specialCases) {
     size_t specialCasesLen = array_len(r->specialCases);
     for(size_t i = 0; i< specialCasesLen; i ++) {
@@ -3242,7 +3250,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   // Number of results to actually return
   size_t num = req->offset + req->limit;
 
-  size_t qlen = heap_count(rCtx->pq);
+  // A reduction that exited before building its heap replies no rows.
+  size_t qlen = rCtx->pq ? heap_count(rCtx->pq) : 0;
   size_t pos = qlen;
 
   // Load the results from the heap into a sorted array. Free the items in
@@ -3251,8 +3260,10 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   while (pos) {
     results[--pos] = heap_poll(rCtx->pq);
   }
-  heap_free(rCtx->pq);
-  rCtx->pq = NULL;
+  if (rCtx->pq) {
+    heap_free(rCtx->pq);
+    rCtx->pq = NULL;
+  }
 
   //-------------------------------------------------------------------------------------------
   // RESP2 is a flat array: total, then each result's fields in sequence.
@@ -3493,6 +3504,29 @@ static bool searchStoppedForOom(const searchRequestCtx *req) {
   return QueryRequestTimeout_GetStopReason(&req->base.timeout) == QUERY_STOP_REASON_OOM;
 }
 
+// An upper bound on the rows the kept replies hold, cheap enough to size the heap by.
+static size_t searchRepliesRowBound(const searchRequestCtx *req, int count, MRReply **replies) {
+  const bool profile = req->profileArgs > 0;
+  size_t rows = 0;
+  for (int i = 0; i < count; i++) {
+    MRReply *r = replies[i];
+    if (profile && r && MRReply_Type(r) == MR_REPLY_MAP) {
+      r = MRReply_MapElement(r, "Results");
+    } else if (profile && r && MRReply_Type(r) == MR_REPLY_ARRAY && MRReply_Length(r) > 0) {
+      r = MRReply_ArrayElement(r, 0);
+    }
+    if (!r) {
+      continue;
+    }
+    if (MRReply_Type(r) == MR_REPLY_MAP) {
+      rows += MRReply_Length(MRReply_MapElement(r, "results"));
+    } else if (MRReply_Type(r) == MR_REPLY_ARRAY) {
+      rows += MRReply_Length(r);
+    }
+  }
+  return rows;
+}
+
 // Stop merging on a blocked-client timeout or a stop requested while merging. A stop requested
 // before, by the fan-out, already discarded the replies that landed after it.
 static bool reducerShouldStop(const searchRequestCtx *req, bool stoppedBeforeReducing) {
@@ -3579,7 +3613,8 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   }
 
   // The fan-out stopped for OOM under ON_OOM FAIL: cleanup replies the OOM error, so the kept
-  // replies cannot be returned. Retained shard errors above keep their precedence.
+  // replies cannot be returned. Retained shard errors above keep their precedence. The heap stays
+  // NULL: a timeout callback that takes over the reply reruns the reduction.
   if (!fromTimeout && stoppedBeforeReducing && searchStoppedForOom(req) &&
       req->base.reqConfig.oomPolicy == OomPolicy_Fail) {
     goto cleanup;
@@ -3588,8 +3623,15 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   // Get reply offsets
   getReplyOffsets(rCtx->searchCtx, &rCtx->offsets);
 
-  // Init results heap.
+  // Init results heap. After an OOM stop only the kept rows can fill it, so do not allocate for
+  // the requested limit under memory pressure.
   num = req->requestedResultsCount;
+  if (searchStoppedForOom(req)) {
+    const size_t keptRows = searchRepliesRowBound(req, count, replies);
+    if (keptRows < num) {
+      num = keptRows > 0 ? keptRows : 1;
+    }
+  }
   rCtx->pq = rm_malloc(heap_sizeof(num));
   heap_init(rCtx->pq, cmp_results, req, num);
 
@@ -3676,6 +3718,9 @@ cleanup:
       req->queryOOM = true;
     } else if (QueryError_IsOk(&req->base.reply.err)) {
       QueryError_SetCode(&req->base.reply.err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+      if (rCtx) {
+        rCtx->oomErrorMapped = true;
+      }
     }
   }
   if (rCtx) {
@@ -4636,10 +4681,19 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
     // Reducer already running or bailout claimed it - wait for completion
     QueryRequest_WaitForResultsComplete(&req->base);
 
-    // A background reducer may have claimed reducing, observed the timeout,
-    // and exited before initializing req->rctx. In that case adopt the
-    // timeout-owned reduction path now that the competing reducer has finished.
-    if (!QueryError_HasError(&request->reply.err) && req->rctx == NULL) {
+    // The reducer finished before this timeout and mapped its own fan-out OOM stop into an
+    // error; this callback owns the reply, so the timeout reply wins as when it claims first.
+    if (req->rctx && req->rctx->oomErrorMapped) {
+      QueryError_ClearError(&request->reply.err);
+      req->rctx->oomErrorMapped = false;
+    }
+
+    // A background reducer may have claimed reducing, observed the timeout, and exited before
+    // initializing req->rctx or its heap. In that case adopt the timeout-owned reduction path
+    // now that the competing reducer has finished.
+    if (!QueryError_HasError(&request->reply.err) && (req->rctx == NULL || req->rctx->pq == NULL)) {
+      searchReducerCtx_Free(req->rctx);
+      req->rctx = NULL;
       searchResultReducer(req, MRCtx_GetNumReplied(mrctx), MRCtx_GetReplies(mrctx), true);
     }
   }
