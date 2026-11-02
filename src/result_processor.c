@@ -295,8 +295,8 @@ static void RP_HoldStop(const ResultProcessor *rp) {
 // Whether an upstream stage holds rows past a stop. A cursor read clears the stop flag, so a hold
 // from an earlier read shows only in oomCut, which outlives the reads.
 static bool RP_UpstreamHold(const ResultProcessor *rp) {
-  const QueryRequestTimeout *timeout = rp->parent->timeout;
-  return timeout && (rp->parent->oomCut || QueryRequestTimeout_IsStopRequested(timeout));
+  const QueryRequestLimits *timeout = rp->parent->limits;
+  return timeout && (rp->parent->oomCut || QueryRequestLimits_IsMemoryStopped(timeout));
 }
 
 /*
@@ -305,7 +305,7 @@ static bool RP_UpstreamHold(const ResultProcessor *rp) {
  */
 static void RP_RenewStop(const ResultProcessor *rp, QueryStopReason reason) {
   if (reason != QUERY_STOP_REASON_NONE) {
-    QueryRequestTimeout_RequestStop(rp->parent->timeout, reason);
+    QueryRequestLimits_RequestStop(rp->parent->limits, reason);
   }
 }
 
@@ -1401,7 +1401,7 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 static void rpSafeLoader_Load(RPSafeLoader *self) {
   SearchResult *curr_res;
   // The pipeline's timeout state, NULL where it runs without memory checkpoints (hybrid).
-  QueryRequestTimeout *timeout = self->base_loader.base.parent->timeout;
+  QueryRequestLimits *timeout = self->base_loader.base.parent->limits;
   // A stop requested while buffering already chose to load the whole buffer (RETURN), and an
   // upstream hold ends the stream when that stage drains, so only memory found short while loading,
   // with nothing held upstream, cuts the load.
@@ -1413,7 +1413,7 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   while ((curr_res = GetNextResult(self))) {
     // Only an OOM stop cuts the load: a timeout's callback waits for this worker, as before.
     if (!stopped && checkMemory && QueryMemory_ShouldStop(timeout, &self->loadMemoryCheckCalls) &&
-        QueryRequestTimeout_GetStopReason(timeout) == QUERY_STOP_REASON_OOM) {
+        QueryRequestLimits_IsMemoryStopped(timeout)) {
       // The loaded prefix is yielded; the yield phase then ends on the stop.
       stopped = true;
       self->last_buffered_rc = RS_RESULT_TIMEDOUT;
@@ -1469,7 +1469,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   uint32_t bufferLimit = rp->parent->resultLimit;
   SearchResult resToBuffer = SearchResult_New();
   SearchResult *currBlock = NULL;
-  QueryRequestTimeout *timeout = rp->parent->timeout;
+  QueryRequestLimits *timeout = rp->parent->limits;
   // Whether this loader's own checkpoint raised the stop, as opposed to an upstream stage that
   // holds its rows past a stop and yields them over several reads.
   bool ownStop = false;
@@ -1487,7 +1487,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     resToBuffer = SearchResult_New();
     const bool heldUpstream = RP_UpstreamHold(rp);
     const bool fillStopped = RP_FillShouldStop(rp, &self->bufferMemoryCheckCalls);
-    ownStop |= !heldUpstream && timeout && QueryRequestTimeout_IsStopRequested(timeout);
+    ownStop |= !heldUpstream && timeout && QueryRequestLimits_IsMemoryStopped(timeout);
     if (fillStopped) {
       result_status = RS_RESULT_TIMEDOUT;
       break;
