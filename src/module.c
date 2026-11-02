@@ -3501,7 +3501,7 @@ static bool should_return_error(const searchRequestCtx *req, QueryErrorCode errC
 }
 
 static bool searchStoppedForOom(const searchRequestCtx *req) {
-  return QueryRequestTimeout_GetStopReason(&req->base.timeout) == QUERY_STOP_REASON_OOM;
+  return QueryRequestLimits_IsMemoryStopped(&req->base.limits);
 }
 
 // An upper bound on the rows the kept replies hold, cheap enough to size the heap by.
@@ -3530,9 +3530,9 @@ static size_t searchRepliesRowBound(const searchRequestCtx *req, int count, MRRe
 // Stop merging on a blocked-client timeout or a stop requested while merging. A stop requested
 // before, by the fan-out, already discarded the replies that landed after it.
 static bool reducerShouldStop(const searchRequestCtx *req, bool stoppedBeforeReducing) {
-  const QueryRequestTimeout *timeout = &req->base.timeout;
-  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout) ||
-         (!stoppedBeforeReducing && QueryRequestTimeout_IsStopRequested(timeout));
+  const QueryRequestLimits *timeout = &req->base.limits;
+  return QueryRequestLimits_IsBlockedClientTimedOut(timeout) ||
+         (!stoppedBeforeReducing && QueryRequestLimits_IsMemoryStopped(timeout));
 }
 
 static int searchResultReducer(searchRequestCtx *req, int count, MRReply **replies,
@@ -3543,7 +3543,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   size_t num = 0;
   size_t keptRowsBound = SIZE_MAX;
   // A stop requested before reducing (in the fan-out) leaves the replies kept so far to merge.
-  const bool stoppedBeforeReducing = QueryRequestTimeout_IsStopRequested(&req->base.timeout);
+  const bool stoppedBeforeReducing = QueryRequestLimits_IsMemoryStopped(&req->base.limits);
 
 #ifdef ENABLE_ASSERT
   if (!fromTimeout) SyncPoint_Wait("BeforeCoordReducerClaim");
@@ -3719,8 +3719,8 @@ cleanup:
   // A merge loop that stopped for OOM replies what the heap holds with the OOM warning, or the
   // OOM error under ON_OOM FAIL; the reply callback reads both. Not once the timeout callback
   // owns the reply: its timeout reply wins over an OOM stop.
-  if (!fromTimeout && !QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout) &&
-      QueryRequestTimeout_GetStopReason(&req->base.timeout) == QUERY_STOP_REASON_OOM) {
+  if (!fromTimeout && !QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits) &&
+      QueryRequestLimits_IsMemoryStopped(&req->base.limits)) {
     if (req->base.reqConfig.oomPolicy != OomPolicy_Fail) {
       req->queryOOM = true;
     } else if (QueryError_IsOk(&req->base.reply.err)) {
@@ -4497,7 +4497,7 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, RedisModu
 // Every shard reply is held until the last one lands, so memory is read once per reply.
 static bool searchReplyCheckpoint(struct MRCtx *mrctx) {
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
-  return QueryMemory_ShouldStopNow(&req->base.timeout);
+  return QueryMemory_ShouldStopNow(&req->base.limits);
 }
 
 static int FlatSearchCommandHandler(searchRequestCtx *req) {
@@ -4880,7 +4880,7 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     MRCtx_SetAbortFlag(mrctx, QueryRequestLimits_GetBlockedClientFlag(&req->base.limits));
   }
   // Under every timeout policy, including RETURN, which arms no abort flag.
-  MRCtx_SetStopFlag(mrctx, QueryRequestTimeout_GetStopFlag(&req->base.timeout));
+  MRCtx_SetStopFlag(mrctx, QueryRequestLimits_GetMemoryStopFlag(&req->base.limits));
   MRCtx_SetReplyCheckpoint(mrctx, searchReplyCheckpoint);
   // FT.SEARCH coordinator should validate connections before sending the command to the cluster
   MRCtx_SetValidateConnections(mrctx, true);
