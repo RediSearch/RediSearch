@@ -87,6 +87,8 @@ impl<W: Write> Write for ChunkWriter<W> {
             if self.buffer.len() == HEADER_SIZE + CHUNK_SIZE {
                 self.send(0)?;
             }
+            // The buffer stays within one header and one chunk: it starts at the header,
+            // `send` truncates back to it, and an append never exceeds the chunk's room.
             let room = HEADER_SIZE + CHUNK_SIZE - self.buffer.len();
             let (now, rest) = bytes.split_at(bytes.len().min(room));
             self.buffer.extend_from_slice(now);
@@ -95,6 +97,8 @@ impl<W: Write> Write for ChunkWriter<W> {
         Ok(written)
     }
 
+    /// Sends nothing: a flush mid-message would send the last chunk unflagged.
+    /// [`serialize`] sends it, flagged, once the message is complete.
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
