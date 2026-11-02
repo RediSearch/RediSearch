@@ -533,6 +533,14 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &["QueryRequestTimeout"],
         vars: &[],
     },
+    // Lets a Rust expansion observe a blocked-client cancellation, which publishes a
+    // flag rather than a clock deadline and so is invisible to a deadline-driven walk.
+    HeaderAllowlist {
+        path: "src/query_request.h",
+        fns: &["QueryRequestTimeout_IsBlockedClientTimedOut"],
+        types: &[],
+        vars: &[],
+    },
     // `VecSimSearchMode` (+ `_ToString`) labels the top-k query strategy
     // chosen for `vector_top_k` hybrid iteration.
     HeaderAllowlist {
