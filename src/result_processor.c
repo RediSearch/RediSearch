@@ -2106,7 +2106,6 @@ typedef struct {
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
   rs_wall_clock_ns_t depletionTime;    // Time spent depleting in the background thread (nanoseconds)
   redisearch_thpool_t *pool;           // Thread pool used for depletion jobs
-  QueryStopReason stopReason;          // Why depletion stopped, when a stop request ended it
   uint32_t memoryCheckCalls;           // QueryMemory_ShouldStop counter for the buffer
 } RPSafeDepleter;
 
@@ -2252,9 +2251,9 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     // done_depleting under the sync lock, which orders this write before the read. A blocked-client
     // timeout wins over an OOM stop, so it records no OOM cut.
     const QueryRequestLimits *timeout = self->base.parent->limits;
-    self->stopReason = (timeout && QueryRequestLimits_IsBlockedClientTimedOut(timeout))
-                           ? RP_StopReason(&self->base)
-                           : RP_HoldStop(&self->base);
+    if (!timeout || !QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
+      RP_HoldStop(&self->base);
+    }
   }
 
   // If TIMEOUT with policy FAIL, we can already clear the results - will not be used
@@ -2294,7 +2293,6 @@ static void RPSafeDepleter_Deplete(void *arg) {
   } else {
     // Timeout before starting - no need to acquire lock or do any work
     self->last_rc = RS_RESULT_TIMEDOUT;
-    self->stopReason = RP_StopReason(&self->base);
     if (sync->take_index_lock) {
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
       atomic_fetch_add(&sync->num_skipped_lock, 1);
@@ -2319,9 +2317,6 @@ static int RPSafeDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   if (self->cur_idx == array_len(self->results)) {
     // We've reached the end of the array, return the last code from the upstream.
     int rc = self->last_rc;
-    if (rc == RS_RESULT_TIMEDOUT) {
-      RP_RenewStop(base, self->stopReason);
-    }
     self->last_rc = RS_RESULT_EOF;
     return rc;
   }
@@ -2459,7 +2454,6 @@ void RPSafeDepleter_MarkTimedOut(ResultProcessor *base) {
   // depletion_scheduled stays false: WaitForCompletion has no signal to wait
   // for, and Next yields RS_RESULT_TIMEDOUT immediately.
   self->last_rc = RS_RESULT_TIMEDOUT;
-  self->stopReason = RP_StopReason(base);
   base->Next = RPSafeDepleter_Next_Yield;
 }
 
@@ -2655,7 +2649,7 @@ dictType dictTypeHybridSearchResult = {
  HybridExplainContext *explainCtx; // EXPLAINSCORE wrapper context; NULL ⇒ no wrapping
  uint32_t memoryCheckCalls;       // QueryMemory_ShouldStop counter for the held rows
  bool memoryStopped;              // A stop request ended consumption; later upstreams are only drained
- QueryStopReason heldStop;        // Why the merger kept its rows past a stop, if it did
+ bool heldPastStop;              // The merger kept its rows past a memory stop
 
 } RPHybridMerger;
 
@@ -2687,7 +2681,7 @@ static bool RPHybridMerger_ReportsTimeout(const RPHybridMerger *self) {
   for (size_t i = 0; i < self->numUpstreams; i++) {
     if (self->upstreamReturnCodes[i] == RS_RESULT_TIMEDOUT &&
         (!self->upstreams[i]->parent ||
-         RP_StopReason(self->upstreams[i]) != QUERY_STOP_REASON_OOM)) {
+         !RP_UpstreamHold(self->upstreams[i]))) {
       return true;
     }
   }
@@ -2711,7 +2705,7 @@ static bool RPHybridMerger_StopFails(const RPHybridMerger *self) {
 /* Whether the held rows are still yielded after a stop: under ON_OOM RETURN they are the reply,
  * unless a blocked-client timeout, whose callback owns the reply, came after. */
 static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
-  return self->heldStop == QUERY_STOP_REASON_OOM &&
+  return self->heldPastStop &&
          !QueryRequestLimits_IsBlockedClientTimedOut(self->sctx->limits);
 }
 
@@ -2917,7 +2911,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     if (RP_StopPolicy(&self->base) != TimeoutPolicy_Return) {
       return RS_RESULT_TIMEDOUT;
     }
-    self->heldStop = RP_HoldStop(&self->base);
+    self->heldPastStop = RP_UpstreamHold(&self->base);
+    RP_HoldStop(&self->base);
   }
 
   // Initialize iterator for yield phase
