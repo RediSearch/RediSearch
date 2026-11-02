@@ -89,11 +89,20 @@ pub trait GcStatsSink {
 
 impl GcStatsSink for ForkPipe {
     fn record(&mut self, stats: &GcApplyStats) {
-        self.update_gc_stats(
-            stats.bytes_collected,
-            stats.bytes_allocated,
-            stats.blocks_denied,
-            stats.numeric_nodes_missed,
-        );
+        self.stats_mut().record(stats);
+    }
+}
+
+/// Only the counters, for a caller that must not borrow the whole GC context: the
+/// main thread updates other fields of it while an in-process cycle runs.
+impl GcStatsSink for ffi::IndexGCStats {
+    /// `numeric_nodes_missed` is a count rather than a single increment because the
+    /// numeric scanner tallies misses across a whole node stream and flushes them
+    /// together with the rest of the field's counters.
+    fn record(&mut self, stats: &GcApplyStats) {
+        self.totalCollected += stats.bytes_collected as isize;
+        self.totalCollected -= stats.bytes_allocated as isize;
+        self.gcBlocksDenied += stats.blocks_denied;
+        self.gcNumericNodesMissed += stats.numeric_nodes_missed;
     }
 }
