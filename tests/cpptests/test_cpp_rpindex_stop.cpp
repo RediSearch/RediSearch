@@ -24,7 +24,7 @@ class RPIndexStopTest : public ::testing::Test {
  protected:
   RedisModuleCtx *ctx = nullptr;
   RedisSearchCtx *sctx = nullptr;
-  QueryRequestTimeout timeout = {};
+  QueryRequestLimits limits = {};
   QueryProcessingCtx qctx = {};
   MockIterator *mock = nullptr;
   ResultProcessor *rp = nullptr;
@@ -40,10 +40,10 @@ class RPIndexStopTest : public ::testing::Test {
     ASSERT_TRUE(Indexes_CreateNewSpec(ctx, args, args.size(), &qerr));
     sctx = NewSearchCtxC(ctx, name.c_str(), true);
     ASSERT_TRUE(sctx);
-    // TIMEOUT 0 keeps every cycle UNARMED: only the stop can end a read.
+    // TIMEOUT 0 keeps every cycle UNARMED: only a memory stop can end a read.
     TimeoutConfig timeoutConfig = {0, TimeoutPolicy_Return};
-    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-    sctx->timeout = &timeout;
+    QueryRequestLimits_Init(&limits, &timeoutConfig);
+    sctx->limits = &limits;
     mock = new MockIterator(t_docId{1}, t_docId{2}, t_docId{3});
     rp = RPQueryIterator_New(&mock->base, NULL, 0, sctx);
     QITR_PushRP(&qctx, rp);
@@ -67,21 +67,16 @@ class RPIndexStopTest : public ::testing::Test {
 };
 
 TEST_F(RPIndexStopTest, AStopAloneDoesNotEndTheRead) {
-  QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM);
+  QueryRequestLimits_RequestMemoryStop(&limits);
   EXPECT_EQ(next(), RS_RESULT_EOF);
   EXPECT_GT(mock->readCount, 0);
 }
 
-TEST_F(RPIndexStopTest, EndRowSourceOnStopRepliesTimedOutUntilANewCycle) {
-  QueryRequestTimeout_RequestStop(&timeout, QUERY_STOP_REASON_OOM);
+TEST_F(RPIndexStopTest, EndRowSourceOnStopRepliesTimedOut) {
+  QueryRequestLimits_RequestMemoryStop(&limits);
   RP_EndRowSourceOnStop(&qctx);
   RP_EndRowSourceOnStop(&qctx);
   EXPECT_EQ(next(), RS_RESULT_TIMEDOUT);
   EXPECT_EQ(next(), RS_RESULT_TIMEDOUT);
   EXPECT_EQ(mock->readCount, 0);
-
-  // The next cycle (a cursor read) clears the stop, and the row source reads again.
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-  EXPECT_EQ(next(), RS_RESULT_EOF);
-  EXPECT_GT(mock->readCount, 0);
 }

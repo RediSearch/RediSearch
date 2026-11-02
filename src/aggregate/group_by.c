@@ -204,8 +204,8 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
   if (xpos == xlen) {
     // The array values of one row can reach up to maxGroups groups, new or existing, before the
     // per-row check.
-    if (rowExpansion > 1 && g->base.parent->timeout &&
-        QueryMemory_ShouldStop(g->base.parent->timeout, &g->expansionMemoryCheckCalls)) {
+    if (rowExpansion > 1 && g->base.parent->limits &&
+        QueryMemory_ShouldStop(g->base.parent->limits, &g->expansionMemoryCheckCalls)) {
       RP_EndRowSourceOnStop(g->base.parent);
       return RS_RESULT_TIMEDOUT;
     }
@@ -299,10 +299,10 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
     rc = invokeGroupReducers(g, SearchResult_GetRowDataMut(res), SearchResult_GetDocId(res));
     SearchResult_Clear(res);
-    if (rc == RS_RESULT_OK && base->parent->timeout && ++g->rowsSinceMemoryCheck >= checkInterval) {
+    if (rc == RS_RESULT_OK && base->parent->limits && ++g->rowsSinceMemoryCheck >= checkInterval) {
       g->rowsSinceMemoryCheck = 0;
       uint32_t readNow = checkInterval - 1;
-      if (QueryMemory_ShouldStop(base->parent->timeout, &readNow)) {
+      if (QueryMemory_ShouldStop(base->parent->limits, &readNow)) {
         // No partial groups: like a timeout, the stop yields none, and Grouper_rpFree frees them.
         RP_EndRowSourceOnStop(base->parent);
         rc = RS_RESULT_TIMEDOUT;
@@ -322,8 +322,8 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
     g->iter = kh_begin(khid);
     return Grouper_rpYield(base, res);
   }
-  if (rc == RS_RESULT_TIMEDOUT && base->parent->timeout &&
-      QueryRequestTimeout_GetStopReason(base->parent->timeout) == QUERY_STOP_REASON_OOM) {
+  if (rc == RS_RESULT_TIMEDOUT && base->parent->limits &&
+      QueryRequestLimits_IsMemoryStopped(base->parent->limits)) {
     // No group is replied, so none is counted either.
     base->parent->totalResults = 0;
     base->parent->skippedResults = 0;

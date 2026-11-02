@@ -15,7 +15,7 @@
 typedef struct QueryError QueryError;
 
 struct AREQ;
-struct QueryRequestTimeout;
+struct QueryRequestLimits;
 
 bool hasTimeoutError(QueryError *err);
 
@@ -27,7 +27,7 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
 /**
  * Turns a pipeline that stopped for memory pressure, a RS_RESULT_TIMEDOUT rc
- * with stop reason QUERY_STOP_REASON_OOM, into the outcome `oomPolicy` asks
+ * with the memory stop requested, into the outcome `oomPolicy` asks
  * for, and returns any other rc unchanged:
  *
  * - OomPolicy_Fail: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` (unless it already
@@ -36,7 +36,7 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply);
  * - Otherwise: the query OOM warning in `err` and RS_RESULT_EOF, so the rows
  *   produced so far are the final, partial result instead of a timeout.
  */
-int ApplyOomStop(const struct QueryRequestTimeout *timeout, RSOomPolicy oomPolicy,
+int ApplyOomStop(const struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
                  QueryError *err, int rc);
 
 /**
@@ -65,7 +65,7 @@ bool ReplyLoop_ShouldStop(struct QueryProcessingCtx *qctx, struct QueryRequestTi
 void destroyResults(SearchResult **results);
 
 typedef struct CommonPipelineCtx {
-  struct QueryRequestTimeout *timeout;
+  struct QueryRequestLimits *limits;
   RSOomPolicy oomPolicy;
 
   // AREQ for the request being executed; its debug pause loop releases itself
@@ -75,7 +75,7 @@ typedef struct CommonPipelineCtx {
 
 /**
  * Buffers the pipeline's rows until EOF, an error, the result limit or a stop
- * (the stop flags of `ctx->timeout`, or memory pressure, which requests an OOM
+ * (the stop flags of `ctx->limits`, or memory pressure, which requests an OOM
  * stop; an OOM stop under ON_OOM RETURN keeps collecting what the stages
  * hold). A stop returns the rows buffered so far with RS_RESULT_TIMEDOUT in
  * `rc`.

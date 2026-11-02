@@ -48,12 +48,12 @@
    RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
  }
 
-int ApplyOomStop(const QueryRequestTimeout *timeout, RSOomPolicy oomPolicy, QueryError *err,
+int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryError *err,
                  int rc) {
   // A blocked-client timeout's callback owns the reply, so it wins over an earlier OOM stop.
   if (rc != RS_RESULT_TIMEDOUT ||
-      QueryRequestTimeout_GetStopReason(timeout) != QUERY_STOP_REASON_OOM ||
-      QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+      !QueryRequestLimits_IsMemoryStopped(limits) ||
+      QueryRequestLimits_IsBlockedClientTimedOut(limits)) {
     return rc;
   }
   if (oomPolicy == OomPolicy_Fail) {
@@ -121,7 +121,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   // Pause after the Nth result has been extracted (1-based)
   AggregateResultsDebugCtx_SetPause(true);
   while (AggregateResultsDebugCtx_IsPaused()) {
-    if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
+    if (areq && QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)) {
       AggregateResultsDebugCtx_SetPause(false);
       break;
     }
@@ -155,8 +155,8 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // hold (see RP_StopPolicy), but nothing new from the row source. Not on the
      // row that fills the limit, which would end a full cursor chunk;
      // startPipelineCommon checks the stop after.
-     if (rp->parent->resultLimit && QueryMemory_ShouldStop(ctx->timeout, &memoryCheckCounter)) {
-       if (!oomStopKeepsBufferedRows(ctx->timeout, ctx->oomPolicy)) {
+     if (rp->parent->resultLimit && QueryMemory_ShouldStop(ctx->limits, &memoryCheckCounter)) {
+       if (!oomStopKeepsBufferedRows(ctx->limits, ctx->oomPolicy)) {
          *rc = RS_RESULT_TIMEDOUT;
          break;
        }
@@ -172,11 +172,11 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   if (ctx->timeout->config.timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
+   if (ctx->limits->timeout.config.timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx, rc);
      // Check timeout after aggregation; a stop raised while filling the limit ends it the same way.
-     if (QueryRequestTimeout_IsTimedOutOrStopped(ctx->timeout)) {
+     if (QueryRequestLimits_IsTimedOutOrStopped(ctx->limits)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
    } else {
