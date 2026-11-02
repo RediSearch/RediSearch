@@ -232,17 +232,9 @@ static inline bool QueryRequestLimits_IsMemoryStopped(const QueryRequestLimits *
 }
 
 /**
- * Reports whether QueryRequestTimeout_RequestStop was called in the current
- * cycle. A single relaxed load, cheap enough for any loop.
- */
-static inline bool QueryRequestTimeout_IsStopRequested(const QueryRequestTimeout *timeout) {
-  return RS_AtomicBoolLoadRelaxed(&timeout->stopRequested);
-}
-
-/**
- * Returns the reason recorded by QueryRequestTimeout_RequestStop for the
- * current cycle, or NONE when no stop was requested. Reports only explicit
- * requests: a timeout detected by the active source alone leaves it NONE.
+ * Borrows the memory stop flag, for waits that take an abort flag. Unlike the
+ * blocked-client flag it is valid in every kind. Access must use RS_Atomic
+ * operations, and the pointer must not be retained across BeginCycle.
  */
 RS_Atomic(bool) *QueryRequestLimits_GetMemoryStopFlag(QueryRequestLimits *limits);
 
@@ -302,24 +294,24 @@ bool QueryRequestLimits_IsTimedOutExact(const QueryRequestLimits *limits);
 bool QueryRequestLimits_IsBlockedClientTimedOut(const QueryRequestLimits *limits);
 
 /**
- * Reports whether a row or reply loop should stop producing: a stop was
+ * Reports whether a row or reply loop should stop producing: a memory stop was
  * requested, or the blocked-client timeout callback fired. Unlike
- * QueryRequestTimeout_IsTimedOut it never reads the clock, so it suits
+ * QueryRequestLimits_IsTimedOut it never reads the clock, so it suits
  * per-row checks that previously used IsBlockedClientTimedOut; unlike that
  * call it must not be used to decide who owns the reply.
  */
-static inline bool QueryRequest_ShouldStop(const QueryRequestTimeout *timeout) {
-  // QueryRequestTimeout_IsBlockedClientTimedOut, inlined: per-row loops call this.
-  return QueryRequestTimeout_IsStopRequested(timeout) ||
-         (timeout->kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT &&
-          RS_AtomicBoolLoadRelaxed(&timeout->source.blockedClientTimedOut));
+static inline bool QueryRequest_ShouldStop(const QueryRequestLimits *limits) {
+  // QueryRequestLimits_IsBlockedClientTimedOut, inlined: per-row loops call this.
+  return QueryRequestLimits_IsMemoryStopped(limits) ||
+         (limits->timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT &&
+          RS_AtomicBoolLoadRelaxed(&limits->timeout.source.blockedClientTimedOut));
 }
 
 /**
- * QueryRequestTimeout_IsTimedOutExact, or a requested stop. For once-per-cycle
- * decisions that must treat a stop like a detected timeout.
+ * QueryRequestLimits_IsTimedOutExact, or a memory stop. For once-per-cycle
+ * decisions that must treat a memory stop like a detected timeout.
  */
-bool QueryRequestTimeout_IsTimedOutOrStopped(const QueryRequestTimeout *timeout);
+bool QueryRequestLimits_IsTimedOutOrStopped(const QueryRequestLimits *limits);
 
 /**
  * Primary timeout operation:

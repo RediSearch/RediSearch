@@ -538,7 +538,7 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
 
 static int rpQueryItNext_Stopped(ResultProcessor *base, SearchResult *res) {
   RPQueryIterator *self = (RPQueryIterator *)base;
-  if (!QueryRequestTimeout_IsStopRequested(self->sctx->timeout)) {
+  if (!QueryRequestLimits_IsMemoryStopped(self->sctx->limits)) {
     base->Next = self->readNext;
     return base->Next(base, res);
   }
@@ -2113,10 +2113,10 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
-    // Notice a requested stop or a blocked-client (RETURN_STRICT) timeout
+    // Notice a memory stop or a blocked-client (RETURN_STRICT) timeout
     // promptly when another thread flips its flag.
     // The wall-clock deadline is already handled by the upstream's own checks.
-    QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
+    QueryRequestLimits *timeout = self->depletingThreadCtx->limits;
     if (QueryRequest_ShouldStop(timeout)) {
       rc = RS_RESULT_TIMEDOUT;
       break;
@@ -2157,8 +2157,8 @@ static void RPSafeDepleter_Deplete(void *arg) {
   rs_wall_clock_init(&depletionStart);
 
   // Check if timeout was exceeded before starting execution.
-  QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
-  bool timed_out = QueryRequestTimeout_IsTimedOutOrStopped(timeout);
+  QueryRequestLimits *timeout = self->depletingThreadCtx->limits;
+  bool timed_out = QueryRequestLimits_IsTimedOutOrStopped(timeout);
   if (!timed_out) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
@@ -2624,8 +2624,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     // No more results to yield
     int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
-  } else if (QueryRequestTimeout_IsStopRequested(self->sctx->timeout) ||
-             QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
+  } else if (QueryRequestLimits_IsMemoryStopped(self->sctx->limits) ||
+             QueryRequestLimits_IsTimedOut(self->sctx->limits)) {
     // Timed out before we could yield all results
     return RS_RESULT_TIMEDOUT;
   }

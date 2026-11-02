@@ -127,12 +127,12 @@ bool QueryRequestLimits_IsBlockedClientTimedOut(const QueryRequestLimits *limits
   RS_ABORT_ALWAYS("Invalid query timeout kind");
 }
 
-bool QueryRequestTimeout_IsTimedOutOrStopped(const QueryRequestTimeout *timeout) {
-  return QueryRequestTimeout_IsStopRequested(timeout) ||
-         QueryRequestTimeout_IsTimedOutExact(timeout);
+bool QueryRequestLimits_IsTimedOutOrStopped(const QueryRequestLimits *limits) {
+  return QueryRequestLimits_IsMemoryStopped(limits) ||
+         QueryRequestLimits_IsTimedOutExact(limits);
 }
 
-bool QueryRequestTimeout_IsTimedOut(QueryRequestTimeout *timeout) {
+bool QueryRequestLimits_IsTimedOut(QueryRequestLimits *limits) {
   // Only clock reads are expensive enough to amortize. Other sources retain
   // the exact semantics of QueryRequestLimits_IsTimedOutExact.
   if (limits->timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {

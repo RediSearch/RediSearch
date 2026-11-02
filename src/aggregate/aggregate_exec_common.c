@@ -102,10 +102,10 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // clean the search result
      r = SearchResult_New();
 
-     // Honour a requested stop or a main-thread timeout flag at the row
+     // Honour a memory stop or a main-thread timeout flag at the row
      // boundary: buffering stages (safe loader, sorter yield) can keep emitting
      // from internal buffers without re-touching upstream's per-row timeout check.
-     if (areq && QueryRequest_ShouldStop(&areq->base.timeout)) {
+     if (areq && QueryRequest_ShouldStop(&areq->base.limits)) {
        *rc = RS_RESULT_TIMEDOUT;
        break;
      }
@@ -122,8 +122,8 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    if (ctx->limits->timeout.config.timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx->areq, rc);
-     // Check timeout after aggregation; a stop raised while filling the limit ends it the same way.
-     if (QueryRequestTimeout_IsTimedOutOrStopped(ctx->timeout)) {
+     // Check timeout after aggregation; a memory stop raised while filling the limit ends it the same way.
+     if (QueryRequestLimits_IsTimedOutOrStopped(ctx->limits)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
    } else {
