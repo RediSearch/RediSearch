@@ -403,7 +403,7 @@ auto RTree<cs>::query(const RedisSearchCtx *sctx, const FieldFilterContext* filt
     std::size_t cap = 0;
     const auto rm_deleter = [](t_docId* p) noexcept { rm_free(p); };
     std::unique_ptr<t_docId[], decltype(rm_deleter)> ids{nullptr, rm_deleter};
-    QueryRequestLimits* const timeout = sctx ? sctx->timeout : nullptr;
+    QueryRequestLimits* const timeout = sctx ? sctx->limits : nullptr;
     uint32_t memoryCheckCounter = 0;
     for (const t_docId id : results) {
       // Every doubling reads memory regardless of the interval: it is the largest allocation here
