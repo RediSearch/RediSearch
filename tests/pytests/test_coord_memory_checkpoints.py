@@ -215,7 +215,7 @@ def test_search_fanout_stop_keeps_earlier_replies():
 KNN_K = 10
 # SORTBY a field other than the distance keeps the coordinator's separate K heap in play. `n`
 # runs against the distance order, so the reply order shows the heap's rows were re-sorted.
-KNN_QUERY = ('FT.SEARCH', 'idx', f'*=>[KNN {KNN_K} @v $b]', 'PARAMS', 2, 'b',
+KNN_QUERY = ('FT.SEARCH', 'idx', f'*=>[KNN {KNN_K} @v $b]', 'NOCONTENT', 'PARAMS', 2, 'b',
              np.zeros(2, dtype=np.float32).tobytes(), 'SORTBY', 'n', 'DIALECT', 2)
 
 
