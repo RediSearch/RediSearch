@@ -810,8 +810,12 @@ def test_geoshape_collection_stop_on_a_shard_reaches_the_coordinator(env):
     for i in range(N_DOCS):
         conn.execute_command('HSET', f'g{i}', 'geom', 'POLYGON((0 0, 0 20, 20 20, 20 0, 0 0))')
     query = ['FT.AGGREGATE', 'gidx', '@geom:[within $shape]', 'PARAMS', 2, 'shape',
-             'POLYGON((-1 -1, -1 21, 21 21, 21 -1, -1 -1))', 'DIALECT', 3]
+             'POLYGON((-1 -1, -1 21, 21 21, 21 -1, -1 -1))', 'LOAD', 1, '@__key', 'DIALECT', 3]
     shard = env.getConnection(2)
+    # Docs are spread by slot, so the survivors are every doc not stored on the stopped shard.
+    stopped_keys = {k.decode() if isinstance(k, bytes) else k
+                    for k in shard.execute_command('KEYS', 'g*')}
+    expected_keys = {f'g{i}' for i in range(N_DOCS)} - stopped_keys
 
     def run():
         shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 2)
@@ -827,7 +831,9 @@ def test_geoshape_collection_stop_on_a_shard_reaches_the_coordinator(env):
         allShards_change_oom_policy(env, 'return')
         res = run()
         env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
-        env.assertLess(len(res['results']), N_DOCS, message=res)
+        # Counting rows alone would pass an implementation that dropped every shard's rows.
+        env.assertEqual({row['extra_attributes']['__key'] for row in res['results']},
+                        expected_keys, message=res)
     finally:
         allShards_change_oom_policy(env, 'return')
 
