@@ -16,7 +16,7 @@ use std::{
 };
 
 use ffi::{
-    QueryRequestTimeout, RS_VecSimCheckTimeout, VecSearchMode, VecSearchMode_HYBRID_BATCHES,
+    QueryRequestLimits, RS_VecSimCheckTimeout, VecSearchMode, VecSearchMode_HYBRID_BATCHES,
     VecSimIndex, VecSimQueryParams,
 };
 use index_result::RSIndexResult;
@@ -71,7 +71,7 @@ pub struct VectorScoreSource<'index, E: ExpirationChecker> {
     ///
     /// Its validity is guaranteed by [`VectorScoreSource::new`]. Keeping it as a raw-pointer
     /// wrapper avoids creating a Rust reference while C may atomically publish a timeout.
-    timeout: NonNull<QueryRequestTimeout>,
+    timeout: NonNull<QueryRequestLimits>,
     /// Adhoc-BF path selection and scan-scoped state.
     adhoc_state: AdhocPathState<'index>,
     /// Whether the disk adhoc-BF scan should rescore its top-k with exact
@@ -178,7 +178,7 @@ impl<'index, E: ExpirationChecker> VectorScoreSource<'index, E> {
         query_vector: Vec<u8>,
         query_params: VecSimQueryParams,
         k: usize,
-        timeout: NonNull<QueryRequestTimeout>,
+        timeout: NonNull<QueryRequestLimits>,
         child_num_estimated: usize,
         fixed_batch_size: usize,
         expiration: E,
@@ -587,7 +587,7 @@ mod tests {
     use rqe_iterators::NoOpChecker;
     use top_k::ScoreSource;
 
-    use ffi::QueryRequestTimeout;
+    use ffi::QueryRequestLimits;
 
     use super::refine_child_estimated;
     use crate::{
@@ -726,7 +726,7 @@ mod tests {
 
         source.next_batch().unwrap();
         assert_eq!(
-            source.query_params.timeoutCtx.cast::<QueryRequestTimeout>(),
+            source.query_params.timeoutCtx.cast::<QueryRequestLimits>(),
             index.timeout_ptr(),
             "VecSim must be handed the same timeout storage"
         );

@@ -180,8 +180,8 @@ TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
   int hits = 0;
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
-  QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits timeout = {};
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
   rune emptyPattern[1] = {0};
   SuffixCtx ctx = {};
   ctx.trie = t;
@@ -224,8 +224,8 @@ TEST_F(WildcardEmptyPatternTest, trieIterateWildcardEmptyMatchesNothing) {
   rune *emptyPattern = patternBuf + 1;
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
-  QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits timeout = {};
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
   Trie_IterateWildcard(t, emptyPattern, 0, countRangeHit, &hits, &timeout);
   EXPECT_EQ(hits, 0);
 
@@ -320,8 +320,8 @@ TEST_F(SuffixLongWildcardPatternTest, suffixTrieIterateHandlesLongPattern) {
   int hits = 0;
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
-  QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits timeout = {};
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
   runeBuf buf;
   size_t rlen = 0;
   SuffixCtx ctx = {};

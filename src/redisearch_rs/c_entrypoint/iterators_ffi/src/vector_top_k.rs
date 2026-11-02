@@ -11,7 +11,7 @@
 
 use std::{ffi::c_void, ptr::NonNull};
 
-use ffi::{QueryIterator, QueryRequestTimeout, RedisSearchCtx, VecSimIndex, VecSimQueryParams};
+use ffi::{QueryIterator, QueryRequestLimits, RedisSearchCtx, VecSimIndex, VecSimQueryParams};
 use field::FieldFilterContext;
 use rqe_iterators::{
     ExpirationChecker, FieldExpirationChecker,
@@ -63,7 +63,7 @@ pub unsafe extern "C" fn NewVectorTopKIterator(
     k: usize,
     can_trim_deep_results: bool,
     child: *mut QueryIterator,
-    timeout: *mut QueryRequestTimeout,
+    timeout: *mut QueryRequestLimits,
     sctx: *mut RedisSearchCtx,
     filter_ctx: *const FieldFilterContext,
 ) -> *mut QueryIterator {

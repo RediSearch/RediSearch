@@ -645,11 +645,11 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   // Drive the production lazy range path: the VecSim range query is deferred to the iterator's
   // first Read/SkipTo, and must run on the *raw* query vector. The explicit UNARMED timeout
   // mirrors request-owned state without imposing a deadline on the test.
-  QueryRequestTimeout timeout = {};
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 0;
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
   QueryIterator *vecIt = NewLazyVectorRangeIteratorFromParams(
       index, range_query.vector, range_query.vecLen, range_query.radius, queryParams,
       range_query.order, /*yields_metric=*/true, &timeout);

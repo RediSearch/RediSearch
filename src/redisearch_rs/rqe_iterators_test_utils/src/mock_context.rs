@@ -9,7 +9,7 @@
 
 use std::{num::NonZeroUsize, ptr::NonNull};
 
-use ffi::{QueryEvalCtx, QueryRequestTimeout, RedisSearchCtx, SchemaRule};
+use ffi::{QueryEvalCtx, QueryRequestLimits, RedisSearchCtx, SchemaRule};
 use field::FieldMaskOrIndex;
 use numeric_range_tree::NumericRangeTree;
 use rqe_core::DocId;
@@ -26,7 +26,7 @@ use rqe_core::DocId;
 pub struct MockContext {
     rule: *mut SchemaRule,
     spec: *mut ffi::IndexSpec,
-    timeout: *mut QueryRequestTimeout,
+    timeout: *mut QueryRequestLimits,
     sctx: *mut RedisSearchCtx,
     qctx: *mut QueryEvalCtx,
     numeric_range_tree: *mut NumericRangeTree,
@@ -57,7 +57,7 @@ impl Drop for MockContext {
             );
             std::alloc::dealloc(
                 self.timeout as *mut u8,
-                std::alloc::Layout::new::<QueryRequestTimeout>(),
+                std::alloc::Layout::new::<QueryRequestLimits>(),
             );
             std::alloc::dealloc(
                 self.sctx as *mut u8,
@@ -87,7 +87,7 @@ impl MockContext {
         let rule_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<SchemaRule>() }));
         let spec_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<ffi::IndexSpec>() }));
         let timeout_ptr = Box::into_raw(Box::new(unsafe {
-            std::mem::zeroed::<QueryRequestTimeout>()
+            std::mem::zeroed::<QueryRequestLimits>()
         }));
         let sctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<RedisSearchCtx>() }));
         let qctx_ptr = Box::into_raw(Box::new(unsafe { std::mem::zeroed::<QueryEvalCtx>() }));

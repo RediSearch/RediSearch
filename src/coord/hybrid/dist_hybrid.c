@@ -997,7 +997,7 @@ static ResultProcessor *findSafeDepleter(const HybridRequest *hreq, size_t i) {
 // the tail hybrid merger job that cv-waits on their completion or this will
 // deadlock (see submitHybridTail).
 static void scheduleDepleters(HybridRequest *hreq) {
-    const bool timedOut = QueryRequestTimeout_IsTimedOutExact(&hreq->base.timeout);
+    const bool timedOut = QueryRequestLimits_IsTimedOutExact(&hreq->base.timeout);
     for (size_t i = 0; i < hreq->nrequests; i++) {
         ResultProcessor *depleter = findSafeDepleter(hreq, i);
         if (timedOut) {
@@ -1030,7 +1030,7 @@ static void HybridDispatchCtx_Tail(void *arg) {
     // If timeout fired between dispatch and tail pickup, the timeout callback
     // already replied — skip the reply path, but still drain depleters before
     // teardown (see waitForDepleters).
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+    if (QueryRequestLimits_IsBlockedClientTimedOut(&hreq->base.timeout)) {
         waitForDepleters(hreq);
         CurrentThread_ClearIndexSpec();
         HybridDispatchCtx_Free(dispatch);
@@ -1104,7 +1104,7 @@ static void DistHybridCleanups(RedisModuleCtx *ctx, IndexSpec *sp, StrongRef *st
   RS_ASSERT(hreq != NULL);  // the dispatcher allocates the request shell on the main thread
 
   // If timeout already occurred, the timeout callback already replied - don't reply again
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&hreq->base.timeout)) {
     if (QueryError_HasError(status)) {
       QueryError_ClearError(status);
     }
@@ -1131,7 +1131,7 @@ static void execDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   // thread's command ctx); re-point it at this thread's ctx before any use.
   hreq->sctx->redisCtx = ctx;
 
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&hreq->base.timeout)) {
     // Query timed out while this job was queued; the timeout callback
     // already replied.
 
@@ -1197,7 +1197,7 @@ static void DEBUG_execDistHybrid(RedisModuleCtx *ctx, RedisModuleString **argv, 
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
   hreq->sctx->redisCtx = ctx;
 
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&hreq->base.timeout)) {
     // Timed out while queued; the timeout callback already replied.
 
     return;
@@ -1284,7 +1284,7 @@ int DistHybridTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **argv,
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the background thread
-  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  QueryRequestLimits_MarkTimedOut(&hreq->base.timeout);
   HybridRequest_PropagateTimeoutToSubqueries(hreq);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
@@ -1311,7 +1311,7 @@ int DistHybridTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleString
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the background thread
-  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  QueryRequestLimits_MarkTimedOut(&hreq->base.timeout);
   HybridRequest_PropagateTimeoutToSubqueries(hreq);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.

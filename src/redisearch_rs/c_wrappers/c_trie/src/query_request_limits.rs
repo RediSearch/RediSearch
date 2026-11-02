@@ -12,7 +12,7 @@ use std::{cell::UnsafeCell, ptr::NonNull};
 /// An aliasing-safe borrowed view of C-owned request timeout state.
 ///
 /// Bindgen represents the atomic blocked-client marker, the atomic memory stop flag and the clock
-/// counter in [`ffi::QueryRequestTimeout`] as ordinary Rust fields. Creating a shared reference to
+/// counter in [`ffi::QueryRequestLimits`] as ordinary Rust fields. Creating a shared reference to
 /// that bindgen type would therefore promise immutability while C may legally modify those fields.
 /// This transparent [`UnsafeCell`] wrapper expresses that interior mutability without exposing
 /// the fields to Rust.
@@ -21,16 +21,16 @@ use std::{cell::UnsafeCell, ptr::NonNull};
 /// duration of their synchronous FFI call; they never retain it. The C timeout state machine owns
 /// source transitions and synchronization: transitions occur between execution cycles, the
 /// blocked-client marker and the memory stop flag may be changed atomically during a cycle, and
-/// clock-counter calls for one request are serialized. [`QueryRequestTimeoutHandle`] deliberately
+/// clock-counter calls for one request are serialized. [`QueryRequestLimitsHandle`] deliberately
 /// does not make those C operations safe to overlap.
 #[repr(transparent)]
-pub struct QueryRequestTimeoutHandle {
-    inner: UnsafeCell<ffi::QueryRequestTimeout>,
+pub struct QueryRequestLimitsHandle {
+    inner: UnsafeCell<ffi::QueryRequestLimits>,
 }
 
-impl QueryRequestTimeoutHandle {
+impl QueryRequestLimitsHandle {
     /// Borrow a C request timeout without creating a reference to
-    /// [`ffi::QueryRequestTimeout`].
+    /// [`ffi::QueryRequestLimits`].
     ///
     /// Returns `None` when `timeout` is null.
     ///
@@ -45,12 +45,12 @@ impl QueryRequestTimeoutHandle {
     /// or observation of the blocked-client marker and the memory stop flag; the source
     /// discriminator, clock deadline, and clock counter cannot be mutated concurrently.
     pub unsafe fn from_raw<'a>(
-        timeout: *mut ffi::QueryRequestTimeout,
-    ) -> Option<&'a QueryRequestTimeoutHandle> {
+        timeout: *mut ffi::QueryRequestLimits,
+    ) -> Option<&'a QueryRequestLimitsHandle> {
         let timeout = NonNull::new(timeout)?;
         // SAFETY: the caller guarantees the pointer is valid for `'a`. `repr(transparent)` and
         // `UnsafeCell` preserve the wrapped C type's layout and alignment.
-        Some(unsafe { &*timeout.cast::<QueryRequestTimeoutHandle>().as_ptr() })
+        Some(unsafe { &*timeout.cast::<QueryRequestLimitsHandle>().as_ptr() })
     }
 
     /// The deadline of the active clock cycle, or `None` when the cycle uses
@@ -75,7 +75,7 @@ impl QueryRequestTimeoutHandle {
     /// Exposes the borrowed object to a synchronous C operation.
     ///
     /// The pointer must not be retained after the operation returns.
-    pub(crate) const fn as_mut_ptr(&self) -> *mut ffi::QueryRequestTimeout {
+    pub(crate) const fn as_mut_ptr(&self) -> *mut ffi::QueryRequestLimits {
         self.inner.get()
     }
 }

@@ -44,7 +44,7 @@ public:
   QueryEvalCtx qctx;
   RedisSearchCtx sctx;
   TimeoutConfig timeoutConfig = {};
-  QueryRequestTimeout *timeout;
+  QueryRequestLimits *timeout;
   IndexSpec spec;
   SchemaRule rule;
 
@@ -68,9 +68,9 @@ public:
     sctx = {0};
     sctx.spec = &spec;
     sctx.currentTime = {0, 0};
-    timeout = static_cast<QueryRequestTimeout *>(rm_calloc(1, sizeof(*timeout)));
+    timeout = static_cast<QueryRequestLimits *>(rm_calloc(1, sizeof(*timeout)));
     timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
-    QueryRequestTimeout_Init(timeout, &timeoutConfig);
+    QueryRequestLimits_Init(timeout, &timeoutConfig);
     sctx.timeout = timeout;
 
     // Initialize QueryEvalCtx

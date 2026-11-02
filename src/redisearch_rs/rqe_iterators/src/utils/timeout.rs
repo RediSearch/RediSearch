@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::{QueryIterator_IsBlockedClientTimedOut, QueryRequestTimeout, RedisSearchCtx};
+use ffi::{QueryIterator_IsBlockedClientTimedOut, QueryRequestLimits, RedisSearchCtx};
 pub use timeout::{DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutCheckResult, TimeoutChecker};
 
 use crate::{RQEIteratorError, utils::timespec::deadline_passed};
@@ -146,7 +146,7 @@ impl TimeoutChecker for TimeoutContextDeadline {
 /// The pointer is private because it may only be set by the unsafe constructor, which requires
 /// the request to outlive every probe.
 pub struct TimeoutContextRequest {
-    timeout: NonNull<QueryRequestTimeout>,
+    timeout: NonNull<QueryRequestLimits>,
     clock: TimeoutContextDeadline,
 }
 
@@ -161,7 +161,7 @@ impl TimeoutContextRequest {
     /// marker and the memory stop flag may be updated concurrently, and only atomically.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub unsafe fn new(timeout: NonNull<QueryRequestTimeout>, granularity: u32) -> Self {
+    pub unsafe fn new(timeout: NonNull<QueryRequestLimits>, granularity: u32) -> Self {
         // SAFETY: projecting a union field does not read it. The clock checker only reads
         // the field when a later probe sees CLOCK_DEADLINE as the active source.
         let deadline = unsafe { &raw mut (*timeout.as_ptr()).timeout.source.clock.deadline };

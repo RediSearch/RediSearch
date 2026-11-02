@@ -193,7 +193,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
                             "to avoid infinite loop (RESP2 only)");
             debug_req->r.base.timeout.timeout.config.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
             // This late TIMEOUT change must rearm the coordinator deadline.
-            QueryRequestTimeout_BeginCycle(&debug_req->r.base.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+            QueryRequestLimits_BeginCycle(&debug_req->r.base.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
           }
       }
     } else {

@@ -101,7 +101,7 @@ pub struct TestContext {
     pub spec: *mut ffi::IndexSpec,
 
     /// Owns the timeout installed into `sctx` by [`set_search_time`](Self::set_search_time).
-    timeout: Option<Box<ffi::QueryRequestTimeout>>,
+    timeout: Option<Box<ffi::QueryRequestLimits>>,
 
     /// Lazily-allocated [`QueryEvalCtx`](ffi::QueryEvalCtx) (plus the backing
     /// structs its pointer fields require), created on the first
@@ -1259,7 +1259,7 @@ impl TestContext {
         let request_timeout = self.timeout.get_or_insert_with(|| {
             // SAFETY: all-zero is the valid UNARMED representation. The active kind
             // and clock fields are initialized below before exposure through `sctx`.
-            Box::new(unsafe { std::mem::zeroed::<ffi::QueryRequestTimeout>() })
+            Box::new(unsafe { std::mem::zeroed::<ffi::QueryRequestLimits>() })
         });
 
         request_timeout.timeout.kind = if skip_checks {

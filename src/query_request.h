@@ -176,7 +176,7 @@ typedef struct QueryRequestMemoryState {
  *   shared across amortized call sites but is not atomic, so calls to
  *   IsTimedOut for one request must be serialized.
  * - In every kind, including UNARMED, any thread may set the memory stop
- *   concurrently with timeout checks (QueryRequestTimeout_RequestMemoryStop).
+ *   concurrently with timeout checks (QueryRequestLimits_RequestMemoryStop).
  *   It lives outside the source union, so it never disturbs the active source.
  * - Like the blocked-client marker, the memory stop is atomic with relaxed
  *   ordering: it communicates only its own value, not other memory.
@@ -184,18 +184,18 @@ typedef struct QueryRequestMemoryState {
  * The owning QueryRequest must outlive every direct pointer, source-specific
  * pointer, and foreign-language handle borrowed from this object.
  */
-typedef struct QueryRequestTimeout {
+typedef struct QueryRequestLimits {
   QueryRequestTimeoutState timeout;
   QueryRequestMemoryState memory;
-} QueryRequestTimeout;
+} QueryRequestLimits;
 
 /** Initializes timeout as UNARMED, copying config into owned storage. */
-void QueryRequestTimeout_Init(QueryRequestTimeout *timeout, const TimeoutConfig *config);
+void QueryRequestLimits_Init(QueryRequestLimits *timeout, const TimeoutConfig *config);
 /**
  * Ends the current cycle by selecting UNARMED; sticky configuration and stale
  * union storage are retained.
  */
-void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout);
+void QueryRequestLimits_Reset(QueryRequestLimits *timeout);
 /**
  * Starts a cycle using kind as its timeout source, clearing any memory stop
  * left by the previous cycle.
@@ -206,14 +206,14 @@ void QueryRequestTimeout_Reset(QueryRequestTimeout *timeout);
  * consumer before selecting CLOCK_DEADLINE because it requires the
  * blocked-client callback.
  */
-void QueryRequestTimeout_BeginCycle(QueryRequestTimeout *timeout, QueryRequestTimeoutKind kind);
+void QueryRequestLimits_BeginCycle(QueryRequestLimits *timeout, QueryRequestTimeoutKind kind);
 /**
  * Atomically publishes a timeout to readers of the active BLOCKED_CLIENT
- * cycle. Together with QueryRequestTimeout_RequestMemoryStop, this is the only
+ * cycle. Together with QueryRequestLimits_RequestMemoryStop, this is the only
  * state transition permitted concurrently with timeout checks; it communicates
  * only the marker value, not other memory.
  */
-void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout);
+void QueryRequestLimits_MarkTimedOut(QueryRequestLimits *timeout);
 
 /**
  * Asks the current cycle to stop because memory ran out. Callable from any
@@ -223,10 +223,10 @@ void QueryRequestTimeout_MarkTimedOut(QueryRequestTimeout *timeout);
  * timeout checks (IsTimedOut, IsTimedOutExact, IsBlockedClientTimedOut) do not
  * report it: only sites that read it explicitly observe it.
  */
-void QueryRequestTimeout_RequestMemoryStop(QueryRequestTimeout *timeout);
+void QueryRequestLimits_RequestMemoryStop(QueryRequestLimits *timeout);
 
-/** Reports whether QueryRequestTimeout_RequestMemoryStop was called in the current cycle. */
-static inline bool QueryRequestTimeout_IsMemoryStopped(const QueryRequestTimeout *timeout) {
+/** Reports whether QueryRequestLimits_RequestMemoryStop was called in the current cycle. */
+static inline bool QueryRequestLimits_IsMemoryStopped(const QueryRequestLimits *timeout) {
   return RS_AtomicBoolLoadRelaxed(&timeout->memory.stopped);
 }
 
@@ -235,7 +235,7 @@ static inline bool QueryRequestTimeout_IsMemoryStopped(const QueryRequestTimeout
  * blocked-client flag it is valid in every kind. Access must use RS_Atomic
  * operations, and the pointer must not be retained across BeginCycle.
  */
-RS_Atomic(bool) *QueryRequestTimeout_GetMemoryStopFlag(QueryRequestTimeout *timeout);
+RS_Atomic(bool) *QueryRequestLimits_GetMemoryStopFlag(QueryRequestLimits *timeout);
 
 /**
  * Borrows the active BLOCKED_CLIENT flag for a wait that cannot use the
@@ -243,15 +243,15 @@ RS_Atomic(bool) *QueryRequestTimeout_GetMemoryStopFlag(QueryRequestTimeout *time
  * valid only until the current cycle ends and must not be retained across
  * Reset or BeginCycle.
  */
-RS_Atomic(bool) *QueryRequestTimeout_GetBlockedClientFlag(QueryRequestTimeout *timeout);
+RS_Atomic(bool) *QueryRequestLimits_GetBlockedClientFlag(QueryRequestLimits *timeout);
 
 /**
  * Borrows the active CLOCK_DEADLINE for consumers that have not yet migrated
  * to the source-neutral timeout API. The deadline is immutable and the pointer
  * is valid only until the current cycle ends.
  */
-const struct timespec *QueryRequestTimeout_GetClockDeadline(
-    const QueryRequestTimeout *timeout);
+const struct timespec *QueryRequestLimits_GetClockDeadline(
+    const QueryRequestLimits *timeout);
 
 /**
  * Selects CLOCK_DEADLINE and returns its storage for debug timeout simulation
@@ -259,7 +259,7 @@ const struct timespec *QueryRequestTimeout_GetClockDeadline(
  * previous source; the caller must initialize the returned deadline before
  * publishing the cycle to readers.
  */
-struct timespec *QueryRequestTimeout_GetClockDeadlineForUpdate(QueryRequestTimeout *timeout);
+struct timespec *QueryRequestLimits_GetClockDeadlineForUpdate(QueryRequestLimits *timeout);
 
 /**
  * Reports whether the request has timed out, independently of how the timeout
@@ -273,9 +273,9 @@ struct timespec *QueryRequestTimeout_GetClockDeadlineForUpdate(QueryRequestTimeo
  * immediately, such as after blocking or at an execution boundary. It neither
  * applies the timeout policy nor changes the timeout state. The active source
  * must remain fixed for the duration of the call; BLOCKED_CLIENT may be marked
- * concurrently as described by QueryRequestTimeout.
+ * concurrently as described by QueryRequestLimits.
  */
-bool QueryRequestTimeout_IsTimedOutExact(const QueryRequestTimeout *timeout);
+bool QueryRequestLimits_IsTimedOutExact(const QueryRequestLimits *timeout);
 
 /**
  * Reports a timeout only when the active source is BLOCKED_CLIENT.
@@ -284,13 +284,13 @@ bool QueryRequestTimeout_IsTimedOutExact(const QueryRequestTimeout *timeout);
  * only the blocked-client atomic flag. It deliberately returns false for
  * CLOCK_DEADLINE so migrating those call sites does not introduce new clock
  * checks that could change product behavior.
- * It ignores QueryRequestTimeout_RequestMemoryStop: many callers use it to ask
+ * It ignores QueryRequestLimits_RequestMemoryStop: many callers use it to ask
  * whether the timeout callback already owns the reply, which a memory stop
  * never implies.
  * Avoid using this call unless strictly needed. It has the same cycle and
- * concurrency requirements as QueryRequestTimeout_IsTimedOutExact.
+ * concurrency requirements as QueryRequestLimits_IsTimedOutExact.
  */
-bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout);
+bool QueryRequestLimits_IsBlockedClientTimedOut(const QueryRequestLimits *timeout);
 
 /**
  * Primary timeout operation:
@@ -305,7 +305,7 @@ bool QueryRequestTimeout_IsBlockedClientTimedOut(const QueryRequestTimeout *time
  * same request must be serialized; this operation must not overlap a source
  * transition.
  */
-bool QueryRequestTimeout_IsTimedOut(QueryRequestTimeout *timeout);
+bool QueryRequestLimits_IsTimedOut(QueryRequestLimits *timeout);
 
 /**
  * Timeout-only synchronization between query workers and main-thread callbacks.
@@ -385,7 +385,7 @@ typedef struct QueryRequest {
    * by the main-thread reply or timeout callback. Reset at the end of each
    * cycle and again during request destruction as a safety net. */
   ChunkReplyState reply;
-  QueryRequestTimeout timeout;
+  QueryRequestLimits timeout;
   QueryRequestAsyncState async;
   /**
    * Transitional reference to the legacy QueryProcessingCtx.endProc slot.
@@ -441,7 +441,7 @@ static inline int QueryRequest_GetExecutionPhase(const QueryRequest *request) {
 // sources do not use them, and a published timeout freezes the observed phase.
 static inline void QueryRequest_SetExecutionPhase(QueryRequest *request, int phase) {
   if (request->timeout.timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT &&
-      !QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
+      !QueryRequestLimits_IsBlockedClientTimedOut(&request->timeout)) {
     QueryRequestAsyncState_SetExecutionPhase(&request->async, phase);
   }
 }

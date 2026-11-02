@@ -66,8 +66,8 @@
 
 #ifdef ENABLE_ASSERT
 static bool blockedClientTimedOut(void *arg) {
-  const QueryRequestTimeout *timeout = arg;
-  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+  const QueryRequestLimits *timeout = arg;
+  return QueryRequestLimits_IsBlockedClientTimedOut(timeout);
 }
 #endif
 
@@ -167,7 +167,7 @@ static int refillQueueUsingIterator(RPQueryIterator *self) {
 
   // Fill the queue up to max capacity
   while (self->async.iteratorResultCount < self->async.queueSize && !it->atEOF) {
-    if (QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
+    if (QueryRequestLimits_IsTimedOut(sctx->timeout)) {
       return RS_RESULT_TIMEDOUT;
     }
 
@@ -351,7 +351,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 #endif
 
   while (1) {
-    if (QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
+    if (QueryRequestLimits_IsTimedOut(sctx->timeout)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -412,7 +412,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
 #endif
 
   while (1) {
-    if (QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
+    if (QueryRequestLimits_IsTimedOut(sctx->timeout)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -464,7 +464,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     // The loop-head check amortizes clock samples across iterations,
     // which is too coarse once an iteration can sleep. Re-check unthrottled after a
     // blocking poll.
-    if (index_poll_timeout_ms > 0 && QueryRequestTimeout_IsTimedOutExact(sctx->timeout)) {
+    if (index_poll_timeout_ms > 0 && QueryRequestLimits_IsTimedOutExact(sctx->timeout)) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
 
@@ -2096,8 +2096,8 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     // Notice a blocked-client (RETURN_STRICT) timeout promptly when the
     // main-thread callback flips the borrowed flag.
     // The wall-clock deadline is already handled by the upstream's own checks.
-    QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+    QueryRequestLimits *timeout = self->depletingThreadCtx->timeout;
+    if (QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
       rc = RS_RESULT_TIMEDOUT;
       break;
     }
@@ -2137,8 +2137,8 @@ static void RPSafeDepleter_Deplete(void *arg) {
   rs_wall_clock_init(&depletionStart);
 
   // Check if timeout was exceeded before starting execution.
-  QueryRequestTimeout *timeout = self->depletingThreadCtx->timeout;
-  bool timed_out = QueryRequestTimeout_IsTimedOutExact(timeout);
+  QueryRequestLimits *timeout = self->depletingThreadCtx->timeout;
+  bool timed_out = QueryRequestLimits_IsTimedOutExact(timeout);
   if (!timed_out) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
@@ -2604,7 +2604,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     // No more results to yield
     int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
-  } else if (QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
+  } else if (QueryRequestLimits_IsTimedOut(self->sctx->timeout)) {
     // Timed out before we could yield all results
     return RS_RESULT_TIMEDOUT;
   }
@@ -2898,14 +2898,14 @@ static ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sc
                                                 bool clockOnly);
 
 static void RPTimeoutAfterCount_EnsureClock(RedisSearchCtx *sctx) {
-  QueryRequestTimeout *timeout = sctx->timeout;
+  QueryRequestLimits *timeout = sctx->timeout;
   if (timeout->timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
     return;
   }
 
   // TIMEOUT_AFTER_N simulates the legacy in-pipeline clock timeout even when
   // the request's configured production timeout is disabled or a cursor cycle reset it.
-  *QueryRequestTimeout_GetClockDeadlineForUpdate(timeout) = (struct timespec) {
+  *QueryRequestLimits_GetClockDeadlineForUpdate(timeout) = (struct timespec) {
     .tv_sec = (time_t)INT64_MAX,
   };
   timeout->timeout.source.clock.counter = 0;
@@ -2928,14 +2928,14 @@ void PipelineAddTimeoutAfterCountClock(QueryProcessingCtx *qctx, RedisSearchCtx 
 }
 
 static void RPTimeoutAfterCount_SimulateTimeout(RedisSearchCtx *sctx) {
-    QueryRequestTimeout *timeout = sctx->timeout;
+    QueryRequestLimits *timeout = sctx->timeout;
     if (timeout->timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
-      QueryRequestTimeout_MarkTimedOut(timeout);
+      QueryRequestLimits_MarkTimedOut(timeout);
     } else {
       // Set the clock deadline to now for the RP up the chain to handle.
       struct timespec now;
       clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-      *QueryRequestTimeout_GetClockDeadlineForUpdate(timeout) = now;
+      *QueryRequestLimits_GetClockDeadlineForUpdate(timeout) = now;
       // Force the next amortized caller to observe the simulated clock timeout.
       timeout->timeout.source.clock.counter = QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT - 1;
     }
@@ -2949,17 +2949,17 @@ static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
 
   // If we've reached COUNT:
   if (!self->remaining) {
-    QueryRequestTimeout *timeout = self->sctx->timeout;
+    QueryRequestLimits *timeout = self->sctx->timeout;
     QueryRequestTimeoutKind previousKind = timeout->timeout.kind;
     struct timespec previousDeadline = {0};
     uint8_t previousCounter = 0;
     bool previousBlockedClientTimedOut = false;
     if (previousKind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
-      previousDeadline = *QueryRequestTimeout_GetClockDeadline(timeout);
+      previousDeadline = *QueryRequestLimits_GetClockDeadline(timeout);
       previousCounter = timeout->timeout.source.clock.counter;
     } else if (previousKind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
       previousBlockedClientTimedOut =
-          RS_AtomicBoolLoadRelaxed(QueryRequestTimeout_GetBlockedClientFlag(timeout));
+          RS_AtomicBoolLoadRelaxed(QueryRequestLimits_GetBlockedClientFlag(timeout));
     }
     RPTimeoutAfterCount_SimulateTimeout(self->sctx);
 
@@ -2971,13 +2971,13 @@ static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
 
     // Do not affect timeout checks after this Next call; restore the source and its value.
     if (previousKind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
-      *QueryRequestTimeout_GetClockDeadlineForUpdate(timeout) = previousDeadline;
+      *QueryRequestLimits_GetClockDeadlineForUpdate(timeout) = previousDeadline;
       timeout->timeout.source.clock.counter = previousCounter;
     } else if (previousKind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT) {
-      RS_AtomicBoolStoreRelaxed(QueryRequestTimeout_GetBlockedClientFlag(timeout),
+      RS_AtomicBoolStoreRelaxed(QueryRequestLimits_GetBlockedClientFlag(timeout),
                                 previousBlockedClientTimedOut);
     } else {
-      QueryRequestTimeout_Reset(timeout);
+      QueryRequestLimits_Reset(timeout);
     }
     return rc;
   }
