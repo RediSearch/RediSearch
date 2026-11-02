@@ -32,7 +32,7 @@ use std::num::NonZeroUsize;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use ffi::{
-    HNSWParams, QueryRequestTimeout, QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED,
+    HNSWParams, QueryRequestLimits, QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED,
     VecSearchMode_HYBRID_ADHOC_BF, VecSearchMode_HYBRID_BATCHES, VecSimAlgo_VecSimAlgo_HNSWLIB,
     VecSimIndex, VecSimIndex_AddVector, VecSimIndex_Free, VecSimIndex_New,
     VecSimMetric_VecSimMetric_L2, VecSimParams, VecSimQuantType_VecSimQuant_NONE,
@@ -143,9 +143,9 @@ fn run_rust(
     };
     // SAFETY: zero is a valid representation of the C timeout object. The benchmark keeps this
     // storage alive and UNARMED until `source` is dropped.
-    let timeout = UnsafeCell::new(unsafe { std::mem::zeroed::<QueryRequestTimeout>() });
+    let timeout = UnsafeCell::new(unsafe { std::mem::zeroed::<QueryRequestLimits>() });
     unsafe {
-        (*timeout.get()).kind = QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
+        (*timeout.get()).timeout.kind = QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
     }
 
     // SAFETY: `index` and `timeout` live for the duration of this benchmark invocation.
