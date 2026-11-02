@@ -742,6 +742,32 @@ def test_coordinator_withcount_depleter_stop_rebases_the_total(env):
     env.assertGreater(rebased, 0)
 
 
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_coordinator_withcount_stop_before_any_row_reports_zero_total(env):
+    """An OOM-cut reply that holds no rows reports a zero total. FILTER drops every row upstream
+    of the depleter, so each cut leaves it holding nothing."""
+    create_index(env)
+    query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'FILTER', '@n < 0',
+             'LIMIT', 0, N_DOCS)
+    # Calls are counted only while a position is armed; an unreachable one measures the run.
+    memory_pressure(env, 'AT_CALL', 2**62)
+    try:
+        env.cmd(*query)
+        calls = checkpoint_calls(env)
+    finally:
+        memory_pressure(env, 'RESET')
+    env.assertGreater(calls, BUILD_CHECKPOINTS, message=calls)
+
+    empty = 0
+    for n in range(BUILD_CHECKPOINTS + 1, calls + 1):
+        res = run_at_call(env, n, *query)
+        if res['warning'] == [COORD_OOM_WARNING] and not res['results']:
+            empty += 1
+            env.assertEqual(res['total_results'], 0, message=(n, res))
+    env.assertGreater(empty, 0)
+
+
 APPLY = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', 'upper(@t)', 'AS', 'u')
 FILTER = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'FILTER', 'startswith(@t, "hello")')
 
