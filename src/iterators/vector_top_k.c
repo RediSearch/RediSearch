@@ -27,6 +27,6 @@ int RS_VecSimCheckMemory(QueryRequestLimits *timeout) {
   return QueryMemory_ShouldStopNow(timeout);
 }
 
-int RS_VecSimCheckMemoryEvery(QueryRequestTimeout *timeout, uint32_t *counter) {
+int RS_VecSimCheckMemoryEvery(QueryRequestLimits *timeout, uint32_t *counter) {
   return QueryMemory_ShouldStop(timeout, counter);
 }

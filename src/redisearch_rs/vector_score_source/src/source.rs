@@ -16,7 +16,7 @@ use std::{
 };
 
 use ffi::{
-    QueryRequestTimeout, RS_VecSimCheckMemory, RS_VecSimCheckMemoryEvery, RS_VecSimCheckTimeout,
+    QueryRequestLimits, RS_VecSimCheckMemory, RS_VecSimCheckMemoryEvery, RS_VecSimCheckTimeout,
     VecSearchMode, VecSearchMode_HYBRID_BATCHES, VecSimIndex, VecSimQueryParams,
 };
 use index_result::RSIndexResult;
