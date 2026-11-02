@@ -264,13 +264,9 @@ def _test_knn_search_fanout_stop_keeps_earlier_replies(env):
     def checkpoint_calls():
         return coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
 
-    # As in test_search_fanout_stop_keeps_earlier_replies: calibrate the checkpoint calls up to
-    # the first shard reply's read.
-    coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1 << 40)
-    coord.execute_command(*KNN_QUERY)
-    calls = checkpoint_calls()
-    coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
-    first_reply_read = calls - len(others)
+    # As in test_search_fanout_stop_keeps_earlier_replies: the calls up to the first shard reply's
+    # read, the reply rows being the K nearest.
+    first_reply_read = coordinator_calls_after_fanout(env, coord, KNN_QUERY, len(full)) - 1 - len(others)
 
     try:
         for oom_policy in ('return', 'fail'):
