@@ -15,7 +15,7 @@
 typedef struct QueryError QueryError;
 
 struct AREQ;
-struct QueryRequestTimeout;
+struct QueryRequestLimits;
 
 bool hasTimeoutError(QueryError *err);
 
@@ -27,7 +27,7 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
 /**
  * Turns a pipeline that stopped for memory pressure, a RS_RESULT_TIMEDOUT rc
- * with stop reason QUERY_STOP_REASON_OOM, into the outcome `oomPolicy` asks
+ * with the memory stop requested, into the outcome `oomPolicy` asks
  * for, and returns any other rc unchanged:
  *
  * - OomPolicy_Fail: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` (unless it already
@@ -36,7 +36,7 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply);
  * - Otherwise: the query OOM warning in `err` and RS_RESULT_EOF, so the rows
  *   produced so far are the final, partial result instead of a timeout.
  */
-int ApplyOomStop(const struct QueryRequestTimeout *timeout, RSOomPolicy oomPolicy,
+int ApplyOomStop(const struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
                  QueryError *err, int rc);
 
 /**
