@@ -277,15 +277,15 @@ TEST_F(QueryMemoryTest, VecSimStopCallbackReadsMemoryOnEveryCall) {
   EXPECT_EQ(RS_VecSimShouldStop(&timeout_), 0);
   EXPECT_EQ(RS_VecSimShouldStop(&timeout_), 0);
   EXPECT_EQ(fakeRatioReads.load(), 2u);
-  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_NONE);
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 
   fakeRatio = 1.0f;
   EXPECT_NE(RS_VecSimShouldStop(&timeout_), 0);
-  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 
 TEST_F(QueryMemoryTest, VecSimStopCallbackReportsAnEarlierStopWithoutReading) {
-  QueryRequestTimeout_RequestStop(&timeout_, QUERY_STOP_REASON_TIMEOUT);
+  QueryRequestLimits_RequestMemoryStop(&timeout_);
   EXPECT_NE(RS_VecSimShouldStop(&timeout_), 0);
   EXPECT_EQ(fakeRatioReads.load(), 0u);
 }
@@ -294,7 +294,7 @@ TEST_F(QueryMemoryTest, VecSimStopCallbackIsOffWhenOnOomIsIgnore) {
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
   fakeRatio = 2.0f;
   EXPECT_EQ(RS_VecSimShouldStop(&timeout_), 0);
-  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_NONE);
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 
 TEST_F(QueryMemoryTest, ShouldStopNowForcedRatioRequestsAnOomStop) {

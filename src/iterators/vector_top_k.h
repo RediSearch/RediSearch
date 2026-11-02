@@ -27,7 +27,7 @@ int RS_VecSimCheckTimeout(QueryRequestLimits *timeout);
 int RS_VecSimCheckMemory(QueryRequestLimits *timeout);
 
 // VecSim's stop callback (VecSim_SetStopCallbackFunction, which owns the cadence), called with the
-// query's QueryRequestTimeout: the memory checkpoint inside a single VecSim search. Same check as
+// query's QueryRequestLimits: the memory checkpoint inside a single VecSim search. Same check as
 // RS_VecSimCheckMemory, so it also reports any stop already requested for the query. A nonzero
 // return ends the search as VecSim_QueryReply_TimedOut; the stop reason tells an OOM stop from a
 // timeout. Holds no state, so SVS can call it from several threads.
