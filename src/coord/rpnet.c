@@ -786,10 +786,12 @@ static int rpnetRead(ResultProcessor *self, SearchResult *r, bool draining) {
 #endif
     // The IO thread can stop after the pre-pop check yet before queueing this reply. Publish it
     // now: a satisfied LIMIT may never call rpnetRead again. The reply is kept, as for a stop
-    // seen earlier, and the next read returns the stop.
-    if (!draining && nc->it && MRIterator_IsMemoryStopped(nc->it) &&
-        (areq->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
-         !QueryRequestTimeout_IsTimedOutExact(&areq->base.timeout))) {
+    // seen earlier, and the next read returns the stop. An elapsed deadline keeps its ON_TIMEOUT
+    // outcome instead, handled below once the reply is set up for draining.
+    const bool deadlineElapsed =
+        areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+        QueryRequestTimeout_IsTimedOutExact(&areq->base.timeout);
+    if (!draining && nc->it && MRIterator_IsMemoryStopped(nc->it) && !deadlineElapsed) {
       RPNet_MemoryStops(nc);
     }
     if (resp3) { // RESP3
@@ -810,6 +812,12 @@ static int rpnetRead(ResultProcessor *self, SearchResult *r, bool draining) {
         // Without WITHCOUNT, accumulate total_results from each shard reply
         nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
       }
+    }
+    if (!draining && nc->it && MRIterator_IsMemoryStopped(nc->it) && deadlineElapsed) {
+      // The deadline expired while blocked in the pop and the IO thread stopped on memory
+      // meanwhile. The reply stays in nc->current, already counted, for the timeout drain.
+      MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
+      return RS_RESULT_TIMEDOUT;
     }
   }
 
