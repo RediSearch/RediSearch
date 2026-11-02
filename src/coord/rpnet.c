@@ -584,7 +584,7 @@ void RPNet_resetCurrent(RPNet *nc) {
 }
 
 // Memory, before each fetch of a shard reply: the IO thread's read (MRIterator_IsMemoryStopped)
-// or this one. Stops the request with reason OOM and wakes its channel. Left out: hybrid
+// or this one. Requests the memory stop and wakes its channel. Left out: hybrid
 // subqueries, until their reply maps an OOM stop, and FT.PROFILE, whose profile collection reads
 // the stream to its end and would spin on a stopped one.
 bool RPNet_MemoryStops(RPNet *nc) {
