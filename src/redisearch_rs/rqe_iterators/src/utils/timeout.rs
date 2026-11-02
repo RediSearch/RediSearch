@@ -219,13 +219,13 @@ impl AnyTimeoutContext {
     /// # Safety
     ///
     /// `sctx` must stay [valid] at a stable address for as long as the returned context and any
-    /// iterator built from it are used. If `sctx.timeout` is non-null, it must uphold the
+    /// iterator built from it are used. If `sctx.limits` is non-null, it must uphold the
     /// requirements of [`TimeoutContextRequest::new`].
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn from_sctx(sctx: NonNull<RedisSearchCtx>, granularity: u32) -> Self {
         // SAFETY: the caller guarantees `sctx` is valid throughout this call.
-        let timeout = unsafe { (*sctx.as_ptr()).timeout };
+        let timeout = unsafe { (*sctx.as_ptr()).limits };
         match NonNull::new(timeout) {
             Some(timeout) => {
                 // SAFETY: the caller guarantees the retained request satisfies `new`'s contract.

@@ -291,34 +291,34 @@ TEST_F(QueryRequestLimitsTest, RequestOwnsConfigurationAcrossCycles) {
     EXPECT_EQ(request.cursorConfig.chunkSize, 0);
     request.cursorConfig = {1000, 42};
     EXPECT_EQ(request.reqConfig.dialectVersion, 4);
-    EXPECT_EQ(request.timeout.timeout.config.queryTimeoutMS, 1234);
-    EXPECT_EQ(request.timeout.timeout.config.timeoutPolicy, TimeoutPolicy_Fail);
+    EXPECT_EQ(request.limits.timeout.config.queryTimeoutMS, 1234);
+    EXPECT_EQ(request.limits.timeout.config.timeoutPolicy, TimeoutPolicy_Fail);
     EXPECT_TRUE(request.reqConfig.printProfileClock);
     EXPECT_EQ(request.reqConfig.BM25STD_TanhFactor, 7);
     EXPECT_EQ(request.reqConfig.oomPolicy, OomPolicy_Fail);
 
-    request.timeout.timeout.config.queryTimeoutMS = 0;
-    request.timeout.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
-    QueryRequestLimits_Reset(&request.timeout);
+    request.limits.timeout.config.queryTimeoutMS = 0;
+    request.limits.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
+    QueryRequestLimits_Reset(&request.limits);
     QueryRequest_ResetReply(&request);
-    QueryRequestLimits_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-    EXPECT_EQ(request.timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
+    QueryRequestLimits_BeginCycle(&request.limits, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    EXPECT_EQ(request.limits.timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
     EXPECT_EQ(request.cursorConfig.maxIdle, 1000);
     EXPECT_EQ(request.cursorConfig.chunkSize, 42);
     EXPECT_EQ(request.reqConfig.dialectVersion, 4);
     EXPECT_EQ(request.reqConfig.BM25STD_TanhFactor, 7);
     EXPECT_EQ(request.reqConfig.oomPolicy, OomPolicy_Fail);
 
-    request.timeout.timeout.config.queryTimeoutMS = 5000;
-    QueryRequestLimits_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-    EXPECT_EQ(request.timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-    const auto deadline = *QueryRequestLimits_GetClockDeadline(&request.timeout);
-    request.timeout.timeout.config.queryTimeoutMS = 0;
-    EXPECT_EQ(QueryRequestLimits_GetClockDeadline(&request.timeout)->tv_sec, deadline.tv_sec);
-    EXPECT_EQ(QueryRequestLimits_GetClockDeadline(&request.timeout)->tv_nsec, deadline.tv_nsec);
-    QueryRequestLimits_Reset(&request.timeout);
-    QueryRequestLimits_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-    EXPECT_EQ(request.timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
+    request.limits.timeout.config.queryTimeoutMS = 5000;
+    QueryRequestLimits_BeginCycle(&request.limits, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    EXPECT_EQ(request.limits.timeout.kind, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    const auto deadline = *QueryRequestLimits_GetClockDeadline(&request.limits);
+    request.limits.timeout.config.queryTimeoutMS = 0;
+    EXPECT_EQ(QueryRequestLimits_GetClockDeadline(&request.limits)->tv_sec, deadline.tv_sec);
+    EXPECT_EQ(QueryRequestLimits_GetClockDeadline(&request.limits)->tv_nsec, deadline.tv_nsec);
+    QueryRequestLimits_Reset(&request.limits);
+    QueryRequestLimits_BeginCycle(&request.limits, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    EXPECT_EQ(request.limits.timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
     QueryRequest_Destroy(&request);
   }
 }
@@ -336,15 +336,15 @@ TEST_F(QueryRequestLimitsTest, ExecutionPhaseTracksOnlyUnsignaledBlockedClientCy
   QueryRequest_SetExecutionPhase(&request, pipelinePhase);
   EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
 
-  QueryRequestLimits_MarkTimedOut(&request.timeout);
+  QueryRequestLimits_MarkTimedOut(&request.limits);
   QueryRequest_SetExecutionPhase(&request, replyPhase);
   EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
 
-  QueryRequestLimits_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  QueryRequestLimits_BeginCycle(&request.limits, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   QueryRequest_SetExecutionPhase(&request, queuePhase);
   EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
 
-  QueryRequestLimits_Reset(&request.timeout);
+  QueryRequestLimits_Reset(&request.limits);
   QueryRequest_SetExecutionPhase(&request, replyPhase);
   EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
 

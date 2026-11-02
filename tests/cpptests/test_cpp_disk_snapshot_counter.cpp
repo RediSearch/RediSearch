@@ -236,8 +236,8 @@ class HybridStartCursorsTest : public HybridSnapshotTest {
     upstreamRc = RS_RESULT_EOF;
     timeoutToTrip = nullptr;
     TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = TimeoutPolicy_Fail};
-    QueryRequestLimits_Init(&hybrid.base.timeout, &timeoutConfig);
-    QueryRequestLimits_BeginCycle(&hybrid.base.timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    QueryRequestLimits_Init(&hybrid.base.limits, &timeoutConfig);
+    QueryRequestLimits_BeginCycle(&hybrid.base.limits, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     hybrid.base.replyDeferred = true;  // the reply callback replies, not StartCursors
 
     AREQ* subs[2] = {&first, &second};
@@ -288,7 +288,7 @@ TEST_F(HybridStartCursorsTest, SuccessfulDepletionReleasesUpstreamAndSnapshotBef
 TEST_F(HybridStartCursorsTest, PartialTimeoutUnderReturnPolicyKeepsTheChainForTheTeardown) {
   // In-flight disk reads are drained when the iterators are freed, which must not delay the reply.
   upstreamRc = RS_RESULT_TIMEDOUT;
-  hybrid.base.timeout.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
+  hybrid.base.limits.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
   ASSERT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
   EXPECT_FALSE(released());
   EXPECT_TRUE(freedIds.empty());
@@ -312,7 +312,7 @@ TEST_F(HybridStartCursorsTest, DepletionErrorKeepsTheChainForTheTeardown) {
 TEST_F(HybridStartCursorsTest, TimeoutAfterDepletionLeavesATrimmedChainThatTearsDownCleanly) {
   // The blocked-client timeout fires while depleting: depletion itself succeeds and releases,
   // then the publication check fails and the container frees the subqueries.
-  timeoutToTrip = &hybrid.base.timeout;
+  timeoutToTrip = &hybrid.base.limits;
   EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_ERR);
   EXPECT_TRUE(released());
   EXPECT_EQ(freedIds, (std::vector<int>{1, 0, 11, 10}));

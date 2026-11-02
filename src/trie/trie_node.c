@@ -56,7 +56,7 @@ typedef struct {
   bool stop;
 
   // timeout
-  QueryRequestLimits *timeout;
+  QueryRequestLimits *limits;
 } RangeCtx;
 
 static void __trieNode_sortChildren(TrieNode *n);
@@ -987,7 +987,7 @@ int TrieIterator_Next(TrieIterator *it, rune **ptr, t_len *len, RSPayload *paylo
 static int rangeIterateSubTree(const TrieNode *n, RangeCtx *r) {
   if (r->stop) return REDISEARCH_ERR;
 
-  if (r->timeout && QueryRequestLimits_IsTimedOut(r->timeout)) {
+  if (r->limits && QueryRequestLimits_IsTimedOut(r->limits)) {
     r->stop = 1;
     return REDISEARCH_ERR;
   }
@@ -1031,7 +1031,7 @@ void TrieNode_IterateContains(TrieNode *n, const rune *str, int nstr, bool prefi
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
-      .timeout = timeout,
+      .limits = timeout,
   };
   r.buf = array_new(rune, TRIE_INITIAL_STRING_LEN);
 
@@ -1085,7 +1085,7 @@ static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOf
     return;
   }
 
-  if (r->timeout && QueryRequestLimits_IsTimedOut(r->timeout)) {
+  if (r->limits && QueryRequestLimits_IsTimedOut(r->limits)) {
     r->stop = 1;
     return;
   }
@@ -1129,7 +1129,7 @@ static void containsIterate(const TrieNode *n, t_len localOffset, t_len globalOf
 
 static void wildcardIterate(const TrieNode *n, RangeCtx *r) {
   // timeout check
-  if (r->timeout && QueryRequestLimits_IsTimedOut(r->timeout)) {
+  if (r->limits && QueryRequestLimits_IsTimedOut(r->limits)) {
     r->stop = 1;
   }
   if (r->stop) {
@@ -1181,7 +1181,7 @@ void TrieNode_IterateWildcard(const TrieNode *n, const rune *str, int nstr,
   RangeCtx r = {
       .callback = callback,
       .cbctx = ctx,
-      .timeout = timeout,
+      .limits = timeout,
       .origStr = str,
       .lenOrigStr = nstr,
       .buf = array_new(rune, TRIE_INITIAL_STRING_LEN),

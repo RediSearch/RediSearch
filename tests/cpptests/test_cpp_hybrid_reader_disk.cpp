@@ -185,7 +185,7 @@ protected:
 
         QueryIterator *iter = NewVectorTopKIterator(
             (VecSimIndex *)index, queryVec.data(), sizeof(queryVec), &qParams, k,
-            /*can_trim_deep_results*/ true, &child->base, mockCtx->sctx.timeout,
+            /*can_trim_deep_results*/ true, &child->base, mockCtx->sctx.limits,
             &mockCtx->sctx, &filterCtx);
         return {index, iter, child};
     }

@@ -130,7 +130,7 @@ TEST_F(QueryTest, testDiskVectorQueryRestrictions) {
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 0;
   QueryRequestLimits_Init(&timeout, &timeoutConfig);
-  ctx.timeout = &timeout;
+  ctx.limits = &timeout;
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
   ASSERT_TRUE(RMCK::hset(redisCtx, "doc:1", "title", "hello"));

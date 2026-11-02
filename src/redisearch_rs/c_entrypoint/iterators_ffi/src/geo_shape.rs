@@ -81,7 +81,7 @@ impl MemTracker for ExternalCounter {
 /// 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
 ///    `spec` is a valid [`IndexSpec`](ffi::IndexSpec); both must outlive the
 ///    returned iterator, and `sctx` must stay at a stable address for that
-///    whole window. The request timeout reached through `sctx.timeout` must also remain valid
+///    whole window. The request timeout reached through `sctx.limits` must also remain valid
 ///    at a stable address until the iterator is dropped. Timeout source changes and deadline
 ///    writes may happen only between probes;
 ///    only the blocked-client marker and the memory stop flag may change concurrently.

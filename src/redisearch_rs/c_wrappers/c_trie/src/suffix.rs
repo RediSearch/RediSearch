@@ -190,7 +190,7 @@ impl SuffixTrie {
             callback: Some(suffix_trampoline::<F>),
             cbCtx: std::ptr::from_mut(&mut callback).cast(),
             // The suffix walk ignores this.
-            timeout: std::ptr::null_mut(),
+            limits: std::ptr::null_mut(),
         };
         // SAFETY: every `suffix_ctx` field is initialised above with a valid
         // value, `self` borrows a valid `ffi::Trie` whose payloads the walk may
@@ -247,7 +247,7 @@ impl SuffixTrie {
             type_: SuffixType_SUFFIX_TYPE_WILDCARD,
             callback: Some(suffix_trampoline::<F>),
             cbCtx: std::ptr::from_mut(&mut callback).cast(),
-            timeout: timeout_ptr,
+            limits: timeout_ptr,
         };
         // SAFETY: every `suffix_ctx` field is initialised above with a valid
         // value — `self` borrows a valid `ffi::Trie` whose payloads the walk may

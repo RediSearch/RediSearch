@@ -96,7 +96,7 @@ protected:
       timeouts[i] = static_cast<QueryRequestLimits *>(rm_calloc(1, sizeof(QueryRequestLimits)));
       QueryRequestLimits_Init(timeouts[i], &timeoutConfig);
       QueryRequestLimits_BeginCycle(timeouts[i], QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-      searchContexts[i].timeout = timeouts[i];
+      searchContexts[i].limits = timeouts[i];
     }
 
     // Set a stable request-owned deadline for tests that temporarily disable mock behavior.
@@ -104,7 +104,7 @@ protected:
     clock_gettime(CLOCK_MONOTONIC_RAW, &future_timeout);
     future_timeout.tv_sec += 10; // 10 seconds from now
     for (size_t i = 0; i < NumberOfContexts; ++i) {
-      *QueryRequestLimits_GetClockDeadlineForUpdate(searchContexts[i].timeout) = future_timeout;
+      *QueryRequestLimits_GetClockDeadlineForUpdate(searchContexts[i].limits) = future_timeout;
     }
   }
 

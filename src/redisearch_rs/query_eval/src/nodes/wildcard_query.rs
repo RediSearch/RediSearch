@@ -111,7 +111,7 @@ pub(crate) fn eval<'index>(
     // SAFETY: the request timeout outlives query evaluation. Its source is fixed for this execution
     // cycle; only the blocked-client marker and the memory stop flag may change concurrently,
     // through the C atomic API.
-    let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ctx.sctx().timeout) };
+    let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ctx.sctx().limits) };
 
     let mut expansion = Expansion {
         ctx,

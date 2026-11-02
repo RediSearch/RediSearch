@@ -34,7 +34,7 @@ static void QueryRequest_OnDisconnect(RedisModuleCtx *ctx, RedisModuleBlockedCli
   QueryRequest *request = RedisModule_BlockClientGetPrivateData(bc);
   RS_ASSERT(request);
 
-  QueryRequestLimits_MarkTimedOut(&request->timeout);
+  QueryRequestLimits_MarkTimedOut(&request->limits);
   if (request->kind == QUERY_REQUEST_KIND_HYBRID) {
     HybridRequest *hreq = QueryRequest_GetHybrid(request);
     HybridRequest_PropagateTimeoutToSubqueries(hreq);
@@ -63,7 +63,7 @@ static void beginCycleCommon(QueryRequest *request, RedisModuleBlockedClient *bc
   RedisModule_BlockClientSetPrivateData(bc, request);
   // RETURN uses a worker-owned clock deadline rather than the blocked-client
   // atomic and intentionally retains its existing disconnect behavior.
-  if (request->timeout.timeout.config.timeoutPolicy != TimeoutPolicy_Return) {
+  if (request->limits.timeout.config.timeoutPolicy != TimeoutPolicy_Return) {
     RedisModule_SetDisconnectCallback(bc, QueryRequest_OnDisconnect);
   }
 }

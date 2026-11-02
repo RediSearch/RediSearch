@@ -87,7 +87,7 @@ impl QueryEvalContext {
     ///    lifetime of every timeout context and iterator derived from this
     ///    context (e.g. via
     ///    [`build_timeout_context`](QueryEvalContext::build_timeout_context)).
-    ///    The request timeout reached through `sctx.timeout` must also stay valid
+    ///    The request timeout reached through `sctx.limits` must also stay valid
     ///    at a stable address for that lifetime: every probe reads its active
     ///    timeout source. Timeout source changes and deadline writes may occur
     ///    only between probes;
@@ -544,7 +544,7 @@ impl QueryEvalContext {
     /// evaluation.
     ///
     /// The returned [`AnyTimeoutContext`] reads the active request-timeout kind
-    /// through `sctx.timeout` on each probe. It holds a raw pointer rather than
+    /// through `sctx.limits` on each probe. It holds a raw pointer rather than
     /// a borrow, so its validity is a runtime precondition.
     ///
     /// # Safety
