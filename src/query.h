@@ -78,10 +78,10 @@ int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions 
  *
  * The pointer is borrowed for this call and must reference a live request whose
  * source remains BLOCKED_CLIENT. The main-thread callback may mark that source
- * concurrently through the QueryRequestTimeout atomic API. The named bridge
+ * concurrently through the QueryRequestLimits atomic API. The named bridge
  * keeps the query-iterator debug sync point outside the generic timeout API.
  */
-bool QueryIterator_IsBlockedClientTimedOut(const struct QueryRequestTimeout *timeout);
+bool QueryIterator_IsBlockedClientTimedOut(const struct QueryRequestLimits *timeout);
 
 /**
  * Global filter options impact *all* query nodes. This structure can be used

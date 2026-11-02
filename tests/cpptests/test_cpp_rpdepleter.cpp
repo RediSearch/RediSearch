@@ -93,10 +93,10 @@ protected:
     // Initialize search contexts for all tests (with or without real spec)
     for (size_t i = 0; i < NumberOfContexts; ++i) {
       searchContexts[i] = SEARCH_CTX_STATIC(redisContexts[i], mockSpec);
-      timeouts[i] = static_cast<QueryRequestTimeout *>(rm_calloc(1, sizeof(QueryRequestTimeout)));
-      QueryRequestTimeout_Init(timeouts[i], &timeoutConfig);
-      QueryRequestTimeout_BeginCycle(timeouts[i], QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-      searchContexts[i].timeout = timeouts[i];
+      timeouts[i] = static_cast<QueryRequestLimits *>(rm_calloc(1, sizeof(QueryRequestLimits)));
+      QueryRequestLimits_Init(timeouts[i], &timeoutConfig);
+      QueryRequestLimits_BeginCycle(timeouts[i], QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+      searchContexts[i].limits = timeouts[i];
     }
 
     // Set a stable request-owned deadline for tests that temporarily disable mock behavior.
@@ -104,7 +104,7 @@ protected:
     clock_gettime(CLOCK_MONOTONIC_RAW, &future_timeout);
     future_timeout.tv_sec += 10; // 10 seconds from now
     for (size_t i = 0; i < NumberOfContexts; ++i) {
-      *QueryRequestTimeout_GetClockDeadlineForUpdate(searchContexts[i].timeout) = future_timeout;
+      *QueryRequestLimits_GetClockDeadlineForUpdate(searchContexts[i].limits) = future_timeout;
     }
   }
 
@@ -152,7 +152,7 @@ protected:
 
   std::array<RedisModuleCtx*, NumberOfContexts> redisContexts;
   std::array<RedisSearchCtx, NumberOfContexts> searchContexts;
-  std::array<QueryRequestTimeout *, NumberOfContexts> timeouts = {nullptr};
+  std::array<QueryRequestLimits *, NumberOfContexts> timeouts = {nullptr};
   IndexSpec* mockSpec = nullptr;
 };
 
