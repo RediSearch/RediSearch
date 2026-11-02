@@ -2175,18 +2175,6 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
 // Assumes that the cursor has a strong ref to the relevant spec and that it is already locked.
 int AREQ_StartCursor(AREQ *r, RedisModule_Reply *reply, StrongRef spec_ref, QueryError *err, bool coord) {
-  // A cursor keeps its whole pipeline state until it ends or idles out, so no client cursor is
-  // admitted under memory pressure. A shard's cursor for the coordinator is admitted by the
-  // coordinator's own check; rejecting it here would drop the shard's rows without a warning,
-  // where its pipeline checkpoints stop it with one.
-  if (!IsInternal(r)) {
-    // One-shot site: start the counter where its first call reads memory.
-    uint32_t memoryCheckCounter = QueryMemory_GetRatioReadInterval() - 1;
-    if (QueryMemory_ShouldStop(NULL, &memoryCheckCounter)) {
-      QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
-      return REDISMODULE_ERR;
-    }
-  }
   Cursor *cursor = Cursors_Reserve(getCursorList(coord), spec_ref, r->base.cursorConfig.maxIdle, err);
   if (cursor == NULL) {
     return REDISMODULE_ERR;

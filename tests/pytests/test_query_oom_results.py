@@ -480,8 +480,7 @@ def test_reply_loop_stop_truncates_resp2(env):
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_reply_loop_stop_ends_the_cursor(env):
-    """A cursor chunk stopped in the reply loop ends the cursor instead of resuming later. Call 1
-    admits the cursor; call 3 is the reply loop's second."""
+    """A cursor chunk stopped in the reply loop ends the cursor instead of resuming later."""
     _index_with_docs(env)
     query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', 4]
     # The chunk's reply loop makes 3 calls, the last ones of the query.
@@ -1002,53 +1001,6 @@ def test_geoshape_collection_stop_replies_by_on_oom_policy(env):
     _reset(env)
 
 
-@skip(cluster=True)
-@env_spec(protocol=3)
-def test_cursor_admission_rejects_under_memory_pressure(env):
-    """No new client cursor is admitted under memory pressure: the admission check, the first
-    checkpoint call after the build stages, replies the OOM error. A cursor opened before keeps reading, through
-    the reply checkpoints. ON_OOM IGNORE admits it."""
-    _index_with_docs(env)
-    query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', 4]
-    for workers in [0, 2]:
-        _set_policies(env, 'return', 'return', workers)
-        errors, warnings = _oom_counters(env)
-        _memory_pressure(env, 'AT_CALL', B + 1)
-        env.expect(*query).error().contains(OOM_QUERY_ERROR)
-        env.assertEqual(_oom_counters(env), (errors + 1, warnings), message=workers)
-
-        res, cursor = env.cmd(*query)
-        env.assertNotEqual(cursor, 0)
-        _memory_pressure(env, 'AT_CALL', 1)
-        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-        env.assertEqual(len(res['results']), 1, message=(workers, res))
-        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=workers)
-        env.assertEqual(cursor, 0, message=workers)
-
-    change_oom_policy(env, 'ignore')
-    # Pressure lands on the admission call; it is one-shot, so later reads see none.
-    _memory_pressure(env, 'AT_CALL', B + 1)
-    res, cursor = env.cmd(*query)
-    env.assertEqual(len(res['results']), 4)
-    env.assertNotEqual(cursor, 0)
-    env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
-    _reset(env)
-
-
-@skip(cluster=False)
-@env_spec(protocol=3)
-def test_cursor_admission_rejects_through_the_coordinator(env):
-    """In a cluster the coordinator admits the client's cursor before it fans out; under pressure
-    there the query fails with the OOM error. The shards' cursors for the coordinator are not
-    checked (their pipeline checkpoints stop them with a warning)."""
-    _index_with_docs(env)
-    try:
-        _memory_pressure(env, 'AT_CALL', 1)
-        env.expect(*AGGREGATE, 'WITHCURSOR', 'COUNT', 4).error().contains(OOM_QUERY_ERROR)
-    finally:
-        _memory_pressure(env, 'RESET')
-
-
 def _open_cursors(env, index='idx'):
     """Client and coordinator-to-shard cursors on `index`. On the coordinator FT.INFO sums the
     shards, so hybrid shard subquery cursors (counted as `index_total` on each shard) are included."""
@@ -1062,65 +1014,6 @@ def _expect_no_open_cursors(env, message, index='idx'):
     with TimeLimit(10, f'cursor left open: {message}'):
         while _open_cursors(env, index):
             time.sleep(0.05)
-
-
-@skip(cluster=True)
-@env_spec(protocol=3)
-def test_cursor_admission_rejects_through_the_deferred_reply(env):
-    """With workers, ON_TIMEOUT FAIL and RETURN-STRICT hand the reply to the main thread. A cursor
-    refused there replies the OOM error once, counts it once, unblocks the client and leaves no
-    cursor."""
-    _index_with_docs(env)
-    query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', 4]
-    for on_timeout in ['fail', 'return-strict', 'return']:
-        _set_policies(env, on_timeout, 'return', 2)
-        errors, warnings = _oom_counters(env)
-        _memory_pressure(env, 'AT_CALL', B + 1)
-        env.expect(*query).error().contains(OOM_QUERY_ERROR)
-        _memory_pressure(env, 'RESET')
-        env.assertEqual(_oom_counters(env), (errors + 1, warnings), message=on_timeout)
-        # A second reply to the refused query would be read here instead of PONG.
-        env.assertEqual(env.cmd('PING'), True, message=on_timeout)
-        env.assertEqual(_open_cursors(env), 0, message=on_timeout)
-    _reset(env)
-
-
-@skip(cluster=False)
-@env_spec(protocol=3)
-def test_cursor_admission_after_the_withcount_fan_out(env):
-    """A WITHCOUNT cursor is admitted on the coordinator after the shards replied and opened
-    their cursors. Wherever pressure lands on the coordinator's process, the query replies rows
-    or the OOM error (at least once: at admission), and no coordinator or shard cursor stays
-    open."""
-    _index_with_docs(env)
-    query = ['FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@name', 'WITHCURSOR', 'COUNT', 4]
-    coordinator = env.getConnection(1)
-
-    def arm(*args):
-        coordinator.execute_command(debug_cmd(), 'MEMORY_PRESSURE', *args)
-
-    arm('AT_CALL', NEVER)
-    _, cursor = env.cmd(*query)
-    calls = coordinator.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
-    arm('RESET')
-    if cursor:
-        env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
-    errors = 0
-    try:
-        for at_call in range(1, calls + 1):
-            arm('AT_CALL', at_call)
-            try:
-                _, cursor = env.cmd(*query)
-                if cursor:
-                    env.cmd('FT.CURSOR', 'DEL', 'idx', cursor)
-            except redis_exceptions.ResponseError as e:
-                env.assertContains(OOM_QUERY_ERROR, str(e), message=at_call)
-                errors += 1
-            arm('RESET')
-            _expect_no_open_cursors(env, at_call)
-    finally:
-        arm('RESET')
-    env.assertGreater(errors, 0)
 
 
 def _is_oom_error(v):
@@ -1329,52 +1222,6 @@ def test_tagvals_shard_stop_through_the_coordinator_resp3(env):
         env.expect('FT.TAGVALS', 'tidx', 't').error().contains(OOM_QUERY_ERROR)
     finally:
         run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
-
-
-@skip(cluster=False)
-@env_spec(protocol=3)
-def test_shard_cursor_is_exempt_from_admission(env):
-    """A shard's cursor for the coordinator is not admission-checked: pressure armed on shard 2
-    at call B + 1, where a client cursor's admission would reject, lands instead on its first
-    buffered row (ON_TIMEOUT FAIL buffers). The shard keeps replying, so the query has no error,
-    carries the OOM warning, and still holds every other shard's rows. A rejected shard cursor
-    would drop all of its rows without a warning."""
-    _index_with_docs(env)
-    shard = env.getConnection(2)
-    query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', 100]
-
-    def run():
-        res, cursor = env.cmd(*query)
-        names = [row['extra_attributes']['name'] for row in res['results']]
-        warnings = list(res['warning'])
-        while cursor:
-            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-            names += [row['extra_attributes']['name'] for row in res['results']]
-            warnings += res['warning']
-        return names, warnings
-
-    shard_names = {key.decode().replace('doc', 'hello') if isinstance(key, bytes)
-                   else key.replace('doc', 'hello') for key in shard.execute_command('KEYS', 'doc*')}
-    run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'fail')
-    try:
-        allShards_change_oom_policy(env, 'return')
-        full, warnings = run()
-        env.assertEqual(sorted(full), sorted(f'hello{i}' for i in range(N_DOCS)))
-        env.assertEqual(warnings, [])
-
-        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', B + 1)
-        try:
-            names, warnings = run()
-        finally:
-            shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
-        env.assertEqual(len(names), len(set(names)), message=names)
-        env.assertEqual(set(full) - shard_names - set(names), set(), message=names)
-        env.assertContains(COORD_OOM_WARNING, warnings)
-        _expect_no_open_cursors(env, 'shard cursor exemption')
-    finally:
-        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
-        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
-        allShards_change_oom_policy(env, 'return')
 
 
 @skip(cluster=False)
