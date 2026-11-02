@@ -316,7 +316,9 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
     /// see [`DocLiveness`]. Blocks it rules clean are skipped without being decoded, unless
     /// `repair` is given.
     ///
-    /// If a doc does exist, then `repair` is called with it to run any repair calculations needed.
+    /// When the scan returns a delta, `repair` has been called with every surviving entry,
+    /// to run any repair calculations needed. A scan that returns `None` may call it with
+    /// none: with nothing to apply, there is nothing for it to repair.
     ///
     /// The higher-ranked bound (`for<'call> FnMut(&RSIndexResult<'call>, ..)`) scopes the
     /// record and context borrows to a single callback invocation: `repair` must accept any
