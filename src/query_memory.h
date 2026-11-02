@@ -70,7 +70,7 @@ bool QueryMemory_ShouldStopNow(QueryRequestLimits *limits);
  * an empty result with the OOM warning (ApplyOomStop), an FT.HYBRID the other
  * subquery's rows with it. `timeout` must not be NULL.
  */
-int QueryMemory_CheckBeforeExecution(QueryRequestTimeout *timeout, RSOomPolicy oomPolicy,
+int QueryMemory_CheckBeforeExecution(QueryRequestLimits *timeout, RSOomPolicy oomPolicy,
                                      QueryError *err);
 
 /**

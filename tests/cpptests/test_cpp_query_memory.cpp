@@ -382,7 +382,7 @@ TEST_F(QueryMemoryTest, BuildCheckReadsMemoryOnEveryCall) {
   fakeRatio = 1.0f;
   EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Fail, &err), REDISMODULE_ERR);
   EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_OUT_OF_MEMORY);
-  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
   QueryError_ClearError(&err);
 }
 
@@ -391,5 +391,5 @@ TEST_F(QueryMemoryTest, BuildCheckUnderReturnOnlyRequestsTheStop) {
   fakeRatio = 1.0f;
   EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Return, &err), REDISMODULE_OK);
   EXPECT_TRUE(QueryError_IsOk(&err));
-  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }

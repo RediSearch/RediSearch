@@ -1411,7 +1411,7 @@ static int checkBuildMemory(AREQ *req, QueryError *status) {
   if (!IsSearch(req) && !IsAggregate(req)) {
     return REDISMODULE_OK;
   }
-  return QueryMemory_CheckBeforeExecution(&req->base.timeout, req->base.reqConfig.oomPolicy,
+  return QueryMemory_CheckBeforeExecution(&req->base.limits, req->base.reqConfig.oomPolicy,
                                           status);
 }
 
@@ -1490,7 +1490,7 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
   }
   // A build checkpoint that stopped the query under ON_OOM RETURN leaves the pipeline to run:
   // its row source, built only now, must end at its first read.
-  if (rc == REDISMODULE_OK && QueryRequestTimeout_IsStopRequested(&req->base.timeout)) {
+  if (rc == REDISMODULE_OK && QueryRequestLimits_IsMemoryStopped(&req->base.limits)) {
     RP_EndRowSourceOnStop(AREQ_QueryProcessingCtx(req));
   }
 

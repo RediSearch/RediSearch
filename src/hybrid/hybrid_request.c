@@ -107,7 +107,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         // The first subquery's build is the job's first allocation, after any queue wait.
         // Only FAIL is decided at build; see the check after the pipeline below.
         if (i == 0 && areq->base.reqConfig.oomPolicy == OomPolicy_Fail &&
-            QueryMemory_CheckBeforeExecution(&areq->base.timeout, areq->base.reqConfig.oomPolicy,
+            QueryMemory_CheckBeforeExecution(&areq->base.limits, areq->base.reqConfig.oomPolicy,
                                              &areq->base.reply.err) != REDISMODULE_OK) {
             rc = REDISMODULE_ERR;
             break;
@@ -150,7 +150,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         // Only FAIL is decided here: the hybrid reply does not map an OOM stop yet, so under
         // RETURN a stop requested now would reply as a timeout.
         if (rc == REDISMODULE_OK && areq->base.reqConfig.oomPolicy == OomPolicy_Fail) {
-          rc = QueryMemory_CheckBeforeExecution(&areq->base.timeout, areq->base.reqConfig.oomPolicy,
+          rc = QueryMemory_CheckBeforeExecution(&areq->base.limits, areq->base.reqConfig.oomPolicy,
                                                 &areq->base.reply.err);
         }
         if (rc != REDISMODULE_OK) {

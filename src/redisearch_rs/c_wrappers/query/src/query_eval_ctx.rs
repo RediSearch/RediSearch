@@ -71,7 +71,7 @@ impl MetricRequestId {
 /// - `inNotSubTree` — temporarily set to `true` while evaluating the child of
 ///   a `NOT` node so that descendant `UNION` nodes know they can exit early
 ///   on the first match. Restored to its previous value afterwards.
-/// - `memoryCounter` — the amortization count of the term-expansion memory
+/// - `memoryCheckCounter` — the amortization count of the term-expansion memory
 ///   checkpoint, advanced through [`memory_counter_mut`](QueryEvalContext::memory_counter_mut).
 pub struct QueryEvalContext(NonNull<ffi::QueryEvalCtx>);
 
@@ -552,7 +552,7 @@ impl QueryEvalContext {
     /// every expansion node of this evaluation so that the count survives from one node to the
     /// next.
     pub const fn memory_counter_mut(&mut self) -> &mut u32 {
-        &mut self.as_mut().memoryCounter
+        &mut self.as_mut().memoryCheckCounter
     }
 
     /// Build the [`AnyTimeoutContext`] a query iterator should use for this
