@@ -23,15 +23,11 @@
 #include "util/misc.h"
 #include "util/timeout.h"
 
-static void QueryRequestLimits_ClearMemoryStop(QueryRequestLimits *limits) {
-  RS_AtomicBoolStoreRelaxed(&limits->memory.stopped, false);
-}
-
 void QueryRequestLimits_Init(QueryRequestLimits *limits, const TimeoutConfig *config) {
   RS_ASSERT(config);
   RS_ASSERT(config->queryTimeoutMS >= 0);
   limits->timeout.config = *config;
-  QueryRequestLimits_ClearMemoryStop(limits);
+  RS_AtomicBoolStoreRelaxed(&limits->memory.stopped, false);
   limits->memory.counter = 0;
   QueryRequestLimits_Reset(limits);
 }
@@ -41,8 +37,6 @@ void QueryRequestLimits_Reset(QueryRequestLimits *limits) {
 }
 
 void QueryRequestLimits_BeginCycle(QueryRequestLimits *limits, QueryRequestTimeoutKind kind) {
-  QueryRequestLimits_ClearMemoryStop(limits);
-  limits->memory.counter = 0;
   switch (kind) {
     case QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT:
       RS_AtomicBoolStoreRelaxed(&limits->timeout.source.blockedClientTimedOut, false);
