@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use rqe_core::DocId;
 use rqe_iterators::{NoOpChecker, RQEIterator, RQEIteratorError};
-use top_k::{Ascending, TopKIterator, TopKMode};
+use top_k::{Ascending, ScoreSource, TopKIterator, TopKMode};
 use vector_score_source::VectorScoreSource;
 use vector_score_source::test_utils::{
     ForcedMemoryRatio, TestIndex, asc, collect_ids, make_child, uniform_blob,
@@ -168,4 +168,20 @@ fn an_adhoc_scan_below_the_memory_limit_runs_to_the_end() {
     let expected: Vec<DocId> = (1..=FILTERED).rev().collect();
     assert_eq!(collect_ids(&mut it), expected);
     assert!(!memory_stopped(&index));
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn the_adhoc_checkpoint_reads_memory_once_per_interval() {
+    let index = TestIndex::flat(N, DIM);
+    let _pressure = ForcedMemoryRatio::set(1.0);
+    let mut source = index.source(uniform_blob(N as f32, DIM), N, K, N);
+
+    // The stop comes with the amortized read, not with the first call. A scan that replaced
+    // `check_stop` with an unamortized read would stop on call 1.
+    assert!(source.check_stop().is_ok());
+    assert!(!memory_stopped(&index));
+    let stopped_at = (2..=4096).find(|_| source.check_stop().is_err());
+    assert!(stopped_at.is_some(), "the interval read never happened");
+    assert!(memory_stopped(&index));
 }
