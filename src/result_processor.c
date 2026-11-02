@@ -284,27 +284,10 @@ static RSTimeoutPolicy RP_StopPolicy(const ResultProcessor *rp) {
   return qctx->timeoutPolicy;
 }
 
-static QueryStopReason RP_StopReason(const ResultProcessor *rp) {
-  const QueryRequestLimits *timeout = rp->parent->limits;
-  return timeout ? QueryRequestLimits_GetStopReason(timeout) : QUERY_STOP_REASON_NONE;
-}
-
-// The stop reason a buffering processor records when it keeps its rows past a stop.
-static QueryStopReason RP_HoldStop(const ResultProcessor *rp) {
-  const QueryStopReason reason = RP_StopReason(rp);
-  if (reason == QUERY_STOP_REASON_OOM) {
+// Records that a buffering processor keeps its rows past a memory stop, for the reply's warning.
+static void RP_HoldStop(const ResultProcessor *rp) {
+  if (rp->parent->limits && QueryRequestLimits_IsMemoryStopped(rp->parent->limits)) {
     rp->parent->oomCut = true;
-  }
-  return reason;
-}
-
-/*
- * A stop request lasts one cycle, but a buffered prefix may be yielded over several cursor reads.
- * The read that yields its end requests the stop again, so that read replies the stop's outcome.
- */
-static void RP_RenewStop(const ResultProcessor *rp, QueryStopReason reason) {
-  if (reason != QUERY_STOP_REASON_NONE) {
-    QueryRequestLimits_RequestStop(rp->parent->limits, reason);
   }
 }
 
@@ -799,8 +782,6 @@ typedef struct {
 
   // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
-  // Why the heap stopped filling, when a stop request (rather than a timeout) ended it.
-  QueryStopReason stopReason;
 
   // QueryMemory_ShouldStop counter for the heap's growth.
   uint32_t memoryCheckCalls;
@@ -817,9 +798,6 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     return RS_RESULT_OK;
   }
   int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
-  if (self->timedOut) {
-    RP_RenewStop(rp, self->stopReason);
-  }
   self->timedOut = false;
   return ret;
 }
@@ -853,7 +831,7 @@ static int rpsortNext_Stopped(ResultProcessor *rp, SearchResult *r) {
   rp->Next = rpsortNext_Yield;
   if (policy == TimeoutPolicy_Return) {
     self->timedOut = true;
-    self->stopReason = RP_HoldStop(rp);
+    RP_HoldStop(rp);
     return rpsortNext_Yield(rp, r);
   }
   return RS_RESULT_TIMEDOUT;
@@ -1868,8 +1846,6 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
    bool timedOut;
-   // Why the pool stopped filling, when a stop request (rather than a timeout) ended it.
-   QueryStopReason stopReason;
    // QueryMemory_ShouldStop counter for the pool's growth.
    uint32_t memoryCheckCalls;
  } RPMaxScoreNormalizer;
@@ -1888,9 +1864,6 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    if (length == 0) {
     // We've already yielded all results, return EOF
     int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
-    if (self->timedOut) {
-      RP_RenewStop(rp, self->stopReason);
-    }
     self->timedOut = false;
     return ret;
    }
@@ -1916,7 +1889,7 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
      return RS_RESULT_TIMEDOUT;
    }
    ((RPMaxScoreNormalizer *)rp)->timedOut = true;
-   ((RPMaxScoreNormalizer *)rp)->stopReason = RP_HoldStop(rp);
+   RP_HoldStop(rp);
    rp->Next = RPMaxScoreNormalizer_Yield;
    return rp->Next(rp, r);
  }
