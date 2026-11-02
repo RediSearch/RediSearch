@@ -964,58 +964,62 @@ def test_dumps_stop_with_the_oom_error(env):
     """FT.TAGVALS, FT.DICTDUMP and FT.SYNDUMP stream every value into a reply that has already
     started when memory runs out, so a stop replies the OOM error in place of the next value.
     ON_OOM IGNORE dumps everything."""
-    env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
-    conn = getConnectionByEnv(env)
-    for i in range(N_DOCS):
-        conn.execute_command('HSET', f't{i}', 't', f'tag{i}')
-        conn.execute_command('FT.DICTADD', 'dict', f'term{i}')
-        conn.execute_command('FT.SYNUPDATE', 'tidx', f'group{i}', f'syn{i}')
-    dumps = [('FT.TAGVALS', 'tidx', 't'), ('FT.DICTDUMP', 'dict'), ('FT.SYNDUMP', 'tidx')]
-    for dump in dumps:
-        env.assertEqual(len(env.cmd(*dump)), N_DOCS * (2 if dump[0] == 'FT.SYNDUMP' else 1))
+    try:
+        env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
+        conn = getConnectionByEnv(env)
+        for i in range(N_DOCS):
+            conn.execute_command('HSET', f't{i}', 't', f'tag{i}')
+            conn.execute_command('FT.DICTADD', 'dict', f'term{i}')
+            conn.execute_command('FT.SYNUPDATE', 'tidx', f'group{i}', f'syn{i}')
+        dumps = [('FT.TAGVALS', 'tidx', 't'), ('FT.DICTDUMP', 'dict'), ('FT.SYNDUMP', 'tidx')]
+        for dump in dumps:
+            env.assertEqual(len(env.cmd(*dump)), N_DOCS * (2 if dump[0] == 'FT.SYNDUMP' else 1))
 
-    # RESP2 flattens the FT.SYNDUMP map: term, groups, term, groups, term, error.
-    expected_values = {'FT.TAGVALS': 2, 'FT.DICTDUMP': 2, 'FT.SYNDUMP': 5}
-    for on_oom in ['return', 'fail']:
-        change_oom_policy(env, on_oom)
+        # RESP2 flattens the FT.SYNDUMP map: term, groups, term, groups, term, error.
+        expected_values = {'FT.TAGVALS': 2, 'FT.DICTDUMP': 2, 'FT.SYNDUMP': 5}
+        for on_oom in ['return', 'fail']:
+            change_oom_policy(env, on_oom)
+            for dump in dumps:
+                _memory_pressure(env, 'AT_CALL', 3)
+                res = env.cmd(*dump)
+                values, stopped = _split_dump(res)
+                env.assertEqual((len(values), stopped), (expected_values[dump[0]], True),
+                                message=(on_oom, res))
+
+        change_oom_policy(env, 'ignore')
         for dump in dumps:
             _memory_pressure(env, 'AT_CALL', 3)
-            res = env.cmd(*dump)
-            values, stopped = _split_dump(res)
-            env.assertEqual((len(values), stopped), (expected_values[dump[0]], True),
-                            message=(on_oom, res))
-
-    change_oom_policy(env, 'ignore')
-    for dump in dumps:
-        _memory_pressure(env, 'AT_CALL', 3)
-        env.assertFalse(_split_dump(env.cmd(*dump))[1], message=dump)
-    _reset(env)
+            env.assertFalse(_split_dump(env.cmd(*dump))[1], message=dump)
+    finally:
+        _reset(env)
 
 
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_dumps_stop_with_the_oom_error_resp3(env):
     """RESP3 carries the stopped dump's OOM error inside its set or map the same way."""
-    env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
-    conn = getConnectionByEnv(env)
-    for i in range(N_DOCS):
-        conn.execute_command('HSET', f't{i}', 't', f'tag{i}')
-        conn.execute_command('FT.DICTADD', 'dict', f'term{i}')
-        conn.execute_command('FT.SYNUPDATE', 'tidx', f'group{i}', f'syn{i}')
-    _memory_pressure(env, 'AT_CALL', 3)
-    res = env.cmd('FT.TAGVALS', 'tidx', 't')
-    values, stopped = _split_dump(res)
-    env.assertEqual((len(values), stopped), (2, True), message=res)
-    _memory_pressure(env, 'AT_CALL', 3)
-    res = env.cmd('FT.DICTDUMP', 'dict')
-    values, stopped = _split_dump(res)
-    env.assertEqual((len(values), stopped), (2, True), message=res)
-    env.assertTrue(all(v.startswith('term') for v in values), message=res)
-    _memory_pressure(env, 'AT_CALL', 3)
-    res = env.cmd('FT.SYNDUMP', 'tidx')
-    env.assertEqual(len(res), 3, message=res)
-    env.assertEqual(_split_dump(res.values())[1], True, message=res)
-    _reset(env)
+    try:
+        env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
+        conn = getConnectionByEnv(env)
+        for i in range(N_DOCS):
+            conn.execute_command('HSET', f't{i}', 't', f'tag{i}')
+            conn.execute_command('FT.DICTADD', 'dict', f'term{i}')
+            conn.execute_command('FT.SYNUPDATE', 'tidx', f'group{i}', f'syn{i}')
+        _memory_pressure(env, 'AT_CALL', 3)
+        res = env.cmd('FT.TAGVALS', 'tidx', 't')
+        values, stopped = _split_dump(res)
+        env.assertEqual((len(values), stopped), (2, True), message=res)
+        _memory_pressure(env, 'AT_CALL', 3)
+        res = env.cmd('FT.DICTDUMP', 'dict')
+        values, stopped = _split_dump(res)
+        env.assertEqual((len(values), stopped), (2, True), message=res)
+        env.assertTrue(all(v.startswith('term') for v in values), message=res)
+        _memory_pressure(env, 'AT_CALL', 3)
+        res = env.cmd('FT.SYNDUMP', 'tidx')
+        env.assertEqual(len(res), 3, message=res)
+        env.assertEqual(_split_dump(res.values())[1], True, message=res)
+    finally:
+        _reset(env)
 
 
 @skip(cluster=True)
