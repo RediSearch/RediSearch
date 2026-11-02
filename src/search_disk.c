@@ -809,9 +809,9 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
 }
 
 bool SearchDisk_RegisterSlotTrim(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
-                                 size_t numRanges, uint64_t *trimId, t_docId *maxDocId) {
+                                 size_t numRanges, t_docId *maxDocId) {
   RS_ASSERT(disk && disk->slotMigration.registerTrim);
-  return disk->slotMigration.registerTrim(index, ranges, numRanges, trimId, maxDocId);
+  return disk->slotMigration.registerTrim(index, ranges, numRanges, maxDocId);
 }
 
 void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,

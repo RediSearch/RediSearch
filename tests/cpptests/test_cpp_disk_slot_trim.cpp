@@ -35,7 +35,6 @@ namespace {
 struct TrimState {
   bool registerAccepted = true, readAccepted = true;
   bool logicalPending = false, emptyBatch = false;
-  uint64_t trimId = 42;
   t_docId maxDocId = 5;
   size_t registrations = 0, applyCalls = 0, gcRuns = 0;
   size_t batchCount = 1, batchesApplied = 0, batchApplyCalls = 0, failBatch = SIZE_MAX;
@@ -136,19 +135,18 @@ class DiskSlotTrimTest : public ::testing::Test {
     spec->gc = &gc;
     api.slotMigration.registerTrim = [](RedisSearchDiskIndexSpec *,
                                         const SearchDiskSlotRange *ranges, size_t count,
-                                        uint64_t *trimId, t_docId *maxDocId) {
+                                        t_docId *maxDocId) {
       ++state.registrations;
       if (!state.registerAccepted) return false;
       state.logicalPending = true;
       state.ranges.assign(ranges, ranges + count);
-      *trimId = state.trimId;
       *maxDocId = state.maxDocId;
       return true;
     };
     api.slotMigration.forEachPendingTrim =
         [](RedisSearchDiskIndexSpec *, SearchDiskPendingSlotTrimCallback callback, void *ctx) {
           if (state.logicalPending) {
-            callback(ctx, state.trimId, state.ranges.data(), state.ranges.size(), state.maxDocId);
+            callback(ctx, state.ranges.data(), state.ranges.size(), state.maxDocId);
           }
         };
     api.index.isBackgroundWorkPaused = [](RedisSearchDiskIndexSpec *) { return false; };
