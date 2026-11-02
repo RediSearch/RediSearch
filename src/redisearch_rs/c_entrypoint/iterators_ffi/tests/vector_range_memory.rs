@@ -12,10 +12,8 @@
 
 mod common;
 
-use ffi::{
-    QueryRequestTimeout_GetStopReason, QueryStopReason_QUERY_STOP_REASON_NONE,
-    QueryStopReason_QUERY_STOP_REASON_OOM, VecSimQueryReply_Order_BY_ID,
-};
+use ffi::VecSimQueryReply_Order_BY_ID;
+use std::sync::atomic::{AtomicBool, Ordering};
 use rqe_iterators::{RQEIterator, RQEIteratorError};
 use vector_score_source::test_utils::{ForcedMemoryRatio, TestIndex, collect_ids, uniform_blob};
 
@@ -23,6 +21,14 @@ use vector_score_source::test_utils::{ForcedMemoryRatio, TestIndex, collect_ids,
 extern crate redisearch_rs;
 // Mock or stub the ones that aren't provided by the line above
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
+
+/// Whether the fixture's request has a memory stop requested.
+fn memory_stopped(index: &TestIndex) -> bool {
+    // SAFETY: the fixture's request limits outlive this read; projecting the field reads nothing.
+    let flag = unsafe { &raw mut (*index.timeout_ptr()).memory.stopped };
+    // SAFETY: the flag is aligned and valid, and every access to it is atomic.
+    unsafe { AtomicBool::from_ptr(flag) }.load(Ordering::Relaxed)
+}
 
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
@@ -33,9 +39,7 @@ fn range_query_under_memory_pressure_stops_for_oom_then_eof() {
 
     let mut it = common::range_iterator(&index, &query, 400.0, VecSimQueryReply_Order_BY_ID, true);
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
-    // SAFETY: the fixture's timeout outlives this read.
-    let reason = unsafe { QueryRequestTimeout_GetStopReason(index.timeout_ptr()) };
-    assert_eq!(reason, QueryStopReason_QUERY_STOP_REASON_OOM);
+    assert!(memory_stopped(&index));
     assert!(matches!(it.read(), Ok(None)));
 }
 
@@ -55,7 +59,5 @@ fn range_query_below_the_memory_limit_runs() {
         true,
     ));
     assert_eq!(ids, (40..=60).collect::<Vec<_>>());
-    // SAFETY: the fixture's timeout outlives this read.
-    let reason = unsafe { QueryRequestTimeout_GetStopReason(index.timeout_ptr()) };
-    assert_eq!(reason, QueryStopReason_QUERY_STOP_REASON_NONE);
+    assert!(!memory_stopped(&index));
 }

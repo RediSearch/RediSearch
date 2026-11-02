@@ -17,7 +17,7 @@ extern "C" {
 
 // Forwards to the test-mockable `vecsimTimeoutCallback`. Called from the Rust
 // vector top-k adhoc-BF scan so it polls the query deadline like the C path does.
-int RS_VecSimCheckTimeout(QueryRequestTimeout *timeout);
+int RS_VecSimCheckTimeout(QueryRequestLimits *timeout);
 
 // The memory checkpoint of the Rust vector iterators: once per VecSim search, after a range
 // query returns its reply and before a filtered top-k fetches a further batch. Returns nonzero

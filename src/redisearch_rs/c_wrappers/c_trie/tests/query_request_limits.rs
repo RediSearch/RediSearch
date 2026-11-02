@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Integration tests for [`QueryRequestTimeoutHandle`], the view of a query
+//! Integration tests for [`QueryRequestLimitsHandle`], the view of a query
 //! request's timeout.
 //!
 //! Each test builds the C timeout struct directly, with no C call involved, so
@@ -20,12 +20,12 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
 use std::{mem, ptr};
 
-use c_trie::QueryRequestTimeoutHandle;
+use c_trie::QueryRequestLimitsHandle;
 
-const fn timeout_of_kind(kind: ffi::QueryRequestTimeoutKind) -> ffi::QueryRequestTimeout {
+const fn timeout_of_kind(kind: ffi::QueryRequestTimeoutKind) -> ffi::QueryRequestLimits {
     // SAFETY: every field in the C timeout struct accepts an all-zero value.
-    let mut timeout: ffi::QueryRequestTimeout = unsafe { mem::zeroed() };
-    timeout.kind = kind;
+    let mut timeout: ffi::QueryRequestLimits = unsafe { mem::zeroed() };
+    timeout.timeout.kind = kind;
     timeout
 }
 
@@ -33,12 +33,12 @@ const fn timeout_of_kind(kind: ffi::QueryRequestTimeoutKind) -> ffi::QueryReques
 fn clock_deadline_is_reported_for_a_clock_cycle() {
     let mut timeout =
         timeout_of_kind(ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-    timeout.source.clock.deadline = ffi::timespec {
+    timeout.timeout.source.clock.deadline = ffi::timespec {
         tv_sec: 12,
         tv_nsec: 34,
     };
     // SAFETY: `timeout` outlives the handle and is not otherwise accessed while it is borrowed.
-    let handle = unsafe { QueryRequestTimeoutHandle::from_raw(ptr::from_mut(&mut timeout)) }
+    let handle = unsafe { QueryRequestLimitsHandle::from_raw(ptr::from_mut(&mut timeout)) }
         .expect("the timeout pointer is non-null");
 
     let deadline = handle
@@ -57,7 +57,7 @@ fn clock_deadline_is_absent_for_other_sources() {
         let mut timeout = timeout_of_kind(kind);
         // SAFETY: `timeout` outlives the handle and is not otherwise accessed while it is
         // borrowed.
-        let handle = unsafe { QueryRequestTimeoutHandle::from_raw(ptr::from_mut(&mut timeout)) }
+        let handle = unsafe { QueryRequestLimitsHandle::from_raw(ptr::from_mut(&mut timeout)) }
             .expect("the timeout pointer is non-null");
 
         assert!(handle.clock_deadline().is_none(), "kind {kind}");

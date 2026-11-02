@@ -25,7 +25,7 @@ use std::{
     ptr,
 };
 
-use c_trie::{FuzzyWalk, LoweredPattern, QueryRequestTimeoutHandle, TermsTrie, TrieTerm};
+use c_trie::{FuzzyWalk, LoweredPattern, QueryRequestLimitsHandle, TermsTrie, TrieTerm};
 
 fn trie_term(term: &str) -> TrieTerm {
     // SAFETY: every test input is the complete byte representation of a
@@ -33,11 +33,11 @@ fn trie_term(term: &str) -> TrieTerm {
     unsafe { TrieTerm::from_bytes_unchecked(Box::from(term.as_bytes())) }
 }
 
-fn clock_timeout(deadline: ffi::timespec) -> ffi::QueryRequestTimeout {
+fn clock_timeout(deadline: ffi::timespec) -> ffi::QueryRequestLimits {
     // SAFETY: every field in the C timeout struct accepts an all-zero value.
-    let mut timeout: ffi::QueryRequestTimeout = unsafe { mem::zeroed() };
-    timeout.kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
-    timeout.source.clock.deadline = deadline;
+    let mut timeout: ffi::QueryRequestLimits = unsafe { mem::zeroed() };
+    timeout.timeout.kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+    timeout.timeout.source.clock.deadline = deadline;
     timeout
 }
 
@@ -286,7 +286,7 @@ fn iterate_contains_some_and_none_timeout_agree() {
         let mut timeout = clock_timeout(deadline);
         // SAFETY: `timeout` remains live with its clock source active for the walk, and the test
         // does not access it concurrently.
-        let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ptr::from_mut(&mut timeout)) }
+        let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ptr::from_mut(&mut timeout)) }
             .expect("the timeout pointer is non-null");
         let mut some_hits = HashSet::new();
         trie.iterate_contains(&runes, true, true, Some(timeout), |term, _| {
@@ -316,7 +316,7 @@ fn retained_timeout_handle_follows_source_changes_between_walks() {
         let timeout_ptr = ptr::from_mut(&mut timeout);
         // SAFETY: `timeout` remains live and at a stable address for every walk. Source changes
         // happen only between walks, never while C is using the handle.
-        let timeout_handle = unsafe { QueryRequestTimeoutHandle::from_raw(timeout_ptr) }
+        let timeout_handle = unsafe { QueryRequestLimitsHandle::from_raw(timeout_ptr) }
             .expect("the timeout pointer is non-null");
         let runes = to_runes("ap");
 
@@ -330,8 +330,9 @@ fn retained_timeout_handle_follows_source_changes_between_walks() {
         // SAFETY: the walk above is complete, so the handle is not currently being used by C.
         // The `UnsafeCell`-backed handle permits C-owned state to change between operations.
         unsafe {
-            (*timeout_ptr).source.blockedClientTimedOut = true;
-            (*timeout_ptr).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
+            (*timeout_ptr).timeout.source.blockedClientTimedOut = true;
+            (*timeout_ptr).timeout.kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
         }
         let mut blocked_client_hits = HashSet::new();
         trie.iterate_contains(&runes, true, true, Some(timeout_handle), |term, _| {
@@ -345,9 +346,10 @@ fn retained_timeout_handle_follows_source_changes_between_walks() {
 
         // SAFETY: as above, the previous walk is complete before selecting the clock member.
         unsafe {
-            (*timeout_ptr).source.clock.deadline = deadline;
-            (*timeout_ptr).source.clock.counter = 0;
-            (*timeout_ptr).kind = ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+            (*timeout_ptr).timeout.source.clock.deadline = deadline;
+            (*timeout_ptr).timeout.source.clock.counter = 0;
+            (*timeout_ptr).timeout.kind =
+                ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
         }
         let mut rearmed_clock_hits = HashSet::new();
         trie.iterate_contains(&runes, true, true, Some(timeout_handle), |term, _| {
@@ -891,7 +893,7 @@ fn iterate_wildcard_some_and_none_timeout_agree() {
         let mut timeout = clock_timeout(deadline);
         // SAFETY: `timeout` remains live with its clock source active for the walk, and the test
         // does not access it concurrently.
-        let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ptr::from_mut(&mut timeout)) }
+        let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ptr::from_mut(&mut timeout)) }
             .expect("the timeout pointer is non-null");
         let mut some_hits = HashSet::new();
         trie.iterate_wildcard(&pattern("ap*"), Some(timeout), |term, _| {
