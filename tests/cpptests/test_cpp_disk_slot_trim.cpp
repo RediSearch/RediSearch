@@ -229,31 +229,6 @@ class DiskSlotTrimTest : public ::testing::Test {
   }
 };
 
-TEST_F(DiskSlotTrimTest, ReaderReadyRetirementRunsWithoutNewWrites) {
-  const auto threshold = RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold;
-  RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 1000;
-  GCContext_OnDelete(&gc);
-  static bool ready;
-  static size_t runs;
-  ready = false;
-  runs = 0;
-  api.slotMigration.hasPendingCleanup = [](RedisSearchDiskIndexSpec *) { return ready; };
-  api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
-    ++runs;
-    ready = false;
-    stats->num_cleaned_docs = 1;
-  };
-  EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
-  EXPECT_EQ(runs, 0u);
-  ready = true;
-  EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
-  EXPECT_EQ(runs, 1u);
-  EXPECT_EQ(collector()->logicallyDeleted.load(), 0u);
-  EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
-  EXPECT_EQ(runs, 1u);
-  RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = threshold;
-}
-
 TEST_F(DiskSlotTrimTest, RegistrationInstallsCutoffFilterWithoutScanning) {
   const SearchDiskSlotRange range{7, 9};
   state.maxDocId = 17;

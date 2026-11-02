@@ -147,7 +147,7 @@ struct IndexSpecSlotTrimJob {
   struct IndexSpecSlotTrimJob *next;
 };
 
-// Only shutdown takes this lock exclusively; normal main-thread callbacks never wait for I/O.
+// Shutdown drains complete worker turns before closing disk handles.
 static pthread_rwlock_t diskJobRunLock = PTHREAD_RWLOCK_INITIALIZER;
 static atomic_bool diskJobsStopped = false;
 static pthread_mutex_t diskApplyLock = PTHREAD_MUTEX_INITIALIZER;
