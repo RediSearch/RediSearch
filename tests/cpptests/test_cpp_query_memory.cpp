@@ -23,7 +23,7 @@ namespace {
 float fakeRatio = 0;
 std::atomic<unsigned> fakeRatioReads = 0;
 
-float FakeGetRawUsedMemoryRatio() {
+float FakeGetUsedMemoryRatioEstimate() {
   fakeRatioReads.fetch_add(1, std::memory_order_relaxed);
   return fakeRatio;
 }
@@ -31,9 +31,9 @@ float FakeGetRawUsedMemoryRatio() {
 class QueryMemoryTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    previousApi_ = RedisModule_GetRawUsedMemoryRatio;
+    previousApi_ = RedisModule_GetUsedMemoryRatioEstimate;
     previousPolicy_ = RSGlobalConfig.requestConfigParams.oomPolicy;
-    RedisModule_GetRawUsedMemoryRatio = FakeGetRawUsedMemoryRatio;
+    RedisModule_GetUsedMemoryRatioEstimate = FakeGetUsedMemoryRatioEstimate;
     RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
     fakeRatio = 0;
     fakeRatioReads = 0;
@@ -43,7 +43,7 @@ class QueryMemoryTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    RedisModule_GetRawUsedMemoryRatio = previousApi_;
+    RedisModule_GetUsedMemoryRatioEstimate = previousApi_;
     RSGlobalConfig.requestConfigParams.oomPolicy = previousPolicy_;
     QueryMemory_SetRatioReadInterval(0);
   }
@@ -51,7 +51,7 @@ class QueryMemoryTest : public ::testing::Test {
   QueryRequestLimits timeout_ = {};
 
  private:
-  decltype(RedisModule_GetRawUsedMemoryRatio) previousApi_;
+  decltype(RedisModule_GetUsedMemoryRatioEstimate) previousApi_;
   RSOomPolicy previousPolicy_;
 };
 
@@ -106,7 +106,7 @@ TEST_F(QueryMemoryTest, OffWhenOnOomIsIgnore) {
 
 TEST_F(QueryMemoryTest, OffWithoutTheMemoryApi) {
   QueryMemory_SetRatioReadInterval(1);
-  RedisModule_GetRawUsedMemoryRatio = nullptr;
+  RedisModule_GetUsedMemoryRatioEstimate = nullptr;
   uint32_t counter = 0;
   for (int i = 0; i < 10; ++i) {
     EXPECT_FALSE(QueryMemory_ShouldStop(&timeout_, &counter));

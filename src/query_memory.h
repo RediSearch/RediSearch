@@ -39,7 +39,7 @@ extern "C" {
  *
  * The memory check is off, and only the memory stop and the timeout flag are
  * reported, when ON_OOM is IGNORE, when no memory limit is configured, and when the server lacks
- * RedisModule_GetRawUsedMemoryRatio. Callable with or without the GIL, but
+ * RedisModule_GetUsedMemoryRatioEstimate. Callable with or without the GIL, but
  * calls for one request must be serialized like QueryRequestLimits_IsTimedOut,
  * since they share memory.counter; use QueryMemory_ShouldStopNow where sites
  * may run concurrently. The ON_OOM policy is the global one, read without

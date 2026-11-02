@@ -31,7 +31,7 @@ static bool underMemoryPressure(void) {
       OomPolicy_Ignore) {
     return false;
   }
-  return RedisMemory_GetRawUsedMemoryRatio() >= REDIS_MEMORY_OOM_RATIO;
+  return RedisMemory_GetUsedMemoryRatioEstimate() >= REDIS_MEMORY_OOM_RATIO;
 }
 
 static bool readMemoryAndStop(QueryRequestLimits *limits) {
