@@ -799,7 +799,7 @@ static int rpnetRead(ResultProcessor *self, SearchResult *r, bool draining) {
       // For WITHCOUNT, totalResults was set once at Phase B start by
       // executeAggregateDeferred from the shard-summed total accumulated on the
       // IO thread; it is preserved across cursor reads by finishSendChunk.
-      if (!nc->withCount) {
+      if (!nc->withCount || nc->countStreamedRows) {
         // Without WITHCOUNT, count rows in batch for backward compatibility
         nc->base.parent->totalResults += MRReply_Length(rows);
       }
@@ -808,7 +808,11 @@ static int rpnetRead(ResultProcessor *self, SearchResult *r, bool draining) {
       nc->curIdx = 1;
       // For WITHCOUNT, totalResults was set once at Phase B start by
       // executeAggregateDeferred (see RESP3 branch above).
-      if (!nc->withCount) {
+      if (nc->countStreamedRows) {
+        // Element 0 is the shard's WITHCOUNT total, repeated on every cursor read: count the rows.
+        const size_t len = MRReply_Length(rows);
+        nc->base.parent->totalResults += len > 0 ? len - 1 : 0;
+      } else if (!nc->withCount) {
         // Without WITHCOUNT, accumulate total_results from each shard reply
         nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
       }

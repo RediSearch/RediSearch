@@ -1010,13 +1010,8 @@ def test_aggregate_withcount_stopped_before_fanout_resp2():
     _test_aggregate_withcount_stopped_before_fanout(Env(protocol=2))
 
 
-@skip(cluster=False)
-def test_aggregate_withcount_io_thread_stop_dispatches():
-    """A memory stop found by the IO thread while the WITHCOUNT first-reply barrier still waits
-    for a shard dispatches the coordinator pipeline at once: the query replies with the
-    coordinator OOM warning without waiting for that shard's first reply."""
+def _test_aggregate_withcount_io_thread_stop_dispatches(env):
     # Workers run the shard queries, so a shard parked at a sync point still answers SYNC_POINT.
-    env = Env(protocol=3, moduleArgs='WORKERS 1')
     skipIfNoEnableAssert(env)
     if env.shardsCount < 3:
         env.skip()
@@ -1052,11 +1047,34 @@ def test_aggregate_withcount_io_thread_stop_dispatches():
     env.assertTrue(replied_while_parked)
     res = result[0]
     env.assertFalse(isinstance(res, Exception), message=res)
-    env.assertLess(len(res['results']), n_docs)
-    env.assertContains(COORD_OOM_WARNING, res['warning'], message=res['warning'])
+    rows = aggregate_rows(env, res)
+    env.assertLess(len(rows), n_docs)
+    # Queued chunks repeat the shard total: it must not be added once per chunk.
+    total = res['total_results'] if env.protocol == 3 else res[0]
+    env.assertLessEqual(len(rows), total, message=res)
+    env.assertLessEqual(total, n_docs, message=res)
+    if env.protocol == 3:
+        env.assertContains(COORD_OOM_WARNING, res['warning'], message=res['warning'])
     wait_for_condition(lambda: (cursor_count(env, 'big') == 0, {}),
                        'Timeout waiting for the shard cursors to end')
     expect_clean_end(env, coord)
+
+
+@skip(cluster=False)
+def test_aggregate_withcount_io_thread_stop_dispatches():
+    """A memory stop found by the IO thread while the WITHCOUNT first-reply barrier still waits
+    for a shard dispatches the coordinator pipeline at once: the query replies with the
+    coordinator OOM warning without waiting for that shard's first reply."""
+    _test_aggregate_withcount_io_thread_stop_dispatches(
+        Env(protocol=3, moduleArgs='WORKERS 1'))
+
+
+@skip(cluster=False)
+def test_aggregate_withcount_io_thread_stop_dispatches_resp2():
+    """As the RESP3 case; with several chunks queued from a fast shard, total_results counts the
+    rows read, not the repeated shard total once per chunk."""
+    _test_aggregate_withcount_io_thread_stop_dispatches(
+        Env(protocol=2, moduleArgs='WORKERS 1'))
 
 
 def _test_aggregate_withcount_reader_stop(env):

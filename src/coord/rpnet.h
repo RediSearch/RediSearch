@@ -58,6 +58,11 @@ typedef struct {
   // finishSendChunk.
   bool withCount;
 
+  // Set with withCount when a memory stop released the WITHCOUNT barrier before every shard's
+  // total was summed: totalResults then counts the rows decoded from each chunk instead, as the
+  // shard total is repeated on every cursor read and would be added once per queued chunk.
+  bool countStreamedRows;
+
   // Drain-only mode: rpnetNext pops already-queued replies without blocking
   // and treats an empty channel as EOF. Set by RETURN-STRICT main-thread
   // serialization after BG has exited the pipeline, so a plain bool is safe.

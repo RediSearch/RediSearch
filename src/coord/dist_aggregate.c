@@ -424,8 +424,8 @@ static void executeAggregateDeferred(void *arg) {
     // into qctx so the result emitter picks it up.
     if (nc->withCount && barrierReleasedEarly) {
       // The barrier holds only part of the shards' totals, which could be below the rows the
-      // pipeline reads. Count rows as they stream instead, as without WITHCOUNT.
-      nc->withCount = false;
+      // pipeline reads. Count the rows rpnetRead decodes instead.
+      nc->countStreamedRows = true;
     } else if (nc->withCount) {
       qctx->totalResults = totalResults;
     }
