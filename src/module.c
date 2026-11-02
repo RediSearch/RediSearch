@@ -3661,6 +3661,13 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
     }
   }
 
+  // The fan-out stopped for OOM under ON_OOM FAIL: cleanup replies the OOM error, so the kept
+  // replies cannot be returned. Retained shard errors above keep their precedence.
+  if (!fromTimeout && stoppedBeforeReducing && searchStoppedForOom(req) &&
+      req->base.reqConfig.oomPolicy == OomPolicy_Fail) {
+    goto cleanup;
+  }
+
   // Get reply offsets
   getReplyOffsets(rCtx->searchCtx, &rCtx->offsets);
 
