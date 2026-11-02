@@ -19,7 +19,7 @@ use c_trie::{SuffixMode, SuffixTrie, TrieTerm};
 use dict::{KeysDictType, OwnedDict};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_gc::{
-    DocExistence, GcError,
+    GcError,
     scanners::terms::{
         TermEntry, TermsCursor, apply_terms, apply_terms_with, collect_terms, receive_terms,
         scan_term, scan_terms_after, snapshot_term,
@@ -134,7 +134,7 @@ impl TestSpec {
     fn collect(&self) -> Vec<u8> {
         let guard = self.read_guard();
         let mut buf = Vec::new();
-        collect_terms(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
+        collect_terms(&mut buf, &guard, |id| guard.doc_exists(id)).unwrap();
         buf
     }
 
@@ -511,17 +511,6 @@ fn receive_empty_term_returns_codec_error() {
     ));
 }
 
-/// Reports every doc id the fixtures use as present, whatever the spec's
-/// document table says, as a snapshot taken before those docs were deleted.
-fn all_live<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
-    const WORDS: usize = 1 << 14;
-    DocExistence::with_bitmap(
-        guard,
-        vec![u64::MAX; WORDS].into_boxed_slice(),
-        (WORDS * 64 - 1) as u64,
-    )
-}
-
 /// The scanner must answer existence from `docs`: the fixture's document table
 /// is empty, so a scanner that looked docs up itself would collect them all.
 #[test]
@@ -530,7 +519,7 @@ fn docs_live_in_the_snapshot_are_kept() {
     let spec = TestSpec::create([(&b"apple"[..], 3)]);
     let guard = spec.read_guard();
     let mut buf = Vec::new();
-    collect_terms(&mut buf, &guard, &all_live(&guard)).unwrap();
+    collect_terms(&mut buf, &guard, |_| true).unwrap();
     assert_only_terminator(&buf);
 }
 

@@ -12,7 +12,6 @@
 
 pub mod codec;
 pub mod cycle;
-pub mod doc_existence;
 pub mod frame;
 pub mod io_result_ext;
 pub mod pipe;
