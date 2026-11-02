@@ -25,36 +25,36 @@ extern "C" {
  * The query path's single "should I stop?" check for memory pressure, and its
  * only reader of process memory.
  *
- * Returns true when the query should stop: a stop was already requested, the
- * blocked-client timeout fired (see QueryRequest_ShouldStop), or this call
+ * Returns true when the query should stop: a memory stop was already
+ * requested, the blocked-client timeout fired (see QueryRequest_ShouldStop), or this call
  * found memory at or above REDIS_MEMORY_OOM_RATIO, in which case it requests
- * a stop with reason OOM first. Memory is read when either the caller's
- * `counter` or the request's shared memoryCounter reaches
+ * a memory stop first. Memory is read when either the caller's
+ * `counter` or the request's shared memory.counter reaches
  * QUERY_MEMORY_RATIO_READ_INTERVAL, so calls from all sites of a request add
  * up and a site called fewer times than the interval still contributes to a
  * read. A read resets both counters. Priming `counter` to the interval minus
  * one reads on the next call. The other calls only read the request's flags.
  * Each site owns its counter, zero-initialized, and must not share it between
- * threads. With a NULL `timeout` only `counter` counts.
+ * threads. With a NULL `limits` only `counter` counts.
  *
- * The memory check is off, and only the stop flags are reported, when ON_OOM
- * is IGNORE, when no memory limit is configured, and when the server lacks
+ * The memory check is off, and only the memory stop and the timeout flag are
+ * reported, when ON_OOM is IGNORE, when no memory limit is configured, and when the server lacks
  * RedisModule_GetRawUsedMemoryRatio. Callable with or without the GIL, but
- * calls for one request must be serialized like QueryRequestTimeout_IsTimedOut,
- * since they share memoryCounter; use QueryMemory_ShouldStopNow where sites
+ * calls for one request must be serialized like QueryRequestLimits_IsTimedOut,
+ * since they share memory.counter; use QueryMemory_ShouldStopNow where sites
  * may run concurrently. The ON_OOM policy is the global one, read without
- * synchronization. A NULL `timeout` (no owning request) still reports pressure
- * but records no stop.
+ * synchronization. A NULL `limits` (no owning request) still reports pressure
+ * but records no memory stop.
  */
-bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter);
+bool QueryMemory_ShouldStop(QueryRequestLimits *limits, uint32_t *counter);
 
 /**
  * Like QueryMemory_ShouldStop, but reads memory on every call and touches no
  * counter, so it is safe on several threads at once for one request. Reports
- * an already requested stop, and requests an OOM stop on pressure. For sites
+ * an already requested memory stop, and requests one on pressure. For sites
  * that are rare or expensive enough to make every call worth a read.
  */
-bool QueryMemory_ShouldStopNow(QueryRequestTimeout *timeout);
+bool QueryMemory_ShouldStopNow(QueryRequestLimits *limits);
 
 /**
  * Debug and test override of QUERY_MEMORY_RATIO_READ_INTERVAL for every

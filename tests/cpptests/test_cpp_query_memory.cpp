@@ -39,7 +39,7 @@ class QueryMemoryTest : public ::testing::Test {
     fakeRatioReads = 0;
 
     TimeoutConfig timeoutConfig = {0, TimeoutPolicy_Return};
-    QueryRequestTimeout_Init(&timeout_, &timeoutConfig);
+    QueryRequestLimits_Init(&timeout_, &timeoutConfig);
   }
 
   void TearDown() override {
@@ -48,7 +48,7 @@ class QueryMemoryTest : public ::testing::Test {
     QueryMemory_SetRatioReadInterval(0);
   }
 
-  QueryRequestTimeout timeout_ = {};
+  QueryRequestLimits timeout_ = {};
 
  private:
   decltype(RedisModule_GetRawUsedMemoryRatio) previousApi_;
@@ -66,18 +66,17 @@ TEST_F(QueryMemoryTest, ReadsMemoryOncePerInterval) {
   }
 }
 
-TEST_F(QueryMemoryTest, PressureRequestsAnOomStop) {
+TEST_F(QueryMemoryTest, PressureRequestsAMemoryStop) {
   QueryMemory_SetRatioReadInterval(1);
   uint32_t counter = 0;
   fakeRatio = 0.99f;
   EXPECT_FALSE(QueryMemory_ShouldStop(&timeout_, &counter));
-  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_NONE);
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 
   fakeRatio = 1.0f;
   EXPECT_TRUE(QueryMemory_ShouldStop(&timeout_, &counter));
-  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
   // The stop is what every stop-check site of this request now observes.
-  EXPECT_TRUE(QueryRequestTimeout_IsStopRequested(&timeout_));
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 
   // Sticky without reading memory again, even if pressure is gone.
   fakeRatio = 0;
@@ -86,19 +85,10 @@ TEST_F(QueryMemoryTest, PressureRequestsAnOomStop) {
   EXPECT_EQ(fakeRatioReads.load(), reads);
 }
 
-TEST_F(QueryMemoryTest, AnEarlierStopKeepsItsReason) {
-  QueryMemory_SetRatioReadInterval(1);
-  uint32_t counter = 0;
-  QueryRequestTimeout_RequestStop(&timeout_, QUERY_STOP_REASON_TIMEOUT);
-  fakeRatio = 2.0f;
-  EXPECT_TRUE(QueryMemory_ShouldStop(&timeout_, &counter));
-  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_TIMEOUT);
-}
-
 TEST_F(QueryMemoryTest, ReportsTheBlockedClientTimeout) {
   uint32_t counter = 0;
-  QueryRequestTimeout_BeginCycle(&timeout_, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  QueryRequestTimeout_MarkTimedOut(&timeout_);
+  QueryRequestLimits_BeginCycle(&timeout_, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_MarkTimedOut(&timeout_);
   EXPECT_TRUE(QueryMemory_ShouldStop(&timeout_, &counter));
   EXPECT_EQ(fakeRatioReads.load(), 0u);
 }
@@ -111,7 +101,7 @@ TEST_F(QueryMemoryTest, OffWhenOnOomIsIgnore) {
   for (int i = 0; i < 10; ++i) {
     EXPECT_FALSE(QueryMemory_ShouldStop(&timeout_, &counter));
   }
-  EXPECT_FALSE(QueryRequestTimeout_IsStopRequested(&timeout_));
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 
 TEST_F(QueryMemoryTest, OffWithoutTheMemoryApi) {
@@ -121,7 +111,7 @@ TEST_F(QueryMemoryTest, OffWithoutTheMemoryApi) {
   for (int i = 0; i < 10; ++i) {
     EXPECT_FALSE(QueryMemory_ShouldStop(&timeout_, &counter));
   }
-  EXPECT_FALSE(QueryRequestTimeout_IsStopRequested(&timeout_));
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 
 TEST_F(QueryMemoryTest, OffWithoutAMemoryLimit) {
@@ -155,8 +145,8 @@ TEST_F(QueryMemoryTest, SitesBelowTheIntervalShareTheRequestCount) {
   EXPECT_EQ(fakeRatioReads.load(), 0u);
   EXPECT_TRUE(QueryMemory_ShouldStop(&timeout_, &siteB));
   EXPECT_EQ(fakeRatioReads.load(), 1u);
-  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
-  EXPECT_EQ(timeout_.memoryCounter, 0u);
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
+  EXPECT_EQ(timeout_.memory.counter, 0u);
   EXPECT_EQ(siteB, 0u);
 }
 
@@ -167,7 +157,7 @@ TEST_F(QueryMemoryTest, APrimedCounterStillReadsImmediately) {
   EXPECT_TRUE(QueryMemory_ShouldStop(&timeout_, &counter));
   EXPECT_EQ(fakeRatioReads.load(), 1u);
   EXPECT_EQ(counter, 0u);
-  EXPECT_EQ(timeout_.memoryCounter, 0u);
+  EXPECT_EQ(timeout_.memory.counter, 0u);
 }
 
 TEST_F(QueryMemoryTest, WithoutARequestEachSiteCountsAlone) {
@@ -183,17 +173,17 @@ TEST_F(QueryMemoryTest, WithoutARequestEachSiteCountsAlone) {
 }
 
 TEST_F(QueryMemoryTest, ShouldStopNowReadsWithoutTouchingCounters) {
-  timeout_.memoryCounter = 5;
+  timeout_.memory.counter = 5;
   fakeRatio = 0.5f;
   EXPECT_FALSE(QueryMemory_ShouldStopNow(&timeout_));
   EXPECT_EQ(fakeRatioReads.load(), 1u);
-  EXPECT_EQ(timeout_.memoryCounter, 5u);
+  EXPECT_EQ(timeout_.memory.counter, 5u);
 
   fakeRatio = 1.0f;
   EXPECT_TRUE(QueryMemory_ShouldStopNow(&timeout_));
   EXPECT_EQ(fakeRatioReads.load(), 2u);
-  EXPECT_EQ(timeout_.memoryCounter, 5u);
-  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
+  EXPECT_EQ(timeout_.memory.counter, 5u);
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 
   // An already requested stop is reported without another read.
   EXPECT_TRUE(QueryMemory_ShouldStopNow(&timeout_));
@@ -215,7 +205,7 @@ TEST_F(QueryMemoryTest, ConcurrentCheckpointsStopTheSameRequest) {
     checkpoint.join();
   }
   EXPECT_EQ(stopped.load(), 4);
-  EXPECT_EQ(QueryRequestTimeout_GetStopReason(&timeout_), QUERY_STOP_REASON_OOM);
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 
 }  // namespace
