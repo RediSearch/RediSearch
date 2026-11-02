@@ -203,6 +203,8 @@ pub fn scan_tags_after(
         if fs.types().contains(FieldSpecType::Tag)
             && let Some(tag_index) = fetch_tag_index(fs)
         {
+            let field_index = ffi::t_fieldIndex::try_from(cursor.field_index)
+                .expect("a spec has fewer fields than a field index can count");
             // SAFETY: an in-memory C tag index owns its values map, created by
             // `NewTrieMap` as a boxed `TrieMapOpaque`, and the read lock keeps it
             // alive and unmodified for this borrow.
@@ -223,7 +225,7 @@ pub fn scan_tags_after(
                     let ii = unsafe { &*value.cast::<InvertedIndex>() };
                     if let Ok(Some(delta)) = ii.scan_gc(|id| spec.doc_exists(id)) {
                         found.push(TagEntry {
-                            field_name: fs.field_name().secret_value().to_bytes().into(),
+                            field_index,
                             tag_index_unique_id: tag_index.uniqueId,
                             tag: tag.as_slice().into(),
                             inverted_index_unique_id: u32::from(ii.unique_id()),
