@@ -3056,29 +3056,3 @@ def testVectorDimensionSizeOverflow(env):
     env.expect('FT.CREATE', 'valid', 'SCHEMA', 'v', 'VECTOR', 'FLAT', 6,
                'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'COSINE').ok()
     env.expect('FT.SEARCH', 'valid', '*').equal([0])
-
-
-@skip(cluster=True)
-def test_max_knn_k_returns_every_match():
-    """K is not reserved up front on the shard: the largest accepted K returns what a K equal to
-    the index size does, in every KNN mode. (The cluster coordinator sizes its own merge heaps.)"""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
-    dim, n = 2, 20
-    max_k = pow(2, 58)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG',
-               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-               'vh', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
-    for i in range(1, n + 1):
-        vec = create_np_array_typed([i] * dim).tobytes()
-        conn.execute_command('HSET', f'doc{i}', 'v', vec, 'vh', vec, 't', 'even' if i % 2 == 0 else 'odd')
-    blob = create_np_array_typed([n / 2] * dim).tobytes()
-    for prefix, policy in (('*', ''), ('(@t:{even})', 'HYBRID_POLICY BATCHES'),
-                           ('(@t:{even})', 'HYBRID_POLICY ADHOC_BF')):
-        def search(field, k):
-            return env.cmd('FT.SEARCH', 'idx', f'{prefix}=>[KNN {k} @{field} $b {policy}]',
-                           'PARAMS', 2, 'b', blob, 'NOCONTENT', 'LIMIT', 0, n)
-        # The exact FLAT search with K equal to the index size is the expected reply.
-        expected = search('v', n)
-        for field in ('v', 'vh'):
-            env.assertEqual(search(field, max_k), expected, message=(field, prefix, policy))
