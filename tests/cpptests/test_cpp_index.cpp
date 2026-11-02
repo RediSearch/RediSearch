@@ -1223,7 +1223,7 @@ namespace {
 // Frees the table even when an ASSERT returns early.
 struct ScopedDocTable {
   DocTable t;
-  ScopedDocTable(size_t cap, size_t maxSize) : t(NewDocTable(cap, maxSize)) {}
+  ScopedDocTable(size_t cap, size_t maxSize) : t(NewDocTable(cap, maxSize, false)) {}
   ~ScopedDocTable() { DocTable_Free(&t); }
 
   void put(size_t n) {
