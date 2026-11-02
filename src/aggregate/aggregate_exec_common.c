@@ -122,7 +122,8 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
    if (ctx->limits->timeout.config.timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx->areq, rc);
-     // Check timeout after aggregation; a memory stop raised while filling the limit ends it the same way.
+     // Check timeout after aggregation; a memory stop raised while filling the limit ends it the
+     // same way.
      if (QueryRequestLimits_IsTimedOutOrStopped(ctx->limits)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
