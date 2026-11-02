@@ -91,6 +91,8 @@ def query_command(args, bundle, case, policy):
     options = "" if policy == "AUTO" else f" HYBRID_POLICY {policy}"
     if policy != "ADHOC_BF":
         options += f" EF_RUNTIME {args.ef_runtime}"
+    if args.rerank is not None:
+        options += f" RERANK {args.rerank.upper()}"
     query = f"(@filter:{{{tag}}})=>[KNN {case['k']} @vec $query{options} AS distance]"
     blob = bundle.queries[case["query_id"]].astype("<f4", copy=False).tobytes()
     return ["FT.SEARCH", args.index, query, "PARAMS", 2, "query", blob,

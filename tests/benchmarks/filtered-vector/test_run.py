@@ -55,6 +55,12 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(command[position + 1], 14)
         self.assertEqual(command[-2:], ["RERANK", "TRUE"])
 
+    def test_rerank_applies_to_queries_on_reused_indexes(self):
+        self.args.rerank = "false"
+        for policy in run.POLICIES:
+            command = run.query_command(self.args, self.bundle, self.case, policy)
+            self.assertIn("RERANK FALSE", command[2])
+
     def test_tiered_backend_mode_is_verified(self):
         info = {"BACKEND_INDEX": [b"IS_DISK", 1]}
         run.verify_engine(info, "disk")
