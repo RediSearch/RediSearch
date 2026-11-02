@@ -441,17 +441,13 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         // Second pass: runs of consecutive copied blocks before the last whose surviving
         // entries fit one block are re-encoded together. The last block never joins: it
         // is the one writers append to, and the apply's staleness check names it by position.
-        let surviving: Vec<u32> = repairs
-            .iter()
-            .zip(self.blocks.iter())
-            .map(|(repair, block)| match repair {
-                Some(Some(RepairType::Delete { .. })) => 0,
-                Some(Some(RepairType::Replace { blocks, .. })) => {
-                    blocks.iter().map(|(b, _)| u32::from(b.num_entries)).sum()
-                }
-                _ => u32::from(block.num_entries),
-            })
-            .collect();
+        let surviving = |repairs: &[Option<Option<RepairType>>], i: usize| match &repairs[i] {
+            Some(Some(RepairType::Delete { .. })) => 0,
+            Some(Some(RepairType::Replace { blocks, .. })) => {
+                blocks.iter().map(|(b, _)| u32::from(b.num_entries)).sum()
+            }
+            _ => u32::from(self.blocks[i].num_entries),
+        };
         let limit = u32::from(E::RECOMMENDED_BLOCK_ENTRIES);
         let mut results = Vec::new();
         let mut i = 0;
@@ -459,7 +455,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             let mut run = 0;
             let mut total = 0;
             while i + run < last_idx && self.blocks[i + run].has_data() {
-                let next = total + surviving[i + run];
+                let next = total + surviving(&repairs, i + run);
                 if next > limit {
                     break;
                 }
