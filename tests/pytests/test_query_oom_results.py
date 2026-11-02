@@ -1049,17 +1049,18 @@ def test_cursor_admission_rejects_through_the_coordinator(env):
         _memory_pressure(env, 'RESET')
 
 
-def _open_cursors(env):
-    """Client and coordinator-to-shard cursors on `idx`."""
-    info = env.cmd('FT.INFO', 'idx')
+def _open_cursors(env, index='idx'):
+    """Client and coordinator-to-shard cursors on `index`. On the coordinator FT.INFO sums the
+    shards, so hybrid shard subquery cursors (counted as `index_total` on each shard) are included."""
+    info = env.cmd('FT.INFO', index)
     stats = info['cursor_stats'] if isinstance(info, dict) else to_dict(to_dict(info)['cursor_stats'])
     return int(stats['index_total']) + int(stats.get('index_total_internal', 0))
 
 
-def _expect_no_open_cursors(env, message):
+def _expect_no_open_cursors(env, message, index='idx'):
     # Shard cursors are freed asynchronously after the coordinator's cursor ends.
     with TimeLimit(10, f'cursor left open: {message}'):
-        while _open_cursors(env):
+        while _open_cursors(env, index):
             time.sleep(0.05)
 
 
@@ -1524,7 +1525,7 @@ def test_hybrid_coordinator_merger_stop_replies_by_on_oom_policy(env):
                                (ids == full and res['warnings'] == []), message=message)
                 stops += res['warnings'] == [COORD_OOM_WARNING]
             env.assertGreater(stops, 0, message=on_oom)
-            _expect_no_open_cursors(env, f'coordinator merger stop {on_oom}')
+            _expect_no_open_cursors(env, f'coordinator merger stop {on_oom}', index='hidx')
     finally:
         disarm()
         allShards_change_oom_policy(env, 'return')
