@@ -13,8 +13,8 @@
 mod common;
 
 use ffi::VecSimQueryReply_Order_BY_ID;
-use std::sync::atomic::{AtomicBool, Ordering};
 use rqe_iterators::{RQEIterator, RQEIteratorError};
+use std::sync::atomic::{AtomicBool, Ordering};
 use vector_score_source::test_utils::{ForcedMemoryRatio, TestIndex, collect_ids, uniform_blob};
 
 // Link both Rust-provided and C-provided symbols
