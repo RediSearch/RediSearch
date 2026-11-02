@@ -9,8 +9,9 @@
 
 //! C ABI entrypoints for the Fork GC child and parent orchestration.
 
+use index_gc::liveness::GoneIds;
 use index_gc::{
-    DocExistence, ForkPipe, GcError, HandleOutcome,
+    ForkPipe, GcError, HandleOutcome,
     fork::cycle::{collect_scanners, handle_scanners},
 };
 use index_spec::IndexSpecReadGuard;
@@ -29,7 +30,7 @@ use crate::ForkGCError;
 /// 3. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
 /// 4. This function must only be called in a forked GC child, where the spec's
 ///    document table never changes again: the scanners answer existence checks
-///    from a [`DocExistence::snapshot`] of it.
+///    from a [`GoneIds::of_table`] of it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ForkGC_childScanIndexes(gc: *mut ffi::IndexGC, spec: *mut ffi::IndexSpec) {
     // SAFETY: caller guarantees (1).
@@ -42,8 +43,8 @@ pub unsafe extern "C" fn ForkGC_childScanIndexes(gc: *mut ffi::IndexGC, spec: *m
     let guard = unsafe { IndexSpecReadGuard::from_locked(spec) };
 
     // Taken once for all scanners: (4) keeps it right for the whole scan.
-    let docs = DocExistence::snapshot(&guard);
-    collect_scanners(fgc, &guard, &docs);
+    let gone = GoneIds::of_table(&guard);
+    collect_scanners(fgc, &guard, &gone);
 }
 
 /// Consume every Fork GC scanner stream and apply its deltas in the parent.
