@@ -2215,7 +2215,7 @@ static bool mergeRowShouldStop(searchReducerCtx *rCtx) {
   if (!rCtx->rowStopChecks) {
     return false;
   }
-  QueryRequestTimeout *timeout = &rCtx->searchCtx->base.timeout;
+  QueryRequestLimits *timeout = &rCtx->searchCtx->base.limits;
   if (QueryRequest_ShouldStop(timeout)) {
     return true;
   }
@@ -3284,11 +3284,11 @@ static inline void recordSearchTimeoutStage(searchRequestCtx *req, bool isError)
 // DistSearchReplyCallback).
 // A NULL `memoryCheckCalls` reads memory now.
 static bool replyShouldStop(searchRequestCtx *req, bool stoppedBefore, uint32_t *memoryCheckCalls) {
-  QueryRequestTimeout *timeout = &req->base.timeout;
+  QueryRequestLimits *timeout = &req->base.limits;
   if (stoppedBefore || req->base.reqConfig.oomPolicy == OomPolicy_Fail ||
       !(memoryCheckCalls ? QueryMemory_ShouldStop(timeout, memoryCheckCalls)
                          : QueryMemory_ShouldStopNow(timeout)) ||
-      QueryRequestTimeout_GetStopReason(timeout) != QUERY_STOP_REASON_OOM) {
+      !QueryRequestLimits_IsMemoryStopped(timeout)) {
     return false;
   }
   req->queryOOM = true;
@@ -3301,8 +3301,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   // Number of results to actually return
   size_t num = req->offset + req->limit;
   // The reply of an already stopped or timed-out query is the partial one; do not cut it further.
-  const bool stoppedBefore = QueryRequestTimeout_IsStopRequested(&req->base.timeout) ||
-                             QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout);
+  const bool stoppedBefore = QueryRequestLimits_IsMemoryStopped(&req->base.limits) ||
+                             QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits);
   // Under ON_OOM RETURN the reducer does not read after its last merge, so the reply reads once
   // before its rows: a reply shorter than the read interval, or with no row, would never read.
   const bool stopBeforeRows = replyShouldStop(req, stoppedBefore, NULL);
@@ -3605,8 +3605,8 @@ static size_t searchRepliesRowBound(const searchRequestCtx *req, int count, MRRe
 // landed after it, so the ones kept are merged. After the last reply only ON_OOM FAIL reads: that
 // read is FAIL's last chance to fail before the reply starts (the reply loop cannot).
 static bool reducerShouldStop(searchRequestCtx *req, bool stoppedBeforeReducing, bool lastReply) {
-  QueryRequestTimeout *timeout = &req->base.timeout;
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+  QueryRequestLimits *timeout = &req->base.limits;
+  if (QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
     return true;
   }
   if (stoppedBeforeReducing || (lastReply && req->base.reqConfig.oomPolicy != OomPolicy_Fail)) {
@@ -4671,7 +4671,7 @@ static int DistSearchReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
     // Pressure can begin after the reducer's last read and before this callback runs. ON_OOM FAIL
     // cannot fail once the first reply byte is out, so this is its last chance.
     if (req->base.reqConfig.oomPolicy == OomPolicy_Fail &&
-        QueryMemory_CheckBeforeExecution(&req->base.timeout, OomPolicy_Fail,
+        QueryMemory_CheckBeforeExecution(&req->base.limits, OomPolicy_Fail,
                                          &request->reply.err) == REDISMODULE_ERR) {
       QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_OUT_OF_MEMORY, 1, COORD_ERR_WARN);
       QueryError_ReplyAndClear(ctx, &request->reply.err);
