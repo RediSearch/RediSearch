@@ -96,10 +96,10 @@ float QueryMemory_GetForcedRatio(void);
 /**
  * Makes the `n`-th checkpoint call (QueryMemory_ShouldStop or
  * QueryMemory_ShouldStopNow) from now (1-based, counted across all checkpoints
- * and queries, skipping calls that return on an
- * already requested stop) report memory pressure, regardless of the ratio and
- * the read interval. Every other call behaves normally. 0 disarms it. Either
- * way the call count restarts from 0.
+ * and queries, skipping calls that return on an already requested stop, a
+ * memory stop or a fired blocked-client timeout) report memory pressure,
+ * regardless of the ratio and the read interval. Every other call behaves
+ * normally. 0 disarms it. Either way the call count restarts from 0.
  */
 void QueryMemory_SetPressureAtCall(uint64_t n);
 uint64_t QueryMemory_GetPressureAtCall(void);
