@@ -37,15 +37,15 @@ typedef struct DiskGC {
   // corresponding IDs are reclaimed or the collector is destroyed.
   RS_Atomic(size_t) logicallyDeleted;
 
-  // Cumulative bytes freed across all GC cycles run on this index.
+  // Cumulative bytes freed across all GC attempts on this index.
   // Signed to match `InfoGCStats::totalCollectedBytes` / fork-GC semantics
   // (some compaction strategies may transiently allocate more than they free).
   RS_Atomic(ssize_t) totalCollectedBytes;
-  // Total number of GC cycles that have completed on this index.
+  // Number of GC attempts that returned, including retry outcomes.
   RS_Atomic(size_t) totalCycles;
-  // Sum of wall-clock cycle durations in milliseconds.
+  // Sum of wall-clock attempt durations in milliseconds.
   RS_Atomic(size_t) totalTimeMs;
-  // Wall-clock duration of the most recent cycle, in milliseconds.
+  // Wall-clock duration of the most recent attempt, in milliseconds.
   RS_Atomic(size_t) lastRunTimeMs;
 } DiskGC;
 

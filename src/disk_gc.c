@@ -69,13 +69,8 @@ static void takeDeferredDeletes(DiskGC *gc, IndexSpec *spec) {
   }
 }
 
-// Fold one completed cycle's results into the cumulative per-index counters.
-// Every path that runs a disk GC cycle must funnel its `DiskGCRunStats` through
-// here so the accounting stays identical regardless of how the cycle was
-// triggered — background tick, forced invoke, or an enterprise/RoR scheduler
-// that drives compaction on its own. All per-cycle numbers (bytes, docs, time)
-// are populated by the disk implementation in `stats`, so this is also what
-// lets FT.INFO/INFO report a single coherent view.
+// Include work from every returned attempt, even when later compaction needs retry.
+// Retire only the document IDs whose markers the backend actually removed.
 static void accumulateCycleStats(DiskGC *gc, const DiskGCRunStats *stats) {
   atomic_fetch_add(&gc->totalCollectedBytes, stats->bytes_collected);
   atomic_fetch_add(&gc->totalCycles, (size_t)1);
@@ -122,13 +117,12 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     // snapshot. Wait for its write-locked accounting before retiring those IDs.
     IndexSpec_LockRead(sp);
     takeDeferredDeletes(gc, sp);
+    accumulateCycleStats(gc, &stats);
     if (result == DISK_GC_RUN_RETRY_REQUIRED) {
       if (forced) forced->outcome = GC_DISK_FORCED_RUN_RETRY_REQUIRED;
       atomic_fetch_add(&gc->writesFromLastRun, num_writes);
       atomic_fetch_add(&gc->deletesFromLastRun, num_deletes);
       atomic_fetch_add(&gc->updatesFromLastRun, num_updates);
-    } else {
-      accumulateCycleStats(gc, &stats);
     }
     IndexSpec_Unlock(sp);
 
