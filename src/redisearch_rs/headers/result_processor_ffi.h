@@ -34,7 +34,7 @@ typedef struct QueryProcessingCtx {
   RSTimeoutPolicy timeoutPolicy;
   bool canYieldPartialResults;
   bool skipIndexResultDeepCopy;
-  struct QueryRequestTimeout *timeout;
+  struct QueryRequestLimits *limits;
   RSOomPolicy oomPolicy;
   bool oomCut;
 } QueryProcessingCtx;

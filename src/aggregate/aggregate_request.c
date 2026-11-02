@@ -610,7 +610,7 @@ static ParseAggPlanContext makeParseAggPlanContext(AREQ *req) {
     .plan = AREQ_AGGPlan(req),
     .reqflags = &req->reqflags,
     .reqConfig = &req->base.reqConfig,
-    .timeoutConfig = &req->base.timeout.config,
+    .timeoutConfig = &req->base.limits.timeout.config,
     .searchopts = &req->searchopts,
     .prefixesOffset = &req->prefixesOffset,
     .cursorConfig = &req->base.cursorConfig,
@@ -1213,7 +1213,7 @@ bool QueryRequest_SafeLoaderEnterGIL(QueryRequest *request) {
   QueryRequestAsyncState *async = &request->async;
   bool proceed;
   pthread_mutex_lock(&async->aggregateResultsLock);
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&request->timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&request->limits)) {
     // Timeout already fired: do not mark holding, bail instead of blocking on the
     // GIL the main thread holds while it waits.
     proceed = false;
@@ -1250,7 +1250,7 @@ void AREQ_ResetForCursorReadReturnStrict(AREQ *req) {
   req->base.async.aggregateResultsDone = false;
   req->base.async.safeLoadersHoldingGIL = 0;
   pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
-  QueryRequestTimeout_BeginCycle(&req->base.timeout,
+  QueryRequestLimits_BeginCycle(&req->base.limits,
                                  QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   ResultProcessor *root = AREQ_QueryProcessingCtx(req)->rootProc;
   if (root && root->type == RP_NETWORK) {
@@ -1372,20 +1372,20 @@ int AREQ_Compile(AREQ *req, RedisModuleCtx *ctx, uint32_t offset, bool isDiskInd
 
   // Cap the per-query timeout to _MAX_FOREGROUND_TIMEOUT_LIMIT when workers
   // are disabled; the state flag drives the RESP3 MaxTimeoutCapped warning.
-  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->base.timeout.config.queryTimeoutMS)) {
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&req->base.limits.timeout.config.queryTimeoutMS)) {
     req->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
 
   if (IsInternal(req) &&
-      TimeoutConfig_ApplyCoordinatorElapsedTime(&req->base.timeout.config, req->profileClocks.coordDispatchTime)) {
+      TimeoutConfig_ApplyCoordinatorElapsedTime(&req->base.limits.timeout.config, req->profileClocks.coordDispatchTime)) {
     QueryError_SetCode(status, QUERY_ERROR_CODE_TIMED_OUT);
     goto error;
   }
 
   // Shard/standalone inline execution has no blocked-client timeout callback,
   // which RETURN_STRICT requires. Quietly fall back to RETURN for this request.
-  if (!IsCoordinator(req) && req->base.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict && !RunInThread(ctx)) {
-    req->base.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
+  if (!IsCoordinator(req) && req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict && !RunInThread(ctx)) {
+    req->base.limits.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
   }
 
   // Verify we got slots requested if needed
@@ -1674,7 +1674,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Borrow the request timeout onto the sctx so pipeline RPs can
   // observe a RETURN-STRICT main-thread timeout without holding an AREQ
   // back-pointer used by query execution and result processors.
-  sctx->timeout = &req->base.timeout;
+  sctx->limits = &req->base.limits;
 
   if (!IsIndexCoherent(req)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
@@ -1916,7 +1916,7 @@ int AREQ_BuildPipelineWithAggregationParams(AREQ *req,
   if (IsHybrid(req)) {
     // The hybrid reply does not map an OOM stop yet, so hybrid pipelines run without memory
     // checkpoints: a stop there would reply as a timeout.
-    req->pipeline.qctx.timeout = NULL;
+    req->pipeline.qctx.limits = NULL;
   }
   if (!IsCoordinator(req)) {
     QueryPipelineParams params = {
