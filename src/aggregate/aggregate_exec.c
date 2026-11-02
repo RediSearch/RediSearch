@@ -435,7 +435,7 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
 }
 #endif
 static int applyOomStop(AREQ *req, int rc) {
-  return ApplyOomStop(&req->base.timeout, req->base.reqConfig.oomPolicy,
+  return ApplyOomStop(&req->base.limits, req->base.reqConfig.oomPolicy,
                       AREQ_QueryProcessingCtx(req)->err, rc);
 }
 

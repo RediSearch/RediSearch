@@ -21,7 +21,7 @@
 #include "redismodule.h"
 
 // aggregate_exec_common.h is not C++-clean; the signature is restated here.
-extern "C" int ApplyOomStop(const QueryRequestTimeout *timeout, RSOomPolicy oomPolicy,
+extern "C" int ApplyOomStop(const QueryRequestLimits *timeout, RSOomPolicy oomPolicy,
                             QueryError *err, int rc);
 
 namespace {
@@ -332,29 +332,26 @@ class ApplyOomStopTest : public ::testing::Test {
  protected:
   void SetUp() override {
     TimeoutConfig timeoutConfig = {0, TimeoutPolicy_Return};
-    QueryRequestTimeout_Init(&timeout_, &timeoutConfig);
+    QueryRequestLimits_Init(&timeout_, &timeoutConfig);
   }
   void TearDown() override {
     QueryError_ClearError(&err_);
   }
-  QueryRequestTimeout timeout_ = {};
+  QueryRequestLimits timeout_ = {};
   QueryError err_ = QueryError_Default();
 };
 
 TEST_F(ApplyOomStopTest, LeavesOtherOutcomesAlone) {
   EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
-  QueryRequestTimeout_RequestStop(&timeout_, QUERY_STOP_REASON_TIMEOUT);
-  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
   EXPECT_TRUE(QueryError_IsOk(&err_));
 
-  QueryRequestTimeout_Init(&timeout_, &timeout_.config);
-  QueryRequestTimeout_RequestStop(&timeout_, QUERY_STOP_REASON_OOM);
+  QueryRequestLimits_RequestMemoryStop(&timeout_);
   EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_EOF), RS_RESULT_EOF);
   EXPECT_TRUE(QueryError_IsOk(&err_));
 }
 
 TEST_F(ApplyOomStopTest, FailRepliesTheOomErrorAndKeepsAnEarlierOne) {
-  QueryRequestTimeout_RequestStop(&timeout_, QUERY_STOP_REASON_OOM);
+  QueryRequestLimits_RequestMemoryStop(&timeout_);
   EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
   EXPECT_EQ(QueryError_GetCode(&err_), QUERY_ERROR_CODE_OUT_OF_MEMORY);
 
@@ -365,7 +362,7 @@ TEST_F(ApplyOomStopTest, FailRepliesTheOomErrorAndKeepsAnEarlierOne) {
 }
 
 TEST_F(ApplyOomStopTest, ReturnEndsTheResultWithTheOomWarning) {
-  QueryRequestTimeout_RequestStop(&timeout_, QUERY_STOP_REASON_OOM);
+  QueryRequestLimits_RequestMemoryStop(&timeout_);
   EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Return, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_EOF);
   EXPECT_TRUE(QueryError_IsOk(&err_));
   EXPECT_TRUE(QueryError_HasQueryOOMWarning(&err_));

@@ -47,10 +47,9 @@
    RedisModule_Reply_Error(reply, QueryError_Strerror(QUERY_ERROR_CODE_TIMED_OUT));
  }
 
-int ApplyOomStop(const QueryRequestTimeout *timeout, RSOomPolicy oomPolicy, QueryError *err,
+int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryError *err,
                  int rc) {
-  if (rc != RS_RESULT_TIMEDOUT ||
-      QueryRequestTimeout_GetStopReason(timeout) != QUERY_STOP_REASON_OOM) {
+  if (rc != RS_RESULT_TIMEDOUT || !QueryRequestLimits_IsMemoryStopped(limits)) {
     return rc;
   }
   if (oomPolicy == OomPolicy_Fail) {
