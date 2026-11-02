@@ -256,7 +256,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &["QueryEvalCtx"],
         vars: &[],
     },
-    // Vector iterator tests fake memory pressure and read the stop reason it records.
+    // Vector iterator tests fake memory pressure and trigger a memory stop.
     HeaderAllowlist {
         path: "src/query_memory.h",
         fns: &[

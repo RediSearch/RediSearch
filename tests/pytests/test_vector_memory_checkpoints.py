@@ -94,7 +94,7 @@ def _expect_stopped_by_policy(env, query, n_results):
 @env_spec(protocol=3)
 def test_range_stops_for_oom(env):
     """A vector range query checks memory once VecSim has its reply and before copying it; under
-    pressure it stops with reason OOM, with and without workers and under either ON_TIMEOUT."""
+    pressure it stops for memory, with and without workers and under either ON_TIMEOUT."""
     _create_hash_index(env)
     try:
         for workers in (0, 2):
