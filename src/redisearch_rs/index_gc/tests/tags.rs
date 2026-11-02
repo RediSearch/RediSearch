@@ -865,9 +865,9 @@ fn failed_writes_are_propagated() {
 }
 
 /// What identifies an entry, for comparing two scans.
-fn entry_key(entry: &TagEntry) -> (Vec<u8>, u32, Vec<u8>, u32) {
+fn entry_key(entry: &TagEntry) -> (ffi::t_fieldIndex, u32, Vec<u8>, u32) {
     (
-        entry.field_name.to_vec(),
+        entry.field_index,
         entry.tag_index_unique_id,
         entry.tag.to_vec(),
         entry.inverted_index_unique_id,
