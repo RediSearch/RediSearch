@@ -108,7 +108,7 @@ void RPNet_resetCurrent(RPNet *nc);
 int rpnetNext(ResultProcessor *self, SearchResult *r);
 int rpnetNext_EOF(ResultProcessor *self, SearchResult *r);
 
-// Translates the memory state into a stop of the request (reason OOM) and wakes its channel.
+// Requests the memory stop when memory is under pressure and wakes the request's channel.
 // Returns whether the request is now stopped by memory. The WITHCOUNT worker calls it too, since
 // a pager that never reads (LIMIT 0 0) would not.
 bool RPNet_MemoryStops(RPNet *nc);
