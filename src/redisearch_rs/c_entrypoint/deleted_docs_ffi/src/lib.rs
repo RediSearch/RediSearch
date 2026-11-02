@@ -10,6 +10,8 @@
 //! C entry points for the doc table to own and feed a [`DeletedDocs`] set.
 //! The GC reads and prunes the set through the `index_spec` wrappers, not here.
 
+use std::ffi::c_void;
+
 use deleted_docs::DeletedDocs;
 use rqe_core::DocId;
 
@@ -45,4 +47,37 @@ pub unsafe extern "C" fn DeletedDocs_Record(docs: *mut DeletedDocs, id: DocId) {
     debug_assert!(!docs.is_null(), "DeletedDocs_Record needs a set");
     // SAFETY: the caller guarantees `docs` is a live, uniquely referenced set.
     unsafe { &mut *docs }.record(id);
+}
+
+/// Call `cb` with `ctx` once for every ID in the set, in increasing order. Called
+/// under the spec read lock, so no ID is recorded or pruned meanwhile.
+///
+/// # Safety
+///
+/// `docs` came from [`DeletedDocs_New`] and is not freed, and nothing changes it
+/// during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn DeletedDocs_ForEach(
+    docs: *const DeletedDocs,
+    cb: unsafe extern "C" fn(ctx: *mut c_void, id: DocId),
+    ctx: *mut c_void,
+) {
+    debug_assert!(!docs.is_null(), "DeletedDocs_ForEach needs a set");
+    // SAFETY: the caller guarantees `docs` is a live set nothing changes meanwhile.
+    for id in unsafe { &*docs }.iter() {
+        // SAFETY: `cb` is the caller's, and `ctx` is the value it expects.
+        unsafe { cb(ctx, id) };
+    }
+}
+
+/// How many IDs the set holds.
+///
+/// # Safety
+///
+/// As for [`DeletedDocs_ForEach`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn DeletedDocs_Len(docs: *const DeletedDocs) -> u64 {
+    debug_assert!(!docs.is_null(), "DeletedDocs_Len needs a set");
+    // SAFETY: the caller guarantees `docs` is a live set nothing changes meanwhile.
+    unsafe { &*docs }.len()
 }
