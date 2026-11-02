@@ -6171,11 +6171,17 @@ class TestCoordinatorReducePause:
         setPauseBeforeReduce(env, pause_before_n)
 
         query_result = []
-        if expect_timeout_error:
-            target, args = run_cmd_expect_timeout, (env, query_args)
-        else:
-            target, args = call_and_store, (env.cmd, query_args, query_result)
-        t_query = threading.Thread(target=target, args=args, daemon=True)
+        errors = []
+
+        def query_worker():
+            # Assertions raised in a worker thread are lost on join, so the error reply is
+            # captured here and checked on the test thread.
+            try:
+                query_result.append(env.cmd(*query_args))
+            except redis_exceptions.ResponseError as e:
+                errors.append(str(e))
+
+        t_query = threading.Thread(target=query_worker, daemon=True)
         try:
             t_query.start()
             wait_for_condition(
@@ -6187,6 +6193,12 @@ class TestCoordinatorReducePause:
             wait_for_client_unblocked(env, blocked_client_id)
             t_query.join(timeout=10)
             env.assertFalse(t_query.is_alive(), message="Query thread should have finished")
+            if expect_timeout_error:
+                env.assertEqual(query_result, [], message=query_result)
+                env.assertEqual(len(errors), 1, message=errors)
+                env.assertContains(TIMEOUT_ERROR, errors[0])
+            else:
+                env.assertEqual(errors, [], message=errors)
 
             env.assertEqual(getCoordReduceCount(env), pause_before_n,
                             message="Rows were merged after the timeout")
