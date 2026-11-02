@@ -118,7 +118,7 @@ static const struct timespec *getAbsTimeout(const RPNet *nc) {
       nc->areq->base.timeout.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
     return NULL;
   }
-  return QueryRequestTimeout_GetClockDeadline(&nc->areq->base.timeout);
+  return QueryRequestLimits_GetClockDeadline(&nc->areq->base.timeout);
 }
 
 // Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
@@ -391,11 +391,11 @@ int getNextReply(RPNet *nc) {
   SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
 #endif
   RS_ASSERT(nc->areq);
-  QueryRequestTimeout *timeout = &nc->areq->base.timeout;
+  QueryRequestLimits *timeout = &nc->areq->base.timeout;
   const struct timespec *deadline = getAbsTimeout(nc);
   RS_Atomic(bool) *abortFlag =
       timeout->timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
-          ? QueryRequestTimeout_GetBlockedClientFlag(timeout)
+          ? QueryRequestLimits_GetBlockedClientFlag(timeout)
           : NULL;
   bool popTimedOut = false;
   rs_wall_clock waitStart;
@@ -416,7 +416,7 @@ int getNextReply(RPNet *nc) {
     if (nc->drainOnly) {
       return RS_RESULT_EOF;
     }
-    if (popTimedOut || QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+    if (popTimedOut || QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
       return RS_RESULT_TIMEDOUT;
     }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
@@ -594,7 +594,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // may already hold a buffered reply (the NULL-reply check below wouldn't fire
   // and we'd silently return rows). Skipped during the timer's own drain.
   if (QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
-      QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
+      QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.timeout)) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -635,7 +635,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     // RETURN_STRICT uses the blocked-client source, so only clock-based cycles
     // reach this check.
     if (areq->base.timeout.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
-        QueryRequestTimeout_IsTimedOutExact(&areq->base.timeout)) {
+        QueryRequestLimits_IsTimedOutExact(&areq->base.timeout)) {
       // Set the `timedOut` flag in the MRIteratorCtx, later to be read by the
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.

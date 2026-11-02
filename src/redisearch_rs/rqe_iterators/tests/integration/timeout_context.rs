@@ -239,7 +239,7 @@ fn a_probe_reads_the_deadline_out_of_the_search_context() {
     ));
 }
 
-/// Set the request's memory stop the way `QueryRequestTimeout_RequestMemoryStop` does.
+/// Set the request's memory stop the way `QueryRequestLimits_RequestMemoryStop` does.
 fn request_memory_stop(ctx: &MockContext) {
     // SAFETY: the mock owns a valid request timeout for as long as it is alive; projecting the
     // field reads nothing.

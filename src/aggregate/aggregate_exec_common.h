@@ -15,7 +15,7 @@
 typedef struct QueryError QueryError;
 
 struct AREQ;
-struct QueryRequestTimeout;
+struct QueryRequestLimits;
 
 bool hasTimeoutError(QueryError *err);
 
@@ -33,7 +33,7 @@ void destroyResults(SearchResult **results);
 SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc);
 
 typedef struct CommonPipelineCtx {
-  const struct QueryRequestTimeout *timeout;
+  const struct QueryRequestLimits *timeout;
   RSOomPolicy oomPolicy;
 
   // AREQ for the request being executed; consulted by AggregateResults (and

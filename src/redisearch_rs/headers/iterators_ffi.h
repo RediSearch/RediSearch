@@ -309,7 +309,7 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, double radius, VecSimQueryParams query_params, VecSimQueryReply_Order order, bool yields_metric, QueryRequestTimeout *timeout);
+QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, double radius, VecSimQueryParams query_params, VecSimQueryReply_Order order, bool yields_metric, QueryRequestLimits *timeout);
 
 /**
  * Creates a new metric iterator sorted by ID.
@@ -451,7 +451,7 @@ QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_ex
  * [`IteratorType::Empty`]: rqe_iterators::IteratorType::Empty
  * [`IteratorType::Hybrid`]: rqe_iterators::IteratorType::Hybrid
  */
-QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, const VecSimQueryParams *query_params, size_t k, bool can_trim_deep_results, QueryIterator *child, QueryRequestTimeout *timeout, RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, const VecSimQueryParams *query_params, size_t k, bool can_trim_deep_results, QueryIterator *child, QueryRequestLimits *timeout, RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.

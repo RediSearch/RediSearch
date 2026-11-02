@@ -32,7 +32,7 @@ pub struct MockQueryEvalCtx {
     doc_table: *mut ffi::DocTable,
     config: *mut IteratorsConfig,
     qctx: *mut ffi::QueryEvalCtx,
-    timeout: *mut ffi::QueryRequestTimeout,
+    timeout: *mut ffi::QueryRequestLimits,
 }
 
 impl Drop for MockQueryEvalCtx {
@@ -63,7 +63,7 @@ impl Drop for MockQueryEvalCtx {
             dealloc(self.qctx.cast(), Layout::new::<ffi::QueryEvalCtx>());
             dealloc(
                 self.timeout.cast(),
-                Layout::new::<ffi::QueryRequestTimeout>(),
+                Layout::new::<ffi::QueryRequestLimits>(),
             );
         }
     }
@@ -86,8 +86,8 @@ impl MockQueryEvalCtx {
             assert!(!sctx.is_null());
 
             (*sctx).spec = spec;
-            let timeout = alloc_zeroed(Layout::new::<ffi::QueryRequestTimeout>())
-                .cast::<ffi::QueryRequestTimeout>();
+            let timeout = alloc_zeroed(Layout::new::<ffi::QueryRequestLimits>())
+                .cast::<ffi::QueryRequestLimits>();
             assert!(!timeout.is_null());
             (*timeout).timeout.kind =
                 ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;

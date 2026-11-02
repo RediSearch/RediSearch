@@ -34,7 +34,7 @@ static void QueryRequest_OnDisconnect(RedisModuleCtx *ctx, RedisModuleBlockedCli
   QueryRequest *request = RedisModule_BlockClientGetPrivateData(bc);
   RS_ASSERT(request);
 
-  QueryRequestTimeout_MarkTimedOut(&request->timeout);
+  QueryRequestLimits_MarkTimedOut(&request->timeout);
   if (request->kind == QUERY_REQUEST_KIND_HYBRID) {
     HybridRequest *hreq = QueryRequest_GetHybrid(request);
     HybridRequest_PropagateTimeoutToSubqueries(hreq);

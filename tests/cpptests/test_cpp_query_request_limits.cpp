@@ -36,33 +36,33 @@ class ScopedRealClockChecks {
   decltype(RedisModule_CreateTimer) previous_;
 };
 
-class QueryRequestTimeoutTest : public ::testing::Test {};
+class QueryRequestLimitsTest : public ::testing::Test {};
 
-TEST_F(QueryRequestTimeoutTest, InitializationIsUnarmedAndRetainsConfiguration) {
-  QueryRequestTimeout timeout = {};
+TEST_F(QueryRequestLimitsTest, InitializationIsUnarmedAndRetainsConfiguration) {
+  QueryRequestLimits timeout = {};
 
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Fail;
   timeoutConfig.queryTimeoutMS = 1234;
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
 
   timeoutConfig = {};
 
   EXPECT_EQ(timeout.timeout.config.timeoutPolicy, TimeoutPolicy_Fail);
   EXPECT_EQ(timeout.timeout.config.queryTimeoutMS, 1234);
   EXPECT_EQ(timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
-  EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
-  EXPECT_FALSE(QueryRequestTimeout_IsTimedOut(&timeout));
+  EXPECT_FALSE(QueryRequestLimits_IsTimedOutExact(&timeout));
+  EXPECT_FALSE(QueryRequestLimits_IsTimedOut(&timeout));
 }
 
-TEST_F(QueryRequestTimeoutTest, ConfigUpdateIsStickyAndDoesNotChangeActiveCycle) {
-  QueryRequestTimeout timeout = {};
+TEST_F(QueryRequestLimitsTest, ConfigUpdateIsStickyAndDoesNotChangeActiveCycle) {
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 100;
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  QueryRequestTimeout_MarkTimedOut(&timeout);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_MarkTimedOut(&timeout);
 
   timeout.timeout.config.timeoutPolicy = TimeoutPolicy_Fail;
   timeout.timeout.config.queryTimeoutMS = 250;
@@ -70,87 +70,87 @@ TEST_F(QueryRequestTimeoutTest, ConfigUpdateIsStickyAndDoesNotChangeActiveCycle)
   EXPECT_EQ(timeout.timeout.config.timeoutPolicy, TimeoutPolicy_Fail);
   EXPECT_EQ(timeout.timeout.config.queryTimeoutMS, 250);
   EXPECT_EQ(timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  EXPECT_TRUE(QueryRequestTimeout_IsTimedOutExact(&timeout));
+  EXPECT_TRUE(QueryRequestLimits_IsTimedOutExact(&timeout));
 
-  QueryRequestTimeout_Reset(&timeout);
+  QueryRequestLimits_Reset(&timeout);
   EXPECT_EQ(timeout.timeout.config.timeoutPolicy, TimeoutPolicy_Fail);
   EXPECT_EQ(timeout.timeout.config.queryTimeoutMS, 250);
   EXPECT_EQ(timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
 
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   EXPECT_EQ(timeout.timeout.config.timeoutPolicy, TimeoutPolicy_Fail);
   EXPECT_EQ(timeout.timeout.config.queryTimeoutMS, 250);
   EXPECT_EQ(timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
 }
 
-TEST_F(QueryRequestTimeoutTest, ResetAndRearmClearCycleState) {
-  QueryRequestTimeout timeout = {};
+TEST_F(QueryRequestLimitsTest, ResetAndRearmClearCycleState) {
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 1000;
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  QueryRequestTimeout_MarkTimedOut(&timeout);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_MarkTimedOut(&timeout);
 
-  QueryRequestTimeout_Reset(&timeout);
+  QueryRequestLimits_Reset(&timeout);
   EXPECT_EQ(timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
-  EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
+  EXPECT_FALSE(QueryRequestLimits_IsTimedOutExact(&timeout));
 
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   EXPECT_EQ(timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
+  EXPECT_FALSE(QueryRequestLimits_IsTimedOutExact(&timeout));
 
-  QueryRequestTimeout_Reset(&timeout);
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  QueryRequestLimits_Reset(&timeout);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   EXPECT_EQ(timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   EXPECT_EQ(timeout.timeout.source.clock.counter, 0);
 }
 
-TEST_F(QueryRequestTimeoutTest, MarkingPublishesOnlyTheBlockedClientSource) {
-  QueryRequestTimeout timeout = {};
+TEST_F(QueryRequestLimitsTest, MarkingPublishesOnlyTheBlockedClientSource) {
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_ReturnStrict;
   timeoutConfig.queryTimeoutMS = 100;
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
 
-  EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
-  EXPECT_FALSE(QueryRequestTimeout_IsBlockedClientTimedOut(&timeout));
+  EXPECT_FALSE(QueryRequestLimits_IsTimedOutExact(&timeout));
+  EXPECT_FALSE(QueryRequestLimits_IsBlockedClientTimedOut(&timeout));
 
-  QueryRequestTimeout_MarkTimedOut(&timeout);
+  QueryRequestLimits_MarkTimedOut(&timeout);
 
-  EXPECT_TRUE(QueryRequestTimeout_IsTimedOutExact(&timeout));
-  EXPECT_TRUE(QueryRequestTimeout_IsBlockedClientTimedOut(&timeout));
-  EXPECT_TRUE(QueryRequestTimeout_IsTimedOut(&timeout));
+  EXPECT_TRUE(QueryRequestLimits_IsTimedOutExact(&timeout));
+  EXPECT_TRUE(QueryRequestLimits_IsBlockedClientTimedOut(&timeout));
+  EXPECT_TRUE(QueryRequestLimits_IsTimedOut(&timeout));
 }
 
-TEST_F(QueryRequestTimeoutTest, PrimaryOperationAmortizesClockChecks) {
+TEST_F(QueryRequestLimitsTest, PrimaryOperationAmortizesClockChecks) {
   ScopedRealClockChecks enableClockChecks;
-  QueryRequestTimeout timeout = {};
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 1000;
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-  *QueryRequestTimeout_GetClockDeadlineForUpdate(&timeout) = {0, 0};
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  *QueryRequestLimits_GetClockDeadlineForUpdate(&timeout) = {0, 0};
 
-  ASSERT_TRUE(QueryRequestTimeout_IsTimedOutExact(&timeout));
+  ASSERT_TRUE(QueryRequestLimits_IsTimedOutExact(&timeout));
   for (uint32_t i = 1; i < QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT; ++i) {
-    EXPECT_FALSE(QueryRequestTimeout_IsTimedOut(&timeout));
+    EXPECT_FALSE(QueryRequestLimits_IsTimedOut(&timeout));
     EXPECT_EQ(timeout.timeout.source.clock.counter, i);
   }
 
-  EXPECT_TRUE(QueryRequestTimeout_IsTimedOut(&timeout));
+  EXPECT_TRUE(QueryRequestLimits_IsTimedOut(&timeout));
   EXPECT_EQ(timeout.timeout.source.clock.counter, 0);
 }
 
-TEST_F(QueryRequestTimeoutTest, MainThreadMarkIsObservedByWorker) {
-  QueryRequestTimeout timeout = {};
+TEST_F(QueryRequestLimitsTest, MainThreadMarkIsObservedByWorker) {
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_ReturnStrict;
   timeoutConfig.queryTimeoutMS = 1000;
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
 
   std::atomic<bool> workerReady = false;
   bool workerObservedTimeout = false;
@@ -158,7 +158,7 @@ TEST_F(QueryRequestTimeoutTest, MainThreadMarkIsObservedByWorker) {
     workerReady.store(true, std::memory_order_release);
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (std::chrono::steady_clock::now() < deadline) {
-      if (QueryRequestTimeout_IsTimedOut(&timeout)) {
+      if (QueryRequestLimits_IsTimedOut(&timeout)) {
         workerObservedTimeout = true;
         return;
       }
@@ -169,86 +169,86 @@ TEST_F(QueryRequestTimeoutTest, MainThreadMarkIsObservedByWorker) {
   while (!workerReady.load(std::memory_order_acquire)) {
     std::this_thread::yield();
   }
-  QueryRequestTimeout_MarkTimedOut(&timeout);
+  QueryRequestLimits_MarkTimedOut(&timeout);
   worker.join();
 
   EXPECT_TRUE(workerObservedTimeout);
 }
 
-TEST_F(QueryRequestTimeoutTest, MemoryStopIsNotATimeoutInEveryKind) {
+TEST_F(QueryRequestLimitsTest, MemoryStopIsNotATimeoutInEveryKind) {
   ScopedRealClockChecks enableClockChecks;
   for (auto kind : {QUERY_REQUEST_TIMEOUT_UNARMED, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT,
                     QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE}) {
-    QueryRequestTimeout timeout = {};
+    QueryRequestLimits timeout = {};
     TimeoutConfig timeoutConfig = {};
     timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
     timeoutConfig.queryTimeoutMS = 60000;
-    QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+    QueryRequestLimits_Init(&timeout, &timeoutConfig);
     if (kind != QUERY_REQUEST_TIMEOUT_UNARMED) {
-      QueryRequestTimeout_BeginCycle(&timeout, kind);
+      QueryRequestLimits_BeginCycle(&timeout, kind);
     }
     ASSERT_EQ(timeout.timeout.kind, kind);
-    EXPECT_FALSE(QueryRequestTimeout_IsTimedOut(&timeout));
-    EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
-    EXPECT_FALSE(QueryRequestTimeout_IsMemoryStopped(&timeout));
+    EXPECT_FALSE(QueryRequestLimits_IsTimedOut(&timeout));
+    EXPECT_FALSE(QueryRequestLimits_IsTimedOutExact(&timeout));
+    EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout));
 
     struct timespec deadline = {};
     if (kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
-      deadline = *QueryRequestTimeout_GetClockDeadline(&timeout);
+      deadline = *QueryRequestLimits_GetClockDeadline(&timeout);
     }
 
-    QueryRequestTimeout_RequestMemoryStop(&timeout);
+    QueryRequestLimits_RequestMemoryStop(&timeout);
 
-    EXPECT_FALSE(QueryRequestTimeout_IsTimedOut(&timeout));
-    EXPECT_FALSE(QueryRequestTimeout_IsTimedOutExact(&timeout));
-    EXPECT_TRUE(QueryRequestTimeout_IsMemoryStopped(&timeout));
-    EXPECT_TRUE(RS_AtomicBoolLoadRelaxed(QueryRequestTimeout_GetMemoryStopFlag(&timeout)));
+    EXPECT_FALSE(QueryRequestLimits_IsTimedOut(&timeout));
+    EXPECT_FALSE(QueryRequestLimits_IsTimedOutExact(&timeout));
+    EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout));
+    EXPECT_TRUE(RS_AtomicBoolLoadRelaxed(QueryRequestLimits_GetMemoryStopFlag(&timeout)));
     // Ownership checks must not mistake a memory stop for a fired timeout callback.
-    EXPECT_FALSE(QueryRequestTimeout_IsBlockedClientTimedOut(&timeout));
+    EXPECT_FALSE(QueryRequestLimits_IsBlockedClientTimedOut(&timeout));
     EXPECT_EQ(timeout.timeout.kind, kind);
     if (kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE) {
       // The memory stop lives outside the source union.
-      EXPECT_EQ(QueryRequestTimeout_GetClockDeadline(&timeout)->tv_sec, deadline.tv_sec);
-      EXPECT_EQ(QueryRequestTimeout_GetClockDeadline(&timeout)->tv_nsec, deadline.tv_nsec);
+      EXPECT_EQ(QueryRequestLimits_GetClockDeadline(&timeout)->tv_sec, deadline.tv_sec);
+      EXPECT_EQ(QueryRequestLimits_GetClockDeadline(&timeout)->tv_nsec, deadline.tv_nsec);
     }
   }
 }
 
-TEST_F(QueryRequestTimeoutTest, MarkingTheBlockedClientDoesNotSetTheMemoryStop) {
-  QueryRequestTimeout timeout = {};
+TEST_F(QueryRequestLimitsTest, MarkingTheBlockedClientDoesNotSetTheMemoryStop) {
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {1000, TimeoutPolicy_Fail};
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
 
-  QueryRequestTimeout_MarkTimedOut(&timeout);
-  EXPECT_TRUE(QueryRequestTimeout_IsTimedOutExact(&timeout));
-  EXPECT_FALSE(QueryRequestTimeout_IsMemoryStopped(&timeout));
+  QueryRequestLimits_MarkTimedOut(&timeout);
+  EXPECT_TRUE(QueryRequestLimits_IsTimedOutExact(&timeout));
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout));
 }
 
-TEST_F(QueryRequestTimeoutTest, MemoryStopSurvivesResetAndIsClearedByTheNextCycle) {
-  QueryRequestTimeout timeout = {};
+TEST_F(QueryRequestLimitsTest, MemoryStopSurvivesResetAndIsClearedByTheNextCycle) {
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {1000, TimeoutPolicy_Return};
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-  QueryRequestTimeout_RequestMemoryStop(&timeout);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  QueryRequestLimits_RequestMemoryStop(&timeout);
 
-  QueryRequestTimeout_Reset(&timeout);
-  EXPECT_TRUE(QueryRequestTimeout_IsMemoryStopped(&timeout));
+  QueryRequestLimits_Reset(&timeout);
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout));
 
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  EXPECT_FALSE(QueryRequestTimeout_IsMemoryStopped(&timeout));
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout));
 
-  QueryRequestTimeout_RequestMemoryStop(&timeout);
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
-  EXPECT_FALSE(QueryRequestTimeout_IsMemoryStopped(&timeout));
+  QueryRequestLimits_RequestMemoryStop(&timeout);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout));
 }
 
-TEST_F(QueryRequestTimeoutTest, MemoryStopRequestedOnAnotherThreadIsObserved) {
-  QueryRequestTimeout timeout = {};
+TEST_F(QueryRequestLimitsTest, MemoryStopRequestedOnAnotherThreadIsObserved) {
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {0, TimeoutPolicy_Return};
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
   // TIMEOUT 0: the cycle stays UNARMED, which on its own never times out.
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   ASSERT_EQ(timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
 
   std::atomic<bool> workerReady = false;
@@ -257,7 +257,7 @@ TEST_F(QueryRequestTimeoutTest, MemoryStopRequestedOnAnotherThreadIsObserved) {
     workerReady.store(true, std::memory_order_release);
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (std::chrono::steady_clock::now() < deadline) {
-      if (QueryRequestTimeout_IsMemoryStopped(&timeout)) {
+      if (QueryRequestLimits_IsMemoryStopped(&timeout)) {
         workerObservedStop = true;
         return;
       }
@@ -268,13 +268,13 @@ TEST_F(QueryRequestTimeoutTest, MemoryStopRequestedOnAnotherThreadIsObserved) {
   while (!workerReady.load(std::memory_order_acquire)) {
     std::this_thread::yield();
   }
-  QueryRequestTimeout_RequestMemoryStop(&timeout);
+  QueryRequestLimits_RequestMemoryStop(&timeout);
   worker.join();
 
   EXPECT_TRUE(workerObservedStop);
 }
 
-TEST_F(QueryRequestTimeoutTest, RequestOwnsConfigurationAcrossCycles) {
+TEST_F(QueryRequestLimitsTest, RequestOwnsConfigurationAcrossCycles) {
   for (auto kind : {QUERY_REQUEST_KIND_AREQ, QUERY_REQUEST_KIND_HYBRID, QUERY_REQUEST_KIND_COORD_SEARCH}) {
     RequestConfig defaults = {};
     defaults.dialectVersion = 4;
@@ -299,9 +299,9 @@ TEST_F(QueryRequestTimeoutTest, RequestOwnsConfigurationAcrossCycles) {
 
     request.timeout.timeout.config.queryTimeoutMS = 0;
     request.timeout.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
-    QueryRequestTimeout_Reset(&request.timeout);
+    QueryRequestLimits_Reset(&request.timeout);
     QueryRequest_ResetReply(&request);
-    QueryRequestTimeout_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    QueryRequestLimits_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     EXPECT_EQ(request.timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
     EXPECT_EQ(request.cursorConfig.maxIdle, 1000);
     EXPECT_EQ(request.cursorConfig.chunkSize, 42);
@@ -310,20 +310,20 @@ TEST_F(QueryRequestTimeoutTest, RequestOwnsConfigurationAcrossCycles) {
     EXPECT_EQ(request.reqConfig.oomPolicy, OomPolicy_Fail);
 
     request.timeout.timeout.config.queryTimeoutMS = 5000;
-    QueryRequestTimeout_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    QueryRequestLimits_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     EXPECT_EQ(request.timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-    const auto deadline = *QueryRequestTimeout_GetClockDeadline(&request.timeout);
+    const auto deadline = *QueryRequestLimits_GetClockDeadline(&request.timeout);
     request.timeout.timeout.config.queryTimeoutMS = 0;
-    EXPECT_EQ(QueryRequestTimeout_GetClockDeadline(&request.timeout)->tv_sec, deadline.tv_sec);
-    EXPECT_EQ(QueryRequestTimeout_GetClockDeadline(&request.timeout)->tv_nsec, deadline.tv_nsec);
-    QueryRequestTimeout_Reset(&request.timeout);
-    QueryRequestTimeout_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+    EXPECT_EQ(QueryRequestLimits_GetClockDeadline(&request.timeout)->tv_sec, deadline.tv_sec);
+    EXPECT_EQ(QueryRequestLimits_GetClockDeadline(&request.timeout)->tv_nsec, deadline.tv_nsec);
+    QueryRequestLimits_Reset(&request.timeout);
+    QueryRequestLimits_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
     EXPECT_EQ(request.timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
     QueryRequest_Destroy(&request);
   }
 }
 
-TEST_F(QueryRequestTimeoutTest, ExecutionPhaseTracksOnlyUnsignaledBlockedClientCycles) {
+TEST_F(QueryRequestLimitsTest, ExecutionPhaseTracksOnlyUnsignaledBlockedClientCycles) {
   RequestConfig config = {};
   TimeoutConfig timeoutConfig = {1000, TimeoutPolicy_Return};
   QueryRequest request = {};
@@ -336,15 +336,15 @@ TEST_F(QueryRequestTimeoutTest, ExecutionPhaseTracksOnlyUnsignaledBlockedClientC
   QueryRequest_SetExecutionPhase(&request, pipelinePhase);
   EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
 
-  QueryRequestTimeout_MarkTimedOut(&request.timeout);
+  QueryRequestLimits_MarkTimedOut(&request.timeout);
   QueryRequest_SetExecutionPhase(&request, replyPhase);
   EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
 
-  QueryRequestTimeout_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  QueryRequestLimits_BeginCycle(&request.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   QueryRequest_SetExecutionPhase(&request, queuePhase);
   EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
 
-  QueryRequestTimeout_Reset(&request.timeout);
+  QueryRequestLimits_Reset(&request.timeout);
   QueryRequest_SetExecutionPhase(&request, replyPhase);
   EXPECT_EQ(QueryRequest_GetExecutionPhase(&request), pipelinePhase);
 

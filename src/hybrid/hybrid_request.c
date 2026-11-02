@@ -371,9 +371,9 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 }
 
 void HybridRequest_BeginTimeoutCycle(HybridRequest *req, QueryRequestTimeoutKind kind) {
-    QueryRequestTimeout_BeginCycle(&req->base.timeout, kind);
+    QueryRequestLimits_BeginCycle(&req->base.timeout, kind);
     for (size_t i = 0; i < req->nrequests; i++) {
-        QueryRequestTimeout_BeginCycle(&req->requests[i]->base.timeout, kind);
+        QueryRequestLimits_BeginCycle(&req->requests[i]->base.timeout, kind);
     }
 }
 
@@ -415,7 +415,7 @@ void HybridRequest_Free(HybridRequest *req) {
     // releasing the sctx and its diskSnapshot, and the subs own no
     // RedisModuleCtx — each cycle lends and reclaims its own.
     const bool timedOut =
-        QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout);
+        QueryRequestLimits_IsBlockedClientTimedOut(&req->base.timeout);
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *sub = req->requests[i];
       struct Cursor *cursor = sub->base.cursorInfo.cursor;
@@ -550,7 +550,7 @@ void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req) {
   // hybrid-level flag is set.
   for (size_t i = 0; i < req->nrequests; i++) {
     if (req->requests[i]) {
-      QueryRequestTimeout_MarkTimedOut(&req->requests[i]->base.timeout);
+      QueryRequestLimits_MarkTimedOut(&req->requests[i]->base.timeout);
     }
   }
 }

@@ -218,13 +218,13 @@ TEST_F(HybridReleaseUpstreamTest, IndexWithoutDiskBackingIsLeftAlone) {
 class HybridStartCursorsTest : public HybridSnapshotTest {
  protected:
   static int upstreamRc;
-  static QueryRequestTimeout* timeoutToTrip;  // marked timed out from inside the upstream read
+  static QueryRequestLimits* timeoutToTrip;  // marked timed out from inside the upstream read
   FakeRP upstream[2][2]{};                    // per subquery: [0] root, [1] middle
   QueryError status = QueryError_Default();
 
   static int fakeNext(ResultProcessor*, SearchResult*) {
     if (timeoutToTrip) {
-      QueryRequestTimeout_MarkTimedOut(timeoutToTrip);
+      QueryRequestLimits_MarkTimedOut(timeoutToTrip);
     }
     return upstreamRc;
   }
@@ -236,8 +236,8 @@ class HybridStartCursorsTest : public HybridSnapshotTest {
     upstreamRc = RS_RESULT_EOF;
     timeoutToTrip = nullptr;
     TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = TimeoutPolicy_Fail};
-    QueryRequestTimeout_Init(&hybrid.base.timeout, &timeoutConfig);
-    QueryRequestTimeout_BeginCycle(&hybrid.base.timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    QueryRequestLimits_Init(&hybrid.base.timeout, &timeoutConfig);
+    QueryRequestLimits_BeginCycle(&hybrid.base.timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
     hybrid.base.replyDeferred = true;  // the reply callback replies, not StartCursors
 
     AREQ* subs[2] = {&first, &second};
@@ -273,7 +273,7 @@ class HybridStartCursorsTest : public HybridSnapshotTest {
   }
 };
 int HybridStartCursorsTest::upstreamRc = RS_RESULT_EOF;
-QueryRequestTimeout* HybridStartCursorsTest::timeoutToTrip = nullptr;
+QueryRequestLimits* HybridStartCursorsTest::timeoutToTrip = nullptr;
 
 TEST_F(HybridStartCursorsTest, SuccessfulDepletionReleasesUpstreamAndSnapshotBeforePublishing) {
   ASSERT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);

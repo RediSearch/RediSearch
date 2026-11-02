@@ -15,7 +15,7 @@ use std::{
     time::Instant,
 };
 
-use c_trie::QueryRequestTimeoutHandle;
+use c_trie::QueryRequestLimitsHandle;
 use fat_array::{FatArray, FatArrayRef};
 use lending_iterator::LendingIterator as _;
 use query::{QueryNode, WildcardMode};
@@ -38,7 +38,7 @@ fn clock_deadline(ctx: &QueryEvalContext) -> Option<ffi::timespec> {
     // so it never outlives the request. Its source is fixed for this execution cycle; only the
     // blocked-client marker and the memory stop flag may change concurrently, through the C
     // atomic API. Nothing in the evaluator holds a Rust reference to the timeout object.
-    let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ctx.sctx().timeout) }?;
+    let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ctx.sctx().timeout) }?;
     timeout.clock_deadline()
 }
 

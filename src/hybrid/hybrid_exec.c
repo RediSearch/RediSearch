@@ -222,7 +222,7 @@ static void serializeResult_hybrid(HybridRequest *hreq, RedisModule_Reply *reply
 // predicate at aggregate_exec.c:areq_timeout_or_pending_spec_writers).
 static bool hreq_timeout_or_pending_spec_writers(void *arg) {
   HybridRequest *hreq = arg;
-  return QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout) ||
+  return QueryRequestLimits_IsBlockedClientTimedOut(&hreq->base.timeout) ||
          PendingSpecWriters_Get() > 0;
 }
 #endif
@@ -264,7 +264,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   // Bail if the RETURN-STRICT timeout callback already owns the reply.
   // The timeout check MUST come first so it short-circuits the CAS.
   if (HybridRequest_RequiresThreadsSyncResults(hreq) &&
-      (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout) ||
+      (QueryRequestLimits_IsBlockedClientTimedOut(&hreq->base.timeout) ||
        !HybridRequest_TryClaimAggregateResults(hreq))) {
     *rc = RS_RESULT_TIMEDOUT;
     return;
@@ -322,7 +322,7 @@ static int HREQ_populateReplyWithResults(RedisModule_Reply *reply,
 /* Record this hybrid request's blocked-client timeout into the per-stage
  * breakdown, at the stage its execution-phase marker had reached when the deadline
  * fired. Must be called exactly once per blocked-client timeout callback, right
- * after QueryRequestTimeout_MarkTimedOut (which freezes the marker). */
+ * after QueryRequestLimits_MarkTimedOut (which freezes the marker). */
 static inline void recordHREQTimeoutStage(HybridRequest *hreq, bool isError, bool coord) {
   QueryTimeoutStageStats_Record(HybridRequest_ExecutionStage(hreq), isError, coord);
 }
@@ -476,7 +476,7 @@ static inline void debugPauseStoreResultsHybrid(HybridRequest *hreq, bool before
   StoreResultsDebugCtx_SetPause(true);
   while (StoreResultsDebugCtx_IsPaused()) {
     // Check if timed out - break to avoid deadlock with timeout callback
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+    if (QueryRequestLimits_IsBlockedClientTimedOut(&hreq->base.timeout)) {
       StoreResultsDebugCtx_SetPause(false);
       break;
     }
@@ -491,7 +491,7 @@ static inline void debugPauseHybridStoreCursors(HybridRequest *hreq, bool before
   if (enabled) {
     HybridStoreCursorsDebugCtx_SetPause(true);
     while (HybridStoreCursorsDebugCtx_IsPaused()) {
-      if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+      if (QueryRequestLimits_IsBlockedClientTimedOut(&hreq->base.timeout)) {
         HybridStoreCursorsDebugCtx_SetPause(false);
         break;
       }
@@ -586,7 +586,7 @@ void sendChunk_hybrid(HybridRequest *hreq, RedisModule_Reply *reply, size_t limi
     rp->parent->resultLimit = limit;
 
     // Check if timed out before executing pipeline
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(&hreq->base.timeout)) {
+    if (QueryRequestLimits_IsBlockedClientTimedOut(&hreq->base.timeout)) {
       // Timeout callback already replied - skip to cleanup without replying
       goto done_err;
     }
@@ -816,7 +816,7 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
 
     // Check if we timed out before depleting. Error returns leave the
     // sub-cursors unpublished; the container's teardown frees them.
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+    if (QueryRequestLimits_IsBlockedClientTimedOut(&req->base.timeout)) {
       array_free(depleters);
       QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
       return REDISMODULE_ERR;
@@ -873,7 +873,7 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
     // races past this check is benign: the timeout reply exposes no IDs, and
     // the container's teardown frees a timed-out cycle's cursors whatever
     // their disposition.
-    if (QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+    if (QueryRequestLimits_IsBlockedClientTimedOut(&req->base.timeout)) {
       QueryError_SetError(status, QUERY_ERROR_CODE_TIMED_OUT, NULL);
       return REDISMODULE_ERR;
     }
@@ -1045,7 +1045,7 @@ static int HybridQueryTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to background thread
-  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  QueryRequestLimits_MarkTimedOut(&hreq->base.timeout);
   HybridRequest_PropagateTimeoutToSubqueries(hreq);
   const bool coordinator = !IsInternal(hreq->requests[0]);
   recordHREQTimeoutStage(hreq, /*isError=*/true, coordinator);
@@ -1075,7 +1075,7 @@ static int HybridQueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModu
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to the worker and to all subquery depleters.
-  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  QueryRequestLimits_MarkTimedOut(&hreq->base.timeout);
   HybridRequest_PropagateTimeoutToSubqueries(hreq);
   recordHREQTimeoutStage(hreq, /*isError=*/false, !IsInternal(hreq->requests[0]));
 
@@ -1120,7 +1120,7 @@ static int HybridQueryCursorTimeoutReturnStrictCallback(RedisModuleCtx *ctx, Red
   HybridRequest *hreq = QueryRequest_GetHybrid(request);
 
   // Signal timeout to background thread
-  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  QueryRequestLimits_MarkTimedOut(&hreq->base.timeout);
   HybridRequest_PropagateTimeoutToSubqueries(hreq);
   // Record at the stage the deadline caught the request (REPLY once the cursors
   // were published, QUEUE/PIPELINE before that).
