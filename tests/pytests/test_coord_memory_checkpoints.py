@@ -228,24 +228,25 @@ def test_search_fanout_stop_keeps_earlier_replies():
 
 
 KNN_K = 10
-# SORTBY a field other than the distance keeps the coordinator's separate K heap in play. `n`
-# runs against the distance order, so the reply order shows the heap's rows were re-sorted.
+# SORTBY a field other than the distance keeps the coordinator's separate K heap in play. `s` runs
+# against the distance order, so the reply order shows the heap's rows were re-sorted. It is a
+# string: a numeric sort key would be read as the distance by the coordinator's K heap.
 KNN_QUERY = ('FT.SEARCH', 'idx', f'*=>[KNN {KNN_K} @v $b]', 'NOCONTENT', 'PARAMS', 2, 'b',
-             np.zeros(2, dtype=np.float32).tobytes(), 'SORTBY', 'n', 'DIALECT', 2)
+             np.zeros(2, dtype=np.float32).tobytes(), 'SORTBY', 's', 'DIALECT', 2)
 
 
 def create_knn_index(env):
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE',
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 's', 'TAG', 'SORTABLE',
                'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
     conn = getConnectionByEnv(env)
     for i in range(N_DOCS):
         # Distance to the query vector grows with i, all distinct.
-        conn.execute_command('HSET', f'doc{i}', 'n', N_DOCS - i,
+        conn.execute_command('HSET', f'doc{i}', 's', f'{N_DOCS - i:02d}',
                              'v', np.array([i, 0], dtype=np.float32).tobytes())
 
 
 def knn_expected_ids(doc_ids):
-    """The ids the KNN reply holds for `doc_ids`: the nearest K, in `n` order."""
+    """The ids the KNN reply holds for `doc_ids`: the nearest K, in `s` order."""
     nearest = sorted(doc_ids, key=lambda d: int(d[3:]))[:KNN_K]
     return sorted(nearest, key=lambda d: N_DOCS - int(d[3:]))
 
