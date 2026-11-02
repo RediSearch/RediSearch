@@ -653,6 +653,8 @@ struct MRIteratorCtx {
   short pending;    // Number of shards with more results (not depleted)
   short inProcess;  // Number of currently running commands on shards
   bool timedOut;    // whether the coordinator experienced a timeout
+  bool memoryCheckpoint;
+  bool memoryStopped;  // set on the IO thread, read by the reader
   // reference counter of the iterator.
   // When it reaches 0, both readers and the writer agree that the iterator can be released
   int8_t itRefCount;
@@ -728,6 +730,22 @@ short MRIterator_GetPending(MRIterator *it) {
 
 bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx) {
   return __atomic_load_n(&ctx->timedOut, __ATOMIC_ACQUIRE);
+}
+
+bool MRIteratorCallback_HasMemoryCheckpoint(MRIteratorCallbackCtx *ctx) {
+  return ctx->it->ctx.memoryCheckpoint;
+}
+
+void MRIteratorCallback_SetMemoryStopped(MRIteratorCallbackCtx *ctx) {
+  MRIteratorCtx *itCtx = &ctx->it->ctx;
+  __atomic_store_n(&itCtx->memoryStopped, true, __ATOMIC_RELAXED);
+  // Release: a reader that acquires this timedOut also sees memoryStopped, so it never resets
+  // timedOut for a memory stop it cannot see.
+  __atomic_store_n(&itCtx->timedOut, true, __ATOMIC_RELEASE);
+}
+
+bool MRIterator_IsMemoryStopped(MRIterator *it) {
+  return __atomic_load_n(&it->ctx.memoryStopped, __ATOMIC_ACQUIRE);
 }
 
 void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx) {
@@ -999,6 +1017,7 @@ static MRIterator *createIterator(MRCommand cmd, const MRIteratorConfig *config)
       .ioRuntime = ioRuntime,
       .privateDataDestructor = config->cbPrivateDataDestructor,
       .commandModifier = config->commandModifier,
+      .memoryCheckpoint = config->memoryCheckpoint,
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
     .len = 1,
@@ -1023,6 +1042,17 @@ MRIterator *MR_CreateIteratorTakingCmd(MRCommand *cmd, const MRIteratorConfig *c
 
 void MR_StartIterator(MRIterator *it, void (*iterStartCb)(void *)) {
   IORuntimeCtx_Schedule(it->ctx.ioRuntime, iterStartCb, it);
+}
+
+void MRIterator_DiscardUnstarted(MRIterator *it) {
+  // Nothing was sent, so no shard holds a cursor: without this, the final release would send a
+  // DEL for the initial command, which has no target shard. The writers' ref is never dropped by
+  // a start that never happens, so drop it here to let the reader's release free the iterator.
+  it->ctx.pending = 0;
+  it->ctx.inProcess = 0;
+  int8_t refcount = MRIterator_DecreaseRefCount(it);
+  REFCOUNT_DECR_MSG("MRIterator_DiscardUnstarted", refcount);
+  RS_ASSERT(refcount == 1);
 }
 
 IORuntimeCtx *MRIterator_GetIORuntime(const MRIterator *it) {
