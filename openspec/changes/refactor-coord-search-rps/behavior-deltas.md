@@ -1,7 +1,7 @@
 # Behavior delta ledger
 
-This is the authoritative ledger for observable changes. No implementation delta
-has landed yet. Source observations are not executed differential tests.
+This is the authoritative ledger for observable changes. Implementation evidence is recorded below. Source observations alone are not
+executed differential tests.
 
 ## Classification
 
@@ -45,8 +45,8 @@ not justified as soft behavior.
 
 ## Executed evidence
 
-None yet. The first extraction is intended to change only B01. Other entries are
-compatibility obligations or candidate follow-ups, not claims of known deltas.
+See the implementation evidence below. Tracked surfaces without executed evidence
+remain compatibility obligations, not claims of validated equivalence.
 
 ## Implementation evidence
 
@@ -72,3 +72,59 @@ compatibility obligations or candidate follow-ups, not claims of known deltas.
 - Local cluster validation requires RLTest's
   `--cluster_bus_port_protected_mode no` for this Redis binary. This is a local
   test setting, not a repository or product configuration change.
+
+- PR 3 removes the custom KNN heap and wrappers. Optional nearest-K selection
+  and final ordering both use the standard comparator sorter. The distance
+  SORTBY shortcut, including DESC, still bypasses nearest-K preselection.
+- B05: the legacy numeric sort-key preference in GET_NUMERIC_SCORE is preserved
+  even when SORTBY names another numeric field. This refactor does not correct
+  that selection behavior. KNN totals remain bounded by K and based on accepted
+  rows for the preselection path.
+- Two added KNN protocol/profile tests passed against the PR 2 binary before
+  replacement, covering default order, distance ASC, another field in both
+  directions, and pages within/beyond K.
+
+- Buffered-KNN timeout coverage uses the existing debug-only per-row reduction
+  pause hook for KNN as well as ordinary rows. Production cancellation remains
+  at shard boundaries. The test interrupts with one nearest-K candidate buffered,
+  checks final membership/order and offset-once semantics, and observes one reply
+  and one free callback in RESP2 and RESP3. Execution evidence follows validation.
+
+## Approved alignment follow-up (supersedes initial compatibility choices)
+
+- Sorting now uses standard typed lookup values and standard score/field RPs.
+  Explicit document-key secondary fields preserve score ties, direction-dependent
+  SORTBY ties, and nearest-K distance ties. Missing sort keys remain absent lookup
+  values, preserving missing-last placement in both directions. No custom
+  comparator API remains in the final stack. Comparison performs no reply decoding
+  or numeric parsing; source decoding adds owned lookup values with borrowed strings.
+  End-to-end performance is not measured.
+- B05: nearest-K selection now reads the required vector distance even when final
+  SORTBY is another numeric field. Previously a numeric sort key could replace the
+  distance and change global K membership. This is an approved observable
+  correctness fix, not classified as soft. Regression tests sort by numeric price
+  opposite to distance in both directions, with profiles, pages and WITHSCORES.
+- B06: distance DESC now selects global nearest K before descending final order.
+  Previously it could select the farthest candidates from the union of shard-local
+  nearest-K sets. This is an approved observable membership correction. ASC keeps
+  its equivalent shortcut; count-only distance queries keep their metadata totals.
+  Required-field construction reuses the distance sort field rather than asking
+  for it twice in the new DESC path.
+- B04: encoded numeric/string values are normalized to RSValue numbers/strings;
+  heterogeneous values consequently follow standard RP coercion/error semantics
+  rather than comparing wire type prefixes. This is an explicit alignment, not
+  a claim of byte-for-byte ordering compatibility for heterogeneous shard values.
+  Numeric, string, missing-key and document-key tie cases are covered; a public
+  mixed-type SORTBY scenario has not been established by these fixtures.
+- B07: count-only behavior remains path-specific: preselection paths count returned
+  candidates, while distance-sort count-only paths use capped shard metadata.
+  No general count-only normalization is included in this change.
+- Updated six RESP2/RESP3 characterization and buffered-timeout tests pass on the
+  revised PR 3 code; broader final-stack validation follows.
+
+- The expanded RESP3 WITHSORTKEYS regression reproduced a parse error before the
+  follow-up decoder fix. When the vector distance is also the sort field, decoding
+  now reuses the normal sort-key view (which handles both top-level sortkey and
+  required_fields). It never substitutes another field's numeric value. All six
+  protocol/order/KNN/buffered-timeout tests pass with search/profile WITHSORTKEYS
+  coverage after the fix.

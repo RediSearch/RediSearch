@@ -22,7 +22,6 @@
 #include "resp3.h"
 #include "rmr/reply.h"
 #include "util/arr/arr.h"
-#include "util/heap.h"
 #include <math.h>
 #include <string.h>
 #ifdef ENABLE_ASSERT
@@ -41,11 +40,6 @@ typedef struct {
   double sortKeyNum;
 } searchResult;
 
-struct searchReducerCtx;  // Predecleration
-
-typedef void (*processReplyCB)(MRReply *arr, struct searchReducerCtx *rCtx);
-typedef void (*postProcessReplyCB)(struct searchReducerCtx *rCtx);
-
 typedef struct {
   int step;  // offset for next reply
   int score;
@@ -57,29 +51,22 @@ typedef struct {
 typedef struct searchReducerCtx {
   MRReply *fieldNames;
   MRReply *lastError;
-  searchResult *cachedResult;
   searchRequestCtx *searchCtx;
-  heap_t *pq;
   size_t totalReplies;
   bool errorOccurred;
   searchReplyOffsets offsets;
 
-  processReplyCB processReply;
-  postProcessReplyCB postProcess;
   specialCaseCtx *reduceSpecialCaseCtxKnn;
   specialCaseCtx *reduceSpecialCaseCtxSortby;
 
   MRReply *warning;
   QueryProcessingCtx qctx;
+  RLookup lookup;
+  const RLookupKey *sortKeys[2];
+  const RLookupKey *knnKeys[2];
   arrayof(SearchResult *) results;
   MRReply **replies;
-  bool pipeline;
 } searchReducerCtx;
-
-typedef struct {
-  searchResult *result;
-  double score;
-} scoredSearchResultWrapper;
 
 static int searchResultReducer(searchRequestCtx *req, int count, MRReply **replies,
                                bool fromTimeout);
@@ -87,13 +74,8 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
 void CoordSearchReducer_Free(searchRequestCtx *r) {
   searchReducerCtx *rctx = r->rctx;
   if (rctx) {
-    if (rctx->pq) {
-      heap_destroy(rctx->pq);
-    }
-    if (rctx->reduceSpecialCaseCtxKnn && rctx->reduceSpecialCaseCtxKnn->knn.pq) {
-      heap_destroy(rctx->reduceSpecialCaseCtxKnn->knn.pq);
-    }
     QITR_FreeChain(&rctx->qctx);
+    RLookup_Cleanup(&rctx->lookup);
     if (rctx->results) {
       for (size_t i = 0; i < array_len(rctx->results); ++i) {
         SearchResult_Destroy(rctx->results[i]);
@@ -102,64 +84,6 @@ void CoordSearchReducer_Free(searchRequestCtx *r) {
       array_free(rctx->results);
     }
     rm_free(rctx);
-  }
-}
-
-static int cmpStrings(const char *s1, size_t l1, const char *s2, size_t l2) {
-  int cmp = memcmp(s1, s2, MIN(l1, l2));
-  if (l1 == l2) {
-    // if the strings are the same length, just return the result of strcmp
-    return cmp;
-  }
-
-  // if the strings are identical but the lengths aren't, return the longer string
-  if (cmp == 0) {
-    return l1 > l2 ? 1 : -1;
-  } else {  // the strings are lexically different, just return that
-    return cmp;
-  }
-}
-
-static int cmp_results(const void *p1, const void *p2, const void *udata) {
-
-  const searchResult *r1 = p1, *r2 = p2;
-  const searchRequestCtx *req = udata;
-  // Compary by sorting keys
-  if (req->withSortby) {
-    int cmp = 0;
-    if ((r1->sortKey || r2->sortKey)) {
-      // Sort by numeric sorting keys
-      if (r1->sortKeyNum != HUGE_VAL && r2->sortKeyNum != HUGE_VAL) {
-        double diff = r2->sortKeyNum - r1->sortKeyNum;
-        cmp = diff < 0 ? -1 : (diff > 0 ? 1 : 0);
-      } else if (r1->sortKey && r2->sortKey) {
-
-        // Sort by string sort keys
-        cmp = cmpStrings(r2->sortKey, r2->sortKeyLen, r1->sortKey, r1->sortKeyLen);
-      } else {
-        // If at least one of these has no sort key, it gets high value regardless of asc/desc
-        return r2->sortKey ? 1 : -1;
-      }
-    }
-    // in case of a tie or missing both sorting keys - compare ids
-    if (!cmp) {
-      cmp = cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
-    }
-    return (req->sortAscending ? -cmp : cmp);
-  }
-
-  double s1 = r1->score, s2 = r2->score;
-  if (s1 < s2) {
-    return 1;
-  } else if (s1 > s2) {
-    return -1;
-  } else {
-    // This was reversed to be more compatible with OSS version where tie breaker was changed
-    // to return the lower doc ID to reduce sorting heap work. Doc name might not be ascending
-    // or descending but this still may reduce heap work.
-    // Our tests are usually ascending so this will create similarity between RS and RSC.
-    int rv = -cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
-    return rv;
   }
 }
 
@@ -376,163 +300,12 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
   }
 }
 
-/************************** Result processing callbacks **********************/
-
-static int cmp_scored_results(const void *p1, const void *p2, const void *udata) {
-  const scoredSearchResultWrapper *s1 = p1;
-  const scoredSearchResultWrapper *s2 = p2;
-  double score1 = s1->score;
-  double score2 = s2->score;
-  if (score1 < score2) {
-    return -1;
-  } else if (score1 > score2) {
-    return 1;
-  }
-  return cmpStrings(s1->result->id, s1->result->idLen, s2->result->id, s2->result->idLen);
-}
-
-static double parseNumeric(const char *str, const char *sortKey) {
+static double parseNumeric(const char *str) {
   RS_ASSERT(str[0] == '#');
   char *eptr;
   double d = fast_float_strtod(str + 1, &eptr);
-  RS_ASSERT(eptr != sortKey + 1 && *eptr == 0);
+  RS_ASSERT(eptr != str + 1 && *eptr == 0);
   return d;
-}
-
-#define GET_NUMERIC_SCORE(d, searchResult_var, score_exp) \
-  do {                                                    \
-    if (res->sortKeyNum != HUGE_VAL) {                    \
-      d = searchResult_var->sortKeyNum;                   \
-    } else {                                              \
-      const char *score = (score_exp);                    \
-      d = parseNumeric(score, res->sortKey);              \
-    }                                                     \
-  } while (0);
-
-static void ProcessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score,
-                                   knnContext *knnCtx) {
-  // As long as we don't have k results, keep insert
-  if (heap_count(knnCtx->pq) < knnCtx->k) {
-    scoredSearchResultWrapper *resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
-    resWrapper->result = res;
-    resWrapper->score = score;
-    heap_offerx(knnCtx->pq, resWrapper);
-  } else {
-    // Check for upper bound
-    scoredSearchResultWrapper tmpWrapper;
-    tmpWrapper.result = res;
-    tmpWrapper.score = score;
-    scoredSearchResultWrapper *largest = heap_peek(knnCtx->pq);
-    int c = cmp_scored_results(&tmpWrapper, largest, rCtx->searchCtx);
-    if (c < 0) {
-      scoredSearchResultWrapper *resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
-      resWrapper->result = res;
-      resWrapper->score = score;
-      // Current result is smaller then upper bound, replace them.
-      largest = heap_poll(knnCtx->pq);
-      heap_offerx(knnCtx->pq, resWrapper);
-      rCtx->cachedResult = largest->result;
-      rm_free(largest);
-    } else {
-      rCtx->cachedResult = res;
-    }
-  }
-}
-
-static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
-  if (arr == NULL) {
-    return;
-  }
-  if (MRReply_Type(arr) == MR_REPLY_ERROR) {
-    return;
-  }
-
-  bool resp3 = MRReply_Type(arr) == MR_REPLY_MAP;
-  if (!resp3 && (MRReply_Type(arr) != MR_REPLY_ARRAY || MRReply_Length(arr) == 0)) {
-    // Empty reply??
-    return;
-  }
-
-  searchRequestCtx *req = rCtx->searchCtx;
-  specialCaseCtx *reduceSpecialCaseCtxKnn = rCtx->reduceSpecialCaseCtxKnn;
-  specialCaseCtx *reduceSpecialCaseCtxSortBy = rCtx->reduceSpecialCaseCtxSortby;
-  searchResult *res;
-  if (resp3) {
-    // Check for a warning
-    MRReply *warning = MRReply_MapElement(arr, "warning");
-    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid warning record");
-    if (!rCtx->warning && MRReply_Length(warning) > 0) {
-      rCtx->warning = warning;
-    }
-
-    MRReply *results = MRReply_MapElement(arr, "results");
-    RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
-    size_t len = MRReply_Length(results);
-    for (int j = 0; j < len; ++j) {
-      res = newResult_resp3(rCtx->cachedResult, results, j, &rCtx->offsets,
-                            rCtx->searchCtx->withExplainScores, reduceSpecialCaseCtxSortBy);
-      if (res && res->id) {
-        rCtx->cachedResult = NULL;
-      } else {
-        RedisModule_Log(RSDummyContext, "warning",
-                        "missing required_field when parsing redisearch results");
-        goto error;
-      }
-      MRReply *require_fields =
-          MRReply_MapElement(MRReply_ArrayElement(results, j), "required_fields");
-      if (!require_fields) {
-        RedisModule_Log(RSDummyContext, "warning",
-                        "missing required_fields when parsing redisearch results");
-        goto error;
-      }
-      MRReply *score_value =
-          MRReply_MapElement(require_fields, reduceSpecialCaseCtxKnn->knn.fieldName);
-      if (!score_value) {
-        RedisModule_Log(RSDummyContext, "warning",
-                        "missing knn required_field when parsing redisearch results");
-        goto error;
-      }
-      double d;
-      GET_NUMERIC_SCORE(d, res, MRReply_String(score_value, NULL));
-      ProcessKNNSearchResult(res, rCtx, d, &reduceSpecialCaseCtxKnn->knn);
-    }
-    processResultFormat(&req->format, arr);
-
-  } else {
-    size_t len = MRReply_Length(arr);
-
-    int step = rCtx->offsets.step;
-    int scoreOffset = reduceSpecialCaseCtxKnn->knn.offset;
-    for (int j = 1; j < len; j += step) {
-      if (j + step > len) {
-        RedisModule_Log(
-            RSDummyContext, "warning",
-            "got a bad reply from redisearch, reply contains less parameters then expected");
-        rCtx->errorOccurred = true;
-        break;
-      }
-      res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets,
-                            rCtx->searchCtx->withExplainScores);
-      if (res && res->id) {
-        rCtx->cachedResult = NULL;
-      } else {
-        RedisModule_Log(RSDummyContext, "warning",
-                        "missing required_field when parsing redisearch results");
-        goto error;
-      }
-
-      double d;
-      GET_NUMERIC_SCORE(d, res, MRReply_String(MRReply_ArrayElement(arr, j + scoreOffset), NULL));
-      ProcessKNNSearchResult(res, rCtx, d, &reduceSpecialCaseCtxKnn->knn);
-    }
-  }
-  return;
-
-error:
-  rCtx->errorOccurred = true;
-  // invalid result - usually means something is off with the response, and we should just
-  // quit this response
-  rCtx->cachedResult = res;
 }
 
 #ifdef ENABLE_ASSERT
@@ -556,121 +329,6 @@ static void debugCheckAndPauseBeforeReduce(searchReducerCtx *rCtx) {
   }
 }
 #endif
-
-static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx) {
-#ifdef ENABLE_ASSERT
-  debugCheckAndPauseBeforeReduce(rCtx);
-#endif
-
-  if (!res || !res->id) {
-    RedisModule_Log(RSDummyContext, "warning",
-                    "got an unexpected argument when parsing redisearch results");
-    rCtx->errorOccurred = true;
-    // invalid result - usually means something is off with the response, and we should just
-    // quit this response
-    rCtx->cachedResult = res;
-    return;
-  }
-
-  rCtx->cachedResult = NULL;
-
-  // TODO: minmax_heap?
-  if (heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
-    heap_offerx(rCtx->pq, res);
-  } else {
-    searchResult *smallest = heap_peek(rCtx->pq);
-    int c = cmp_results(res, smallest, rCtx->searchCtx);
-    if (c < 0) {
-      smallest = heap_poll(rCtx->pq);
-      heap_offerx(rCtx->pq, res);
-      rCtx->cachedResult = smallest;
-    } else {
-      rCtx->cachedResult = res;
-      if (rCtx->searchCtx->withSortby) {
-        // If the result is lower than the last result in the heap,
-        // AND there is a user-defined sort order - we can stop now
-#ifdef ENABLE_ASSERT
-        CoordReduceDebugCtx_IncrementReduceCount();
-#endif
-        return;
-      }
-    }
-  }
-
-#ifdef ENABLE_ASSERT
-  CoordReduceDebugCtx_IncrementReduceCount();
-#endif
-}
-
-static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
-  if (arr == NULL) {
-    return;
-  }
-  if (MRReply_Type(arr) == MR_REPLY_ERROR) {
-    return;
-  }
-
-  bool resp3 = MRReply_Type(arr) == MR_REPLY_MAP;
-  if (!resp3 && (MRReply_Type(arr) != MR_REPLY_ARRAY || MRReply_Length(arr) == 0)) {
-    // Empty reply??
-    return;
-  }
-
-  searchRequestCtx *req = rCtx->searchCtx;
-
-  if (resp3)  // RESP3
-  {
-    // Check for a warning
-    MRReply *warning = MRReply_MapElement(arr, "warning");
-    RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid warning record");
-    if (!rCtx->warning && MRReply_Length(warning) > 0) {
-      rCtx->warning = warning;
-    }
-
-    MRReply *total_results = MRReply_MapElement(arr, "total_results");
-    if (!total_results) {
-      rCtx->errorOccurred = true;
-      return;
-    }
-    rCtx->totalReplies += MRReply_Integer(total_results);
-    MRReply *results = MRReply_MapElement(arr, "results");
-    if (!results) {
-      rCtx->errorOccurred = true;
-      return;
-    }
-    size_t len = MRReply_Length(results);
-
-    bool needScore = rCtx->offsets.score > 0;
-    for (int i = 0; i < len; ++i) {
-      searchResult *res =
-          newResult_resp3(rCtx->cachedResult, results, i, &rCtx->offsets,
-                          rCtx->searchCtx->withExplainScores, rCtx->reduceSpecialCaseCtxSortby);
-      processSearchReplyResult(res, rCtx);
-    }
-    processResultFormat(&rCtx->searchCtx->format, arr);
-  } else  // RESP2
-  {
-    size_t len = MRReply_Length(arr);
-
-    // first element is the total count
-    rCtx->totalReplies += MRReply_Integer(MRReply_ArrayElement(arr, 0));
-
-    int step = rCtx->offsets.step;
-
-    for (int j = 1; j < len; j += step) {
-      if (j + step > len) {
-        RedisModule_Log(
-            RSDummyContext, "warning",
-            "got a bad reply from redisearch, reply contains less parameters then expected");
-        rCtx->errorOccurred = true;
-        break;
-      }
-      searchResult *res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets,
-                                          rCtx->searchCtx->withExplainScores);
-      processSearchReplyResult(res, rCtx);
-    }
-  }
-}
 
 /* MRCtx owns the immutable reply backing until request cleanup. A coordinator
  * docId is a (reply index, row ordinal) locator, never a local document-table id.
@@ -706,12 +364,34 @@ static void searchResultView(searchReducerCtx *ctx, const SearchResult *row, sea
   }
 }
 
-static int compareSearchRows(const void *a, const void *b, const void *context) {
-  searchReducerCtx *ctx = (searchReducerCtx *)context;
-  searchResult left, right;
-  searchResultView(ctx, a, &left);
-  searchResultView(ctx, b, &right);
-  return -cmp_results(&left, &right, ctx->searchCtx);
+static bool needsKnnSelection(const searchReducerCtx *ctx) {
+  return ctx->reduceSpecialCaseCtxKnn && ctx->reduceSpecialCaseCtxKnn->knn.shouldSort;
+}
+
+static bool searchRowDistance(searchReducerCtx *ctx, const SearchResult *row,
+                              const searchResult *view, double *distance) {
+  uint64_t locator = SearchResult_GetDocId(row);
+  MRReply *body = searchReplyBody(ctx->searchCtx, ctx->replies[locator >> 32]);
+  MRReply *value;
+  knnContext *knn = &ctx->reduceSpecialCaseCtxKnn->knn;
+  // WITHSORTKEYS can move the shared distance field out of required_fields.
+  // The normal sort-key decoder already handles both wire representations.
+  if (ctx->reduceSpecialCaseCtxSortby && view->sortKey &&
+      !strcmp(ctx->reduceSpecialCaseCtxSortby->sortby.sortKey, knn->fieldName)) {
+    *distance = view->sortKeyNum;
+    return true;
+  }
+  if (MRReply_Type(body) == MR_REPLY_MAP) {
+    MRReply *fields = MRReply_MapElement(
+        MRReply_ArrayElement(MRReply_MapElement(body, "results"), (uint32_t)locator),
+        "required_fields");
+    if (!fields || !(value = MRReply_MapElement(fields, knn->fieldName))) return false;
+  } else {
+    value =
+        MRReply_ArrayElement(body, 1 + (size_t)(uint32_t)locator * ctx->offsets.step + knn->offset);
+  }
+  *distance = parseNumeric(MRReply_String(value, NULL));
+  return true;
 }
 
 static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
@@ -738,14 +418,15 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
                         "invalid warning record");
           if (!ctx->warning && warning && MRReply_Length(warning)) ctx->warning = warning;
           MRReply *total = MRReply_MapElement(body, "total_results");
-          if (!total || !MRReply_MapElement(body, "results")) {
+          if ((!total && !needsKnnSelection(ctx)) || !MRReply_MapElement(body, "results")) {
             ctx->errorOccurred = true;
             goto next_shard;
           }
-          ctx->totalReplies += MRReply_Integer(total);
+          if (!needsKnnSelection(ctx)) ctx->totalReplies += MRReply_Integer(total);
           source->row = 0;
         } else {
-          ctx->totalReplies += MRReply_Integer(MRReply_ArrayElement(body, 0));
+          if (!needsKnnSelection(ctx))
+            ctx->totalReplies += MRReply_Integer(MRReply_ArrayElement(body, 0));
           source->row = 0;
         }
       }
@@ -773,7 +454,27 @@ static int searchReplyNext(ResultProcessor *base, SearchResult *row) {
 #endif
         if (!view.id) {
           ctx->errorOccurred = true;
+          if (needsKnnSelection(ctx)) goto next_shard;
           continue;
+        }
+        RLookupRow *values = SearchResult_GetRowDataMut(row);
+        if (needsKnnSelection(ctx)) {
+          double distance;
+          if (!searchRowDistance(ctx, row, &view, &distance)) {
+            ctx->errorOccurred = true;
+            goto next_shard;
+          }
+          RLookup_WriteOwnKey(ctx->knnKeys[0], values, RSValue_NewNumber(distance));
+          ctx->totalReplies = MIN(ctx->reduceSpecialCaseCtxKnn->knn.k, ctx->totalReplies + 1);
+        }
+        // Reply backing outlives the lookup values, including rows buffered by either sorter.
+        RLookup_WriteOwnKey(ctx->sortKeys[1], values,
+                            RSValue_NewBorrowedString(view.id, view.idLen));
+        if (view.sortKey) {
+          RSValue *sortValue = view.sortKey[0] == '#' ? RSValue_NewNumber(view.sortKeyNum)
+                                                      : RSValue_NewBorrowedString(
+                                                            view.sortKey + 1, view.sortKeyLen - 1);
+          RLookup_WriteOwnKey(ctx->sortKeys[0], values, sortValue);
         }
         SearchResult_SetScore(row, view.score);
 #ifdef ENABLE_ASSERT
@@ -801,7 +502,6 @@ static void searchReplyFree(ResultProcessor *base) {
 
 static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **replies,
                                  bool fromTimeout) {
-  ctx->pipeline = true;
   ctx->replies = replies;
   ctx->qctx.err = &ctx->searchCtx->base.reply.err;
   ctx->qctx.timeoutPolicy = ctx->searchCtx->base.timeout.config.timeoutPolicy;
@@ -814,8 +514,20 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **rep
   source->count = count;
   source->fromTimeout = fromTimeout;
   QITR_PushRP(&ctx->qctx, &source->base);
-  QITR_PushRP(&ctx->qctx, RPSorter_NewByComparator(ctx->searchCtx->requestedResultsCount,
-                                                   compareSearchRows, ctx));
+  ctx->sortKeys[0] = RLookup_GetKey_Write(&ctx->lookup, "sortkey", RLOOKUP_F_NOFLAGS);
+  ctx->sortKeys[1] = RLookup_GetKey_Write(&ctx->lookup, "document_key", RLOOKUP_F_NOFLAGS);
+  if (needsKnnSelection(ctx)) {
+    ctx->knnKeys[0] = RLookup_GetKey_Write(&ctx->lookup, "distance", RLOOKUP_F_NOFLAGS);
+    ctx->knnKeys[1] = ctx->sortKeys[1];
+    QITR_PushRP(&ctx->qctx,
+                RPSorter_NewByFields(ctx->reduceSpecialCaseCtxKnn->knn.k, ctx->knnKeys, 2, 3));
+  }
+  ResultProcessor *sorter =
+      ctx->searchCtx->withSortby
+          ? RPSorter_NewByFields(ctx->searchCtx->requestedResultsCount, ctx->sortKeys, 2,
+                                 ctx->searchCtx->sortAscending ? 3 : 0)
+          : RPSorter_NewByScore(ctx->searchCtx->requestedResultsCount, ctx->sortKeys[1]);
+  QITR_PushRP(&ctx->qctx, sorter);
   if (ctx->searchCtx->limit != 0) {
     QITR_PushRP(&ctx->qctx, RPPager_New(ctx->searchCtx->offset, ctx->searchCtx->limit));
   }
@@ -834,51 +546,8 @@ static void reduceSearchPipeline(searchReducerCtx *ctx, int count, MRReply **rep
     }
   }
   SearchResult_Destroy(&row);
-}
-
-/************************ Result post processing callbacks ********************/
-
-static void noOpPostProcess(searchReducerCtx *rCtx) {
-  return;
-}
-
-static void knnPostProcess(searchReducerCtx *rCtx) {
-  specialCaseCtx *reducerSpecialCaseCtx = rCtx->reduceSpecialCaseCtxKnn;
-  RS_ASSERT(reducerSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN);
-  if (reducerSpecialCaseCtx->knn.pq) {
-    size_t numberOfResults = heap_count(reducerSpecialCaseCtx->knn.pq);
-    for (size_t i = 0; i < numberOfResults; i++) {
-      scoredSearchResultWrapper *wrappedResult = heap_poll(reducerSpecialCaseCtx->knn.pq);
-      searchResult *res = wrappedResult->result;
-      rm_free(wrappedResult);
-      if (heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
-        heap_offerx(rCtx->pq, res);
-      } else {
-        searchResult *smallest = heap_peek(rCtx->pq);
-        int c = cmp_results(res, smallest, rCtx->searchCtx);
-        if (c < 0) {
-          smallest = heap_poll(rCtx->pq);
-          heap_offerx(rCtx->pq, res);
-          rm_free(smallest);
-        } else {
-          rm_free(res);
-        }
-      }
-    }
-    // `shouldSort`: ProcessKNNSearchReply never accumulated the shards'
-    // total_results, it only fed the K-bounded knn.pq. rCtx->pq is sized
-    // MAX(K, offset+count) on this path (see setKNNSpecialCase), so the merge
-    // above dropped nothing and its count is exactly the number of matching
-    // documents, min(K, global matches).
-    rCtx->totalReplies = heap_count(rCtx->pq);
-  } else {
-    // SORTBY by the distance field: processSearchReply already summed each
-    // shard's total_results, i.e. sum_i min(K, matches_i). rCtx->pq here is only
-    // a response window sized MIN(K, offset+count), so its count is not a hit
-    // count. Clamping the sum to K is exact: if every shard has at most K
-    // matches the sum *is* the global match count, and otherwise both the sum
-    // and the global match count are >= K.
-    rCtx->totalReplies = MIN(reducerSpecialCaseCtx->knn.k, rCtx->totalReplies);
+  if (ctx->reduceSpecialCaseCtxKnn) {
+    ctx->totalReplies = MIN(ctx->reduceSpecialCaseCtxKnn->knn.k, ctx->totalReplies);
   }
 }
 
@@ -899,22 +568,14 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   // Number of results to actually return
   size_t num = req->offset + req->limit;
 
-  size_t qlen = rCtx->pipeline ? array_len(rCtx->results) : heap_count(rCtx->pq);
+  size_t qlen = rCtx->results ? array_len(rCtx->results) : 0;
   size_t pos = qlen;
-  size_t first = rCtx->pipeline ? 0 : req->offset;
+  size_t first = 0;
 
-  // Load the results from the heap into a sorted array. Free the items in
-  // the heap one-by-one so that we don't have to go through them again
   searchResult **results = rm_malloc(sizeof(*results) * qlen);
-  if (rCtx->pipeline) {
-    for (size_t i = 0; i < qlen; ++i) {
-      results[i] = rm_calloc(1, sizeof(*results[i]));
-      searchResultView(rCtx, rCtx->results[i], results[i]);
-    }
-  } else {
-    while (pos) results[--pos] = heap_poll(rCtx->pq);
-    heap_free(rCtx->pq);
-    rCtx->pq = NULL;
+  for (size_t i = 0; i < qlen; ++i) {
+    results[i] = rm_calloc(1, sizeof(*results[i]));
+    searchResultView(rCtx, rCtx->results[i], results[i]);
   }
 
   //-------------------------------------------------------------------------------------------
@@ -1105,24 +766,12 @@ static void profileSearchReply(RedisModule_Reply *reply, searchReducerCtx *rCtx,
   RedisModule_Reply_MapOrArrayEnd(reply);  // >root
 }
 
-// Coordinator reply with empty search results for FT.SEARCH command.
-// Creates a dummy searchReducerCtx with empty heap to use existing sendSearchResults logic.
-// Handles RESP2/RESP3 protocol and formatting.
-// Currently used during OOM conditions for early bailout and return empty results instead of
-// failing.
 void sendSearchResults_EmptyResults(RedisModule_Reply *reply, searchRequestCtx *req) {
-  // Setup a dummy searchReducerCtx that will be used by sendSearchResults
-  searchReducerCtx rCtx = {NULL};
-  rCtx.searchCtx = req;
-  // Create empty heap (dynamic allocation is necessary for heap_free in sendSearchResults)
-  heap_t *emptyHeap = heap_new(cmp_results, req);
-  // The empty heap will result in an empty reply
-  rCtx.pq = emptyHeap;
-
+  searchReducerCtx ctx = {.searchCtx = req};
   if (req->profileArgs > 0) {
-    profileSearchReply(reply, &rCtx, 0, NULL, &req->profileClock, rs_wall_clock_now_ns());
+    profileSearchReply(reply, &ctx, 0, NULL, &req->profileClock, rs_wall_clock_now_ns());
   } else {
-    sendSearchResults(reply, &rCtx);
+    sendSearchResults(reply, &ctx);
   }
 }
 
@@ -1159,8 +808,6 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
                                bool fromTimeout) {
   RedisModuleBlockedClient *bc = NULL;
   searchReducerCtx *rCtx = NULL;
-  int profile = 0;
-  size_t num = 0;
 
 #ifdef ENABLE_ASSERT
   if (!fromTimeout) SyncPoint_Wait("BeforeCoordReducerClaim");
@@ -1196,14 +843,13 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   bc = MRCtx_GetBlockedClient(req->mrctx);
 
   rCtx = rm_calloc(1, sizeof(searchReducerCtx));
+  rCtx->lookup = RLookup_New();
 
   // Save the reducer state in the request so it is available to the
   // blocked-client reply callback after the normal unblock path.
   req->rctx = rCtx;
   // Set searchCtx early so it's available even if we bail out early
   rCtx->searchCtx = req;
-
-  profile = req->profileArgs > 0;
 
   // got no replies
   if (!fromTimeout && (count == 0 || req->limit < 0)) {
@@ -1233,68 +879,18 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   // Get reply offsets
   getReplyOffsets(rCtx->searchCtx, &rCtx->offsets);
 
-  // Init results heap.
-  num = req->requestedResultsCount;
-  rCtx->pq = rm_malloc(heap_sizeof(num));
-  heap_init(rCtx->pq, cmp_results, req, num);
-
-  // Default result process and post process operations
-  rCtx->processReply = (processReplyCB)processSearchReply;
-  rCtx->postProcess = (postProcessReplyCB)noOpPostProcess;
-
   if (req->specialCases) {
-    size_t nSpecialCases = array_len(req->specialCases);
-    for (size_t i = 0; i < nSpecialCases; ++i) {
-      if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_KNN) {
-        specialCaseCtx *knnCtx = req->specialCases[i];
-        rCtx->postProcess = (postProcessReplyCB)knnPostProcess;
-        rCtx->reduceSpecialCaseCtxKnn = knnCtx;
-        if (knnCtx->knn.shouldSort) {
-          knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
-          heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
-          rCtx->processReply = (processReplyCB)ProcessKNNSearchReply;
-          break;
-        }
-      } else if (req->specialCases[i]->specialCaseType == SPECIAL_CASE_SORTBY) {
-        rCtx->reduceSpecialCaseCtxSortby = req->specialCases[i];
-      }
+    for (size_t i = 0; i < array_len(req->specialCases); ++i) {
+      specialCaseCtx *special = req->specialCases[i];
+      if (special->specialCaseType == SPECIAL_CASE_KNN)
+        rCtx->reduceSpecialCaseCtxKnn = special;
+      else if (special->specialCaseType == SPECIAL_CASE_SORTBY)
+        rCtx->reduceSpecialCaseCtxSortby = special;
     }
   }
-
-  if (!rCtx->reduceSpecialCaseCtxKnn) {
-    heap_free(rCtx->pq);
-    rCtx->pq = NULL;
-    reduceSearchPipeline(rCtx, count, replies, fromTimeout);
-    if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
-      goto cleanup;
-    }
-  } else if (!profile) {
-    for (int i = 0; i < count; ++i) {
-      rCtx->processReply(replies[i], rCtx);
-      if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
-        goto cleanup;
-      }
-    }
-  } else {
-    const bool resp3 = MRCtx_GetCommandProtocol(req->mrctx) == 3;
-    for (int i = 0; i < count; ++i) {
-      MRReply *mr_reply;
-
-      // Check that the reply is not an error, can be caused if a shard failed to execute the query
-      if (MRReply_Type(replies[i]) == MR_REPLY_ERROR) {
-        continue;
-      }
-
-      if (resp3) {
-        mr_reply = MRReply_MapElement(replies[i], "Results");
-      } else {
-        mr_reply = MRReply_ArrayElement(replies[i], 0);
-      }
-      rCtx->processReply(mr_reply, rCtx);
-      if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
-        goto cleanup;
-      }
-    }
+  reduceSearchPipeline(rCtx, count, replies, fromTimeout);
+  if (!fromTimeout && QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
+    goto cleanup;
   }
 
 #ifdef ENABLE_ASSERT
@@ -1319,18 +915,6 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   }
 
 cleanup:
-  if (rCtx) {
-    // Call postProcess even on early exits (e.g. timeouts) so that partially
-    // processed special cases like KNN can flush their internal queues into
-    // the final result heap.
-    if (rCtx->postProcess) {
-      rCtx->postProcess(rCtx);
-      rCtx->postProcess = NULL;
-    }
-    rm_free(rCtx->cachedResult);
-    rCtx->cachedResult = NULL;
-  }
-
   // Reduction/post-processing done, about to hand off the reply: advance the marker
   // so a timeout from here on is attributed to REPLY (frozen once already timed out).
   if (!QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout)) {
