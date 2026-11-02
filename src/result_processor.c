@@ -2202,8 +2202,8 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
   RPStatus rc;
   bool lock_acquired = false;
   // The stop checks read the pipeline's timeout state; it is the depleting context's.
-  RS_ASSERT(!self->base.parent->timeout ||
-            self->base.parent->timeout == self->depletingThreadCtx->timeout);
+  RS_ASSERT(!self->base.parent->limits ||
+            self->base.parent->limits == self->depletingThreadCtx->timeout);
 
   if (sync->take_index_lock) {
     // Try to lock the index for read (non-blocking)
@@ -2251,8 +2251,8 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     // oomCut is written here, on the depleting thread: the consumer reads it only after observing
     // done_depleting under the sync lock, which orders this write before the read. A blocked-client
     // timeout wins over an OOM stop, so it records no OOM cut.
-    const QueryRequestTimeout *timeout = self->base.parent->timeout;
-    self->stopReason = (timeout && QueryRequestTimeout_IsBlockedClientTimedOut(timeout))
+    const QueryRequestLimits *timeout = self->base.parent->limits;
+    self->stopReason = (timeout && QueryRequestLimits_IsBlockedClientTimedOut(timeout))
                            ? RP_StopReason(&self->base)
                            : RP_HoldStop(&self->base);
   }
@@ -2712,7 +2712,7 @@ static bool RPHybridMerger_StopFails(const RPHybridMerger *self) {
  * unless a blocked-client timeout, whose callback owns the reply, came after. */
 static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
   return self->heldStop == QUERY_STOP_REASON_OOM &&
-         !QueryRequestTimeout_IsBlockedClientTimedOut(self->sctx->timeout);
+         !QueryRequestLimits_IsBlockedClientTimedOut(self->sctx->limits);
 }
 
 /* Helper function to store a result from an upstream into the hybrid merger's dictionary
@@ -2769,13 +2769,13 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
   * A blocked-client timeout ends the drain with TIMEDOUT: its callback owns the reply and waits for
   * this thread, so a long drain would stall the main thread. The depleters are released by the
   * callback's wait, as for any merger that stops consuming early. */
- static int hybridMergerDrainUpstream(ResultProcessor *upstream, const QueryRequestTimeout *timeout) {
+ static int hybridMergerDrainUpstream(ResultProcessor *upstream, const QueryRequestLimits *timeout) {
    int rc;
    SearchResult *r = rm_calloc(1, sizeof(*r));
    *r = SearchResult_New();
    while ((rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
      SearchResult_Clear(r);
-     if (QueryRequestTimeout_IsBlockedClientTimedOut(timeout)) {
+     if (QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
        rc = RS_RESULT_TIMEDOUT;
        break;
      }
@@ -2792,7 +2792,7 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
    int rc = RS_RESULT_OK;
    ResultProcessor *upstream = self->upstreams[upstreamIndex];
    if (self->memoryStopped) {
-     return hybridMergerDrainUpstream(upstream, self->sctx->timeout);
+     return hybridMergerDrainUpstream(upstream, self->sctx->limits);
    }
    SearchResult *r = rm_calloc(1, sizeof(*r));
    *r = SearchResult_New();
@@ -2807,11 +2807,11 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
          *r = SearchResult_New();
          // The dictionary grows only here. The stop is the tail's own: the upstreams already ended
          // theirs, so the merger must end its consumption whatever the stop policy.
-         if (QueryMemory_ShouldStop(self->sctx->timeout, &self->memoryCheckCalls)) {
+         if (QueryMemory_ShouldStop(self->sctx->limits, &self->memoryCheckCalls)) {
            self->memoryStopped = true;
            rm_free(r);
            // The rest of this upstream is discarded, but its real terminal status still counts.
-           return hybridMergerDrainUpstream(upstream, self->sctx->timeout);
+           return hybridMergerDrainUpstream(upstream, self->sctx->limits);
          }
        } else {
          SearchResult_Clear(r);
@@ -2835,9 +2835,9 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     // No more results to yield
     int ret = RPHybridMerger_ReportsTimeout(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
     return ret;
-  } else if ((QueryRequestTimeout_IsStopRequested(self->sctx->timeout) &&
+  } else if ((QueryRequestLimits_IsMemoryStopped(self->sctx->limits) &&
               !RPHybridMerger_KeepsRowsPastStop(self)) ||
-             QueryRequestTimeout_IsTimedOut(self->sctx->timeout)) {
+             QueryRequestLimits_IsTimedOut(self->sctx->limits)) {
     // Timed out before we could yield all results
     return RS_RESULT_TIMEDOUT;
   }
