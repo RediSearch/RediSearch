@@ -88,8 +88,7 @@ typedef bool (*SearchDiskSlotTrimCallback)(void *ctx, const t_docId *ids, size_t
                                            const SearchDiskSlotTrimBatch *batch, bool exhausted);
 
 // RAM-only enumeration. The ranges are borrowed for the duration of the callback.
-typedef void (*SearchDiskPendingSlotTrimCallback)(void *ctx, uint64_t trimId,
-                                                  const SearchDiskSlotRange *ranges,
+typedef void (*SearchDiskPendingSlotTrimCallback)(void *ctx, const SearchDiskSlotRange *ranges,
                                                   size_t numRanges, t_docId maxDocId);
 
 // Callback function to allocate memory for the key in the scope of the search module memory
@@ -752,14 +751,14 @@ typedef struct IndexDiskAPI {
 /** Disk index operations supporting slot migration. */
 typedef struct SlotMigrationAPI {
   // Main thread, under the spec write lock; no I/O. Capture a stable maxDocId and
-  // register logical intent with a nonzero trimId. Retain ranges, cutoff and progress
-  // across supported recovery, including before the first batch. Called at the trim
+  // register logical intent keyed by normalized ranges and cutoff. Retain ranges, cutoff and
+  // progress across supported recovery, including before the first batch. Called at the trim
   // notification after ownership transfer and earlier writes have drained.
   // Valid normalized ranges must register successfully; false denotes a contract failure.
   // Existing documents must not change slots while cleanup is pending.
   // This API does not control Redis migration admission.
   bool (*registerTrim)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
-                       size_t numRanges, uint64_t *trimId, t_docId *maxDocId);
+                       size_t numRanges, t_docId *maxDocId);
   // Main thread, under the spec write lock; no I/O. Enumerate restored logical
   // jobs before queries resume, so Search can reinstall filters and schedule work.
   void (*forEachPendingTrim)(RedisSearchDiskIndexSpec *index,
@@ -770,10 +769,11 @@ typedef struct SlotMigrationAPI {
   // to commit progress or completion. No progress mutation outside the callback.
   // FINISHED requires successful application of the final exhausted batch.
   // RETRY denotes a stale scan, storage failure or declined callback; caller-contract
-  // violations are fatal. maxScanned must be positive and trimId must be pending.
-  SearchDiskSlotTrimResult (*runTrimBatch)(RedisSearchDiskIndexSpec *index, uint64_t trimId,
-                                           size_t maxScanned, SearchDiskSlotTrimCallback callback,
-                                           void *ctx);
+  // violations are fatal. maxScanned must be positive and the ranges/cutoff job must be pending.
+  SearchDiskSlotTrimResult (*runTrimBatch)(RedisSearchDiskIndexSpec *index,
+                                           const SearchDiskSlotRange *ranges, size_t numRanges,
+                                           t_docId maxDocId, size_t maxScanned,
+                                           SearchDiskSlotTrimCallback callback, void *ctx);
   // Callback only, under spec write lock. Write doc-table tombstones before publishing
   // deleted IDs and progress. Validate current batch without
   // mutation on failure. On success update deleted IDs, advance progress and,
