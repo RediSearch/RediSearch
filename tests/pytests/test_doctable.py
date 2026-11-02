@@ -37,6 +37,10 @@ def testDocTable():
     env.expect('ft.drop', 'idx').ok()
 
 
+# Enough docs that a wildcard scan's metadata outgrows the size below which it does not prefetch.
+PREFETCHING_NUM_DOCS = 40000
+
+
 def _assertWildcardScanSkipsDeleted(env, numDocs, createOptions=()):
     """A wildcard query walks every docId up to the table's maxDocId and prefetches metadata of
     the ids ahead of it. Holes in the id range (deleted docs) and the ids past the last doc must
@@ -44,12 +48,15 @@ def _assertWildcardScanSkipsDeleted(env, numDocs, createOptions=()):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', *createOptions,
                'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+    pipe = conn.pipeline(transaction=False)
     for i in range(numDocs):
-        conn.execute_command('HSET', f'doc{i}', 'n', i)
+        pipe.execute_command('HSET', f'doc{i}', 'n', i)
+    pipe.execute()
     # Single holes, a run longer than the prefetch distance, and the tail of the table.
     deleted = set(range(0, numDocs, 7)) | set(range(100, 140)) | set(range(numDocs - 20, numDocs))
     for i in deleted:
-        conn.execute_command('DEL', f'doc{i}')
+        pipe.execute_command('DEL', f'doc{i}')
+    pipe.execute()
     expected = [i for i in range(numDocs) if i not in deleted]
 
     res = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'NOCONTENT', 'LIMIT', 0, 0)
@@ -70,17 +77,17 @@ def _assertWildcardScanSkipsDeleted(env, numDocs, createOptions=()):
 
 @skip(cluster=True)
 def testWildcardScanWithDeletedDocs(env):
-    _assertWildcardScanSkipsDeleted(env, 1000)
+    _assertWildcardScanSkipsDeleted(env, PREFETCHING_NUM_DOCS)
 
 
 @skip(cluster=True)
 def testWildcardScanWithDeletedDocsInChainedTable():
     # A doc table smaller than the number of docs, so buckets hold chains of several docs.
-    env = Env(moduleArgs='MAXDOCTABLESIZE 100')
-    _assertWildcardScanSkipsDeleted(env, 1000)
+    env = Env(moduleArgs='MAXDOCTABLESIZE 4000')
+    _assertWildcardScanSkipsDeleted(env, PREFETCHING_NUM_DOCS)
 
 
 @skip(cluster=True)
 def testWildcardScanWithDeletedDocsIndexAll(env):
     # With INDEXALL, `*` walks the existing-docs inverted index instead of the docId range.
-    _assertWildcardScanSkipsDeleted(env, 1000, ('INDEXALL', 'ENABLE'))
+    _assertWildcardScanSkipsDeleted(env, PREFETCHING_NUM_DOCS, ('INDEXALL', 'ENABLE'))
