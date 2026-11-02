@@ -284,12 +284,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/query_request.h",
-        fns: &["QueryRequestTimeout_GetStopReason"],
-        types: &["QueryStopReason"],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/redis_index.h",
         fns: &["Redis_OpenInvertedIndex", "Redis_OpenReaderIndex"],
         types: &[],

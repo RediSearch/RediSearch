@@ -23,7 +23,7 @@ int RS_VecSimCheckTimeout(QueryRequestLimits *timeout);
 // Returns nonzero when the query should stop (see QueryMemory_ShouldStopNow), which under memory
 // pressure first requests the stop with reason OOM. Reads memory on every call: each call follows
 // a VecSim search that costs far more than the read.
-int RS_VecSimCheckMemory(QueryRequestTimeout *timeout);
+int RS_VecSimCheckMemory(QueryRequestLimits *timeout);
 
 #ifdef __cplusplus
 }

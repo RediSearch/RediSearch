@@ -15,7 +15,7 @@
 use std::{ffi::c_void, ptr::NonNull};
 
 use ffi::{
-    QueryIterator, QueryRequestTimeout, RS_VecSimCheckMemory, VecSimIndex, VecSimQueryParams,
+    QueryIterator, QueryRequestLimits, RS_VecSimCheckMemory, VecSimIndex, VecSimQueryParams,
     VecSimQueryReply_Order,
 };
 use index_result::RSIndexResult;

@@ -23,7 +23,7 @@ use std::{
 
 use ffi::{
     AlgoParams, BFParams, HNSWParams, QueryMemory_ResetFakePressure, QueryMemory_SetForcedRatio,
-    QueryRequestTimeout, QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED, VecSearchMode,
+    QueryRequestLimits, QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED, VecSearchMode,
     VecSearchMode_EMPTY_MODE, VecSimAlgo_VecSimAlgo_BF, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex,
     VecSimIndex_AddVector, VecSimIndex_Free, VecSimIndex_New, VecSimMetric,
     VecSimMetric_VecSimMetric_Cosine, VecSimMetric_VecSimMetric_L2, VecSimParams,
