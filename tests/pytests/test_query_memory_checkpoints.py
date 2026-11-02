@@ -196,25 +196,33 @@ def test_hybrid_build_checkpoint_fails_before_execution(env):
 @env_spec(protocol=3)
 def test_build_checkpoint_stop_on_shards_reaches_the_coordinator(env):
     """Shards stopped at build answer like shards stopped later in the pipeline: the coordinator
-    turns their OOM warning or error into its own ON_OOM outcome."""
+    turns their OOM warning or error into its own ON_OOM outcome. FT.SEARCH arms only the shards
+    without the coordinator, whose fan-out reads memory in the same process."""
     create_index(env)
+    remote_shards = [env.getConnection(i) for i in range(2, env.shardsCount + 1)]
 
-    def at_first_shard_call(*query):
-        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+    def arm(remote_only):
+        conns = remote_shards if remote_only else env.getOSSMasterNodesConnectionList()
+        for conn in conns:
+            conn.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+
+    def at_first_shard_call(remote_only, *query):
+        arm(remote_only)
         try:
             return env.cmd(*query)
         finally:
             run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
 
-    expect_empty_with_oom_warning(env, at_first_shard_call(*AGGREGATE))
-    # The FT.SEARCH coordinator replies the shards' wording.
-    res = at_first_shard_call(*SEARCH)
-    env.assertEqual(res['results'], [], message=res)
+    expect_empty_with_oom_warning(env, at_first_shard_call(False, *AGGREGATE))
+    # The FT.SEARCH coordinator replies the shards' wording, with the unstopped shard's rows.
+    res = at_first_shard_call(True, *SEARCH)
+    local_docs = env.getConnection(1).execute_command('KEYS', 'doc*')
+    env.assertEqual(sorted(ids(res)), sorted(local_docs), message=res)
     env.assertEqual(res['warning'], [SHARD_OOM_WARNING], message=res)
 
     with oom_policy(env, 'fail'):
-        for query in (AGGREGATE, SEARCH):
-            run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+        for query, remote_only in ((AGGREGATE, False), (SEARCH, True)):
+            arm(remote_only)
             try:
                 env.expect(*query).error().contains(OOM_QUERY_ERROR)
             finally:

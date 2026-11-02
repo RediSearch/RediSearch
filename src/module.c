@@ -3269,7 +3269,7 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
     RedisModule_Reply_SimpleString(reply, "warning"); // >warning
     if (rCtx->warning) {
       size_t len = MRReply_Length(rCtx->warning);
-      RedisModule_Reply_ArrayWithLen(reply, len);
+      RedisModule_Reply_ArrayWithLen(reply, len + req->queryOOM);
       // Iterate over warning array and track warnings
       for (size_t i = 0; i < len; ++i) {
         // Extract warning string and track it
@@ -3280,6 +3280,12 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
         // Reply warning
         MR_ReplyWithMRReply(reply, currentWarning);
+      }
+      // Shard warnings do not tell that the coordinator dropped shards' replies.
+      if (req->queryOOM) {
+        QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1,
+                                               COORD_ERR_WARN);
+        RedisModule_Reply_SimpleString(reply, QUERY_WOOM_COORD);
       }
     } else if (req->queryOOM) {
       QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
@@ -3381,7 +3387,8 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   }
   RedisModule_Reply_MapOrArrayEnd(reply);
 
-  if (req->queryOOM) {
+  // RESP3 counted it with its warning section; RESP2 replies no warning but the stop still counts.
+  if (req->queryOOM && !reply->resp3) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_OUT_OF_MEMORY_COORD, 1, COORD_ERR_WARN);
   }
   //-------------------------------------------------------------------------------------------
@@ -3482,12 +3489,26 @@ static bool should_return_error(const searchRequestCtx *req, QueryErrorCode errC
   return true;
 }
 
+static bool searchStoppedForOom(const searchRequestCtx *req) {
+  return QueryRequestTimeout_GetStopReason(&req->base.timeout) == QUERY_STOP_REASON_OOM;
+}
+
+// Stop merging on a blocked-client timeout or a stop requested while merging. A stop requested
+// before, by the fan-out, already discarded the replies that landed after it.
+static bool reducerShouldStop(const searchRequestCtx *req, bool stoppedBeforeReducing) {
+  const QueryRequestTimeout *timeout = &req->base.timeout;
+  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout) ||
+         (!stoppedBeforeReducing && QueryRequestTimeout_IsStopRequested(timeout));
+}
+
 static int searchResultReducer(searchRequestCtx *req, int count, MRReply **replies,
                                bool fromTimeout) {
   RedisModuleBlockedClient *bc = NULL;
   searchReducerCtx *rCtx = NULL;
   int profile = 0;
   size_t num = 0;
+  // A stop requested before reducing (in the fan-out) leaves the replies kept so far to merge.
+  const bool stoppedBeforeReducing = QueryRequestTimeout_IsStopRequested(&req->base.timeout);
 
 #ifdef ENABLE_ASSERT
   if (!fromTimeout) SyncPoint_Wait("BeforeCoordReducerClaim");
@@ -3532,8 +3553,8 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
 
   profile = req->profileArgs > 0;
 
-  // got no replies
-  if (!fromTimeout && (count == 0 || req->limit < 0)) {
+  // got no replies; a fan-out stopped for OOM before keeping any reply replies empty instead
+  if (!fromTimeout && ((count == 0 && !searchStoppedForOom(req)) || req->limit < 0)) {
     QueryError_SetError(&req->base.reply.err, QUERY_ERROR_CODE_GENERIC,
                         "Could not send query to cluster");
     goto cleanup;
@@ -3591,7 +3612,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   if (!profile) {
     for (int i = 0; i < count; ++i) {
       rCtx->processReply(replies[i], rCtx);
-      if (!fromTimeout && QueryRequest_ShouldStop(&req->base.timeout)) {
+      if (!fromTimeout && reducerShouldStop(req, stoppedBeforeReducing)) {
         goto cleanup;
       }
     }
@@ -3611,7 +3632,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
       rCtx->processReply(mr_reply, rCtx);
-      if (!fromTimeout && QueryRequest_ShouldStop(&req->base.timeout)) {
+      if (!fromTimeout && reducerShouldStop(req, stoppedBeforeReducing)) {
         goto cleanup;
       }
     }
@@ -3640,8 +3661,9 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
 
 cleanup:
   // A merge loop that stopped for OOM replies what the heap holds with the OOM warning, or the
-  // OOM error under ON_OOM FAIL; the reply callback reads both.
-  if (!fromTimeout &&
+  // OOM error under ON_OOM FAIL; the reply callback reads both. Not once the timeout callback
+  // owns the reply: its timeout reply wins over an OOM stop, as in ApplyOomStop.
+  if (!fromTimeout && !QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout) &&
       QueryRequestTimeout_GetStopReason(&req->base.timeout) == QUERY_STOP_REASON_OOM) {
     if (req->base.reqConfig.oomPolicy != OomPolicy_Fail) {
       req->queryOOM = true;
@@ -4413,6 +4435,12 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, RedisModu
   return REDISMODULE_OK;
 }
 
+// Every shard reply is held until the last one lands, so memory is read once per reply.
+static bool searchReplyCheckpoint(struct MRCtx *mrctx) {
+  searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
+  return QueryMemory_ShouldStopNow(&req->base.timeout);
+}
+
 static int FlatSearchCommandHandler(searchRequestCtx *req) {
   struct MRCtx *mrctx = req->mrctx;
   RedisModuleBlockedClient *bc = MRCtx_GetBlockedClient(mrctx);
@@ -4489,7 +4517,7 @@ static int DistSearchReplyCallback(RedisModuleCtx *ctx, RedisModuleString **argv
       return REDISMODULE_OK;
     }
 
-    if (MRCtx_GetNumReplied(mrctx) == 0) {
+    if (MRCtx_GetNumReplied(mrctx) == 0 && !(req->rctx && searchStoppedForOom(req))) {
       // Can happen in a topology error, before or after we sent the command to the cluster
       RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
       return REDISMODULE_OK;
@@ -4609,6 +4637,12 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
     }
   }
 
+  // This callback owns the reply, so its warning is the timeout's even after an OOM stop the
+  // background reducer mapped, as on a shard (RP_StopPolicy). Errors, a shard's included, stay.
+  // A timer-owned reduction never sets queryOOM, so read the stop itself too.
+  const bool oomStopped = req->queryOOM || searchStoppedForOom(req);
+  req->queryOOM = false;
+
   // Check if bailout set an error (e.g., index dropped before fanout)
   // In this case, reply with the error instead of partial results
   if (QueryError_HasError(&request->reply.err)) {
@@ -4621,6 +4655,11 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   searchReducerCtx *rCtx = req->rctx;
   // rCtx must be set - either we ran the reducer or waited for it to complete
   RS_ASSERT(rCtx);
+  // A shard warning retained before the OOM stop would otherwise outrank the timeout warning.
+  // The reply it points into is owned by the reducer's replies, so only drop the reference.
+  if (oomStopped) {
+    rCtx->warning = NULL;
+  }
   req->timedOut = true;
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
@@ -4772,6 +4811,9 @@ int DistSearchCommandImp(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (useBlockedClientTimeout) {
     MRCtx_SetAbortFlag(mrctx, QueryRequestTimeout_GetBlockedClientFlag(&req->base.timeout));
   }
+  // Under every timeout policy, including RETURN, which arms no abort flag.
+  MRCtx_SetStopFlag(mrctx, QueryRequestTimeout_GetStopFlag(&req->base.timeout));
+  MRCtx_SetReplyCheckpoint(mrctx, searchReplyCheckpoint);
   // FT.SEARCH coordinator should validate connections before sending the command to the cluster
   MRCtx_SetValidateConnections(mrctx, true);
 

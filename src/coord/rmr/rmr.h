@@ -54,7 +54,8 @@ typedef void (*MRCtxFreePrivDataCB)(struct MRCtx *ctx);
 int MR_Fanout(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd);
 
 /* Search fanout uses the caller's blocked client and MRCtx_SetReduceFunction callback,
- * discarding replies after the MRCtx_SetAbortFlag flag is set. */
+ * discarding replies after the MRCtx_SetAbortFlag flag is set, or once the query stops
+ * (MRCtx_SetStopFlag, MRCtx_SetReplyCheckpoint). */
 int MR_FanoutSearch(struct MRCtx *ctx, MRCommand cmd);
 
 /* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster */
@@ -130,6 +131,17 @@ void MRCtx_SetBlockedClient(struct MRCtx *ctx, RedisModuleBlockedClient *bc);
  * remaining MRCtx reference releases must not access it. NULL disables aborts. */
 void MRCtx_SetAbortFlag(struct MRCtx *ctx, const RS_Atomic(bool) * abortFlag);
 bool MRCtx_IsAborted(const struct MRCtx *ctx);
+
+/* The search request's stop flag, borrowed like the abort flag. Once it is set, search replies
+ * that land are discarded, but unlike an abort nothing else owns the reply: the reduce function
+ * still runs when the last reply lands, over the replies kept before the stop. */
+void MRCtx_SetStopFlag(struct MRCtx *ctx, const RS_Atomic(bool) * stopFlag);
+
+/* Runs on the I/O thread for each search reply with rows before it is kept, unless the stop flag
+ * is already set; true means the query stops (the callback sets the stop flag) and the reply is
+ * discarded. Error replies and failed sends are kept as before. */
+typedef bool (*MRReplyCheckpoint)(struct MRCtx *ctx);
+void MRCtx_SetReplyCheckpoint(struct MRCtx *ctx, MRReplyCheckpoint checkpoint);
 
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections);
 bool MRCtx_GetValidateConnections(struct MRCtx *ctx);
