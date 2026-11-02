@@ -162,6 +162,15 @@ jobs:
                       'enable_lto': '0' # Platform is not used to produce artifacts.
                   }
               },
+              "archlinux:latest": {
+                  "x86_64": {
+                      'container': 'archlinux:latest',
+                      # Arch does not support partial upgrades, so sync the whole system.
+                      'setup_script': 'pacman -Syu --noconfirm --needed git',
+                      'name': 'Arch Linux x86_64',
+                      'enable_lto': '0' # Platform is not used to produce artifacts.
+                  }
+              },
               "ubuntu:resolute": {
                   "x86_64": {
                       'container': 'ubuntu:resolute',

@@ -194,7 +194,7 @@ def test_internal_only_checkpoint_runs_in_standalone(env):
 
 @skip(cluster=True)
 def test_raw_ratio_reports_the_memory_api(env):
-    """STATUS shows whether this Redis exports RedisModule_GetRawUsedMemoryRatio, which the
+    """STATUS shows whether this Redis exports RedisModule_GetUsedMemoryRatioEstimate, which the
     checkpoints read: null without it, the real ratio, unaffected by RATIO, with it."""
     memory_pressure(env, 'RATIO', '5')
     raw_ratio = memory_pressure(env, 'STATUS')[-1]

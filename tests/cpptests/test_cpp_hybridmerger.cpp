@@ -159,12 +159,12 @@ struct MockUpstream : public ResultProcessor {
 
 // Static dummy RedisSearchCtx for tests - reused across all tests
 static RedisSearchCtx* GetDummySearchCtx() {
-  static QueryRequestTimeout timeout = {};
+  static QueryRequestLimits timeout = {};
   static RedisSearchCtx dummySctx = {
     .redisCtx = NULL,
     .spec = NULL,
     .currentTime = {0, 0},
-    .timeout = &timeout,
+    .limits = &timeout,
     .apiVersion = 0,
   };
   return &dummySctx;
@@ -250,14 +250,14 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
 
 class HybridMergerTest : public ::testing::Test {
  protected:
-  // The dummy sctx's timeout is shared by every test, and QueryRequestTimeout_Reset keeps a
+  // The dummy sctx's timeout is shared by every test, and QueryRequestLimits_Reset keeps a
   // recorded stop. Clear it here so a memory stop injected by one test cannot truncate another
   // under shuffle or repeat.
   void TearDown() override {
     QueryMemory_ResetFakePressure();
-    QueryRequestTimeout *timeout = GetDummySearchCtx()->timeout;
-    QueryRequestTimeout_BeginCycle(timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-    QueryRequestTimeout_Reset(timeout);
+    QueryRequestLimits *timeout = GetDummySearchCtx()->limits;
+    QueryRequestLimits_BeginCycle(timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    QueryRequestLimits_Reset(timeout);
   }
 };
 
@@ -1670,8 +1670,8 @@ TEST_F(HybridMergerTest, MemoryStopDrainAbortsOnBlockedClientTimeout) {
   QueryProcessingCtx qitr = {0};
   QITR_PushRP(&qitr, merger);
 
-  QueryRequestTimeout_BeginCycle(sctx->timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  QueryRequestTimeout_MarkTimedOut(sctx->timeout);
+  QueryRequestLimits_BeginCycle(sctx->limits, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_MarkTimedOut(sctx->limits);
 
   SearchResult r = SearchResult_New();
   EXPECT_EQ(RS_RESULT_TIMEDOUT, merger->Next(merger, &r));
@@ -1682,7 +1682,7 @@ TEST_F(HybridMergerTest, MemoryStopDrainAbortsOnBlockedClientTimeout) {
   SearchResult_Destroy(&r);
   CleanupDummyLookupContext(lookup);
   merger->Free(merger);
-  QueryRequestTimeout_Reset(sctx->timeout);
+  QueryRequestLimits_Reset(sctx->limits);
   QueryMemory_ResetFakePressure();
   RSGlobalConfig.requestConfigParams.oomPolicy = previousPolicy;
 }

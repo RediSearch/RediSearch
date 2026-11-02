@@ -72,8 +72,14 @@ class HybridApplyOomStopTest : public ::testing::Test {
   void TearDown() override { HybridRequest_Free(hreq); }
 
   QueryError *tailErr() { return hreq->tailPipeline->qctx.err; }
+  // A genuine timeout of the subquery: its blocked-client deadline has fired.
+  void timeOutSubquery(size_t i) {
+    QueryRequestLimits *limits = &hreq->requests[i]->base.limits;
+    QueryRequestLimits_BeginCycle(limits, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    QueryRequestLimits_MarkTimedOut(limits);
+  }
   void stopSubqueryForOom(size_t i) {
-    QueryRequestTimeout_RequestStop(&hreq->requests[i]->base.timeout, QUERY_STOP_REASON_OOM);
+    QueryRequestLimits_RequestMemoryStop(&hreq->requests[i]->base.limits);
     hreq->subqueriesReturnCodes[i] = RS_RESULT_TIMEDOUT;
   }
 };
@@ -86,7 +92,7 @@ TEST_F(HybridApplyOomStopTest, subqueryOomStopWarnsWithoutStoppingTheTail) {
   EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_OK), RS_RESULT_OK);
   EXPECT_TRUE(QueryError_HasQueryOOMWarning(tailErr()));
   EXPECT_EQ(hreq->subqueriesReturnCodes[1], RS_RESULT_EOF);
-  EXPECT_FALSE(QueryRequestTimeout_IsStopRequested(&hreq->base.timeout));
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&hreq->base.limits));
 }
 
 // The merger under ON_TIMEOUT FAIL turns the subquery's stop into a tail timeout.
@@ -102,7 +108,7 @@ TEST_F(HybridApplyOomStopTest, mergerTimeoutFromASubqueryOomStopIsNotATimeout) {
 TEST_F(HybridApplyOomStopTest, concurrentSubqueryTimeoutStaysATimeout) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Return;
   stopSubqueryForOom(0);
-  QueryRequestTimeout_RequestStop(&hreq->requests[1]->base.timeout, QUERY_STOP_REASON_TIMEOUT);
+  timeOutSubquery(1);
   hreq->subqueriesReturnCodes[1] = RS_RESULT_TIMEDOUT;
   EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
   EXPECT_EQ(hreq->subqueriesReturnCodes[0], RS_RESULT_EOF);
@@ -131,7 +137,7 @@ TEST_F(HybridApplyOomStopTest, softTailErrorIsReplacedByOomUnderOnOomFail) {
 TEST_F(HybridApplyOomStopTest, softTailErrorIsReplacedByATailOomStopUnderOnOomFail) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
   QueryError_SetCode(tailErr(), QUERY_ERROR_CODE_NO_PROP_VAL);
-  QueryRequestTimeout_RequestStop(&hreq->base.timeout, QUERY_STOP_REASON_OOM);
+  QueryRequestLimits_RequestMemoryStop(&hreq->base.limits);
   EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
   EXPECT_EQ(QueryError_GetCode(tailErr()), QUERY_ERROR_CODE_OUT_OF_MEMORY);
   EXPECT_EQ(HybridRequest_GetFatalError(hreq), tailErr());
@@ -140,7 +146,7 @@ TEST_F(HybridApplyOomStopTest, softTailErrorIsReplacedByATailOomStopUnderOnOomFa
 TEST_F(HybridApplyOomStopTest, fatalTailErrorIsKeptByATailOomStopUnderOnOomFail) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
   QueryError_SetCode(tailErr(), QUERY_ERROR_CODE_GENERIC);
-  QueryRequestTimeout_RequestStop(&hreq->base.timeout, QUERY_STOP_REASON_OOM);
+  QueryRequestLimits_RequestMemoryStop(&hreq->base.limits);
   EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
   EXPECT_EQ(QueryError_GetCode(tailErr()), QUERY_ERROR_CODE_GENERIC);
 }
@@ -166,12 +172,12 @@ TEST_F(HybridApplyOomStopTest, fatalSubqueryErrorIsKeptUnderOnOomFail) {
 
 TEST_F(HybridApplyOomStopTest, subqueryTimeoutIsNotAnOomStop) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
-  QueryRequestTimeout_RequestStop(&hreq->requests[0]->base.timeout, QUERY_STOP_REASON_TIMEOUT);
+  timeOutSubquery(0);
   hreq->subqueriesReturnCodes[0] = RS_RESULT_TIMEDOUT;
   EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
   EXPECT_EQ(hreq->subqueriesReturnCodes[0], RS_RESULT_TIMEDOUT);
   EXPECT_TRUE(QueryError_IsOk(tailErr()));
-  EXPECT_FALSE(QueryRequestTimeout_IsStopRequested(&hreq->base.timeout));
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&hreq->base.limits));
 }
 
 // The timeout callback replies a blocked-client timeout; a subquery's OOM stop must not turn it
@@ -179,7 +185,7 @@ TEST_F(HybridApplyOomStopTest, subqueryTimeoutIsNotAnOomStop) {
 TEST_F(HybridApplyOomStopTest, blockedClientTimeoutIsNotRelabelled) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Return;
   HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  QueryRequestLimits_MarkTimedOut(&hreq->base.limits);
   stopSubqueryForOom(0);
   EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
   EXPECT_EQ(hreq->subqueriesReturnCodes[0], RS_RESULT_TIMEDOUT);
@@ -190,8 +196,8 @@ TEST_F(HybridApplyOomStopTest, blockedClientTimeoutIsNotRelabelled) {
 TEST_F(HybridApplyOomStopTest, blockedClientTimeoutWinsOverATailOomStop) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Return;
   HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  QueryRequestTimeout_RequestStop(&hreq->base.timeout, QUERY_STOP_REASON_OOM);
-  QueryRequestTimeout_MarkTimedOut(&hreq->base.timeout);
+  QueryRequestLimits_RequestMemoryStop(&hreq->base.limits);
+  QueryRequestLimits_MarkTimedOut(&hreq->base.limits);
   EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
   EXPECT_FALSE(QueryError_HasQueryOOMWarning(tailErr()));
 }
@@ -201,6 +207,8 @@ TEST_F(HybridApplyOomStopTest, tailTimeoutAfterASubqueryOomStopStaysATimeout) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Return;
   stopSubqueryForOom(0);
   EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_OK), RS_RESULT_OK);
-  QueryRequestTimeout_RequestStop(&hreq->base.timeout, QUERY_STOP_REASON_TIMEOUT);
+  // The tail's clock deadline has elapsed.
+  hreq->base.limits.timeout.kind = QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+  hreq->base.limits.timeout.source.clock.deadline = {1, 0};
   EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
 }
