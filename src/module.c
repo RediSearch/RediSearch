@@ -3609,8 +3609,15 @@ static size_t searchRepliesRowBound(const searchRequestCtx *req, int count, MRRe
 // shard reply merged). A stop requested before, by the fan-out, already discarded the replies that
 // landed after it, so the ones kept are merged. After the last reply only ON_OOM FAIL reads: that
 // read is FAIL's last chance to fail before the reply starts (the reply loop cannot).
-static bool reducerShouldStop(searchRequestCtx *req, bool stoppedBeforeReducing, bool lastReply) {
+// The timeout callback owns the reply (`fromTimeout`), so a fired timeout does not stop its own
+// merge and memory is not read again, but a memory stop already requested still does: it must not
+// leave the main thread merging every queued shard reply.
+static bool reducerShouldStop(searchRequestCtx *req, bool stoppedBeforeReducing, bool lastReply,
+                              bool fromTimeout) {
   QueryRequestLimits *timeout = &req->base.limits;
+  if (fromTimeout) {
+    return !stoppedBeforeReducing && QueryRequestLimits_IsMemoryStopped(timeout);
+  }
   if (QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
     return true;
   }
@@ -3756,7 +3763,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   if (!profile) {
     for (int i = 0; i < count; ++i) {
       rCtx->processReply(replies[i], rCtx);
-      if (!fromTimeout && reducerShouldStop(req, stoppedBeforeReducing, i == count - 1)) {
+      if (reducerShouldStop(req, stoppedBeforeReducing, i == count - 1, fromTimeout)) {
         goto cleanup;
       }
     }
@@ -3775,7 +3782,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
         rCtx->processReply(mr_reply, rCtx);
       }
       // Also after an error reply, so the read after the last reply always runs.
-      if (!fromTimeout && reducerShouldStop(req, stoppedBeforeReducing, i == count - 1)) {
+      if (reducerShouldStop(req, stoppedBeforeReducing, i == count - 1, fromTimeout)) {
         goto cleanup;
       }
     }

@@ -1684,3 +1684,47 @@ def test_timeout_after_reducer_claim_beats_the_fanout_oom_stop():
         expect_clean_end(env, coord)
     finally:
         reset_policies(env)
+
+
+@skip(cluster=False)
+def test_withcount_elapsed_deadline_skips_the_prefanout_checkpoint():
+    """A WITHCOUNT aggregate whose clock deadline elapsed while it waited for a coordinator thread
+    keeps its ON_TIMEOUT outcome under memory pressure, under either ON_OOM policy: the checkpoint
+    before the fan-out does not turn it into the coordinator's OOM warning or error."""
+    env = Env(protocol=3)
+    create_index(env)
+    coord = env.getConnection(1)
+    query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'TIMEOUT', 100)
+    coord_paused = False
+    try:
+        for oom_policy in ('return', 'fail'):
+            set_policies(env, 'RETURN', oom_policy)
+            case = oom_policy
+            errors, warnings = coord_oom_counters(coord)
+
+            coord.execute_command(debug_cmd(), 'COORD_THREADS', 'PAUSE')
+            coord_paused = True
+            wait_for_condition(
+                lambda: (coord.execute_command(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
+                'Timeout waiting for the coordinator threads to pause')
+            thread, result = run_in_thread(coord, query)
+            # Past the deadline, then pressure for everything that runs after the entry guard.
+            time.sleep(0.5)
+            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+            coord.execute_command(debug_cmd(), 'COORD_THREADS', 'RESUME')
+            coord_paused = False
+            thread.join(timeout=30)
+            env.assertFalse(thread.is_alive(), message=case)
+            coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+
+            res = result[0]
+            env.assertFalse(isinstance(res, Exception), message=(case, res))
+            env.assertContains('Timeout limit was reached', res['warning'], message=(case, res))
+            env.assertNotContains(COORD_OOM_WARNING, res['warning'], message=(case, res))
+            env.assertEqual(coord_oom_counters(coord), (errors, warnings), message=case)
+            expect_clean_end(env, coord)
+    finally:
+        if coord_paused:
+            coord.execute_command(debug_cmd(), 'COORD_THREADS', 'RESUME')
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        reset_policies(env)
