@@ -981,7 +981,7 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
         }
         depletionStopped = true;
       } else if (rc == RS_RESULT_TIMEDOUT &&
-                 req->base.limits.config.timeoutPolicy == TimeoutPolicy_Return) {
+                 req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
         // RETURN policy: keep cursors with partial results, emit warning in reply
         depletionTimedOut = true;
       } else {
