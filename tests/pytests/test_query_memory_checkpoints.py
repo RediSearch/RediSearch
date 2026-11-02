@@ -583,6 +583,39 @@ def test_term_expansion_checks_memory_per_expanded_term(env):
 
 
 @skip(cluster=True)
+@env_spec(protocol=3)
+def test_fuzzy_expansion_checks_memory_per_expanded_term(env):
+    """A fuzzy expansion reads memory as it opens one reader per expanded term, so pressure
+    partway through ends the expansion there: the build stops under ON_OOM RETURN (empty result
+    with the OOM warning) and fails under ON_OOM FAIL, and the call count shows that no further
+    term was opened."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_PREFIX_TERMS):
+        conn.execute_command('HSET', f'doc{i}', 't', f'pre{i}')
+    env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1000).ok()
+    # Three edits reach every `pre<i>` term.
+    query = ('FT.SEARCH', 'idx', '@t:%%%pre%%%', 'NOCONTENT')
+    try:
+        for workers in worker_counts(env):
+            # Call 1 is the build entry; the later calls are the expanded terms.
+            for at_call in (5, 250):
+                memory_pressure(env, 'AT_CALL', at_call)
+                try:
+                    expect_empty_with_oom_warning(env, env.cmd(*query))
+                    env.assertEqual(checkpoint_calls(env), at_call)
+                finally:
+                    memory_pressure(env, 'RESET')
+                with oom_policy(env, 'fail'):
+                    expect_oom_error_at_call(env, at_call, *query)
+
+            res = env.cmd(*query)
+            env.assertEqual(res['total_results'], N_PREFIX_TERMS, message=res)
+    finally:
+        env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 200).ok()
+
+
+@skip(cluster=True)
 def test_hybrid_term_expansion_checks_memory_under_fail(env):
     """A hybrid text branch reads memory per expanded term under ON_OOM FAIL, so pressure inside the
     expansion ends it there and fails the query with the OOM error through the post-build check;
