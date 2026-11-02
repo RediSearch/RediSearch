@@ -385,7 +385,7 @@ typedef struct QueryRequest {
    * by the main-thread reply or timeout callback. Reset at the end of each
    * cycle and again during request destruction as a safety net. */
   ChunkReplyState reply;
-  QueryRequestLimits timeout;
+  QueryRequestLimits limits;
   QueryRequestAsyncState async;
   /**
    * Transitional reference to the legacy QueryProcessingCtx.endProc slot.
@@ -440,8 +440,8 @@ static inline int QueryRequest_GetExecutionPhase(const QueryRequest *request) {
 // Execution phases attribute blocked-client timeout callbacks. Other timeout
 // sources do not use them, and a published timeout freezes the observed phase.
 static inline void QueryRequest_SetExecutionPhase(QueryRequest *request, int phase) {
-  if (request->timeout.timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT &&
-      !QueryRequestLimits_IsBlockedClientTimedOut(&request->timeout)) {
+  if (request->limits.timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT &&
+      !QueryRequestLimits_IsBlockedClientTimedOut(&request->limits)) {
     QueryRequestAsyncState_SetExecutionPhase(&request->async, phase);
   }
 }

@@ -170,7 +170,7 @@ unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutCont
 /// If the child is trivially reducible (empty or wildcard), a simplified
 /// iterator is returned directly.
 ///
-/// The request timeout reached through `q.sctx.timeout` selects no timeout,
+/// The request timeout reached through `q.sctx.limits` selects no timeout,
 /// the Blocked Client Timeout, or the Clock Based Timeout. Clock deadlines are
 /// read back on every probe so a re-armed deadline is honoured.
 ///

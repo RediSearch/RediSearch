@@ -33,7 +33,7 @@ void destroyResults(SearchResult **results);
 SearchResult **AggregateResults(ResultProcessor *rp, struct AREQ *areq, int *rc);
 
 typedef struct CommonPipelineCtx {
-  const struct QueryRequestLimits *timeout;
+  const struct QueryRequestLimits *limits;
   RSOomPolicy oomPolicy;
 
   // AREQ for the request being executed; consulted by AggregateResults (and

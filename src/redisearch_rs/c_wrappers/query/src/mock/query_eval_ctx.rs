@@ -91,7 +91,7 @@ impl MockQueryEvalCtx {
             assert!(!timeout.is_null());
             (*timeout).timeout.kind =
                 ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
-            (*sctx).timeout = timeout;
+            (*sctx).limits = timeout;
 
             let opts =
                 alloc_zeroed(Layout::new::<ffi::RSSearchOptions>()).cast::<ffi::RSSearchOptions>();

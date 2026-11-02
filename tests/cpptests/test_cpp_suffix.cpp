@@ -190,7 +190,7 @@ TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
   ctx.type = SUFFIX_TYPE_WILDCARD;
   ctx.callback = countSuffixHit;
   ctx.cbCtx = &hits;
-  ctx.timeout = &timeout;
+  ctx.limits = &timeout;
 
   EXPECT_EQ(Suffix_IterateWildcard(&ctx), 0);
   EXPECT_EQ(hits, 0);
@@ -331,7 +331,7 @@ TEST_F(SuffixLongWildcardPatternTest, suffixTrieIterateHandlesLongPattern) {
   ctx.type = SUFFIX_TYPE_WILDCARD;
   ctx.callback = countSuffixHit;
   ctx.cbCtx = &hits;
-  ctx.timeout = &timeout;
+  ctx.limits = &timeout;
 
   EXPECT_EQ(Suffix_IterateWildcard(&ctx), 1);
   EXPECT_EQ(hits, 1);

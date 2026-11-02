@@ -1276,7 +1276,7 @@ impl TestContext {
                 request_timeout.timeout.source.clock.deadline = timeout;
                 request_timeout.timeout.source.clock.counter = 0;
             }
-            self.sctx.as_mut().timeout = request_timeout.as_mut();
+            self.sctx.as_mut().limits = request_timeout.as_mut();
         }
     }
 

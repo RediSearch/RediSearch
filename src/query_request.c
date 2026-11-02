@@ -262,8 +262,8 @@ void QueryRequest_Init(QueryRequest *request, QueryRequestKind kind, const Reque
   request->inlineReplyCount = 0;
 #endif
   RS_ASSERT(timeoutConfig);
-  QueryRequestLimits_Init(&request->timeout, timeoutConfig);
-  QueryRequestLimits_BeginCycle(&request->timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_Init(&request->limits, timeoutConfig);
+  QueryRequestLimits_BeginCycle(&request->limits, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestAsyncState_Init(&request->async);
   QueryRequest_SetEndProcRef(request, NULL);
   if (argv) {

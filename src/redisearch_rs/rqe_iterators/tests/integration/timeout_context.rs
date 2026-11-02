@@ -30,7 +30,7 @@ fn set_deadline(ctx: &MockContext, secs_from_now: i64) {
     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, &mut now) };
     // SAFETY: the mock owns a valid `RedisSearchCtx` for as long as it is alive.
     unsafe {
-        (*(*ctx.sctx().as_ptr()).timeout)
+        (*(*ctx.sctx().as_ptr()).limits)
             .timeout
             .source
             .clock
@@ -54,13 +54,13 @@ fn requestless_context_has_no_timeout() {
     let ctx = MockContext::new(100, 10);
     let sctx = ctx.sctx().as_ptr();
     // SAFETY: the mock owns this search context. No checker exists while its timeout is detached.
-    let timeout = unsafe { (*sctx).timeout };
+    let timeout = unsafe { (*sctx).limits };
     // SAFETY: the mock owns this writable search context exclusively for the test.
-    unsafe { (*sctx).timeout = std::ptr::null_mut() };
+    unsafe { (*sctx).limits = std::ptr::null_mut() };
     // SAFETY: the search context stays valid; a null timeout means it has no owning request.
     let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
     // SAFETY: the mock still owns the timeout and restores its normal search context before drop.
-    unsafe { (*sctx).timeout = timeout };
+    unsafe { (*sctx).limits = timeout };
     assert!(checker.check_timeout().is_ok());
     checker.reset_counter();
     assert!(checker.check_timeout().is_ok());
@@ -131,7 +131,7 @@ fn unarmed_timeout_opts_out_entirely() {
     set_deadline(&ctx, -1);
     // SAFETY: the mock owns a valid request timeout and no checker is active yet.
     unsafe {
-        (*(*ctx.sctx().as_ptr()).timeout).timeout.kind =
+        (*(*ctx.sctx().as_ptr()).limits).timeout.kind =
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
     }
 
@@ -140,7 +140,7 @@ fn unarmed_timeout_opts_out_entirely() {
     assert!(probe(&mut checker, 1).is_ok());
     // SAFETY: the source changes between probes, with the expired deadline already initialized.
     unsafe {
-        (*(*ctx.sctx().as_ptr()).timeout).timeout.kind =
+        (*(*ctx.sctx().as_ptr()).limits).timeout.kind =
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
     }
     assert!(
@@ -160,7 +160,7 @@ fn retained_context_follows_timeout_source_changes_between_cursor_reads() {
     assert!(probe(&mut checker, 1).is_err());
 
     // SAFETY: the mock owns an initialized search context and its request timeout.
-    let timeout = unsafe { (*ctx.sctx().as_ptr()).timeout };
+    let timeout = unsafe { (*ctx.sctx().as_ptr()).limits };
     // SAFETY: the previous probe finished and the mock owns the timeout.
     unsafe {
         (*timeout).timeout.source.blockedClientTimedOut = false;
@@ -191,7 +191,7 @@ fn the_no_timeout_sentinel_never_expires() {
     // SAFETY: the mock owns a valid `RedisSearchCtx`.
     #[cfg_attr(target_env = "musl", expect(deprecated))]
     unsafe {
-        (*(*ctx.sctx().as_ptr()).timeout)
+        (*(*ctx.sctx().as_ptr()).limits)
             .timeout
             .source
             .clock
@@ -215,7 +215,7 @@ fn a_probe_reads_the_deadline_out_of_the_search_context() {
     let ctx = MockContext::new(100, 10);
     // SAFETY: the mock owns the request timeout for as long as it is alive.
     let deadline = unsafe {
-        &raw mut (*(*ctx.sctx().as_ptr()).timeout)
+        &raw mut (*(*ctx.sctx().as_ptr()).limits)
             .timeout
             .source
             .clock
@@ -243,7 +243,7 @@ fn a_probe_reads_the_deadline_out_of_the_search_context() {
 fn request_memory_stop(ctx: &MockContext) {
     // SAFETY: the mock owns a valid request timeout for as long as it is alive; projecting the
     // field reads nothing.
-    let flag = unsafe { &raw mut (*(*ctx.sctx().as_ptr()).timeout).memory.stopped };
+    let flag = unsafe { &raw mut (*(*ctx.sctx().as_ptr()).limits).memory.stopped };
     // SAFETY: the flag is aligned and valid, and every access to it in this test is atomic.
     unsafe { std::sync::atomic::AtomicBool::from_ptr(flag) }
         .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -257,7 +257,7 @@ fn arm(ctx: &MockContext, kind: ffi::QueryRequestTimeoutKind) {
     }
     // SAFETY: the mock owns the request timeout and no probe runs while the source changes.
     unsafe {
-        let timeout = (*ctx.sctx().as_ptr()).timeout;
+        let timeout = (*ctx.sctx().as_ptr()).limits;
         if kind == ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT {
             (*timeout).timeout.source.blockedClientTimedOut = false;
         }

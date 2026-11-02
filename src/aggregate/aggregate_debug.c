@@ -43,7 +43,7 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
   }
 
   AREQ_Debug *debug_req = AREQ_New_AREQ_Debug(argv, argc);
-  debug_req->requestedTimeoutPolicy = debug_req->r.base.timeout.timeout.config.timeoutPolicy;
+  debug_req->requestedTimeoutPolicy = debug_req->r.base.limits.timeout.config.timeoutPolicy;
 
   AREQ *r = &debug_req->r;
   // Point the debug tail into the request's held argv rather than the caller's, which may be
@@ -184,16 +184,16 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
 
     } else if (internal_only) {
       // Coordinator with INTERNAL_ONLY: timeout applies only in the shard query pipeline, not the coordinator
-      if (debug_req->r.base.timeout.timeout.config.queryTimeoutMS == 0 && results_count == 0) {
+      if (debug_req->r.base.limits.timeout.config.queryTimeoutMS == 0 && results_count == 0) {
           // In RESP3, timeout warning from empty shard replies is now propagated (MOD-12640).
           // In RESP2, we still need to force a timeout to avoid infinite loop.
           if (debug_req->r.protocol != 3) {
             RedisModule_Log(RSDummyContext, "debug",
                             "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
                             "to avoid infinite loop (RESP2 only)");
-            debug_req->r.base.timeout.timeout.config.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
+            debug_req->r.base.limits.timeout.config.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
             // This late TIMEOUT change must rearm the coordinator deadline.
-            QueryRequestLimits_BeginCycle(&debug_req->r.base.timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+            QueryRequestLimits_BeginCycle(&debug_req->r.base.limits, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
           }
       }
     } else {
