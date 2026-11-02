@@ -5177,6 +5177,145 @@ TYPED_TEST(HNSWTieredIndexTestBasic, HNSWResize) {
                   tiered_index->frontendIndex->indexMetaDataCapacity());
 }
 
+template <typename index_type_t>
+class HNSWTieredRelabelIteratorTest : public HNSWTieredIndexTest<index_type_t> {
+protected:
+    auto *CreateIndex(tieredIndexMock &pool, size_t n, size_t dim) {
+        HNSWParams params = {.type = index_type_t::get_index_type(),
+                             .dim = dim,
+                             .metric = VecSimMetric_L2,
+                             .multi = index_type_t::isMulti()};
+        VecSimParams hnsw_params = CreateParams(params);
+        auto *index = this->CreateTieredHNSWIndex(hnsw_params, pool);
+        VecSim_SetWriteMode(VecSim_WriteAsync);
+        using data_t = typename index_type_t::data_t;
+        std::vector<data_t> vector(dim);
+        for (size_t i = 0; i < n; ++i) {
+            data_t value;
+            if constexpr (std::is_same_v<data_t, vecsim_types::float16>) {
+                value = vecsim_types::FP32_to_FP16(static_cast<float>(i));
+            } else {
+                value = static_cast<data_t>(i);
+            }
+            std::fill(vector.begin(), vector.end(), value);
+            VecSimIndex_AddVector(index, vector.data(), i);
+        }
+        while (!pool.jobQ.empty()) {
+            pool.thread_iteration();
+        }
+        return index;
+    }
+};
+
+using RelabelIteratorTypes =
+    ::testing::Types<IndexTypeExtended<VecSimType_FLOAT32, false, float>,
+                     IndexTypeExtended<VecSimType_FLOAT32, true, float>,
+                     IndexTypeExtended<VecSimType_FLOAT16, false, vecsim_types::float16, float>,
+                     IndexTypeExtended<VecSimType_FLOAT16, true, vecsim_types::float16, float>,
+                     IndexTypeExtended<VecSimType_FLOAT64, false, double>,
+                     IndexTypeExtended<VecSimType_FLOAT64, true, double>>;
+TYPED_TEST_SUITE(HNSWTieredRelabelIteratorTest, RelabelIteratorTypes);
+
+TYPED_TEST(HNSWTieredRelabelIteratorTest, relabelVectorWithPausedBatchIterator) {
+    const size_t dim = 4;
+    const size_t n = 100;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *index = this->CreateIndex(mock_thread_pool, n, dim);
+    TEST_DATA_T query[dim]{};
+    auto *iterator = VecSimBatchIterator_New(index, query, nullptr);
+    auto *first = VecSimBatchIterator_Next(iterator, 1, BY_SCORE);
+    ASSERT_EQ(VecSimQueryReply_Len(first), 1);
+    VecSimQueryReply_Free(first);
+    ASSERT_TRUE(VecSimBatchIterator_HasNext(iterator));
+
+    // Match a cursor retaining an unfinished vector scan while indexing needs to relabel.
+    // Always release the iterator before joining, so a regression fails instead of hanging.
+    std::atomic<bool> completed = false;
+    VecSimRelabelCode code = VecSimRelabel_Unsupported;
+    std::thread writer([&] {
+        code = VecSimIndex_RelabelVector(index, n - 1, n + 1);
+        completed.store(true);
+    });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!completed.load() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::yield();
+    }
+    const bool completed_while_paused = completed.load();
+    if (completed_while_paused) {
+        // Relabeling changes labels, not saved graph IDs. The same traversal must remain usable.
+        auto *next = VecSimBatchIterator_Next(iterator, 1, BY_SCORE);
+        EXPECT_EQ(VecSimQueryReply_GetCode(next), VecSim_QueryReply_OK);
+        EXPECT_EQ(VecSimQueryReply_Len(next), 1);
+        VecSimQueryReply_Free(next);
+        VecSimBatchIterator_Reset(iterator);
+        size_t count = 0;
+        bool saw_new_label = false;
+        while (VecSimBatchIterator_HasNext(iterator)) {
+            auto *batch = VecSimBatchIterator_Next(iterator, 10, BY_SCORE);
+            auto *results = VecSimQueryReply_GetIterator(batch);
+            while (VecSimQueryReply_IteratorHasNext(results)) {
+                const auto *result = VecSimQueryReply_IteratorNext(results);
+                EXPECT_NE(VecSimQueryResult_GetId(result), n - 1);
+                saw_new_label |= VecSimQueryResult_GetId(result) == n + 1;
+                ++count;
+            }
+            VecSimQueryReply_IteratorFree(results);
+            VecSimQueryReply_Free(batch);
+        }
+        EXPECT_EQ(count, n);
+        EXPECT_TRUE(saw_new_label);
+    }
+    VecSimBatchIterator_Free(iterator);
+    writer.join();
+    EXPECT_TRUE(completed_while_paused);
+    EXPECT_EQ(code, VecSimRelabel_OK);
+}
+
+TYPED_TEST(HNSWTieredRelabelIteratorTest, relabelVectorWhileQuerying) {
+    const size_t dim = 4;
+    const size_t n = 100;
+    const labelType offset = 0x5555555555550000ULL;
+    auto mock_thread_pool = tieredIndexMock();
+    auto *index = this->CreateIndex(mock_thread_pool, n, dim);
+    TEST_DATA_T query[dim]{};
+    std::atomic<bool> done = false;
+    std::atomic<size_t> queries = 0;
+    auto verify = [&](VecSimQueryReply *reply) {
+        EXPECT_EQ(VecSimQueryReply_GetCode(reply), VecSim_QueryReply_OK);
+        auto *results = VecSimQueryReply_GetIterator(reply);
+        while (VecSimQueryReply_IteratorHasNext(results)) {
+            const auto id = VecSimQueryResult_GetId(VecSimQueryReply_IteratorNext(results));
+            EXPECT_TRUE(id < n || (id >= offset && id < offset + n));
+        }
+        VecSimQueryReply_IteratorFree(results);
+        VecSimQueryReply_Free(reply);
+    };
+    std::thread reader([&] {
+        while (!done.load()) {
+            verify(VecSimIndex_TopKQuery(index, query, 10, nullptr, BY_SCORE));
+            verify(VecSimIndex_RangeQuery(index, query, 40000, nullptr, BY_SCORE));
+            auto *iterator = VecSimBatchIterator_New(index, query, nullptr);
+            verify(VecSimBatchIterator_Next(iterator, 10, BY_SCORE));
+            verify(VecSimBatchIterator_Next(iterator, 10, BY_SCORE));
+            VecSimBatchIterator_Free(iterator);
+            ++queries;
+        }
+    });
+    while (queries.load() == 0) {
+        std::this_thread::yield();
+    }
+    for (size_t round = 0; round < 20; ++round) {
+        for (size_t i = 0; i < n; ++i) {
+            const labelType old_label = i + (round % 2 ? offset : 0);
+            const labelType new_label = i + (round % 2 ? 0 : offset);
+            EXPECT_EQ(VecSimIndex_RelabelVector(index, old_label, new_label), VecSimRelabel_OK);
+        }
+    }
+    done = true;
+    reader.join();
+    EXPECT_GT(queries.load(), 0);
+}
+
 TYPED_TEST(HNSWTieredIndexTestBasic, relabelVectorFlatOnly) {
     size_t dim = 4;
     HNSWParams params = {

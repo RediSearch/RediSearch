@@ -585,8 +585,8 @@ void HNSWIndex<DataType, DistType>::unmarkInProcess(idType internalId) {
  * every query result) and the derived class's label -> id lookup.
  *
  * Takes `indexDataGuard` exclusively, like `markDelete`, since both containers it mutates are
- * guarded by it. A tiered index calling this while holding its main index guard exclusively is
- * consistent with the main-guard-then-data-guard order used by `insertVectorToHNSW`.
+ * guarded by it. A tiered caller also excludes query label reads through its label guard;
+ * query traversal does not hold `indexDataGuard` for the entire scan.
  */
 template <typename DataType, typename DistType>
 VecSimRelabelCode HNSWIndex<DataType, DistType>::relabelVector(labelType old_label,

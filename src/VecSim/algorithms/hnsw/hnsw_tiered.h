@@ -77,6 +77,22 @@ struct HNSWRepairJob : public AsyncJob {
 template <typename DataType, typename DistType>
 class TieredHNSWIndex : public VecSimTieredIndex<DataType, DistType> {
 private:
+    // Index guard hierarchy: acquire nested guards in this order, skipping guards not needed:
+    //   1. flatIndexGuard: flat vectors, pending insert lookups and insert-job fields.
+    //   2. mainIndexGuard: backend allocation and internal graph-ID stability. Batch iterators
+    //      retain shared ownership between batches to prevent physical removal and swapping.
+    //   3. labelGuard: excludes relabeling while queries read packed, potentially unaligned
+    //      metadata labels. Queries hold it shared only during a backend query or batch.
+    //   4. HNSW indexDataGuard: backend label lookups and global index state.
+    //
+    // Structural writers take mainIndexGuard exclusively before labelGuard exclusively.
+    // Relabel takes flatIndexGuard and labelGuard exclusively, then the backend data guard;
+    // it must not acquire mainIndexGuard, even shared, since a paused iterator can block a
+    // pending exclusive writer and shared acquisition can then wait behind that writer.
+    // Release the backend data guard before upgrading mainIndexGuard to exclusive ownership.
+    mutable std::shared_mutex labelGuard;
+    SharedMutexLockable labelLockable{labelGuard};
+
     /// Mappings from id/label to associated jobs, for invalidating and update ids if necessary.
     // **This map is protected with the flat buffer lock**
     vecsim_stl::unordered_map<idType, vecsim_stl::vector<HNSWRepairJob *>> idToRepairJobs;
@@ -201,8 +217,10 @@ protected:
     HnswDataGuardLockable hnswDataGuardLockable{this->getHNSWIndex()};
 
     ScopedLocks lockMainIndexForQuery() const override {
-        return ScopedLocks(this->mainIndexLockable);
+        return ScopedLocks(this->mainIndexLockable, labelLockable);
     }
+
+    ScopedLocks lockMainIndexForInfo() const override { return lockMainIndexForQuery(); }
 
     ScopedLocks lockIndexForSize() const override {
         return ScopedLocks(this->flatIndexLockable, hnswDataGuardLockable);
@@ -222,6 +240,11 @@ public:
 
         VecSimBatchIterator *flat_iterator;
         VecSimBatchIterator *hnsw_iterator;
+
+        VecSimQueryReply *getNextBackendResults(size_t n_res) {
+            std::shared_lock<std::shared_mutex> label_lock(index->labelGuard);
+            return hnsw_iterator->getNextResults(n_res, BY_SCORE_THEN_ID);
+        }
 
     public:
         TieredHNSW_BatchIterator(const void *query_vector,
@@ -311,11 +334,13 @@ public:
     void acquireSharedLocks() override {
         this->flatIndexGuard.lock_shared();
         this->mainIndexGuard.lock_shared();
+        labelGuard.lock_shared();
         this->getHNSWIndex()->lockSharedIndexDataGuard();
     }
 
     void releaseSharedLocks() override {
         this->getHNSWIndex()->unlockSharedIndexDataGuard();
+        labelGuard.unlock_shared();
         this->mainIndexGuard.unlock_shared();
         this->flatIndexGuard.unlock_shared();
     }
@@ -439,6 +464,7 @@ size_t TieredHNSWIndex<DataType, DistType>::executeReadySwapJobs(size_t maxJobsT
 
     // Execute swap jobs - acquire hnsw write lock.
     const auto main_index_lock = this->acquireMainIndexGuard();
+    std::unique_lock<std::shared_mutex> label_lock(labelGuard);
     TIERED_LOG(VecSimCommonStrings::LOG_VERBOSE_STRING,
                "Tiered HNSW index GC: there are %zu ready swap jobs. Start executing %zu swap jobs",
                readySwapJobs.load(), std::min(readySwapJobs.load(), maxJobsToRun));
@@ -556,6 +582,7 @@ void TieredHNSWIndex<DataType, DistType>::insertVectorToHNSW(
         this->mainIndexGuard.unlock_shared();
         hnsw_index->unlockIndexDataGuard();
         this->lockMainIndexGuard();
+        std::unique_lock<std::shared_mutex> label_lock(labelGuard);
         hnsw_index->lockIndexDataGuard();
 
         // Hold the index data lock while we store the new element. If the new node's max level is
@@ -580,6 +607,7 @@ void TieredHNSWIndex<DataType, DistType>::insertVectorToHNSW(
         if (state.elementMaxLevel > state.currMaxLevel) {
             hnsw_index->unlockIndexDataGuard();
         }
+        label_lock.unlock();
         this->unlockMainIndexGuard();
     } else {
         // Do the same as above except for changing the capacity, but with *shared* lock held:
@@ -847,6 +875,7 @@ void TieredHNSWIndex<DataType, DistType>::finalizeQuantizationAndSubmitJobs(size
 #endif
     {
         const auto main_index_lock = this->acquireMainIndexGuard();
+        std::unique_lock<std::shared_mutex> label_lock(labelGuard);
         getHNSWIndex()->setQuantizationMean(mean);
         // The optional state is consumed once. Emptying a trained index never restarts training.
         sqAccumulationState.reset();
@@ -881,6 +910,7 @@ int TieredHNSWIndex<DataType, DistType>::addVectorInPlace(const void *blob, labe
     }
     {
         const auto main_index_lock = this->acquireMainIndexGuard();
+        std::unique_lock<std::shared_mutex> label_lock(labelGuard);
         hnsw_index->addVector(storage_blob.get(), label);
     }
     // Track direct insertion to HNSW (bypassing flat buffer)
@@ -1021,6 +1051,7 @@ int TieredHNSWIndex<DataType, DistType>::deleteVector(labelType label) {
     } else {
         // delete in place.
         const auto main_index_lock = this->acquireMainIndexGuard();
+        std::unique_lock<std::shared_mutex> label_lock(labelGuard);
         num_deleted_vectors += this->deleteLabelFromHNSWInplace(label);
     }
 
@@ -1091,13 +1122,8 @@ VecSimUpdateCode TieredHNSWIndex<DataType, DistType>::updateVectors(labelType la
  * before removing the vector from the flat buffer, so all four updates below are independently
  * guarded by their own existence check rather than treated as mutually exclusive.
  *
- * Locking: `flatIndexGuard` exclusively (it guards the flat buffer's lookups, `labelToInsertJobs`
- * and - per the note in `executeInsertJob` - the job fields themselves), then the main index guard
- * exclusively. That is the flat-then-main order used by `insertVectorToHNSW` and `topKQueryImp`,
- * so it cannot deadlock against them; repair and swap jobs only ever take the main guard.
- * The main guard must be *exclusive* rather than shared: query threads read
- * `getExternalLabel` under a shared main guard, and `ElementMetaData` is byte-packed, so its
- * `label` field can be unaligned and its store is not atomic.
+ * Locking follows the class's index guard hierarchy. Ingestion without resizing can overlap
+ * relabeling; HNSW's data guard serializes their backend label lookup changes.
  */
 template <typename DataType, typename DistType>
 VecSimRelabelCode TieredHNSWIndex<DataType, DistType>::relabelVector(labelType old_label,
@@ -1106,22 +1132,31 @@ VecSimRelabelCode TieredHNSWIndex<DataType, DistType>::relabelVector(labelType o
         return VecSimRelabel_SameLabel;
     }
 
-    this->flatIndexGuard.lock();
-    this->lockMainIndexGuard();
+    std::unique_lock<std::shared_mutex> flat_lock(this->flatIndexGuard);
+    std::unique_lock<std::shared_mutex> label_lock(labelGuard);
 
     auto *hnsw_index = this->getHNSWIndex();
+    // A worker can still insert into an existing HNSW allocation while sharing the main guard.
+    // Protect lookup reads against that insertion, then release before HNSW relabel takes the
+    // data guard exclusively. The flat guard prevents a new insert job being claimed for either
+    // label, and structural removal cannot proceed while the label guard is held.
+    bool in_hnsw;
+    bool target_in_hnsw;
+    {
+        auto data_lock = hnsw_index->acquireSharedIndexDataGuard();
+        in_hnsw = hnsw_index->isLabelExists(old_label);
+        target_in_hnsw = hnsw_index->isLabelExists(new_label);
+    }
     // A label can live in any subset of its three homes, so both questions are asked of all of
     // them: it is present if any home holds it, and the target is free only if none does. Reject if
     // the target is taken anywhere, so that a partially applied move is impossible - a free target
     // in all three homes means none of the updates below can collide.
     const bool source_exists =
         this->frontendIndex->isLabelExists(old_label) ||
-        this->labelToInsertJobs.find(old_label) != this->labelToInsertJobs.end() ||
-        hnsw_index->isLabelExists(old_label);
+        this->labelToInsertJobs.find(old_label) != this->labelToInsertJobs.end() || in_hnsw;
     const bool target_taken =
         this->frontendIndex->isLabelExists(new_label) ||
-        this->labelToInsertJobs.find(new_label) != this->labelToInsertJobs.end() ||
-        hnsw_index->isLabelExists(new_label);
+        this->labelToInsertJobs.find(new_label) != this->labelToInsertJobs.end() || target_in_hnsw;
 
     // Each home is asked to move the label only once it reported holding it, and the checks above
     // ruled out every other rejection - the label is present, the target is free everywhere, and
@@ -1152,9 +1187,8 @@ VecSimRelabelCode TieredHNSWIndex<DataType, DistType>::relabelVector(labelType o
             this->labelToInsertJobs.emplace(new_label, std::move(jobs));
         }
 
-        // `relabelVector` takes the HNSW index data guard internally, which is the same
-        // main-guard-then-data-guard order that `insertVectorToHNSW` uses.
-        if (hnsw_index->isLabelExists(old_label)) {
+        // `relabelVector` takes the HNSW index data guard internally.
+        if (in_hnsw) {
             const VecSimRelabelCode hnsw_ret = hnsw_index->relabelVector(old_label, new_label);
 #ifdef BUILD_TESTS
             assert(hnsw_ret == VecSimRelabel_OK && "HNSW just reported holding this label");
@@ -1162,9 +1196,6 @@ VecSimRelabelCode TieredHNSWIndex<DataType, DistType>::relabelVector(labelType o
             UNUSED(hnsw_ret);
         }
     }
-
-    this->unlockMainIndexGuard();
-    this->flatIndexGuard.unlock();
 
     // An absent source outranks an occupied target: a caller that resolves `NewLabelTaken` by
     // freeing the target would otherwise drop an unrelated vector for a move with nothing to move.
@@ -1255,7 +1286,7 @@ VecSimQueryReply *TieredHNSWIndex<DataType, DistType>::TieredHNSW_BatchIterator:
         this->backend_index_lock.lock();
         this->hnsw_iterator = this->index->backendIndex->newBatchIterator(
             this->flat_iterator->getQueryBlob(), queryParams);
-        auto cur_hnsw_results = this->hnsw_iterator->getNextResults(n_res, BY_SCORE_THEN_ID);
+        auto cur_hnsw_results = this->getNextBackendResults(n_res);
         hnsw_code = cur_hnsw_results->code;
         this->backend_results.swap(cur_hnsw_results->results);
         VecSimQueryReply_Free(cur_hnsw_results);
@@ -1287,8 +1318,7 @@ VecSimQueryReply *TieredHNSWIndex<DataType, DistType>::TieredHNSW_BatchIterator:
 
         while (this->backend_results.size() < n_res && this->hnsw_iterator != DEPLETED &&
                hnsw_code == VecSim_OK) {
-            auto tail = this->hnsw_iterator->getNextResults(n_res - this->backend_results.size(),
-                                                            BY_SCORE_THEN_ID);
+            auto tail = this->getNextBackendResults(n_res - this->backend_results.size());
             hnsw_code = tail->code; // Set the hnsw_results code to the last `getNextResults` code.
             // New batch may contain better results than the previous batch, so we need to merge.
             // We don't expect duplications (hence the <false>), as the iterator guarantees that
