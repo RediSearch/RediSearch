@@ -221,6 +221,36 @@ def test_search_knn_sortby_limit_total_resp2():
 def test_search_knn_sortby_limit_total_resp3():
     _search_knn_sortby_limit_total(protocol=3)
 
+def _search_knn_sortby_numeric_field(protocol):
+    # With KNN + SORTBY on another numeric field, the coordinator ranked its K heap by that
+    # field's value instead of the distance: the reply held the K smallest field values.
+    env = Env(protocol=protocol, moduleArgs='DEFAULT_DIALECT 2')
+    conn = getConnectionByEnv(env)
+    n_docs, k = 30, 10
+
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 'v', 'VECTOR', 'FLAT', '6',
+            'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2')
+    for i in range(n_docs):
+        # The distance grows with i while n shrinks.
+        conn.execute_command('HSET', f'doc{i}', 'n', n_docs - i,
+                             'v', np.array([float(i), 0.0], dtype=np.float32).tobytes())
+    waitForIndex(env, 'idx')
+
+    blob = np.zeros(2, dtype=np.float32).tobytes()
+    res = env.cmd('FT.SEARCH', 'idx', f'*=>[KNN {k} @v $B]', 'PARAMS', '2', 'B', blob,
+                  'SORTBY', 'n', 'NOCONTENT', 'DIALECT', '2')
+    ids = [row['id'] for row in res['results']] if protocol == 3 else res[1:]
+    # The k nearest, in ascending n.
+    env.assertEqual(ids, [f'doc{i}' for i in reversed(range(k))])
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_knn_sortby_numeric_field_resp2():
+    _search_knn_sortby_numeric_field(protocol=2)
+
+@skip(cluster=False, redis_less_than="7.0.0")
+def test_search_knn_sortby_numeric_field_resp3():
+    _search_knn_sortby_numeric_field(protocol=3)
+
 @skip(redis_less_than="7.0.0")
 def test_search_timeout():
     num_range = 1000
