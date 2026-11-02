@@ -366,7 +366,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
-    hybridReq->sctx->timeout = &hybridReq->base.timeout;
+    hybridReq->sctx->limits = &hybridReq->base.limits;
     hybridReq->kArgIndex = -1;
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);
@@ -377,7 +377,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize the tail pipeline that will merge results from all requests
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
-    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->base.timeout.config.timeoutPolicy, &hybridReq->base.reply.err);
+    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->base.limits.timeout.config.timeoutPolicy, &hybridReq->base.reply.err);
     QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
     // Capture the background-scan-OOM warning flag while the spec is guaranteed
     // alive (main-thread command handling). The reply path reads only this
@@ -390,16 +390,16 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->base.timeout.config.timeoutPolicy, &requests[i]->base.reply.err);
+        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->base.limits.timeout.config.timeoutPolicy, &requests[i]->base.reply.err);
     }
     hybridReq->profileClocks.initClock = now;
 
 }
 
 void HybridRequest_BeginTimeoutCycle(HybridRequest *req, QueryRequestTimeoutKind kind) {
-    QueryRequestTimeout_BeginCycle(&req->base.timeout, kind);
+    QueryRequestLimits_BeginCycle(&req->base.limits, kind);
     for (size_t i = 0; i < req->nrequests; i++) {
-        QueryRequestTimeout_BeginCycle(&req->requests[i]->base.timeout, kind);
+        QueryRequestLimits_BeginCycle(&req->requests[i]->base.limits, kind);
     }
 }
 
@@ -441,7 +441,7 @@ void HybridRequest_Free(HybridRequest *req) {
     // releasing the sctx and its diskSnapshot, and the subs own no
     // RedisModuleCtx — each cycle lends and reclaims its own.
     const bool timedOut =
-        QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout);
+        QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits);
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *sub = req->requests[i];
       struct Cursor *cursor = sub->base.cursorInfo.cursor;
@@ -576,7 +576,7 @@ void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req) {
   // hybrid-level flag is set.
   for (size_t i = 0; i < req->nrequests; i++) {
     if (req->requests[i]) {
-      QueryRequestTimeout_MarkTimedOut(&req->requests[i]->base.timeout);
+      QueryRequestLimits_MarkTimedOut(&req->requests[i]->base.limits);
     }
   }
 }
