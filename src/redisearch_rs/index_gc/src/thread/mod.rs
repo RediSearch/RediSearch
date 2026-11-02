@@ -34,10 +34,11 @@
 //! by running at most one cycle per spec at a time, forced or scheduled.
 //!
 //! At the end, the IDs whose entries the cycle collected leave the doc table's
-//! set. An ID stays in two cases, so the next cycle looks for its entries
+//! set. An ID stays in three cases, so the next cycle looks for its entries
 //! again: a last block that grew after its copy was taken and could not be
-//! rescanned in place, and a numeric leaf that split since the tree's nodes
-//! were listed, copying entries into leaves the cycle never scanned. Any other
+//! rescanned in place, a copy that would not decode, and a numeric leaf that
+//! split since the tree's nodes were listed, copying entries into leaves the
+//! cycle never scanned. Any other
 //! apply failure means the scanned index is gone and its entries with it: an
 //! index is only removed by this GC, and a replacement cannot hold an ID that
 //! was deleted before the cycle began.
@@ -273,7 +274,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
         scanner: &'static str,
         buffers: &mut Buffers<F, E>,
         mut scan_chunk: impl FnMut(&IndexSpecReadGuard<'_>, StopCheck<'_>, &mut Vec<F>) -> bool,
-        mut process: impl FnMut(F) -> std::io::Result<Option<(E, Tail)>>,
+        mut process: impl FnMut(F) -> Result<Option<(E, Tail)>, (std::io::Error, Tail)>,
         mut apply: impl FnMut(E, &mut IndexSpecWriteGuard<'_>) -> Result<GcApplyStats, GcError>,
     ) -> Result<bool, GcError> {
         let Buffers { found, pending } = buffers;
@@ -293,9 +294,13 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
                 match process(copy) {
                     Ok(Some(entry)) => pending.push(entry),
                     Ok(None) => {}
-                    // The live index would not decode either; a cycle cannot repair that.
-                    Err(error) => {
-                        tracing::warn!(scanner, %error, "thread GC: an index copy would not decode")
+                    // The live index would not decode either; a cycle cannot repair that,
+                    // but the IDs it holds stay in the set for a later one.
+                    Err((error, span)) => {
+                        tracing::warn!(scanner, %error, "thread GC: an index copy would not decode");
+                        if let Some(span) = span {
+                            self.retained.insert_range(span);
+                        }
                     }
                 }
             }
@@ -346,7 +351,8 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
                 let tail = snapshot.last_block_doc_id_range();
                 let unique_id = u32::from(snapshot.unique_id());
                 Ok(snapshot
-                    .scan_gc(live)?
+                    .scan_gc(live)
+                    .map_err(|e| (e, snapshot.doc_id_range()))?
                     .map(|delta| ((term, unique_id, delta), tail)))
             },
             |(term, unique_id, delta), guard| {
@@ -372,8 +378,10 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
                 }),
                 |snapshot: NumericNodeSnapshot| {
                     let tail = snapshot.last_block_doc_id_range();
+                    let span = snapshot.doc_id_range();
                     Ok(snapshot
-                        .scan(live)?
+                        .scan(live)
+                        .map_err(|e| (e, span))?
                         .map(|ScannedNumericNode { node, .. }| (node, tail)))
                 },
                 |node, guard| {
@@ -424,7 +432,11 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
             },
             |snapshot: TagSnapshot| {
                 let tail = snapshot.snapshot.last_block_doc_id_range();
-                Ok(snapshot.scan(live)?.map(|entry| (entry, tail)))
+                let span = snapshot.snapshot.doc_id_range();
+                Ok(snapshot
+                    .scan(live)
+                    .map_err(|e| (e, span))?
+                    .map(|entry| (entry, tail)))
             },
             |entry, guard| apply_tag_entry_with(entry, Some(&live), guard),
         )?;
@@ -449,7 +461,8 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
                 let tail = snapshot.last_block_doc_id_range();
                 let unique_id = u32::from(snapshot.unique_id());
                 Ok(snapshot
-                    .scan_gc(live)?
+                    .scan_gc(live)
+                    .map_err(|e| (e, snapshot.doc_id_range()))?
                     .map(|delta| ((field_name, unique_id, delta), tail)))
             },
             |(field_name, unique_id, delta), guard| {
@@ -469,7 +482,8 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
                 let tail = snapshot.last_block_doc_id_range();
                 let unique_id = u32::from(snapshot.unique_id());
                 Ok(snapshot
-                    .scan_gc(live)?
+                    .scan_gc(live)
+                    .map_err(|e| (e, snapshot.doc_id_range()))?
                     .map(|delta| (ExistingDocsEntry { unique_id, delta }, tail)))
             },
             |entry, guard| apply_existing_docs_with(entry, Some(&live), guard),
@@ -536,13 +550,16 @@ pub fn run_cycle(
     } = driver;
     let mut collected = dead;
     collected -= retained;
-    spec.with_write(|guard| {
-        if let Some(set) = guard.deleted_docs_mut() {
-            set.prune(&collected);
-        }
-        Ok(())
-    })
-    .map_err(|e| ("deleted docs", e))?;
+    let held = spec
+        .with_write(|guard| {
+            let start = Instant::now();
+            if let Some(set) = guard.deleted_docs_mut() {
+                set.prune(&collected);
+            }
+            Ok(start.elapsed())
+        })
+        .map_err(|e| ("deleted docs", e))?;
     report.write_locks += 1;
+    report.max_write_hold = report.max_write_hold.max(held);
     Ok(report)
 }

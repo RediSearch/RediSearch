@@ -172,10 +172,9 @@ void ForkGC_sendTerminator(IndexGC *fgc);
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::IndexGC`] that nothing else references for
- *    the duration of this call: in particular no other GC cycle runs on it. The
- *    main thread's deletion counter is an atomic the C side updates in place, not
- *    a reference to the struct.
+ * 1. `gc` must point to a valid [`ffi::IndexGC`] on which no other GC cycle runs
+ *    for the duration of this call. The main thread may update its deletion
+ *    counter meanwhile, so this call borrows only the fields it uses.
  * 2. The calling thread must not hold any spec lock.
  */
 enum ForkGCError ThreadGC_runScanners(IndexGC *gc);
