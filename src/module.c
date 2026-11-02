@@ -2916,6 +2916,16 @@ static double parseNumeric(const char *str, const char *sortKey) {
     return d;
 }
 
+#define GET_NUMERIC_SCORE(d, searchResult_var, score_exp) \
+  do {                                                    \
+    if (res->sortKeyNum != HUGE_VAL) {                    \
+      d = searchResult_var->sortKeyNum;                   \
+    } else {                                              \
+      const char *score = (score_exp);                    \
+      d = parseNumeric(score, res->sortKey);              \
+    }                                                     \
+  } while (0);
+
 static void ProcessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score, knnContext *knnCtx) {
   // As long as we don't have k results, keep insert
     if (heap_count(knnCtx->pq) < heap_size(knnCtx->pq)) {
@@ -2995,9 +3005,8 @@ static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
                         "missing knn required_field when parsing redisearch results");
         goto error;
       }
-      // The distance, never the sort key: with SORTBY on another numeric field the sort key is
-      // that field's value.
-      double d = parseNumeric(MRReply_String(score_value, NULL), res->sortKey);
+      double d;
+      GET_NUMERIC_SCORE(d, res, MRReply_String(score_value, NULL));
       ProcessKNNSearchResult(res, rCtx, d, &reduceSpecialCaseCtxKnn->knn);
     }
     processResultFormat(&req->format, arr);
@@ -3024,8 +3033,8 @@ static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
         goto error;
       }
 
-      double d = parseNumeric(MRReply_String(MRReply_ArrayElement(arr, j + scoreOffset), NULL),
-                              res->sortKey);
+      double d;
+      GET_NUMERIC_SCORE(d, res, MRReply_String(MRReply_ArrayElement(arr, j + scoreOffset), NULL));
       ProcessKNNSearchResult(res, rCtx, d, &reduceSpecialCaseCtxKnn->knn);
     }
   }
