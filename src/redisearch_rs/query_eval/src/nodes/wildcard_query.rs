@@ -11,7 +11,7 @@
 
 use std::ops::ControlFlow;
 
-use c_trie::{LoweredPattern, QueryRequestTimeoutHandle, SuffixTrie, SuffixWalk, TermsTrie};
+use c_trie::{LoweredPattern, QueryRequestLimitsHandle, SuffixTrie, SuffixWalk, TermsTrie};
 use query_error::QueryErrorCode;
 use query_types::QueryNodeType;
 use rqe_iterators::union_opaque::build_union_with_q_str;
@@ -87,8 +87,9 @@ pub(crate) fn eval<'index>(
     // Resolved here, with every other read of `ctx`, because `Expansion` borrows
     // it mutably for the rest of the expansion.
     // SAFETY: the request timeout outlives query evaluation. Its source is fixed for this execution
-    // cycle; only the atomic flags may change concurrently, through the C atomic API.
-    let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ctx.sctx().timeout) };
+    // cycle; only the blocked-client marker and the memory stop flag may change concurrently,
+    // through the C atomic API.
+    let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ctx.sctx().limits) };
 
     let mut expansion = Expansion {
         ctx,
@@ -204,7 +205,7 @@ impl Expansion<'_> {
         suffix: &SuffixTrie,
         terms: &TermsTrie,
         pattern: LoweredPattern,
-        timeout: Option<&QueryRequestTimeoutHandle>,
+        timeout: Option<&QueryRequestLimitsHandle>,
     ) -> SuffixWalk {
         // The suffix trie hands terms back already as stored key bytes but carries
         // no document count, so on the disk path the term's count is looked up in
@@ -239,7 +240,7 @@ impl Expansion<'_> {
         &mut self,
         terms: &TermsTrie,
         pattern: &LoweredPattern,
-        timeout: Option<&QueryRequestTimeoutHandle>,
+        timeout: Option<&QueryRequestLimitsHandle>,
     ) {
         // The primary trie hands terms back as runes (with their document count,
         // used for the disk IDF), which must be encoded back into the term's key,
