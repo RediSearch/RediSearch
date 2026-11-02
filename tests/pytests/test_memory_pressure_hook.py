@@ -266,26 +266,29 @@ def test_oom_stop_replies_by_on_oom_policy(env):
     each bumps the matching INFO counter."""
     _index_with_docs(env)
 
-    errors, warnings = _coord_oom_counters(env)
-    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
-    res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
-    env.assertEqual(len(res['results']), 3, message=res)
-    env.assertEqual(res['warning'], [COORD_OOM_WARNING])
-    env.assertEqual(_coord_oom_counters(env), (errors, warnings + 1))
+    try:
+        errors, warnings = _coord_oom_counters(env)
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
+        res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
+        env.assertEqual(len(res['results']), 3, message=res)
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING])
+        env.assertEqual(_coord_oom_counters(env), (errors, warnings + 1))
 
-    change_oom_policy(env, 'fail')
-    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
-    env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
-               'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1).error().contains(OOM_QUERY_ERROR)
-    env.assertEqual(_coord_oom_counters(env), (errors + 1, warnings + 1))
-    change_oom_policy(env, 'return')
+        change_oom_policy(env, 'fail')
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
+        env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
+                   'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1).error().contains(OOM_QUERY_ERROR)
+        env.assertEqual(_coord_oom_counters(env), (errors + 1, warnings + 1))
+        change_oom_policy(env, 'return')
 
-    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
-    res = env.cmd(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n',
-                  'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1)
-    env.assertEqual([r['id'] for r in res['results']], ['doc0', 'doc1', 'doc2'], message=res)
-    env.assertEqual(res['warning'], [COORD_OOM_WARNING])
-    memory_pressure(env, 'RESET')
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
+        res = env.cmd(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n',
+                      'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1)
+        env.assertEqual([r['id'] for r in res['results']], ['doc0', 'doc1', 'doc2'], message=res)
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING])
+    finally:
+        memory_pressure(env, 'RESET')
+        change_oom_policy(env, 'return')
 
 
 @skip(cluster=True)
@@ -293,15 +296,18 @@ def test_oom_stop_ends_the_cursor(env):
     """A cursor read stopped for OOM returns its rows and ends the cursor rather than leaving it
     open as a timeout under ON_TIMEOUT RETURN would."""
     _index_with_docs(env)
-    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
-    res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
-                          'WITHCURSOR', 'COUNT', 2, 'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1)
-    env.assertEqual(len(res) - 1, 2, message=res)
-    env.assertNotEqual(cursor, 0)
-    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-    env.assertEqual(len(res) - 1, 1, message=res)
-    env.assertEqual(cursor, 0)
-    memory_pressure(env, 'RESET')
+    try:
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
+        res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
+                              'WITHCURSOR', 'COUNT', 2, 'MEMORY_CHECKPOINT',
+                              'DEBUG_PARAMS_COUNT', 1)
+        env.assertEqual(len(res) - 1, 2, message=res)
+        env.assertNotEqual(cursor, 0)
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        env.assertEqual(len(res) - 1, 1, message=res)
+        env.assertEqual(cursor, 0)
+    finally:
+        memory_pressure(env, 'RESET')
 
 
 @skip(cluster=False)
@@ -314,16 +320,20 @@ def test_oom_stop_on_shards_reaches_the_coordinator(env):
     query = [debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
              'MEMORY_CHECKPOINT', 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 2]
 
-    run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
-    res = env.cmd(*query)
-    env.assertEqual(res['results'], [], message=res)
-    env.assertEqual(res['warning'], [COORD_OOM_WARNING])
+    try:
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+        res = env.cmd(*query)
+        env.assertEqual(res['results'], [], message=res)
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING])
 
-    allShards_change_oom_policy(env, 'fail')
-    run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
-    env.expect(*query).error().contains(OOM_QUERY_ERROR)
-    allShards_change_oom_policy(env, 'return')
+        allShards_change_oom_policy(env, 'fail')
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+        env.expect(*query).error().contains(OOM_QUERY_ERROR)
+        allShards_change_oom_policy(env, 'return')
 
-    run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
-    res = env.cmd(*query)
-    env.assertEqual(len(res['results']), N_DOCS, message=res)
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        res = env.cmd(*query)
+        env.assertEqual(len(res['results']), N_DOCS, message=res)
+    finally:
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        allShards_change_oom_policy(env, 'return')
