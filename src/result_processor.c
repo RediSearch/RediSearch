@@ -3310,7 +3310,6 @@ typedef struct {
   RPStatus last_rc;                // Last return code from upstream
   uint32_t depleted_results;       // Total number of results depleted
   rs_wall_clock_ns_t depletionTime; // Time spent depleting upstream results
-  QueryStopReason stopReason;       // Why depletion stopped, when a stop request ended it
   uint32_t memoryCheckCalls;        // QueryMemory_ShouldStop counter for the buffer
 } RPDepleter;
 
@@ -3342,14 +3341,14 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     }
   }
   if (rc == RS_RESULT_TIMEDOUT) {
-    self->stopReason = RP_HoldStop(&self->base);
+    RP_HoldStop(&self->base);
     // The coordinator preloads the shard-summed WITHCOUNT total and RPNet never touches it, so a
     // downstream FILTER would decrement it only for the rows held here. Rebase on the held rows,
     // as standalone does by counting rows as they stream. An ordinary deadline keeps the exact
     // total the WITHCOUNT barrier supplied. With no rows held the stop came from upstream, whose
     // rows may still be drained on recovery, so the shard-summed total stays the base.
     ResultProcessor *root = self->base.parent->rootProc;
-    if (self->stopReason == QUERY_STOP_REASON_OOM && self->depleted_results > 0 && root &&
+    if (RP_UpstreamHold(&self->base) && self->depleted_results > 0 && root &&
         root->type == RP_NETWORK && ((RPNet *)root)->withCount) {
       self->base.parent->totalResults = self->depleted_results;
     }
@@ -3374,9 +3373,6 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
   if (self->cur_idx >= array_len(self->results)) {
     // Return the last code from upstream (EOF or TIMEDOUT)
     int ret = self->last_rc;
-    if (ret == RS_RESULT_TIMEDOUT) {
-      RP_RenewStop(base, self->stopReason);
-    }
     self->last_rc = RS_RESULT_EOF;
     return ret;
   }
