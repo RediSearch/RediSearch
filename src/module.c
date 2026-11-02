@@ -3528,10 +3528,13 @@ static size_t searchRepliesRowBound(const searchRequestCtx *req, int count, MRRe
 }
 
 // Stop merging on a blocked-client timeout or a stop requested while merging. A stop requested
-// before, by the fan-out, already discarded the replies that landed after it.
-static bool reducerShouldStop(const searchRequestCtx *req, bool stoppedBeforeReducing) {
+// before, by the fan-out, already discarded the replies that landed after it. The timeout
+// callback owns the reply, so a fired timeout does not stop its own merge (`fromTimeout`), but a
+// memory stop still does: it must not leave the main thread merging every queued shard reply.
+static bool reducerShouldStop(const searchRequestCtx *req, bool stoppedBeforeReducing,
+                              bool fromTimeout) {
   const QueryRequestLimits *timeout = &req->base.limits;
-  return QueryRequestLimits_IsBlockedClientTimedOut(timeout) ||
+  return (!fromTimeout && QueryRequestLimits_IsBlockedClientTimedOut(timeout)) ||
          (!stoppedBeforeReducing && QueryRequestLimits_IsMemoryStopped(timeout));
 }
 
@@ -3668,7 +3671,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   if (!profile) {
     for (int i = 0; i < count; ++i) {
       rCtx->processReply(replies[i], rCtx);
-      if (!fromTimeout && reducerShouldStop(req, stoppedBeforeReducing)) {
+      if (reducerShouldStop(req, stoppedBeforeReducing, fromTimeout)) {
         goto cleanup;
       }
     }
@@ -3688,7 +3691,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
       rCtx->processReply(mr_reply, rCtx);
-      if (!fromTimeout && reducerShouldStop(req, stoppedBeforeReducing)) {
+      if (reducerShouldStop(req, stoppedBeforeReducing, fromTimeout)) {
         goto cleanup;
       }
     }
