@@ -11,18 +11,18 @@ use std::{cell::UnsafeCell, ptr::NonNull};
 
 /// An aliasing-safe borrowed view of C-owned request timeout state.
 ///
-/// Bindgen represents the atomic blocked-client marker, the atomic stop flag and the clock counter
-/// in [`ffi::QueryRequestTimeout`] as ordinary Rust fields. Creating a shared reference to that
-/// bindgen type would therefore promise immutability while C may legally modify those fields.
+/// Bindgen represents the atomic blocked-client marker, the atomic memory stop flag and the clock
+/// counter in [`ffi::QueryRequestTimeout`] as ordinary Rust fields. Creating a shared reference to
+/// that bindgen type would therefore promise immutability while C may legally modify those fields.
 /// This transparent [`UnsafeCell`] wrapper expresses that interior mutability without exposing
 /// the fields to Rust.
 ///
 /// The handle borrows rather than owns the C object. Trie wrappers pass its pointer only for the
 /// duration of their synchronous FFI call; they never retain it. The C timeout state machine owns
 /// source transitions and synchronization: transitions occur between execution cycles, the
-/// blocked-client marker and the stop state (flag and reason) may be changed atomically during a
-/// cycle, and clock-counter calls for one request are serialized. [`QueryRequestTimeoutHandle`]
-/// deliberately does not make those C operations safe to overlap.
+/// blocked-client marker and the memory stop flag may be changed atomically during a cycle, and
+/// clock-counter calls for one request are serialized. [`QueryRequestTimeoutHandle`] deliberately
+/// does not make those C operations safe to overlap.
 #[repr(transparent)]
 pub struct QueryRequestTimeoutHandle {
     inner: UnsafeCell<ffi::QueryRequestTimeout>,
@@ -42,7 +42,7 @@ impl QueryRequestTimeoutHandle {
     ///
     /// The caller must also uphold the C API's cycle contract: the active source cannot change
     /// during an operation using this handle. Concurrent C access is limited to atomic publication
-    /// or observation of the blocked-client marker and the stop state (flag and reason); the source
+    /// or observation of the blocked-client marker and the memory stop flag; the source
     /// discriminator, clock deadline, and clock counter cannot be mutated concurrently.
     pub unsafe fn from_raw<'a>(
         timeout: *mut ffi::QueryRequestTimeout,

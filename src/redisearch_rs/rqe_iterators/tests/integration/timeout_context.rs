@@ -223,18 +223,18 @@ fn a_probe_reads_the_deadline_out_of_the_search_context() {
     ));
 }
 
-/// Publish the request's stop flag the way `QueryRequestTimeout_RequestStop` does.
-fn request_stop(ctx: &MockContext) {
+/// Set the request's memory stop the way `QueryRequestTimeout_RequestMemoryStop` does.
+fn request_memory_stop(ctx: &MockContext) {
     // SAFETY: the mock owns a valid request timeout for as long as it is alive; projecting the
     // field reads nothing.
-    let flag = unsafe { &raw mut (*(*ctx.sctx().as_ptr()).timeout).stopRequested };
+    let flag = unsafe { &raw mut (*(*ctx.sctx().as_ptr()).timeout).memory.stopped };
     // SAFETY: the flag is aligned and valid, and every access to it in this test is atomic.
     unsafe { std::sync::atomic::AtomicBool::from_ptr(flag) }
         .store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Switch the mock's request timeout to `kind`, with a live deadline and a clear blocked-client
-/// marker so that nothing but the stop flag differs from an unexpired request.
+/// marker so that nothing but the memory stop differs from an unexpired request.
 fn arm(ctx: &MockContext, kind: ffi::QueryRequestTimeoutKind) {
     if kind == ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE {
         set_deadline(ctx, 60);
@@ -251,7 +251,7 @@ fn arm(ctx: &MockContext, kind: ffi::QueryRequestTimeoutKind) {
 
 #[cfg_attr(miri, ignore = "miri has no clock_gettime(CLOCK_MONOTONIC_RAW)")]
 #[test]
-fn a_requested_stop_is_not_a_timeout() {
+fn a_memory_stop_is_not_a_timeout() {
     for kind in [
         ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED,
         ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT,
@@ -259,14 +259,14 @@ fn a_requested_stop_is_not_a_timeout() {
     ] {
         let ctx = MockContext::new(100, 10);
         arm(&ctx, kind);
-        // Granularity 1: every probe reads the active source, so only the stop could differ.
-        // SAFETY: `ctx` outlives `checker`; only the stop flag changes between probes.
+        // Granularity 1: every probe reads the active source, so only the memory stop could differ.
+        // SAFETY: `ctx` outlives `checker`; only the memory stop changes between probes.
         let mut checker = unsafe { AnyTimeoutContext::from_sctx(ctx.sctx(), 1) };
-        request_stop(&ctx);
+        request_memory_stop(&ctx);
         for _ in 0..3 {
             assert!(
                 checker.check_timeout().is_ok(),
-                "kind {kind}: a requested stop is not a timeout",
+                "kind {kind}: a memory stop is not a timeout",
             );
         }
     }
