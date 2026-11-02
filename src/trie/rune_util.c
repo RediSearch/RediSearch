@@ -50,6 +50,10 @@ rune runeFold(rune r) {
 }
 
 size_t runesToStrInto(const rune *in, size_t len, char *out) {
+  // An empty Rust buffer hands over a dangling `out`, which `end - out` must not touch.
+  if (len == 0) {
+    return 0;
+  }
   char *end = out;
   for (size_t i = 0; i < len && in[i]; i++) {
     end = nu_utf8_write(in[i], end);
