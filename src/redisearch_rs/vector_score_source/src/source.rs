@@ -454,6 +454,12 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         self.k.min(self.index_size())
     }
 
+    fn finish_collection(&mut self) {
+        // A cursor can retain the buffered results between commands. VecSim's traversal and
+        // its index locks are no longer needed once collection is complete.
+        self.batch_iter = None;
+    }
+
     /// Restarts the scan from the beginning. The profile counters are
     /// evaluation-scoped and left untouched: this also runs when the iterator
     /// discards a partially collected scan, whose profile still has to report
@@ -643,6 +649,43 @@ mod tests {
             "begin_adhoc must drop the batch iterator before taking adhoc locks"
         );
         source.end_adhoc();
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+    fn filtered_collection_releases_batch_iterator_before_yielding() {
+        use std::num::NonZeroUsize;
+
+        use rqe_iterators::{IdList, RQEIterator};
+        use top_k::{Ascending, TopKIterator, TopKMode};
+
+        let index = TestIndex::flat(20, 1);
+        let mut source = flat_source(&index, 3, 20);
+        source.fixed_batch_size = 2;
+        source.query_params.searchMode = ffi::VecSearchMode_HYBRID_BATCHES;
+        let child = IdList::<true>::new((1..=20).collect::<Vec<_>>());
+        let mut iterator = TopKIterator::new_with_mode(
+            source,
+            Some(child),
+            NonZeroUsize::new(3).unwrap(),
+            Ascending,
+            TopKMode::ForcedBatches,
+        );
+
+        // The first read collects through multiple VecSim batches, then serves buffered rows.
+        assert_eq!(iterator.read().unwrap().unwrap().doc_id, 1);
+        assert_eq!(iterator.source().num_iterations, 2);
+        assert!(iterator.source().batch_iter.is_none());
+        assert!(!iterator.at_eof());
+        assert_eq!(iterator.read().unwrap().unwrap().doc_id, 2);
+        assert_eq!(iterator.read().unwrap().unwrap().doc_id, 3);
+        assert!(iterator.read().unwrap().is_none());
+        assert_eq!(iterator.source().num_iterations, 2);
+
+        // A later rewind must still start a fresh scan and release its iterator at completion.
+        iterator.rewind();
+        assert_eq!(iterator.read().unwrap().unwrap().doc_id, 1);
+        assert!(iterator.source().batch_iter.is_none());
     }
 
     /// `NumEstimated(child)` is an upper bound that can exceed the index size;
