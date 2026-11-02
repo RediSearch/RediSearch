@@ -1344,6 +1344,80 @@ def test_aggregate_withcount_zero_row_pager_io_thread_stop_return():
         Env(protocol=3, moduleArgs='WORKERS 1'), 'return')
 
 
+def _test_aggregate_withcount_withcursor_io_thread_stop(env, oom_policy):
+    skipIfNoEnableAssert(env)
+    if env.shardsCount < 3:
+        env.skip()
+    # More than one shard cursor chunk on every shard, so first replies are resent.
+    n_docs = 2000 * env.shardsCount
+    env.expect('FT.CREATE', 'big', 'PREFIX', 1, 'big:', 'SCHEMA', 'n', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    pipe = conn.pipeline(transaction=False)
+    for i in range(n_docs):
+        pipe.execute_command('HSET', f'big:{i}', 'n', i)
+    pipe.execute()
+    coord = env.getConnection(1)
+    parked = env.getConnection(2)
+    query = ('FT.AGGREGATE', 'big', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'TIMEOUT', 100000,
+             'WITHCURSOR', 'COUNT', 100)
+    allShards_change_oom_policy(env, oom_policy)
+    errors, warnings = coord_oom_counters(coord)
+    sync_point(parked, 'CLEAR')
+    sync_point(parked, 'ARM', 'BeforeFirstRead')
+    sync_point(coord, 'CLEAR')
+    sync_point(coord, 'ARM', 'BeforeCursorResendCheckpoint')
+    try:
+        thread, result = run_in_thread(coord, query)
+        wait_for_sync_point(parked, 'BeforeFirstRead')
+        wait_for_sync_point(coord, 'BeforeCursorResendCheckpoint')
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
+        sync_point(coord, 'SIGNAL', 'BeforeCursorResendCheckpoint')
+        thread.join(timeout=30)
+        replied_while_parked = not thread.is_alive()
+    finally:
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        sync_point(coord, 'CLEAR')
+        sync_point(parked, 'SIGNAL', 'BeforeFirstRead')
+        sync_point(parked, 'CLEAR')
+        allShards_change_oom_policy(env, 'return')
+    thread.join(timeout=30)
+    env.assertTrue(replied_while_parked)
+    res = result[0]
+    if oom_policy == 'fail':
+        # The first chunk of the stopped request is the error: no rows and no cursor id.
+        env.assertTrue(isinstance(res, ResponseError), message=res)
+        env.assertContains(OOM_QUERY_ERROR, str(res))
+        env.assertEqual(coord_oom_counters(coord), (errors + 1, warnings))
+    else:
+        # The stop ends the cursor in its first chunk: the rows drained so far, the warning and
+        # cursor id 0, which leaves no coordinator cursor to read.
+        env.assertFalse(isinstance(res, Exception), message=res)
+        reply, cursor = res
+        env.assertEqual(cursor, 0, message=res)
+        env.assertLess(len(reply['results']), n_docs)
+        env.assertContains(COORD_OOM_WARNING, reply['warning'], message=reply)
+        env.assertEqual(coord_oom_counters(coord), (errors, warnings + 1))
+    wait_for_condition(lambda: (cursor_count(env, 'big') == 0, {}),
+                       'Timeout waiting for the shard and coordinator cursors to end')
+    expect_clean_end(env, coord)
+
+
+@skip(cluster=False)
+def test_aggregate_withcount_withcursor_io_thread_stop_fail():
+    """An IO-thread memory stop on `WITHCOUNT ... WITHCURSOR`, published before the cursor starts,
+    fails the query with the OOM error under ON_OOM FAIL and leaves no cursor."""
+    _test_aggregate_withcount_withcursor_io_thread_stop(
+        Env(protocol=3, moduleArgs='WORKERS 1'), 'fail')
+
+
+@skip(cluster=False)
+def test_aggregate_withcount_withcursor_io_thread_stop_return():
+    """As the FAIL case; under ON_OOM RETURN the first chunk carries the coordinator OOM warning
+    and cursor id 0."""
+    _test_aggregate_withcount_withcursor_io_thread_stop(
+        Env(protocol=3, moduleArgs='WORKERS 1'), 'return')
+
+
 @skip(cluster=False)
 def test_timeout_owned_reduction_after_shard_warning_and_oom_stop():
     """A shard warning is retained, the coordinator then stops for memory, and the RETURN-STRICT
