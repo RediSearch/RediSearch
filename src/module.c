@@ -2951,7 +2951,7 @@ static double parseNumeric(const char *str, const char *sortKey) {
 
 static void ProcessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, double score, knnContext *knnCtx) {
   // As long as we don't have k results, keep insert
-    if (heap_count(knnCtx->pq) < knnCtx->k) {
+    if (heap_count(knnCtx->pq) < heap_size(knnCtx->pq)) {
       scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
       resWrapper->result = res;
       resWrapper->score = score;
@@ -3709,10 +3709,11 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   // Init results heap. After an OOM stop only the kept rows can fill it, so do not allocate for
   // the requested limit under memory pressure.
   num = req->requestedResultsCount;
+  size_t keptRowsBound = SIZE_MAX;
   if (searchStoppedForOom(req)) {
-    const size_t keptRows = searchRepliesRowBound(req, count, replies);
-    if (keptRows < num) {
-      num = keptRows > 0 ? keptRows : 1;
+    keptRowsBound = searchRepliesRowBound(req, count, replies);
+    if (keptRowsBound < num) {
+      num = keptRowsBound > 0 ? keptRowsBound : 1;
     }
   }
   rCtx->pq = rm_malloc(heap_sizeof(num));
@@ -3730,8 +3731,14 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
         rCtx->postProcess = (postProcessReplyCB) knnPostProcess;
         rCtx->reduceSpecialCaseCtxKnn = knnCtx;
         if (knnCtx->knn.shouldSort) {
-          knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
-          heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
+          // The K heap gets the same bound: K is user supplied and may be huge. The heap's own
+          // capacity, not K, decides when it is full, so a smaller one only drops rows no reply holds.
+          size_t knnCap = knnCtx->knn.k;
+          if (keptRowsBound < knnCap) {
+            knnCap = keptRowsBound > 0 ? keptRowsBound : 1;
+          }
+          knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCap));
+          heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCap);
           rCtx->processReply = (processReplyCB) ProcessKNNSearchReply;
           break;
         }
