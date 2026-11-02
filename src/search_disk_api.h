@@ -145,16 +145,16 @@ typedef struct AsyncReadResult {
 
 typedef enum {
   DISK_GC_RUN_OK = 0,
-  // Pending changes remain eligible for retry; cycle statistics must not be accumulated.
+  // Pending changes remain eligible for retry.
   DISK_GC_RUN_RETRY_REQUIRED,
 } DiskGCRunResult;
 
-// Stats reported by a single GC compaction cycle.
+// Stats reported by a single GC attempt, including a retry outcome.
 //
 // Populated by `IndexDiskAPI::runGC`: the caller zero-initializes the struct
 // and the callee fills the fields it knows about.
 typedef struct DiskGCRunStats {
-  // Number of deleted document IDs removed in this cycle.
+  // Number of deleted-ID markers retired; zero when the attempt requires retry.
   size_t num_cleaned_docs;
   // Bytes freed by the compaction (storage layer's view). Signed because
   // future compaction strategies (e.g. block splitting) may transiently
@@ -604,7 +604,7 @@ typedef struct IndexDiskAPI {
    * the `SearchDiskCompactionCallbacks` table bound to the IndexSpec at
    * openIndexSpec time.
    *
-   * On return, `stats` is populated with per-cycle counters
+   * On every normal return, `stats` is populated with per-attempt counters
    * (see `DiskGCRunStats`). Caller MUST zero-initialize `stats` before the
    * call. See `DiskGCRunResult` for recoverable failure handling.
    *

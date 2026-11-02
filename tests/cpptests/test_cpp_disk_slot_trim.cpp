@@ -204,6 +204,8 @@ class DiskSlotTrimTest : public ::testing::Test {
     api.index.isBackgroundWorkPaused = [](RedisSearchDiskIndexSpec *) { return false; };
     api.index.runGC = [](RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
       ++state.gcRuns;
+      stats->bytes_collected = state.gcRuns == 1 ? 100 : 200;
+      stats->cycle_time_ms = state.gcRuns == 1 ? 7 : 11;
       if (state.gcRuns == 1) {
         auto *sp = reinterpret_cast<IndexSpec *>(index);
         if (sp->gc) GCContext_OnWrite(sp->gc);
@@ -661,7 +663,7 @@ TEST_F(DiskSlotTrimTest, UnchargedStorageIdsDoNotConsumeOtherIndexesGlobalContri
   IndexsGlobalStats_DecreaseLogicallyDeleted(4);
 }
 
-TEST_F(DiskSlotTrimTest, RecoverableGcFailureRetainsPendingChangesUntilRetry) {
+TEST_F(DiskSlotTrimTest, RetryPreservesPartialStatisticsAndPendingChanges) {
   const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
   auto &threshold = RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold;
   const auto savedThreshold = threshold;
@@ -673,13 +675,20 @@ TEST_F(DiskSlotTrimTest, RecoverableGcFailureRetainsPendingChangesUntilRetry) {
   EXPECT_EQ(pendingDeletes(), 3u);
   EXPECT_EQ(collector()->writesFromLastRun.load(), 2u);
   EXPECT_EQ(collector()->updatesFromLastRun.load(), 1u);
-  EXPECT_EQ(collector()->totalCycles.load(), 0u);
+  EXPECT_EQ(collector()->totalCycles.load(), 1u);
+  EXPECT_EQ(collector()->totalCollectedBytes.load(), 100);
+  EXPECT_EQ(collector()->totalTimeMs.load(), 7u);
+  EXPECT_EQ(collector()->lastRunTimeMs.load(), 7u);
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 4);
   EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, nullptr));
   EXPECT_EQ(state.gcRuns, 2u);
   EXPECT_EQ(pendingDeletes(), 0u);
   EXPECT_EQ(collector()->writesFromLastRun.load(), 0u);
   EXPECT_EQ(collector()->updatesFromLastRun.load(), 0u);
-  EXPECT_EQ(collector()->totalCycles.load(), 1u);
+  EXPECT_EQ(collector()->totalCycles.load(), 2u);
+  EXPECT_EQ(collector()->totalCollectedBytes.load(), 300);
+  EXPECT_EQ(collector()->totalTimeMs.load(), 18u);
+  EXPECT_EQ(collector()->lastRunTimeMs.load(), 11u);
   EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
   threshold = savedThreshold;
 }
@@ -690,7 +699,7 @@ TEST_F(DiskSlotTrimTest, ForcedGcFailureReportsRetryInsteadOfSuccess) {
   EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
   EXPECT_EQ(forced.outcome, GC_DISK_FORCED_RUN_RETRY_REQUIRED);
   EXPECT_EQ(pendingDeletes(), 3u);
-  EXPECT_EQ(collector()->totalCycles.load(), 0u);
+  EXPECT_EQ(collector()->totalCycles.load(), 1u);
 }
 
 TEST_F(DiskSlotTrimTest, InlineForcedGcReportsFailureAndThenDone) {
