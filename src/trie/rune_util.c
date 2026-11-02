@@ -63,7 +63,15 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
     return NULL;
   }
 
-  char buf[MAX_RUNE_STR_LEN * RUNE_MAX_UTF8_LEN];
+  // A long input is encoded straight into the result, which keeps up to its
+  // worst-case slack; a short one into the stack, then copied out exactly.
+  if (len > SSO_MAX_LENGTH) {
+    char *ret = rm_malloc(len * RUNE_MAX_UTF8_LEN + 1);
+    *utflen = runesToStrInto(in, len, ret);
+    ret[*utflen] = '\0';
+    return ret;
+  }
+  char buf[SSO_MAX_LENGTH * RUNE_MAX_UTF8_LEN];
   size_t bytelen = runesToStrInto(in, len, buf);
   char *ret = rm_malloc(bytelen + 1);
   memcpy(ret, buf, bytelen);

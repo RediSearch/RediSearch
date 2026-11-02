@@ -101,6 +101,20 @@ fn c_runes_to_str(runes: &[u16]) -> Vec<u8> {
     bytes
 }
 
+/// Past the stack buffer `runesToStr` encodes into its result directly; both
+/// paths give the same bytes.
+#[test]
+fn long_and_short_inputs_encode_alike() {
+    let mut out = Vec::new();
+    for len in [127, 128, 129, MAX_RUNE_STR_LEN] {
+        let runes: Vec<u16> = (0..len as u16)
+            .map(|i| [0x61, 0x7FF, 0xFFFF][usize::from(i % 3)])
+            .collect();
+        runes_to_bytes_into(&runes, &mut out).unwrap();
+        assert_eq!(out, c_runes_to_str(&runes), "{len} runes");
+    }
+}
+
 #[test]
 fn the_buffered_encoder_rejects_what_the_c_one_rejects() {
     let mut out = b"stale".to_vec();
