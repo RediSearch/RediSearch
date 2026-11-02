@@ -588,13 +588,13 @@ void RPNet_resetCurrent(RPNet *nc) {
 // subqueries, until their reply maps an OOM stop, and FT.PROFILE, whose profile collection reads
 // the stream to its end and would spin on a stopped one.
 bool RPNet_MemoryStops(RPNet *nc) {
-  QueryRequestTimeout *timeout = &nc->areq->base.timeout;
+  QueryRequestLimits *timeout = &nc->areq->base.limits;
   if (!nc->it || nc->hybridSubquery != RPNET_HYBRID_NONE || nc->cmd.forProfiling ||
       QueryRequest_ShouldStop(timeout)) {
     return false;
   }
   if (MRIterator_IsMemoryStopped(nc->it)) {
-    QueryRequestTimeout_RequestStop(timeout, QUERY_STOP_REASON_OOM);
+    QueryRequestLimits_RequestMemoryStop(timeout);
   } else if (!QueryMemory_ShouldStopNow(timeout)) {
     return false;
   }
@@ -756,8 +756,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     // seen earlier, and the next read returns the stop. An elapsed deadline keeps its ON_TIMEOUT
     // outcome instead, returned below once the reply is counted.
     const bool deadlineElapsed =
-        areq->base.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
-        QueryRequestTimeout_IsTimedOutExact(&areq->base.timeout);
+        areq->base.limits.timeout.kind == QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE &&
+        QueryRequestLimits_IsTimedOutExact(&areq->base.limits);
     if (!nc->drainOnly && MRIterator_IsMemoryStopped(nc->it) && !deadlineElapsed) {
       RPNet_MemoryStops(nc);
     }

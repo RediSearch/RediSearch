@@ -219,7 +219,7 @@ static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       }
     }
     iterCtx->numResponded++;
-    bool timedOut = QueryRequest_ShouldStop(&iterCtx->areq->base.timeout);
+    bool timedOut = QueryRequest_ShouldStop(&iterCtx->areq->base.limits);
     if (timedOut || isError || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
       if (timedOut) {
         MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
@@ -262,7 +262,7 @@ static void withCountErrorCb(MRIteratorCallbackCtx *ctx) {
   // remaining shards to netCursorCallback and stop accumulating their totals. Wait
   // for the other shards (or a timeout) so their counts are still summed. On a
   // timeout we must dispatch.
-  bool timedOut = QueryRequest_ShouldStop(&iterCtx->areq->base.timeout);
+  bool timedOut = QueryRequest_ShouldStop(&iterCtx->areq->base.limits);
   if (timedOut || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
     if (timedOut) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
@@ -363,7 +363,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 #endif
 
   // Check if the request timed out or was stopped before starting the iterator
-  if (QueryRequest_ShouldStop(&nc->areq->base.timeout)) {
+  if (QueryRequest_ShouldStop(&nc->areq->base.limits)) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -432,13 +432,13 @@ static void executeAggregateDeferred(void *arg) {
 
     // The plan may never read the iterator (LIMIT 0 0), so publish its memory stop here.
     // Same order as rpnetRead: an elapsed deadline keeps its ON_TIMEOUT outcome.
-    if (r->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
-        !QueryRequestTimeout_IsTimedOutExact(&r->base.timeout)) {
+    if (r->base.limits.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
+        !QueryRequestLimits_IsTimedOutExact(&r->base.limits)) {
       RPNet_MemoryStops(nc);
     }
     // Such a plan ends EOF, which ApplyOomStop leaves as is, so a requested OOM stop puts its
     // warning on the reply here. Under ON_OOM FAIL the buffering pipeline sees the stop and fails.
-    if (QueryRequestTimeout_GetStopReason(&r->base.timeout) == QUERY_STOP_REASON_OOM &&
+    if (QueryRequestLimits_IsMemoryStopped(&r->base.limits) &&
         r->base.reqConfig.oomPolicy != OomPolicy_Fail) {
       QueryError_SetQueryOOMWarning(qctx->err);
     }
@@ -973,7 +973,7 @@ static int dispatchAggregateDeferred(AREQ *r, DistQueryDispatchCtx *dispatch,
   dispatch->bc = NULL;
   MRIterator *it = nc->it;
   // Capture before dispatching: the worker may free the request, and nc with it.
-  const bool stopped = QueryRequest_ShouldStop(&r->base.timeout);
+  const bool stopped = QueryRequest_ShouldStop(&r->base.limits);
   if (stopped) {
     // Already stopped: no reply is awaited, and the fan-out would only make the shards run an
     // expensive query nobody reads. The worker still runs to reply and release the request.
@@ -1032,9 +1032,9 @@ static void execDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int
   // is recorded and dispatchAggregateDeferred skips the fan-out; FAIL replies the error. Profile
   // is exempt as in RPNet_MemoryStops. An elapsed clock deadline keeps its ON_TIMEOUT outcome.
   if (HasWithCount(r) && !IsProfile(r) &&
-      (r->base.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
-       !QueryRequestTimeout_IsTimedOutExact(&r->base.timeout)) &&
-      QueryMemory_CheckBeforeExecution(&r->base.timeout, r->base.reqConfig.oomPolicy, status) !=
+      (r->base.limits.timeout.kind != QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE ||
+       !QueryRequestLimits_IsTimedOutExact(&r->base.limits)) &&
+      QueryMemory_CheckBeforeExecution(&r->base.limits, r->base.reqConfig.oomPolicy, status) !=
           REDISMODULE_OK) {
     goto err;
   }
