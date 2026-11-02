@@ -162,7 +162,7 @@ def _batches_queries():
 @env_spec(protocol=3)
 def test_knn_batches_stop_for_oom(env):
     """A filtered KNN in batches checks memory before each further batch; under pressure
-    it stops there with reason OOM, with and without workers and under either ON_TIMEOUT."""
+    it stops there for memory, with and without workers and under either ON_TIMEOUT."""
     _create_indexed_hash_index(env)
     try:
         for workers in (0, 2):
@@ -207,7 +207,7 @@ def _adhoc_queries():
 @env_spec(protocol=3)
 def test_knn_adhoc_stops_for_oom(env):
     """An adhoc-BF scan checks memory per matching doc, which retains a captured child record
-    each; under pressure it stops there with reason OOM, with and without workers and under
+    each; under pressure it stops there for memory, with and without workers and under
     either ON_TIMEOUT."""
     _create_indexed_hash_index(env)
     try:
