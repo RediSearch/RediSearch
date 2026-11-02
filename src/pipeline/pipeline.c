@@ -16,7 +16,7 @@ extern "C" {
 void Pipeline_Initialize(Pipeline *pipeline, QueryRequest *request) {
   pipeline->qctx.err = &request->reply.err;
   pipeline->qctx.rootProc = pipeline->qctx.endProc = NULL;
-  pipeline->qctx.timeoutPolicy = request->limits.config.timeoutPolicy;
+  pipeline->qctx.timeoutPolicy = request->limits.timeout.config.timeoutPolicy;
   pipeline->qctx.limits = &request->limits;
   pipeline->qctx.oomPolicy = request->reqConfig.oomPolicy;
   pipeline->qctx.oomCut = false;

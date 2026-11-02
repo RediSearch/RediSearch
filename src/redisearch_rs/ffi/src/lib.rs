@@ -111,7 +111,7 @@ pub struct QueryProcessingCtx {
     /// The owning request's timeout state. Its stop request tells buffering
     /// processors why their upstream stopped. Null for a pipeline without a
     /// request.
-    pub timeout: *mut QueryRequestLimits,
+    pub limits: *mut QueryRequestLimits,
     /// The owning request's ON_OOM policy, applied by buffering processors to
     /// a stop for memory pressure.
     pub oomPolicy: RSOomPolicy,
@@ -141,7 +141,7 @@ impl QueryProcessingCtx {
             timeoutPolicy: 0,
             canYieldPartialResults: false,
             skipIndexResultDeepCopy: false,
-            timeout: ptr::null_mut(),
+            limits: ptr::null_mut(),
             oomPolicy: RSOomPolicy_OomPolicy_Return,
             oomCut: false,
         };
