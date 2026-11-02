@@ -22,9 +22,10 @@ use field_spec::{FieldSpecBuilder, FieldSpecType};
 use hidden_string::OwnedHiddenString;
 use index_gc::{
     GcApplyStats, GcError,
+    liveness::GoneIds,
     spec_access::SpecWriteAccess,
     stats::GcStatsSink,
-    thread::{DELTAS_PER_APPLY, DeletedIds, KEYS_PER_HOLD, LockReport, SpecLockAccess, run_cycle},
+    thread::{DELTAS_PER_APPLY, KEYS_PER_HOLD, LockReport, SpecLockAccess, run_cycle},
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
@@ -622,13 +623,14 @@ fn a_spec_dropped_before_an_apply_leaves_the_set_as_it_was() {
 /// The set keeps one bitmap per high 32 bits of the ID; a range check must find gone
 /// IDs on either side of that boundary and in later bitmaps, and only inside the range.
 #[test]
-fn deleted_ids_find_gone_ids_across_the_bitmap_boundary() {
+fn gone_ids_are_found_across_the_roaring_bitmap_boundary() {
     use inverted_index::DocLiveness;
     const HI: u64 = 1 << 32;
     let ids: RoaringTreemap = [5, HI - 2, HI - 1, HI, HI + 1, 2 * HI + 7]
         .into_iter()
         .collect();
-    let live = DeletedIds::new(&ids);
+    let gone = GoneIds::from_set(ids);
+    let live = &gone;
 
     assert!(!live.exists(HI - 1));
     assert!(live.exists(HI + 2));
