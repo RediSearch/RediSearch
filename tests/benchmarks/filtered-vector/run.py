@@ -129,11 +129,17 @@ def wait_ready(client, args, count):
         verify_engine(vec, args.engine)
         backend = backend_info(vec)
         frontend = pairs(vec["FRONTEND_INDEX"]) if "FRONTEND_INDEX" in vec else {}
+        workers = pairs(client.execute_command("_FT.DEBUG", "WORKERS", "STATS"))
+        # Disk leaves BACKGROUND_INDEXING unset and schedules graph repairs after
+        # removing vectors from the frontend, so its size alone is not a barrier.
+        indexing_states = (-1, 0) if args.engine == "disk" else (0,)
         if (int(info.get("num_docs", 0)) == count
                 and int(info.get("indexing", 0)) == 0
                 and int(backend.get("INDEX_SIZE", -1)) == count
                 and int(frontend.get("INDEX_SIZE", 0)) == 0
-                and int(vec.get("BACKGROUND_INDEXING", 0)) == 0):
+                and int(vec.get("BACKGROUND_INDEXING", 0)) in indexing_states
+                and int(workers.get("totalPendingJobs", -1)) == 0
+                and int(workers.get("numJobsInProgress", -1)) == 0):
             if int(info.get("hash_indexing_failures", 0)):
                 raise ValueError("document indexing failures reported by FT.INFO")
             return

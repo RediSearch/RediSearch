@@ -115,6 +115,8 @@ class RunnerTests(unittest.TestCase):
             def execute_command(self, *command):
                 if command[0] == "FT.INFO":
                     return [b"num_docs", 2, b"indexing", 0]
+                if command[1] == "WORKERS":
+                    return [b"totalPendingJobs", 0, b"numJobsInProgress", 0]
                 self.polls += 1
                 return [b"INDEX_SIZE", 2, b"BACKGROUND_INDEXING", int(self.polls == 1)]
 
@@ -122,6 +124,41 @@ class RunnerTests(unittest.TestCase):
         with patch.object(run.time, "sleep"):
             run.wait_ready(client, self.args, 2)
         self.assertEqual(client.polls, 2)
+
+    def test_disk_readiness_waits_for_pending_and_running_repairs(self):
+        class Client:
+            polls = 0
+
+            def execute_command(self, *command):
+                if command[0] == "FT.INFO":
+                    return [b"num_docs", 2, b"indexing", 0]
+                if command[1] == "WORKERS":
+                    self.polls += 1
+                    return [b"totalPendingJobs", int(self.polls == 1),
+                            b"numJobsInProgress", int(self.polls == 2)]
+                return [b"IS_DISK", 1, b"BACKGROUND_INDEXING", -1,
+                        b"FRONTEND_INDEX", [b"INDEX_SIZE", 0],
+                        b"BACKEND_INDEX", [b"IS_DISK", 1, b"INDEX_SIZE", 2]]
+
+        self.args.engine = "disk"
+        client = Client()
+        with patch.object(run.time, "sleep"):
+            run.wait_ready(client, self.args, 2)
+        self.assertEqual(client.polls, 3)
+
+    def test_disk_unset_indexing_flag_accepts_idle_workers(self):
+        class Client:
+            def execute_command(self, *command):
+                if command[0] == "FT.INFO":
+                    return [b"num_docs", 2, b"indexing", 0]
+                if command[1] == "WORKERS":
+                    return [b"totalPendingJobs", 0, b"numJobsInProgress", 0]
+                return [b"IS_DISK", 1, b"INDEX_SIZE", 2, b"BACKGROUND_INDEXING", -1]
+
+        self.args.engine = "disk"
+        with patch.object(run.time, "sleep") as sleep:
+            run.wait_ready(Client(), self.args, 2)
+        sleep.assert_not_called()
 
 
 if __name__ == "__main__":
