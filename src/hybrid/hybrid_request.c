@@ -106,7 +106,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
 
         // The first subquery's build is the job's first allocation, after any queue wait.
         if (i == 0 &&
-            QueryMemory_CheckBeforeExecution(&areq->base.timeout, areq->base.reqConfig.oomPolicy,
+            QueryMemory_CheckBeforeExecution(&areq->base.limits, areq->base.reqConfig.oomPolicy,
                                              &areq->base.reply.err) != REDISMODULE_OK) {
             rc = REDISMODULE_ERR;
             break;
@@ -147,7 +147,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
           areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
         }
         if (rc == REDISMODULE_OK) {
-          rc = QueryMemory_CheckBeforeExecution(&areq->base.timeout, areq->base.reqConfig.oomPolicy,
+          rc = QueryMemory_CheckBeforeExecution(&areq->base.limits, areq->base.reqConfig.oomPolicy,
                                                 &areq->base.reply.err);
         }
         if (rc != REDISMODULE_OK) {
@@ -155,7 +155,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         }
         // A subquery stopped at build under ON_OOM RETURN reads no row: its depleter, which may
         // run on another thread, starts only after this.
-        if (QueryRequestTimeout_IsStopRequested(&areq->base.timeout)) {
+        if (QueryRequestLimits_IsMemoryStopped(&areq->base.limits)) {
           RP_EndRowSourceOnStop(AREQ_QueryProcessingCtx(areq));
         }
 
@@ -368,7 +368,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
-    hybridReq->sctx->timeout = &hybridReq->base.timeout;
+    hybridReq->sctx->limits = &hybridReq->base.limits;
     hybridReq->kArgIndex = -1;
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);
@@ -399,9 +399,9 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
 }
 
 void HybridRequest_BeginTimeoutCycle(HybridRequest *req, QueryRequestTimeoutKind kind) {
-    QueryRequestTimeout_BeginCycle(&req->base.timeout, kind);
+    QueryRequestLimits_BeginCycle(&req->base.limits, kind);
     for (size_t i = 0; i < req->nrequests; i++) {
-        QueryRequestTimeout_BeginCycle(&req->requests[i]->base.timeout, kind);
+        QueryRequestLimits_BeginCycle(&req->requests[i]->base.limits, kind);
     }
 }
 
@@ -443,7 +443,7 @@ void HybridRequest_Free(HybridRequest *req) {
     // releasing the sctx and its diskSnapshot, and the subs own no
     // RedisModuleCtx — each cycle lends and reclaims its own.
     const bool timedOut =
-        QueryRequestTimeout_IsBlockedClientTimedOut(&req->base.timeout);
+        QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits);
     for (size_t i = 0; i < req->nrequests; i++) {
       AREQ *sub = req->requests[i];
       struct Cursor *cursor = sub->base.cursorInfo.cursor;
@@ -582,7 +582,7 @@ void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req) {
   // hybrid-level flag is set.
   for (size_t i = 0; i < req->nrequests; i++) {
     if (req->requests[i]) {
-      QueryRequestTimeout_MarkTimedOut(&req->requests[i]->base.timeout);
+      QueryRequestLimits_MarkTimedOut(&req->requests[i]->base.limits);
     }
   }
 }
