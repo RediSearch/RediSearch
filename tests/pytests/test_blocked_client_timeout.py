@@ -469,6 +469,8 @@ class TestCoordinatorTimeout:
             wait_for_condition(
                 lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', point) == 1, {}),
                 f'Coordinator did not reach {point}')
+            coord_stats = getCoordThpoolStats(env)
+            env.assertGreater(coord_stats['numJobsInProgress'], 0, message=coord_stats)
             env.expect('CLIENT', 'UNBLOCK', client_id, 'TIMEOUT').equal(1)
             wait_for_client_unblocked(env, client_id)
             thread.join(timeout=10)
@@ -478,9 +480,20 @@ class TestCoordinatorTimeout:
                             base_errors + 1)
             _verify_metrics_not_changed(env, env, before_info, [TIMEOUT_ERROR_COORD_METRIC])
         finally:
-            env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
-            thread.join(timeout=10)
-            env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
+            try:
+                env.expect(debug_cmd(), 'SYNC_POINT', 'SIGNAL', point).ok()
+                thread.join(timeout=10)
+                # Joining the timed-out client does not wait for server-side cleanup.
+                # Local shard workers can also enqueue coordinator cleanup jobs.
+                def background_idle():
+                    stats = {'workers': getWorkersThpoolStats(env),
+                             'coordinator': getCoordThpoolStats(env)}
+                    return (all(pool['numJobsInProgress'] == 0 and pool['totalPendingJobs'] == 0
+                                for pool in stats.values()), stats)
+                wait_for_condition(background_idle, 'Coordinator encoding cleanup did not finish',
+                                   timeout=30)
+            finally:
+                env.expect('CONFIG', 'SET', ON_TIMEOUT_CONFIG, prev_policy).ok()
 
     def test_fail_timeout_before_coord_encode_hybrid(self):
         """Test timeout occurring before coordinator encodes FT.HYBRID results."""
