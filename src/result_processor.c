@@ -299,7 +299,7 @@ static bool RP_UpstreamHold(const ResultProcessor *rp) {
 }
 
 bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
-  if (!rp->parent->timeout || !QueryMemory_ShouldStop(rp->parent->timeout, counter)) {
+  if (!rp->parent->limits || !QueryMemory_ShouldStop(rp->parent->limits, counter)) {
     return false;
   }
   RP_EndRowSourceOnStop(rp->parent);
@@ -313,8 +313,8 @@ bool RP_FillShouldCut(ResultProcessor *rp, uint32_t *counter) {
   }
   // The checkpoint's stop under RETURN is on a stage that holds no rows upstream of it unless
   // one was already stopped, so a fresh stop here is this processor's own.
-  const QueryRequestTimeout *timeout = rp->parent->timeout;
-  return !heldUpstream && timeout && QueryRequestTimeout_IsStopRequested(timeout);
+  const QueryRequestLimits *timeout = rp->parent->limits;
+  return !heldUpstream && timeout && QueryRequestLimits_IsMemoryStopped(timeout);
 }
 
 typedef enum {
