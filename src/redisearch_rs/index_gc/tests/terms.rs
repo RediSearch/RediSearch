@@ -19,7 +19,7 @@ use c_trie::{SuffixMode, SuffixTrie, TrieTerm};
 use dict::{KeysDictType, OwnedDict};
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_gc::{
-    DocExistence, GcError,
+    GcError,
     scanners::terms::{
         TermEntry, TermsCursor, apply_terms, apply_terms_with, collect_terms, receive_terms,
         scan_term, scan_terms_after, snapshot_term,
@@ -123,7 +123,7 @@ impl TestSpec {
     fn collect(&self) -> Vec<u8> {
         let guard = self.read_guard();
         let mut buf = Vec::new();
-        collect_terms(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
+        collect_terms(&mut buf, &guard, |id| guard.doc_exists(id)).unwrap();
         buf
     }
 

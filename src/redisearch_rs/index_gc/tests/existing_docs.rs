@@ -11,7 +11,7 @@ use std::{io::Cursor, mem};
 
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_gc::{
-    DocExistence, GcError,
+    GcError,
     scanners::existing_docs::{
         ExistingDocsEntry, apply_existing_docs, apply_existing_docs_with, collect_existing_docs,
         scan_existing_docs, snapshot_existing_docs,
@@ -36,10 +36,9 @@ const fn make_spec(existing_docs: *mut ffi::InvertedIndex) -> ffi::IndexSpec {
     spec
 }
 
-/// An existence snapshot for tests that never look a document up.
-/// [`DocExistence::snapshot`] calls C functions that miri cannot run.
-fn unqueried_existence<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
-    DocExistence::with_bitmap(guard, Box::default(), 0)
+/// Liveness for a scan that must not ask: the fixture's indexes are empty.
+fn unqueried(_: u64) -> bool {
+    unreachable!("an empty index has no entry to check")
 }
 
 /// When the spec has no `existingDocs` index, the child writes `None`.
@@ -50,7 +49,7 @@ fn no_existing_docs_writes_only_terminator() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &guard, &unqueried_existence(&guard)).unwrap();
+    collect_existing_docs(&mut buf, &guard, unqueried).unwrap();
 
     let mut cursor = Cursor::new(&buf);
     assert!(
@@ -73,7 +72,7 @@ fn empty_existing_docs_writes_only_terminator() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &guard, &unqueried_existence(&guard)).unwrap();
+    collect_existing_docs(&mut buf, &guard, unqueried).unwrap();
 
     let mut cursor = Cursor::new(&buf);
     assert!(
@@ -104,7 +103,7 @@ fn existing_docs_with_deleted_entries_writes_delta() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
+    collect_existing_docs(&mut buf, &guard, |id| guard.doc_exists(id)).unwrap();
 
     let mut cursor = Cursor::new(&buf);
     let entry = deserialize::<Option<ExistingDocsEntry>>(&mut cursor, "test message")
@@ -158,7 +157,7 @@ fn roundtrip_all_docs_deleted_clears_index() {
     {
         // SAFETY: the test owns the initialized spec; no concurrent access occurs.
         let read_guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
-        collect_existing_docs(&mut buf, &read_guard, &DocExistence::snapshot(&read_guard)).unwrap();
+        collect_existing_docs(&mut buf, &read_guard, |id| read_guard.doc_exists(id)).unwrap();
     }
 
     let mut cursor = Cursor::new(&buf);
@@ -193,7 +192,7 @@ fn scan_existing_docs_matches_the_collected_delta() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
+    collect_existing_docs(&mut buf, &guard, |id| guard.doc_exists(id)).unwrap();
     let collected =
         deserialize::<Option<ExistingDocsEntry>>(&mut Cursor::new(&buf), "test message")
             .unwrap()
@@ -332,17 +331,6 @@ fn a_delta_for_a_replaced_index_is_rejected() {
     }
 }
 
-/// Reports every doc id the fixtures use as present, whatever the spec's
-/// document table says, as a snapshot taken before those docs were deleted.
-fn all_live<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
-    const WORDS: usize = 1 << 14;
-    DocExistence::with_bitmap(
-        guard,
-        vec![u64::MAX; WORDS].into_boxed_slice(),
-        (WORDS * 64 - 1) as u64,
-    )
-}
-
 /// The scanner must answer existence from `docs`: the fixture's document table
 /// is empty, so a scanner that looked docs up itself would collect them all.
 #[test]
@@ -358,7 +346,7 @@ fn docs_live_in_the_snapshot_are_kept() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &guard, &all_live(&guard)).unwrap();
+    collect_existing_docs(&mut buf, &guard, |_| true).unwrap();
 
     let mut cursor = Cursor::new(&buf);
     assert!(

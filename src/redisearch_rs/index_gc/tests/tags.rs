@@ -29,7 +29,7 @@ use index_gc::scanners::tags::{
     TagEntry, TagsCursor, apply_tag_entry, apply_tag_entry_with, collect_tags, handle_tags,
     scan_tags_after,
 };
-use index_gc::{DocExistence, ForkPipe, GcError, HandleOutcome};
+use index_gc::{ForkPipe, GcError, HandleOutcome};
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::reader::IndexReader;
@@ -387,11 +387,9 @@ impl Drop for TestSpec {
 /// Run the child-side tag collector and return its complete output.
 fn collect_tags_from(spec: &TestSpec) -> Vec<u8> {
     let mut buf = Vec::new();
-    collect_tags(
-        &mut buf,
-        &spec.read_guard(),
-        &DocExistence::snapshot(&spec.read_guard()),
-    )
+    collect_tags(&mut buf, &spec.read_guard(), |id| {
+        spec.read_guard().doc_exists(id)
+    })
     .expect("writing to a Vec cannot fail");
     buf
 }
@@ -868,11 +866,9 @@ fn failed_writes_are_propagated() {
     for len in 0..collect_tags_from(&test).len() {
         let mut bytes = vec![0; len];
         assert!(
-            collect_tags(
-                &mut bytes.as_mut_slice(),
-                &test.read_guard(),
-                &DocExistence::snapshot(&test.read_guard())
-            )
+            collect_tags(&mut bytes.as_mut_slice(), &test.read_guard(), |id| test
+                .read_guard()
+                .doc_exists(id))
             .is_err()
         );
     }
@@ -992,17 +988,6 @@ fn a_tag_scan_skips_a_field_that_lost_its_index_between_chunks() {
     );
 }
 
-/// Reports every doc id the fixtures use as present, whatever the spec's
-/// document table says, as a snapshot taken before those docs were deleted.
-fn all_live<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
-    const WORDS: usize = 1 << 14;
-    DocExistence::with_bitmap(
-        guard,
-        vec![u64::MAX; WORDS].into_boxed_slice(),
-        (WORDS * 64 - 1) as u64,
-    )
-}
-
 /// The scanner must answer existence from `docs`: the fixture's document table
 /// is empty, so a scanner that looked docs up itself would collect them all.
 #[test]
@@ -1010,7 +995,7 @@ fn docs_live_in_the_snapshot_are_kept() {
     let test = TestSpec::create(vec![Field::tag(c"tags", &[b"red"], 3, false)]);
     let guard = test.read_guard();
     let mut buf = Vec::new();
-    collect_tags(&mut buf, &guard, &all_live(&guard)).unwrap();
+    collect_tags(&mut buf, &guard, |_| true).unwrap();
     assert!(receive_all(&buf).is_empty());
 }
 
