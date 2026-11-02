@@ -24,11 +24,14 @@ pending Product sign-off (decision 13).
   are below `forkGcCleanThreshold`. The check runs on the GC thread before the GIL is
   taken, and reads the global setting without synchronization. Forced runs skip it.
 - For fork GC, `getInterval` returns `ForkGC.retryInterval`, which serves as both the
-  run interval and the fork-retry interval. Only a cycle writes it, forced or scheduled:
-  a successful fork sets the run interval, a failed fork sets `forkGcRetryInterval`, and
-  a cycle skipped by the threshold leaves it unchanged.
+  run interval and the fork-retry interval. `FGC_Create` sets it to the run interval;
+  after that only a cycle writes it, forced or scheduled: a successful fork sets the run
+  interval, a failed fork sets `forkGcRetryInterval`, and a cycle skipped by the
+  threshold leaves it unchanged.
 - Dropping an index does not free its `GCContext` when a timer is armed. The next timer
-  fire finds the index gone and frees it (`GCContext_BeginDrop`). This stays as it is
+  fire queues a run, which finds the index gone, and `taskCallback` frees the context.
+  `GCContext_BeginDrop` decides whether the drop must queue that run itself
+  (`GCContext_FinishDrop`), when no timer or run would discover it. This stays as it is
   (see Out of scope).
 
 Existing defects that T1 fixes, because per-index settings make them worse:
@@ -38,22 +41,38 @@ Existing defects that T1 fixes, because per-index settings make them worse:
    the retry interval until a fork succeeds.
 2. `interval.tv_sec * 1000` overflows for values the config accepts (up to
    `LLONG_MAX`).
+3. `taskCallback` copies the interval into `pendingInterval` on the GC thread before it
+   posts the re-arm, so a change between that copy and the one-shot misses that arm.
 
 ## Data model (T2)
 
-- `IndexSpec` gets three optional values, `gcRunIntervalSec`, `gcCleanThreshold` and
-  `gcCleanThresholdPercent` (T5), each with an explicit unset state. 0 is a valid value
-  for the last two, so it can't mean unset.
+- `IndexSpec` gets two optional values, `gcRunIntervalSec` and `gcCleanThreshold`, each
+  with an explicit unset state. T5 adds a third, `gcCleanThresholdPercent`. 0 is a valid
+  threshold and percentage, so it can't mean unset.
 - One helper per setting returns the override if set, otherwise the global value. Every
-  fork-GC read goes through it; no code reads `RSGlobalConfig...forkGc*` directly for a
-  RAM index after this change.
+  read of the run interval used for scheduling, and of the clean threshold, goes through
+  it. The other fork-GC settings stay global and are read as today: the retry interval,
+  `forkGCCleanNumericEmptyNodes`, `forkGcSleepBeforeExit`, and the run interval that
+  `reap_child_blocking` takes as its timeout (see Out of scope).
 - The settings are not specific to fork GC. They describe when an index's RAM garbage
   is collected, whatever the policy. The thread-based GC in
-  [MOD-20523](https://redislabs.atlassian.net/browse/MOD-20523) already shares the fork
-  path's interval and threshold reads
-  ([#12035](https://github.com/RediSearch/RediSearch/pull/12035)), so it must use the
-  same helpers, including when it starts a cycle as soon as the threshold is reached
-  ([MOD-20666](https://redislabs.atlassian.net/browse/MOD-20666)).
+  [MOD-20523](https://redislabs.atlassian.net/browse/MOD-20523) shares the fork path's
+  interval and threshold reads
+  ([#12035](https://github.com/RediSearch/RediSearch/pull/12035)). Whichever of the two
+  lands second covers these integration points:
+  - Every read of the run interval and clean threshold on the thread path goes through
+    the same helpers, including `runThreadCycle`, `hasEnoughWorkCb`, the threshold check
+    that [#12036](https://github.com/RediSearch/RediSearch/pull/12036) moves, and the
+    cycle started as soon as the threshold is reached
+    ([MOD-20666](https://redislabs.atlassian.net/browse/MOD-20666)).
+  - Thread-GC runs are queued by the same scheduler, so the thread policy sets the
+    queue-time copy callback too. Any other GC-thread read of a setting needs its own
+    synchronization.
+  - After `FT.ALTER` lowers a threshold under the thread policy, T3 calls
+    `GCContext_RunIfWaitedFor` ([#12072](https://github.com/RediSearch/RediSearch/pull/12072)),
+    or the run waits for the next delete or tick. `GCContext_OnIntervalChanged` keeps
+    `GC_SCHED_WAIT_FOR_WORK` and updates any deadline the thread stack stores when a
+    timer is armed.
 - Disk GC keeps reading the globals it reads today and ignores the new percentage
   setting. `FT.ALTER` is disabled on disk nodes (`DiskDisabledCmd`, on shards and the
   coordinator), so its indexes never have overrides. Disk GC has its own scheduling and
@@ -61,10 +80,10 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   run (defect 1 above), and its threshold counts writes as well as deletes and updates.
   Per-index settings for disk are a follow-up under the disk MS4 epic.
 - Overrides are stored whether or not the node has a `GCContext`.
-- No atomics and no index lock. The overrides are written only on the main thread, under
-  the GIL. The interval is read only on the main thread, when T1 computes the next arm.
-  The threshold reaches the GC thread only through the queue-time copy (see Threshold
-  check).
+- No atomics, and no index lock for the overrides. They are written only on the main
+  thread, under the GIL. The interval is read only on the main thread, when T1 computes
+  the next arm. The threshold reaches the GC thread only through the queue-time copy
+  (see Threshold check).
 
 ## Persistence (T2)
 
@@ -99,22 +118,29 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   was. The design leaves room for a third state, "yielded, continue soon", needed by
   [MOD-19577](https://redislabs.atlassian.net/browse/MOD-19577).
 - Compute the delay on the main thread when arming, from the effective interval and the
-  scheduling state, instead of copying it on the GC thread. This fixes defect 1 and
-  removes `pendingInterval`.
+  scheduling state, instead of copying it on the GC thread. This fixes defects 1 and 3
+  and removes `pendingInterval`.
 - `getNextPeriod` keeps today's jitter range, from the interval to almost twice the
   interval, drawn on each arm.
 - Delays saturate instead of overflowing, and are capped at 2^50 ms (about 35,000
   years). `RedisModule_CreateTimer` adds the period, in microseconds, to the current
   time, so a delay near `LLONG_MAX` would still overflow inside Redis. This fixes
   defect 2.
+- `GCContext` records the interval each run-interval timer was armed with, before
+  jitter. It keeps no arm time and no jitter.
 - A main-thread entry point, `GCContext_OnIntervalChanged`, acts only on a waiting
-  run-interval timer: `GCContext_DisarmTimer`, then `GCContext_ArmTimer`, so the timer
+  run-interval timer, and only when the effective interval differs from the one that
+  timer was armed with: `GCContext_DisarmTimer`, then `GCContext_ArmTimer`, so the timer
   restarts from the command with the new interval and new jitter. It never queues a
   run. It does nothing when there is no waiting run-interval timer: a run queued or
   running, GC stopped, scheduling paused, or the waiting timer is a fork retry. The next
-  arm then uses the latest effective interval.
-- T3 calls it only when the effective interval changed. That check is required, not an
-  optimization: it is what keeps repeated commands from postponing GC.
+  run-interval arm then uses the latest effective interval.
+- The comparison with the armed interval is required, not an optimization. It keeps
+  repeated commands from postponing GC. It also covers a `CONFIG SET` that changed an
+  inheriting index's effective interval after its timer was armed: with a timer armed
+  for 1000 s, `CONFIG SET search-fork-gc-run-interval 10` followed by
+  `FT.ALTER idx GC RUN_INTERVAL 10` restarts the timer, although the effective value is
+  10 both before and after the command.
 - Global `CONFIG SET` keeps today's behavior: it changes no waiting timer, and inheriting
   indexes use the new value at their next arm.
 - Disk GC shares this code, so it gets the same arming, jitter and cap with the global
@@ -126,11 +152,20 @@ Existing defects that T1 fixes, because per-index settings make them worse:
 
 - A change applies to runs queued after it. A run is queued when its timer fires. A run
   that is already queued or running, forked or not, keeps the values it started with.
-- When the main thread queues a scheduled run (`GCContext_QueueRun`), a new GC callback
-  copies the effective threshold into a plain `ForkGC` field. Disk GC leaves the callback
-  unset. The thread-pool hand-off, which takes a mutex, makes the copy visible to the GC
-  thread, and `FGC_RunCycle`'s check reads only that copy. This also removes today's
-  unsynchronized read of the global threshold on the GC thread.
+- Inside `GCContext_QueueRun`, after it claims `GC_SCHED_RUN_PENDING` and before it
+  hands the run to the thread pool, a new GC callback copies the effective threshold
+  into a plain `ForkGC` field. Disk GC leaves the callback unset. The thread-pool
+  hand-off, which takes a mutex, makes the copy visible to the GC thread, and
+  `FGC_RunCycle`'s check reads only that copy. This also removes today's unsynchronized
+  read of the global threshold on the GC thread.
+- The copy must come after the claim. `QueueRun` returns early when a run already holds
+  the context, for example `GC_CONTINUE_SCHEDULE` (`GCContext_StartNow`) while a run
+  started before `GC_STOP_SCHEDULE` is still going, and that run's GC thread may be
+  reading the field.
+- `QueueRun` is also how a drop is discovered: a timer that fires after the drop, and
+  `GCContext_FinishDrop` after the unlink, both reach it. The callback promotes the
+  index's weak reference. If the index is gone, it leaves the copy as it is, and the run
+  finds the drop as today.
 - Cost: raising the threshold while a run is queued can let that run fork once more, and
   lowering it applies one run later. The window runs from queueing to the fork, normally
   milliseconds.
@@ -155,15 +190,22 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   Live documents alone would overstate deletes: 50 deletes in a 100-document index leave
   50 live, which would read as 100%. Taking the larger value keeps deletes at 50% and
   updates at their share, and an index that grew since the last cycle uses its new
-  size. `ForkGC` stores the reset-time value where it resets the counter today. It starts
-  at 0, which is harmless because the current count is always taken into account.
+  size.
+- The reset-time value is the live count sampled at queue time for the run that resets
+  the counter, so the GC thread reads no live count. `ForkGC` stores it where it resets
+  the counter today. It starts at the live count when the GC context is created.
+  Limitation: until the index's first successful fork, deletes of documents added after
+  that point count against the current live count, so the percentage can trigger that
+  first fork early. That costs at most one early fork.
 - The floor of 1 keeps an empty index from forking every interval: without it,
   `ceil(p × 0 / 100)` is 0 and the check always passes. `CLEAN_THRESHOLD 0` still forks
   every interval, because the minimum is then 0.
 - The math saturates instead of overflowing: `p × base` is computed in 128 bits, or
   `base` is divided first when it is large.
 - The combined threshold is computed on the main thread as part of the queue-time copy.
-  The live-document count is `sp->stats.scoring.numDocuments` at that moment.
+  The live-document count is `sp->stats.scoring.numDocuments` at that moment, read under
+  the spec read lock, as FT.INFO reads it. The GIL alone is not enough: slot cleanup
+  deletes documents on a background thread under the spec write lock, without the GIL.
 
 ## Command (T3)
 
@@ -180,15 +222,17 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   words, out-of-range values and a missing value. `CLEAN_THRESHOLD_PERCENT` (T5) takes a
   whole number from 0 to 100; T3 leaves room for it in the parser and T5 adds it.
 - TEMPORARY index: reject. Any other index, with or without a `GCContext`: store, and
-  call `GCContext_OnIntervalChanged` only when the effective interval changed
-  (required, see Scheduler). The next queued run picks up the threshold.
+  call `GCContext_OnIntervalChanged` when the command sets or clears `RUN_INTERVAL`. It
+  restarts the timer only when the effective interval differs from the armed one (see
+  Scheduler). The next queued run picks up the threshold.
 - Replicate with the existing `_FT._ALTERIFNX` call. Applying the same command twice
   leaves the same state.
 - The error for an unknown action becomes one that names both `SCHEMA` and `GC`. No
   pytest matches on the old text.
 - `commands.json`: `FT.ALTER` gets a `oneof` between a `SCHEMA` branch
   (`[SKIPINITIALSCAN] SCHEMA ADD ...`) and a `GC` branch, so the published syntax
-  doesn't allow `SKIPINITIALSCAN GC`.
+  doesn't allow `SKIPINITIALSCAN GC`. `src/command_info/command_info.c` is regenerated
+  with `srcutil/gen_command_info.py`, and `COMMAND DOCS` is checked.
 - An `FT.DEBUG` subcommand reports the time left on an index's GC timer and whether it
   is a run-interval or retry timer, so flow tests can check timing without sleeping
   for the jitter. T5 adds the combined threshold and its `base` to the same reply.
@@ -214,7 +258,8 @@ Existing defects that T1 fixes, because per-index settings make them worse:
 - It can't go in `index_options` (a flat list of flags) or `gc_stats` (missing without a
   `GCContext`, and summed by the coordinator).
 - The coordinator drops top-level keys it doesn't know, so T4 adds `gc_settings` to its
-  merge. It copies the first shard's section. `configured` is the same on every shard
+  merge. It copies the first shard's section, and tolerates shard replies without one
+  (older shards during an upgrade). `configured` is the same on every shard
   once a fan-out has succeeded everywhere. `effective` can differ if the global settings
   differ between shards, since `CONFIG SET` is per node. A shard that rejected the
   command (partial upgrade, out of memory) shows its own values only in its own
@@ -231,13 +276,13 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   the alias after the swap.
 - **Mixed versions:** upgrade replicas, fail over, then upgrade old masters. Use the
   command only after every node is upgraded. Old nodes reject `GC` with an error and
-  don't crash: the 8.12 parser expects an optional `SKIPINITIALSCAN` and then `SCHEMA`,
-  so `GC` gets "ALTER must be followed by SCHEMA". An old replica fails the replicated
-  command and follows `propagation-error-behavior`: under the default, `ignore`, it logs
-  the error and lacks the override; under `panic` the replica stops. In a partly
-  upgraded cluster the coordinator returns an error, and upgraded shards keep the
-  change. Until the upgrade completes, only GC timing differs between shards; queries
-  are unaffected. Re-running after the upgrade makes all shards agree. Known gap: the
+  don't crash: a build without this change expects an optional `SKIPINITIALSCAN` and
+  then `SCHEMA`, so `GC` gets "ALTER must be followed by SCHEMA". An old replica fails
+  the replicated command and follows `propagation-error-behavior`: under the default,
+  `ignore`, it logs the error and lacks the override; under `panic` the replica stops. In
+  a partly upgraded cluster the coordinator returns an error, and upgraded shards keep the
+  change. Until the upgrade completes, only GC timing differs between shards; queries are
+  unaffected. Re-running after the upgrade makes all shards agree. Known gap: the
   coordinator's FT.INFO shows the first shard's values, so a mismatch shows only in each
   shard's own FT.INFO.
 - **Very large values:** capped; they mean "practically never".
@@ -265,6 +310,7 @@ Existing behavior that per-index settings do not depend on, left as it is:
 | Abort a running cycle when the threshold is raised | Throws away work and adds exits to the riskiest GC code. Belongs to MOD-19577. |
 | Re-check the threshold just before the fork | Costs a second check under the GIL, its own exit path and a sync-point test, for a window of milliseconds. |
 | Protect the values with the index lock | `FT.ALTER` would wait behind queries, and GC would wait for the lock while holding the GIL, stalling Redis. |
+| Compare the effective interval before and after the command | Misses a `CONFIG SET` that changed an inheriting index's effective interval after its timer was armed. The timer keeps the old interval, or a repeat of the old value restarts it. |
 | Keep the original arm time and jitter, run at once if the new deadline passed | Needs stored state per index, deadline math, and a run-now path that repeats `timerCallback`. The restart is simpler, and repeats still can't postpone GC. Cost: a lowered long interval runs one to two new intervals after the command instead of at once. |
 | Leave the waiting timer alone | A lowered long interval first waits out the old one. |
 | Also restart timers on `CONFIG SET` | Changes existing behavior and walks every index. Not needed. |
@@ -294,21 +340,32 @@ The spec delta describes the recommended answer to each.
 
 ## Testing strategy
 
-- C++ unit tests: saturation and the cap, timer restart on a changed interval, the
-  restart as a no-op in every no-timer state and on a retry timer, a
-  forced run leaving the scheduling state alone, the queue-time threshold copy, RDB
-  round trip at version 30 and load of version 29, a block with an unknown setting id
-  loading with that setting skipped.
-- C++ unit tests for T5: the combined threshold for updates, deletes, growth, an empty
-  index, `p = 0`, `CLEAN_THRESHOLD 0`, and values near the overflow limit.
+- C++ unit tests: saturation and the cap, timer restart when the effective interval
+  differs from the armed one and no restart when it doesn't, the restart as a no-op in
+  every no-timer state and on a retry timer, a forced run leaving the scheduling state
+  alone, the queue-time threshold copy (including a dropped index with an armed timer,
+  `GCContext_FinishDrop`, and `QueueRun` returning early while a run holds the context),
+  RDB round trip at version 30 and load of version 29, a block with an unknown setting
+  id loading with that setting skipped.
+- C++ unit tests for T5: the combined threshold for updates, deletes, growth, deletes
+  before the first fork, an empty index, `p = 0`, `CLEAN_THRESHOLD 0`, and values near
+  the overflow limit.
 - Flow tests for T5: the two-index example in the spec delta, inheritance of the global
-  percentage, `DEFAULT`, and range errors.
-- Flow tests, standalone and cluster: syntax, arity and validation errors,
-  all-or-nothing, aliases, inheritance and `DEFAULT`, `CONFIG SET` leaving timers alone,
-  threshold 0, timer restart timing and the `DEFAULT` cases through the `FT.DEBUG` hook,
-  repeated commands leaving the timer alone, TEMPORARY rejection,
+  percentage, `DEFAULT`, range errors, FT.INFO in RESP2 and RESP3.
+- Flow tests for T1: an idle index below the threshold picks up a new global interval
+  within one old period; a change in the capture-to-drain window
+  (`SYNC_POINT_GC_BEFORE_REARM_POST`) takes effect on the next arm; fork-failure retry
+  still uses `search-fork-gc-retry-interval`; the existing `test_gc.py` scheduling tests
+  pass unchanged.
+- Flow tests, standalone and cluster: two indexes making progress with different
+  settings, syntax, arity and validation errors, all-or-nothing, aliases, ACL, unknown
+  index, inheritance and `DEFAULT`, `CONFIG SET` leaving timers alone, threshold 0, timer
+  restart timing and the `DEFAULT` cases through the `FT.DEBUG` hook, repeated commands
+  leaving the timer alone, `CONFIG SET` followed by `FT.ALTER` with the new value
+  restarting the timer, updates while GC is queued, running, retrying or stopped,
+  TEMPORARY rejection,
   `search-no-gc` nodes as master and as replica, FT.INFO in RESP2 and RESP3.
-- Queued run keeps its threshold: with `ENABLE_ASSERT`, park a run at
+- Queued run keeps its threshold (T2): with `ENABLE_ASSERT`, park a run at
   `SYNC_POINT_GC_TASK_START`, change the threshold, and check that the parked run uses
   the old value and the next queued run uses the new one.
 - Recovery flow tests: `DEBUG RELOAD`, full sync, failover, AOF and `BGREWRITEAOF`, slot

@@ -18,7 +18,9 @@ indexes. Tracked as epic
 
 ## What Changes
 
-A new `FT.ALTER` action sets or clears three optional overrides on one index:
+A new `FT.ALTER` action sets or clears optional overrides on one index: a run interval
+and a clean threshold, plus a clean threshold percentage if Product signs off on it
+(decision 13, [MOD-20691](https://redislabs.atlassian.net/browse/MOD-20691)):
 
 ```
 FT.ALTER <index> GC [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count|DEFAULT>]
@@ -31,8 +33,9 @@ FT.ALTER <index> GC [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count|DEF
 - Ranges match the global settings: `RUN_INTERVAL` 1 to 2^63−1 seconds,
   `CLEAN_THRESHOLD` 0 to 2^63−1. Threshold 0 means what it means globally today: a cycle
   forks every interval, even when nothing was deleted.
-- A new global setting, `search-fork-gc-clean-threshold-percent`, takes a whole
-  percentage from 0 to 100 and defaults to 0, which turns it off. A cycle forks when the
+- Pending Product sign-off (T5): a new global setting,
+  `search-fork-gc-clean-threshold-percent`, takes a whole percentage from 0 to 100 and
+  defaults to 0, which turns it off. A cycle forks when the
   index's deletes and updates since the last cycle reach either `CLEAN_THRESHOLD` or that
   percentage of the index's documents, whichever comes first. With the default, nothing
   changes.
@@ -41,8 +44,9 @@ FT.ALTER <index> GC [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count|DEF
   honors them as well.
 - The command is all-or-nothing, changes no schema, and triggers no reindex.
 - A new run interval restarts the waiting timer from the command, only when the
-  effective interval changes. A new threshold applies to runs queued after the change; a
-  run already queued or running keeps the values it started with.
+  effective interval differs from the one that timer was armed with. A new threshold
+  applies to runs queued after the change; a run already queued or running keeps the
+  values it started with.
 - Overrides are saved in the RDB, replicated, and written to the AOF. On a cluster,
   `FT.ALTER` on the coordinator applies to every shard.
 - Given an alias, the command changes the index the alias points to at that moment.

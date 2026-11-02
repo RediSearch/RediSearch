@@ -1,11 +1,16 @@
 # index-gc-settings (delta)
 
+Parts marked (T5) depend on Product sign-off on the percentage threshold (decision 13,
+MOD-20691). Until T5 ships, `CLEAN_THRESHOLD_PERCENT`,
+`search-fork-gc-clean-threshold-percent` and `clean_threshold_percent` do not exist, and
+the clean threshold is the effective `CLEAN_THRESHOLD` alone.
+
 ## ADDED Requirements
 
 ### Requirement: FT.ALTER sets per-index GC overrides
 `FT.ALTER <index> GC [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count|DEFAULT>]
 [CLEAN_THRESHOLD_PERCENT <percent|DEFAULT>]` SHALL set or clear the index's GC run
-interval, clean threshold and clean threshold percentage. It SHALL take at least one
+interval, clean threshold and (T5) clean threshold percentage. It SHALL take at least one
 setting, each at most once, in any order. It SHALL change no schema and trigger no
 reindex.
 
@@ -46,8 +51,8 @@ reindex.
 
 ### Requirement: Indexes inherit global GC settings unless overridden
 An index without an override for a setting SHALL use the current value of the matching
-global setting (`search-fork-gc-run-interval`, `search-fork-gc-clean-threshold` or
-`search-fork-gc-clean-threshold-percent`).
+global setting (`search-fork-gc-run-interval`, `search-fork-gc-clean-threshold`, or
+(T5) `search-fork-gc-clean-threshold-percent`).
 `DEFAULT` SHALL remove the override. Global values SHALL NOT be copied into an index.
 
 #### Scenario: Inherited value follows CONFIG SET
@@ -62,23 +67,24 @@ global setting (`search-fork-gc-run-interval`, `search-fork-gc-clean-threshold` 
 
 ### Requirement: Value ranges match the global settings
 `RUN_INTERVAL` SHALL accept 1 to 2^63−1 seconds, `CLEAN_THRESHOLD` SHALL accept 0 to
-2^63−1, and `CLEAN_THRESHOLD_PERCENT` SHALL accept whole numbers from 0 to 100. A
+2^63−1, and (T5) `CLEAN_THRESHOLD_PERCENT` SHALL accept whole numbers from 0 to 100. A
 scheduled GC cycle SHALL be skipped while the number of documents deleted or updated
 since the last cycle is below the combined clean threshold defined below, so with a
 clean threshold of 0 every scheduled cycle forks.
 
 #### Scenario: Very large interval
-- **WHEN** the user executes `FT.ALTER idx GC RUN_INTERVAL 9223372036854775807`
+- **WHEN** the run-interval timer of `idx` is waiting
+- **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL 9223372036854775807`
 - **THEN** the reply SHALL be `OK`
 - **AND** the GC timer of `idx` SHALL be armed for the longest supported delay, with no
   arithmetic overflow
 
-#### Scenario: Percentage out of range
+#### Scenario: Percentage out of range (T5)
 - **WHEN** the user executes `FT.ALTER idx GC CLEAN_THRESHOLD_PERCENT 101`, or gives a
   negative or fractional percentage
 - **THEN** the command SHALL return an error
 
-### Requirement: The clean threshold can be a percentage of the index
+### Requirement: The clean threshold can be a percentage of the index (T5)
 With `N` the effective clean threshold and `p` the effective clean threshold
 percentage, a scheduled cycle SHALL fork once the index's deletes and updates since the
 last cycle reach `min(N, max(1, ceil(p × base / 100)))`. `base` SHALL be the larger of
@@ -108,13 +114,14 @@ percentage of 0 SHALL leave the threshold at `N`. Both counts SHALL be the index
 - **THEN** `idx` SHALL fork exactly as it would with its clean threshold alone
 
 ### Requirement: Interval changes restart a waiting timer
-When `FT.ALTER ... GC` changes the effective run interval of an index while its
-run-interval timer is waiting, that timer SHALL restart from the command, with the new
-interval and new jitter. A command that leaves the effective interval unchanged (the
-same value again, or `DEFAULT` when the override equals the global value) SHALL leave
-the timer as it is. The command SHALL NOT start a GC run. When no run-interval timer is
-waiting (a cycle queued or running, GC stopped or paused, or the waiting timer is a fork
-retry), the next arm SHALL use the latest effective interval.
+When `FT.ALTER ... GC` sets or clears the run interval of an index while its
+run-interval timer is waiting, and the new effective interval differs from the interval
+that timer was armed with, the timer SHALL restart from the command, with the new
+interval and new jitter. When the new effective interval equals the armed one (the same
+value again, or `DEFAULT` when the global value equals it), the timer SHALL NOT restart.
+The command SHALL NOT start a GC run. When no run-interval timer is waiting (a cycle
+queued or running, GC stopped or paused, or the waiting timer is a fork retry), the next
+run-interval arm SHALL use the latest effective interval.
 
 A change to the effective clean threshold or percentage SHALL apply to scheduled runs
 queued after it. A run is queued when its timer fires. A run that is already queued or
@@ -126,29 +133,37 @@ A global `CONFIG SET` SHALL NOT change any waiting timer.
 #### Scenario: Lowering a long interval
 - **WHEN** the GC timer of `idx` was armed 50 seconds ago with a run interval of 1000
 - **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL 10`
-- **THEN** the time left on the timer of `idx` SHALL be at least 10 seconds and below 20
-  seconds
+- **THEN** the timer of `idx` SHALL restart, with more than 9 seconds and less than 20
+  seconds left
 
 #### Scenario: Global change does not change a waiting timer
 - **WHEN** `idx` has no run interval override and its timer is waiting
 - **AND** the user executes `CONFIG SET search-fork-gc-run-interval 1`
-- **THEN** the time left on the timer of `idx` SHALL NOT change
-- **AND** the next arm of `idx` SHALL use an interval of 1
+- **THEN** the timer of `idx` SHALL NOT restart
+- **AND** the next run-interval arm of `idx` SHALL use an interval of 1
+
+#### Scenario: FT.ALTER after a global change restarts the timer
+- **WHEN** `idx` has no run interval override and its run-interval timer was armed with
+  a global interval of 1000
+- **AND** the user executes `CONFIG SET search-fork-gc-run-interval 10`
+- **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL 10`
+- **THEN** the timer of `idx` SHALL restart, with less than 20 seconds left
 
 #### Scenario: Repeating the command does not postpone GC
-- **WHEN** `idx` has `RUN_INTERVAL 100` and its timer is waiting
+- **WHEN** `idx` has `RUN_INTERVAL 100` and its run-interval timer, armed with 100, is
+  waiting
 - **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL 100` again
-- **THEN** the time left on the timer of `idx` SHALL NOT change
+- **THEN** the timer of `idx` SHALL NOT restart
 
 #### Scenario: DEFAULT with an override equal to the global value
 - **WHEN** `idx` has a run interval override equal to the global run interval and its
-  timer is waiting
+  run-interval timer, armed with that value, is waiting
 - **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL DEFAULT`
-- **THEN** the time left on the timer of `idx` SHALL NOT change
+- **THEN** the timer of `idx` SHALL NOT restart
 
 #### Scenario: DEFAULT with a different override
 - **WHEN** `idx` has a run interval override that differs from the global run interval
-  and its timer is waiting
+  and its run-interval timer, armed with the override, is waiting
 - **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL DEFAULT`
 - **THEN** the timer of `idx` SHALL restart from the command with the global run
   interval
@@ -204,7 +219,7 @@ overrides. On a cluster, `FT.ALTER ... GC` on the coordinator SHALL apply to eve
 
 ### Requirement: FT.INFO reports GC settings
 FT.INFO SHALL include a `gc_settings` map with `run_interval`, `clean_threshold` and
-`clean_threshold_percent`. Each
+(T5) `clean_threshold_percent`. Each
 SHALL be a map with `configured` (the override, or null when inherited) and `effective`
 (the value in use), both integers. A null `configured` SHALL be a RESP3 null and a RESP2
 nil bulk string. The section SHALL be present for every index except TEMPORARY indexes,
