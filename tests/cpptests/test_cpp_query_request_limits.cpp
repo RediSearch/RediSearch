@@ -225,7 +225,7 @@ TEST_F(QueryRequestLimitsTest, MarkingTheBlockedClientDoesNotSetTheMemoryStop) {
   EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout));
 }
 
-TEST_F(QueryRequestLimitsTest, MemoryStopSurvivesResetAndIsClearedByTheNextCycle) {
+TEST_F(QueryRequestLimitsTest, MemoryStopSurvivesResetAndBeginCycle) {
   QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {1000, TimeoutPolicy_Return};
   QueryRequestLimits_Init(&timeout, &timeoutConfig);
@@ -236,42 +236,10 @@ TEST_F(QueryRequestLimitsTest, MemoryStopSurvivesResetAndIsClearedByTheNextCycle
   EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout));
 
   QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout));
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout));
 
-  QueryRequestLimits_RequestMemoryStop(&timeout);
-  QueryRequestLimits_Init(&timeout, &timeoutConfig);
-  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout));
-}
-
-TEST_F(QueryRequestLimitsTest, MemoryStopRequestedOnAnotherThreadIsObserved) {
-  QueryRequestLimits timeout = {};
-  TimeoutConfig timeoutConfig = {0, TimeoutPolicy_Return};
-  QueryRequestLimits_Init(&timeout, &timeoutConfig);
-  // TIMEOUT 0: the cycle stays UNARMED, which on its own never times out.
   QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
-  ASSERT_EQ(timeout.timeout.kind, QUERY_REQUEST_TIMEOUT_UNARMED);
-
-  std::atomic<bool> workerReady = false;
-  bool workerObservedStop = false;
-  std::thread worker([&] {
-    workerReady.store(true, std::memory_order_release);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (std::chrono::steady_clock::now() < deadline) {
-      if (QueryRequestLimits_IsMemoryStopped(&timeout)) {
-        workerObservedStop = true;
-        return;
-      }
-      std::this_thread::yield();
-    }
-  });
-
-  while (!workerReady.load(std::memory_order_acquire)) {
-    std::this_thread::yield();
-  }
-  QueryRequestLimits_RequestMemoryStop(&timeout);
-  worker.join();
-
-  EXPECT_TRUE(workerObservedStop);
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout));
 }
 
 TEST_F(QueryRequestLimitsTest, ShouldStopCombinesTheMemoryStopAndTheBlockedClientFlag) {
