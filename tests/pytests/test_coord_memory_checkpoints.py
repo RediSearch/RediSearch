@@ -877,17 +877,20 @@ def test_timeout_after_reducer_claim_beats_the_fanout_oom_stop():
     skipIfNoEnableAssert(env)
     create_index(env)
     coord = env.getConnection(1)
-    timed_search = SEARCH[:-1] + (300,)
+    timed_search = SEARCH[:-1] + (1000,)
     try:
         set_policies(env, 'RETURN-STRICT', 'fail')
         last_reply_read = last_fanout_reply_read(coord, SEARCH)
         coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', last_reply_read)
         sync_point(coord, 'CLEAR')
-        sync_point(coord, 'ARM', 'CoordSearchReducerClaimed', 1500)
+        # Held well past the timeout, so the timer fires while the reducer is parked.
+        sync_point(coord, 'ARM', 'CoordSearchReducerClaimed', 5000)
         try:
             thread, result = run_in_thread(coord, timed_search)
             thread.join(timeout=30)
             env.assertFalse(thread.is_alive())
+            # A timer that fires before the shards reply claims first and never reaches the hook.
+            env.assertEqual(sync_point(coord, 'HIT_COUNT', 'CoordSearchReducerClaimed'), 1)
         finally:
             coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
             sync_point(coord, 'CLEAR')
