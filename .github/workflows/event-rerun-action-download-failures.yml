@@ -131,4 +131,6 @@ jobs:
               skip(f"superseded by run {pr_runs[0]['id']} for PR #{pr_number}")
 
           print(f"Re-running {len(failed)} failed job(s) of run {run_id} (PR #{pr_number}).")
-          gh_api(f"repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs", "-X", "POST")
+          # Single attempt: an error does not prove the re-run did not start, and a
+          # retry after attempt 2 has failed again would start an attempt 3.
+          gh_api(f"repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs", "-X", "POST", attempts=1)
