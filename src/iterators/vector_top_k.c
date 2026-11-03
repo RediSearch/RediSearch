@@ -8,6 +8,7 @@
 */
 
 #include "vector_top_k.h"
+#include "query_memory.h"
 #include "util/timeout.h"
 
 // Global timeout callback for VecSim searches.
@@ -18,4 +19,18 @@ int (*vecsimTimeoutCallback)(QueryRequestLimits *timeout) = VecSim_TimedOut;
 // test-mockable vecsimTimeoutCallback indirection is honored on the adhoc-BF path.
 int RS_VecSimCheckTimeout(QueryRequestLimits *timeout) {
   return vecsimTimeoutCallback(timeout);
+}
+
+int RS_VecSimShouldStop(void *timeout) {
+  return RS_VecSimCheckMemory(timeout);
+}
+
+int RS_VecSimCheckMemory(QueryRequestLimits *timeout) {
+  // One call per VecSim search, so it reads every time; and it shares no request counter, so it
+  // is safe on any thread.
+  return QueryMemory_CheckpointNow(timeout);
+}
+
+int RS_VecSimCheckMemoryEvery(QueryRequestLimits *timeout, uint32_t *counter) {
+  return QueryMemory_Checkpoint(timeout, counter);
 }

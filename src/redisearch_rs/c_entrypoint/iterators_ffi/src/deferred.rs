@@ -15,7 +15,8 @@
 use std::{ffi::c_void, ptr::NonNull};
 
 use ffi::{
-    QueryIterator, QueryRequestLimits, VecSimIndex, VecSimQueryParams, VecSimQueryReply_Order,
+    QueryIterator, QueryRequestLimits, RS_VecSimCheckMemory, VecSimIndex, VecSimQueryParams,
+    VecSimQueryReply_Order,
 };
 use index_result::RSIndexResult;
 use rqe_iterators::deferred::{ProducedResults, Producer};
@@ -87,6 +88,12 @@ pub unsafe extern "C" fn NewLazyVectorRangeIteratorFromParams(
         // lifetime and so for this call, made by the iterator.
         let reply = unsafe { index.range_query(&query_vector, radius, &mut query_params, order) }
             .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
+        // The reply holds every match and the copy below doubles it, so check memory first; the
+        // reply is freed on the way out.
+        // SAFETY: `timeoutCtx` is `timeout`, which 3 keeps valid for this call.
+        if unsafe { RS_VecSimCheckMemory(query_params.timeoutCtx.cast()) } != 0 {
+            return Err(RQEIteratorError::TimedOut);
+        }
         Ok(collect_results(reply, yields_metric))
     });
 
