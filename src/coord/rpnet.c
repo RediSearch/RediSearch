@@ -122,6 +122,8 @@ static const struct timespec *getAbsTimeout(const RPNet *nc) {
   return QueryRequestLimits_GetClockDeadline(&nc->areq->base.limits);
 }
 
+static int settleQueuedOom(RPNet *nc);
+
 // Process warnings from nc->current.meta (RESP3 only), then free reply and reset state.
 // Warning handling requires nc->current.meta to be set. Cleanup is done regardless of protocol.
 //
@@ -133,7 +135,9 @@ static const struct timespec *getAbsTimeout(const RPNet *nc) {
 //     coord's own deadline (handled by the strict timeout callback) is the
 //     authoritative stop signal.
 //   - TimeoutPolicy_Return / TimeoutPolicy_Fail: a shard timeout
-//     bails the coord pipeline early by returning RS_RESULT_TIMEDOUT.
+//     bails the coord pipeline early by returning RS_RESULT_TIMEDOUT, or
+//     RS_RESULT_ERROR when a queued shard reply brings an OOM failure that
+//     outranks it (see settleQueuedOom).
 static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   bool shard_timed_out = false;
   // Check for warnings (resp3 only)
@@ -170,7 +174,7 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   RPNet_resetCurrent(nc);
 
   if (shard_timed_out && nc->areq->base.limits.timeout.config.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
-    return RS_RESULT_TIMEDOUT;
+    return settleQueuedOom(nc);
   }
 
   return RS_RESULT_OK;
@@ -203,6 +207,59 @@ static MRReply *takeQueuedOomFailure(RPNet *nc) {
     }
   }
   return oom;
+}
+
+static bool hasShardOomWarning(const RPNet *nc, MRReply *reply) {
+  if (nc->cmd.protocol != 3 || MRReply_Type(reply) != MR_REPLY_ARRAY) {
+    return false;
+  }
+  MRReply *meta = MRReply_ArrayElement(reply, 0);
+  MRReply *warnings = meta && MRReply_Type(meta) == MR_REPLY_MAP ? MRReply_MapElement(meta, "warning")
+                                                                  : NULL;
+  const size_t len = warnings ? MRReply_Length(warnings) : 0;
+  for (size_t i = 0; i < len; i++) {
+    const char *str = MRReply_String(MRReply_ArrayElement(warnings, i), NULL);
+    if (str && !strcmp(str, QUERY_WOOM_SHARD)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// A shard's timeout warning ends the stream, but an OOM from another shard outranks it. Looks
+// through the replies already queued, without waiting, as takeQueuedOomFailure does: an OOM error
+// fails the request under ON_OOM FAIL, and under RETURN an OOM error or shard OOM warning is kept
+// as the query's OOM warning next to the timeout one. Returns RS_RESULT_ERROR when the request
+// failed with the OOM error, else RS_RESULT_TIMEDOUT.
+static int settleQueuedOom(RPNet *nc) {
+  if (!nc->it || nc->areq->base.reqConfig.oomPolicy == OomPolicy_Ignore) {
+    return RS_RESULT_TIMEDOUT;
+  }
+  QueryError *err = AREQ_QueryProcessingCtx(nc->areq)->err;
+  const bool fail = nc->areq->base.reqConfig.oomPolicy == OomPolicy_Fail;
+  bool failed = false, warn = false;
+  MRReply *queued;
+  while ((queued = MRIterator_TryNext(nc->it))) {
+    if (MRReply_Type(queued) == MR_REPLY_ERROR &&
+        QueryError_GetCodeFromMessage(MRReply_String(queued, NULL)) == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
+      if (fail && !failed) {
+        QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+        QueryError_SetDetail(err, MRReply_String(queued, NULL));
+        failed = true;
+      }
+      warn = true;
+    } else if (hasShardOomWarning(nc, queued)) {
+      warn = true;
+    }
+    MRReply_Free(queued);
+  }
+  if (failed) {
+    return RS_RESULT_ERROR;
+  }
+  if (warn) {
+    QueryError_SetQueryOOMWarning(err);
+  }
+  return RS_RESULT_TIMEDOUT;
 }
 
 // True when a popped reply is a mapping-stage warning injected into a hybrid
@@ -542,8 +599,8 @@ int getNextReply(RPNet *nc) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
     int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
 
-    if (ret == RS_RESULT_TIMEDOUT) {
-      return RS_RESULT_TIMEDOUT;
+    if (ret != RS_RESULT_OK) {
+      return ret;
     }
   }
 
@@ -681,8 +738,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     size_t len = MRReply_Length(rows);
 
     if (nc->curIdx == len) {
-      if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_TIMEDOUT) {
-        return RS_RESULT_TIMEDOUT;
+      const int ret = processWarningsAndCleanup(nc, resp3);
+      if (ret != RS_RESULT_OK) {
+        return ret;
       }
 
       root = rows = NULL;
