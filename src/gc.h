@@ -57,7 +57,7 @@ typedef enum {
   // No child process could be created, so nothing was collected.
   GC_FORCED_RUN_NO_FORK,
   // `compactAll` was asked for but did not complete: the cycle was skipped (e.g. background
-  // work was paused before it started) or the compaction was cancelled.
+  // work was paused before it started), the index disappeared, or compaction was cancelled.
   GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE,
 } GCForcedRunOutcome;
 

@@ -84,6 +84,9 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
+    if (forced && forced->compactAll) {
+      forced->outcome = GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE;
+    }
     return false;
   }
 
@@ -111,7 +114,10 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
 
     DiskGCRunStats stats = {0};
     SearchDisk_RunGC(sp->diskSpec, &stats);
+    // Storage can retire an ID before its write-locked notification reaches GC.
+    IndexSpec_LockRead(sp);
     accumulateCycleStats(gc, &stats);
+    IndexSpec_Unlock(sp);
 
     // After the cycle, which itself writes to that storage, and here rather than on the main
     // thread, which must not wait on the disk I/O. No separate flush: the compaction flushes the

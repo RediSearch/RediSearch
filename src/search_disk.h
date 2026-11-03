@@ -368,7 +368,7 @@ bool SearchDisk_DeleteDocumentById(RedisSearchDiskIndexSpec *handle, t_docId doc
  *
  * On return, `stats` is populated with per-cycle counters
  * (see `DiskGCRunStats` in `search_disk_api.h`). Caller MUST zero-initialize
- * `stats` before the call. See `DiskGCRunResult` for recoverable failure handling.
+ * `stats` before the call.
  *
  * @param index Pointer to the disk index
  * @param stats Caller-allocated, zero-initialized stats out-parameter

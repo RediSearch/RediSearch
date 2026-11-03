@@ -13,6 +13,7 @@
 #include "slot_cleanup.h"
 #include "slot_ranges.h"
 #include <functional>
+#include <future>
 #include <mutex>
 #include <condition_variable>
 #include <chrono>
@@ -227,6 +228,45 @@ class DiskSlotTrimTest : public ::testing::Test {
   }
 };
 
+TEST_F(DiskSlotTrimTest, AccountingWaitsForWriteLockedDeletionNotification) {
+  static std::function<void()> afterStorageDelete;
+  static std::promise<void> *backendReached;
+  std::promise<void> backend, finished;
+  auto backendFuture = backend.get_future();
+  auto finishedFuture = finished.get_future();
+  std::thread gcWorker;
+  backendReached = &backend;
+  const auto before = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  spec->stats.scoring.numDocuments = 1;
+  spec->stats.scoring.totalDocsLen = 1;
+  api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
+    stats->num_cleaned_docs = 1;
+    backendReached->set_value();
+  };
+  afterStorageDelete = [&] {
+    EXPECT_TRUE(IndexSpec_IsLocked(spec));
+    gcWorker = std::thread([&] {
+      GCForcedRun forced = GCForcedRun_New(1000, 10);
+      EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+      finished.set_value();
+    });
+    EXPECT_EQ(backendFuture.wait_for(std::chrono::seconds(3)), std::future_status::ready);
+    EXPECT_EQ(finishedFuture.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+  };
+  api.index.deleteDocumentById = [](RedisSearchDiskIndexSpec *, t_docId, uint32_t *length) {
+    afterStorageDelete();
+    *length = 1;
+    return true;
+  };
+  IndexSpec_DeleteDocById(spec, 1);
+  gcWorker.join();
+  afterStorageDelete = {};
+  backendReached = nullptr;
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 0u);
+  EXPECT_EQ(collector()->logicallyDeleted.load(), 0u);
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), before);
+}
+
 TEST_F(DiskSlotTrimTest, IndexDropRetiresOutstandingDeletesAfterPartialCollection) {
   const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
   GCContext_OnDelete(&gc);
@@ -296,6 +336,117 @@ TEST_F(DiskSlotTrimTest, RegistrationRejectsMissingOwnersAndNonDiskIndexes) {
   EXPECT_EQ(IndexSpec_RegisterDiskSlotTrim(ref, &range, 1), nullptr);
   spec->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(spec);
   EXPECT_EQ(state.registrations, 0u);
+}
+
+TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDrop) {
+  static std::promise<void> unblocked;
+  static RedisModuleCmdFunc reply;
+  static void *replyData;
+  static std::string replyText;
+  static bool compactionAccepted, backendPaused;
+  static size_t gcCalls, compactions;
+  struct RestoreHooks {
+    decltype(RedisModule_CreateSubcommand) create = RedisModule_CreateSubcommand;
+    decltype(RedisModule_GetContextFlagsAll) flags = RedisModule_GetContextFlagsAll;
+    decltype(RedisModule_BlockClient) block = RedisModule_BlockClient;
+    decltype(RedisModule_UnblockClient) unblock = RedisModule_UnblockClient;
+    decltype(RedisModule_GetBlockedClientPrivateData) data =
+        RedisModule_GetBlockedClientPrivateData;
+    decltype(RedisModule_ReplyWithSimpleString) simple = RedisModule_ReplyWithSimpleString;
+    decltype(RedisModule_ReplyWithError) error = RedisModule_ReplyWithError;
+    RestoreHooks() {
+      RedisModule_ThreadSafeContextLock(RSDummyContext);
+    }
+    ~RestoreHooks() {
+      GC_ThreadPoolDestroy();
+      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+      if (replyData) GCForcedRunOutcomeFree(RSDummyContext, replyData);
+      RedisModule_CreateSubcommand = create;
+      RedisModule_GetContextFlagsAll = flags;
+      RedisModule_BlockClient = block;
+      RedisModule_UnblockClient = unblock;
+      RedisModule_GetBlockedClientPrivateData = data;
+      RedisModule_ReplyWithSimpleString = simple;
+      RedisModule_ReplyWithError = error;
+    }
+  } restore;
+  gcCalls = compactions = 0;
+  replyData = nullptr;
+  RedisModule_GetContextFlagsAll = [] { return 0; };
+  RedisModule_CreateSubcommand = [](RedisModuleCommand *, const char *name,
+                                    RedisModuleCmdFunc callback, const char *, int, int, int) {
+    if (strcmp(name, "GC_FORCEINVOKE") == 0) state.forceGC = callback;
+    return REDISMODULE_OK;
+  };
+  ASSERT_EQ(RegisterDebugCommands(nullptr), REDISMODULE_OK);
+  RedisModule_CreateSubcommand = restore.create;
+  ASSERT_NE(state.forceGC, nullptr);
+  RedisModule_BlockClient = [](RedisModuleCtx *, RedisModuleCmdFunc callback, RedisModuleCmdFunc,
+                               void (*)(RedisModuleCtx *, void *), long long) {
+    reply = callback;
+    return reinterpret_cast<RedisModuleBlockedClient *>(&replyData);
+  };
+  RedisModule_UnblockClient = [](RedisModuleBlockedClient *, void *data) {
+    replyData = data;
+    unblocked.set_value();
+    return REDISMODULE_OK;
+  };
+  RedisModule_GetBlockedClientPrivateData = [](RedisModuleCtx *) { return replyData; };
+  RedisModule_ReplyWithSimpleString = [](RedisModuleCtx *, const char *text) {
+    replyText = text;
+    return REDISMODULE_OK;
+  };
+  RedisModule_ReplyWithError = RedisModule_ReplyWithSimpleString;
+  api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *) {
+    ++gcCalls;
+  };
+  api.index.compactNonGcStorage = [](RedisSearchDiskIndexSpec *) {
+    ++compactions;
+    return compactionAccepted;
+  };
+  api.index.isBackgroundWorkPaused = [](RedisSearchDiskIndexSpec *) { return backendPaused; };
+  GC_ThreadPoolStart();
+  auto invoke = [&](bool dropIndex = false, bool pauseBackend = false) {
+    backendPaused = false;
+    GC_ThreadPoolPause();
+    EXPECT_TRUE(GC_ThreadPoolWaitForPause(1000));
+    unblocked = std::promise<void>{};
+    auto future = unblocked.get_future();
+    replyText.clear();
+    RMCK::ArgvList args(RSDummyContext, "FT.DEBUG", "GC_FORCEINVOKE", "disk_slot_trim",
+                        "COMPACT_ALL");
+    EXPECT_EQ(state.forceGC(RSDummyContext, args.data(), args.size()), REDISMODULE_OK);
+    if (dropIndex) {
+      spec->gc = nullptr;
+      spec->diskSpec = nullptr;
+      spec->diskRegistered = false;
+      Indexes_RemoveSpecFromGlobals(ref, false);
+      ref = {};
+      spec = nullptr;
+    }
+    backendPaused = pauseBackend;
+    GC_ThreadPoolResume();
+    const auto ready = future.wait_for(std::chrono::seconds(3));
+    EXPECT_EQ(ready, std::future_status::ready);
+    if (ready != std::future_status::ready) return std::string{};
+    EXPECT_EQ(reply(RSDummyContext, nullptr, 0), REDISMODULE_OK);
+    GCForcedRunOutcomeFree(RSDummyContext, replyData);
+    replyData = nullptr;
+    return replyText;
+  };
+  compactionAccepted = true;
+  EXPECT_EQ(invoke(), "DONE");
+  EXPECT_EQ(gcCalls, 1u);
+  EXPECT_EQ(compactions, 1u);
+  compactionAccepted = false;
+  EXPECT_NE(invoke().find("COMPACT_ALL did not complete"), std::string::npos);
+  EXPECT_EQ(compactions, 2u);
+  EXPECT_NE(invoke(false, true).find("COMPACT_ALL did not complete"), std::string::npos);
+  EXPECT_EQ(gcCalls, 2u);
+  EXPECT_EQ(compactions, 2u);
+  EXPECT_NE(invoke(true).find("COMPACT_ALL did not complete"), std::string::npos);
+  EXPECT_EQ(gcCalls, 2u);
+  EXPECT_EQ(compactions, 2u);
 }
 
 }  // namespace

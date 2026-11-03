@@ -143,12 +143,6 @@ typedef struct AsyncReadResult {
   uint64_t user_data;       // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
 } AsyncReadResult;
 
-typedef enum {
-  DISK_GC_RUN_OK = 0,
-  // Pending changes remain eligible for retry; cycle statistics must not be accumulated.
-  DISK_GC_RUN_RETRY_REQUIRED,
-} DiskGCRunResult;
-
 // Stats reported by a single GC compaction cycle.
 //
 // Populated by `IndexDiskAPI::runGC`: the caller zero-initializes the struct
@@ -606,7 +600,7 @@ typedef struct IndexDiskAPI {
    *
    * On return, `stats` is populated with per-cycle counters
    * (see `DiskGCRunStats`). Caller MUST zero-initialize `stats` before the
-   * call. See `DiskGCRunResult` for recoverable failure handling.
+   * call.
    *
    * @param index Pointer to the disk index
    * @param stats Caller-allocated, zero-initialized stats out-parameter
