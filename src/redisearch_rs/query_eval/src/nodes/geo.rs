@@ -59,7 +59,7 @@ pub(crate) fn eval<'index>(
     if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
         let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
             .expect("query.sctx.diskSnapshot is null for a disk-backed geo query");
-        let timeout = NonNull::new(ctx.sctx().timeout);
+        let limits = NonNull::new(ctx.sctx().limits);
         // SAFETY: `gf` is valid and, during single-threaded evaluation,
         // exclusively owned for `'index`, so a `&'index mut` is sound.
         let gf_ref = unsafe { &mut *gf };
@@ -69,8 +69,8 @@ pub(crate) fn eval<'index>(
         // live reference to it; the enterprise iterators are registered whenever
         // a disk index is in use; `field_index` belongs to the geo node's field
         // spec; `snapshot` is the disk snapshot taken at query start;
-        // `timeout` is the request's own, which outlives query evaluation.
-        return match unsafe { disk.new_geo_iterator(gf_ref, field_index, snapshot, timeout) } {
+        // `limits` is the request's own, which outlives query evaluation.
+        return match unsafe { disk.new_geo_iterator(gf_ref, field_index, snapshot, limits) } {
             Ok(it) => Some(Evaluated::RustLeaf(it)),
             Err(err) => {
                 // Surface the failure via `status` so the query aborts with an

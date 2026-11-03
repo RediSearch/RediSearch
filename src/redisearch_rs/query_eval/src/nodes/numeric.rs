@@ -52,14 +52,14 @@ pub(crate) fn eval<'index>(
     if let Some(disk) = unsafe { SearchDiskHandle::new(ctx.spec().diskSpec) } {
         let snapshot = NonNull::new(ctx.sctx().diskSnapshot)
             .expect("query.sctx.diskSnapshot is null for a disk-backed numeric query");
-        let timeout = NonNull::new(ctx.sctx().timeout);
+        let limits = NonNull::new(ctx.sctx().limits);
         // SAFETY: the wrapped disk spec is valid for `'index` (`QueryEvalContext`
         // invariants 1/2) and single-threaded query evaluation gives us the only
         // live reference to it; the enterprise iterators are registered whenever
         // a disk index is in use; `field_index` belongs to the numeric node's
         // field spec; `snapshot` is the disk snapshot taken at query start;
-        // `timeout` is the request's own, which outlives query evaluation.
-        return match unsafe { disk.new_numeric_iterator(nf, field_index, snapshot, timeout) } {
+        // `limits` is the request's own, which outlives query evaluation.
+        return match unsafe { disk.new_numeric_iterator(nf, field_index, snapshot, limits) } {
             Ok(it) => Some(Evaluated::RustLeaf(it)),
             Err(err) => {
                 // Surface the failure via `status` so the query aborts with an
