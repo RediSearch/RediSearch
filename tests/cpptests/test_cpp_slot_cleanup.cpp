@@ -28,6 +28,8 @@ extern "C" {
 #include "result_processor.h"
 #include "search_result_ffi.h"
 #include "query_request.h"
+#include "aggregate/aggregate.h"
+#include "aggregate/reducer.h"
 #include "types_ffi.h"
 extern RedisSearchDiskAPI *disk;
 extern RedisSearchDisk *disk_db;
@@ -552,6 +554,37 @@ class BufferedDiskQuery {
     processor = sorter;
   }
 
+  void profileHybrid() {
+    processor = RPProfile_New(processor, activeProcessing);
+    activeProcessing->rootProc = activeProcessing->endProc = processor;
+  }
+
+  uint32_t countRemaining() {
+    auto *counter = RPCounter_New();
+    QITR_PushRP(activeProcessing, counter);
+    processor = counter;
+    EXPECT_EQ(processor->Next(processor, &result), RS_RESULT_EOF);
+    return QITR_ReportedTotal(activeProcessing);
+  }
+
+  double groupCountRemaining() {
+    auto *key = RLookup_GetKey_Write(&tailLookup, "count", RLOOKUP_F_NOFLAGS);
+    auto *group =
+        Grouper_New(nullptr, nullptr, 0, GroupByLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
+    ArgsCursor args{};
+    ReducerOptions options{};
+    options.args = &args;
+    Grouper_AddReducer(group, RDCRCount_New(&options), key);
+    processor = Grouper_GetRP(group);
+    QITR_PushRP(activeProcessing, processor);
+    EXPECT_EQ(processor->Next(processor, &result), RS_RESULT_OK);
+    double count = 0;
+    EXPECT_TRUE(RSValue_ToNumber(RLookupRow_Get(key, SearchResult_GetRowData(&result)), &count));
+    SearchResult_Clear(&result);
+    EXPECT_EQ(processor->Next(processor, &result), RS_RESULT_EOF);
+    return count;
+  }
+
   uint32_t skipped() const {
     return activeProcessing->skippedResults;
   }
@@ -772,3 +805,71 @@ TEST_P(DiskSlotSortedVisibilityTest, SortedResultsStayHiddenAfterTrimCompletes) 
 INSTANTIATE_TEST_SUITE_P(
     QueryKinds, DiskSlotSortedVisibilityTest, ::testing::Bool(),
     [](const ::testing::TestParamInfo<bool> &info) { return info.param ? "Hybrid" : "Search"; });
+
+class DiskSlotHybridVisibilityTest : public DiskSlotAsyncVisibilityTest,
+                                     public ::testing::WithParamInterface<bool> {
+ protected:
+  PendingSlotDeletion *hideBufferedRows() {
+    auto *pending = registerTrim();
+    if (!GetParam()) return pending;
+    IndexSpec_LockWrite(spec);
+    pool.deletedIds = {2, 3};
+    DocTable_RemovePendingDeletion(&spec->docs, pending);
+    IndexSpec_Unlock(spec);
+    return nullptr;
+  }
+};
+
+TEST_P(DiskSlotHybridVisibilityTest, MergerSkipsHiddenRowsBeforeDownstreamProcessing) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  query.mergeHybrid();
+  const auto first = query.first();
+  auto *pending = hideBufferedRows();
+  for (auto id : query.remaining()) EXPECT_TRUE(id != 2 && id != 3);
+  EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1u : 2u);
+  if (pending) removePending(pending);
+}
+
+TEST_P(DiskSlotHybridVisibilityTest, CounterExcludesHiddenBufferedRows) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  query.mergeHybrid();
+  const auto first = query.first();
+  auto *pending = hideBufferedRows();
+  EXPECT_EQ(query.countRemaining(), first == 2 || first == 3 ? 5u : 4u);
+  if (pending) removePending(pending);
+}
+
+TEST_P(DiskSlotHybridVisibilityTest, GroupByExcludesHiddenBufferedRows) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  query.mergeHybrid();
+  const auto first = query.first();
+  auto *pending = hideBufferedRows();
+  EXPECT_EQ(query.groupCountRemaining(), first == 2 || first == 3 ? 4 : 3);
+  if (pending) removePending(pending);
+}
+
+INSTANTIATE_TEST_SUITE_P(CleanupPhases, DiskSlotHybridVisibilityTest, ::testing::Bool(),
+                         [](const ::testing::TestParamInfo<bool> &info) {
+                           return info.param ? "Completed" : "Pending";
+                         });
+
+TEST_F(DiskSlotAsyncVisibilityTest, ProfiledHybridMergerSkipsHiddenBufferedRows) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  query.mergeHybrid();
+  query.profileHybrid();
+  query.first();
+  auto *pending = registerTrim();
+  for (auto id : query.remaining()) EXPECT_TRUE(id != 2 && id != 3);
+  removePending(pending);
+}
+
+TEST_F(DiskSlotAsyncVisibilityTest, HybridMergerExhaustsWhenEveryBufferedRowIsDeleted) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  query.mergeHybrid();
+  query.first();
+  IndexSpec_LockWrite(spec);
+  pool.deletedIds = {1, 2, 3, 4, 5, 6};
+  IndexSpec_Unlock(spec);
+  EXPECT_TRUE(query.remaining().empty());
+  EXPECT_EQ(query.skipped(), 5u);
+}

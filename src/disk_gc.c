@@ -111,7 +111,10 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
 
     DiskGCRunStats stats = {0};
     SearchDisk_RunGC(sp->diskSpec, &stats);
+    // Storage can retire an ID before its write-locked notification reaches GC.
+    IndexSpec_LockRead(sp);
     accumulateCycleStats(gc, &stats);
+    IndexSpec_Unlock(sp);
 
     gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
   }
