@@ -49,6 +49,17 @@ const _: () = {
     assert!(align_of::<MaybeEmpty<AChild>>() == align_of::<MaybeEmpty<SChild>>());
 };
 
+impl<I> MaybeEmpty<I> {
+    /// Get a ref to child iterator, if any.
+    #[inline(always)]
+    pub const fn as_ref(&self) -> Option<&I> {
+        match &self.0 {
+            MaybeEmptyOption::None(_) => None,
+            MaybeEmptyOption::Some(it) => Some(it),
+        }
+    }
+}
+
 impl<'index, I> MaybeEmpty<I>
 where
     I: RQEIterator<'index>,
@@ -63,15 +74,6 @@ where
     #[inline(always)]
     pub const fn new_empty() -> Self {
         Self(MaybeEmptyOption::None(Empty))
-    }
-
-    /// Get a ref to child iterator, if any.
-    #[inline(always)]
-    pub const fn as_ref(&self) -> Option<&I> {
-        match &self.0 {
-            MaybeEmptyOption::None(_) => None,
-            MaybeEmptyOption::Some(it) => Some(it),
-        }
     }
 
     /// Transform the inner iterator (if present) into a new type.
@@ -359,6 +361,21 @@ where
             // `RQEIterator::num_estimated`.
             MaybeEmptyOption::None(empty) => RQESuspendedIterator::num_estimated(empty),
             MaybeEmptyOption::Some(child) => S::num_estimated(child),
+        }
+    }
+}
+
+// `MaybeEmpty` is a transparent child holder: it prints as whichever iterator it
+// holds, so composites enumerating their children report the real child type.
+impl<I: crate::profile_print::ProfilePrint> crate::profile_print::ProfilePrint for MaybeEmpty<I> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match &self.0 {
+            MaybeEmptyOption::None(empty) => empty.print_profile(map, ctx),
+            MaybeEmptyOption::Some(child) => child.print_profile(map, ctx),
         }
     }
 }

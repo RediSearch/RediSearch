@@ -183,6 +183,17 @@ impl<'query, Rf: Ref, R, E, RA> RawInvIndIterator<'query, Rf, R, E, RA> {
     pub(crate) const fn num_docs_field(&self) -> u64 {
         self.num_docs
     }
+
+    /// Returns the current query term bytes regardless of mode, if available.
+    ///
+    /// The term is stored in the iterator's result and is set during
+    /// construction; it is query-pipeline data, so it stays readable while the
+    /// iterator is suspended and `FT.PROFILE` can print it at the unlock site.
+    /// Returns [`None`] if the result is not a term result or the term has no
+    /// string representation.
+    pub fn query_term_bytes(&self) -> Option<&[u8]> {
+        self.result.as_term()?.query_term()?.as_bytes()
+    }
 }
 
 impl<'index, R, E> InvIndIterator<'index, R, E>
@@ -224,15 +235,6 @@ where
             read_impl,
             skip_to_impl,
         }
-    }
-
-    /// Returns the current query term bytes, if available.
-    ///
-    /// The term is stored in the iterator's result and is set during
-    /// construction. Returns [`None`] if the result is not a term result
-    /// or the term has no string representation.
-    pub fn query_term_bytes(&self) -> Option<&[u8]> {
-        self.result.as_term()?.query_term()?.as_bytes()
     }
 
     /// Default read implementation, without any additional filtering.
@@ -837,5 +839,20 @@ where
         // The live reader's `unique_docs()` is unavailable once weakened, so
         // return the snapshot cached at construction (see `num_docs`).
         self.num_docs_field() as usize
+    }
+}
+
+// `RawInvIndIterator` is always wrapped by a typed iterator (`Numeric`, `Term`,
+// `Tag`, `Missing`, `Wildcard`) that prints the real `FT.PROFILE` type; this
+// impl exists only to satisfy the `ProfilePrint` supertrait of
+// `RQESuspendedIterator`, and is not reached in practice. It is limited to the
+// suspended form so the active one cannot print a placeholder by mistake.
+impl<R, E, RA> crate::profile_print::ProfilePrint for RawInvIndIterator<'_, Suspended, R, E, RA> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"INVERTED INDEX", map);
     }
 }

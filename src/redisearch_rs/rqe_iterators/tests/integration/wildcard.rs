@@ -982,4 +982,59 @@ mod new_wildcard_via_resume {
             Err(RQEIteratorError::TimedOut)
         ));
     }
+
+    /// Print `it`'s profile before and after suspending it, assert both match, and return it.
+    ///
+    /// `FT.PROFILE` prints the tree after the query has suspended it, so every arm's suspended
+    /// form must report what the active one did.
+    #[cfg(not(miri))]
+    fn profile_before_and_after_suspend(
+        it: Box<NewWildcardIterator<'_>>,
+    ) -> redis_mock::reply::ReplyValue {
+        let active = rqe_iterators_test_utils::profile_of(&*it);
+        let suspended = rqe_iterators_test_utils::profile_of(&*it.suspend());
+        assert_eq!(
+            suspended, active,
+            "the suspended form must print as the active one"
+        );
+        suspended
+    }
+
+    #[cfg(not(miri))]
+    #[test]
+    fn every_suspended_arm_prints_the_profile_of_its_active_form() {
+        let not_optimized = Box::new(NewWildcardIterator::NotOptimized(Wildcard::new(10, 1.0)));
+        insta::assert_debug_snapshot!(
+            profile_before_and_after_suspend(not_optimized),
+            @r#"{"Type": "WILDCARD"}"#
+        );
+
+        let fixture = ExistingDocs::doc_ids_only();
+        let optimized = Box::new(NewWildcardIterator::Optimized(
+            OptimizedWildcard::DocIdsOnly(InvIdxWildcard::new(
+                fixture
+                    .typed::<inverted_index::doc_ids_only::DocIdsOnly>()
+                    .reader(),
+                1.0,
+            )),
+        ));
+        insta::assert_debug_snapshot!(
+            profile_before_and_after_suspend(optimized),
+            @r#"{"Type": "WILDCARD"}"#
+        );
+
+        let empty = Box::new(NewWildcardIterator::Empty(Empty));
+        insta::assert_debug_snapshot!(
+            profile_before_and_after_suspend(empty),
+            @r#"{"Type": "EMPTY"}"#
+        );
+
+        let disk = Box::new(NewWildcardIterator::Disk(*mock_disk_wildcard(
+            MockRevalidateResult::Ok,
+        )));
+        insta::assert_debug_snapshot!(
+            profile_before_and_after_suspend(disk),
+            @r#"{"Type": "MOCK"}"#
+        );
+    }
 }

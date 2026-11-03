@@ -136,7 +136,9 @@ impl<'index, I: RQEIterator<'index>> Profile<'index, I> {
             _marker: std::marker::PhantomData,
         }
     }
+}
 
+impl<Rf: Ref, I> RawProfile<Rf, I> {
     /// Returns a reference to the child iterator.
     #[inline]
     pub const fn child(&self) -> &I {
@@ -233,9 +235,9 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for Profile<'index, I> 
 
 use crate::profile_print::{ProfilePrint, ProfilePrintCtx};
 
-impl<'index, I> ProfilePrint for Profile<'index, I>
+impl<Rf: Ref, I> ProfilePrint for RawProfile<Rf, I>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let counters = self.counters();

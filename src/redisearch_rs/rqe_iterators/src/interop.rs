@@ -63,6 +63,15 @@ where
     state: WrapperState<'index, I>,
 }
 
+/// Borrow of whichever form of the iterator a [`RQEIteratorWrapper`] currently
+/// holds, returned by [`RQEIteratorWrapper::state`].
+pub enum InnerState<'a, A, S> {
+    /// The wrapper holds the active iterator, valid for reads and positioning.
+    Active(&'a A),
+    /// The wrapper holds the suspended iterator, which holds no index references.
+    Suspended(&'a S),
+}
+
 /// Whether an [`RQEIteratorWrapper`]'s iterator is active or suspended.
 enum WrapperState<'index, I>
 where
@@ -131,13 +140,31 @@ where
     I: RQEIteratorBoxed<'index> + 'index,
 {
     /// Borrow the iterator. Panics if it is suspended.
+    ///
+    /// Use [`state`](Self::state) where the wrapper may be suspended.
     pub fn inner(&self) -> &I {
         self.state.active_ref()
     }
 
-    /// Mutably borrow the iterator. Panics if it is suspended.
+    /// Mutably borrow the iterator. Panics if it is suspended. See [`inner`](Self::inner).
     pub fn inner_mut(&mut self) -> &mut I {
         self.state.active_mut()
+    }
+
+    /// Borrow whichever form of the iterator is live, for callbacks C may invoke
+    /// while the iterator is suspended, such as `FT.PROFILE` printing.
+    ///
+    /// Only read query-owned data through the suspended form: it holds no index
+    /// references. Reading and positioning go through [`inner_mut`](Self::inner_mut),
+    /// which panics on a suspended wrapper.
+    pub fn state(&self) -> InnerState<'_, I, I::Suspended> {
+        match &self.state {
+            WrapperState::Active(active) => InnerState::Active(active),
+            WrapperState::Suspended(suspended) => InnerState::Suspended(suspended),
+            WrapperState::Empty => {
+                panic!("RQEIteratorWrapper accessed mid-transition (Empty state)")
+            }
+        }
     }
 
     /// Point the header's `current` at the iterator's
@@ -655,7 +682,14 @@ unsafe extern "C" fn print_profile<'index, I: ProfilePrint + RQEIteratorBoxed<'i
     let map = unsafe { &mut *(map as *mut redis_reply::MapBuilder<'_>) };
     // SAFETY: ctx is a valid &mut ProfilePrintCtx per precondition.
     let ctx = unsafe { &mut *(ctx as *mut crate::profile_print::ProfilePrintCtx<'_>) };
-    wrapper.inner().print_profile(map, ctx);
+    // `FT.PROFILE` introspection runs after the root iterator has been suspended
+    // at the unlock site, so the wrapper may be in either state here. Both forms
+    // implement `ProfilePrint` (the profile fields are mode-independent), so print
+    // whichever is live.
+    match wrapper.state() {
+        InnerState::Active(it) => it.print_profile(map, ctx),
+        InnerState::Suspended(it) => it.print_profile(map, ctx),
+    }
 }
 
 /// Apply a post-construction mutation to the vtable of a freshly-boxed iterator.

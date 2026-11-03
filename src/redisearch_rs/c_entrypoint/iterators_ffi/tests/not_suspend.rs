@@ -253,3 +253,22 @@ fn an_optimized_not_iterator_whose_current_document_was_collected_moves_on_resum
     assert_eq!(it.current().map(|r| r.doc_id), Some(5));
     assert_eq!(next_doc_id(&mut it), None);
 }
+
+/// `FT.PROFILE` prints the tree after the query has suspended it, so a suspended NOT must print
+/// as its active form did, child included.
+#[rstest]
+fn a_suspended_not_iterator_prints_the_profile_of_its_active_form(
+    #[values(Variant::Not, Variant::NotOptimized)] variant: Variant,
+) {
+    let mut it = not_iterator(variant);
+    assert_eq!(next_doc_id(&mut it), Some(1));
+    let active = rqe_iterators_test_utils::profile_of(&*it);
+
+    let suspended = rqe_iterators_test_utils::profile_of(&*it.suspend());
+
+    assert_eq!(suspended, active);
+    assert_eq!(
+        format!("{suspended:?}"),
+        r#"{"Type": "NOT", "Child iterator": {"Type": "ID-LIST-SORTED"}}"#,
+    );
+}

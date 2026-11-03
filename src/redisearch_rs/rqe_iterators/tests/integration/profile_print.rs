@@ -12,7 +12,7 @@
 use redis_mock::reply::{ReplyValue, capture_replies};
 use redis_reply::{RedisModuleCtx, Replier};
 use rqe_iterators::{
-    RQEIterator, UnionFullFlat,
+    RQEIterator, RQEIteratorBoxed, UnionFullFlat,
     profile::ProfileCounters,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -65,6 +65,23 @@ fn print_with_counters<I: ProfilePrint>(
         let mut map = replier.map();
         iter.print_profile(&mut map, &mut ctx);
     })
+}
+
+/// Print `iter`'s profile before and after suspending it, assert both match, and return it.
+///
+/// `FT.PROFILE` prints the tree after the query has suspended it, so the suspended form must
+/// report what the active one did.
+fn print_active_and_suspended<'index, I: RQEIteratorBoxed<'index> + ProfilePrint>(
+    replier: &mut Replier,
+    iter: Box<I>,
+) -> ReplyValue {
+    let active = print(replier, &*iter, false);
+    let suspended = print(replier, &*iter.suspend(), false);
+    assert_eq!(
+        suspended, active,
+        "the suspended form must print as the active one"
+    );
+    suspended
 }
 
 // ── Leaf iterators ──────────────────────────────────────────────
@@ -192,6 +209,22 @@ fn profile_wrapping_empty_after_reads() {
     insta::assert_debug_snapshot!("after_two_reads", reply);
 }
 
+/// Every node of an `FT.PROFILE` tree is wrapped in a [`Profile`](rqe_iterators::profile::Profile),
+/// so its counters must survive suspending it.
+#[test]
+fn profile_wrapper_suspended_after_reads() {
+    let mut replier = init();
+    let child = rqe_iterators::IdList::<true>::new(vec![1u64, 2, 3]);
+    let mut iter = rqe_iterators::profile::Profile::new(child);
+    let _ = iter.read();
+    let _ = iter.skip_to(3);
+    let reply = print_active_and_suspended(&mut replier, Box::new(iter));
+    insta::assert_debug_snapshot!(
+        reply,
+        @r#"{"Type": "ID-LIST-SORTED", "Number of reading operations": 2}"#
+    );
+}
+
 // ── Not ─────────────────────────────────────────────────────────
 
 #[test]
@@ -267,7 +300,7 @@ fn union_full_print() {
         query_node_type: QueryNodeType::Union,
         query_string: None,
     };
-    let reply = print(&mut replier, &iter, false);
+    let reply = print_active_and_suspended(&mut replier, Box::new(iter));
     insta::assert_debug_snapshot!(reply);
 }
 
@@ -416,7 +449,8 @@ fn term_with_query_term() {
     };
     // Read once to populate the current result with the term.
     let _ = iter.read();
-    let reply = print(&mut replier, &iter, false);
+    // The term is read from the result, which suspending converts in place.
+    let reply = print_active_and_suspended(&mut replier, Box::new(iter));
     insta::assert_debug_snapshot!(reply);
 }
 
