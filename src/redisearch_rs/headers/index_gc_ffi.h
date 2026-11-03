@@ -184,8 +184,11 @@ void ForkGC_sendTerminator(IndexGC *fgc);
  * spec's read/write lock, a bounded number of keys per hold.
  *
  * Returns how the cycle ended; see [`ThreadGCResult`]. Stats of the chunks applied
- * before an early end are kept. On [`ThreadGCResult::Done`], `retained` is set to
- * the number of deleted IDs the cycle left in the set for a later one.
+ * before an early end are kept. `taken` is set to the deletion counter the cycle
+ * reset, read under the lock its copy of the deleted set is taken in so the two
+ * agree; it stays 0 if the cycle ended before. On [`ThreadGCResult::Done`],
+ * `retained` is set to the number of deleted IDs the cycle left in the set for a
+ * later one.
  *
  * # Safety
  *
@@ -193,9 +196,9 @@ void ForkGC_sendTerminator(IndexGC *fgc);
  *    for the duration of this call. The main thread may update its deletion
  *    counter and read its stats meanwhile, so this call borrows no part of it.
  * 2. The calling thread must not hold any spec lock.
- * 3. `retained` must point to a writable `u64`.
+ * 3. `taken` and `retained` must point to a writable `usize` and `u64`.
  */
-enum ThreadGCResult ThreadGC_runScanners(IndexGC *gc, uint64_t *retained);
+enum ThreadGCResult ThreadGC_runScanners(IndexGC *gc, size_t *taken, uint64_t *retained);
 
 /**
  * Receive a field header (field name + unique id).

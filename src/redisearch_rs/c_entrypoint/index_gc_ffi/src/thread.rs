@@ -9,7 +9,9 @@
 
 //! C ABI entrypoint for the in-process GC driver.
 
-use index_gc::{GcError, stats::GcCounters, thread::run_cycle};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use index_gc::{GcError, stats::GcCounters, thread::run_cycle_with};
 use index_spec::IndexSpecWeakRef;
 use tracing::Level;
 use tracing_log_error::log_error;
@@ -34,8 +36,11 @@ pub enum ThreadGCResult {
 /// spec's read/write lock, a bounded number of keys per hold.
 ///
 /// Returns how the cycle ended; see [`ThreadGCResult`]. Stats of the chunks applied
-/// before an early end are kept. On [`ThreadGCResult::Done`], `retained` is set to
-/// the number of deleted IDs the cycle left in the set for a later one.
+/// before an early end are kept. `taken` is set to the deletion counter the cycle
+/// reset, read under the lock its copy of the deleted set is taken in so the two
+/// agree; it stays 0 if the cycle ended before. On [`ThreadGCResult::Done`],
+/// `retained` is set to the number of deleted IDs the cycle left in the set for a
+/// later one.
 ///
 /// # Safety
 ///
@@ -43,10 +48,11 @@ pub enum ThreadGCResult {
 ///    for the duration of this call. The main thread may update its deletion
 ///    counter and read its stats meanwhile, so this call borrows no part of it.
 /// 2. The calling thread must not hold any spec lock.
-/// 3. `retained` must point to a writable `u64`.
+/// 3. `taken` and `retained` must point to a writable `usize` and `u64`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ThreadGC_runScanners(
     gc: *mut ffi::IndexGC,
+    taken: *mut usize,
     retained: *mut u64,
 ) -> ThreadGCResult {
     debug_assert!(!gc.is_null(), "ThreadGC_runScanners needs a GC");
@@ -67,7 +73,23 @@ pub unsafe extern "C" fn ThreadGC_runScanners(
     // them only under the spec's write lock.
     let mut stats = unsafe { GcCounters::new(counters) };
 
-    match run_cycle(&mut spec, &mut stats, clean_numeric_empty_nodes) {
+    // SAFETY: (1) `gc` is valid; this only takes the counter's address.
+    let counter = unsafe { &raw mut (*gc).deletedOrUpdatedDocsFromLastRun };
+    // SAFETY: caller guarantees (3).
+    unsafe { taken.write(0) };
+    let reset_counter = || {
+        // SAFETY: (1) the counter is valid for the call, and C updates it only atomically.
+        let counter = unsafe { AtomicUsize::from_ptr(counter) };
+        // SAFETY: caller guarantees (3).
+        unsafe { taken.write(counter.swap(0, Ordering::Relaxed)) };
+    };
+
+    match run_cycle_with(
+        &mut spec,
+        &mut stats,
+        clean_numeric_empty_nodes,
+        reset_counter,
+    ) {
         Ok(report) => {
             tracing::debug!(
                 read_locks = report.read_locks,

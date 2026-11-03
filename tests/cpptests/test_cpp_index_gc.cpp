@@ -889,9 +889,11 @@ TEST_F(ThreadGCTest, testRunScannersCollectsTheTrackedDeletions) {
   ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
   ASSERT_EQ(1, trackedDeletions());
 
+  size_t taken = 0;
   uint64_t retained = UINT64_MAX;
-  ASSERT_EQ(THREAD_GC_DONE, ThreadGC_runScanners(fgc, &retained));
+  ASSERT_EQ(THREAD_GC_DONE, ThreadGC_runScanners(fgc, &taken, &retained));
   ASSERT_EQ(0, retained);
+  ASSERT_EQ(1, taken) << "the cycle took the deletion it collected";
 
   ASSERT_EQ(0, trackedDeletions());
   ASSERT_EQ(1, get_spec(ism)->stats.numRecords);
@@ -909,8 +911,9 @@ TEST_F(ThreadGCTest, testRunScannersReportsADroppedSpec) {
   WeakRef index = fgc->index;
   fgc->index = dropped;
 
+  size_t taken = 0;
   uint64_t retained = 0;
-  ThreadGCResult result = ThreadGC_runScanners(fgc, &retained);
+  ThreadGCResult result = ThreadGC_runScanners(fgc, &taken, &retained);
 
   fgc->index = index;
   WeakRef_Release(dropped);

@@ -1917,7 +1917,8 @@ DEBUG_COMMAND(VecsimInfo) {
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
-  GET_SEARCH_CTX(argv[2]);
+  // Write-locked: opening the vector index may create it, and a THREAD GC cycle reads it.
+  GET_SEARCH_CTX_WRITE(argv[2]);
 
   FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
   if (!fs) {
@@ -1952,7 +1953,8 @@ DEBUG_COMMAND(VecsimRelabelSupported) {
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
-  GET_SEARCH_CTX(argv[2]);
+  // Write-locked: opening the vector index may create it, and a THREAD GC cycle reads it.
+  GET_SEARCH_CTX_WRITE(argv[2]);
 
   FieldSpec *fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
   if (!fs) {
@@ -2046,7 +2048,8 @@ DEBUG_COMMAND(dumpHNSWData) {
   if (SearchDisk_IsEnabled()) {
     return RedisModule_ReplyWithError(ctx, "Command not supported in disk mode");
   }
-  GET_SEARCH_CTX(argv[2])
+  // Write-locked: opening the vector index may create it, and a THREAD GC cycle reads it.
+  GET_SEARCH_CTX_WRITE(argv[2])
 
   fs = getFieldByNameAndType(sctx->spec, argv[3], INDEXFLD_T_VECTOR);
   if (!fs) {

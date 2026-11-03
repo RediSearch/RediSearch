@@ -150,19 +150,25 @@ def testThreadGCRunsWhileAnotherChildHoldsTheForkSlot():
     add_docs(conn, 'doc:', 20)
     conn.execute_command('DEL', 'doc:0')
 
-    env.expect('CONFIG', 'SET', 'rdb-key-save-delay', 100000).ok()  # 0.1s per key
-    env.cmd('BGSAVE')
-    env.assertEqual(env.cmd('INFO', 'persistence')['rdb_bgsave_in_progress'], 1)
+    # A save that ends before the GC does proves nothing, so a slow host retries with
+    # a longer one; the test fails only if the GC never runs inside a save.
+    overlapped = False
+    for delay_us in (100_000, 500_000, 2_000_000):  # per key, 20 keys
+        env.expect('CONFIG', 'SET', 'rdb-key-save-delay', delay_us).ok()
+        env.cmd('BGSAVE')
+        env.assertEqual(env.cmd('INFO', 'persistence')['rdb_bgsave_in_progress'], 1)
 
-    # forceInvokeGC waits for the BGSAVE to finish first, so call the debug
-    # command directly.
-    env.cmd(debug_cmd(), 'GC_FORCEINVOKE', 'idx')
+        # forceInvokeGC waits for the BGSAVE to finish first, so call the debug
+        # command directly.
+        env.cmd(debug_cmd(), 'GC_FORCEINVOKE', 'idx')
 
-    env.assertEqual(env.cmd('INFO', 'persistence')['rdb_bgsave_in_progress'], 1)
+        overlapped = env.cmd('INFO', 'persistence')['rdb_bgsave_in_progress'] == 1
+        env.expect('CONFIG', 'SET', 'rdb-key-save-delay', 0).ok()
+        waitForRdbSaveToFinish(env)
+        if overlapped:
+            break
+    env.assertTrue(overlapped, message='no forced GC ran while a BGSAVE child held the fork slot')
     env.assertEqual(env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello'), list(range(2, 21)))
-
-    env.expect('CONFIG', 'SET', 'rdb-key-save-delay', 0).ok()
-    waitForRdbSaveToFinish(env)
 
 
 @skip(cluster=True)
@@ -173,16 +179,30 @@ def testThreadGCKeepsConcurrentQueriesCorrect():
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
     add_docs(conn, 'doc:', 2000)
+    # Never deleted, so every search for them must find exactly them while cycles
+    # rewrite the blocks around them.
+    stable = {f'stable:{i}' for i in range(200)}
+    for key in stable:
+        conn.execute_command('HSET', key, 't', 'steady', 'n', 100)
 
     errors = []
     stop = threading.Event()
+
+    def check(reply, what):
+        ids = reply[1:]
+        if reply[0] != len(stable) or len(ids) != len(set(ids)) or {
+                i.decode() if isinstance(i, bytes) else i for i in ids} != stable:
+            errors.append(f'{what}: {reply[0]} results, {len(ids)} ids, {len(set(ids))} distinct')
 
     def query_loop():
         query_conn = getConnectionByEnv(env)
         while not stop.is_set():
             try:
                 query_conn.execute_command('FT.SEARCH', 'idx', 'hello', 'LIMIT', 0, 1000, 'NOCONTENT')
-                query_conn.execute_command('FT.SEARCH', 'idx', '@n:[0 5]', 'LIMIT', 0, 1000, 'NOCONTENT')
+                check(query_conn.execute_command('FT.SEARCH', 'idx', 'steady', 'LIMIT', 0, 1000, 'NOCONTENT'),
+                      'text')
+                check(query_conn.execute_command('FT.SEARCH', 'idx', '@n:[100 100]', 'LIMIT', 0, 1000,
+                                                 'NOCONTENT'), 'numeric')
             except Exception as e:  # noqa: BLE001 - any error fails the test below
                 errors.append(e)
 
@@ -201,7 +221,10 @@ def testThreadGCKeepsConcurrentQueriesCorrect():
 
     env.assertEqual(errors, [])
     env.assertEqual(env.cmd('FT.SEARCH', 'idx', 'hello', 'LIMIT', 0, 0), [0])
-    env.assertEqual(index_info(env, 'idx')['num_records'], 0)
+    # Only the stable docs' records are left: as many as a fresh index over them holds.
+    env.expect('FT.CREATE', 'fresh', *SCHEMA).ok()
+    waitForIndex(env, 'fresh')
+    env.assertEqual(index_info(env, 'idx')['num_records'], index_info(env, 'fresh')['num_records'])
 
 
 @skip(cluster=True)
