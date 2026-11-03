@@ -2009,7 +2009,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       nArrs++;
       for (size_t j = 0; j < MRReply_Length(replies[i]); j++) {
         // No warning channel for a partial set: a stop fails it.
-        if (QueryMemory_ShouldStop(NULL, &memoryCheckCalls)) {
+        if (QueryMemory_Checkpoint(NULL, &memoryCheckCalls)) {
           RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
           goto cleanup;
         }
