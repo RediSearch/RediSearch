@@ -14,6 +14,7 @@
 #include "gtest/gtest.h"
 #include "search_result_ffi.h"
 #include "config.h"
+#include "query_memory.h"
 #include "hybrid/hybrid_scoring.h"
 #include "hybrid/hybrid_lookup_context.h"  // For HybridLookupContext
 #include "search_result.h"
@@ -66,6 +67,8 @@ struct MockUpstream : public ResultProcessor {
     : timeoutAfterCount(timeoutAfterCount), errorAfterCount(errorAfterCount), scores(Scores), docIds(DocIds), flags(Flags), depletionCount(depletionCount) {
 
     this->Next = NextFn;
+    // Not part of a pipeline: the merger reads an upstream's pipeline context only when set.
+    this->parent = nullptr;
     documentMetadata.reserve(50);
 
     // If no custom docIds provided, generate sequential ones
@@ -245,7 +248,18 @@ ResultProcessor* CreateRRFHybridMerger(ResultProcessor **upstreams, size_t numUp
 
 
 
-class HybridMergerTest : public ::testing::Test {};
+class HybridMergerTest : public ::testing::Test {
+ protected:
+  // The dummy sctx's timeout is shared by every test, and QueryRequestLimits_Reset keeps a
+  // recorded stop. Clear it here so a memory stop injected by one test cannot truncate another
+  // under shuffle or repeat.
+  void TearDown() override {
+    QueryMemory_ResetFakePressure();
+    QueryRequestLimits *timeout = GetDummySearchCtx()->limits;
+    QueryRequestLimits_BeginCycle(timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    QueryRequestLimits_Reset(timeout);
+  }
+};
 
 namespace {
 constexpr size_t kMaxInitialAllocation = 65536 * sizeof(void *);
@@ -1562,4 +1576,135 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   SearchResult_Destroy(&r);
   CleanupDummyLookupContext(lookupCtx);
   hybridMerger->Free(hybridMerger);
+}
+
+// A memory stop on the first upstream must not hide a later upstream's terminal error: the
+// drained upstream still buffers rows before it ends in ERROR.
+TEST_F(HybridMergerTest, MemoryStopStillSurfacesLaterUpstreamError) {
+  auto previousPolicy = RSGlobalConfig.requestConfigParams.oomPolicy;
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
+  QueryMemory_SetPressureAtCall(1);
+
+  MockUpstream stopped(0, {1.0, 2.0});
+  MockUpstream failing(0, {1.0, 2.0}, {}, 0, 2);  // two rows, then ERROR
+  arrayof(ResultProcessor *) upstreams = NULL;
+  ResultProcessor *rpStopped = &stopped;
+  ResultProcessor *rpFailing = &failing;
+  array_ensure_append_1(upstreams, rpStopped);
+  array_ensure_append_1(upstreams, rpFailing);
+  double weights[] = {0.5, 0.5};
+  HybridScoringContext *scoring = HybridScoringContext_NewLinear(weights, 2, HYBRID_DEFAULT_WINDOW);
+  HybridLookupContext *lookup = CreateDummyLookupContext(2);
+  RPStatus returnCodes[2] = {RS_RESULT_OK, RS_RESULT_OK};
+  ResultProcessor *merger = RPHybridMerger_New(GetDummySearchCtx(), scoring, upstreams, 2, nullptr,
+                                               nullptr, returnCodes, lookup, nullptr);
+  QueryProcessingCtx qitr = {0};
+  QITR_PushRP(&qitr, merger);
+
+  SearchResult r = SearchResult_New();
+  EXPECT_EQ(RS_RESULT_ERROR, merger->Next(merger, &r));
+  EXPECT_EQ(RS_RESULT_EOF, returnCodes[0]);
+  EXPECT_EQ(RS_RESULT_ERROR, returnCodes[1]);
+
+  SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookup);
+  merger->Free(merger);
+  QueryMemory_ResetFakePressure();
+  RSGlobalConfig.requestConfigParams.oomPolicy = previousPolicy;
+}
+
+TEST_F(HybridMergerTest, MemoryStopStillSurfacesStoppedUpstreamError) {
+  auto previousPolicy = RSGlobalConfig.requestConfigParams.oomPolicy;
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
+  QueryMemory_SetPressureAtCall(1);
+
+  MockUpstream failing(0, {1.0, 2.0}, {}, 0, 2);  // two rows, then ERROR
+  MockUpstream other(0, {1.0, 2.0});
+  arrayof(ResultProcessor *) upstreams = NULL;
+  ResultProcessor *rpFailing = &failing;
+  ResultProcessor *rpOther = &other;
+  array_ensure_append_1(upstreams, rpFailing);
+  array_ensure_append_1(upstreams, rpOther);
+  double weights[] = {0.5, 0.5};
+  HybridScoringContext *scoring = HybridScoringContext_NewLinear(weights, 2, HYBRID_DEFAULT_WINDOW);
+  HybridLookupContext *lookup = CreateDummyLookupContext(2);
+  RPStatus returnCodes[2] = {RS_RESULT_OK, RS_RESULT_OK};
+  ResultProcessor *merger = RPHybridMerger_New(GetDummySearchCtx(), scoring, upstreams, 2, nullptr,
+                                               nullptr, returnCodes, lookup, nullptr);
+  QueryProcessingCtx qitr = {0};
+  QITR_PushRP(&qitr, merger);
+
+  SearchResult r = SearchResult_New();
+  EXPECT_EQ(RS_RESULT_ERROR, merger->Next(merger, &r));
+  EXPECT_EQ(RS_RESULT_ERROR, returnCodes[0]);
+
+  SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookup);
+  merger->Free(merger);
+  QueryMemory_ResetFakePressure();
+  RSGlobalConfig.requestConfigParams.oomPolicy = previousPolicy;
+}
+
+// A blocked-client timeout during the post-stop drain must end it: the timeout callback waits for
+// the merger's thread, so draining a large upstream would block the main thread.
+struct TimeoutDuringDrainUpstream : public MockUpstream {
+  QueryRequestLimits *limits = nullptr;
+  int markAtCall = 0;
+
+  TimeoutDuringDrainUpstream(const std::vector<double> &scores, int markAtCall)
+      : MockUpstream(0, scores), markAtCall(markAtCall) {
+    this->Next = [](ResultProcessor *rp, SearchResult *res) -> int {
+      auto *p = static_cast<TimeoutDuringDrainUpstream *>(rp);
+      int rc = MockUpstream::NextFn(rp, res);
+      // Published from inside the read, so the timeout can only arrive after the stop.
+      if (p->counter == p->markAtCall) {
+        QueryRequestLimits_MarkTimedOut(p->limits);
+      }
+      return rc;
+    };
+  }
+};
+
+TEST_F(HybridMergerTest, MemoryStopDrainAbortsOnBlockedClientTimeout) {
+  auto previousPolicy = RSGlobalConfig.requestConfigParams.oomPolicy;
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
+  QueryMemory_SetPressureAtCall(1);
+
+  const size_t kRows = 1000;
+  // The first row is stored and its checkpoint records the stop; the timeout is published while
+  // the drain reads the second.
+  TimeoutDuringDrainUpstream big(std::vector<double>(kRows, 1.0), 2);
+  MockUpstream other(0, {1.0, 2.0});
+  arrayof(ResultProcessor *) upstreams = NULL;
+  ResultProcessor *rpBig = &big;
+  ResultProcessor *rpOther = &other;
+  array_ensure_append_1(upstreams, rpBig);
+  array_ensure_append_1(upstreams, rpOther);
+  double weights[] = {0.5, 0.5};
+  HybridScoringContext *scoring = HybridScoringContext_NewLinear(weights, 2, HYBRID_DEFAULT_WINDOW);
+  HybridLookupContext *lookup = CreateDummyLookupContext(2);
+  RPStatus returnCodes[2] = {RS_RESULT_OK, RS_RESULT_OK};
+  RedisSearchCtx *sctx = GetDummySearchCtx();
+  ResultProcessor *merger = RPHybridMerger_New(sctx, scoring, upstreams, 2, nullptr, nullptr,
+                                               returnCodes, lookup, nullptr);
+  QueryProcessingCtx qitr = {0};
+  QITR_PushRP(&qitr, merger);
+
+  QueryRequestLimits_BeginCycle(sctx->limits, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  big.limits = sctx->limits;
+
+  SearchResult r = SearchResult_New();
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, merger->Next(merger, &r));
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, returnCodes[0]);
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(sctx->limits));
+  // The first row, which stopped the merger, and the one that carried the timeout; not the
+  // remaining kRows - 2.
+  EXPECT_EQ(big.counter, 2);
+
+  SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookup);
+  merger->Free(merger);
+  QueryRequestLimits_Reset(sctx->limits);
+  QueryMemory_ResetFakePressure();
+  RSGlobalConfig.requestConfigParams.oomPolicy = previousPolicy;
 }

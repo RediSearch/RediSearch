@@ -27,4 +27,8 @@ typedef struct QueryEvalCtx {
   // visiting every branch to accumulate a score. Saved and restored around the
   // child evaluation so nested `NOT`s (e.g. `-(-foo)`) keep it set correctly.
   bool inNotSubTree;
+  // Amortization counter of QueryMemory_ShouldStop for the term expansions of this evaluation.
+  // Shared by every expansion node: each expands fewer terms than the read interval by default,
+  // so a counter per node would never reach a memory read.
+  uint32_t memoryCheckCounter;
 } QueryEvalCtx;

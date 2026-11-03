@@ -302,6 +302,30 @@ TEST_F(HybridStartCursorsTest, TimeoutUnderFailPolicyKeepsTheChainForTheTeardown
   EXPECT_TRUE(freedIds.empty());
 }
 
+// One subquery stops for memory while a sibling's deadline elapses: the depletion result collapses
+// both into a timeout, which ON_TIMEOUT must still decide under ON_OOM RETURN.
+TEST_F(HybridStartCursorsTest, SiblingDeadlineBesideAnOomStopFollowsTheTimeoutPolicy) {
+  TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = TimeoutPolicy_Fail};
+  QueryRequestLimits_Init(&first.base.limits, &timeoutConfig);
+  QueryRequestLimits_Init(&second.base.limits, &timeoutConfig);
+  QueryRequestLimits_RequestMemoryStop(&first.base.limits);
+  *QueryRequestLimits_GetClockDeadlineForUpdate(&second.base.limits) = {0, 0};
+  hybrid.base.reqConfig.oomPolicy = OomPolicy_Return;
+  upstreamRc = RS_RESULT_TIMEDOUT;
+  EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_ERR);
+  EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_TIMED_OUT);
+}
+
+TEST_F(HybridStartCursorsTest, OomStopAloneIgnoresTheTimeoutPolicy) {
+  TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = TimeoutPolicy_Fail};
+  QueryRequestLimits_Init(&first.base.limits, &timeoutConfig);
+  QueryRequestLimits_Init(&second.base.limits, &timeoutConfig);
+  QueryRequestLimits_RequestMemoryStop(&first.base.limits);
+  hybrid.base.reqConfig.oomPolicy = OomPolicy_Return;
+  upstreamRc = RS_RESULT_TIMEDOUT;
+  EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
+}
+
 TEST_F(HybridStartCursorsTest, DepletionErrorKeepsTheChainForTheTeardown) {
   upstreamRc = RS_RESULT_ERROR;
   EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_ERR);

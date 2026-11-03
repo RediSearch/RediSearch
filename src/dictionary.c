@@ -21,6 +21,8 @@
 #include "trie/rune_util.h"
 #include "trie/trie_node.h"
 #include "util/dict/dict.h"
+#include "query_error_ffi.h"
+#include "query_memory.h"
 
 dict *spellCheckDicts = NULL;
 
@@ -83,15 +85,24 @@ void Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName) {
   float score = 0;
   size_t termLen;
 
-  RedisModule_ReplyWithSet(ctx, Trie_Size(t));
+  RedisModule_ReplyWithSet(ctx, REDISMODULE_POSTPONED_LEN);
+  long long count = 0;
+  uint32_t memoryCheckCounter = 0;
 
   TrieIterator *it = Trie_IterateAll(t);
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
+    ++count;
+    // As in TagIndex_SerializeValues: the error in place of the next term.
+    if (QueryMemory_ShouldStop(NULL, &memoryCheckCounter)) {
+      RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+      break;
+    }
     char *res = runesToStr(rstr, slen, &termLen);
     RedisModule_ReplyWithStringBuffer(ctx, res, termLen);
     rm_free(res);
   }
   TrieIterator_Free(it);
+  RedisModule_ReplySetSetLength(ctx, count);
 }
 
 int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

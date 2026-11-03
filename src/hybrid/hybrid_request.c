@@ -9,6 +9,7 @@
 
 #include "hybrid/hybrid_request.h"
 #include "config.h"
+#include "query_memory.h"
 #include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
@@ -73,6 +74,12 @@ void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
   }
 }
 
+// Whether the subquery's term expansions sample memory: as the build reads, under every ON_OOM
+// policy, since a build stop is mapped per ON_OOM here.
+static bool subqueryChecksExpansionMemory(const AREQ *areq) {
+  return IsHybridSearchSubquery(areq);
+}
+
 int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
@@ -97,6 +104,14 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
           rs_wall_clock_init(&areq->profileClocks.initClock);
         }
 
+        // The first subquery's build is the job's first allocation, after any queue wait.
+        if (i == 0 &&
+            QueryMemory_CheckBeforeExecution(&areq->base.limits, areq->base.reqConfig.oomPolicy,
+                                             &areq->base.reply.err) != REDISMODULE_OK) {
+            rc = REDISMODULE_ERR;
+            break;
+        }
+
         // Pin the per-subquery disk view to the same point in time as the in-memory
         // trie/stats that QAST_Iterate is about to consult. Callers hold the spec read
         // lock at this point (matching AREQ_Execute_Callback / HREQ_Execute_Callback).
@@ -106,6 +121,10 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &areq->base.reply.err) != REDISMODULE_OK) {
             rc = REDISMODULE_ERR;
             break;
+        }
+
+        if (subqueryChecksExpansionMemory(areq)) {
+          areq->searchopts.flags |= Search_CheckExpansionMemory;
         }
 
         // Parse subquery: Convert AST to iterator tree
@@ -127,8 +146,17 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackg
         if (isProfile) {
           areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
         }
+        if (rc == REDISMODULE_OK) {
+          rc = QueryMemory_CheckBeforeExecution(&areq->base.limits, areq->base.reqConfig.oomPolicy,
+                                                &areq->base.reply.err);
+        }
         if (rc != REDISMODULE_OK) {
             break;
+        }
+        // A subquery stopped at build under ON_OOM RETURN reads no row: its depleter, which may
+        // run on another thread, starts only after this.
+        if (QueryRequestLimits_IsMemoryStopped(&areq->base.limits)) {
+          RP_EndRowSourceOnStop(AREQ_QueryProcessingCtx(areq));
         }
 
         // Obtain the query processing context for the current AREQ
@@ -351,7 +379,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize the tail pipeline that will merge results from all requests
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
-    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->base.limits.timeout.config.timeoutPolicy, &hybridReq->base.reply.err);
+    Pipeline_Initialize(hybridReq->tailPipeline, &hybridReq->base);
     QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
     // Capture the background-scan-OOM warning flag while the spec is guaranteed
     // alive (main-thread command handling). The reply path reads only this
@@ -364,7 +392,7 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->base.limits.timeout.config.timeoutPolicy, &requests[i]->base.reply.err);
+        Pipeline_Initialize(&requests[i]->pipeline, &requests[i]->base);
     }
     hybridReq->profileClocks.initClock = now;
 
@@ -459,6 +487,10 @@ void HybridRequest_Free(HybridRequest *req) {
 
 static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
     return code == QUERY_ERROR_CODE_NO_PROP_VAL;
+}
+
+bool HybridRequest_IsSoftTailError(const QueryError *err) {
+  return QueryError_HasError(err) && isSoftTailPipelineErrorCode(QueryError_GetCode(err));
 }
 
 /* Borrow the first fatal error. Soft tail errors stay in the request for warning serialization. */

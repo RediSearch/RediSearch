@@ -395,4 +395,87 @@ TEST_F(ApplyOomStopTest, ReturnEndsTheResultWithTheOomWarning) {
   EXPECT_TRUE(QueryError_HasQueryOOMWarning(&err_));
 }
 
+TEST_F(ApplyOomStopTest, ABlockedClientTimeoutKeepsItsOutcome) {
+  TimeoutConfig config = {1000, TimeoutPolicy_ReturnStrict};
+  QueryRequestLimits_Init(&timeout_, &config);
+  QueryRequestLimits_BeginCycle(&timeout_, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_RequestMemoryStop(&timeout_);
+  QueryRequestLimits_MarkTimedOut(&timeout_);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Return, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_TRUE(QueryError_IsOk(&err_));
+  EXPECT_FALSE(QueryError_HasQueryOOMWarning(&err_));
+}
+
+// Stops the request for memory and, when `timedOut`, fires its timeout too.
+static void stopForMemory(QueryRequestLimits *limits, RSTimeoutPolicy policy, bool timedOut) {
+  TimeoutConfig config = {0, policy};
+  QueryRequestLimits_Init(limits, &config);
+  if (timedOut) {
+    // An elapsed clock deadline: a blocked-client timeout owns the reply and is covered apart.
+    *QueryRequestLimits_GetClockDeadlineForUpdate(limits) = {0, 0};
+  }
+  QueryRequestLimits_RequestMemoryStop(limits);
+}
+
+TEST_F(ApplyOomStopTest, OomReturnKeepsATimeoutThatAlsoFired) {
+  // The timeout error (ON_TIMEOUT FAIL) or warning (RETURN) is derived from the TIMEDOUT rc;
+  // the OOM warning rides along.
+  for (RSTimeoutPolicy policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return}) {
+    QueryRequestLimits limits = {};
+    stopForMemory(&limits, policy, true);
+    EXPECT_EQ(ApplyOomStop(&limits, OomPolicy_Return, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT)
+        << "timeout policy " << policy;
+    EXPECT_TRUE(QueryError_IsOk(&err_));
+    EXPECT_TRUE(QueryError_HasQueryOOMWarning(&err_));
+    QueryError_ClearError(&err_);
+  }
+}
+
+TEST_F(ApplyOomStopTest, OomReturnEndsWithEofWhenOnlyMemoryStopped) {
+  for (RSTimeoutPolicy policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return}) {
+    QueryRequestLimits limits = {};
+    stopForMemory(&limits, policy, false);
+    EXPECT_EQ(ApplyOomStop(&limits, OomPolicy_Return, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_EOF)
+        << "timeout policy " << policy;
+    EXPECT_TRUE(QueryError_HasQueryOOMWarning(&err_));
+    QueryError_ClearError(&err_);
+  }
+}
+
+TEST_F(ApplyOomStopTest, OomFailBeatsATimeoutThatAlsoFired) {
+  for (RSTimeoutPolicy policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return}) {
+    QueryRequestLimits limits = {};
+    stopForMemory(&limits, policy, true);
+    EXPECT_EQ(ApplyOomStop(&limits, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR)
+        << "timeout policy " << policy;
+    EXPECT_EQ(QueryError_GetCode(&err_), QUERY_ERROR_CODE_OUT_OF_MEMORY);
+    QueryError_ClearError(&err_);
+  }
+}
+
 }  // namespace
+
+TEST_F(QueryMemoryTest, BuildCheckReadsMemoryOnEveryCall) {
+  // At the default interval: the build stages are each checked once per query.
+  QueryError err = QueryError_Default();
+  fakeRatio = 0.5f;
+  EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Fail, &err), REDISMODULE_OK);
+  EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Fail, &err), REDISMODULE_OK);
+  EXPECT_EQ(fakeRatioReads.load(), 2u);
+  EXPECT_TRUE(QueryError_IsOk(&err));
+
+  fakeRatio = 1.0f;
+  EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Fail, &err), REDISMODULE_ERR);
+  EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_OUT_OF_MEMORY);
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
+  QueryError_ClearError(&err);
+}
+
+TEST_F(QueryMemoryTest, BuildCheckUnderReturnOnlyRequestsTheStop) {
+  QueryError err = QueryError_Default();
+  fakeRatio = 1.0f;
+  EXPECT_EQ(QueryMemory_CheckBeforeExecution(&timeout_, OomPolicy_Return, &err), REDISMODULE_OK);
+  EXPECT_TRUE(QueryError_IsOk(&err));
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
+}
