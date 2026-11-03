@@ -302,13 +302,11 @@ bool QueryRequestLimits_IsTimedOutExact(const QueryRequestLimits *limits);
 bool QueryRequestLimits_IsBlockedClientTimedOut(const QueryRequestLimits *limits);
 
 /**
- * Reports whether a row or reply loop should stop producing: a memory stop was
- * requested, or the blocked-client timeout callback fired. Unlike
- * QueryRequestLimits_IsTimedOut it never reads the clock, so it suits
- * per-row checks that previously used IsBlockedClientTimedOut; unlike that
- * call it must not be used to decide who owns the reply.
+ * Whether a loop should stop producing rows. Call it per row or per reply
+ * element: it is cheap, but may not yet see an elapsed deadline, which the
+ * iterators' own checks catch. Not for deciding who owns the reply.
  */
-static inline bool QueryRequest_ShouldStop(const QueryRequestLimits *limits) {
+static inline bool QueryRequestLimits_ShouldStop(const QueryRequestLimits *limits) {
   // QueryRequestLimits_IsBlockedClientTimedOut, inlined: per-row loops call this.
   return QueryRequestLimits_IsMemoryStopped(limits) ||
          (limits->timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT &&
@@ -316,10 +314,12 @@ static inline bool QueryRequest_ShouldStop(const QueryRequestLimits *limits) {
 }
 
 /**
- * QueryRequestLimits_IsTimedOutExact, or a memory stop. For once-per-cycle
- * decisions that must treat a memory stop like a detected timeout.
+ * Whether the query should stop, never missing an elapsed deadline. Call it
+ * once at a point that decides the outcome (before starting work, after
+ * collecting results); too costly for per-row loops. Callers report a stop as
+ * RS_RESULT_TIMEDOUT and the reply boundary applies ON_OOM.
  */
-bool QueryRequestLimits_IsTimedOutOrStopped(const QueryRequestLimits *limits);
+bool QueryRequestLimits_ShouldStopExact(const QueryRequestLimits *limits);
 
 /**
  * Primary timeout operation:
