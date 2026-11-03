@@ -286,6 +286,17 @@ impl NumericRange {
         self.fold_entries_from(fold_from, bounds);
     }
 
+    /// Widen the range's bounds to include every value in `bounds`.
+    pub(crate) const fn cover(&mut self, bounds: ValueBounds) {
+        let mut own = ValueBounds {
+            min: self.min_val,
+            max: self.max_val,
+        };
+        own.merge(bounds);
+        self.min_val = own.min;
+        self.max_val = own.max;
+    }
+
     /// Add the entries with an ID of at least `from` to the HLL and to `bounds`,
     /// then make `bounds` the range's bounds.
     ///

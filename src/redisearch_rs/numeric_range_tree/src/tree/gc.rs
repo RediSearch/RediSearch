@@ -133,6 +133,16 @@ impl NumericRangeTree {
         delta: NodeGcDelta,
         live: Option<&dyn inverted_index::DocLiveness>,
     ) -> Option<SingleNodeGcResult> {
+        // The bounds an internal node must keep whatever its delta removes: its
+        // children may hold entries that were split into them after the scan.
+        let children_bounds = match self.nodes.get(node_idx)? {
+            NumericRangeNode::Internal(internal) => {
+                let mut bounds = self.subtree_bounds(internal.left_index());
+                bounds.merge(self.subtree_bounds(internal.right_index()));
+                Some(bounds)
+            }
+            NumericRangeNode::Leaf(_) => None,
+        };
         let node = self.nodes.get_mut(node_idx)?;
         let is_leaf = node.is_leaf();
         // A leaf that split since its scan copied its entries, the ones the delta removes
@@ -190,6 +200,9 @@ impl NumericRangeTree {
                 delta.bounds_without_last_block,
             ),
         );
+        if let Some(children_bounds) = children_bounds {
+            range.cover(children_bounds);
+        }
 
         // Track empty ranges (only count leaves, and only on transition to empty).
         let is_now_empty = range.entries().num_docs() == 0;
@@ -218,6 +231,24 @@ impl NumericRangeTree {
             index_gc_info: info,
             became_empty,
         })
+    }
+
+    /// Bounds covering every value in the subtree at `node_idx`: a node's own
+    /// range covers its subtree, so the walk stops at the first one.
+    fn subtree_bounds(&self, node_idx: NodeIndex) -> ValueBounds {
+        match self.node(node_idx) {
+            NumericRangeNode::Internal(internal) if internal.range.is_none() => {
+                let mut bounds = self.subtree_bounds(internal.left_index());
+                bounds.merge(self.subtree_bounds(internal.right_index()));
+                bounds
+            }
+            node => node
+                .range()
+                .map_or(ValueBounds::EMPTY, |range| ValueBounds {
+                    min: range.min_val(),
+                    max: range.max_val(),
+                }),
+        }
     }
 
     /// Returns `true` if the tree has enough empty leaves to warrant compaction.
