@@ -3487,7 +3487,7 @@ static bool should_return_error(const searchRequestCtx *req, QueryErrorCode errC
 // leave the main thread merging every queued shard reply.
 static inline bool replyMergeShouldStop(searchRequestCtx *req, bool fromTimeout) {
   return fromTimeout ? QueryRequestLimits_IsMemoryStopped(&req->base.limits)
-                     : QueryRequest_ShouldStop(&req->base.limits);
+                     : QueryRequestLimits_ShouldStop(&req->base.limits);
 }
 
 static int searchResultReducer(searchRequestCtx *req, int count, MRReply **replies,
