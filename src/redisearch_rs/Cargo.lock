@@ -183,6 +183,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "175812e0be2bccb6abe50bb8d566126198344f707e304f45c648fd8f2cc0365e"
 
 [[package]]
+name = "bytemuck"
+version = "1.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95832e849adfb21180ccb6826a99da14e5d266ae5c2e668e1602cf234f153797"
+
+[[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
 name = "bytes"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -547,6 +559,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "doc_key_map_ffi"
+version = "0.0.1"
+dependencies = [
+ "ahash",
+ "hashbrown",
+ "rqe_core",
+ "workspace_hack",
+]
+
+[[package]]
 name = "document"
 version = "0.0.1"
 dependencies = [
@@ -752,53 +774,6 @@ name = "fnv_ffi"
 version = "0.0.1"
 dependencies = [
  "fnv",
- "workspace_hack",
-]
-
-[[package]]
-name = "fork_gc"
-version = "0.0.1"
-dependencies = [
- "build_utils",
- "c_trie",
- "dict",
- "ffi",
- "field_spec",
- "fork_gc",
- "global_config",
- "hidden_string",
- "index_result",
- "index_spec",
- "inverted_index",
- "libc",
- "nix",
- "nul_terminated_bytes",
- "numeric_range_tree",
- "proptest",
- "redis-module",
- "redis_mock",
- "redisearch_rs",
- "rmp-serde",
- "rqe_core",
- "serde",
- "string_utils",
- "thiserror",
- "tracing",
- "workspace_hack",
-]
-
-[[package]]
-name = "fork_gc_ffi"
-version = "0.0.1"
-dependencies = [
- "cheadergen",
- "ffi",
- "fork_gc",
- "index_spec",
- "nul_terminated_bytes",
- "redis-module",
- "tracing",
- "tracing_log_error",
  "workspace_hack",
 ]
 
@@ -1104,6 +1079,57 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "idf",
+ "workspace_hack",
+]
+
+[[package]]
+name = "index_gc"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "c_trie",
+ "dict",
+ "ffi",
+ "field_spec",
+ "global_config",
+ "hidden_string",
+ "index_gc",
+ "index_result",
+ "index_spec",
+ "inverted_index",
+ "lending-iterator",
+ "libc",
+ "nix",
+ "nul_terminated_bytes",
+ "numeric_range_tree",
+ "proptest",
+ "redis-module",
+ "redis_mock",
+ "redisearch_rs",
+ "rmp-serde",
+ "roaring",
+ "rqe_core",
+ "serde",
+ "serde_bytes",
+ "string_utils",
+ "thiserror",
+ "tracing",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "index_gc_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "ffi",
+ "index_gc",
+ "index_spec",
+ "nul_terminated_bytes",
+ "redis-module",
+ "tracing",
+ "tracing_log_error",
  "workspace_hack",
 ]
 
@@ -1573,6 +1599,8 @@ dependencies = [
  "ref_mode",
  "rqe_core",
  "rstest",
+ "serde",
+ "serde_bytes",
  "tracing",
  "workspace_hack",
 ]
@@ -1893,6 +1921,7 @@ dependencies = [
  "build_utils",
  "c_trie",
  "dict",
+ "doc_key_map_ffi",
  "fat_array",
  "ffi",
  "field",
@@ -2199,10 +2228,11 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
+ "doc_key_map_ffi",
  "fnv_ffi",
- "fork_gc_ffi",
  "geo_ffi",
  "idf_ffi",
+ "index_gc_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "metrics_ffi",
@@ -2450,6 +2480,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "roaring"
+version = "0.11.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18bd8a37d17a58532776dcdf6041ce64929adca78e8489d5cacbafe99229d3e1"
+dependencies = [
+ "bytemuck",
+ "byteorder",
+]
+
+[[package]]
 name = "rqe_core"
 version = "0.0.1"
 dependencies = [
@@ -2570,11 +2610,12 @@ version = "0.0.1"
 dependencies = [
  "build_utils",
  "criterion",
+ "doc_key_map_ffi",
  "ffi",
  "fnv_ffi",
- "fork_gc_ffi",
  "geo_ffi",
  "idf_ffi",
+ "index_gc_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "memchr",
@@ -2715,9 +2756,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -2831,6 +2872,16 @@ checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5d440709e79d88e51ac01c4b72fc6cb7314017bb7da9eeff678aa94c10e3ea8"
+dependencies = [
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -3856,9 +3907,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.8"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf85cb06032201fa7c6f829d7db5a7e5aa45bcc0655327713065f6f0576731bf"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -4027,6 +4078,7 @@ dependencies = [
  "miniz_oxide",
  "nix",
  "num-traits 0.2.19",
+ "once_cell",
  "ppv-lite86",
  "proc-macro2",
  "quote 1.0.46",

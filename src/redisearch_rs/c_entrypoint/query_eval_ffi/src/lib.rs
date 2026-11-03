@@ -17,7 +17,8 @@ use ffi::{
     ResultProcessor,
 };
 use query_eval::{
-    Config, QueryEvalContext, QueryIteratorTree, QueryNodeMut, scorers::BuiltInScorer,
+    Config, DocIdCoverage, QueryEvalContext, QueryIteratorTree, QueryNodeMut,
+    scorers::BuiltInScorer,
 };
 use rqe_iterators::{IteratorsConfig, c2rust::CRQEIterator};
 use slots_tracker::SlotRangeArray;
@@ -65,15 +66,18 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
 ///    a valid [`RSQueryNode`](ffi::RSQueryNode); it (and its
 ///    `metricRequests`/`config` fields) must stay valid and exclusively borrowed
 ///    for the duration of the call. The root's subtree must also satisfy
-///    invariants (4) and (5) of [`QueryNodeMut::new`], since evaluation
-///    rewrites tokens in place.
+///    invariants (4), (5), and (6) of [`QueryNodeMut::new`], since evaluation
+///    rewrites tokens in place and reads deferred INKEYS arguments.
 /// 2. `opts` must be a non-null pointer to a valid [`RSSearchOptions`].
 /// 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
 ///    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec). `sctx` and the
-///    request timeout reached through `sctx.timeout` must stay valid at stable
+///    request timeout reached through `sctx.limits` must stay valid at stable
 ///    addresses for the lifetime of the returned tree. Timeout source
 ///    changes and deadline writes may occur only between iterator probes;
-///    only the blocked-client flag may change concurrently.
+///    only the blocked-client marker and the memory stop flag may change concurrently.
+///    The caller must hold the spec read lock throughout deferred INKEYS
+///    evaluation, as required by [`QueryEvalContext::new`]. Until the document
+///    key map is ready, the caller must also hold the GIL for metadata lookup.
 /// 4. `status` must be a non-null pointer to a valid [`QueryError`].
 ///
 /// Together these are exactly the invariants documented on
@@ -118,8 +122,8 @@ pub unsafe extern "C" fn QAST_Iterate(
     // SAFETY: `root` is a valid `RSQueryNode` and the whole AST is borrowed
     // exclusively for the duration of this call (precondition 1), so evaluation
     // owns the tree: no other wrapper or reference into it, or into any token
-    // string it points at, is live. Precondition 1 also carries invariants (4) and
-    // (5).
+    // string it points at, is live. Precondition 1 also carries invariants (4),
+    // (5), and (6).
     let node = unsafe { QueryNodeMut::new(root) };
 
     let config = eval_config(ctx.config());
@@ -239,6 +243,7 @@ pub unsafe extern "C" fn QueryIteratorTree_IntoResultProcessor(
     // SAFETY: `tree` came from `Box::into_raw` and has not been released yet
     // (precondition 1).
     let tree = unsafe { Box::from_raw(tree.as_ptr()) };
+    let dense_ascending_scan = tree.doc_id_coverage() == DocIdCoverage::Dense;
     let root = tree.into_raw_root();
     // SAFETY: `root` is a valid, owning iterator handed over with the tree
     // (precondition 1); `query_slots` and `sctx` satisfy preconditions 2 and 3.
@@ -248,6 +253,7 @@ pub unsafe extern "C" fn QueryIteratorTree_IntoResultProcessor(
             query_slots.cast(),
             key_space_version,
             sctx.as_ptr(),
+            dense_ascending_scan,
         )
     };
     NonNull::new(rp).expect("the query iterator result processor must not be NULL")

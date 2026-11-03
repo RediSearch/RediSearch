@@ -15,11 +15,17 @@ extern "C" {
 #include "buffer/buffer.h"
 #include "forward_index.h"
 #include "index_result.h"
+#include "indexes_scan.h"
 #include "query_parser/tokenizer.h"
 #include "spec.h"
 #include "tokenize.h"
 #include "varint_ffi.h"
+extern "C" {
 #include "vector_index.h"
+#include "redis_index.h"
+#include "search_disk.h"
+extern RedisSearchDiskAPI *disk;
+}
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
 #include "query_term_ffi.h"
@@ -40,12 +46,14 @@ extern "C" {
 #include <stdio.h>
 #include <time.h>
 #include <float.h>
+#include <algorithm>
 #include <iterator>  // std::size
 #include <vector>
 #include <cstdint>
 #include <random>
 #include <chrono>
 #include <iostream>
+#include <string>
 
 class IndexTest : public ::testing::Test {};
 
@@ -629,11 +637,11 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   // Drive the production lazy range path: the VecSim range query is deferred to the iterator's
   // first Read/SkipTo, and must run on the *raw* query vector. The explicit UNARMED timeout
   // mirrors request-owned state without imposing a deadline on the test.
-  QueryRequestTimeout timeout = {};
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 0;
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
   QueryIterator *vecIt = NewLazyVectorRangeIteratorFromParams(
       index, range_query.vector, range_query.vecLen, range_query.radius, queryParams,
       range_query.order, /*yields_metric=*/true, &timeout);
@@ -1211,6 +1219,95 @@ TEST_F(IndexTest, testDocTable) {
   DocTable_Free(&dt);
 }
 
+namespace {
+// Frees the table even when an ASSERT returns early.
+struct ScopedDocTable {
+  DocTable t;
+  ScopedDocTable(size_t cap, size_t maxSize) : t(NewDocTable(cap, maxSize)) {}
+  ~ScopedDocTable() { DocTable_Free(&t); }
+
+  void put(size_t n) {
+    char buf[16];
+    for (size_t i = 0; i < n; i++) {
+      size_t nkey = snprintf(buf, sizeof(buf), "doc_%zu", i);
+      DMD_Return(DocTable_Put(&t, buf, nkey, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash));
+    }
+  }
+};
+}  // namespace
+
+TEST_F(IndexTest, testDocTableLiveBitmap) {
+  // A max size below N chains documents in shared buckets.
+  ScopedDocTable dt(10, 10);
+  const size_t N = 100;
+  dt.put(N);
+  for (t_docId id = 3; id <= N; id += 3) {
+    DMD_Return(DocTable_DeleteById(&dt.t, id));
+  }
+
+  const size_t words = DocTable_LiveBitmapWords(&dt.t);
+  ASSERT_EQ(N / 64 + 1, words);
+  std::vector<uint64_t> live(words);
+  DocTable_FillLiveBitmap(&dt.t, live.data(), words);
+  for (t_docId id = 0; id < words * 64; id++) {
+    ASSERT_EQ(DocTable_Exists(&dt.t, id), (bool)(live[id / 64] & (1ULL << (id % 64))))
+        << "docId " << id;
+  }
+
+  // A shorter buffer is filled only up to its own length.
+  std::vector<uint64_t> shorter(words, 0);
+  DocTable_FillLiveBitmap(&dt.t, shorter.data(), 1);
+  ASSERT_EQ(live[0], shorter[0]);
+  ASSERT_EQ(0, shorter[1]);
+}
+
+TEST_F(IndexTest, testDocTableLiveBitmapSparse) {
+  ScopedDocTable dt(10, 10);
+  const size_t N = 1000;
+  dt.put(N);
+  for (t_docId id = 2; id < N; id++) {
+    DMD_Return(DocTable_DeleteById(&dt.t, id));
+  }
+  // Two live docs still get a bitmap of every docId: only its total size is bounded.
+  ASSERT_EQ(N / 64 + 1, DocTable_LiveBitmapWords(&dt.t));
+}
+
+TEST_F(IndexTest, testDocTableLiveBitmapMaxBytes) {
+  // Only maxDocId is read, so a table this large needs no documents.
+  DocTable t = {};
+  const t_docId capDocIds = (t_docId)(64 << 20) * 8;  // LIVE_BITMAP_MAX_BYTES, in bits
+  t.maxDocId = capDocIds - 1;
+  ASSERT_EQ(capDocIds / 64, DocTable_LiveBitmapWords(&t));
+  t.maxDocId = capDocIds;
+  ASSERT_EQ(0, DocTable_LiveBitmapWords(&t));
+}
+
+static void collectLiveId(void *ctx, t_docId docId) {
+  static_cast<std::vector<t_docId> *>(ctx)->push_back(docId);
+}
+
+TEST_F(IndexTest, testDocTableForEachLiveId) {
+  // A max size below N chains documents in shared buckets.
+  ScopedDocTable dt(10, 10);
+  const size_t N = 100;
+  dt.put(N);
+  for (t_docId id = 3; id <= N; id += 3) {
+    DMD_Return(DocTable_DeleteById(&dt.t, id));
+  }
+
+  std::vector<t_docId> ids;
+  DocTable_ForEachLiveId(&dt.t, collectLiveId, &ids);
+  std::sort(ids.begin(), ids.end());
+  std::vector<t_docId> expected;
+  for (t_docId id = 0; id <= N + 10; id++) {
+    if (DocTable_Exists(&dt.t, id)) {
+      expected.push_back(id);
+    }
+  }
+  ASSERT_EQ(N - N / 3, expected.size());
+  ASSERT_EQ(expected, ids);
+}
+
 TEST_F(IndexTest, testVarintFieldMask) {
   t_fieldMask x = 127;
   size_t expected[] = {0, 2, 1, 1, 2, 0, 2, 0, 2, 3, 0, 0, 3, 0, 0, 4};
@@ -1452,4 +1549,322 @@ TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
         << "type " << vecType << " got: " << QueryError_GetUserError(&err);
     QueryError_ClearError(&err);
   }
+}
+
+TEST_F(IndexTest, testDiskHnswForwardsOptionalSq8TrainingWithoutChangingSchema) {
+  SimulateInFlexGuard flexGuard;
+  struct RestoreSq8Gate {
+    bool previous = RSGlobalConfig.diskSq8Enabled;
+    ~RestoreSq8Gate() {
+      RSGlobalConfig.diskSq8Enabled = previous;
+    }
+  } restoreSq8Gate;
+  struct {
+    bool enabled;
+    bool compression;
+    const char *threshold;
+    size_t expectedThreshold;
+  } cases[] = {
+      {false, false, nullptr, 0}, {false, true, nullptr, HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD},
+      {false, true, "0", 0},      {false, true, "32", 32},
+      {true, false, nullptr, 0},  {true, true, nullptr, HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD},
+      {true, true, "0", 0},       {true, true, "32", 32},
+  };
+  for (const char *type : {"FLOAT32", "FLOAT16"}) {
+    for (const auto &testCase : cases) {
+      RSGlobalConfig.diskSq8Enabled = testCase.enabled;
+      SCOPED_TRACE(::testing::Message() << type << ", enabled=" << testCase.enabled
+                                        << ", compression=" << testCase.compression
+                                        << ", threshold=" << testCase.expectedThreshold);
+      std::vector<const char *> args = {"ON",
+                                        "HASH",
+                                        "SKIPINITIALSCAN",
+                                        "SCHEMA",
+                                        "v",
+                                        "VECTOR",
+                                        "HNSW",
+                                        nullptr,
+                                        "TYPE",
+                                        type,
+                                        "DIM",
+                                        "4",
+                                        "DISTANCE_METRIC",
+                                        "L2",
+                                        "M",
+                                        "16",
+                                        "EF_CONSTRUCTION",
+                                        "200",
+                                        "EF_RUNTIME",
+                                        "10",
+                                        "RERANK",
+                                        "TRUE"};
+      if (testCase.compression) {
+        args.insert(args.end(), {"COMPRESSION", "SQ8"});
+      }
+      if (testCase.threshold) {
+        args.insert(args.end(), {"TRAINING_THRESHOLD", testCase.threshold});
+      }
+      const std::string count = std::to_string(args.size() - 8);
+      args[7] = count.c_str();
+      QueryError err = QueryError_Default();
+      StrongRef ref = IndexSpec_ParseC(nullptr, "idx_disk_sq8", args.data(), args.size(), &err);
+      SpecCleanupGuard cleanup(ref);
+      if (testCase.compression && !testCase.enabled) {
+        EXPECT_EQ(StrongRef_Get(ref), nullptr);
+        ASSERT_TRUE(QueryError_HasError(&err));
+        EXPECT_STREQ(QueryError_GetUserError(&err),
+                     "SEARCH_QUERY_BAD Disk COMPRESSION SQ8 is disabled; enable search-disk-sq8-enabled "
+                     "only after all nodes have upgraded");
+        QueryError_ClearError(&err);
+        continue;
+      }
+      ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+      auto *spec = static_cast<IndexSpec *>(StrongRef_Get(ref));
+      ASSERT_NE(spec, nullptr);
+      auto *field = &spec->fields[0];
+      auto *primary = field->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+      const auto expectedQuant = testCase.compression ? VecSimQuant_SQ8 : VecSimQuant_NONE;
+      EXPECT_EQ(primary->algoParams.hnswParams.quantType, expectedQuant);
+      EXPECT_EQ(field->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams
+                    .tieredHnswParams.QuantNormalizationSetSize,
+                testCase.expectedThreshold);
+
+      static size_t forwardedThreshold;
+      static VecSimQuantType forwardedQuant;
+      static unsigned creates;
+      creates = 0;
+      RedisSearchDiskAPI api{};
+      api.vector.createVectorIndex = [](RedisModuleCtx *, RedisSearchDiskIndexSpec *,
+                                        const VecSimParamsDisk *params) -> void * {
+        ++creates;
+        const auto &tiered = params->indexParams->algoParams.tieredParams;
+        forwardedThreshold = tiered.specificParams.tieredHnswDiskParams.QuantNormalizationSetSize;
+        forwardedQuant = tiered.primaryIndexParams->algoParams.hnswParams.quantType;
+        return nullptr;
+      };
+      auto *savedDisk = disk;
+      disk = &api;
+      field->vectorOpts.diskCtx.storage = reinterpret_cast<RedisSearchDiskIndexSpec *>(field);
+      unsigned char fieldBefore[sizeof(*field)], primaryBefore[sizeof(*primary)];
+      memcpy(fieldBefore, field, sizeof(*field));
+      memcpy(primaryBefore, primary, sizeof(*primary));
+      const auto fingerprintBefore = IndexSpec_SchemaFingerprint(spec);
+
+      EXPECT_EQ(openVectorIndex(RSDummyContext, field, CREATE_INDEX), nullptr);
+
+      EXPECT_EQ(creates, 1u);
+      EXPECT_EQ(forwardedThreshold, testCase.expectedThreshold);
+      EXPECT_EQ(forwardedQuant, expectedQuant);
+      EXPECT_EQ(memcmp(fieldBefore, field, sizeof(*field)), 0);
+      EXPECT_EQ(memcmp(primaryBefore, primary, sizeof(*primary)), 0);
+      EXPECT_EQ(IndexSpec_SchemaFingerprint(spec), fingerprintBefore);
+      field->vectorOpts.diskCtx.storage = nullptr;
+      disk = savedDisk;
+    }
+  }
+}
+
+namespace {
+struct KeyMapTestCleanup {
+  DocTable *table;
+  DocTableKeyMapIterator *iterator = nullptr;
+
+  void freeTable() {
+    if (table) {
+      DocTable_Free(table);
+      table = nullptr;
+    }
+  }
+
+  ~KeyMapTestCleanup() {
+    if (iterator) DocTable_KeyMapIteratorReleaseNext(iterator);
+    freeTable();
+  }
+};
+}  // namespace
+
+TEST_F(IndexTest, testDocKeyMapLifecycle) {
+  DocTable dt = NewDocTable(1, 10);
+  KeyMapTestCleanup cleanup{&dt};
+  EXPECT_EQ(dt.keyMap, nullptr);
+  EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_Ready);
+  ASSERT_NE(dt.keyMap, nullptr);
+  const char binary[] = {'d', '\0', '1'};
+  auto *first = DocTable_Put(&dt, binary, sizeof(binary), 1, (RSDocumentFlags)0, nullptr, 0,
+                             DocumentType_Hash);
+  const auto firstId = first->id;
+  DMD_Return(first);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, binary, sizeof(binary)), firstId);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, binary, 1), 0);
+  const size_t initialMemory = DocTable_KeyMapMemoryUsage(&dt);
+  for (int i = 0; i < 1000; ++i) {
+    std::string key = "doc:" + std::to_string(i);
+    auto *dmd = DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                             DocumentType_Hash);
+    DMD_Return(dmd);
+  }
+  EXPECT_GT(DocTable_KeyMapMemoryUsage(&dt), initialMemory);
+  DocTable_SetKeyById(&dt, firstId, "renamed", 7);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, binary, sizeof(binary)), 0);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), firstId);
+  auto *removed = DocTable_DeleteById(&dt, firstId);
+  ASSERT_NE(removed, nullptr);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), 0);
+  DMD_Return(removed);
+  auto *replacement =
+      DocTable_Put(&dt, "renamed", 7, 1, (RSDocumentFlags)0, nullptr, 0, DocumentType_Hash);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), replacement->id);
+  EXPECT_NE(replacement->id, firstId);
+  DMD_Return(replacement);
+  cleanup.freeTable();
+  EXPECT_EQ(dt.keyMap, nullptr);
+  EXPECT_EQ(DocTable_KeyMapMemoryUsage(&dt), 0);
+}
+
+TEST_F(IndexTest, testDocKeyMapDisabledForDisk) {
+  IndexSpec spec = {};
+  // Keep the failure path valid if activation ever bypasses the disk guard.
+  ASSERT_EQ(pthread_rwlock_init(&spec.rwlock, nullptr), 0);
+  const bool previousFlex = isFlex;
+  isFlex = true;
+  spec.docs = NewDocTable(1, 10);
+  KeyMapTestCleanup cleanup{&spec.docs};
+  IndexSpec_ActivateKeyMap(&spec);
+  isFlex = previousFlex;
+
+  EXPECT_EQ(spec.docs.keyMap, nullptr);
+  EXPECT_EQ(spec.docs.keyMapState, DocKeyMap_Inactive);
+  EXPECT_EQ(DocTable_KeyMapMemoryUsage(&spec.docs), 0);
+  cleanup.freeTable();
+  EXPECT_EQ(pthread_rwlock_destroy(&spec.rwlock), 0);
+}
+
+TEST_F(IndexTest, testLazyKeyMapBackfillMutations) {
+  DocTableKeyMapIterator iter = {};
+  DocTable dt = NewDocTable(1, 2);
+  KeyMapTestCleanup cleanup{&dt, &iter};
+  for (int i = 1; i <= 8; ++i) {
+    std::string key = "doc:" + std::to_string(i);
+    auto *dmd = DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                             DocumentType_Hash);
+    DMD_Return(dmd);
+  }
+  EXPECT_EQ(DocTable_KeyMapMemoryUsage(&dt), 0u);
+  EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_NeedsBackfill);
+  EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_Unchanged);
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 3));
+  ASSERT_NE(iter.next, nullptr);
+  EXPECT_EQ(iter.next->id, 2u);
+  EXPECT_EQ(iter.next->ref_count, 2u);
+  // Delete the parked cursor and mutate both scanned and unscanned entries.
+  DocTable_SetKeyById(&dt, 1, "renamed:1", 9);
+  DocTable_SetKeyById(&dt, 8, "renamed:8", 9);
+  DMD_Return(DocTable_DeleteById(&dt, 2));
+  EXPECT_TRUE(iter.next->flags & Document_Deleted);
+  EXPECT_EQ(iter.next->ref_count, 1u);
+  DMD_Return(DocTable_DeleteById(&dt, 7));
+  auto *added = DocTable_Put(&dt, "new", 3, 1, (RSDocumentFlags)0, nullptr, 0, DocumentType_Hash);
+  const auto addedId = added->id;
+  DMD_Return(added);
+  size_t batches = 0;
+  while (!DocTable_BuildKeyMapBatch(&dt, &iter, 2)) {
+    ASSERT_LT(++batches, 10u);
+  }
+  EXPECT_EQ(iter.next, nullptr);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed:1", 9), 1u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed:8", 9), 8u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:1", 5), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:8", 5), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:2", 5), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:7", 5), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "doc:4", 5), 4u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "new", 3), addedId);
+  cleanup.freeTable();
+}
+
+TEST_F(IndexTest, testLazyKeyMapBucketGrowth) {
+  DocTableKeyMapIterator iter = {};
+  DocTable dt = NewDocTable(1, 64);
+  KeyMapTestCleanup cleanup{&dt, &iter};
+  for (int i = 1; i <= 4; ++i) {
+    auto key = std::to_string(i);
+    DMD_Return(DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                            DocumentType_Hash));
+  }
+  EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_NeedsBackfill);
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 0));
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 2));
+  size_t snapshotCap = dt.cap;
+  for (int i = 5; i <= 100; ++i) {
+    auto key = std::to_string(i);
+    DMD_Return(DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                            DocumentType_Hash));
+  }
+  EXPECT_GT(dt.cap, snapshotCap);
+  DocTable_SetKeyById(&dt, 2, "renamed", 7);
+  DMD_Return(DocTable_DeleteById(&dt, 3));
+  size_t batches = 0;
+  while (!DocTable_BuildKeyMapBatch(&dt, &iter, 2)) {
+    ASSERT_LT(++batches, 20u);
+  }
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), 2u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "2", 1), 0u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "3", 1), 0u);
+  for (int i = 4; i <= 100; ++i) {
+    auto key = std::to_string(i);
+    EXPECT_EQ(DocTable_GetIdByKey(&dt, key.data(), key.size()), i);
+  }
+  cleanup.freeTable();
+}
+
+TEST_F(IndexTest, testLazyKeyMapUnorderedChain) {
+  DocTableKeyMapIterator iter = {};
+  DocTable dt = NewDocTable(1, 1);
+  KeyMapTestCleanup cleanup{&dt, &iter};
+  for (int i = 1; i <= 4; ++i) {
+    auto key = std::to_string(i);
+    DMD_Return(DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                            DocumentType_Hash));
+  }
+  // Legacy loading need not preserve the insertion order of a bucket chain.
+  auto *first = dt.buckets[0].root;
+  auto *second = first->nextInChain;
+  first->nextInChain = second->nextInChain;
+  second->nextInChain = first;
+  dt.buckets[0].root = second;
+  EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_NeedsBackfill);
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 1));
+  DMD_Return(DocTable_DeleteById(&dt, 4));
+  DocTable_SetKeyById(&dt, 1, "renamed", 7);
+  EXPECT_TRUE(DocTable_BuildKeyMapBatch(&dt, &iter, 10));
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "renamed", 7), 1u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "2", 1), 2u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "3", 1), 3u);
+  EXPECT_EQ(DocTable_GetIdByKey(&dt, "4", 1), 0u);
+  cleanup.freeTable();
+}
+
+TEST_F(IndexTest, testLazyKeyMapCursorOutlivesTable) {
+  DocTableKeyMapIterator iter = {};
+  DocTable dt = NewDocTable(1, 1);
+  KeyMapTestCleanup cleanup{&dt, &iter};
+  for (int i = 1; i <= 3; ++i) {
+    auto key = std::to_string(i);
+    DMD_Return(DocTable_Put(&dt, key.data(), key.size(), 1, (RSDocumentFlags)0, nullptr, 0,
+                            DocumentType_Hash));
+  }
+  EXPECT_EQ(DocTable_StartKeyMap(&dt), DocKeyMapActivation_NeedsBackfill);
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 1));
+  ASSERT_NE(iter.next, nullptr);
+  EXPECT_EQ(iter.next->id, 2u);
+  EXPECT_EQ(iter.next->ref_count, 2u);
+  EXPECT_EQ(dt.buckets[0].root->ref_count, 1u);
+  EXPECT_EQ(iter.next->nextInChain->ref_count, 1u);
+  EXPECT_FALSE(DocTable_BuildKeyMapBatch(&dt, &iter, 0));
+  EXPECT_EQ(iter.next->ref_count, 2u);
+  cleanup.freeTable();
+  EXPECT_EQ(iter.next->ref_count, 1u);
+  DocTable_KeyMapIteratorReleaseNext(&iter);
+  EXPECT_EQ(iter.next, nullptr);
+  DocTable_KeyMapIteratorReleaseNext(&iter);
 }
