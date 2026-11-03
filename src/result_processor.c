@@ -212,19 +212,22 @@ static bool diskDmdIsVisible(IndexSpec *spec, const RSDocumentMetadata *dmd) {
   return !deleted;
 }
 
-static IndexSpec *hybridMergerSpec(ResultProcessor *rp);
+static RedisSearchCtx *hybridMergerContext(ResultProcessor *rp);
+
+static RedisSearchCtx *bufferedResultContext(ResultProcessor *rp) {
+  ResultProcessor *root = rp->parent->rootProc;
+  if (!root) return NULL;
+  if (root->type == RP_INDEX) return ((RPQueryIterator *)root)->sctx;
+  if (root->type == RP_HYBRID_MERGER) return hybridMergerContext(root);
+  return NULL;
+}
 
 static bool bufferedResultIsVisible(ResultProcessor *rp, const SearchResult *result) {
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(result);
-  ResultProcessor *root = rp->parent->rootProc;
+  RedisSearchCtx *sctx = bufferedResultContext(rp);
   // Aggregated rows and coordinator results have no local document to validate.
-  if (!dmd || !root) return true;
-  IndexSpec *spec = NULL;
-  if (root->type == RP_INDEX) {
-    spec = ((RPQueryIterator *)root)->sctx->spec;
-  } else if (root->type == RP_HYBRID_MERGER) {
-    spec = hybridMergerSpec(root);
-  }
+  if (!dmd || !sctx) return true;
+  IndexSpec *spec = sctx->spec;
   return !spec || !spec->diskSpec || diskDmdIsVisible(spec, dmd);
 }
 
@@ -770,6 +773,10 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
       rp->parent->skippedResults++;
       SearchResult_Destroy(cur_best);
       rm_free(cur_best);
+      RedisSearchCtx *sctx = bufferedResultContext(rp);
+      if (sctx && QueryRequestTimeout_IsTimedOut(sctx->timeout)) {
+        return RS_RESULT_TIMEDOUT;
+      }
       continue;
     }
     SearchResult_Override(r, cur_best);
@@ -2764,8 +2771,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
    rm_free(self);
  }
 
-static IndexSpec *hybridMergerSpec(ResultProcessor *rp) {
-  return ((RPHybridMerger *)rp)->sctx->spec;
+static RedisSearchCtx *hybridMergerContext(ResultProcessor *rp) {
+  return ((RPHybridMerger *)rp)->sctx;
 }
 
  const RLookupKey *RPHybridMerger_GetScoreKey(ResultProcessor *rp) {
