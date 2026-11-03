@@ -14,171 +14,242 @@ use inverted_index::DocLiveness;
 use roaring::RoaringTreemap;
 use rqe_core::DocId;
 
-/// The most bytes [`GoneIds`] spends on its bitmap; a wider window goes without one.
-pub const MAX_BITMAP_BYTES: usize = 32 << 20;
+/// The most bytes [`GoneIds::Bits`] spends; a wider window is kept as a [`GoneIds::Set`].
+pub const MAX_BITMAP_BYTES: usize = 16 << 20;
 
 /// The documents gone when a cycle began, as the cycle's only source of liveness.
 ///
 /// A document's ID is never reused, and an update gives the document a new one, so
-/// the live IDs sit in a band that moves up over time and everything below the band
-/// is gone. The set keeps that prefix as one bound, the gone IDs above it in a
-/// roaring set for range checks, and, when it fits [`MAX_BITMAP_BYTES`], the same
-/// IDs as a bitmap over just their span, so a per-record check is one load into a
-/// table small enough to stay in cache.
+/// the IDs that matter sit in a window that moves up over time. A window that fits
+/// [`MAX_BITMAP_BYTES`] is kept as bits, where a check is one load; a wider one as
+/// a roaring set, a few dependent searches per check but sized by its contents.
 ///
-/// An ID above the gone ones is live: in a forked child the table holds nothing
-/// newer, and an in-process cycle leaves documents deleted after it began for the
-/// next one.
-#[derive(Debug, Default)]
-pub struct GoneIds {
-    /// Every ID below this is gone.
-    gone_below: DocId,
-    /// The gone IDs from `gone_below` up.
-    gone: RoaringTreemap,
-    /// `gone` as bits, bit `id - first` per ID from the first gone ID to the last.
-    bits: Option<Bits>,
+/// An ID above the window is live: in a forked child the table holds nothing newer,
+/// and an in-process cycle leaves documents deleted after it began for the next one.
+#[derive(Debug)]
+pub enum GoneIds {
+    /// One bit per ID of the window, set when the ID is gone.
+    Bits(Bits),
+    /// Every gone ID.
+    Set(RoaringTreemap),
 }
 
+/// The window of a [`GoneIds::Bits`].
 #[derive(Debug)]
-struct Bits {
+pub struct Bits {
+    /// The ID of bit 0 of `words`.
     first: DocId,
     words: Box<[u64]>,
+    /// Whether the IDs below `first` are gone (a forked child's dead prefix) or
+    /// live (an in-process cycle's IDs below its first deleted one).
+    gone_below: bool,
 }
 
 impl GoneIds {
     /// The documents in `gone`, as an in-process cycle copies them from the doc
     /// table's deleted set.
     pub fn from_set(gone: RoaringTreemap) -> Self {
-        Self::new(0, gone, MAX_BITMAP_BYTES)
+        Self::from_set_with_cap(gone, MAX_BITMAP_BYTES)
+    }
+
+    /// Like [`GoneIds::from_set`], with bits only for a window of at most
+    /// `max_bitmap_bytes`.
+    pub fn from_set_with_cap(gone: RoaringTreemap, max_bitmap_bytes: usize) -> Self {
+        let (Some(first), Some(last)) = (gone.min(), gone.max()) else {
+            return Self::Set(gone);
+        };
+        let Some(len) = window_words(first, last, max_bitmap_bytes) else {
+            return Self::Set(gone);
+        };
+        let mut words = vec![0u64; len].into_boxed_slice();
+        for id in &gone {
+            let bit = id - first;
+            words[(bit / 64) as usize] |= 1 << (bit % 64);
+        }
+        Self::Bits(Bits {
+            first,
+            words,
+            gone_below: false,
+        })
     }
 
     /// The documents a forked child's frozen table does not hold.
     pub fn of_table(spec: &IndexSpecReadGuard) -> Self {
-        let max_doc_id = spec.doc_table().maxDocId;
-        // The C fill is the fastest walk of the table; past its size cap the walk
-        // collects the live IDs instead.
-        let (gone_below, gone) = match spec.live_doc_bitmap() {
-            Some(live) => gone_from_live_bitmap(&live, max_doc_id),
-            None => {
-                let mut live = RoaringTreemap::new();
-                spec.for_each_live_doc(|id| {
-                    live.insert(id);
-                });
-                gone_from_live_set(&live, max_doc_id)
-            }
-        };
-        Self::new(gone_below, gone, MAX_BITMAP_BYTES)
+        Self::of_table_with_cap(spec, MAX_BITMAP_BYTES)
     }
 
-    /// Like [`GoneIds::from_set`], with a bitmap of at most `max_bitmap_bytes`, and
-    /// every ID below `gone_below` gone.
-    pub fn new(gone_below: DocId, mut gone: RoaringTreemap, max_bitmap_bytes: usize) -> Self {
-        gone.remove_range(..gone_below);
-        let bits = match (gone.min(), gone.max()) {
-            (Some(first), Some(last)) if (last - first) / 8 < max_bitmap_bytes as u64 => {
-                let mut words = vec![0u64; ((last - first) / 64 + 1) as usize].into_boxed_slice();
-                for id in &gone {
-                    let bit = id - first;
-                    words[(bit / 64) as usize] |= 1 << (bit % 64);
-                }
-                Some(Bits { first, words })
-            }
-            _ => None,
+    /// Like [`GoneIds::of_table`], with bits only for a window of at most
+    /// `max_bitmap_bytes`.
+    pub fn of_table_with_cap(spec: &IndexSpecReadGuard, max_bitmap_bytes: usize) -> Self {
+        let max_doc_id = spec.doc_table().maxDocId;
+        // The C fill is the fastest walk of the table; past its own size cap the
+        // walk collects the live IDs instead.
+        let Some(live) = spec.live_doc_bitmap() else {
+            let mut live = RoaringTreemap::new();
+            spec.for_each_live_doc(|id| {
+                live.insert(id);
+            });
+            let mut gone = RoaringTreemap::new();
+            gone.insert_range(0..=max_doc_id);
+            gone -= live;
+            return Self::Set(gone);
         };
-        Self {
-            gone_below,
-            gone,
-            bits,
+        Self::from_live_words(&live, max_doc_id, max_bitmap_bytes)
+    }
+
+    /// The gone IDs of a table whose live IDs are the set bits of `live`.
+    fn from_live_words(live: &[u64], max_doc_id: DocId, max_bitmap_bytes: usize) -> Self {
+        // Words past the table's maximum hold no live ID.
+        let words = usize::try_from(max_doc_id / 64 + 1).map_or(live.len(), |w| w.min(live.len()));
+        let live = &live[..words];
+        let Some(first_word) = live.iter().position(|&word| word != 0) else {
+            // Nothing is live: everything up to the table's maximum is gone.
+            return Self::Bits(Bits {
+                first: max_doc_id.saturating_add(1),
+                words: Box::default(),
+                gone_below: true,
+            });
+        };
+        let window = &live[first_word..];
+        // Starting on a word boundary is harmless: every ID below the first live
+        // one is gone either way.
+        let first = first_word as DocId * 64;
+        if window.len().saturating_mul(8) <= max_bitmap_bytes {
+            let mut words: Box<[u64]> = window.iter().map(|&word| !word).collect();
+            // The table holds no ID above its maximum, so those bits stay live.
+            let past_max = (max_doc_id % 64) + 1;
+            if past_max < 64
+                && let Some(word) = words.last_mut()
+            {
+                *word &= (1 << past_max) - 1;
+            }
+            return Self::Bits(Bits {
+                first,
+                words,
+                gone_below: true,
+            });
+        }
+        let mut gone = RoaringTreemap::new();
+        gone.insert_range(0..first);
+        let unset = window.iter().enumerate().flat_map(|(i, &word)| {
+            let base = first + i as DocId * 64;
+            let mut unset = !word;
+            std::iter::from_fn(move || {
+                (unset != 0).then(|| {
+                    let bit = unset.trailing_zeros();
+                    unset &= unset - 1;
+                    base + DocId::from(bit)
+                })
+            })
+        });
+        gone.extend(unset.take_while(|&id| id <= max_doc_id));
+        Self::Set(gone)
+    }
+
+    /// Every gone ID, for an in-process cycle to prune what it collected.
+    ///
+    /// A forked child's dead prefix comes back as the range it is.
+    pub fn into_set(self) -> RoaringTreemap {
+        match self {
+            Self::Set(gone) => gone,
+            Self::Bits(bits) => {
+                let mut gone = RoaringTreemap::new();
+                if bits.gone_below {
+                    gone.insert_range(..bits.first);
+                }
+                for (i, &word) in bits.words.iter().enumerate() {
+                    let mut set = word;
+                    while set != 0 {
+                        gone.insert(
+                            bits.first + i as DocId * 64 + DocId::from(set.trailing_zeros()),
+                        );
+                        set &= set - 1;
+                    }
+                }
+                gone
+            }
         }
     }
+}
 
-    /// The gone IDs from the prefix bound up, for the caller to prune once collected.
-    pub fn into_set(self) -> RoaringTreemap {
-        self.gone
+/// The words a bitmap from `first` to `last` takes, when it fits `max_bytes`.
+fn window_words(first: DocId, last: DocId, max_bytes: usize) -> Option<usize> {
+    let words = usize::try_from((last - first) / 64 + 1).ok()?;
+    (words.checked_mul(8)? <= max_bytes).then_some(words)
+}
+
+impl Bits {
+    #[inline]
+    fn gone(&self, id: DocId) -> bool {
+        let Some(bit) = id.checked_sub(self.first) else {
+            return self.gone_below;
+        };
+        usize::try_from(bit / 64)
+            .ok()
+            .and_then(|i| self.words.get(i))
+            .is_some_and(|word| word >> (bit % 64) & 1 != 0)
     }
 
-    /// Whether no document is gone.
-    pub fn is_empty(&self) -> bool {
-        self.gone_below <= 1 && self.gone.is_empty()
+    fn any_gone(&self, first: DocId, last: DocId) -> bool {
+        if first < self.first && self.gone_below {
+            return true;
+        }
+        let Some(window_last) = (self.words.len() as DocId * 64).checked_sub(1) else {
+            return false;
+        };
+        let lo = first.max(self.first) - self.first;
+        let Some(hi) = last.checked_sub(self.first) else {
+            return false;
+        };
+        let hi = hi.min(window_last);
+        if lo > hi {
+            return false;
+        }
+        let (lo_word, hi_word) = ((lo / 64) as usize, (hi / 64) as usize);
+        let lo_mask = !0u64 << (lo % 64);
+        let hi_mask = !0u64 >> (63 - hi % 64);
+        if lo_word == hi_word {
+            return self.words[lo_word] & lo_mask & hi_mask != 0;
+        }
+        self.words[lo_word] & lo_mask != 0
+            || self.words[lo_word + 1..hi_word]
+                .iter()
+                .any(|&word| word != 0)
+            || self.words[hi_word] & hi_mask != 0
     }
 }
 
 impl DocLiveness for &GoneIds {
     #[inline]
     fn exists(&self, id: DocId) -> bool {
-        if id < self.gone_below {
-            return false;
-        }
-        match &self.bits {
-            Some(bits) => {
-                let Some(bit) = id.checked_sub(bits.first) else {
-                    return true;
-                };
-                usize::try_from(bit / 64)
-                    .ok()
-                    .and_then(|i| bits.words.get(i))
-                    .is_none_or(|word| word & (1 << (bit % 64)) == 0)
-            }
-            None => !contains(&self.gone, id),
+        match self {
+            GoneIds::Bits(bits) => !bits.gone(id),
+            GoneIds::Set(gone) => !contains(gone, id),
         }
     }
 
     fn any_gone(&self, first: DocId, last: DocId) -> bool {
-        if first < self.gone_below {
-            return true;
+        match self {
+            GoneIds::Bits(bits) => bits.any_gone(first, last),
+            GoneIds::Set(gone) => any_in(gone, first, last),
         }
-        // Seek to the first gone ID at or after `first` rather than count the range: a
-        // count ranks inside every container it touches, which on a dense bitmap
-        // container is a scan of its words.
-        let mut gone = self.gone.iter();
-        gone.advance_to(first);
-        gone.next().is_some_and(|id| id <= last)
     }
 }
 
-/// Kept out of line so that [`GoneIds`]' [`DocLiveness::exists`], with only the bitmap check inline,
-/// stays small enough to inline into the scanners' loops.
+/// Whether `ids` holds `id`, for a [`GoneIds::Set`]. Kept out of line so that the
+/// [`DocLiveness::exists`] of [`GoneIds`], with only the bitmap check inline, stays
+/// small enough to inline into the scanners' loops.
 #[inline(never)]
 fn contains(ids: &RoaringTreemap, id: DocId) -> bool {
     ids.contains(id)
 }
 
-/// The prefix bound and the gone IDs above it, from a bitmap of the live IDs.
-fn gone_from_live_bitmap(live: &[u64], max_doc_id: DocId) -> (DocId, RoaringTreemap) {
-    let Some(first_live) = live
-        .iter()
-        .position(|&word| word != 0)
-        .map(|i| i as DocId * 64 + DocId::from(live[i].trailing_zeros()))
-    else {
-        return (max_doc_id.saturating_add(1), RoaringTreemap::new());
-    };
-    let unset = live.iter().enumerate().flat_map(|(i, &word)| {
-        let base = i as DocId * 64;
-        let mut unset = !word;
-        std::iter::from_fn(move || {
-            (unset != 0).then(|| {
-                let bit = unset.trailing_zeros();
-                unset &= unset - 1;
-                base + DocId::from(bit)
-            })
-        })
-    });
-    let gone = RoaringTreemap::from_sorted_iter(
-        unset
-            .skip_while(|&id| id < first_live)
-            .take_while(|&id| id <= max_doc_id),
-    )
-    .expect("bit positions are visited in increasing order");
-    (first_live, gone)
-}
-
-/// The prefix bound and the gone IDs above it, from the set of live IDs.
-fn gone_from_live_set(live: &RoaringTreemap, max_doc_id: DocId) -> (DocId, RoaringTreemap) {
-    let Some(first_live) = live.min() else {
-        return (max_doc_id.saturating_add(1), RoaringTreemap::new());
-    };
-    let mut gone = RoaringTreemap::new();
-    gone.insert_range(first_live..=max_doc_id);
-    gone -= live;
-    (first_live, gone)
+/// Whether `ids` holds an ID in `first..=last`, for a [`GoneIds::Set`].
+fn any_in(ids: &RoaringTreemap, first: DocId, last: DocId) -> bool {
+    // Seek to the first ID at or after `first` rather than count the range: a count
+    // ranks inside every container it touches, which on a dense bitmap container is
+    // a scan of its words.
+    let mut ids = ids.iter();
+    ids.advance_to(first);
+    ids.next().is_some_and(|id| id <= last)
 }

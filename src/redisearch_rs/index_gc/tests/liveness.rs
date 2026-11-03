@@ -9,7 +9,7 @@
 
 use std::mem;
 
-use index_gc::liveness::GoneIds;
+use index_gc::liveness::{GoneIds, MAX_BITMAP_BYTES};
 use index_spec::IndexSpecReadGuard;
 use inverted_index::DocLiveness;
 use rqe_core::DocId;
@@ -94,56 +94,55 @@ fn assert_matches(
 }
 
 #[test]
-fn a_set_answers_like_its_ids_with_and_without_a_bitmap() {
+fn a_set_answers_like_its_ids_as_bits_or_as_a_set() {
     let ids = [3, 4, 10, 63, 64, 65, 130];
-    for max_bitmap_bytes in [0, 1 << 10] {
-        let set = GoneIds::new(0, ids.into_iter().collect(), max_bitmap_bytes);
+    for (max_bitmap_bytes, bits) in [(0, false), (1 << 10, true)] {
+        let set = GoneIds::from_set_with_cap(ids.into_iter().collect(), max_bitmap_bytes);
+        assert_eq!(matches!(set, GoneIds::Bits(_)), bits);
         assert_matches(&set, 0..=140, |id| ids.contains(&id));
+        assert_eq!(set.into_set().into_iter().collect::<Vec<_>>(), ids);
     }
 }
 
 #[test]
-fn every_id_below_the_bound_is_gone() {
-    let set = GoneIds::new(20, [5, 25, 30].into_iter().collect(), 1 << 10);
-    assert_matches(&set, 0..=40, |id| id < 20 || id == 25 || id == 30);
-    assert_eq!(
-        set.into_set().into_iter().collect::<Vec<_>>(),
-        [25, 30],
-        "IDs below the bound are kept as the bound alone"
-    );
-}
-
-#[test]
-fn ids_above_the_last_gone_one_are_live() {
-    let set = GoneIds::from_set([7].into_iter().collect());
+fn ids_outside_a_sets_window_are_live() {
+    let set = GoneIds::from_set([7, 9].into_iter().collect());
+    assert!(matches!(set, GoneIds::Bits(_)));
+    assert!((&set).exists(6));
     assert!(!(&set).exists(7));
-    assert!((&set).exists(8));
+    assert!((&set).exists(10));
     assert!((&set).exists(DocId::MAX));
-    assert!(!(&set).any_gone(8, DocId::MAX));
+    assert!(!(&set).any_gone(0, 6));
+    assert!(!(&set).any_gone(10, DocId::MAX));
+    assert!((&set).any_gone(0, DocId::MAX));
 }
 
 #[test]
-fn a_window_too_wide_for_the_cap_goes_without_a_bitmap() {
-    // The two IDs span far more bits than the cap; the set alone still answers.
-    let set = GoneIds::new(0, [1, 1 << 40].into_iter().collect(), 1 << 10);
-    assert_matches(&set, 0..=10, |id| id == 1);
-    assert!(!(&set).exists(1 << 40));
+fn a_window_too_wide_for_the_cap_is_kept_as_a_set() {
+    let set = GoneIds::from_set([1, 1 << 40].into_iter().collect());
+    assert!(matches!(set, GoneIds::Set(_)));
+    assert!(!(&set).exists(1));
     assert!((&set).exists((1 << 40) - 1));
+    assert!(!(&set).exists(1 << 40));
 }
 
 /// A table's gone IDs are its gaps: the prefix below the first live doc, and the
-/// deleted docs above it.
+/// deleted docs above it, as bits or, past the cap, as a set.
 #[test]
 #[cfg_attr(miri, ignore = "walks the doc table through C")]
 fn a_table_is_gone_below_its_first_live_doc_and_in_its_gaps() {
-    // Ten buckets chain ten docs each; the first five and every third are deleted.
-    let table = TestTable::new(10, (1..=100).map(|id| (id, id <= 5 || id % 3 == 0)));
+    // Ten buckets chain ten docs each; the first 70 and every third are deleted, so
+    // the first live doc sits past the first bitmap word.
+    let table = TestTable::new(10, (1..=100).map(|id| (id, id <= 70 || id % 3 == 0)));
     let guard = table.guard();
     assert!(guard.live_doc_bitmap().is_some());
 
-    let set = GoneIds::of_table(&guard);
-    assert_matches(&set, 0..=100, |id| !guard.doc_exists(id));
-    assert!((&set).exists(101), "the table holds nothing newer");
+    for (max_bitmap_bytes, bits) in [(MAX_BITMAP_BYTES, true), (0, false)] {
+        let set = GoneIds::of_table_with_cap(&guard, max_bitmap_bytes);
+        assert_eq!(matches!(set, GoneIds::Bits(_)), bits);
+        assert_matches(&set, 0..=100, |id| !guard.doc_exists(id));
+        assert!((&set).exists(101), "the table holds nothing newer");
+    }
 }
 
 #[test]
@@ -158,6 +157,7 @@ fn a_table_past_the_bitmap_cap_collects_its_live_ids() {
     assert!(guard.live_doc_bitmap().is_none());
 
     let set = GoneIds::of_table(&guard);
+    assert!(matches!(set, GoneIds::Set(_)));
     let near = [0, 1, 6, 7, 11, 12, 13];
     let far = [FAR - 11, FAR - 10, FAR - 1, FAR];
     for id in near.into_iter().chain(far) {
@@ -174,4 +174,6 @@ fn an_empty_table_has_every_id_up_to_its_max_gone() {
     let set = GoneIds::of_table(&table.guard());
     assert!(!(&set).exists(8));
     assert!((&set).exists(9));
+    assert!((&set).any_gone(1, 1));
+    assert!(!(&set).any_gone(9, 100));
 }
