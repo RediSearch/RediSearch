@@ -3634,6 +3634,8 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   int profile = 0;
   size_t num = 0;
   size_t keptRowsBound = SIZE_MAX;
+  MRReply *returnedReply = NULL;
+  QueryErrorCode returnedCode = QUERY_ERROR_CODE_OK;
   // A stop requested before reducing (in the fan-out) leaves the replies kept so far to merge.
   const bool stoppedBeforeReducing = QueryRequestLimits_IsMemoryStopped(&req->base.limits);
 
@@ -3693,8 +3695,6 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   // Traverse the replies, check for early bail-out which we want for all errors
   // but timeout+non-strict timeout policy. Every reply is scanned: among the errors that must be
   // returned the first wins, except that an OOM error replaces a timeout one.
-  MRReply *returnedReply = NULL;
-  QueryErrorCode returnedCode = QUERY_ERROR_CODE_OK;
   for (int i = 0; i < count; i++) {
     MRReply *curr_rep = replies[i];
     if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
