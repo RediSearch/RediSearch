@@ -168,7 +168,7 @@ static bool oomStopKeepsBufferedRows(const QueryRequestLimits *timeout, RSOomPol
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx, rc);
      // Check timeout after aggregation; a stop raised while filling the limit ends it the same way.
-     if (QueryRequestLimits_IsTimedOutOrStopped(ctx->limits)) {
+     if (QueryRequestLimits_ShouldStopExact(ctx->limits)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
    } else {
