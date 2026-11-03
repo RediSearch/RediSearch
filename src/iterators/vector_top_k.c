@@ -12,10 +12,10 @@
 
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
-int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout) = VecSim_TimedOut;
+int (*vecsimTimeoutCallback)(QueryRequestLimits *timeout) = VecSim_TimedOut;
 
 // Non-inline wrapper called from Rust's VectorScoreSource::adhoc_strategy so the
 // test-mockable vecsimTimeoutCallback indirection is honored on the adhoc-BF path.
-int RS_VecSimCheckTimeout(QueryRequestTimeout *timeout) {
+int RS_VecSimCheckTimeout(QueryRequestLimits *timeout) {
   return vecsimTimeoutCallback(timeout);
 }
