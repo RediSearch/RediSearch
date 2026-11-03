@@ -84,6 +84,7 @@ unsafe extern "C" {
     ) -> ffi::StrongRef;
     fn StrongRef_Demote(strong: ffi::StrongRef) -> ffi::WeakRef;
     fn StrongRef_Release(strong: ffi::StrongRef);
+    fn StrongRef_Invalidate(strong: ffi::StrongRef);
     fn WeakRef_Release(weak: ffi::WeakRef);
 }
 
@@ -129,7 +130,7 @@ fn the_read_lock_excludes_writers_until_dropped() {
         rc == 0
     };
     {
-        let lock = spec_ref.read();
+        let lock = spec_ref.read().expect("the spec is valid");
         assert_eq!(lock.guard().as_ptr(), &raw const spec);
         assert_eq!(paused(), 1);
         assert!(
@@ -184,7 +185,7 @@ fn a_forgotten_read_lock_keeps_its_spec_alive() {
         .promote()
         .expect("the spec is alive");
 
-    mem::forget(spec_ref.read());
+    mem::forget(spec_ref.read().expect("the spec is valid"));
     drop(spec_ref);
     // SAFETY: `strong` was created above and is released once.
     unsafe { StrongRef_Release(strong) };
@@ -201,5 +202,33 @@ fn a_forgotten_read_lock_keeps_its_spec_alive() {
         WeakRef_Release(weak);
         ffi::HiddenString_Free(spec.specName, true);
         drop(CString::from_raw(spec.obfuscatedName));
+    }
+}
+
+/// A spec dropped after it was promoted cannot be locked, and the promoted
+/// reference still releases cleanly.
+#[test]
+#[cfg_attr(miri, ignore = "calls the C reference manager")]
+fn an_invalidated_spec_cannot_be_read_locked() {
+    // SAFETY: zero is valid for every field; the spec is never locked.
+    let mut spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
+    // SAFETY: the spec outlives the references, and `keep_spec` leaves its storage.
+    let strong = unsafe { StrongRef_New((&raw mut spec).cast(), Some(keep_spec)) };
+    // SAFETY: `strong` is the live reference created above.
+    let weak = unsafe { StrongRef_Demote(strong) };
+    // SAFETY: `weak` is a valid weak reference.
+    let spec_ref = unsafe { IndexSpecWeakRef::from_raw(weak) }
+        .promote()
+        .expect("the spec is alive");
+
+    // SAFETY: `strong` is live; this is what dropping the index does.
+    unsafe { StrongRef_Invalidate(strong) };
+    assert!(spec_ref.read().is_none());
+
+    drop(spec_ref);
+    // SAFETY: both references were created above and are released once.
+    unsafe {
+        WeakRef_Release(weak);
+        StrongRef_Release(strong);
     }
 }
