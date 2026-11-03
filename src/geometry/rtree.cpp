@@ -10,7 +10,7 @@
 #include "search_ctx.h"
 #include "iterators_ffi.h"  // NewGeometryQueryIterator
 #include "rmalloc.h"        // rm_malloc
-#include "query_memory.h"   // QueryMemory_ShouldStop
+#include "query_memory.h"   // QueryMemory_Checkpoint
 #include "query_error_ffi.h"  // QueryError_StrerrorDefaultMessage
 
 #include <string>     // std::string, std::char_traits
@@ -414,7 +414,7 @@ auto RTree<cs>::query(const RedisSearchCtx *sctx, const FieldFilterContext* filt
       // Only a stop for memory abandons the collection (timeouts are left to the iterator's own
       // checks). The request carries the stop, and the build checkpoint replies it; without a
       // request the build fails instead.
-      if (QueryMemory_ShouldStop(timeout, &memoryCheckCounter) &&
+      if (QueryMemory_Checkpoint(timeout, &memoryCheckCounter) &&
           (!timeout || QueryRequestLimits_IsMemoryStopped(timeout))) {
         if (!timeout) {
           throw std::runtime_error{
