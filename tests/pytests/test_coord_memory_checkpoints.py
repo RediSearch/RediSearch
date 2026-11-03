@@ -1642,6 +1642,9 @@ def test_withcount_elapsed_deadline_skips_the_prefanout_checkpoint():
                 lambda: (coord.execute_command(debug_cmd(), 'COORD_THREADS', 'is_paused') == 1, {}),
                 'Timeout waiting for the coordinator threads to pause')
             thread, result = run_in_thread(coord, query)
+            wait_for_condition(
+                lambda: (coord.execute_command('INFO', 'CLIENTS')['blocked_clients'] == 1, {}),
+                'Timeout waiting for the query to be admitted')
             # Past the deadline, then pressure for everything that runs after the entry guard.
             time.sleep(0.5)
             coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 1)
@@ -1711,16 +1714,19 @@ def test_search_mixed_shard_stops_follow_the_stop_precedence():
         reset_policies(env)
 
 
-def run_with_shard_replies_queued(coord, query):
-    """Runs `query` on the coordinator, holding its pipeline until every shard has replied, so
-    that the order of the shards' replies cannot matter. Returns the reply or the error."""
+def run_with_shard_replies_queued(coord, query, num_shards):
+    """Runs `query` on the coordinator, holding its pipeline until every shard's reply is queued,
+    so that the order of the shards' replies cannot matter. Returns the reply or the error."""
     sync_point(coord, 'CLEAR')
     sync_point(coord, 'ARM', 'BeforeRPNetNext')
+    # A 1 ms auto-release makes the point a counter of queued shard replies.
+    sync_point(coord, 'ARM', 'ShardReplyQueued', 1)
     try:
         thread, result = run_in_thread(coord, query)
         wait_for_sync_point(coord, 'BeforeRPNetNext')
-        # The shards answer at once, as the one that stops and the one that times out do.
-        time.sleep(1)
+        wait_for_condition(
+            lambda: (sync_point(coord, 'HIT_COUNT', 'ShardReplyQueued') >= num_shards, {}),
+            'Timeout waiting for every shard reply to be queued')
         sync_point(coord, 'SIGNAL', 'BeforeRPNetNext')
         thread.join(timeout=30)
     finally:
@@ -1752,7 +1758,7 @@ def test_aggregate_mixed_shard_stops_follow_the_stop_precedence():
             stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
             timed_out_shard.execute_command(debug_cmd(), 'FORCE_TIMEOUT', 'AT_CALL', 1)
             try:
-                res = run_with_shard_replies_queued(coord, query)
+                res = run_with_shard_replies_queued(coord, query, env.shardsCount)
             finally:
                 stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
                 timed_out_shard.execute_command(debug_cmd(), 'FORCE_TIMEOUT', 'RESET')
