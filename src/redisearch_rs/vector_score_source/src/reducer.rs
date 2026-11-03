@@ -12,7 +12,7 @@
 
 use std::{num::NonZeroUsize, ptr::NonNull};
 
-use ffi::{QueryRequestTimeout, VecSearchMode_STANDARD_KNN, VecSimIndex, VecSimQueryParams};
+use ffi::{QueryRequestLimits, VecSearchMode_STANDARD_KNN, VecSimIndex, VecSimQueryParams};
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{ExpirationChecker, RQEIterator, c2rust::CRQEIterator};
 use top_k::TopKIterator;
@@ -76,7 +76,7 @@ pub unsafe fn new_vector_top_k<'index, E>(
     query_vector: Vec<u8>,
     query_params: VecSimQueryParams,
     k: usize,
-    timeout: *mut QueryRequestTimeout,
+    timeout: *mut QueryRequestLimits,
     can_trim_deep_results: bool,
     expiration: E,
     child: Option<CRQEIterator>,

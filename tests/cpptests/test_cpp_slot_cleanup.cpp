@@ -587,8 +587,8 @@ class BufferedDiskQuery {
 
   void expire(RSTimeoutPolicy policy) {
     activeProcessing->timeoutPolicy = policy;
-    QueryRequestTimeout_BeginCycle(sctx.timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-    QueryRequestTimeout_MarkTimedOut(sctx.timeout);
+    QueryRequestLimits_BeginCycle(sctx.limits, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    QueryRequestLimits_MarkTimedOut(sctx.limits);
   }
 
   int nextStatus() {

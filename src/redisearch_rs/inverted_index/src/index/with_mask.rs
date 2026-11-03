@@ -9,7 +9,7 @@
 
 use crate::{
     AddRecordOutcome, DecodedBy, Encoder, FilterMaskReader, GcApplyInfo, GcScanDelta, IndexBlock,
-    InvertedIndex,
+    IndexUniqueId, InvertedIndex,
     debug::{BlockSummary, Summary},
     reader::IndexReaderCore,
 };
@@ -66,6 +66,11 @@ impl<E: Encoder> FieldMaskTrackingIndex<E> {
     /// Returns the number of unique documents in the index.
     pub const fn unique_docs(&self) -> u32 {
         self.index.unique_docs()
+    }
+
+    /// Return the unique ID assigned when the underlying inverted index was created.
+    pub const fn unique_id(&self) -> IndexUniqueId {
+        self.index.unique_id()
     }
 
     /// Returns the flags of this index.
