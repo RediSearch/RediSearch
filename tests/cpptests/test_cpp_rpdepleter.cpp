@@ -16,6 +16,8 @@
 #include "rmalloc.h"
 #include "common.h"
 #include "module.h"
+#include "config.h"
+#include "query_memory.h"
 #include <thread>
 #include <chrono>
 #include "redismock/redismock.h"
@@ -416,3 +418,75 @@ INSTANTIATE_TEST_SUITE_P(
       return info.param ? "WithIndexLock" : "WithoutIndexLock";
     }
 );
+
+namespace {
+// Replays `left` rows regardless of any stop, as a stage that holds rows does.
+struct HeldRowsUpstream : public ResultProcessor {
+  int left;
+  explicit HeldRowsUpstream(int rows) {
+    memset(static_cast<ResultProcessor *>(this), 0, sizeof(ResultProcessor));
+    left = rows;
+    Next = [](ResultProcessor *rp, SearchResult *res) -> int {
+      auto *self = static_cast<HeldRowsUpstream *>(rp);
+      if (self->left == 0) return RS_RESULT_EOF;
+      SearchResult_SetDocId(res, self->left--);
+      return RS_RESULT_OK;
+    };
+  }
+};
+
+// Depletes `rows` held rows with the memory stop firing at the depleter's first checkpoint.
+void depleteUnderOwnStop(int rows, size_t *yielded, int *lastRc, bool *oomCut) {
+  const auto previousPolicy = RSGlobalConfig.requestConfigParams.oomPolicy;
+  RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Return;
+  QueryMemory_SetPressureAtCall(1);
+
+  QueryRequestLimits limits = {};
+  TimeoutConfig config = {};
+  config.timeoutPolicy = TimeoutPolicy_Return;
+  QueryRequestLimits_Init(&limits, &config);
+  QueryProcessingCtx qitr = {0};
+  qitr.limits = &limits;
+  qitr.timeoutPolicy = TimeoutPolicy_Return;
+  qitr.oomPolicy = OomPolicy_Return;
+  HeldRowsUpstream upstream(rows);
+  ResultProcessor *depleter = RPDepleter_New();
+  QITR_PushRP(&qitr, &upstream);
+  QITR_PushRP(&qitr, depleter);
+
+  SearchResult r = SearchResult_New();
+  *yielded = 0;
+  while ((*lastRc = depleter->Next(depleter, &r)) == RS_RESULT_OK) {
+    ++*yielded;
+    SearchResult_Clear(&r);
+  }
+  *oomCut = qitr.oomCut;
+  SearchResult_Destroy(&r);
+  depleter->Free(depleter);
+  QueryMemory_ResetFakePressure();
+  RSGlobalConfig.requestConfigParams.oomPolicy = previousPolicy;
+}
+}  // namespace
+
+// A stop at the depleter's own checkpoint with more rows still replayed behind it cuts the
+// depletion and holds the rows kept, so the reply warns.
+TEST(RPDepleterStopTest, OwnStopWithRowsLeftCutsAndWarns) {
+  size_t yielded;
+  int lastRc;
+  bool oomCut;
+  depleteUnderOwnStop(3, &yielded, &lastRc, &oomCut);
+  EXPECT_EQ(yielded, 1u);
+  EXPECT_EQ(lastRc, RS_RESULT_TIMEDOUT);
+  EXPECT_TRUE(oomCut);
+}
+
+// A stop on the last row loses nothing, so the reply is complete and does not warn.
+TEST(RPDepleterStopTest, OwnStopOnTheLastRowDoesNotWarn) {
+  size_t yielded;
+  int lastRc;
+  bool oomCut;
+  depleteUnderOwnStop(1, &yielded, &lastRc, &oomCut);
+  EXPECT_EQ(yielded, 1u);
+  EXPECT_EQ(lastRc, RS_RESULT_EOF);
+  EXPECT_FALSE(oomCut);
+}
