@@ -72,7 +72,7 @@ int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryE
 }
 
 bool StoredResults_ShouldStopForMemory(uint32_t *counter, QueryError *err) {
-  if (!QueryMemory_ShouldStop(NULL, counter)) {
+  if (!QueryMemory_Checkpoint(NULL, counter)) {
     return false;
   }
   QueryError_SetQueryOOMWarning(err);
@@ -147,7 +147,7 @@ static bool oomStopKeepsBufferedRows(const QueryRequestLimits *timeout, RSOomPol
      // hold (see RP_StopPolicy), but nothing new from the row source. Not on the
      // row that fills the limit, which would end a full cursor chunk;
      // startPipelineCommon checks the stop after.
-     if (rp->parent->resultLimit && QueryMemory_ShouldStop(ctx->limits, &memoryCheckCounter)) {
+     if (rp->parent->resultLimit && QueryMemory_Checkpoint(ctx->limits, &memoryCheckCounter)) {
        if (!oomStopKeepsBufferedRows(ctx->limits, ctx->oomPolicy)) {
          *rc = RS_RESULT_TIMEDOUT;
          break;
