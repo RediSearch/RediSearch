@@ -332,6 +332,21 @@ TEST_F(HybridStartCursorsTest, OomStopAloneIgnoresTheTimeoutPolicy) {
   EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
 }
 
+// The stopped subquery's own deadline elapsed too: the timeout outranks the stop under ON_OOM
+// RETURN, so ON_TIMEOUT FAIL replies its error.
+TEST_F(HybridStartCursorsTest, StoppedSubqueryBesideItsOwnDeadlineFollowsTheTimeoutPolicy) {
+  TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = TimeoutPolicy_Fail};
+  QueryRequestLimits_Init(&first.base.limits, &timeoutConfig);
+  QueryRequestLimits_Init(&second.base.limits, &timeoutConfig);
+  QueryRequestLimits_RequestMemoryStop(&first.base.limits);
+  *QueryRequestLimits_GetClockDeadlineForUpdate(&first.base.limits) = {0, 0};
+  hybrid.base.reqConfig.oomPolicy = OomPolicy_Return;
+  upstreamRc = RS_RESULT_TIMEDOUT;
+  secondSubqueryRc = RS_RESULT_EOF;
+  EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_ERR);
+  EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_TIMED_OUT);
+}
+
 // The sibling's deadline has elapsed by the time depletion is classified, but it finished before
 // it: its recorded result, not the clock, says whether it timed out.
 TEST_F(HybridStartCursorsTest, SiblingFinishedJustBeforeItsDeadlineIsNotATimeout) {

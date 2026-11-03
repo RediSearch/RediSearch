@@ -324,6 +324,7 @@ def test_return_strict_drain_stop_truncates(env):
     """After a RETURN-STRICT timeout the main thread drains the sorter heap into the reply; the
     drain checks memory per row, although the request is already stopped by the timeout, and
     a stop there keeps what was drained and warns of both."""
+    t_query = None
     try:
         skipIfNoEnableAssert(env)
         _index_with_docs(env)
@@ -351,6 +352,10 @@ def test_return_strict_drain_stop_truncates(env):
                         message=res)
         env.assertEqual(sorted(res['warning']), sorted([COORD_OOM_WARNING, TIMEOUT_WARNING]))
     finally:
+        # A parked worker would leak the pause into later tests.
+        if t_query is not None:
+            resetAggregateResultsDebug(env)
+            t_query.join(timeout=10)
         _reset(env)
 
 
