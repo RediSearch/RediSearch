@@ -126,7 +126,18 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     }
     IndexSpec_Unlock(sp);
 
+    // After the cycle, which itself writes to that storage, and here rather than on the main
+    // thread, which must not wait on the disk I/O. No separate flush: the compaction flushes the
+    // memtables it covers first.
+    if (forced && forced->compactAll && result == DISK_GC_RUN_OK) {
+      if (!SearchDisk_CompactNonGcStorage(sp->diskSpec)) {
+        forced->outcome = GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE;
+      }
+    }
+
     gc->intervalSec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
+  } else if (forced && forced->compactAll) {
+    forced->outcome = GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE;
   }
 
   pthread_rwlock_unlock(&g_diskGcRunLock);
