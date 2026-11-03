@@ -64,6 +64,7 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "indexing", .type = InfoField_WholeSum},
     {.name = "percent_indexed", .type = InfoField_DoubleAverage},
     {.name = "hash_indexing_failures", .type = InfoField_WholeSum},
+    {.name = "total_indexing_time", .type = InfoField_DoubleSum},
     {.name = "number_of_uses", .type = InfoField_Max},
     {.name = "number_of_admin_ops", .type = InfoField_Max},
     {.name = "cleaning", .type = InfoField_WholeSum}};
@@ -180,6 +181,20 @@ static void convertField(InfoValue *dst, MRReply *src, InfoFieldType type) {
   dst->isSet = 1;
 }
 
+static const char *fieldSchemaType(const MRReply *indexSchema, size_t fieldIndex) {
+  if (!indexSchema || fieldIndex >= MRReply_Length(indexSchema)) {
+    return NULL;
+  }
+  const MRReply *schema = MRReply_ArrayElement(indexSchema, fieldIndex);
+  // RESP2 schema entries can end with bare flags, so preserve their array format.
+  for (size_t i = 0; i + 1 < MRReply_Length(schema); i += 2) {
+    if (MRReply_StringEquals(MRReply_ArrayElement(schema, i), "type", false)) {
+      return MRReply_String(MRReply_ArrayElement(schema, i + 1), NULL);
+    }
+  }
+  return NULL;
+}
+
 // Extract an array of FieldSpecInfo from MRReply
 void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) {
   // Input validations
@@ -204,6 +219,10 @@ void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) 
   for (size_t i = 0; i < len; i++) {
     MRReply *serializedFieldSpecInfo = MRReply_ArrayElement(src, i);
     AggregatedFieldSpecInfo fieldSpecInfo = AggregatedFieldSpecInfo_Deserialize(serializedFieldSpecInfo);
+    const char *type = fieldSchemaType(fields->indexSchema, i);
+    if (type && strcmp(type, "VECTOR") == 0) {
+      FieldSpecStats_DeserializeVectorMetrics(&fieldSpecInfo.stats, serializedFieldSpecInfo);
+    }
     AggregatedFieldSpecInfo_Combine(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
     AggregatedFieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
   }

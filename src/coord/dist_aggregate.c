@@ -216,7 +216,7 @@ static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     }
     iterCtx->numResponded++;
     bool timedOut =
-        QueryRequestTimeout_IsBlockedClientTimedOut(&iterCtx->areq->base.timeout);
+        QueryRequestLimits_IsBlockedClientTimedOut(&iterCtx->areq->base.limits);
     if (timedOut || isError || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
       if (timedOut) {
         MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
@@ -249,7 +249,7 @@ static void withCountErrorCb(MRIteratorCallbackCtx *ctx) {
   // remaining shards to netCursorCallback and stop accumulating their totals. Wait
   // for the other shards (or a timeout) so their counts are still summed. On a
   // timeout we must dispatch.
-  bool timedOut = QueryRequestTimeout_IsBlockedClientTimedOut(&iterCtx->areq->base.timeout);
+  bool timedOut = QueryRequestLimits_IsBlockedClientTimedOut(&iterCtx->areq->base.limits);
   if (timedOut || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
     if (timedOut) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
@@ -349,7 +349,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 #endif
 
   // Check if the request timed out before starting the iterator
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&nc->areq->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&nc->areq->base.limits)) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -388,7 +388,7 @@ static void executeAggregateDeferred(void *arg) {
   RPNet *nc = (RPNet *)AREQ_QueryProcessingCtx(r)->rootProc;
   long long totalResults = iterCtx->totalResults;
 
-  bool timedOut = QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout);
+  bool timedOut = QueryRequestLimits_IsBlockedClientTimedOut(&r->base.limits);
 
   if (sp && !timedOut) {
     // Dedicated thread-safe context for this worker, lent to sctx->redisCtx
@@ -699,7 +699,7 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   RPNet *rpnet = (RPNet *)AREQ_QueryProcessingCtx(req)->rootProc;
   // STRICT serializes on the main thread after the worker hands off the pipeline.
   // Collect available profiles without waiting for shards that may need this thread.
-  if (req->base.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  if (req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     rpnet->drainOnly = true;
   }
   if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
@@ -849,7 +849,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
   r->sctx = rm_new(RedisSearchCtx);
   *r->sctx = SEARCH_CTX_STATIC(ctx, NULL);
   r->sctx->apiVersion = dialect;
-  r->sctx->timeout = &r->base.timeout;
+  r->sctx->limits = &r->base.limits;
   // r->sctx->expanded should be received from shards
 
   return REDISMODULE_OK;
@@ -879,7 +879,7 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, IndexSpec *sp, StrongRef 
   RS_ASSERT(r != NULL);  // the dispatcher allocates the request shell on the main thread
 
   // If timeout already occurred, the timeout callback already replied - don't reply again
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&r->base.limits)) {
     QueryError_ClearError(&r->base.reply.err);
     goto cleanup;
   }
@@ -955,7 +955,7 @@ static void execDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int
   QueryRequest *request = dispatch->request;
   AREQ *r = QueryRequest_GetAREQ(request);
 
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&r->base.limits)) {
     // Query timed out while this job was queued; the timeout callback already
     // replied.
 
@@ -1032,7 +1032,7 @@ int DistAggregateTimeoutFailCallback(RedisModuleCtx *ctx, RedisModuleString **ar
   AREQ *req = QueryRequest_GetAREQ(request);
 
   // Signal timeout to the background thread
-  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  QueryRequestLimits_MarkTimedOut(&req->base.limits);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordAREQTimeoutStage(req, /*isError=*/true);
@@ -1071,7 +1071,7 @@ int DistAggregateTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStr
   AREQ *req = QueryRequest_GetAREQ(request);
 
   // Signal timeout to the background thread
-  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  QueryRequestLimits_MarkTimedOut(&req->base.limits);
 
   // Record the per-stage breakdown at the stage the deadline caught the request.
   recordCoordAREQTimeoutStage(req, /*isError=*/false);
@@ -1155,7 +1155,7 @@ int DistCursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleSt
   QueryRequest *request = RedisModule_GetBlockedClientPrivateData(ctx);
   RS_ASSERT(request != NULL);
   AREQ *req = QueryRequest_GetAREQ(request);
-  QueryRequestTimeout_MarkTimedOut(&req->base.timeout);
+  QueryRequestLimits_MarkTimedOut(&req->base.limits);
 
   // Record the per-stage breakdown at the stage the deadline caught the request
   // (QUEUE while BG has not dequeued the read yet).
@@ -1207,7 +1207,7 @@ static void DEBUG_execDistAggregate(RedisModuleCtx *ctx, RedisModuleString **arg
   AREQ *r = QueryRequest_GetAREQ(request);
   AREQ_Debug *debug_req = (AREQ_Debug *)r;
 
-  if (QueryRequestTimeout_IsBlockedClientTimedOut(&r->base.timeout)) {
+  if (QueryRequestLimits_IsBlockedClientTimedOut(&r->base.limits)) {
     // Query timed out while this job was queued; the timeout callback already
     // replied.
 

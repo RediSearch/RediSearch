@@ -21,6 +21,7 @@
 
 #include "geo_index.h"
 #include "query.h"
+#include "doc_id_meta.h"
 #include "config.h"
 #include "query_error_ffi.h"
 #include "redis_index.h"
@@ -541,17 +542,17 @@ static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
 // Keep the query-iterator sync point out of the source-neutral timeout API.
 #ifdef ENABLE_ASSERT
 static bool queryIteratorTimedOut(void *arg) {
-  const QueryRequestTimeout *timeout = arg;
-  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+  const QueryRequestLimits *timeout = arg;
+  return QueryRequestLimits_IsBlockedClientTimedOut(timeout);
 }
 #endif
 
-bool QueryIterator_IsBlockedClientTimedOut(const QueryRequestTimeout *timeout) {
+bool QueryIterator_IsBlockedClientTimedOut(const QueryRequestLimits *timeout) {
   RS_LOG_ASSERT(timeout, "QueryIterator_IsBlockedClientTimedOut called with NULL timeout");
 #ifdef ENABLE_ASSERT
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_QI_TIMEOUT_CHECK, queryIteratorTimedOut, (void *)timeout);
 #endif
-  return QueryRequestTimeout_IsBlockedClientTimedOut(timeout);
+  return QueryRequestLimits_IsBlockedClientTimedOut(timeout);
 }
 
 // Appends the words of `phrase` joined by single spaces, writing the `emptyWord` argument in
@@ -1070,8 +1071,17 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "IDS {");
       if (spec) {
         for (size_t i = 0; i < qs->fn.len; i++) {
-          // docIds are pre-resolved at query construction (both modes).
-          t_docId did = qs->fn.docIds ? qs->fn.docIds[i] : 0;
+          t_docId did;
+          if (qs->fn.docIds) {
+            did = qs->fn.docIds[i];
+          } else if (spec->docs.keyMapState != DocKeyMap_Ready) {
+            did = 0;
+            DocIdMeta_Get(RSDummyContext, qs->fn.keys[i], spec->specId, &did);
+          } else {
+            size_t len;
+            const char *key = RedisModule_StringPtrLen(qs->fn.keys[i], &len);
+            did = DocTable_GetIdByKey(&spec->docs, key, len);
+          }
           if (did != 0) {
             s = sdscatprintf(s, "%" PRIu64 ",", did);
           }
