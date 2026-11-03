@@ -148,9 +148,9 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/fork_gc.h",
+        path: "src/gc/index_gc.h",
         fns: &[],
-        types: &["ForkGC"],
+        types: &["IndexGC"],
         vars: &[],
     },
     HeaderAllowlist {
