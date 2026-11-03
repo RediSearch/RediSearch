@@ -176,6 +176,35 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   return RS_RESULT_OK;
 }
 
+// A timeout that must be replied as an error was just read. Under ON_OOM FAIL an OOM beats it,
+// so look for one among the replies already queued: the queue is emptied without waiting, since
+// the request ends in an error and waiting would only delay the timeout one. Returns the OOM
+// reply (an error, or a shard OOM warning in a hybrid mapping stream) or NULL; the caller frees it.
+static MRReply *takeQueuedOomFailure(RPNet *nc) {
+  if (!nc->it || nc->areq->base.reqConfig.oomPolicy != OomPolicy_Fail) {
+    return NULL;
+  }
+  MRReply *oom = NULL;
+  MRReply *queued;
+  while ((queued = MRIterator_TryNext(nc->it))) {
+    const int type = MRReply_Type(queued);
+    const char *str = (type == MR_REPLY_ERROR || type == MR_REPLY_STRING || type == MR_REPLY_STATUS)
+                          ? MRReply_String(queued, NULL)
+                          : NULL;
+    const bool isOom =
+        !oom && str &&
+        (type == MR_REPLY_ERROR
+             ? QueryError_GetCodeFromMessage(str) == QUERY_ERROR_CODE_OUT_OF_MEMORY
+             : nc->hybridSubquery != RPNET_HYBRID_NONE && !strcmp(str, QUERY_WOOM_SHARD));
+    if (isOom) {
+      oom = queued;
+    } else {
+      MRReply_Free(queued);
+    }
+  }
+  return oom;
+}
+
 // True when a popped reply is a mapping-stage warning injected into a hybrid
 // stream by the arming fan-out callback (see forwardWarnings in
 // hybrid_cursor_mappings.c): a bare warning string. The stream's other replies
@@ -211,6 +240,13 @@ static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
     case QUERY_WARNING_CODE_TIMED_OUT:
       nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
       if (nc->areq->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
+        MRReply *oom = takeQueuedOomFailure(nc);
+        if (oom) {
+          QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
+          QueryError_SetDetail(err, MRReply_String(oom, NULL));
+          MRReply_Free(oom);
+          return RS_RESULT_ERROR;
+        }
         return RS_RESULT_TIMEDOUT;
       }
       break;
@@ -695,6 +731,16 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     // If an error was returned, propagate it
     if (nc->current.root && MRReply_Type(nc->current.root) == MR_REPLY_ERROR) {
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(MRReply_String(nc->current.root, NULL));
+      if (errCode == QUERY_ERROR_CODE_TIMED_OUT &&
+          nc->areq->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
+        // An OOM error that already arrived outranks the timeout one.
+        MRReply *oom = takeQueuedOomFailure(nc);
+        if (oom) {
+          MRReply_Free(nc->current.root);
+          nc->current.root = oom;
+          errCode = QUERY_ERROR_CODE_OUT_OF_MEMORY;
+        }
+      }
       // TODO - use should_return_error after it is changed to support RequestConfig ptr
       if (errCode == QUERY_ERROR_CODE_GENERIC ||
           errCode == QUERY_ERROR_CODE_UNAVAILABLE_SLOTS ||
