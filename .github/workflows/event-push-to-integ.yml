@@ -17,6 +17,8 @@ jobs:
     permissions: # actions/checkout
       contents: read
     uses: ./.github/workflows/task-check-changes.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
 
   benchmark:
     needs: check-what-changed
