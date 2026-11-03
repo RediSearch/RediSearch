@@ -1285,7 +1285,7 @@ typedef struct RPSafeLoader {
   // avoidance handshake around the GIL (see aggregate.h).
   QueryRequest *request;
 
-  // QueryMemory_ShouldStop counters for the buffer and for the values loaded under the GIL.
+  // QueryMemory_Checkpoint counters for the buffer and for the values loaded under the GIL.
   uint32_t bufferMemoryCheckCalls;
   uint32_t loadMemoryCheckCalls;
 } RPSafeLoader;
@@ -1394,7 +1394,7 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
     // Only an OOM stop cuts the load: a timeout's callback waits for this worker, as before.
-    if (!stopped && checkMemory && QueryMemory_ShouldStop(timeout, &self->loadMemoryCheckCalls) &&
+    if (!stopped && checkMemory && QueryMemory_Checkpoint(timeout, &self->loadMemoryCheckCalls) &&
         QueryRequestLimits_IsMemoryStopped(timeout)) {
       // The loaded prefix is yielded; the yield phase then ends on the stop.
       stopped = true;
