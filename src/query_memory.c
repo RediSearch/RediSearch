@@ -44,7 +44,7 @@ static bool readMemoryAndStop(QueryRequestLimits *limits) {
   return true;
 }
 
-bool QueryMemory_ShouldStop(QueryRequestLimits *limits, uint32_t *counter) {
+bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter) {
   if (limits && (QueryRequestLimits_IsMemoryStopped(limits) ||
                  QueryRequestLimits_IsBlockedClientTimedOut(limits))) {
     return true;
@@ -66,7 +66,7 @@ bool QueryMemory_ShouldStop(QueryRequestLimits *limits, uint32_t *counter) {
   return readMemoryAndStop(limits);
 }
 
-bool QueryMemory_ShouldStopNow(QueryRequestLimits *limits) {
+bool QueryMemory_CheckpointNow(QueryRequestLimits *limits) {
   if (limits && (QueryRequestLimits_IsMemoryStopped(limits) ||
                  QueryRequestLimits_IsBlockedClientTimedOut(limits))) {
     return true;
