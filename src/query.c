@@ -19,7 +19,7 @@
 #include "debug_commands.h" // IWYU pragma: keep
 #endif
 
-#include "geo_index.h"
+#include "geo_ffi.h"
 #include "query.h"
 #include "doc_id_meta.h"
 #include "config.h"
