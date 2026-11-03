@@ -422,40 +422,88 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         let skip_clean_blocks = repair.is_none();
         let last_idx = self.blocks.len() - 1;
 
-        // First pass: repair each block on its own, as before compaction existed.
-        let mut repairs: Vec<Option<Option<RepairType>>> = Vec::with_capacity(self.blocks.len());
+        // First pass: repair each block on its own, as before compaction existed, and
+        // count what each keeps; a block left alone keeps all its entries.
+        let mut results = Vec::new();
+        let mut survivors: Vec<u32> = Vec::with_capacity(self.blocks.len());
         for (i, block) in self.blocks.iter().enumerate() {
+            let kept = u32::from(block.num_entries);
             if skip_clean_blocks && !doc_exist.any_gone(block.first_doc_id, block.last_doc_id) {
-                repairs.push(None);
+                survivors.push(kept);
                 continue;
             }
-            repairs.push(Some(block.repair(
+            match block.repair(
                 i,
                 self.expiration.get(i),
                 |id| doc_exist.exists(id),
                 repair.as_mut(),
                 PhantomData::<E>,
-            )?));
+            )? {
+                Some(repair) => {
+                    survivors.push(match &repair {
+                        RepairType::Delete { .. } => 0,
+                        RepairType::Replace { blocks, .. } => {
+                            blocks.iter().map(|(b, _)| u32::from(b.num_entries)).sum()
+                        }
+                    });
+                    results.push(BlockGcScanResult {
+                        index: i,
+                        span: 1,
+                        repair,
+                    });
+                }
+                None => survivors.push(kept),
+            }
         }
 
         // Second pass: runs of consecutive copied blocks before the last whose surviving
         // entries fit one block are re-encoded together. The last block never joins: it
         // is the one writers append to, and the apply's staleness check names it by position.
-        let surviving = |repairs: &[Option<Option<RepairType>>], i: usize| match &repairs[i] {
-            Some(Some(RepairType::Delete { .. })) => 0,
-            Some(Some(RepairType::Replace { blocks, .. })) => {
-                blocks.iter().map(|(b, _)| u32::from(b.num_entries)).sum()
-            }
-            _ => u32::from(self.blocks[i].num_entries),
-        };
+        // Most scans have no such run, and keep the first pass's results as they are.
         let limit = u32::from(E::RECOMMENDED_BLOCK_ENTRIES);
-        let mut results = Vec::new();
+        let joinable = |i: usize| i < last_idx && self.blocks[i].has_data();
+        let any_run = (1..last_idx)
+            .any(|i| joinable(i - 1) && joinable(i) && survivors[i - 1] + survivors[i] <= limit);
+        if any_run {
+            results = self.compact_runs(results, &survivors, limit, &doc_exist, repair.as_mut())?;
+        }
+
+        if results.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(GcScanDelta {
+                last_block_idx: last_idx,
+                last_block_num_entries: last.num_entries,
+                deltas: results,
+            }))
+        }
+    }
+
+    /// Rebuild `results`, the first pass's per-block repairs, around the runs of
+    /// blocks before the last whose `survivors` fit `limit` together, re-encoding
+    /// each such run into fewer blocks.
+    fn compact_runs<'a>(
+        &'a self,
+        results: Vec<BlockGcScanResult>,
+        survivors: &[u32],
+        limit: u32,
+        doc_exist: &impl DocLiveness,
+        mut repair: Option<
+            &mut impl for<'call> FnMut(&RSIndexResult<'call>, &RepairContext<'call>),
+        >,
+    ) -> std::io::Result<Vec<BlockGcScanResult>> {
+        let last_idx = self.blocks.len() - 1;
+        let mut by_block: Vec<Option<RepairType>> = (0..self.blocks.len()).map(|_| None).collect();
+        for result in results {
+            by_block[result.index] = Some(result.repair);
+        }
+        let mut compacted_results = Vec::new();
         let mut i = 0;
         while i < self.blocks.len() {
             let mut run = 0;
             let mut total = 0;
             while i + run < last_idx && self.blocks[i + run].has_data() {
-                let next = total + surviving(&repairs, i + run);
+                let next = total + survivors[i + run];
                 if next > limit {
                     break;
                 }
@@ -468,14 +516,14 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                     &self.expiration,
                     i,
                     |id| doc_exist.exists(id),
-                    repair.as_mut(),
+                    repair.as_deref_mut(),
                     PhantomData::<E>,
                 )?
             } else {
                 None
             };
             if let Some(repair) = compacted {
-                results.push(BlockGcScanResult {
+                compacted_results.push(BlockGcScanResult {
                     index: i,
                     span: run,
                     repair,
@@ -483,8 +531,8 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                 i += run;
                 continue;
             }
-            if let Some(Some(repair)) = repairs[i].take() {
-                results.push(BlockGcScanResult {
+            if let Some(repair) = by_block[i].take() {
+                compacted_results.push(BlockGcScanResult {
                     index: i,
                     span: 1,
                     repair,
@@ -492,16 +540,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             }
             i += 1;
         }
-
-        if results.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(GcScanDelta {
-                last_block_idx: last_idx,
-                last_block_num_entries: self.blocks[last_idx].num_entries,
-                deltas: results,
-            }))
-        }
+        Ok(compacted_results)
     }
 
     pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
