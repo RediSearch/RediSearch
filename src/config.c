@@ -2594,7 +2594,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterEnumConfig(
-      ctx, "search-on-oom", SearchDisk_IsEnabled() ? DEFAULT_OOM_POLICY_FLEX : DEFAULT_OOM_POLICY,
+      ctx, "search-on-oom", OomPolicy_Return,
       REDISMODULE_CONFIG_UNPREFIXED,
       on_oom_vals, on_oom_enums, 3,
       get_on_oom, set_on_oom, NULL,
@@ -2798,6 +2798,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.diskUseDirectReads)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-disk-sq8-enabled", 0,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.diskSq8Enabled)
     )
   )
 

@@ -9,7 +9,7 @@
 
 use std::ptr::NonNull;
 
-use ffi::{QueryIterator_IsBlockedClientTimedOut, QueryRequestTimeout, RedisSearchCtx};
+use ffi::{QueryIterator_IsBlockedClientTimedOut, QueryRequestLimits, RedisSearchCtx};
 pub use timeout::{DeadlineTimeoutChecker, NoTimeoutChecker, TimeoutCheckResult, TimeoutChecker};
 
 use crate::{RQEIteratorError, utils::timespec::deadline_passed};
@@ -146,7 +146,7 @@ impl TimeoutChecker for TimeoutContextDeadline {
 /// The pointer is private because it may only be set by the unsafe constructor, which requires
 /// the request to outlive every probe.
 pub struct TimeoutContextRequest {
-    timeout: NonNull<QueryRequestTimeout>,
+    timeout: NonNull<QueryRequestLimits>,
     clock: TimeoutContextDeadline,
 }
 
@@ -158,13 +158,13 @@ impl TimeoutContextRequest {
     /// `timeout` must stay [valid] at a stable address for as long as this context and any
     /// iterator built from it are used. Source changes and deadline writes must occur only
     /// between probes, after the previous execution cycle has stopped. Only the blocked-client
-    /// flag and the stop state (flag and reason) may be updated concurrently, and only atomically.
+    /// marker and the memory stop flag may be updated concurrently, and only atomically.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-    pub unsafe fn new(timeout: NonNull<QueryRequestTimeout>, granularity: u32) -> Self {
+    pub unsafe fn new(timeout: NonNull<QueryRequestLimits>, granularity: u32) -> Self {
         // SAFETY: projecting a union field does not read it. The clock checker only reads
         // the field when a later probe sees CLOCK_DEADLINE as the active source.
-        let deadline = unsafe { &raw mut (*timeout.as_ptr()).source.clock.deadline };
+        let deadline = unsafe { &raw mut (*timeout.as_ptr()).timeout.source.clock.deadline };
         let deadline = NonNull::new(deadline).expect("projected from a non-null request timeout");
         // SAFETY: the caller keeps the request timeout at a stable address and changes its
         // source only between execution cycles, when no probe can run.
@@ -178,7 +178,7 @@ impl TimeoutChecker for TimeoutContextRequest {
     fn check_timeout(&mut self) -> TimeoutCheckResult {
         // SAFETY: the constructor contract keeps the request valid and its kind stable
         // for this probe. Only the active union member is accessed below.
-        match unsafe { (*self.timeout.as_ptr()).kind } {
+        match unsafe { (*self.timeout.as_ptr()).timeout.kind } {
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED => TimeoutCheckResult::Ok,
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE => {
                 TimeoutChecker::check_timeout(&mut self.clock)
@@ -219,13 +219,13 @@ impl AnyTimeoutContext {
     /// # Safety
     ///
     /// `sctx` must stay [valid] at a stable address for as long as the returned context and any
-    /// iterator built from it are used. If `sctx.timeout` is non-null, it must uphold the
+    /// iterator built from it are used. If `sctx.limits` is non-null, it must uphold the
     /// requirements of [`TimeoutContextRequest::new`].
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn from_sctx(sctx: NonNull<RedisSearchCtx>, granularity: u32) -> Self {
         // SAFETY: the caller guarantees `sctx` is valid throughout this call.
-        let timeout = unsafe { (*sctx.as_ptr()).timeout };
+        let timeout = unsafe { (*sctx.as_ptr()).limits };
         match NonNull::new(timeout) {
             Some(timeout) => {
                 // SAFETY: the caller guarantees the retained request satisfies `new`'s contract.

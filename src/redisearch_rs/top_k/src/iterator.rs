@@ -253,9 +253,11 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             // collected is still served and the iterator reaches EOF rather than
             // re-collecting on every subsequent read. Only `rewind` starts a new
             // scan. The source is rewound to release scan-scoped resources; the
-            // yield path needs none of them.
-            self.finalize_collection();
+            // yield path needs none of them. Rewind comes first: a memory stop
+            // lands here under pressure, and finalizing allocates a fresh heap
+            // while the source would still hold its index-sized scan state.
             self.source.rewind();
+            self.finalize_collection();
         }
         result
     }
@@ -371,6 +373,8 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             // Poll before the lookup so an expired deadline skips the expensive
             // VecSim distance lookup.
             scope.0.check_timeout()?;
+            // Each retained entry holds a captured child record, so memory grows with the scan.
+            scope.0.check_stop()?;
             if let Some(score) = scope.0.lookup_score(doc_id) {
                 // Capture the child's data only if the heap retains this entry,
                 // before the next `child.read()` reuses its storage, so the yield
@@ -387,8 +391,10 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             }
         }
 
-        // Reached only on a clean scan exit (EOF or `Stop`); a timed-out scan
-        // propagates earlier.
+        // Reached only on a clean scan exit (EOF or `Stop`); a stopped scan
+        // propagates earlier. Rerank and finalize copy the heap, so read memory
+        // once more before them.
+        scope.0.check_stop_now()?;
         if scope.0.should_rerank() && !self.heap.is_empty() {
             let entries = self.heap.drain_unsorted().collect::<Vec<_>>();
             // `rerank` only rewrites scores in place (doc ids stay put), so the
@@ -420,6 +426,7 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         // Replace heap with a fresh one; drain_sorted consumes the old one.
         let old_heap = std::mem::replace(&mut *self.heap, TopKHeap::new(self.k, self.order));
         *self.results = old_heap.drain_sorted();
+        self.source.finish_collection();
         self.yield_pos = 0;
         self.phase = Phase::Yielding;
     }

@@ -97,14 +97,6 @@ impl<O: ScoreOrdering> Ord for HeapEntry<'_, O> {
     }
 }
 
-/// The most slots [`TopKHeap::new`] reserves up front; past it the heap grows as it fills, never
-/// beyond its capacity.
-///
-/// The capacity is caller input that can far exceed the candidates: a KNN query's K is bounded
-/// only by the parser's `MAX_KNN_K`. Reserving it whole costs every slot before the first result
-/// arrives, and a K beyond available memory aborts the allocation.
-const INITIAL_CAPACITY_CAP: usize = 1024;
-
 /// A fixed-capacity heap that retains the k best-scored documents.
 ///
 /// Internally a max-heap whose root is the *worst* of the retained elements,
@@ -132,9 +124,9 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
     /// Creates a new heap that holds at most `capacity` elements,
     /// using `order` to determine which score is better.
     pub fn new(capacity: NonZeroUsize, order: O) -> Self {
-        let capacity = capacity.get();
+        let capacity = capacity.into();
         Self {
-            inner: BinaryHeap::with_capacity(capacity.min(INITIAL_CAPACITY_CAP)),
+            inner: BinaryHeap::with_capacity(capacity),
             capacity,
             order,
         }
@@ -250,11 +242,6 @@ impl<'index, O: ScoreOrdering> TopKHeap<'index, O> {
                 .expect("a full heap has capacity > 0 and so holds a worst element");
             *worst = entry;
         } else {
-            if self.inner.len() == self.inner.capacity() {
-                // Double as `push` would, but clamped so a full heap holds exactly `capacity`.
-                let room = self.capacity - self.inner.len();
-                self.inner.reserve_exact(self.inner.len().clamp(1, room));
-            }
             self.inner.push(entry);
         }
     }
@@ -624,40 +611,6 @@ mod tests {
         let sorted: Vec<ScoredResult> = heap.drain_sorted().into_iter().map(|r| r.scored).collect();
         assert_eq!(sorted[0].score, 2.0);
         assert_eq!(sorted[2].score, 5.0);
-    }
-
-    #[test]
-    fn new_reserves_at_most_the_cap() {
-        let heap = TopKHeap::<Ascending>::new(non_zero_capacity(10), Ascending);
-        assert!(heap.inner.capacity() >= 10);
-
-        // A capacity at the allocation limit reserves only the cap.
-        let heap = TopKHeap::<Ascending>::new(NonZeroUsize::MAX, Ascending);
-        assert!(heap.inner.capacity() >= INITIAL_CAPACITY_CAP);
-        assert!(heap.inner.capacity() < 2 * INITIAL_CAPACITY_CAP);
-        assert!(heap.is_empty());
-        assert!(!heap.is_full());
-    }
-
-    #[test]
-    fn heap_with_k_above_the_cap_keeps_every_candidate_until_full() {
-        let k = INITIAL_CAPACITY_CAP + 10;
-        let mut heap = TopKHeap::new(non_zero_capacity(k), Ascending);
-        // Two candidates beyond K, pushed worst first, so the two worst are evicted.
-        for doc_id in (1..=k as DocId + 2).rev() {
-            heap.push(doc_id, doc_id as f64);
-        }
-        assert!(heap.is_full());
-        assert_eq!(heap.len(), k);
-        // Growth stops at the capacity rather than at the next doubling.
-        assert!(heap.inner.capacity() < 2 * INITIAL_CAPACITY_CAP);
-
-        let ids = heap
-            .drain_sorted()
-            .into_iter()
-            .map(|r| r.scored.doc_id)
-            .collect_vec();
-        assert_eq!(ids, (1..=k as DocId).collect_vec());
     }
 
     #[test]

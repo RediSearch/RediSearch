@@ -88,7 +88,7 @@ protected:
     cmd.tailPlan = &result->tailPipeline->ap;
     cmd.hybridParams = &hybridParams;
     cmd.reqConfig = &result->base.reqConfig;
-    cmd.timeoutConfig = &result->base.timeout.config;
+    cmd.timeoutConfig = &result->base.limits.timeout.config;
     cmd.cursorConfig = &result->base.cursorConfig;
 
     ArgsCursor ac = {0};

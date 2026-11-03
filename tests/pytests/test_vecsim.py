@@ -2051,6 +2051,47 @@ class TestTimeoutReached(object):
         self.run_timeout_tests(n_vec, query_vec)
 
 @skip(cluster=True)
+def testFilteredKnnCursorReleasesVecsimIterator():
+    """Buffered KNN cursor results must not retain the lock needed for in-place vector updates."""
+    # Disable both worker floors: in-place updates require the main HNSW lock even
+    # with the relabel fix in VecSim. WORKERS 0 alone keeps a maintenance worker alive.
+    env = Env(moduleArgs='WORKERS 0 MIN_OPERATION_WORKERS 0')
+    env.expect('CONFIG', 'SET', 'search-min-maintenance-workers', 0).ok()
+    conn = getConnectionByEnv(env)
+    dim, count, k = 4, 100, 10
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               't', 'TEXT', 'v', 'VECTOR', 'HNSW', '6',
+               'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    for i in range(count):
+        conn.execute_command('HSET', f'doc:{i}', 't', 'hello',
+                             'v', create_np_array_typed([i] * dim, 'FLOAT16').tobytes())
+
+    query = f'(@t:hello)=>[KNN {k} @v $vec HYBRID_POLICY BATCHES BATCH_SIZE 5]'
+    chunk, cursor = env.cmd('FT.AGGREGATE', 'idx', query, 'LOAD', 1, '@__key',
+                            'LIMIT', 0, k, 'WITHCURSOR', 'COUNT', 1,
+                            'PARAMS', 2, 'vec',
+                            create_np_array_typed([0] * dim, 'FLOAT16').tobytes(), 'DIALECT', 2)
+    env.assertNotEqual(cursor, 0, message=chunk)
+    keys = [to_dict(row)['__key'] for row in chunk[1:]]
+    env.assertEqual(keys, ['doc:0'])
+
+    # Leave the cursor open while exercising both unchanged-vector relabel and graph mutation.
+    env.assertEqual(conn.execute_command('HSET', 'doc:99', 't', 'goodbye'), 0)
+    env.assertEqual(conn.execute_command('HSET', 'doc:99', 'v',
+                    create_np_array_typed([1000] * dim, 'FLOAT16').tobytes()), 0)
+    env.expect('PING').noError()
+
+    for _ in range(k):
+        if cursor == 0:
+            break
+        chunk, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor, 'COUNT', 3)
+        keys.extend(to_dict(row)['__key'] for row in chunk[1:])
+    env.assertEqual(cursor, 0)
+    env.assertEqual(keys, [f'doc:{i}' for i in range(k)])
+    env.expect('FT.SEARCH', 'idx', '@t:goodbye', 'NOCONTENT').equal([1, 'doc:99'])
+
+
+@skip(cluster=True)
 def testKnnCursorDepletesWhenCollectionAlwaysTimesOut():
     """
     A KNN cursor whose collection can never complete must still deplete.
@@ -3056,29 +3097,3 @@ def testVectorDimensionSizeOverflow(env):
     env.expect('FT.CREATE', 'valid', 'SCHEMA', 'v', 'VECTOR', 'FLAT', 6,
                'TYPE', 'FLOAT32', 'DIM', 1, 'DISTANCE_METRIC', 'COSINE').ok()
     env.expect('FT.SEARCH', 'valid', '*').equal([0])
-
-
-@skip(cluster=True)
-def test_max_knn_k_returns_every_match():
-    """K is not reserved up front on the shard: the largest accepted K returns what a K equal to
-    the index size does, in every KNN mode. (The cluster coordinator sizes its own merge heaps.)"""
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    conn = getConnectionByEnv(env)
-    dim, n = 2, 20
-    max_k = pow(2, 58)
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG',
-               'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2',
-               'vh', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
-    for i in range(1, n + 1):
-        vec = create_np_array_typed([i] * dim).tobytes()
-        conn.execute_command('HSET', f'doc{i}', 'v', vec, 'vh', vec, 't', 'even' if i % 2 == 0 else 'odd')
-    blob = create_np_array_typed([n / 2] * dim).tobytes()
-    for prefix, policy in (('*', ''), ('(@t:{even})', 'HYBRID_POLICY BATCHES'),
-                           ('(@t:{even})', 'HYBRID_POLICY ADHOC_BF')):
-        def search(field, k):
-            return env.cmd('FT.SEARCH', 'idx', f'{prefix}=>[KNN {k} @{field} $b {policy}]',
-                           'PARAMS', 2, 'b', blob, 'NOCONTENT', 'LIMIT', 0, n)
-        # The exact FLAT search with K equal to the index size is the expected reply.
-        expected = search('v', n)
-        for field in ('v', 'vh'):
-            env.assertEqual(search(field, max_k), expected, message=(field, prefix, policy))

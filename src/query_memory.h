@@ -18,31 +18,44 @@
 extern "C" {
 #endif
 
-// Calls of QueryMemory_ShouldStop per memory read at one checkpoint.
+// Calls of QueryMemory_ShouldStop per memory read, counted across the whole request.
 #define QUERY_MEMORY_RATIO_READ_INTERVAL 256
 
 /**
  * The query path's single "should I stop?" check for memory pressure, and its
  * only reader of process memory.
  *
- * Returns true when the query should stop: a stop was already requested, the
- * blocked-client timeout fired (see QueryRequest_ShouldStop), or this call
+ * Returns true when the query should stop: a memory stop was already
+ * requested, the blocked-client timeout fired (see QueryRequestLimits_ShouldStop), or this call
  * found memory at or above REDIS_MEMORY_OOM_RATIO, in which case it requests
- * a stop with reason OOM first. Memory is read on every
- * QUERY_MEMORY_RATIO_READ_INTERVAL-th call counted by `counter`, the first
- * time on that call, not the first; the other calls only read the request's
- * flags. Each checkpoint site owns its counter, zero-initialized, and must not
- * share it between threads.
+ * a memory stop first. Memory is read when either the caller's
+ * `counter` or the request's shared memory.counter reaches
+ * QUERY_MEMORY_RATIO_READ_INTERVAL, so calls from all sites of a request add
+ * up and a site called fewer times than the interval still contributes to a
+ * read. A read resets both counters. Priming `counter` to the interval minus
+ * one reads on the next call. The other calls only read the request's flags.
+ * Each site owns its counter, zero-initialized, and must not share it between
+ * threads. With a NULL `limits` only `counter` counts.
  *
- * The memory check is off, and only the stop flags are reported, when ON_OOM
- * is IGNORE, when no memory limit is configured, and when the server lacks
- * RedisModule_GetRawUsedMemoryRatio; the fake pressure below overrides the
- * last two. Callable on any thread, with or without
- * the GIL, concurrently with other checkpoints of the same request; the ON_OOM
- * policy is the global one, read without synchronization. A NULL
- * `timeout` (no owning request) still reports pressure but records no stop.
+ * The memory check is off, and only the memory stop and the timeout flag are
+ * reported, when ON_OOM is IGNORE, when no memory limit is configured, and when the server lacks
+ * RedisModule_GetUsedMemoryRatioEstimate; the fake pressure below overrides
+ * the last two. Callable with or without the GIL, but calls for one request
+ * must be serialized like QueryRequestLimits_IsTimedOut, since they share
+ * memory.counter; use QueryMemory_ShouldStopNow where sites may run
+ * concurrently. The ON_OOM policy is the global one, read without
+ * synchronization. A NULL `limits` (no owning request) still reports pressure
+ * but records no memory stop.
  */
-bool QueryMemory_ShouldStop(QueryRequestTimeout *timeout, uint32_t *counter);
+bool QueryMemory_ShouldStop(QueryRequestLimits *limits, uint32_t *counter);
+
+/**
+ * Like QueryMemory_ShouldStop, but reads memory on every call and touches no
+ * counter, so it is safe on several threads at once for one request. Reports
+ * an already requested memory stop, and requests one on pressure. For sites
+ * that are rare or expensive enough to make every call worth a read.
+ */
+bool QueryMemory_ShouldStopNow(QueryRequestLimits *limits);
 
 /**
  * Debug and test override of QUERY_MEMORY_RATIO_READ_INTERVAL for every
@@ -68,9 +81,10 @@ float QueryMemory_GetForcedRatio(void);
 /**
  * Makes the `n`-th QueryMemory_ShouldStop call from now (1-based, counted
  * across all checkpoints and queries, skipping calls that return on an
- * already requested stop) report memory pressure, regardless of the ratio and
- * the read interval. Every other call behaves normally. 0 disarms it. Either
- * way the call count restarts from 0.
+ * already requested stop, a memory stop or a fired blocked-client timeout)
+ * report memory pressure, regardless of the ratio and the read interval.
+ * Every other call behaves normally. 0 disarms it. Either way the call count
+ * restarts from 0.
  */
 void QueryMemory_SetPressureAtCall(uint64_t n);
 uint64_t QueryMemory_GetPressureAtCall(void);

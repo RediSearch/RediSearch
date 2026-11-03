@@ -23,7 +23,7 @@ use std::{
 
 use ffi::{
     AlgoParams, BFParams, HNSWParams, QueryMemory_ResetFakePressure, QueryMemory_SetForcedRatio,
-    QueryRequestTimeout, QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED, VecSearchMode,
+    QueryRequestLimits, QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED, VecSearchMode,
     VecSearchMode_EMPTY_MODE, VecSimAlgo_VecSimAlgo_BF, VecSimAlgo_VecSimAlgo_HNSWLIB, VecSimIndex,
     VecSimIndex_AddVector, VecSimIndex_Free, VecSimIndex_New, VecSimMetric,
     VecSimMetric_VecSimMetric_Cosine, VecSimMetric_VecSimMetric_L2, VecSimParams,
@@ -54,7 +54,7 @@ pub fn uniform_blob(value: f32, dim: usize) -> Vec<u8> {
 pub struct TestIndex {
     index: NonNull<VecSimIndex>,
     /// Standalone sources use request timeout state whose active source remains UNARMED.
-    timeout: Box<UnsafeCell<QueryRequestTimeout>>,
+    timeout: Box<UnsafeCell<QueryRequestLimits>>,
     /// Dimensionality every query blob for this index must match.
     dim: usize,
 }
@@ -82,11 +82,11 @@ impl TestIndex {
         // SAFETY: zero is a valid representation of the C timeout object. `UnsafeCell` permits
         // the C timeout API to access the storage without creating an aliased Rust reference.
         let timeout = Box::new(UnsafeCell::new(unsafe {
-            std::mem::zeroed::<QueryRequestTimeout>()
+            std::mem::zeroed::<QueryRequestLimits>()
         }));
         // Keep the intended state explicit rather than depending only on the enum's numeric value.
         unsafe {
-            (*timeout.get()).kind = QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
+            (*timeout.get()).timeout.kind = QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED;
         }
         Self {
             index,
@@ -160,7 +160,7 @@ impl TestIndex {
     }
 
     /// The request timeout every source built from this index is handed.
-    pub fn timeout_ptr(&self) -> *mut QueryRequestTimeout {
+    pub fn timeout_ptr(&self) -> *mut QueryRequestLimits {
         self.timeout.get()
     }
 

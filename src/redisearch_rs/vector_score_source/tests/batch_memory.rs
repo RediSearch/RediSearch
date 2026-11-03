@@ -11,14 +11,11 @@
 //! because the forced memory ratio is process-global.
 
 use std::num::NonZeroUsize;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use ffi::{
-    QueryRequestTimeout_GetStopReason, QueryStopReason, QueryStopReason_QUERY_STOP_REASON_NONE,
-    QueryStopReason_QUERY_STOP_REASON_OOM,
-};
 use rqe_core::DocId;
 use rqe_iterators::{NoOpChecker, RQEIterator, RQEIteratorError};
-use top_k::{Ascending, TopKIterator, TopKMode};
+use top_k::{Ascending, ScoreSource, TopKIterator, TopKMode};
 use vector_score_source::VectorScoreSource;
 use vector_score_source::test_utils::{
     ForcedMemoryRatio, TestIndex, asc, collect_ids, make_child, uniform_blob,
@@ -56,9 +53,12 @@ fn far_filter_top_k(index: &TestIndex) -> FarFilterTopK<'_> {
     )
 }
 
-fn stop_reason(index: &TestIndex) -> QueryStopReason {
-    // SAFETY: the fixture's timeout outlives the call.
-    unsafe { QueryRequestTimeout_GetStopReason(index.timeout_ptr()) }
+/// Whether the fixture's request has a memory stop requested.
+fn memory_stopped(index: &TestIndex) -> bool {
+    // SAFETY: the fixture's request limits outlive the call; projecting the field reads nothing.
+    let flag = unsafe { &raw mut (*index.timeout_ptr()).memory.stopped };
+    // SAFETY: the flag is aligned and valid, and every access to it is atomic.
+    unsafe { AtomicBool::from_ptr(flag) }.load(Ordering::Relaxed)
 }
 
 #[test]
@@ -72,7 +72,7 @@ fn batches_under_memory_pressure_stop_for_oom_before_the_second_batch() {
         assert_eq!(it.metrics().num_batches, 1);
         // The second batch was never requested from VecSim.
         assert_eq!(it.source().num_iterations, 1);
-        assert_eq!(stop_reason(&index), QueryStopReason_QUERY_STOP_REASON_OOM);
+        assert!(memory_stopped(&index));
     }
 }
 
@@ -87,7 +87,7 @@ fn batches_below_the_memory_limit_run_to_the_end() {
     let expected: Vec<DocId> = (FILTERED - K as DocId + 1..=FILTERED).rev().collect();
     assert_eq!(collect_ids(&mut it), expected);
     assert!(it.metrics().num_batches > 1);
-    assert_eq!(stop_reason(&index), QueryStopReason_QUERY_STOP_REASON_NONE);
+    assert!(!memory_stopped(&index));
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn a_top_k_filled_by_its_first_batch_is_not_stopped() {
     let expected: Vec<DocId> = (0..K as DocId).map(|i| N as DocId - 2 * i).collect();
     assert_eq!(collect_ids(&mut it), expected);
     assert_eq!(it.metrics().num_batches, 1);
-    assert_eq!(stop_reason(&index), QueryStopReason_QUERY_STOP_REASON_NONE);
+    assert!(!memory_stopped(&index));
 }
 
 #[test]
@@ -129,5 +129,59 @@ fn a_filter_exhausted_by_its_first_batch_is_not_stopped() {
 
     assert_eq!(collect_ids(&mut it), (1..=few).rev().collect::<Vec<_>>());
     assert_eq!(it.metrics().num_batches, 1);
-    assert_eq!(stop_reason(&index), QueryStopReason_QUERY_STOP_REASON_NONE);
+    assert!(!memory_stopped(&index));
+}
+
+/// An adhoc scan over the docs `1..=FILTERED` with a k that exceeds them, so it ends by exhausting
+/// the filter: every match is retained with its captured child record.
+fn adhoc_top_k(index: &TestIndex) -> FarFilterTopK<'_> {
+    let k = FILTERED as usize + 5;
+    let source = index.source(uniform_blob(N as f32, DIM), N, k, FILTERED as usize);
+    TopKIterator::new_with_mode(
+        source,
+        Some(make_child((1..=FILTERED).collect())),
+        NonZeroUsize::new(k).unwrap(),
+        asc(),
+        TopKMode::AdhocBF,
+    )
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn an_adhoc_scan_shorter_than_the_read_interval_stops_for_oom_at_its_end() {
+    for index in [TestIndex::flat(N, DIM), TestIndex::hnsw(N, DIM)] {
+        let _pressure = ForcedMemoryRatio::set(1.0);
+        let mut it = adhoc_top_k(&index);
+
+        assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+        assert!(memory_stopped(&index));
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn an_adhoc_scan_below_the_memory_limit_runs_to_the_end() {
+    let index = TestIndex::flat(N, DIM);
+    let _pressure = ForcedMemoryRatio::set(0.99);
+    let mut it = adhoc_top_k(&index);
+
+    let expected: Vec<DocId> = (1..=FILTERED).rev().collect();
+    assert_eq!(collect_ids(&mut it), expected);
+    assert!(!memory_stopped(&index));
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn the_adhoc_checkpoint_reads_memory_once_per_interval() {
+    let index = TestIndex::flat(N, DIM);
+    let _pressure = ForcedMemoryRatio::set(1.0);
+    let mut source = index.source(uniform_blob(N as f32, DIM), N, K, N);
+
+    // The stop comes with the amortized read, not with the first call. A scan that replaced
+    // `check_stop` with an unamortized read would stop on call 1.
+    assert!(source.check_stop().is_ok());
+    assert!(!memory_stopped(&index));
+    let stopped_at = (2..=4096).find(|_| source.check_stop().is_err());
+    assert!(stopped_at.is_some(), "the interval read never happened");
+    assert!(memory_stopped(&index));
 }
