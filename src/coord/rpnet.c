@@ -454,7 +454,7 @@ int getNextReply(RPNet *nc) {
     if (nc->drainOnly) {
       return RS_RESULT_EOF;
     }
-    if (popTimedOut || QueryRequest_ShouldStop(limits)) {
+    if (popTimedOut || QueryRequestLimits_ShouldStop(limits)) {
       return RS_RESULT_TIMEDOUT;
     }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
@@ -626,7 +626,7 @@ void RPNet_resetCurrent(RPNet *nc) {
 bool RPNet_MemoryStops(RPNet *nc) {
   QueryRequestLimits *timeout = &nc->areq->base.limits;
   if (!nc->it || nc->hybridSubquery != RPNET_HYBRID_NONE || nc->cmd.forProfiling ||
-      QueryRequest_ShouldStop(timeout)) {
+      QueryRequestLimits_ShouldStop(timeout)) {
     return false;
   }
   if (MRIterator_IsMemoryStopped(nc->it)) {
@@ -654,7 +654,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // the timer's own drain.
   if (!nc->drainOnly &&
       (QueryRequest_UsesReplyCallback(&areq->base)
-           ? QueryRequest_ShouldStop(&areq->base.limits)
+           ? QueryRequestLimits_ShouldStop(&areq->base.limits)
            : QueryRequestLimits_IsMemoryStopped(&areq->base.limits))) {
     return RS_RESULT_TIMEDOUT;
   }
