@@ -1,0 +1,127 @@
+name: Rerun Action Download Failures
+
+# Re-runs the failed jobs of a `Pull Request Flow` run, once, when every failure
+# is the runner failing to download an action archive in "Set up job".
+#
+# The runner downloads every action a job references before any step runs,
+# including ones whose step `if:` later skips. actions/runner treats a 404 from
+# codeload.github.com as permanent and gives up after one attempt, so a
+# transient codeload error ("An action could not be found at the URI ...",
+# "Failed to download archive ... after 1 attempts") fails the job — and the
+# pr-validation gate — even though the pinned SHA exists. No step-level retry
+# can help, because no step has started.
+#
+# Safeguards:
+# - Only attempt 1 is re-run, so a persistent failure stays red after one
+#   retry instead of looping.
+# - Only same-repository PRs: no bot-initiated re-run of fork code.
+# - Every failed job other than the pr-validation gate must carry the runner's
+#   download-failure annotation; any other failure means a human looks first.
+# - A run superseded by a newer run for the same PR is left alone: re-running it
+#   would join that PR's concurrency group and cancel the newer run.
+# - Re-running failed jobs also re-runs their dependents, so pr-validation is
+#   re-evaluated on the same run and keeps its meaning.
+
+on:
+  workflow_run:
+    workflows: ["Pull Request Flow"]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: rerun-action-download-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  rerun:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.run_attempt == 1 &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      actions: write # read the run's jobs and call rerun-failed-jobs
+      checks: read   # job annotations carry the runner's "Set up job" error
+    steps:
+      - name: Re-run failed jobs if all failed downloading an action
+        shell: python3 {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from urllib.parse import quote
+
+          # Messages the runner emits when an action archive download fails,
+          # whether on a 404 (one attempt) or after exhausting its retries.
+          DOWNLOAD_FAILURE = re.compile(
+              r"Failed to download archive '[^']+' after \d+ attempts"
+              r"|An action could not be found at the URI '"
+          )
+          # Fails whenever anything it needs fails, and is re-run with them.
+          GATE_JOB = "pr-validation"
+
+          repo = os.environ["REPOSITORY"]
+          run_id = int(os.environ["RUN_ID"])
+          pr_number = os.environ.get("PR_NUMBER", "")
+
+          def gh_api(path, *args):
+              result = subprocess.run(
+                  ["gh", "api", *args, path], capture_output=True, text=True,
+              )
+              if result.returncode != 0:
+                  sys.exit(f"gh api {path} failed: {result.stderr.strip()}")
+              return json.loads(result.stdout) if result.stdout.strip() else None
+
+          def skip(reason):
+              print(f"Not re-running run {run_id}: {reason}")
+              sys.exit(0)
+
+          if not pr_number:
+              skip("no pull request attached to the run")
+
+          # The event payload is a snapshot; a maintainer may have re-run it since.
+          run = gh_api(f"repos/{repo}/actions/runs/{run_id}")
+          if run["run_attempt"] != 1 or run["status"] != "completed":
+              skip(f"run is now attempt {run['run_attempt']}, status {run['status']}")
+
+          runs = gh_api(
+              f"repos/{repo}/actions/workflows/event-pull_request.yml/runs"
+              f"?branch={quote(os.environ['HEAD_BRANCH'], safe='')}&event=pull_request&per_page=20"
+          )["workflow_runs"]
+          pr_runs = [
+              r for r in runs
+              if any(p["number"] == int(pr_number) for p in r.get("pull_requests") or [])
+          ]
+          if pr_runs and pr_runs[0]["id"] != run_id:
+              skip(f"superseded by run {pr_runs[0]['id']} for PR #{pr_number}")
+
+          jobs = gh_api(
+              f"repos/{repo}/actions/runs/{run_id}/attempts/1/jobs?per_page=100",
+              "--paginate", "--slurp",
+          )
+          jobs = [j for page in jobs for j in page["jobs"]]
+          failed = [
+              j for j in jobs
+              if j["conclusion"] in ("failure", "timed_out") and j["name"] != GATE_JOB
+          ]
+          if not failed:
+              skip("no failed jobs besides the gate")
+          for job in failed:
+              annotations = gh_api(f"repos/{repo}/check-runs/{job['id']}/annotations") or []
+              if not any(DOWNLOAD_FAILURE.search(a.get("message") or "") for a in annotations):
+                  skip(f"job '{job['name']}' failed for another reason")
+              print(f"Job '{job['name']}' failed downloading an action in setup.")
+
+          print(f"Re-running {len(failed)} failed job(s) of run {run_id} (PR #{pr_number}).")
+          gh_api(f"repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs", "-X", "POST")
