@@ -378,7 +378,7 @@ int getNextReply(RPNet *nc) {
       return RS_RESULT_EOF;
     }
   }
-  // Pop wake mechanisms: the abort flag is flipped by the FAIL / RETURN-STRICT
+  // Pop wake mechanisms: the timed-out flag is flipped by the FAIL / RETURN-STRICT
   // timeout callback via MRChannel_WakeAbort. Under RETURN the flag is never
   // flipped: aggregate streams wait without a deadline (legacy RETURN waits
   // beyond the deadline for in-flight shard replies), while hybrid streams get
@@ -394,16 +394,16 @@ int getNextReply(RPNet *nc) {
   RS_ASSERT(nc->areq);
   QueryRequestLimits *limits = &nc->areq->base.limits;
   const struct timespec *deadline = getAbsTimeout(nc);
-  RS_Atomic(bool) *abortFlag =
+  RS_Atomic(bool) *timedOutFlag =
       limits->timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
           ? QueryRequestLimits_GetBlockedClientFlag(limits)
           : NULL;
-  RS_Atomic(bool) *stopFlag = QueryRequestLimits_GetMemoryStopFlag(limits);
+  RS_Atomic(bool) *memoryStopFlag = QueryRequestLimits_GetMemoryStopFlag(limits);
   bool popTimedOut = false;
   rs_wall_clock waitStart;
   if (nc->profileBreakdown) rs_wall_clock_init(&waitStart);
   MRReply *root = nc->drainOnly ? MRIterator_TryNext(nc->it)
-                                : MRIterator_NextWithTimeout(nc->it, deadline, abortFlag, stopFlag,
+                                : MRIterator_NextWithTimeout(nc->it, deadline, timedOutFlag, memoryStopFlag,
                                                              &popTimedOut);
   if (nc->profileBreakdown) {
     accumulateSince(&nc->breakdown.waitTime, &waitStart);
@@ -417,7 +417,8 @@ int getNextReply(RPNet *nc) {
     if (nc->drainOnly) {
       return RS_RESULT_EOF;
     }
-    if (popTimedOut || QueryRequestLimits_ShouldStop(limits)) {
+    if (popTimedOut || QueryRequestLimits_IsMemoryStopped(limits) ||
+        QueryRequestLimits_IsBlockedClientTimedOut(limits)) {
       return RS_RESULT_TIMEDOUT;
     }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
@@ -596,9 +597,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // check below wouldn't fire and we'd silently return rows). Skipped during
   // the timer's own drain.
   if (!nc->drainOnly &&
-      (QueryRequest_UsesReplyCallback(&areq->base)
-           ? QueryRequestLimits_ShouldStop(&areq->base.limits)
-           : QueryRequestLimits_IsMemoryStopped(&areq->base.limits))) {
+      (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
+       (QueryRequest_UsesReplyCallback(&areq->base) &&
+        QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)))) {
     return RS_RESULT_TIMEDOUT;
   }
 
