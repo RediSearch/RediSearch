@@ -124,9 +124,9 @@ impl SpecLockAccess for IndexSpecWeakRef {
     }
 }
 
-/// How one cycle used the spec lock.
+/// What one cycle did: how it used the spec lock, and what it left for a later one.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct LockReport {
+pub struct CycleReport {
     /// Read-lock holds: one that copies the deleted set, one per scanner that
     /// lists its keys up front (numeric nodes, missing fields, the existing-docs
     /// index), one per scan chunk, and one per numeric tree that checks for
@@ -139,6 +139,9 @@ pub struct LockReport {
     pub max_read_hold: std::time::Duration,
     /// The longest single write-lock hold.
     pub max_write_hold: std::time::Duration,
+    /// Deleted IDs the cycle left in the set because it could not collect all their
+    /// entries; the caller counts them toward the next cycle's threshold.
+    pub retained: u64,
 }
 
 /// The doc IDs a scanned index's last block spanned when it was copied: what a
@@ -148,7 +151,7 @@ type Tail = Option<RangeInclusive<DocId>>;
 struct Driver<'a, 'd, S, G> {
     spec: &'a mut S,
     sink: &'a mut G,
-    report: LockReport,
+    report: CycleReport,
     /// The documents deleted before the cycle began, copied from the doc table's set,
     /// so a check needs no doc table and no lock. This rests on two facts about doc
     /// IDs: one is never reused, and a document's entries are all written before its
@@ -474,8 +477,8 @@ pub fn run_cycle(
     spec: &mut impl SpecLockAccess,
     sink: &mut impl GcStatsSink,
     clean_numeric_empty_nodes: bool,
-) -> Result<LockReport, (&'static str, GcError)> {
-    let mut report = LockReport::default();
+) -> Result<CycleReport, (&'static str, GcError)> {
+    let mut report = CycleReport::default();
     let (dead, held) = spec
         .with_read(|guard| {
             let start = Instant::now();
@@ -523,7 +526,9 @@ pub fn run_cycle(
         ..
     } = driver;
     let mut collected = gone.into_set();
+    let listed = collected.len();
     collected -= retained;
+    report.retained = listed - collected.len();
     let held = spec
         .with_write(|guard| {
             let start = Instant::now();
