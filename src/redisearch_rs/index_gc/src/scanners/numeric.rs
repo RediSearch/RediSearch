@@ -185,6 +185,9 @@ pub fn numeric_tree_keys(spec: &IndexSpecReadGuard) -> Vec<NumericTreeKey> {
 pub struct NumericNodeSnapshot {
     position: u32,
     generation: u32,
+    /// Whether the node was a leaf when copied; see
+    /// [`NodeGcDelta::scanned_leaf`](numeric_range_tree::NodeGcDelta::scanned_leaf).
+    leaf: bool,
     index: numeric_range_tree::NumericIndex,
 }
 
@@ -206,7 +209,8 @@ impl NumericNodeSnapshot {
     /// copy would not decode, so the caller can keep the IDs [`Self::doc_id_range`]
     /// reports for another try.
     pub fn scan(self, live: impl DocLiveness) -> std::io::Result<Option<ScannedNumericNode>> {
-        let Some(delta) = numeric_range_tree::scan_range_index_gc(&self.index, live)? else {
+        let Some(delta) = numeric_range_tree::scan_range_index_gc(&self.index, live, self.leaf)?
+        else {
             return Ok(None);
         };
         Ok(Some(ScannedNumericNode {
@@ -232,15 +236,12 @@ pub fn snapshot_numeric_node(
     node_idx: NodeIndex,
     live: &impl DocLiveness,
 ) -> Option<NumericNodeSnapshot> {
-    let index = id
-        .tree(spec)?
-        .try_node(node_idx)?
-        .range()?
-        .entries()
-        .gc_snapshot(live)?;
+    let node = id.tree(spec)?.try_node(node_idx)?;
+    let index = node.range()?.entries().gc_snapshot(live)?;
     Some(NumericNodeSnapshot {
         position: node_idx.position(),
         generation: node_idx.generation(),
+        leaf: node.is_leaf(),
         index,
     })
 }
