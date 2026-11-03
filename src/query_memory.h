@@ -60,7 +60,7 @@ bool QueryMemory_CheckpointNow(QueryRequestLimits *limits);
 
 /**
  * The memory checkpoint between the build stages of a query, before it reads
- * its first row, through QueryMemory_ShouldStopNow. Under
+ * its first row, through QueryMemory_CheckpointNow. Under
  * pressure the OOM stop is requested, and with `oomPolicy` FAIL the query fails
  * before it runs: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` and REDISMODULE_ERR.
  * Otherwise REDISMODULE_OK; the caller then ends the pipeline's row source
@@ -95,8 +95,8 @@ void QueryMemory_SetForcedRatio(float ratio);
 float QueryMemory_GetForcedRatio(void);
 
 /**
- * Makes the `n`-th checkpoint call (QueryMemory_ShouldStop or
- * QueryMemory_ShouldStopNow) from now (1-based, counted across all checkpoints
+ * Makes the `n`-th checkpoint call (QueryMemory_Checkpoint or
+ * QueryMemory_CheckpointNow) from now (1-based, counted across all checkpoints
  * and queries, skipping calls that return on an already requested stop, a
  * memory stop or a fired blocked-client timeout) report memory pressure,
  * regardless of the ratio and the read interval. Every other call behaves
