@@ -126,9 +126,36 @@ size_t DocTable_KeyMapMemoryUsage(const DocTable *t);
 // Initial number of slots in a spec's document table
 #define INITIAL_DOC_TABLE_SIZE 1000
 
+/* The bucket holding `docId`: ids from maxSize on share buckets, chained by `docId % maxSize`. */
+static inline uint32_t DocTable_GetBucket(const DocTable *t, t_docId docId) {
+  return docId < t->maxSize ? docId : docId % t->maxSize;
+}
+
+/* Whether `docId` is an id this table has assigned; says nothing about whether it is still live. */
+static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
+  return docId != 0 && docId <= t->maxDocId;
+}
+
 /* Get a reference to the metadata for a doc Id from the DocTable.
  * If docId is not inside the table, we return NULL */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);
+
+/* Hint that `docId` will be borrowed soon: starts loading the head of its bucket's chain into
+ * the cache, so the cache miss overlaps with work on earlier docs. Changes no state, and does
+ * nothing for an id outside the table. Caller holds the spec lock, as for DocTable_Borrow. */
+static inline void DocTable_Prefetch(const DocTable *t, t_docId docId) {
+  if (!DocTable_ValidateDocId(t, docId)) {
+    return;
+  }
+  const uint32_t bucketIndex = DocTable_GetBucket(t, docId);
+  if (bucketIndex >= t->cap) {
+    return;
+  }
+  const RSDocumentMetadata *head = t->buckets[bucketIndex].root;
+  if (head) {
+    __builtin_prefetch(head);
+  }
+}
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
