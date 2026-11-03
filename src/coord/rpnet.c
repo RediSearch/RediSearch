@@ -251,10 +251,14 @@ static int settleQueuedOom(RPNet *nc) {
         failed = true;
       }
       warn = true;
-    } else if (hasShardOomWarning(nc, queued)) {
+      MRReply_Free(queued);
+      continue;
+    }
+    if (hasShardOomWarning(nc, queued)) {
       warn = true;
     }
-    MRReply_Free(queued);
+    // The timeout ends this read only: a cursor's next read and a profile still need the rest.
+    array_append(nc->settledReplies, queued);
   }
   if (failed) {
     return RS_RESULT_ERROR;
@@ -499,9 +503,14 @@ int getNextReply(RPNet *nc) {
   bool popTimedOut = false;
   rs_wall_clock waitStart;
   if (nc->profileBreakdown) rs_wall_clock_init(&waitStart);
-  MRReply *root = nc->drainOnly ? MRIterator_TryNext(nc->it)
-                                : MRIterator_NextWithTimeout(nc->it, deadline, timedOutFlag, memoryStopFlag,
-                                                             &popTimedOut);
+  MRReply *root = NULL;
+  if (nc->settledHead < array_len(nc->settledReplies)) {
+    root = nc->settledReplies[nc->settledHead++];
+  } else {
+    root = nc->drainOnly ? MRIterator_TryNext(nc->it)
+                         : MRIterator_NextWithTimeout(nc->it, deadline, timedOutFlag, memoryStopFlag,
+                                                      &popTimedOut);
+  }
   if (nc->profileBreakdown) {
     accumulateSince(&nc->breakdown.waitTime, &waitStart);
     if (root) nc->breakdown.replies++;
@@ -651,6 +660,12 @@ void rpnetFree(ResultProcessor *rp) {
   if (nc->shardsProfile) {
     array_foreach(nc->shardsProfile, reply, MRReply_Free(reply));
     array_free(nc->shardsProfile);
+  }
+  if (nc->settledReplies) {
+    for (size_t i = nc->settledHead; i < array_len(nc->settledReplies); i++) {
+      MRReply_Free(nc->settledReplies[i]);
+    }
+    array_free(nc->settledReplies);
   }
 
   MRReply_Free(nc->current.root);
