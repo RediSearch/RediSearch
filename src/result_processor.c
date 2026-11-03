@@ -299,7 +299,7 @@ static bool RP_UpstreamHold(const ResultProcessor *rp) {
 }
 
 bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
-  if (!rp->parent->limits || !QueryMemory_ShouldStop(rp->parent->limits, counter)) {
+  if (!rp->parent->limits || !QueryMemory_Checkpoint(rp->parent->limits, counter)) {
     return false;
   }
   RP_EndRowSourceOnStop(rp->parent);
@@ -3311,7 +3311,7 @@ typedef struct {
   RPStatus last_rc;                // Last return code from upstream
   uint32_t depleted_results;       // Total number of results depleted
   rs_wall_clock_ns_t depletionTime; // Time spent depleting upstream results
-  uint32_t memoryCheckCalls;        // QueryMemory_ShouldStop counter for the buffer
+  uint32_t memoryCheckCalls;        // QueryMemory_Checkpoint counter for the buffer
 } RPDepleter;
 
 /**
