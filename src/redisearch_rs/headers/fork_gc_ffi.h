@@ -49,6 +49,9 @@ extern "C" {
  *    alive for the duration of this call.
  * 2. `spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
  * 3. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
+ * 4. This function must only be called in a forked GC child, where the spec's
+ *    document table never changes again: the scanners answer existence checks
+ *    from a [`DocExistence::snapshot`] of it.
  */
 void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec);
 

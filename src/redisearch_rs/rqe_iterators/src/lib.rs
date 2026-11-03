@@ -477,12 +477,12 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// Iterate over the entries of the numeric index at the given field index whose value
     /// matches `filter`.
     ///
-    /// Building opens one reader per matching bucket, so the implementation may poll `timeout`
-    /// (the query's request timeout) while it builds. If it abandons the build on a stop, it
+    /// Building opens one reader per matching bucket, so the implementation may poll `limits`
+    /// (the query's request limits) while it builds. If it abandons the build on a stop, it
     /// returns an iterator whose first read fails with [`RQEIteratorError::TimedOut`], so the
     /// stop gets the reply the query's timeout policy gives any read-time timeout.
     ///
-    /// `timeout` must stay valid for the call, and its kind and source must not change during
+    /// `limits` must stay valid for the call, and its kind and source must not change during
     /// it; only the blocked-client flag may change concurrently.
     fn new_numeric_on_disk<'index>(
         &self,
@@ -490,7 +490,7 @@ pub trait SearchEnterpriseIterators: Send + Sync {
         filter: &NumericFilter,
         field_index: FieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-        timeout: Option<NonNull<ffi::QueryRequestTimeout>>,
+        limits: Option<NonNull<ffi::QueryRequestLimits>>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
     /// Iterate over the entries of the geo (numeric-encoded geohash) index at
@@ -503,13 +503,13 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// The disk path then runs each range through the numeric machinery and
     /// post-filters survivors by true great-circle distance.
     ///
-    /// `timeout` is polled while building, as for [`Self::new_numeric_on_disk`].
+    /// `limits` is polled while building, as for [`Self::new_numeric_on_disk`].
     fn new_geo_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         gf: &'index mut ffi::GeoFilter,
         field_index: ffi::t_fieldIndex,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
-        timeout: Option<NonNull<ffi::QueryRequestTimeout>>,
+        limits: Option<NonNull<ffi::QueryRequestLimits>>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 }

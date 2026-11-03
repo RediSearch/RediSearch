@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use numeric_range_tree::{NodeGcDelta, NodeIndex, NumericRangeTree};
 
 use crate::util::{SpecWriteAccess, deserialize, serialize};
-use crate::{ForkGC, GcApplyStats, HandleError, HandleOutcome};
+use crate::{DocExistence, ForkGC, GcApplyStats, HandleError, HandleOutcome};
 
 /// A numeric or geo field scanned by the child process.
 ///
@@ -132,7 +132,13 @@ impl ResolvedTree {
 /// terminates the scanner.
 ///
 /// Write errors are surfaced so the caller can terminate the child process.
-pub fn collect_numeric(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io::Result<()> {
+///
+/// `docs` says which documents still exist.
+pub fn collect_numeric(
+    writer: &mut impl Write,
+    spec: &IndexSpecReadGuard,
+    docs: &DocExistence,
+) -> io::Result<()> {
     for (fs, tree) in spec
         .field_specs()
         .iter()
@@ -154,7 +160,7 @@ pub fn collect_numeric(writer: &mut impl Write, spec: &IndexSpecReadGuard) -> io
         for node_delta in tree
             .indexed_post_order_iter()
             .filter_map(|(node_idx, node)| {
-                node.scan_gc(&|id| spec.doc_exists(id))
+                node.scan_gc(&|id| docs.contains(id))
                     .map(|delta| NumericNodeDelta {
                         position: node_idx.position(),
                         generation: node_idx.generation(),
