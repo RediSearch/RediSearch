@@ -71,8 +71,8 @@ struct TestSpec {
 }
 
 impl TestSpec {
-    fn create(
-        terms: impl IntoIterator<Item = (&'static [u8], u64)>,
+    fn create<'a>(
+        terms: impl IntoIterator<Item = (&'a [u8], u64)>,
         numeric_fields: Vec<(&'static CStr, NumericRangeTree)>,
     ) -> Self {
         let keys_dict = OwnedDict::<KeysDictType>::create();
@@ -354,12 +354,8 @@ fn an_empty_set_ends_the_cycle_at_once() {
 /// together they stay under [`DELTAS_PER_APPLY`].
 #[test]
 fn a_read_lock_visits_a_bounded_number_of_keys() {
-    let terms = (0..=KEYS_PER_HOLD).map(|i| {
-        (
-            &*Box::leak(format!("t{i:04}").into_boxed_str()).as_bytes(),
-            1,
-        )
-    });
+    let names: Vec<String> = (0..=KEYS_PER_HOLD).map(|i| format!("t{i:04}")).collect();
+    let terms = names.iter().map(|name| (name.as_bytes(), 1));
     let mut spec = TestSpec::create(terms, vec![]);
     let mut recorder = Recorder::default();
 
@@ -374,12 +370,8 @@ fn a_read_lock_visits_a_bounded_number_of_keys() {
 /// of them are pending: one more term than that takes a second write lock.
 #[test]
 fn deltas_are_applied_in_batches() {
-    let terms = (0..=DELTAS_PER_APPLY).map(|i| {
-        (
-            &*Box::leak(format!("t{i:05}").into_boxed_str()).as_bytes(),
-            1,
-        )
-    });
+    let names: Vec<String> = (0..=DELTAS_PER_APPLY).map(|i| format!("t{i:05}")).collect();
+    let terms = names.iter().map(|name| (name.as_bytes(), 1));
     let mut spec = TestSpec::create(terms, vec![]);
     let mut recorder = Recorder::default();
 
