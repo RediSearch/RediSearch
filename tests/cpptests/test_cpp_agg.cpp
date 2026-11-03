@@ -443,37 +443,15 @@ static void groupWidestRowOnSmallStack() {
   _exit(0);
 }
 
-// How the last small-stack child ended, recorded by `exitedCleanly`.
-static int smallStackChildStatus;
-
-static bool exitedCleanly(int status) {
-  smallStackChildStatus = status;
-  return WIFEXITED(status) && WEXITSTATUS(status) == 0;
-}
-
-static std::string describeSmallStackChild(const char *stage) {
-  int status = smallStackChildStatus;
-  if (WIFSIGNALED(status)) {
-    return "GROUPBY over " + std::to_string(WIDEST_GROUPBY) + " properties overflowed a " +
-           std::to_string(SMALL_STACK / 1024) + " KiB thread stack while " + stage +
-           " (killed by signal " + std::to_string(WTERMSIG(status)) + ")";
-  }
-  return std::string("GROUPBY over ") + std::to_string(WIDEST_GROUPBY) + " properties " +
-         "gave an unexpected result while " + stage + " (exit code " +
-         std::to_string(WEXITSTATUS(status)) + ", see the child's output above)";
-}
-
 // The stack must not grow with the number of GROUPBY properties, neither while
 // the pipeline is built nor while rows are added to groups. Each stage runs in a
 // child process, so an overflow is reported as a failure instead of a crash.
 TEST_F(AggTest, testGroupByWidestOnSmallStack) {
-  const std::string style = GTEST_FLAG_GET(death_test_style);
   GTEST_FLAG_SET(death_test_style, "threadsafe");
-  EXPECT_EXIT(buildWidestPipelineOnSmallStack(), exitedCleanly, "")
-      << describeSmallStackChild("building the pipeline");
-  EXPECT_EXIT(groupWidestRowOnSmallStack(), exitedCleanly, "")
-      << describeSmallStackChild("grouping a row");
-  GTEST_FLAG_SET(death_test_style, style);
+  EXPECT_EXIT(buildWidestPipelineOnSmallStack(), ::testing::ExitedWithCode(0), "")
+      << "building a " << WIDEST_GROUPBY << "-property GROUPBY pipeline on a small stack";
+  EXPECT_EXIT(groupWidestRowOnSmallStack(), ::testing::ExitedWithCode(0), "")
+      << "grouping a " << WIDEST_GROUPBY << "-key row on a small stack";
 }
 
 #if 0

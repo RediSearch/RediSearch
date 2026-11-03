@@ -64,7 +64,6 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   const RLookupKey **dstkeys = srckeys + nproperties;
   ResultProcessor *rp = NULL;
   Grouper *grp = NULL;
-  size_t nreducers;
   for (size_t ii = 0; ii < nproperties; ++ii) {
     const char *fldname = properties[ii] + 1;  // account for the @-
     size_t fldname_len = strlen(fldname);
@@ -91,15 +90,13 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
 
   grp = Grouper_New(srckeys, dstkeys, nproperties, groupByLimits);
 
-  nreducers = array_len(gstp->reducers);
-  for (size_t ii = 0; ii < nreducers; ++ii) {
+  for (size_t ii = 0, nreducers = array_len(gstp->reducers); ii < nreducers; ++ii) {
     // Build the actual reducer
     PLN_Reducer *pr = gstp->reducers + ii;
     const RLookupKey *input_key = NULL;
     if (pr->inputAlias) {
       input_key = RLookup_GetKey_Read(srclookup, pr->inputAlias, RLOOKUP_F_HIDDEN);
       if (!input_key) {
-        Grouper_Free(grp);
         QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_PROP_KEY,
                                       "Property not loaded nor in pipeline", ": `%s`",
                                       pr->inputAlias);
@@ -112,13 +109,11 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     ReducerFactory ff = RDCR_GetFactory(pr->name);
     if (!ff) {
       // No such reducer!
-      Grouper_Free(grp);
       QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_NO_REDUCER, "No such reducer", ": %s", pr->name);
       goto cleanup;
     }
     Reducer *rr = ff(&options);
     if (!rr) {
-      Grouper_Free(grp);
       goto cleanup;
     }
 
@@ -128,7 +123,6 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     // Adding the reducer before validating the key, so we free the reducer if the key is invalid
     Grouper_AddReducer(grp, rr, dstkey);
     if (!dstkey) {
-      Grouper_Free(grp);
       QueryError_SetWithUserDataFmt(err, QUERY_ERROR_CODE_DUP_FIELD, "Property", " `%s` specified more than once", pr->alias);
       goto cleanup;
     }
@@ -137,6 +131,9 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
   rp = Grouper_GetRP(grp);
 
 cleanup:
+  if (!rp && grp) {
+    Grouper_Free(grp);
+  }
   rm_free(srckeys);
   return rp;
 }
