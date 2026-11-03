@@ -89,7 +89,9 @@ bool ReplyLoop_ShouldStop(QueryProcessingCtx *qctx, QueryRequestLimits *timeout,
   if (!QueryMemory_Checkpoint(timeout, counter)) {
     return false;
   }
-  if (oomStopKeepsBufferedRows(timeout, oomPolicy)) {
+  // Held rows read nothing upstream, so no per-row check there sees a clock deadline: this one
+  // ends the drain on it.
+  if (oomStopKeepsBufferedRows(timeout, oomPolicy) && !QueryRequestLimits_IsTimedOut(timeout)) {
     RP_EndRowSourceOnStop(qctx);
     return false;
   }
