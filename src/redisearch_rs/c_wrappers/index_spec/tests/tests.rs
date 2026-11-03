@@ -195,10 +195,12 @@ fn a_forgotten_read_lock_keeps_its_spec_alive() {
         0,
         "the forgotten lock still holds the spec"
     );
-    // SAFETY: `weak` was created above and is released once, and the spec's names
+    // SAFETY: the forgotten lock cloned `strong`, so this releases the clone's share
+    // once; `weak` was created above and is released once, and the spec's names
     // were allocated above and are freed once. The lock stays taken: the test
     // forgot it on purpose and its process ends here.
     unsafe {
+        StrongRef_Release(strong);
         WeakRef_Release(weak);
         ffi::HiddenString_Free(spec.specName, true);
         drop(CString::from_raw(spec.obfuscatedName));
@@ -210,8 +212,13 @@ fn a_forgotten_read_lock_keeps_its_spec_alive() {
 #[test]
 #[cfg_attr(miri, ignore = "calls the C reference manager")]
 fn an_invalidated_spec_cannot_be_read_locked() {
-    // SAFETY: zero is valid for every field; the spec is never locked.
+    redis_mock::init_redis_module_mock();
+    // SAFETY: zero is valid for every field this test leaves unset; the spec is
+    // never locked.
     let mut spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
+    // SAFETY: the static name is copied, because the spec takes ownership.
+    spec.specName = unsafe { ffi::NewHiddenString(c"idx".as_ptr(), 3, true) };
+    spec.obfuscatedName = CString::new("Index@test").unwrap().into_raw();
     // SAFETY: the spec outlives the references, and `keep_spec` leaves its storage.
     let strong = unsafe { StrongRef_New((&raw mut spec).cast(), Some(keep_spec)) };
     // SAFETY: `strong` is the live reference created above.
@@ -226,9 +233,12 @@ fn an_invalidated_spec_cannot_be_read_locked() {
     assert!(spec_ref.read().is_none());
 
     drop(spec_ref);
-    // SAFETY: both references were created above and are released once.
+    // SAFETY: both references were created above and are released once, and the
+    // spec's names were allocated above and are freed once.
     unsafe {
         WeakRef_Release(weak);
         StrongRef_Release(strong);
+        ffi::HiddenString_Free(spec.specName, true);
+        drop(CString::from_raw(spec.obfuscatedName));
     }
 }
