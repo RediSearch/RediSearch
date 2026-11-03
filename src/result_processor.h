@@ -185,8 +185,9 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-/** `sctx` must carry the owning request's non-NULL timeout state. */
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
+/** `sctx` must carry the owning request's non-NULL timeout state. `denseAscendingScan` says whether
+ * `itr` visits every docId in ascending order, which a profile wrapper hides. */
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx, bool denseAscendingScan);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
