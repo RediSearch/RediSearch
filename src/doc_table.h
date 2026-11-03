@@ -106,6 +106,9 @@ typedef struct {
 /* Creates a new DocTable with a given capacity. `track_deleted` gives it a `deletedDocs` set. */
 DocTable NewDocTable(size_t cap, size_t max_size, bool track_deleted);
 
+/* Free the `deletedDocs` set, if any, and record no further deletions. */
+void DocTable_StopTrackingDeleted(DocTable *t);
+
 typedef enum {
   DocKeyMapActivation_Unchanged,
   DocKeyMapActivation_Ready,

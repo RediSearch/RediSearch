@@ -2671,6 +2671,9 @@ void IndexSpec_StartGC(StrongRef global, IndexSpec *sp, GCPolicy gcPolicy) {
     const char* name = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
     RedisModule_Log(RSDummyContext, "verbose", "Starting GC for %s", name);
     RedisModule_Log(RSDummyContext, "debug", "Starting GC %p for %s", sp->gc, name);
+  } else {
+    // No cycle will ever prune what it records.
+    DocTable_StopTrackingDeleted(&sp->docs);
   }
 }
 

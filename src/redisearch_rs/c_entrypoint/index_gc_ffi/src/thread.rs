@@ -9,10 +9,8 @@
 
 //! C ABI entrypoint for the in-process GC driver.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use index_gc::{GcError, stats::GcCounters, thread::run_cycle_with};
-use index_spec::IndexSpecWeakRef;
+use index_spec::{IndexSpecReadGuard, IndexSpecWeakRef};
 use tracing::Level;
 use tracing_log_error::log_error;
 
@@ -74,14 +72,14 @@ pub unsafe extern "C" fn ThreadGC_RunScanners(
     let mut stats = unsafe { GcCounters::new(counters) };
 
     // SAFETY: (1) `gc` is valid; this only takes the counter's address.
-    let counter = unsafe { &raw mut (*gc).deletedOrUpdatedDocsFromLastRun };
     // SAFETY: caller guarantees (3).
     unsafe { taken.write(0) };
-    let reset_counter = || {
-        // SAFETY: (1) the counter is valid for the call, and C updates it only atomically.
-        let counter = unsafe { AtomicUsize::from_ptr(counter) };
+    let reset_counter = |guard: &IndexSpecReadGuard<'_>| {
+        // SAFETY: (1) `gc` is valid for the call; `guard` holds the spec's read lock, and
+        // the count is only changed atomically through the pointer.
+        let count = unsafe { ffi::IndexGC_TakeDeletionCount(gc, guard.as_mut_ptr()) };
         // SAFETY: caller guarantees (3).
-        unsafe { taken.write(counter.swap(0, Ordering::Relaxed)) };
+        unsafe { taken.write(count) };
     };
 
     match run_cycle_with(
