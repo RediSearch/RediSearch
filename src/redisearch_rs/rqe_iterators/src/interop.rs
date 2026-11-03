@@ -520,14 +520,16 @@ pub fn mock_revalidate_timeout() -> bool {
 /// `Suspend` C callback. Transitions the wrapper from
 /// [`Active`](WrapperState::Active) to [`Suspended`](WrapperState::Suspended).
 ///
-/// Called by C immediately before the spec read lock is released. Panics if the
-/// wrapper is not in [`Active`](WrapperState::Active) state (defense-in-depth — the
-/// C protocol guarantees suspend is called exactly once per Active→Suspended
-/// transition).
+/// Called by C immediately before the spec read lock is released. **Idempotent**:
+/// if the wrapper is already in [`Suspended`](WrapperState::Suspended) state, this
+/// is a no-op. Pipelines can stack multiple "suspend the upstream iterator before
+/// releasing the lock" call sites (e.g. nested SafeLoaders) without coordinating;
+/// the first one transitions, the rest see no-op.
 ///
-/// After this returns, `header.current` is nulled out: the previous result pointer
-/// almost certainly pointed into the inverted-index data that may be invalidated
-/// during the lock release / re-acquire cycle.
+/// On the Active→Suspended transition `header.current` is nulled: suspending may
+/// move the iterator's result to a new allocation, and nothing may read it until
+/// `Revalidate` re-derives it. `FT.PROFILE` reads the suspended iterator itself
+/// (see [`RQEIteratorWrapper::state`]), never `header.current`.
 extern "C" fn suspend<'index, I>(base: *mut QueryIterator)
 where
     I: RQEIteratorBoxed<'index> + 'index,
@@ -536,12 +538,20 @@ where
     debug_assert!(base.is_aligned());
     // SAFETY: Guaranteed by invariant 1. in [`RQEIteratorWrapper`].
     let wrapper = unsafe { RQEIteratorWrapper::<'index, I>::mut_ref_from_header_ptr(base) };
+    if !matches!(wrapper.state, WrapperState::Active(_)) {
+        // Already suspended (or transiently Empty during another transition) —
+        // nothing to do.
+        return;
+    }
+    // Suspend walks children via `suspend_child_slot_in_place`, so composite
+    // iterators (Union, Intersection, ...) and `CRQEIterator` children each
+    // transition their own typestate as part of the per-child dispatch. No
+    // separate cascade pass is needed.
     let active = wrapper.state.take_active();
     let suspended = <I as RQEIteratorBoxed>::suspend(active);
     wrapper.state = WrapperState::Suspended(suspended);
-    // The pointer was almost certainly aimed at inverted-index data that may now
-    // be invalidated. The C side must not dereference `header.current` while the
-    // iterator is suspended; null it out so any stray read fails loudly.
+    // Null it so a stray read while suspended fails loudly instead of reading
+    // freed memory.
     wrapper.header.current = std::ptr::null_mut();
 }
 
