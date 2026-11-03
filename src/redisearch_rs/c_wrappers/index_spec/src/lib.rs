@@ -558,8 +558,7 @@ pub struct IndexSpecStrongRef {
 }
 
 impl IndexSpecStrongRef {
-    /// Acquire the read lock for this `IndexSpec`, or [`None`] once the spec was
-    /// invalidated (dropped) since it was promoted.
+    /// Acquire the read lock for this `IndexSpec`.
     ///
     /// Any number of threads may hold the read lock together; the write lock
     /// waits until all of them have released it. Taking it also pauses
@@ -571,22 +570,15 @@ impl IndexSpecStrongRef {
     /// Aborts the process, through a C assertion rather than a panic, if this
     /// thread already holds a lock on any spec: the C lock bookkeeping is per
     /// thread and does not nest.
-    pub fn read(&self) -> Option<IndexSpecReadLock<'_>> {
-        // SAFETY: `strong_ref` is a live strong reference, so it can be cloned.
-        let strong_ref = unsafe { ffi::StrongRef_Clone(self.strong_ref) };
-        // A clone fails once the spec is invalidated, though `self` still keeps it alive.
-        if strong_ref.rm.is_null() {
-            return None;
-        }
+    pub fn read(&self) -> IndexSpecReadLock<'_> {
         // SAFETY: the strong reference keeps the spec alive, and the pointer is
         // non-null (checked in promote). `IndexSpec_LockRead` checks itself that
         // this thread holds no other spec lock.
         unsafe { ffi::IndexSpec_LockRead(self.spec.as_ptr()) };
-        Some(IndexSpecReadLock {
+        IndexSpecReadLock {
             spec: self.spec,
-            strong_ref,
-            _borrow: PhantomData,
-        })
+            _strong_ref: PhantomData,
+        }
     }
 
     /// Acquire the write lock for this `IndexSpec`.
@@ -604,19 +596,18 @@ impl IndexSpecStrongRef {
 /// [`Drop`] unlocks it through that pointer; [`guard`](Self::guard) hands out
 /// the read-locked accessors, borrowed from this lock.
 ///
-/// The lock holds a strong reference of its own, so a lock that is leaked rather
-/// than dropped leaks the spec too, instead of leaving it locked after the
-/// reference it was taken from frees it.
+/// The lock borrows the strong reference rather than holding one of its own, so
+/// it works on a spec invalidated since its promotion. A lock that is forgotten
+/// rather than dropped stays taken, after its spec is freed too.
 pub struct IndexSpecReadLock<'spec> {
     spec: NonNull<ffi::IndexSpec>,
-    strong_ref: ffi::StrongRef,
-    _borrow: PhantomData<&'spec IndexSpecStrongRef>,
+    _strong_ref: PhantomData<&'spec IndexSpecStrongRef>,
 }
 
 impl IndexSpecReadLock<'_> {
     /// The read-locked accessors, for as long as this lock is borrowed.
     pub const fn guard(&self) -> std::mem::ManuallyDrop<IndexSpecReadGuard<'_>> {
-        // SAFETY: the lock's own strong reference keeps the spec alive and
+        // SAFETY: the strong reference this lock borrows keeps the spec alive and
         // initialized for `'_`.
         let spec = unsafe { self.spec.as_ref() };
         // SAFETY: (1) `spec` is valid for `'_`, (2) the read lock is held for `'_`
@@ -630,10 +621,8 @@ impl IndexSpecReadLock<'_> {
 impl Drop for IndexSpecReadLock<'_> {
     fn drop(&mut self) {
         // SAFETY: `IndexSpecStrongRef::read` took this read lock on this thread,
-        // and the lock's own strong reference keeps the spec alive until here.
+        // and the borrow of the strong reference keeps the spec alive until here.
         unsafe { ffi::IndexSpec_Unlock(self.spec.as_ptr()) };
-        // SAFETY: `read` cloned this valid reference for the lock, and it is released once.
-        unsafe { ffi::StrongRef_Release(self.strong_ref) };
     }
 }
 
