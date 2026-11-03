@@ -781,6 +781,30 @@ fn a_type_erased_suspended_iterator_prints_the_profile_of_the_erased_one() {
     insta::assert_debug_snapshot!(profile, @r#"{"Type": "MOCK"}"#);
 }
 
+/// `FT.PROFILE` asks for the estimate after the query has released its read lock, by which time
+/// the iterator tree is suspended, so the callback has to answer in that state too.
+#[test]
+fn a_suspended_wrapper_still_reports_its_estimate() {
+    let it = RQEIteratorWrapper::boxed_new(Mock::new([1, 2, 3]));
+    // SAFETY: `it` was just built by `boxed_new` and is not freed until the end of this test. The
+    // borrow ends before any callback runs.
+    let header = unsafe { it.as_ref() };
+    let num_estimated = header.NumEstimated.expect("NumEstimated must be populated");
+    let suspend = header.Suspend.expect("Suspend must be populated");
+    let free = header.Free.expect("Free must be populated");
+
+    // SAFETY: `it` is a live wrapper built by `boxed_new`.
+    let active = unsafe { num_estimated(it.as_ptr()) };
+    // SAFETY: as above.
+    unsafe { suspend(it.as_ptr()) };
+    // SAFETY: suspending leaves the wrapper live.
+    let suspended = unsafe { num_estimated(it.as_ptr()) };
+    // SAFETY: `it` is live and the owning pointer, and is not used afterwards.
+    unsafe { free(it.as_ptr()) };
+
+    assert_eq!(suspended, active);
+}
+
 /// C tells an exhausted iterator apart by `current` being NULL with `atEOF` set, so the header
 /// rebuilt on resume must keep both.
 #[test]

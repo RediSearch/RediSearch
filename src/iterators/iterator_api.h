@@ -182,9 +182,10 @@ typedef struct QueryIterator {
    * Called immediately before the spec read lock is released, to inform the iterator that it
    * must drop any state that depends on the lock being held (in particular, borrows into
    * inverted-index data). After `Suspend` returns, and until the lock is re-acquired and
-   * `Revalidate` is called, the only callbacks that may be invoked on the iterator are `Free`
-   * and `PrintProfile`, which `FT.PROFILE` calls after the lock was released. `PrintProfile`
-   * must therefore read only query-owned state, never index data.
+   * `Revalidate` is called, the only callbacks that may be invoked on the iterator are `Free`,
+   * `PrintProfile`, which `FT.PROFILE` calls after the lock was released, and `NumEstimated`.
+   * `PrintProfile` and `NumEstimated` must therefore read only query-owned state, never index
+   * data.
    *
    * Iterators with no lock-dependent state install `Default_Suspend` (a no-op). Not every
    * iterator installs a callback yet, so `Suspend` may be NULL and must not be called until
