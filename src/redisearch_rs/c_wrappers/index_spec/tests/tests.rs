@@ -151,3 +151,55 @@ fn the_read_lock_excludes_writers_until_dropped() {
         drop(CString::from_raw(spec.obfuscatedName));
     }
 }
+
+static FREES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Counts frees and leaves the storage to the test.
+unsafe extern "C" fn count_free(_: *mut c_void) {
+    FREES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// A read lock that is forgotten instead of dropped keeps its spec alive: the
+/// reference it was taken from can go, and the spec is not freed under the lock.
+#[test]
+#[cfg_attr(miri, ignore = "takes the C spec lock")]
+fn a_forgotten_read_lock_keeps_its_spec_alive() {
+    redis_mock::init_redis_module_mock();
+    let keys_dict = OwnedDict::<KeysDictType>::create();
+    // SAFETY: zero is valid for every field this test leaves unset.
+    let mut spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
+    // SAFETY: the static name is copied, because the spec takes ownership.
+    spec.specName = unsafe { ffi::NewHiddenString(c"idx".as_ptr(), 3, true) };
+    spec.obfuscatedName = CString::new("Index@test").unwrap().into_raw();
+    spec.keysDict = keys_dict.as_mut_ptr();
+    let rwlock = (&raw mut spec.rwlock).cast::<libc::pthread_rwlock_t>();
+    // SAFETY: `rwlock` points at the spec's own, not yet used, lock storage.
+    assert_eq!(unsafe { libc::pthread_rwlock_init(rwlock, ptr::null()) }, 0);
+    // SAFETY: the spec outlives the references, and `count_free` leaves its storage.
+    let strong = unsafe { StrongRef_New((&raw mut spec).cast(), Some(count_free)) };
+    // SAFETY: `strong` is the live reference created above.
+    let weak = unsafe { StrongRef_Demote(strong) };
+    // SAFETY: `weak` is a valid weak reference.
+    let spec_ref = unsafe { IndexSpecWeakRef::from_raw(weak) }
+        .promote()
+        .expect("the spec is alive");
+
+    mem::forget(spec_ref.read());
+    drop(spec_ref);
+    // SAFETY: `strong` was created above and is released once.
+    unsafe { StrongRef_Release(strong) };
+
+    assert_eq!(
+        FREES.load(std::sync::atomic::Ordering::Relaxed),
+        0,
+        "the forgotten lock still holds the spec"
+    );
+    // SAFETY: `weak` was created above and is released once, and the spec's names
+    // were allocated above and are freed once. The lock stays taken: the test
+    // forgot it on purpose and its process ends here.
+    unsafe {
+        WeakRef_Release(weak);
+        ffi::HiddenString_Free(spec.specName, true);
+        drop(CString::from_raw(spec.obfuscatedName));
+    }
+}

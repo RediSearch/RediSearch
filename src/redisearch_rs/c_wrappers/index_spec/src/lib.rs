@@ -577,7 +577,9 @@ impl IndexSpecStrongRef {
         unsafe { ffi::IndexSpec_LockRead(self.spec.as_ptr()) };
         IndexSpecReadLock {
             spec: self.spec,
-            _strong_ref: PhantomData,
+            // SAFETY: `strong_ref` is a live strong reference, so it can be cloned.
+            strong_ref: unsafe { ffi::StrongRef_Clone(self.strong_ref) },
+            _borrow: PhantomData,
         }
     }
 
@@ -595,15 +597,20 @@ impl IndexSpecStrongRef {
 /// Only a raw pointer is kept, so no reference to the spec is live when
 /// [`Drop`] unlocks it through that pointer; [`guard`](Self::guard) hands out
 /// the read-locked accessors, borrowed from this lock.
+///
+/// The lock holds a strong reference of its own, so a lock that is leaked rather
+/// than dropped leaks the spec too, instead of leaving it locked after the
+/// reference it was taken from frees it.
 pub struct IndexSpecReadLock<'spec> {
     spec: NonNull<ffi::IndexSpec>,
-    _strong_ref: PhantomData<&'spec IndexSpecStrongRef>,
+    strong_ref: ffi::StrongRef,
+    _borrow: PhantomData<&'spec IndexSpecStrongRef>,
 }
 
 impl IndexSpecReadLock<'_> {
     /// The read-locked accessors, for as long as this lock is borrowed.
     pub const fn guard(&self) -> std::mem::ManuallyDrop<IndexSpecReadGuard<'_>> {
-        // SAFETY: the strong reference this lock borrows keeps the spec alive and
+        // SAFETY: the lock's own strong reference keeps the spec alive and
         // initialized for `'_`.
         let spec = unsafe { self.spec.as_ref() };
         // SAFETY: (1) `spec` is valid for `'_`, (2) the read lock is held for `'_`
@@ -617,8 +624,10 @@ impl IndexSpecReadLock<'_> {
 impl Drop for IndexSpecReadLock<'_> {
     fn drop(&mut self) {
         // SAFETY: `IndexSpecStrongRef::read` took this read lock on this thread,
-        // and the borrow of the strong reference keeps the spec alive until here.
+        // and the lock's own strong reference keeps the spec alive until here.
         unsafe { ffi::IndexSpec_Unlock(self.spec.as_ptr()) };
+        // SAFETY: `read` cloned this reference for the lock, and it is released once.
+        unsafe { ffi::StrongRef_Release(self.strong_ref) };
     }
 }
 
