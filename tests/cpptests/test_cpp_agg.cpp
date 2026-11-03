@@ -20,13 +20,35 @@
 #include "version.h"
 #include "search_result.h"
 
+extern "C" {
+#include "util/quantile.h"
+}
+
 #include <vector>
 #include <array>
 #include <iostream>
 #include <cstdarg>
+#include <cmath>
 
 class AggTest : public ::testing::Test {};
 using RS::addDocument;
+
+TEST_F(AggTest, QuantileContract) {
+  double targets[] = {0.5, 0.9};
+  QuantStream *stream = NewQuantileStream(targets, 2, 4);
+  targets[0] = targets[1] = 0;
+  EXPECT_TRUE(std::isnan(QS_Query(stream, 0.5)));
+  for (double value : {4., 1., 9.}) QS_Insert(stream, value);
+  EXPECT_EQ(QS_GetCount(stream), 0);
+  EXPECT_EQ(QS_Query(stream, 0.5), 4);
+  EXPECT_EQ(QS_GetCount(stream), 3);
+  for (double value : {8., 2., 7., 3.}) QS_Insert(stream, value);
+  EXPECT_EQ(QS_GetCount(stream), 7);
+  EXPECT_EQ(QS_Query(stream, 0), 1);
+  EXPECT_EQ(QS_Query(stream, 0.5), 7);
+  EXPECT_EQ(QS_Query(stream, 1), 9);
+  QS_Free(stream);
+}
 
 #ifdef HAVE_RM_SCANCURSOR_CREATE
 //@@ TODO: avoid background indexing so cursor won't be needed

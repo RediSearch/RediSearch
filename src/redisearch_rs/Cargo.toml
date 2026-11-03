@@ -19,6 +19,8 @@ members = [
     "numeric_range_tree",
     "thin_vec",
     "qint",
+    "quantile",
+    "quantile_bencher",
     "query_error",
     "query_flags",
     "query_term",
@@ -143,6 +145,7 @@ numeric_range_tree = { path = "./numeric_range_tree" }
 numeric_score_source = { path = "./numeric_score_source" }
 redis_reply = { path = "./redis_reply" }
 qint = { path = "./qint" }
+quantile = { path = "./quantile" }
 query = { path = "./c_wrappers/query" }
 query_error = { path = "./query_error" }
 query_eval = { path = "./query_eval" }

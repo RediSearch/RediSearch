@@ -1,0 +1,26 @@
+[package]
+name = "quantile_bencher"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[[bench]]
+name = "stream"
+harness = false
+
+[dependencies]
+criterion.workspace = true
+quantile.workspace = true
+workspace_hack.workspace = true
+
+[target.'cfg(not(miri))'.dependencies]
+ffi.workspace = true
+redis_mock.workspace = true
+redisearch_rs = { workspace = true, features = ["mock_allocator"] }
+
+[build-dependencies]
+build_utils.workspace = true
+
+[lints]
+workspace = true

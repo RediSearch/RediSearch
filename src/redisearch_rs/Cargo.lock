@@ -1871,6 +1871,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "quantile"
+version = "0.0.1"
+dependencies = [
+ "proptest",
+ "rstest",
+ "workspace_hack",
+]
+
+[[package]]
+name = "quantile_bencher"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "criterion",
+ "ffi",
+ "quantile",
+ "redis_mock",
+ "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "query"
 version = "0.0.1"
 dependencies = [
