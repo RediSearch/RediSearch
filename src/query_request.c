@@ -122,7 +122,7 @@ bool QueryRequestLimits_IsBlockedClientTimedOut(const QueryRequestLimits *limits
   RS_ABORT_ALWAYS("Invalid query timeout kind");
 }
 
-bool QueryRequestLimits_IsTimedOutOrStopped(const QueryRequestLimits *limits) {
+bool QueryRequestLimits_ShouldStopExact(const QueryRequestLimits *limits) {
   return QueryRequestLimits_IsMemoryStopped(limits) ||
          QueryRequestLimits_IsTimedOutExact(limits);
 }
