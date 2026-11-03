@@ -24,8 +24,10 @@ extern "C" {
  *
  * # Safety
  *
- * `docs` came from [`DeletedDocs_New`] and is not freed, and nothing changes it
- * during the call.
+ * 1. `docs` came from [`DeletedDocs_New`] and is not freed, and nothing changes
+ *    it during the call.
+ * 2. `cb` is a non-null function that may be called with `ctx` any number of
+ *    times during the call.
  */
 void DeletedDocs_ForEach(const struct DeletedDocs *docs, void (*cb)(void *ctx, t_docId id), void *ctx);
 

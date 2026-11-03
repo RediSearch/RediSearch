@@ -34,7 +34,8 @@ pub enum ThreadGCResult {
 /// spec's read/write lock, a bounded number of keys per hold.
 ///
 /// Returns how the cycle ended; see [`ThreadGCResult`]. Stats of the chunks applied
-/// before an early end are kept.
+/// before an early end are kept. On [`ThreadGCResult::Done`], `retained` is set to
+/// the number of deleted IDs the cycle left in the set for a later one.
 ///
 /// # Safety
 ///
@@ -42,9 +43,17 @@ pub enum ThreadGCResult {
 ///    for the duration of this call. The main thread may update its deletion
 ///    counter and read its stats meanwhile, so this call borrows no part of it.
 /// 2. The calling thread must not hold any spec lock.
+/// 3. `retained` must point to a writable `u64`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ThreadGC_runScanners(gc: *mut ffi::IndexGC) -> ThreadGCResult {
+pub unsafe extern "C" fn ThreadGC_runScanners(
+    gc: *mut ffi::IndexGC,
+    retained: *mut u64,
+) -> ThreadGCResult {
     debug_assert!(!gc.is_null(), "ThreadGC_runScanners needs a GC");
+    debug_assert!(
+        !retained.is_null(),
+        "ThreadGC_runScanners needs somewhere to report"
+    );
     // SAFETY: (1) `gc` is valid, and the field is read in place, without a reference
     // to the struct.
     let index = unsafe { (*gc).index };
@@ -65,8 +74,11 @@ pub unsafe extern "C" fn ThreadGC_runScanners(gc: *mut ffi::IndexGC) -> ThreadGC
                 write_locks = report.write_locks,
                 max_read_hold_us = report.max_read_hold.as_micros() as u64,
                 max_write_hold_us = report.max_write_hold.as_micros() as u64,
+                retained = report.retained,
                 "thread GC cycle done"
             );
+            // SAFETY: caller guarantees (3).
+            unsafe { retained.write(report.retained) };
             ThreadGCResult::Done
         }
         Err((scanner, GcError::SpecDeleted)) => {

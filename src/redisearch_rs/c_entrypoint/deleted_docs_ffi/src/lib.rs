@@ -54,8 +54,10 @@ pub unsafe extern "C" fn DeletedDocs_Record(docs: *mut DeletedDocs, id: DocId) {
 ///
 /// # Safety
 ///
-/// `docs` came from [`DeletedDocs_New`] and is not freed, and nothing changes it
-/// during the call.
+/// 1. `docs` came from [`DeletedDocs_New`] and is not freed, and nothing changes
+///    it during the call.
+/// 2. `cb` is a non-null function that may be called with `ctx` any number of
+///    times during the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DeletedDocs_ForEach(
     docs: *const DeletedDocs,
@@ -63,9 +65,9 @@ pub unsafe extern "C" fn DeletedDocs_ForEach(
     ctx: *mut c_void,
 ) {
     debug_assert!(!docs.is_null(), "DeletedDocs_ForEach needs a set");
-    // SAFETY: the caller guarantees `docs` is a live set nothing changes meanwhile.
+    // SAFETY: (1).
     for id in unsafe { &*docs }.iter() {
-        // SAFETY: `cb` is the caller's, and `ctx` is the value it expects.
+        // SAFETY: (2).
         unsafe { cb(ctx, id) };
     }
 }

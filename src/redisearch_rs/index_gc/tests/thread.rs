@@ -25,7 +25,7 @@ use index_gc::{
     liveness::GoneIds,
     spec_access::SpecWriteAccess,
     stats::GcStatsSink,
-    thread::{DELTAS_PER_APPLY, KEYS_PER_HOLD, LockReport, SpecLockAccess, run_cycle},
+    thread::{CycleReport, DELTAS_PER_APPLY, KEYS_PER_HOLD, SpecLockAccess, run_cycle},
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
@@ -415,11 +415,12 @@ fn a_scanners_few_keys_take_one_read_lock_and_one_write_lock() {
 
     assert_eq!(
         report,
-        LockReport {
+        CycleReport {
             read_locks: terms_only_read_locks(1),
             write_locks: write_locks(1),
             max_read_hold: report.max_read_hold,
             max_write_hold: report.max_write_hold,
+            retained: 0,
         }
     );
     assert_eq!(recorder.0.len(), 1, "one flush per applying write lock");
@@ -576,6 +577,7 @@ fn ids_copied_by_a_leaf_split_mid_cycle_stay_in_the_set() {
         !spec.deleted_docs().is_empty(),
         "the IDs the copies may hold are kept for the next cycle"
     );
+    assert_eq!(report.retained, spec.deleted_docs().len());
 
     run_cycle(&mut spec, &mut recorder, false).unwrap();
 
