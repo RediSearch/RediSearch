@@ -583,6 +583,18 @@ class BufferedDiskQuery {
     return count;
   }
 
+  void expire(RSTimeoutPolicy policy) {
+    activeProcessing->timeoutPolicy = policy;
+    QueryRequestTimeout_BeginCycle(sctx.timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    QueryRequestTimeout_MarkTimedOut(sctx.timeout);
+  }
+
+  int nextStatus() {
+    const int rc = processor->Next(processor, &result);
+    SearchResult_Clear(&result);
+    return rc;
+  }
+
   uint32_t skipped() const {
     return activeProcessing->skippedResults;
   }
@@ -798,6 +810,20 @@ TEST_P(DiskSlotSortedVisibilityTest, SortedResultsStayHiddenAfterTrimCompletes) 
   EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1 : 2);
   for (auto id : ids) EXPECT_TRUE(id != 2 && id != 3);
   EXPECT_EQ(ids.size(), first == 2 || first == 3 ? 4 : 3);
+}
+
+TEST_P(DiskSlotSortedVisibilityTest, HiddenSorterRowsStopAtTimeoutForEveryPolicy) {
+  for (const auto policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return, TimeoutPolicy_ReturnStrict}) {
+    BufferedDiskQuery query(ctx, spec, snapshot());
+    if (GetParam()) query.mergeHybrid();
+    query.sortByScore();
+    query.first();
+    pool.deletedIds = {1, 2, 3, 4, 5, 6};
+    query.expire(policy);
+    EXPECT_EQ(query.nextStatus(), RS_RESULT_TIMEDOUT);
+    EXPECT_EQ(query.skipped(), 1u);
+    pool.deletedIds.clear();
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(

@@ -624,6 +624,46 @@ TEST_F(DiskSlotTrimTest, InvalidatedOwnerCancelsBeforeCallingTheBackend) {
   EXPECT_EQ(state.applyCalls, 0u);
 }
 
+TEST_F(DiskSlotTrimTest, RestoredTrimEnumerationReinstallsRangesAndOriginalCutoff) {
+  state.logicalPending = true;
+  state.ranges = {{7, 9}, {12, 14}};
+  state.maxDocId = 17;
+  spec->docs.maxDocId = 99;
+  struct RestoreContext {
+    IndexSpec *spec;
+    size_t calls = 0;
+  } restore{spec};
+
+  IndexSpec_LockWrite(spec);
+  SearchDisk_ForEachPendingSlotTrim(
+      spec->diskSpec,
+      [](void *ctx, const SearchDiskSlotRange *ranges, size_t count, t_docId cutoff) {
+        auto &restore = *static_cast<RestoreContext *>(ctx);
+        ++restore.calls;
+        ASSERT_EQ(count, 2u);
+        EXPECT_EQ(ranges[0].start, 7);
+        EXPECT_EQ(ranges[0].end, 9);
+        EXPECT_EQ(ranges[1].start, 12);
+        EXPECT_EQ(ranges[1].end, 14);
+        EXPECT_EQ(cutoff, 17u);
+        auto *slots = static_cast<RedisModuleSlotRangeArray *>(rm_malloc(SlotRangeArray_SizeOf(count)));
+        slots->num_ranges = count;
+        for (size_t i = 0; i < count; ++i) slots->ranges[i] = {ranges[i].start, ranges[i].end};
+        DocTable_AddPendingDeletionWithCutoff(&restore.spec->docs, slots, cutoff);
+        rm_free(slots);
+      },
+      &restore);
+  IndexSpec_Unlock(spec);
+
+  EXPECT_EQ(restore.calls, 1u);
+  for (uint16_t slot : {7, 9, 12, 14}) {
+    EXPECT_TRUE(pendingFilter(17, slot));
+    EXPECT_FALSE(pendingFilter(18, slot));
+  }
+  for (uint16_t slot : {6, 10, 11, 15}) EXPECT_FALSE(pendingFilter(1, slot));
+  EXPECT_EQ(state.registrations, 0u);
+}
+
 TEST_F(DiskSlotTrimTest, RegistrationRejectsMissingOwnersAndNonDiskIndexes) {
   const SearchDiskSlotRange range{0, 100};
   EXPECT_EQ(IndexSpec_RegisterDiskSlotTrim(INVALID_STRONG_REF, &range, 1), nullptr);
