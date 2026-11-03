@@ -26,7 +26,7 @@
 #include "debug_commands.h"
 #include "search_disk.h"
 #include "info/global_stats.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "doc_id_meta.h"
 #include "metrics_ffi.h"
 #include "module.h"
