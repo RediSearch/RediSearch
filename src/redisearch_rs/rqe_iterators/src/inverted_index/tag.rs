@@ -258,12 +258,12 @@ where
     }
 }
 
-impl<'index, E, L, C> ProfilePrint for Tag<'index, E, L, C>
+impl<'query, Rf: Ref, E, L, C> ProfilePrint for RawTag<'query, Rf, E, L, C>
 where
-    E: inverted_index::DecodedBy + 'index,
+    E: inverted_index::DecodedBy + 'static,
     <E as inverted_index::DecodedBy>::Decoder: inverted_index::DocIdsDecoder,
-    C: crate::expiration_checker::ExpirationChecker,
-    L: TagLookup<E>,
+    C: crate::expiration_checker::ExpirationChecker + 'static,
+    L: TagLookup<E> + 'static,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"TAG");

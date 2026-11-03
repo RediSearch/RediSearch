@@ -295,11 +295,11 @@ where
     }
 }
 
-impl<'index, E, C> ProfilePrint for Missing<'index, E, C>
+impl<'query, Rf: Ref, E: DecodedBy, C, RA> ProfilePrint for RawMissing<'query, Rf, E, C, RA>
 where
-    E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'index,
+    E: OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>> + 'static,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
-    C: ExpirationChecker,
+    C: ExpirationChecker + 'static,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"MISSING");

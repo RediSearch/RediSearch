@@ -1200,3 +1200,23 @@ fn mock_vec_upholds_current_contract() {
     assert_eq!(assert_current_contract(&mut it), CONTRACT_DOCS);
     assert_current_contract_via_skip_to(&mut it, 81);
 }
+
+impl<const N: usize> rqe_iterators::profile_print::ProfilePrint for MockSuspended<N> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"MOCK");
+    }
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for MockVecSuspended {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"MOCK VEC");
+    }
+}

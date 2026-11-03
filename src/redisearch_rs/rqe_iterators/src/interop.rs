@@ -75,6 +75,24 @@ where
     state: WrapperState<'index, I>,
 }
 
+/// Borrow into the wrapper's current typestate, exposed to FFI accessor sites.
+///
+/// Returned by [`RQEIteratorWrapper::state`]. FFI sites that read metadata fields
+/// (counters, num-children, range bounds, etc.) branch on the variant and call the
+/// matching method on each — both `A` and `S` typically share method signatures
+/// because the underlying `#[repr(C)]` struct is `Rf`-generic.
+pub enum InnerState<'a, A, S> {
+    Active(&'a A),
+    Suspended(&'a S),
+}
+
+/// Mutable counterpart of [`InnerState`]. Returned by
+/// [`RQEIteratorWrapper::state_mut`].
+pub enum InnerStateMut<'a, A, S> {
+    Active(&'a mut A),
+    Suspended(&'a mut S),
+}
+
 /// Active/Suspended typestate for [`RQEIteratorWrapper`].
 ///
 /// `Box<I>` and `Box<I::Suspended>` are byte-identical (`NonNull<T>` under the hood),
@@ -154,18 +172,57 @@ where
     I: RQEIteratorBoxed<'index> + 'index,
 {
     /// Borrow the inner active iterator. Panics if the wrapper has been suspended.
+    ///
+    /// Prefer [`state`](Self::state) for FFI accessor sites that may be called
+    /// after the iterator has been suspended (FT.PROFILE introspection, etc.);
+    /// `state()` returns an enum the caller can branch on.
     pub fn inner(&self) -> &I {
         self.state.active_ref()
     }
 
     /// Mutably borrow the inner active iterator. Panics if the wrapper has been
-    /// suspended.
+    /// suspended. See [`inner`](Self::inner).
     pub fn inner_mut(&mut self) -> &mut I {
         self.state.active_mut()
     }
 
+    /// Expose the wrapper's typestate to FFI accessor sites that may be called
+    /// in either state.
+    ///
+    /// FFI introspection (FT.PROFILE counters, intersection/union child queries,
+    /// reader flags, range bounds, etc.) is called from C code that doesn't know
+    /// whether the iterator is currently Active or Suspended. Those accessors
+    /// fetch fields that exist on both `I` and `I::Suspended` — they live on the
+    /// underlying `#[repr(C)]` `RawFoo<Rf, ...>` struct, independent of `Rf`
+    /// mode. Branch on the variant and call the matching method on each.
+    ///
+    /// Do **not** use this to drive read/skip/rewind — those callbacks dereference
+    /// inverted-index pointers that are invalid in the Suspended state. They go
+    /// through [`WrapperState::active_mut`] (private) and panic loudly on
+    /// Suspended state by design.
+    pub fn state(&self) -> InnerState<'_, I, I::Suspended> {
+        match &self.state {
+            WrapperState::Active(active) => InnerState::Active(active),
+            WrapperState::Suspended(suspended) => InnerState::Suspended(suspended),
+            WrapperState::Empty => {
+                panic!("RQEIteratorWrapper accessed mid-transition (Empty state)")
+            }
+        }
+    }
+
+    /// Mutable counterpart of [`state`](Self::state).
+    pub fn state_mut(&mut self) -> InnerStateMut<'_, I, I::Suspended> {
+        match &mut self.state {
+            WrapperState::Active(active) => InnerStateMut::Active(active),
+            WrapperState::Suspended(suspended) => InnerStateMut::Suspended(suspended),
+            WrapperState::Empty => {
+                panic!("RQEIteratorWrapper accessed mid-transition (Empty state)")
+            }
+        }
+    }
+
     /// Re-synchronize the C header's `current` pointer from the inner iterator's
-    /// [`RQEIterator::current`].
+    /// [`current`](crate::RQEIterator::current).
     ///
     /// Call this after any operation that may invalidate the previously stored
     /// `header.current` (e.g. replacing the inner variant in-place). Panics if the
@@ -683,7 +740,14 @@ unsafe extern "C" fn print_profile<'index, I: ProfilePrint + RQEIteratorBoxed<'i
     let map = unsafe { &mut *(map as *mut redis_reply::MapBuilder<'_>) };
     // SAFETY: ctx is a valid &mut ProfilePrintCtx per precondition.
     let ctx = unsafe { &mut *(ctx as *mut crate::profile_print::ProfilePrintCtx<'_>) };
-    wrapper.inner().print_profile(map, ctx);
+    // `FT.PROFILE` introspection runs after the root iterator has been suspended
+    // at the unlock site, so the wrapper may be in either state here. Both forms
+    // implement `ProfilePrint` (the profile fields are mode-independent), so print
+    // whichever is live.
+    match wrapper.state() {
+        InnerState::Active(it) => it.print_profile(map, ctx),
+        InnerState::Suspended(it) => it.print_profile(map, ctx),
+    }
 }
 
 /// Apply a post-construction mutation to the vtable of a freshly-boxed iterator.

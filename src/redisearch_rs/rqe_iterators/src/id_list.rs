@@ -352,7 +352,7 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for IdList<'index, SO
     }
 }
 
-impl<const SORTED: bool> ProfilePrint for IdList<'_, SORTED> {
+impl<'query, Rf: Ref, const SORTED: bool> ProfilePrint for RawIdList<'query, Rf, SORTED> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         if SORTED {
             ctx.print_leaf(c"ID-LIST-SORTED", map);

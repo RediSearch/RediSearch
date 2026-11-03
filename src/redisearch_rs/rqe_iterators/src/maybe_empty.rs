@@ -47,6 +47,18 @@ const _: () = {
     assert!(align_of::<MaybeEmpty<AChild>>() == align_of::<MaybeEmpty<SChild>>());
 };
 
+impl<I> MaybeEmpty<I> {
+    /// Get a ref to child iterator, if any. Mode-independent —
+    /// pattern-matches on the inner storage, no iterator surface needed.
+    #[inline(always)]
+    pub const fn as_ref(&self) -> Option<&I> {
+        match &self.0 {
+            MaybeEmptyOption::None(_) => None,
+            MaybeEmptyOption::Some(it) => Some(it),
+        }
+    }
+}
+
 impl<'index, I> MaybeEmpty<I>
 where
     I: RQEIterator<'index>,
@@ -61,15 +73,6 @@ where
     #[inline(always)]
     pub const fn new_empty() -> Self {
         Self(MaybeEmptyOption::None(Empty))
-    }
-
-    /// Get a ref to child iterator, if any.
-    #[inline(always)]
-    pub const fn as_ref(&self) -> Option<&I> {
-        match &self.0 {
-            MaybeEmptyOption::None(_) => None,
-            MaybeEmptyOption::Some(it) => Some(it),
-        }
     }
 
     /// Transform the inner iterator (if present) into a new type.
@@ -357,6 +360,22 @@ where
             // `RQEIterator::num_estimated`.
             MaybeEmptyOption::None(empty) => RQESuspendedIterator::num_estimated(empty),
             MaybeEmptyOption::Some(child) => S::num_estimated(child),
+        }
+    }
+}
+
+// `MaybeEmpty` is a transparent child holder; delegate to the wrapped iterator's
+// own profile output (composites enumerate children through this), or print an
+// empty leaf when no child is present.
+impl<I: crate::profile_print::ProfilePrint> crate::profile_print::ProfilePrint for MaybeEmpty<I> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self.as_ref() {
+            Some(inner) => inner.print_profile(map, ctx),
+            None => ctx.print_leaf(c"EMPTY", map),
         }
     }
 }

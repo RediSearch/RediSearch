@@ -193,7 +193,7 @@ where
     }
 }
 
-impl<E: DecodedBy> ProfilePrint for Wildcard<'_, E> {
+impl<'query, Rf: Ref, E: DecodedBy + 'static, RA> ProfilePrint for RawWildcard<'query, Rf, E, RA> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         ctx.print_leaf(c"WILDCARD", map);
     }

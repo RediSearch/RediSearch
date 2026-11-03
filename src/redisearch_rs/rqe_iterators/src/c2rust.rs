@@ -603,3 +603,15 @@ impl<'query> RQESuspendedIterator<'query> for CRQESuspendedIterator {
         self.0.num_estimated_snapshot
     }
 }
+
+/// Profile printing reads the counters the C `QueryIterator` keeps for itself, which are not
+/// index-owned, so the suspended form prints exactly as the active one does.
+impl profile_print::ProfilePrint for CRQESuspendedIterator {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.0.print_profile(map, ctx);
+    }
+}

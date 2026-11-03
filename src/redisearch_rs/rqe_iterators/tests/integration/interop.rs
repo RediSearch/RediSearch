@@ -654,6 +654,52 @@ fn the_debug_switch_reports_a_timeout_without_consulting_the_iterator() {
     );
 }
 
+/// Print the profile of a Rust iterator through its C `PrintProfile` callback and capture the
+/// single reply it writes.
+///
+/// # Safety
+///
+/// `it` is a live iterator built by an [`RQEIteratorWrapper`] constructor.
+#[cfg(not(miri))]
+unsafe fn print_profile_through_c_abi(it: *mut QueryIterator) -> redis_mock::reply::ReplyValue {
+    redis_mock::init_redis_module_mock();
+    // SAFETY: the mock replaces every `RedisModule_Reply*` function with one that records the reply
+    // without dereferencing the context, so a dangling non-null context is never read.
+    let mut replier = unsafe {
+        redis_reply::Replier::new(std::ptr::dangling_mut::<redis_reply::RedisModuleCtx>())
+    };
+    let mut replies = redis_mock::reply::capture_replies(|| {
+        let mut ctx = rqe_iterators::profile_print::ProfilePrintCtx::new(false, false);
+        let mut map = replier.map();
+        let it = std::ptr::NonNull::new(it).expect("the wrapper is non-null");
+        // SAFETY: guaranteed by the caller; every wrapper constructor populates `PrintProfile`.
+        unsafe { rqe_iterators::c2rust::call_print_profile(it, &mut map, &mut ctx) };
+    });
+    assert_eq!(replies.len(), 1, "a profile is a single map reply");
+    replies.pop().unwrap()
+}
+
+/// The profile is printed after the query has released its read lock, so by then the iterator
+/// tree is suspended. Printing it must not require resuming it, and must report the same profile
+/// as the active iterator did.
+#[cfg(not(miri))]
+#[test]
+fn a_suspended_wrapper_prints_the_profile_of_its_active_form() {
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(Mock::new([1, 2, 3]));
+
+    // SAFETY: `it` was just built by `boxed_new`.
+    let active = unsafe { print_profile_through_c_abi(it) };
+    // SAFETY: as above; `boxed_new` populates `Suspend`.
+    unsafe { ((*it).Suspend.expect("Suspend must be populated"))(it) };
+    // SAFETY: as above.
+    let suspended = unsafe { print_profile_through_c_abi(it) };
+    // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
+    unsafe { ((*it).Free.expect("Free must be populated"))(it) };
+
+    assert_eq!(suspended, active);
+    insta::assert_debug_snapshot!(suspended);
+}
+
 /// An exhausted iterator publishes no result, and C tells it apart from one sitting on a document
 /// by `current` being NULL with `atEOF` set. Revalidate re-derives the header from the resumed
 /// iterator, so that has to survive the cycle, along with the last position.

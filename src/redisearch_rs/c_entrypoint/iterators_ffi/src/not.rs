@@ -384,3 +384,16 @@ pub unsafe extern "C" fn NewNotIterator(
         }
     }
 }
+
+impl rqe_iterators::profile_print::ProfilePrint for NotIteratorEnumSuspended<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            Self::Not(it) => it.print_profile(map, ctx),
+            Self::NotOptimized(it) => it.print_profile(map, ctx),
+        }
+    }
+}

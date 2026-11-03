@@ -417,3 +417,16 @@ impl profile_print::ProfilePrint for TagIterator<'_> {
         tag_it_dispatch!(self, print_profile, map, ctx);
     }
 }
+
+impl profile_print::ProfilePrint for TagIteratorSuspended<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            TagIteratorSuspended::Encoded(t) => t.print_profile(map, ctx),
+            TagIteratorSuspended::Raw(t) => t.print_profile(map, ctx),
+        }
+    }
+}

@@ -408,7 +408,7 @@ impl<'index> RQEIterator<'index> for OptimizedWildcard<'index> {
 
 impl<'index> WildcardIterator<'index> for OptimizedWildcard<'index> {}
 
-impl crate::profile_print::ProfilePrint for OptimizedWildcard<'_> {
+impl<Rf: Ref> crate::profile_print::ProfilePrint for RawOptimizedWildcard<'_, Rf> {
     fn print_profile(
         &self,
         map: &mut redis_reply::MapBuilder<'_>,
@@ -1032,7 +1032,7 @@ pub type DiskWildcardIterator<'index> = Box<dyn RQEIteratorPrintable<'index> + '
 /// [`DiskWildcardIterator`] matches all documents on the disk index.
 impl<'index> WildcardIterator<'index> for DiskWildcardIterator<'index> {}
 
-impl ProfilePrint for Wildcard<'_> {
+impl<'query, Rf: Ref> ProfilePrint for RawWildcard<'query, Rf> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         ctx.print_leaf(c"WILDCARD", map);
     }
@@ -1114,5 +1114,23 @@ impl<'query> RQESuspendedIterator<'query> for DiskWildcardSuspended<'query> {
     fn num_estimated(&self) -> usize {
         // See `last_doc_id`.
         RQEIterator::num_estimated(&*self.0)
+    }
+}
+
+/// Prints the enterprise backend iterator's own profile.
+impl ProfilePrint for DiskWildcardSuspended<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        self.0.print_profile(map, ctx);
+    }
+}
+
+impl ProfilePrint for NewWildcardSuspended<'_> {
+    fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
+        match self {
+            Self::NotOptimized(it) => it.print_profile(map, ctx),
+            Self::Optimized(it) => it.print_profile(map, ctx),
+            Self::Empty(it) => it.print_profile(map, ctx),
+            Self::Disk(it) => it.print_profile(map, ctx),
+        }
     }
 }

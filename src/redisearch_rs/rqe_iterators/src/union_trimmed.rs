@@ -135,6 +135,30 @@ const _: () = {
     assert!(align_of::<A>() == align_of::<S>());
 };
 
+impl<'query, Rf: Ref, I> RawUnionTrimmed<'query, Rf, I> {
+    /// Returns the total number of children (including trimmed and exhausted ones).
+    /// Mode-independent.
+    pub const fn num_children_total(&self) -> usize {
+        self.children.len()
+    }
+
+    /// Returns the number of currently active (non-exhausted, non-trimmed) children.
+    /// Mode-independent.
+    pub const fn num_children_active(&self) -> usize {
+        if self.is_eof {
+            0
+        } else {
+            self.cursor - self.trim_start + 1
+        }
+    }
+
+    /// Returns a shared reference to the child at `idx` (across all children).
+    /// Returns `None` if the index is out of range. Mode-independent.
+    pub fn child_at(&self, idx: usize) -> Option<&I> {
+        self.children.get(idx)
+    }
+}
+
 impl<'index, I> UnionTrimmed<'index, I>
 where
     I: RQEIterator<'index>,
@@ -218,26 +242,6 @@ where
             cursor: end - 1,
             is_eof: false,
         }
-    }
-
-    /// Returns the total number of children (including trimmed and exhausted ones).
-    pub const fn num_children_total(&self) -> usize {
-        self.children.len()
-    }
-
-    /// Returns the number of currently active (non-exhausted, non-trimmed) children.
-    pub const fn num_children_active(&self) -> usize {
-        if self.is_eof {
-            0
-        } else {
-            self.cursor - self.trim_start + 1
-        }
-    }
-
-    /// Returns a shared reference to the child at `idx` (across all children).
-    /// Returns `None` if the index is out of range.
-    pub fn child_at(&self, idx: usize) -> Option<&I> {
-        self.children.get(idx)
     }
 
     /// Returns a mutable iterator over all children (including trimmed and exhausted ones).
@@ -443,5 +447,18 @@ where
 
     fn num_estimated(&self) -> usize {
         self.num_estimated
+    }
+}
+
+// Union variants are always wrapped by `UnionOpaque`, which prints the real
+// `UNION` profile (including children); this impl exists only to satisfy the
+// `RQEIterator: ProfilePrint` supertrait and is not reached in practice.
+impl<Rf: Ref, I> crate::profile_print::ProfilePrint for RawUnionTrimmed<'_, Rf, I> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"UNION", map);
     }
 }
