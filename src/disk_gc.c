@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "disk_gc.h"
+#include "vector_index.h"
 
 #include <stdatomic.h>
 #include <pthread.h>
@@ -96,6 +97,8 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
     DiskGCRunStats stats = {0};
     SearchDisk_RunGC(sp->diskSpec, &stats);
     accumulateCycleStats(gc, &stats);
+    // The vector counterpart of the compaction above, as the RAM fork GC cycle ends.
+    VecSim_CallTieredIndexesGC(gc->index);
 
     // After the cycle, which itself writes to that storage, and here rather than on the main
     // thread, which must not wait on the disk I/O. No separate flush: the compaction flushes the
