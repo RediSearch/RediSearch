@@ -2216,7 +2216,7 @@ static bool mergeRowShouldStop(searchReducerCtx *rCtx) {
     return false;
   }
   QueryRequestLimits *timeout = &rCtx->searchCtx->base.limits;
-  if (QueryRequest_ShouldStop(timeout)) {
+  if (QueryRequestLimits_ShouldStop(timeout)) {
     return true;
   }
   if (++rCtx->rowsSinceMemoryRead < QueryMemory_GetRatioReadInterval()) {
