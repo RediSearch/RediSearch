@@ -11,23 +11,21 @@ use std::{io::Cursor, mem};
 
 use ffi::IndexFlags_Index_DocIdsOnly;
 use fork_gc::{
-    Frame, HandleError,
-    existing_docs::{
-        ExistingDocsDeleted, apply_existing_docs, collect_existing_docs, receive_existing_docs,
-    },
+    DocExistence, HandleError,
+    existing_docs::{apply_existing_docs, collect_existing_docs},
 };
 use index_result::RSIndexResult;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::opaque::InvertedIndex as OpaqueInvertedIndex;
 use inverted_index::{GcScanDelta, InvertedIndex, doc_ids_only::DocIdsOnly};
-use serde::Serialize as _;
 
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
+use fork_gc::util::deserialize;
 // Provide Redis allocator shims so the C dict functions can allocate memory.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
-fn make_spec(existing_docs: *mut ffi::InvertedIndex) -> ffi::IndexSpec {
+const fn make_spec(existing_docs: *mut ffi::InvertedIndex) -> ffi::IndexSpec {
     // SAFETY: zeroed IndexSpec is valid for read-only access; existingDocs is
     // either null or a caller-managed pointer that outlives this struct.
     let mut spec: ffi::IndexSpec = unsafe { mem::zeroed() };
@@ -35,7 +33,13 @@ fn make_spec(existing_docs: *mut ffi::InvertedIndex) -> ffi::IndexSpec {
     spec
 }
 
-/// When the spec has no `existingDocs` index, only a Terminator is written.
+/// An existence snapshot for tests that never look a document up.
+/// [`DocExistence::snapshot`] calls C functions that miri cannot run.
+fn unqueried_existence<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
+    DocExistence::with_bitmap(guard, Box::default(), 0)
+}
+
+/// When the spec has no `existingDocs` index, the child writes `None`.
 #[test]
 fn no_existing_docs_writes_only_terminator() {
     let spec = make_spec(std::ptr::null_mut());
@@ -43,17 +47,18 @@ fn no_existing_docs_writes_only_terminator() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &*guard).unwrap();
+    collect_existing_docs(&mut buf, &guard, &unqueried_existence(&guard)).unwrap();
 
     let mut cursor = Cursor::new(&buf);
-    assert!(matches!(
-        Frame::decode(&mut cursor).unwrap(),
-        Frame::Terminator
-    ));
+    assert!(
+        deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
+            .unwrap()
+            .is_none()
+    );
 }
 
 /// When `existingDocs` is present but empty, `scan_gc` returns no delta and
-/// only a Terminator is written.
+/// only `None` is written.
 #[test]
 fn empty_existing_docs_writes_only_terminator() {
     let ii = Box::new(OpaqueInvertedIndex::DocIdsOnly(
@@ -65,21 +70,22 @@ fn empty_existing_docs_writes_only_terminator() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &*guard).unwrap();
+    collect_existing_docs(&mut buf, &guard, &unqueried_existence(&guard)).unwrap();
 
     let mut cursor = Cursor::new(&buf);
-    assert!(matches!(
-        Frame::decode(&mut cursor).unwrap(),
-        Frame::Terminator
-    ));
+    assert!(
+        deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
+            .unwrap()
+            .is_none()
+    );
 
     // SAFETY: ii_ptr was created via Box::into_raw above.
     unsafe { drop(Box::from_raw(ii_ptr)) };
 }
 
 /// When `existingDocs` has entries and all docs are absent from the DocTable
-/// (stub returns false), `scan_gc` produces a delta. The output is an Empty
-/// frame, the serialised [`GcScanDelta`], then a Terminator.
+/// (stub returns false), `scan_gc` produces a serialised `Some` [`GcScanDelta`]
+/// followed by the stream terminator.
 #[test]
 #[cfg_attr(miri, ignore = "calls FFI function `DocTable_Exists`")]
 fn existing_docs_with_deleted_entries_writes_delta() {
@@ -95,54 +101,22 @@ fn existing_docs_with_deleted_entries_writes_delta() {
     let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
 
     let mut buf = Vec::new();
-    collect_existing_docs(&mut buf, &*guard).unwrap();
+    collect_existing_docs(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
 
     let mut cursor = Cursor::new(&buf);
-    assert!(matches!(Frame::decode(&mut cursor).unwrap(), Frame::Empty));
-    let delta: GcScanDelta = rmp_serde::from_read(&mut cursor).unwrap();
+    let delta = deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
+        .unwrap()
+        .unwrap();
     assert_eq!(delta.last_block_idx(), 0);
-    assert!(matches!(
-        Frame::decode(&mut cursor).unwrap(),
-        Frame::Terminator
-    ));
+    assert!(
+        deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(cursor.position() as usize, buf.len());
 
     // SAFETY: ii_ptr was created via Box::into_raw above.
     unsafe { drop(Box::from_raw(ii_ptr)) };
-}
-
-#[test]
-fn receive_terminator_returns_none() {
-    let mut buf = Vec::new();
-    Frame::Terminator.encode(&mut buf).unwrap();
-    let mut cursor = Cursor::new(&buf);
-    assert!(matches!(receive_existing_docs(&mut cursor).unwrap(), None));
-}
-
-#[test]
-fn receive_malformed_frame_returns_codec_error() {
-    let mut cursor = Cursor::new(b"garbage");
-    assert!(matches!(
-        receive_existing_docs(&mut cursor),
-        Err(HandleError::Codec {
-            msg: "reading the existing-docs header frame",
-            ..
-        })
-    ));
-}
-
-#[test]
-fn receive_valid_delta_returns_some() {
-    let mut buf = Vec::new();
-    Frame::Empty.encode(&mut buf).unwrap();
-    GcScanDelta::empty_for_testing()
-        .serialize(&mut rmp_serde::Serializer::new(&mut buf))
-        .unwrap();
-
-    let mut cursor = Cursor::new(&buf);
-    assert!(matches!(
-        receive_existing_docs(&mut cursor).unwrap(),
-        Some(_)
-    ));
 }
 
 #[test]
@@ -150,10 +124,13 @@ fn apply_returns_err_when_existing_docs_absent() {
     let delta = GcScanDelta::empty_for_testing();
 
     let mut apply_spec = make_spec(std::ptr::null_mut());
+    // SAFETY: the test owns the initialized spec; no concurrent access occurs.
     let mut guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut apply_spec) };
     assert!(matches!(
-        apply_existing_docs(delta, &mut *guard),
-        Err(HandleError::Custom(ExistingDocsDeleted))
+        apply_existing_docs(delta, &mut guard),
+        Err(HandleError::ApplyError(
+            "the existingDocs inverted index was removed before the delta could be applied"
+        ))
     ));
 }
 
@@ -171,16 +148,66 @@ fn roundtrip_all_docs_deleted_clears_index() {
 
     let mut buf = Vec::new();
     {
+        // SAFETY: the test owns the initialized spec; no concurrent access occurs.
         let read_guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
-        collect_existing_docs(&mut buf, &*read_guard).unwrap();
+        collect_existing_docs(&mut buf, &read_guard, &DocExistence::snapshot(&read_guard)).unwrap();
     }
 
     let mut cursor = Cursor::new(&buf);
-    let delta = receive_existing_docs(&mut cursor).unwrap().unwrap();
+    let delta = deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
+        .unwrap()
+        .unwrap();
+    assert!(
+        deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(cursor.position() as usize, buf.len());
 
+    // SAFETY: the test owns the initialized spec; no concurrent access occurs.
     let mut write_guard = unsafe { IndexSpecWriteGuard::from_locked_mut(&mut spec) };
-    let stats = apply_existing_docs(delta, &mut *write_guard).unwrap();
+    let stats = apply_existing_docs(delta, &mut write_guard).unwrap();
 
     assert!(write_guard.existing_docs_mut().is_none());
     assert!(stats.bytes_collected > 0);
+}
+
+/// Reports every doc id the fixtures use as present, whatever the spec's
+/// document table says, as a snapshot taken before those docs were deleted.
+fn all_live<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
+    const WORDS: usize = 1 << 14;
+    DocExistence::with_bitmap(
+        guard,
+        vec![u64::MAX; WORDS].into_boxed_slice(),
+        (WORDS * 64 - 1) as u64,
+    )
+}
+
+/// The scanner must answer existence from `docs`: the fixture's document table
+/// is empty, so a scanner that looked docs up itself would collect them all.
+#[test]
+fn docs_live_in_the_snapshot_are_kept() {
+    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+    for id in 1..=2 {
+        ii.add_record(&RSIndexResult::build_virt().doc_id(id).build())
+            .unwrap();
+    }
+    let ii_ptr = Box::into_raw(Box::new(OpaqueInvertedIndex::DocIdsOnly(ii)));
+    let spec = make_spec(ii_ptr.cast());
+    // SAFETY: spec and ii_ptr are valid and live for the duration of the test.
+    let guard = unsafe { IndexSpecReadGuard::from_locked(&spec) };
+
+    let mut buf = Vec::new();
+    collect_existing_docs(&mut buf, &guard, &all_live(&guard)).unwrap();
+
+    let mut cursor = Cursor::new(&buf);
+    assert!(
+        deserialize::<Option<GcScanDelta>>(&mut cursor, "test message")
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(cursor.position() as usize, buf.len());
+
+    // SAFETY: ii_ptr was created via Box::into_raw above.
+    unsafe { drop(Box::from_raw(ii_ptr)) };
 }

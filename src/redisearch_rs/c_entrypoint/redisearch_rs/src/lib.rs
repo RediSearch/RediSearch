@@ -21,6 +21,7 @@
 static REDIS_MODULE_ALLOCATOR: over_aligned_alloc::OverAligned<redis_module::alloc::RedisAlloc> =
     over_aligned_alloc::OverAligned(redis_module::alloc::RedisAlloc);
 
+pub use doc_key_map_ffi as doc_key_map;
 pub use fnv_ffi as fnv;
 pub use fork_gc_ffi as fork_gc;
 pub use geo_ffi as geo;
