@@ -31,7 +31,7 @@ use crate::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
-use super::{InvIndIterator, core::RawInvIndIterator, core::ResumeStatus};
+use super::{InvIndIterator, core::RawInvIndIterator, core::ResumeStatus, max_visible_doc_id};
 
 /// An iterator over documents that are missing a specific field, parameterised
 /// over a [`Ref`] mode. See [`Missing`] for the [`Active`] instantiation that
@@ -213,6 +213,13 @@ where
         }
     }
 
+    /// Ends the index at `max_doc_id`. See [`InvIndIterator::set_max_doc_id`].
+    #[must_use]
+    pub const fn with_max_doc_id(mut self, max_doc_id: DocId) -> Self {
+        self.it.set_max_doc_id(max_doc_id);
+        self
+    }
+
     /// Get a reference to the underlying reader.
     pub const fn reader(&self) -> &IndexReaderCore<'index, E> {
         &self.it.reader
@@ -334,6 +341,8 @@ pub unsafe fn new_missing_iterator<'index>(
         field: FieldMaskOrIndex::Index(field_index),
         predicate: FieldExpirationPredicate::Missing,
     };
+    // SAFETY: caller guarantees sctx validity (1).
+    let max_doc_id = max_visible_doc_id(unsafe { sctx.as_ref() });
 
     match ii {
         inverted_index::opaque::InvertedIndex::DocIdsOnly(ii) => {
@@ -342,7 +351,10 @@ pub unsafe fn new_missing_iterator<'index>(
             let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
             // SAFETY: caller guarantees sctx, spec, field_index, and
             // missing.indexes validity (1-3).
-            Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
+            Box::new(
+                unsafe { Missing::new(reader, sctx, field_index, checker) }
+                    .with_max_doc_id(max_doc_id),
+            )
         }
         inverted_index::opaque::InvertedIndex::RawDocIdsOnly(ii) => {
             let reader = ii.reader();
@@ -350,7 +362,10 @@ pub unsafe fn new_missing_iterator<'index>(
             let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
             // SAFETY: caller guarantees sctx, spec, field_index, and
             // missing.indexes validity (1-3).
-            Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
+            Box::new(
+                unsafe { Missing::new(reader, sctx, field_index, checker) }
+                    .with_max_doc_id(max_doc_id),
+            )
         }
         _ => panic!(
             "Missing iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
