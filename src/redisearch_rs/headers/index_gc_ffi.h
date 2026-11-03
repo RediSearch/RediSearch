@@ -36,6 +36,24 @@ typedef enum ForkGCError {
   FORK_GC_SPEC_DELETED = 4,
 } ForkGCError;
 
+/**
+ * How an in-process GC cycle ended.
+ */
+typedef enum ThreadGCResult {
+  /**
+   * The cycle ran to the end.
+   */
+  THREAD_GC_DONE = 0,
+  /**
+   * The index was dropped during the cycle.
+   */
+  THREAD_GC_SPEC_DELETED = 1,
+  /**
+   * Any other failure.
+   */
+  THREAD_GC_FAILED = 2,
+} ThreadGCResult;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -165,9 +183,7 @@ void ForkGC_sendTerminator(IndexGC *fgc);
  * Run every GC scanner over `gc`'s index on the calling thread, under the
  * spec's read/write lock, a bounded number of keys per hold.
  *
- * Returns [`ForkGCError::Done`] when the cycle completed,
- * [`ForkGCError::SpecDeleted`] when the index was dropped during it, and
- * [`ForkGCError::ParentError`] for any other failure. Stats of the chunks applied
+ * Returns how the cycle ended; see [`ThreadGCResult`]. Stats of the chunks applied
  * before an early end are kept.
  *
  * # Safety
@@ -177,7 +193,7 @@ void ForkGC_sendTerminator(IndexGC *fgc);
  *    counter and read its stats meanwhile, so this call borrows no part of it.
  * 2. The calling thread must not hold any spec lock.
  */
-enum ForkGCError ThreadGC_runScanners(IndexGC *gc);
+enum ThreadGCResult ThreadGC_runScanners(IndexGC *gc);
 
 /**
  * Receive a field header (field name + unique id).
