@@ -154,6 +154,12 @@ static bool oomStopKeepsBufferedRows(const QueryRequestLimits *timeout, RSOomPol
        }
        RP_EndRowSourceOnStop(rp->parent);
      }
+     // Rows handed over after an OOM stop read nothing upstream, so no per-row check there sees
+     // a clock deadline: this one ends the drain on it.
+     if (areq && oomStopKeepsBufferedRows(areq) && QueryRequestLimits_IsTimedOut(&areq->base.limits)) {
+       *rc = RS_RESULT_TIMEDOUT;
+       break;
+     }
    }
 
    if (*rc != RS_RESULT_OK) {
