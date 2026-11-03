@@ -690,7 +690,7 @@ bool RPNet_MemoryStops(RPNet *nc) {
   }
   if (MRIterator_IsMemoryStopped(nc->it)) {
     QueryRequestLimits_RequestMemoryStop(timeout);
-  } else if (!QueryMemory_ShouldStopNow(timeout)) {
+  } else if (!QueryMemory_CheckpointNow(timeout)) {
     return false;
   }
   // Every stop requester wakes the channel, whoever pops it.
