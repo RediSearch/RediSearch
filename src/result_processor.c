@@ -298,7 +298,7 @@ static void RP_HoldStop(const ResultProcessor *rp) {
  * RS_RESULT_TIMEDOUT and keeps the rows buffering stages upstream already held.
  */
 static bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
-  if (!rp->parent->limits || !QueryMemory_ShouldStop(rp->parent->limits, counter)) {
+  if (!rp->parent->limits || !QueryMemory_Checkpoint(rp->parent->limits, counter)) {
     return false;
   }
   RP_EndRowSourceOnStop(rp->parent);
@@ -783,7 +783,7 @@ typedef struct {
   // Whether a timeout warning needs to be propagated down the downstream
   bool timedOut;
 
-  // QueryMemory_ShouldStop counter for the heap's growth.
+  // QueryMemory_Checkpoint counter for the heap's growth.
   uint32_t memoryCheckCalls;
 } RPSorter;
 
@@ -1846,7 +1846,7 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
    bool timedOut;
-   // QueryMemory_ShouldStop counter for the pool's growth.
+   // QueryMemory_Checkpoint counter for the pool's growth.
    uint32_t memoryCheckCalls;
  } RPMaxScoreNormalizer;
 
