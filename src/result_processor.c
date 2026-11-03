@@ -3469,7 +3469,14 @@ static void RPDepleter_Deplete(RPDepleter *self) {
   rs_wall_clock_init(&start);
 
   // Deplete all results from upstream
+  bool ownStop = false;
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
+    // A row read after this stage's own stop was cut: an upstream stage that holds rows (a safe
+    // loader) keeps replaying them, and only a read that finds EOF means nothing was lost.
+    if (ownStop) {
+      rc = RS_RESULT_TIMEDOUT;
+      break;
+    }
     // Buffered SearchResults outlive the source iterator's `it->current`
     // slot; preserve or drop the borrowed RSIndexResult before buffering.
     SearchResult_BufferIndexResult(&self->base, r);
@@ -3477,10 +3484,12 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
     self->depleted_results++;
+    const bool heldUpstream = RP_UpstreamHold(&self->base);
     if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls)) {
       rc = RS_RESULT_TIMEDOUT;
       break;
     }
+    ownStop = !heldUpstream && RP_UpstreamHold(&self->base);
   }
   if (rc == RS_RESULT_TIMEDOUT) {
     RP_HoldStop(&self->base);
@@ -3490,8 +3499,10 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     // total the WITHCOUNT barrier supplied. A memory stop is sticky, so rows upstream of it are
     // never read later: with no rows held the total is rebased to zero.
     ResultProcessor *root = self->base.parent->rootProc;
-    if (RP_UpstreamHold(&self->base) && root && root->type == RP_NETWORK &&
-        ((RPNet *)root)->withCount) {
+    // A blocked-client timeout owns the reply and keeps the exact total, as in RP_StopPolicy.
+    if (RP_UpstreamHold(&self->base) &&
+        !QueryRequestLimits_IsBlockedClientTimedOut(self->base.parent->limits) && root &&
+        root->type == RP_NETWORK && ((RPNet *)root)->withCount) {
       self->base.parent->totalResults = self->depleted_results;
     }
   }
