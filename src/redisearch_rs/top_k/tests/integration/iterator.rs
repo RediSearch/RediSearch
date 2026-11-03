@@ -531,6 +531,21 @@ fn batches_no_child_keeps_top_k() {
 }
 
 #[test]
+fn batches_no_child_keeps_top_k_across_many_chunks() {
+    let docs = 200;
+    let score = |id: DocId| ((id * 37) % 211) as f64;
+    let batch: Vec<(DocId, f64)> = (1..=docs).map(|id| (id, score(id))).collect();
+    let k = 70;
+    let mut expected: Vec<DocId> = (1..=docs).collect();
+    expected.sort_by(|&a, &b| score(a).total_cmp(&score(b)));
+    expected.truncate(k);
+
+    let mut it = batches_no_child(vec![batch], k);
+    let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();
+    assert_eq!(doc_ids, expected);
+}
+
+#[test]
 fn batches_no_child_fewer_than_k_yields_all() {
     let mut it = batches_no_child(vec![vec![(1, 3.0), (2, 1.0)]], 5);
     let doc_ids: Vec<_> = std::iter::from_fn(|| it.read().unwrap().map(|r| r.doc_id)).collect();

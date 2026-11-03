@@ -10,6 +10,7 @@
 //! [`VecSimScoreBatch`] — a [`ScoreBatch`] over a single VecSim query reply.
 
 use rqe_core::DocId;
+use rqe_iterators::RQEIteratorError;
 use top_k::ScoreBatch;
 use vecsim::ReplyResults;
 
@@ -28,12 +29,16 @@ impl VecSimScoreBatch {
     }
 }
 
-impl ScoreBatch for VecSimScoreBatch {
-    fn next(&mut self) -> Option<(DocId, f64)> {
-        self.results.next()
+impl<S: ?Sized> ScoreBatch<S> for VecSimScoreBatch {
+    fn next(&mut self, _source: &mut S) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
+        Ok(self.results.next())
     }
 
-    fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)> {
-        self.results.skip_to(target)
+    fn skip_to(
+        &mut self,
+        _source: &mut S,
+        target: DocId,
+    ) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
+        Ok(self.results.skip_to(target))
     }
 }
