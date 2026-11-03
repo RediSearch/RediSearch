@@ -297,6 +297,54 @@ class DiskSlotTrimTest : public ::testing::Test {
   }
 };
 
+TEST_F(DiskSlotTrimTest, IndexDropRetiresOutstandingDeletesAfterPartialCollection) {
+  const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  GCContext_OnDelete(&gc);
+  GCContext_OnUpdate(&gc);
+  GCContext_OnDelete(&gc);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 2u);
+  EXPECT_EQ(collector()->updatesFromLastRun.load(), 1u);
+  api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
+    stats->num_cleaned_docs = 1;
+    return DISK_GC_RUN_OK;
+  };
+  GCForcedRun forced = GCForcedRun_New(1000, 10);
+  ASSERT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 0u);
+  EXPECT_EQ(collector()->updatesFromLastRun.load(), 0u);
+  EXPECT_EQ(collector()->logicallyDeleted.load(), 2u);
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 2);
+  dropIndexBeforeCollectorTermination();
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
+}
+
+TEST_F(DiskSlotTrimTest, RestoredDeletionsAreChargedBeforeGcAndRemovedOnIndexDrop) {
+  const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  gc.callbacks.onTerm(gc.gcCtx);
+  api.docTable.getDeletedIdsCount = [](RedisSearchDiskIndexSpec *) { return uint64_t{4}; };
+  gc.gcCtx = DiskGC_Create(ref, &gc.callbacks);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 4u);
+  EXPECT_EQ(collector()->logicallyDeleted.load(), 4u);
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 4);
+  dropIndexBeforeCollectorTermination();
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted);
+}
+
+TEST_F(DiskSlotTrimTest, UnchargedStorageIdsDoNotConsumeOtherIndexesGlobalContribution) {
+  const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  IndexsGlobalStats_IncreaseLogicallyDeleted(4);
+  api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
+    stats->num_cleaned_docs = 3;
+    return DISK_GC_RUN_OK;
+  };
+  GCForcedRun forced = GCForcedRun_New(1000, 10);
+  EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 4);
+  dropIndexBeforeCollectorTermination();
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 4);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(4);
+}
+
 TEST_F(DiskSlotTrimTest, RegistrationInstallsCutoffFilterWithoutScanning) {
   const SearchDiskSlotRange range{7, 9};
   state.maxDocId = 17;
