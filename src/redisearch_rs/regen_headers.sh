@@ -88,6 +88,7 @@ exec env -u CARGO_BUILD_TARGET RUSTFLAGS="${rustflags}" \
     --exclude=c_ffi_utils \
     --package=document \
     --package=field \
+    --package=geo \
     --package=index_result \
     --package=query_term \
     --package=inverted_index \
