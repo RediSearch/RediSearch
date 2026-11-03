@@ -116,6 +116,42 @@ bool DocTable_Exists(const DocTable *t, t_docId docId) {
   return false;
 }
 
+// Bounds the bitmap's allocation (64 MiB covers 512M docIds).
+#define LIVE_BITMAP_MAX_BYTES (64 << 20)
+
+size_t DocTable_LiveBitmapWords(const DocTable *t) {
+  const size_t words = t->maxDocId / 64 + 1;
+  if (words * sizeof(uint64_t) > LIVE_BITMAP_MAX_BYTES) {
+    return 0;
+  }
+  return words;
+}
+
+// Whether `md`, reached by walking the buckets, is a doc DocTable_Exists reports.
+static inline bool isLiveDmd(const DocTable *t, const RSDocumentMetadata *md) {
+  return md->id && md->id <= t->maxDocId && !(md->flags & Document_Deleted);
+}
+
+void DocTable_FillLiveBitmap(const DocTable *t, uint64_t *live, size_t words) {
+  for (size_t i = 0; i < t->cap; ++i) {
+    for (const RSDocumentMetadata *md = t->buckets[i].root; md != NULL; md = md->nextInChain) {
+      if (isLiveDmd(t, md) && md->id / 64 < words) {
+        live[md->id / 64] |= 1ULL << (md->id % 64);
+      }
+    }
+  }
+}
+
+void DocTable_ForEachLiveId(const DocTable *t, DocTable_LiveIdCallback cb, void *ctx) {
+  for (size_t i = 0; i < t->cap; ++i) {
+    for (const RSDocumentMetadata *md = t->buckets[i].root; md != NULL; md = md->nextInChain) {
+      if (isLiveDmd(t, md)) {
+        cb(ctx, md->id);
+      }
+    }
+  }
+}
+
 DocKeyMapActivation DocTable_StartKeyMap(DocTable *t) {
   if (t->keyMapState != DocKeyMap_Inactive) return DocKeyMapActivation_Unchanged;
   t->keyMap = DocKeyMap_New();
