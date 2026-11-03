@@ -204,6 +204,16 @@ TEST_F(HybridApplyOomStopTest, fatalSubqueryErrorIsKeptUnderOnOomFail) {
   EXPECT_EQ(QueryError_GetCode(HybridRequest_GetFatalError(hreq)), QUERY_ERROR_CODE_GENERIC);
 }
 
+// The same holds when the tail's own checkpoint stops.
+TEST_F(HybridApplyOomStopTest, fatalSubqueryErrorIsKeptByATailOomStopUnderOnOomFail) {
+  hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
+  QueryError *subErr = &hreq->requests[1]->base.reply.err;
+  QueryError_SetCode(subErr, QUERY_ERROR_CODE_GENERIC);
+  QueryRequestLimits_RequestMemoryStop(&hreq->base.limits);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(HybridRequest_GetFatalError(hreq), subErr);
+}
+
 TEST_F(HybridApplyOomStopTest, subqueryTimeoutIsNotAnOomStop) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
   timeOutSubquery(0);
