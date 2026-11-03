@@ -102,7 +102,7 @@ pub(crate) struct BlockGcScanResult {
 }
 
 /// Information about the result of applying a garbage collection scan to the index
-// `export` is required: `src/fork_gc/{terms,tags}.c` declare this by value, so the
+// `export` is required: `src/gc/*.c` declare this by value, so the
 // C header needs the complete type. Nothing else reaches it by value any more.
 #[cheadergen::config(export, rename = "II_GCScanStats")]
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
