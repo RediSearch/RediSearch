@@ -3175,7 +3175,10 @@ typedef struct {
 
 static int RPMemoryCheckpoint_Next(ResultProcessor *base, SearchResult *r) {
   RPMemoryCheckpoint *self = (RPMemoryCheckpoint *)base;
-  if (QueryMemory_Checkpoint(self->sctx->limits, &self->counter)) {
+  // A blocked-client timeout's callback drains the pipeline for its partial rows, which a stage
+  // above the buffering ones must not cut short.
+  if (QueryMemory_Checkpoint(self->sctx->limits, &self->counter) &&
+      !QueryRequestLimits_IsBlockedClientTimedOut(self->sctx->limits)) {
     return RS_RESULT_TIMEDOUT;
   }
   return base->upstream->Next(base->upstream, r);
@@ -3467,6 +3470,13 @@ void RPDepleter_StartDepletion(ResultProcessor *base) {
 rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *base) {
   const RPDepleter *self = (const RPDepleter *)base;
   return self->depletionTime;
+}
+
+bool RPDepleter_EndedOnTimeout(const ResultProcessor *depleter) {
+  RS_ASSERT(depleter->type == RP_DEPLETER || depleter->type == RP_SAFE_DEPLETER);
+  const RPStatus rc = depleter->type == RP_DEPLETER ? ((const RPDepleter *)depleter)->last_rc
+                                                   : ((const RPSafeDepleter *)depleter)->last_rc;
+  return rc == RS_RESULT_TIMEDOUT;
 }
 
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
