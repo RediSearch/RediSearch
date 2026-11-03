@@ -26,9 +26,6 @@ machine expr;
 
 inf = ['+\-']? 'inf' $ 3;
 number = ([+\-]? digit+ ('.' digit+)? | '.' digit+) (('E'|'e') [+\-]? digit+)? $ 2;
-# Older versions dropped a '.' that starts a token, so `.5.5` meant 5.5. FT.CREATE FILTER
-# expressions are re-parsed on RDB load, so this shape must keep parsing as it did.
-dropped_dot_number = '.' digit+ '.' digit+ (('E'|'e') [+\-]? digit+)? $ 2;
 
 lp = '(';
 rp = ')';
@@ -70,18 +67,6 @@ main := |*
       fbreak;
     }
 
-  };
-
-  dropped_dot_number => {
-    tok.s = ts + 1;
-    tok.len = te - tok.s;
-    char *ne = (char*)te;
-    tok.numval = fast_float_strtod(tok.s, &ne);
-    tok.pos = tok.s - ctx.raw;
-    RSExprParser_Parse(pParser, NUMBER, tok, &ctx);
-    if (!ctx.ok) {
-      fbreak;
-    }
   };
 
   property => {
