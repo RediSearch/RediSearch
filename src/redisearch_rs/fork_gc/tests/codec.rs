@@ -9,7 +9,6 @@
 
 use std::io::{self, Cursor, Read, Write};
 
-use fork_gc::Frame;
 use fork_gc::util::{deserialize, serialize};
 
 extern crate redisearch_rs;
@@ -34,6 +33,35 @@ impl<T: Read> Read for PartialIo<T> {
     }
 }
 
+/// The top bit of a chunk's length header, set on a message's last chunk.
+const LAST_CHUNK: usize = 1 << (usize::BITS - 1);
+
+/// Encode one chunk the way the codec does.
+fn chunk(payload: &[u8], last: bool) -> Vec<u8> {
+    let header = payload.len() | if last { LAST_CHUNK } else { 0 };
+    let mut bytes = header.to_ne_bytes().to_vec();
+    bytes.extend_from_slice(payload);
+    bytes
+}
+
+/// Split `wire` into its chunks as `(length, last)`, stopping after a last chunk.
+/// Returns the chunks and the bytes left after them.
+fn chunks(mut wire: &[u8]) -> (Vec<(usize, bool)>, &[u8]) {
+    let mut found = Vec::new();
+    while wire.len() >= size_of::<usize>() {
+        let (header, rest) = wire.split_at(size_of::<usize>());
+        let header = usize::from_ne_bytes(header.try_into().unwrap());
+        let len = header & !LAST_CHUNK;
+        let last = header & LAST_CHUNK != 0;
+        found.push((len, last));
+        wire = &rest[len.min(rest.len())..];
+        if last {
+            break;
+        }
+    }
+    (found, wire)
+}
+
 #[test]
 fn large_messages_use_bounded_chunks_and_preserve_the_next_message() {
     let payload = vec![42; 128 * 1024 + 7];
@@ -42,20 +70,16 @@ fn large_messages_use_bounded_chunks_and_preserve_the_next_message() {
     let boundary = bytes.0.len();
     serialize(&mut bytes, Some(17u32)).unwrap();
 
-    let mut wire = Cursor::new(&bytes.0[..boundary]);
-    let mut chunks = 0;
-    loop {
-        match Frame::decode(&mut wire).unwrap() {
-            Frame::Data(data) => {
-                assert!(data.len() <= 64 * 1024);
-                chunks += 1;
-            }
-            Frame::Terminator => break,
-            Frame::Empty => panic!("empty data chunk"),
-        }
-    }
-    assert!(chunks >= 3);
-    assert_eq!(wire.position() as usize, boundary);
+    let (found, rest) = chunks(&bytes.0[..boundary]);
+    assert!(found.len() >= 3);
+    assert!(found.iter().all(|&(len, _)| (1..=64 * 1024).contains(&len)));
+    assert_eq!(
+        found.iter().filter(|&&(_, last)| last).count(),
+        1,
+        "only the final chunk is flagged"
+    );
+    assert!(found.last().unwrap().1);
+    assert!(rest.is_empty(), "the flagged chunk ends the message");
 
     let mut reader = PartialIo(Cursor::new(&bytes.0));
     let decoded: serde_bytes::ByteBuf = deserialize(&mut reader, "payload").unwrap();
@@ -75,13 +99,20 @@ fn rejects_invalid_chunks_truncated_messages_and_trailing_data() {
     for cut in [0, 1, size_of::<usize>(), valid.len() - 1] {
         assert!(deserialize::<Option<u32>>(&mut &valid[..cut], "truncated").is_err());
     }
-    for size in [0, 64 * 1024 + 1, usize::MAX] {
+    for size in [
+        0,
+        64 * 1024 + 1,
+        LAST_CHUNK,
+        LAST_CHUNK | (64 * 1024 + 1),
+        usize::MAX,
+    ] {
         assert!(deserialize::<u32>(&mut size.to_ne_bytes().as_slice(), "invalid").is_err());
     }
-    let mut trailing = Vec::new();
-    Frame::data(&[17, 18]).encode(&mut trailing).unwrap();
-    Frame::<&[u8]>::Terminator.encode(&mut trailing).unwrap();
+    let trailing = chunk(&[17, 18], true);
     assert!(deserialize::<u32>(&mut trailing.as_slice(), "trailing").is_err());
+    // A message whose chunks never include a flagged one runs into the stream's end.
+    let unfinished = chunk(&[17], false);
+    assert!(deserialize::<u32>(&mut unfinished.as_slice(), "unfinished").is_err());
 }
 
 #[derive(Default)]
@@ -127,11 +158,9 @@ impl serde::Serialize for FailingMessage {
     }
 }
 
+/// A failed message must never look finished: no chunk it sent is flagged last.
 fn assert_no_terminator(bytes: &[u8]) {
-    let mut reader = bytes;
-    while let Ok(frame) = Frame::decode(&mut reader) {
-        assert!(!matches!(frame, Frame::Terminator));
-    }
+    assert!(chunks(bytes).0.iter().all(|&(_, last)| !last));
 }
 
 #[test]
@@ -149,15 +178,40 @@ fn failures_do_not_flush_pending_bytes_or_finish_the_message() {
         assert_no_terminator(&writer.bytes);
     }
 
-    for fail_write in [Some(1), Some(2), Some(3), None] {
+    for fail_write in [Some(1), Some(2), Some(3)] {
         let mut writer = FailingWriter {
             fail_write,
-            fail_flush: fail_write.is_none(),
             ..FailingWriter::default()
         };
         let payload = vec![42; 128 * 1024];
         assert!(serialize(&mut writer, serde_bytes::Bytes::new(&payload)).is_err());
         assert!(writer.failed);
         assert_no_terminator(&writer.bytes);
+    }
+
+    // The flush comes after the whole message is written, so its failure leaves no
+    // partial message behind, but it is still reported.
+    let mut writer = FailingWriter {
+        fail_flush: true,
+        ..FailingWriter::default()
+    };
+    assert!(serialize(&mut writer, 17u8).is_err());
+    assert!(writer.failed);
+}
+
+/// Each chunk costs one write, so a message that fits one chunk goes out as a
+/// single write.
+#[test]
+fn each_chunk_costs_one_write() {
+    for size in [1, 64 * 1024 - 16, 128 * 1024 + 7] {
+        let mut writer = FailingWriter::default();
+        serialize(&mut writer, serde_bytes::Bytes::new(&vec![42; size])).unwrap();
+
+        let (found, rest) = chunks(&writer.bytes);
+        assert!(rest.is_empty());
+        assert_eq!(writer.writes, found.len(), "a {size}-byte message");
+        if size < 64 * 1024 - 8 {
+            assert_eq!(writer.writes, 1, "a {size}-byte message");
+        }
     }
 }
