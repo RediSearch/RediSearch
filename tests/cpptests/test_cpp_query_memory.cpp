@@ -213,9 +213,9 @@ TEST_F(QueryMemoryTest, ForcedRatioReplacesTheMemoryRead) {
   RedisModule_GetUsedMemoryRatioEstimate = nullptr;
   uint32_t counter = 0;
   QueryMemory_SetForcedRatio(0.5f);
-  EXPECT_FALSE(QueryMemory_ShouldStop(&timeout_, &counter));
+  EXPECT_FALSE(QueryMemory_Checkpoint(&timeout_, &counter));
   QueryMemory_SetForcedRatio(1.0f);
-  EXPECT_TRUE(QueryMemory_ShouldStop(&timeout_, &counter));
+  EXPECT_TRUE(QueryMemory_Checkpoint(&timeout_, &counter));
   EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 
@@ -225,7 +225,7 @@ TEST_F(QueryMemoryTest, NegativeForcedRatioRestoresTheRealRead) {
   QueryMemory_SetForcedRatio(3.0f);
   QueryMemory_SetForcedRatio(-1);
   EXPECT_LT(QueryMemory_GetForcedRatio(), 0);
-  EXPECT_FALSE(QueryMemory_ShouldStop(&timeout_, &counter));
+  EXPECT_FALSE(QueryMemory_Checkpoint(&timeout_, &counter));
   EXPECT_EQ(fakeRatioReads.load(), 1u);
 }
 
@@ -236,42 +236,42 @@ TEST_F(QueryMemoryTest, PressureAtCallStopsOnlyTheNthCall) {
   uint32_t counter = 0, otherCounter = 0;
 
   QueryMemory_SetPressureAtCall(3);
-  EXPECT_FALSE(QueryMemory_ShouldStop(&timeout_, &counter));
-  EXPECT_FALSE(QueryMemory_ShouldStop(&other, &otherCounter));
+  EXPECT_FALSE(QueryMemory_Checkpoint(&timeout_, &counter));
+  EXPECT_FALSE(QueryMemory_Checkpoint(&other, &otherCounter));
   // The third call reports pressure without waiting for the read interval or reading memory.
-  EXPECT_TRUE(QueryMemory_ShouldStop(&timeout_, &counter));
+  EXPECT_TRUE(QueryMemory_Checkpoint(&timeout_, &counter));
   EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
   EXPECT_EQ(fakeRatioReads.load(), 0u);
 
   // Calls that return on the requested stop are not counted.
-  EXPECT_TRUE(QueryMemory_ShouldStop(&timeout_, &counter));
+  EXPECT_TRUE(QueryMemory_Checkpoint(&timeout_, &counter));
   EXPECT_EQ(QueryMemory_GetCheckpointCalls(), 3u);
 
-  EXPECT_FALSE(QueryMemory_ShouldStop(&other, &otherCounter));
+  EXPECT_FALSE(QueryMemory_Checkpoint(&other, &otherCounter));
   EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&other));
 
   // Re-arming restarts the count.
   QueryMemory_SetPressureAtCall(1);
   EXPECT_EQ(QueryMemory_GetCheckpointCalls(), 0u);
-  EXPECT_TRUE(QueryMemory_ShouldStop(&other, &otherCounter));
+  EXPECT_TRUE(QueryMemory_Checkpoint(&other, &otherCounter));
 }
 
 TEST_F(QueryMemoryTest, PressureAtCallHonorsOnOomIgnore) {
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
   uint32_t counter = 0;
   QueryMemory_SetPressureAtCall(1);
-  EXPECT_FALSE(QueryMemory_ShouldStop(&timeout_, &counter));
+  EXPECT_FALSE(QueryMemory_Checkpoint(&timeout_, &counter));
   EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 
 TEST_F(QueryMemoryTest, ShouldStopNowForcedRatioRequestsAnOomStop) {
   timeout_.memory.counter = 5;
   QueryMemory_SetForcedRatio(0.5f);
-  EXPECT_FALSE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_FALSE(QueryMemory_CheckpointNow(&timeout_));
   EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 
   QueryMemory_SetForcedRatio(1.0f);
-  EXPECT_TRUE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_TRUE(QueryMemory_CheckpointNow(&timeout_));
   EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
   // The forced ratio replaces the memory read entirely.
   EXPECT_EQ(fakeRatioReads.load(), 0u);
@@ -282,7 +282,7 @@ TEST_F(QueryMemoryTest, ShouldStopNowForcedRatioHonorsOnOomIgnore) {
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
   QueryMemory_SetForcedRatio(5.0f);
   for (int i = 0; i < 10; ++i) {
-    EXPECT_FALSE(QueryMemory_ShouldStopNow(&timeout_));
+    EXPECT_FALSE(QueryMemory_CheckpointNow(&timeout_));
   }
   EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
@@ -290,25 +290,25 @@ TEST_F(QueryMemoryTest, ShouldStopNowForcedRatioHonorsOnOomIgnore) {
 TEST_F(QueryMemoryTest, ShouldStopNowPressureAtCallStopsOnlyTheNthCall) {
   timeout_.memory.counter = 5;
   QueryMemory_SetPressureAtCall(3);
-  EXPECT_FALSE(QueryMemory_ShouldStopNow(&timeout_));
-  EXPECT_FALSE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_FALSE(QueryMemory_CheckpointNow(&timeout_));
+  EXPECT_FALSE(QueryMemory_CheckpointNow(&timeout_));
   EXPECT_EQ(QueryMemory_GetCheckpointCalls(), 2u);
   EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 
-  EXPECT_TRUE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_TRUE(QueryMemory_CheckpointNow(&timeout_));
   EXPECT_EQ(QueryMemory_GetCheckpointCalls(), 3u);
   EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
   EXPECT_EQ(timeout_.memory.counter, 5u);
 
   // Calls that return on the requested stop are not counted.
-  EXPECT_TRUE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_TRUE(QueryMemory_CheckpointNow(&timeout_));
   EXPECT_EQ(QueryMemory_GetCheckpointCalls(), 3u);
 }
 
 TEST_F(QueryMemoryTest, ShouldStopNowPressureAtCallHonorsOnOomIgnore) {
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
   QueryMemory_SetPressureAtCall(1);
-  EXPECT_FALSE(QueryMemory_ShouldStopNow(&timeout_));
+  EXPECT_FALSE(QueryMemory_CheckpointNow(&timeout_));
   EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 

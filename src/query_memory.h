@@ -42,7 +42,7 @@ extern "C" {
  * RedisModule_GetUsedMemoryRatioEstimate; the fake pressure below overrides
  * the last two. Callable with or without the GIL, but calls for one request
  * must be serialized like QueryRequestLimits_IsTimedOut, since they share
- * memory.counter; use QueryMemory_ShouldStopNow where sites may run
+ * memory.counter; use QueryMemory_CheckpointNow where sites may run
  * concurrently. The ON_OOM policy is the global one, read without
  * synchronization. A NULL `limits` (no owning request) still reports pressure
  * but records no memory stop.
@@ -79,7 +79,7 @@ void QueryMemory_SetForcedRatio(float ratio);
 float QueryMemory_GetForcedRatio(void);
 
 /**
- * Makes the `n`-th QueryMemory_ShouldStop call from now (1-based, counted
+ * Makes the `n`-th QueryMemory_Checkpoint call from now (1-based, counted
  * across all checkpoints and queries, skipping calls that return on an
  * already requested stop, a memory stop or a fired blocked-client timeout)
  * report memory pressure, regardless of the ratio and the read interval.
