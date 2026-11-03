@@ -2866,8 +2866,10 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   dictEntry *entry = dictNext(self->iterator);
   if (!entry) {
     // No more results to yield
-    int ret = RPHybridMerger_ReportsTimeout(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
-    return ret;
+    // The amortized clock check may not have run since the stop: read the exact deadline once.
+    const bool tailTimedOut =
+        self->memoryStopped && QueryRequestLimits_IsTimedOutExact(self->sctx->limits);
+    return RPHybridMerger_ReportsTimeout(self) || tailTimedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
   } else if ((QueryRequestLimits_IsMemoryStopped(self->sctx->limits) &&
               !RPHybridMerger_KeepsRowsPastStop(self)) ||
              QueryRequestLimits_IsTimedOut(self->sctx->limits)) {
