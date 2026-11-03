@@ -28,11 +28,11 @@
 #include "query.h"
 #include "query_eval_ffi.h"
 #include "extension.h"
-#include "fork_gc.h"
+#include "gc/index_gc.h"
 #include "iterators/iterator_api.h"
 #include "config.h"
 #include "doc_table.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "obfuscation/hidden.h"
 
 #include <float.h>
