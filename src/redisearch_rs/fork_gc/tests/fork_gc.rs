@@ -111,6 +111,26 @@ fn read_ahead_is_uninstalled_when_the_closure_unwinds() {
     assert!(raw.readBuffer.is_null());
 }
 
+/// A nested scope reads through the outer one's buffer and leaves it installed,
+/// so the outer scope still frees it once.
+#[test]
+fn a_nested_read_ahead_reuses_the_outer_buffer() {
+    let (mut raw, _pipe_reader, _pipe_writer) = make_fork_gc();
+    // SAFETY: raw is a valid ffi::ForkGC for the duration of the test.
+    let fgc = unsafe { ForkGC::from_ptr_mut(&mut raw) };
+    serialize(&mut fgc.writer(), 1u32).unwrap();
+    serialize(&mut fgc.writer(), 2u32).unwrap();
+
+    fgc.with_read_ahead(|fgc| {
+        assert_eq!(deserialize::<u32>(&mut fgc.reader(), "outer").unwrap(), 1);
+        fgc.with_read_ahead(|fgc| {
+            assert_eq!(deserialize::<u32>(&mut fgc.reader(), "inner").unwrap(), 2);
+        });
+    });
+
+    assert!(raw.readBuffer.is_null());
+}
+
 /// A message larger than the read-ahead buffer still decodes, as do the small
 /// ones around it, while the writer is still filling the pipe.
 #[test]

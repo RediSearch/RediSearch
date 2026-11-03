@@ -128,8 +128,11 @@ impl ForkGC {
     /// one poll and read can fetch many small messages instead of each message
     /// costing a poll and read per frame. Bytes still buffered when `f` returns
     /// are dropped with the buffer, so `f` must consume the whole stream it reads.
+    /// A nested call reads through the buffer already installed.
     pub fn with_read_ahead<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-        debug_assert!(self.0.readBuffer.is_null(), "read-ahead is not reentrant");
+        if !self.0.readBuffer.is_null() {
+            return f(self);
+        }
         let buffer = Box::new(ReadAhead {
             data: vec![0; READ_AHEAD_SIZE].into_boxed_slice(),
             start: 0,
