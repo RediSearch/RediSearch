@@ -101,7 +101,10 @@ def testSynonymUpdateWorngArity(env):
         env.cmd('ft.synupdate', 'idx', 'id1')
 
 def testSynonymUpdateUnknownIndex(env):
-    env.expect('ft.synupdate', 'idx', '0', 'child').error().contains('no such index')
+    # The enterprise build has no coordinator check in front of FT.SYNUPDATE,
+    # so the shard's own reply reaches the client.
+    expected = 'Unknown index name' if RS_TEST_ENTERPRISE else 'no such index'
+    env.expect('ft.synupdate', 'idx', '0', 'child').error().contains(expected)
 
 def testSynonymDumpWorngArity(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()

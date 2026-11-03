@@ -1,9 +1,14 @@
 from RLTest import Env
 from includes import *
 from common import *
+# Must match MAX_WORKER_THREADS in src/config.h (enterprise builds override it to 8192)
+MAX_WORKER_THREADS = 8192 if RS_TEST_ENTERPRISE else 16
 
 not_modifiable = 'Not modifiable at runtime'
-default_module_list = [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
+# The OSS Redis 8 build registers a built-in 'vectorset' module that shows in
+# MODULE LIST; the enterprise RoR redis-server does not, so its baseline
+# MODULE LIST (no user modules loaded) is empty.
+default_module_list = [] if RS_TEST_ENTERPRISE else [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
 
 def _test_config_str(arg_name, arg_value, ret_value=None):
     if ret_value == None:
@@ -214,7 +219,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
-    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '5' if RS_TEST_ENTERPRISE else '0')
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
     env.assertEqual(res_dict['ON_OOM'][0], 'return')
     env.assertEqual(res_dict['_MIN_TRIM_DELAY_MS'][0], '2000')
@@ -324,9 +329,9 @@ def testTrimDelayValidation(env):
     env.expect(config_cmd(), 'get', '_MIN_TRIM_DELAY_MS').equal([['_MIN_TRIM_DELAY_MS', '3000']])
     env.expect(config_cmd(), 'get', '_MAX_TRIM_DELAY_MS').equal([['_MAX_TRIM_DELAY_MS', '6000']])
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def testImmutable(env):
-
+    # Enterprise: config_cmd() SET without value gives 'wrong number of args' not 'not modifiable'
     env.expect(config_cmd(), 'set', 'EXTLOAD').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'NOGC').error().contains(not_modifiable)
     env.expect(config_cmd(), 'set', 'MAXDOCTABLESIZE').error().contains(not_modifiable)
@@ -557,7 +562,7 @@ numericConfigs = [
     ('search-max-doctablesize', 'MAXDOCTABLESIZE', 1_000_000, 1, 100_000_000, True, False),
     ('search-max-prefix-expansions', 'MAXPREFIXEXPANSIONS', 200, 1, LLONG_MAX, False, False),
     ('search-max-search-results', 'MAXSEARCHRESULTS', DEFAULT_MAX_SEARCH_REQUEST_RESULTS, 0, MAX_SEARCH_REQUEST_RESULTS, False, False),
-    ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 0, 16, False, False),
+    ('search-min-operation-workers', 'MIN_OPERATION_WORKERS', 4, 0, MAX_WORKER_THREADS, False, False),
     ('search-min-phonetic-term-len', 'MIN_PHONETIC_TERM_LEN', 3, 1, LLONG_MAX, False, False),
     ('search-min-prefix', 'MINPREFIX', 2, 1, LLONG_MAX, False, False),
     ('search-min-stem-len', 'MINSTEMLEN', 4, 2, UINT32_MAX, False, False),
@@ -568,11 +573,11 @@ numericConfigs = [
     ('search-timeout', 'TIMEOUT', 500, 0, LLONG_MAX, False, False),
     ('search-union-iterator-heap', 'UNION_ITERATOR_HEAP', 20, 1, LLONG_MAX, False, False),
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
-    ('search-workers', 'WORKERS', 0, 0, 16, False, False),
+    ('search-workers', 'WORKERS', 0, 0, MAX_WORKER_THREADS, False, False),
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
     ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 100, 0, 100, False, False),
     ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),
-    ('search-_bg-index-oom-pause-time','_BG_INDEX_OOM_PAUSE_TIME', 0, 0, UINT32_MAX, False, False),
+    ('search-_bg-index-oom-pause-time','_BG_INDEX_OOM_PAUSE_TIME', (5 if RS_TEST_ENTERPRISE else 0), 0, UINT32_MAX, False, False),
     ('search-indexer-yield-every-ops', 'INDEXER_YIELD_EVERY_OPS', 1000, 1, UINT32_MAX, False, False),
     ('search-bg-index-sleep-duration-us', 'BG_INDEX_SLEEP_DURATION_US', 1, 1, 999999, False, False),
     ('search-_trimming-state-check-delay-ms', '_TRIMMING_STATE_CHECK_DELAY_MS', 100, 1, UINT32_MAX, False, False),
@@ -1449,7 +1454,9 @@ def _registerModuleLoadexStringParamTests():
         testName = f'testModuleLoadexStringParams_{argName}'
 
         def _makeTest(configName, argName, testValueRel, testName):
-            @skip(cluster=True, redis_less_than='7.9.227')
+            # Enterprise rejects extension loading via MODULE LOADEX outright,
+            # so search-ext-load's LOADEX scenarios don't apply there.
+            @skip(cluster=True, redis_less_than='7.9.227', enterprise=True if configName == 'search-ext-load' else None)
             def _test():
                 _testModuleLoadexStringParam(configName, argName, testValueRel)
             _test.__name__ = testName
@@ -1461,7 +1468,7 @@ def _registerModuleLoadexStringParamTests():
 
 _registerModuleLoadexStringParamTests()
 
-@skip(redis_less_than='7.9.227')
+@skip(redis_less_than='7.9.227', enterprise=True)
 def testConfigFileStringParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileStringParams.conf'
@@ -1497,7 +1504,7 @@ def testConfigFileStringParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, testValue]])
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='7.9.227', enterprise=True)
 def testConfigFileAndArgsStringParams():
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsStringParams.conf'
@@ -1546,7 +1553,7 @@ def testConfigFileAndArgsStringParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, testValue]])
 
-@skip(cluster=True, redis_less_than='7.9.227')
+@skip(cluster=True, redis_less_than='7.9.227', enterprise=True)
 def testStringArgDeprecationMessage():
     '''Test deprecation message of module string arguments'''
 
@@ -2084,8 +2091,21 @@ def testConfigIndependence_default():
         # Test max value. Skip for search-conn-per-shard because it may open too many connections
         checkConfigChange(env, configName, argName, maxValue, defaultConfigDict)
 
-        # Reset to default value
-        env.expect('CONFIG', 'SET', configName, default).ok()
+        # Reset to the captured baseline value. The numericConfigs `default`
+        # column encodes the OSS module's default, which can differ from the
+        # actual runtime default (e.g. enterprise defaults WORKERS to 0 while
+        # OSS defaults it to cpu_count). Resetting to the value captured at
+        # startup keeps this independence check self-consistent across builds;
+        # in OSS the captured value equals `default`, so behavior is unchanged.
+        resetValue = defaultConfigDict[argName][0]
+        if resetValue == 'unlimited':
+            # FT.CONFIG reports the result caps' "unlimited" default as the
+            # literal string; the raw CONFIG twin needs the numeric max, which
+            # GET then reports back as 'unlimited'.
+            resetValue = (MAX_AGGREGATE_REQUEST_RESULTS
+                          if argName == 'MAXAGGREGATERESULTS'
+                          else MAX_SEARCH_REQUEST_RESULTS)
+        env.expect('CONFIG', 'SET', configName, resetValue).ok()
         currentConfigDict = getConfigDict(env)
         env.assertEqual(currentConfigDict, defaultConfigDict)
 
