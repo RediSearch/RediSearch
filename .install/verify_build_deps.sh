@@ -72,6 +72,7 @@ declare -A os_package_checkers=(
   ["amzn2023"]="check_package_dnf"
   ["alpine"]="check_package_apk"
   ["azurelinux"]="check_package_tdnf"
+  ["arch"]="check_package_pacman"
 )
 
 # Early bailout if the OS is not supported
@@ -109,6 +110,11 @@ check_package_apk() {
 # azure linux
 check_package_tdnf() {
   tdnf list installed "$1" &> /dev/null
+}
+
+# arch linux
+check_package_pacman() {
+  pacman -Q "$1" &> /dev/null
 }
 
 # ============================================
@@ -218,6 +224,10 @@ declare -A alpine_dependencies=(
   ["bsd-compat-headers"]="package"
 )
 
+declare -A arch_dependencies=(
+  ["openssl"]="package"
+)
+
 declare -A microsoft_dependencies=(
   ["openssl-devel"]="package"
   ["binutils"]="package"
@@ -257,6 +267,10 @@ elif [[ "$OS" == "alpine" ]]; then
 elif [[ "$OS" == "azurelinux" ]]; then
   for key in "${!microsoft_dependencies[@]}"; do
     dependencies["$key"]="${microsoft_dependencies[$key]}"
+  done
+elif [[ "$OS" == "arch" ]]; then
+  for key in "${!arch_dependencies[@]}"; do
+    dependencies["$key"]="${arch_dependencies[$key]}"
   done
 else
   echo -e "${YELLOW}Warning: OS '$OS' does not have special dependencies.${NC}"

@@ -15,7 +15,7 @@
 use std::{ffi::c_void, ptr::NonNull};
 
 use ffi::{
-    QueryIterator, QueryRequestTimeout, VecSimIndex, VecSimQueryParams, VecSimQueryReply_Order,
+    QueryIterator, QueryRequestLimits, VecSimIndex, VecSimQueryParams, VecSimQueryReply_Order,
 };
 use index_result::RSIndexResult;
 use rqe_iterators::deferred::{ProducedResults, Producer};
@@ -58,7 +58,7 @@ pub unsafe extern "C" fn NewLazyVectorRangeIteratorFromParams(
     mut query_params: VecSimQueryParams,
     order: VecSimQueryReply_Order,
     yields_metric: bool,
-    timeout: *mut QueryRequestTimeout,
+    timeout: *mut QueryRequestLimits,
 ) -> *mut QueryIterator {
     debug_assert!(!timeout.is_null(), "timeout must be non-null");
     let order = ReplyOrder::from_raw(order).expect("a range query is ordered BY_SCORE or BY_ID");

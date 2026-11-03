@@ -544,6 +544,129 @@ macro_rules! union_common_tests {
             assert_eq!(result.doc_id, 20);
         }
 
+        /// Revalidating the children invalidates the entries the aggregate
+        /// borrowed from them, so a revalidation that keeps the document must
+        /// leave entries that can still be read. Miri checks the reads.
+        #[test]
+        fn revalidate_ok_leaves_the_aggregate_readable() {
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            for (quick, expected_entries) in [(false, 2), (true, 1)] {
+                let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
+                    Box::new(Mock::<'static, 2>::new([10, 20])),
+                    Box::new(Mock::<'static, 2>::new([10, 30])),
+                ];
+                let mut union: Box<dyn RQEIterator<'static>> = if quick {
+                    Box::new($UnionQuick::new(children))
+                } else {
+                    Box::new($UnionFull::new(children))
+                };
+                assert_eq!(union.read().expect("read").expect("doc 10").doc_id, 10);
+
+                let status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+                assert!(matches!(status, RQEValidateStatus::Ok), "got {status:?}");
+
+                let current = union.current().expect("not at EOF");
+                assert_eq!(current.doc_id, 10);
+                let aggregate = current.as_aggregate().expect("an aggregate");
+                assert_eq!(aggregate.len(), expected_entries, "quick: {quick}");
+                for i in 0..expected_entries {
+                    assert_eq!(aggregate.get(i).expect("an entry").doc_id, 10);
+                }
+            }
+        }
+
+        /// The children gave their metrics up when the aggregate was first
+        /// built, so rebuilding its entries must keep the metrics, frequency and
+        /// field mask the aggregate already gathered.
+        #[test]
+        fn revalidate_ok_keeps_the_aggregate_metrics() {
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let children: Vec<Box<dyn RQEIterator<'static> + 'static>> = vec![
+                Box::new(Mock::<'static, 2>::new([10, 20])),
+                Box::new(Mock::<'static, 2>::new([10, 30])),
+            ];
+            let mut union = Union::new(children);
+            let current = union.read().expect("read").expect("doc 10");
+            current.metrics.push_without_key(0.5);
+            let (freq, field_mask) = (current.freq, current.field_mask);
+
+            let status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+            assert!(matches!(status, RQEValidateStatus::Ok), "got {status:?}");
+
+            let current = union.current().expect("not at EOF");
+            assert_eq!(current.metrics.len(), 1);
+            assert_eq!(current.metrics.get(0).expect("a metric").value, 0.5);
+            assert_eq!(current.freq, freq);
+            assert_eq!(current.field_mask, field_mask);
+        }
+
+        /// A result swapped in through `current()` that the union cannot rebuild
+        /// in place aborts the revalidation, whether or not a child moved: both
+        /// the rebuild and the settle rebuild the aggregate in place.
+        #[test]
+        fn revalidate_aborts_when_the_result_is_no_longer_a_union() {
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            let borrowed_src = index_result::RSIndexResult::build_union(1).build();
+            for child_moves in [false, true] {
+                let owned_union = borrowed_src.to_owned();
+                for substitute in [
+                    index_result::RSIndexResult::build_numeric(1.0).build(),
+                    index_result::RSIndexResult::build_hybrid_metric().build(),
+                    owned_union,
+                ] {
+                    let child0: Mock<'_, 3> = Mock::new([10, 20, 30]);
+                    let child1: Mock<'_, 3> = Mock::new([10, 25, 35]);
+                    if child_moves {
+                        child0
+                            .data()
+                            .set_revalidate_result(MockRevalidateResult::Move);
+                    }
+                    let mut union = $UnionFull::new(vec![child0, child1]);
+                    let current = union.read().expect("read").expect("doc 10");
+                    let kind = substitute.kind();
+                    *current = substitute;
+
+                    let status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+                    assert!(
+                        matches!(status, RQEValidateStatus::Aborted),
+                        "a {kind:?} result must abort (child moves: {child_moves}), got {status:?}",
+                    );
+                }
+            }
+        }
+
+        /// A child error part-way through a skip can leave the union with an
+        /// empty aggregate while its children are positioned. Revalidating
+        /// that state must not abort: under `ON_TIMEOUT RETURN` the cursor
+        /// would lose every remaining result.
+        #[test]
+        fn revalidate_after_an_interrupted_skip_does_not_abort() {
+            let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+            for quick in [false, true] {
+                let child0: Mock<'static, 2> = Mock::new([10, 30]);
+                let child1: Mock<'static, 2> = Mock::new([10, 40]);
+                let mut child0_data = child0.data();
+                let children: Vec<Box<dyn RQEIterator<'static> + 'static>> =
+                    vec![Box::new(child0), Box::new(child1)];
+                let mut union: Box<dyn RQEIterator<'static>> = if quick {
+                    Box::new($UnionQuick::new(children))
+                } else {
+                    Box::new($UnionFull::new(children))
+                };
+                assert_eq!(union.read().expect("read").expect("doc 10").doc_id, 10);
+
+                child0_data.set_error_on_skip_to(Some(MockIteratorError::TimeoutError(None)));
+                assert!(union.skip_to(20).is_err(), "the child's error must surface");
+                child0_data.set_error_on_skip_to(None);
+
+                let status = union.revalidate(&*mock_ctx.spec_read()).expect("revalidate failed");
+                assert!(
+                    !matches!(status, RQEValidateStatus::Aborted),
+                    "quick: {quick}, got {status:?}",
+                );
+            }
+        }
+
         #[test]
         fn revalidate_moved() {
             let child0: Mock<'static, 5> = Mock::new([10, 20, 30, 40, 50]);
