@@ -108,7 +108,11 @@ pub trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
 /// That is why this trait carries `'query` instead of a `'static` bound: a
 /// suspended iterator holds no live *index* references, but may still borrow
 /// query-pipeline data for `'query`.
-pub trait RQESuspendedIterator<'query> {
+///
+/// It is also [`ProfilePrint`](crate::profile_print::ProfilePrint): `FT.PROFILE`
+/// prints the iterator tree after the query has suspended it, and must not
+/// resume it to do so.
+pub trait RQESuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     /// The active counterpart this iterator resumes into, parameterised by
     /// the lifetime of the freshly re-acquired read guard.
     ///
@@ -189,7 +193,7 @@ pub trait RQEDynIterator<'index>: RQEIterator<'index> + 'index {
 /// As with [`RQEDynIterator`], implementers don't write this directly — the
 /// blanket bridge below produces it from any
 /// `T: RQESuspendedIterator`.
-pub trait RQEDynSuspendedIterator<'query> {
+pub trait RQEDynSuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     /// Type-erased counterpart of [`RQESuspendedIterator::resume`].
     fn resume<'index>(
         self: Box<Self>,
@@ -811,5 +815,16 @@ impl<'query> RQESuspendedIterator<'query> for TypeErasedRQESuspendedIterator<'qu
     #[inline(always)]
     fn num_estimated(&self) -> usize {
         self.0.num_estimated()
+    }
+}
+
+/// Prints as the erased iterator, so type erasure does not hide it from `FT.PROFILE`.
+impl crate::profile_print::ProfilePrint for TypeErasedRQESuspendedIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.0.print_profile(map, ctx);
     }
 }

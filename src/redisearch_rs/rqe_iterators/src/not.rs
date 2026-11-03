@@ -138,7 +138,9 @@ where
     fn reset_timeout(&mut self) {
         self.timeout_ctx.reset_counter();
     }
+}
 
+impl<'query, Rf: Ref, I, TC> RawNot<'query, Rf, I, TC> {
     /// Get a shared reference to the _child_ iterator
     /// wrapped by this [`Not`] iterator.
     pub const fn child(&self) -> Option<&I> {
@@ -535,9 +537,9 @@ where
     }
 }
 
-impl<'index, I, TC> ProfilePrint for Not<'index, I, TC>
+impl<'query, Rf: Ref, I, TC> ProfilePrint for RawNot<'query, Rf, I, TC>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
     TC: TimeoutContext,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
