@@ -527,3 +527,69 @@ def testForkGCEmptyTagSuffixTrie_emptyValue_MOD_15996():
     forceInvokeGC(env, 'idx')
     env.expect('PING').equal(True)
 
+
+
+def indexWithCollectableDocs(env):
+    """An index with 50 deleted docs to collect and 50 live keys. The live half is what lets a
+    delayed bgsave keep holding the fork slot, and GC_STOP_SCHEDULE leaves a forced cycle as
+    the only one that can take it."""
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+    for i in range(100):
+        env.expect('HSET', f'doc{i}', 't', 'hello').equal(1)
+    for i in range(50):
+        env.expect('DEL', f'doc{i}').equal(1)
+    waitForRdbSaveToFinish(env)
+
+
+def holdForkSlot(env, key_delay_us):
+    """Take Redis's single child slot with a bgsave slowed to key_delay_us per key saved."""
+    env.expect('CONFIG', 'SET', 'rdb-key-save-delay', str(key_delay_us)).ok()
+    env.cmd('BGSAVE')
+    env.assertEqual(int(env.cmd('INFO', 'Persistence')['rdb_bgsave_in_progress']), 1)
+
+
+def releaseForkSlot(env):
+    env.expect('CONFIG', 'SET', 'rdb-key-save-delay', '0').ok()
+    waitForRdbSaveToFinish(env)
+
+
+def resumeGCSchedule(env):
+    """Undo indexWithCollectableDocs' GC_STOP_SCHEDULE: only a scheduled cycle frees the GC
+    once its index is gone, so a stopped one leaks at shutdown."""
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+
+
+@skip(cluster=True)
+def testForcedGCWaitsForForkSlot():
+    """A forced GC replying DONE has to mean it collected. The slot is taken before the forced
+    cycle is queued, and the save holds it for ~2s -- far longer than an idle GC worker needs to
+    reach its fork -- so the first attempt hits EEXIST. Before the retry the cycle skipped and
+    still replied DONE, failing the bytes_collected assertion with `0 > 0`."""
+    env = Env()
+    indexWithCollectableDocs(env)
+    try:
+        holdForkSlot(env, 40000)
+        env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
+    finally:
+        releaseForkSlot(env)
+        resumeGCSchedule(env)
+
+    env.assertGreater(int(to_dict(index_info(env)['gc_stats'])['bytes_collected']), 0)
+
+
+@skip(cluster=True)
+def testForcedGCReportsWhenItCannotFork():
+    """A forced GC that never gets the slot has to say so. Replying DONE would be the original
+    bug at a longer timescale: a collection reported but never made."""
+    env = Env()
+    indexWithCollectableDocs(env)
+    try:
+        # The budget is this TIMEOUT less a margin, and expires while the ~4s save below is still
+        # holding the slot.
+        holdForkSlot(env, 80000)
+        env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 2000).error().contains('GC DID NOT RUN')
+    finally:
+        releaseForkSlot(env)
+        resumeGCSchedule(env)
