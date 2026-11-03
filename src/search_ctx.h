@@ -47,6 +47,10 @@ typedef struct RedisSearchCtx {
   // it, so they agree on which documents the query can see. Owned by the query setup that
   // opened it; iterators borrow it.
   RedisSearchDiskQueryView *diskQueryView;
+  // When non-zero, documents with a larger id are hidden from this query. Set for an in-memory
+  // subquery that reads the index under a later lock than the one its iterators were built under,
+  // so that documents added in between stay out of its view. 0 means no bound.
+  t_docId maxVisibleDocId;
 } RedisSearchCtx;
 
 #define SEARCH_CTX_SORTABLES(ctx) ((ctx && ctx->spec) ? ctx->spec->sortables : NULL)
@@ -67,7 +71,8 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
                           .spec = sp,
                           .currentTime = { 0, 0 },
                           .limits = NULL,
-                          .diskQueryView = NULL,};
+                          .diskQueryView = NULL,
+                          .maxVisibleDocId = 0,};
   return sctx;
 }
 
