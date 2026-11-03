@@ -956,7 +956,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // advances the read interval. The first runs before the array opens so a stop there replies
     // the error in place of the term's groups, as in TagIndex_SerializeValues; later ones run
     // between ID writes, so reply growth within the term is seen, and the error closes the array.
-    if (QueryMemory_ShouldStop(NULL, &memoryCheckCounter)) {
+    if (QueryMemory_Checkpoint(NULL, &memoryCheckCounter)) {
       RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
       break;
     }
@@ -964,7 +964,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     size_t written = 0;
     bool stop = false;
     for (size_t j = 0; j < array_len(t_data->groupIds); ++j) {
-      if (j > 0 && QueryMemory_ShouldStop(NULL, &memoryCheckCounter)) {
+      if (j > 0 && QueryMemory_Checkpoint(NULL, &memoryCheckCounter)) {
         RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
         ++written;
         stop = true;
