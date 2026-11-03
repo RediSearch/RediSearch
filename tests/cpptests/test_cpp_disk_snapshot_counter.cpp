@@ -218,15 +218,18 @@ TEST_F(HybridReleaseUpstreamTest, IndexWithoutDiskBackingIsLeftAlone) {
 class HybridStartCursorsTest : public HybridSnapshotTest {
  protected:
   static int upstreamRc;
+  static int secondSubqueryRc;                // the second subquery's result; kSameRc follows upstreamRc
+  static constexpr int kSameRc = -1;
   static QueryRequestLimits* timeoutToTrip;  // marked timed out from inside the upstream read
   FakeRP upstream[2][2]{};                    // per subquery: [0] root, [1] middle
   QueryError status = QueryError_Default();
 
-  static int fakeNext(ResultProcessor*, SearchResult*) {
+  static int fakeNext(ResultProcessor* rp, SearchResult*) {
     if (timeoutToTrip) {
       QueryRequestLimits_MarkTimedOut(timeoutToTrip);
     }
-    return upstreamRc;
+    const bool second = reinterpret_cast<FakeRP*>(rp)->id >= 10;
+    return second && secondSubqueryRc != kSameRc ? secondSubqueryRc : upstreamRc;
   }
 
   void SetUp() override {
@@ -234,6 +237,7 @@ class HybridStartCursorsTest : public HybridSnapshotTest {
     freedIds.clear();
     liveSnapshotsWhenFreed.clear();
     upstreamRc = RS_RESULT_EOF;
+    secondSubqueryRc = kSameRc;
     timeoutToTrip = nullptr;
     TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = TimeoutPolicy_Fail};
     QueryRequestLimits_Init(&hybrid.base.limits, &timeoutConfig);
@@ -273,6 +277,7 @@ class HybridStartCursorsTest : public HybridSnapshotTest {
   }
 };
 int HybridStartCursorsTest::upstreamRc = RS_RESULT_EOF;
+int HybridStartCursorsTest::secondSubqueryRc = HybridStartCursorsTest::kSameRc;
 QueryRequestLimits* HybridStartCursorsTest::timeoutToTrip = nullptr;
 
 TEST_F(HybridStartCursorsTest, SuccessfulDepletionReleasesUpstreamAndSnapshotBeforePublishing) {
@@ -323,6 +328,21 @@ TEST_F(HybridStartCursorsTest, OomStopAloneIgnoresTheTimeoutPolicy) {
   QueryRequestLimits_RequestMemoryStop(&first.base.limits);
   hybrid.base.reqConfig.oomPolicy = OomPolicy_Return;
   upstreamRc = RS_RESULT_TIMEDOUT;
+  secondSubqueryRc = RS_RESULT_EOF;
+  EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
+}
+
+// The sibling's deadline has elapsed by the time depletion is classified, but it finished before
+// it: its recorded result, not the clock, says whether it timed out.
+TEST_F(HybridStartCursorsTest, SiblingFinishedJustBeforeItsDeadlineIsNotATimeout) {
+  TimeoutConfig timeoutConfig = {.queryTimeoutMS = 0, .timeoutPolicy = TimeoutPolicy_Fail};
+  QueryRequestLimits_Init(&first.base.limits, &timeoutConfig);
+  QueryRequestLimits_Init(&second.base.limits, &timeoutConfig);
+  QueryRequestLimits_RequestMemoryStop(&first.base.limits);
+  *QueryRequestLimits_GetClockDeadlineForUpdate(&second.base.limits) = {0, 0};
+  hybrid.base.reqConfig.oomPolicy = OomPolicy_Return;
+  upstreamRc = RS_RESULT_TIMEDOUT;
+  secondSubqueryRc = RS_RESULT_EOF;
   EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
 }
 
