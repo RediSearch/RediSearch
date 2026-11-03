@@ -13,6 +13,7 @@
 #include "slot_cleanup.h"
 #include "slot_ranges.h"
 #include <functional>
+#include <future>
 #include <mutex>
 #include <condition_variable>
 #include <chrono>
@@ -87,6 +88,45 @@ class DiskSlotTrimTest : public ::testing::Test {
     gc.gcCtx = nullptr;
   }
 };
+
+TEST_F(DiskSlotTrimTest, AccountingWaitsForWriteLockedDeletionNotification) {
+  static std::function<void()> afterStorageDelete;
+  static std::promise<void> *backendReached;
+  std::promise<void> backend, finished;
+  auto backendFuture = backend.get_future();
+  auto finishedFuture = finished.get_future();
+  std::thread gcWorker;
+  backendReached = &backend;
+  const auto before = IndexesGlobalStats_GetLogicallyDeletedDocs();
+  spec->stats.scoring.numDocuments = 1;
+  spec->stats.scoring.totalDocsLen = 1;
+  api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
+    stats->num_cleaned_docs = 1;
+    backendReached->set_value();
+  };
+  afterStorageDelete = [&] {
+    EXPECT_TRUE(IndexSpec_IsLocked(spec));
+    gcWorker = std::thread([&] {
+      GCForcedRun forced = GCForcedRun_New(1000, 10);
+      EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+      finished.set_value();
+    });
+    EXPECT_EQ(backendFuture.wait_for(std::chrono::seconds(3)), std::future_status::ready);
+    EXPECT_EQ(finishedFuture.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+  };
+  api.index.deleteDocumentById = [](RedisSearchDiskIndexSpec *, t_docId, uint32_t *length) {
+    afterStorageDelete();
+    *length = 1;
+    return true;
+  };
+  IndexSpec_DeleteDocById(spec, 1);
+  gcWorker.join();
+  afterStorageDelete = {};
+  backendReached = nullptr;
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 0u);
+  EXPECT_EQ(collector()->logicallyDeleted.load(), 0u);
+  EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), before);
+}
 
 TEST_F(DiskSlotTrimTest, IndexDropRetiresOutstandingDeletesAfterPartialCollection) {
   const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
