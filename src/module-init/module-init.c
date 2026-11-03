@@ -34,7 +34,7 @@
 #include "VecSim/vec_sim_common.h"
 #include "iterators/vector_top_k.h"
 #include "aggregate/functions/function.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "hiredis/sds.h"
 #include "redisearch.h"
 #include "rmalloc.h"
