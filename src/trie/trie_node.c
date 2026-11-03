@@ -941,6 +941,20 @@ typedef struct {
   void *ctx;
 } visitAfterCtx;
 
+// The first child of a lex-sorted `n` whose first rune is not below `key`.
+static t_len lexLowerBound(const TrieNode *n, rune key) {
+  t_len lo = 0, hi = n->numChildren;
+  while (lo < hi) {
+    t_len mid = lo + (hi - lo) / 2;
+    if (__trieNode_LoadChildKey(n, mid) < key) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
+}
+
 // `bounded` means the path to `n` equals the first `depth` runes of `after`, so `n`'s subtree may
 // still hold keys that do not sort after it.
 static int visitAfter(const TrieNode *n, size_t depth, bool bounded, visitAfterCtx *v) {
@@ -978,7 +992,10 @@ static int visitAfter(const TrieNode *n, size_t depth, bool bounded, visitAfterC
     }
   }
 
-  for (t_len i = 0; i < n->numChildren; ++i) {
+  // While bounded, children whose first rune is below `after`'s next one sort before it whole; a
+  // resumed walk skips them by search rather than entering each.
+  t_len i = bounded ? lexLowerBound(n, v->after[len]) : 0;
+  for (; i < n->numChildren; ++i) {
     if (visitAfter(TrieNode_Children(n)[i], len, bounded, v)) {
       return 1;
     }
