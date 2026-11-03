@@ -35,6 +35,19 @@ static bool threadPolicyEnabled(void) {
   return RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread;
 }
 
+static void takeDeferredDeletes(IndexGC *gc, IndexSpec *sp) {
+  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(sp);
+  if (deferred) {
+    gc->deletedOrUpdatedDocsFromLastRun += deferred;
+    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
+  }
+}
+
+size_t IndexGC_TakeDeletionCount(IndexGC *gc, struct IndexSpec *sp) {
+  takeDeferredDeletes(gc, sp);
+  return atomic_exchange(&gc->deletedOrUpdatedDocsFromLastRun, 0);
+}
+
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook) {
   // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
   // early termination might never change after index deletion and will cause periodicCb to always return true,
@@ -54,11 +67,7 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
 
   // Taken before the fork: a deletion deferred after this point is counted next cycle, never reset
   // away uncounted.
-  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(StrongRef_Get(early_check));
-  if (deferred) {
-    gc->deletedOrUpdatedDocsFromLastRun += deferred;
-    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
-  }
+  takeDeferredDeletes(gc, StrongRef_Get(early_check));
 
   if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(early_check);

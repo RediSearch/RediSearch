@@ -62,9 +62,10 @@ void SlotCleanup_ApplyDeletes(IndexSpec *spec, arrayof(t_docId) docIds) {
   for (size_t i = 0; i < array_len(docIds); ++i) {
     deleted += IndexSpec_DeleteDocById_Unsafe(spec, docIds[i]);
   }
+  // Before unlocking: a thread GC cycle takes the count under the lock it copies the deleted IDs in.
+  IndexSpec_DeferGCDeletes(spec, deleted);
   IndexSpec_DecrActiveWrites(spec);
   IndexSpec_Unlock(spec);
-  IndexSpec_DeferGCDeletes(spec, deleted);
 }
 
 // Runs one chunk; returns whether the cleanup is complete.

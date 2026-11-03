@@ -81,6 +81,11 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);
 // Tests call this directly with hooks to inject mutations at specific lifecycle points.
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook);
 
+// Take the deletions counted since the last cycle, those the spec deferred included, and reset the
+// count. Called under a spec lock, every deletion made under the write lock before it is counted.
+struct IndexSpec;
+size_t IndexGC_TakeDeletionCount(IndexGC *gc, struct IndexSpec *sp);
+
 #ifdef __cplusplus
 }
 #endif
