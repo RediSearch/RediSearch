@@ -27,6 +27,8 @@
 #include <set>
 #include <algorithm>
 #include <climits>
+#include <chrono>
+#include <thread>
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
@@ -1707,4 +1709,68 @@ TEST_F(HybridMergerTest, MemoryStopDrainAbortsOnBlockedClientTimeout) {
   QueryRequestLimits_Reset(sctx->limits);
   QueryMemory_ResetFakePressure();
   RSGlobalConfig.requestConfigParams.oomPolicy = previousPolicy;
+}
+
+// An upstream memory-stopped under ON_OOM RETURN whose own deadline also elapsed ended on a
+// timeout, which outranks the stop: under ON_TIMEOUT FAIL the merger fails instead of yielding
+// the rows the upstream held. A stop alone keeps them.
+static void runStoppedUpstream(uint32_t timeoutMs, bool expectTimeout) {
+  QueryRequestLimits subLimits = {};
+  TimeoutConfig config = {};
+  config.timeoutPolicy = TimeoutPolicy_Fail;
+  config.queryTimeoutMS = timeoutMs;
+  QueryRequestLimits_Init(&subLimits, &config);
+  QueryRequestLimits_BeginCycle(&subLimits, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  QueryRequestLimits_RequestMemoryStop(&subLimits);
+  std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+  QueryProcessingCtx subCtx = {0};
+  subCtx.limits = &subLimits;
+  subCtx.timeoutPolicy = TimeoutPolicy_Fail;
+  subCtx.oomPolicy = OomPolicy_Return;
+
+  MockUpstream stopped(2, {1.0, 1.0}, {1, 2});  // two rows, then TIMEDOUT
+  MockUpstream other(0, {2.0, 2.0}, {11, 12});
+  stopped.parent = &subCtx;
+  arrayof(ResultProcessor *) upstreams = NULL;
+  ResultProcessor *rpStopped = &stopped;
+  ResultProcessor *rpOther = &other;
+  array_ensure_append_1(upstreams, rpStopped);
+  array_ensure_append_1(upstreams, rpOther);
+  double weights[] = {0.5, 0.5};
+  HybridScoringContext *scoring = HybridScoringContext_NewLinear(weights, 2, HYBRID_DEFAULT_WINDOW);
+  HybridLookupContext *lookup = CreateDummyLookupContext(2);
+  RPStatus returnCodes[2] = {RS_RESULT_OK, RS_RESULT_OK};
+  ResultProcessor *merger = RPHybridMerger_New(GetDummySearchCtx(), scoring, upstreams, 2, nullptr,
+                                               nullptr, returnCodes, lookup, nullptr);
+  QueryProcessingCtx qitr = {0};
+  qitr.timeoutPolicy = TimeoutPolicy_Fail;
+  QITR_PushRP(&qitr, merger);
+
+  size_t rows = 0;
+  SearchResult r = SearchResult_New();
+  int rc;
+  while ((rc = merger->Next(merger, &r)) == RS_RESULT_OK) {
+    rows++;
+    SearchResult_Clear(&r);
+  }
+  EXPECT_EQ(RS_RESULT_TIMEDOUT, returnCodes[0]);
+  if (expectTimeout) {
+    EXPECT_EQ(RS_RESULT_TIMEDOUT, rc);
+    EXPECT_EQ(0u, rows);
+  } else {
+    EXPECT_EQ(4u, rows);
+  }
+
+  SearchResult_Destroy(&r);
+  CleanupDummyLookupContext(lookup);
+  merger->Free(merger);
+}
+
+TEST_F(HybridMergerTest, ClockTimeoutBesideMemoryStopFailsUnderTimeoutFail) {
+  runStoppedUpstream(1, true);
+}
+
+TEST_F(HybridMergerTest, MemoryStopAloneKeepsTheUpstreamRowsUnderTimeoutFail) {
+  runStoppedUpstream(60000, false);
 }
