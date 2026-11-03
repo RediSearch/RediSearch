@@ -62,7 +62,7 @@ def test_default_scorer_behavior():
     agg_bm25std_in_query = env.cmd('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'BM25STD', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC')
     env.assertEqual(agg_default_bm25std, agg_bm25std_in_query)
 
-@skip(cluster=True)
+@skip(cluster=True, enterprise=True)
 def test_default_scorer_with_extension():
     """
     Test that the default scorer can be set to a custom scorer from an extension
@@ -132,7 +132,7 @@ def test_default_scorer_with_extension():
     env.assertEqual(float(agg_default_example[1][1]), 3.141)  # First document score
     env.assertEqual(float(agg_default_example[2][1]), 3.141)  # Second document score
 
-@skip(cluster=True, asan=True)
+@skip(cluster=True, asan=True, enterprise=True)
 def test_default_scorer_startup_validation():
     if 'EXT_TEST_PATH' in os.environ:
         ext_path = os.environ['EXT_TEST_PATH']
