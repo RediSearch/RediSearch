@@ -1393,14 +1393,14 @@ TEST_F(LLApiTest, testInfoSize) {
   EXPECT_EQ(RediSearch_MemUsage(index), 479 + additional_overhead);
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, NULL);
   EXPECT_EQ(RediSearch_MemUsage(index), 335 + additional_overhead);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
   EXPECT_EQ(RediSearch_MemUsage(index), 233 + additional_overhead);
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, NULL);
   // we always keep the numeric index root. Also, an inverted index has at least one block with initial capacity.
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
   additional_overhead += sizeof_InvertedIndex(Index_StoreNumeric) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
@@ -1453,14 +1453,14 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   EXPECT_EQ(RediSearch_MemUsage(index), 565 + additional_overhead);
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, NULL);
   EXPECT_EQ(RediSearch_MemUsage(index), 416 + additional_overhead);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
   EXPECT_EQ(RediSearch_MemUsage(index), 314 + additional_overhead);
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, NULL);
   // we always keep the numeric index root. Also, an inverted index has at least one block with initial capacity.
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
   additional_overhead += sizeof_InvertedIndex(Index_StoreNumeric) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
