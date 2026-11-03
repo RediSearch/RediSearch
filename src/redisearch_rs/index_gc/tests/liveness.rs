@@ -177,3 +177,25 @@ fn an_empty_table_has_every_id_up_to_its_max_gone() {
     assert!((&set).any_gone(1, 1));
     assert!(!(&set).any_gone(9, 100));
 }
+
+/// A sparse table kept as a set takes its long dead stretches as ranges, and still
+/// answers every ID the way the table does.
+#[test]
+#[cfg_attr(miri, ignore = "walks the doc table through C")]
+fn a_sparse_table_kept_as_a_set_matches_the_table() {
+    const LAST: DocId = 1 << 20;
+    let table = TestTable::new(10, [(3, false), (64, false), (65, true), (LAST, false)]);
+    let guard = table.guard();
+    let set = GoneIds::of_table_with_cap(&guard, 0);
+    assert!(matches!(set, GoneIds::Set(_)));
+    for id in [0, 2, 3, 4, 63, 64, 65, 66, 1000, LAST - 1, LAST, LAST + 1] {
+        assert_eq!(
+            (&set).exists(id),
+            guard.doc_exists(id) || id > LAST,
+            "doc id {id}"
+        );
+    }
+    assert!((&set).any_gone(66, LAST - 1));
+    assert!(!(&set).any_gone(LAST, LAST));
+    assert_eq!(set.into_set().len(), LAST + 1 - 3);
+}
