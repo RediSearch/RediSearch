@@ -23,6 +23,32 @@
 #include "util/misc.h"
 #include "util/timeout.h"
 
+static _Atomic(uint64_t) forcedTimeoutAtCycle = 0;
+static _Atomic(uint64_t) clockCycles = 0;
+
+void QueryRequestLimits_SetForcedTimeoutAtCycle(uint64_t n) {
+  atomic_store_explicit(&forcedTimeoutAtCycle, 0, memory_order_relaxed);
+  atomic_store_explicit(&clockCycles, 0, memory_order_relaxed);
+  atomic_store_explicit(&forcedTimeoutAtCycle, n, memory_order_relaxed);
+}
+
+uint64_t QueryRequestLimits_GetForcedTimeoutAtCycle(void) {
+  return atomic_load_explicit(&forcedTimeoutAtCycle, memory_order_relaxed);
+}
+
+uint64_t QueryRequestLimits_GetClockCycles(void) {
+  return atomic_load_explicit(&clockCycles, memory_order_relaxed);
+}
+
+// Counts the cycle only while the hook is armed, so production pays one relaxed load.
+static bool isForcedTimeoutCycle(void) {
+  const uint64_t at = atomic_load_explicit(&forcedTimeoutAtCycle, memory_order_relaxed);
+  if (!at) {
+    return false;
+  }
+  return atomic_fetch_add_explicit(&clockCycles, 1, memory_order_relaxed) + 1 == at;
+}
+
 void QueryRequestLimits_Init(QueryRequestLimits *limits, const TimeoutConfig *config) {
   RS_ASSERT(config);
   RS_ASSERT(config->queryTimeoutMS >= 0);
@@ -46,6 +72,14 @@ void QueryRequestLimits_BeginCycle(QueryRequestLimits *limits, QueryRequestTimeo
       // RETURN_STRICT depends on the blocked-client timeout callback. Clock-based
       // consumers must downgrade it to RETURN before starting their cycle.
       RS_ASSERT(limits->timeout.config.timeoutPolicy != TimeoutPolicy_ReturnStrict);
+      if (isForcedTimeoutCycle()) {
+        // The deadline is already behind the clock, even for a request without a timeout, and
+        // the first amortized check reads the clock so a short query still sees it.
+        clock_gettime(CLOCK_MONOTONIC_RAW, &limits->timeout.source.clock.deadline);
+        limits->timeout.source.clock.counter = QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT - 1;
+        limits->timeout.kind = QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
+        return;
+      }
       if (limits->timeout.config.queryTimeoutMS == 0) {
         limits->timeout.kind = QUERY_REQUEST_TIMEOUT_UNARMED;
         return;
