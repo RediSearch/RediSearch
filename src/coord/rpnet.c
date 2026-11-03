@@ -473,7 +473,9 @@ bool RPNet_DebugPrepareRespSchema(RPNet *nc, MRReply *chunk, uint16_t maxColumns
 #endif
 
 int getNextReply(RPNet *nc) {
-  if (nc->cmd.forCursor) {
+  // Settled replies are not in the channel, so its emptiness would end the cursor early.
+  const bool settledLeft = nc->settledHead < array_len(nc->settledReplies);
+  if (nc->cmd.forCursor && !settledLeft) {
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
       RPNet_resetCurrent(nc);
       return RS_RESULT_EOF;
