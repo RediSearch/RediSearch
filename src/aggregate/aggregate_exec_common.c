@@ -137,7 +137,10 @@ static bool oomStopKeepsBufferedRows(const AREQ *areq) {
      // from internal buffers without re-touching upstream's per-row timeout check.
      // An OOM stop under ON_OOM RETURN is the exception: those stages then hand
      // over the rows they already hold (see RP_StopPolicy), and read nothing new.
-     if (areq && QueryRequestLimits_ShouldStop(&areq->base.limits) && !oomStopKeepsBufferedRows(areq)) {
+     if (areq &&
+         (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
+          QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)) &&
+         !oomStopKeepsBufferedRows(areq)) {
        *rc = RS_RESULT_TIMEDOUT;
        break;
      }
