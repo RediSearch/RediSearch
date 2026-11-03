@@ -376,19 +376,15 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *depleter);
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 
 /**
-* Launches all the safe depleters in the array and resolves the lock handshake, without waiting
-* for depletion to finish: on RS_RESULT_OK, depletion is still in flight, and each depleter's Next
-* waits for its own completion, so consumers observe results in completion order. A lock failure
-* returns RS_RESULT_ERROR — only after draining the group, so no background thread outlives the
-* error return.
+* Launches all the safe depleters in the array, without waiting for depletion to finish: on
+* RS_RESULT_OK, depletion is still in flight, and each depleter's Next waits for its own
+* completion, so consumers observe results in completion order. The caller must not hold a spec
+* lock: each depleter's sub-pipeline takes its own read lock on its pool thread.
 * @param safeDepleters Array of safe depleter processors
-* @param lockedCtx The ctx holding the spec read lock; the depletion-start handshake releases the
-*                  lock through it. Passing a ctx that is not the lock holder silently no-ops the
-*                  unlock and leaves the spec read-locked.
 * @param status Query error object to populate in case of error
-* @return RS_RESULT_OK if all safe depleters launched and locked successfully, otherwise an error code
+* @return RS_RESULT_OK if all safe depleters launched successfully, otherwise an error code
 */
-int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status);
+int RPSafeDepleter_StartAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**
 * Blocks until every safe depleter's background job has finished (successfully or not); after it
@@ -403,16 +399,15 @@ void RPSafeDepleter_JoinAll(arrayof(ResultProcessor*) safeDepleters);
 * @return RS_RESULT_OK if all safe depleters completed successfully, otherwise an error code
 *         (errors take priority over timeouts)
 */
-int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, RedisSearchCtx *lockedCtx, QueryError *status);
+int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, QueryError *status);
 
 /**
 * Creates a new shared synchronization object for coordinating multiple RPSafeDepleter processors.
 * This is used during pipeline construction to create sync objects that allow multiple
 * safe depleters to coordinate their background threads and wake each other when depleting completes.
 * @param num_depleters Number of RPSafeDepleter processors that will share this sync object
-* @param take_index_lock Whether the safe depleters should participate in index locking coordination
 */
-StrongRef DepleterSync_New(unsigned int num_depleters, bool take_index_lock);
+StrongRef DepleterSync_New(unsigned int num_depleters);
 
 /*******************************************************************************************************************
  *  Hybrid Merger Result Processor

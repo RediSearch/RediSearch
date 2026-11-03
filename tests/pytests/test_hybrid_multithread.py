@@ -106,33 +106,35 @@ def test_hybrid_multithread():
     env.assertEqual(getWorkersThpoolStats(env)['numThreadsAlive'], 1)
 
 
-# Skipped on musl, which admits a reader past a queued writer, so the try-lock
-# never fails there.
-@skip(cluster=True, musl=True)
-def test_hybrid_depleter_lock_failure_replies_error():
-    """A depleter that loses the spec try-lock to a queued writer must reply
-    SEARCH_SAFE_DEPLETER_FAILURE.
+def hybrid_reply_keys(reply):
+    results = reply[reply.index('results') + 1]
+    return {row[row.index('__key') + 1] for row in results}
+
+
+@skip(cluster=True)
+def test_hybrid_writer_not_blocked_before_depletion():
+    """A writer must not wait for a background hybrid query that has built its
+    pipelines but has not started its depleters yet, and the documents it adds
+    stay out of that query.
     """
     env = Env(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2', enableDebugCommand=True)
     skipIfNoEnableAssert(env)
     setup_basic_index(env)
     query_vector = np.array([1.3, 0.0]).astype(np.float32).tobytes()
+    query = ('FT.HYBRID', 'idx', 'SEARCH', '@text:(hello)',
+             'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
+             'LIMIT', '0', '100')
+    # One late document per subquery, each a top match for it.
+    late_keys = {'late:text', 'late:vector'}
 
-    # Parks the query after it took its read lock but before the depleters are
-    # launched — the window in which a writer can queue behind it.
     sync_point = 'BeforeHybridDepletion'
     env.cmd(debug_cmd(), 'SYNC_POINT', 'ARM', sync_point)
 
     outcome = []
     def run_hybrid_query(conn, out):
         try:
-            # TIMEOUT 0 is load-bearing: it disables the sync point's other release
-            # arm, leaving the queued writer as the only way out. Without it the
-            # query can escape by timing out and the test passes vacuously.
-            out.append(('ok', conn.execute_command(
-                'FT.HYBRID', 'idx', 'SEARCH', '@text:(hello)',
-                'VSIM', '@vector', '$BLOB', 'PARAMS', '2', 'BLOB', query_vector,
-                'TIMEOUT', '0')))
+            # TIMEOUT 0 leaves the signal as the only release of the sync point.
+            out.append(('ok', conn.execute_command(*query, 'TIMEOUT', '0')))
         except Exception as e:
             out.append(('err', str(e)))
 
@@ -143,18 +145,28 @@ def test_hybrid_depleter_lock_failure_replies_error():
         lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point) == 1, {}),
         f'Timeout waiting for {sync_point} sync point')
 
-    # Indexing this parks on the spec write lock behind the query's read lock, which
-    # both releases the sync point and makes the depleters' try-lock fail. It returns
-    # once the query has finished and dropped its read lock.
-    env.cmd('HSET', 'text:99', 'text', 'hello queued writer', 'type', 'text')
+    def write_late_documents(conn):
+        conn.execute_command('HSET', 'late:text', 'text', 'hello hello hello', 'type', 'text')
+        conn.execute_command('HSET', 'late:vector', 'type', 'vector', 'vector', query_vector)
 
+    writer_thread = threading.Thread(target=write_late_documents,
+                                     args=(env.getConnection(),), daemon=True)
+    writer_thread.start()
+    writer_thread.join(timeout=10)
+    env.assertFalse(writer_thread.is_alive(), message='Writer waited for the parked query')
+    env.assertEqual(env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', sync_point), 1)
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', sync_point)
     query_thread.join(timeout=30)
     env.assertFalse(query_thread.is_alive(), message='Query thread never completed')
-    if not outcome:
-        return  # still parked; the assertion above is the diagnostic
+    writer_thread.join(timeout=30)
+    if not outcome or writer_thread.is_alive():
+        return  # still blocked; the assertions above are the diagnostic
 
     kind, payload = outcome[0]
-    # TODO(MOD-16487): once a queued writer no longer aborts hybrid depletion, this
-    # expectation flips — the query should be served instead of erroring.
-    env.assertEqual(kind, 'err', message=f'expected the query to be aborted, got: {payload}')
-    env.assertContains('Failed to acquire index lock for background depletion', str(payload))
+    env.assertEqual(kind, 'ok', message=f'expected the query to be served, got: {payload}')
+    if kind != 'ok':
+        return
+    env.assertEqual(hybrid_reply_keys(payload) & late_keys, set())
+    # The late documents match the query, so their absence above comes from the bound.
+    env.assertEqual(hybrid_reply_keys(env.cmd(*query)) & late_keys, late_keys)
