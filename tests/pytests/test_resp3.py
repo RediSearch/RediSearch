@@ -1438,10 +1438,9 @@ def test_ft_info():
          nodes = float(res['cluster_known_nodes'])
 
       # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-      #              = 72 + (1000 * 8) = 8072 bytes
-      initial_doc_table_size_mb = 8072 / (1024 * 1024)
-      # The key->docId mapping now lives in Redis key-metadata (not module-tracked
-      # memory), so key_table_size_mb is always 0.
+      #              = 88 + (1000 * 8) = 8088 bytes
+      initial_doc_table_size_mb = 8088 / (1024 * 1024)
+      # No map allocation until this index receives an INKEYS query.
       key_table_sz_mb = 0
       per_node_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
 
@@ -1614,6 +1613,7 @@ def test_ft_info():
         'records_per_doc_avg': nan,
         'sortable_values_size_mb': 0.0,
         'geoshapes_sz_mb': 0.0,
+        'total_indexing_time': 0.0,
         'total_inverted_index_blocks': 0,
         'vector_index_sz_mb': global_vector_mem_mb,
         'Index Errors': {

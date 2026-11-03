@@ -156,12 +156,12 @@ struct MockUpstream : public ResultProcessor {
 
 // Static dummy RedisSearchCtx for tests - reused across all tests
 static RedisSearchCtx* GetDummySearchCtx() {
-  static QueryRequestTimeout timeout = {};
+  static QueryRequestLimits timeout = {};
   static RedisSearchCtx dummySctx = {
     .redisCtx = NULL,
     .spec = NULL,
     .currentTime = {0, 0},
-    .timeout = &timeout,
+    .limits = &timeout,
     .apiVersion = 0,
   };
   return &dummySctx;
