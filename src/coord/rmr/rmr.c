@@ -794,6 +794,10 @@ MRIterator *MRIteratorCallback_GetIterator(MRIteratorCallbackCtx *ctx) {
 
 void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRChannel_Push(ctx->it->ctx.chan, rep);
+#ifdef ENABLE_ASSERT
+  // Hit-count only (armed with a short auto-release): tells a test every shard reply is queued.
+  SyncPoint_Wait(SYNC_POINT_SHARD_REPLY_QUEUED);
+#endif
 }
 
 void *MRIteratorCallback_GetPrivateData(MRIteratorCallbackCtx *ctx) {

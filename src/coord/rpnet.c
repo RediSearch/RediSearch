@@ -214,6 +214,9 @@ static bool hasShardOomWarning(const RPNet *nc, MRReply *reply) {
     return false;
   }
   MRReply *meta = MRReply_ArrayElement(reply, 0);
+  if (meta && nc->cmd.forProfiling && MRReply_Type(meta) == MR_REPLY_MAP) {
+    meta = MRReply_MapElement(meta, "results");  // as in getNextReply: profile has an extra level
+  }
   MRReply *warnings = meta && MRReply_Type(meta) == MR_REPLY_MAP ? MRReply_MapElement(meta, "warning")
                                                                   : NULL;
   const size_t len = warnings ? MRReply_Length(warnings) : 0;
