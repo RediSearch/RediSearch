@@ -191,9 +191,15 @@ typedef struct QueryIterator {
    * `PrintProfile` and `NumEstimated` must therefore read only query-owned state, never index
    * data.
    *
-   * Iterators with no lock-dependent state install `Default_Suspend` (a no-op). Not every
-   * iterator installs a callback yet, so `Suspend` may be NULL and must not be called until
-   * they all do.
+   * It may also run late: an iterator left active across an unlock is suspended at the start of
+   * `Revalidate`, and a parent suspends its children whenever it is itself suspended. By then the
+   * lock-dependent state may point into freed index data, so `Suspend` must drop it without
+   * reading through it.
+   *
+   * It may be called again on an already suspended iterator, and must then do nothing.
+   *
+   * Every iterator must install a callback; those with no lock-dependent state use
+   * `Default_Suspend` (a no-op).
    *
    * Rust-wrapped iterators flip their internal typestate from Active to Suspended here, so
    * that subsequent calls to read/skip/current/rewind would hard-fail at the FFI boundary.

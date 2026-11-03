@@ -499,8 +499,7 @@ pub fn mock_revalidate_timeout() -> bool {
     MOCK_REVALIDATE_TIMEOUT.load(Ordering::Relaxed)
 }
 
-/// `Suspend` C callback, called right before the spec read lock is released. Panics if the
-/// iterator is already suspended.
+/// `Suspend` C callback, called right before the spec read lock is released.
 extern "C" fn suspend<'index, I>(base: *mut QueryIterator)
 where
     I: RQEIteratorBoxed<'index> + 'index,
@@ -509,6 +508,10 @@ where
     // SAFETY: 1. by invariant 1. of [`RQEIteratorWrapper`]. 2. C runs one callback at a time on
     // an iterator it owns. 3. C frees the iterator before the index data it borrows.
     let wrapper = unsafe { wrapper_from_callback::<'_, 'index, I>(base) };
+    // An emptied wrapper still panics in `take_active`.
+    if matches!(wrapper.state, WrapperState::Suspended(_)) {
+        return;
+    }
     let active = wrapper.state.take_active();
     let suspended = <I as RQEIteratorBoxed>::suspend(active);
     wrapper.state = WrapperState::Suspended(suspended);
