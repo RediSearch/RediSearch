@@ -19,6 +19,9 @@ use geo::ParseGeoError;
 use query_error::{QueryError, QueryErrorCode, opaque::OpaqueQueryError};
 use tracing_log_error::log_error;
 
+pub mod aggregate;
+pub mod filter;
+
 /// The number of geohash ranges: the center cell plus its 8 neighbors.
 #[cheadergen::config(export)]
 pub const GEO_RANGE_COUNT: usize = geo::GEO_RANGE_COUNT;
@@ -110,11 +113,9 @@ pub extern "C" fn geohashGetDistance(lon1: f64, lat1: f64, lon2: f64, lat2: f64)
 ///
 /// # Panics
 ///
-/// If any coordinate is non-finite (NaN or infinity). This cannot happen in
-/// practice: `lon1`/`lat1` come from `GeoFilter` which is range-checked by
-/// `GeoFilter_Validate`, and `lon2`/`lat2` come from `decodeGeo` which
-/// produces finite values by construction (integer bit-arithmetic scaled to
-/// WGS-84 bounds).
+/// If any coordinate is non-finite (NaN or infinity). In particular,
+/// [`filter::Rust_GeoFilter_Validate`] deliberately preserves the baseline NaN acceptance;
+/// validation does not establish this function's finiteness precondition.
 ///
 /// # Safety
 ///

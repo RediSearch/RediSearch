@@ -7,6 +7,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "geo_index_types.h"
+#include "rmutil/args.h"
+#include "value_ffi.h"
 
 /**
  * An opaque query error which can be passed by value to C.
@@ -15,6 +18,11 @@
  * structure exactly.
  */
 typedef struct QueryError QueryError;
+
+/**
+ * The C version of a [`SharedValue`](value::SharedValue)
+ */
+typedef struct RSValue RSValue;
 
 /**
  * WGS-84 latitude upper bound (EPSG:900913).
@@ -44,6 +52,129 @@ typedef struct QueryError QueryError;
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+/**
+ * Evaluate the registered aggregate callback with [`geo::geodistance`].
+ *
+ * Returns expression-evaluation success even on conversion failure, writing NaN.
+ * Only coordinate-string parse errors set `status`.
+ *
+ * # Safety
+ * `argv` must be [valid] for `argc` pointers, each null or pointing to a live [`RSValue`].
+ * `argc` must satisfy the registry's two-to-four argument bounds. `result` must be a
+ * [valid], uniquely referenced writable value and must not alias an argument.
+ * `status` must be a [valid], initialized, exclusively borrowed [`OpaqueQueryError`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int GeoDistance_Compute(struct RSValue *const *argv, size_t argc, struct RSValue *result, struct QueryError *status);
+
+/**
+ * Parse a NUL-terminated unit with [`GeoDistance::parse`].
+ *
+ * # Safety
+ * `unit` must be a [valid], non-null NUL-terminated string.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+GeoDistance Rust_GeoDistance_Parse(const char *unit);
+
+/**
+ * Parse a bounded unit with [`GeoDistance::parse_buffer`].
+ *
+ * # Safety
+ * For lengths below the scratch-buffer limit, `unit` must be [valid] for `len` bytes.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+GeoDistance Rust_GeoDistance_Parse_Buffer(const char *unit, size_t len);
+
+/**
+ * Return a static NUL-terminated spelling for a C distance unit.
+ */
+const char *Rust_GeoDistance_ToString(GeoDistance unit);
+
+/**
+ * Free a Redis-allocated filter shell and its Rust-owned numeric filters.
+ *
+ * # Safety
+ * `filter` must be a [valid], exclusively owned Redis allocation with an initialized
+ * [`ffi::GeoFilter`] prefix. Its numeric filters must obey the existing iterator allocator contract.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void Rust_GeoFilter_Free(GeoFilter *filter);
+
+/**
+ * Parse the legacy filter while preserving cursor progress, borrowed field storage, and errors.
+ *
+ * # Safety
+ * All pointers must be non-null and [valid]; outputs and cursor must be exclusively writable.
+ * `filter` may point to uninitialized storage; it is initialized before being borrowed.
+ * `has_empty` must point to an initialized boolean, even when parsing will not write it:
+ * it is borrowed as a mutable reference, and an existing true value is never cleared.
+ * `cursor` and `status` must be initialized. The cursor's argv strings must remain stable and NUL-terminated
+ * throughout parsing; the field string must also outlive the returned hidden-string wrapper.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int Rust_GeoFilter_LegacyParse(LegacyGeoFilter *filter, ArgsCursor *cursor, bool *has_empty, struct QueryError *status);
+
+/**
+ * Bind a filter to a stable field index, or clear its binding for a null field.
+ *
+ * # Safety
+ * `filter` must be [valid], non-null and writable; a non-null `field` must be [valid] to read.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void Rust_GeoFilter_SetField(GeoFilter *filter, const FieldSpec *field);
+
+/**
+ * Validate scalar parameters without changing the filter or replacing an earlier error.
+ *
+ * # Safety
+ * `filter` must be [valid] and non-null. `status` must point to an initialized,
+ * exclusively borrowed [`OpaqueQueryError`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int Rust_GeoFilter_Validate(const GeoFilter *filter, struct QueryError *status);
+
+/**
+ * Free the borrowed field wrapper and the legacy filter shell.
+ *
+ * # Safety
+ * `filter` must be a [valid], exclusively owned legacy filter allocated with the Redis
+ * allocator. Its field wrapper must borrow its string as created by [`Rust_GeoFilter_LegacyParse`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void Rust_LegacyGeoFilter_Free(LegacyGeoFilter *filter);
+
+/**
+ * Allocate a C-compatible filter shell using the Redis allocator.
+ *
+ * Release it with [`Rust_GeoFilter_Free`]. A null `unit` selects the default unit.
+ *
+ * # Safety
+ * A non-null `unit` must satisfy [`Rust_GeoDistance_Parse_Buffer`]'s contract.
+ * Redis allocator callbacks must be initialized.
+ */
+GeoFilter *Rust_NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t len);
+
+/**
+ * Check a geohash score with [`GeoFilter::is_within_radius`], preserving the C integer return ABI.
+ *
+ * # Panics
+ * Has the same non-finite-center and invalid-unit panic conditions as the core method.
+ *
+ * # Safety
+ * `filter` must be [valid] and non-null. A non-null `distance` must be [valid] to write.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int Rust_isWithinRadius(const GeoFilter *filter, double score, double *distance);
 
 /**
  * Decode a geohash `f64` back into a `[longitude, latitude]` pair.
@@ -81,11 +212,9 @@ double geohashGetDistance(double lon1, double lat1, double lon2, double lat2);
  *
  * # Panics
  *
- * If any coordinate is non-finite (NaN or infinity). This cannot happen in
- * practice: `lon1`/`lat1` come from `GeoFilter` which is range-checked by
- * `GeoFilter_Validate`, and `lon2`/`lat2` come from `decodeGeo` which
- * produces finite values by construction (integer bit-arithmetic scaled to
- * WGS-84 bounds).
+ * If any coordinate is non-finite (NaN or infinity). In particular,
+ * [`filter::Rust_GeoFilter_Validate`] deliberately preserves the baseline NaN acceptance;
+ * validation does not establish this function's finiteness precondition.
  *
  * # Safety
  *
