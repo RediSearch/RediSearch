@@ -413,7 +413,7 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
     ++count;
     // The reply has started, so a stop for memory can only end it with the error in place of
     // the next value.
-    if (QueryMemory_ShouldStop(NULL, &memoryCheckCounter)) {
+    if (QueryMemory_Checkpoint(NULL, &memoryCheckCounter)) {
       RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
       break;
     }

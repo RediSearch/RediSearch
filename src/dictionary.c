@@ -93,7 +93,7 @@ void Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName) {
   while (TrieIterator_Next(it, &rstr, &slen, NULL, &score, NULL, NULL)) {
     ++count;
     // As in TagIndex_SerializeValues: the error in place of the next term.
-    if (QueryMemory_ShouldStop(NULL, &memoryCheckCounter)) {
+    if (QueryMemory_Checkpoint(NULL, &memoryCheckCounter)) {
       RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
       break;
     }
