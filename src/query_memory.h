@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-// Calls of QueryMemory_ShouldStop per memory read, counted across the whole request.
+// Calls of QueryMemory_Checkpoint per memory read, counted across the whole request.
 #define QUERY_MEMORY_RATIO_READ_INTERVAL 256
 
 /**
@@ -47,15 +47,15 @@ extern "C" {
  * synchronization. A NULL `limits` (no owning request) still reports pressure
  * but records no memory stop.
  */
-bool QueryMemory_ShouldStop(QueryRequestLimits *limits, uint32_t *counter);
+bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter);
 
 /**
- * Like QueryMemory_ShouldStop, but reads memory on every call and touches no
+ * Like QueryMemory_Checkpoint, but reads memory on every call and touches no
  * counter, so it is safe on several threads at once for one request. Reports
  * an already requested memory stop, and requests one on pressure. For sites
  * that are rare or expensive enough to make every call worth a read.
  */
-bool QueryMemory_ShouldStopNow(QueryRequestLimits *limits);
+bool QueryMemory_CheckpointNow(QueryRequestLimits *limits);
 
 /**
  * Debug and test override of QUERY_MEMORY_RATIO_READ_INTERVAL for every
