@@ -33,7 +33,7 @@ use query_types::QueryNodeType;
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::{DocId, RS_INVALID_FIELD_INDEX};
 
-use super::core::{InvIndIterator, RawInvIndIterator, ResumeStatus};
+use super::core::{InvIndIterator, RawInvIndIterator, ResumeStatus, max_visible_doc_id};
 
 /// An iterator over numeric inverted index entries, parameterised over a
 /// [`Ref`] mode. See [`Numeric`] for the [`Active`] instantiation that
@@ -167,6 +167,13 @@ where
             range_min,
             range_max,
         }
+    }
+
+    /// Ends the index at `max_doc_id`. See [`InvIndIterator::set_max_doc_id`].
+    #[must_use]
+    pub const fn with_max_doc_id(mut self, max_doc_id: DocId) -> Self {
+        self.it.set_max_doc_id(max_doc_id);
+        self
     }
 
     /// Get a reference to the underlying reader.
@@ -525,6 +532,9 @@ impl<'index> NumericIteratorVariant<'index> {
         // between rewinds; every other query leaves it unbounded.
         let ranges = tree.find_windowed(filter, RangeWindow::from_filter(filter));
 
+        // SAFETY: precondition 1 guarantees `sctx` is valid.
+        let max_doc_id = max_visible_doc_id(unsafe { sctx.as_ref() });
+
         let range_tree: Option<&NumericRangeTree> = if filter.field_index == RS_INVALID_FIELD_INDEX
         {
             None
@@ -572,8 +582,19 @@ impl<'index> NumericIteratorVariant<'index> {
                     min_val,
                     max_val,
                 )
+                .with_max_doc_id(max_doc_id)
             })
             .collect()
+    }
+
+    /// Ends the index at `max_doc_id`. See [`InvIndIterator::set_max_doc_id`].
+    #[must_use]
+    pub fn with_max_doc_id(self, max_doc_id: DocId) -> Self {
+        match self {
+            Self::Unfiltered(it) => Self::Unfiltered(it.with_max_doc_id(max_doc_id)),
+            Self::Filtered(it) => Self::Filtered(it.with_max_doc_id(max_doc_id)),
+            Self::Geo(it) => Self::Geo(it.with_max_doc_id(max_doc_id)),
+        }
     }
 
     /// Create the correct iterator variant for the given reader and optional filter.

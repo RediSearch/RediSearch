@@ -17,7 +17,7 @@ mod tag;
 mod term;
 mod wildcard;
 
-pub use core::InvIndIterator;
+pub use core::{InvIndIterator, max_visible_doc_id};
 pub use geo::{
     GeoRangeError, InvalidGeoInput, build_geo_numeric_filters, build_geo_range_iterator,
     extract_geo_unit_factor, free_geo_numeric_filters, new_geo_range_iterator,

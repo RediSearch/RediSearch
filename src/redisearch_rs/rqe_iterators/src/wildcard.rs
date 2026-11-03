@@ -737,6 +737,7 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
     // SAFETY: Caller guarantees `sctx.spec.rule` is a valid, non-null pointer (3).
     let rule_ref = unsafe { rule.as_ref() };
     debug_assert!(rule_ref.index_all);
+    let max_doc_id = crate::inverted_index::max_visible_doc_id(sctx_ref);
 
     match NonNull::new(spec_ref.existingDocs) {
         Some(existing_docs) => {
@@ -747,10 +748,12 @@ pub unsafe fn new_wildcard_iterator_optimized<'index>(
             let ii_ref = unsafe { ii.as_ref() };
             let optimized = match ii_ref {
                 opaque::InvertedIndex::DocIdsOnly(ii) => OptimizedWildcard::DocIdsOnly(
-                    crate::inverted_index::Wildcard::new(ii.reader(), weight),
+                    crate::inverted_index::Wildcard::new(ii.reader(), weight)
+                        .with_max_doc_id(max_doc_id),
                 ),
                 opaque::InvertedIndex::RawDocIdsOnly(ii) => OptimizedWildcard::RawDocIdsOnly(
-                    crate::inverted_index::Wildcard::new(ii.reader(), weight),
+                    crate::inverted_index::Wildcard::new(ii.reader(), weight)
+                        .with_max_doc_id(max_doc_id),
                 ),
                 _ => panic!("spec.existingDocs has the wrong inverted index type: {ii_ref:?}"),
             };

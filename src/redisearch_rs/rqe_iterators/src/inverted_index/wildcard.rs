@@ -109,6 +109,13 @@ where
         }
     }
 
+    /// Ends the index at `max_doc_id`. See [`InvIndIterator::set_max_doc_id`].
+    #[must_use]
+    pub const fn with_max_doc_id(mut self, max_doc_id: DocId) -> Self {
+        self.it.set_max_doc_id(max_doc_id);
+        self
+    }
+
     /// Get a reference to the underlying reader.
     pub const fn reader(&self) -> &IndexReaderCore<'index, E> {
         &self.it.reader

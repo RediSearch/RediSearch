@@ -30,7 +30,7 @@ use crate::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
-use super::core::{InvIndIterator, RawInvIndIterator, ResumeStatus};
+use super::core::{InvIndIterator, RawInvIndIterator, ResumeStatus, max_visible_doc_id};
 
 /// An iterator over term inverted index entries, parameterised over a
 /// [`Ref`] mode. See [`Term`] for the [`Active`] instantiation that
@@ -98,6 +98,13 @@ where
         Self {
             it: InvIndIterator::new(reader, result, expiration_checker),
         }
+    }
+
+    /// Ends the index at `max_doc_id`. See [`InvIndIterator::set_max_doc_id`].
+    #[must_use]
+    pub const fn with_max_doc_id(mut self, max_doc_id: DocId) -> Self {
+        self.it.set_max_doc_id(max_doc_id);
+        self
     }
 
     /// Get a reference to the underlying reader.
@@ -487,9 +494,11 @@ pub unsafe fn build_term_iterator<'index>(
         )
     };
 
+    // SAFETY: precondition (2) — `sctx` is valid.
+    let max_doc_id = max_visible_doc_id(unsafe { sctx.as_ref() });
     // SAFETY: `reader` was just built from the valid `idx`; preconditions (2)/(3)
     // uphold the remaining `Term::new` requirements (valid `sctx`, owned `term`).
-    unsafe { Term::new(reader, sctx, term, weight, expiration_checker) }
+    unsafe { Term::new(reader, sctx, term, weight, expiration_checker) }.with_max_doc_id(max_doc_id)
 }
 
 impl<'index, R, E> RQEIteratorBoxed<'index> for Term<'index, R, E>
