@@ -58,8 +58,8 @@ void testTryPop() {
 
 typedef struct {
   MRChannel *chan;
-  atomic_bool *abortFlag;
-  atomic_bool *stopFlag;
+  atomic_bool *timedOutFlag;
+  atomic_bool *memoryStopFlag;
   atomic_bool parked;
   void *popped;
 } popArgs;
@@ -67,7 +67,8 @@ typedef struct {
 static void *popWithFlags(void *arg) {
   popArgs *args = arg;
   atomic_store(&args->parked, true);
-  args->popped = MRChannel_PopWithTimeout(args->chan, NULL, args->abortFlag, args->stopFlag, NULL);
+  args->popped = MRChannel_PopWithTimeout(args->chan, NULL, args->timedOutFlag,
+                                          args->memoryStopFlag, NULL);
   return NULL;
 }
 
@@ -75,24 +76,27 @@ static void *popWithFlags(void *arg) {
 // does not hide an item that is already queued.
 static void testPopAbortsOnEitherFlag(bool viaStopFlag) {
   MRChannel *c = MR_NewChannel();
-  atomic_bool abortFlag = false, stopFlag = false;
+  atomic_bool timedOutFlag = false, memoryStopFlag = false;
   int item;
   MRChannel_Push(c, &item);
-  mu_check(MRChannel_PopWithTimeout(c, NULL, &abortFlag, &stopFlag, NULL) == &item);
+  mu_check(MRChannel_PopWithTimeout(c, NULL, &timedOutFlag, &memoryStopFlag, NULL) == &item);
 
-  popArgs args = {.chan = c, .abortFlag = &abortFlag, .stopFlag = &stopFlag, .popped = &item};
+  popArgs args = {.chan = c,
+                  .timedOutFlag = &timedOutFlag,
+                  .memoryStopFlag = &memoryStopFlag,
+                  .popped = &item};
   pthread_t consumer;
   mu_check(pthread_create(&consumer, NULL, popWithFlags, &args) == 0);
   while (!atomic_load(&args.parked)) {
     sched_yield();
   }
-  atomic_store(viaStopFlag ? &stopFlag : &abortFlag, true);
+  atomic_store(viaStopFlag ? &memoryStopFlag : &timedOutFlag, true);
   MRChannel_WakeAbort(c);
   pthread_join(consumer, NULL);
   mu_check(args.popped == NULL);
 
   MRChannel_Push(c, &item);
-  mu_check(MRChannel_PopWithTimeout(c, NULL, &abortFlag, &stopFlag, NULL) == &item);
+  mu_check(MRChannel_PopWithTimeout(c, NULL, &timedOutFlag, &memoryStopFlag, NULL) == &item);
   MRChannel_Free(c);
 }
 
