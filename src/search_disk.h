@@ -460,10 +460,10 @@ size_t SearchDisk_GetLiveSnapshotCount(void);
  * @param totalFreq Total frequency of the document
  * @param oldLen Pointer to an integer to store the length of the deleted document
  * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
- * @param oldDocId Old document ID from DocIdMeta (0 if new document)
+ * @param oldDocId In/out old ID from DocIdMeta; cleared when its live row is absent.
  * @return New document ID, or 0 on error
  */
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t totalFreq, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId);
 
 /**
  * @brief Get document metadata by document ID
@@ -929,6 +929,11 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
 void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index);
 
 /**
+ * @brief Debug only: see `compactNonGcStorage` in search_disk_api.h.
+ */
+bool SearchDisk_CompactNonGcStorage(RedisSearchDiskIndexSpec* index);
+
+/**
  * @brief Pause background flush and compaction work on the index's database.
  *
  * Reference-counted: each call must be balanced by
@@ -1060,6 +1065,7 @@ void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
 SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(
     RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges, size_t numRanges,
     t_docId maxDocId, size_t maxScanned, SearchDiskSlotTrimCallback callback, void *ctx);
+bool SearchDisk_WriteSlotTrimBatch(RedisSearchDiskIndexSpec *index, const SearchDiskSlotTrimBatch *batch);
 bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
                                    const SearchDiskSlotTrimBatch *batch);
 #ifdef __cplusplus

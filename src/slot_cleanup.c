@@ -248,6 +248,11 @@ static bool trimMemoryIndexes(void *ctx, const t_docId *ids, size_t numIds, uint
     return false;
   }
   IndexSpec_IncrActiveWrites(spec);
+  if (!SearchDisk_WriteSlotTrimBatch(spec->diskSpec, batch)) {
+    IndexSpec_DecrActiveWrites(spec);
+    pthread_mutex_unlock(&diskApplyLock);
+    return false;
+  }
   IndexSpec_LockWrite(spec);
   bool applied = SearchDisk_ApplySlotTrimBatch(spec->diskSpec, batch);
   if (applied) {

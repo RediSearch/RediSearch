@@ -38,7 +38,7 @@ struct TrimState {
   bool registerAccepted = true, readAccepted = true;
   bool logicalPending = false, emptyBatch = false;
   t_docId maxDocId = 5;
-  size_t registrations = 0, applyCalls = 0, gcRuns = 0;
+  size_t registrations = 0, applyCalls = 0, gcRuns = 0, nonGcCompactions = 0;
   size_t batchCount = 1, batchesApplied = 0, batchApplyCalls = 0, failBatch = SIZE_MAX;
   std::vector<SearchDiskSlotRange> ranges;
   std::function<void(size_t)> beforeBatch;
@@ -184,6 +184,17 @@ class DiskSlotTrimTest : public ::testing::Test {
       }
       EXPECT_EQ(state.batchesApplied, batch + 1);
       return exhausted ? SEARCH_DISK_TRIM_FINISHED : SEARCH_DISK_TRIM_MORE;
+    };
+    api.slotMigration.writeTrimBatch = [](RedisSearchDiskIndexSpec *index, const SearchDiskSlotTrimBatch *) {
+      auto *spec = reinterpret_cast<IndexSpec *>(index);
+      int lockResult = -1;
+      std::thread probe([&] {
+        lockResult = pthread_rwlock_trywrlock(&spec->rwlock);
+        if (lockResult == 0) pthread_rwlock_unlock(&spec->rwlock);
+      });
+      probe.join();
+      EXPECT_EQ(lockResult, 0) << "tombstone writes must not hold the spec lock";
+      return true;
     };
     api.slotMigration.applyTrimBatch = [](RedisSearchDiskIndexSpec *index,
                                           const SearchDiskSlotTrimBatch *) {
@@ -702,6 +713,24 @@ TEST_F(DiskSlotTrimTest, ForcedGcFailureReportsRetryInsteadOfSuccess) {
   EXPECT_EQ(collector()->totalCycles.load(), 1u);
 }
 
+TEST_F(DiskSlotTrimTest, CompactAllRequiresSuccessfulGcAndReportsIncompleteCompaction) {
+  api.index.compactNonGcStorage = [](RedisSearchDiskIndexSpec *) {
+    return ++state.nonGcCompactions == 2;
+  };
+  auto invoke = [&] {
+    GCForcedRun forced = GCForcedRun_New(1000, 10);
+    forced.compactAll = true;
+    EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
+    return forced.outcome;
+  };
+  EXPECT_EQ(invoke(), GC_DISK_FORCED_RUN_RETRY_REQUIRED);
+  EXPECT_EQ(state.nonGcCompactions, 0u);
+  EXPECT_EQ(invoke(), GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE);
+  EXPECT_EQ(state.nonGcCompactions, 1u);
+  EXPECT_EQ(invoke(), GC_FORCED_RUN_OK);
+  EXPECT_EQ(state.nonGcCompactions, 2u);
+}
+
 TEST_F(DiskSlotTrimTest, InlineForcedGcReportsFailureAndThenDone) {
   spec->gc = nullptr;
   struct RestoreHooks {
@@ -723,6 +752,13 @@ TEST_F(DiskSlotTrimTest, InlineForcedGcReportsFailureAndThenDone) {
   ASSERT_EQ(RegisterDebugCommands(nullptr), REDISMODULE_OK);
   RedisModule_CreateSubcommand = restore.create;
   ASSERT_NE(state.forceGC, nullptr);
+  RMCK::ArgvList compactArgs(RSDummyContext, "FT.DEBUG", "GC_FORCEINVOKE", "disk_slot_trim",
+                             "COMPACT_ALL");
+  RMCK_GetLastError(RSDummyContext).clear();
+  EXPECT_EQ(state.forceGC(RSDummyContext, compactArgs.data(), compactArgs.size()), REDISMODULE_OK);
+  EXPECT_EQ(RMCK_GetLastError(RSDummyContext),
+            "COMPACT_ALL requires the index's GC, which is disabled");
+  EXPECT_EQ(state.gcRuns, 0u);
   RMCK::ArgvList args(RSDummyContext, "FT.DEBUG", "GC_FORCEINVOKE", "disk_slot_trim");
   RMCK_GetLastError(RSDummyContext).clear();
   EXPECT_EQ(state.forceGC(RSDummyContext, args.data(), args.size()), REDISMODULE_OK);
