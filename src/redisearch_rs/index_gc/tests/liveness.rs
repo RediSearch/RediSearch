@@ -99,7 +99,9 @@ fn a_set_answers_like_its_ids_as_bits_or_as_a_set() {
     for (max_bitmap_bytes, bits) in [(0, false), (1 << 10, true)] {
         let set = GoneIds::from_set_with_cap(ids.into_iter().collect(), max_bitmap_bytes);
         assert_eq!(matches!(set, GoneIds::Bits(_)), bits);
-        assert_matches(&set, 0..=140, |id| ids.contains(&id));
+        // Every range is checked, so Miri covers only the first two words to finish in time.
+        let span = if cfg!(miri) { 0..=70 } else { 0..=140 };
+        assert_matches(&set, span, |id| ids.contains(&id));
         assert_eq!(set.into_set().into_iter().collect::<Vec<_>>(), ids);
     }
 }
