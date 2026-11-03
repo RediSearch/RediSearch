@@ -174,7 +174,7 @@ void ForkGC_sendTerminator(IndexGC *fgc);
  *
  * 1. `gc` must point to a valid [`ffi::IndexGC`] on which no other GC cycle runs
  *    for the duration of this call. The main thread may update its deletion
- *    counter meanwhile, so this call borrows only the fields it uses.
+ *    counter and read its stats meanwhile, so this call borrows no part of it.
  * 2. The calling thread must not hold any spec lock.
  */
 enum ForkGCError ThreadGC_runScanners(IndexGC *gc);
