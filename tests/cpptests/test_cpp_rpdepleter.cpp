@@ -426,7 +426,7 @@ struct HeldRowsUpstream : public ResultProcessor {
   explicit HeldRowsUpstream(int rows) {
     memset(static_cast<ResultProcessor *>(this), 0, sizeof(ResultProcessor));
     // Not an index source, so the stop's end-of-row-source does not touch it.
-    type = RP_NETWORK;
+    type = RP_COUNTER;
     left = rows;
     Next = [](ResultProcessor *rp, SearchResult *res) -> int {
       auto *self = static_cast<HeldRowsUpstream *>(rp);
