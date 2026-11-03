@@ -27,8 +27,8 @@ extern "C" {
  * only reader of process memory.
  *
  * Returns true when the query should stop: a memory stop was already
- * requested, the blocked-client timeout fired (see QueryRequestLimits_ShouldStop), or this call
- * found memory at or above REDIS_MEMORY_OOM_RATIO, in which case it requests
+ * requested, the blocked-client timeout fired (QueryRequestLimits_IsBlockedClientTimedOut), or
+ * this call found memory at or above REDIS_MEMORY_OOM_RATIO, in which case it requests
  * a memory stop first. Memory is read when either the caller's
  * `counter` or the request's shared memory.counter reaches
  * QUERY_MEMORY_RATIO_READ_INTERVAL, so calls from all sites of a request add
