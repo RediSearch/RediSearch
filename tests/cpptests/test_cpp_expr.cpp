@@ -219,6 +219,12 @@ TEST_F(ExprTest, testArithmetics) {
   TEST_ARITHMETIC("sqrt(1) / sqrt(0)", INFINITY);
   TEST_ARITHMETIC("sqrt(1) % sqrt(0)", NAN);
 
+  // Number literals with no integer part
+  TEST_ARITHMETIC(".6", 0.6);
+  TEST_ARITHMETIC("-.6", -0.6);
+  TEST_ARITHMETIC(".5e1", 5);
+  TEST_ARITHMETIC("1 + .5", 1.5);
+  TEST_ARITHMETIC("log(.6)", log(0.6));
 }
 
 TEST_F(ExprTest, testParser) {
