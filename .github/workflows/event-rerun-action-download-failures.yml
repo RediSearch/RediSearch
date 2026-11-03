@@ -60,6 +60,7 @@ jobs:
           import re
           import subprocess
           import sys
+          import time
           from urllib.parse import quote
 
           # Messages the runner emits when an action archive download fails,
@@ -75,13 +76,17 @@ jobs:
           run_id = int(os.environ["RUN_ID"])
           pr_number = os.environ.get("PR_NUMBER", "")
 
-          def gh_api(path, *args):
-              result = subprocess.run(
-                  ["gh", "api", *args, path], capture_output=True, text=True,
-              )
-              if result.returncode != 0:
-                  sys.exit(f"gh api {path} failed: {result.stderr.strip()}")
-              return json.loads(result.stdout) if result.stdout.strip() else None
+          def gh_api(path, *args, attempts=3):
+              for attempt in range(1, attempts + 1):
+                  result = subprocess.run(
+                      ["gh", "api", *args, path], capture_output=True, text=True,
+                  )
+                  if result.returncode == 0:
+                      return json.loads(result.stdout) if result.stdout.strip() else None
+                  print(f"gh api {path} failed ({attempt}/{attempts}): {result.stderr.strip()}")
+                  if attempt < attempts:
+                      time.sleep(2 * attempt)
+              sys.exit(f"gh api {path} failed after {attempts} attempts")
 
           def skip(reason):
               print(f"Not re-running run {run_id}: {reason}")
@@ -89,22 +94,6 @@ jobs:
 
           if not pr_number:
               skip("no pull request attached to the run")
-
-          # The event payload is a snapshot; a maintainer may have re-run it since.
-          run = gh_api(f"repos/{repo}/actions/runs/{run_id}")
-          if run["run_attempt"] != 1 or run["status"] != "completed":
-              skip(f"run is now attempt {run['run_attempt']}, status {run['status']}")
-
-          runs = gh_api(
-              f"repos/{repo}/actions/workflows/event-pull_request.yml/runs"
-              f"?branch={quote(os.environ['HEAD_BRANCH'], safe='')}&event=pull_request&per_page=20"
-          )["workflow_runs"]
-          pr_runs = [
-              r for r in runs
-              if any(p["number"] == int(pr_number) for p in r.get("pull_requests") or [])
-          ]
-          if pr_runs and pr_runs[0]["id"] != run_id:
-              skip(f"superseded by run {pr_runs[0]['id']} for PR #{pr_number}")
 
           jobs = gh_api(
               f"repos/{repo}/actions/runs/{run_id}/attempts/1/jobs?per_page=100",
@@ -122,6 +111,24 @@ jobs:
               if not any(DOWNLOAD_FAILURE.search(a.get("message") or "") for a in annotations):
                   skip(f"job '{job['name']}' failed for another reason")
               print(f"Job '{job['name']}' failed downloading an action in setup.")
+
+          # Checked last, right before the POST, to keep the window for a manual
+          # re-run or a new push as short as the API allows: the event payload is a
+          # snapshot, and a stale re-run would cancel a newer run of the PR.
+          run = gh_api(f"repos/{repo}/actions/runs/{run_id}")
+          if run["run_attempt"] != 1 or run["status"] != "completed":
+              skip(f"run is now attempt {run['run_attempt']}, status {run['status']}")
+
+          runs = gh_api(
+              f"repos/{repo}/actions/workflows/event-pull_request.yml/runs"
+              f"?branch={quote(os.environ['HEAD_BRANCH'], safe='')}&event=pull_request&per_page=20"
+          )["workflow_runs"]
+          pr_runs = [
+              r for r in runs
+              if any(p["number"] == int(pr_number) for p in r.get("pull_requests") or [])
+          ]
+          if pr_runs and pr_runs[0]["id"] != run_id:
+              skip(f"superseded by run {pr_runs[0]['id']} for PR #{pr_number}")
 
           print(f"Re-running {len(failed)} failed job(s) of run {run_id} (PR #{pr_number}).")
           gh_api(f"repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs", "-X", "POST")
