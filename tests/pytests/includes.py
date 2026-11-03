@@ -18,6 +18,7 @@ CI = os.getenv('CI', '') != ''
 GHA = os.getenv('GITHUB_ACTIONS', '') != ''
 TEST_DEBUG = os.getenv('TEST_DEBUG', '0') == '1'
 MT_BUILD = os.getenv('REDISEARCH_MT_BUILD', '0') == '1'
+RS_TEST_ENTERPRISE = os.getenv('RS_TEST_ENTERPRISE', '0') == '1'
 
 system=platform.system()
 OS =  'macos' if system == 'Darwin' else system
