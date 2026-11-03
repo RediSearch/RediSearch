@@ -54,8 +54,12 @@ static inline double getSuccessRatio(const OptimizerIterator *optIt) {
 
 static size_t OPT_NumEstimated(const QueryIterator *self) {
   const OptimizerIterator *opt = (const OptimizerIterator *)self;
-  return MIN(opt->child->NumEstimated(opt->child) ,
-              opt->numericIter->NumEstimated(opt->numericIter));
+  size_t estimate = opt->child->NumEstimated(opt->child);
+  // `OPT_Rewind` leaves no numeric iterator once the filter has no range left.
+  if (opt->numericIter) {
+    estimate = MIN(estimate, opt->numericIter->NumEstimated(opt->numericIter));
+  }
+  return estimate;
 }
 
 // TODO: handle MOVED better
@@ -69,6 +73,9 @@ static ValidateStatus OPT_Validate(QueryIterator *self, struct IndexSpec *spec) 
   }
   if (childStatus != VALIDATE_OK) {
     return VALIDATE_ABORTED;
+  }
+  if (!opt->numericIter) {
+    return VALIDATE_OK;
   }
   ValidateStatus numericStatus = opt->numericIter->Revalidate(opt->numericIter, spec);
   if (numericStatus == VALIDATE_TIMEOUT) {
