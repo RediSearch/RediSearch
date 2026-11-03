@@ -14,7 +14,7 @@
 #[cfg(test)]
 #[unsafe(no_mangle)]
 unsafe extern "C" fn QueryIterator_IsBlockedClientTimedOut(
-    _timeout: *const ffi::QueryRequestTimeout,
+    _timeout: *const ffi::QueryRequestLimits,
 ) -> bool {
     false
 }

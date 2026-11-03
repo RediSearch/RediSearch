@@ -15,6 +15,8 @@
 //! in the `fork_gc_ffi` crate, which is a thin trampoline on top of this
 //! one.
 
+mod codec;
+pub mod doc_existence;
 pub mod existing_docs;
 pub mod fork_gc;
 pub mod frame;
@@ -22,11 +24,13 @@ pub mod handle;
 pub mod io_result_ext;
 pub mod missing_docs;
 pub mod numeric;
+pub mod orchestration;
 pub mod stats;
 pub mod tags;
 pub mod terms;
 pub mod util;
 
+pub use doc_existence::DocExistence;
 pub use fork_gc::ForkGC;
 pub use frame::Frame;
 pub use handle::{HandleError, HandleOutcome};

@@ -136,6 +136,9 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "DMD_Free",
             "DocTable_Exists",
+            "DocTable_FillLiveBitmap",
+            "DocTable_ForEachLiveId",
+            "DocTable_LiveBitmapWords",
             "DocTable_Put",
             "DocTable_KeyEquals",
             "DocTable_StartKeyMap",
@@ -417,6 +420,16 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
+        path: "src/redisearch_rs/headers/triemap_ffi.h",
+        fns: &[
+            "TrieMap_Iterate",
+            "TrieMapIterator_Free",
+            "TrieMapIterator_Next",
+        ],
+        types: &["TrieMapIterator"],
+        vars: &["TRIEMAP_NOTFOUND"],
+    },
+    HeaderAllowlist {
         path: "src/trie/levenshtein.h",
         fns: &[],
         types: &["TrieMatchMode"],
@@ -516,11 +529,11 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
-    // `vector_score_source` passes the request-owned `QueryRequestTimeout` directly to VecSim.
+    // `vector_score_source` passes the request-owned `QueryRequestLimits` directly to VecSim.
     HeaderAllowlist {
         path: "src/util/timeout.h",
         fns: &[],
-        types: &["QueryRequestTimeout"],
+        types: &["QueryRequestLimits"],
         vars: &[],
     },
     // `VecSimSearchMode` (+ `_ToString`) labels the top-k query strategy
@@ -603,6 +616,8 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `src/search_result.h` includes this for the `IndexResult_DeepCopy`
     // declaration used by the inline `SearchResult_TakeOwnedIndexResult`.
     "types_ffi.h",
+    // TAG GC walks the C TagIndex values trie directly.
+    "triemap_ffi.h",
     // `aggregate.h` includes `value_ffi.h`; reachable via
     // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
     "value_ffi.h",
