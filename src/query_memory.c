@@ -90,7 +90,8 @@ static bool memoryStops(QueryRequestLimits *limits, bool forcedPressure) {
 }
 
 bool QueryMemory_ShouldStop(QueryRequestLimits *limits, uint32_t *counter) {
-  if (limits && QueryRequestLimits_ShouldStop(limits)) {
+  if (limits && (QueryRequestLimits_IsMemoryStopped(limits) ||
+                 QueryRequestLimits_IsBlockedClientTimedOut(limits))) {
     return true;
   }
   const bool forcedPressure = isPressureAtThisCall();
@@ -112,7 +113,8 @@ bool QueryMemory_ShouldStop(QueryRequestLimits *limits, uint32_t *counter) {
 }
 
 bool QueryMemory_ShouldStopNow(QueryRequestLimits *limits) {
-  if (limits && QueryRequestLimits_ShouldStop(limits)) {
+  if (limits && (QueryRequestLimits_IsMemoryStopped(limits) ||
+                 QueryRequestLimits_IsBlockedClientTimedOut(limits))) {
     return true;
   }
   return memoryStops(limits, isPressureAtThisCall());
