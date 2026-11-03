@@ -58,6 +58,9 @@ typedef enum {
   GC_FORCED_RUN_NO_FORK,
   // The disk cycle failed recoverably; pending changes remain eligible for retry.
   GC_DISK_FORCED_RUN_RETRY_REQUIRED,
+  // `compactAll` was asked for but did not complete: the cycle was skipped (e.g. background
+  // work was paused before it started) or the compaction was cancelled.
+  GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE,
 } GCForcedRunOutcome;
 
 // What a caller that demanded a collection asked for, and what it got. A cycle receives a
@@ -68,6 +71,7 @@ typedef struct {
   long long forkWaitMs;         // wait this long for the fork slot; 0 means no limit
   long long retryIntervalMs;    // how often to retry while waiting, capped by what is left
   struct timespec forkDeadline; // stamped when queued; meaningful only if forkWaitMs > 0
+  bool compactAll;              // disk GC only: also fully compact the rest of the disk storage
   GCForcedRunOutcome outcome;   // set by the cycle
 } GCForcedRun;
 
@@ -81,6 +85,7 @@ static inline GCForcedRun GCForcedRun_New(long long forkWaitMs, long long retryI
   forced.retryIntervalMs = retryIntervalMs;
   forced.forkDeadline.tv_sec = 0;
   forced.forkDeadline.tv_nsec = 0;
+  forced.compactAll = false;
   forced.outcome = GC_FORCED_RUN_OK;
   if (forkWaitMs > 0) {
     clock_gettime(CLOCK_MONOTONIC_RAW, &forced.forkDeadline);

@@ -510,7 +510,7 @@ DiskGCRunResult SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats
     return disk->index.runGC(index, stats);
 }
 
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId) {
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId) {
     RS_ASSERT(disk && handle && batch);
     return disk->docTable.putDocument(handle, batch, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
 }
@@ -774,6 +774,11 @@ void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index) {
   disk->index.flushNoWait(index);
 }
 
+bool SearchDisk_CompactNonGcStorage(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  return disk->index.compactNonGcStorage(index);
+}
+
 void SearchDisk_PauseBackgroundWork(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   disk->index.pauseBackgroundWork(index);
@@ -826,6 +831,12 @@ SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(
   RS_ASSERT(disk && disk->slotMigration.runTrimBatch);
   return disk->slotMigration.runTrimBatch(index, ranges, numRanges, maxDocId, maxScanned, callback,
                                           ctx);
+}
+
+bool SearchDisk_WriteSlotTrimBatch(RedisSearchDiskIndexSpec *index,
+                                  const SearchDiskSlotTrimBatch *batch) {
+  RS_ASSERT(disk && index && batch);
+  return disk->slotMigration.writeTrimBatch(index, batch);
 }
 
 bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
