@@ -743,7 +743,8 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
   if (rc == RS_RESULT_TIMEDOUT) {
     switch (req->base.limits.timeout.config.timeoutPolicy) {
       case TimeoutPolicy_Return:
-        return false;
+        // A memory stop ends the request even when its outcome is reported as a timeout.
+        return QueryRequestLimits_IsMemoryStopped(&req->base.limits);
       case TimeoutPolicy_ReturnStrict:
       case TimeoutPolicy_Fail:
         return true;

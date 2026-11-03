@@ -348,9 +348,13 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
   if (subqueryStoppedForOom(hreq)) {
     bool cut = false;
     for (size_t i = 0; i < hreq->nrequests; ++i) {
+      const QueryRequestLimits *subLimits = &hreq->requests[i]->base.limits;
       if (hreq->subqueriesReturnCodes[i] == RS_RESULT_TIMEDOUT &&
-          QueryRequestLimits_IsMemoryStopped(&hreq->requests[i]->base.limits)) {
-        hreq->subqueriesReturnCodes[i] = RS_RESULT_EOF;
+          QueryRequestLimits_IsMemoryStopped(subLimits)) {
+        // A timeout that also fired outranks the stop under ON_OOM RETURN, as in ApplyOomStop.
+        if (oomPolicy == OomPolicy_Fail || !QueryRequestLimits_IsTimedOutExact(subLimits)) {
+          hreq->subqueriesReturnCodes[i] = RS_RESULT_EOF;
+        }
         cut = true;
       }
       // A subquery stage that kept its rows past the stop may hold no more than the merger's

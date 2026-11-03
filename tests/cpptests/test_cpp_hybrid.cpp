@@ -115,6 +115,40 @@ TEST_F(HybridApplyOomStopTest, concurrentSubqueryTimeoutStaysATimeout) {
   EXPECT_EQ(hreq->subqueriesReturnCodes[1], RS_RESULT_TIMEDOUT);
 }
 
+// Both stops on one subquery: the elapsed deadline outranks the OOM stop under ON_OOM RETURN, which
+// still adds its warning; the merger's timeout stays the tail's outcome.
+TEST_F(HybridApplyOomStopTest, subqueryTimeoutBesideItsOomStopStaysATimeoutUnderOnOomReturn) {
+  hreq->base.reqConfig.oomPolicy = OomPolicy_Return;
+  stopSubqueryForOom(0);
+  *QueryRequestLimits_GetClockDeadlineForUpdate(&hreq->requests[0]->base.limits) = {0, 0};
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(hreq->subqueriesReturnCodes[0], RS_RESULT_TIMEDOUT);
+  EXPECT_TRUE(QueryError_HasQueryOOMWarning(tailErr()));
+}
+
+// ON_OOM FAIL beats the timeout of the same subquery.
+TEST_F(HybridApplyOomStopTest, subqueryOomStopBeatsItsTimeoutUnderOnOomFail) {
+  hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
+  stopSubqueryForOom(0);
+  *QueryRequestLimits_GetClockDeadlineForUpdate(&hreq->requests[0]->base.limits) = {0, 0};
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(QueryError_GetCode(tailErr()), QUERY_ERROR_CODE_OUT_OF_MEMORY);
+}
+
+// The tail's own stop follows ApplyOomStop: a deadline that also elapsed keeps the timeout outcome
+// under ON_OOM RETURN and loses to the OOM error under FAIL.
+TEST_F(HybridApplyOomStopTest, tailTimeoutBesideItsOomStopFollowsTheStopPrecedence) {
+  hreq->base.reqConfig.oomPolicy = OomPolicy_Return;
+  QueryRequestLimits_RequestMemoryStop(&hreq->base.limits);
+  *QueryRequestLimits_GetClockDeadlineForUpdate(&hreq->base.limits) = {0, 0};
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_TRUE(QueryError_HasQueryOOMWarning(tailErr()));
+
+  hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(QueryError_GetCode(tailErr()), QUERY_ERROR_CODE_OUT_OF_MEMORY);
+}
+
 TEST_F(HybridApplyOomStopTest, subqueryOomStopFailsUnderOnOomFail) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
   stopSubqueryForOom(0);
