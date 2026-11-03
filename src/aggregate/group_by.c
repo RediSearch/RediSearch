@@ -62,16 +62,16 @@ KHASH_MAP_INIT_INT64(khid, Group *);
 #define GROUPER_NSRCKEYS(g) ((g)->nkeys)
 
 /**
- * Per-key state for stepping through the combinations of a row's key values. An
- * array value with more than one element contributes each of its elements in
- * turn; any other value contributes itself, with an empty array standing for
- * null and a single-element array for its element. The selected value is kept
- * in `Grouper::groupvals`.
+ * Per-key state while a row is added to its groups. An array value with more
+ * than one element contributes each of its elements in turn; any other value
+ * contributes itself, with an empty array standing for null and a single-element
+ * array for its element.
  */
 typedef struct {
-  const RSValue *array;  // the key's array when it has more than one element, else NULL
-  size_t len;            // its length; unused when `array` is NULL
-  size_t idx;            // the selected element of `array`
+  const RSValue *value;  // the value this key contributes, or its array
+  const RSValue *deref;  // `value` dereferenced, except a single-element array's element (as-is)
+  size_t fanout;         // how many values this key contributes; > 1 only for arrays
+  size_t idx;            // which of them is currently selected
   uint64_t hash;         // hash of the selected values up to and including this key
 } GroupKeyCursor;
 
@@ -221,19 +221,22 @@ static int addToGroup(Grouper *g, uint64_t hval, RLookupRow *res, t_docId docId)
 /** Select the `idx`th value of key `pos` and extend the hash of the selection. */
 static void selectGroupValue(Grouper *g, size_t pos, size_t idx) {
   GroupKeyCursor *c = &g->cursors[pos];
-  if (c->array) {
-    c->idx = idx;
+  const RSValue *selected = c->value;
+  const RSValue *hashed = c->deref;
+  if (c->fanout > 1) {
     // Elements are hashed as-is, even arrays.
-    g->groupvals[pos] = RSValue_ArrayItem(c->array, idx);
+    selected = hashed = RSValue_ArrayItem(c->deref, idx);
   }
-  c->hash = RSValue_Hash(g->groupvals[pos], pos ? c[-1].hash : 0);
+  c->idx = idx;
+  g->groupvals[pos] = selected;
+  c->hash = RSValue_Hash(hashed, pos ? g->cursors[pos - 1].hash : 0);
 }
 
 /** Step to the next combination, last key fastest. False once all have been visited. */
 static bool nextCombination(Grouper *g) {
   for (size_t pos = GROUPER_NSRCKEYS(g); pos-- > 0;) {
     GroupKeyCursor *c = &g->cursors[pos];
-    if (c->array && c->idx + 1 < c->len) {
+    if (c->idx + 1 < c->fanout) {
       selectGroupValue(g, pos, c->idx + 1);
       for (size_t k = pos + 1; k < GROUPER_NSRCKEYS(g); ++k) {
         selectGroupValue(g, k, 0);
@@ -256,27 +259,23 @@ static int invokeGroupReducers(Grouper *g, RLookupRow *srcrow, t_docId docId) {
   for (size_t pos = 0; pos < nkeys; ++pos) {
     GroupKeyCursor *c = &g->cursors[pos];
     const RSValue *v = RLookupRow_Get(g->srckeys[pos], srcrow);
-    if (v == NULL) {
-      v = RSValue_NullStatic();
-    }
-    const RSValue *deref = RSValue_Dereference(v);
-    c->array = NULL;
-    if (RSValue_IsArray(deref)) {
-      size_t len = RSValue_ArrayLen(deref);
+    c->value = v ? v : RSValue_NullStatic();
+    c->deref = RSValue_Dereference(c->value);
+    c->fanout = 1;
+    if (RSValue_IsArray(c->deref)) {
+      size_t len = RSValue_ArrayLen(c->deref);
       if (len > 1) {
         if (combinations > g->groupByLimits.maxGroups / len) {
           setAggregateGroupLimitError(g);
           return RS_RESULT_ERROR;
         }
         combinations *= len;
-        c->array = deref;
-        c->len = len;
+        c->fanout = len;
       } else {
         // An empty array groups as null, a single element as itself (as-is).
-        v = len ? RSValue_ArrayItem(deref, 0) : RSValue_NullStatic();
+        c->value = c->deref = len ? RSValue_ArrayItem(c->deref, 0) : RSValue_NullStatic();
       }
     }
-    g->groupvals[pos] = v;
     selectGroupValue(g, pos, 0);
   }
 
