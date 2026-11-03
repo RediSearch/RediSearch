@@ -9,7 +9,7 @@
 
 //! C ABI entrypoint for the in-process GC driver.
 
-use index_gc::{GcError, thread::run_cycle};
+use index_gc::{GcError, stats::GcCounters, thread::run_cycle};
 use index_spec::IndexSpecWeakRef;
 use tracing::Level;
 use tracing_log_error::log_error;
@@ -28,7 +28,7 @@ use crate::ForkGCError;
 ///
 /// 1. `gc` must point to a valid [`ffi::IndexGC`] on which no other GC cycle runs
 ///    for the duration of this call. The main thread may update its deletion
-///    counter meanwhile, so this call borrows only the fields it uses.
+///    counter and read its stats meanwhile, so this call borrows no part of it.
 /// 2. The calling thread must not hold any spec lock.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ThreadGC_runScanners(gc: *mut ffi::IndexGC) -> ForkGCError {
@@ -40,11 +40,13 @@ pub unsafe extern "C" fn ThreadGC_runScanners(gc: *mut ffi::IndexGC) -> ForkGCEr
     let mut spec = unsafe { IndexSpecWeakRef::from_raw(index) };
     // SAFETY: as for `index`.
     let clean_numeric_empty_nodes = unsafe { (*gc).cleanNumericEmptyNodes } != 0;
-    // SAFETY: (1) no other cycle touches the stats while this one runs, and the main
-    // thread's updates go to other fields.
-    let stats = unsafe { &mut (*gc).stats };
+    // SAFETY: (1) `gc` is valid; this only takes the counters' address.
+    let counters = unsafe { &raw mut (*gc).stats };
+    // SAFETY: (1) the counters are valid for the call, and C reads and writes them
+    // only atomically.
+    let mut stats = unsafe { GcCounters::new(counters) };
 
-    match run_cycle(&mut spec, stats, clean_numeric_empty_nodes) {
+    match run_cycle(&mut spec, &mut stats, clean_numeric_empty_nodes) {
         Ok(report) => {
             tracing::debug!(
                 read_locks = report.read_locks,

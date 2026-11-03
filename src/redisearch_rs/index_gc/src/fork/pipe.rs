@@ -160,8 +160,8 @@ impl ForkPipe {
 
     /// The GC-level statistics, which a [`GcStatsSink`](crate::stats::GcStatsSink) folds
     /// each applied delta into.
-    pub const fn stats_mut(&mut self) -> &mut ffi::IndexGCStats {
-        &mut self.0.stats
+    pub const fn stats_ptr(&mut self) -> *mut ffi::IndexGCStats {
+        &raw mut self.0.stats
     }
 }
 

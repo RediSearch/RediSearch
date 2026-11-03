@@ -728,3 +728,25 @@ fn the_deleted_set_records_what_the_doc_table_deletes() {
     // SAFETY: as above.
     unsafe { ffi::DocTable_Free(&mut spec.docs) };
 }
+
+/// The counters fold a delta in place, collected bytes net of the bytes allocated.
+#[test]
+fn gc_counters_fold_a_delta_into_the_stats() {
+    use index_gc::stats::GcCounters;
+    // SAFETY: zero is a valid value for every counter.
+    let mut stats: ffi::IndexGCStats = unsafe { mem::zeroed() };
+    // SAFETY: `stats` outlives the counters, and only they touch it meanwhile.
+    let mut counters = unsafe { GcCounters::new(&raw mut stats) };
+    for _ in 0..2 {
+        counters.record(&GcApplyStats {
+            bytes_collected: 10,
+            bytes_allocated: 3,
+            blocks_denied: 2,
+            numeric_nodes_missed: 1,
+            ..GcApplyStats::default()
+        });
+    }
+    assert_eq!(stats.totalCollected, 14);
+    assert_eq!(stats.gcBlocksDenied, 4);
+    assert_eq!(stats.gcNumericNodesMissed, 2);
+}
