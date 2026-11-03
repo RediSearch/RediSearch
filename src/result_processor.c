@@ -2111,7 +2111,8 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     // promptly when another thread flips its flag.
     // The wall-clock deadline is already handled by the upstream's own checks.
     QueryRequestLimits *timeout = self->depletingThreadCtx->limits;
-    if (QueryRequestLimits_ShouldStop(timeout)) {
+    if (QueryRequestLimits_IsMemoryStopped(timeout) ||
+        QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
       rc = RS_RESULT_TIMEDOUT;
       break;
     }
@@ -3027,7 +3028,7 @@ typedef struct {
 
 static int RPMemoryCheckpoint_Next(ResultProcessor *base, SearchResult *r) {
   RPMemoryCheckpoint *self = (RPMemoryCheckpoint *)base;
-  if (QueryMemory_ShouldStop(self->sctx->limits, &self->counter)) {
+  if (QueryMemory_Checkpoint(self->sctx->limits, &self->counter)) {
     return RS_RESULT_TIMEDOUT;
   }
   return base->upstream->Next(base->upstream, r);

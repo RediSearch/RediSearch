@@ -211,11 +211,11 @@ MRReply *MRIterator_TryNext(MRIterator *it);
 
 /* Get next reply, with optional CLOCK_MONOTONIC_RAW deadline (`abstime`) and/or
  * abort flags (either one aborts; pair with MRChannel_WakeAbort). `timedOut` set
- * if deadline expired. At least one of `abstime` / `abortFlag` / `stopFlag` must
- * be non-NULL; for an indefinite blocking next, use MRIterator_Next. */
+ * if deadline expired. At least one of `abstime` / `timedOutFlag` / `memoryStopFlag`
+ * must be non-NULL; for an indefinite blocking next, use MRIterator_Next. */
 MRReply *MRIterator_NextWithTimeout(MRIterator *it, const struct timespec *abstime,
-                                    RS_Atomic(bool) *abortFlag, RS_Atomic(bool) *stopFlag,
-                                    bool *timedOut);
+                                    RS_Atomic(bool) *timedOutFlag,
+                                    RS_Atomic(bool) *memoryStopFlag, bool *timedOut);
 
 /* Return the underlying channel used by the iterator. Intended for callers that need to
  * invoke MRChannel_WakeAbort directly (e.g. from a timeout callback on another thread). */
