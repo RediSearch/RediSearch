@@ -1499,7 +1499,7 @@ CONFIG_SETTER(setOnOom) {
     QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid ON_OOM value");
     return REDISMODULE_ERR;
   }
-  // Atomic: query threads read it concurrently (QueryMemory_ShouldStop).
+  // Atomic: query threads read it concurrently (QueryMemory_Checkpoint).
   __atomic_store_n(&config->requestConfigParams.oomPolicy, oom, __ATOMIC_RELAXED);
   return REDISMODULE_OK;
 }
@@ -1512,7 +1512,7 @@ CONFIG_GETTER(getOnOom) {
 static int set_on_oom(const char *name, int val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
-  // Atomic: query threads read it concurrently (QueryMemory_ShouldStop).
+  // Atomic: query threads read it concurrently (QueryMemory_Checkpoint).
   __atomic_store_n((RSOomPolicy *)privdata, (RSOomPolicy)val, __ATOMIC_RELAXED);
   return REDISMODULE_OK;
 }

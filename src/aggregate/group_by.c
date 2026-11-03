@@ -92,7 +92,7 @@ typedef struct Grouper {
   // Rows since the last memory checkpoint. Rows, not new groups: reducer state also grows
   // inside existing groups.
   uint32_t rowsSinceMemoryCheck;
-  // QueryMemory_ShouldStop counter for the groups one multi-valued row reaches.
+  // QueryMemory_Checkpoint counter for the groups one multi-valued row reaches.
   uint32_t expansionMemoryCheckCalls;
 } Grouper;
 
@@ -205,7 +205,7 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
     // The array values of one row can reach up to maxGroups groups, new or existing, before the
     // per-row check.
     if (rowExpansion > 1 && g->base.parent->limits &&
-        QueryMemory_ShouldStop(g->base.parent->limits, &g->expansionMemoryCheckCalls)) {
+        QueryMemory_Checkpoint(g->base.parent->limits, &g->expansionMemoryCheckCalls)) {
       RP_EndRowSourceOnStop(g->base.parent);
       return RS_RESULT_TIMEDOUT;
     }
@@ -302,7 +302,7 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
     if (rc == RS_RESULT_OK && base->parent->limits && ++g->rowsSinceMemoryCheck >= checkInterval) {
       g->rowsSinceMemoryCheck = 0;
       uint32_t readNow = checkInterval - 1;
-      if (QueryMemory_ShouldStop(base->parent->limits, &readNow)) {
+      if (QueryMemory_Checkpoint(base->parent->limits, &readNow)) {
         // No partial groups: like a timeout, the stop yields none, and Grouper_rpFree frees them.
         RP_EndRowSourceOnStop(base->parent);
         rc = RS_RESULT_TIMEDOUT;
