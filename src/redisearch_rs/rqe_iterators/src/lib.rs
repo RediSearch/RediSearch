@@ -479,11 +479,12 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     ///
     /// Building opens one reader per matching bucket, so the implementation may poll `limits`
     /// (the query's request limits) while it builds. If it abandons the build on a stop, it
-    /// returns an iterator whose first read fails with [`RQEIteratorError::TimedOut`], so the
-    /// stop gets the reply the query's timeout policy gives any read-time timeout.
+    /// returns an iterator whose first read fails with [`RQEIteratorError::TimedOut`] whatever
+    /// the stop's reason: the error does not carry it, the query's limits do.
     ///
     /// `limits` must stay valid for the call, and its kind and source must not change during
-    /// it; only the blocked-client flag may change concurrently.
+    /// it. The blocked-client flag and the memory-stop flag may change concurrently, so read
+    /// them only through the limits API, which accesses them atomically.
     fn new_numeric_on_disk<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
