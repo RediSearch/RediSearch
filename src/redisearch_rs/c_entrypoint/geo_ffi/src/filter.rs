@@ -8,8 +8,6 @@
 */
 
 //! C-owned filter layout and argument-cursor adapters for [`geo`].
-//!
-//! Exports use a temporary `Rust_` prefix so the C implementation remains active until the swap.
 
 use std::{
     cell::Cell,
@@ -62,7 +60,7 @@ const fn c_filter(filter: GeoFilter) -> ffi::GeoFilter {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoDistance_Parse(unit: *const c_char) -> ffi::GeoDistance {
+pub unsafe extern "C" fn GeoDistance_Parse(unit: *const c_char) -> ffi::GeoDistance {
     // SAFETY: the caller supplies a NUL-terminated string.
     GeoDistance::parse(unsafe { CStr::from_ptr(unit) }.to_bytes()) as ffi::GeoDistance
 }
@@ -74,7 +72,7 @@ pub unsafe extern "C" fn Rust_GeoDistance_Parse(unit: *const c_char) -> ffi::Geo
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoDistance_Parse_Buffer(
+pub unsafe extern "C" fn GeoDistance_Parse_Buffer(
     unit: *const c_char,
     len: usize,
 ) -> ffi::GeoDistance {
@@ -92,7 +90,7 @@ pub unsafe extern "C" fn Rust_GeoDistance_Parse_Buffer(
 
 /// Return a static NUL-terminated spelling for a C distance unit.
 #[unsafe(no_mangle)]
-pub const extern "C" fn Rust_GeoDistance_ToString(unit: ffi::GeoDistance) -> *const c_char {
+pub const extern "C" fn GeoDistance_ToString(unit: ffi::GeoDistance) -> *const c_char {
     match unit_from_c(unit) {
         GeoDistance::Kilometers => c"km",
         GeoDistance::Meters => c"m",
@@ -105,13 +103,13 @@ pub const extern "C" fn Rust_GeoDistance_ToString(unit: ffi::GeoDistance) -> *co
 
 /// Allocate a C-compatible filter shell using the Redis allocator.
 ///
-/// Release it with [`Rust_GeoFilter_Free`]. A null `unit` selects the default unit.
+/// Release it with [`GeoFilter_Free`]. A null `unit` selects the default unit.
 ///
 /// # Safety
-/// A non-null `unit` must satisfy [`Rust_GeoDistance_Parse_Buffer`]'s contract.
+/// A non-null `unit` must satisfy [`GeoDistance_Parse_Buffer`]'s contract.
 /// Redis allocator callbacks must be initialized.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_NewGeoFilter(
+pub unsafe extern "C" fn NewGeoFilter(
     lon: f64,
     lat: f64,
     radius: f64,
@@ -121,7 +119,7 @@ pub unsafe extern "C" fn Rust_NewGeoFilter(
     let mut filter = GeoFilter::new(lon, lat, radius, None);
     if !unit.is_null() {
         // SAFETY: the caller supplies the bounded unit buffer.
-        filter.unit = unit_from_c(unsafe { Rust_GeoDistance_Parse_Buffer(unit, len) });
+        filter.unit = unit_from_c(unsafe { GeoDistance_Parse_Buffer(unit, len) });
     }
     // SAFETY: the caller initializes Redis allocation before creating filters.
     let alloc = unsafe { RedisModule_Alloc }.expect("Redis allocator not initialized");
@@ -139,7 +137,7 @@ pub unsafe extern "C" fn Rust_NewGeoFilter(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoFilter_SetField(
+pub unsafe extern "C" fn GeoFilter_SetField(
     filter: *mut ffi::GeoFilter,
     field: *const ffi::FieldSpec,
 ) {
@@ -157,7 +155,7 @@ pub unsafe extern "C" fn Rust_GeoFilter_SetField(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoFilter_Validate(
+pub unsafe extern "C" fn GeoFilter_Validate(
     filter: *const ffi::GeoFilter,
     status: *mut OpaqueQueryError,
 ) -> c_int {
@@ -188,7 +186,7 @@ pub unsafe extern "C" fn Rust_GeoFilter_Validate(
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoFilter_Free(filter: *mut ffi::GeoFilter) {
+pub unsafe extern "C" fn GeoFilter_Free(filter: *mut ffi::GeoFilter) {
     // SAFETY: the caller transfers ownership of the shell and its numeric filters.
     let filters = unsafe { (*filter).numericFilters };
     if !filters.is_null() {
@@ -205,11 +203,11 @@ pub unsafe extern "C" fn Rust_GeoFilter_Free(filter: *mut ffi::GeoFilter) {
 ///
 /// # Safety
 /// `filter` must be a [valid], exclusively owned legacy filter allocated with the Redis
-/// allocator. Its field wrapper must borrow its string as created by [`Rust_GeoFilter_LegacyParse`].
+/// allocator. Its field wrapper must borrow its string as created by [`GeoFilter_LegacyParse`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_LegacyGeoFilter_Free(filter: *mut ffi::LegacyGeoFilter) {
+pub unsafe extern "C" fn LegacyGeoFilter_Free(filter: *mut ffi::LegacyGeoFilter) {
     // SAFETY: the caller supplies an initialized legacy filter.
     let field = unsafe { (*filter).field };
     if !field.is_null() {
@@ -217,7 +215,7 @@ pub unsafe extern "C" fn Rust_LegacyGeoFilter_Free(filter: *mut ffi::LegacyGeoFi
         unsafe { ffi::HiddenString_Free(field, false) };
     }
     // SAFETY: the base is the first member and retains the same allocation address.
-    unsafe { Rust_GeoFilter_Free(filter.cast()) };
+    unsafe { GeoFilter_Free(filter.cast()) };
 }
 
 /// Check a geohash score with [`GeoFilter::is_within_radius`], preserving the C integer return ABI.
@@ -230,7 +228,7 @@ pub unsafe extern "C" fn Rust_LegacyGeoFilter_Free(filter: *mut ffi::LegacyGeoFi
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_isWithinRadius(
+pub unsafe extern "C" fn isWithinRadius(
     filter: *const ffi::GeoFilter,
     score: f64,
     distance: *mut f64,
@@ -304,7 +302,7 @@ impl<'a> LegacyGeoArgs<'a> for CursorArgs<'a> {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Rust_GeoFilter_LegacyParse(
+pub unsafe extern "C" fn GeoFilter_LegacyParse(
     filter: *mut ffi::LegacyGeoFilter,
     cursor: *mut ffi::ArgsCursor,
     has_empty: *mut bool,

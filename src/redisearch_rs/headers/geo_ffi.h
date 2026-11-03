@@ -77,7 +77,7 @@ int GeoDistance_Compute(struct RSValue *const *argv, size_t argc, struct RSValue
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-GeoDistance Rust_GeoDistance_Parse(const char *unit);
+GeoDistance GeoDistance_Parse(const char *unit);
 
 /**
  * Parse a bounded unit with [`GeoDistance::parse_buffer`].
@@ -87,12 +87,12 @@ GeoDistance Rust_GeoDistance_Parse(const char *unit);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-GeoDistance Rust_GeoDistance_Parse_Buffer(const char *unit, size_t len);
+GeoDistance GeoDistance_Parse_Buffer(const char *unit, size_t len);
 
 /**
  * Return a static NUL-terminated spelling for a C distance unit.
  */
-const char *Rust_GeoDistance_ToString(GeoDistance unit);
+const char *GeoDistance_ToString(GeoDistance unit);
 
 /**
  * Free a Redis-allocated filter shell and its Rust-owned numeric filters.
@@ -103,7 +103,7 @@ const char *Rust_GeoDistance_ToString(GeoDistance unit);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void Rust_GeoFilter_Free(GeoFilter *filter);
+void GeoFilter_Free(GeoFilter *filter);
 
 /**
  * Parse the legacy filter while preserving cursor progress, borrowed field storage, and errors.
@@ -118,7 +118,7 @@ void Rust_GeoFilter_Free(GeoFilter *filter);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int Rust_GeoFilter_LegacyParse(LegacyGeoFilter *filter, ArgsCursor *cursor, bool *has_empty, struct QueryError *status);
+int GeoFilter_LegacyParse(LegacyGeoFilter *filter, ArgsCursor *cursor, bool *has_empty, struct QueryError *status);
 
 /**
  * Bind a filter to a stable field index, or clear its binding for a null field.
@@ -128,7 +128,7 @@ int Rust_GeoFilter_LegacyParse(LegacyGeoFilter *filter, ArgsCursor *cursor, bool
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void Rust_GeoFilter_SetField(GeoFilter *filter, const FieldSpec *field);
+void GeoFilter_SetField(GeoFilter *filter, const FieldSpec *field);
 
 /**
  * Validate scalar parameters without changing the filter or replacing an earlier error.
@@ -139,42 +139,29 @@ void Rust_GeoFilter_SetField(GeoFilter *filter, const FieldSpec *field);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-int Rust_GeoFilter_Validate(const GeoFilter *filter, struct QueryError *status);
+int GeoFilter_Validate(const GeoFilter *filter, struct QueryError *status);
 
 /**
  * Free the borrowed field wrapper and the legacy filter shell.
  *
  * # Safety
  * `filter` must be a [valid], exclusively owned legacy filter allocated with the Redis
- * allocator. Its field wrapper must borrow its string as created by [`Rust_GeoFilter_LegacyParse`].
+ * allocator. Its field wrapper must borrow its string as created by [`GeoFilter_LegacyParse`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void Rust_LegacyGeoFilter_Free(LegacyGeoFilter *filter);
+void LegacyGeoFilter_Free(LegacyGeoFilter *filter);
 
 /**
  * Allocate a C-compatible filter shell using the Redis allocator.
  *
- * Release it with [`Rust_GeoFilter_Free`]. A null `unit` selects the default unit.
+ * Release it with [`GeoFilter_Free`]. A null `unit` selects the default unit.
  *
  * # Safety
- * A non-null `unit` must satisfy [`Rust_GeoDistance_Parse_Buffer`]'s contract.
+ * A non-null `unit` must satisfy [`GeoDistance_Parse_Buffer`]'s contract.
  * Redis allocator callbacks must be initialized.
  */
-GeoFilter *Rust_NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t len);
-
-/**
- * Check a geohash score with [`GeoFilter::is_within_radius`], preserving the C integer return ABI.
- *
- * # Panics
- * Has the same non-finite-center and invalid-unit panic conditions as the core method.
- *
- * # Safety
- * `filter` must be [valid] and non-null. A non-null `distance` must be [valid] to write.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-int Rust_isWithinRadius(const GeoFilter *filter, double score, double *distance);
+GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t len);
 
 /**
  * Decode a geohash `f64` back into a `[longitude, latitude]` pair.
@@ -205,6 +192,19 @@ double encodeGeo(double lon, double lat);
 double geohashGetDistance(double lon1, double lat1, double lon2, double lat2);
 
 /**
+ * Check a geohash score with [`GeoFilter::is_within_radius`], preserving the C integer return ABI.
+ *
+ * # Panics
+ * Has the same non-finite-center and invalid-unit panic conditions as the core method.
+ *
+ * # Safety
+ * `filter` must be [valid] and non-null. A non-null `distance` must be [valid] to write.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int isWithinRadius(const GeoFilter *filter, double score, double *distance);
+
+/**
  * Return `true` if the distance between two lon/lat points is within `radius`
  * meters.
  *
@@ -213,7 +213,7 @@ double geohashGetDistance(double lon1, double lat1, double lon2, double lat2);
  * # Panics
  *
  * If any coordinate is non-finite (NaN or infinity). In particular,
- * [`filter::Rust_GeoFilter_Validate`] deliberately preserves the baseline NaN acceptance;
+ * [`filter::GeoFilter_Validate`] deliberately preserves the baseline NaN acceptance;
  * validation does not establish this function's finiteness precondition.
  *
  * # Safety

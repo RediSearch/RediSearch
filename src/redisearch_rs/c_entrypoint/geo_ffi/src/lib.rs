@@ -114,7 +114,7 @@ pub extern "C" fn geohashGetDistance(lon1: f64, lat1: f64, lon2: f64, lat2: f64)
 /// # Panics
 ///
 /// If any coordinate is non-finite (NaN or infinity). In particular,
-/// [`filter::Rust_GeoFilter_Validate`] deliberately preserves the baseline NaN acceptance;
+/// [`filter::GeoFilter_Validate`] deliberately preserves the baseline NaN acceptance;
 /// validation does not establish this function's finiteness precondition.
 ///
 /// # Safety
