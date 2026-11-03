@@ -76,7 +76,10 @@ env:
   REDISEARCH_GENERATE_HEADERS: "0"
   # Fail on warnings
   RUSTFLAGS: "-Dwarnings"
-  BUILD_INTEL_SVS_OPT: "yes"
+  # Arch builds SVS from the submodule, the way Arch packages build it: the
+  # prebuilt SVS tarball that BUILD_INTEL_SVS_OPT selects can lag the toolchain
+  # Arch ships, which would hide whether our own pinned sources still build.
+  BUILD_INTEL_SVS_OPT: ${{ inputs.platform == 'archlinux:latest' && 'no' || 'yes' }}
   SETUP_RETRY_LOOP: |
     SUCCESS=0
     for i in 1 2 3 4 5; do
