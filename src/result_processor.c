@@ -2106,7 +2106,7 @@ typedef struct {
   StrongRef sync_ref;                  // Reference to shared synchronization object (DepleterSync)
   rs_wall_clock_ns_t depletionTime;    // Time spent depleting in the background thread (nanoseconds)
   redisearch_thpool_t *pool;           // Thread pool used for depletion jobs
-  uint32_t memoryCheckCalls;           // QueryMemory_ShouldStop counter for the buffer
+  uint32_t memoryCheckCalls;           // QueryMemory_Checkpoint counter for the buffer
 } RPSafeDepleter;
 
 /*
@@ -2647,7 +2647,7 @@ dictType dictTypeHybridSearchResult = {
  RPStatus* upstreamReturnCodes;   // Final return codes from each upstream
  HybridLookupContext *lookupCtx;  // Lookup context for field merging
  HybridExplainContext *explainCtx; // EXPLAINSCORE wrapper context; NULL ⇒ no wrapping
- uint32_t memoryCheckCalls;       // QueryMemory_ShouldStop counter for the held rows
+ uint32_t memoryCheckCalls;       // QueryMemory_Checkpoint counter for the held rows
  bool memoryStopped;              // The merger's own memory check stopped it; later upstreams are only drained
  bool heldPastStop;              // The merger kept its rows past a memory stop
 
@@ -2816,7 +2816,7 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
          *r = SearchResult_New();
          // The dictionary grows only here. The stop is the tail's own: the upstreams already ended
          // theirs, so the merger must end its consumption whatever the stop policy.
-         if (QueryMemory_ShouldStop(self->sctx->limits, &self->memoryCheckCalls)) {
+         if (QueryMemory_Checkpoint(self->sctx->limits, &self->memoryCheckCalls)) {
            self->memoryStopped = true;
            rm_free(r);
            // The rest of this upstream is discarded, but its real terminal status still counts.
