@@ -75,8 +75,8 @@ static std::vector<std::string> trieIterPrefix(Trie *t, const char *prefix) {
   std::vector<std::string> terms;
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
-  QueryRequestTimeout timeout = {};
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits timeout = {};
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
   Trie_IterateContains(t, runes, len, true, false, collectTermFunc, &terms, &timeout);
   runeBufFree(&buf);
   return terms;
