@@ -245,7 +245,8 @@ where
     // inner iterator's dispatch pointers unchanged across the cast.
     type Suspended = RawNumeric<'index, Suspended, R::Suspended, E, R>;
 
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        self.it.refresh_num_docs();
         let raw = Box::into_raw(self);
         // SAFETY: `RawNumeric` is `#[repr(C)]` over the inner
         // `RawInvIndIterator`, layout-identical across modes by invariant 1 on
@@ -319,9 +320,10 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.it.num_estimated()
+        self.it.num_docs_field() as usize
     }
 }
+
 impl<'index, R, E> RQEIterator<'index> for Numeric<'index, R, E>
 where
     R: NumericReader<'index> + ReseatIndex<NumericIndex>,

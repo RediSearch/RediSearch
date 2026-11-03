@@ -367,7 +367,8 @@ where
 {
     type Suspended = RawMissing<'index, Suspended, E, C>;
 
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        self.it.refresh_num_docs();
         let raw = Box::into_raw(self);
         // SAFETY: `RawMissing` is a `#[repr(C)]` newtype whose only
         // `Rf`-dependent field is the inner `RawInvIndIterator`, layout-identical
@@ -438,6 +439,6 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.it.num_estimated()
+        self.it.num_docs_field() as usize
     }
 }

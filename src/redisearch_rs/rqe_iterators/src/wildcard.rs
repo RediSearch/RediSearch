@@ -226,10 +226,10 @@ impl<'query> RQESuspendedIterator<'query> for RawWildcard<'query, Suspended> {
     }
 
     fn num_estimated(&self) -> usize {
-        // Mode-independent — mirrors the active `num_estimated`.
         self.top_id as usize
     }
 }
+
 /// A marker trait for iterators that match all documents.
 pub trait WildcardIterator<'index>: RQEIterator<'index> {}
 

@@ -572,6 +572,9 @@ where
     wrapper.sync_header_from_active();
 }
 
+/// `NumEstimated` C callback. Returns the inner iterator's estimate in whichever
+/// typestate it is in, so FT.PROFILE introspection works after the iterator has
+/// been suspended at the unlock site.
 extern "C" fn num_estimated<'index, I>(base: *const QueryIterator) -> usize
 where
     I: RQEIteratorBoxed<'index> + 'index,
@@ -584,7 +587,10 @@ where
             NonNull::new(base.cast_mut()).expect("`base` must not be null"),
         )
     };
-    wrapper.state.active_ref().num_estimated()
+    match wrapper.state() {
+        InnerState::Active(it) => it.num_estimated(),
+        InnerState::Suspended(it) => it.num_estimated(),
+    }
 }
 
 /// [`ProfileChildren`] callback for composite Rust iterators wrapped in
