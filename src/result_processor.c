@@ -3469,6 +3469,13 @@ rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *base) {
   return self->depletionTime;
 }
 
+bool RPDepleter_EndedOnTimeout(const ResultProcessor *depleter) {
+  RS_ASSERT(depleter->type == RP_DEPLETER || depleter->type == RP_SAFE_DEPLETER);
+  const RPStatus rc = depleter->type == RP_DEPLETER ? ((const RPDepleter *)depleter)->last_rc
+                                                   : ((const RPSafeDepleter *)depleter)->last_rc;
+  return rc == RS_RESULT_TIMEDOUT;
+}
+
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
   bool anyTimedOut = false;
   for (size_t i = 0; i < array_len(depleters); i++) {

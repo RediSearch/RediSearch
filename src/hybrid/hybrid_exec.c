@@ -311,11 +311,14 @@ static bool subqueryStoppedForOom(HybridRequest *hreq) {
   return false;
 }
 
-// A subquery whose deadline elapsed with no memory stop. The collapsed depletion result cannot tell it from a memory-stopped sibling.
-static bool subqueryTimedOutWithoutOom(HybridRequest *hreq) {
+// A subquery whose depletion ended on a timeout with no memory stop. The collapsed depletion result
+// cannot tell it from a memory-stopped sibling, and reading the clock now would also catch a
+// sibling that finished just before its deadline.
+static bool subqueryTimedOutWithoutOom(HybridRequest *hreq,
+                                        const arrayof(ResultProcessor *) depleters) {
   for (size_t i = 0; i < hreq->nrequests; ++i) {
-    const QueryRequestLimits *limits = &hreq->requests[i]->base.limits;
-    if (!QueryRequestLimits_IsMemoryStopped(limits) && QueryRequestLimits_IsTimedOutExact(limits)) {
+    if (!QueryRequestLimits_IsMemoryStopped(&hreq->requests[i]->base.limits) &&
+        RPDepleter_EndedOnTimeout(depleters[i])) {
       return true;
     }
   }
@@ -959,6 +962,7 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
       // Trigger synchronous depletion to read and buffer all results while the spec lock is held.
       rc = RPDepleter_DepleteAll(depleters);
     }
+    const bool siblingTimedOut = subqueryTimedOutWithoutOom(req, depleters);
     array_free(depleters);
 
     // Refresh the background-scan-OOM capture now that depletion is done: the
@@ -974,7 +978,7 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
     bool depletionStopped = false;
     if (rc != RS_RESULT_OK) {
       if (rc == RS_RESULT_TIMEDOUT && subqueryStoppedForOom(req) &&
-          (req->base.reqConfig.oomPolicy == OomPolicy_Fail || !subqueryTimedOutWithoutOom(req))) {
+          (req->base.reqConfig.oomPolicy == OomPolicy_Fail || !siblingTimedOut)) {
         // Stopped for memory: ON_OOM decides, whatever ON_TIMEOUT is. Under ON_OOM RETURN a
         // sibling's genuine timeout is left to ON_TIMEOUT.
         if (req->base.reqConfig.oomPolicy == OomPolicy_Fail) {
