@@ -258,7 +258,7 @@ static int settleQueuedOom(RPNet *nc) {
       warn = true;
     }
     // The timeout ends this read only: a cursor's next read and a profile still need the rest.
-    array_append(nc->settledReplies, queued);
+    array_ensure_append_1(nc->settledReplies, queued);
   }
   if (failed) {
     return RS_RESULT_ERROR;
