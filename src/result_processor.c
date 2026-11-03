@@ -80,6 +80,15 @@ static bool blockedClientTimedOut(void *arg) {
 // only bounds an idle wait before looping back to re-check the query timeout.
 #define ASYNC_POLL_TIMEOUT_SATURATED_MS 2
 
+// How many docIds ahead of the current one the wildcard scan prefetches metadata. Far enough
+// for the cache miss to finish before the doc is reached; measured on the asm sortby benchmarks.
+#define WILDCARD_DMD_PREFETCH_DISTANCE 16
+
+// The metadata size above which a wildcard scan prefetches: a core's L2 cache on current server
+// CPUs. Smaller metadata stays in L2 across queries, so a prefetch has no miss to hide and only
+// adds work to every row.
+#define WILDCARD_DMD_PREFETCH_MIN_BYTES (2 * 1024 * 1024)
+
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
  *
@@ -98,6 +107,9 @@ typedef struct {
   RedisSearchCtx *sctx;
   const RedisModuleSlotRangeArray *querySlots;  // Query slots info, may be used for filtering
   uint32_t keySpaceVersion;                     // version of the Keyspace slot ranges used for filtering
+  // Prefetch the metadata of the docIds just ahead: set for a scan visiting every docId in
+  // ascending order over a doc table too big to stay cached.
+  bool prefetchDmd;
 
   // Async disk I/O state (only used when async disk I/O is enabled)
   IndexResultAsyncReadState async;
@@ -116,10 +128,11 @@ typedef struct {
  * @param docs The document table
  * @param sctx The search context
  * @param it The query iterator
+ * @param prefetchDmd Whether to prefetch the metadata of the docIds just ahead of `it`
  * @param dmd The document metadata pointer to set
  * @return true if the document is not deleted or expired, false otherwise.
  */
-static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx *sctx, const QueryIterator *it, const RSDocumentMetadata **dmd) {
+static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx *sctx, const QueryIterator *it, bool prefetchDmd, const RSDocumentMetadata **dmd) {
   if (spec->diskSpec) {
     RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
     diskDmd->sortVector = RSSortingVector_Empty();
@@ -141,6 +154,12 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
         return false;
       }
     } else {
+      // In a wildcard scan the ids just ahead are the next rows. Prefetching their metadata
+      // overlaps the cache misses of consecutive rows, which otherwise stall the scan one after
+      // another.
+      if (prefetchDmd) {
+        DocTable_Prefetch(docs, it->lastDocId + WILDCARD_DMD_PREFETCH_DISTANCE);
+      }
       *dmd = DocTable_Borrow(docs, it->lastDocId);
     }
     if (!*dmd || (*dmd)->flags & Document_Deleted || DocTable_IsDocExpired(docs, *dmd, &sctx->currentTime)) {
@@ -416,7 +435,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     needToValidateCurrent = false;
 
     // Get document metadata (either from disk or in-memory DocTable)
-    if (!getDocumentMetadata(spec, &spec->docs, sctx, it, &dmd)) {
+    if (!getDocumentMetadata(spec, &spec->docs, sctx, it, self->prefetchDmd, &dmd)) {
       continue;
     }
 
@@ -533,13 +552,18 @@ static void rpQueryItFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotRangeArray *querySlots, uint32_t keySpaceVersion, RedisSearchCtx *sctx) {
+ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotRangeArray *querySlots, uint32_t keySpaceVersion, RedisSearchCtx *sctx, bool denseAscendingScan) {
   RS_ASSERT(root != NULL);
   RS_ASSERT(sctx && sctx->limits);
   RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
   ret->iterator = root;
   ret->querySlots = querySlots;
   ret->keySpaceVersion = keySpaceVersion;
+  // Other iterators skip ids, so the ids just ahead are not their next rows. Decided once: a
+  // cursor keeps the choice while the table grows or shrinks between reads.
+  ret->prefetchDmd = denseAscendingScan && !sctx->spec->diskSpec &&
+                     sctx->spec->docs.size * sizeof(RSDocumentMetadata) >
+                         WILDCARD_DMD_PREFETCH_MIN_BYTES;
   ret->base.Free = rpQueryItFree;
   ret->sctx = sctx;
   ret->base.type = RP_INDEX;
