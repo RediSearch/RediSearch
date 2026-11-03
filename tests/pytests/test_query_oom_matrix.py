@@ -117,9 +117,8 @@ class Stopped:
     """One reply of a pressured run: rows, warnings, or the error it ended with. `total` is the
     reply's total count, kept for FT.SEARCH only: the other shapes' totals differ by shape and
     topology (cursor chunks, hybrid fusion, the coordinator's WITHCOUNT)."""
-    def __init__(self, rows=(), warnings=None, error=None, first_command_error=False, total=None):
+    def __init__(self, rows=(), warnings=None, error=None, total=None):
         self.rows, self.warnings, self.error, self.total = list(rows), warnings, error, total
-        self.first_command_error = first_command_error
 
 
 def _run(env, shape):
@@ -128,7 +127,7 @@ def _run(env, shape):
         try:
             res = env.cmd(*shape.query)
         except redis_exceptions.ResponseError as e:
-            return Stopped(error=str(e), first_command_error=True)
+            return Stopped(error=str(e))
         rows, warnings = _parse(shape.kind, res)
         return Stopped(rows, warnings, total=_search_total(res) if shape.kind == 'search' else None)
 
@@ -136,7 +135,7 @@ def _run(env, shape):
     try:
         res, cid = env.cmd(*shape.query)
     except redis_exceptions.ResponseError as e:
-        return Stopped(error=str(e), first_command_error=True)
+        return Stopped(error=str(e))
     for _ in range(MAX_CURSOR_READS):
         chunk, chunk_warnings = _parse('aggregate', res)
         rows += chunk
