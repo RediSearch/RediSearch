@@ -370,7 +370,7 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
       subqueryTimedOut |= hreq->subqueriesReturnCodes[i] == RS_RESULT_TIMEDOUT;
     }
     if (rc == RS_RESULT_TIMEDOUT && !subqueryTimedOut &&
-        !QueryRequestLimits_IsTimedOutOrStopped(&hreq->base.limits)) {
+        !QueryRequestLimits_ShouldStopExact(&hreq->base.limits)) {
       cut = true;
       rc = RS_RESULT_EOF;
     }
