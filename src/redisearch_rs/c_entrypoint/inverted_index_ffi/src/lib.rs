@@ -323,7 +323,7 @@ pub unsafe extern "C" fn InvertedIndex_BlocksSummary(
         *count = blocks_summary.len();
     }
 
-    Box::leak(blocks_summary.into_boxed_slice()).as_mut_ptr()
+    Box::into_raw(blocks_summary.into_boxed_slice()).cast::<BlockSummary>()
 }
 
 /// Free the memory associated with the array of block summaries returned by [`InvertedIndex_BlocksSummary`].
@@ -338,11 +338,10 @@ pub unsafe extern "C" fn InvertedIndex_BlocksSummary(
 pub unsafe extern "C" fn InvertedIndex_BlocksSummaryFree(blocks: *mut BlockSummary, count: usize) {
     debug_assert!(!blocks.is_null(), "blocks must not be null");
 
-    // SAFETY: The caller must ensure that `blocks` is a valid pointer to an array of `BlockSummary`
-    // and that `count` is the correct length of the array
-    let blocks = unsafe { std::slice::from_raw_parts_mut(blocks, count) };
+    let blocks = std::ptr::slice_from_raw_parts_mut(blocks, count);
 
-    // SAFETY: We can safely convert the slice back to a boxed slice and drop it to free the memory
+    // SAFETY: The caller must ensure that `blocks` was returned by `InvertedIndex_BlocksSummary`
+    // and that `count` is the length it reported, so `blocks` is the boxed slice it released.
     let _ = unsafe { Box::from_raw(blocks) };
 }
 
@@ -885,4 +884,37 @@ pub unsafe extern "C" fn IndexReader_Seek<'index>(
     let res = unsafe { &mut *res };
 
     ir_dispatch!(ir, seek_record, doc_id, res).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blocks_summary_round_trip() {
+        let mut mem_size = 0;
+        let ii = NewInvertedIndex_Ex(IndexFlags_Index_StoreNumeric, false, false, &mut mem_size);
+
+        // SAFETY: `ii` was just created by `NewInvertedIndex_Ex` and is freed below.
+        unsafe { InvertedIndex_WriteNumericEntry(ii, 3, 1.0) };
+        // SAFETY: as above.
+        unsafe { InvertedIndex_WriteNumericEntry(ii, 7, 2.0) };
+
+        let mut count = 0;
+        // SAFETY: `ii` is a live index and `count` a valid `usize` out-parameter.
+        let blocks = unsafe { InvertedIndex_BlocksSummary(ii, &mut count) };
+
+        assert_eq!(count, 1);
+        // SAFETY: `blocks` points to `count` initialized `BlockSummary` values.
+        let summary = unsafe { std::slice::from_raw_parts(blocks, count) };
+        assert_eq!(summary[0].first_doc_id, 3);
+        assert_eq!(summary[0].last_doc_id, 7);
+        assert_eq!(summary[0].number_of_entries, 2);
+
+        // SAFETY: `blocks` and `count` come from the `InvertedIndex_BlocksSummary` call above and
+        // `blocks` is not used afterwards.
+        unsafe { InvertedIndex_BlocksSummaryFree(blocks, count) };
+        // SAFETY: `ii` was created by `NewInvertedIndex_Ex` and is not used afterwards.
+        unsafe { InvertedIndex_Free(ii) };
+    }
 }
