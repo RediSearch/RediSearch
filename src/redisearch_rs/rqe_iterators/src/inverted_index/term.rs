@@ -520,7 +520,8 @@ where
     // active reader) so the inner iterator's dispatch pointers are unchanged.
     type Suspended = RawTerm<'index, Suspended, R::Suspended, E, R>;
 
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        self.it.refresh_num_docs();
         let raw = Box::into_raw(self);
         // SAFETY: `RawTerm` is a `#[repr(C)]` newtype over the inner
         // `RawInvIndIterator`, layout-identical across modes by invariant 1 on
@@ -593,6 +594,6 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.it.num_estimated()
+        self.it.num_docs_field() as usize
     }
 }

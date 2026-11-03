@@ -287,7 +287,8 @@ where
     // identical across the cast while the inner reader weakens.
     type Suspended = RawTag<'index, Suspended, E, L, C>;
 
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        self.it.refresh_num_docs();
         let raw = Box::into_raw(self);
         // SAFETY: `RawTag` is a `#[repr(C)]` struct whose only `Rf`-dependent
         // field is the inner `RawInvIndIterator`, layout-identical across modes
@@ -359,6 +360,6 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.it.num_estimated()
+        self.it.num_docs_field() as usize
     }
 }

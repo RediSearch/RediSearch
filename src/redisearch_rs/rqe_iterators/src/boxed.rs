@@ -171,10 +171,8 @@ pub trait RQESuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     /// resuming. Used by FFI introspection (`FT.PROFILE` printing) which
     /// is called after the iterator has been suspended at the unlock site.
     ///
-    /// The value is an estimate, so returning a snapshot from construction
-    /// is acceptable — the underlying invariant is that the FFI consumer
-    /// uses it for display only. Default returns 0 for iterators that do
-    /// not maintain a cached estimate.
+    /// The value is an estimate, so returning one cached before the suspend is
+    /// acceptable — the FFI consumer uses it for display only.
     fn num_estimated(&self) -> usize;
 }
 

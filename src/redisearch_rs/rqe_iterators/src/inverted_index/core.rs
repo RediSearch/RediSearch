@@ -78,12 +78,12 @@ pub struct RawInvIndIterator<'query, Rf: Ref, R, E = NoOpChecker, RA = R> {
     /// is immutable for the iterator's lifetime.
     flags: IndexFlags,
 
-    /// Cached count of unique documents in the underlying index, snapshotted at
-    /// construction time from `reader.unique_docs()`. Kept here so introspection
-    /// (e.g. `FT.PROFILE` estimate printing) can read the estimate regardless of
-    /// `Rf` — the live reader's `unique_docs()` is only callable in the
-    /// [`Active`] instantiation, but the snapshot is a stable estimate that both
-    /// modes can report.
+    /// Count of unique documents in the underlying index, as last read from the
+    /// live reader: at construction and again at every
+    /// [`suspend`](RQEIteratorBoxed::suspend), while the read lock is still held. The
+    /// live reader is only callable in the [`Active`] instantiation, so this is
+    /// what the suspended form reports, and refreshing it on suspend keeps the
+    /// estimate from jumping back to its construction-time value across an unlock.
     num_docs: u64,
 
     /// The implementation of the [`read`](RQEIterator::read) method.
@@ -175,9 +175,8 @@ impl<'query, Rf: Ref, R, E, RA> RawInvIndIterator<'query, Rf, R, E, RA> {
 
     /// Read the cached unique-document count regardless of mode.
     ///
-    /// Snapshotted at construction from `reader.unique_docs()`. Feeds
-    /// [`RQESuspendedIterator::num_estimated`] on the suspended side, where the
-    /// live reader is unavailable.
+    /// Feeds [`RQESuspendedIterator::num_estimated`] on the suspended side, where
+    /// the live reader is unavailable.
     pub(crate) const fn num_docs_field(&self) -> u64 {
         self.num_docs
     }
@@ -199,6 +198,15 @@ where
     R: IndexReader<'index>,
     E: ExpirationChecker,
 {
+    /// Refresh the cached unique-document count from the live reader, so the
+    /// suspended form reports the estimate the active one last did.
+    ///
+    /// Every iterator built on this one calls it from its own `suspend` before
+    /// weakening the reader.
+    pub(crate) fn refresh_num_docs(&mut self) {
+        self.num_docs = self.reader.unique_docs();
+    }
+
     /// Creates a new inverted index iterator with the given expiration checker.
     pub fn new(reader: R, result: RSIndexResult<'static>, expiration_checker: E) -> Self {
         // no need to manually skip duplicates if there is none in the II.
@@ -730,7 +738,8 @@ where
     // active reader), so `read_impl`/`skip_to_impl` keep an identical type.
     type Suspended = RawInvIndIterator<'index, Suspended, R::Suspended, E, R>;
 
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        self.refresh_num_docs();
         // Reuse the same allocation so external pointers into the iterator
         // interior (composite aggregate results) stay valid across the cycle.
         let active: *mut Self = Box::into_raw(self);
@@ -829,7 +838,7 @@ where
 
     fn num_estimated(&self) -> usize {
         // The live reader's `unique_docs()` is unavailable once weakened, so
-        // return the snapshot cached at construction (see `num_docs`).
+        // return the count cached at suspend (see `num_docs`).
         self.num_docs_field() as usize
     }
 }

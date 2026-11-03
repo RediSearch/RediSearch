@@ -700,6 +700,22 @@ fn a_suspended_wrapper_prints_the_profile_of_its_active_form() {
     insta::assert_debug_snapshot!(suspended);
 }
 
+/// `FT.PROFILE` asks for the estimate after the query has released its read lock, by which time
+/// the iterator tree is suspended, so the callback has to answer in that state too.
+#[test]
+fn a_suspended_wrapper_still_reports_its_estimate() {
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(Mock::new([1, 2, 3]));
+
+    // SAFETY: `it` was just built by `boxed_new`, which populates every callback.
+    unsafe {
+        let num_estimated = (*it).NumEstimated.expect("NumEstimated must be populated");
+        let active = num_estimated(it);
+        ((*it).Suspend.expect("Suspend must be populated"))(it);
+        assert_eq!(num_estimated(it), active);
+        ((*it).Free.expect("Free must be populated"))(it);
+    }
+}
+
 /// An exhausted iterator publishes no result, and C tells it apart from one sitting on a document
 /// by `current` being NULL with `atEOF` set. Revalidate re-derives the header from the resumed
 /// iterator, so that has to survive the cycle, along with the last position.
