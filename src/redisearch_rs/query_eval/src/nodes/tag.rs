@@ -30,7 +30,9 @@ use rqe_iterators::{
 use trie_rs::{TrieMap, TrieMapOpaque, iter::PatternMode};
 
 use super::wildcard_query::below_min_term_prefix;
-use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, into_child_iterator};
+use crate::{
+    Config, Evaluated, QueryEvalContext, QueryNodeMut, expansion::memory_stop, into_child_iterator,
+};
 
 /// The request's clock deadline, or `None` when it has no clock-based timeout.
 fn clock_deadline(ctx: &QueryEvalContext) -> Option<ffi::timespec> {
@@ -462,6 +464,9 @@ fn collect_filtered_readers(
                 .set_reached_max_prefix_expansions();
             break;
         }
+        if memory_stop(ctx) {
+            break;
+        }
         children.extend(open_reader_child(ctx, index, value, field_index));
     }
     children
@@ -496,7 +501,7 @@ fn collect_suffix_readers(
     // stay owned by the suffix trie.
     let matches = unsafe { FatArray::new(NonNull::new(matches)?) };
     let mut children = Vec::new();
-    for &inner in matches.as_slice() {
+    'outer: for &inner in matches.as_slice() {
         if children.len() >= max_prefix_expansions {
             break;
         }
@@ -512,6 +517,9 @@ fn collect_suffix_readers(
                     .warnings_mut()
                     .set_reached_max_prefix_expansions();
                 break;
+            }
+            if memory_stop(ctx) {
+                break 'outer;
             }
             debug_assert!(!value.is_null(), "a suffix match must carry a string");
             // SAFETY: the suffix trie stores NUL-terminated tag strings.
@@ -536,6 +544,9 @@ fn collect_wildcard_suffix_readers(
             ctx.status()
                 .warnings_mut()
                 .set_reached_max_prefix_expansions();
+            break;
+        }
+        if memory_stop(ctx) {
             break;
         }
         debug_assert!(!value.is_null(), "a suffix match must carry a string");

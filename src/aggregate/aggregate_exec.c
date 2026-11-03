@@ -24,6 +24,7 @@
 #include "search_ctx.h"
 #include "aggregate.h"
 #include "aggregate_exec_common.h"
+#include "query_memory.h"
 #include "cursor.h"
 #include "concurrent_ctx.h"
 #include "rmutil/util.h"
@@ -435,8 +436,19 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
 }
 #endif
 static int applyOomStop(AREQ *req, int rc) {
-  return ApplyOomStop(&req->base.limits, req->base.reqConfig.oomPolicy,
-                      AREQ_QueryProcessingCtx(req)->err, rc);
+  QueryError *err = AREQ_QueryProcessingCtx(req)->err;
+  // A buffering stage that kept its rows past an OOM stop may hold enough of them to fill the
+  // reply's limit or a pager's, so the reply ends without reading the stop's RS_RESULT_TIMEDOUT.
+  // When no later cursor read reports the stop, the reply is cut.
+  const bool lastReply =
+      rc == RS_RESULT_EOF || (rc == RS_RESULT_OK && !(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR));
+  // A blocked-client timeout that fired in the meantime owns the reply, as in ApplyOomStop.
+  if (lastReply && req->base.reqConfig.oomPolicy != OomPolicy_Fail &&
+      AREQ_QueryProcessingCtx(req)->oomCut &&
+      !QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
+    QueryError_SetQueryOOMWarning(err);
+  }
+  return ApplyOomStop(&req->base.limits, req->base.reqConfig.oomPolicy, err, rc);
 }
 
 static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
@@ -511,17 +523,26 @@ static void AREQ_StoreResults(AREQ *req, SearchResult **results, int rc, cachedV
   req->base.reply.hasStoredResults = true;
 }
 
-static int populateReplyWithResults(RedisModule_Reply *reply,
-  SearchResult **results, AREQ *req, cachedVars *cv, RespSchema *schema) {
-    // populate the reply with an array containing the serialized results
-    int len = array_len(results);
-    array_foreach(results, res, {
+/**
+ * Serializes and frees the buffered `results`. Returns true when memory pressure cut
+ * the replay short; the caller must then end a cursor, which would otherwise resume
+ * past the rows left out.
+ */
+static bool populateReplyWithResults(RedisModule_Reply *reply, SearchResult **results, AREQ *req,
+                                     cachedVars *cv, RespSchema *schema) {
+  uint32_t memoryCheckCounter = 0;
+  bool stopped = false;
+  array_foreach(results, res, {
+    stopped = stopped || StoredResults_ShouldStopForMemory(&memoryCheckCounter,
+                                                           AREQ_QueryProcessingCtx(req)->err);
+    if (!stopped) {
       serializeResult(req, reply, res, cv, schema);
-      SearchResult_Destroy(res);
-      rm_free(res);
-    });
-    array_free(results);
-    return len;
+    }
+    SearchResult_Destroy(res);
+    rm_free(res);
+  });
+  array_free(results);
+  return stopped;
 }
 
 static void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done) {
@@ -722,7 +743,8 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
   if (rc == RS_RESULT_TIMEDOUT) {
     switch (req->base.limits.timeout.config.timeoutPolicy) {
       case TimeoutPolicy_Return:
-        return false;
+        // A memory stop ends the request even when its outcome is reported as a timeout.
+        return QueryRequestLimits_IsMemoryStopped(&req->base.limits);
       case TimeoutPolicy_ReturnStrict:
       case TimeoutPolicy_Fail:
         return true;
@@ -762,7 +784,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
 
     // Results buffered by startPipelineCommon
     if (state->results != NULL) {
-      populateReplyWithResults(reply, state->results, req, cv, &schema);
+      state->cursor_done |= populateReplyWithResults(reply, state->results, req, cv, &schema);
       state->results = NULL;
       goto done_2;
     }
@@ -774,9 +796,15 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
       goto done_2;
     }
 
-    while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
-      serializeResult(req, reply, state->r, cv, &schema);
-      SearchResult_Clear(state->r);
+    {
+      uint32_t memoryCheckCounter = 0;
+      while (--rp->parent->resultLimit &&
+             !ReplyLoop_ShouldStop(rp->parent, &req->base.limits, req->base.reqConfig.oomPolicy,
+                                   &memoryCheckCounter, &rc) &&
+             (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
+        serializeResult(req, reply, state->r, cv, &schema);
+        SearchResult_Clear(state->r);
+      }
     }
 
 done_2:
@@ -998,7 +1026,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     }
 
     if (state->results != NULL) {
-      populateReplyWithResults(reply, state->results, req, cv, &schema);
+      state->cursor_done |= populateReplyWithResults(reply, state->results, req, cv, &schema);
       state->results = NULL;
     } else {
       if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
@@ -1010,7 +1038,11 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
         goto done_3;
       }
 
-      while (--rp->parent->resultLimit && (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
+      uint32_t memoryCheckCounter = 0;
+      while (--rp->parent->resultLimit &&
+             !ReplyLoop_ShouldStop(rp->parent, &req->base.limits, req->base.reqConfig.oomPolicy,
+                                   &memoryCheckCounter, &rc) &&
+             (rc = rp->Next(rp, state->r)) == RS_RESULT_OK) {
         serializeResult(req, reply, state->r, cv, &schema);
         SearchResult_Clear(state->r);
       }
@@ -1405,6 +1437,15 @@ cleanup:
   blockedClientReqCtx_destroy(BCRctx);
 }
 
+// Memory checkpoint between build stages. FT.EXPLAIN builds a plan it never runs, so it is exempt.
+static int checkBuildMemory(AREQ *req, QueryError *status) {
+  if (!IsSearch(req) && !IsAggregate(req)) {
+    return REDISMODULE_OK;
+  }
+  return QueryMemory_CheckBeforeExecution(&req->base.limits, req->base.reqConfig.oomPolicy,
+                                          status);
+}
+
 // Assumes the spec is guarded by its own lock (for read), such that races with
 // main-thread/GC updates are avoided.
 static int prepareExecutionPlan(AREQ *req, QueryError *status) {
@@ -1412,6 +1453,11 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
   RSSearchOptions *opts = &req->searchopts;
   QueryAST *ast = &req->ast;
+
+  // Memory may have grown since the entry guard, while the query waited for a worker.
+  if (checkBuildMemory(req, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
 
   // Open the per-query disk snapshot here, under the spec read lock the caller is holding.
   // This pins the on-disk view to the same point in time as the in-memory trie/stats that
@@ -1446,7 +1492,7 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
     }
   }
 
-  if (QueryError_HasError(status)) {
+  if (QueryError_HasError(status) || checkBuildMemory(req, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
@@ -1468,6 +1514,15 @@ static int prepareExecutionPlan(AREQ *req, QueryError *status) {
 
   if (is_profile) {
     req->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
+  }
+
+  if (rc == REDISMODULE_OK && checkBuildMemory(req, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  // A build checkpoint that stopped the query under ON_OOM RETURN leaves the pipeline to run:
+  // its row source, built only now, must end at its first read.
+  if (rc == REDISMODULE_OK && QueryRequestLimits_IsMemoryStopped(&req->base.limits)) {
+    RP_EndRowSourceOnStop(AREQ_QueryProcessingCtx(req));
   }
 
   if (IsDebug(req)) {

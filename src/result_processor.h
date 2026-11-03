@@ -361,6 +361,12 @@ void RPDepleter_StartDepletion(ResultProcessor *depleter);
 rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *depleter);
 
 /**
+* Whether a depleter (RP_DEPLETER or RP_SAFE_DEPLETER) ended its depletion on a timeout. Valid
+* once its depletion is over and before its rows are first read.
+*/
+bool RPDepleter_EndedOnTimeout(const ResultProcessor *depleter);
+
+/**
  * Triggers depletion for all depleters in the array.
  * Stops on first error and returns the error code.
  * @param depleters Array of depleter processors (must be RP_DEPLETER type)
@@ -472,6 +478,24 @@ enum CrashLocation {
 };
 ResultProcessor *RPCrash_New(enum CrashLocation location);
 void PipelineAddCrash(struct AREQ *r, enum CrashLocation location);
+
+/**
+ * Memory checkpoint of a processor that buffers rows or grows per row: true when it must end now
+ * with RS_RESULT_TIMEDOUT. Under a RETURN stop policy it goes on instead: the stop ends the row
+ * source (RP_EndRowSourceOnStop), so upstream reads nothing new, and it ends on upstream's
+ * RS_RESULT_TIMEDOUT and keeps the rows buffering stages upstream already held. Always false for
+ * a pipeline without a timeout state.
+ */
+bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter);
+
+/**
+ * Memory checkpoint of a processor that cuts its own output at its stop: true when it must end now
+ * with RS_RESULT_TIMEDOUT, also under a RETURN stop policy. Rows it already emitted are kept, and
+ * rows a buffering stage upstream still holds are not drained through it. A stop that an upstream
+ * stage already holds rows for (see RP_FillShouldStop) is not its own: this returns false and the
+ * held rows pass.
+ */
+bool RP_FillShouldCut(ResultProcessor *rp, uint32_t *counter);
 
 /** For debugging purposes
  * Adds a result processor, downstream of the last one, that calls the query memory
