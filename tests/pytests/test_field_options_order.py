@@ -28,6 +28,8 @@ def testTypeOptionsAfterGenericOptions(env):
         ('TEXT', ['NOSTEM', 'NOINDEX'], ['NOINDEX', 'NOSTEM']),
         ('NUMERIC', ['INDEXMISSING', 'SORTABLE'], ['SORTABLE', 'INDEXMISSING']),
         ('GEO', ['INDEXMISSING', 'SORTABLE'], ['SORTABLE', 'INDEXMISSING']),
+        ('GEOSHAPE', ['INDEXMISSING', 'SORTABLE'], ['SORTABLE', 'INDEXMISSING']),
+        ('GEOSHAPE', ['FLAT', 'INDEXMISSING', 'SORTABLE'], ['FLAT', 'SORTABLE', 'INDEXMISSING']),
     ]
     for i, (field_type, canonical, reordered) in enumerate(cases):
         # The trailing field checks that parsing resumes at the next field.
