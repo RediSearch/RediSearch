@@ -120,6 +120,137 @@ fn pushing_to_index_result() {
     assert_eq!(ir.field_mask, RS_FIELDMASK_ALL);
 }
 
+/// Children are pushed straight onto the aggregate payload rather than through
+/// `RSIndexResult::push_borrowed`, which drains the child's metrics into the parent and so
+/// cannot produce a tree that holds entries below the root — the very shape
+/// `flatten_metrics_into` exists to collect from.
+#[test]
+fn flatten_metrics_collects_the_whole_subtree_deepest_first() {
+    let leaf_key = crate::metrics::make_key();
+    let mid_key = crate::metrics::make_key();
+    let root_key = crate::metrics::make_key();
+
+    let mut leaf = RSIndexResult::build_numeric(10.0).doc_id(7).build();
+    leaf.metrics.push_with_key(&leaf_key, 1.0);
+
+    let mut mid = RSIndexResult::build_intersect(1).doc_id(7).build();
+    mid.metrics.push_with_key(&mid_key, 2.0);
+    mid.as_aggregate_mut()
+        .and_then(|agg| agg.as_borrowed_mut())
+        .expect("a fresh intersection borrows its children")
+        .push_borrowed(&leaf);
+
+    let mut root = RSIndexResult::build_union(1).doc_id(7).build();
+    root.metrics.push_with_key(&root_key, 3.0);
+    root.as_aggregate_mut()
+        .and_then(|agg| agg.as_borrowed_mut())
+        .expect("a fresh union borrows its children")
+        .push_borrowed(&mid);
+
+    let mut dst = MetricsVec::new();
+    root.flatten_metrics_into(&mut dst);
+
+    assert_eq!(
+        dst.iter().map(|e| e.value()).collect::<Vec<_>>(),
+        vec![1.0, 2.0, 3.0],
+        "deepest first, so the root's own entry is written last",
+    );
+}
+
+/// Siblings are collected in child order, which decides which of two entries at the same
+/// depth a last-write-wins consumer reports.
+#[test]
+fn flatten_metrics_collects_siblings_in_child_order() {
+    let first_key = crate::metrics::make_key();
+    let second_key = crate::metrics::make_key();
+    let root_key = crate::metrics::make_key();
+
+    let mut first = RSIndexResult::build_numeric(10.0).doc_id(7).build();
+    first.metrics.push_with_key(&first_key, 1.0);
+    let mut second = RSIndexResult::build_numeric(20.0).doc_id(7).build();
+    second.metrics.push_with_key(&second_key, 2.0);
+
+    let mut root = RSIndexResult::build_intersect(2).doc_id(7).build();
+    root.metrics.push_with_key(&root_key, 3.0);
+    {
+        let agg = root
+            .as_aggregate_mut()
+            .and_then(|agg| agg.as_borrowed_mut())
+            .expect("a fresh intersection borrows its children");
+        agg.push_borrowed(&first);
+        agg.push_borrowed(&second);
+    }
+
+    let mut dst = MetricsVec::new();
+    root.flatten_metrics_into(&mut dst);
+
+    assert_eq!(
+        dst.iter().map(|e| e.value()).collect::<Vec<_>>(),
+        vec![1.0, 2.0, 3.0],
+        "first child, second child, then the node's own",
+    );
+}
+
+#[test]
+fn flatten_metrics_leaves_the_source_untouched() {
+    // A composite reuses one result per document, so it is flattened once per document;
+    // moving the entries out would empty it for every later read.
+    let child_key = crate::metrics::make_key();
+    let root_key = crate::metrics::make_key();
+
+    let mut child = RSIndexResult::build_numeric(10.0).doc_id(7).build();
+    child.metrics.push_with_key(&child_key, 1.0);
+
+    let mut root = RSIndexResult::build_union(1).doc_id(7).build();
+    root.metrics.push_with_key(&root_key, 2.0);
+    root.as_aggregate_mut()
+        .and_then(|agg| agg.as_borrowed_mut())
+        .expect("a fresh union borrows its children")
+        .push_borrowed(&child);
+
+    let mut first = MetricsVec::new();
+    root.flatten_metrics_into(&mut first);
+    let mut second = MetricsVec::new();
+    root.flatten_metrics_into(&mut second);
+
+    assert_eq!(first, second, "a second collection sees the same entries");
+    assert_eq!(root.metrics.len(), 1, "root keeps only its own entry");
+    assert_eq!(child.metrics.len(), 1, "the child keeps its entry");
+}
+
+#[test]
+fn flatten_metrics_on_a_leaf_collects_its_own_entries() {
+    let key = crate::metrics::make_key();
+    let mut leaf = RSIndexResult::build_numeric(10.0).doc_id(7).build();
+    leaf.metrics.push_with_key(&key, 1.0);
+
+    let mut dst = MetricsVec::new();
+    leaf.flatten_metrics_into(&mut dst);
+
+    assert_eq!(dst.len(), 1);
+    assert_eq!(dst.get(0).unwrap().value(), 1.0);
+}
+
+#[test]
+fn flatten_metrics_appends_to_a_non_empty_destination() {
+    // Appends to whatever the destination already holds rather than replacing it, so one
+    // collection can gather from several results.
+    let key = crate::metrics::make_key();
+    let existing = crate::metrics::make_key();
+
+    let mut leaf = RSIndexResult::build_numeric(10.0).doc_id(7).build();
+    leaf.metrics.push_with_key(&key, 2.0);
+
+    let mut dst = MetricsVec::new();
+    dst.push_with_key(&existing, 1.0);
+    leaf.flatten_metrics_into(&mut dst);
+
+    assert_eq!(
+        dst.iter().map(|e| e.value()).collect::<Vec<_>>(),
+        vec![1.0, 2.0],
+    );
+}
+
 #[test]
 fn to_owned_an_aggregate_index_result() {
     let num_rec = RSIndexResult::build_numeric(5.0).doc_id(10).build();
