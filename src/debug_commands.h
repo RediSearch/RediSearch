@@ -115,6 +115,13 @@ void StoreResultsDebugCtx_SetPause(bool pause);
 #define SYNC_POINT_BEFORE_COORD_BACKGROUND_REPLY_ENCODE "BeforeCoordBackgroundReplyEncode"
 #define SYNC_POINT_DURING_COORD_BACKGROUND_REPLY_ENCODE "DuringCoordBackgroundReplyEncode"
 #define SYNC_POINT_AFTER_COORD_BACKGROUND_REPLY_ENCODE "AfterCoordBackgroundReplyEncode"
+// Fork-GC worker: parked before the GIL handshake that precedes the fork, so a test can take
+// the single child slot while a cycle waits here and make the EEXIST retry deterministic.
+#define SYNC_POINT_GC_BEFORE_FORK              "GCBeforeFork"
+// Fork-GC worker: parked after a fork attempt failed because another child holds the slot, with
+// the GIL released. Reaching it is the only proof, independent of host scheduling, that a cycle
+// really did hit EEXIST rather than winning the slot outright.
+#define SYNC_POINT_GC_FORK_SLOT_BUSY           "GCForkSlotBusy"
 
 // SyncPoint API function declarations
 // Arm a sync point - subsequent calls to SyncPoint_Wait will block

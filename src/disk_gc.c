@@ -17,7 +17,9 @@
 #include <stdatomic.h>
 #include <time.h>
 
-static bool periodicCb(void *privdata, bool force) {
+// `forced` is only read for its presence: disk GC compacts in-process, so it has no fork slot
+// to wait for and no way to fail to start.
+static bool periodicCb(void *privdata, GCForcedRun *forced) {
   DiskGC *gc = privdata;
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
   IndexSpec *sp = StrongRef_Get(spec_ref);
@@ -34,7 +36,7 @@ static bool periodicCb(void *privdata, bool force) {
   size_t num_deletes = atomic_load(&gc->deletesFromLastRun);
   size_t num_updates = atomic_load(&gc->updatesFromLastRun);
   size_t num_changes = num_writes + num_deletes + num_updates;
-  if (!force && num_changes < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+  if (!forced && num_changes < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(spec_ref);
     return true;
   }

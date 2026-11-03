@@ -27,13 +27,20 @@ static redisearch_thpool_t *gcThreadpool_g = NULL;
 typedef struct GCDebugTask {
   GCContext* gc;
   RedisModuleBlockedClient* bClient;
+  GCForcedRun forced;
 } GCDebugTask;
 
-static GCDebugTask *GCDebugTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient) {
+static GCDebugTask *GCDebugTaskCreate(GCContext *gc, RedisModuleBlockedClient* bClient,
+                                      GCForcedRun forced) {
   GCDebugTask *task = rm_new(GCDebugTask);
   task->gc = gc;
   task->bClient = bClient;
+  task->forced = forced;
   return task;
+}
+
+void GCForcedRunOutcomeFree(RedisModuleCtx* ctx, void* privdata) {
+  rm_free(privdata);
 }
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
@@ -74,7 +81,7 @@ static RedisModuleTimerID scheduleNext(GCContext *gc) {
 static void taskCallback(void* data) {
   GCContext* gc = data;
 
-  bool ret = gc->callbacks.periodicCallback(gc->gcCtx, false);
+  bool ret = gc->callbacks.periodicCallback(gc->gcCtx, NULL);
 
   if (ret) { // The common case
     // The index was not freed. We need to reschedule the task.
@@ -100,11 +107,16 @@ static void debugTaskCallback(void* data) {
   GCContext* gc = task->gc;
   RedisModuleBlockedClient* bc = task->bClient;
 
-  gc->callbacks.periodicCallback(gc->gcCtx, true);
+  gc->callbacks.periodicCallback(gc->gcCtx, &task->forced);
 
   // if GC was invoke by debug command, we release the client
-  // and terminate without rescheduling the task again.
-  if (bc) RedisModule_UnblockClient(bc, NULL);
+  // and terminate without rescheduling the task again. The outcome outlives this task, so
+  // the reply gets its own copy.
+  if (bc) {
+    GCForcedRunOutcome *outcome = rm_new(GCForcedRunOutcome);
+    *outcome = task->forced.outcome;
+    RedisModule_UnblockClient(bc, outcome);
+  }
   rm_free(task);
 }
 
@@ -168,17 +180,18 @@ void GCContext_GetStats(GCContext* gc, InfoGCStats* out) {
   gc->callbacks.getStats(gc->gcCtx, out);
 }
 
-void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
-  GCDebugTask *task = GCDebugTaskCreate(gc, bc);
+void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc,
+                                 GCForcedRun forced) {
+  GCDebugTask *task = GCDebugTaskCreate(gc, bc, forced);
   redisearch_thpool_add_work(gcThreadpool_g, debugTaskCallback, task, THPOOL_PRIORITY_HIGH);
 }
 
-void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc) {
-  GCContext_CommonForceInvoke(gc, bc);
+void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc, GCForcedRun forced) {
+  GCContext_CommonForceInvoke(gc, bc, forced);
 }
 
-void GCContext_ForceBGInvoke(GCContext* gc) {
-  GCContext_CommonForceInvoke(gc, NULL);
+void GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced) {
+  GCContext_CommonForceInvoke(gc, NULL, forced);
 }
 
 static void GCContext_UnblockClient(void* data) {
