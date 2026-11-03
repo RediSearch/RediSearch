@@ -24,17 +24,17 @@ bool ThreadCycle_Run(IndexGC *gc, StrongRef spec_ref) {
   TimeSampler_Start(&ts);
   IndexSpecRef_Release(spec_ref);
 
-  // Unlike a fork's snapshot, the scan sees deletes that land mid-cycle and may collect them while
-  // they still count toward the next cycle's threshold: at worst an early next cycle.
-  size_t num_docs_to_clean = atomic_exchange(&gc->deletedOrUpdatedDocsFromLastRun, 0);
   gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
   gc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
 
   IndexSpec_AssertLockNotHeld();  // the driver takes the spec locks itself
   RS_LOG_ASSERT(!gc->threadCycleInFlight, "two thread GC cycles on one index at once");
   gc->threadCycleInFlight = true;
+  // The cycle resets the deletion counter under the lock it copies the deleted set in, so a
+  // deletion counted here is one it collects, and one counted after waits for the next cycle.
+  size_t num_docs_to_clean = 0;
   uint64_t retained = 0;
-  enum ThreadGCResult rv = ThreadGC_RunScanners(gc, &retained);
+  enum ThreadGCResult rv = ThreadGC_RunScanners(gc, &num_docs_to_clean, &retained);
   gc->threadCycleInFlight = false;
   bool gcrv = rv != THREAD_GC_SPEC_DELETED;
   if (gcrv) {
