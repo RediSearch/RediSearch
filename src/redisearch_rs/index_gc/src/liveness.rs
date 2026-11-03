@@ -129,20 +129,26 @@ impl GoneIds {
                 gone_below: true,
             });
         }
+        // A sparse table's gaps can span hundreds of millions of IDs, so a stretch of
+        // words with no live ID goes in as one range; only the words that have one are
+        // walked bit by bit.
         let mut gone = RoaringTreemap::new();
-        gone.insert_range(0..first);
-        let unset = window.iter().enumerate().flat_map(|(i, &word)| {
+        let mut dead_from = 0;
+        for (i, &word) in window.iter().enumerate() {
             let base = first + i as DocId * 64;
+            if word == 0 {
+                continue;
+            }
+            gone.insert_range(dead_from..base);
             let mut unset = !word;
-            std::iter::from_fn(move || {
-                (unset != 0).then(|| {
-                    let bit = unset.trailing_zeros();
-                    unset &= unset - 1;
-                    base + DocId::from(bit)
-                })
-            })
-        });
-        gone.extend(unset.take_while(|&id| id <= max_doc_id));
+            while unset != 0 {
+                gone.insert(base + DocId::from(unset.trailing_zeros()));
+                unset &= unset - 1;
+            }
+            dead_from = base + 64;
+        }
+        gone.insert_range(dead_from..=max_doc_id);
+        gone.remove_range(max_doc_id.saturating_add(1)..);
         Self::Set(gone)
     }
 
