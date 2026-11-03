@@ -86,7 +86,7 @@ static bool oomStopKeepsBufferedRows(const QueryRequestLimits *timeout, RSOomPol
 
 bool ReplyLoop_ShouldStop(QueryProcessingCtx *qctx, QueryRequestLimits *timeout,
                           RSOomPolicy oomPolicy, uint32_t *counter, int *rc) {
-  if (!QueryMemory_ShouldStop(timeout, counter)) {
+  if (!QueryMemory_Checkpoint(timeout, counter)) {
     return false;
   }
   if (oomStopKeepsBufferedRows(timeout, oomPolicy)) {
