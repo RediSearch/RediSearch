@@ -1024,22 +1024,25 @@ TIMEOUT_WARNING = 'Timeout limit was reached'
 
 @skip(cluster=False)
 def test_search_mixed_shard_stops_follow_the_stop_precedence():
-    """One shard stops for memory (pressure on its process only) while the others time out
-    (TIMEOUT_AFTER_N on every shard query; the stopped shard never reaches its pipeline). An error
-    beats a warning, and between two errors the OOM one wins whichever shard replies first."""
-    # Without workers a shard accepts TIMEOUT_AFTER_N under ON_TIMEOUT FAIL.
+    """One shard stops for memory (pressure on its process only) while another shard times out
+    (FORCE_TIMEOUT on its process only; the stopped shard never reaches its pipeline). An error
+    beats a warning, and between two errors the OOM one wins whichever shard replies first. The
+    coordinator has no timeout of its own, so it never owns the reply."""
     env = Env(protocol=3, moduleArgs='WORKERS 0')
     skipIfNoEnableAssert(env)
+    if env.shardsCount < 3:
+        env.skip()
     create_index(env)
     coord = env.getConnection(1)
     stopped_shard = env.getConnection(2)
-    query = (debug_cmd(), 'FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, N_DOCS,
-             'TIMEOUT', 100000, 'TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3)
+    timed_out_shard = env.getConnection(3)
+    query = ('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, N_DOCS, 'TIMEOUT', 0)
     try:
         for timeout_policy, oom_policy in itertools.product(('RETURN', 'FAIL'), ('return', 'fail')):
             case = (timeout_policy, oom_policy)
             set_policies(env, timeout_policy, oom_policy)
             stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+            timed_out_shard.execute_command(debug_cmd(), 'FORCE_TIMEOUT', 'AT_CALL', 1)
             try:
                 try:
                     res = coord.execute_command(*query)
@@ -1047,6 +1050,7 @@ def test_search_mixed_shard_stops_follow_the_stop_precedence():
                     res = e
             finally:
                 stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+                timed_out_shard.execute_command(debug_cmd(), 'FORCE_TIMEOUT', 'RESET')
             if oom_policy == 'fail':
                 env.assertTrue(isinstance(res, ResponseError), message=(case, res))
                 env.assertContains(OOM_QUERY_ERROR, str(res), message=case)
