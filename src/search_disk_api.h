@@ -786,7 +786,10 @@ typedef struct SlotMigrationAPI {
                                            const SearchDiskSlotRange *ranges, size_t numRanges,
                                            t_docId maxDocId, size_t maxScanned,
                                            SearchDiskSlotTrimCallback callback, void *ctx);
-  // Callback only, under spec write lock. Write doc-table tombstones before publishing
+  // Callback only, outside the spec write lock. Hold the checkpoint mutation gate
+  // through this storage write, validated RAM apply and memory-index accounting.
+  bool (*writeTrimBatch)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotTrimBatch *batch);
+  // Callback only, under spec write lock. Publish RAM state after writeTrimBatch:
   // deleted IDs and progress. Validate current batch without
   // mutation on failure. On success update deleted IDs, advance progress and,
   // for the exhausted batch, clear logical intent. Search updates VecSim and stats
@@ -822,10 +825,10 @@ typedef struct DocTableDiskAPI {
    * @param docLen Sum of the frequencies of all terms in the document
    * @param oldLen Pointer to an integer to store the length of the deleted document
    * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
-   * @param oldDocId Old document ID from DocIdMeta (0 if new document)
+   * @param oldDocId In/out old ID from DocIdMeta; cleared when its live row is absent.
    * @return New document ID, or 0 on error
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId);
 
   /**
    * @brief Returns whether the docId is in the deleted set

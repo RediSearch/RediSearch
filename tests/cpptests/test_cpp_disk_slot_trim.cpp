@@ -185,6 +185,17 @@ class DiskSlotTrimTest : public ::testing::Test {
       EXPECT_EQ(state.batchesApplied, batch + 1);
       return exhausted ? SEARCH_DISK_TRIM_FINISHED : SEARCH_DISK_TRIM_MORE;
     };
+    api.slotMigration.writeTrimBatch = [](RedisSearchDiskIndexSpec *index, const SearchDiskSlotTrimBatch *) {
+      auto *spec = reinterpret_cast<IndexSpec *>(index);
+      int lockResult = -1;
+      std::thread probe([&] {
+        lockResult = pthread_rwlock_trywrlock(&spec->rwlock);
+        if (lockResult == 0) pthread_rwlock_unlock(&spec->rwlock);
+      });
+      probe.join();
+      EXPECT_EQ(lockResult, 0) << "tombstone writes must not hold the spec lock";
+      return true;
+    };
     api.slotMigration.applyTrimBatch = [](RedisSearchDiskIndexSpec *index,
                                           const SearchDiskSlotTrimBatch *) {
       auto *spec = reinterpret_cast<IndexSpec *>(index);
