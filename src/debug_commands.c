@@ -3711,7 +3711,7 @@ DEBUG_COMMAND(VecSimMockTimeout) {
 
 /**
  * FT.DEBUG MEMORY_PRESSURE <subcommand>
- * Fake memory pressure for the query memory checkpoints (QueryMemory_ShouldStop), process-wide,
+ * Fake memory pressure for the query memory checkpoints (QueryMemory_Checkpoint), process-wide,
  * so tests can stop queries for OOM on a Redis without a real memory limit or memory API.
  *   RATIO <ratio>         - every checkpoint memory read, and the query entry guard, see <ratio>
  *                           instead of the real used-memory ratio. A negative ratio restores it.
