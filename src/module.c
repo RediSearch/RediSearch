@@ -3566,7 +3566,7 @@ static bool should_return_error(const searchRequestCtx *req, QueryErrorCode errC
   }
   // Check if this is an OOM error with non-fail policy
   if (errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY) {
-    return RSGlobalConfig.requestConfigParams.oomPolicy == OomPolicy_Fail;
+    return req->base.reqConfig.oomPolicy == OomPolicy_Fail;
   }
 
   // For any other error, return it
@@ -3686,7 +3686,10 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   }
 
   // Traverse the replies, check for early bail-out which we want for all errors
-  // but timeout+non-strict timeout policy.
+  // but timeout+non-strict timeout policy. Every reply is scanned: among the errors that must be
+  // returned the first wins, except that an OOM error replaces a timeout one.
+  MRReply *returnedReply = NULL;
+  QueryErrorCode returnedCode = QUERY_ERROR_CODE_OK;
   for (int i = 0; i < count; i++) {
     MRReply *curr_rep = replies[i];
     if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
@@ -3694,13 +3697,20 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
       rCtx->lastError = curr_rep;
       const char *errStr = MRReply_String(curr_rep, NULL);
       QueryErrorCode errCode = QueryError_GetCodeFromMessage(errStr);
-      if (should_return_error(req, errCode)) {
-        // Shard reply already contains the prefixed error string — set directly.
-        QueryError_SetCode(&req->base.reply.err, errCode);
-        QueryError_SetDetail(&req->base.reply.err, errStr);
-        goto cleanup;
+      if (should_return_error(req, errCode) &&
+          (!returnedReply || (returnedCode == QUERY_ERROR_CODE_TIMED_OUT &&
+                              errCode == QUERY_ERROR_CODE_OUT_OF_MEMORY))) {
+        returnedReply = curr_rep;
+        returnedCode = errCode;
       }
     }
+  }
+  if (returnedReply) {
+    // Shard reply already contains the prefixed error string — set directly.
+    rCtx->lastError = returnedReply;
+    QueryError_SetCode(&req->base.reply.err, returnedCode);
+    QueryError_SetDetail(&req->base.reply.err, MRReply_String(returnedReply, NULL));
+    goto cleanup;
   }
 
   // The fan-out stopped for OOM under ON_OOM FAIL: cleanup replies the OOM error, so the kept
