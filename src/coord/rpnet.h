@@ -68,6 +68,11 @@ typedef struct {
   // serialization after BG has exited the pipeline, so a plain bool is safe.
   bool drainOnly;
 
+  // Replies settleQueuedOom took off the channel to look for an OOM and that carry rows or
+  // profiles the next read still needs. Served first, in order, from settledHead.
+  arrayof(MRReply *) settledReplies;
+  size_t settledHead;
+
   // KNN snapshot for SHARD_K_RATIO optimization in FT.AGGREGATE.
   // Populated by buildDistRPChain from the parsed VectorQuery on the main thread,
   // then used to initialize the iterator-owned AggregateKnnContext if needed.
