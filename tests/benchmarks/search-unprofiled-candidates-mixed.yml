@@ -1,0 +1,28 @@
+version: 0.2
+name: search-unprofiled-candidates-mixed
+description: Alternate numeric equality, TAG scanning, and TAG/numeric intersection queries to exercise different
+  ordinary query paths. Measures only non-profiled queries to detect runtime regressions from candidate-count specialization.
+metadata:
+  component: search
+setups:
+- oss-standalone
+dbconfig:
+- dataset_name: 1M-high_cardinality_numeric_and_tags-different_tags_10-different_numeric_1M
+- tool: ftsb_redisearch
+- parameters:
+  - workers: 64
+  - reporting-period: 1s
+  - requests: 1000000
+  - input: https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-high_cardinality_numeric_and_tags-different_tags_10-different_numeric_1M/1M-high_cardinality_numeric_and_tags-different_tags_10-different_numeric_1M.redisearch.commands.SETUP.csv
+- init_commands:
+  - '"FT.CREATE" "idx:cardinality" "SCHEMA" "numeric_field" "NUMERIC" "tag_field" "TAG"'
+- dataset_load_timeout_secs: 180
+- check:
+    keyspacelen: 1000000
+clientconfig:
+  benchmark_type: read-only
+  tool: memtier_benchmark
+  arguments: --test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH idx:cardinality "@numeric_field:[436858
+    436858]" NOCONTENT LIMIT 0 10 WITHCOUNT DIALECT 2' --command-ratio 1 --command 'FT.SEARCH idx:cardinality "@tag_field:{1}"
+    NOCONTENT LIMIT 0 10 WITHCOUNT DIALECT 2' --command-ratio 1 --command 'FT.SEARCH idx:cardinality "(@tag_field:{1}|@tag_field:{2})
+    @numeric_field:[1 500000]" NOCONTENT LIMIT 0 10 WITHCOUNT DIALECT 2' --command-ratio 1
