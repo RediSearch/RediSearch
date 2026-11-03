@@ -1775,3 +1775,35 @@ def test_aggregate_mixed_shard_stops_follow_the_stop_precedence():
             expect_clean_end(env, coord)
     finally:
         reset_policies(env)
+
+
+@skip(cluster=False)
+def test_profile_aggregate_mixed_shard_stops_keep_both_warnings():
+    """A profiled shard reply nests its warnings in the `results` map, so a shard timeout read
+    before the queued reply of the shard that stopped for memory must still keep that shard's OOM
+    warning next to the timeout one."""
+    env = Env(protocol=3, moduleArgs='WORKERS 0')
+    skipIfNoEnableAssert(env)
+    if env.shardsCount < 3:
+        env.skip()
+    create_index(env)
+    coord = env.getConnection(1)
+    stopped_shard = env.getConnection(2)
+    timed_out_shard = env.getConnection(3)
+    query = ('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@n', 'TIMEOUT', 0)
+    try:
+        set_policies(env, 'RETURN', 'return')
+        stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+        timed_out_shard.execute_command(debug_cmd(), 'FORCE_TIMEOUT', 'AT_CALL', 1)
+        try:
+            res = run_with_shard_replies_queued(coord, query, env.shardsCount)
+        finally:
+            stopped_shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+            timed_out_shard.execute_command(debug_cmd(), 'FORCE_TIMEOUT', 'RESET')
+        env.assertFalse(isinstance(res, Exception), message=res)
+        warnings = res['Results']['warning']
+        env.assertContains(TIMEOUT_WARNING, warnings, message=res)
+        env.assertContains(COORD_OOM_WARNING, warnings, message=res)
+        expect_clean_end(env, coord)
+    finally:
+        reset_policies(env)
