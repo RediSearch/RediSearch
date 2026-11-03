@@ -684,7 +684,8 @@ void RPNet_resetCurrent(RPNet *nc) {
 bool RPNet_MemoryStops(RPNet *nc) {
   QueryRequestLimits *timeout = &nc->areq->base.limits;
   if (!nc->it || nc->hybridSubquery != RPNET_HYBRID_NONE || nc->cmd.forProfiling ||
-      QueryRequestLimits_ShouldStop(timeout)) {
+      QueryRequestLimits_IsMemoryStopped(timeout) ||
+      QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
     return false;
   }
   if (MRIterator_IsMemoryStopped(nc->it)) {
