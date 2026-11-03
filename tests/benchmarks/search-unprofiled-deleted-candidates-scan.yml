@@ -1,0 +1,71 @@
+version: 0.2
+name: search-unprofiled-deleted-candidates-scan
+description: A TAG value matches approximately 100K documents. WITHCOUNT forces full result counting while NOCONTENT
+  keeps the reply small. Measures only non-profiled queries to detect runtime regressions from candidate-count specialization.
+  Half of the original documents are deleted before measurement, with GC stopped to retain their postings.
+metadata:
+  component: search
+setups:
+- oss-standalone
+dbconfig:
+# The runner reuses environments by dataset_name; each deletion setup must run once.
+- dataset_name: search-unprofiled-deleted-candidates-scan
+- tool: ftsb_redisearch
+- parameters:
+  - workers: 64
+  - reporting-period: 1s
+  - requests: 1000000
+  - input: https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-high_cardinality_numeric_and_tags-different_tags_10-different_numeric_1M/1M-high_cardinality_numeric_and_tags-different_tags_10-different_numeric_1M.redisearch.commands.SETUP.csv
+# SKIPINITIALSCAN avoids racing the background scanner. HSET indexes each loaded hash
+# synchronously before DEL; stopped GC keeps its postings for the entire timed run.
+- init_commands:
+  - [FT.CREATE, 'idx:cardinality', SKIPINITIALSCAN, SCHEMA, numeric_field, NUMERIC, tag_field, TAG]
+  - [_FT.DEBUG, GC_STOP_SCHEDULE, 'idx:cardinality']
+  - - EVAL
+    - &id001 |-
+      local removed = 0
+      for i = tonumber(ARGV[1]), tonumber(ARGV[2]) do
+        local key = 'doc:cardinality:' .. i
+        local value = redis.call('HGET', key, 'numeric_field')
+        assert(value, 'Dataset document missing: ' .. key)
+        redis.call('HSET', key, 'numeric_field', value)
+        if i % 2 == 0 then
+          removed = removed + redis.call('DEL', key)
+        end
+      end
+      assert(removed == (tonumber(ARGV[2]) - tonumber(ARGV[1]) + 1) / 2)
+      return removed
+    - '0'
+    - '0'
+    - '99999'
+  - [EVAL, *id001, '0', '100000', '199999']
+  - [EVAL, *id001, '0', '200000', '299999']
+  - [EVAL, *id001, '0', '300000', '399999']
+  - [EVAL, *id001, '0', '400000', '499999']
+  - [EVAL, *id001, '0', '500000', '599999']
+  - [EVAL, *id001, '0', '600000', '699999']
+  - [EVAL, *id001, '0', '700000', '799999']
+  - [EVAL, *id001, '0', '800000', '899999']
+  - [EVAL, *id001, '0', '900000', '999999']
+  - - EVAL
+    - |-
+      local info = redis.call('FT.INFO', 'idx:cardinality')
+      local fields = {}
+      for i = 1, #info, 2 do
+        local key = info[i]
+        if type(key) == 'table' then key = key.ok end
+        fields[key] = info[i+1]
+      end
+      assert(tonumber(fields.num_docs) == 500000, 'Expected 500000 indexed live documents')
+      assert(tonumber(fields.num_records) == 2000000, 'Expected all original postings to remain')
+      assert(redis.call('DBSIZE') == 500000, 'Expected 500000 remaining hashes')
+      return 'ready: 500000 live documents, GC stopped'
+    - '0'
+- dataset_load_timeout_secs: 180
+- check:
+    keyspacelen: 1000000
+clientconfig:
+  benchmark_type: read-only
+  tool: memtier_benchmark
+  arguments: --test-time 120 -c 32 -t 1 --hide-histogram --command 'FT.SEARCH idx:cardinality "@tag_field:{1}" NOCONTENT
+    LIMIT 0 10 WITHCOUNT DIALECT 2' --command-ratio 1
