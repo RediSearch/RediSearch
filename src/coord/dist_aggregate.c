@@ -739,7 +739,9 @@ void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   if (req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     rpnet->drainOnly = true;
   }
-  if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it)) {
+  // Settled replies left the channel but still carry shard profiles.
+  if (MRIterator_GetPending(rpnet->it) || MRIterator_GetChannelSize(rpnet->it) ||
+      rpnet->settledHead < array_len(rpnet->settledReplies)) {
     // Profile collection is outside the Network processor timer; retain its measured times.
     const rs_wall_clock_ns_t waitTime = rpnet->breakdown.waitTime;
     const rs_wall_clock_ns_t convertTime = rpnet->breakdown.convertTime;
