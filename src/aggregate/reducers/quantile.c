@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 #include "value_ffi.h"
-#include "util/quantile.h"
+#include "quantile_ffi.h"
 #include "query_error.h"
 #include "query_error_ffi.h"
 #include "rlookup.h"

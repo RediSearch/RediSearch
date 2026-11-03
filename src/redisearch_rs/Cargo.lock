@@ -1883,12 +1883,16 @@ dependencies = [
 name = "quantile_bencher"
 version = "0.0.1"
 dependencies = [
- "build_utils",
  "criterion",
- "ffi",
  "quantile",
- "redis_mock",
- "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "quantile_ffi"
+version = "0.0.1"
+dependencies = [
+ "quantile",
  "workspace_hack",
 ]
 
@@ -2260,6 +2264,7 @@ dependencies = [
  "module_init_ffi",
  "numeric_range_tree_ffi",
  "over_aligned_alloc",
+ "quantile_ffi",
  "query_error_ffi",
  "query_eval_ffi",
  "query_term_ffi",
@@ -2644,6 +2649,7 @@ dependencies = [
  "module_init_ffi",
  "numeric_range_tree_ffi",
  "proptest",
+ "quantile_ffi",
  "query_error_ffi",
  "query_eval_ffi",
  "query_term_ffi",

@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "util/quantile.h"
+#include "quantile_ffi.h"
 #include "buffer/buffer.h"
 #include "rmutil/alloc.h"
 #include "test_util.h"

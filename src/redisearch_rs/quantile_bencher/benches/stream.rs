@@ -11,9 +11,6 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use quantile::QuantStream;
 use std::{hint::black_box, num::NonZeroUsize};
 
-extern crate redisearch_rs;
-redis_mock::mock_or_stub_missing_redis_c_symbols!();
-
 fn stream(c: &mut Criterion) {
     for (name, count, capacity, targets) in [
         ("small", 24, 500, &[][..]),
@@ -33,23 +30,6 @@ fn stream(c: &mut Criterion) {
             })
             .collect();
         let mut group = c.benchmark_group(name);
-        group.bench_function("c", |b| {
-            b.iter(|| {
-                // SAFETY: targets is readable for its length, capacity is positive,
-                // and the new stream is exclusively used here and freed exactly once.
-                #[expect(clippy::multiple_unsafe_ops_per_block)]
-                unsafe {
-                    let stream = ffi::NewQuantileStream(targets.as_ptr(), targets.len(), capacity);
-                    for &value in &values {
-                        ffi::QS_Insert(stream, black_box(value));
-                    }
-                    for q in [0.5, 0.9, 0.99] {
-                        black_box(ffi::QS_Query(stream, q));
-                    }
-                    ffi::QS_Free(stream);
-                }
-            })
-        });
         group.bench_function("rust", |b| {
             b.iter(|| {
                 let mut stream = QuantStream::new(targets, NonZeroUsize::new(capacity).unwrap());
