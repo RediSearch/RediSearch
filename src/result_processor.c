@@ -2673,6 +2673,14 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   return RPHybridMerger_HasReturnCode(self, RS_RESULT_ERROR);
 }
 
+/* An upstream's own deadline that elapsed beside its memory stop: the timeout outranks an OOM stop
+ * under ON_OOM RETURN (an OOM error still outranks it), as in HybridRequest_ApplyOomStop. */
+static bool RPHybridMerger_UpstreamTimedOutBesideStop(const ResultProcessor *upstream) {
+  const QueryRequestLimits *limits = upstream->parent ? upstream->parent->limits : NULL;
+  return limits && QueryRequestLimits_IsMemoryStopped(limits) &&
+         QueryRequestLimits_IsTimedOutExact(limits);
+}
+
 /* Whether the merged rows end on a timeout. An upstream stopped for OOM ended its rows by design:
  * under ON_OOM FAIL RPHybridMerger_StopFails already ended the query, and under RETURN the tail
  * must not apply its timeout policy to them; the reply maps the stop from the subquery's own
@@ -2680,8 +2688,8 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
 static bool RPHybridMerger_ReportsTimeout(const RPHybridMerger *self) {
   for (size_t i = 0; i < self->numUpstreams; i++) {
     if (self->upstreamReturnCodes[i] == RS_RESULT_TIMEDOUT &&
-        (!self->upstreams[i]->parent ||
-         !RP_UpstreamHold(self->upstreams[i]))) {
+        (!self->upstreams[i]->parent || !RP_UpstreamHold(self->upstreams[i]) ||
+         RPHybridMerger_UpstreamTimedOutBesideStop(self->upstreams[i]))) {
       return true;
     }
   }
@@ -2694,8 +2702,15 @@ static bool RPHybridMerger_StopFails(const RPHybridMerger *self) {
   for (size_t i = 0; i < self->numUpstreams; i++) {
     // An upstream outside a pipeline (unit tests) applies the tail's policy.
     const ResultProcessor *upstream = self->upstreams[i]->parent ? self->upstreams[i] : &self->base;
-    if (self->upstreamReturnCodes[i] == RS_RESULT_TIMEDOUT &&
-        RP_StopPolicy(upstream) == TimeoutPolicy_Fail) {
+    if (self->upstreamReturnCodes[i] != RS_RESULT_TIMEDOUT) {
+      continue;
+    }
+    RSTimeoutPolicy policy = RP_StopPolicy(upstream);
+    if (policy == TimeoutPolicy_Return && self->upstreams[i]->parent &&
+        RPHybridMerger_UpstreamTimedOutBesideStop(upstream)) {
+      policy = upstream->parent->timeoutPolicy;
+    }
+    if (policy == TimeoutPolicy_Fail) {
       return true;
     }
   }
