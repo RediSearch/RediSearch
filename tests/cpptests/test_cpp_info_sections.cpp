@@ -204,6 +204,30 @@ TEST_F(InfoSectionsTest, UnknownSectionDoesNotCollect) {
   EXPECT_EQ(diskOutputs, 0);
 }
 
+TEST_F(InfoSectionsTest, CrashReportOmitsKeyMapMemory) {
+  spec->diskSpec = nullptr;
+  isFlex = false;
+  ASSERT_TRUE(DocTable_StartKeyMap(&spec->docs));
+  ASSERT_NE(spec->docs.keyMap, nullptr);
+  InfoCapture info;
+  IndexSpec_AddToInfo(reinterpret_cast<RedisModuleInfoCtx *>(&info), spec, false, true, false);
+  EXPECT_EQ(info.fields.count("key_table_size"), 0u);
+  EXPECT_EQ(info.fields.count("doc_table_size"), 1u);
+}
+
+TEST_F(InfoSectionsTest, NormalIndexInfoIncludesKeyMapMemory) {
+  spec->diskSpec = nullptr;
+  isFlex = false;
+  ASSERT_TRUE(DocTable_StartKeyMap(&spec->docs));
+  ASSERT_NE(spec->docs.keyMap, nullptr);
+  InfoCapture info;
+  IndexSpec_LockRead(spec);
+  IndexSpec_AddToInfo(reinterpret_cast<RedisModuleInfoCtx *>(&info), spec, false, false, false);
+  IndexSpec_Unlock(spec);
+  ASSERT_EQ(info.fields.count("key_table_size"), 1u);
+  EXPECT_GT(std::stod(info.fields.at("key_table_size")), 0);
+}
+
 TEST_F(InfoSectionsTest, MultipleAggregateSectionsReadCacheOnce) {
   auto info = run({"indexes", "memory", "disk"});
   EXPECT_EQ(info.sections, (std::vector<std::string>{"indexes", "memory", "disk"}));
@@ -298,8 +322,8 @@ TEST_F(InfoSectionsTest, ProductionCreateAndDropPublishCachedUsage) {
   api.basic.reserveOpenFiles = [](RedisSearchDisk *) { return true; };
   api.basic.releaseOpenFiles = [](RedisSearchDisk *) {};
   api.basic.openIndexSpec = [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
-                               const char *, size_t, DocumentType, bool,
-                               const SearchDiskCompactionCallbacks *, void *privateData) {
+                               const char *, size_t, DocumentType, bool, const SearchDiskField *,
+                               size_t, const SearchDiskCompactionCallbacks *, void *privateData) {
     EXPECT_EQ(total, 0u);
     return reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData);
   };
@@ -314,6 +338,7 @@ TEST_F(InfoSectionsTest, ProductionCreateAndDropPublishCachedUsage) {
                                         RedisSearchDiskIndexSpec *) { total -= 17; };
   api.basic.closeIndexSpec = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {};
   api.index.markToBeDeleted = [](RedisSearchDiskIndexSpec *) {};
+
   SearchDisk_UpdateMemoryLimit(size_t{1} << 40);
   ASSERT_TRUE(SearchDisk_RegisterBigModuleCallbacks(RSDummyContext));
   EXPECT_EQ(callbacks.getDiskUsage(), 0u);
