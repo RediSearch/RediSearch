@@ -2188,6 +2188,9 @@ typedef struct {
   int sortKey;
 } searchReplyOffsets;
 
+// More distinct warnings than the shards can send.
+#define SEARCH_REDUCER_MAX_WARNINGS 8
+
 typedef struct searchReducerCtx {
   MRReply *fieldNames;
   MRReply *lastError;
@@ -2203,7 +2206,10 @@ typedef struct searchReducerCtx {
   specialCaseCtx* reduceSpecialCaseCtxKnn;
   specialCaseCtx* reduceSpecialCaseCtxSortby;
 
-  MRReply *warning;
+  // Distinct warnings of the shards' replies, in arrival order. Each points into a reply that
+  // outlives the reducer.
+  MRReply *warnings[SEARCH_REDUCER_MAX_WARNINGS];
+  size_t numWarnings;
 
   // Whether merging checks for a stop per row (mergeRowShouldStop).
   bool rowStopChecks;
@@ -2983,6 +2989,26 @@ static void ProcessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, do
     }
 }
 
+// Keeps each distinct warning once, so that shards stopping for different reasons are all
+// reported.
+static void collectShardWarnings(searchReducerCtx *rCtx, MRReply *warnings) {
+  const size_t len = MRReply_Length(warnings);
+  for (size_t i = 0; i < len; ++i) {
+    MRReply *warning = MRReply_ArrayElement(warnings, i);
+    size_t warningLen;
+    const char *str = MRReply_String(warning, &warningLen);
+    bool known = false;
+    for (size_t j = 0; j < rCtx->numWarnings && !known; ++j) {
+      size_t knownLen;
+      const char *knownStr = MRReply_String(rCtx->warnings[j], &knownLen);
+      known = knownLen == warningLen && !memcmp(str, knownStr, warningLen);
+    }
+    if (!known && rCtx->numWarnings < SEARCH_REDUCER_MAX_WARNINGS) {
+      rCtx->warnings[rCtx->numWarnings++] = warning;
+    }
+  }
+}
+
 static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
   if (arr == NULL) {
     return;
@@ -3005,9 +3031,7 @@ static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
     // Check for a warning
     MRReply *warning = MRReply_MapElement(arr, "warning");
     RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid warning record");
-    if (!rCtx->warning && MRReply_Length(warning) > 0) {
-      rCtx->warning = warning;
-    }
+    collectShardWarnings(rCtx, warning);
 
     MRReply *results = MRReply_MapElement(arr, "results");
     RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
@@ -3168,9 +3192,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx) {
     // Check for a warning
     MRReply *warning = MRReply_MapElement(arr, "warning");
     RS_LOG_ASSERT(warning && MRReply_Type(warning) == MR_REPLY_ARRAY, "invalid warning record");
-    if (!rCtx->warning && MRReply_Length(warning) > 0) {
-      rCtx->warning = warning;
-    }
+    collectShardWarnings(rCtx, warning);
 
     MRReply *total_results = MRReply_MapElement(arr, "total_results");
     if (!total_results) {
@@ -3404,13 +3426,13 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
 
     // After the results, so a reply cut short for memory still carries its warning.
     RedisModule_Reply_SimpleString(reply, "warning");  // >warning
-    if (rCtx->warning) {
-      size_t len = MRReply_Length(rCtx->warning);
+    if (rCtx->numWarnings) {
+      size_t len = rCtx->numWarnings;
       RedisModule_Reply_ArrayWithLen(reply, len + req->queryOOM);
       // Iterate over warning array and track warnings
       for (size_t i = 0; i < len; ++i) {
         // Extract warning string and track it
-        MRReply *currentWarning = MRReply_ArrayElement(rCtx->warning, i);
+        MRReply *currentWarning = rCtx->warnings[i];
         const char *warning_str = MRReply_String(currentWarning, NULL);
         QueryWarningCode warningCode = QueryWarningCode_GetCodeFromMessage(warning_str);
         QueryWarningsGlobalStats_UpdateWarning(warningCode, 1, COORD_ERR_WARN);
@@ -4837,10 +4859,10 @@ static int DistSearchTimeoutPartialCallback(RedisModuleCtx *ctx, RedisModuleStri
   searchReducerCtx *rCtx = req->rctx;
   // rCtx must be set - either we ran the reducer or waited for it to complete
   RS_ASSERT(rCtx);
-  // A shard warning retained before the OOM stop would otherwise outrank the timeout warning.
-  // The reply it points into is owned by the reducer's replies, so only drop the reference.
+  // Shard warnings retained before the OOM stop would otherwise outrank the timeout warning.
+  // The replies they point into are owned by the reducer's replies, so only drop the references.
   if (oomStopped) {
-    rCtx->warning = NULL;
+    rCtx->numWarnings = 0;
   }
   req->timedOut = true;
 
