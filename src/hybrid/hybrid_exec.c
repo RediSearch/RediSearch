@@ -315,7 +315,7 @@ static bool subqueryStoppedForOom(HybridRequest *hreq) {
 // cannot tell it from a memory-stopped sibling, and reading the clock now would also catch a
 // sibling that finished just before its deadline.
 static bool subqueryTimedOutWithoutOom(HybridRequest *hreq,
-                                        const arrayof(ResultProcessor *) depleters) {
+                                        arrayof(ResultProcessor *) depleters) {
   for (size_t i = 0; i < hreq->nrequests; ++i) {
     if (!QueryRequestLimits_IsMemoryStopped(&hreq->requests[i]->base.limits) &&
         RPDepleter_EndedOnTimeout(depleters[i])) {
