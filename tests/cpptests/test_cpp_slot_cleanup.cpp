@@ -12,6 +12,7 @@
 #include "redismock/util.h"
 
 #include "common.h"
+#include "index_utils.h"
 #include "doc_id_meta.h"
 #include "indexes.h"
 #include "rmalloc.h"
@@ -345,6 +346,8 @@ TEST_F(SlotCleanupTest, ExplicitCutoffDoesNotUseRamDocTableMaxId) {
   EXPECT_EQ(spec->docs.maxDocId, 0);
   PendingSlotDeletion *first = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 10);
   PendingSlotDeletion *second = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 20);
+  EXPECT_EQ(first->diskTrimId, 0u);
+  EXPECT_EQ(second->diskTrimId, 0u);
   EXPECT_TRUE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 10, SLOT_A));
   EXPECT_TRUE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 20, SLOT_A));
   EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 21, SLOT_A));
@@ -423,11 +426,10 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
         };
       }
     } iterator;
-    RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, spec);
-    QueryRequestTimeout timeout{};
-    TimeoutConfig config{};
-    QueryRequestTimeout_Init(&timeout, &config);
-    sctx.timeout = &timeout;
+    MockQueryEvalCtx queryContext;
+    RedisSearchCtx &sctx = queryContext.sctx;
+    sctx.redisCtx = ctx;
+    sctx.spec = spec;
     QueryProcessingCtx processing{};
     ResultProcessor *processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx);
     processor->parent = &processing;
@@ -511,8 +513,8 @@ class BufferedDiskQuery {
       };
     }
   } iterator;
-  RedisSearchCtx sctx{};
-  QueryRequestTimeout timeout{};
+  MockQueryEvalCtx queryContext;
+  RedisSearchCtx &sctx = queryContext.sctx;
   QueryProcessingCtx processing{}, hybridProcessing{};
   QueryProcessingCtx *activeProcessing = &processing;
   RLookup sourceLookup = RLookup_New(), tailLookup = RLookup_New();
@@ -523,11 +525,9 @@ class BufferedDiskQuery {
  public:
   BufferedDiskQuery(RedisModuleCtx *ctx, IndexSpec *spec, RedisSearchDiskSnapshot *snapshot)
       : result(SearchResult_New()) {
-    sctx = SEARCH_CTX_STATIC(ctx, spec);
+    sctx.redisCtx = ctx;
+    sctx.spec = spec;
     sctx.diskSnapshot = snapshot;
-    TimeoutConfig config{};
-    QueryRequestTimeout_Init(&timeout, &config);
-    sctx.timeout = &timeout;
     processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx);
     QITR_PushRP(&processing, processor);
   }
