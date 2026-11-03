@@ -31,7 +31,7 @@
 #include "indexes_scanner.h"
 #include "config.h"
 #include "field_spec.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "info/info_redis/types/spec_info.h"
 #include "rmutil/rm_assert.h"
 #include "rs_wall_clock.h"
