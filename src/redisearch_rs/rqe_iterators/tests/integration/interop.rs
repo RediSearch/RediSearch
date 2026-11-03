@@ -777,6 +777,57 @@ fn a_type_erased_suspended_iterator_prints_the_profile_of_the_erased_one() {
     insta::assert_debug_snapshot!(profile, @r#"{"Type": "MOCK"}"#);
 }
 
+/// Pipelines may stack several unlock sites that each suspend the root iterator before releasing
+/// the read lock, so a `Suspend` on an already suspended wrapper must leave it untouched.
+#[test]
+fn a_second_suspend_is_a_no_op() {
+    let ctx = MockContext::new(100, 10);
+    let mock = Mock::new([1, 2, 3]);
+    let data = mock.data();
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(mock).as_ptr();
+
+    // SAFETY: `it` was just built by `boxed_new`, which populates every callback, and `sctx`
+    // carries the spec it is revalidated against.
+    unsafe {
+        ((*it).Suspend.expect("Suspend must be populated"))(it);
+        assert_eq!(
+            suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec),
+            ValidateStatus_VALIDATE_OK
+        );
+    }
+    assert_eq!(
+        data.revalidate_count(),
+        1,
+        "two suspends and one revalidate make a single cycle"
+    );
+    // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
+    unsafe { ((*it).Free.expect("Free must be populated"))(it) };
+}
+
+/// Number of times [`count_suspend_calls`] was invoked.
+static SUSPEND_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+/// Stand-in `Suspend` callback: records that it was called.
+extern "C" fn count_suspend_calls(_it: *mut QueryIterator) {
+    SUSPEND_CALLS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A C iterator may hold lock-dependent state of its own, and a Rust iterator lowered to the C ABI
+/// only changes state through its `Suspend` callback, so suspending the handle has to reach it.
+#[test]
+fn suspending_a_c_iterator_forwards_to_its_suspend_callback() {
+    let it = Box::new(CRQEIterator::from_rust_leaf(Mock::new([1, 2, 3])));
+    // SAFETY: `it` owns the header and no reference into it is live across this call.
+    unsafe {
+        rqe_iterators::interop::patch_vtable(it.as_raw(), |h| h.Suspend = Some(count_suspend_calls))
+    };
+
+    let suspended = it.suspend();
+
+    assert_eq!(SUSPEND_CALLS.load(Ordering::Relaxed), 1);
+    drop(suspended);
+}
+
 /// `FT.PROFILE` asks for the estimate after the query has released its read lock, by which time
 /// the iterator tree is suspended, so the callback has to answer in that state too.
 #[test]

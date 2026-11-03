@@ -467,8 +467,8 @@ pub fn mock_revalidate_timeout() -> bool {
     MOCK_REVALIDATE_TIMEOUT.load(Ordering::Relaxed)
 }
 
-/// `Suspend` C callback, called right before the spec read lock is released. Panics if the
-/// iterator is already suspended.
+/// `Suspend` C callback, called right before the spec read lock is released. A no-op on an
+/// iterator that is already suspended, so nested unlock sites need not coordinate.
 extern "C" fn suspend<'index, I>(base: *mut QueryIterator)
 where
     I: RQEIteratorBoxed<'index> + 'index,
@@ -477,11 +477,20 @@ where
     // SAFETY: 1. by invariant 1. of [`RQEIteratorWrapper`]. 2. C runs one callback at a time on
     // an iterator it owns. 3. C frees the iterator before the index data it borrows.
     let wrapper = unsafe { wrapper_from_callback::<'_, 'index, I>(base) };
+    if !matches!(wrapper.state, WrapperState::Active(_)) {
+        // Already suspended (or transiently Empty during another transition) —
+        // nothing to do.
+        return;
+    }
+    // Suspend walks children via `suspend_child_slot_in_place`, so composite
+    // iterators (Union, Intersection, ...) and `CRQEIterator` children each
+    // transition their own typestate as part of the per-child dispatch. No
+    // separate cascade pass is needed.
     let active = wrapper.state.take_active();
     let suspended = <I as RQEIteratorBoxed>::suspend(active);
     wrapper.state = WrapperState::Suspended(suspended);
-    // The result may point into index data freed while the lock is released, so a stray read
-    // must fail loudly.
+    // Suspending may move the result, and it may point into index data freed while the lock is
+    // released: a stray read must fail loudly.
     wrapper.header.current = std::ptr::null_mut();
 }
 

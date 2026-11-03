@@ -155,9 +155,8 @@ typedef struct QueryIterator {
    * inverted-index data). After `Suspend` returns, the only callback that may be invoked on
    * the iterator (until the lock is re-acquired and `Revalidate` is called) is `Free`.
    *
-   * Iterators with no lock-dependent state install `Default_Suspend` (a no-op). Not every
-   * iterator installs a callback yet, so `Suspend` may be NULL and must not be called until
-   * they all do.
+   * Every iterator must install a callback; those with no lock-dependent state use
+   * `Default_Suspend` (a no-op).
    *
    * Rust-wrapped iterators flip their internal typestate from Active to Suspended here, so
    * that subsequent calls to read/skip/current/rewind would hard-fail at the FFI boundary.
