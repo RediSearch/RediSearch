@@ -2220,7 +2220,7 @@ typedef struct searchReducerCtx {
 
 // Per merged row: the stop flag, and memory every QUERY_MEMORY_RATIO_READ_INTERVAL rows, so one
 // large shard reply cannot run far past the limit before the reducer's read after that reply.
-// Calls QueryMemory_ShouldStopNow only on those rows, which keeps short replies out of the hook's
+// Calls QueryMemory_CheckpointNow only on those rows, which keeps short replies out of the hook's
 // AT_CALL count.
 static bool mergeRowShouldStop(searchReducerCtx *rCtx) {
   if (!rCtx->rowStopChecks) {
@@ -2235,7 +2235,7 @@ static bool mergeRowShouldStop(searchReducerCtx *rCtx) {
     return false;
   }
   rCtx->rowsSinceMemoryRead = 0;
-  return QueryMemory_ShouldStopNow(timeout);
+  return QueryMemory_CheckpointNow(timeout);
 }
 
 typedef struct {
@@ -3314,8 +3314,8 @@ static inline void recordSearchTimeoutStage(searchRequestCtx *req, bool isError)
 static bool replyShouldStop(searchRequestCtx *req, bool stoppedBefore, uint32_t *memoryCheckCalls) {
   QueryRequestLimits *timeout = &req->base.limits;
   if (stoppedBefore || req->base.reqConfig.oomPolicy == OomPolicy_Fail ||
-      !(memoryCheckCalls ? QueryMemory_ShouldStop(timeout, memoryCheckCalls)
-                         : QueryMemory_ShouldStopNow(timeout)) ||
+      !(memoryCheckCalls ? QueryMemory_Checkpoint(timeout, memoryCheckCalls)
+                         : QueryMemory_CheckpointNow(timeout)) ||
       !QueryRequestLimits_IsMemoryStopped(timeout)) {
     return false;
   }
@@ -3647,7 +3647,7 @@ static bool reducerShouldStop(searchRequestCtx *req, bool stoppedBeforeReducing,
   if (stoppedBeforeReducing || (lastReply && req->base.reqConfig.oomPolicy != OomPolicy_Fail)) {
     return false;
   }
-  return QueryMemory_ShouldStopNow(timeout);
+  return QueryMemory_CheckpointNow(timeout);
 }
 
 static int searchResultReducer(searchRequestCtx *req, int count, MRReply **replies,
@@ -4624,7 +4624,7 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, RedisModu
 // Every shard reply is held until the last one lands, so memory is read once per reply.
 static bool searchReplyCheckpoint(struct MRCtx *mrctx) {
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
-  return QueryMemory_ShouldStopNow(&req->base.limits);
+  return QueryMemory_CheckpointNow(&req->base.limits);
 }
 
 static int FlatSearchCommandHandler(searchRequestCtx *req) {

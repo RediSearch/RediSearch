@@ -91,7 +91,7 @@ static bool memoryStops(QueryRequestLimits *limits, bool forcedPressure) {
   return true;
 }
 
-bool QueryMemory_ShouldStop(QueryRequestLimits *limits, uint32_t *counter) {
+bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter) {
   if (limits && (QueryRequestLimits_IsMemoryStopped(limits) ||
                  QueryRequestLimits_IsBlockedClientTimedOut(limits))) {
     return true;
@@ -114,7 +114,7 @@ bool QueryMemory_ShouldStop(QueryRequestLimits *limits, uint32_t *counter) {
   return memoryStops(limits, forcedPressure);
 }
 
-bool QueryMemory_ShouldStopNow(QueryRequestLimits *limits) {
+bool QueryMemory_CheckpointNow(QueryRequestLimits *limits) {
   if (limits && (QueryRequestLimits_IsMemoryStopped(limits) ||
                  QueryRequestLimits_IsBlockedClientTimedOut(limits))) {
     return true;
@@ -125,7 +125,7 @@ bool QueryMemory_ShouldStopNow(QueryRequestLimits *limits) {
 int QueryMemory_CheckBeforeExecution(QueryRequestLimits *timeout, RSOomPolicy oomPolicy,
                                      QueryError *err) {
   RS_ASSERT(timeout);
-  if (!QueryMemory_ShouldStopNow(timeout) || oomPolicy != OomPolicy_Fail ||
+  if (!QueryMemory_CheckpointNow(timeout) || oomPolicy != OomPolicy_Fail ||
       !QueryRequestLimits_IsMemoryStopped(timeout)) {
     return REDISMODULE_OK;
   }
