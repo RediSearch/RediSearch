@@ -127,9 +127,22 @@ pub fn collect_tags(
         let field_index = ffi::t_fieldIndex::try_from(field_index)
             .expect("a spec has fewer fields than a field index can count");
 
-        for_each_tag(tag_index, |tag, ii| {
+        debug_assert!(!tag_index.values.is_null());
+        // SAFETY: the C tag index owns a TrieMapOpaque, kept live and immutable
+        // by the spec guard for the entire traversal.
+        let values = unsafe { &*tag_index.values.cast::<TrieMapOpaque>() };
+        let mut iterator = values.0.lending_iter();
+        while let Some((tag, value)) = iterator.next() {
+            let value = NonNull::new(*value).ok_or_else(|| {
+                io::Error::other("an in-memory tag index has a null posting list")
+            })?;
+
+            // SAFETY: C TagIndex values are Rust opaque inverted indexes.
+            // The spec's read lock prevents their removal during iteration.
+            let ii = unsafe { value.cast::<InvertedIndex>().as_ref() };
+
             let Ok(Some(delta)) = ii.scan_gc(|id| docs.contains(id)) else {
-                return Ok(());
+                continue;
             };
 
             serialize(
@@ -141,36 +154,11 @@ pub fn collect_tags(
                     inverted_index_unique_id: u32::from(ii.unique_id()),
                     delta,
                 }),
-            )
-        })?;
+            )?;
+        }
     }
 
     serialize(writer, None::<TagEntry<&[u8]>>)
-}
-
-/// Visit every tag value of `tag_index` with its posting list, in trie order.
-///
-/// Stops at, and returns, the first error `visit` reports.
-fn for_each_tag(
-    tag_index: &ffi::TagIndex,
-    mut visit: impl FnMut(&[u8], &InvertedIndex) -> io::Result<()>,
-) -> io::Result<()> {
-    debug_assert!(!tag_index.values.is_null());
-    // SAFETY: the C tag index owns a TrieMapOpaque, kept live and immutable
-    // by the spec guard for the entire traversal.
-    let values = unsafe { &*tag_index.values.cast::<TrieMapOpaque>() };
-    let mut iterator = values.0.lending_iter();
-    while let Some((tag, value)) = iterator.next() {
-        let value = NonNull::new(*value)
-            .ok_or_else(|| io::Error::other("an in-memory tag index has a null posting list"))?;
-
-        // SAFETY: C TagIndex values are Rust opaque inverted indexes.
-        // The spec's read lock prevents their removal during iteration.
-        let ii = unsafe { value.cast::<InvertedIndex>().as_ref() };
-
-        visit(tag, ii)?;
-    }
-    Ok(())
 }
 
 /// Where a [`scan_tags_after`] walk resumes: a TAG field, and the last tag
