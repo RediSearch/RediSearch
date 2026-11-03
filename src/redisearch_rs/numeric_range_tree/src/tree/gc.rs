@@ -47,6 +47,10 @@ pub struct NodeGcDelta {
     pub bounds_with_last_block: ValueBounds,
     /// Bounds of the surviving entries, excluding the last scanned block.
     pub bounds_without_last_block: ValueBounds,
+    /// Whether the scanned node was a leaf. One that has split by the apply keeps its
+    /// range as an internal node, so its delta is denied; see
+    /// [`NumericRangeTree::apply_gc_to_node_with`].
+    pub scanned_leaf: bool,
 }
 
 /// Result of applying GC to a single node.
@@ -88,7 +92,7 @@ impl NumericRangeNode {
     /// (the node has no range, no documents were deleted, or the range would not
     /// decode; the next cycle tries again).
     pub fn scan_gc(&self, doc_exists: impl inverted_index::DocLiveness) -> Option<NodeGcDelta> {
-        scan_range_index_gc(self.range()?.entries(), doc_exists)
+        scan_range_index_gc(self.range()?.entries(), doc_exists, self.is_leaf())
             .ok()
             .flatten()
     }
@@ -131,6 +135,20 @@ impl NumericRangeTree {
     ) -> Option<SingleNodeGcResult> {
         let node = self.nodes.get_mut(node_idx)?;
         let is_leaf = node.is_leaf();
+        // A leaf that split since its scan copied its entries, the ones the delta removes
+        // included, into children applied after it; removing them here could tighten the
+        // bounds this node must keep over its children. A delta whose last block did not
+        // change would not be denied below, so it is denied whole; the next cycle lists
+        // the children and collects them first.
+        if delta.scanned_leaf && !is_leaf {
+            return Some(SingleNodeGcResult {
+                index_gc_info: GcApplyInfo {
+                    ignored_last_block: true,
+                    ..GcApplyInfo::default()
+                },
+                became_empty: false,
+            });
+        }
 
         let Some(range) = node.range_mut() else {
             return Some(SingleNodeGcResult::default());
@@ -433,9 +451,11 @@ impl NumericRangeTree {
 ///
 /// Returns `Ok(None)` when no document was deleted from the range, and the error
 /// when the range would not decode, so the caller can tell the two apart.
+/// `scanned_leaf` is whether the range belongs to a leaf.
 pub fn scan_range_index_gc(
     entries: &crate::NumericIndex,
     doc_exists: impl inverted_index::DocLiveness,
+    scanned_leaf: bool,
 ) -> std::io::Result<Option<NodeGcDelta>> {
     // The logical index of the last block — used inside the repair closure to route
     // each entry's HLL contribution into the correct accumulator. Comparing by
@@ -479,5 +499,6 @@ pub fn scan_range_index_gc(
         registers_without_last_block: *majority_hll.registers(),
         bounds_with_last_block: last_block_bounds,
         bounds_without_last_block: majority_bounds,
+        scanned_leaf,
     }))
 }

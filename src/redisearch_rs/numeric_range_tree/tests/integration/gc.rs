@@ -212,6 +212,43 @@ fn a_leaf_that_split_since_its_scan_is_denied_not_rescanned(
     assert!(range.max_val() >= last as f64, "max {}", range.max_val());
 }
 
+/// A leaf whose last block was full when scanned splits by appending a new block, so
+/// the scanned last block does not change and the delta's own staleness check passes.
+/// The delta is denied whole anyway: the node is internal now, and its children hold
+/// copies of the entries the delta would remove.
+#[rstest]
+fn a_leaf_that_split_past_a_full_last_block_is_denied(
+    #[values(false, true)] compress_floats: bool,
+) {
+    const MAX_DEPTH_RANGE: usize = 2;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    // One value, so the leaf fills its block without splitting.
+    for i in 1..=ENTRIES_PER_BLOCK {
+        tree.add(i, 42.0, false, false, MAX_DEPTH_RANGE);
+    }
+    let live = |doc_id: u64| doc_id > 2;
+    let delta = scan_node_delta(&tree, tree.root_index(), &live).expect("docs 1 and 2 are gone");
+    assert!(delta.scanned_leaf);
+    let last = ENTRIES_PER_BLOCK + SPLIT_TRIGGER;
+    for i in ENTRIES_PER_BLOCK + 1..=last {
+        tree.add(i, i as f64, false, false, MAX_DEPTH_RANGE);
+    }
+    assert!(!tree.root().is_leaf(), "the leaf split");
+    let entries_before = tree.root().range().unwrap().entries().num_docs();
+
+    let live_dyn: &dyn inverted_index::DocLiveness = &live;
+    let result = tree
+        .apply_gc_to_node_with(tree.root_index(), delta, Some(live_dyn))
+        .unwrap();
+
+    assert!(result.index_gc_info.ignored_last_block);
+    assert_eq!(result.index_gc_info.entries_removed, 0);
+    assert_eq!(
+        tree.root().range().unwrap().entries().num_docs(),
+        entries_before
+    );
+}
+
 /// A rescan can delete the grown last block outright. The statistics are then
 /// rebuilt from whatever follows it, found by document ID, not from a block count
 /// the delete made stale: here the only block goes, and nothing is folded back.
@@ -741,6 +778,7 @@ fn gc_on_node_without_range() {
                 registers_without_last_block: delta.registers_without_last_block,
                 bounds_with_last_block: delta.bounds_with_last_block,
                 bounds_without_last_block: delta.bounds_without_last_block,
+                scanned_leaf: delta.scanned_leaf,
             },
         )
         .unwrap();
@@ -1149,10 +1187,13 @@ fn scanning_a_snapshot_matches_scanning_the_live_range(
     let entries = tree.root().range().expect("a leaf has a range").entries();
     let live = |doc_id: u64| doc_id % 3 != 0;
 
-    let on_live = scan_range_index_gc(entries, live)
+    let on_live = scan_range_index_gc(entries, live, true)
         .unwrap()
         .expect("every third doc is gone");
     let snapshot = entries.gc_snapshot(&live).expect("every third doc is gone");
 
-    assert_eq!(scan_range_index_gc(&snapshot, live).unwrap(), Some(on_live));
+    assert_eq!(
+        scan_range_index_gc(&snapshot, live, true).unwrap(),
+        Some(on_live)
+    );
 }
