@@ -90,13 +90,18 @@ class DiskSlotTrimTest : public ::testing::Test {
 
 TEST_F(DiskSlotTrimTest, IndexDropRetiresOutstandingDeletesAfterPartialCollection) {
   const auto logicallyDeleted = IndexesGlobalStats_GetLogicallyDeletedDocs();
-  for (size_t i = 0; i < 3; ++i) GCContext_OnDelete(&gc);
+  GCContext_OnDelete(&gc);
+  GCContext_OnUpdate(&gc);
+  GCContext_OnDelete(&gc);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), 2u);
+  EXPECT_EQ(collector()->updatesFromLastRun.load(), 1u);
   api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
     stats->num_cleaned_docs = 1;
   };
   GCForcedRun forced = GCForcedRun_New(1000, 10);
   ASSERT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
   EXPECT_EQ(collector()->deletesFromLastRun.load(), 0u);
+  EXPECT_EQ(collector()->updatesFromLastRun.load(), 0u);
   EXPECT_EQ(collector()->logicallyDeleted.load(), 2u);
   EXPECT_EQ(IndexesGlobalStats_GetLogicallyDeletedDocs(), logicallyDeleted + 2);
   dropIndexBeforeCollectorTermination();
