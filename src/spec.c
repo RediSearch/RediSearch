@@ -1138,13 +1138,9 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
   return parseVectorField_validate_svs(params, status);
 }
 
-// Parse the arguments of a TEXT field
-static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+// Parse the TEXT-specific options, stopping at the first argument that is not one
+static int parseTextFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
-  fs->types |= INDEXFLD_T_FULLTEXT;
-
-  // this is a text field
-  // init default weight and type
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_NOSTEM_STR)) {
       fs->options |= FieldSpec_NoStemming;
@@ -1197,11 +1193,9 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   return 1;
 }
 
-// Parse the arguments of a TAG field
-static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+// Parse the TAG-specific options, stopping at the first argument that is not one
+static int parseTagFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     int rc = 1;
-    fs->types |= INDEXFLD_T_TAG;
-
     while (!AC_IsAtEnd(ac)) {
       if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
         if (AC_IsAtEnd(ac)) {
@@ -1234,6 +1228,21 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     }
 
   return rc;
+}
+
+// Parse the options specific to the field's type, stopping at the first argument that is not one
+static int parseFieldTypeOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+  if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+    return parseTextFieldOptions(fs, ac, status);
+  }
+  if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+    return parseTagFieldOptions(fs, ac, status);
+  }
+  // NUMERIC, GEO and GEOSHAPE
+  while (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+    fs->options |= FieldSpec_IndexMissing;
+  }
+  return 1;
 }
 
 // Field creation already parsed the path; validation only checks its result.
@@ -1380,10 +1389,6 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
     }
 
-    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
-    }
-
   return 1;
 }
 
@@ -1396,15 +1401,9 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   }
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {  // text field
-    if (!parseTextField(fs, ac, status)) goto error;
-    if (!FieldSpec_IndexesEmpty(fs)) {
-      sp->flags |= Index_HasNonEmpty;
-    }
+    fs->types |= INDEXFLD_T_FULLTEXT;
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    if (!parseTagField(fs, ac, status)) goto error;
-    if (!FieldSpec_IndexesEmpty(fs)) {
-      sp->flags |= Index_HasNonEmpty;
-    }
+    fs->types |= INDEXFLD_T_TAG;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_GEOMETRY_STR, fs, status)) goto error;
     if (!parseGeometryField(sp, fs, ac, status)) goto error;
@@ -1414,34 +1413,37 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
-    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
-    }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
     fs->types |= INDEXFLD_T_GEO;
-    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
-    }
   } else {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid field type for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
     goto error;
   }
 
+  // Type-specific options may come before, between or after SORTABLE and NOINDEX.
+  // An argument none of them matches ends this field and starts the next one.
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
-          FIELD_IS(fs, INDEXFLD_T_NUMERIC) ||         // We don't normalize numeric fields. Implicit UNF
-          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {
         fs->options |= FieldSpec_UNF;
       }
-      continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
-      continue;
     } else {
-      break;
+      size_t offset = ac->offset;
+      if (!parseFieldTypeOptions(fs, ac, status)) goto error;
+      if (ac->offset == offset) break;
     }
+  }
+  // Numeric fields and case-sensitive tags are never normalized, so sorting them is implicitly
+  // UNF. Decided after all options are parsed, since CASESENSITIVE may follow SORTABLE.
+  if (FieldSpec_IsSortable(fs) &&
+      (FIELD_IS(fs, INDEXFLD_T_NUMERIC) || TAG_FIELD_IS(fs, TagField_CaseSensitive))) {
+    fs->options |= FieldSpec_UNF;
+  }
+  if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG) && !FieldSpec_IndexesEmpty(fs)) {
+    sp->flags |= Index_HasNonEmpty;
   }
   // We don't allow both NOINDEX and INDEXMISSING, since the missing values will
   // not contribute and thus this doesn't make sense.
