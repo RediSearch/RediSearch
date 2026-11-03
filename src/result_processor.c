@@ -3094,7 +3094,7 @@ typedef struct {
 
 static int RPMemoryCheckpoint_Next(ResultProcessor *base, SearchResult *r) {
   RPMemoryCheckpoint *self = (RPMemoryCheckpoint *)base;
-  if (QueryMemory_ShouldStop(self->sctx->limits, &self->counter)) {
+  if (QueryMemory_Checkpoint(self->sctx->limits, &self->counter)) {
     return RS_RESULT_TIMEDOUT;
   }
   return base->upstream->Next(base->upstream, r);
