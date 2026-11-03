@@ -59,7 +59,7 @@ typedef enum {
   // The disk cycle failed recoverably; pending changes remain eligible for retry.
   GC_DISK_FORCED_RUN_RETRY_REQUIRED,
   // `compactAll` was asked for but did not complete: the cycle was skipped (e.g. background
-  // work was paused before it started) or the compaction was cancelled.
+  // work was paused before it started), the index disappeared, or compaction was cancelled.
   GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE,
 } GCForcedRunOutcome;
 
