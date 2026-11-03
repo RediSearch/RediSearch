@@ -212,6 +212,28 @@ fn a_leaf_that_split_since_its_scan_is_denied_not_rescanned(
     assert!(range.max_val() >= last as f64, "max {}", range.max_val());
 }
 
+/// An internal node keeps bounds over the entries its children still hold, as the
+/// unlisted children of a leaf that split since the scan do: their copies of the
+/// entries its delta removes are collected only by a later cycle.
+#[rstest]
+fn an_internal_node_keeps_bounds_over_uncollected_children(
+    #[values(false, true)] compress_floats: bool,
+) {
+    // Distinct values split the leaf once; the root keeps its range.
+    let tree_entries = SPLIT_TRIGGER;
+    let mut tree = build_tree(tree_entries, compress_floats, 2);
+    let root = tree.root_index();
+    assert!(!tree.root().is_leaf(), "the leaf split");
+    let live = |doc_id: u64| doc_id > 1;
+    let delta = scan_node_delta(&tree, root, &live).expect("doc 1 is gone");
+
+    let result = tree.apply_gc_to_node(root, delta).unwrap();
+
+    assert_eq!(result.index_gc_info.entries_removed, 1);
+    let range = tree.root().range().expect("the root retains its range");
+    assert_eq!(range.min_val(), 1.0, "a child still holds doc 1's value");
+}
+
 /// A leaf whose last block was full when scanned splits by appending a new block, so
 /// the scanned last block does not change and the delta's own staleness check passes.
 /// The delta is denied whole anyway: the node is internal now, and its children hold
