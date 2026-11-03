@@ -1362,7 +1362,7 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
     total_size = 0
     for field in fields:
         if field in ['GEO', 'NUMERIC']:
-            inverted_index_size = 24
+            inverted_index_size = 32
             inverted_index_meta_data = 8
             total_size += inverted_index_size + inverted_index_meta_data
             continue
