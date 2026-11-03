@@ -130,7 +130,7 @@ fn the_read_lock_excludes_writers_until_dropped() {
         rc == 0
     };
     {
-        let lock = spec_ref.read().expect("the spec is valid");
+        let lock = spec_ref.read();
         assert_eq!(lock.guard().as_ptr(), &raw const spec);
         assert_eq!(paused(), 1);
         assert!(
@@ -153,18 +153,11 @@ fn the_read_lock_excludes_writers_until_dropped() {
     }
 }
 
-static FREES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-/// Counts frees and leaves the storage to the test.
-unsafe extern "C" fn count_free(_: *mut c_void) {
-    FREES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// A read lock that is forgotten instead of dropped keeps its spec alive: the
-/// reference it was taken from can go, and the spec is not freed under the lock.
+/// Invalidating a spec stops new promotions, but a strong reference promoted
+/// before still takes the read lock.
 #[test]
 #[cfg_attr(miri, ignore = "takes the C spec lock")]
-fn a_forgotten_read_lock_keeps_its_spec_alive() {
+fn an_invalidated_spec_can_still_be_read_locked() {
     redis_mock::init_redis_module_mock();
     let keys_dict = OwnedDict::<KeysDictType>::create();
     // SAFETY: zero is valid for every field this test leaves unset.
@@ -176,68 +169,30 @@ fn a_forgotten_read_lock_keeps_its_spec_alive() {
     let rwlock = (&raw mut spec.rwlock).cast::<libc::pthread_rwlock_t>();
     // SAFETY: `rwlock` points at the spec's own, not yet used, lock storage.
     assert_eq!(unsafe { libc::pthread_rwlock_init(rwlock, ptr::null()) }, 0);
-    // SAFETY: the spec outlives the references, and `count_free` leaves its storage.
-    let strong = unsafe { StrongRef_New((&raw mut spec).cast(), Some(count_free)) };
-    // SAFETY: `strong` is the live reference created above.
-    let weak = unsafe { StrongRef_Demote(strong) };
-    // SAFETY: `weak` is a valid weak reference.
-    let spec_ref = unsafe { IndexSpecWeakRef::from_raw(weak) }
-        .promote()
-        .expect("the spec is alive");
-
-    mem::forget(spec_ref.read().expect("the spec is valid"));
-    drop(spec_ref);
-    // SAFETY: `strong` was created above and is released once.
-    unsafe { StrongRef_Release(strong) };
-
-    assert_eq!(
-        FREES.load(std::sync::atomic::Ordering::Relaxed),
-        0,
-        "the forgotten lock still holds the spec"
-    );
-    // SAFETY: the forgotten lock cloned `strong`, so this releases the clone's share
-    // once; `weak` was created above and is released once, and the spec's names
-    // were allocated above and are freed once. The lock stays taken: the test
-    // forgot it on purpose and its process ends here.
-    unsafe {
-        StrongRef_Release(strong);
-        WeakRef_Release(weak);
-        ffi::HiddenString_Free(spec.specName, true);
-        drop(CString::from_raw(spec.obfuscatedName));
-    }
-}
-
-/// A spec dropped after it was promoted cannot be locked, and the promoted
-/// reference still releases cleanly.
-#[test]
-#[cfg_attr(miri, ignore = "calls the C reference manager")]
-fn an_invalidated_spec_cannot_be_read_locked() {
-    redis_mock::init_redis_module_mock();
-    // SAFETY: zero is valid for every field this test leaves unset; the spec is
-    // never locked.
-    let mut spec = unsafe { mem::zeroed::<ffi::IndexSpec>() };
-    // SAFETY: the static name is copied, because the spec takes ownership.
-    spec.specName = unsafe { ffi::NewHiddenString(c"idx".as_ptr(), 3, true) };
-    spec.obfuscatedName = CString::new("Index@test").unwrap().into_raw();
     // SAFETY: the spec outlives the references, and `keep_spec` leaves its storage.
     let strong = unsafe { StrongRef_New((&raw mut spec).cast(), Some(keep_spec)) };
     // SAFETY: `strong` is the live reference created above.
     let weak = unsafe { StrongRef_Demote(strong) };
-    // SAFETY: `weak` is a valid weak reference.
-    let spec_ref = unsafe { IndexSpecWeakRef::from_raw(weak) }
-        .promote()
-        .expect("the spec is alive");
+    // SAFETY: `weak` is a valid weak reference until it is released below.
+    let weak_ref = unsafe { IndexSpecWeakRef::from_raw(weak) };
+    let spec_ref = weak_ref.promote().expect("the spec is alive");
 
     // SAFETY: `strong` is live; this is what dropping the index does.
     unsafe { StrongRef_Invalidate(strong) };
-    assert!(spec_ref.read().is_none());
+    assert!(weak_ref.promote().is_none(), "no new promotion");
+    {
+        let lock = spec_ref.read();
+        assert_eq!(lock.guard().as_ptr(), &raw const spec);
+    }
 
     drop(spec_ref);
-    // SAFETY: both references were created above and are released once, and the
-    // spec's names were allocated above and are freed once.
+    // SAFETY: both references were created above and are released once, the lock
+    // was initialized above and is released, and the spec's names were allocated
+    // above and are freed once.
     unsafe {
         WeakRef_Release(weak);
         StrongRef_Release(strong);
+        libc::pthread_rwlock_destroy(rwlock);
         ffi::HiddenString_Free(spec.specName, true);
         drop(CString::from_raw(spec.obfuscatedName));
     }
