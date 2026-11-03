@@ -228,6 +228,12 @@ TEST_F(ExprTest, testArithmetics) {
   TEST_ARITHMETIC("2*.5", 1);
   TEST_ARITHMETIC("log(.6)", log(0.6));
 
+  // Saved FT.CREATE FILTER expressions must keep their old meaning, so this shape still parses
+  // as the leading '.' dropped.
+  TEST_ARITHMETIC(".5.5", 5.5);
+  TEST_ARITHMETIC(".5.5e1", 55);
+  TEST_ARITHMETIC("1+.5.5", 6.5);
+
   // The grammar has no unary operators, so a sign before a leading-dot literal stays a syntax
   // error. TODO(MOD-20783, MOD-20784): revisit once sign tokenization is fixed.
   ctx.assign("+.6");
