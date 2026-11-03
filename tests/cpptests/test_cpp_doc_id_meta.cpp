@@ -15,6 +15,13 @@
 #include "indexes.h"
 #include "common.h"
 #include "index_utils.h"
+#include "gc.h"
+
+extern "C" {
+#include "search_disk.h"
+extern RedisSearchDiskAPI *disk;
+extern bool isFlex;
+}
 
 extern "C" int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
@@ -898,4 +905,48 @@ TEST_F(DocIdMetaTest, TestUnlinkSkipsDeletedEntries) {
   // Both entries should now be invalid
   verifyDocIdMissing(testKeyName, SPEC1_ID);
   verifyDocIdMissing(testKeyName, SPEC2_ID);
+}
+
+TEST_F(DocIdMetaTest, SuccessfulDiskRenamesNotifyGc) {
+  const bool previousGcEnabled = RSGlobalConfig.gcConfigParams.enableGC;
+  RSGlobalConfig.gcConfigParams.enableGC = false;
+  addTestSpec("rename_gc", 881);
+  RSGlobalConfig.gcConfigParams.enableGC = previousGcEnabled;
+  IndexSpec *spec = get_spec(createdSpecs.back());
+  ASSERT_EQ(DocIdMeta_Set(ctx, testKeyName, spec->specId, 42), REDISMODULE_OK);
+  RedisModuleString *fromKey = createHashKey("rename_from");
+
+  RedisSearchDiskAPI api{};
+  api.docTable.replaceKey = [](RedisSearchDiskIndexSpec *handle, t_docId id, const char *, size_t) {
+    EXPECT_EQ(id, 42u);
+    return *reinterpret_cast<bool *>(handle);
+  };
+  size_t writes = 0;
+  GCContext recorder{};
+  recorder.gcCtx = &writes;
+  recorder.callbacks.onWrite = [](void *state) { ++*static_cast<size_t *>(state); };
+  const auto savedApi = disk;
+  const bool savedFlex = isFlex;
+  const auto savedHandle = spec->diskSpec;
+  const auto savedGc = spec->gc;
+  disk = &api;
+  isFlex = true;
+  bool succeeded = false;
+  spec->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(&succeeded);
+  spec->gc = &recorder;
+
+  Indexes_ReplaceMatchingWithSchemaRules(ctx, fromKey, testKeyName);
+  EXPECT_EQ(writes, 0u);
+  succeeded = true;
+  Indexes_ReplaceMatchingWithSchemaRules(ctx, fromKey, testKeyName);
+  EXPECT_EQ(writes, 1u);
+  spec->gc = nullptr;
+  Indexes_ReplaceMatchingWithSchemaRules(ctx, fromKey, testKeyName);
+  EXPECT_EQ(writes, 1u);
+
+  spec->gc = savedGc;
+  spec->diskSpec = savedHandle;
+  isFlex = savedFlex;
+  disk = savedApi;
+  RedisModule_FreeString(ctx, fromKey);
 }
