@@ -509,7 +509,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/util/references.h",
-        fns: &["StrongRef_Get"],
+        fns: &["StrongRef_Clone", "StrongRef_Get", "StrongRef_Release"],
         types: &[],
         vars: &[],
     },
