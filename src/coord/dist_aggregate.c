@@ -219,7 +219,7 @@ static void withCountReplyCb(MRIteratorCallbackCtx *ctx, MRReply *rep) {
       }
     }
     iterCtx->numResponded++;
-    bool timedOut = QueryRequest_ShouldStop(&iterCtx->areq->base.limits);
+    bool timedOut = QueryRequestLimits_ShouldStop(&iterCtx->areq->base.limits);
     if (timedOut || isError || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
       if (timedOut) {
         MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
@@ -262,7 +262,7 @@ static void withCountErrorCb(MRIteratorCallbackCtx *ctx) {
   // remaining shards to netCursorCallback and stop accumulating their totals. Wait
   // for the other shards (or a timeout) so their counts are still summed. On a
   // timeout we must dispatch.
-  bool timedOut = QueryRequest_ShouldStop(&iterCtx->areq->base.limits);
+  bool timedOut = QueryRequestLimits_ShouldStop(&iterCtx->areq->base.limits);
   if (timedOut || iterCtx->numResponded == MRIterator_GetNumShards(it)) {
     if (timedOut) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(it));
@@ -363,7 +363,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 #endif
 
   // Check if the request timed out or was stopped before starting the iterator
-  if (QueryRequest_ShouldStop(&nc->areq->base.limits)) {
+  if (QueryRequestLimits_ShouldStop(&nc->areq->base.limits)) {
     return RS_RESULT_TIMEDOUT;
   }
 
@@ -973,7 +973,7 @@ static int dispatchAggregateDeferred(AREQ *r, DistQueryDispatchCtx *dispatch,
   dispatch->bc = NULL;
   MRIterator *it = nc->it;
   // Capture before dispatching: the worker may free the request, and nc with it.
-  const bool stopped = QueryRequest_ShouldStop(&r->base.limits);
+  const bool stopped = QueryRequestLimits_ShouldStop(&r->base.limits);
   if (stopped) {
     // Already stopped: no reply is awaited, and the fan-out would only make the shards run an
     // expensive query nobody reads. The worker still runs to reply and release the request.
