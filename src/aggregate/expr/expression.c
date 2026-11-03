@@ -476,7 +476,7 @@ typedef struct RPEvaluator {
   RSValue *val;
   const RLookupKey *outkey;
   int isFilter;
-  // QueryMemory_ShouldStop counter for the string arena, which lives as long as the query.
+  // QueryMemory_Checkpoint counter for the string arena, which lives as long as the query.
   uint32_t memoryCheckCalls;
 } RPEvaluator;
 
