@@ -748,6 +748,12 @@ def parkedForcedGC(env, timeout=None):
     return thread, result
 
 
+def resumeGCSchedule(env):
+    """Undo indexWithCollectableDocs' GC_STOP_SCHEDULE: only a scheduled cycle frees the GC
+    once its index is gone, so a stopped one leaks at shutdown."""
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+
+
 def holdForkSlot(env, key_delay_us):
     """Take Redis's single child slot with a bgsave slowed to key_delay_us per key saved."""
     env.expect('CONFIG', 'SET', 'rdb-key-save-delay', str(key_delay_us)).ok()
@@ -780,6 +786,7 @@ def testForcedGCWaitsForForkSlot():
     finally:
         thread.join(timeout=60)
         env.cmd('CONFIG', 'SET', 'rdb-key-save-delay', '0')
+        resumeGCSchedule(env)
 
     env.assertFalse(thread.is_alive(), message='forced GC never returned')
     env.assertEqual(forced.get('reply'), 'DONE')
@@ -808,6 +815,7 @@ def testForcedGCReportsWhenItCannotFork():
         thread.join(timeout=60)
         env.cmd('CONFIG', 'SET', 'rdb-key-save-delay', '0')
         waitForRdbSaveToFinish(env)
+        resumeGCSchedule(env)
 
     env.assertContains('GC DID NOT RUN', forced.get('error', ''),
                        message=f'expected an error, got {forced}')
