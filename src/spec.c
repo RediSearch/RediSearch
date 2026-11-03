@@ -1147,6 +1147,10 @@ static int parseTextFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
       continue;
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPEC_WEIGHT_STR " requires an argument");
+        return 0;
+      }
       double d;
       if ((rc = AC_GetDouble(ac, &d, 0)) != AC_OK) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for weight: %s", AC_Strerror(rc));
@@ -1239,10 +1243,28 @@ static int parseFieldTypeOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
     return parseTagFieldOptions(fs, ac, status);
   }
   // NUMERIC, GEO and GEOSHAPE
-  while (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+  if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
     fs->options |= FieldSpec_IndexMissing;
   }
   return 1;
+}
+
+// Whether the current argument would start a valid field definition (`name [AS alias] type`),
+// judged by the argument after it.
+static bool startsFieldDefinition(const ArgsCursor *ac) {
+  if (AC_NumRemaining(ac) < 2) {
+    return false;
+  }
+  const char *next = AC_StringArg(ac, ac->offset + 1, NULL);
+  static const char *const starts[] = {SPEC_AS_STR,       SPEC_TEXT_STR,   SPEC_TAG_STR,
+                                       SPEC_NUMERIC_STR,  SPEC_GEO_STR,    SPEC_GEOMETRY_STR,
+                                       SPEC_VECTOR_STR};
+  for (size_t i = 0; i < sizeof(starts) / sizeof(*starts); i++) {
+    if (!strcasecmp(next, starts[i])) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Field creation already parsed the path; validation only checks its result.
@@ -1420,8 +1442,10 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     goto error;
   }
 
-  // Type-specific options may come before, between or after SORTABLE and NOINDEX.
-  // An argument none of them matches ends this field and starts the next one.
+  if (!parseFieldTypeOptions(fs, ac, status)) goto error;
+  // Type-specific options may also come between or after SORTABLE and NOINDEX. Schemas used to
+  // end the field at the first other argument here, so one that could start a field definition
+  // still does, keeping fields named after an option keyword working.
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
@@ -1430,6 +1454,8 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
       }
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
+    } else if (startsFieldDefinition(ac)) {
+      break;
     } else {
       size_t offset = ac->offset;
       if (!parseFieldTypeOptions(fs, ac, status)) goto error;

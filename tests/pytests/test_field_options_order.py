@@ -42,6 +42,42 @@ def testTypeOptionsAfterGenericOptions(env):
 
 
 @skip(cluster=True)
+def testAlterTypeOptionsAfterGenericOptions(env):
+    """FT.ALTER SCHEMA ADD accepts type-specific options after SORTABLE and NOINDEX."""
+    env.expect('FT.CREATE', 'canonical', 'SCHEMA', 'n', 'NUMERIC').ok()
+    env.expect('FT.CREATE', 'reordered', 'SCHEMA', 'n', 'NUMERIC').ok()
+    env.expect('FT.ALTER', 'canonical', 'SCHEMA', 'ADD',
+               't', 'TAG', 'CASESENSITIVE', 'SEPARATOR', ';', 'SORTABLE',
+               'x', 'TEXT', 'NOSTEM', 'NOINDEX').ok()
+    env.expect('FT.ALTER', 'reordered', 'SCHEMA', 'ADD',
+               't', 'TAG', 'SORTABLE', 'CASESENSITIVE', 'SEPARATOR', ';',
+               'x', 'TEXT', 'NOINDEX', 'NOSTEM').ok()
+    env.assertEqual(index_info(env, 'reordered')['attributes'],
+                    index_info(env, 'canonical')['attributes'])
+
+
+@skip(cluster=True)
+def testOptionNamedFieldAfterGenericOptions(env):
+    """After SORTABLE or NOINDEX, an option keyword followed by AS or a field type
+    still names the next field, as it did before options could be reordered."""
+    cases = [
+        ('n', 'NUMERIC', 'SORTABLE', 'INDEXMISSING', 'TAG'),
+        ('t', 'TAG', 'SORTABLE', 'CASESENSITIVE', 'TEXT'),
+        ('t', 'TEXT', 'NOINDEX', 'NOSTEM', 'NUMERIC'),
+        ('t', 'TEXT', 'SORTABLE', 'WEIGHT', 'AS', 'w', 'NUMERIC'),
+        ('t', 'TAG', 'SORTABLE', 'SEPARATOR', 'GEO'),
+        # NUMERIC takes INDEXMISSING once; a second one names the next field.
+        ('n', 'NUMERIC', 'INDEXMISSING', 'INDEXMISSING', 'TAG'),
+    ]
+    for i, schema in enumerate(cases):
+        env.expect('FT.CREATE', f'idx{i}', 'SCHEMA', *schema).ok()
+        attrs = index_info(env, f'idx{i}')['attributes']
+        env.assertEqual(len(attrs), 2, message=(schema, attrs))
+        env.assertEqual(attrs[0][1], schema[0], message=(schema, attrs))
+        env.assertEqual(attrs[1][1], schema[3], message=(schema, attrs))
+
+
+@skip(cluster=True)
 def testCaseSensitiveAfterSortable(env):
     """CASESENSITIVE after SORTABLE makes the tag case sensitive and, as when it
     comes first, implies UNF."""
@@ -66,6 +102,11 @@ def testTypeOptionErrorsAfterGenericOptions(env):
         .error().contains('SEPARATOR requires an argument')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'WEIGHT', 'heavy') \
         .error().contains('Bad arguments for weight')
+    # A missing WEIGHT value used to read past the end of the arguments and crash the server.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WEIGHT') \
+        .error().contains('WEIGHT requires an argument')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE', 'WEIGHT') \
+        .error().contains('WEIGHT requires an argument')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'NOINDEX', 'INDEXMISSING') \
         .error().contains('Field cannot be defined with both `NOINDEX` and `INDEXMISSING`')
     # An argument that is not an option of the field's type still starts a new field.
