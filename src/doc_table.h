@@ -97,10 +97,12 @@ DocTable NewDocTable(size_t cap, size_t max_size);
 // Initial number of slots in a spec's document table
 #define INITIAL_DOC_TABLE_SIZE 1000
 
+/* The bucket holding `docId`: ids from maxSize on share buckets, chained by `docId % maxSize`. */
 static inline uint32_t DocTable_GetBucket(const DocTable *t, t_docId docId) {
   return docId < t->maxSize ? docId : docId % t->maxSize;
 }
 
+/* Whether `docId` is an id this table has assigned; says nothing about whether it is still live. */
 static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
   return docId != 0 && docId <= t->maxDocId;
 }

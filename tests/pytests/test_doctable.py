@@ -37,7 +37,7 @@ def testDocTable():
     env.expect('ft.drop', 'idx').ok()
 
 
-# Enough docs that a wildcard scan's metadata outgrows the size below which it does not prefetch.
+# Enough docs that a wildcard scan's metadata outgrows WILDCARD_DMD_PREFETCH_MIN_BYTES.
 PREFETCHING_NUM_DOCS = 40000
 
 
