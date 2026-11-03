@@ -965,6 +965,8 @@ void IndexSpec_LockWrite(IndexSpec *sp);
 void IndexSpec_Unlock(IndexSpec *sp);
 bool IndexSpec_IsLocked(const IndexSpec *sp);
 bool IndexSpec_IsReadLocked(const IndexSpec *sp);
+// Whether the next Unlock on this thread releases `sp`'s lock: held and not suppressed.
+bool IndexSpec_UnlockWillRelease(const IndexSpec *sp);
 // Debug-only check at worker-cycle boundaries, independent of request/context lifetime.
 void IndexSpec_AssertLockNotHeld(void);
 

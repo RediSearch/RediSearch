@@ -732,6 +732,36 @@ def testDeletedDocsDuringCollection(env):
 
 
 @skip(cluster=True)
+def testProfileAfterWindowRunsOut(env):
+    """Profiling a query whose numeric window widens past the last range.
+
+    The documents above the range also match the text term, so the child's
+    estimate exceeds every window while the range holds too few matches to fill
+    LIMIT: the optimizer widens until no range is left and drops its numeric
+    iterator. Profiling wraps the optimizer in an iterator that reads its
+    estimate when the tree is suspended at the end of the results, which must
+    then come from the child alone.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+
+    in_range = 1000
+    num_matches = 5
+    first_match = in_range - num_matches
+    load_sparse_matches(conn, 3 * in_range, lambda i: i >= first_match)
+
+    limit = 4 * num_matches
+    for order, matches in [('ASC', range(first_match, in_range)),
+                           ('DESC', range(in_range - 1, first_match - 1, -1))]:
+        query = ['ft.search', 'idx', f'@n:[0 {in_range - 1}] foo', 'SORTBY', 'n', order]
+        params = ['limit', 0, limit, 'NOCONTENT']
+        env.assertContains('OPTIMIZER', profile_iterator_types(env, query, params + ['WITHOUTCOUNT']),
+                           message=order)
+        env.assertEqual(env.cmd(*query, *params, 'WITHOUTCOUNT')[1:],
+                        [str(i) for i in matches], message=order)
+
+
+@skip(cluster=True)
 def testScorerTypes(env):
     """Every registered scorer ranks identically whether or not the optimizer runs.
 
