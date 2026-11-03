@@ -889,7 +889,8 @@ mod variant_resume {
     use numeric_range_tree::{NumericIndex, NumericRangeTree};
     use rqe_core::{DocId, RS_INVALID_FIELD_INDEX};
     use rqe_iterators::{
-        NumericIteratorVariant, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
+        NumericIteratorVariant, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator,
+        RQEValidateStatus, ResumeOutcome,
     };
     use rqe_iterators_test_utils::MockContext;
 
@@ -1407,6 +1408,118 @@ mod variant_resume {
         }
 
         // SAFETY: as in `unfiltered_aborts_after_range_tree_modified`.
+        unsafe { drop(Box::from_raw(tree_ptr)) };
+    }
+
+    /// Collect every document of `tree`'s single leaf, then compact the tree, as
+    /// a GC pass that empties the leaf does. Nothing is left to trim, but the
+    /// compaction moves the leaf.
+    fn empty_and_compact(tree: &mut NumericRangeTree) {
+        let leaf = tree
+            .indexed_iter()
+            .find_map(|(index, node)| node.has_range().then_some(index))
+            .expect("a tree always has a leaf");
+        let delta = tree
+            .node(leaf)
+            .scan_gc(&|_| false)
+            .expect("the leaf holds documents to collect");
+        tree.apply_gc_to_node(leaf, delta);
+        assert!(
+            tree.is_sparse(),
+            "the emptied leaf must make the tree sparse"
+        );
+        tree.compact_if_sparse();
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "rewriting the tree behind the iterator's stored NonNull is UB under Stacked \
+                  Borrows. Fixed by https://github.com/RediSearch/RediSearch/pull/12051"
+    )]
+    /// A resume after a GC pass that empties the leaf the iterator reads and
+    /// compacts the tree aborts: compaction moved the leaf, so the iterator's
+    /// pointer into it dangles.
+    fn aborts_after_compaction_without_trimming() {
+        let ctx = MockContext::new(0, 0);
+        let tree_ptr: *mut NumericRangeTree = Box::into_raw(Box::new(NumericRangeTree::new(false)));
+        // SAFETY: just allocated, and not aliased yet.
+        let tree = unsafe { &mut *tree_ptr };
+        tree.add(1, 1.0, false, false, 0);
+        tree.add(3, 3.0, false, false, 0);
+
+        // SAFETY: `tree_ptr` stays allocated until the end of this test, and is
+        // only written to while the iterator is suspended.
+        let tree = unsafe { &*tree_ptr };
+        let mut variant = NumericIteratorVariant::new(
+            tree.root().range().unwrap().entries().reader(),
+            None,
+            make_expiration_checker(&ctx),
+            Some(tree),
+            1.0,
+            3.0,
+        );
+        let _ = variant.read().expect("read failed");
+
+        let suspended = Box::new(variant).suspend();
+        // SAFETY: as above.
+        empty_and_compact(unsafe { &mut *tree_ptr });
+
+        let guard = ctx.spec_read();
+        match suspended.resume(&guard).expect("resume failed") {
+            ResumeOutcome::Aborted => {}
+            ResumeOutcome::Ok(_) | ResumeOutcome::Moved(_) => {
+                panic!("a compacted tree must abort the resume")
+            }
+        }
+
+        // SAFETY: `tree_ptr` came from `Box::into_raw`; the aborted resume
+        // consumed the iterator, which never owned the tree.
+        unsafe { drop(Box::from_raw(tree_ptr)) };
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "rewriting the tree behind the iterator's stored NonNull is UB under Stacked \
+                  Borrows. Fixed by https://github.com/RediSearch/RediSearch/pull/12051"
+    )]
+    /// The in-place twin of [`aborts_after_compaction_without_trimming`].
+    fn aborts_in_place_after_compaction_without_trimming() {
+        let ctx = MockContext::new(0, 0);
+        let tree_ptr: *mut NumericRangeTree = Box::into_raw(Box::new(NumericRangeTree::new(false)));
+        // SAFETY: just allocated, and not aliased yet.
+        let tree = unsafe { &mut *tree_ptr };
+        tree.add(1, 1.0, false, false, 0);
+        tree.add(3, 3.0, false, false, 0);
+
+        // SAFETY: `tree_ptr` stays allocated until the end of this test, and is
+        // only written to while the iterator is parked.
+        let tree = unsafe { &*tree_ptr };
+        let mut variant = NumericIteratorVariant::new(
+            tree.root().range().unwrap().entries().reader(),
+            None,
+            make_expiration_checker(&ctx),
+            Some(tree),
+            1.0,
+            3.0,
+        );
+        let _ = variant.read().expect("read failed");
+
+        // SAFETY: as above.
+        empty_and_compact(unsafe { &mut *tree_ptr });
+
+        let guard = ctx.spec_read();
+        assert!(
+            matches!(
+                variant.revalidate(&guard).expect("revalidate failed"),
+                RQEValidateStatus::Aborted
+            ),
+            "a compacted tree must abort the revalidation"
+        );
+
+        drop(variant);
+        // SAFETY: `tree_ptr` came from `Box::into_raw`; the iterator is gone.
         unsafe { drop(Box::from_raw(tree_ptr)) };
     }
 
