@@ -14,14 +14,26 @@ use index_spec::IndexSpecWeakRef;
 use tracing::Level;
 use tracing_log_error::log_error;
 
-use crate::ForkGCError;
+/// How an in-process GC cycle ended.
+#[cheadergen::config(export)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThreadGCResult {
+    /// The cycle ran to the end.
+    #[cheadergen(rename = "THREAD_GC_DONE")]
+    Done = 0,
+    /// The index was dropped during the cycle.
+    #[cheadergen(rename = "THREAD_GC_SPEC_DELETED")]
+    SpecDeleted = 1,
+    /// Any other failure.
+    #[cheadergen(rename = "THREAD_GC_FAILED")]
+    Failed = 2,
+}
 
 /// Run every GC scanner over `gc`'s index on the calling thread, under the
 /// spec's read/write lock, a bounded number of keys per hold.
 ///
-/// Returns [`ForkGCError::Done`] when the cycle completed,
-/// [`ForkGCError::SpecDeleted`] when the index was dropped during it, and
-/// [`ForkGCError::ParentError`] for any other failure. Stats of the chunks applied
+/// Returns how the cycle ended; see [`ThreadGCResult`]. Stats of the chunks applied
 /// before an early end are kept.
 ///
 /// # Safety
@@ -31,7 +43,7 @@ use crate::ForkGCError;
 ///    counter and read its stats meanwhile, so this call borrows no part of it.
 /// 2. The calling thread must not hold any spec lock.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ThreadGC_runScanners(gc: *mut ffi::IndexGC) -> ForkGCError {
+pub unsafe extern "C" fn ThreadGC_runScanners(gc: *mut ffi::IndexGC) -> ThreadGCResult {
     debug_assert!(!gc.is_null(), "ThreadGC_runScanners needs a GC");
     // SAFETY: (1) `gc` is valid, and the field is read in place, without a reference
     // to the struct.
@@ -55,15 +67,15 @@ pub unsafe extern "C" fn ThreadGC_runScanners(gc: *mut ffi::IndexGC) -> ForkGCEr
                 max_write_hold_us = report.max_write_hold.as_micros() as u64,
                 "thread GC cycle done"
             );
-            ForkGCError::Done
+            ThreadGCResult::Done
         }
         Err((scanner, GcError::SpecDeleted)) => {
             tracing::debug!("thread GC: {scanner}: index spec deleted");
-            ForkGCError::SpecDeleted
+            ThreadGCResult::SpecDeleted
         }
         Err((scanner, error)) => {
             log_error!(error, level: Level::WARN, "thread GC: {scanner}: cycle failed");
-            ForkGCError::ParentError
+            ThreadGCResult::Failed
         }
     }
 }
