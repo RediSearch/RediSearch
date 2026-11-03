@@ -399,7 +399,9 @@ def _sweep(env, conns, where, shape, on_oom, label):
     for at_call in _positions(calls):
         _pressure(conns, 'AT_CALL', at_call)
         try:
-            got = _run(env, shape)
+            # A stop that leaves a pipeline blocked fails here, naming the cell, with the cleanup run.
+            with TimeLimit(60, f'pressured run hung: {label} at_call={at_call}'):
+                got = _run(env, shape)
         finally:
             _pressure(conns, 'RESET')
         outcomes.add(cell.check(got, on_oom, at_call))
