@@ -2234,7 +2234,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     // promptly when another thread flips its flag.
     // The wall-clock deadline is already handled by the upstream's own checks.
     QueryRequestLimits *timeout = self->depletingThreadCtx->limits;
-    if (QueryRequest_ShouldStop(timeout)) {
+    if (QueryRequestLimits_ShouldStop(timeout)) {
       rc = RS_RESULT_TIMEDOUT;
       break;
     }
@@ -2275,7 +2275,7 @@ static void RPSafeDepleter_Deplete(void *arg) {
 
   // Check if timeout was exceeded before starting execution.
   QueryRequestLimits *timeout = self->depletingThreadCtx->limits;
-  bool timed_out = QueryRequestLimits_IsTimedOutOrStopped(timeout);
+  bool timed_out = QueryRequestLimits_ShouldStopExact(timeout);
   if (!timed_out) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {

@@ -417,7 +417,7 @@ int getNextReply(RPNet *nc) {
     if (nc->drainOnly) {
       return RS_RESULT_EOF;
     }
-    if (popTimedOut || QueryRequest_ShouldStop(limits)) {
+    if (popTimedOut || QueryRequestLimits_ShouldStop(limits)) {
       return RS_RESULT_TIMEDOUT;
     }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
@@ -597,7 +597,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   // the timer's own drain.
   if (!nc->drainOnly &&
       (QueryRequest_UsesReplyCallback(&areq->base)
-           ? QueryRequest_ShouldStop(&areq->base.limits)
+           ? QueryRequestLimits_ShouldStop(&areq->base.limits)
            : QueryRequestLimits_IsMemoryStopped(&areq->base.limits))) {
     return RS_RESULT_TIMEDOUT;
   }
