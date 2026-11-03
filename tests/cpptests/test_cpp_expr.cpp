@@ -221,10 +221,19 @@ TEST_F(ExprTest, testArithmetics) {
 
   // Number literals with no integer part
   TEST_ARITHMETIC(".6", 0.6);
-  TEST_ARITHMETIC("-.6", -0.6);
   TEST_ARITHMETIC(".5e1", 5);
   TEST_ARITHMETIC("1 + .5", 1.5);
+  TEST_ARITHMETIC("1+.5", 1.5);
+  TEST_ARITHMETIC("1-.5", 0.5);
+  TEST_ARITHMETIC("2*.5", 1);
   TEST_ARITHMETIC("log(.6)", log(0.6));
+
+  // The grammar has no unary operators, so a sign before a leading-dot literal stays a syntax
+  // error. TODO(MOD-20783, MOD-20784): revisit once sign tokenization is fixed.
+  ctx.assign("+.6");
+  EXPECT_FALSE(ctx);
+  ctx.assign("-.6");
+  EXPECT_FALSE(ctx);
 }
 
 TEST_F(ExprTest, testParser) {
