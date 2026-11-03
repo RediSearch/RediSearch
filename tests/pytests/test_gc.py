@@ -588,6 +588,12 @@ def releaseForkSlot(env):
     waitForRdbSaveToFinish(env)
 
 
+def resumeGCSchedule(env):
+    """Undo indexWithCollectableDocs' GC_STOP_SCHEDULE: only a scheduled cycle frees the GC
+    once its index is gone, so a stopped one leaks at shutdown."""
+    env.expect(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx').ok()
+
+
 @skip(cluster=True)
 def testForcedGCWaitsForForkSlot():
     """A forced GC replying DONE has to mean it collected. The slot is taken before the forced
@@ -601,6 +607,7 @@ def testForcedGCWaitsForForkSlot():
         env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
     finally:
         releaseForkSlot(env)
+        resumeGCSchedule(env)
 
     env.assertGreater(int(to_dict(index_info(env)['gc_stats'])['bytes_collected']), 0)
 
@@ -618,3 +625,4 @@ def testForcedGCReportsWhenItCannotFork():
         env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 2000).error().contains('GC DID NOT RUN')
     finally:
         releaseForkSlot(env)
+        resumeGCSchedule(env)
