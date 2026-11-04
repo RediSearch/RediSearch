@@ -4500,7 +4500,7 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, RedisModu
 // Every shard reply is held until the last one lands, so memory is read once per reply.
 static bool searchReplyCheckpoint(struct MRCtx *mrctx) {
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
-  return QueryMemory_CheckpointNow(&req->base.limits);
+  return QueryMemory_CheckpointExact(&req->base.limits);
 }
 
 static int FlatSearchCommandHandler(searchRequestCtx *req) {
