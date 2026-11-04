@@ -507,6 +507,7 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, Qu
   ResultProcessor *rpUpstream = NULL;
   pipeline->qctx.rootProc = pipeline->qctx.endProc = rp;
   PUSH_RP();
+  RPQueryIterator_ConfigureAsyncIO(rpUpstream);
 
   // Load results metrics according to their RLookup key.
   // We need this RP only if metricRequests is not empty.

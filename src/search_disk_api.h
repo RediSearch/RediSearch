@@ -385,10 +385,15 @@ typedef struct BasicDiskAPI {
    * @param rp  The disk async-loader ResultProcessor, previously returned by
    *            `newAsyncLoaderResultProcessor`.
    * @param request `QueryRequest *`, or NULL to clear.
-   *
-   * Note: keep this field last in `BasicDiskAPI` (C and Rust build this struct together).
    */
   void (*asyncLoaderSetSyncCtx)(ResultProcessor *rp, QueryRequest *request);
+
+  /**
+   * Accumulated document-field completion-wait time in nanoseconds; zero if profiling is disabled.
+   * rp must be a live processor returned by newAsyncLoaderResultProcessor, with no concurrent mutation.
+   * Keep this field last in BasicDiskAPI (C and Rust build this struct together).
+   */
+  uint64_t (*asyncLoaderGetAsyncWaitTime)(ResultProcessor *rp);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -855,6 +860,7 @@ typedef struct DocTableDiskAPI {
    *
    * @param handle Handle to the index
    * @param max_concurrent Maximum number of concurrent pending reads
+   * @param isProfiled Select completion-wait measurement at pool creation
    * @param snapshot Snapshot for the consistent read view. Must have been returned by
    *                 `IndexDiskAPI.createSnapshot(index)` (where `index` is the same index
    *                 this `handle` belongs to) and must remain valid for the lifetime of
@@ -864,7 +870,7 @@ typedef struct DocTableDiskAPI {
    * @return Opaque handle to the pool, or NULL on error or when `snapshot` is NULL. Must be
    *         freed with freeAsyncReadPool.
    */
-  RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent, RedisSearchDiskSnapshot *snapshot);
+  RedisSearchDiskAsyncReadPool (*createAsyncReadPool)(RedisSearchDiskIndexSpec* handle, uint16_t max_concurrent, RedisSearchDiskSnapshot *snapshot, bool isProfiled);
 
   /**
    * @brief Adds an async read request to the pool for the given document ID
@@ -927,6 +933,11 @@ typedef struct DocTableDiskAPI {
    * @return true if the document was found and updated, false if not found or on error
    */
   bool (*replaceKey)(RedisSearchDiskIndexSpec* handle, t_docId docId, const char* newKey, size_t newKeyLen);
+  /**
+   * Return accumulated query-worker wait time for async document metadata reads, in nanoseconds.
+   * Requires a live, non-NULL pool created with isProfiled=true and no concurrent mutation.
+   */
+  uint64_t (*asyncReadPoolGetAsyncWaitTime)(RedisSearchDiskAsyncReadPool pool);
 } DocTableDiskAPI;
 
 typedef struct VectorDiskAPI {
