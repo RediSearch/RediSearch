@@ -68,7 +68,7 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
   }
 
   if (threadPolicyEnabled()) {
-    return ThreadCycle_Run(gc, early_check);
+    return ThreadCycle_Run(gc, forced, early_check);
   } else {
     return ForkCycle_Run(gc, forced, hook, early_check);
   }

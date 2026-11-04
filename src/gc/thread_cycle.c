@@ -18,7 +18,7 @@
 #include "util/references.h"
 #include "vector_index.h"
 
-bool ThreadCycle_Run(IndexGC *gc, StrongRef spec_ref) {
+bool ThreadCycle_Run(IndexGC *gc, GCForcedRun *forced, StrongRef spec_ref) {
   TimeSample ts;
   TimeSampler_Start(&ts);
 
@@ -31,6 +31,9 @@ bool ThreadCycle_Run(IndexGC *gc, StrongRef spec_ref) {
   uint64_t pruned = 0;
   enum ThreadGCResult rv = ThreadGC_RunScanners(gc, &pruned);
   gc->threadCycleInFlight = false;
+  if (rv == THREAD_GC_FAILED && forced) {
+    forced->outcome = GC_FORCED_RUN_FAILED;
+  }
   bool gcrv = rv != THREAD_GC_SPEC_DELETED;
   if (gcrv) {
     gcrv = VecSim_CallTieredIndexesGC(gc->index);

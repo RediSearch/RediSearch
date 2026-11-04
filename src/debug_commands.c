@@ -1078,6 +1078,9 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (outcome && *outcome == GC_DISK_FORCED_RUN_RETRY_REQUIRED) {
     return RedisModule_ReplyWithError(ctx, "GC FAILED: disk cleanup requires retry");
   }
+  if (outcome && *outcome == GC_FORCED_RUN_FAILED) {
+    return RedisModule_ReplyWithError(ctx, "GC FAILED: the cycle stopped on an error, see the log");
+  }
   if (outcome && *outcome == GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE) {
     return RedisModule_ReplyWithError(ctx,
                                       "COMPACT_ALL did not complete (index unavailable, background "
