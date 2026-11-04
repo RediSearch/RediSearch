@@ -1072,6 +1072,9 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_ReplyWithError(
         ctx, "GC DID NOT RUN: no child process could be created within TIMEOUT");
   }
+  if (outcome && *outcome == GC_FORCED_RUN_FAILED) {
+    return RedisModule_ReplyWithError(ctx, "GC FAILED: the cycle stopped on an error, see the log");
+  }
   if (outcome && *outcome == GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE) {
     return RedisModule_ReplyWithError(
         ctx, "COMPACT_ALL did not complete (background work paused or compaction cancelled)");
