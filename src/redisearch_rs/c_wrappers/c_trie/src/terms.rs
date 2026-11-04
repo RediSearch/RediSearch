@@ -18,7 +18,7 @@ use std::{
 
 use string_utils::runes::runes_to_bytes;
 
-use crate::{LoweredPattern, QueryRequestLimitsHandle, TrieTerm};
+use crate::{LoweredPattern, QueryRequestLimitsHandle, TrieTerm, TrieTermRef};
 
 /// Adapts a [`ffi::TrieRangeCallback`] to a Rust closure handed back through
 /// the opaque `ctx` pointer for every matching term.
@@ -548,10 +548,21 @@ impl TermsTrie {
     /// after `after`, or every term when `after` is empty, until `visit`
     /// breaks.
     ///
+    /// `visit` gets each term's rune key, to resume after, and the term itself,
+    /// encoded into `key`, which a caller walking in steps keeps across calls.
+    ///
     /// Nothing is held between calls, so a caller can stop, let the trie be
     /// modified, and resume from the last term it saw. Terms added before that
     /// point in the meantime are not revisited.
-    pub fn visit_after<F>(&self, after: &[ffi::rune], mut visit: F)
+    pub fn visit_after<F>(&self, after: &[ffi::rune], key: &mut Vec<u8>, mut visit: F)
+    where
+        F: FnMut(&[ffi::rune], TrieTermRef<'_>) -> ControlFlow<()>,
+    {
+        self.visit_keys_after(after, |runes| visit(runes, encode_key(runes, key)));
+    }
+
+    /// [`Self::visit_after`], with each term's rune key only.
+    fn visit_keys_after<F>(&self, after: &[ffi::rune], mut visit: F)
     where
         F: FnMut(&[ffi::rune]) -> ControlFlow<()>,
     {
@@ -595,11 +606,24 @@ impl TermsTrie {
     }
 }
 
+/// Encode a terms trie key into `buf`, as the term it stores.
+fn encode_key<'b>(runes: &[ffi::rune], buf: &'b mut Vec<u8>) -> TrieTermRef<'b> {
+    // Terms trie insertion caps a key at `TRIE_INITIAL_STRING_LEN` runes, well
+    // inside the `MAX_RUNE_STR_LEN` which `runes_to_bytes` requires.
+    *buf = runes_to_bytes(runes).expect("a stored trie key fits within MAX_RUNE_STR_LEN");
+    // SAFETY: the trie only stores non-empty keys it accepted, and
+    // `runes_to_bytes` emits a complete encoding of every rune, with no zero
+    // rune, so `buf` holds a valid term.
+    unsafe { TrieTermRef::from_bytes_unchecked(buf) }
+}
+
 /// Iterator over every term in a trie.
 ///
 /// Reached through [`TermsTrie::iterate_all`], the public entry point.
 pub struct TermsTrieAllIterator<'a> {
     ptr: NonNull<ffi::TrieIterator>,
+    /// Where each key is encoded before it is copied out as an exact-size term.
+    buf: Vec<u8>,
     _borrow: PhantomData<&'a TermsTrie>,
 }
 
@@ -613,6 +637,7 @@ impl<'a> TermsTrieAllIterator<'a> {
             // `Trie_IterateAll` allocates via `rm_calloc`, which aborts the
             // process on allocation failure rather than returning null.
             ptr: NonNull::new(ptr).expect("Trie_IterateAll returned null"),
+            buf: Vec::new(),
             _borrow: PhantomData,
         }
     }
@@ -655,15 +680,10 @@ impl Iterator for TermsTrieAllIterator<'_> {
     type Item = TrieTerm;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let runes = self.advance()?;
-        // terms trie insertion caps a trie key at `TRIE_INITIAL_STRING_LEN`
-        // runes, well inside the `MAX_RUNE_STR_LEN` which `runes_to_bytes`
-        // requires, so every key this iterator yields converts.
-        let bytes = runes_to_bytes(runes).expect("a stored trie key fits within MAX_RUNE_STR_LEN");
-        // SAFETY: the iterator only yields non-empty keys accepted by the terms
-        // trie. `runes_to_bytes` emits a complete encoding of every rune, with
-        // no zero rune, and the key is shorter than `TRIE_INITIAL_STRING_LEN`.
-        Some(unsafe { TrieTerm::from_bytes_unchecked(bytes.into_boxed_slice()) })
+        let mut buf = std::mem::take(&mut self.buf);
+        let term = encode_key(self.advance()?, &mut buf).to_term();
+        self.buf = buf;
+        Some(term)
     }
 }
 

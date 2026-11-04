@@ -20,7 +20,7 @@ use c_trie::TrieTerm;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
 use serde::{Deserialize, Serialize};
-use string_utils::{obfuscation::obfuscate_text, runes::runes_to_bytes};
+use string_utils::obfuscation::obfuscate_text;
 
 use crate::fork::wire::{deserialize, serialize};
 use crate::{DocExistence, ForkPipe, GcApplyStats, GcError, HandleOutcome};
@@ -87,14 +87,21 @@ pub fn collect_terms(
 ///
 /// Returns `None` when the term has no inverted index, the scan found nothing
 /// to collect, or the scan failed; a failed scan is retried on the next cycle.
-pub fn scan_term(spec: &IndexSpecReadGuard, term: &TrieTerm) -> Option<GcScanDelta> {
+pub fn scan_term(spec: &IndexSpecReadGuard, term: &[u8]) -> Option<GcScanDelta> {
     let ii = spec.keys_dict().fetch(term)?;
     ii.scan_gc(|id| spec.doc_exists(id)).ok().flatten()
 }
 
 /// Where a [`scan_terms_after`] walk resumes: the last term it visited.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct TermsCursor(Vec<ffi::rune>);
+pub struct TermsCursor {
+    last: Vec<ffi::rune>,
+    /// The term being visited: `last` bounds the walk while it runs, so the walk
+    /// writes here and the two swap once it ends, each keeping its capacity.
+    next: Vec<ffi::rune>,
+    /// Scratch for the visited term's bytes, kept so the walk reuses one buffer.
+    key: Vec<u8>,
+}
 
 /// Scan terms in lexicographic order, starting strictly after `cursor`, until
 /// `should_stop` returns `true` after a term or no term is left.
@@ -110,18 +117,15 @@ pub fn scan_terms_after(
     found: &mut Vec<(TrieTerm, GcScanDelta)>,
 ) -> bool {
     let mut stopped = false;
-    spec.terms().visit_after(&cursor.0.clone(), |runes| {
-        cursor.0.clear();
-        cursor.0.extend_from_slice(runes);
-
-        // Stored keys are capped at `TRIE_INITIAL_STRING_LEN` runes, inside the
-        // `MAX_RUNE_STR_LEN` `runes_to_bytes` requires.
-        let bytes = runes_to_bytes(runes).expect("a stored trie key fits within MAX_RUNE_STR_LEN");
-        // SAFETY: the walk only visits non-empty keys the terms trie accepted, and
-        // `runes_to_bytes` emits a complete encoding of each rune, none of them zero.
-        let term = unsafe { TrieTerm::from_bytes_unchecked(bytes.into_boxed_slice()) };
+    let mut visited = false;
+    let TermsCursor { last, next, key } = cursor;
+    spec.terms().visit_after(last, key, |runes, term| {
+        visited = true;
+        next.clear();
+        next.extend_from_slice(runes);
+        // Most terms are clean, so only a dirty one gets its own copy of the key.
         if let Some(delta) = scan_term(spec, &term) {
-            found.push((term, delta));
+            found.push((term.to_term(), delta));
         }
 
         if should_stop() {
@@ -131,6 +135,9 @@ pub fn scan_terms_after(
             ControlFlow::Continue(())
         }
     });
+    if visited {
+        std::mem::swap(last, next);
+    }
     stopped
 }
 

@@ -977,8 +977,14 @@ fn delete_of_a_multibyte_term_round_trips() {
 /// Collect what [`TermsTrie::visit_after`] visits after `after`.
 fn visited_after(trie: &TermsTrie, after: &str) -> Vec<String> {
     let mut visited = Vec::new();
-    trie.visit_after(&to_runes(after), |runes| {
-        visited.push(runes_to_string(runes));
+    trie.visit_after(&to_runes(after), &mut Vec::new(), |runes, term| {
+        let text = runes_to_string(runes);
+        assert_eq!(
+            term.as_bytes(),
+            text.as_bytes(),
+            "the term is its key's encoding"
+        );
+        visited.push(text);
         ControlFlow::Continue(())
     });
     visited
@@ -1043,7 +1049,7 @@ fn visit_after_resumes_from_the_last_term_seen() {
         let mut walked = Vec::new();
         loop {
             let mut next = None;
-            trie.visit_after(&cursor, |runes| {
+            trie.visit_after(&cursor, &mut Vec::new(), |runes, _| {
                 next = Some(runes.to_vec());
                 ControlFlow::Break(())
             });
@@ -1103,14 +1109,20 @@ fn visit_after_orders_non_ascii_terms_by_rune_value() {
         expected.sort();
 
         let mut visited = Vec::new();
-        trie.visit_after(&[], |runes| {
-            visited.push(runes_to_text(runes));
+        trie.visit_after(&[], &mut Vec::new(), |runes, term| {
+            let text = runes_to_text(runes);
+            assert_eq!(
+                term.as_bytes(),
+                text.as_bytes(),
+                "the term is its key's UTF-8"
+            );
+            visited.push(text);
             ControlFlow::Continue(())
         });
         assert_eq!(visited, expected);
 
         let mut after_ecole = Vec::new();
-        trie.visit_after(&to_runes("école"), |runes| {
+        trie.visit_after(&to_runes("école"), &mut Vec::new(), |runes, _| {
             after_ecole.push(runes_to_text(runes));
             ControlFlow::Continue(())
         });
