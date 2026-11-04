@@ -8,7 +8,7 @@
  */
 #include "gtest/gtest.h"
 #include "common.h"
-#include "disk_gc.h"
+#include "gc/disk_gc.h"
 #include "geometry/geometry_api.h"
 #include "slot_cleanup.h"
 #include "slot_ranges.h"
