@@ -16,7 +16,7 @@ use std::{
     ptr::{self, NonNull},
 };
 
-use string_utils::runes::runes_to_bytes;
+use string_utils::runes::runes_to_bytes_into;
 
 use crate::{LoweredPattern, QueryRequestLimitsHandle, TrieTerm, TrieTermRef};
 
@@ -609,10 +609,10 @@ impl TermsTrie {
 /// Encode a terms trie key into `buf`, as the term it stores.
 fn encode_key<'b>(runes: &[ffi::rune], buf: &'b mut Vec<u8>) -> TrieTermRef<'b> {
     // Terms trie insertion caps a key at `TRIE_INITIAL_STRING_LEN` runes, well
-    // inside the `MAX_RUNE_STR_LEN` which `runes_to_bytes` requires.
-    *buf = runes_to_bytes(runes).expect("a stored trie key fits within MAX_RUNE_STR_LEN");
+    // inside the `MAX_RUNE_STR_LEN` which `runes_to_bytes_into` requires.
+    runes_to_bytes_into(runes, buf).expect("a stored trie key fits within MAX_RUNE_STR_LEN");
     // SAFETY: the trie only stores non-empty keys it accepted, and
-    // `runes_to_bytes` emits a complete encoding of every rune, with no zero
+    // `runes_to_bytes_into` emits a complete encoding of every rune, with no zero
     // rune, so `buf` holds a valid term.
     unsafe { TrieTermRef::from_bytes_unchecked(buf) }
 }
