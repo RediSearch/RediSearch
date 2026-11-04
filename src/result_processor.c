@@ -3169,10 +3169,7 @@ typedef struct {
 
 static int RPMemoryCheckpoint_Next(ResultProcessor *base, SearchResult *r) {
   RPMemoryCheckpoint *self = (RPMemoryCheckpoint *)base;
-  // A blocked-client timeout's callback drains the pipeline for its partial rows, which a stage
-  // above the buffering ones must not cut short.
-  if (QueryMemory_Checkpoint(self->sctx->limits, &self->counter) &&
-      !QueryRequestLimits_IsBlockedClientTimedOut(self->sctx->limits)) {
+  if (QueryMemory_Checkpoint(self->sctx->limits, &self->counter)) {
     return RS_RESULT_TIMEDOUT;
   }
   return base->upstream->Next(base->upstream, r);
