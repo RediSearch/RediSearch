@@ -15,14 +15,12 @@
 #include "info/global_stats.h"
 #include "spec.h"
 #include "time_sample.h"
-#include "util/minmax.h"
 #include "util/references.h"
 #include "vector_index.h"
 
 bool ThreadCycle_Run(IndexGC *gc, StrongRef spec_ref) {
   TimeSample ts;
   TimeSampler_Start(&ts);
-  IndexSpecRef_Release(spec_ref);
 
   gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
   gc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
@@ -30,27 +28,22 @@ bool ThreadCycle_Run(IndexGC *gc, StrongRef spec_ref) {
   IndexSpec_AssertLockNotHeld();  // the driver takes the spec locks itself
   RS_LOG_ASSERT(!gc->threadCycleInFlight, "two thread GC cycles on one index at once");
   gc->threadCycleInFlight = true;
-  // The cycle resets the deletion counter under the lock it copies the deleted set in, so a
-  // deletion counted here is one it collects, and one counted after waits for the next cycle.
-  size_t num_docs_to_clean = 0;
-  uint64_t retained = 0;
-  enum ThreadGCResult rv = ThreadGC_runScanners(gc, &num_docs_to_clean, &retained);
+  uint64_t pruned = 0;
+  enum ThreadGCResult rv = ThreadGC_runScanners(gc, &pruned);
   gc->threadCycleInFlight = false;
   bool gcrv = rv != THREAD_GC_SPEC_DELETED;
   if (gcrv) {
     gcrv = VecSim_CallTieredIndexesGC(gc->index);
   }
 
-  // IDs the cycle left in the deleted set count toward the next cycle's threshold again, as a fork
-  // cycle's denied blocks are found again; a failed cycle left every one.
-  size_t requeued = 0;
-  if (rv == THREAD_GC_DONE) {
-    requeued = MIN(retained, num_docs_to_clean);
-  } else if (gcrv) {
-    requeued = num_docs_to_clean;
-  }
-  atomic_fetch_add(&gc->deletedOrUpdatedDocsFromLastRun, requeued);
-  IndexsGlobalStats_DecreaseLogicallyDeleted(num_docs_to_clean - requeued);
+  // Every pruned ID was counted when it was deleted, possibly into the spec's deferred count; take
+  // that first, so the subtraction never outruns the count. Deletions defer under the write lock,
+  // so the deferred count covers every ID the cycle's copy of the set held.
+  IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(spec_ref));
+  IndexSpecRef_Release(spec_ref);
+  RS_LOG_ASSERT(pruned <= gc->deletedOrUpdatedDocsFromLastRun, "pruned more IDs than were counted");
+  atomic_fetch_sub(&gc->deletedOrUpdatedDocsFromLastRun, pruned);
+  IndexsGlobalStats_DecreaseLogicallyDeleted(pruned);
   TimeSampler_End(&ts);
   long long msRun = TimeSampler_DurationMS(&ts);
 

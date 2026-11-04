@@ -5,7 +5,7 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
-"""Flow tests for the in-process GC (`GC_POLICY THREAD`).
+"""Flow tests for the THREAD GC policy (`GC_POLICY THREAD`).
 
 The policy is load-time, so each test loads the module with it.
 """
@@ -124,8 +124,8 @@ def testThreadGCRemovesEmptiedTermsTagsAndMissingFields():
 
 @skip(cluster=True)
 def testThreadGCCollectsPastMaxmemory():
-    # The fork cycle stands down above maxmemory, since a fork may double the memory; an
-    # in-process cycle allocates little, so it keeps collecting there.
+    # The fork cycle stands down above maxmemory, since a fork may double the memory; a THREAD
+    # cycle allocates little, so it keeps collecting there.
     env = thread_gc_env(fresh=True)
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', *SCHEMA).ok()

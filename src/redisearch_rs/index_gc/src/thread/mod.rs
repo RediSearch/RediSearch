@@ -140,8 +140,10 @@ pub struct CycleReport {
     /// The longest single write-lock hold.
     pub max_write_hold: std::time::Duration,
     /// Deleted IDs the cycle left in the set because it could not collect all their
-    /// entries; the caller counts them toward the next cycle's threshold.
+    /// entries.
     pub retained: u64,
+    /// Deleted IDs the cycle collected and pruned from the set.
+    pub pruned: u64,
 }
 
 /// The doc IDs a scanned index's last block spanned when it was copied: what a
@@ -475,23 +477,10 @@ pub fn run_cycle(
     sink: &mut impl GcStatsSink,
     clean_numeric_empty_nodes: bool,
 ) -> Result<CycleReport, (&'static str, GcError)> {
-    run_cycle_with(spec, sink, clean_numeric_empty_nodes, |_| {})
-}
-
-/// [`run_cycle`], calling `at_snapshot` under the read lock the deleted set is
-/// copied in: what it reads there agrees with that copy, since deletions take the
-/// write lock.
-pub fn run_cycle_with(
-    spec: &mut impl SpecLockAccess,
-    sink: &mut impl GcStatsSink,
-    clean_numeric_empty_nodes: bool,
-    at_snapshot: impl FnOnce(&IndexSpecReadGuard<'_>),
-) -> Result<CycleReport, (&'static str, GcError)> {
     let mut report = CycleReport::default();
     let (dead, held) = spec
         .with_read(|guard| {
             let start = Instant::now();
-            at_snapshot(guard);
             (
                 guard.deleted_docs().map(DeletedDocs::snapshot),
                 start.elapsed(),
@@ -551,6 +540,7 @@ pub fn run_cycle_with(
             Ok(start.elapsed())
         })
         .map_err(|e| ("deleted docs", e))?;
+    report.pruned = collected.len();
     report.write_locks += 1;
     report.max_write_hold = report.max_write_hold.max(held);
     Ok(report)

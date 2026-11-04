@@ -58,8 +58,8 @@ static const char *on_oom_vals[3] = {
 };
 
 
-// GCPolicy_Thread runs the fork GC's scanners in-process, on the GC thread. Load-time: the policy
-// is fixed from module load on.
+// GCPolicy_Fork collects in a forked child, GCPolicy_Thread on the GC thread pool under the spec
+// lock. Load-time: the policy is fixed from module load on.
 typedef enum { GCPolicy_Fork = 0, GCPolicy_Disk = 1, GCPolicy_Thread = 2 } GCPolicy;
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy);
