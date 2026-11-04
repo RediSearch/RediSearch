@@ -95,7 +95,7 @@ void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
 
 /**
- * Makes the query's row source (an RP_INDEX root) reply RS_RESULT_TIMEDOUT
+ * Makes the query's row source (an RP_INDEX root) reply RS_RESULT_STOPPED
  * instead of reading, for the rest of the request. The row source does not
  * read the stop on its own (a per-row read costs ~0.4% instructions), so every stage that requests
  * a memory stop and keeps pulling rows (ON_OOM RETURN) must call this right
@@ -139,8 +139,8 @@ typedef enum {
   RS_RESULT_EOF,
   // Execution paused due to rate limiting (or manual pause from ext. thread??)
   RS_RESULT_PAUSED,
-  // Execution halted because of timeout
-  RS_RESULT_TIMEDOUT,
+  // Ends a read on a timeout or a requested stop; the request says which
+  RS_RESULT_STOPPED,
   // Aborted because of error. The QueryState (parent->status) should have
   // more information.
   RS_RESULT_ERROR,
@@ -315,7 +315,7 @@ void RPSafeDepleter_StartDepletion(ResultProcessor *base);
 
 /**
 * Resolve a safe depleter as timed out without scheduling its depletion job:
-* Next() yields RS_RESULT_TIMEDOUT and RPSafeDepleter_WaitForCompletion has
+* Next() yields RS_RESULT_STOPPED and RPSafeDepleter_WaitForCompletion has
 * nothing to wait for. The launcher's alternative to
 * RPSafeDepleter_StartDepletion for a query that already timed out.
 */
