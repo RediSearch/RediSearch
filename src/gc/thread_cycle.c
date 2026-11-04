@@ -21,6 +21,10 @@
 bool ThreadCycle_Run(IndexGC *gc, GCForcedRun *forced, StrongRef spec_ref) {
   TimeSample ts;
   TimeSampler_Start(&ts);
+  // The driver records each of its own promotions in this thread's crash-report slot, which a
+  // tracked reference held across the cycle would have overwritten under it.
+  StrongRef held = StrongRef_Clone(spec_ref);
+  IndexSpecRef_Release(spec_ref);
 
   gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
   gc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
@@ -42,8 +46,8 @@ bool ThreadCycle_Run(IndexGC *gc, GCForcedRun *forced, StrongRef spec_ref) {
   // Every pruned ID was counted when it was deleted, possibly into the spec's deferred count; take
   // that first, so the subtraction never outruns the count. Deletions defer under the write lock,
   // so the deferred count covers every ID the cycle's copy of the set held.
-  IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(spec_ref));
-  IndexSpecRef_Release(spec_ref);
+  IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(held));
+  StrongRef_Release(held);
   RS_LOG_ASSERT(pruned <= gc->deletedOrUpdatedDocsFromLastRun, "pruned more IDs than were counted");
   atomic_fetch_sub(&gc->deletedOrUpdatedDocsFromLastRun, pruned);
   IndexsGlobalStats_DecreaseLogicallyDeleted(pruned);
