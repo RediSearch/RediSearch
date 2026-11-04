@@ -504,7 +504,8 @@ fn a_delta_whose_target_vanished_is_skipped() {
 /// are dropped.
 #[test]
 fn doc_set_indexes_are_collected_and_dropped_once_empty() {
-    let mut spec = TestSpec::create([], vec![]);
+    // The missing-docs dict is keyed by field name, so "m" needs a field.
+    let mut spec = TestSpec::create([], vec![(c"m", NumericRangeTree::default())]);
     spec.add_doc_set_indexes(c"m", 3);
     let mut recorder = Recorder::default();
 
