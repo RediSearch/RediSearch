@@ -608,9 +608,11 @@ where
     /// # Precondition
     ///
     /// Like [`RQESuspendedIterator::resume`], this refreshes the reader pointers
-    /// without an index-identity check of its own. It assumes the caller has
-    /// already established that the underlying inverted index is still live
-    /// (leaf wrappers run their `should_abort` check first).
+    /// without an index-identity check of its own, and reads the index through
+    /// the reader's pointer. The caller must already have established that the
+    /// underlying inverted index is still live, and
+    /// [reseated](inverted_index::RawIndexReaderCore::reseat_index) the reader on
+    /// it.
     pub(crate) fn resume_in_place<'a>(
         &mut self,
         guard: &IndexSpecReadGuard<'a>,
@@ -774,9 +776,9 @@ where
     /// [`resume_in_place`](RawInvIndIterator::resume_in_place)) without
     /// performing an index-identity check of its own. It assumes the caller — a
     /// leaf wrapper's `resume` (`Term`/`Tag`/`Missing`/`Wildcard`/`Numeric`),
-    /// which runs its `should_abort` identity check *first* — has already
+    /// which resolves its index and checks its identity *first* — has already
     /// established that the underlying inverted index is still live (not freed
-    /// or replaced by GC while suspended).
+    /// or replaced by GC while suspended), and reseated the reader on it.
     ///
     /// The liveness check is deliberately **not** performed here: it is
     /// leaf-specific (each leaf locates its index differently — `Term` via
@@ -787,7 +789,7 @@ where
     /// index was fully GC'd or replaced while suspended would let
     /// `resume_in_place` dereference the stale saved index pointer. That path is
     /// never exercised in production: every core iterator is owned by a leaf
-    /// wrapper whose `resume` gates on `should_abort` before delegating here. If
+    /// wrapper whose `resume` gates on that check before delegating here. If
     /// a future caller resumes the bare core directly, it must first prove the
     /// index identity itself.
     fn resume<'a>(
