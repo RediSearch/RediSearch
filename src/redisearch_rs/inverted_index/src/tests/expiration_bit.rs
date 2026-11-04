@@ -45,6 +45,26 @@ fn bitset_set_and_get() {
     assert!(!bits.contains(1000));
 }
 
+/// A prefix keeps exactly the ordinals below its length, and allocates nothing when none is left.
+#[test]
+fn bitset_prefix() {
+    let mut bits = ExpirationBits::new();
+    for ordinal in [3, 10, 15, 16] {
+        bits.insert(ordinal);
+    }
+    let held = |set: &ExpirationBits| (0..32u16).filter(|&o| set.contains(o)).collect::<Vec<_>>();
+    assert_eq!(held(&bits.prefix(17)), vec![3, 10, 15, 16]);
+    assert_eq!(held(&bits.prefix(16)), vec![3, 10, 15]);
+    assert_eq!(held(&bits.prefix(11)), vec![3, 10]);
+    assert_eq!(held(&bits.prefix(10)), vec![3]);
+    assert_eq!(held(&bits.prefix(100)), vec![3, 10, 15, 16]);
+    for entries in [0, 3] {
+        let prefix = bits.prefix(entries);
+        assert!(prefix.is_empty(), "prefix({entries})");
+        assert_eq!(prefix.mem_usage(), 0, "prefix({entries})");
+    }
+}
+
 /// An index whose entries never carry a field-level expiration never allocates the per-block
 /// bitsets, whatever its number of blocks.
 #[test]

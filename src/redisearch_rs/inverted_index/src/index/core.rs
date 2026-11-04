@@ -209,8 +209,8 @@ impl<E: Encoder> InvertedIndex<E> {
         live: &impl crate::DocLiveness,
         scope: crate::GcSnapshotScope,
     ) -> Option<Self> {
-        let (first, last) = (self.blocks.first()?, self.blocks.last()?);
-        if !live.any_gone(first.first_doc_id, last.last_doc_id) {
+        let span = self.doc_id_range()?;
+        if !live.any_gone(*span.start(), *span.end()) {
             return None;
         }
         let mut copy = Self {
