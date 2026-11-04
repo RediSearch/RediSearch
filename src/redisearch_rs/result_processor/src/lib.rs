@@ -40,8 +40,8 @@ use std::{
 /// Errors that can be returned by [`ResultProcessor`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
-    /// Execution halted because of timeout
-    TimedOut,
+    /// Execution halted on a timeout or a requested stop
+    Stopped,
     /// Aborted because of error. The QueryState (parent->status) should have
     /// more information.
     Error,
@@ -228,7 +228,7 @@ impl Upstream<'_> {
             ffi::RPStatus_RS_RESULT_PAUSED => {
                 unimplemented!("result processor returned unsupported error code PAUSED")
             }
-            ffi::RPStatus_RS_RESULT_STOPPED => Err(Error::TimedOut),
+            ffi::RPStatus_RS_RESULT_STOPPED => Err(Error::Stopped),
             ffi::RPStatus_RS_RESULT_ERROR => Err(Error::Error),
             code => {
                 unimplemented!("result processor returned unknown error code {code}")
@@ -444,7 +444,7 @@ where
         match me.result_processor.next(cx, res) {
             Ok(Some(())) => ffi::RPStatus_RS_RESULT_OK as c_int,
             Ok(None) => ffi::RPStatus_RS_RESULT_EOF as c_int,
-            Err(Error::TimedOut) => ffi::RPStatus_RS_RESULT_STOPPED as c_int,
+            Err(Error::Stopped) => ffi::RPStatus_RS_RESULT_STOPPED as c_int,
             Err(Error::Error) => ffi::RPStatus_RS_RESULT_ERROR as c_int,
         }
     }
@@ -554,7 +554,7 @@ pub(crate) mod test {
         }
 
         check(Error::Error, ffi::RPStatus_RS_RESULT_ERROR as i32);
-        check(Error::TimedOut, ffi::RPStatus_RS_RESULT_STOPPED as i32);
+        check(Error::Stopped, ffi::RPStatus_RS_RESULT_STOPPED as i32);
     }
 
     /// Assert that returning `Ok(None)` from Rust translates to EOF in C
@@ -667,10 +667,7 @@ pub(crate) mod test {
         check(ffi::RPStatus_RS_RESULT_OK as i32, Ok(Some(())));
         check(ffi::RPStatus_RS_RESULT_EOF as i32, Ok(None));
         check(ffi::RPStatus_RS_RESULT_ERROR as i32, Err(Error::Error));
-        check(
-            ffi::RPStatus_RS_RESULT_STOPPED as i32,
-            Err(Error::TimedOut),
-        );
+        check(ffi::RPStatus_RS_RESULT_STOPPED as i32, Err(Error::Stopped));
     }
 
     /// Assert that the search result is passed correctly
