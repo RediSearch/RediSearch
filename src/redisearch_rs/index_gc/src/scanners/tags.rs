@@ -11,19 +11,20 @@
 //! field in a spec.
 
 use std::{
-    ffi::c_char,
+    ffi::{c_char, c_void},
     io::{self, Write},
-    ptr::NonNull,
+    mem,
 };
 
 use field_spec::{FieldSpec, FieldSpecType};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::{GcScanDelta, opaque::InvertedIndex};
 use lending_iterator::LendingIterator;
+use rqe_core::DocId;
 use serde::{Deserialize, Serialize};
 use trie_rs::{
     TrieMapOpaque,
-    iter::{RangeBoundary, RangeFilter},
+    iter::{RangeBoundary, RangeFilter, RangeLendingIter},
 };
 
 use crate::fork::wire::{deserialize, serialize};
@@ -106,6 +107,19 @@ pub struct TagEntry<T = Box<[u8]>> {
     pub delta: GcScanDelta,
 }
 
+impl TagEntry<&[u8]> {
+    /// This entry with its tag copied out of the trie it was borrowed from.
+    fn into_owned(self) -> TagEntry {
+        TagEntry {
+            field_index: self.field_index,
+            tag_index_unique_id: self.tag_index_unique_id,
+            tag: self.tag.into(),
+            inverted_index_unique_id: self.inverted_index_unique_id,
+            delta: self.delta,
+        }
+    }
+}
+
 /// Collect GC deltas for every tag of every TAG field in the spec and write them
 /// to the parent process.
 ///
@@ -132,33 +146,50 @@ pub fn collect_tags(
         // by the spec guard for the entire traversal.
         let values = unsafe { &*tag_index.values.cast::<TrieMapOpaque>() };
         let mut iterator = values.0.lending_iter();
-        while let Some((tag, value)) = iterator.next() {
-            let value = NonNull::new(*value).ok_or_else(|| {
-                io::Error::other("an in-memory tag index has a null posting list")
-            })?;
-
-            // SAFETY: C TagIndex values are Rust opaque inverted indexes.
-            // The spec's read lock prevents their removal during iteration.
-            let ii = unsafe { value.cast::<InvertedIndex>().as_ref() };
-
-            let Ok(Some(delta)) = ii.scan_gc(|id| docs.contains(id)) else {
-                continue;
-            };
-
-            serialize(
-                writer,
-                Some(TagEntry {
-                    field_index,
-                    tag_index_unique_id: tag_index.uniqueId,
-                    tag,
-                    inverted_index_unique_id: u32::from(ii.unique_id()),
-                    delta,
-                }),
-            )?;
+        while let Some((tag, &value)) = iterator.next() {
+            if let Some(entry) =
+                scan_tag(field_index, tag_index, tag, value, |id| docs.contains(id))
+            {
+                serialize(writer, Some(entry))?;
+            }
         }
     }
 
     serialize(writer, None::<TagEntry<&[u8]>>)
+}
+
+/// The posting list a tag value maps to in `tag_index`.
+///
+/// C never stores a null one; a release build skips it rather than fail the
+/// whole scan.
+fn posting_list(_tag_index: &ffi::TagIndex, value: *mut c_void) -> Option<&InvertedIndex> {
+    debug_assert!(!value.is_null(), "a tag index holds a null posting list");
+    // SAFETY: C TagIndex values are Rust opaque inverted indexes owned by
+    // `tag_index`, which the caller's spec lock keeps alive for the borrow.
+    unsafe { value.cast::<InvertedIndex>().as_ref() }
+}
+
+/// Run the GC scan of `tag`'s posting list in the tag index of the field at
+/// `field_index`, with `exists` saying which documents remain.
+///
+/// Returns `None` when there is nothing to collect or the scan failed; a failed
+/// scan is retried on the next cycle.
+fn scan_tag<T>(
+    field_index: ffi::t_fieldIndex,
+    tag_index: &ffi::TagIndex,
+    tag: T,
+    value: *mut c_void,
+    exists: impl Fn(DocId) -> bool,
+) -> Option<TagEntry<T>> {
+    let ii = posting_list(tag_index, value)?;
+    let delta = ii.scan_gc(exists).ok().flatten()?;
+    Some(TagEntry {
+        field_index,
+        tag_index_unique_id: tag_index.uniqueId,
+        tag,
+        inverted_index_unique_id: u32::from(ii.unique_id()),
+        delta,
+    })
 }
 
 /// Where a [`scan_tags_after`] walk resumes: a TAG field, and the last tag
@@ -169,6 +200,9 @@ pub struct TagsCursor {
     field_index: usize,
     /// The last tag value visited in that field; `None` before the first.
     after: Option<Vec<u8>>,
+    /// The buffer the next value visited is copied into, swapped with
+    /// [`Self::after`] so a walk allocates no key per value.
+    spare: Vec<u8>,
 }
 
 /// Scan the tag values of every in-memory TAG field, in field then
@@ -198,6 +232,8 @@ pub fn scan_tags_after(
             // alive and unmodified for this borrow.
             let values = unsafe { &*tag_index.values.cast::<TrieMapOpaque>() };
             let after = cursor.after.take();
+            let mut visited = mem::take(&mut cursor.spare);
+            let mut stopped = false;
             let filter = RangeFilter {
                 min: after.as_deref().map(|value| RangeBoundary {
                     value,
@@ -205,27 +241,27 @@ pub fn scan_tags_after(
                 }),
                 max: None,
             };
-
-            for (tag, &value) in values.0.range_iter(filter) {
-                if !value.is_null() {
-                    // SAFETY: C TagIndex values are Rust opaque inverted indexes,
-                    // kept alive by the read lock.
-                    let ii = unsafe { &*value.cast::<InvertedIndex>() };
-                    if let Ok(Some(delta)) = ii.scan_gc(|id| spec.doc_exists(id)) {
-                        found.push(TagEntry {
-                            field_index,
-                            tag_index_unique_id: tag_index.uniqueId,
-                            tag: tag.as_slice().into(),
-                            inverted_index_unique_id: u32::from(ii.unique_id()),
-                            delta,
-                        });
-                    }
+            let mut iterator = RangeLendingIter::from(values.0.range_iter(filter));
+            while let Some((tag, &value)) = iterator.next() {
+                if let Some(entry) =
+                    scan_tag(field_index, tag_index, tag, value, |id| spec.doc_exists(id))
+                {
+                    found.push(entry.into_owned());
                 }
-                cursor.after = Some(tag);
+                visited.clear();
+                visited.extend_from_slice(tag);
                 if should_stop() {
-                    return true;
+                    stopped = true;
+                    break;
                 }
             }
+            drop(iterator);
+            if stopped {
+                cursor.after = Some(visited);
+                cursor.spare = after.unwrap_or_default();
+                return true;
+            }
+            cursor.spare = visited;
         }
         cursor.field_index += 1;
         cursor.after = None;
