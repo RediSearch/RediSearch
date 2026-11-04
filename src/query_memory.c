@@ -70,7 +70,7 @@ bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter) {
   return readMemoryAndStop(limits);
 }
 
-bool QueryMemory_CheckpointNow(QueryRequestLimits *limits) {
+bool QueryMemory_CheckpointExact(QueryRequestLimits *limits) {
   if (limits && QueryRequestLimits_IsMemoryStopped(limits)) {
     return true;
   }

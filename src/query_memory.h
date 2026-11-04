@@ -48,12 +48,12 @@ extern "C" {
 bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter);
 
 /**
- * Like QueryMemory_Checkpoint, but reads memory on every call and touches no
- * counter, so it is safe on several threads at once for one request. Reports
- * an already requested memory stop, and requests one on pressure. For sites
- * that are rare or expensive enough to make every call worth a read.
+ * The non-amortized checkpoint: reads memory on every call and touches no
+ * counter, like QueryRequestLimits_IsTimedOutExact. Reports an already
+ * requested memory stop, and requests one on pressure. For sites that are rare
+ * or expensive enough to make every call worth a read.
  */
-bool QueryMemory_CheckpointNow(QueryRequestLimits *limits);
+bool QueryMemory_CheckpointExact(QueryRequestLimits *limits);
 
 /**
  * Debug and test override of QUERY_MEMORY_RATIO_READ_INTERVAL for every
