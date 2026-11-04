@@ -100,7 +100,7 @@ impl GoneIds {
     /// The gone IDs of a table whose live IDs are the set bits of `live`.
     fn from_live_words(live: &[u64], max_doc_id: DocId, max_bitmap_bytes: usize) -> Self {
         // Words past the table's maximum hold no live ID.
-        let words = usize::try_from(max_doc_id / 64 + 1).map_or(live.len(), |w| w.min(live.len()));
+        let words = (max_doc_id / 64 + 1).min(live.len() as u64) as usize;
         let live = &live[..words];
         let Some(first_word) = live.iter().position(|&word| word != 0) else {
             // Nothing is live: everything up to the table's maximum is gone.
