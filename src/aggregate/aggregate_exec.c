@@ -754,7 +754,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
     const RSTimeoutPolicy policy_2 = req->base.limits.timeout.config.timeoutPolicy;
     const bool buffered_2 =
         state->results != NULL && (policy_2 == TimeoutPolicy_ReturnStrict ||
-                                   (policy_2 == TimeoutPolicy_Return && rc == RS_RESULT_TIMEDOUT));
+                                   (policy_2 == TimeoutPolicy_Return && rc == RS_RESULT_STOPPED));
     if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
         (!buffered_2 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_2;
@@ -991,7 +991,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     const RSTimeoutPolicy policy_3 = req->base.limits.timeout.config.timeoutPolicy;
     const bool buffered_3 =
         state->results != NULL && (policy_3 == TimeoutPolicy_ReturnStrict ||
-                                   (policy_3 == TimeoutPolicy_Return && rc == RS_RESULT_TIMEDOUT));
+                                   (policy_3 == TimeoutPolicy_Return && rc == RS_RESULT_STOPPED));
     if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
         (!buffered_3 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_3;
