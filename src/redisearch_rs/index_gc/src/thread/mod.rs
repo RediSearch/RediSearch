@@ -219,19 +219,20 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
         &mut self,
         apply: impl FnOnce(&mut IndexSpecWriteGuard<'_>, &mut GcApplyStats) -> Result<(), GcError>,
     ) -> Result<(), GcError> {
-        let mut stats = GcApplyStats::default();
-        let result = self.spec.with_write(|guard| {
+        let sink = &mut *self.sink;
+        let (result, held) = self.spec.with_write(|guard| {
             let start = Instant::now();
+            let mut stats = GcApplyStats::default();
             let result = apply(guard, &mut stats);
             stats.apply_to_spec(guard);
+            // Under the lock, as `FT.INFO` reads the counters under it.
+            if stats != GcApplyStats::default() {
+                sink.record(&stats);
+            }
             Ok((result, start.elapsed()))
-        });
-        let (result, held) = result?;
+        })?;
         self.report.write_locks += 1;
         self.report.max_write_hold = self.report.max_write_hold.max(held);
-        if stats != GcApplyStats::default() {
-            self.sink.record(&stats);
-        }
         result
     }
 

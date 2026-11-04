@@ -24,21 +24,19 @@ extern "C" {
 #include <stdatomic.h>
 #endif
 
-// Atomic: an in-process (THREAD) cycle updates them on the GC thread while the main thread reads
-// them for FT.INFO and INFO.
 typedef struct {
   // total bytes collected by the GC
   // This is signed because block splitting (when deltas are too big) can cause more bytes to be
   // allocated by the GC than the number of bytes collected.
-  RS_Atomic(ssize_t) totalCollected;
+  ssize_t totalCollected;
   // number of cycle ran
-  RS_Atomic(size_t) numCycles;
+  size_t numCycles;
 
-  RS_Atomic(long long) totalMSRun;
-  RS_Atomic(long long) lastRunTimeMs;
+  long long totalMSRun;
+  long long lastRunTimeMs;
 
-  RS_Atomic(uint64_t) gcNumericNodesMissed;
-  RS_Atomic(uint64_t) gcBlocksDenied;
+  uint64_t gcNumericNodesMissed;
+  uint64_t gcBlocksDenied;
 } IndexGCStats;
 
 // Optional hook for tests. beforeApply is called in the parent after fork(),
