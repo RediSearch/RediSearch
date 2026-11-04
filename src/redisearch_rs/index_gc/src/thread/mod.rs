@@ -226,9 +226,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
             let result = apply(guard, &mut stats);
             stats.apply_to_spec(guard);
             // Under the lock, as `FT.INFO` reads the counters under it.
-            if stats != GcApplyStats::default() {
-                sink.record(&stats);
-            }
+            sink.record(&stats);
             Ok((result, start.elapsed()))
         })?;
         self.report.write_locks += 1;
