@@ -8,8 +8,8 @@
 */
 
 use super::{
-    IndexReader, IndexReaderCore, PointsToOpaqueIndex, RefreshOutcome, ResumableReader,
-    SuspendableReader, TermReader,
+    IndexReader, IndexReaderCore, PointsToOpaqueIndex, RefreshOutcome, ReseatIndex,
+    ResumableReader, SuspendableReader, TermReader,
 };
 use crate::{
     DecodedBy, Decoder, HasInnerIndex, InvertedIndex, TermDecoder, opaque::OpaqueEncoding,
@@ -69,6 +69,14 @@ impl<'index, IR: IndexReader<'index>> FilterMaskReader<IR> {
 /// proof there), given `IR`'s own layout compatibility.
 unsafe impl<IR: SuspendableReader> SuspendableReader for FilterMaskReader<IR> {
     type Suspended = FilterMaskReader<IR::Suspended>;
+}
+
+/// Forwards the reseat to the inner reader, in either reader form.
+impl<I: ?Sized, IR: ReseatIndex<I>> ReseatIndex<I> for FilterMaskReader<IR> {
+    unsafe fn reseat(&mut self, index: std::ptr::NonNull<I>) {
+        // SAFETY: the caller upholds the trait's contract, which forwards as is.
+        unsafe { self.inner.reseat(index) }
+    }
 }
 
 /// Inverse of the above: `FilterMaskReader<RS>` resumes to

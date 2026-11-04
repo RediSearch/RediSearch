@@ -591,6 +591,19 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
   return &ret->base;
 }
 
+static int rpQueryItNext_Stopped(ResultProcessor *base, SearchResult *res) {
+  (void)res;
+  return UnlockSpec_and_ReturnRPResult(((RPQueryIterator *)base)->sctx, RS_RESULT_TIMEDOUT);
+}
+
+void RP_EndRowSourceOnStop(QueryProcessingCtx *qctx) {
+  ResultProcessor *root = qctx->rootProc;
+  if (!root || root->type != RP_INDEX || root->Next == rpQueryItNext_Stopped) {
+    return;
+  }
+  root->Next = rpQueryItNext_Stopped;
+}
+
 QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it) {
   /* On coordinator, the root result processor will be a network result processor and we should ignore it */
   if (it->rootProc && it->rootProc->type == RP_INDEX) {
@@ -2172,11 +2185,12 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     array_append(self->results, r);
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
-    // Notice a blocked-client (RETURN_STRICT) timeout promptly when the
-    // main-thread callback flips the borrowed flag.
+    // Notice a memory stop or a blocked-client (RETURN_STRICT) timeout
+    // promptly when another thread flips its flag.
     // The wall-clock deadline is already handled by the upstream's own checks.
     QueryRequestLimits *timeout = self->depletingThreadCtx->limits;
-    if (QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
+    if (QueryRequestLimits_IsMemoryStopped(timeout) ||
+        QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
       rc = RS_RESULT_TIMEDOUT;
       break;
     }
@@ -2217,7 +2231,7 @@ static void RPSafeDepleter_Deplete(void *arg) {
 
   // Check if timeout was exceeded before starting execution.
   QueryRequestLimits *timeout = self->depletingThreadCtx->limits;
-  bool timed_out = QueryRequestLimits_IsTimedOutExact(timeout);
+  bool timed_out = QueryRequestLimits_ShouldStopExact(timeout);
   if (!timed_out) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
@@ -2682,7 +2696,8 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     if (!entry) {
       int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
       return ret;
-    } else if (QueryRequestLimits_IsTimedOut(self->sctx->limits)) {
+    } else if (QueryRequestLimits_IsMemoryStopped(self->sctx->limits) ||
+               QueryRequestLimits_IsTimedOut(self->sctx->limits)) {
       return RS_RESULT_TIMEDOUT;
     }
 
