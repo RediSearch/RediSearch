@@ -15,7 +15,7 @@
 #include "indexes.h"
 #include "common.h"
 #include "index_utils.h"
-#include "gc.h"
+#include "gc/gc.h"
 
 extern "C" {
 #include "search_disk.h"

@@ -27,7 +27,7 @@
 #endif
 
 #include "spec.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "indexes.h"
 #include "indexes_scan.h"
 #include "document.h"
