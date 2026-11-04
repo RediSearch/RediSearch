@@ -58,8 +58,8 @@ fn blocked_client_cancelled(ctx: &QueryEvalContext) -> bool {
     // SAFETY: as in `clock_deadline` -- a non-null request timeout is an
     // initialized C object that outlives query evaluation, and the handle lives
     // only for the single flag read below.
-    let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ctx.sctx().timeout) };
-    timeout.is_some_and(QueryRequestTimeoutHandle::blocked_client_timed_out)
+    let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ctx.sctx().limits) };
+    timeout.is_some_and(QueryRequestLimitsHandle::blocked_client_timed_out)
 }
 
 /// The `(timeout, skip_timeout_checks)` pair the suffix trie lookups take: the

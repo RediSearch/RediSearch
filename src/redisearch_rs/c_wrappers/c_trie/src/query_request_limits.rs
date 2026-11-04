@@ -83,7 +83,7 @@ impl QueryRequestLimitsHandle {
         // SAFETY: `from_raw` guarantees the object is live, and its cycle
         // contract allows the blocked-client marker to be published or observed
         // atomically while this handle is in use, which is all this reads.
-        unsafe { ffi::QueryRequestTimeout_IsBlockedClientTimedOut(self.inner.get()) }
+        unsafe { ffi::QueryRequestLimits_IsBlockedClientTimedOut(self.inner.get()) }
     }
 
     /// Exposes the borrowed object to a synchronous C operation.
