@@ -86,6 +86,9 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
 typedef struct {
   size_t forkGcRunIntervalSec;
   size_t forkGcCleanThreshold;
+  // Under GCPolicy_Thread, the clean threshold also grows with the index: a cycle waits for this
+  // many deletions per thousand documents, and for at least forkGcCleanThreshold.
+  size_t gcCleanThresholdPerMille;
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
   int forkGCCleanNumericEmptyNodes;
@@ -335,6 +338,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx);
  * REDISMODULE_ERR, which would abort module init. */
 void RSConfig_SetLoadingStartupConfig(bool loading);
 
+/* Load the registered configs' defaults, then forget which ones that set, so
+ * RSConfig_ApplyGcPolicyDefaults can tell a user's value from a default. */
+int RSConfig_LoadDefaultConfigs(RedisModuleCtx *ctx);
+
+/* Once every config source is read: give the GC settings the user left unset their GC policy's
+ * defaults. The registered defaults cannot depend on the policy, which module arguments set
+ * after registration. */
+void RSConfig_ApplyGcPolicyDefaults(void);
+
 /**
  * Writes the retrieval of the configuration value to the network.
  * isHelp will use a more dict-like pattern, which should be a bit friendlier
@@ -391,6 +403,10 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
 #define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
+// A THREAD cycle needs no fork, so it can run more often.
+#define DEFAULT_THREAD_GC_RUN_INTERVAL 5
+#define DEFAULT_GC_CLEAN_THRESHOLD_PER_MILLE 1
+#define MAX_GC_CLEAN_THRESHOLD_PER_MILLE 1000
 #define MAX_GC_THREADS 64
 static_assert(MAX_GC_THREADS <= UINT8_MAX, "search-gc-threads is kept in a byte");
 #define DEFAULT_DISK_GC_RUN_INTERVAL 300
@@ -491,12 +507,13 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,               \
     .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                          \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                       \
-    .gcConfigParams.gcPolicy = GCPolicy_Fork,                                  \
+    .gcConfigParams.gcPolicy = GCPolicy_Thread,                                \
     .gcConfigParams.gcThreads = 1,                                             \
     .gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
     .gcConfigParams.gcSettings.forkGcSleepBeforeExit = 0,                      \
     .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
     .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
+    .gcConfigParams.gcSettings.gcCleanThresholdPerMille = DEFAULT_GC_CLEAN_THRESHOLD_PER_MILLE,\
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
     .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \
