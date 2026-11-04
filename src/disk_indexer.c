@@ -13,7 +13,7 @@
 
 #include "doc_id_meta.h"
 #include "forward_index.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "info/global_stats.h"
 #include "info/index_error.h"
 #include "query_error_ffi.h"
@@ -118,10 +118,9 @@ static void stageText(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
       offsets = VVW_GetByteData(entry->vw);
       offsetsLen = VVW_GetByteLength(entry->vw);
     }
-    entry->staged = SearchDisk_IndexTerm(spec->diskSpec, aCtx->disk.batch,
-                                         entry->term, entry->len, aCtx->doc->docId,
-                                         entry->fieldMask, entry->freq,
-                                         offsets, offsetsLen);
+    entry->staged =
+        SearchDisk_IndexTerm(spec->diskSpec, aCtx->disk.batch, entry->term, entry->len,
+                             aCtx->doc->docId, entry->fieldMask, entry->freq, offsets, offsetsLen);
   }
 }
 

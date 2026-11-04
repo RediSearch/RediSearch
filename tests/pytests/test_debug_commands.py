@@ -35,6 +35,13 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '30000').equal('DONE')
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'notanumber').error().contains('Invalid TIMEOUT value')
         self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '-1').error().contains('Invalid TIMEOUT value')
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', '30000', '30000').error().contains(
+            'wrong number of arguments')
+
+    def testGcForceInvokeCompactAllNeedsDiskIndex(self):
+        """COMPACT_ALL compacts disk storage, so on a RAM index it is an error."""
+        self.env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx', 'COMPACT_ALL').error().contains(
+            'COMPACT_ALL requires a disk index')
 
     def testHashSubkeyNotifications(self):
         """The probe answers whether this server can name the fields a hash command wrote.
@@ -521,9 +528,9 @@ def testSpecIndexesInfo(env: Env):
     # Add a document
     env.expect('HSET', 'doc1', 'n', 1).equal(1)
 
-    # adding the document will create a new index block (56 bytes) with 1 byte of buffer capacity
+    # adding the document will create a new index block (48 bytes) with 1 byte of buffer capacity
     # and 8 bytes of header for the block thin vector
-    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 56 + 1 + 8
+    expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC']) + 48 + 1 + 8
     debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
     env.assertEqual(to_dict(debug_output), expected_reply)
 
