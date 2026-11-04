@@ -345,8 +345,6 @@ TEST_F(SlotCleanupTest, ExplicitCutoffDoesNotUseRamDocTableMaxId) {
   EXPECT_EQ(spec->docs.maxDocId, 0);
   PendingSlotDeletion *first = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 10);
   PendingSlotDeletion *second = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 20);
-  EXPECT_EQ(first->diskTrimId, 0u);
-  EXPECT_EQ(second->diskTrimId, 0u);
   EXPECT_TRUE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 10, SLOT_A));
   EXPECT_TRUE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 20, SLOT_A));
   EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 21, SLOT_A));

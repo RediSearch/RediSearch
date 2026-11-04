@@ -32,7 +32,7 @@
 #include "VecSim/vec_sim.h"
 #include "VecSim/vec_sim_common.h"
 #include "field_spec.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
 #include "language.h"
