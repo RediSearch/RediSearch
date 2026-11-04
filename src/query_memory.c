@@ -101,19 +101,24 @@ bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter) {
   // interval alone still triggers a read through the request-wide count.
   bool due = ++*counter >= interval;
   if (limits) {
-    due |= ++limits->memory.counter >= interval;
+    // Load and store, not fetch_add: a lost increment only delays a read, and this avoids an
+    // atomic RMW on the hot path.
+    const uint32_t shared =
+        atomic_load_explicit(&limits->memory.counter, memory_order_relaxed) + 1;
+    atomic_store_explicit(&limits->memory.counter, shared, memory_order_relaxed);
+    due |= shared >= interval;
   }
   if (!forcedPressure && !due) {
     return false;
   }
   *counter = 0;
   if (limits) {
-    limits->memory.counter = 0;
+    atomic_store_explicit(&limits->memory.counter, 0, memory_order_relaxed);
   }
   return memoryStops(limits, forcedPressure);
 }
 
-bool QueryMemory_CheckpointNow(QueryRequestLimits *limits) {
+bool QueryMemory_CheckpointExact(QueryRequestLimits *limits) {
   if (limits && QueryRequestLimits_IsMemoryStopped(limits)) {
     return true;
   }

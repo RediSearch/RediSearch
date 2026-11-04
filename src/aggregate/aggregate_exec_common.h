@@ -26,7 +26,7 @@ bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isP
 void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
 /**
- * Turns a pipeline that stopped for memory pressure, a RS_RESULT_TIMEDOUT rc
+ * Turns a pipeline that stopped for memory pressure, a RS_RESULT_STOPPED rc
  * with the memory stop requested, into the outcome `oomPolicy` asks
  * for, and returns any other rc unchanged:
  *
