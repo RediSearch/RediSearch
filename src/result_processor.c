@@ -1417,9 +1417,8 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
-    // Only an OOM stop cuts the load: a timeout's callback waits for this worker, as before.
-    if (!stopped && checkMemory && QueryMemory_Checkpoint(timeout, &self->loadMemoryCheckCalls) &&
-        QueryRequestLimits_IsMemoryStopped(timeout)) {
+    // A timeout never cuts the load: its callback waits for this worker.
+    if (!stopped && checkMemory && QueryMemory_Checkpoint(timeout, &self->loadMemoryCheckCalls)) {
       // The loaded prefix is yielded; the yield phase then ends on the stop.
       stopped = true;
       self->last_buffered_rc = RS_RESULT_TIMEDOUT;
