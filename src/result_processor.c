@@ -117,27 +117,55 @@ typedef struct {
 #endif
 } RPQueryIterator;
 
+typedef struct {
+  RPQueryIterator base;
+  uint64_t deletedCandidatesDiscarded;
+  uint64_t candidatesNotDiscarded;
+} RPQueryIteratorProfiled;
+
+// Next wrappers pass a constant isProfiled. Forced inlining lets optimized
+// builds eliminate profiling checks and counters from ordinary queries.
+static inline __attribute__((always_inline)) void recordCandidate(RPQueryIterator *self,
+                                                                  bool deleted, bool isProfiled) {
+  if (isProfiled) {
+    RPQueryIteratorProfiled *profiled = (RPQueryIteratorProfiled *)self;
+    if (deleted) {
+      profiled->deletedCandidatesDiscarded++;
+    } else {
+      profiled->candidatesNotDiscarded++;
+    }
+  }
+}
 
 /****
  * getDocumentMetadata - get the document metadata for the current document from the iterator.
  * If the document is deleted or expired, return false.
  * If the document is not deleted or expired, return true.
- * If the document is not deleted or expired, and dmd is not NULL, set *dmd to the document metadata.
+ * If the document is not deleted or expired, and dmd is not NULL, set *dmd to the document
+ * metadata.
  * @param spec The index spec
  * @param docs The document table
  * @param sctx The search context
  * @param it The query iterator
  * @param prefetchDmd Whether to prefetch the metadata of the docIds just ahead of `it`
  * @param dmd The document metadata pointer to set
+ * @param self The owning query iterator processor
+ * @param isProfiled Whether to record candidate counts for this query
  * @return true if the document is not deleted or expired, false otherwise.
  */
-static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx *sctx, const QueryIterator *it, bool prefetchDmd, const RSDocumentMetadata **dmd) {
+static inline __attribute__((always_inline)) bool getDocumentMetadata(
+    IndexSpec *spec, DocTable *docs, RedisSearchCtx *sctx, const QueryIterator *it,
+    bool prefetchDmd, const RSDocumentMetadata **dmd, RPQueryIterator *self, bool isProfiled) {
   if (spec->diskSpec) {
-    RSDocumentMetadata* diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
+    RSDocumentMetadata *diskDmd = (RSDocumentMetadata *)rm_calloc(1, sizeof(RSDocumentMetadata));
     diskDmd->sortVector = RSSortingVector_Empty();
     diskDmd->ref_count = 1;
     // Start from checking the deleted-ids (in memory), then perform IO
-    const bool foundDocument = !SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId) && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId, diskDmd, &sctx->currentTime);
+    const bool deleted = SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId);
+    recordCandidate(self, deleted, isProfiled);
+    const bool foundDocument =
+        !deleted && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId,
+                                                   diskDmd, &sctx->currentTime);
     if (!foundDocument) {
       DMD_Return(diskDmd);
       return false;
@@ -149,6 +177,7 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
       // Borrowed before a slot deletion may have been registered (e.g. held in the optimizer heap
       // across cursor reads), so DocTable_Borrow's check did not cover it.
       if (DocTable_HasPendingDeletions(docs) && DocTable_IsDocPendingDeletion(docs, *dmd)) {
+        recordCandidate(self, true, isProfiled);
         DMD_Return(*dmd);
         return false;
       }
@@ -161,7 +190,11 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
       }
       *dmd = DocTable_Borrow(docs, it->lastDocId);
     }
-    if (!*dmd || (*dmd)->flags & Document_Deleted || DocTable_IsDocExpired(docs, *dmd, &sctx->currentTime)) {
+    // RAM lookups also reject missing metadata and pending slot deletions.
+    // Expiration is checked afterward and does not affect the candidate counts.
+    const bool deleted = !*dmd || ((*dmd)->flags & Document_Deleted);
+    recordCandidate(self, deleted, isProfiled);
+    if (deleted || DocTable_IsDocExpired(docs, *dmd, &sctx->currentTime)) {
       DMD_Return(*dmd);
       return false;
     }
@@ -174,10 +207,10 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
  * Fills up to current capacity, doesn't grow the queue.
  * Returns RS_RESULT_OK on success, RS_RESULT_TIMEDOUT on timeout.
  */
-static int refillQueueUsingIterator(RPQueryIterator *self) {
+static inline __attribute__((always_inline)) int refillQueueUsingIterator(RPQueryIterator *self,
+                                                                          bool isProfiled) {
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
-  IndexSpec *spec = sctx->spec;
 
   // Don't refill if iterator is done
   if (it->atEOF) {
@@ -199,7 +232,9 @@ static int refillQueueUsingIterator(RPQueryIterator *self) {
 
     // Skip deleted documents (in-memory check, no IO)
     t_docId docId = it->current->docId;
-    if (SearchDisk_DocIdDeleted(spec->diskSpec, docId)) {
+    const bool deleted = SearchDisk_DocIdDeleted(sctx->spec->diskSpec, docId);
+    recordCandidate(self, deleted, isProfiled);
+    if (deleted) {
       continue;
     }
 
@@ -341,11 +376,13 @@ static RevalidateOutcome handleSpecLockAndRevalidate(RPQueryIterator *self) {
 }
 
 /* Next implementation for sync disk and regular (in-memory) flow */
-static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
+static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcessor *base,
+                                                                   SearchResult *res,
+                                                                   bool isProfiled) {
   RPQueryIterator *self = (RPQueryIterator *)base;
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
-  IndexSpec* spec = sctx->spec;
+  IndexSpec *spec = sctx->spec;
   const RSDocumentMetadata *dmd;
   // Handle spec lock and revalidation
   RevalidateOutcome revalidateOutcome = handleSpecLockAndRevalidate(self);
@@ -377,12 +414,12 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     if (!needToValidateCurrent) {
       IteratorStatus rc = it->Read(it);
       switch (rc) {
-      case ITERATOR_EOF:
-        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
-      case ITERATOR_TIMEOUT:
-        return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
-      default:
-        RS_ASSERT(rc == ITERATOR_OK);
+        case ITERATOR_EOF:
+          return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
+        case ITERATOR_TIMEOUT:
+          return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+        default:
+          RS_ASSERT(rc == ITERATOR_OK);
       }
     }
 
@@ -390,7 +427,8 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
     needToValidateCurrent = false;
 
     // Get document metadata (either from disk or in-memory DocTable)
-    if (!getDocumentMetadata(spec, &spec->docs, sctx, it, self->prefetchDmd, &dmd)) {
+    if (!getDocumentMetadata(spec, &spec->docs, sctx, it, self->prefetchDmd, &dmd, self,
+                             isProfiled)) {
       continue;
     }
 
@@ -405,7 +443,9 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
 }
 
 /* Next implementation for async disk flow with two-level buffering */
-static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
+static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(ResultProcessor *base,
+                                                                            SearchResult *res,
+                                                                            bool isProfiled) {
   RPQueryIterator *self = (RPQueryIterator *)base;
   QueryIterator *it = self->iterator;
   RedisSearchCtx *sctx = self->sctx;
@@ -443,7 +483,7 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
     }
 
     // Step 1: Refill the IndexResult queue if needed (cheap iterator reads)
-    int refillResult = refillQueueUsingIterator(self);
+    int refillResult = refillQueueUsingIterator(self, isProfiled);
     if (refillResult == RS_RESULT_TIMEDOUT) {
       return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
     }
@@ -496,6 +536,22 @@ static int rpQueryItNext_AsyncDisk(ResultProcessor *base, SearchResult *res) {
   }
 }
 
+static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
+  return rpQueryItNextImpl(base, res, false);
+}
+
+static int rpQueryItNextProfiled(ResultProcessor *base, SearchResult *res) {
+  return rpQueryItNextImpl(base, res, true);
+}
+
+static int rpQueryItNextAsyncDisk(ResultProcessor *base, SearchResult *res) {
+  return rpQueryItNextAsyncDiskImpl(base, res, false);
+}
+
+static int rpQueryItNextAsyncDiskProfiled(ResultProcessor *base, SearchResult *res) {
+  return rpQueryItNextAsyncDiskImpl(base, res, true);
+}
+
 static void rpQueryItFree(ResultProcessor *iter) {
   RPQueryIterator *self = (RPQueryIterator *)iter;
   self->iterator->Free(self->iterator);
@@ -507,10 +563,13 @@ static void rpQueryItFree(ResultProcessor *iter) {
   rm_free(iter);
 }
 
-ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotRangeArray *querySlots, uint32_t keySpaceVersion, RedisSearchCtx *sctx, bool denseAscendingScan) {
+ResultProcessor *RPQueryIterator_New(QueryIterator *root,
+                                     const RedisModuleSlotRangeArray *querySlots,
+                                     uint32_t keySpaceVersion, RedisSearchCtx *sctx,
+                                     bool isProfiled, bool denseAscendingScan) {
   RS_ASSERT(root != NULL);
   RS_ASSERT(sctx && sctx->limits);
-  RPQueryIterator *ret = rm_calloc(1, sizeof(*ret));
+  RPQueryIterator *ret = rm_calloc(1, isProfiled ? sizeof(RPQueryIteratorProfiled) : sizeof(*ret));
   ret->iterator = root;
   ret->querySlots = querySlots;
   ret->keySpaceVersion = keySpaceVersion;
@@ -546,16 +605,25 @@ ResultProcessor *RPQueryIterator_New(QueryIterator *root, const RedisModuleSlotR
     if (asyncPool) {
       // Async disk flow with buffering
       IndexResultAsyncRead_SetupAsyncPool(&ret->async, asyncPool);
-      ret->base.Next = rpQueryItNext_AsyncDisk;
+      ret->base.Next = isProfiled ? rpQueryItNextAsyncDiskProfiled : rpQueryItNextAsyncDisk;
     } else {
-      ret->base.Next = rpQueryItNext;
+      ret->base.Next = isProfiled ? rpQueryItNextProfiled : rpQueryItNext;
     }
   } else {
     // Sync disk or regular in-memory flow (both use getDocumentMetadata)
-    ret->base.Next = rpQueryItNext;
+    ret->base.Next = isProfiled ? rpQueryItNextProfiled : rpQueryItNext;
   }
 
+
   return &ret->base;
+}
+
+void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded,
+                                        uint64_t *notDiscarded) {
+  RS_ASSERT(rp->type == RP_INDEX && rp->parent && rp->parent->isProfile);
+  const RPQueryIteratorProfiled *self = (RPQueryIteratorProfiled *)rp;
+  *discarded = self->deletedCandidatesDiscarded;
+  *notDiscarded = self->candidatesNotDiscarded;
 }
 
 static int rpQueryItNext_Stopped(ResultProcessor *base, SearchResult *res) {

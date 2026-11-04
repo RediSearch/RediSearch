@@ -238,6 +238,7 @@ pub unsafe extern "C" fn QueryIteratorTree_IntoResultProcessor(
     query_slots: *const SlotRangeArray,
     key_space_version: u32,
     sctx: NonNull<RedisSearchCtx>,
+    is_profiled: bool,
 ) -> NonNull<ResultProcessor> {
     // SAFETY: `tree` came from `Box::into_raw` and has not been released yet
     // (precondition 1).
@@ -252,6 +253,7 @@ pub unsafe extern "C" fn QueryIteratorTree_IntoResultProcessor(
             query_slots.cast(),
             key_space_version,
             sctx.as_ptr(),
+            is_profiled,
             dense_ascending_scan,
         )
     };
