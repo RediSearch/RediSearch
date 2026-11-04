@@ -46,6 +46,7 @@ extern RedisSearchDiskAPI *disk;
 #include <stdio.h>
 #include <time.h>
 #include <float.h>
+#include <algorithm>
 #include <iterator>  // std::size
 #include <vector>
 #include <cstdint>
@@ -106,16 +107,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   size_t exp_t_fieldMask_memsize = 16;
   ASSERT_EQ(exp_t_fieldMask_memsize, t_fiedlMask_memsize);
 
-  // Details of the memory occupied by InvertedIndex in bytes (64-bit system):
-  // LowMemoryThinVec<IndexBlock, u32> blocks    8
-  // u32 n_uniqe_blocks                          4
-  // flags IndexFlags                            4
-  // u32 gc_marker                               4
-  // ---------------------------------------------
-  // Total                                      20
-  // After padding                              24
-
-  size_t exp_idx_no_block_memsize = 24;
+  size_t exp_idx_no_block_memsize = 32;
 
   if (useFieldMask) {
     exp_idx_no_block_memsize += t_fiedlMask_memsize;
@@ -395,10 +387,10 @@ TEST_F(IndexTest, testNumericInverted) {
     expected_sz = target_cap - buff_cap;
     buff_cap = target_cap;
 
-    // The first write add an index block of 56 bytes
+    // The first write add an index block of 48 bytes
     // and the vector header
     if (i < 1) {
-      expected_sz += 56 + 8;
+      expected_sz += 48 + 8;
     }
 
     // Check if the write matches the simulation
@@ -645,11 +637,11 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   // Drive the production lazy range path: the VecSim range query is deferred to the iterator's
   // first Read/SkipTo, and must run on the *raw* query vector. The explicit UNARMED timeout
   // mirrors request-owned state without imposing a deadline on the test.
-  QueryRequestTimeout timeout = {};
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 0;
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
   QueryIterator *vecIt = NewLazyVectorRangeIteratorFromParams(
       index, range_query.vector, range_query.vecLen, range_query.radius, queryParams,
       range_query.order, /*yields_metric=*/true, &timeout);
@@ -1002,53 +994,53 @@ TEST_F(IndexTest, testIndexFlags) {
   size_t index_memsize;
   InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index
-  // created with INDEX_DEFAULT_FLAGS is 40 bytes,
+  // created with INDEX_DEFAULT_FLAGS is 48 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 24
+  // sizeof InvertedIndex                 32
   // storing fieldmask on idx             16
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
-  ASSERT_EQ(81, sz);
+  ASSERT_EQ(73, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
-  ASSERT_EQ(sz2, 68);
+  ASSERT_EQ(sz2, 60);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(85, InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth);
+  ASSERT_EQ(77, InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth);
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index with
-  // Index_StoreFieldFlags == 0 is 24 bytes
+  // Index_StoreFieldFlags == 0 is 32 bytes
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 24
-  ASSERT_EQ(24, index_memsize);
+  // sizeof InvertedIndex                 32
+  ASSERT_EQ(32, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
-  ASSERT_EQ(67, sz);
+  ASSERT_EQ(59, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
-  ASSERT_EQ(75, sz);
+  ASSERT_EQ(67, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
@@ -1225,6 +1217,95 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_NE(dmd->id, strDocId);
   DMD_Return(dmd);
   DocTable_Free(&dt);
+}
+
+namespace {
+// Frees the table even when an ASSERT returns early.
+struct ScopedDocTable {
+  DocTable t;
+  ScopedDocTable(size_t cap, size_t maxSize) : t(NewDocTable(cap, maxSize)) {}
+  ~ScopedDocTable() { DocTable_Free(&t); }
+
+  void put(size_t n) {
+    char buf[16];
+    for (size_t i = 0; i < n; i++) {
+      size_t nkey = snprintf(buf, sizeof(buf), "doc_%zu", i);
+      DMD_Return(DocTable_Put(&t, buf, nkey, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash));
+    }
+  }
+};
+}  // namespace
+
+TEST_F(IndexTest, testDocTableLiveBitmap) {
+  // A max size below N chains documents in shared buckets.
+  ScopedDocTable dt(10, 10);
+  const size_t N = 100;
+  dt.put(N);
+  for (t_docId id = 3; id <= N; id += 3) {
+    DMD_Return(DocTable_DeleteById(&dt.t, id));
+  }
+
+  const size_t words = DocTable_LiveBitmapWords(&dt.t);
+  ASSERT_EQ(N / 64 + 1, words);
+  std::vector<uint64_t> live(words);
+  DocTable_FillLiveBitmap(&dt.t, live.data(), words);
+  for (t_docId id = 0; id < words * 64; id++) {
+    ASSERT_EQ(DocTable_Exists(&dt.t, id), (bool)(live[id / 64] & (1ULL << (id % 64))))
+        << "docId " << id;
+  }
+
+  // A shorter buffer is filled only up to its own length.
+  std::vector<uint64_t> shorter(words, 0);
+  DocTable_FillLiveBitmap(&dt.t, shorter.data(), 1);
+  ASSERT_EQ(live[0], shorter[0]);
+  ASSERT_EQ(0, shorter[1]);
+}
+
+TEST_F(IndexTest, testDocTableLiveBitmapSparse) {
+  ScopedDocTable dt(10, 10);
+  const size_t N = 1000;
+  dt.put(N);
+  for (t_docId id = 2; id < N; id++) {
+    DMD_Return(DocTable_DeleteById(&dt.t, id));
+  }
+  // Two live docs still get a bitmap of every docId: only its total size is bounded.
+  ASSERT_EQ(N / 64 + 1, DocTable_LiveBitmapWords(&dt.t));
+}
+
+TEST_F(IndexTest, testDocTableLiveBitmapMaxBytes) {
+  // Only maxDocId is read, so a table this large needs no documents.
+  DocTable t = {};
+  const t_docId capDocIds = (t_docId)(64 << 20) * 8;  // LIVE_BITMAP_MAX_BYTES, in bits
+  t.maxDocId = capDocIds - 1;
+  ASSERT_EQ(capDocIds / 64, DocTable_LiveBitmapWords(&t));
+  t.maxDocId = capDocIds;
+  ASSERT_EQ(0, DocTable_LiveBitmapWords(&t));
+}
+
+static void collectLiveId(void *ctx, t_docId docId) {
+  static_cast<std::vector<t_docId> *>(ctx)->push_back(docId);
+}
+
+TEST_F(IndexTest, testDocTableForEachLiveId) {
+  // A max size below N chains documents in shared buckets.
+  ScopedDocTable dt(10, 10);
+  const size_t N = 100;
+  dt.put(N);
+  for (t_docId id = 3; id <= N; id += 3) {
+    DMD_Return(DocTable_DeleteById(&dt.t, id));
+  }
+
+  std::vector<t_docId> ids;
+  DocTable_ForEachLiveId(&dt.t, collectLiveId, &ids);
+  std::sort(ids.begin(), ids.end());
+  std::vector<t_docId> expected;
+  for (t_docId id = 0; id <= N + 10; id++) {
+    if (DocTable_Exists(&dt.t, id)) {
+      expected.push_back(id);
+    }
+  }
+  ASSERT_EQ(N - N / 3, expected.size());
+  ASSERT_EQ(expected, ids);
 }
 
 TEST_F(IndexTest, testVarintFieldMask) {

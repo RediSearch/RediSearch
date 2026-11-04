@@ -136,6 +136,9 @@ const HEADERS: &[HeaderAllowlist] = &[
         fns: &[
             "DMD_Free",
             "DocTable_Exists",
+            "DocTable_FillLiveBitmap",
+            "DocTable_ForEachLiveId",
+            "DocTable_LiveBitmapWords",
             "DocTable_Put",
             "DocTable_KeyEquals",
             "DocTable_StartKeyMap",
@@ -145,9 +148,9 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/fork_gc.h",
+        path: "src/gc/index_gc.h",
         fns: &[],
-        types: &["ForkGC"],
+        types: &["IndexGC"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -526,11 +529,11 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
-    // `vector_score_source` passes the request-owned `QueryRequestTimeout` directly to VecSim.
+    // `vector_score_source` passes the request-owned `QueryRequestLimits` directly to VecSim.
     HeaderAllowlist {
         path: "src/util/timeout.h",
         fns: &[],
-        types: &["QueryRequestTimeout"],
+        types: &["QueryRequestLimits"],
         vars: &[],
     },
     // Lets a Rust expansion observe a blocked-client cancellation, which publishes a

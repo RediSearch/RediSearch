@@ -259,10 +259,10 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                                "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
       }
-      RS_ASSERT(q->sctx->timeout);
+      RS_ASSERT(q->sctx->limits);
       return NewVectorTopKIterator(vecsim, vq->knn.vector, blobSize, &qParams, vq->knn.k,
                                    q->opts->flags & Search_CanSkipRichResults, child_it,
-                                   q->sctx->timeout, q->sctx, &filterCtx);
+                                   q->sctx->limits, q->sctx, &filterCtx);
     }
     case VECSIM_QT_RANGE: {
       if (blobSize != vq->range.vecLen) {
@@ -283,12 +283,12 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                     &qParams, QUERY_TYPE_RANGE, q->status) != VecSim_OK)  {
         return NULL;
       }
-      RS_ASSERT(q->sctx->timeout);
+      RS_ASSERT(q->sctx->limits);
       // Defer the actual range query to the first read, so it runs after the spec lock is
       // released and writes can proceed concurrently.
       return NewLazyVectorRangeIteratorFromParams(
           vecsim, vq->range.vector, vq->range.vecLen, vq->range.radius, qParams, vq->range.order,
-          /*yields_metric=*/vq->scoreField != NULL, q->sctx->timeout);
+          /*yields_metric=*/vq->scoreField != NULL, q->sctx->limits);
     }
   }
   return NULL;
