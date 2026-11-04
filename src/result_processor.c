@@ -163,7 +163,7 @@ static bool getDocumentMetadata(IndexSpec* spec, DocTable* docs, RedisSearchCtx 
     }
     if (!*dmd || (*dmd)->flags & Document_Deleted ||
         DocTable_IsDocExpired(docs, *dmd, &sctx->currentTime) ||
-        (sctx->maxVisibleDocId && (*dmd)->id > sctx->maxVisibleDocId)) {
+        !SearchCtx_IsDocVisible(sctx, (*dmd)->id)) {
       DMD_Return(*dmd);
       return false;
     }

@@ -942,14 +942,6 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
   // build runs under the read lock.
   IndexSpec_LockRead(sctx->spec);
 
-  // Set before the build: iterators may read the bound when they are created.
-  if (depleteInBackground && !sctx->spec->diskSpec) {
-    const t_docId maxDocId = DocTable_GetMaxDocId(&sctx->spec->docs);
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-      AREQ_SearchCtx(hreq->requests[i])->maxVisibleDocId = maxDocId;
-    }
-  }
-
   // Internal commands do not have a hybrid merger and only have a depletion pipeline
   if (internal) {
     RS_LOG_ASSERT(isCursor, "Internal hybrid command must be a cursor request from a coordinator");
@@ -959,6 +951,13 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     }
   } else if (HybridRequest_BuildPipeline(hreq, hybridParams, depleteInBackground, status) != REDISMODULE_OK) {
     goto done;
+  }
+
+  if (depleteInBackground && !sctx->spec->diskSpec) {
+    const t_docId maxDocId = DocTable_GetMaxDocId(&sctx->spec->docs);
+    for (size_t i = 0; i < hreq->nrequests; i++) {
+      AREQ_SearchCtx(hreq->requests[i])->maxVisibleDocId = maxDocId;
+    }
   }
 
   if (sctx->spec->diskSpec || depleteInBackground) {
