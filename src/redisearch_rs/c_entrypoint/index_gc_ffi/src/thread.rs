@@ -54,8 +54,8 @@ pub unsafe extern "C" fn ThreadGC_runScanners(gc: *mut ffi::IndexGC) -> ThreadGC
     let clean_numeric_empty_nodes = unsafe { (*gc).cleanNumericEmptyNodes } != 0;
     // SAFETY: (1) `gc` is valid; this only takes the counters' address.
     let counters = unsafe { &raw mut (*gc).stats };
-    // SAFETY: (1) the counters are valid for the call, and C reads and writes them
-    // only atomically.
+    // SAFETY: (1) the counters are valid for the call, and the cycle records into
+    // them only under the spec's write lock.
     let mut stats = unsafe { GcCounters::new(counters) };
 
     match run_cycle(&mut spec, &mut stats, clean_numeric_empty_nodes) {

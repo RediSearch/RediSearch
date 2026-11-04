@@ -9,10 +9,7 @@
 
 //! Statistics accumulated by a fork-GC scanner while applying collected deltas.
 
-use std::{
-    ptr::NonNull,
-    sync::atomic::{AtomicIsize, AtomicU64, Ordering},
-};
+use std::ptr::NonNull;
 
 use index_spec::IndexSpecWriteGuard;
 
@@ -99,16 +96,17 @@ impl GcStatsSink for ForkPipe {
     }
 }
 
-/// A GC context's counters, updated atomically and through a raw pointer: the main
-/// thread reads them for `FT.INFO` while an in-process cycle updates them, so no
-/// reference to them may be held across a cycle.
+/// A GC context's counters, updated through a raw pointer: `FT.INFO` reads them
+/// between an in-process cycle's lock holds, so no reference to them may be held
+/// across a cycle.
 pub struct GcCounters(NonNull<ffi::IndexGCStats>);
 
 impl GcCounters {
     /// # Safety
     ///
     /// `stats` points to a GC context's counters, valid for as long as the result
-    /// lives, which C reads and writes only atomically.
+    /// lives, and [`record`](GcStatsSink::record) is called only under the spec's
+    /// write lock, which serializes it with `FT.INFO`.
     pub const unsafe fn new(stats: *mut ffi::IndexGCStats) -> Self {
         // SAFETY: the caller guarantees `stats` is valid, so not null.
         Self(unsafe { NonNull::new_unchecked(stats) })
@@ -120,21 +118,12 @@ impl GcStatsSink for GcCounters {
     /// numeric scanner tallies misses across a whole node stream and flushes them
     /// together with the rest of the field's counters.
     fn record(&mut self, stats: &GcApplyStats) {
-        let counters = self.0.as_ptr();
-        let collected = stats.bytes_collected as isize - stats.bytes_allocated as isize;
-        // SAFETY: (`new`) `counters` is valid; this only takes a field's address.
-        let total_collected = unsafe { &raw mut (*counters).totalCollected };
-        // SAFETY: as above.
-        let blocks_denied = unsafe { &raw mut (*counters).gcBlocksDenied };
-        // SAFETY: as above.
-        let nodes_missed = unsafe { &raw mut (*counters).gcNumericNodesMissed };
-        // SAFETY: (`new`) the fields are valid and only accessed atomically.
-        unsafe { AtomicIsize::from_ptr(total_collected) }.fetch_add(collected, Ordering::Relaxed);
-        // SAFETY: as above.
-        unsafe { AtomicU64::from_ptr(blocks_denied) }
-            .fetch_add(stats.blocks_denied, Ordering::Relaxed);
-        // SAFETY: as above.
-        unsafe { AtomicU64::from_ptr(nodes_missed) }
-            .fetch_add(stats.numeric_nodes_missed, Ordering::Relaxed);
+        // SAFETY: (`new`) the counters are valid, and the spec's write lock keeps
+        // `FT.INFO` from reading them meanwhile.
+        let counters = unsafe { self.0.as_mut() };
+        counters.totalCollected += stats.bytes_collected as isize;
+        counters.totalCollected -= stats.bytes_allocated as isize;
+        counters.gcBlocksDenied += stats.blocks_denied;
+        counters.gcNumericNodesMissed += stats.numeric_nodes_missed;
     }
 }
