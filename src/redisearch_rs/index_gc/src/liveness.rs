@@ -134,11 +134,8 @@ impl GoneIds {
         // walked bit by bit.
         let mut gone = RoaringTreemap::new();
         let mut dead_from = 0;
-        for (i, &word) in window.iter().enumerate() {
+        for (i, &word) in window.iter().enumerate().filter(|&(_, &word)| word != 0) {
             let base = first + i as DocId * 64;
-            if word == 0 {
-                continue;
-            }
             gone.insert_range(dead_from..base);
             let mut unset = !word;
             while unset != 0 {
