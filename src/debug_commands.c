@@ -3776,7 +3776,7 @@ DEBUG_COMMAND(MemoryPressure) {
     if (n > UINT32_MAX) {
       return RedisModule_ReplyWithError(ctx, "Invalid count");
     }
-    QueryMemory_SetRatioReadInterval((uint32_t)n);
+    QueryMemoryDebug_SetRatioReadInterval((uint32_t)n);
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid command for 'MEMORY_PRESSURE'");
   }
