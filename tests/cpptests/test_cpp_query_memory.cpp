@@ -375,8 +375,8 @@ TEST_F(ApplyOomStopTest, ABlockedClientTimeoutKeepsItsOutcome) {
   QueryRequestLimits_BeginCycle(&timeout_, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestLimits_RequestMemoryStop(&timeout_);
   QueryRequestLimits_MarkTimedOut(&timeout_);
-  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Return, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
-  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Return, &err_, RS_RESULT_STOPPED), RS_RESULT_STOPPED);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_STOPPED), RS_RESULT_STOPPED);
   EXPECT_TRUE(QueryError_IsOk(&err_));
   EXPECT_FALSE(QueryError_HasQueryOOMWarning(&err_));
 }

@@ -50,7 +50,7 @@
 int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryError *err,
                  int rc) {
   // A blocked-client timeout's callback owns the reply, so it wins over an earlier OOM stop.
-  if (rc != RS_RESULT_TIMEDOUT ||
+  if (rc != RS_RESULT_STOPPED ||
       !QueryRequestLimits_IsMemoryStopped(limits) ||
       QueryRequestLimits_IsBlockedClientTimedOut(limits)) {
     return rc;
@@ -141,13 +141,13 @@ static bool oomStopKeepsBufferedRows(const AREQ *areq) {
          (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
           QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)) &&
          !oomStopKeepsBufferedRows(areq)) {
-       *rc = RS_RESULT_TIMEDOUT;
+       *rc = RS_RESULT_STOPPED;
        break;
      }
      // Rows handed over after an OOM stop read nothing upstream, so no per-row check there sees
      // a clock deadline: this one ends the drain on it.
      if (areq && oomStopKeepsBufferedRows(areq) && QueryRequestLimits_IsTimedOut(&areq->base.limits)) {
-       *rc = RS_RESULT_TIMEDOUT;
+       *rc = RS_RESULT_STOPPED;
        break;
      }
    }

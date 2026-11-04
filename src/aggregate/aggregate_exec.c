@@ -438,7 +438,7 @@ static inline void debugPauseStoreResults(AREQ *req, bool before) {
 static int applyOomStop(AREQ *req, int rc) {
   QueryError *err = AREQ_QueryProcessingCtx(req)->err;
   // A buffering stage that kept its rows past an OOM stop may hold enough of them to fill the
-  // reply's limit or a pager's, so the reply ends without reading the stop's RS_RESULT_TIMEDOUT.
+  // reply's limit or a pager's, so the reply ends without reading the stop's RS_RESULT_STOPPED.
   // When no later cursor read reports the stop, the reply is cut.
   const bool lastReply =
       rc == RS_RESULT_EOF || (rc == RS_RESULT_OK && !(AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR));
