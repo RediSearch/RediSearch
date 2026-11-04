@@ -38,7 +38,7 @@
  }
 
  bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isProfile) {
-   return rc == RS_RESULT_TIMEDOUT
+   return rc == RS_RESULT_STOPPED
           && timeoutPolicy == TimeoutPolicy_Fail
           && !isProfile;
  }
@@ -122,7 +122,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // from internal buffers without re-touching upstream's per-row timeout check.
      if (areq && (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
                   QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits))) {
-       *rc = RS_RESULT_TIMEDOUT;
+       *rc = RS_RESULT_STOPPED;
        break;
      }
    }
@@ -141,7 +141,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // Check timeout after aggregation; a memory stop raised while filling the limit ends it the
      // same way.
      if (QueryRequestLimits_ShouldStopExact(ctx->limits)) {
-       *rc = RS_RESULT_TIMEDOUT;
+       *rc = RS_RESULT_STOPPED;
      }
    } else {
      // Send the results received from the pipeline as they come (no need to aggregate)

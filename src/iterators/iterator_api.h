@@ -37,7 +37,7 @@ typedef enum ValidateStatus {
   VALIDATE_TIMEOUT, // The deadline expired while revalidating. The iterator is no longer valid and
                     // should be freed, exactly as for `VALIDATE_ABORTED`. The two differ only in
                     // what the caller reports: a timeout leaves the result set INCOMPLETE, so the
-                    // caller must surface it (`RS_RESULT_TIMEDOUT`) rather than end-of-results.
+                    // caller must surface it (`RS_RESULT_STOPPED`) rather than end-of-results.
 } ValidateStatus;
 
 /* An abstract interface used by readers / intersectors / uniones etc.
