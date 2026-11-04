@@ -343,7 +343,7 @@ class ApplyOomStopTest : public ::testing::Test {
 };
 
 TEST_F(ApplyOomStopTest, LeavesOtherOutcomesAlone) {
-  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_STOPPED), RS_RESULT_STOPPED);
   EXPECT_TRUE(QueryError_IsOk(&err_));
 
   QueryRequestLimits_RequestMemoryStop(&timeout_);
@@ -353,18 +353,18 @@ TEST_F(ApplyOomStopTest, LeavesOtherOutcomesAlone) {
 
 TEST_F(ApplyOomStopTest, FailRepliesTheOomErrorAndKeepsAnEarlierOne) {
   QueryRequestLimits_RequestMemoryStop(&timeout_);
-  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_STOPPED), RS_RESULT_ERROR);
   EXPECT_EQ(QueryError_GetCode(&err_), QUERY_ERROR_CODE_OUT_OF_MEMORY);
 
   QueryError_ClearError(&err_);
   QueryError_SetCode(&err_, QUERY_ERROR_CODE_SYNTAX);
-  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Fail, &err_, RS_RESULT_STOPPED), RS_RESULT_ERROR);
   EXPECT_EQ(QueryError_GetCode(&err_), QUERY_ERROR_CODE_SYNTAX);
 }
 
 TEST_F(ApplyOomStopTest, ReturnEndsTheResultWithTheOomWarning) {
   QueryRequestLimits_RequestMemoryStop(&timeout_);
-  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Return, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_EOF);
+  EXPECT_EQ(ApplyOomStop(&timeout_, OomPolicy_Return, &err_, RS_RESULT_STOPPED), RS_RESULT_EOF);
   EXPECT_TRUE(QueryError_IsOk(&err_));
   EXPECT_TRUE(QueryError_HasQueryOOMWarning(&err_));
 }
