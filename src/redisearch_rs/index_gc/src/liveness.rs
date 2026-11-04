@@ -11,11 +11,14 @@
 
 use index_spec::IndexSpecReadGuard;
 use inverted_index::DocLiveness;
-use roaring::RoaringTreemap;
+use roaring::{RoaringBitmap, RoaringTreemap};
 use rqe_core::DocId;
 
 /// The most bytes [`GoneIds::Bits`] spends; a wider window is kept as a [`GoneIds::Set`].
 pub const MAX_BITMAP_BYTES: usize = 16 << 20;
+
+/// The words one roaring container spans: its 2^16 IDs, 64 to a word.
+const CONTAINER_WORDS: usize = (1 << 16) / 64;
 
 /// The documents gone when a cycle began, as the cycle's only source of liveness.
 ///
@@ -129,22 +132,36 @@ impl GoneIds {
                 gone_below: true,
             });
         }
-        // A sparse table's gaps can span hundreds of millions of IDs, so a stretch of
-        // words with no live ID goes in as one range; only the words that have one are
-        // walked bit by bit.
-        let mut gone = RoaringTreemap::new();
+        // A sparse table's gaps can span hundreds of millions of IDs, and a dense
+        // one's gone IDs as many, so the set is built a roaring container at a time:
+        // a stretch with no live ID goes in as one range, and a container with some
+        // live IDs goes in whole, from its words, rather than one ID at a time.
+        let mut dead = RoaringTreemap::new();
+        let mut mixed: Vec<(u32, RoaringBitmap)> = Vec::new();
+        let mut bytes = Vec::with_capacity(CONTAINER_WORDS * 8);
         let mut dead_from = 0;
-        for (i, &word) in window.iter().enumerate().filter(|&(_, &word)| word != 0) {
-            let base = first + i as DocId * 64;
-            gone.insert_range(dead_from..base);
-            let mut unset = !word;
-            while unset != 0 {
-                gone.insert(base + DocId::from(unset.trailing_zeros()));
-                unset &= unset - 1;
+        for (c, words) in live.chunks(CONTAINER_WORDS).enumerate() {
+            let base = (c * CONTAINER_WORDS) as DocId * 64;
+            if words.iter().all(|&word| word == 0) {
+                continue;
             }
-            dead_from = base + 64;
+            dead.insert_range(dead_from..base);
+            dead_from = base + (words.len() as DocId) * 64;
+            if words.iter().all(|&word| word == !0) {
+                continue;
+            }
+            bytes.clear();
+            bytes.extend(words.iter().flat_map(|&word| (!word).to_le_bytes()));
+            let container = RoaringBitmap::from_lsb0_bytes(base as u32, &bytes);
+            let high = (base >> 32) as u32;
+            match mixed.last_mut() {
+                Some((h, bitmap)) if *h == high => *bitmap |= container,
+                _ => mixed.push((high, container)),
+            }
         }
-        gone.insert_range(dead_from..=max_doc_id);
+        dead.insert_range(dead_from..=max_doc_id);
+        let mut gone = RoaringTreemap::from_bitmaps(mixed);
+        gone |= dead;
         gone.remove_range(max_doc_id.saturating_add(1)..);
         Self::Set(gone)
     }
