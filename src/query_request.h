@@ -295,6 +295,14 @@ bool QueryRequestLimits_IsTimedOutExact(const QueryRequestLimits *limits);
 bool QueryRequestLimits_IsBlockedClientTimedOut(const QueryRequestLimits *limits);
 
 /**
+ * Whether the query should stop, never missing an elapsed deadline. Call it
+ * once at a point that decides the outcome (before starting work, after
+ * collecting results); too costly for per-row loops. Callers report a stop as
+ * RS_RESULT_TIMEDOUT and the reply boundary applies ON_OOM.
+ */
+bool QueryRequestLimits_ShouldStopExact(const QueryRequestLimits *limits);
+
+/**
  * Primary timeout operation:
  *
  * - UNARMED and BLOCKED_CLIENT preserve the exact operation's behavior and
