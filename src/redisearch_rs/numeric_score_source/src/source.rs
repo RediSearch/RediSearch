@@ -13,7 +13,10 @@
 
 use index_result::RSIndexResult;
 use inverted_index::NumericFilter;
-use numeric_range_tree::{NumericRangeTree, RangeWindow};
+
+#[cfg(doc)]
+use numeric_range_tree::NumericRangeTree;
+use numeric_range_tree::RangeWindow;
 use rqe_core::DocId;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
@@ -22,19 +25,17 @@ use rqe_iterators::{
 };
 use top_k::{BatchStrategy, ScoreSource};
 
-use crate::range_iterator::NumericRangeIterator;
+use crate::range_iterator::{NumericRangeIterator, NumericTree};
 use crate::score_batch::NumericScoreBatch;
 
 /// Reports whether a doc id still resolves to a live result document — one that
-/// has not been deleted and whose whole-document TTL has not lapsed.
+/// has not been deleted.
 ///
-/// This is the document-level check (deletion + whole-doc expiry); *field*-level
-/// TTL is a separate concern carried by an [`ExpirationChecker`]. The numeric
-/// index keeps entries for stale documents until GC reclaims them, so the source
-/// drops them before they reach the top-k heap. This mirrors the result
-/// processor's per-document validity check: the numeric optimizer's bounded heap
-/// must hold `k` *valid* survivors, and a downstream drop cannot retroactively
-/// admit the live document a stale entry displaced.
+/// Deletion only; TTL expiry is a separate concern carried by an
+/// [`ExpirationChecker`]. The numeric index keeps entries for deleted documents
+/// until GC reclaims them, so the source drops them before they reach the top-k
+/// heap: the bounded heap must hold `k` *valid* survivors, and a downstream drop
+/// cannot retroactively admit the live document a stale entry displaced.
 pub trait DocValidity {
     /// Returns `true` if `doc_id` still resolves to a valid result document.
     fn is_valid(&self, doc_id: DocId) -> bool;
@@ -104,12 +105,9 @@ const MIN_SUCCESS_RATIO: f64 = 0.01;
 ///
 /// # Revalidation
 ///
-/// The source has no revalidate step of its own: the wrapping [`TopKIterator`]
-/// collects eagerly and then yields from a materialized buffer, so once results
-/// are collected the range stream is never read again. A revalidate therefore
-/// only consults the filter child — a child abort aborts the query, and a child
-/// reposition collapses to `Ok` because it cannot move a cursor that reads from
-/// the buffer.
+/// Suspension releases borrowed ranges. Collection can resume only if the tree
+/// revision is unchanged; the next batch resolves fresh ranges and refreshes
+/// multivalue tracking. Already collected results need no tree access.
 ///
 /// # Rewind after timeout
 ///
@@ -162,7 +160,7 @@ pub struct NumericScoreSource<
     /// the `Batches number` profile metric. Reset on rewind.
     num_batches: usize,
     /// Document-level validity oracle: drops records for doc ids it reports
-    /// invalid (deleted or whole-doc expired) before they reach the top-k heap.
+    /// invalid (deleted) before they reach the top-k heap.
     /// [`AllValid`] keeps every record.
     validity: V,
     /// Field-level TTL checker: drops records whose sort field has expired before
@@ -180,7 +178,7 @@ impl<'index> NumericScoreSource<'index> {
     /// to read; its `offset`/`limit` window is ignored here and sized from `k`
     /// instead, by [`narrow_window_to_top_k`](Self::narrow_window_to_top_k).
     pub fn unfiltered(
-        tree: &'index NumericRangeTree,
+        tree: impl Into<NumericTree<'index>>,
         filter: NumericFilter,
         ascending: bool,
     ) -> Self {
@@ -190,7 +188,7 @@ impl<'index> NumericScoreSource<'index> {
     /// Like [`unfiltered`](Self::unfiltered) but with an explicit per-batch range
     /// count, so tests can force multi-batch behavior on small inputs.
     pub fn with_range_batch_size(
-        tree: &'index NumericRangeTree,
+        tree: impl Into<NumericTree<'index>>,
         mut filter: NumericFilter,
         ascending: bool,
         range_batch_size: usize,
@@ -214,7 +212,7 @@ impl<'index> NumericScoreSource<'index> {
     /// `num_docs` is the total document count and `child_estimate` the filter
     /// child's selectivity estimate; both size the retry windows.
     pub fn filtered(
-        tree: &'index NumericRangeTree,
+        tree: impl Into<NumericTree<'index>>,
         mut filter: NumericFilter,
         window: RangeWindow,
         ascending: bool,
@@ -237,7 +235,7 @@ impl<'index> NumericScoreSource<'index> {
 
     #[expect(clippy::too_many_arguments, reason = "private constructor")]
     fn build(
-        tree: &'index NumericRangeTree,
+        tree: impl Into<NumericTree<'index>>,
         filter: NumericFilter,
         window: RangeWindow,
         ascending: bool,
@@ -246,7 +244,7 @@ impl<'index> NumericScoreSource<'index> {
         child_estimate: usize,
         retry_enabled: bool,
     ) -> Self {
-        let ranges = NumericRangeIterator::new(tree, &filter, window);
+        let mut ranges = NumericRangeIterator::new(tree, &filter, window);
         let num_estimated = ranges.total_docs_estimate();
         Self {
             ranges,
@@ -274,7 +272,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
     NumericScoreSource<'index, V, E, T>
 {
     /// Attach a document-validity oracle, dropping records for doc ids it reports
-    /// invalid (deleted or whole-doc expired) from every batch. This is the
+    /// invalid (deleted) from every batch. This is the
     /// source's equivalent of the numeric optimizer's per-document validity
     /// check, keeping entries that survive in the index until GC out of the
     /// top-k results.
@@ -468,9 +466,9 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         };
         self.num_batches += 1;
         // Drop stale entries pre-heap so they never displace a live document from
-        // the bounded top-k: document-level validity (deletion, whole-doc expiry)
-        // and field-level TTL, the two the range tree only sheds at GC time. Each
-        // gate keeps the common no-filtering case free of its per-record check.
+        // the bounded top-k: document deletion and field-level TTL, the two the
+        // range tree only sheds at GC time. Each gate keeps the common
+        // no-filtering case free of its per-record check.
         let filter_validity = self.validity.may_filter();
         let filter_expiration = self.expiration.has_expiration();
         if !filter_validity && !filter_expiration {
@@ -500,6 +498,14 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
 
     fn num_estimated(&self) -> usize {
         self.num_estimated
+    }
+
+    fn release_index_handles(&mut self) {
+        self.ranges.release_index_handles();
+    }
+
+    fn can_collect_after_lock_release(&self) -> bool {
+        self.ranges.can_collect_after_lock_release()
     }
 
     fn rewind(&mut self) {
@@ -561,19 +567,6 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         // the source-built result ([`yields_child_record`] is `false`), so the
         // iterator never takes the child-record yield path that would call this.
         // TODO: Production metric-key wiring is tracked by MOD-14946.
-    }
-
-    fn release_index_handles(&mut self) {
-        // Nothing to release: the range stream holds plain references into the
-        // numeric tree and is never dereferenced on drop, and since
-        // `can_collect_after_lock_release` is `false` no collection reads it
-        // again after the lock is released.
-    }
-
-    fn can_collect_after_lock_release(&self) -> bool {
-        // The range stream points into the numeric tree, which a concurrent
-        // writer or GC can reshape while the lock is released.
-        false
     }
 
     fn yields_child_record(&self) -> bool {
