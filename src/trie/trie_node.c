@@ -934,15 +934,16 @@ next:
 }
 
 typedef struct {
-  // `buf` starts on `stackBuf` and moves to the heap only for a path longer than it: not every
-  // insert path caps a key's length.
-  rune stackBuf[TRIE_INITIAL_STRING_LEN + 1];
   rune *buf;
   size_t cap;
   const rune *after;
   size_t afterLen;
   TrieVisitCallback visit;
   void *ctx;
+  // `buf` starts on `stackBuf` and moves to the heap only for a path longer than it: not every
+  // insert path caps a key's length. Last, so the fields every visit reads share a cache line
+  // with the start of the path.
+  rune stackBuf[TRIE_INITIAL_STRING_LEN + 1];
 } visitAfterCtx;
 
 // The first child of a lex-sorted `n` whose first rune is not below `key`.
