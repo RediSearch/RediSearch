@@ -38,10 +38,10 @@ extern "C" {
  *
  * The memory check is off, and only an already requested memory stop is
  * reported, when ON_OOM is IGNORE, when no memory limit is configured, and when the server lacks
- * RedisModule_GetUsedMemoryRatioEstimate. Callable with or without the GIL, but
- * calls for one request must be serialized like QueryRequestLimits_IsTimedOut,
- * since they share memory.counter; use QueryMemory_CheckpointNow where sites
- * may run concurrently. The ON_OOM policy is the global one, read with a
+ * RedisModule_GetUsedMemoryRatioEstimate. Callable with or without the GIL, from
+ * any thread. The shared request counter is a relaxed atomic, so concurrent
+ * calls only shift when memory is read. Each site's own `counter` must not be
+ * shared between threads. The ON_OOM policy is the global one, read with a
  * relaxed atomic load because CONFIG SET writes it on the main thread. A NULL `limits` (no
  * owning request) still reports pressure but records no memory stop.
  */
