@@ -183,6 +183,18 @@ impl<'lock> IndexSpecWriteGuard<'lock> {
         unsafe { Dict::from_raw_mut(self.0.missing.indexes) }
     }
 
+    /// The spec's fields alongside its `missing.indexes`, so a field's name can key
+    /// the dict while the dict is borrowed mutably.
+    pub fn field_specs_and_missing_field_dict_mut(
+        &mut self,
+    ) -> (&[FieldSpec], &mut Dict<MissingFieldDictType>) {
+        let fields: *const [FieldSpec] = self.field_specs();
+        // SAFETY: `fields` points at the spec's field array and the dict borrow at the
+        // `dict` struct, two separate allocations; the dict reaches its keys only through
+        // raw pointers. The pair keeps the guard borrowed while either lives.
+        (unsafe { &*fields }, self.missing_field_dict_mut())
+    }
+
     /// Apply a signed delta to the spec's `totalInvertedIndexBlocks` counter.
     ///
     /// Uses a relaxed atomic add, matching `IndexStats_BlockCountAdd` in C.

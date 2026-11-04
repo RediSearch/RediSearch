@@ -21,7 +21,6 @@ workspace = true
 [dependencies]
 c_trie.workspace = true
 ffi.workspace = true
-hidden_string.workspace = true
 field_spec.workspace = true
 global_config.workspace = true
 inverted_index.workspace = true
@@ -48,6 +47,7 @@ dict.workspace = true
 ffi.workspace = true
 # `unittest` activates `FieldSpecBuilder` for constructing test specs.
 field_spec = { workspace = true, features = ["unittest"] }
+hidden_string.workspace = true
 index_result.workspace = true
 inverted_index = { workspace = true, features = ["test_utils"] }
 # `test-utils` activates the numeric tree builders used to populate test specs.
