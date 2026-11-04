@@ -67,7 +67,7 @@ typedef struct CommonPipelineCtx {
  * Buffers the pipeline's rows until EOF, an error, the result limit or a stop
  * (the stop flags of `ctx->limits`, or memory pressure, which requests an OOM
  * stop; an OOM stop under ON_OOM RETURN keeps collecting what the stages
- * hold). A stop returns the rows buffered so far with RS_RESULT_TIMEDOUT in
+ * hold). A stop returns the rows buffered so far with RS_RESULT_STOPPED in
  * `rc`.
  */
 SearchResult **AggregateResults(ResultProcessor *rp, const CommonPipelineCtx *ctx, int *rc);

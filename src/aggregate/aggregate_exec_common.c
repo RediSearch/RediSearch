@@ -145,7 +145,7 @@ static bool oomStopKeepsBufferedRows(const QueryRequestLimits *timeout, RSOomPol
      // stages (safe loader, sorter yield) can keep emitting from internal
      // buffers without re-touching upstream's per-row timeout check.
      if (areq && QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)) {
-       *rc = RS_RESULT_TIMEDOUT;
+       *rc = RS_RESULT_STOPPED;
        break;
      }
 
@@ -157,7 +157,7 @@ static bool oomStopKeepsBufferedRows(const QueryRequestLimits *timeout, RSOomPol
      // checks the stop after.
      if (rp->parent->resultLimit && QueryMemory_Checkpoint(ctx->limits, &memoryCheckCounter)) {
        if (!oomStopKeepsBufferedRows(ctx->limits, ctx->oomPolicy)) {
-         *rc = RS_RESULT_TIMEDOUT;
+         *rc = RS_RESULT_STOPPED;
          break;
        }
        RP_EndRowSourceOnStop(rp->parent);
@@ -166,7 +166,7 @@ static bool oomStopKeepsBufferedRows(const QueryRequestLimits *timeout, RSOomPol
      // a clock deadline: this one ends the drain on it.
      if (oomStopKeepsBufferedRows(ctx->limits, ctx->oomPolicy) &&
          QueryRequestLimits_IsTimedOut(ctx->limits)) {
-       *rc = RS_RESULT_TIMEDOUT;
+       *rc = RS_RESULT_STOPPED;
        break;
      }
    }
