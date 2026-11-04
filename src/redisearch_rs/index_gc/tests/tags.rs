@@ -657,6 +657,13 @@ fn the_handler_applies_one_entry_per_call_until_the_end_marker() {
     let name = CString::new("idx").unwrap();
     // SAFETY: `name` is valid for its length; the spec takes ownership of the copy.
     test.spec.specName = unsafe { ffi::NewHiddenString(name.as_ptr(), 3, true) };
+    // The handler takes the spec's real lock, which the zeroed fixture never initialized.
+    let rwlock = (&raw mut test.spec.rwlock).cast::<libc::pthread_rwlock_t>();
+    // SAFETY: `rwlock` points at the spec's own, not yet used, lock storage.
+    assert_eq!(
+        unsafe { libc::pthread_rwlock_init(rwlock, std::ptr::null()) },
+        0
+    );
     let bytes = collect_tags_from(&test);
     assert_eq!(receive_all(&bytes).len(), 2);
 
@@ -704,6 +711,7 @@ fn the_handler_applies_one_entry_per_call_until_the_end_marker() {
         WeakRef_Release(weak);
         StrongRef_Release(strong);
         ffi::HiddenString_Free(test.spec.specName, true);
+        libc::pthread_rwlock_destroy(rwlock);
     }
 }
 

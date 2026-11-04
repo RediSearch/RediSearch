@@ -96,7 +96,7 @@ static inline void ReplyWarning(RedisModule_Reply *reply, const char *message, c
 static inline HybridWarningMask handleAndReplyWarning(RedisModule_Reply *reply, QueryError *err,
                                                       int returnCode, const char *suffix,
                                                       bool ignoreTimeout) {
-  if (returnCode == RS_RESULT_TIMEDOUT && !ignoreTimeout) {
+  if (returnCode == RS_RESULT_STOPPED && !ignoreTimeout) {
     ReplyWarning(reply, QueryWarning_Strwarning(QUERY_WARNING_CODE_TIMED_OUT), suffix);
     return HYBRID_WARNING_TIMEOUT;
   } else if (returnCode == RS_RESULT_ERROR) {
@@ -124,7 +124,7 @@ static bool HybridRequest_HasShardTimedOutWarning(const HybridRequest *hreq) {
 
 static bool HybridRequest_HasTimedOutSubquery(const HybridRequest *hreq) {
   for (size_t i = 0; i < hreq->nrequests; ++i) {
-    if (hreq->subqueriesReturnCodes[i] == RS_RESULT_TIMEDOUT) {
+    if (hreq->subqueriesReturnCodes[i] == RS_RESULT_STOPPED) {
       return true;
     }
   }
@@ -136,7 +136,7 @@ static int replyForHybridPreExecutionTimeout(RedisModuleCtx *ctx, bool internal,
   const bool isProfile = profileOptions & EXEC_WITH_PROFILE;
   const RSTimeoutPolicy timeoutPolicy = RSGlobalConfig.timeoutConfigParams.timeoutPolicy;
   const bool shouldReplyWithError =
-      ShouldReplyWithTimeoutError(RS_RESULT_TIMEDOUT, timeoutPolicy, isProfile);
+      ShouldReplyWithTimeoutError(RS_RESULT_STOPPED, timeoutPolicy, isProfile);
 
   if (shouldReplyWithError) {
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !internal);
@@ -265,7 +265,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
   if (HybridRequest_RequiresThreadsSyncResults(hreq) &&
       (QueryRequestLimits_IsBlockedClientTimedOut(&hreq->base.limits) ||
        !HybridRequest_TryClaimAggregateResults(hreq))) {
-    *rc = RS_RESULT_TIMEDOUT;
+    *rc = RS_RESULT_STOPPED;
     return;
   }
 
@@ -277,7 +277,7 @@ static void startPipelineHybrid(HybridRequest *hreq, ResultProcessor *rp, Search
 
   // Pipeline done without timing out; the caller now enters the reply phase
   // (marker only; never forces a timeout).
-  if (*rc != RS_RESULT_TIMEDOUT) {
+  if (*rc != RS_RESULT_STOPPED) {
     HybridRequest_SetExecutionStage(hreq, QUERY_TIMEOUT_STAGE_REPLY);
   }
 }
@@ -998,7 +998,7 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
       } else {
         // Fatal error or FAIL policy
         if (!QueryError_HasError(status)) {
-          if (rc == RS_RESULT_TIMEDOUT) {
+          if (rc == RS_RESULT_STOPPED) {
             QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_TIMED_OUT, "Depleting timed out");
           } else {
             QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_GENERIC, "Failed to deplete set of results, rc=%d", rc);

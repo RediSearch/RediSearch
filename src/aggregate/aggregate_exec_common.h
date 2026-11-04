@@ -26,7 +26,7 @@ bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isP
 void ReplyWithTimeoutError(RedisModule_Reply *reply);
 
 /**
- * Turns a pipeline that stopped for memory pressure, a RS_RESULT_TIMEDOUT rc
+ * Turns a pipeline that stopped for memory pressure, a RS_RESULT_STOPPED rc
  * with the memory stop requested, into the outcome `oomPolicy` asks
  * for, and returns any other rc unchanged:
  *
@@ -36,7 +36,7 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply);
  * - Otherwise: the query OOM warning in `err` and RS_RESULT_EOF, so the rows
  *   produced so far are the final, partial result instead of a timeout.
  *   If the request's timeout also fired (QueryRequestLimits_IsTimedOutExact),
- *   RS_RESULT_TIMEDOUT is returned instead, so the timeout outcome is kept: an
+ *   RS_RESULT_STOPPED is returned instead, so the timeout outcome is kept: an
  *   error under ON_TIMEOUT FAIL, a warning beside the OOM one otherwise.
  */
 int ApplyOomStop(const struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,
@@ -80,7 +80,7 @@ typedef struct CommonPipelineCtx {
  * Buffers the pipeline's rows until EOF, an error, the result limit or a stop
  * (the stop flags of `ctx->limits`, or memory pressure, which requests an OOM
  * stop; an OOM stop under ON_OOM RETURN keeps collecting what the stages
- * hold). A stop returns the rows buffered so far with RS_RESULT_TIMEDOUT in
+ * hold). A stop returns the rows buffered so far with RS_RESULT_STOPPED in
  * `rc`.
  */
 SearchResult **AggregateResults(ResultProcessor *rp, const CommonPipelineCtx *ctx, int *rc);
