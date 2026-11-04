@@ -42,7 +42,7 @@ fn inverted_index_wildcard_child_is_unfiltered() {
         let record = RSIndexResult::build_virt().doc_id(doc_id).build();
         ii.add_record(&record).expect("failed to add record");
     }
-    let child = InvIdxWildcard::new(ii.reader(), 1.0);
+    let child = InvIdxWildcard::new(ii.reader(), 1.0, rqe_core::DocId::MAX);
     assert_eq!(child.type_(), IteratorType::InvIdxWildcard);
 
     let reduction = reduce_child(Some(child));
