@@ -83,3 +83,15 @@ pub unsafe extern "C" fn DeletedDocs_Len(docs: *const DeletedDocs) -> u64 {
     // SAFETY: the caller guarantees `docs` is a live set nothing changes meanwhile.
     unsafe { &*docs }.len()
 }
+
+/// An estimate of the bytes the set holds; see [`DeletedDocs::memory_usage`].
+///
+/// # Safety
+///
+/// As for [`DeletedDocs_ForEach`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn DeletedDocs_MemoryUsage(docs: *const DeletedDocs) -> usize {
+    debug_assert!(!docs.is_null(), "DeletedDocs_MemoryUsage needs a set");
+    // SAFETY: the caller guarantees `docs` is a live set nothing changes meanwhile.
+    unsafe { &*docs }.memory_usage()
+}

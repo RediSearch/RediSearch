@@ -51,6 +51,15 @@ void DeletedDocs_Free(struct DeletedDocs *docs);
 uint64_t DeletedDocs_Len(const struct DeletedDocs *docs);
 
 /**
+ * An estimate of the bytes the set holds; see [`DeletedDocs::memory_usage`].
+ *
+ * # Safety
+ *
+ * As for [`DeletedDocs_ForEach`].
+ */
+size_t DeletedDocs_MemoryUsage(const struct DeletedDocs *docs);
+
+/**
  * A new, empty set. Free with [`DeletedDocs_Free`].
  */
 struct DeletedDocs *DeletedDocs_New(void);
