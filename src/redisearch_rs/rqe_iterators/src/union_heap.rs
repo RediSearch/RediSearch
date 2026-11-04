@@ -13,9 +13,10 @@ use index_result::{RSIndexResult, RawBorrowedAggregateResult, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
+use crate::composite::FreeSuspendedShell;
 use crate::union::{
-    FreeSuspendedShell, RebuildOutcome, SettleOutcome, rebuild_borrowed_entries,
-    restore_gathered_metrics, result_is_borrowed_union,
+    RebuildOutcome, SettleOutcome, rebuild_borrowed_entries, restore_gathered_metrics,
+    result_is_borrowed_union,
 };
 use crate::utils::{DocIdMinHeap, HeapEntry};
 use crate::{

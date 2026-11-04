@@ -18,7 +18,7 @@
 #include "trie/trie.h"
 #include "sorting_vector.h"
 #include "stopwords.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "synonym_map.h"
 #include "field_spec.h"
 #include "util/dict.h"
@@ -83,8 +83,8 @@ struct IndexesScanner;
 
 #define DEFAULT_SCORE 1.0
 
-#define SPEC_FOLLOW_HASH_ARGS_DEF(rule)                                     \
-  {.name = "PREFIX", .target = &rule_prefixes, .type = AC_ARGTYPE_SUBARGS}, \
+#define SPEC_FOLLOW_HASH_ARGS_DEF(rule, prefixes)                           \
+      {.name = "PREFIX", .target = (prefixes), .type = AC_ARGTYPE_SUBARGS}, \
       {.name = "FILTER",                                                    \
        .target = &(rule)->filter_exp_str,                                   \
        .len = &dummy2,                                                      \
@@ -608,7 +608,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 RedisModuleString *IndexSpec_Serialize(IndexSpec *sp);
 
 // Bump whenever the schema members or their hash encoding change.
-#define SCHEMA_FINGERPRINT_VERSION 1
+#define SCHEMA_FINGERPRINT_VERSION 2
 
 // Deterministic hash of schema values, independent of RDB settings and shard data.
 // Includes field definitions, indexing rules, custom stopwords, synonyms, and timeout;
@@ -626,6 +626,27 @@ IndexSpec *IndexSpec_Deserialize(const RedisModuleString *serialized, int encver
 
 /* Start the garbage collection loop on the index spec */
 void IndexSpec_StartGC(StrongRef spec_ref, IndexSpec *sp, GCPolicy gcPolicy);
+
+/** Parsed CREATE options. Strings and cursor slices borrow the input arguments and
+ * remain valid only while those arguments live. No cleanup is needed. Copy the
+ * prefix/stopword cursors before consuming them to retain the parsed result.
+ * An empty prefix slice uses the default empty prefix; uninitialized stopwords
+ * use the default stopword list. */
+typedef struct {
+  IndexFlags flags;
+  long long timeout;  // Milliseconds; -1000 represents the omitted/-1 sentinel.
+  SchemaRuleArgs rule;
+  ArgsCursor prefixes;
+  ArgsCursor stopwords;
+  bool unsupportedOption;  // The stopping token is a known option unsupported by Flex.
+} IndexSpecOptions;
+
+/** Parse options without constructing an index. Returns REDISMODULE_OK or ERR.
+ * Leaves ac at the first unrecognized token (normally SCHEMA), or at the end.
+ * Does not report missing SCHEMA or unrecognized-option errors.
+ * On error, only flags and the cursor position are meaningful. */
+int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
+                           QueryError *status);
 
 /* Same as IndexSpec_Parse, but takes a NUL-terminated C-string name and wraps it in a HiddenString
  * internally. Intended for unit tests only.

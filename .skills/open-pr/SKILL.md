@@ -37,8 +37,8 @@ RediSearch.
    - Under Git: push the branch with `git push -u origin <branch>`.
 7. Open the PR with `gh`, **not as a draft**. Two things only happen on a
    ready-for-review PR, and both are wanted early: the Codex bot reviews it, and the
-   `coverage`, `sanitize` and `miri` jobs run (they are gated on `!draft` in
-   `event-pull_request.yml`). A draft buys nothing in exchange.
+   `coverage`, `sanitize`, `miri` and `rust-valgrind` jobs run (they are gated on
+   `!draft` in `event-pull_request.yml`). A draft buys nothing in exchange.
 
    The cost is that a human may review before you have finished iterating, which ends the
    window in which history can be rewritten — see
@@ -137,7 +137,7 @@ RediSearch.
       fi
       if jq -e 'all(.bucket=="pass" or .bucket=="skipping")' <<<"$s" >/dev/null; then
         if [ "$draft" = "true" ]; then
-          echo "DRAFT RUN GREEN — coverage/sanitize/miri are gated on non-draft and"
+          echo "DRAFT RUN GREEN — coverage/sanitize/miri/rust-valgrind are gated on non-draft and"
           echo "have NOT run yet. Re-check after marking the PR ready."
           exit 0
         fi
@@ -161,8 +161,8 @@ RediSearch.
       failures.
     - **`skipping` is two different things.** A job skipped because
       `check-what-changed` found nothing relevant has legitimately passed. A job skipped
-      because the PR is a draft has *not run yet* — `coverage`, `sanitize` and `miri` are
-      gated on `!draft` in `event-pull_request.yml` and only fire on `ready_for_review`.
+      because the PR is a draft has *not run yet* — `coverage`, `sanitize`, `miri` and
+      `rust-valgrind` are gated on `!draft` in `event-pull_request.yml` and only fire on `ready_for_review`.
       Both land in the same bucket, so a draft run that is "all pass or skipping" proves
       much less than it appears to. Step 7 avoids drafts precisely for this reason; the
       draft branch in the snippet is a safety net for a PR that was opened as one anyway.

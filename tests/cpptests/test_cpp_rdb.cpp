@@ -546,8 +546,9 @@ struct ScopedMockDisk {
         api.basic.reserveRestoreOpenFiles = [](RedisSearchDisk *, size_t) { return true; };
         api.basic.openIndexSpec = [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *,
                                      const char *, size_t, DocumentType, bool,
+                                     const SearchDiskField *, size_t,
                                      const SearchDiskCompactionCallbacks *, void *) {
-            return static_cast<RedisSearchDiskIndexSpec *>(nullptr);
+          return static_cast<RedisSearchDiskIndexSpec *>(nullptr);
         };
         disk = &api;
         disk_db = reinterpret_cast<RedisSearchDisk *>(&api);
@@ -1514,7 +1515,7 @@ TEST_F(RdbMockTest, testLegacyVectorDimensionOverflow) {
   }
 }
 
-TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
+TEST_F(RdbMockTest, testHnswSq8ValidatesRdbParameters) {
   std::array args{
       "SCHEMA", "v", "VECTOR", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "64", "DISTANCE_METRIC", "L2",
   };
@@ -1526,7 +1527,7 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
   std::unique_ptr<IndexSpec, std::function<void(IndexSpec *)>> specPtr(
       spec, [](const IndexSpec *s) { StrongRef_Release(s->own_ref); });
 
-  struct InvalidParams {
+  struct TestParams {
     uint64_t compression;
     uint64_t threshold;
     VecSimType type;
@@ -1534,8 +1535,9 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
     size_t dim = 64;
     VecSimMetric metric = VecSimMetric_L2;
     bool disk = false;
+    int expectedResult = REDISMODULE_ERR;
   };
-  const std::array<InvalidParams, 13> cases{{
+  const std::array<TestParams, 13> cases{{
       {VecSimQuant_NONE, 0, VecSimType_FLOAT32, 0, SIZE_MAX / 4 + 2},
       {2, 0, VecSimType_FLOAT32, 0},
       {(uint64_t{1} << 32) + VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0},
@@ -1547,8 +1549,8 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 2 * sizeof(uint64_t)},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 0},
       {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, static_cast<VecSimMetric>(3)},
-      {VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true},
-      {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true},
+      {VecSimQuant_SQ8, 0, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true, REDISMODULE_OK},
+      {VecSimQuant_SQ8, 4, VecSimType_FLOAT32, 0, 64, VecSimMetric_L2, true, REDISMODULE_OK},
   }};
   for (const auto &test : cases) {
     SCOPED_TRACE(::testing::Message()
@@ -1573,9 +1575,19 @@ TEST_F(RdbMockTest, testHnswSq8RejectsInvalidRdbParameters) {
     VecSimParams loaded = {};
     const bool previousFlex = RSGlobalConfig.simulateInFlex;
     RSGlobalConfig.simulateInFlex = test.disk;
+    const bool previousSq8Gate = RSGlobalConfig.diskSq8Enabled;
+    RSGlobalConfig.diskSq8Enabled = false;
     const int result = VecSim_RdbLoad_v5(io, &loaded, specRef, "v");
+    RSGlobalConfig.diskSq8Enabled = previousSq8Gate;
     RSGlobalConfig.simulateInFlex = previousFlex;
-    EXPECT_EQ(REDISMODULE_ERR, result);
+    EXPECT_EQ(test.expectedResult, result);
+    if (result == REDISMODULE_OK) {
+      EXPECT_EQ(test.compression,
+                loaded.algoParams.tieredParams.primaryIndexParams->algoParams.hnswParams.quantType);
+      EXPECT_EQ(
+          test.threshold,
+          loaded.algoParams.tieredParams.specificParams.tieredHnswParams.QuantNormalizationSetSize);
+    }
     VecSimParams_Cleanup(&loaded);
   }
 }
@@ -1775,6 +1787,7 @@ TEST_F(RdbMockTest, testLegacyDocTableRejectsZeroCapacity) {
 }
 
 TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
+  DocTableKeyMapIterator iter = {};
   RedisModuleIO *io = RMCK_CreateRdbIO();
   ASSERT_NE(io, nullptr);
   DocTable table = NewDocTable(4, 4);
@@ -1795,6 +1808,10 @@ TEST_F(RdbMockTest, testLegacyDocTableReservesPayloadSlot) {
   int result = DocTable_LegacyRdbLoad(&table, io, INDEX_MIN_COMPACTED_DOCTABLE_VERSION);
   RedisModule_LoadFloat = originalLoadFloat;
   EXPECT_EQ(result, REDISMODULE_OK);
+  ASSERT_EQ(table.keyMap, nullptr);
+  ASSERT_TRUE(DocTable_StartKeyMap(&table));
+  ASSERT_TRUE(DocTable_BuildKeyMapBatch(&table, &iter, SIZE_MAX));
+  EXPECT_EQ(DocTable_GetIdByKey(&table, "doc", 3), 1);
 
   auto *dmd = const_cast<RSDocumentMetadata *>(DocTable_Borrow(&table, 1));
   EXPECT_NE(dmd, nullptr);

@@ -144,6 +144,7 @@ impl MockData {
             resume_reseeks_past_end: false,
             revalidate_reseeks_to: None,
             revalidate_moves_in_place: false,
+            drop_count: 0,
         })))
     }
 
@@ -188,9 +189,9 @@ impl MockData {
         self
     }
 
-    /// Make `revalidate` report [`Moved`](rqe_iterators::RQEValidateStatus::Moved)
-    /// onto the position it already holds, as an iterator may to hand back a
-    /// republished result object.
+    /// Make `revalidate` and `resume` report a move onto the position the mock
+    /// already holds, as an iterator may to hand back a republished result
+    /// object.
     pub fn set_revalidate_moves_in_place(&mut self, in_place: bool) -> &mut Self {
         self.0.borrow_mut().revalidate_moves_in_place = in_place;
         self
@@ -270,6 +271,14 @@ impl MockData {
         self.0.borrow().validation_count
     }
 
+    /// Number of [`Mock`] values that have been dropped, to check that an iterator is freed
+    /// exactly once.
+    ///
+    /// A mock dropped while suspended, as a [`MockSuspended`], is not counted.
+    pub fn drop_count(&self) -> usize {
+        self.0.borrow().drop_count
+    }
+
     /// Force the next call to `read()` to return `None` even if not at EOF.
     ///
     /// This simulates an iterator that reports `None` from `read()` while it still
@@ -317,6 +326,8 @@ struct MockDataInternal {
     /// If true, `revalidate` reports `Moved` without moving — see
     /// [`MockData::set_revalidate_moves_in_place`].
     revalidate_moves_in_place: bool,
+    /// Number of [`Mock`] values dropped — see [`MockData::drop_count`].
+    drop_count: usize,
 }
 
 impl MockDataInternal {
@@ -398,10 +409,11 @@ impl<'index, const N: usize> Mock<'index, N> {
             positions.iter().all(|&p| (1..=127).contains(&p)),
             "positions must be in 1..=127 (single-byte varint range)"
         );
-        Self {
-            positions: Some(positions),
-            ..Self::new(doc_ids)
-        }
+        // Written as a mutation rather than `..Self::new(doc_ids)`: struct update syntax moves the
+        // remaining fields out of the base value, which `Drop for Mock` forbids.
+        let mut mock = Self::new(doc_ids);
+        mock.positions = Some(positions);
+        mock
     }
 
     /// Return a handle to the shared [`MockData`] of this iterator.
@@ -447,6 +459,12 @@ impl<'index, const N: usize> Mock<'index, N> {
     /// from [`Self::past_end`].
     fn no_more_docs(&self) -> bool {
         self.next_index >= N
+    }
+}
+
+impl<const N: usize> Drop for Mock<'_, N> {
+    fn drop(&mut self) {
+        self.data.0.borrow_mut().drop_count += 1;
     }
 }
 
@@ -728,13 +746,14 @@ impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for Moc
         // [`MockData`] — mirrors what `Mock::revalidate` does on the legacy
         // path, so tests driving suspend/resume see the same per-mock
         // outcomes as before.
-        let (revalidate_result, resume_error, reseeks_past_end) = {
+        let (revalidate_result, resume_error, reseeks_past_end, moves_in_place) = {
             let mut data = self.data.0.borrow_mut();
             data.validation_count += 1;
             (
                 data.revalidate_result,
                 data.resume_error,
                 data.resume_reseeks_past_end,
+                data.revalidate_moves_in_place,
             )
         };
         // Injected resume failure (see `MockData::set_error_on_resume`): drop the
@@ -766,6 +785,8 @@ impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for Moc
             return Ok(rqe_iterators::ResumeOutcome::Moved(active));
         }
         let moved = match revalidate_result {
+            // See `MockData::set_revalidate_moves_in_place`.
+            _ if moves_in_place && self.next_index != past_end_cursor(N) => true,
             MockRevalidateResult::Ok => false,
             MockRevalidateResult::Move => {
                 if self.next_index < N {

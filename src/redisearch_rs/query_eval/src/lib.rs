@@ -25,7 +25,7 @@ use std::{marker::PhantomData, ptr::NonNull};
 
 use query_types::{QueryNodeOptions, scorers::slop_forces_offsets};
 use rqe_iterators::{
-    Empty, RQEIteratorPrintable, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    Empty, IteratorType, RQEIteratorPrintable, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
 };
 
 // The query wrapper types live in the `query` crate (`c_wrappers/query`), and
@@ -156,6 +156,15 @@ impl<'index> Evaluated<'index> {
     }
 }
 
+/// Which document ids the root iterator of a [`QueryIteratorTree`] visits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocIdCoverage {
+    /// Every document id, in ascending order: a wildcard scan.
+    Dense,
+    /// Only the document ids that match, which may be few.
+    Selective,
+}
+
 /// The executable iterator tree built from a parsed query AST.
 ///
 /// A dedicated type rather than a bare root iterator, so it can carry more as
@@ -169,6 +178,10 @@ pub struct QueryIteratorTree<'index> {
     // out bound to `'index` (`into_root`) or as a raw pointer, which needs
     // `unsafe` to use beyond the borrow of the context.
     root: CRQEIterator,
+    /// Which document ids [`Self::root`] visits, decided before
+    /// [`Self::into_profiled`] wraps it in a profile iterator that hides its
+    /// type.
+    coverage: DocIdCoverage,
     // FIXME: remove once CRQEIterator has been removed (MOD-14254) so `root` can carry the lifetime itself.
     _ctx: PhantomData<&'index mut QueryEvalContext>,
 }
@@ -179,12 +192,15 @@ impl<'index> QueryIteratorTree<'index> {
     /// Evaluates `root` via [`eval_node`], substituting an [`Empty`] iterator
     /// when it yields none.
     pub fn new(ctx: &'index mut QueryEvalContext, root: QueryNodeMut<'_>, config: Config) -> Self {
-        Self::from_root(into_child_iterator(eval_node(ctx, root, config)))
+        let root = into_child_iterator(eval_node(ctx, root, config));
+        let coverage = DocIdCoverage::of(&root);
+        Self::from_root(root, coverage)
     }
 
-    const fn from_root(root: CRQEIterator) -> Self {
+    const fn from_root(root: CRQEIterator, coverage: DocIdCoverage) -> Self {
         Self {
             root,
+            coverage,
             _ctx: PhantomData,
         }
     }
@@ -196,7 +212,7 @@ impl<'index> QueryIteratorTree<'index> {
     ///
     /// Panics if the tree has already been profiled.
     pub fn into_profiled(self) -> Self {
-        Self::from_root(self.root.into_profiled())
+        Self::from_root(self.root.into_profiled(), self.coverage)
     }
 
     /// Consume the tree into its root iterator, which still borrows the
@@ -210,9 +226,16 @@ impl<'index> QueryIteratorTree<'index> {
         self.root.as_raw()
     }
 
+    /// Which document ids the root iterator visits, unchanged by
+    /// [`Self::into_profiled`].
+    pub const fn doc_id_coverage(&self) -> DocIdCoverage {
+        self.coverage
+    }
+
     /// Replace the root iterator with `root`, returning the previous one
     /// unfreed, typically because `root` already owns it as a child.
     pub fn replace_root(&mut self, root: CRQEIterator) -> NonNull<ffi::QueryIterator> {
+        self.coverage = DocIdCoverage::of(&root);
         std::mem::replace(&mut self.root, root).into_raw()
     }
 
@@ -231,7 +254,18 @@ impl<'index> QueryIteratorTree<'index> {
     ///    stay valid, as required by the invariants of [`QueryEvalContext::new`].
     /// 2. No other iterator tree may be built from that context.
     pub unsafe fn erase_lifetime(self) -> QueryIteratorTree<'static> {
-        QueryIteratorTree::from_root(self.root)
+        QueryIteratorTree::from_root(self.root, self.coverage)
+    }
+}
+
+impl DocIdCoverage {
+    /// [`Self::Dense`] for a wildcard iterator, whether it walks the doc id
+    /// range or the index's existing-docs inverted index.
+    fn of(root: &CRQEIterator) -> Self {
+        match root.type_ {
+            IteratorType::Wildcard | IteratorType::InvIdxWildcard => Self::Dense,
+            _ => Self::Selective,
+        }
     }
 }
 
@@ -293,7 +327,7 @@ fn eval_node_with_offsets<'index>(
     match node.as_enum() {
         QueryNode::Null => Some(null::eval()),
         QueryNode::Wildcard => Some(wildcard::eval(ctx, &node)),
-        QueryNode::Ids { keys, doc_ids } => Some(ids::eval(keys, doc_ids)),
+        QueryNode::Ids { keys, doc_ids } => Some(ids::eval(ctx, keys, doc_ids)),
         QueryNode::Missing { field_index } => {
             missing::eval(ctx, field_index).map(Evaluated::RustLeaf)
         }
