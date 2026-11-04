@@ -934,7 +934,11 @@ next:
 }
 
 typedef struct {
-  rune buf[TRIE_INITIAL_STRING_LEN + 1];
+  // `buf` starts on `stackBuf` and moves to the heap only for a path longer than it: not every
+  // insert path caps a key's length.
+  rune stackBuf[TRIE_INITIAL_STRING_LEN + 1];
+  rune *buf;
+  size_t cap;
   const rune *after;
   size_t afterLen;
   TrieVisitCallback visit;
@@ -958,12 +962,6 @@ static t_len lexLowerBound(const TrieNode *n, rune key) {
 // `bounded` means the path to `n` equals the first `depth` runes of `after`, so `n`'s subtree may
 // still hold keys that do not sort after it.
 static int visitAfter(const TrieNode *n, size_t depth, bool bounded, visitAfterCtx *v) {
-  if (depth + n->len > TRIE_INITIAL_STRING_LEN) {
-    // No stored key is this long: every insert path, Trie_InsertRuneNoSize included, rejects
-    // keys over TRIE_INITIAL_STRING_LEN runes, so nothing below here is a key.
-    return 0;
-  }
-
   bool include_self = true;
   if (bounded) {
     for (t_len i = 0; i < n->len; ++i) {
@@ -984,8 +982,18 @@ static int visitAfter(const TrieNode *n, size_t depth, bool bounded, visitAfterC
     }
   }
 
-  memcpy(v->buf + depth, n->str, n->len * sizeof(rune));
   size_t len = depth + n->len;
+  if (len > v->cap) {
+    size_t cap = MAX(len, 2 * v->cap);
+    if (v->buf == v->stackBuf) {
+      v->buf = rm_malloc(cap * sizeof(rune));
+      memcpy(v->buf, v->stackBuf, depth * sizeof(rune));
+    } else {
+      v->buf = rm_realloc(v->buf, cap * sizeof(rune));
+    }
+    v->cap = cap;
+  }
+  memcpy(v->buf + depth, n->str, n->len * sizeof(rune));
   if (include_self && len > 0 && TrieNode_IsTerminal(n) && !__trieNode_isDeleted(n)) {
     if (v->visit(v->buf, len, v->ctx)) {
       return 1;
@@ -1007,7 +1015,13 @@ int TrieNode_VisitAfter(const TrieNode *n, const rune *after, size_t afterLen,
                         TrieVisitCallback visit, void *ctx) {
   RS_ASSERT(n->sortMode == Trie_Sort_Lex);
   visitAfterCtx v = {.after = after, .afterLen = afterLen, .visit = visit, .ctx = ctx};
-  return visitAfter(n, 0, afterLen > 0, &v);
+  v.buf = v.stackBuf;
+  v.cap = sizeof(v.stackBuf) / sizeof(rune);
+  int rc = visitAfter(n, 0, afterLen > 0, &v);
+  if (v.buf != v.stackBuf) {
+    rm_free(v.buf);
+  }
+  return rc;
 }
 
 TrieIterator *TrieNode_Iterate(TrieNode *n, StepFilter f, StackPopCallback pf, void *ctx) {
