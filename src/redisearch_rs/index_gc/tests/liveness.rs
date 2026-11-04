@@ -201,3 +201,32 @@ fn a_sparse_table_kept_as_a_set_matches_the_table() {
     assert!(!(&set).any_gone(LAST, LAST));
     assert_eq!(set.into_set().len(), LAST + 1 - 3);
 }
+
+/// A set built a roaring container at a time answers every ID the way the table
+/// does, across a mixed container, an all-live one, one with no doc at all, and a
+/// last one cut short at the table's maximum.
+#[test]
+#[cfg_attr(miri, ignore = "walks the doc table through C")]
+fn a_dense_table_kept_as_a_set_matches_the_table() {
+    const CONTAINER: DocId = 1 << 16;
+    const LAST: DocId = 3 * CONTAINER + 1000;
+    let docs = (1..=LAST)
+        .filter(|id| !(2 * CONTAINER..3 * CONTAINER).contains(id))
+        .map(|id| {
+            (
+                id,
+                id < CONTAINER && id % 3 == 0 || id > 3 * CONTAINER && id % 5 == 0,
+            )
+        });
+    let table = TestTable::new(1024, docs);
+    let guard = table.guard();
+    let set = GoneIds::of_table_with_cap(&guard, 0);
+    assert!(matches!(set, GoneIds::Set(_)));
+    for id in 0..=LAST + 70 {
+        assert_eq!(
+            (&set).exists(id),
+            guard.doc_exists(id) || id > LAST,
+            "doc id {id}"
+        );
+    }
+}
