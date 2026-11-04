@@ -76,14 +76,20 @@ jobs:
           run_id = int(os.environ["RUN_ID"])
           pr_number = os.environ.get("PR_NUMBER", "")
 
-          def gh_api(path, *args, attempts=3):
+          def try_gh_api(path, *args):
+              result = subprocess.run(
+                  ["gh", "api", *args, path], capture_output=True, text=True,
+              )
+              if result.returncode != 0:
+                  print(f"gh api {path} failed: {result.stderr.strip()}")
+                  return False, None
+              return True, json.loads(result.stdout) if result.stdout.strip() else None
+
+          def gh_api(path, *args, attempts=5):
               for attempt in range(1, attempts + 1):
-                  result = subprocess.run(
-                      ["gh", "api", *args, path], capture_output=True, text=True,
-                  )
-                  if result.returncode == 0:
-                      return json.loads(result.stdout) if result.stdout.strip() else None
-                  print(f"gh api {path} failed ({attempt}/{attempts}): {result.stderr.strip()}")
+                  ok, data = try_gh_api(path, *args)
+                  if ok:
+                      return data
                   if attempt < attempts:
                       time.sleep(2 * attempt)
               sys.exit(f"gh api {path} failed after {attempts} attempts")
@@ -91,6 +97,11 @@ jobs:
           def skip(reason):
               print(f"Not re-running run {run_id}: {reason}")
               sys.exit(0)
+
+          def require_first_attempt():
+              run = gh_api(f"repos/{repo}/actions/runs/{run_id}")
+              if run["run_attempt"] != 1 or run["status"] != "completed":
+                  skip(f"run is now attempt {run['run_attempt']}, status {run['status']}")
 
           if not pr_number:
               skip("no pull request attached to the run")
@@ -115,9 +126,7 @@ jobs:
           # Checked last, right before the POST, to keep the window for a manual
           # re-run or a new push as short as the API allows: the event payload is a
           # snapshot, and a stale re-run would cancel a newer run of the PR.
-          run = gh_api(f"repos/{repo}/actions/runs/{run_id}")
-          if run["run_attempt"] != 1 or run["status"] != "completed":
-              skip(f"run is now attempt {run['run_attempt']}, status {run['status']}")
+          require_first_attempt()
 
           runs = gh_api(
               f"repos/{repo}/actions/workflows/event-pull_request.yml/runs"
@@ -131,6 +140,14 @@ jobs:
               skip(f"superseded by run {pr_runs[0]['id']} for PR #{pr_number}")
 
           print(f"Re-running {len(failed)} failed job(s) of run {run_id} (PR #{pr_number}).")
-          # Single attempt: an error does not prove the re-run did not start, and a
-          # retry after attempt 2 has failed again would start an attempt 3.
-          gh_api(f"repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs", "-X", "POST", attempts=1)
+          rerun_attempts = 3
+          for attempt in range(1, rerun_attempts + 1):
+              ok, _ = try_gh_api(f"repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs", "-X", "POST")
+              if ok:
+                  sys.exit(0)
+              if attempt < rerun_attempts:
+                  time.sleep(2 * attempt)
+                  # An error does not prove the re-run did not start, and a blind
+                  # retry after attempt 2 has failed again would start an attempt 3.
+                  require_first_attempt()
+          sys.exit(f"rerun-failed-jobs failed after {rerun_attempts} attempts")
