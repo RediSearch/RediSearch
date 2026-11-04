@@ -176,10 +176,16 @@ typedef struct ResultProcessor {
 /** `sctx` must carry the owning request's non-NULL timeout state. */
 ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
 
-/** Call once after attaching the processor to its query context, before execution. */
+/**
+ * Enable async metadata reads when supported and configured; otherwise keep synchronous reads.
+ * Call once after attaching the processor to its query context, before execution.
+ */
 void RPQueryIterator_ConfigureAsyncIO(ResultProcessor *rp);
 
-/** For profiled queries only: returns whether async metadata reads are used, writing their wait time. */
+/**
+ * For profiled queries only: write accumulated metadata completion-wait time to out_ns in
+ * nanoseconds. Return false without writing when the processor has no async read pool.
+ */
 bool RPQueryIterator_GetAsyncWaitTime(ResultProcessor *rp, uint64_t *out_ns);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,

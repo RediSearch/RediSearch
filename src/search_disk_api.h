@@ -903,7 +903,10 @@ typedef struct DocTableDiskAPI {
    * @return true if the document was found and updated, false if not found or on error
    */
   bool (*replaceKey)(RedisSearchDiskIndexSpec* handle, t_docId docId, const char* newKey, size_t newKeyLen);
-  /** Accumulated query-worker completion-wait time in nanoseconds. Requires a live pool created with isProfiled=true and no concurrent mutation. */
+  /**
+   * Return accumulated query-worker wait time for async document metadata reads, in nanoseconds.
+   * Requires a live, non-NULL pool created with isProfiled=true and no concurrent mutation.
+   */
   uint64_t (*asyncReadPoolGetAsyncWaitTime)(RedisSearchDiskAsyncReadPool pool);
 } DocTableDiskAPI;
 
