@@ -463,9 +463,10 @@ fn numeric_trees_are_collected_and_compacted() {
     assert_eq!(spec.trees[0].num_entries(), 0);
     assert_eq!(recorder.total().records_removed, 4);
     // One write lock applies the node deltas, one compacts the tree; compacting a
-    // single leaf changes nothing, so only the first flushes stats.
+    // single leaf changes nothing, so the second flushes empty stats.
     assert_eq!(report.write_locks, write_locks(2));
-    assert_eq!(recorder.0.len(), 1);
+    assert_eq!(recorder.0.len(), 2);
+    assert_eq!(recorder.0[1], GcApplyStats::default());
 }
 
 /// Without compaction a numeric field takes only the write lock that applies
