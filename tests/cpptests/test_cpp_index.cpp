@@ -20,7 +20,12 @@ extern "C" {
 #include "spec.h"
 #include "tokenize.h"
 #include "varint_ffi.h"
+extern "C" {
 #include "vector_index.h"
+#include "redis_index.h"
+#include "search_disk.h"
+extern RedisSearchDiskAPI *disk;
+}
 #include "iterators_ffi.h"
 #include "metrics_ffi.h"
 #include "query_term_ffi.h"
@@ -41,12 +46,14 @@ extern "C" {
 #include <stdio.h>
 #include <time.h>
 #include <float.h>
+#include <algorithm>
 #include <iterator>  // std::size
 #include <vector>
 #include <cstdint>
 #include <random>
 #include <chrono>
 #include <iostream>
+#include <string>
 
 class IndexTest : public ::testing::Test {};
 
@@ -100,16 +107,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   size_t exp_t_fieldMask_memsize = 16;
   ASSERT_EQ(exp_t_fieldMask_memsize, t_fiedlMask_memsize);
 
-  // Details of the memory occupied by InvertedIndex in bytes (64-bit system):
-  // LowMemoryThinVec<IndexBlock, u32> blocks    8
-  // u32 n_uniqe_blocks                          4
-  // flags IndexFlags                            4
-  // u32 gc_marker                               4
-  // ---------------------------------------------
-  // Total                                      20
-  // After padding                              24
-
-  size_t exp_idx_no_block_memsize = 24;
+  size_t exp_idx_no_block_memsize = 32;
 
   if (useFieldMask) {
     exp_idx_no_block_memsize += t_fiedlMask_memsize;
@@ -389,10 +387,10 @@ TEST_F(IndexTest, testNumericInverted) {
     expected_sz = target_cap - buff_cap;
     buff_cap = target_cap;
 
-    // The first write add an index block of 56 bytes
+    // The first write add an index block of 48 bytes
     // and the vector header
     if (i < 1) {
-      expected_sz += 56 + 8;
+      expected_sz += 48 + 8;
     }
 
     // Check if the write matches the simulation
@@ -639,11 +637,11 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   // Drive the production lazy range path: the VecSim range query is deferred to the iterator's
   // first Read/SkipTo, and must run on the *raw* query vector. The explicit UNARMED timeout
   // mirrors request-owned state without imposing a deadline on the test.
-  QueryRequestTimeout timeout = {};
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
   timeoutConfig.queryTimeoutMS = 0;
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
   QueryIterator *vecIt = NewLazyVectorRangeIteratorFromParams(
       index, range_query.vector, range_query.vecLen, range_query.radius, queryParams,
       range_query.order, /*yields_metric=*/true, &timeout);
@@ -996,53 +994,53 @@ TEST_F(IndexTest, testIndexFlags) {
   size_t index_memsize;
   InvertedIndex *w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index
-  // created with INDEX_DEFAULT_FLAGS is 40 bytes,
+  // created with INDEX_DEFAULT_FLAGS is 48 bytes,
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 24
+  // sizeof InvertedIndex                 32
   // storing fieldmask on idx             16
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE(InvertedIndex_Flags(w) == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
-  ASSERT_EQ(81, sz);
+  ASSERT_EQ(73, sz);
   InvertedIndex_Free(w);
 
   flags &= ~Index_StoreTermOffsets;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
-  ASSERT_EQ(sz2, 68);
+  ASSERT_EQ(sz2, 60);
   InvertedIndex_Free(w);
 
   flags = INDEX_DEFAULT_FLAGS | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   h.fieldMask = 0xffffffffffff;
-  ASSERT_EQ(85, InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth);
+  ASSERT_EQ(77, InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth);
   InvertedIndex_Free(w);
 
   flags &= Index_StoreFreqs;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
   // The memory occupied by a empty inverted index with
-  // Index_StoreFieldFlags == 0 is 24 bytes
+  // Index_StoreFieldFlags == 0 is 32 bytes
   // which is the sum of the following (See NewInvertedIndex()):
-  // sizeof InvertedIndex                 24
-  ASSERT_EQ(24, index_memsize);
+  // sizeof InvertedIndex                 32
+  ASSERT_EQ(32, index_memsize);
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreTermOffsets));
   ASSERT_TRUE(!(InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
-  ASSERT_EQ(67, sz);
+  ASSERT_EQ(59, sz);
   InvertedIndex_Free(w);
 
   flags |= Index_StoreFieldFlags | Index_WideSchema;
   w = NewInvertedIndex(IndexFlags(flags), &index_memsize);
-  ASSERT_EQ(40, index_memsize);
+  ASSERT_EQ(48, index_memsize);
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_WideSchema));
   ASSERT_TRUE((InvertedIndex_Flags(w) & Index_StoreFieldFlags));
   h.fieldMask = 0xffffffffffff;
   sz = InvertedIndex_WriteForwardIndexEntry(w, &h, false).mem_growth;
-  ASSERT_EQ(75, sz);
+  ASSERT_EQ(67, sz);
   InvertedIndex_Free(w);
 
   VVW_Free(h.vw);
@@ -1219,6 +1217,95 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_NE(dmd->id, strDocId);
   DMD_Return(dmd);
   DocTable_Free(&dt);
+}
+
+namespace {
+// Frees the table even when an ASSERT returns early.
+struct ScopedDocTable {
+  DocTable t;
+  ScopedDocTable(size_t cap, size_t maxSize) : t(NewDocTable(cap, maxSize)) {}
+  ~ScopedDocTable() { DocTable_Free(&t); }
+
+  void put(size_t n) {
+    char buf[16];
+    for (size_t i = 0; i < n; i++) {
+      size_t nkey = snprintf(buf, sizeof(buf), "doc_%zu", i);
+      DMD_Return(DocTable_Put(&t, buf, nkey, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash));
+    }
+  }
+};
+}  // namespace
+
+TEST_F(IndexTest, testDocTableLiveBitmap) {
+  // A max size below N chains documents in shared buckets.
+  ScopedDocTable dt(10, 10);
+  const size_t N = 100;
+  dt.put(N);
+  for (t_docId id = 3; id <= N; id += 3) {
+    DMD_Return(DocTable_DeleteById(&dt.t, id));
+  }
+
+  const size_t words = DocTable_LiveBitmapWords(&dt.t);
+  ASSERT_EQ(N / 64 + 1, words);
+  std::vector<uint64_t> live(words);
+  DocTable_FillLiveBitmap(&dt.t, live.data(), words);
+  for (t_docId id = 0; id < words * 64; id++) {
+    ASSERT_EQ(DocTable_Exists(&dt.t, id), (bool)(live[id / 64] & (1ULL << (id % 64))))
+        << "docId " << id;
+  }
+
+  // A shorter buffer is filled only up to its own length.
+  std::vector<uint64_t> shorter(words, 0);
+  DocTable_FillLiveBitmap(&dt.t, shorter.data(), 1);
+  ASSERT_EQ(live[0], shorter[0]);
+  ASSERT_EQ(0, shorter[1]);
+}
+
+TEST_F(IndexTest, testDocTableLiveBitmapSparse) {
+  ScopedDocTable dt(10, 10);
+  const size_t N = 1000;
+  dt.put(N);
+  for (t_docId id = 2; id < N; id++) {
+    DMD_Return(DocTable_DeleteById(&dt.t, id));
+  }
+  // Two live docs still get a bitmap of every docId: only its total size is bounded.
+  ASSERT_EQ(N / 64 + 1, DocTable_LiveBitmapWords(&dt.t));
+}
+
+TEST_F(IndexTest, testDocTableLiveBitmapMaxBytes) {
+  // Only maxDocId is read, so a table this large needs no documents.
+  DocTable t = {};
+  const t_docId capDocIds = (t_docId)(64 << 20) * 8;  // LIVE_BITMAP_MAX_BYTES, in bits
+  t.maxDocId = capDocIds - 1;
+  ASSERT_EQ(capDocIds / 64, DocTable_LiveBitmapWords(&t));
+  t.maxDocId = capDocIds;
+  ASSERT_EQ(0, DocTable_LiveBitmapWords(&t));
+}
+
+static void collectLiveId(void *ctx, t_docId docId) {
+  static_cast<std::vector<t_docId> *>(ctx)->push_back(docId);
+}
+
+TEST_F(IndexTest, testDocTableForEachLiveId) {
+  // A max size below N chains documents in shared buckets.
+  ScopedDocTable dt(10, 10);
+  const size_t N = 100;
+  dt.put(N);
+  for (t_docId id = 3; id <= N; id += 3) {
+    DMD_Return(DocTable_DeleteById(&dt.t, id));
+  }
+
+  std::vector<t_docId> ids;
+  DocTable_ForEachLiveId(&dt.t, collectLiveId, &ids);
+  std::sort(ids.begin(), ids.end());
+  std::vector<t_docId> expected;
+  for (t_docId id = 0; id <= N + 10; id++) {
+    if (DocTable_Exists(&dt.t, id)) {
+      expected.push_back(id);
+    }
+  }
+  ASSERT_EQ(N - N / 3, expected.size());
+  ASSERT_EQ(expected, ids);
 }
 
 TEST_F(IndexTest, testVarintFieldMask) {
@@ -1461,6 +1548,119 @@ TEST_F(IndexTest, testDiskHnswAcceptsFloat16) {
     ASSERT_NE(nullptr, strstr(QueryError_GetUserError(&err), "Disk index does not support"))
         << "type " << vecType << " got: " << QueryError_GetUserError(&err);
     QueryError_ClearError(&err);
+  }
+}
+
+TEST_F(IndexTest, testDiskHnswForwardsOptionalSq8TrainingWithoutChangingSchema) {
+  SimulateInFlexGuard flexGuard;
+  struct RestoreSq8Gate {
+    bool previous = RSGlobalConfig.diskSq8Enabled;
+    ~RestoreSq8Gate() {
+      RSGlobalConfig.diskSq8Enabled = previous;
+    }
+  } restoreSq8Gate;
+  struct {
+    bool enabled;
+    bool compression;
+    const char *threshold;
+    size_t expectedThreshold;
+  } cases[] = {
+      {false, false, nullptr, 0}, {false, true, nullptr, HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD},
+      {false, true, "0", 0},      {false, true, "32", 32},
+      {true, false, nullptr, 0},  {true, true, nullptr, HNSW_QUANT_DEFAULT_TRAINING_THRESHOLD},
+      {true, true, "0", 0},       {true, true, "32", 32},
+  };
+  for (const char *type : {"FLOAT32", "FLOAT16"}) {
+    for (const auto &testCase : cases) {
+      RSGlobalConfig.diskSq8Enabled = testCase.enabled;
+      SCOPED_TRACE(::testing::Message() << type << ", enabled=" << testCase.enabled
+                                        << ", compression=" << testCase.compression
+                                        << ", threshold=" << testCase.expectedThreshold);
+      std::vector<const char *> args = {"ON",
+                                        "HASH",
+                                        "SKIPINITIALSCAN",
+                                        "SCHEMA",
+                                        "v",
+                                        "VECTOR",
+                                        "HNSW",
+                                        nullptr,
+                                        "TYPE",
+                                        type,
+                                        "DIM",
+                                        "4",
+                                        "DISTANCE_METRIC",
+                                        "L2",
+                                        "M",
+                                        "16",
+                                        "EF_CONSTRUCTION",
+                                        "200",
+                                        "EF_RUNTIME",
+                                        "10",
+                                        "RERANK",
+                                        "TRUE"};
+      if (testCase.compression) {
+        args.insert(args.end(), {"COMPRESSION", "SQ8"});
+      }
+      if (testCase.threshold) {
+        args.insert(args.end(), {"TRAINING_THRESHOLD", testCase.threshold});
+      }
+      const std::string count = std::to_string(args.size() - 8);
+      args[7] = count.c_str();
+      QueryError err = QueryError_Default();
+      StrongRef ref = IndexSpec_ParseC(nullptr, "idx_disk_sq8", args.data(), args.size(), &err);
+      SpecCleanupGuard cleanup(ref);
+      if (testCase.compression && !testCase.enabled) {
+        EXPECT_EQ(StrongRef_Get(ref), nullptr);
+        ASSERT_TRUE(QueryError_HasError(&err));
+        EXPECT_STREQ(QueryError_GetUserError(&err),
+                     "SEARCH_QUERY_BAD Disk COMPRESSION SQ8 is disabled; enable search-disk-sq8-enabled "
+                     "only after all nodes have upgraded");
+        QueryError_ClearError(&err);
+        continue;
+      }
+      ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
+      auto *spec = static_cast<IndexSpec *>(StrongRef_Get(ref));
+      ASSERT_NE(spec, nullptr);
+      auto *field = &spec->fields[0];
+      auto *primary = field->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+      const auto expectedQuant = testCase.compression ? VecSimQuant_SQ8 : VecSimQuant_NONE;
+      EXPECT_EQ(primary->algoParams.hnswParams.quantType, expectedQuant);
+      EXPECT_EQ(field->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams
+                    .tieredHnswParams.QuantNormalizationSetSize,
+                testCase.expectedThreshold);
+
+      static size_t forwardedThreshold;
+      static VecSimQuantType forwardedQuant;
+      static unsigned creates;
+      creates = 0;
+      RedisSearchDiskAPI api{};
+      api.vector.createVectorIndex = [](RedisModuleCtx *, RedisSearchDiskIndexSpec *,
+                                        const VecSimParamsDisk *params) -> void * {
+        ++creates;
+        const auto &tiered = params->indexParams->algoParams.tieredParams;
+        forwardedThreshold = tiered.specificParams.tieredHnswDiskParams.QuantNormalizationSetSize;
+        forwardedQuant = tiered.primaryIndexParams->algoParams.hnswParams.quantType;
+        return nullptr;
+      };
+      auto *savedDisk = disk;
+      disk = &api;
+      field->vectorOpts.diskCtx.storage = reinterpret_cast<RedisSearchDiskIndexSpec *>(field);
+      unsigned char fieldBefore[sizeof(*field)], primaryBefore[sizeof(*primary)];
+      memcpy(fieldBefore, field, sizeof(*field));
+      memcpy(primaryBefore, primary, sizeof(*primary));
+      const auto fingerprintBefore = IndexSpec_SchemaFingerprint(spec);
+
+      EXPECT_EQ(openVectorIndex(RSDummyContext, field, CREATE_INDEX), nullptr);
+
+      EXPECT_EQ(creates, 1u);
+      EXPECT_EQ(forwardedThreshold, testCase.expectedThreshold);
+      EXPECT_EQ(forwardedQuant, expectedQuant);
+      EXPECT_EQ(memcmp(fieldBefore, field, sizeof(*field)), 0);
+      EXPECT_EQ(memcmp(primaryBefore, primary, sizeof(*primary)), 0);
+      EXPECT_EQ(IndexSpec_SchemaFingerprint(spec), fingerprintBefore);
+      field->vectorOpts.diskCtx.storage = nullptr;
+      disk = savedDisk;
+    }
   }
 }
 

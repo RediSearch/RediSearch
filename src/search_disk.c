@@ -11,6 +11,7 @@
 
 #include <stdatomic.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "config.h"
@@ -315,18 +316,46 @@ static void SearchDisk_CompleteLogicalOpen(RedisSearchDiskIndexSpec *result, Ind
                     "Failed to restore disk resource state after an index open failure");
   }
 }
+static SearchDiskField *SearchDisk_DescribeFields(const IndexSpec *sp) {
+  SearchDiskField *fields = sp->numFields ? rm_calloc(sp->numFields, sizeof(*fields)) : NULL;
+  for (size_t i = 0; i < sp->numFields; ++i) {
+    const FieldSpec *fs = sp->fields + i;
+    fields[i] = (SearchDiskField){
+        .fieldIndex = fs->index,
+        .types = fs->types,
+        .indexMissing = FieldSpec_IndexesMissing(fs),
+    };
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      fields[i].fieldName = HiddenString_GetUnsafe(fs->fieldName, &fields[i].fieldNameLen);
+      fields[i].vectorParams = &fs->vectorOpts.vecSimParams;
+    }
+  }
+  return fields;
+}
+
+static void SearchDisk_CheckOpenResult(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *result) {
+  if (!result && (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_REPLICATED)) {
+    RedisModule_Log(ctx, "warning", "Disk index open failed during replication; aborting");
+    abort();
+  }
+}
+
 RedisSearchDiskIndexSpec *SearchDisk_OpenIndex(RedisModuleCtx *ctx, const HiddenString *indexName,
                                                const char *obfuscatedName, DocumentType type,
                                                bool deleteBeforeOpen, IndexSpec *c_index_spec) {
   RS_ASSERT(disk_db && c_index_spec);
   if (!SearchDisk_PrepareLogicalOpen()) {
+    SearchDisk_CheckOpenResult(ctx, NULL);
     return NULL;
   }
+  SearchDiskField *fields = SearchDisk_DescribeFields(c_index_spec);
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
-  RedisSearchDiskIndexSpec *result =
-      disk->basic.openIndexSpec(ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName),
-                                type, deleteBeforeOpen, &callbacks, c_index_spec);
+  RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpec(
+      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, deleteBeforeOpen,
+      fields, c_index_spec->numFields, &callbacks, c_index_spec);
+  rm_free(fields);
   SearchDisk_CompleteLogicalOpen(result, c_index_spec);
+  SearchDisk_CheckOpenResult(ctx, result);
   return result;
 }
 
@@ -387,13 +416,17 @@ RedisSearchDiskIndexSpec *SearchDisk_OpenIndexWithRdbState(
   RS_ASSERT(disk && disk_db && indexName && rdbState && c_index_spec);
   if (!SearchDisk_PrepareLogicalOpen()) {
     disk->basic.freeRdbState(rdbState);
+    SearchDisk_CheckOpenResult(ctx, NULL);
     return NULL;
   }
+  SearchDiskField *fields = SearchDisk_DescribeFields(c_index_spec);
   SearchDiskCompactionCallbacks callbacks = SearchDisk_CompactionCallbacks();
   RedisSearchDiskIndexSpec *result = disk->basic.openIndexSpecWithRdbState(
-      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, &callbacks,
-      c_index_spec);
+      ctx, disk_db, indexName, obfuscatedName, strlen(obfuscatedName), type, rdbState, fields,
+      c_index_spec->numFields, &callbacks, c_index_spec);
+  rm_free(fields);
   SearchDisk_CompleteLogicalOpen(result, c_index_spec);
+  SearchDisk_CheckOpenResult(ctx, result);
   return result;
 }
 
@@ -430,19 +463,17 @@ void SearchDisk_FreeWriteBatch(SearchDiskWriteBatchHandle *batch) {
     disk->index.freeWriteBatch(batch);
 }
 
-bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen) {
-    RS_ASSERT(disk && index && batch);
-    return disk->index.indexTerm(index, batch, term, termLen, docId, fieldMask, freq, offsets, offsetsLen);
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+                          const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
+                          uint32_t freq, const uint8_t *offsets, size_t offsetsLen) {
+  RS_ASSERT(disk && index && batch);
+  return disk->index.indexTerm(index, batch, term, termLen, docId, fieldMask, freq, offsets,
+                               offsetsLen);
 }
 
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex) {
     RS_ASSERT(disk && index && batch);
     return disk->index.indexTags(ctx, index, batch, values, numValues, docId, fieldIndex);
-}
-
-bool SearchDisk_InitializeMissingStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index) {
-  RS_ASSERT(disk);
-  return disk->index.initializeMissingStorage(ctx, index);
 }
 
 bool SearchDisk_IndexMissingFields(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
@@ -774,6 +805,11 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index) {
 void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index) {
   RS_ASSERT(disk && index);
   disk->index.flushNoWait(index);
+}
+
+bool SearchDisk_CompactNonGcStorage(RedisSearchDiskIndexSpec* index) {
+  RS_ASSERT(disk && index);
+  return disk->index.compactNonGcStorage(index);
 }
 
 void SearchDisk_PauseBackgroundWork(RedisSearchDiskIndexSpec* index) {

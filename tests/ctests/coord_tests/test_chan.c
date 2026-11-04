@@ -11,6 +11,10 @@
 #include "rmalloc.h"
 #include "rmutil/alloc.h"
 
+#include <pthread.h>
+#include <sched.h>
+#include <stdatomic.h>
+
 void testChan() {
   MRChannel *c = MR_NewChannel();
   mu_check(c != NULL);
@@ -52,10 +56,64 @@ void testTryPop() {
   MRChannel_Free(c);
 }
 
+typedef struct {
+  MRChannel *chan;
+  atomic_bool *timedOutFlag;
+  atomic_bool *memoryStopFlag;
+  atomic_bool parked;
+  void *popped;
+} popArgs;
+
+static void *popWithFlags(void *arg) {
+  popArgs *args = arg;
+  atomic_store(&args->parked, true);
+  args->popped = MRChannel_PopWithTimeout(args->chan, NULL, args->timedOutFlag,
+                                          args->memoryStopFlag, NULL);
+  return NULL;
+}
+
+// Either flag must abort a parked pop once the channel is woken; a set flag
+// does not hide an item that is already queued.
+static void testPopAbortsOnEitherFlag(bool viaStopFlag) {
+  MRChannel *c = MR_NewChannel();
+  atomic_bool timedOutFlag = false, memoryStopFlag = false;
+  int item;
+  MRChannel_Push(c, &item);
+  mu_check(MRChannel_PopWithTimeout(c, NULL, &timedOutFlag, &memoryStopFlag, NULL) == &item);
+
+  popArgs args = {.chan = c,
+                  .timedOutFlag = &timedOutFlag,
+                  .memoryStopFlag = &memoryStopFlag,
+                  .popped = &item};
+  pthread_t consumer;
+  mu_check(pthread_create(&consumer, NULL, popWithFlags, &args) == 0);
+  while (!atomic_load(&args.parked)) {
+    sched_yield();
+  }
+  atomic_store(viaStopFlag ? &memoryStopFlag : &timedOutFlag, true);
+  MRChannel_WakeAbort(c);
+  pthread_join(consumer, NULL);
+  mu_check(args.popped == NULL);
+
+  MRChannel_Push(c, &item);
+  mu_check(MRChannel_PopWithTimeout(c, NULL, &timedOutFlag, &memoryStopFlag, NULL) == &item);
+  MRChannel_Free(c);
+}
+
+void testPopAbortsOnAbortFlag() {
+  testPopAbortsOnEitherFlag(false);
+}
+
+void testPopAbortsOnStopFlag() {
+  testPopAbortsOnEitherFlag(true);
+}
+
 int main(int argc, char **argv) {
   RMUTil_InitAlloc();
   MU_RUN_TEST(testChan);
   MU_RUN_TEST(testTryPop);
+  MU_RUN_TEST(testPopAbortsOnAbortFlag);
+  MU_RUN_TEST(testPopAbortsOnStopFlag);
   MU_REPORT();
 
   return minunit_status;
