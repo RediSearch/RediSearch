@@ -45,8 +45,7 @@ static bool readMemoryAndStop(QueryRequestLimits *limits) {
 }
 
 bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter) {
-  if (limits && (QueryRequestLimits_IsMemoryStopped(limits) ||
-                 QueryRequestLimits_IsBlockedClientTimedOut(limits))) {
+  if (limits && QueryRequestLimits_IsMemoryStopped(limits)) {
     return true;
   }
   const uint32_t interval = QueryMemory_GetRatioReadInterval();
@@ -67,8 +66,7 @@ bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter) {
 }
 
 bool QueryMemory_CheckpointNow(QueryRequestLimits *limits) {
-  if (limits && (QueryRequestLimits_IsMemoryStopped(limits) ||
-                 QueryRequestLimits_IsBlockedClientTimedOut(limits))) {
+  if (limits && QueryRequestLimits_IsMemoryStopped(limits)) {
     return true;
   }
   return readMemoryAndStop(limits);

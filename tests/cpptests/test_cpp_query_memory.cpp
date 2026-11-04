@@ -85,12 +85,13 @@ TEST_F(QueryMemoryTest, PressureRequestsAMemoryStop) {
   EXPECT_EQ(fakeRatioReads.load(), reads);
 }
 
-TEST_F(QueryMemoryTest, ReportsTheBlockedClientTimeout) {
+TEST_F(QueryMemoryTest, IgnoresTheBlockedClientTimeout) {
   uint32_t counter = 0;
   QueryRequestLimits_BeginCycle(&timeout_, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestLimits_MarkTimedOut(&timeout_);
-  EXPECT_TRUE(QueryMemory_Checkpoint(&timeout_, &counter));
-  EXPECT_EQ(fakeRatioReads.load(), 0u);
+  EXPECT_FALSE(QueryMemory_Checkpoint(&timeout_, &counter));
+  EXPECT_FALSE(QueryMemory_CheckpointNow(&timeout_));
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 
 TEST_F(QueryMemoryTest, OffWhenOnOomIsIgnore) {

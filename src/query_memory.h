@@ -26,9 +26,8 @@ extern "C" {
  * only reader of process memory.
  *
  * Returns true when the query should stop: a memory stop was already
- * requested, the blocked-client timeout fired (QueryRequestLimits_IsBlockedClientTimedOut), or
- * this call found memory at or above REDIS_MEMORY_OOM_RATIO, in which case it requests
- * a memory stop first. Memory is read when either the caller's
+ * requested, or this call found memory at or above REDIS_MEMORY_OOM_RATIO, in which case it
+ * requests a memory stop first. Memory is read when either the caller's
  * `counter` or the request's shared memory.counter reaches
  * QUERY_MEMORY_RATIO_READ_INTERVAL, so calls from all sites of a request add
  * up and a site called fewer times than the interval still contributes to a
@@ -37,14 +36,14 @@ extern "C" {
  * Each site owns its counter, zero-initialized, and must not share it between
  * threads. With a NULL `limits` only `counter` counts.
  *
- * The memory check is off, and only the memory stop and the timeout flag are
+ * The memory check is off, and only an already requested memory stop is
  * reported, when ON_OOM is IGNORE, when no memory limit is configured, and when the server lacks
  * RedisModule_GetUsedMemoryRatioEstimate. Callable with or without the GIL, but
  * calls for one request must be serialized like QueryRequestLimits_IsTimedOut,
  * since they share memory.counter; use QueryMemory_CheckpointNow where sites
- * may run concurrently. The ON_OOM policy is the global one, read without
- * synchronization. A NULL `limits` (no owning request) still reports pressure
- * but records no memory stop.
+ * may run concurrently. The ON_OOM policy is the global one, read with a
+ * relaxed atomic load because CONFIG SET writes it on the main thread. A NULL `limits` (no
+ * owning request) still reports pressure but records no memory stop.
  */
 bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter);
 
