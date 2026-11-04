@@ -26,7 +26,9 @@ use crate::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
-use super::{InvIndIterator, core::RawInvIndIterator, core::ResumeStatus};
+use super::{
+    InvIndIterator, core::RawInvIndIterator, core::ResumeStatus, core::max_visible_doc_id,
+};
 
 /// Resolves a tag value to the inverted index currently stored for it in a
 /// tag-index container.
@@ -123,6 +125,9 @@ where
     ///
     /// `weight` is the scoring weight applied to the result record.
     ///
+    /// The iterator ends at `context`'s
+    /// [`maxVisibleDocId`](ffi::RedisSearchCtx::maxVisibleDocId); see [`InvIndIterator::new`].
+    ///
     /// # Safety
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
@@ -170,16 +175,14 @@ where
             .build();
 
         Self {
-            it: InvIndIterator::new(reader, result, expiration_checker),
+            it: InvIndIterator::new(
+                reader,
+                result,
+                expiration_checker,
+                max_visible_doc_id(context_ref),
+            ),
             lookup,
         }
-    }
-
-    /// Ends the index at `max_doc_id`. See [`InvIndIterator::set_max_doc_id`].
-    #[must_use]
-    pub const fn with_max_doc_id(mut self, max_doc_id: DocId) -> Self {
-        self.it.set_max_doc_id(max_doc_id);
-        self
     }
 
     /// Get a reference to the underlying reader.

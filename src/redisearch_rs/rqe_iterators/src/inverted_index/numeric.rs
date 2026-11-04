@@ -136,6 +136,8 @@ where
     /// `range_min` and `range_max` are the minimum and maximum numeric ranges,
     /// respectively. They are only used in debug print.
     ///
+    /// The iterator ends at `max_doc_id`; see [`InvIndIterator::new`].
+    ///
     /// # Safety
     ///
     /// 1. If `range_tree` is Some, it must be a valid pointer to a [`NumericRangeTree`].
@@ -146,6 +148,7 @@ where
         range_tree: Option<&NumericRangeTree>,
         range_min: Option<f64>,
         range_max: Option<f64>,
+        max_doc_id: DocId,
     ) -> Self {
         let result = RSIndexResult::build_numeric(0.0).build();
 
@@ -162,18 +165,11 @@ where
         assert!(range_min <= range_max);
 
         Self {
-            it: InvIndIterator::new(reader, result, expiration_checker),
+            it: InvIndIterator::new(reader, result, expiration_checker, max_doc_id),
             range_tree_info,
             range_min,
             range_max,
         }
-    }
-
-    /// Ends the index at `max_doc_id`. See [`InvIndIterator::set_max_doc_id`].
-    #[must_use]
-    pub const fn with_max_doc_id(mut self, max_doc_id: DocId) -> Self {
-        self.it.set_max_doc_id(max_doc_id);
-        self
     }
 
     /// Get a reference to the underlying reader.
@@ -581,20 +577,10 @@ impl<'index> NumericIteratorVariant<'index> {
                     range_tree,
                     min_val,
                     max_val,
+                    max_doc_id,
                 )
-                .with_max_doc_id(max_doc_id)
             })
             .collect()
-    }
-
-    /// Ends the index at `max_doc_id`. See [`InvIndIterator::set_max_doc_id`].
-    #[must_use]
-    pub fn with_max_doc_id(self, max_doc_id: DocId) -> Self {
-        match self {
-            Self::Unfiltered(it) => Self::Unfiltered(it.with_max_doc_id(max_doc_id)),
-            Self::Filtered(it) => Self::Filtered(it.with_max_doc_id(max_doc_id)),
-            Self::Geo(it) => Self::Geo(it.with_max_doc_id(max_doc_id)),
-        }
     }
 
     /// Create the correct iterator variant for the given reader and optional filter.
@@ -603,6 +589,8 @@ impl<'index> NumericIteratorVariant<'index> {
     /// - `filter` is `None` → [`NumericIteratorVariant::Unfiltered`]
     /// - `filter` is `Some(f)` where `f.is_numeric_filter()` → [`NumericIteratorVariant::Filtered`]
     /// - `filter` is `Some(f)` where `!f.is_numeric_filter()` → [`NumericIteratorVariant::Geo`]
+    ///
+    /// The iterator ends at `max_doc_id`; see [`InvIndIterator::new`].
     pub fn new(
         reader: NumericIndexReader<'index>,
         filter: Option<&'index NumericFilter>,
@@ -610,6 +598,7 @@ impl<'index> NumericIteratorVariant<'index> {
         range_tree: Option<&'index NumericRangeTree>,
         range_min: f64,
         range_max: f64,
+        max_doc_id: DocId,
     ) -> Self {
         match filter {
             None => {
@@ -621,6 +610,7 @@ impl<'index> NumericIteratorVariant<'index> {
                         range_tree,
                         Some(range_min),
                         Some(range_max),
+                        max_doc_id,
                     )
                 };
                 Self::Unfiltered(iter)
@@ -634,6 +624,7 @@ impl<'index> NumericIteratorVariant<'index> {
                         range_tree,
                         Some(range_min),
                         Some(range_max),
+                        max_doc_id,
                     )
                 };
                 Self::Filtered(iter)
@@ -647,6 +638,7 @@ impl<'index> NumericIteratorVariant<'index> {
                         range_tree,
                         Some(range_min),
                         Some(range_max),
+                        max_doc_id,
                     )
                 };
                 Self::Geo(iter)

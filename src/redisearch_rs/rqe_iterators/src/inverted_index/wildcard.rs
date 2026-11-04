@@ -96,7 +96,9 @@ where
     /// inverted index.
     ///
     /// `weight` is the score weight applied to every returned result.
-    pub fn new(reader: IndexReaderCore<'index, E>, weight: f64) -> Self {
+    ///
+    /// The iterator ends at `max_doc_id`; see [`InvIndIterator::new`].
+    pub fn new(reader: IndexReaderCore<'index, E>, weight: f64, max_doc_id: DocId) -> Self {
         let result = RSIndexResult::build_virt()
             .weight(weight)
             .field_mask(RS_FIELDMASK_ALL)
@@ -105,15 +107,8 @@ where
 
         Self {
             // Wildcard iterator does not support expiration check
-            it: InvIndIterator::new(reader, result, NoOpChecker),
+            it: InvIndIterator::new(reader, result, NoOpChecker, max_doc_id),
         }
-    }
-
-    /// Ends the index at `max_doc_id`. See [`InvIndIterator::set_max_doc_id`].
-    #[must_use]
-    pub const fn with_max_doc_id(mut self, max_doc_id: DocId) -> Self {
-        self.it.set_max_doc_id(max_doc_id);
-        self
     }
 
     /// Get a reference to the underlying reader.

@@ -109,6 +109,7 @@ where
                 tree,
                 self.range_min,
                 self.range_max,
+                DocId::MAX,
             )
         }
     }
@@ -750,6 +751,7 @@ mod variant {
     use index_result::RSIndexResult;
     use inverted_index::NumericFilter;
     use numeric_range_tree::NumericIndex;
+    use rqe_core::DocId;
     use rqe_iterators::{FieldExpirationChecker, NumericIteratorVariant};
     use rqe_iterators_test_utils::MockContext;
 
@@ -789,6 +791,7 @@ mod variant {
             None,
             1.0,
             5.0,
+            DocId::MAX,
         );
         assert!(
             matches!(variant, NumericIteratorVariant::Unfiltered(_)),
@@ -817,6 +820,7 @@ mod variant {
             None,
             1.0,
             5.0,
+            DocId::MAX,
         );
         assert!(
             matches!(variant, NumericIteratorVariant::Filtered(_)),
@@ -845,6 +849,7 @@ mod variant {
             None,
             1.0,
             5.0,
+            DocId::MAX,
         );
         assert!(
             matches!(variant, NumericIteratorVariant::Geo(_)),
@@ -990,6 +995,7 @@ mod variant_resume {
             None,
             1.0,
             5.0,
+            DocId::MAX,
         );
         assert_eq!(
             variant
@@ -1069,6 +1075,7 @@ mod variant_resume {
             None,
             1.0,
             5.0,
+            DocId::MAX,
         );
         assert!(
             matches!(&variant, NumericIteratorVariant::Filtered(_)),
@@ -1145,6 +1152,7 @@ mod variant_resume {
             None,
             1.0,
             5.0,
+            DocId::MAX,
         );
         assert!(
             matches!(&variant, NumericIteratorVariant::Geo(_)),
@@ -1211,6 +1219,7 @@ mod variant_resume {
             None,
             1.0,
             5.0,
+            DocId::MAX,
         );
         assert_eq!(
             variant
@@ -1270,6 +1279,7 @@ mod variant_resume {
             Some(unsafe { &*tree_ptr }),
             1.0,
             5.0,
+            DocId::MAX,
         );
         let guard = ctx.spec_read();
 
@@ -1324,6 +1334,7 @@ mod variant_resume {
             Some(unsafe { &*tree_ptr }),
             1.0,
             5.0,
+            DocId::MAX,
         );
         let guard = ctx.spec_read();
 
@@ -1381,6 +1392,7 @@ mod variant_resume {
             Some(unsafe { &*tree_ptr }),
             1.0,
             5.0,
+            DocId::MAX,
         );
         let guard = ctx.spec_read();
 
@@ -1440,6 +1452,7 @@ mod variant_resume {
             None,
             1.0,
             7.0,
+            DocId::MAX,
         );
         assert_eq!(
             variant
@@ -1535,6 +1548,7 @@ mod variant_resume {
             None,
             1.0,
             9.0,
+            DocId::MAX,
         );
         assert!(
             matches!(&variant, NumericIteratorVariant::Filtered(_)),
@@ -1634,6 +1648,7 @@ mod variant_resume {
             None,
             1.0,
             9.0,
+            DocId::MAX,
         );
         assert!(
             matches!(&variant, NumericIteratorVariant::Geo(_)),
@@ -1707,6 +1722,7 @@ mod variant_resume {
             None,
             1.0,
             5.0,
+            DocId::MAX,
         );
         assert_eq!(variant.flags(), IndexFlags_Index_StoreNumeric);
 
@@ -1764,6 +1780,7 @@ mod not_miri {
                     Some(self.test.context.numeric_range_tree_ref()),
                     None,
                     None,
+                    DocId::MAX,
                 )
             }
         }

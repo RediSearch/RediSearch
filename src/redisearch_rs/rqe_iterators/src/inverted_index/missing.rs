@@ -31,7 +31,9 @@ use crate::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
-use super::{InvIndIterator, core::RawInvIndIterator, core::ResumeStatus, max_visible_doc_id};
+use super::{
+    InvIndIterator, core::RawInvIndIterator, core::ResumeStatus, core::max_visible_doc_id,
+};
 
 /// An iterator over documents that are missing a specific field, parameterised
 /// over a [`Ref`] mode. See [`Missing`] for the [`Active`] instantiation that
@@ -147,6 +149,9 @@ where
     /// `field_index` is the index of the field in `spec.fields` whose missing
     /// documents inverted index this iterator reads from.
     ///
+    /// The iterator ends at `context`'s
+    /// [`maxVisibleDocId`](ffi::RedisSearchCtx::maxVisibleDocId); see [`InvIndIterator::new`].
+    ///
     /// # Safety
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
@@ -199,17 +204,16 @@ where
         };
 
         Self {
-            it: InvIndIterator::new(reader, result, expiration_checker),
+            it: InvIndIterator::new(
+                reader,
+                result,
+                expiration_checker,
+                // SAFETY: pre-condition 1 guarantees `context` is valid.
+                max_visible_doc_id(unsafe { context.as_ref() }),
+            ),
             field_index,
             field_name,
         }
-    }
-
-    /// Ends the index at `max_doc_id`. See [`InvIndIterator::set_max_doc_id`].
-    #[must_use]
-    pub const fn with_max_doc_id(mut self, max_doc_id: DocId) -> Self {
-        self.it.set_max_doc_id(max_doc_id);
-        self
     }
 
     /// Get a reference to the underlying reader.
@@ -326,8 +330,6 @@ pub unsafe fn new_missing_iterator<'index>(
         field: FieldMaskOrIndex::Index(field_index),
         predicate: FieldExpirationPredicate::Missing,
     };
-    // SAFETY: caller guarantees sctx validity (1).
-    let max_doc_id = max_visible_doc_id(unsafe { sctx.as_ref() });
 
     match ii {
         inverted_index::opaque::InvertedIndex::DocIdsOnly(ii) => {
@@ -336,10 +338,7 @@ pub unsafe fn new_missing_iterator<'index>(
             let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
             // SAFETY: caller guarantees sctx, spec, field_index, and
             // missing.indexes validity (1-3).
-            Box::new(
-                unsafe { Missing::new(reader, sctx, field_index, checker) }
-                    .with_max_doc_id(max_doc_id),
-            )
+            Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
         }
         inverted_index::opaque::InvertedIndex::RawDocIdsOnly(ii) => {
             let reader = ii.reader();
@@ -347,10 +346,7 @@ pub unsafe fn new_missing_iterator<'index>(
             let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
             // SAFETY: caller guarantees sctx, spec, field_index, and
             // missing.indexes validity (1-3).
-            Box::new(
-                unsafe { Missing::new(reader, sctx, field_index, checker) }
-                    .with_max_doc_id(max_doc_id),
-            )
+            Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
         }
         _ => panic!(
             "Missing iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
