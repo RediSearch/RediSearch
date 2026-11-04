@@ -667,10 +667,7 @@ pub(crate) mod test {
         check(ffi::RPStatus_RS_RESULT_OK as i32, Ok(Some(())));
         check(ffi::RPStatus_RS_RESULT_EOF as i32, Ok(None));
         check(ffi::RPStatus_RS_RESULT_ERROR as i32, Err(Error::Error));
-        check(
-            ffi::RPStatus_RS_RESULT_STOPPED as i32,
-            Err(Error::Stopped),
-        );
+        check(ffi::RPStatus_RS_RESULT_STOPPED as i32, Err(Error::Stopped));
     }
 
     /// Assert that the search result is passed correctly
