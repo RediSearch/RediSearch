@@ -3483,7 +3483,7 @@ bool RPDepleter_EndedOnTimeout(const ResultProcessor *depleter) {
   RS_ASSERT(depleter->type == RP_DEPLETER || depleter->type == RP_SAFE_DEPLETER);
   const RPStatus rc = depleter->type == RP_DEPLETER ? ((const RPDepleter *)depleter)->last_rc
                                                    : ((const RPSafeDepleter *)depleter)->last_rc;
-  return rc == RS_RESULT_TIMEDOUT;
+  return rc == RS_RESULT_STOPPED;
 }
 
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {

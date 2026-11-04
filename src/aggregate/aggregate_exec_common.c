@@ -95,7 +95,7 @@ bool ReplyLoop_ShouldStop(QueryProcessingCtx *qctx, QueryRequestLimits *timeout,
     RP_EndRowSourceOnStop(qctx);
     return false;
   }
-  *rc = RS_RESULT_TIMEDOUT;
+  *rc = RS_RESULT_STOPPED;
   return true;
 }
 

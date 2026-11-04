@@ -353,7 +353,7 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
     bool cut = false;
     for (size_t i = 0; i < hreq->nrequests; ++i) {
       const QueryRequestLimits *subLimits = &hreq->requests[i]->base.limits;
-      if (hreq->subqueriesReturnCodes[i] == RS_RESULT_TIMEDOUT &&
+      if (hreq->subqueriesReturnCodes[i] == RS_RESULT_STOPPED &&
           QueryRequestLimits_IsMemoryStopped(subLimits)) {
         // A timeout that also fired outranks the stop under ON_OOM RETURN, as in ApplyOomStop.
         if (oomPolicy == OomPolicy_Fail || !QueryRequestLimits_IsTimedOutExact(subLimits)) {
@@ -371,9 +371,9 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
     // ones are mapped above) is what the merger reports.
     bool subqueryTimedOut = false;
     for (size_t i = 0; i < hreq->nrequests; ++i) {
-      subqueryTimedOut |= hreq->subqueriesReturnCodes[i] == RS_RESULT_TIMEDOUT;
+      subqueryTimedOut |= hreq->subqueriesReturnCodes[i] == RS_RESULT_STOPPED;
     }
-    if (rc == RS_RESULT_TIMEDOUT && !subqueryTimedOut &&
+    if (rc == RS_RESULT_STOPPED && !subqueryTimedOut &&
         !QueryRequestLimits_ShouldStopExact(&hreq->base.limits)) {
       cut = true;
       rc = RS_RESULT_EOF;
@@ -395,7 +395,7 @@ int HybridRequest_ApplyOomStop(HybridRequest *hreq, int rc) {
   if (lastReply && oomPolicy != OomPolicy_Fail && hreq->tailPipeline->qctx.oomCut) {
     QueryError_SetQueryOOMWarning(err);
   }
-  if (oomPolicy == OomPolicy_Fail && rc == RS_RESULT_TIMEDOUT &&
+  if (oomPolicy == OomPolicy_Fail && rc == RS_RESULT_STOPPED &&
       QueryRequestLimits_IsMemoryStopped(&hreq->base.limits) &&
       !clearSoftTailErrorForOom(hreq, err)) {
     // A subquery's fatal error is the reply's error; the OOM must not take the tail slot over it.
@@ -980,7 +980,7 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
     bool depletionTimedOut = false;
     bool depletionStopped = false;
     if (rc != RS_RESULT_OK) {
-      if (rc == RS_RESULT_TIMEDOUT && subqueryStoppedForOom(req) &&
+      if (rc == RS_RESULT_STOPPED && subqueryStoppedForOom(req) &&
           (req->base.reqConfig.oomPolicy == OomPolicy_Fail || !anyTimedOut)) {
         // Stopped for memory: ON_OOM decides, whatever ON_TIMEOUT is. Under ON_OOM RETURN a
         // genuine timeout, a sibling's or the stopped subquery's own, is left to ON_TIMEOUT.
@@ -991,7 +991,7 @@ int HybridRequest_StartCursors(HybridRequest *req, RedisModuleCtx *replyCtx, Que
           return REDISMODULE_ERR;
         }
         depletionStopped = true;
-      } else if (rc == RS_RESULT_TIMEDOUT &&
+      } else if (rc == RS_RESULT_STOPPED &&
                  req->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Return) {
         // RETURN policy: keep cursors with partial results, emit warning in reply
         depletionTimedOut = true;
