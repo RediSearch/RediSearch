@@ -13,7 +13,6 @@
 #include "search_disk.h"
 #include "slot_ranges.h"
 
-#include <pthread.h>
 #include <stdatomic.h>
 #include <limits.h>
 
@@ -44,12 +43,7 @@ arrayof(t_docId) SlotCleanup_CollectDocIds(IndexSpec *spec, const PendingSlotDel
   size_t visited = 0;
   while (cursor->nextBucket < cursor->bucketLimit && visited < SLOT_CLEANUP_SCAN_LIMIT &&
          array_len(docIds) < SLOT_CLEANUP_CHUNK_DOC_LIMIT) {
-    const RSDocumentMetadata *root = t->buckets[cursor->nextBucket].root;
-    // Empty buckets still cost a lookup even when few documents remain in a large table.
-    if (!root) {
-      ++visited;
-    }
-    for (const RSDocumentMetadata *dmd = root; dmd; dmd = dmd->nextInChain) {
+    for (const RSDocumentMetadata *dmd = t->buckets[cursor->nextBucket].root; dmd; dmd = dmd->nextInChain) {
       ++visited;
       if (PendingSlotDeletion_Covers(pending, dmd)) {
         array_append(docIds, dmd->id);
@@ -144,36 +138,12 @@ struct IndexSpecSlotTrimJob {
   size_t numRanges;
   t_docId maxDocId;
   PendingSlotDeletion *pending;
-  bool finished;
-  bool queued;
-  struct IndexSpecSlotTrimJob *next;
 };
 
-// Shutdown drains complete worker turns before closing disk handles.
-static pthread_rwlock_t diskJobRunLock = PTHREAD_RWLOCK_INITIALIZER;
 static atomic_bool diskJobsStopped = false;
-static pthread_mutex_t diskApplyLock = PTHREAD_MUTEX_INITIALIZER;
-static bool diskJobsPaused;
-static pthread_mutex_t diskJobListLock = PTHREAD_MUTEX_INITIALIZER;
-static IndexSpecSlotTrimJob *diskJobs;
 
 void SlotCleanup_StartDiskJobs(void) {
-  pthread_mutex_lock(&diskApplyLock);
-  diskJobsPaused = false;
-  pthread_mutex_unlock(&diskApplyLock);
   atomic_store(&diskJobsStopped, false);
-}
-
-void SlotCleanup_PauseDiskJobs(void) {
-  pthread_mutex_lock(&diskApplyLock);
-  diskJobsPaused = true;
-  pthread_mutex_unlock(&diskApplyLock);
-}
-
-void SlotCleanup_ResumeDiskJobs(void) {
-  pthread_mutex_lock(&diskApplyLock);
-  diskJobsPaused = false;
-  pthread_mutex_unlock(&diskApplyLock);
 }
 
 static PendingSlotDeletion *pendingDiskTrim(IndexSpec *spec, const SearchDiskSlotRange *ranges,
@@ -247,20 +217,6 @@ void IndexSpec_FreeDiskSlotTrim(IndexSpecSlotTrimJob *job) {
 
 void SlotCleanup_StopDiskJobs(void) {
   atomic_store(&diskJobsStopped, true);
-  pthread_rwlock_wrlock(&diskJobRunLock);
-  pthread_rwlock_unlock(&diskJobRunLock);
-  pthread_mutex_lock(&diskJobListLock);
-  IndexSpecSlotTrimJob **link = &diskJobs;
-  while (*link) {
-    IndexSpecSlotTrimJob *job = *link;
-    if (job->queued) {
-      link = &job->next;
-    } else {
-      *link = job->next;
-      IndexSpec_FreeDiskSlotTrim(job);
-    }
-  }
-  pthread_mutex_unlock(&diskJobListLock);
 }
 
 void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots) {

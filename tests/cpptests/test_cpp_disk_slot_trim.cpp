@@ -21,6 +21,9 @@
 #include <vector>
 extern "C" {
 #include "indexes.h"
+#include "disk_indexer.h"
+#include "doc_id_meta.h"
+#include "forward_index.h"
 #include "search_disk.h"
 #include "vector_index.h"
 #include "geometry_index.h"
@@ -327,6 +330,42 @@ TEST_F(DiskSlotTrimTest, RegistrationInstallsCutoffFilterWithoutScanning) {
   EXPECT_FALSE(pendingFilter(1, 10));
   EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
   EXPECT_EQ(pendingDeletes(), 0u);
+}
+
+TEST_F(DiskSlotTrimTest, RegistrationDeduplicatesOnlyMatchingRangesAndCutoff) {
+  const SearchDiskSlotRange range{7, 9};
+  state.maxDocId = 17;
+  job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
+  ASSERT_NE(job, nullptr);
+  PendingSlotDeletion *first = spec->docs.pendingSlotDeletions;
+  EXPECT_EQ(IndexSpec_RegisterDiskSlotTrim(ref, &range, 1), nullptr);
+  EXPECT_EQ(spec->docs.pendingSlotDeletions, first);
+
+  const SearchDiskSlotRange shifted{8, 10};
+  IndexSpecSlotTrimJob *other = IndexSpec_RegisterDiskSlotTrim(ref, &shifted, 1);
+  ASSERT_NE(other, nullptr);
+  EXPECT_NE(spec->docs.pendingSlotDeletions, first);
+  IndexSpec_FreeDiskSlotTrim(other);
+
+  const SearchDiskSlotRange split[]{{7, 7}, {9, 9}};
+  other = IndexSpec_RegisterDiskSlotTrim(ref, split, 2);
+  ASSERT_NE(other, nullptr);
+  IndexSpec_FreeDiskSlotTrim(other);
+
+  state.maxDocId = 23;
+  IndexSpecSlotTrimJob *newer = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
+  ASSERT_NE(newer, nullptr);
+  EXPECT_TRUE(pendingFilter(23, 7));
+  EXPECT_FALSE(pendingFilter(24, 7));
+  IndexSpec_FreeDiskSlotTrim(newer);
+}
+
+TEST_F(DiskSlotTrimTest, StoppedRegistrationDoesNotPublishWork) {
+  const SearchDiskSlotRange range{7, 9};
+  SlotCleanup_StopDiskJobs();
+  EXPECT_EQ(IndexSpec_RegisterDiskSlotTrim(ref, &range, 1), nullptr);
+  EXPECT_EQ(state.registrations, 0u);
+  EXPECT_EQ(spec->docs.pendingSlotDeletions, nullptr);
 }
 
 TEST_F(DiskSlotTrimTest, RestoredTrimEnumerationReinstallsRangesAndOriginalCutoff) {
