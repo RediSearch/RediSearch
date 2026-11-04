@@ -2687,7 +2687,7 @@ class TestCoordinatorTimeout:
         claim, the main-thread callback loses TryClaim and falls through to
         AREQ_WaitForAggregateResultsComplete. BG breaks out of the sync point's
         interruptible wait as soon as the callback flips the timedOut flag,
-        observes AREQ_TimedOut in rpnetNext_Start, returns RS_RESULT_TIMEDOUT
+        observes AREQ_TimedOut in rpnetNext_Start, returns RS_RESULT_STOPPED
         without ever dispatching the iterator, and signals completion so the
         callback can reply with empty results + TIMEOUT warning.
         """
@@ -2721,7 +2721,7 @@ class TestCoordinatorTimeout:
         # Fire the blocked-client timeout on the main thread. The callback loses
         # TryClaim (BG owns it) and blocks in AREQ_WaitForAggregateResultsComplete.
         # BG's SyncPoint_WaitTimeoutInterruptible breaks out on the timedOut flag,
-        # returns RS_RESULT_TIMEDOUT without dispatching, and signals completion
+        # returns RS_RESULT_STOPPED without dispatching, and signals completion
         # so the callback wakes and replies.
         blocked_client_id = wait_for_blocked_query_client(env, 'FT.AGGREGATE')
         env.cmd('CLIENT', 'UNBLOCK', blocked_client_id, 'TIMEOUT')
@@ -3499,7 +3499,7 @@ class TestCoordinatorTimeout:
 
         RPGrouper is fully buffering: ``Grouper_rpAccum`` accumulates
         upstream rows until it observes EOF before transitioning into
-        its yield state. The BG pipeline call gets RS_RESULT_TIMEDOUT
+        its yield state. The BG pipeline call gets RS_RESULT_STOPPED
         from RPNet first, so the grouper aborts immediately (no flush
         into the sorter) and the sorter heap stays empty. The
         post-timeout drain then finds nothing to pop, yet the harvest
@@ -4177,7 +4177,7 @@ class TestCoordinatorTimeout:
 
         Fires ``CLIENT UNBLOCK ... TIMEOUT`` to flip ``syncCtx.timedOut`` on
         every subquery AREQ and broadcast on each registered abort channel;
-        BG observes the abort, returns ``RS_RESULT_TIMEDOUT`` from each
+        BG observes the abort, returns ``RS_RESULT_STOPPED`` from each
         depleter, the merger switches to Yield with an empty dict, the tail
         pipeline returns ``TIMEDOUT``, and the main-thread callback replies
         with whatever the tail already placed in ``storedReplyState.results``
@@ -4257,7 +4257,7 @@ class TestCoordinatorTimeout:
             assert_reply(result)
 
             # Both subqueries (SEARCH and VSIM) were woken by WakeAbortChannel
-            # broadcast, each returning RS_RESULT_TIMEDOUT, so the reply
+            # broadcast, each returning RS_RESULT_STOPPED, so the reply
             # carries one timeout warning per subquery (suffixed (SEARCH) /
             # (VSIM)).
             warnings = result.get('warnings', [])
@@ -4757,7 +4757,7 @@ class TestCoordinatorTimeout:
         worker, wakes the abort channel and waits on the aggregate-results
         condition. BG (auto-released from the pin by the timeout flag) claims
         the pipeline, sees ``TimedOut``, stores empty results with
-        ``rc=RS_RESULT_TIMEDOUT`` and signals completion. The timer wakes,
+        ``rc=RS_RESULT_STOPPED`` and signals completion. The timer wakes,
         drains the buffered shard replies from the channel and replies
         cursor-shaped + TIMEOUT warning + depleted cid.
         """
@@ -4797,7 +4797,7 @@ class TestCoordinatorTimeout:
     def test_return_strict_timeout_in_pipeline_cursor_read_observed(self):
         """Scenario 3 (observed via the ``rpnetNext`` short-circuit):
         RETURN_STRICT timeout fires while BG is parked at ``BeforeRPNetNext``
-        - i.e. at the very top of ``rpnetNext`` before timeout check and return RS_RESULT_TIMEDOUT;
+        - i.e. at the very top of ``rpnetNext`` before timeout check and return RS_RESULT_STOPPED;
        BG signals completion with ``rc=TIMEDOUT``. The timer wakes, drains the channel and
         replies cursor-shaped + TIMEOUT warning + depleted cid; the cursor is
         freed because the timeout marks the read as final.
@@ -5763,7 +5763,7 @@ class TestCoordinatorTimeoutCursorReadResp2:
     def test_return_strict_cursor_read_resp2_timeout(self):
         """RESP2 mirror of the *observed* in-pipeline cursor-read timeout
         via the ``rpnetNext`` short-circuit. BG parks at ``BeforeRPNetNext``;
-        timer fires; on resume the short-circuit returns ``RS_RESULT_TIMEDOUT``
+        timer fires; on resume the short-circuit returns ``RS_RESULT_STOPPED``
         before any rows are emitted, so the RESP2 reply carries a depleted
         cursor id.
         """
@@ -8562,7 +8562,7 @@ class TestShardTimeout:
     # BG is parked at the BeforeFirstRead sync point (interruptible via
     # areq_timed_out). The main-thread callback loses TryClaim and waits for
     # completion; BG breaks out of the WaitUntil as soon as the timedOut
-    # flag is flipped, returns RS_RESULT_TIMEDOUT from rpQueryItNext without
+    # flag is flipped, returns RS_RESULT_STOPPED from rpQueryItNext without
     # producing any rows, signals completion, and the callback drains the
     # (empty) buffer and replies empty + warning.
 
@@ -8611,7 +8611,7 @@ class TestShardTimeout:
     # rows have been appended to `state.results`. The driver then fires
     # CLIENT UNBLOCK ... TIMEOUT (flips AREQ_TimedOut, callback runs and
     # loses TryClaim) and resumes the loop. The next rp->Next short-circuits
-    # to RS_RESULT_TIMEDOUT in rpQueryItNext (the AREQ_TimedOut check at the
+    # to RS_RESULT_STOPPED in rpQueryItNext (the AREQ_TimedOut check at the
     # top of the while(1) loop), so AggregateResults exits with N buffered
     # rows. The callback (loser of TryClaim) waits for completion, skips the
     # post-timeout drain (canYieldPartialResults == false for the trivial
@@ -8700,7 +8700,7 @@ class TestShardTimeout:
         """Mid-iteration timeout right before the last row would be read.
 
         Pauses after LIMIT-1 buffered rows, then fires the timeout. The
-        next rp->Next sees AREQ_TimedOut and returns RS_RESULT_TIMEDOUT
+        next rp->Next sees AREQ_TimedOut and returns RS_RESULT_STOPPED
         instead of producing the LIMIT-th row, so the reply contains
         exactly LIMIT-1 rows. Boundary case: confirms the loop exits via
         the timeout path (not via the pager's EOF) when the timeout fires
