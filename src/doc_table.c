@@ -710,7 +710,6 @@ PendingSlotDeletion *DocTable_AddPendingDeletionWithCutoff(DocTable *t,
   PendingSlotDeletion *pending = rm_malloc(sizeof(*pending));
   pending->slots = SlotRangeArray_Clone(slots);
   pending->maxDocId = maxDocId;
-  pending->diskTrimId = 0;
   pending->next = t->pendingSlotDeletions;
   t->pendingSlotDeletions = pending;
   t->memsize += sizeof(*pending) + SlotRangeArray_SizeOf(slots->num_ranges);
