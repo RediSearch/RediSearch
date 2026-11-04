@@ -41,20 +41,29 @@ impl ExpirationBits {
         self.0.as_mut_slice()[byte] |= Self::mask(ordinal);
     }
 
-    /// The ordinals below `entries`, copied a byte at a time. Trailing bytes left with no bit are
-    /// dropped, so a prefix that holds no ordinal does not allocate.
+    /// The ordinals below `entries`: a copy of the bytes that hold them, with the bits past them
+    /// masked off. Trailing bytes left with no bit are not copied, so a prefix that holds no
+    /// ordinal does not allocate.
     pub(crate) fn prefix(&self, entries: u16) -> Self {
-        let bytes = self.0.as_slice();
-        // The byte holding ordinal `entries` keeps only the bits below it.
-        let partial = (entries % 8 != 0).then(|| Self::byte(entries));
-        let kept = |i: usize| match partial {
-            Some(p) if p == i => bytes[i] & (Self::mask(entries) - 1),
-            _ => bytes[i],
+        let bytes = &self.0.as_slice()[..usize::from(entries).div_ceil(8).min(self.0.len())];
+        // Only the byte holding ordinal `entries` itself has bits past the cut.
+        let tail_mask = |i: usize| {
+            if entries % 8 != 0 && i == Self::byte(entries) {
+                Self::mask(entries) - 1
+            } else {
+                u8::MAX
+            }
         };
-        let reach = usize::from(entries).div_ceil(8).min(bytes.len());
-        let len = (0..reach).rposition(|i| kept(i) != 0).map_or(0, |i| i + 1);
+        let len = bytes
+            .iter()
+            .enumerate()
+            .rposition(|(i, &byte)| byte & tail_mask(i) != 0)
+            .map_or(0, |i| i + 1);
         let mut prefix = ThinVec::with_capacity(len);
-        prefix.extend((0..len).map(kept));
+        prefix.extend_from_slice(&bytes[..len]);
+        if let Some(last) = prefix.as_mut_slice().last_mut() {
+            *last &= tail_mask(len - 1);
+        }
         Self(prefix)
     }
 
