@@ -14,16 +14,27 @@ use std::{
 
 use crate::{
     Decoder, Encoder, EntriesTrackingIndex, GcApplyInfo, GcScanDelta, IdDelta, IndexBlock,
-    InvertedIndex, gc::BlockGcScanResult, gc::RepairType,
+    InvertedIndex, gc::BlockGcScanResult, gc::RepairType, index::ExpirationBits,
 };
 use ffi::IndexFlags_Index_DocIdsOnly;
 use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 use rqe_core::DocId;
-use smallvec::smallvec;
+use smallvec::SmallVec;
 use thin_vec::medium_thin_vec;
 
 use super::{Dummy, encode_ids};
+
+/// Pairs each block with an empty field-expiration bitset, as the repair of an index without
+/// field TTLs does.
+fn without_ttls<const N: usize>(
+    blocks: [IndexBlock; N],
+) -> SmallVec<[(IndexBlock, ExpirationBits); 3]> {
+    blocks
+        .into_iter()
+        .map(|b| (b, ExpirationBits::new()))
+        .collect()
+}
 
 #[test]
 fn index_block_repair_delete() {
@@ -33,7 +44,6 @@ fn index_block_repair_delete() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 11,
-        expiration_bits: Default::default(),
     };
 
     fn cb(doc_id: DocId) -> bool {
@@ -43,6 +53,7 @@ fn index_block_repair_delete() {
     let repair_status = block
         .repair(
             0,
+            None,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<Dummy>,
@@ -65,7 +76,6 @@ fn index_block_repair_unchanged() {
         num_entries: 2,
         first_doc_id: 10,
         last_doc_id: 11,
-        expiration_bits: Default::default(),
     };
 
     fn cb(_doc_id: DocId) -> bool {
@@ -75,6 +85,7 @@ fn index_block_repair_unchanged() {
     let repair_status = block
         .repair(
             0,
+            None,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<Dummy>,
@@ -92,7 +103,6 @@ fn index_block_repair_some_deletions() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 12,
-        expiration_bits: Default::default(),
     };
 
     fn cb(doc_id: DocId) -> bool {
@@ -102,6 +112,7 @@ fn index_block_repair_some_deletions() {
     let repair_status = block
         .repair(
             0,
+            None,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<Dummy>,
@@ -111,13 +122,12 @@ fn index_block_repair_some_deletions() {
     assert_eq!(
         repair_status,
         Some(RepairType::Replace {
-            blocks: smallvec![IndexBlock {
+            blocks: without_ttls([IndexBlock {
                 first_doc_id: 11,
                 last_doc_id: 11,
                 num_entries: 1,
                 buffer: encode_ids!(Dummy, 11),
-                expiration_bits: Default::default(),
-            }],
+            }]),
             n_unique_docs_removed: 2
         })
     );
@@ -204,7 +214,6 @@ fn index_block_repair_delta_too_big() {
         num_entries: 3,
         first_doc_id: 10,
         last_doc_id: 42,
-        expiration_bits: Default::default(),
     };
 
     fn cb(doc_id: DocId) -> bool {
@@ -214,6 +223,7 @@ fn index_block_repair_delta_too_big() {
     let repair_status = block
         .repair(
             0,
+            None,
             cb,
             None::<fn(&RSIndexResult, &crate::RepairContext<'_>)>,
             PhantomData::<SmallDeltaDummy>,
@@ -223,7 +233,7 @@ fn index_block_repair_delta_too_big() {
     assert_eq!(
         repair_status,
         Some(RepairType::Replace {
-            blocks: smallvec![
+            blocks: without_ttls([
                 IndexBlock {
                     buffer: {
                         let mut writer = Cursor::new(Vec::new());
@@ -239,7 +249,6 @@ fn index_block_repair_delta_too_big() {
                     num_entries: 1,
                     first_doc_id: 10,
                     last_doc_id: 10,
-                    expiration_bits: Default::default(),
                 },
                 IndexBlock {
                     buffer: {
@@ -256,9 +265,8 @@ fn index_block_repair_delta_too_big() {
                     num_entries: 1,
                     first_doc_id: 42,
                     last_doc_id: 42,
-                    expiration_bits: Default::default(),
                 }
-            ],
+            ]),
             n_unique_docs_removed: 1
         })
     );
@@ -277,28 +285,24 @@ fn ii_scan_gc() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 40),
             num_entries: 1,
             first_doc_id: 40,
             last_doc_id: 40,
-            expiration_bits: Default::default(),
         },
     ];
 
@@ -328,13 +332,12 @@ fn ii_scan_gc() {
                 BlockGcScanResult {
                     index: 1,
                     repair: RepairType::Replace {
-                        blocks: smallvec![IndexBlock {
+                        blocks: without_ttls([IndexBlock {
                             buffer: encode_ids!(Dummy, 21, 22),
                             num_entries: 2,
                             first_doc_id: 21,
                             last_doc_id: 22,
-                            expiration_bits: Default::default(),
-                        }],
+                        }]),
                         n_unique_docs_removed: 1
                     },
                 },
@@ -352,14 +355,12 @@ fn ii_scan_gc_no_change() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
-            expiration_bits: Default::default(),
         },
     ];
     let ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
@@ -389,35 +390,31 @@ fn ii_apply_gc() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 30),
             num_entries: 1,
             first_doc_id: 30,
             last_doc_id: 30,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 40, 71, 72),
             num_entries: 3,
             first_doc_id: 40,
             last_doc_id: 72,
-            expiration_bits: Default::default(),
         },
     ];
     let mut ii = InvertedIndex::<Dummy>::from_blocks(IndexFlags_Index_DocIdsOnly, blocks);
 
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
+        32// Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
         + 8 // Size of the buffer of the first index block
@@ -436,35 +433,32 @@ fn ii_apply_gc() {
         BlockGcScanResult {
             index: 1,
             repair: RepairType::Replace {
-                blocks: smallvec![IndexBlock {
+                blocks: without_ttls([IndexBlock {
                     buffer: encode_ids!(Dummy, 21),
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
-                    expiration_bits: Default::default(),
-                }],
+                }]),
                 n_unique_docs_removed: 2,
             },
         },
         BlockGcScanResult {
             index: 3,
             repair: RepairType::Replace {
-                blocks: smallvec![
+                blocks: without_ttls([
                     IndexBlock {
                         buffer: encode_ids!(Dummy, 40),
                         num_entries: 1,
                         first_doc_id: 40,
                         last_doc_id: 40,
-                        expiration_bits: Default::default(),
                     },
                     IndexBlock {
                         buffer: encode_ids!(Dummy, 72),
                         num_entries: 1,
                         first_doc_id: 72,
                         last_doc_id: 72,
-                        expiration_bits: Default::default(),
                     },
-                ],
+                ]),
                 n_unique_docs_removed: 1,
             },
         },
@@ -484,7 +478,7 @@ fn ii_apply_gc() {
 
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
+        32// Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 4 // Size of the index blocks
         + 8 // Size of the buffer of the first index block
@@ -502,28 +496,24 @@ fn ii_apply_gc() {
                 num_entries: 1,
                 first_doc_id: 21,
                 last_doc_id: 21,
-                expiration_bits: Default::default(),
             },
             IndexBlock {
                 buffer: encode_ids!(Dummy, 30),
                 num_entries: 1,
                 first_doc_id: 30,
                 last_doc_id: 30,
-                expiration_bits: Default::default(),
             },
             IndexBlock {
                 buffer: encode_ids!(Dummy, 40),
                 num_entries: 1,
                 first_doc_id: 40,
                 last_doc_id: 40,
-                expiration_bits: Default::default(),
             },
             IndexBlock {
                 buffer: encode_ids!(Dummy, 72),
                 num_entries: 1,
                 first_doc_id: 72,
                 last_doc_id: 72,
-                expiration_bits: Default::default(),
             },
         ]
     );
@@ -531,9 +521,9 @@ fn ii_apply_gc() {
         apply_info,
         GcApplyInfo {
             // The first, second and fourth block were removed.
-            bytes_freed: 208,
+            bytes_freed: 184,
             // The third and fifth block were split into new blocks.
-            bytes_allocated: 192,
+            bytes_allocated: 168,
             entries_removed: 5,
             // Removed 3, added back (split blocks) — see `apply_gc` for the exact net delta
             block_count_delta: 0,
@@ -551,14 +541,12 @@ fn ii_apply_gc_last_block_updated() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-            expiration_bits: Default::default(),
         },
     ];
 
@@ -566,7 +554,7 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(
         ii.memory_usage(),
-        24// Size of an empty inverted index
+        32// Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE * 2 // Size of the index blocks
         + 8 // Size of the buffer of the first index block
@@ -583,13 +571,12 @@ fn ii_apply_gc_last_block_updated() {
         BlockGcScanResult {
             index: 1,
             repair: RepairType::Replace {
-                blocks: smallvec![IndexBlock {
+                blocks: without_ttls([IndexBlock {
                     buffer: encode_ids!(Dummy, 21),
                     num_entries: 1,
                     first_doc_id: 21,
                     last_doc_id: 21,
-                    expiration_bits: Default::default(),
-                }],
+                }]),
                 n_unique_docs_removed: 2,
             },
         },
@@ -611,7 +598,7 @@ fn ii_apply_gc_last_block_updated() {
 
     assert_eq!(
         ii.memory_usage(),
-        24 // Size of an empty inverted index
+        32 // Size of an empty inverted index
         + 8 // Size of the header of the thinvec storing blocks
         + IndexBlock::STACK_SIZE // Size of the index blocks
         + 16 // Size of the buffer of the first index block
@@ -625,14 +612,13 @@ fn ii_apply_gc_last_block_updated() {
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-            expiration_bits: Default::default(),
         },]
     );
     assert_eq!(
         apply_info,
         GcApplyInfo {
             // Freed only the first block
-            bytes_freed: 64,
+            bytes_freed: 56,
             // Nothing new was made in the end
             bytes_allocated: 0,
             entries_removed: 2,
@@ -657,14 +643,12 @@ fn ii_apply_gc_last_block_updated_no_delta() {
             num_entries: 2,
             first_doc_id: 10,
             last_doc_id: 11,
-            expiration_bits: Default::default(),
         },
         IndexBlock {
             buffer: encode_ids!(Dummy, 20, 21, 22),
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-            expiration_bits: Default::default(),
         },
     ];
 
@@ -690,7 +674,7 @@ fn ii_apply_gc_last_block_updated_no_delta() {
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 64,
+            bytes_freed: 56,
             bytes_allocated: 0,
             entries_removed: 2,
             block_count_delta: -1,
@@ -708,7 +692,6 @@ fn ii_apply_gc_last_block_updated_no_delta() {
             num_entries: 3,
             first_doc_id: 20,
             last_doc_id: 22,
-            expiration_bits: Default::default(),
         }]
     );
 }
@@ -780,13 +763,12 @@ fn ii_apply_gc_entries_tracking_index() {
         deltas: vec![BlockGcScanResult {
             index: 0,
             repair: RepairType::Replace {
-                blocks: smallvec![IndexBlock {
+                blocks: without_ttls([IndexBlock {
                     buffer: encode_ids!(AllowDupsDummy, 15, 15),
                     num_entries: 2,
                     first_doc_id: 15,
                     last_doc_id: 15,
-                    expiration_bits: Default::default(),
-                }],
+                }]),
                 n_unique_docs_removed: 1,
             },
         }],
@@ -819,14 +801,13 @@ fn ii_apply_gc_entries_tracking_index() {
             num_entries: 2,
             first_doc_id: 15,
             last_doc_id: 15,
-            expiration_bits: Default::default(),
         },]
     );
     assert_eq!(
         apply_info,
         GcApplyInfo {
-            bytes_freed: 73,
-            bytes_allocated: 64,
+            bytes_freed: 65,
+            bytes_allocated: 56,
             entries_removed: 2,
             block_count_delta: 0,
             ignored_last_block: false,

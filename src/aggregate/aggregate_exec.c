@@ -458,13 +458,13 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
       // already owns the reply. The caller must skip stored-result handling and
       // clean up the cursor in runCursor.
       req->base.async.aggregateResultsClaimLost = true;
-      *rc = RS_RESULT_TIMEDOUT;
+      *rc = RS_RESULT_STOPPED;
       return;
     }
     if (QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
       // We claimed the sync phase, but timeout was already signaled. Store a
       // timed-out cursor-shaped reply and wake the timeout callback.
-      *rc = RS_RESULT_TIMEDOUT;
+      *rc = RS_RESULT_STOPPED;
       return;
     }
     // We own the production phase: link the sync context into the safe loaders so
@@ -477,7 +477,7 @@ static void startPipeline(AREQ *req, ResultProcessor *rp, SearchResult ***result
 
   // Pipeline done without timing out; advance the marker so a timeout from here on
   // is attributed to the REPLY stage.
-  if (*rc != RS_RESULT_TIMEDOUT) {
+  if (*rc != RS_RESULT_STOPPED) {
     AREQ_SetExecutionStage(req, QUERY_TIMEOUT_STAGE_REPLY);
   }
 
@@ -613,7 +613,7 @@ static int replyForPreExecutionTimeout(RedisModuleCtx *ctx, RedisModuleString **
   const bool isProfile = profileOptions & EXEC_WITH_PROFILE;
   const RSTimeoutPolicy timeoutPolicy = RSGlobalConfig.timeoutConfigParams.timeoutPolicy;
   const bool shouldReplyWithError =
-      ShouldReplyWithTimeoutError(RS_RESULT_TIMEDOUT, timeoutPolicy, isProfile);
+      ShouldReplyWithTimeoutError(RS_RESULT_STOPPED, timeoutPolicy, isProfile);
 
   if (shouldReplyWithError) {
     QueryErrorsGlobalStats_UpdateError(QUERY_ERROR_CODE_TIMED_OUT, 1, !isInternal);
@@ -659,7 +659,7 @@ static void trackWarnings_Resp2(AREQ *req, QueryProcessingCtx *qctx, int rc) {
   // carries a TIMEDOUT warning; the coord pipeline keeps draining other shards
   // and rc stays !=TIMEDOUT, so the flag is the only path through which the
   // user-visible TIMEOUT warning is surfaced in that case.
-  bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err)
+  bool has_timedout = (rc == RS_RESULT_STOPPED) || hasTimeoutError(qctx->err)
                       || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING);
   if (has_timedout) {
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
@@ -720,7 +720,7 @@ static bool shouldSetCursorDone(AREQ *req, int rc) {
     return false;
   }
 
-  if (rc == RS_RESULT_TIMEDOUT) {
+  if (rc == RS_RESULT_STOPPED) {
     switch (req->base.limits.timeout.config.timeoutPolicy) {
       case TimeoutPolicy_Return:
         // A memory stop ends the request even when its outcome is reported as a timeout.
@@ -756,7 +756,7 @@ static int serializeAndReplyResults_Resp2(AREQ *req, RedisModule_Reply *reply, R
     const RSTimeoutPolicy policy_2 = req->base.limits.timeout.config.timeoutPolicy;
     const bool buffered_2 =
         state->results != NULL && (policy_2 == TimeoutPolicy_ReturnStrict ||
-                                   (policy_2 == TimeoutPolicy_Return && rc == RS_RESULT_TIMEDOUT));
+                                   (policy_2 == TimeoutPolicy_Return && rc == RS_RESULT_STOPPED));
     if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
         (!buffered_2 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_2;
@@ -868,7 +868,7 @@ static void _replyWarnings(AREQ *req, RedisModule_Reply *reply, int rc) {
   // carries a TIMEDOUT warning; the coord pipeline keeps draining other shards
   // and rc stays !=TIMEDOUT, so the flag is the only path through which the
   // user-visible TIMEOUT warning is surfaced in that case.
-  if (rc == RS_RESULT_TIMEDOUT
+  if (rc == RS_RESULT_STOPPED
       || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING)) {
     // Track warnings in global statistics
     QueryWarningsGlobalStats_UpdateWarning(QUERY_WARNING_CODE_TIMED_OUT, 1, !IsInternal(req));
@@ -947,7 +947,7 @@ static void finishSendChunkReply_Resp3(AREQ *req, RedisModule_Reply *reply,
   // <error>
   _replyWarnings(req, reply, rc);
 
-  bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(qctx->err)
+  bool has_timedout = (rc == RS_RESULT_STOPPED) || hasTimeoutError(qctx->err)
                       || (req->stateflags & QEXEC_S_SHARD_TIMED_OUT_WARNING);
 
   if (IsProfile(req)) {
@@ -993,7 +993,7 @@ static int serializeAndReplyResults_Resp3(AREQ *req, RedisModule_Reply *reply, R
     const RSTimeoutPolicy policy_3 = req->base.limits.timeout.config.timeoutPolicy;
     const bool buffered_3 =
         state->results != NULL && (policy_3 == TimeoutPolicy_ReturnStrict ||
-                                   (policy_3 == TimeoutPolicy_Return && rc == RS_RESULT_TIMEDOUT));
+                                   (policy_3 == TimeoutPolicy_Return && rc == RS_RESULT_STOPPED));
     if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
         (!buffered_3 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_3;
@@ -1686,7 +1686,7 @@ static int QueryTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModuleStri
   // BG signals only after AREQ_StoreResults
   RS_ASSERT(req->base.reply.hasStoredResults);
   if (AREQ_RequestFlags(req) & QEXEC_F_IS_CURSOR) {
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+    req->base.reply.rc = RS_RESULT_STOPPED;
   }
 
   // Drain any results buffered post-timeout (e.g. RPSorter heap).
@@ -1829,7 +1829,7 @@ static int CursorReadTimeoutReturnStrictCallback(RedisModuleCtx *ctx, RedisModul
   AREQ_WaitForAggregateResultsComplete(req);
 
   if (req->base.reply.hasStoredResults) {
-    req->base.reply.rc = RS_RESULT_TIMEDOUT;
+    req->base.reply.rc = RS_RESULT_STOPPED;
     drainPartialResultsAfterTimeout(req);
     AREQ_ReplyWithStoredResults(ctx, req);
   } else if (QueryError_HasError(&req->base.reply.err)) {
