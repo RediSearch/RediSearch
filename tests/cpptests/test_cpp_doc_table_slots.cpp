@@ -10,12 +10,18 @@
 #include "gtest/gtest.h"
 
 #include <initializer_list>
+#include <limits>
+#include <memory>
 #include <string>
 #include <utility>
 
 #include "doc_table.h"
+#include "inverted_index.h"
+#include "iterators_ffi.h"
+#include "numeric_range_tree_ffi.h"
 #include "rmalloc.h"
 #include "slot_ranges.h"
+#include "spec.h"
 
 namespace {
 
@@ -51,6 +57,7 @@ class DocTableSlotsTest : public ::testing::Test {
 
   bool visible(t_docId id) {
     const RSDocumentMetadata *dmd = DocTable_Borrow(&dt, id);
+    EXPECT_EQ(DocTable_IsVisible(&dt, id), dmd != nullptr);
     DMD_Return(dmd);
     return dmd != nullptr;
   }
@@ -149,6 +156,58 @@ TEST_F(DocTableSlotsTest, DeleteByIdRemovesHiddenDoc) {
   EXPECT_EQ(removed->id, id);
   DMD_Return(removed);
   EXPECT_FALSE(DocTable_Exists(&dt, id));
+  EXPECT_FALSE(visible(id));
+  EXPECT_FALSE(visible(0));
+  EXPECT_FALSE(visible(id + 1));
+}
+
+TEST_F(DocTableSlotsTest, NumericTopKExcludesPendingDeletionsBeforeFillingHeap) {
+  const t_docId hidden = put("{a}old");
+  const t_docId otherSlot = put("{b}live");
+  addPending({{SLOT_A, SLOT_A}});
+  const t_docId newInSlot = put("{a}new");
+  const t_docId deleted = put("{b}deleted");
+  DMD_Return(DocTable_DeleteById(&dt, deleted));
+
+  auto tree = std::unique_ptr<NumericRangeTree, decltype(&NumericRangeTree_Free)>(
+      NewNumericRangeTree(false), NumericRangeTree_Free);
+  _NumericRangeTree_Add(tree.get(), hidden, 1.0, false, false, 0);
+  _NumericRangeTree_Add(tree.get(), otherSlot, 3.0, false, false, 0);
+  _NumericRangeTree_Add(tree.get(), newInSlot, 2.0, false, false, 0);
+  _NumericRangeTree_Add(tree.get(), deleted, 0.0, false, false, 0);
+
+  ASSERT_TRUE(DocTable_Exists(&dt, hidden));
+  ASSERT_FALSE(visible(hidden));
+  ASSERT_TRUE(visible(newInSlot));
+
+  // Borrow the fixture's table without transferring ownership to the search context.
+  IndexSpec spec = {};
+  spec.docs = dt;
+  RedisSearchCtx sctx = {};
+  sctx.spec = &spec;
+  NumericFilter filter = {};
+  filter.min = -std::numeric_limits<double>::infinity();
+  filter.max = std::numeric_limits<double>::infinity();
+  filter.minInclusive = filter.maxInclusive = true;
+  FieldFilterContext filterCtx = {};
+  filterCtx.field.index_tag = FieldMaskOrIndex_Index;
+  filterCtx.field.index = 0;
+  filterCtx.predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT;
+
+  const t_docId expected[] = {newInSlot, otherSlot};
+  for (size_t k : {1, 2}) {
+    SCOPED_TRACE(k);
+    auto freeIterator = [](QueryIterator *it) { it->Free(it); };
+    auto it = std::unique_ptr<QueryIterator, decltype(freeIterator)>(
+        NewNumericTopKIterator(tree.get(), &filter, true, k, 3, nullptr, &sctx, &filterCtx),
+        freeIterator);
+    ASSERT_NE(it, nullptr);
+    for (size_t i = 0; i < k; ++i) {
+      ASSERT_EQ(it->Read(it.get()), ITERATOR_OK);
+      EXPECT_EQ(it->current->docId, expected[i]);
+    }
+    EXPECT_EQ(it->Read(it.get()), ITERATOR_EOF);
+  }
 }
 
 TEST_F(DocTableSlotsTest, FreeReleasesPendingDeletions) {
