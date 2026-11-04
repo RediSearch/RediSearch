@@ -67,4 +67,10 @@ impl DeletedDocs {
     pub fn is_empty(&self) -> bool {
         self.ids.is_empty()
     }
+
+    /// An estimate of the bytes the set holds: the size of its serialized form,
+    /// which follows its containers closely, as the set exposes no allocation size.
+    pub fn memory_usage(&self) -> usize {
+        self.ids.serialized_size()
+    }
 }
