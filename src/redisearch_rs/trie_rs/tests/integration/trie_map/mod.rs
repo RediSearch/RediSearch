@@ -59,63 +59,81 @@ fn test_trie_child_additions() {
     "#);
 }
 
-#[test]
-fn long_keys_preserve_lookup_iteration_removal_and_memory_accounting() {
-    for length in [
-        u16::MAX as usize,
-        u16::MAX as usize + 1,
-        65541,
-        2 * u16::MAX as usize + 1,
-    ] {
-        for prefill in [None, Some(b"unrelated".as_slice()), Some(b"aab".as_slice())] {
-            let mut trie = TrieMap::new();
-            if let Some(key) = prefill {
-                trie.insert(key, 0);
-            }
-            let key = vec![b'a'; length];
-            let mut neighbour = key.clone();
-            neighbour[length / 2] = b'b';
-            let prefix = &key[..length / 2];
-            assert_eq!(trie.insert(&key, 1), None);
-            assert_eq!(trie.insert(&neighbour, 2), None);
-            assert_eq!(trie.insert(prefix, 3), None);
-            assert_eq!(trie.find(&key), Some(&1));
-            assert_eq!(trie.find(&neighbour), Some(&2));
-            assert_eq!(trie.find(prefix), Some(&3));
-            assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
-            let mut expected = vec![
-                (key.clone(), 1),
-                (neighbour.clone(), 2),
-                (prefix.to_vec(), 3),
-            ];
-            if let Some(key) = prefill {
-                expected.push((key.to_vec(), 0));
-            }
-            expected.sort();
-            assert_eq!(
-                trie.iter().map(|(k, v)| (k, *v)).collect::<Vec<_>>(),
-                expected
-            );
-            assert_eq!(
-                trie.clone()
-                    .iter()
-                    .map(|(k, v)| (k, *v))
-                    .collect::<Vec<_>>(),
-                expected
-            );
-            assert_eq!(trie.remove(prefix), Some(3));
-            assert_eq!(trie.remove(&neighbour), Some(2));
-            assert_eq!(trie.find(&key), Some(&1));
-            assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
-            assert_eq!(trie.remove(&key), Some(1));
-            if let Some(key) = prefill {
-                assert_eq!(trie.remove(key), Some(0));
-            }
-            assert_eq!(trie.n_unique_keys(), 0);
-            assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
-        }
+fn assert_long_key_operations(length: usize, prefill: Option<&[u8]>) {
+    let mut trie = TrieMap::new();
+    if let Some(key) = prefill {
+        trie.insert(key, 0);
     }
+    let key = vec![b'a'; length];
+    let mut neighbour = key.clone();
+    neighbour[length / 2] = b'b';
+    let prefix = &key[..length / 2];
+    assert_eq!(trie.insert(&key, 1), None);
+    assert_eq!(trie.insert(&neighbour, 2), None);
+    assert_eq!(trie.insert(prefix, 3), None);
+    assert_eq!(trie.find(&key), Some(&1));
+    assert_eq!(trie.find(&neighbour), Some(&2));
+    assert_eq!(trie.find(prefix), Some(&3));
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
+    let mut expected = vec![
+        (key.clone(), 1),
+        (neighbour.clone(), 2),
+        (prefix.to_vec(), 3),
+    ];
+    if let Some(key) = prefill {
+        expected.push((key.to_vec(), 0));
+    }
+    expected.sort();
+    assert_eq!(
+        trie.iter().map(|(k, v)| (k, *v)).collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(
+        trie.clone()
+            .iter()
+            .map(|(k, v)| (k, *v))
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(trie.remove(prefix), Some(3));
+    assert_eq!(trie.remove(&neighbour), Some(2));
+    assert_eq!(trie.find(&key), Some(&1));
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
+    assert_eq!(trie.remove(&key), Some(1));
+    if let Some(key) = prefill {
+        assert_eq!(trie.remove(key), Some(0));
+    }
+    assert_eq!(trie.n_unique_keys(), 0);
+    assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
 }
+
+macro_rules! long_key_tests {
+    ($module:ident, $length:expr) => {
+        mod $module {
+            use super::assert_long_key_operations;
+
+            #[test]
+            fn empty_trie() {
+                assert_long_key_operations($length, None);
+            }
+
+            #[test]
+            fn unrelated_prefix() {
+                assert_long_key_operations($length, Some(b"unrelated"));
+            }
+
+            #[test]
+            fn shared_prefix() {
+                assert_long_key_operations($length, Some(b"aab"));
+            }
+        }
+    };
+}
+
+long_key_tests!(long_keys_at_label_limit, u16::MAX as usize);
+long_key_tests!(long_keys_past_label_limit, u16::MAX as usize + 1);
+long_key_tests!(long_keys_observed_gc_length, 65541);
+long_key_tests!(long_keys_multiple_chunks, 2 * u16::MAX as usize + 1);
 
 #[test]
 fn removing_long_keys_reclaims_empty_chunks() {
