@@ -23,16 +23,16 @@ namespace spaces {
 template <typename DataType>
 static inline void normalizeVector_imp(void *vec, const size_t dim) {
     DataType *input_vector = (DataType *)vec;
-    // Cast to double to avoid float overflow.
+    // Stay in double: squaring overflows large floats, and a float norm loses subnormal precision.
     double sum = 0;
 
     for (size_t i = 0; i < dim; i++) {
         sum += (double)input_vector[i] * (double)input_vector[i];
     }
-    DataType norm = sqrt(sum);
+    double norm = sqrt(sum);
 
     for (size_t i = 0; i < dim; i++) {
-        input_vector[i] = input_vector[i] / norm;
+        input_vector[i] = (DataType)(input_vector[i] / norm);
     }
 }
 
@@ -42,18 +42,19 @@ static inline void bfloat16_normalizeVector(void *vec, const size_t dim) {
 
     std::vector<float> f32_tmp(dim);
 
-    float sum = 0;
+    // Squares of small bfloat16 values underflow in float.
+    double sum = 0;
 
     for (size_t i = 0; i < dim; i++) {
         float val = vecsim_types::bfloat16_to_float32<is_little>(input_vector[i]);
         f32_tmp[i] = val;
-        sum += val * val;
+        sum += (double)val * (double)val;
     }
 
-    float norm = sqrt(sum);
+    double norm = sqrt(sum);
 
     for (size_t i = 0; i < dim; i++) {
-        input_vector[i] = vecsim_types::float_to_bf16(f32_tmp[i] / norm);
+        input_vector[i] = vecsim_types::float_to_bf16((float)(f32_tmp[i] / norm));
     }
 }
 

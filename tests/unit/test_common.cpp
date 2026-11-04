@@ -834,6 +834,38 @@ TEST(CommonAPITest, Uint8CosineSelfDistanceAtLargeDimension) {
     VecSimIndex_Free(index);
 }
 
+// The smallest subnormal bfloat16 squares to zero in float.
+TEST(CommonAPITest, NormalizeBfloat16Subnormal) {
+    const bfloat16 t(0x0001);
+    bfloat16 v[] = {t, t};
+
+    VecSim_Normalize(v, 2, VecSimType_BFLOAT16);
+
+    for (const bfloat16 &elem : v) {
+        const float val = vecsim_types::bfloat16_to_float32(elem);
+        ASSERT_TRUE(std::isfinite(val));
+        EXPECT_NEAR(val, M_SQRT1_2, 0.005);
+    }
+}
+
+// The norm of [t, t], t the smallest subnormal float, is not representable as a float.
+TEST(CommonAPITest, Float32CosineSelfDistanceOfSubnormalVector) {
+    BFParams params = {.dim = 2, .metric = VecSimMetric_Cosine};
+    VecSimIndex *index = test_utils::CreateNewIndex(params, VecSimType_FLOAT32);
+
+    const float t = std::numeric_limits<float>::denorm_min();
+    const float v[] = {t, t};
+    VecSimIndex_AddVector(index, v, 0);
+
+    auto *res = VecSimIndex_TopKQuery(index, v, 1, nullptr, BY_SCORE);
+    ASSERT_EQ(VecSimQueryReply_Len(res), 1);
+    auto *it = VecSimQueryReply_GetIterator(res);
+    EXPECT_NEAR(VecSimQueryResult_GetScore(VecSimQueryReply_IteratorNext(it)), 0.0, 1e-6);
+    VecSimQueryReply_IteratorFree(it);
+    VecSimQueryReply_Free(res);
+    VecSimIndex_Free(index);
+}
+
 /**
  * This test verifies that a tiered index correctly returns the closest vectors when querying data
  * distributed across both the flat and the backend indices, specifically when duplicate labels
