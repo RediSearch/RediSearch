@@ -41,6 +41,23 @@ impl ExpirationBits {
         self.0.as_mut_slice()[byte] |= Self::mask(ordinal);
     }
 
+    /// The ordinals below `entries`, copied a byte at a time. Trailing bytes left with no bit are
+    /// dropped, so a prefix that holds no ordinal does not allocate.
+    pub(crate) fn prefix(&self, entries: u16) -> Self {
+        let bytes = self.0.as_slice();
+        // The byte holding ordinal `entries` keeps only the bits below it.
+        let partial = (entries % 8 != 0).then(|| Self::byte(entries));
+        let kept = |i: usize| match partial {
+            Some(p) if p == i => bytes[i] & (Self::mask(entries) - 1),
+            _ => bytes[i],
+        };
+        let reach = usize::from(entries).div_ceil(8).min(bytes.len());
+        let len = (0..reach).rposition(|i| kept(i) != 0).map_or(0, |i| i + 1);
+        let mut prefix = ThinVec::with_capacity(len);
+        prefix.extend((0..len).map(kept));
+        Self(prefix)
+    }
+
     /// Whether the set holds no ordinal.
     pub(crate) fn is_empty(&self) -> bool {
         self.0.is_empty()

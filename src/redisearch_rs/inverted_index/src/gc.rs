@@ -264,12 +264,7 @@ impl IndexBlock {
         prefix.num_entries = entries;
         // The base the next survivor's delta is encoded against.
         prefix.last_doc_id = last;
-        let mut bits = ExpirationBits::new();
-        if let Some(expiration) = expiration {
-            for ordinal in (0..entries).filter(|&ordinal| expiration.contains(ordinal)) {
-                bits.insert(ordinal);
-            }
-        }
+        let bits = expiration.map_or_else(ExpirationBits::new, |bits| bits.prefix(entries));
         survivors.push_block(prefix, bits);
         survivors
     }
@@ -332,10 +327,10 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         doc_exist: impl DocLiveness,
         mut repair: Option<impl for<'call> FnMut(&RSIndexResult<'call>, &RepairContext<'call>)>,
     ) -> std::io::Result<Option<GcScanDelta>> {
-        let (Some(first), Some(last)) = (self.blocks.first(), self.blocks.last()) else {
+        let Some(span) = self.doc_id_range() else {
             return Ok(None);
         };
-        if !doc_exist.any_gone(first.first_doc_id, last.last_doc_id) {
+        if !doc_exist.any_gone(*span.start(), *span.end()) {
             return Ok(None);
         }
         // `repair` must see every surviving entry, so blocks are only skipped without it.
