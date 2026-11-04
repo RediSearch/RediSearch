@@ -88,6 +88,7 @@ configPair_t __configPairs[] = {
   {"FORK_GC_RUN_INTERVAL",            "search-fork-gc-run-interval"},
   {"FORKGC_SLEEP_BEFORE_EXIT",        "search-fork-gc-sleep-before-exit"},
   {"FRISOINI",                        "search-friso-ini"},
+  {"GC_CLEAN_THRESHOLD_PER_MILLE",    "search-gc-clean-threshold-per-mille"},
   {"GC_POLICY",                       ""},
   {"GCSCANSIZE",                      "search-gc-scan-size"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
@@ -1082,10 +1083,33 @@ CONFIG_GETTER(getGcScanSize) {
   return sdscatprintf(ss, "%lu", config->gcConfigParams.gcScanSize);
 }
 
+// Whether a config source other than the registered defaults set the run interval.
+static bool gcRunIntervalSet = false;
+
 // FORK_GC_RUN_INTERVAL
 CONFIG_SETTER(setForkGcInterval) {
   int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcRunIntervalSec, AC_F_GE1);
+  gcRunIntervalSet |= acrc == AC_OK;
   RETURN_STATUS(acrc);
+}
+
+static int set_gc_run_interval_config(const char *name, long long val, void *privdata,
+                                      RedisModuleString **err) {
+  gcRunIntervalSet = true;
+  return set_size_t_numeric_config(name, val, privdata, err);
+}
+
+int RSConfig_LoadDefaultConfigs(RedisModuleCtx *ctx) {
+  int rc = RedisModule_LoadDefaultConfigs(ctx);
+  gcRunIntervalSet = false;
+  return rc;
+}
+
+void RSConfig_ApplyGcPolicyDefaults(void) {
+  if (RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread && !gcRunIntervalSet &&
+      !SearchDisk_IsEnabledForValidation()) {
+    RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_THREAD_GC_RUN_INTERVAL;
+  }
 }
 
 CONFIG_GETTER(getForkGcInterval) {
@@ -1102,6 +1126,44 @@ CONFIG_SETTER(setForkGcCleanThreshold) {
 CONFIG_GETTER(getForkGcCleanThreshold) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcCleanThreshold);
+}
+
+// GC_CLEAN_THRESHOLD_PER_MILLE
+CONFIG_SETTER(setGcCleanThresholdPerMille) {
+  size_t perMille;
+  int acrc = AC_GetSize(ac, &perMille, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (perMille > MAX_GC_CLEAN_THRESHOLD_PER_MILLE) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Value cannot exceed %d",
+                                     MAX_GC_CLEAN_THRESHOLD_PER_MILLE);
+    return REDISMODULE_ERR;
+  }
+  config->gcConfigParams.gcSettings.gcCleanThresholdPerMille = perMille;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getGcCleanThresholdPerMille) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.gcCleanThresholdPerMille);
+}
+
+// _GC_THREADS
+CONFIG_SETTER(setGcThreads) {
+  size_t threads;
+  int acrc = AC_GetSize(ac, &threads, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (threads > MAX_GC_THREADS) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                     "_GC_THREADS must be at most %d", MAX_GC_THREADS);
+    return REDISMODULE_ERR;
+  }
+  config->gcConfigParams.gcThreads = threads;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getGcThreads) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%zu", config->gcConfigParams.gcThreads);
 }
 
 // FORK_GC_RETRY_INTERVAL
@@ -1259,10 +1321,10 @@ CONFIG_SETTER(setGcPolicy) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
-    config->gcConfigParams.gcPolicy = GCPolicy_Fork;
-  } else if (!strcasecmp(policy, "THREAD")) {
+  if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "THREAD")) {
     config->gcConfigParams.gcPolicy = GCPolicy_Thread;
+  } else if (!strcasecmp(policy, "FORK")) {
+    config->gcConfigParams.gcPolicy = GCPolicy_Fork;
   } else if (!strcasecmp(policy, "LEGACY")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
     return REDISMODULE_ERR;
@@ -1776,20 +1838,25 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMinPhoneticTermLen,
          .getValue = getMinPhoneticTermLen},
         {.name = "GC_POLICY",
-         .helpText = "gc policy to use (DEFAULT/FORK/THREAD)",
+         .helpText = "gc policy to use (DEFAULT/THREAD/FORK); DEFAULT is THREAD",
          .setValue = setGcPolicy,
          .getValue = getGcPolicy,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
         {.name = "FORK_GC_RUN_INTERVAL",
-         .helpText = "interval (in seconds) in which to run the fork gc (relevant only when fork "
-                     "gc is used)",
+         .helpText = "interval (in seconds) in which to run the gc (default 5 under the THREAD "
+                     "policy, 30 under FORK)",
          .setValue = setForkGcInterval,
          .getValue = getForkGcInterval},
         {.name = "FORK_GC_CLEAN_THRESHOLD",
-         .helpText = "the fork gc will only start to clean when the number of not cleaned document "
+         .helpText = "the gc will only start to clean when the number of not cleaned document "
                      "will exceed this threshold",
          .setValue = setForkGcCleanThreshold,
          .getValue = getForkGcCleanThreshold},
+        {.name = "GC_CLEAN_THRESHOLD_PER_MILLE",
+         .helpText = "under the THREAD policy, the gc also waits for this many not cleaned "
+                     "documents per thousand in the index",
+         .setValue = setGcCleanThresholdPerMille,
+         .getValue = getGcCleanThresholdPerMille},
         {.name = "FORK_GC_RETRY_INTERVAL",
          .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
          .setValue = setForkGcRetryInterval,
@@ -2243,11 +2310,20 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig (
-      ctx, "search-fork-gc-clean-threshold",
+      ctx, "search-fork-gc-clean-threshold|search-gc-clean-threshold",
       SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_CLEAN_THRESHOLD : DEFAULT_FORK_GC_CLEAN_THRESHOLD,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-gc-clean-threshold-per-mille", DEFAULT_GC_CLEAN_THRESHOLD_PER_MILLE,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      MAX_GC_CLEAN_THRESHOLD_PER_MILLE, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.gcCleanThresholdPerMille)
     )
   )
 
@@ -2262,10 +2338,10 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-fork-gc-run-interval",
+      ctx, "search-fork-gc-run-interval|search-gc-run-interval",
       SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_RUN_INTERVAL : DEFAULT_FORK_GC_RUN_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      LLONG_MAX, get_size_t_numeric_config, set_gc_run_interval_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec)
     )
   )
