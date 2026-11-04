@@ -431,7 +431,7 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
     sctx.redisCtx = ctx;
     sctx.spec = spec;
     QueryProcessingCtx processing{};
-    ResultProcessor *processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx);
+    ResultProcessor *processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, false);
     processor->parent = &processing;
     SearchResult result = SearchResult_New();
     std::vector<t_docId> ids;
@@ -528,7 +528,7 @@ class BufferedDiskQuery {
     sctx.redisCtx = ctx;
     sctx.spec = spec;
     sctx.diskSnapshot = snapshot;
-    processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx);
+    processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, false);
     QITR_PushRP(&processing, processor);
   }
 
@@ -550,6 +550,11 @@ class BufferedDiskQuery {
     auto *sorter = RPSorter_NewByScore(6, nullptr);
     QITR_PushRP(activeProcessing, sorter);
     processor = sorter;
+  }
+
+  void normalizeScores() {
+    processor = RPMaxScoreNormalizer_New(nullptr);
+    QITR_PushRP(activeProcessing, processor);
   }
 
   void profileHybrid() {
@@ -777,6 +782,45 @@ TEST_F(DiskSlotAsyncVisibilityTest, EarlyQueryFreeReleasesEveryBufferedMetadataR
   ASSERT_EQ(pool.decoded.size(), 6);
   for (auto *dmd : pool.decoded) EXPECT_EQ(dmd->ref_count, 1);
 }
+
+class DiskSlotNormalizedVisibilityTest : public DiskSlotAsyncVisibilityTest,
+                                         public ::testing::WithParamInterface<bool> {};
+
+TEST_P(DiskSlotNormalizedVisibilityTest, NormalizedResultsRecheckBufferedVisibility) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  query.normalizeScores();
+  const auto first = query.first();
+  auto *pending = registerTrim();
+  if (GetParam()) {
+    IndexSpec_LockWrite(spec);
+    pool.deletedIds = {2, 3};
+    DocTable_RemovePendingDeletion(&spec->docs, pending);
+    IndexSpec_Unlock(spec);
+  }
+  const auto ids = query.remaining();
+  for (auto id : ids) EXPECT_TRUE(id != 2 && id != 3);
+  EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1u : 2u);
+  EXPECT_EQ(ids.size(), first == 2 || first == 3 ? 4u : 3u);
+  if (!GetParam()) removePending(pending);
+}
+
+TEST_F(DiskSlotAsyncVisibilityTest, HiddenNormalizerRowsStopAtTimeoutForEveryPolicy) {
+  for (const auto policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return, TimeoutPolicy_ReturnStrict}) {
+    BufferedDiskQuery query(ctx, spec, snapshot());
+    query.normalizeScores();
+    query.first();
+    pool.deletedIds = {1, 2, 3, 4, 5, 6};
+    query.expire(policy);
+    EXPECT_EQ(query.nextStatus(), RS_RESULT_TIMEDOUT);
+    EXPECT_EQ(query.skipped(), 1u);
+    pool.deletedIds.clear();
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(TrimState, DiskSlotNormalizedVisibilityTest, ::testing::Bool(),
+                         [](const ::testing::TestParamInfo<bool> &info) {
+                           return info.param ? "Completed" : "Pending";
+                         });
 
 class DiskSlotSortedVisibilityTest : public DiskSlotAsyncVisibilityTest,
                                      public ::testing::WithParamInterface<bool> {};
