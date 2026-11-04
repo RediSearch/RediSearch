@@ -478,7 +478,7 @@ TEST(RPDepleterStopTest, OwnStopWithRowsLeftCutsAndWarns) {
   bool oomCut;
   depleteUnderOwnStop(3, &yielded, &lastRc, &oomCut);
   EXPECT_EQ(yielded, 1u);
-  EXPECT_EQ(lastRc, RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(lastRc, RS_RESULT_STOPPED);
   EXPECT_TRUE(oomCut);
 }
 

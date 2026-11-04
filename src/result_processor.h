@@ -475,16 +475,16 @@ void PipelineAddCrash(struct AREQ *r, enum CrashLocation location);
 
 /**
  * Memory checkpoint of a processor that buffers rows or grows per row: true when it must end now
- * with RS_RESULT_TIMEDOUT. Under a RETURN stop policy it goes on instead: the stop ends the row
+ * with RS_RESULT_STOPPED. Under a RETURN stop policy it goes on instead: the stop ends the row
  * source (RP_EndRowSourceOnStop), so upstream reads nothing new, and it ends on upstream's
- * RS_RESULT_TIMEDOUT and keeps the rows buffering stages upstream already held. Always false for
+ * RS_RESULT_STOPPED and keeps the rows buffering stages upstream already held. Always false for
  * a pipeline without a timeout state.
  */
 bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter);
 
 /**
  * Memory checkpoint of a processor that cuts its own output at its stop: true when it must end now
- * with RS_RESULT_TIMEDOUT, also under a RETURN stop policy. Rows it already emitted are kept, and
+ * with RS_RESULT_STOPPED, also under a RETURN stop policy. Rows it already emitted are kept, and
  * rows a buffering stage upstream still holds are not drained through it. A stop that an upstream
  * stage already holds rows for (see RP_FillShouldStop) is not its own: this returns false and the
  * held rows pass.

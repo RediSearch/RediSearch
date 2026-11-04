@@ -3356,7 +3356,7 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     // A row read after this stage's own stop was cut: an upstream stage that holds rows (a safe
     // loader) keeps replaying them, and only a read that finds EOF means nothing was lost.
     if (ownStop) {
-      rc = RS_RESULT_TIMEDOUT;
+      rc = RS_RESULT_STOPPED;
       break;
     }
     // Buffered SearchResults outlive the source iterator's `it->current`
@@ -3368,12 +3368,12 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     self->depleted_results++;
     const bool heldUpstream = RP_UpstreamHold(&self->base);
     if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls)) {
-      rc = RS_RESULT_TIMEDOUT;
+      rc = RS_RESULT_STOPPED;
       break;
     }
     ownStop = !heldUpstream && RP_UpstreamHold(&self->base);
   }
-  if (rc == RS_RESULT_TIMEDOUT) {
+  if (rc == RS_RESULT_STOPPED) {
     RP_HoldStop(&self->base);
     // The coordinator preloads the shard-summed WITHCOUNT total and RPNet never touches it, so a
     // downstream FILTER would decrement it only for the rows held here. Rebase on the held rows,
@@ -3433,7 +3433,7 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   // Only a RETURN stop policy yields buffered results on a stop; FAIL and
   // RETURN-STRICT propagate TIMEDOUT immediately since the buffer will be
   // discarded by the serializer anyway.
-  if (self->last_rc == RS_RESULT_TIMEDOUT && RP_StopPolicy(base) != TimeoutPolicy_Return) {
+  if (self->last_rc == RS_RESULT_STOPPED && RP_StopPolicy(base) != TimeoutPolicy_Return) {
     self->last_rc = RS_RESULT_EOF;
     return RS_RESULT_STOPPED;
   }
