@@ -201,10 +201,12 @@ impl Bits {
         };
         let lo = first.max(self.first) - self.first;
         let Some(hi) = last.checked_sub(self.first) else {
+            // Wholly below the window, where IDs are live (`gone_below` returned above).
             return false;
         };
         let hi = hi.min(window_last);
         if lo > hi {
+            // Wholly above the window, where no ID is gone.
             return false;
         }
         let (lo_word, hi_word) = ((lo / 64) as usize, (hi / 64) as usize);
