@@ -26,9 +26,8 @@ extern "C" {
 /**
  * Allocate a new [`RSQueryTerm`] from an [`RSToken`](ffi::RSToken).
  *
- * The term string is copied into a Rust-owned allocation (`Box<[u8]>`).
+ * The term string is copied into a Rust-owned `NulTerminatedBytes` allocation.
  * Bytes are stored as-is without any UTF-8 conversion.
- * The returned pointer must be freed with [`Term_Free`].
  *
  * # Safety
  *
@@ -36,31 +35,10 @@ extern "C" {
  * - `tok->str` may be NULL, in which case the resulting term will have a
  *   NULL `str` field.
  * - If not NULL, `tok->str` must be a valid byte slice of `tok->len` bytes.
- * - The returned pointer is heap-allocated and must be freed with
- *   [`Term_Free`].
+ * - The returned pointer is a [`Box`] allocation whose ownership must be
+ *   handed to a Rust consumer (e.g. an iterator), which drops it.
  */
 struct RSQueryTerm *NewQueryTerm(const RSToken *tok, int id);
-
-/**
- * Free an [`RSQueryTerm`] previously allocated by [`NewQueryTerm`].
- *
- * # Safety
- *
- * - `t` may be NULL (in which case this is a no-op).
- * - If non-NULL, `t` must have been allocated by [`NewQueryTerm`].
- * - After this call, `t` is dangling and must not be used.
- */
-void Term_Free(struct RSQueryTerm *t);
-
-/**
- * Get the IDF (inverse document frequency) value from a query term.
- *
- * # Safety
- *
- * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
- * allocated by [`NewQueryTerm`].
- */
-double QueryTerm_GetIDF(const struct RSQueryTerm *term);
 
 /**
  * Get the BM25 IDF value from a query term.
@@ -73,18 +51,6 @@ double QueryTerm_GetIDF(const struct RSQueryTerm *term);
 double QueryTerm_GetBM25_IDF(const struct RSQueryTerm *term);
 
 /**
- * Set both IDF values (TF-IDF and BM25) on a query term.
- *
- * This is a convenience function for setting both values at once.
- *
- * # Safety
- *
- * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
- * allocated by [`NewQueryTerm`].
- */
-void QueryTerm_SetIDFs(struct RSQueryTerm *term, double idf, double bm25_idf);
-
-/**
  * Get the term ID.
  *
  * Each term in the query gets an incremental ID assigned during parsing.
@@ -95,6 +61,16 @@ void QueryTerm_SetIDFs(struct RSQueryTerm *term, double idf, double bm25_idf);
  * allocated by [`NewQueryTerm`].
  */
 int QueryTerm_GetID(const struct RSQueryTerm *term);
+
+/**
+ * Get the IDF (inverse document frequency) value from a query term.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+double QueryTerm_GetIDF(const struct RSQueryTerm *term);
 
 /**
  * Get the term string length in bytes.
@@ -117,6 +93,18 @@ size_t QueryTerm_GetLen(const struct RSQueryTerm *term);
  * - `out_len` must be a valid pointer to write the length to
  */
 const char *QueryTerm_GetStrAndLen(const struct RSQueryTerm *term, size_t *out_len);
+
+/**
+ * Set both IDF values (TF-IDF and BM25) on a query term.
+ *
+ * This is a convenience function for setting both values at once.
+ *
+ * # Safety
+ *
+ * `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+ * allocated by [`NewQueryTerm`].
+ */
+void QueryTerm_SetIDFs(struct RSQueryTerm *term, double idf, double bm25_idf);
 
 #ifdef __cplusplus
 }  // extern "C"

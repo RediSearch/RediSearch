@@ -12,13 +12,13 @@
 #include <string.h>
 #include "redismodule.h"
 #include "redisearch.h"
-#include "sortable.h"
+#include "sorting_vector.h"
 #include "byte_offsets.h"
 #include "hiredis/sds.h"
 #include "rmutil/rm_assert.h"
 #include "ttl_table.h"
-
-typedef struct TrieMap TrieMap;
+#include "slot_ranges.h"
+typedef struct DocKeyMap DocKeyMap;
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,26 +37,13 @@ static inline RedisModuleString *DMD_CreateKeyString(const RSDocumentMetadata *d
   return RedisModule_CreateString(ctx, dmd->keyPtr, sdslen(dmd->keyPtr));
 }
 
-/* Map between external id an incremental id */
-typedef struct {
-  TrieMap *tm;
-} DocIdMap;
-
-DocIdMap NewDocIdMap();
-/* Get docId from a did-map. Returns 0  if the key is not in the map */
-t_docId DocIdMap_Get(const DocIdMap *m, const char *s, size_t n);
-
-/* Put a new doc id in the map if it does not already exist */
-void DocIdMap_Put(DocIdMap *m, const char *s, size_t n, t_docId docId);
-
-int DocIdMap_Delete(DocIdMap *m, const char *s, size_t n);
-/* Free the doc id map */
-void DocIdMap_Free(DocIdMap *m);
-
 /* The DocTable is a simple mapping between incremental ids and the original document key and
  * metadata. It is also responsible for storing the id incrementor for the index and assigning
  * new
  * incremental ids to inserted keys.
+ *
+ * In-memory indexes also maintain a key -> docId map protected by the spec lock.
+ * Redis key metadata (doc_id_meta.{h,c}) remains available to its other consumers.
  *
  * NOTE: Currently there is no deduplication on the table so we do not prevent dual insertion of
  * the
@@ -65,6 +52,22 @@ void DocIdMap_Free(DocIdMap *m);
 typedef struct {
   RSDocumentMetadata *root;
 } DMDChain;
+
+// A slot deletion that was announced but not yet applied. Docs it covers stay in the table
+// until the cleanup task removes them, and are hidden from readers meanwhile. Each request
+// keeps its own `maxDocId`: docs added after the announcement carry a larger id and must
+// survive, so overlapping requests cannot be merged into one node.
+typedef struct PendingSlotDeletion {
+  RedisModuleSlotRangeArray *slots;
+  t_docId maxDocId;
+  struct PendingSlotDeletion *next;
+} PendingSlotDeletion;
+
+typedef enum {
+  DocKeyMap_Inactive,
+  DocKeyMap_Building,
+  DocKeyMap_Ready,
+} DocKeyMapState;
 
 typedef struct {
   size_t size;
@@ -75,12 +78,17 @@ typedef struct {
   size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
-  DocIdMap dim;             // Mapping between document name to internal id
+  // Allocated on first INKEYS use; disk indexes never activate it.
+  DocKeyMap *keyMap;
+  DocKeyMapState keyMapState;
   // Holds field-level expirations only; created lazily on the first HEXPIRE
   // and destroyed when the last entry is removed. Iterators use a NULL check
   // on this pointer as their HFE gate, so a NULL `ttl` means no doc in this
   // index has ever had (or still has) a field-level expiration.
   TimeToLiveTable* ttl;
+  // Owned by the table. Nodes are never moved, so a cleanup task can hold a node pointer
+  // while it holds a reference to the owning spec.
+  PendingSlotDeletion *pendingSlotDeletions;
 } DocTable;
 
 #define DOCTABLE_FOREACH(dt, code)                                           \
@@ -94,16 +102,74 @@ typedef struct {
 /* Creates a new DocTable with a given capacity */
 DocTable NewDocTable(size_t cap, size_t max_size);
 
+typedef enum {
+  DocKeyMapActivation_Unchanged,
+  DocKeyMapActivation_Ready,
+  DocKeyMapActivation_NeedsBackfill,
+} DocKeyMapActivation;
+
+/* Caller holds the spec write lock and has checked storage-mode eligibility. */
+DocKeyMapActivation DocTable_StartKeyMap(DocTable *t);
+// Task-owned and zero-initialized. Only next is retained across batch boundaries.
+typedef struct {
+  RSDocumentMetadata *next;
+  uint32_t bucket;
+  uint32_t endBucket;
+  bool initialized;
+} DocTableKeyMapIterator;
+
+/* Caller holds the spec write lock. Visits at most budget documents/empty buckets.
+ * Returns true when the map is ready. Use one iterator for the entire build. */
+bool DocTable_BuildKeyMapBatch(DocTable *t, DocTableKeyMapIterator *iter, size_t budget);
+
+/* Release a parked DMD on completion or cancellation, including after the table is freed. */
+void DocTable_KeyMapIteratorReleaseNext(DocTableKeyMapIterator *iter);
+
+/* Caller holds the spec read or write lock and keyMap is ready. */
+t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len);
+
+/* Match a visible document key. Caller holds the spec read or write lock, pinning the DMD and its
+ * key. */
+bool DocTable_KeyEquals(const DocTable *t, t_docId id, const char *key, size_t len);
+
+/* Key-map allocation, including unused capacity; zero when disabled. */
+size_t DocTable_KeyMapMemoryUsage(const DocTable *t);
+
 #define DocTable_New(cap) NewDocTable(cap, RSGlobalConfig.maxDocTableSize)
 
 // Initial number of slots in a spec's document table
 #define INITIAL_DOC_TABLE_SIZE 1000
 
+/* The bucket holding `docId`: ids from maxSize on share buckets, chained by `docId % maxSize`. */
+static inline uint32_t DocTable_GetBucket(const DocTable *t, t_docId docId) {
+  return docId < t->maxSize ? docId : docId % t->maxSize;
+}
+
+/* Whether `docId` is an id this table has assigned; says nothing about whether it is still live. */
+static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
+  return docId != 0 && docId <= t->maxDocId;
+}
+
 /* Get a reference to the metadata for a doc Id from the DocTable.
- * If docId is not inside the table, we return NULL */
+ * Returns NULL if docId is not inside the table or is hidden by a pending slot deletion */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);
 
-const RSDocumentMetadata *DocTable_BorrowByKeyR(const DocTable *r, RedisModuleString *s);
+/* Hint that `docId` will be borrowed soon: starts loading the head of its bucket's chain into
+ * the cache, so the cache miss overlaps with work on earlier docs. Changes no state, and does
+ * nothing for an id outside the table. Caller holds the spec lock, as for DocTable_Borrow. */
+static inline void DocTable_Prefetch(const DocTable *t, t_docId docId) {
+  if (!DocTable_ValidateDocId(t, docId)) {
+    return;
+  }
+  const uint32_t bucketIndex = DocTable_GetBucket(t, docId);
+  if (bucketIndex >= t->cap) {
+    return;
+  }
+  const RSDocumentMetadata *head = t->buckets[bucketIndex].root;
+  if (head) {
+    __builtin_prefetch(head);
+  }
+}
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
@@ -120,11 +186,29 @@ RSDocumentMetadata *DocTable_Put(DocTable *t, const char *s, size_t n, double sc
  */
 sds DocTable_GetKey(const DocTable *t, t_docId docId, size_t *n);
 
-/* Set the payload for a document. Returns 1 if we set the payload, 0 if we couldn't find the
- * document */
+// Caller holds the spec write lock. Returns 0 for NULL metadata/data or a DMD allocated
+// without Document_HasPayloadSlot; otherwise copies the payload and returns 1.
 int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len);
 
+// Caller holds the spec write lock. Removes the payload while retaining its reserved slot.
+void DocTable_ClearPayload(DocTable *t, RSDocumentMetadata *dmd);
+
+// Whether the doc is physically in the table. Unlike DocTable_Borrow it ignores pending slot
+// deletions: GC and the indexer must keep treating those docs as present until the cleanup task
+// deletes them through the regular delete path.
 bool DocTable_Exists(const DocTable *t, t_docId docId);
+
+/* Number of 64-bit words in a bitmap of `t`'s docIds, or 0 when `t`'s maxDocId makes the bitmap
+ * too large to allocate. */
+size_t DocTable_LiveBitmapWords(const DocTable *t);
+
+/* Set bit `docId` of `live` for every docId DocTable_Exists reports, up to `words * 64`. */
+void DocTable_FillLiveBitmap(const DocTable *t, uint64_t *live, size_t words);
+
+typedef void (*DocTable_LiveIdCallback)(void *ctx, t_docId docId);
+
+/* Call `cb` once for every docId DocTable_Exists reports, in no particular order. */
+void DocTable_ForEachLiveId(const DocTable *t, DocTable_LiveIdCallback cb, void *ctx);
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
@@ -192,39 +276,69 @@ static inline struct FieldExpirationSlice DocTable_GetFieldExpirations(const Doc
   return TimeToLiveTable_GetFieldExpirations(t->ttl, docId);
 }
 
-
-/** Get the docId of a key if it exists in the table, or 0 if it doesn't */
-t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
-
-#define STRVARS_FROM_RSTRING(r) \
-  size_t n;                     \
-  const char *s = RedisModule_StringPtrLen(r, &n);
-
-static inline t_docId DocTable_GetIdR(const DocTable *dt, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_GetId(dt, s, n);
+// Returns true if `docId` has a field-level expiration registered for the field
+// at the given spec field index.
+static inline bool DocTable_FieldHasExpiration(const DocTable *t, t_docId docId,
+                                               t_fieldIndex fieldIndex) {
+  const struct FieldExpirationSlice fes = DocTable_GetFieldExpirations(t, docId);
+  for (size_t i = 0; i < fes.len; ++i) {
+    if (fes.ptr[i].index == fieldIndex) {
+      return true;
+    }
+  }
+  return false;
 }
+
 
 /* Free the table and all the keys of documents */
 void DocTable_Free(DocTable *t);
 
-RSDocumentMetadata *DocTable_Pop(DocTable *t, const char *s, size_t n);
-static inline RSDocumentMetadata *DocTable_PopR(DocTable *t, RedisModuleString *r) {
-  STRVARS_FROM_RSTRING(r);
-  return DocTable_Pop(t, s, n);
+/* Remove a document by its internal docId (unified unlink-driven delete path).
+ * Ownership of the returned DMD moves to the caller, or NULL if not present. */
+RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId);
+
+/* Update the stored key of a document (by docId) after a RENAME; the key -> docId
+ * mapping is untouched (it rides with the Redis key metadata). No-op if absent. */
+void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *key, size_t len);
+
+// Hide every doc currently in `slots` (id <= the table's current maxDocId) from readers until
+// the returned node is removed. `slots` is copied. Caller holds the spec write lock.
+PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t,
+                                                 const RedisModuleSlotRangeArray *slots);
+
+// Register a storage-owned cutoff, including when restoring an unfinished disk cleanup.
+// `slots` is copied. Caller holds the spec write lock.
+PendingSlotDeletion *DocTable_AddPendingDeletionWithCutoff(DocTable *t,
+                                                           const RedisModuleSlotRangeArray *slots,
+                                                           t_docId maxDocId);
+
+// Unlink and free a node returned by DocTable_AddPendingDeletion. Caller holds the spec write lock.
+void DocTable_RemovePendingDeletion(DocTable *t, PendingSlotDeletion *pending);
+
+// `size` counts one more than the docs held: NewDocTable starts it at 1.
+static inline bool DocTable_IsEmpty(const DocTable *t) {
+  return t->size <= 1;
 }
 
-static inline const RSDocumentMetadata *DocTable_BorrowByKey(DocTable *dt, const char *key) {
-  t_docId id = DocTable_GetId(dt, key, strlen(key));
-  if (id == 0) {
-    return NULL;
-  }
-  return DocTable_Borrow(dt, id);
+// Match a slot and document ID against the cutoff captured at registration.
+static inline bool PendingSlotDeletion_CoversId(const PendingSlotDeletion *pending, t_docId docId,
+                                                uint16_t slot) {
+  return docId <= pending->maxDocId && SlotRangeArray_ContainsSlot(pending->slots, slot);
 }
 
-/* Change name of document hash in the same spec without reindexing */
-int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const char *to_str,
-                     size_t to_len);
+static inline bool PendingSlotDeletion_Covers(const PendingSlotDeletion *pending,
+                                              const RSDocumentMetadata *dmd) {
+  return PendingSlotDeletion_CoversId(pending, dmd->id, dmd->slot);
+}
+
+static inline bool DocTable_HasPendingDeletions(const DocTable *t) {
+  return t->pendingSlotDeletions != NULL;
+}
+
+bool DocTable_IsDocPendingDeletion(const DocTable *t, const RSDocumentMetadata *dmd);
+
+// Caller holds the spec lock. Disk callers derive `slot` from the already loaded key.
+bool DocTable_IsDocPendingDeletionForSlot(const DocTable *t, t_docId docId, uint16_t slot);
 
 /* increasing the ref count of the given dmd */
 /*
@@ -240,10 +354,12 @@ int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const c
 /* don't use this function directly. Use DMD_Return */
 void DMD_Free(const RSDocumentMetadata *);
 
-/* Decrement the refcount of the DMD object, freeing it if we're the last reference */
+// Release publishes completed readers to the metadata writer's acquire uniqueness check;
+// acquire also orders the final free after earlier owners' accesses.
 static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   RSDocumentMetadata *dmd = (RSDocumentMetadata *)cdmd;
-  if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_RELAXED)) {
+  if (dmd && !__atomic_sub_fetch(&dmd->ref_count, 1, __ATOMIC_RELEASE)) {
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
     DMD_Free(dmd);
   }
 }

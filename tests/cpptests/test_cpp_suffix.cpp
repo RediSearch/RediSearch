@@ -8,13 +8,15 @@
 */
 
 #include "gtest/gtest.h"
+#include "query_request.h"
 #include "suffix.h"
+#include "trie/trie.h"
 #include "trie/rune_util.h"
+#include "triemap_ffi.h"
 #include "redisearch.h"
 
 #include <string>
 #include <string_view>
-#include <vector>
 
 // Suffix_ChooseToken (char) and Suffix_ChooseToken_rune (rune) pick the literal
 // token of a wildcard "contains" pattern used to narrow the suffix-trie scan.
@@ -38,9 +40,9 @@ static RuneChoice chooseRune(std::string_view pattern) {
   runeBuf buf;
   size_t rlen;
   rune *runes = runeBufFill(pattern.data(), n, &buf, &rlen);
-  std::vector<size_t> idx(rlen + 1), len(rlen + 1);
-  int res = Suffix_ChooseToken_rune(runes, rlen, idx.data(), len.data());
-  size_t chosenLen = res == REDISEARCH_UNINITIALIZED ? 0 : len[res];
+  size_t idx, len = 0;
+  int res = Suffix_ChooseToken_rune(runes, rlen, &idx, &len);
+  size_t chosenLen = res == REDISEARCH_UNINITIALIZED ? 0 : len;
   runeBufFree(&buf);
   return {res, chosenLen};
 }
@@ -48,9 +50,8 @@ static RuneChoice chooseRune(std::string_view pattern) {
 static int chooseTokenRune(std::string_view pattern) { return chooseRune(pattern).tokenOrdinal; }
 
 static int chooseTokenChar(std::string_view pattern) {
-  size_t n = pattern.size();
-  std::vector<size_t> idx(n + 1), len(n + 1);
-  return Suffix_ChooseToken(pattern.data(), n, idx.data(), len.data());
+  size_t idx, len;
+  return Suffix_ChooseToken(pattern.data(), pattern.size(), &idx, &len);
 }
 
 // A '?' in the first token must not prevent a token from being chosen. Before
@@ -155,4 +156,186 @@ TEST_F(SuffixChooseTokenTest, multiByteCharsScoredByRune) {
   EXPECT_EQ(chooseRune("αβγ*δεζη").len, 4u);
   EXPECT_EQ(chooseRune("αβγδε").tokenOrdinal, 0);
   EXPECT_EQ(chooseRune("αβγδε").len, 5u);
+}
+
+// The wildcard entry points size scratch arrays by the pattern length and read
+// its last character, so each must reject an empty pattern itself — the callers
+// that currently pre-filter empty patterns are not part of their contract.
+
+class WildcardEmptyPatternTest : public ::testing::Test {};
+
+static int countSuffixHit(const char *, size_t, void *ctx, void *) {
+  ++*static_cast<int *>(ctx);
+  return REDISEARCH_OK;
+}
+
+static int countRangeHit(const rune *, size_t, void *ctx, void *, size_t) {
+  ++*static_cast<int *>(ctx);
+  return REDISEARCH_OK;
+}
+
+TEST_F(WildcardEmptyPatternTest, suffixTrieIterateSignalsUnusable) {
+  Trie *t = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+  addSuffixTrie(t, "abc", 3);
+  int hits = 0;
+  TimeoutConfig timeoutConfig = {};
+  timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+  QueryRequestLimits timeout = {};
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  rune emptyPattern[1] = {0};
+  SuffixCtx ctx = {};
+  ctx.trie = t;
+  ctx.rune = emptyPattern;
+  ctx.runelen = 0;
+  ctx.type = SUFFIX_TYPE_WILDCARD;
+  ctx.callback = countSuffixHit;
+  ctx.cbCtx = &hits;
+  ctx.limits = &timeout;
+
+  EXPECT_EQ(Suffix_IterateWildcard(&ctx), 0);
+  EXPECT_EQ(hits, 0);
+
+  // control: a non-empty pattern uses the trie and reaches the callback
+  size_t rlen = 0;
+  runeBuf buf;
+  ctx.rune = runeBufFill("*b*", 3, &buf, &rlen);
+  ctx.runelen = rlen;
+  EXPECT_EQ(Suffix_IterateWildcard(&ctx), 1);
+  EXPECT_GT(hits, 0);
+  runeBufFree(&buf);
+
+  TrieType_Free(t);
+}
+
+TEST_F(WildcardEmptyPatternTest, suffixTrieMapListSignalsUnusable) {
+  TrieMap *tm = NewTrieMap();
+  struct timespec timeout = {};
+  EXPECT_EQ((void *)GetList_SuffixTrieMap_Wildcard(tm, "", 0, timeout, 100, true), BAD_POINTER);
+  TrieMap_Free(tm, NULL);
+}
+
+TEST_F(WildcardEmptyPatternTest, trieIterateWildcardEmptyMatchesNothing) {
+  Trie *t = NewTrie(NULL, Trie_Sort_Lex);
+  ASSERT_TRUE(Trie_InsertStringBuffer(t, "abc", 3, 1, 1, NULL, 0));
+  int hits = 0;
+  // The pattern points past a non-'*' sentinel, so the str[nstr - 1] read this
+  // guards against gives a deterministic "no prefix" answer if it ever returns.
+  rune patternBuf[2] = {(rune)'x', 0};
+  rune *emptyPattern = patternBuf + 1;
+  TimeoutConfig timeoutConfig = {};
+  timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+  QueryRequestLimits timeout = {};
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  Trie_IterateWildcard(t, emptyPattern, 0, countRangeHit, &hits, &timeout);
+  EXPECT_EQ(hits, 0);
+
+  // control: "*" matches the inserted term
+  size_t rlen = 0;
+  runeBuf buf;
+  rune *star = runeBufFill("*", 1, &buf, &rlen);
+  Trie_IterateWildcard(t, star, rlen, countRangeHit, &hits, &timeout);
+  EXPECT_EQ(hits, 1);
+  runeBufFree(&buf);
+
+  TrieType_Free(t);
+}
+
+// addSuffixTrie indexes the whole term through an unguarded entry point, but each
+// proper suffix goes through Trie_InsertRune, which drops keys at or past
+// TRIE_INITIAL_STRING_LEN. A term longer than that cap is therefore indexed with a
+// gap: its longest suffixes are missing while the shorter ones are present.
+
+class SuffixTrieLongTermTest : public ::testing::Test {};
+
+// Long enough that suffixes fall on both sides of the cap.
+static constexpr size_t kLongTermLen = TRIE_INITIAL_STRING_LEN + 44;
+
+// Only an inserted suffix carries a payload; a node reached merely as a prefix of
+// a longer key does not.
+static bool suffixIndexed(Trie *t, const rune *runes, size_t rlen, size_t off) {
+  TrieNode *node = Trie_GetNode(t, runes + off, rlen - off, true, NULL);
+  return TrieNode_GetPayloadData(node) != NULL;
+}
+
+TEST_F(SuffixTrieLongTermTest, suffixesPastTheKeyLengthCapAreSkipped) {
+  std::string term;
+  for (size_t i = 0; i < kLongTermLen; ++i) {
+    term += static_cast<char>('a' + (i * 7) % 26);
+  }
+
+  Trie *t = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+  addSuffixTrie(t, term.data(), term.size());
+
+  runeBuf buf;
+  size_t rlen = 0;
+  rune *runes = runeBufFill(term.data(), term.size(), &buf, &rlen);
+  ASSERT_EQ(rlen, kLongTermLen);
+
+  EXPECT_TRUE(suffixIndexed(t, runes, rlen, 0));
+  // Longest proper suffix, and the last one still over the cap.
+  EXPECT_FALSE(suffixIndexed(t, runes, rlen, 1));
+  EXPECT_FALSE(suffixIndexed(t, runes, rlen, kLongTermLen - TRIE_INITIAL_STRING_LEN));
+  // First suffix under the cap, and the shortest one.
+  EXPECT_TRUE(suffixIndexed(t, runes, rlen, kLongTermLen - TRIE_INITIAL_STRING_LEN + 1));
+  EXPECT_TRUE(suffixIndexed(t, runes, rlen, rlen - 1));
+
+  runeBufFree(&buf);
+  TrieType_Free(t);
+}
+
+// The wildcard paths' scratch space must not grow with the pattern: a pattern
+// this long used to put 16 bytes per character on the stack, far past the
+// default 8 MiB thread stack.
+
+class SuffixLongWildcardPatternTest : public ::testing::Test {};
+
+static constexpr size_t kLongPatternLen = 1 << 20;
+
+// Anchors on "ell"; the trailing run of '*' only makes the pattern long.
+static std::string longWildcardPattern() {
+  return "*ell" + std::string(kLongPatternLen, '*');
+}
+
+TEST_F(SuffixLongWildcardPatternTest, suffixTrieMapListHandlesLongPattern) {
+  TrieMap *tm = NewTrieMap();
+  addSuffixTrieMap(tm, "hello", 5);
+  std::string pattern = longWildcardPattern();
+  struct timespec timeout = {};
+
+  arrayof(char *) arr =
+      GetList_SuffixTrieMap_Wildcard(tm, pattern.data(), pattern.size(), timeout, 100, true);
+  ASSERT_NE((void *)arr, BAD_POINTER);
+  ASSERT_NE(arr, nullptr);
+  ASSERT_EQ(array_len(arr), 1u);
+  EXPECT_STREQ(arr[0], "hello");
+
+  array_free(arr);
+  TrieMap_Free(tm, suffixTrieMap_freeCallback);
+}
+
+TEST_F(SuffixLongWildcardPatternTest, suffixTrieIterateHandlesLongPattern) {
+  Trie *t = NewTrie(suffixTrie_freeCallback, Trie_Sort_Lex);
+  addSuffixTrie(t, "hello", 5);
+  std::string pattern = longWildcardPattern();
+  int hits = 0;
+  TimeoutConfig timeoutConfig = {};
+  timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
+  QueryRequestLimits timeout = {};
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  runeBuf buf;
+  size_t rlen = 0;
+  SuffixCtx ctx = {};
+  ctx.trie = t;
+  ctx.rune = runeBufFill(pattern.data(), pattern.size(), &buf, &rlen);
+  ctx.runelen = rlen;
+  ctx.type = SUFFIX_TYPE_WILDCARD;
+  ctx.callback = countSuffixHit;
+  ctx.cbCtx = &hits;
+  ctx.limits = &timeout;
+
+  EXPECT_EQ(Suffix_IterateWildcard(&ctx), 1);
+  EXPECT_EQ(hits, 1);
+
+  runeBufFree(&buf);
+  TrieType_Free(t);
 }

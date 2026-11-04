@@ -8,44 +8,92 @@
 */
 
 use crate::{
-    RLookup, RLookupKey, RLookupKeyFlags, RLookupRow,
+    RLookup, RLookupKey, RLookupKeyFlag, RLookupRow,
     load_document::{
         DOCUMENT_OPEN_KEY_QUERY_FLAGS, DocumentFormat, FieldLoader, LoadAllError, LoadFieldError,
         UNDERSCORE_KEY,
     },
 };
 use lending_iterator::LendingIterator;
-use redis_json_api::{JsonType, JsonValueRef, RedisJsonApi, SerializeError};
+use redis_json_api::{JsonPath, JsonType, JsonValueRef, RedisJsonApi, SerializeError};
 use redis_module::RedisString;
 use std::ffi::CStr;
 use std::ptr::{self, NonNull};
-use value::SharedValue;
+use value::{SharedValue, Value};
 
 const JSON_ROOT: &CStr = c"$";
 
+enum CachedJsonPath {
+    Broken,
+    DocumentKey,
+    Path(JsonPath),
+}
+
+/// Owns the compiled [`JsonPath`]s for one load operation, in field-load order.
+pub struct JsonPathCache {
+    paths: Vec<CachedJsonPath>,
+}
+
+impl JsonPathCache {
+    /// Classifies each field as a compiled [`JsonPath`], a document key, or a broken path.
+    ///
+    /// # Safety
+    ///
+    /// The path bytes must remain [valid] until this cache is dropped.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub unsafe fn new<'p>(
+        api: &RedisJsonApi,
+        paths: impl Iterator<Item = Option<&'p CStr>>,
+    ) -> Self {
+        let paths = paths
+            .map(|path| match path {
+                Some(path) if path == UNDERSCORE_KEY => CachedJsonPath::DocumentKey,
+                Some(path) if path.to_bytes().starts_with(b"$") => {
+                    // SAFETY: the caller keeps the path bytes alive throughout the cache's lifetime.
+                    unsafe { JsonPath::parse_no_error_msg(path, api) }
+                        .map_or(CachedJsonPath::Broken, CachedJsonPath::Path)
+                }
+                _ => CachedJsonPath::Broken,
+            })
+            .collect();
+        Self { paths }
+    }
+
+    fn get(&self, index: usize) -> &CachedJsonPath {
+        &self.paths[index]
+    }
+}
+
 pub struct JsonDocumentFormat<'a> {
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     japi: &'a RedisJsonApi,
-    api_version: u32,
+    api_version: u8,
+    path_cache: &'a JsonPathCache,
 }
 
 pub struct JsonFieldLoader<'a> {
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     value: JsonValueRef<'a>,
     key_name: &'a RedisString,
-    api_version: u32,
+    api_version: u8,
+    path_cache: &'a JsonPathCache,
 }
 
 impl<'a> JsonDocumentFormat<'a> {
+    /// Uses `path_cache` in the same order as the fields to load, or a single root entry
+    /// for [`DocumentFormat::load_all`].
     pub const fn new(
-        ctx: NonNull<ffi::RedisModuleCtx>,
+        ctx: NonNull<redis_module::RedisModuleCtx>,
         japi: &'a RedisJsonApi,
-        api_version: u32,
+        api_version: u8,
+        path_cache: &'a JsonPathCache,
     ) -> Self {
         Self {
             ctx,
             japi,
             api_version,
+            path_cache,
         }
     }
 
@@ -58,6 +106,17 @@ impl<'a> JsonDocumentFormat<'a> {
                 DOCUMENT_OPEN_KEY_QUERY_FLAGS,
             )
         }
+    }
+
+    fn load_root(&self, key_name: &RedisString) -> Result<SharedValue, LoadAllError> {
+        let json_root = self.open_key(key_name).ok_or(LoadAllError::OpenKeyFailed)?;
+        let CachedJsonPath::Path(path) = self.path_cache.get(0) else {
+            return Err(LoadAllError::JsonRootMissing);
+        };
+        // SAFETY: the cache owns the path throughout iteration.
+        let iter = unsafe { json_root.get_with_path(path) }.ok_or(LoadAllError::JsonRootMissing)?;
+        // Unlike per-field loading, an absent root is a document-level failure.
+        json_iter_to_value(self.ctx, iter, self.api_version)?.ok_or(LoadAllError::JsonRootMissing)
     }
 }
 
@@ -78,12 +137,13 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
             value,
             key_name,
             api_version: self.api_version,
+            path_cache: self.path_cache,
         })
     }
 
     fn borrow<'key>(
         &'key self,
-        open_key: &'key ffi::RedisModuleKey,
+        open_key: &'key redis_module::RedisModuleKey,
         key_name: &'key RedisString,
     ) -> Result<Self::FieldLoader<'key>, LoadFieldError> {
         // Safety: the `&'key` reference guarantees `open_key` is valid for `'key`.
@@ -101,6 +161,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
             value,
             key_name,
             api_version: self.api_version,
+            path_cache: self.path_cache,
         })
     }
 
@@ -110,22 +171,16 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         dst_row: &mut RLookupRow,
         key_name: &RedisString,
     ) -> Result<(), LoadAllError> {
-        let json_root = self.open_key(key_name).ok_or(LoadAllError::OpenKeyFailed)?;
-
-        let json_iter = json_root
-            .get(JSON_ROOT)
-            .ok_or(LoadAllError::JsonRootMissing)?;
-
-        // For `load_all` an absent root is a document-level failure: a JSON document
-        // is expected to have a `$` value, so collapse `Ok(None)` to `Err`.
-        let value = json_iter_to_value(self.ctx, json_iter, self.api_version)?
-            .ok_or(LoadAllError::JsonRootMissing)?;
+        let value = self.load_root(key_name)?;
 
         let rlk = if let Some(rlk) = rlookup.find_key_by_name(JSON_ROOT) {
             rlk.into_current().unwrap()
         } else {
+            // A SORTABLE schema field on `$` makes the key value-available from
+            // the sorting vector, in which case `get_key_load` returns `None`
+            // unless forced.
             rlookup
-                .get_key_load(JSON_ROOT, JSON_ROOT, RLookupKeyFlags::empty())
+                .get_key_load(JSON_ROOT, JSON_ROOT, RLookupKeyFlag::ForceLoad.into())
                 .unwrap()
         };
 
@@ -136,35 +191,26 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
 }
 
 impl FieldLoader for JsonFieldLoader<'_> {
-    fn load_field(&self, key: &RLookupKey, dst_row: &mut RLookupRow) -> Result<(), LoadFieldError> {
-        let path = match key.path() {
-            Some(p) => p.as_ref(),
-            // No path set — nothing to load.
-            None => return Ok(()),
-        };
-
-        // A path starting with `$` is a JSONPath expression to evaluate against the document.
-        // Anything else is a sentinel — currently only `__key`, which resolves to the document key.
-        // For per-field loads, "field absent" is not an error — we just leave it unset
-        // and continue. Only hard failures bubble up as `Err`.
-        let val = if path.to_bytes().starts_with(JSON_ROOT.to_bytes()) {
-            let Some(iter) = self.value.get(path) else {
-                // JSONPath did not match any value in the document — skip silently.
-                return Ok(());
-            };
-            match json_iter_to_value(self.ctx, iter, self.api_version) {
-                Ok(Some(v)) => v,
-                Ok(None) | Err(_) => return Ok(()),
+    fn load_field_at(
+        &self,
+        index: usize,
+        key: &RLookupKey,
+        dst_row: &mut RLookupRow,
+    ) -> Result<(), LoadFieldError> {
+        match self.path_cache.get(index) {
+            CachedJsonPath::Broken => {}
+            CachedJsonPath::DocumentKey => {
+                dst_row.write_key(key, SharedValue::new_string(self.key_name.to_vec()));
             }
-        } else if path == UNDERSCORE_KEY {
-            SharedValue::new_string(self.key_name.to_vec())
-        } else {
-            // Path is neither a JSONPath nor a recognized sentinel — nothing to load.
-            return Ok(());
-        };
-
-        dst_row.write_key(key, val);
-
+            CachedJsonPath::Path(path) => {
+                // SAFETY: the cache owns the path throughout iteration.
+                if let Some(iter) = unsafe { self.value.get_with_path(path) }
+                    && let Ok(Some(value)) = json_iter_to_value(self.ctx, iter, self.api_version)
+                {
+                    dst_row.write_key(key, value);
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -179,11 +225,11 @@ impl FieldLoader for JsonFieldLoader<'_> {
 ///
 /// Multi-value is supported with `apiVersion >= APIVERSION_RETURN_MULTI_CMP_FIRST`.
 fn json_iter_to_value(
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     mut iter: redis_json_api::ResultsIter<'_>,
-    api_version: u32,
+    api_version: u8,
 ) -> Result<Option<SharedValue>, SerializeError> {
-    if api_version < ffi::APIVERSION_RETURN_MULTI_CMP_FIRST {
+    if u32::from(api_version) < ffi::APIVERSION_RETURN_MULTI_CMP_FIRST {
         // Preserve single value behavior for backward compatibility
         let Some(json) = iter.next() else {
             return Ok(None);
@@ -230,7 +276,7 @@ fn json_iter_to_value(
 // The iterator is being reset and is not being freed.
 // Required japi_ver >= 4
 fn json_iter_to_value_expanded(
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     iter: redis_json_api::ResultsIter<'_>,
 ) -> SharedValue {
     debug_assert!(!iter.is_empty(), "should be checked by caller");
@@ -243,7 +289,7 @@ fn json_iter_to_value_expanded(
 }
 
 fn json_val_to_value_expanded(
-    ctx: NonNull<ffi::RedisModuleCtx>,
+    ctx: NonNull<redis_module::RedisModuleCtx>,
     json: JsonValueRef,
 ) -> SharedValue {
     match json.get_type() {
@@ -276,7 +322,10 @@ fn json_val_to_value_expanded(
     }
 }
 
-fn json_val_to_value(ctx: NonNull<ffi::RedisModuleCtx>, json: JsonValueRef<'_>) -> SharedValue {
+fn json_val_to_value(
+    ctx: NonNull<redis_module::RedisModuleCtx>,
+    json: JsonValueRef<'_>,
+) -> SharedValue {
     // Currently `getJSON` cannot fail here also the other japi APIs below
     match json.get_type() {
         JsonType::String => {
@@ -298,7 +347,11 @@ fn json_val_to_value(ctx: NonNull<ffi::RedisModuleCtx>, json: JsonValueRef<'_>) 
         JsonType::Object | JsonType::Array => {
             // SAFETY: `ctx` is a valid Redis module context propagated from the caller.
             let v = unsafe { json.serialize(ctx.cast().as_ptr()).unwrap() };
-            SharedValue::new_string(v.to_vec())
+            redis_module::raw::string_retain_string(ptr::null_mut(), v.inner);
+            // SAFETY: `v` is a valid Redis string and we retained it above to
+            // transfer one owned reference into the RSValue.
+            let v = unsafe { value::RedisString::from_raw(v.inner.cast()) };
+            SharedValue::new(Value::RedisString(v))
         }
         JsonType::Null => SharedValue::null_static(),
     }

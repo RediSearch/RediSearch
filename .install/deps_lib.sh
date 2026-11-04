@@ -9,11 +9,12 @@
 # accumulated DEPS_* records are never reset.
 #
 # Exports:
-#   PM    -> brew | apt | dnf | tdnf | yum | apk
+#   PM    -> brew | apt | dnf | tdnf | yum | apk | pacman
 #   SUDO  -> "$MODE" ("sudo" or "") on Linux, "" on macOS (brew refuses sudo)
 #
 # Primitives (filter-to-missing in dry-run, record in list, install otherwise):
-#   apt_install / dnf_install / yum_install / tdnf_install / apk_install / brew_install
+#   apt_install / dnf_install / yum_install / tdnf_install / apk_install / pacman_install /
+#   brew_install
 
 # Re-source guard: sourcing again must NOT reset DEPS_OK/DEPS_MISSING (that
 # would drop records already accumulated by earlier-sourced scripts).
@@ -33,8 +34,9 @@ elif command -v dnf     >/dev/null 2>&1; then PM="dnf";  SUDO="${MODE:-}"
 elif command -v tdnf    >/dev/null 2>&1; then PM="tdnf"; SUDO="${MODE:-}"
 elif command -v yum     >/dev/null 2>&1; then PM="yum";  SUDO="${MODE:-}"
 elif command -v apk     >/dev/null 2>&1; then PM="apk";  SUDO="${MODE:-}"
+elif command -v pacman  >/dev/null 2>&1; then PM="pacman"; SUDO="${MODE:-}"
 else
-    echo "deps_lib.sh: no supported package manager (apt/dnf/tdnf/yum/apk/brew)" >&2
+    echo "deps_lib.sh: no supported package manager (apt/dnf/tdnf/yum/apk/pacman/brew)" >&2
     return 1 2>/dev/null || exit 1
 fi
 
@@ -58,7 +60,7 @@ _is_optional() { case " $OPTIONAL_PKGS " in *" $1 "*) return 0 ;; *) return 1 ;;
 # MIN_VERSIONS: sparse "pkg:minversion" list — only deps with a real floor a
 # distro package can satisfy. cmake's >= 3.25 is provisioned by install_cmake.sh
 # (recorded there), so it's intentionally NOT here.
-MIN_VERSIONS="${MIN_VERSIONS:-gcc:${GCC_MIN_VERSION} g++:${GPP_MIN_VERSION}}"
+MIN_VERSIONS="${MIN_VERSIONS:-gcc:${GCC_MIN_VERSION} g++:${GPP_MIN_VERSION} lcov:${LCOV_MIN_VERSION}}"
 _min_for() { for _e in $MIN_VERSIONS; do case "$_e" in "$1:"*) echo "${_e#*:}"; return ;; esac; done; }
 
 _get_installed_version() {
@@ -92,6 +94,10 @@ else
 fi
 _dry_line() { printf '%s%s%s\n' "$_DRY_CMD_COLOR" "$*" "$_DRY_RESET"; }
 _dry_head() { printf '%s%s%s\n' "$_DRY_HEADER_COLOR" "$*" "$_DRY_RESET"; }
+_dry_dependency_status() {
+    [[ "$DRY_RUN" == 1 ]] || return 0
+    _dry_head "# dependency $1: $2${3:+ ($3)}"
+}
 
 # _run CMD... — install: execute (real sudo prefix); dry-run: print it (blue);
 # list: skip. Callers pre-filter to missing packages.
@@ -100,7 +106,7 @@ _run() {
     if [[ "$CHECK_DEPS" == 1 ]]; then return 0
     elif [[ "$DRY_RUN" == 1 ]]; then
         case " $* " in
-            *' apt-get '*|*' dnf '*|*' yum '*|*' tdnf '*|*' apk '*)
+            *' apt-get '*|*' dnf '*|*' yum '*|*' tdnf '*|*' apk '*|*' pacman '*)
                 # First pkg-manager command: on apt, emit the noninteractive
                 # frontend right before it — only when there IS an apt command,
                 # so a box needing no apt install prints no export noise.
@@ -158,6 +164,7 @@ _pkg_installed() {
         apt)          dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'ok installed' ;;
         dnf|yum|tdnf) rpm -q "$1" >/dev/null 2>&1 || rpm -q "$1-minimal" >/dev/null 2>&1 ;;  # RHEL ships curl-minimal, which provides curl
         apk)          apk info -e "$1" >/dev/null 2>&1 ;;
+        pacman)       pacman -Q "$1" >/dev/null 2>&1 ;;
         brew)         [[ -n "$(brew list --versions "$1" 2>/dev/null)" ]] ;;
         *)            return 1 ;;
     esac
@@ -257,6 +264,16 @@ apk_install() {
     if [[ "$CHECK_DEPS" == 1 ]]; then _check_pkgs "$@"; return 0; fi
     if [[ "$DRY_RUN" == 1 ]]; then set -- $(_missing_only "$@"); (( $# > 0 )) || return 0; fi
     _run apk add --no-cache "$@"
+}
+
+# Arch does not support partial upgrades: installing against a stale package
+# database can pull in libraries newer than the installed system expects, so
+# sync and upgrade together.
+pacman_install() {
+    (( $# > 0 )) || return 0
+    if [[ "$CHECK_DEPS" == 1 ]]; then _check_pkgs "$@"; return 0; fi
+    if [[ "$DRY_RUN" == 1 ]]; then set -- $(_missing_only "$@"); (( $# > 0 )) || return 0; fi
+    _run pacman -Syu --noconfirm --needed "$@"
 }
 
 brew_install() {

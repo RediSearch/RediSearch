@@ -1,8 +1,15 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 import sys
 import os
 from RLTest import Defaults
 import platform
+import sysconfig
 
 if sys.version_info > (3, 0):
     Defaults.decode_responses = True
@@ -24,3 +31,4 @@ RS_TEST_ENTERPRISE = os.getenv('RS_TEST_ENTERPRISE', '0') == '1'
 
 system=platform.system()
 OS =  'macos' if system == 'Darwin' else system
+MUSL = 'musl' in (sysconfig.get_config_var('MULTIARCH') or '')

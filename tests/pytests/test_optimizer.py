@@ -1,4 +1,9 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 import profile
 from includes import *
@@ -67,6 +72,16 @@ def compare_optimized_to_not(env, query, params, msg=None):
         print_profile(env, query, params, optimize=False)
         print_profile(env, query, params, optimize=True)
 
+def compare_optimized_to_not_nocontent(env, query, params, msg=None):
+    """Same as `compare_optimized_to_not`, comparing the reply elements verbatim.
+
+    Suits NOCONTENT queries, whose replies carry no hash fields to parse `n` out of.
+    """
+    not_res = env.cmd(*query, 'WITHCOUNT', *params)
+    opt_res = env.cmd(*query, 'WITHOUTCOUNT', *params)
+    env.assertEqual(not_res[1:], opt_res[1:], message=msg)
+
+
 @skip(cluster=True)
 def testOptimizer(env):
     env.cmd(config_cmd(), 'SET', 'TIMEOUT', '0')
@@ -98,7 +113,8 @@ def testOptimizer(env):
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
                         ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 801, 'Estimated number of matches', 10000]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Index', 'Results processed', 10,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Loader', 'Results processed', 10],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 15]', 'SORTBY', 'n', *params)
@@ -120,7 +136,8 @@ def testOptimizer(env):
                             ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 600, 'Estimated number of matches', 3200],
                             ['Type', 'NUMERIC', 'Term', '16 - 54', 'Number of reading operations', 600, 'Estimated number of matches', 8000]]]]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 1200],
+                    ['Type', 'Index', 'Results processed', 1200,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 1200],
                     ['Type', 'Scorer', 'Results processed', 1200],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 20]', *params)
@@ -142,7 +159,8 @@ def testOptimizer(env):
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
                         ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 1401, 'Estimated number of matches', 10000]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Index', 'Results processed', 10,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Loader', 'Results processed', 10],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', *params)
@@ -163,7 +181,8 @@ def testOptimizer(env):
                         ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 19, 'Estimated number of matches', 3200],
                         ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 13, 'Estimated number of matches', 10000]]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 9],
+                    ['Type', 'Index', 'Results processed', 9,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 15]', *params)
     env.assertEqual(res[0][1:], ['10', '12', '14', '110', '112', '114', '210', '212', '214', '310'])
@@ -183,7 +202,8 @@ def testOptimizer(env):
     profiler =  {'Iterators profile':
                     ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 1200, 'Estimated number of matches', 3200],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 1200],
+                    ['Type', 'Index', 'Results processed', 1200,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 1200],
                     ['Type', 'Loader', 'Results processed', 1200],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', 'SORTBY', 'n', *params)
@@ -202,7 +222,8 @@ def testOptimizer(env):
     profiler =  {'Iterators profile':
                     ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 10, 'Estimated number of matches', 3200],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 9],
+                    ['Type', 'Index', 'Results processed', 9,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', *params)
     env.assertEqual(res[0], [1, '10', '11', '12', '13', '14', '15', '110', '111', '112', '113'])
@@ -223,7 +244,8 @@ def testOptimizer(env):
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
                         ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1800, 'Estimated number of matches', 10000]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Index', 'Results processed', 10,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Loader', 'Results processed', 10],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo', 'SORTBY', 'n', *params)
@@ -245,7 +267,8 @@ def testOptimizer(env):
     profiler =  {'Iterators profile':
                     ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 10000, 'Estimated number of matches', 10000],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10000],
+                    ['Type', 'Index', 'Results processed', 10000,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10000],
                     ['Type', 'Scorer', 'Results processed', 10000],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo', *params)
@@ -267,7 +290,8 @@ def testOptimizer(env):
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
                         ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 1800, 'Estimated number of matches', 10000]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Index', 'Results processed', 10,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Loader', 'Results processed', 10],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', 'SORTBY', 'n', *params)
@@ -286,7 +310,8 @@ def testOptimizer(env):
     profiler =  {'Iterators profile':
                     ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 10, 'Estimated number of matches', 10000],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 9],
+                    ['Type', 'Index', 'Results processed', 9,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', *params)
     env.assertEqual(res[0][1:], ['0', '2', '4', '6', '8', '10', '12', '14', '16', '18'])
@@ -307,7 +332,8 @@ def testOptimizer(env):
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
                         ['Type', 'WILDCARD', 'Number of reading operations', 3400]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Index', 'Results processed', 10,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Loader', 'Results processed', 10],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', 'SORTBY', 'n', *params)
@@ -326,7 +352,8 @@ def testOptimizer(env):
     profiler =  {'Iterators profile':
                     ['Type', 'WILDCARD', 'Number of reading operations', 10],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 9],
+                    ['Type', 'Index', 'Results processed', 9,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', *params)
     env.assertEqual(res[0][1:], ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
@@ -617,6 +644,187 @@ def testRetryWindowFillsRequestedLimit(env):
 
     env.assertEqual(len(optimized), limit)
     env.assertEqual(optimized, env.cmd(*query, 'WITHCOUNT')[1:])
+
+
+def load_sparse_matches(conn, num_docs, is_match):
+    """Index `num_docs` hashes with unique `n` values, tagging matches with `t:foo`."""
+    for i in range(num_docs):
+        conn.execute_command('hset', i, 'n', i, 't', 'foo' if is_match(i) else 'bar')
+
+
+@skip(cluster=True)
+def testRewindWidensWindow(env):
+    """A second collection pass runs when the first numeric window finds nothing.
+
+    The optimizer sizes its first numeric window from the child's estimate, so
+    with all matches sitting above the initial window the first pass collects
+    nothing. It must then widen the window and keep iterating, rather than
+    yielding an empty heap.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+
+    num_docs = 10000
+    first_match = num_docs // 2
+    load_sparse_matches(conn, num_docs, lambda i: i >= first_match)
+
+    limit = 10
+    expected = [str(i) for i in range(first_match, first_match + limit)]
+    env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0, limit,
+               'NOCONTENT', 'WITHOUTCOUNT').equal([limit] + expected)
+    env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0, limit,
+               'NOCONTENT', 'WITHOUTCOUNT').equal(
+                   [limit] + [str(i) for i in range(num_docs - 1, num_docs - 1 - limit, -1)])
+
+
+@skip(cluster=True)
+def testRetryGuardUnderfillsSparseChild(env):
+    """Characterization test: a sparse child whose matches all sit past the first
+    numeric window comes back short of LIMIT.
+
+    The optimizer only widens its window while the first window's document
+    estimate is below the child's estimate. The first window is sized to hold
+    `limit` matches at the child's selectivity, so for a child sparser than
+    about sqrt(limit / num_docs) it already exceeds the child's estimate, and
+    the retry never runs: the heap is drained as the first window left it.
+
+    This pins that under-fill, not the correct answer (the unoptimized query's).
+    A top-k implementation that keeps widening returns the full LIMIT, so this
+    test is expected to flip to the complete answer when one replaces it.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+
+    num_docs = 10000
+    num_matches = num_docs // 100
+    first_match = num_docs - num_matches
+    load_sparse_matches(conn, num_docs, lambda i: i >= first_match)
+
+    limit = 10
+    query = ['ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0, limit, 'NOCONTENT']
+    top_matches = [str(i) for i in range(first_match, first_match + limit)]
+    env.assertEqual(env.cmd(*query, 'WITHCOUNT'), [num_matches] + top_matches)
+    # Characterization: under-filled; flips to [limit] + top_matches once fixed.
+    env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT'), [0])
+
+
+@skip(cluster=True)
+def testDeletedDocsDuringCollection(env):
+    """Documents deleted before their index entries are collected are skipped.
+
+    With GC held off, the inverted index still lists the deleted ids, so the
+    optimizer has to drop them while filling its heap and keep collecting.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+    env.cmd(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx')
+
+    num_docs = 10000
+    first_match = num_docs // 2
+    load_sparse_matches(conn, num_docs, lambda i: i >= first_match)
+
+    deleted = 20
+    for i in range(first_match, first_match + deleted):
+        conn.execute_command('del', i)
+
+    limit = 10
+    expected = [str(i) for i in range(first_match + deleted, first_match + deleted + limit)]
+    env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0, limit,
+               'NOCONTENT', 'WITHOUTCOUNT').equal([limit] + expected)
+
+    env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')
+
+
+@skip(cluster=True)
+def testScorerTypes(env):
+    """Every registered scorer ranks identically whether or not the optimizer runs.
+
+    A scorer the optimizer classifies as needing no scoring loses the scorer and
+    sorter from its pipeline and comes back unranked. Term frequency, field length
+    and document score all differ per document, so each scorer produces a distinct
+    ranking and that loss shows up as a different order rather than matching the
+    unoptimized path by coincidence.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCORE_FIELD', '__score', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+    num_docs = 20
+    for i in range(num_docs):
+        text = ' '.join(['foo'] * (i + 1) + ['bar'] * (num_docs - i))
+        conn.execute_command('hset', i, 'n', i, '__score', (num_docs - i) / num_docs, 't', text)
+
+    params = ['limit', 0, 3, 'NOCONTENT', 'WITHSCORES']
+    for scorer in ['BM25STD', 'BM25STD.TANH', 'BM25STD.NORM', 'TFIDF', 'TFIDF.DOCNORM',
+                   'DISMAX', 'BM25', 'DOCSCORE', 'HAMMING']:
+        compare_optimized_to_not_nocontent(env, ['ft.search', 'idx', 'foo', 'SCORER', scorer],
+                                           params, 'scorer ' + scorer)
+
+
+def profile_iterator_types(env, query, params):
+    """Collect the `Type` names of every iterator in the plan `query` compiles to."""
+    res = env.cmd('ft.profile', query[1], 'search', 'QUERY', *query[2:], *params)
+    types = []
+
+    def walk(node):
+        if not isinstance(node, list):
+            return
+        for i, item in enumerate(node):
+            if item == 'Type' and i + 1 < len(node) and isinstance(node[i + 1], str):
+                types.append(node[i + 1])
+            walk(item)
+
+    walk(res)
+    return types
+
+
+@skip(cluster=True)
+def testOptimizedWithoutDrivingRange(env):
+    """The optimizer runs on sortby-numeric queries it cannot take a range from.
+
+    Whenever the query carries no numeric predicate on the sortby field, or one
+    it cannot extract, the optimizer still drives the iteration and synthesizes
+    an unbounded numeric filter to walk instead.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+
+    # An empty index has no numeric entries to estimate a window from.
+    env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', 'limit', 0, 5,
+               'NOCONTENT', 'WITHOUTCOUNT').equal([0])
+
+    for i in range(100):
+        conn.execute_command('hset', i, 'n', i, 't', 'foo' if i % 2 == 0 else 'bar')
+
+    params = ['limit', 0, 5, 'NOCONTENT']
+
+    # Two predicates on the sortby field: neither can be singled out to drive
+    # the iteration.
+    two_ranges = ['ft.search', 'idx', '@n:[0 60] @n:[20 80]', 'SORTBY', 'n', 'DIALECT', 2]
+    # A weighted intersection has to be scored, so the range stays in the tree.
+    weighted = ['ft.search', 'idx', '(@n:[0 60] foo)=>{$weight: 2.0}', 'SORTBY', 'n', 'DIALECT', 2]
+    # No numeric predicate at all.
+    wildcard = ['ft.search', 'idx', '*', 'SORTBY', 'n']
+
+    for query, msg in [(two_ranges, 'two numeric predicates'),
+                       (weighted, 'weighted phrase'),
+                       (wildcard, 'wildcard')]:
+        env.assertContains('OPTIMIZER', profile_iterator_types(env, query, params + ['WITHOUTCOUNT']),
+                           message=msg)
+        compare_optimized_to_not_nocontent(env, query, params, msg)
+
+
+@skip(cluster=True)
+def testNotOptimizedQueries(env):
+    """SORTBY on a non-numeric field opts out of the optimizer entirely."""
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+    for i in range(100):
+        conn.execute_command('hset', i, 'n', i, 't', 'foo' if i % 2 == 0 else 'bar')
+
+    params = ['limit', 0, 5, 'NOCONTENT']
+    query = ['ft.search', 'idx', 'foo', 'SORTBY', 't']
+    env.assertNotContains('OPTIMIZER',
+                          profile_iterator_types(env, query, params + ['WITHOUTCOUNT']))
+    compare_optimized_to_not_nocontent(env, query, params, 'sortby text field')
 
 
 @skip()  # TODO: solve flakiness (MOD-5257)

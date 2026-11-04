@@ -10,6 +10,7 @@ By contributing code to this Redis project in any form, you agree to the Redis S
 - Ask general usage questions on the [Redis Discord](https://discord.com/invite/redis) or [Stack Overflow](https://stackoverflow.com/questions/tagged/redis).
 - Report security bugs and vulnerabilities through `SECURITY.md`.
 - For major features or semantic changes, open an issue and discuss the design before investing heavily in code.
+- Adding a new feature or command? You can land it behind the `ENABLE_UNSTABLE_FEATURES` gate for a much lighter review, and graduate it once it has proven itself. See [`docs/CONTRIBUTING-unstable-features.md`](docs/CONTRIBUTING-unstable-features.md).
 - Documentation-only changes for redis.io documentation usually belong in the [redis-doc](https://github.com/redis/redis-doc) repository.
 
 ## Set Up Locally
@@ -83,6 +84,13 @@ By contributing code to this Redis project in any form, you agree to the Redis S
    - the main files or subsystems changed.
 5. Exactly one release-notes checkbox must be checked. CI enforces this.
 6. After review begins, address comments with follow-up commits. Do not force-push or rewrite history unless a maintainer asks you to.
+
+### Fast-track approval
+
+PR authors with repository write access can request Jira-based policy approval
+through **Actions → Request Fast-Track Approval**, run from `master`.
+See the [shared fast-track guide](https://github.com/redislabsdev/redisearch-ci-common/blob/v1/scripts/fast_track/README.md)
+for eligibility, setup, and usage. Required CI and merge rules still apply.
 
 ## Testing Requirements
 

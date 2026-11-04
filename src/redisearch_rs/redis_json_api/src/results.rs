@@ -85,15 +85,15 @@ impl<'a> ResultsIter<'a> {
     #[inline]
     pub unsafe fn serialize(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
     ) -> Result<RedisString, SerializeError> {
         let get_json_from_iter = vtable_fn!(self.api, getJSONFromIter);
-        let mut str: *mut ffi::RedisModuleString = std::ptr::null_mut();
+        let mut str: *mut redis_module::RedisModuleString = std::ptr::null_mut();
 
         // Safety: `ptr` and `ctx` are valid by construction/caller guarantee
         let status = unsafe { get_json_from_iter(self.ptr.as_ptr(), ctx, &mut str) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Ok(RedisString::from_redis_module_string(
                 ctx.cast(),
                 str.cast(),

@@ -1,7 +1,17 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #pragma once
 
 #include "aggregate/aggregate_plan.h"
 #include "query.h"
+#include "query_eval.h"
 #include "query_flags.h"
 
 #ifdef __cplusplus
@@ -121,11 +131,11 @@ typedef struct QueryPipelineParams {
      *  matching documents in the index. */
     const QueryAST *ast;
 
-    /** Root iterator that searches through the index to find matching documents.
-     *  This is the top-level iterator in the search iterator tree, typically a union
-     *  or intersection iterator that coordinates child iterators for different
-     *  search terms and filters. It produces the initial set of candidate documents. */
-    QueryIterator *rootiter;
+    /** Iterator tree that searches through the index to find matching documents.
+     *  Its root is the top-level iterator, typically a union or intersection
+     *  iterator that coordinates child iterators for different search terms and
+     *  filters. It produces the initial set of candidate documents. */
+    QueryIteratorTree *iteratorTree;
 
     /** Slot ranges for the root iterator, used for cluster-aware query execution. */
     const RedisModuleSlotRangeArray *querySlots;

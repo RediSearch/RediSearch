@@ -15,7 +15,7 @@
  * Note: never use it directly, it is subject to change in next releases
  */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -74,7 +74,7 @@ const char* nu_udb_lookup(uint32_t codepoint,
 
 #endif /* NU_WITH_UDB */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

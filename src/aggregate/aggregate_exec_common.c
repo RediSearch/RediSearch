@@ -76,7 +76,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   // Pause after the Nth result has been extracted (1-based)
   AggregateResultsDebugCtx_SetPause(true);
   while (AggregateResultsDebugCtx_IsPaused()) {
-    if (areq && AREQ_TimedOut(areq)) {
+    if (areq && QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)) {
       AggregateResultsDebugCtx_SetPause(false);
       break;
     }
@@ -102,10 +102,11 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // clean the search result
      r = SearchResult_New();
 
-     // Honour a main-thread timeout flag at the row boundary: buffering
-     // stages (safe loader, sorter yield) can keep emitting from internal
-     // buffers without re-touching upstream's per-row timeout check.
-     if (areq && AREQ_TimedOut(areq)) {
+     // Honour a memory stop or a main-thread timeout flag at the row
+     // boundary: buffering stages (safe loader, sorter yield) can keep emitting
+     // from internal buffers without re-touching upstream's per-row timeout check.
+     if (areq && (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
+                  QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits))) {
        *rc = RS_RESULT_TIMEDOUT;
        break;
      }
@@ -119,11 +120,12 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   if (ctx->timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
+   if (ctx->limits->timeout.config.timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx->areq, rc);
-     // Check timeout after aggregation
-     if (!ctx->skipTimeoutChecks && TimedOut(ctx->timeout) == TIMED_OUT) {
+     // Check timeout after aggregation; a memory stop raised while filling the limit ends it the
+     // same way.
+     if (QueryRequestLimits_ShouldStopExact(ctx->limits)) {
        *rc = RS_RESULT_TIMEDOUT;
      }
    } else {
@@ -201,7 +203,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
  /**
-  * Drain results buffered post-timeout into `req->brc->reply.results`.
+  * Drain results buffered post-timeout into `req->base.reply.results`.
   * Only safe for pipelines classified as yielding partial results -- caller
   * must gate on `qctx->canYieldPartialResults` and perform any root-specific
   * pre-drain setup (such as flipping RPNet's `drainOnly` mode on the
@@ -232,5 +234,5 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
 
  void AREQ_DrainStoredResultsAfterTimeout(AREQ *req) {
    Pipeline_DrainStoredResultsAfterTimeout(AREQ_QueryProcessingCtx(req),
-                                           &req->brc->reply);
+                                           &req->base.reply);
  }

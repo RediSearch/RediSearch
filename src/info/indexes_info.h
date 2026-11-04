@@ -8,7 +8,7 @@
 */
 #pragma once
 #include <stddef.h>
-#include "gc.h"
+#include "gc/gc.h"
 #include "rs_wall_clock.h"
 #include "search_disk_api.h"
 

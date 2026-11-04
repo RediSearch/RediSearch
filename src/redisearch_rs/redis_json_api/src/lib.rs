@@ -12,7 +12,7 @@ macro_rules! vtable_fn {
     ($api:expr, $field:ident) => {{
         let vtable = ($api).vtable();
 
-        // Safety: `$field` is part of the V7 prefix, which every accepted provider allocated.
+        // SAFETY: callers ensure the negotiated API version includes `$field`.
         let slot = unsafe { (&raw const (*vtable.as_ptr()).$field).read() };
 
         slot.expect(concat!(
@@ -42,8 +42,8 @@ pub use value::{JsonType, JsonValue, JsonValueRef};
 /// Minimum RedisJSON API version this wrapper accepts, kept in lockstep with the C side.
 pub const MIN_API_VERSION: i32 = ffi::RedisJSONAPI_MIN_API_VER.cast_signed();
 
-/// Latest API version (V8).
-pub const LATEST_API_VERSION: i32 = 8;
+/// Latest API version (V10).
+pub const LATEST_API_VERSION: i32 = 10;
 
 /// The root JSON path.
 pub const JSON_ROOT: &CStr = c"$";
@@ -116,7 +116,7 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         key_name: &RedisString,
     ) -> Option<JsonValueRef<'_>> {
         let open_key = vtable_fn!(self, openKey);
@@ -140,7 +140,7 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key_from_str(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         key_name: &CStr,
     ) -> Option<JsonValueRef<'_>> {
         let open_key_from_str = vtable_fn!(self, openKeyFromStr);
@@ -166,7 +166,7 @@ impl RedisJsonApi {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn open_key_with_flags(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
         key_name: &RedisString,
         flags: KeyFlags,
     ) -> Option<JsonValueRef<'_>> {
@@ -194,20 +194,19 @@ impl RedisJsonApi {
     /// The caller owns the key handle and must keep it open while the returned
     /// [`JsonValueRef`] is in use.
     ///
-    /// Delegates to the C helper [`ffi::JSON_GetJsonFromHandleCompat`], which
-    /// handles the V7/V8 version dispatch (see its docs).
+    /// Delegates to the C helper [`ffi::JSON_GetJsonFromHandle`].
     ///
     /// # Safety
     ///
     /// 1. `redis_key` must be a valid, open `RedisModuleKey` handle (or NULL).
     ///
-    /// [`RedisModuleKey`]: ffi::RedisModuleKey
+    /// [`RedisModuleKey`]: redis_module::RedisModuleKey
     pub unsafe fn open_from_handle(
         &self,
-        redis_key: *mut ffi::RedisModuleKey,
+        redis_key: *mut redis_module::RedisModuleKey,
     ) -> Option<JsonValueRef<'_>> {
         // Safety: ensured by caller (1.); the helper tolerates a NULL/non-JSON key.
-        let ptr = unsafe { ffi::JSON_GetJsonFromHandleCompat(redis_key) };
+        let ptr = unsafe { ffi::JSON_GetJsonFromHandle(redis_key) };
 
         if ptr.is_null() {
             None

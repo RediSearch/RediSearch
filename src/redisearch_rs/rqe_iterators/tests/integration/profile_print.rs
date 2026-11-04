@@ -52,7 +52,7 @@ fn print<I: ProfilePrint>(
     })
 }
 
-/// Print an iterator's profile with counters injected.
+/// Print an iterator's profile with counters and a captured estimate injected.
 fn print_with_counters<I: ProfilePrint>(
     replier: &mut Replier,
     iter: &I,
@@ -61,7 +61,7 @@ fn print_with_counters<I: ProfilePrint>(
 ) -> ReplyValue {
     capture_single_reply(|| {
         let base_ctx = ProfilePrintCtx::new(false, false);
-        let mut ctx = base_ctx.with_counters(counters, wall_time_ns);
+        let mut ctx = base_ctx.with_counters(counters, wall_time_ns, 0);
         let mut map = replier.map();
         iter.print_profile(&mut map, &mut ctx);
     })
@@ -122,7 +122,7 @@ fn leaf_with_clock() {
             skip_to: 0,
             eof: false,
         };
-        let mut ctx = base_ctx.with_counters(&counters, 1_500_000);
+        let mut ctx = base_ctx.with_counters(&counters, 1_500_000, 0);
         let mut map = replier.map();
         rqe_iterators::Empty.print_profile(&mut map, &mut ctx);
     });
@@ -302,7 +302,6 @@ fn union_limited_geo_prints_full() {
 #[test]
 fn union_with_query_string() {
     use query_types::QueryNodeType;
-    use ref_mode::SharedPtr;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
 
     let mut replier = init();
@@ -312,7 +311,7 @@ fn union_with_query_string() {
     let iter = UnionOpaque {
         variant: UnionVariant::FlatFull(flat),
         query_node_type: QueryNodeType::Prefix,
-        query_string: Some(SharedPtr::from_ref(query_str.as_c_str())),
+        query_string: Some(query_str.as_c_str()),
     };
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
@@ -361,6 +360,54 @@ fn term_with_query_term() {
     // Read once to populate the current result with the term.
     let _ = iter.read();
     let reply = print(&mut replier, &iter, false);
+    insta::assert_debug_snapshot!(reply);
+}
+
+/// The production shape: every printed node is wrapped by
+/// [`Profile`](rqe_iterators::profile::Profile), whose construction-time
+/// estimate capture feeds the "Estimated number of matches" line — the bare
+/// prints above legitimately omit it.
+#[test]
+fn term_profile_wrapped() {
+    use ffi::{
+        IndexFlags_Index_StoreByteOffsets, IndexFlags_Index_StoreFieldFlags,
+        IndexFlags_Index_StoreFreqs, IndexFlags_Index_StoreTermOffsets,
+    };
+    use inverted_index::full::Full;
+    use query_term::RSQueryTerm;
+
+    let mut replier = init();
+    let flags = IndexFlags_Index_StoreFreqs
+        | IndexFlags_Index_StoreTermOffsets
+        | IndexFlags_Index_StoreFieldFlags
+        | IndexFlags_Index_StoreByteOffsets;
+    let mut ii = inverted_index::InvertedIndex::<Full>::new(flags);
+    let offsets: &[u8] = &[0, 1, 2, 3];
+    let record = index_result::RSIndexResult::build_term()
+        .borrowed_record(
+            Some(RSQueryTerm::new("hello", 1, 0)),
+            index_result::RSOffsetSlice::from_slice(offsets),
+        )
+        .doc_id(1)
+        .field_mask(1)
+        .frequency(1)
+        .build();
+    ii.add_record(&record).expect("add_record");
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(1, 1);
+    let reader = ii.reader();
+    // SAFETY: mock_ctx provides a valid RedisSearchCtx.
+    let iter = unsafe {
+        rqe_iterators::inverted_index::Term::new(
+            reader,
+            mock_ctx.sctx(),
+            RSQueryTerm::new("hello", 1, 0),
+            1.0,
+            rqe_iterators::NoOpChecker,
+        )
+    };
+    let mut profile = rqe_iterators::profile::Profile::new(iter);
+    let _ = profile.read();
+    let reply = print(&mut replier, &profile, false);
     insta::assert_debug_snapshot!(reply);
 }
 
@@ -437,7 +484,7 @@ fn missing_with_field() {
     let ii = DocIdsOnly::from_opaque(ctx.missing_inverted_index());
     let field_index = ctx.field_spec().index;
     // SAFETY: ctx provides a valid RedisSearchCtx with a valid spec,
-    // missingFieldDict, and field_index.
+    // missing.indexes, and field_index.
     let iter = unsafe {
         rqe_iterators::inverted_index::Missing::new(
             ii.reader(),
@@ -470,14 +517,17 @@ fn make_numeric_variant<'a>(
             0,
         )
     };
-    rqe_iterators::NumericIteratorVariant::new(
-        idx.reader(),
-        filter,
-        checker,
-        None,
-        range_min,
-        range_max,
-    )
+    // SAFETY: nothing writes to the index while the iterator lives.
+    unsafe {
+        rqe_iterators::NumericIteratorVariant::new(
+            idx.reader(),
+            filter,
+            checker,
+            None,
+            range_min,
+            range_max,
+        )
+    }
 }
 
 #[test]
@@ -519,7 +569,7 @@ fn numeric_variant_geo() {
     let nw_score = nw_hash.bits as f64;
 
     let geo_filter = ffi::GeoFilter {
-        fieldSpec: std::ptr::null(),
+        fieldIndex: rqe_core::RS_INVALID_FIELD_INDEX,
         lat: 0.0,
         lon: 0.0,
         radius: 1.0,

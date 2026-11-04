@@ -9,11 +9,14 @@
 
 //! QN_IDS → IdList
 
-use query_eval::{QueryEvalContext, QueryNodeRef, eval, eval::Config};
+use query_eval::{Config, QueryEvalContext, QueryNodeMut, eval_node};
 use query_types::QueryNodeType;
 use rqe_iterators::{IteratorType, RQEIterator};
+use rqe_iterators_test_utils::ContractChecker;
 
 use query::mock::{MockQueryEvalCtx, MockQueryNode};
+
+use crate::util::MockKeys;
 
 #[test]
 fn eval_ids_with_pre_resolved_doc_ids() {
@@ -21,16 +24,18 @@ fn eval_ids_with_pre_resolved_doc_ids() {
     mock_ctx.enable_disk_mode();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
-    let keys: Vec<ffi::sds> = vec![std::ptr::null_mut(); 3];
+    let keys = MockKeys::nulls(3);
     let mut doc_ids: Vec<u64> = vec![10, 5, 20];
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     assert_eq!(it.type_(), IteratorType::IdListSorted);
     assert!(!it.at_eof());
@@ -51,16 +56,18 @@ fn eval_ids_deduplicates() {
     mock_ctx.enable_disk_mode();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
-    let keys: Vec<ffi::sds> = vec![std::ptr::null_mut(); 4];
+    let keys = MockKeys::nulls(4);
     let mut doc_ids: Vec<u64> = vec![3, 3, 7, 7];
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     let r = it.read().unwrap().unwrap();
     assert_eq!(r.doc_id, 3);
@@ -75,16 +82,18 @@ fn eval_ids_filters_zero_doc_ids() {
     mock_ctx.enable_disk_mode();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
-    let keys: Vec<ffi::sds> = vec![std::ptr::null_mut(); 3];
+    let keys = MockKeys::nulls(3);
     let mut doc_ids: Vec<u64> = vec![0, 5, 0];
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
     let r = it.read().unwrap().unwrap();
     assert_eq!(r.doc_id, 5);
@@ -97,19 +106,24 @@ fn eval_ids_all_zero_produces_empty_list() {
     mock_ctx.enable_disk_mode();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
-    let keys: Vec<ffi::sds> = vec![std::ptr::null_mut(); 2];
+    let keys = MockKeys::nulls(2);
     let mut doc_ids: Vec<u64> = vec![0, 0];
 
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
     mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
-    assert!(it.at_eof());
+    // Nothing to yield, but nothing read yet either: `at_eof()` is the negation
+    // of `current()`, so it flips once a read has run past the end.
+    assert!(!it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
+    assert!(it.at_eof());
 }
 
 #[test]
@@ -117,38 +131,63 @@ fn eval_ids_empty_keys() {
     let mut mock_ctx = MockQueryEvalCtx::new();
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
 
+    let keys = MockKeys::nulls(0);
+    let mut doc_ids: Vec<u64> = Vec::new();
+
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
-    mock_node.set_ids(std::ptr::null(), std::ptr::null_mut(), 0);
-    let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+    mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), 0);
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-    let mut it = eval::eval_node(&mut ctx, &node, Config::default())
-        .expect("should not be None")
-        .into_boxed();
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("should not be None")
+            .into_boxed(),
+    );
 
+    // Nothing to yield, but nothing read yet either: `at_eof()` is the negation
+    // of `current()`, so it flips once a read has run past the end.
+    assert!(!it.at_eof());
+    assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
+}
+
+#[test]
+fn eval_empty_deferred_ids_without_map() {
+    let mut mock_ctx = MockQueryEvalCtx::new();
+    // SAFETY: the mock owns the backing fields for the duration of evaluation.
+    let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
+    let keys = MockKeys::nulls(0);
+    let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
+    mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+    // SAFETY: the mock owns the node and no key is accessed for an empty filter.
+    let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("empty iterator")
+            .into_boxed(),
+    );
     assert!(matches!(it.read(), Ok(None)));
 }
 
 // ---------------------------------------------------------------------------
-// QN_IDS → IdList, resolving key names through the DocTable
+// QN_IDS → IdList, consuming pre-resolved doc ids
 //
-// The lightweight `MockQueryEvalCtx` has an empty `DocTable`, so the key→docId
-// resolution path (`DocTable_GetId`) is exercised here with the full-FFI
-// `TestContext`, which can register real documents.
+// Exercised against the full-FFI `TestContext` so the ids come from real
+// registered documents rather than literals.
 // ---------------------------------------------------------------------------
 
-// Disabled under Miri: `TestContext` and SDS creation call into the C library,
-// which Miri cannot execute.
+// Disabled under Miri: `TestContext` calls into the C library, which Miri
+// cannot execute.
 #[cfg(not(miri))]
 mod ids_doctable {
     use ffi::IndexFlags_Index_StoreFreqs;
     use rqe_iterators_test_utils::{GlobalGuard, TestContext};
 
     use super::*;
-    use crate::util::new_sds;
+    use crate::util::MockKeys;
 
     #[test]
-    fn eval_ids_resolves_keys_through_doc_table() {
+    fn eval_ids_consumes_pre_resolved_doc_ids() {
         let _guard = GlobalGuard::default();
         let context = TestContext::term(IndexFlags_Index_StoreFreqs, std::iter::empty(), false);
 
@@ -159,58 +198,88 @@ mod ids_doctable {
 
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
-        // Query for both known keys plus an unknown one, which must resolve to
-        // id 0 and be filtered out. `doc_ids` is NULL, so the DocTable lookup
-        // path is taken.
-        let keys: Vec<ffi::sds> = vec![new_sds("doc_b"), new_sds("ghost"), new_sds("doc_a")];
+        // Both known keys plus an unknown one, whose id 0 must be filtered out.
+        let keys = MockKeys::new(&["doc_b", "ghost", "doc_a"]);
+        let mut doc_ids: Vec<ffi::t_docId> = vec![id_b, 0, id_a];
 
         let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
-        mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
-        let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+        mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
+        let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
         assert_eq!(it.type_(), IteratorType::IdListSorted);
-        // Results are sorted; the unknown key is dropped.
+        // Results are sorted; the unknown id (0) is dropped.
         let r = it.read().unwrap().unwrap();
         assert_eq!(r.doc_id, id_a);
         let r = it.read().unwrap().unwrap();
         assert_eq!(r.doc_id, id_b);
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
-
-        for key in keys {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
     }
 
     #[test]
-    fn eval_ids_unknown_keys_produce_empty_list() {
+    fn eval_ids_resolves_deferred_keys_through_map() {
+        let _guard = GlobalGuard::default();
+        let context = TestContext::term(IndexFlags_Index_StoreFreqs, std::iter::empty(), false);
+        let qctx = context.qctx();
+        let id_a = context.add_document("doc\0a");
+        let id_b = context.add_document("doc_b");
+        // SAFETY: this test has exclusive access to its document table.
+        unsafe {
+            let table = (*qctx.as_ptr()).docTable;
+            assert_eq!(
+                ffi::DocTable_StartKeyMap(table),
+                ffi::DocKeyMapActivation_DocKeyMapActivation_NeedsBackfill
+            );
+            let mut iter = std::mem::zeroed();
+            assert!(ffi::DocTable_BuildKeyMapBatch(table, &mut iter, usize::MAX));
+        }
+        // SAFETY: context owns the backing fields and outlives evaluation.
+        let mut ctx = unsafe { QueryEvalContext::new(qctx) };
+        let keys = MockKeys::new(&["doc_b", "ghost", "doc\0a", "doc_b"]);
+        let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
+        mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+        // SAFETY: mock_node owns the subtree exclusively; keys outlive evaluation.
+        let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
+
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
+        assert_eq!(it.read().unwrap().unwrap().doc_id, id_a);
+        assert_eq!(it.read().unwrap().unwrap().doc_id, id_b);
+        assert!(matches!(it.read(), Ok(None)));
+    }
+
+    #[test]
+    fn eval_ids_all_unresolved_produce_empty_list() {
         let _guard = GlobalGuard::default();
         let context = TestContext::term(IndexFlags_Index_StoreFreqs, std::iter::empty(), false);
 
         let mut ctx = unsafe { QueryEvalContext::new(context.qctx()) };
 
-        // None of these keys exist in the (empty) DocTable.
-        let keys: Vec<ffi::sds> = vec![new_sds("nope"), new_sds("missing")];
+        let keys = MockKeys::new(&["nope", "missing"]);
+        let mut doc_ids: Vec<ffi::t_docId> = vec![0, 0];
 
         let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
-        mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
-        let node = unsafe { QueryNodeRef::new(mock_node.as_non_null()) };
+        mock_node.set_ids(keys.as_ptr(), doc_ids.as_mut_ptr(), keys.len());
+        let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
 
-        let mut it = eval::eval_node(&mut ctx, &node, Config::default())
-            .expect("should not be None")
-            .into_boxed();
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
 
-        assert!(it.at_eof());
+        // Nothing to yield, but nothing read yet either.
+        assert!(!it.at_eof());
         assert!(matches!(it.read(), Ok(None)));
-
-        for key in keys {
-            // SAFETY: each `key` was allocated by `sdsnewlen` and is freed once.
-            unsafe { ffi::sdsfree(key) };
-        }
+        assert!(it.at_eof());
     }
 }

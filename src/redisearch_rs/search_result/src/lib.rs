@@ -65,9 +65,12 @@ pub struct SearchResult<'index> {
 
 impl Drop for SearchResult<'_> {
     fn drop(&mut self) {
-        self.clear();
-
+        self.clear_before_row();
         self._row_data.reset_dyn_values();
+        self._row_data.set_sorting_vector(None);
+
+        // Keep the row-before-DMD destruction order of the old C implementation.
+        let _ = self._document_metadata.take();
     }
 }
 
@@ -104,10 +107,7 @@ impl<'index> SearchResult<'index> {
         self._flags.remove(SearchResultFlag::OwnsIndexResult);
     }
 
-    /// Clears the search result, removing all values from the [`RLookupRow`][ffi::RLookupRow].
-    /// This has no effect on the allocated capacity of the lookup row.
-    #[inline]
-    pub fn clear(&mut self) {
+    fn clear_before_row(&mut self) {
         self._score = 0.0;
 
         if let Some(score_explain) = self._score_explain.take() {
@@ -118,9 +118,14 @@ impl<'index> SearchResult<'index> {
         }
 
         self.clear_index_result();
-
         self._flags = SearchResultFlags::empty();
+    }
 
+    /// Clears the search result, removing all values from the [`RLookupRow`][ffi::RLookupRow].
+    /// This has no effect on the allocated capacity of the lookup row.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.clear_before_row();
         self._row_data.wipe();
 
         // explicitly drop the DMD here to make clear we maintain the

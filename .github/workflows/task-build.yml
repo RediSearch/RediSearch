@@ -6,6 +6,11 @@ name: Common Flow for Build
 # coordinator binaries) with `make build TESTS=1`, and uploads the contents of
 # `bin/` as a workflow artifact. Downstream test workflows
 # (`task-test-unit.yml`, `task-test-flow.yml`) consume that artifact.
+#
+# Only RediSearch is built here. The two external binaries the flow tests need —
+# redis-server and the RedisJSON module — are produced by `task-build-redis.yml`
+# and `task-build-rejson.yml`, which run as sibling jobs off the same resolved
+# platform config and ship their own artifacts.
 
 on:
   workflow_call:
@@ -23,18 +28,10 @@ on:
       coverage:
         type: boolean
         default: false
-      redis-ref:
-        description: 'Redis version to use (e.g. "7.2.3", "unstable")'
-        type: string
-        default: 3cd464263b03b425ffae2e23db24df3dc9346871
       artifact-name:
         description: 'Name of the workflow artifact uploaded with the contents of bin/.'
         type: string
         required: true
-      rejson-branch:
-        description: 'RedisJSON branch to build once here; the resulting rejson.so ships in the artifact so flow test jobs reuse it instead of rebuilding.'
-        type: string
-        default: master
       # Resolved platform config — produced by task-get-config.yml at the
       # pipeline level so this workflow doesn't redo it. Caller must supply.
       name:
@@ -98,16 +95,20 @@ env:
 
 jobs:
   common-flow:
-    name: Build ${{ inputs.name }}, Redis ${{ inputs.redis-ref }}
+    name: Build ${{ inputs.name }}
     outputs:
       artifact-name: ${{ inputs.artifact-name }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    # Runner-local env is unavailable while GitHub creates the job container.
+    # Use the resolved runner label as the pre-container signal for GitHub-hosted
+    # mounts; runner-local env is not available yet.
     container: ${{
       inputs.container
         && fromJSON(
-          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+          format('{{"image":"{0}","options":"--user root {1} {2}"}}',
             inputs.image-built == 'true' && inputs.image || inputs.container,
-            startsWith(inputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+            startsWith(inputs.container, 'alpine:') && (startsWith(inputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '',
+            startsWith(inputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '')
         )
       || null }}
 
@@ -131,33 +132,28 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
-      - name: Free up disk space (container)
-        # For container jobs - delete mounted host directories
-        if: ${{ inputs.container }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          rm -rf /host_usr/dotnet/* 2>/dev/null || true
-          rm -rf /host_usr/android/* 2>/dev/null || true
-          rm -rf /host_opt/ghc/* 2>/dev/null || true
-          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
-      - name: Free up disk space (non-container)
-        # For non-container jobs - delete directly with sudo
-        # Skip macOS - it doesn't have these directories
-        if: ${{ !inputs.container && !contains(inputs.env, 'macos') }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
-          sudo rm -rf /usr/local/share/boost || true
-          docker system prune -af 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
+      - name: Setup Dependencies
+        # Hoist setup-script into an env var and `eval` it from the loop body
+        # rather than interpolating ${{ inputs.setup-script }} directly into
+        # the run script — avoids ${{ }} expansion injecting shell metachars.
+        if: inputs.image-built != 'true' && inputs.setup-script
+        env:
+          SETUP_SCRIPT: ${{ inputs.setup-script }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+
+      - name: Post-setup
+        if: inputs.post-setup-script
+        env:
+          POST_SETUP_SCRIPT: ${{ inputs.post-setup-script }}
+        run: eval "$POST_SETUP_SCRIPT"
+
+      - name: Full checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          submodules: recursive
+
+      - name: Free up disk space
+        uses: ./.github/actions/github-hosted-runner-cleanup
       - name: Fix HOME Directory
         if: ${{ inputs.image-built == 'true' && inputs.container }}
         shell: bash
@@ -175,34 +171,6 @@ jobs:
           echo "id: $(id)"
           echo "HOME=$h" >> "$GITHUB_ENV"
 
-      - name: Setup Dependencies
-        # Hoist setup-script into an env var and `eval` it from the loop body
-        # rather than interpolating ${{ inputs.setup-script }} directly into
-        # the run script — avoids ${{ }} expansion injecting shell metachars.
-        if: inputs.image-built != 'true' && inputs.setup-script
-        env:
-          SETUP_SCRIPT: ${{ inputs.setup-script }}
-        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
-
-      - name: Post-setup
-        if: inputs.post-setup-script
-        env:
-          POST_SETUP_SCRIPT: ${{ inputs.post-setup-script }}
-        run: eval "$POST_SETUP_SCRIPT"
-      - name: Free up disk space
-        env:
-          INSTALL_MODE: ${{ inputs.install-mode }}
-        run: |
-          df -h
-          $INSTALL_MODE rm -rf /usr/share/dotnet || true
-          $INSTALL_MODE rm -rf /usr/local/lib/android || true
-          $INSTALL_MODE rm -rf /opt/ghc || true
-          $INSTALL_MODE rm -rf /opt/hostedtoolcache/CodeQL || true
-          df -h
-      - name: Full checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          submodules: recursive
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
         with:
@@ -225,10 +193,6 @@ jobs:
           github-token: ${{ github.token }}
           python-test-deps: 'true'
           sanitizer-setup: 'true'
-          build-redis: 'true'
-          redis-ref: ${{ inputs.redis-ref }}
-          coverage: ${{ inputs.coverage }}
-          redis-cache-platform-id: ${{ inputs.container || inputs.env }}
 
       - name: Build (incl. Rust nextest archive)
         # `make build TESTS=1` builds redisearch.so + C test binaries; with
@@ -239,7 +203,6 @@ jobs:
         env:
           SAN: ${{ inputs.san }}
           COV: ${{ inputs.coverage && 1 || 0 }}
-          REDIS_VER: ${{ inputs.redis-ref }}
           ENABLE_ASSERT: 1
           ARCHIVE_RUST_TESTS: 1
           # Skip the Rust → C FFI header regeneration here; freshness is enforced
@@ -262,20 +225,6 @@ jobs:
 
       - name: Show sccache stats
         run: ${SCCACHE_PATH:-sccache} --show-stats || true
-
-      # RedisJSON is loaded as a side module by the flow tests. Build it once
-      # here (same sanitizer variant as the rest of the artifact) and drop
-      # rejson.so into bin/ so it ships in the build artifact; flow test jobs set
-      # REJSON_PATH to it and skip their own clone+build. The action caches it
-      # per (RedisJSON SHA, platform, arch, sanitizer) exactly like Redis, so an
-      # unchanged RedisJSON SHA under the same flags is restored, not rebuilt.
-      - name: Build RedisJSON module (cached)
-        uses: ./.github/actions/build-rejson
-        with:
-          rejson-branch: ${{ inputs.rejson-branch }}
-          san: ${{ inputs.san }}
-          cov: ${{ inputs.coverage && '1' || '0' }}
-          cache_platform_id: ${{ inputs.platform }}
 
       - name: Package build outputs
         # We package bin/ as a tarball for two reasons:
@@ -340,22 +289,6 @@ jobs:
           echo "Tarball size:"
           ls -lh bin.tar.gz
 
-      # Ship the Redis install tree alongside the module. The flow-test jobs used
-      # to obtain it from the shared Actions cache that the step above populates,
-      # but a cache miss there (eviction, a re-run after the entry aged out) made
-      # them build Redis themselves — with the default compiler rather than the
-      # sanitizer clang used here, producing a redis-server that aborts with
-      # "ASan runtime does not come first in initial library list". Shipping it in
-      # the artifact makes the toolchain match by construction, so the cache is a
-      # build-time optimisation only and can never change what the tests run.
-      # tar (not the artifact zip) to preserve the executable bits.
-      - name: Package Redis install tree
-        run: |
-          set -euo pipefail
-          tar -czf redis-install.tar.gz redis-install
-          echo "Redis tarball size:"
-          ls -lh redis-install.tar.gz
-
       - name: Upload build artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -363,7 +296,5 @@ jobs:
           path: |
             bin.tar.gz
             nextest-archive.tar.zst
-            redis-install.tar.gz
           if-no-files-found: error
           retention-days: 1
-

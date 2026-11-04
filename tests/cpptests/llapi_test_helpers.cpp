@@ -28,11 +28,11 @@
 #include "query.h"
 #include "query_eval_ffi.h"
 #include "extension.h"
-#include "fork_gc.h"
+#include "gc/index_gc.h"
 #include "iterators/iterator_api.h"
 #include "config.h"
 #include "doc_table.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "obfuscation/hidden.h"
 
 #include <float.h>
@@ -139,33 +139,39 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
 int RediSearch_DeleteDocument(RefManager* rm, const void* docKey, size_t len) {
   RS_ASSERT(!SearchDisk_IsEnabled());
   IndexSpec* sp = get_spec(rm);
-  int rc = REDISMODULE_OK;
-  t_docId id = DocTable_GetId(&sp->docs, (const char *)docKey, len);
-  if (id == 0) {
-    rc = REDISMODULE_ERR;
-  } else {
-    RSDocumentMetadata* md = DocTable_Pop(&sp->docs, (const char *)docKey, len);
-    if (md) {
-      // Delete returns true/false, not RM_{OK,ERR}
-      RS_LOG_ASSERT(sp->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
-      sp->stats.scoring.numDocuments--;
-      RS_LOG_ASSERT(sp->stats.scoring.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
-      sp->stats.scoring.totalDocsLen -= md->docLen;
-      DMD_Return(md);
+  DocTable* dt = &sp->docs;
 
-      if (sp->gc) {
-        GCContext_OnDelete(sp->gc);
-      }
-    } else {
-      rc = REDISMODULE_ERR;
+  // The in-memory DocTable no longer holds a key -> docId trie (that mapping
+  // lives on the Redis key as DocIdMeta). This test helper does not go through
+  // the Redis keyspace, so resolve the key by scanning the table's DMDs.
+  t_docId id = 0;
+  DOCTABLE_FOREACH(dt, {
+    if (id == 0 && !(dmd->flags & Document_Deleted) && sdslen(dmd->keyPtr) == len &&
+        memcmp(dmd->keyPtr, docKey, len) == 0) {
+      id = dmd->id;
     }
+  });
+  if (id == 0) {
+    return REDISMODULE_ERR;
   }
 
-  return rc;
+  RSDocumentMetadata* md = DocTable_DeleteById(dt, id);
+  if (!md) {
+    return REDISMODULE_ERR;
+  }
+  RS_LOG_ASSERT(sp->stats.scoring.numDocuments > 0, "numDocuments cannot be negative");
+  sp->stats.scoring.numDocuments--;
+  RS_LOG_ASSERT(sp->stats.scoring.totalDocsLen >= md->docLen, "totalDocsLen is smaller than md->docLen");
+  sp->stats.scoring.totalDocsLen -= md->docLen;
+  DMD_Return(md);
+  if (sp->gc) {
+    GCContext_OnDelete(sp->gc);
+  }
+  return REDISMODULE_OK;
 }
 
 struct RS_ApiIter {
-  QueryIterator* internal;
+  QueryIteratorTree* internal;
   RedisSearchCtx sctx;
   RSIndexResult* res;
   const RSDocumentMetadata* lastmd;
@@ -229,7 +235,7 @@ static RS_ApiIter* handleIterCommon(IndexSpec* sp, QueryInput* input, char** err
     goto end;
   }
 
-  it->internal = QAST_Iterate(&it->qast, &options, &it->sctx, 0, NULL, &status);
+  it->internal = QAST_Iterate(&it->qast, &options, &it->sctx, 0, &status);
   RS_ASSERT(it->internal);
 
   IndexSpec_GetStats(sp, &it->scargs.indexStats);
@@ -274,8 +280,9 @@ RS_ApiIter* RediSearch_GetResultsIterator(QueryNode* qn, RefManager* rm) {
 
 const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, RefManager* rm, size_t* len) {
   IndexSpec *sp = get_spec(rm);
-  while (iter->internal->Read(iter->internal) == ITERATOR_OK) {
-    iter->res = iter->internal->current;
+  QueryIterator* root = QueryIteratorTree_Root(iter->internal);
+  while (root->Read(root) == ITERATOR_OK) {
+    iter->res = root->current;
     const RSDocumentMetadata* md = DocTable_Borrow(&sp->docs, iter->res->docId);
     if (md == NULL) {
       continue;
@@ -292,7 +299,7 @@ const void* RediSearch_ResultsIteratorNext(RS_ApiIter* iter, RefManager* rm, siz
 
 void RediSearch_ResultsIteratorFree(RS_ApiIter* iter) {
   if (iter->internal) {
-    iter->internal->Free(iter->internal);
+    QueryIteratorTree_Free(iter->internal);
   }
   if (iter->scorerFree) {
     iter->scorerFree(iter->scargs.extdata);

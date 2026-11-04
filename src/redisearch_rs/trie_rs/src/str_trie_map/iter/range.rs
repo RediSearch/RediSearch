@@ -10,7 +10,7 @@
 use crate::{
     TrieMap,
     iter::{self, RangeBoundary as InnerBoundary, RangeFilter as InnerFilter},
-    str_trie_map::iter::unfiltered::key_to_string,
+    str_trie_map::iter::{LendingStrIter, key_to_str},
 };
 
 /// One of the bounds for a [`RangeFilter`].
@@ -93,10 +93,20 @@ impl<'tm, 'p, Data: 'tm> RangeIter<'tm, 'p, Data> {
     }
 }
 
-impl<'tm, 'p, Data: 'tm> Iterator for RangeIter<'tm, 'p, Data> {
+impl<'tm, Data: 'tm> LendingStrIter<'tm> for RangeIter<'tm, '_, Data> {
+    type Data = Data;
+
+    fn next_borrowed(&mut self) -> Option<(&str, &'tm Data)> {
+        let data = self.0.advance()?;
+        Some((key_to_str(self.0.key()), data))
+    }
+}
+
+impl<'tm, Data: 'tm> Iterator for RangeIter<'tm, '_, Data> {
     type Item = (String, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(k, v)| (key_to_string(k), v))
+        let (key, data) = self.next_borrowed()?;
+        Some((key.to_owned(), data))
     }
 }

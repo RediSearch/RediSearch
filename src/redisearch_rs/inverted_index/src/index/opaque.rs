@@ -15,7 +15,8 @@ use rqe_core::DocId;
 
 use crate::ii_dispatch;
 use crate::{
-    EntriesTrackingIndex, FieldMaskTrackingIndex, InvertedIndex as InvertedIndexInner,
+    EntriesTrackingIndex, FieldMaskTrackingIndex, IndexUniqueId,
+    InvertedIndex as InvertedIndexInner,
     doc_ids_only::DocIdsOnly,
     fields_offsets::{FieldsOffsets, FieldsOffsetsWide},
     fields_only::{FieldsOnly, FieldsOnlyWide},
@@ -135,6 +136,12 @@ pub enum InvertedIndex {
     NumericFloatCompression(EntriesTrackingIndex<NumericFloatCompression>),
 }
 
+// MOD-20225: C allocates every inverted index as this enum. Its size, set by the 16-byte-aligned
+// field mask, absorbs `InvertedIndexInner::expiration`, so adding that field changed no
+// allocation size. Keep it that way: growing past this moves every index to a larger class.
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(std::mem::size_of::<InvertedIndex>() == 64);
+
 impl InvertedIndex {
     /// Scan the index for blocks that can be garbage collected.
     ///
@@ -156,6 +163,15 @@ impl InvertedIndex {
     /// This is a dispatch wrapper around the typed [`InvertedIndex::apply_gc`].
     pub fn apply_gc(&mut self, delta: crate::GcScanDelta) -> crate::GcApplyInfo {
         ii_dispatch!(self, apply_gc, delta)
+    }
+
+    /// Return the unique ID assigned when this inverted index was created.
+    ///
+    /// This is a dispatch wrapper around the typed
+    /// [`crate::InvertedIndex::unique_id`] and distinguishes a replacement
+    /// index from one that reused its address.
+    pub const fn unique_id(&self) -> IndexUniqueId {
+        ii_dispatch!(self, unique_id)
     }
 
     /// Return the number of unique documents in the index.

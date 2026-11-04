@@ -16,6 +16,7 @@ use rqe_iterators::{
     geo_shape::GeoShape,
     utils::{DeadlineTimeoutChecker, NoTimeoutChecker},
 };
+use rqe_iterators_test_utils::ContractChecker;
 use rstest_reuse::apply;
 
 use crate::id_cases;
@@ -24,6 +25,20 @@ use crate::id_cases;
 /// tracking — the simplest configuration, used by the sorted-id-list tests.
 fn plain(ids: Vec<u64>) -> GeoShape<'static, NoTimeoutChecker, NoOpChecker, NoTracker> {
     GeoShape::new(ids, NoTimeoutChecker, NoOpChecker, NoTracker)
+}
+
+/// [`plain`], wrapped in a [`ContractChecker`] so every scenario the tests
+/// drive is contract-checked as a side effect.
+///
+/// `new_with_duplicates` rather than `new`: the geometry index does not
+/// guarantee unique matches, so this iterator walks its ids in ascending order
+/// but may hand the same one out more than once — see
+/// [`duplicate_ids_are_yielded_as_is`]. Every other invariant is checked as
+/// usual.
+fn checked(
+    ids: Vec<u64>,
+) -> ContractChecker<GeoShape<'static, NoTimeoutChecker, NoOpChecker, NoTracker>> {
+    ContractChecker::new_with_duplicates(plain(ids))
 }
 
 /// A safe [`MemTracker`] backed by a shared cell, letting a test observe the
@@ -65,30 +80,36 @@ impl ExpirationChecker for MockExpiry {
 
 #[test]
 fn type_is_geoshape() {
-    let it = plain(vec![1, 2, 3]);
+    let it = checked(vec![1, 2, 3]);
     assert_eq!(it.type_(), IteratorType::GeoShape);
 }
 
 #[test]
 fn empty_initialization_works() {
-    let mut it = plain(vec![]);
+    let mut it = checked(vec![]);
 
     let result = it.current().unwrap();
     assert_eq!(0, result.doc_id);
     assert_eq!(RSResultKind::Virtual, result.kind());
 
-    assert!(it.at_eof());
+    // Unread rather than past its end, even with nothing to find.
+    assert!(!it.at_eof());
     assert_eq!(it.num_estimated(), 0);
     assert!(matches!(it.read(), Ok(None)));
+    assert!(it.at_eof());
+    assert!(it.current().is_none());
 }
 
 #[test]
 fn unsorted_input_is_sorted_on_construction() {
-    let mut it = plain(vec![5, 3, 1, 4, 2]);
+    let mut it = checked(vec![5, 3, 1, 4, 2]);
     for expected in 1..=5u64 {
         let res = it.read().unwrap().unwrap();
         assert_eq!(res.doc_id, expected);
     }
+    // Still positioned on the last id; the read that runs past it is what EOFs.
+    assert!(!it.at_eof());
+    assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
 }
 
@@ -97,20 +118,21 @@ fn duplicate_ids_are_yielded_as_is() {
     // The geometry index does not guarantee unique matches; duplicates must be
     // sorted alongside everything else and yielded one by one. The shared
     // `id_cases` fixture is unique, so this behavior is covered here explicitly.
-    let mut it = plain(vec![5, 3, 1, 3]);
+    let mut it = checked(vec![5, 3, 1, 3]);
 
     assert_eq!(it.num_estimated(), 4);
     for expected in [1u64, 3, 3, 5] {
         let res = it.read().unwrap().unwrap();
         assert_eq!(res.doc_id, expected);
     }
-    assert!(it.at_eof());
+    assert!(!it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
+    assert!(it.at_eof());
 }
 
 #[test]
 fn skip_to_lands_on_first_of_duplicates() {
-    let mut it = plain(vec![1, 3, 3, 5]);
+    let mut it = checked(vec![1, 3, 3, 5]);
 
     // Skipping to a duplicated id lands on its first occurrence...
     let Ok(Some(SkipToOutcome::Found(res))) = it.skip_to(3) else {
@@ -141,7 +163,7 @@ fn skip_to_handles_long_duplicate_runs() {
 
     // Target equal to a present ID: lands on the first of its three copies, and
     // the other two are still yielded by the following reads.
-    let mut it = plain(ids.clone());
+    let mut it = checked(ids.clone());
     let Ok(Some(SkipToOutcome::Found(res))) = it.skip_to(500) else {
         panic!("expected Found(500)");
     };
@@ -153,7 +175,7 @@ fn skip_to_handles_long_duplicate_runs() {
 
     // Target in the gap between two runs: lands on the first copy of the next
     // run (NotFound), which is then consumed by the following reads.
-    let mut it = plain(ids);
+    let mut it = checked(ids);
     let Ok(Some(SkipToOutcome::NotFound(res))) = it.skip_to(505) else {
         panic!("expected NotFound landing on 510");
     };
@@ -166,7 +188,7 @@ fn skip_to_handles_long_duplicate_runs() {
 
 #[apply(id_cases)]
 fn read(#[case] case: &[u64]) {
-    let mut it = plain(case.to_vec());
+    let mut it = checked(case.to_vec());
 
     assert_eq!(it.num_estimated(), case.len());
     assert!(!it.at_eof());
@@ -182,15 +204,17 @@ fn read(#[case] case: &[u64]) {
         assert_eq!(RSResultKind::Virtual, result.kind());
     }
 
-    assert!(it.at_eof());
+    // Sitting on the last id is not EOF; the read that runs past it is.
+    assert!(!it.at_eof());
     assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
+    assert!(it.current().is_none());
 }
 
 #[apply(id_cases)]
 #[cfg_attr(miri, ignore = "Takes too long with Miri, causing CI to timeout")]
 fn skip_to(#[case] case: &[u64]) {
-    let mut it = plain(case.to_vec());
+    let mut it = checked(case.to_vec());
 
     // Skip past the last doc id: expect EOF, last_doc_id unchanged.
     let last = *case.last().unwrap();
@@ -210,7 +234,7 @@ fn skip_to(#[case] case: &[u64]) {
                 panic!("probe {probe} -> Expected NotFound landing on {id}");
             };
             assert_eq!(res.doc_id, id);
-            assert_eq!(it.at_eof(), Some(&id) == case.last());
+            assert!(!it.at_eof(), "still positioned on {id}");
             assert_eq!(it.last_doc_id(), id);
             probe += 1;
         }
@@ -230,7 +254,7 @@ fn skip_to_from_nonzero_offset() {
     // binary search only ever runs over the full list. Drive it from a
     // non-zero offset instead — the path the intersection engine actually
     // exercises by calling `skip_to`/`read` repeatedly without rewinding.
-    let mut it = plain(vec![1, 3, 5, 7, 9]);
+    let mut it = checked(vec![1, 3, 5, 7, 9]);
 
     // First skip lands on 3 and advances the offset past it.
     let Ok(Some(SkipToOutcome::Found(res))) = it.skip_to(3) else {
@@ -253,7 +277,7 @@ fn skip_to_from_nonzero_offset() {
 
     // A `read` followed by a `skip_to` that misses must land on the next id in
     // the tail (NotFound), again searching from a non-zero offset.
-    let mut it = plain(vec![1, 3, 5, 7, 9]);
+    let mut it = checked(vec![1, 3, 5, 7, 9]);
     assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
     let Ok(Some(SkipToOutcome::NotFound(res))) = it.skip_to(6) else {
         panic!("expected NotFound landing on 7 from a non-zero offset");
@@ -264,12 +288,13 @@ fn skip_to_from_nonzero_offset() {
 
 #[apply(id_cases)]
 fn rewind(#[case] case: &[u64]) {
-    let mut it = plain(case.to_vec());
+    let mut it = checked(case.to_vec());
 
     for &id in case {
         let res = it.read().unwrap().unwrap();
         assert_eq!(res.doc_id, id);
     }
+    assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
 
     it.rewind();
@@ -286,7 +311,12 @@ fn expired_documents_are_skipped() {
         has_expiration: true,
         expired: vec![2, 4],
     };
-    let mut it = GeoShape::new(vec![1, 2, 3, 4, 5], NoTimeoutChecker, checker, NoTracker);
+    let mut it = ContractChecker::new_with_duplicates(GeoShape::new(
+        vec![1, 2, 3, 4, 5],
+        NoTimeoutChecker,
+        checker,
+        NoTracker,
+    ));
 
     // 2 and 4 are filtered out.
     for expected in [1u64, 3, 5] {
@@ -302,12 +332,12 @@ fn expired_documents_are_skipped() {
 fn with_expired(
     ids: Vec<u64>,
     expired: Vec<u64>,
-) -> GeoShape<'static, NoTimeoutChecker, MockExpiry, NoTracker> {
+) -> ContractChecker<GeoShape<'static, NoTimeoutChecker, MockExpiry, NoTracker>> {
     let checker = MockExpiry {
         has_expiration: true,
         expired,
     };
-    GeoShape::new(ids, NoTimeoutChecker, checker, NoTracker)
+    ContractChecker::new_with_duplicates(GeoShape::new(ids, NoTimeoutChecker, checker, NoTracker))
 }
 
 #[test]
@@ -353,10 +383,9 @@ fn skip_to_onto_expired_run_to_eof() {
     assert!(it.at_eof());
     // `last_doc_id` is untouched: the iterator never settled on a valid match.
     assert_eq!(it.last_doc_id(), 0);
-    // The expired candidate must not leak through the reusable `current` result
-    // once the scan settles on EOF.
-    assert_ne!(it.current().unwrap().doc_id, 5);
-    assert_eq!(it.current().unwrap().doc_id, 0);
+    // The expired candidate cannot leak through the reusable `current` result:
+    // past the end there is no current at all.
+    assert!(it.current().is_none());
 }
 
 #[test]
@@ -369,8 +398,9 @@ fn read_to_eof_over_expired_tail_does_not_leak() {
     assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
     assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
-    // `current` reflects the last valid doc, not the expired tail.
-    assert_eq!(it.current().unwrap().doc_id, 2);
+    // The expired tail cannot leak: past the end there is no current at all,
+    // while `last_doc_id` still reports the last valid doc.
+    assert!(it.current().is_none());
     assert_eq!(it.last_doc_id(), 2);
 }
 
@@ -383,10 +413,10 @@ fn skip_to_onto_expired_target_does_not_leak_at_eof() {
 
     assert!(matches!(it.skip_to(5), Ok(None)));
     assert!(it.at_eof());
-    assert_ne!(it.current().unwrap().doc_id, 5);
-    assert_ne!(it.current().unwrap().doc_id, 7);
-    // Nothing valid was ever returned, so `current`/`last_doc_id` stay at 0.
-    assert_eq!(it.current().unwrap().doc_id, 0);
+    // Neither the expired target nor its expired successors can leak: past the
+    // end there is no current at all.
+    assert!(it.current().is_none());
+    // Nothing valid was ever returned, so `last_doc_id` stays at 0.
     assert_eq!(it.last_doc_id(), 0);
 }
 
@@ -396,7 +426,7 @@ fn revalidate_is_a_noop_and_preserves_position() {
     // consulted on every candidate, so `revalidate` has nothing to refresh. It
     // must report `Ok` and leave the iterator's position untouched.
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = plain(vec![1, 2, 3]);
+    let mut it = checked(vec![1, 2, 3]);
 
     assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
 
@@ -412,12 +442,56 @@ fn revalidate_is_a_noop_and_preserves_position() {
     assert!(matches!(it.read(), Ok(None)));
 }
 
+/// An expired candidate must not survive in `result` when the scan's timeout check
+/// returns between iterations: `current` would then report a document the filter
+/// exists to hide, and disagree with `last_doc_id`.
+#[test]
+fn timeout_during_an_expired_run_does_not_leave_the_expired_doc_current() {
+    // Granularity 2, so the first `check_timeout` passes and the one after the
+    // expired candidate fires — landing the return between two iterations of the
+    // scan loop.
+    let timeout = DeadlineTimeoutChecker::new(Duration::from_nanos(1), 2);
+    let checker = MockExpiry {
+        has_expiration: true,
+        expired: vec![2],
+    };
+    let mut it = ContractChecker::new_with_duplicates(GeoShape::new(
+        vec![1, 2, 3],
+        timeout,
+        checker,
+        NoTracker,
+    ));
+
+    // 1 is valid and becomes the position.
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    assert_eq!(it.last_doc_id(), 1);
+
+    // The next read walks onto expired 2 and then times out.
+    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+
+    assert_eq!(
+        it.last_doc_id(),
+        1,
+        "the expired candidate was never yielded, so the position stays on 1",
+    );
+    let current = it.current().expect("still positioned on 1");
+    assert_eq!(
+        current.doc_id, 1,
+        "current must agree with last_doc_id, not hold the expired candidate",
+    );
+}
+
 #[test]
 fn timeout_aborts_read() {
     // A deadline already in the past with a granularity of 1 makes the very
     // first probe report a timeout.
     let timeout = DeadlineTimeoutChecker::new(Duration::from_nanos(1), 1);
-    let mut it = GeoShape::new(vec![1, 2, 3], timeout, NoOpChecker, NoTracker);
+    let mut it = ContractChecker::new_with_duplicates(GeoShape::new(
+        vec![1, 2, 3],
+        timeout,
+        NoOpChecker,
+        NoTracker,
+    ));
 
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
 }
@@ -448,4 +522,12 @@ fn no_tracker_is_a_noop() {
     let it = plain(vec![1, 2, 3]);
     // Three u64s plus the struct overhead.
     assert!(it.mem_usage() >= 3 * std::mem::size_of::<u64>());
+}
+
+#[test]
+fn geo_shape_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = checked(vec![10, 20, 30, 50, 80]);
+    assert_eq!(assert_current_contract(&mut it), [10, 20, 30, 50, 80]);
+    assert_current_contract_via_skip_to(&mut it, 81);
 }

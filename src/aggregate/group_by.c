@@ -122,12 +122,19 @@ static Group *createGroup(Grouper *g, const RSValue **groupvals, size_t ngrpvals
   return group;
 }
 
-static void writeGroupValues(const Grouper *g, const Group *gr, SearchResult *r) {
+static void moveGroupValues(const Grouper *g, Group *gr, SearchResult *r) {
   for (size_t ii = 0; ii < g->nkeys; ++ii) {
     const RLookupKey *dstkey = g->dstkeys[ii];
-    RSValue *groupval = RLookupRow_Get(dstkey, &gr->rowdata);
-    if (groupval) {
-      RLookup_WriteKey(dstkey, SearchResult_GetRowDataMut(r), groupval);
+    RLookupRow_MoveDynamicKey(dstkey, &gr->rowdata, SearchResult_GetRowDataMut(r));
+  }
+}
+
+static void cleanupGroup(Grouper *g, Group *gr) {
+  RLookupRow_Reset(&gr->rowdata);
+  for (size_t ii = 0; ii < GROUPER_NREDUCERS(g); ++ii) {
+    Reducer *reducer = g->reducers[ii];
+    if (reducer->FreeInstance) {
+      reducer->FreeInstance(reducer, gr->accumdata[ii]);
     }
   }
 }
@@ -142,12 +149,14 @@ static int Grouper_rpYield(ResultProcessor *base, SearchResult *r) {
     }
 
     Group *gr = kh_value(g->groups, g->iter);
-    writeGroupValues(g, gr, r);
+    moveGroupValues(g, gr, r);
     for (size_t ii = 0; ii < GROUPER_NREDUCERS(g); ++ii) {
       Reducer *rd = g->reducers[ii];
       RSValue *v = rd->Finalize(rd, gr->accumdata[ii]);
       RLookup_WriteOwnKey(rd->dstkey, SearchResult_GetRowDataMut(r), v);
     }
+    cleanupGroup(g, gr);
+    kh_del(khid, g->groups, g->iter);
     ++g->iter;
     return RS_RESULT_OK;
   }
@@ -291,29 +300,17 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
   }
 }
 
-static void cleanCallback(void *ptr, void *arg) {
-  Group *group = ptr;
-  Grouper *parent = arg;
-  // Call the reducer's FreeInstance
-  for (size_t ii = 0; ii < GROUPER_NREDUCERS(parent); ++ii) {
-    Reducer *rr = parent->reducers[ii];
-    if (rr->FreeInstance) {
-      rr->FreeInstance(rr, group->accumdata[ii]);
-    }
-  }
-}
-
 static void Grouper_rpFree(ResultProcessor *grrp) {
   Grouper *g = (Grouper *)grrp;
-  for (khiter_t it = kh_begin(g->groups); it != kh_end(g->groups); ++it) {
-    if (!kh_exist(g->groups, it)) {
-      continue;
+  if (kh_size(g->groups) > 0) {
+    for (khiter_t iter = kh_begin(g->groups); iter != kh_end(g->groups); ++iter) {
+      if (kh_exist(g->groups, iter)) {
+        cleanupGroup(g, kh_value(g->groups, iter));
+      }
     }
-    Group *gr = kh_value(g->groups, it);
-    RLookupRow_Reset(&gr->rowdata);
   }
   kh_destroy(khid, g->groups);
-  BlkAlloc_FreeAll(&g->groupsAlloc, cleanCallback, g, GROUP_BYTESIZE(g));
+  BlkAlloc_FreeAll(&g->groupsAlloc, NULL, NULL, 0);
 
   for (size_t i = 0; i < GROUPER_NREDUCERS(g); i++) {
     g->reducers[i]->Free(g->reducers[i]);

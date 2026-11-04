@@ -10,6 +10,7 @@
 
 #include "redismodule.h"
 #include "redisearch.h"
+#include "field_spec.h"
 #include "VecSim/vec_sim_common.h"
 
 #ifdef __cplusplus
@@ -32,7 +33,7 @@ typedef struct RLookupKey RLookupKey;
 typedef struct HiddenString HiddenString;
 
 // Forward declaration for the RETURN_STRICT GIL handshake context (aggregate.h).
-typedef struct BlockedRequestCtx BlockedRequestCtx;
+typedef struct QueryRequest QueryRequest;
 
 // Helper opaque types for the disk API
 typedef const void* RedisSearchDisk;
@@ -51,9 +52,10 @@ typedef const void* RedisSearchDiskRdbState;
 // Opaque handle for a consistent point-in-time view of the disk database.
 //
 // Created via `IndexDiskAPI.createSnapshot`, released via `IndexDiskAPI.freeSnapshot`.
-// Pass the same snapshot to `newTermIterator` / `newTagIterator` / `newWildcardIterator`
-// so all iterators in a query observe the same database state. The snapshot must outlive
-// every iterator created from it, and must not outlive the originating index spec.
+// Pass the same snapshot to `newTermIterator` / `newTagIterator` and to the Rust-side
+// numeric/wildcard iterator entry points so all iterators in a query observe the same
+// database state. The snapshot must outlive every iterator created from it, and must
+// not outlive the originating index spec.
 typedef const void* RedisSearchDiskSnapshot;
 
 // Opaque handle for the underlying storage-layer write batch.
@@ -135,18 +137,43 @@ typedef struct DiskGCRunStats {
   size_t cycle_time_ms;
 } DiskGCRunStats;
 
+typedef struct SearchDiskResourceConfig {
+  size_t memoryLimitBytes;
+  size_t maxMemoryPercentage;
+  size_t minMemoryBudgetPercentage;
+  size_t wbmBudgetPerIndexMB;
+  int maxOpenFiles;
+} SearchDiskResourceConfig;
+
+/** A schema field borrowed by the index-open APIs. */
+typedef struct SearchDiskField {
+  t_fieldIndex fieldIndex;
+  FieldType types;
+  bool indexMissing;
+  /** Borrowed nonempty UTF-8 field name and vector parameters; VECTOR fields only. */
+  const char *fieldName;
+  size_t fieldNameLen;
+  const VecSimParams *vectorParams;
+} SearchDiskField;
+
 typedef struct BasicDiskAPI {
   /**
    * @brief Open the disk storage context
    * @param ctx Redis module context
-   * @param buffer_percentage Percentage of available memory to use for write buffer (0-100)
+   * @param resourceConfig Resource limits. The shared cache capacity uses the maximum-memory
+   *        percentage. The shared WBM target is the per-index budget multiplied by the current
+   *        live logical-index count, bounded by the minimum WBM budget and maximum-memory cap.
    * @param logObfuscation true to enable obfuscation, false to disable
    * @param dropReadCache When true, hints the OS to evict pages after reading
    * @param useDirectReads When true, opens files with O_DIRECT to bypass the OS page cache
-   * @param maxOpenFiles Per-DB open-file cap; -1 = unlimited (the default)
+   * @param enableStatistics When true, every index database shares one storage-engine
+   *        statistics object, reported by `MetricsDiskAPI::debugDiskStats`
    * @return Pointer to the disk context, or NULL on error
    */
-  RedisSearchDisk *(*open)(RedisModuleCtx *ctx, int buffer_percentage, bool logObfuscation, bool dropReadCache, bool useDirectReads, int maxOpenFiles);
+  RedisSearchDisk *(*open)(RedisModuleCtx *ctx,
+                           const SearchDiskResourceConfig *resourceConfig,
+                           bool logObfuscation, bool dropReadCache, bool useDirectReads,
+                           bool enableStatistics);
   void (*close)(RedisModuleCtx *ctx, RedisSearchDisk *disk);
 
   /**
@@ -157,7 +184,7 @@ typedef struct BasicDiskAPI {
   void (*setLogObfuscation)(RedisSearchDisk *disk, bool enable);
 
   /**
-   * @brief Open an index spec
+   * @brief Open an index spec and its schema-declared storage.
    * @param ctx Redis module context for BigModule APIs (required for getting DB path)
    * @param disk Pointer to the disk
    * @param indexName Name of the index
@@ -165,6 +192,8 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type
    * @param deleteBeforeOpen If true, delete any existing data before opening
+   * @param fields Borrowed schema declarations, used to open CFs with their final options.
+   * @param numFields Number of declarations in fields.
    * @param callbacks Callback table for applying compaction delta updates during GC.
    *                  Bound to the IndexSpec for its lifetime; must outlive the IndexSpec.
    * @param private_data Opaque pointer passed back into every callback. Bound to the
@@ -174,7 +203,13 @@ typedef struct BasicDiskAPI {
    * @note This both opens the database and registers it with Redis BigModule APIs.
    *       Registration is atomic with creation; there is no separate register step.
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName, const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type, bool deleteBeforeOpen, const SearchDiskCompactionCallbacks *callbacks, void *private_data);
+  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk,
+                                             const HiddenString *indexName,
+                                             const char *obfuscatedName, size_t obfuscatedNameLen,
+                                             DocumentType type, bool deleteBeforeOpen,
+                                             const SearchDiskField *fields, size_t numFields,
+                                             const SearchDiskCompactionCallbacks *callbacks,
+                                             void *private_data);
   /**
    * @brief Close an index spec
    * @param disk Pointer to the disk context (for cleanup of index metrics)
@@ -197,7 +232,7 @@ typedef struct BasicDiskAPI {
    *       a background thread (the StrongRef destructor) and cannot make Redis module
    *       API calls from there.
    */
-  void (*closeIndexOnMainThread)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
+  void (*closeIndexOnMainThread)(RedisModuleCtx *ctx, RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   /**
    * @brief Save the index spec's disk-related state to RDB.
    *
@@ -256,21 +291,19 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type for this index
    * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
+   * @param fields Borrowed schema declarations, used to open CFs with their final options.
+   * @param numFields Number of declarations in fields.
    * @param callbacks Callback table for applying compaction delta updates during GC.
    *                  Bound to the IndexSpec for its lifetime; must outlive the IndexSpec.
    * @param private_data Opaque pointer passed back into every callback. Bound to the
    *                     IndexSpec for its lifetime.
    * @return Pointer to the created IndexSpec, or NULL on error
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(RedisModuleCtx *ctx,
-                                                          RedisSearchDisk *disk,
-                                                          const HiddenString *indexName,
-                                                          const char *obfuscatedName,
-                                                          size_t obfuscatedNameLen,
-                                                          DocumentType type,
-                                                          RedisSearchDiskRdbState *rdbState,
-                                                          const SearchDiskCompactionCallbacks *callbacks,
-                                                          void *private_data);
+  RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(
+      RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
+      const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
+      RedisSearchDiskRdbState *rdbState, const SearchDiskField *fields, size_t numFields,
+      const SearchDiskCompactionCallbacks *callbacks, void *private_data);
 
   /**
    * @brief Free a temporary RDB state object.
@@ -282,32 +315,44 @@ typedef struct BasicDiskAPI {
    */
   void (*freeRdbState)(RedisSearchDiskRdbState *rdbState);
 
+  /**
+   * @brief Update the memory limit and derived resource capacities.
+   *
+   * @param disk Pointer to the disk context
+   * @param memoryLimitBytes Current bigredis-max-ram value in bytes
+   * @param logicalIndexCount Current logical disk-index count
+   * @return true if all derived capacities were applied
+   */
+  bool (*updateMemoryLimit)(RedisSearchDisk *disk, size_t memoryLimitBytes,
+                            size_t logicalIndexCount);
 
   /**
-   * @brief Update the buffer budget and WBM in response to RAM configuration changes.
+   * @brief Charge one index against the search-disk-max-open-files cap, requesting more
+   * of the process's RLIMIT_NOFILE headroom from Redis if the current grant is insufficient.
    *
-   * This function requests a new buffer budget from Redis via BigWriteBufferBudgetInit
-   * and updates the WriteBufferManager with the new size.
+   * Real admission check: used only for new-index creation, from SearchDisk_CanCreateIndex.
+   * On refusal, no usage is charged. On success, release via releaseOpenFiles if the index
+   * is not actually opened (e.g. a later step in the same creation fails).
    *
-   * @param ctx Redis module context
    * @param disk Pointer to the disk context
-   * @param percentage Percentage of available memory to request (0-100)
-   * @return The new buffer budget in bytes, or 0 on error. Use this value to update
-   *         existing indexes via updateWriteBufferSize.
+   * @return true if the reservation was granted
    */
-  size_t (*updateBufferBudget)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int percentage);
+  bool (*reserveOpenFiles)(RedisSearchDisk *disk);
 
   /**
-   * @brief Store a new max_open_files cap on the disk context.
+   * @brief Undo a reserveOpenFiles charge that was never matched by an opened index.
    *
-   * Called on CONFIG SET search-disk-max-open-files so newly created indexes pick up the new
-   * cap. Existing databases are reapplied separately via updateMaxOpenFiles (IndexDiskAPI).
-   *
-   * @param ctx Redis module context
    * @param disk Pointer to the disk context
-   * @param maxOpenFiles Configured per-DB cap; -1 = unlimited (the default)
    */
-  void (*updateMaxOpenFiles)(RedisModuleCtx *ctx, RedisSearchDisk *disk, int maxOpenFiles);
+  void (*releaseOpenFiles)(RedisSearchDisk *disk);
+
+  /**
+   * Reserve FD headroom for unopened RDB indexes in addition to live disk handles.
+   * Does not charge an index or leave a pending create reservation. Successful opens
+   * account for their own caps; an aborted load leaves reusable headroom.
+   * Must run on the main thread before SST loading is committed.
+   */
+  bool (*reserveRestoreOpenFiles)(RedisSearchDisk *disk, size_t unopenedIndexCount);
 
   /**
    * Create a result processor that loads document fields from disk asynchronously.
@@ -335,15 +380,15 @@ typedef struct BasicDiskAPI {
   /**
    * Hand the disk async-loader result processor its request sync context, so it can perform
    * the same RETURN_STRICT GIL deadlock-avoidance handshake as RP_SAFE_LOADER (see
-   * `BlockedRequestCtx_SafeLoaderEnterGIL` / `ExitGIL` in aggregate.h).
+   * `QueryRequest_SafeLoaderEnterGIL` / `ExitGIL` in aggregate.h).
    *
    * @param rp  The disk async-loader ResultProcessor, previously returned by
    *            `newAsyncLoaderResultProcessor`.
-   * @param brc `BlockedRequestCtx *`, or NULL to clear.
+   * @param request `QueryRequest *`, or NULL to clear.
    *
    * Note: keep this field last in `BasicDiskAPI` (C and Rust build this struct together).
    */
-  void (*asyncLoaderSetSyncCtx)(ResultProcessor *rp, BlockedRequestCtx *brc);
+  void (*asyncLoaderSetSyncCtx)(ResultProcessor *rp, QueryRequest *request);
 } BasicDiskAPI;
 
 typedef struct IndexDiskAPI {
@@ -411,7 +456,8 @@ typedef struct IndexDiskAPI {
    * Other staged writes on the same batch are unaffected.
    *
    * @param index Pointer to the index
-   * @param batch Open write batch to append the write to (must have been returned by `createWriteBatch(index)`)
+   * @param batch Open write batch to append the write to (must have been returned by
+   * `createWriteBatch(index)`)
    * @param term Term to associate the document with
    * @param termLen Length of the term
    * @param docId Document ID to index
@@ -421,7 +467,9 @@ typedef struct IndexDiskAPI {
    * @param offsetsLen Length of the offsets data in bytes
    * @return true if the write was staged successfully, false if the input was rejected
    */
-  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+  bool (*indexTerm)(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+                    const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
+                    uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
   /**
    * @brief Indexes multiple tag values for a document
@@ -520,9 +568,9 @@ typedef struct IndexDiskAPI {
   /**
    * @brief Take a point-in-time snapshot of the disk database for this index.
    *
-   * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`,
-   * `newNumericIterator`, and the Rust-side wildcard iterator entry point so that every
-   * iterator created for one query observes the same database state. Must be released by
+   * The returned snapshot can be passed to `newTermIterator`, `newTagIterator`, and
+   * the Rust-side numeric/wildcard iterator entry points so that every iterator
+   * created for one query observes the same database state. Must be released by
    * `freeSnapshot` when no iterator is still using it.
    *
    * @param index Pointer to the index spec
@@ -538,26 +586,6 @@ typedef struct IndexDiskAPI {
    * @param snapshot Snapshot handle returned by `createSnapshot`
    */
   void (*freeSnapshot)(RedisSearchDiskSnapshot *snapshot);
-
-  /**
-   * @brief Creates a new iterator over a numeric range on the disk-backed index
-   *
-   * Enumerates the in-memory ordered map's buckets that overlap `filter`'s range
-   * and opens one Speedb-snapshot-backed iterator per candidate bucket, with a
-   * per-yielded-entry value filter of `effective_range ∩ filter_range`. The
-   * candidate iterators are heap-merged by `doc_id` via a union iterator, which
-   * also collapses any transient duplicates that the in-flight split protocol
-   * may produce.
-   *
-   * @param index Pointer to the index
-   * @param filter Pointer to the numeric filter (min, max, inclusivity flags, field spec)
-   * @param fieldIndex Field index for the numeric field
-   * @param snapshot Required snapshot for the read view. Must have been returned by
-   *                 `createSnapshot(index)` and must remain valid until the returned iterator is freed.
-   * @param status QueryError to populate with the cause when creation fails (may be NULL)
-   * @return Pointer to the created iterator, or NULL if no buckets overlap the filter
-   */
-  QueryIterator *(*newNumericIterator)(RedisSearchDiskIndexSpec *index, const NumericFilter *filter, t_fieldIndex fieldIndex, RedisSearchDiskSnapshot *snapshot, QueryError* status);
 
   /**
    * @brief Run a GC compaction cycle on the disk index.
@@ -595,68 +623,93 @@ typedef struct IndexDiskAPI {
   void (*flush)(RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Update the write buffer size for this index's database
+   * @brief Schedule a flush to disk without waiting for it
    *
-   * Dynamically changes the write_buffer_size option for all column families
-   * in this index's database. Should be called after updateBufferBudget to
-   * propagate the new per-index buffer size (budget / divisor).
-   *
-   * @param index Pointer to the disk index
-   * @param new_budget New total buffer budget in bytes (will be divided internally)
-   */
-  void (*updateWriteBufferSize)(RedisSearchDiskIndexSpec *index, size_t new_budget);
-
-  /**
-   * @brief Apply a new max_open_files cap to this index's database at runtime.
-   *
-   * Bounds the number of files this index's database keeps open, recycling the
-   * least-recently-used ones and reopening on demand.
+   * Unlike `flush`, returns immediately instead of blocking until the flush
+   * completes.
    *
    * @param index Pointer to the disk index
-   * @param maxOpenFiles New per-DB cap; -1 = unlimited (the default)
    */
-  void (*updateMaxOpenFiles)(RedisSearchDiskIndexSpec *index, int maxOpenFiles);
+  void (*flushNoWait)(RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Master-side SST replication PRE_CHECKPOINT hook.
+   * @brief Debug only: fully compact the disk storage that `runGC` does not
    *
-   * Called once per index before the replication checkpoint is taken.
-   * Caller holds the IndexSpec read lock for the duration of this call.
+   * Backs FT.DEBUG GC_FORCEINVOKE ... COMPACT_ALL. Blocks until done.
+   *
+   * @param index Pointer to the disk index
+   * @return true on success, false if the compaction was cancelled (e.g. inside
+   *         a consistency window). A failed compaction aborts the process, as in
+   *         `runGC`.
+   */
+  bool (*compactNonGcStorage)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Pause background flush and compaction work on the index's database.
+   *
+   * Reference-counted: each call must be balanced by continueBackgroundWork.
+   * Blocks until in-flight background jobs drain, after which no new
+   * flush/compaction is scheduled until resumed. Test-support primitive used
+   * with flushNoWait to observe flush-state INFO metrics deterministically.
+   *
+   * @param index Pointer to the disk index
+   */
+  void (*pauseBackgroundWork)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Resume background work paused by pauseBackgroundWork.
+   *
+   * @param index Pointer to the disk index
+   */
+  void (*continueBackgroundWork)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Whether background work is currently paused on the index's database.
+   *
+   * Lets callers refuse a blocking flush while paused (which would deadlock).
+   *
+   * @param index Pointer to the disk index
+   * @return true if background work is paused
+   */
+  bool (*isBackgroundWorkPaused)(RedisSearchDiskIndexSpec *index);
+
+  /**
+   * @brief Open a consistency window on one index. Main thread; no IndexSpec lock held.
+   *
+   * Replaces the former preCheckpoint/preFork pair. Called exactly once per window, at the
+   * point that starts it (SST PRE_CHECKPOINT, or a foreground hot-restart save) - and for a
+   * spec created while a window is already open, when it is created. PRE_FORK does not call
+   * this: it inherits the window and only re-flushes under the vector lock. The caller owns
+   * that pairing, so this needs no idempotence of its own.
+   *
+   * Must disable and cancel manual compactions, and close the numeric consistency gate.
+   * Must NOT flush: the caller flushes separately via `flush`, after taking the vector
+   * consistency lock, so vector-job writes are excluded from the snapshot too. Cancelling
+   * compactions here is what lets the caller's disk-GC drain finish promptly. Both effects
+   * last until closeConsistencyWindow.
    *
    * POST_CHECKPOINT has no matching disk hook - OSS handles it on its own.
    *
    * @param index Pointer to the disk index spec
    */
-  void (*preCheckpoint)(RedisSearchDiskIndexSpec *index);
+  void (*openConsistencyWindow)(RedisSearchDiskIndexSpec *index);
 
   /**
-   * @brief Master-side SST replication PRE_FORK hook.
+   * @brief Close the consistency window on one index.
    *
-   * Called once per index before the replication snapshot fork.
+   * Replaces the former postFork/replicationAbort/hotRestartSaveEnded trio. Called exactly
+   * once per window that was opened - at POST_FORK, at ABORT from anywhere in the cycle, or
+   * at the end of a foreground save, whichever comes first.
    *
-   * @param index Pointer to the disk index spec
-   */
-  void (*preFork)(RedisSearchDiskIndexSpec *index);
-
-  /**
-   * @brief Master-side SST replication POST_FORK hook.
-   *
-   * Called once per index after the snapshot fork.
+   * Always re-enables compactions. Reopens the numeric consistency gate only when
+   * `reopenNumericGate` is true - a successful hot restart passes false, because the
+   * process exits shortly and reopening would let a deferred split finalize after the RDB
+   * serialized its pre-finalize state.
    *
    * @param index Pointer to the disk index spec
+   * @param reopenNumericGate Whether to reopen the numeric consistency gate
    */
-  void (*postFork)(RedisSearchDiskIndexSpec *index);
-
-  /**
-   * @brief Master-side SST replication ABORT hook.
-   *
-   * Called once per index when the replication cycle is aborted at any point
-   * between PRE_CHECKPOINT and POST_FORK. The disk implementation is free to
-   * undo whatever state it set up in the preceding `pre*` hook.
-   *
-   * @param index Pointer to the disk index spec
-   */
-  void (*replicationAbort)(RedisSearchDiskIndexSpec *index);
+  void (*closeConsistencyWindow)(RedisSearchDiskIndexSpec *index, bool reopenNumericGate);
 
   /**
    * @brief Debug: dump a numeric field's in-memory bucket routing map.
@@ -671,6 +724,27 @@ typedef struct IndexDiskAPI {
    * @param allocate Copying allocator for the returned string (e.g. sdsnewlen)
    */
   char *(*debugDumpNumericBucketMap)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex, AllocateKeyCallback allocate);
+
+  /**
+   * Stage doc-ids-only postings for INDEXMISSING fields absent from a document.
+   * `fields` contains `numFields` global schema field indexes and is borrowed
+   * only for this call. No field-expiration state is passed to disk.
+   * `batch` must belong to `index`. On false, the caller must abort the batch,
+   * including any missing postings already staged. These postings must never
+   * increment num_records. Shared missing storage must already be initialized.
+   */
+  bool (*indexMissingFields)(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index,
+                             SearchDiskWriteBatchHandle *batch, const t_fieldIndex *fields,
+                             size_t numFields, t_docId docId);
+
+  /**
+   * Open the missing postings for a global schema field index using the query's
+   * snapshot (from createSnapshot(index), valid until the iterator is freed).
+   * An unwritten field produces an empty iterator. On failure, return NULL and
+   * populate status. The iterator reports InvIdxMissing / MISSING in profiles.
+   */
+  QueryIterator *(*newMissingIterator)(RedisSearchDiskIndexSpec *index, t_fieldIndex fieldIndex,
+                                       RedisSearchDiskSnapshot *snapshot, QueryError *status);
 } IndexDiskAPI;
 
 typedef struct DocTableDiskAPI {
@@ -980,7 +1054,20 @@ typedef struct PerFieldCfDiskMetrics {
   uint64_t estimate_num_keys;  // estimated number of keys in the field's CF
 } PerFieldCfDiskMetrics;
 
+/* Numeric cached values; reading these never collects native properties. */
+typedef struct CachedIndexMetrics {
+  uint64_t memory;
+  uint64_t disk_usage;
+  uint64_t blocks;
+} CachedIndexMetrics;
+
 typedef struct MetricsDiskAPI {
+  /* Stop and join collection before index teardown; idempotent, main thread only. */
+  void (*stopMetrics)(RedisSearchDisk *disk);
+  void (*activateTarget)(RedisSearchDiskIndexSpec *index);
+  uint64_t (*getCachedTotalDiskUsage)(RedisSearchDisk *disk);
+  /* Also stages the per-component INFO snapshot for the existing outputInfoMetrics callback. */
+  CachedIndexMetrics (*readCachedIndexMetrics)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index);
   /**
    * @brief Collect metrics for an index and store them in the disk context
    *
@@ -1044,7 +1131,8 @@ typedef struct MetricsDiskAPI {
    * @brief Output aggregated disk metrics to Redis INFO
    *
    * Iterates over all collected index metrics, aggregates them, and outputs
-   * to the Redis INFO context using RedisModule_Info* functions.
+   * to the Redis INFO context using RedisModule_Info* functions. The caller has
+   * already selected and opened the disk section; this function only emits fields.
    *
    * @param disk Pointer to the disk context
    * @param ctx Redis module info context
@@ -1109,6 +1197,18 @@ typedef struct MetricsDiskAPI {
    */
   PerFieldCfDiskMetrics (*getVectorFieldMetrics)(const RedisSearchDiskIndexSpec *index,
                                                  const char *fieldName, size_t fieldNameLen);
+
+  /**
+   * @brief Debug: storage-engine level and block-cache stats for every column family of
+   *        `index`, as text.
+   *
+   * With `withStatistics`, also appends the shared block-cache and statistics sections,
+   * which cover every index; statistics are reported as disabled unless enabled in `open`.
+   *
+   * @return Text allocated via `allocate`, or NULL if it could not be produced
+   */
+  char *(*debugDiskStats)(RedisSearchDisk *disk, RedisSearchDiskIndexSpec *index,
+                          bool withStatistics, AllocateKeyCallback allocate);
 } MetricsDiskAPI;
 
 typedef struct RedisSearchDiskAPI {
@@ -1129,14 +1229,16 @@ extern void VecSimDisk_ReleaseConsistencyLock(void);
 // Fork × compaction debug coordinator (FT.DEBUG REPL_COMPACTION_COORDINATOR)
 //
 // Implemented on the Rust side in `redisearch_disk::compaction::debug`. Each
-// lifecycle site (compaction begin/completed, pre_checkpoint; `int` values
-// matching `compaction::Site`) calls `reach` when it executes. A test can:
+// lifecycle site (compaction begin/completed, consistency_window_open; `int`
+// values matching `compaction::Site`) calls `reach` when it executes. A test can:
 //   - `ArmPause(site, true)`  park a site when it is next reached.
 //   - `SetWake(trigger, target)`  release `target` when `trigger` is reached
 //       (the cross-wake that lets a main-thread site unblock a parked
 //       background compaction; target -1 clears the link).
 //   - `Release(site)`  release a parked site out-of-band.
 //   - `Reached(site)`  read the arrival count.
+// A rendezvous whose two ends are this side and the disk layer uses a named
+// `_FT.DEBUG SYNC_POINT` instead - both sides can reach the same name directly.
 //   - `ResetCompactionController()`  clear all state and free waiters.
 // All entry points are no-ops if nothing is armed and are safe to call from
 // arbitrary threads.

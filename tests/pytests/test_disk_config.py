@@ -1,7 +1,18 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
+import os
+import tempfile
+
 from common import *
 
 """
-Tests for search-disk-drop-read-cache and search-disk-use-direct-reads module configs.
+Tests for the search-disk-drop-read-cache, search-disk-use-direct-reads and
+search-_disk-statistics module configs.
 
 These configs control SpeedB OS page-cache behaviour for disk indexes:
   - search-disk-drop-read-cache: whether to drop the OS read cache after each read
@@ -86,4 +97,46 @@ def test_disk_config_startup_both():
         ['search-disk-drop-read-cache', 'yes'])
     env.expect('CONFIG', 'GET', 'search-disk-use-direct-reads').equal(
         ['search-disk-use-direct-reads', 'yes'])
+    env.stop()
+
+
+@skip(cluster=True, redis_less_than="8.8")
+def test_disk_statistics_config_defaults_to_no_and_is_hidden():
+    env = Env(noDefaultModuleArgs=True)
+    if env.env == 'existing-env':
+        env.skip()
+    env.expect('CONFIG', 'GET', 'search-_disk-statistics').equal(['search-_disk-statistics', 'no'])
+    env.assertNotContains('search-_disk-statistics', env.cmd('CONFIG', 'GET', '*'))
+
+
+@skip(cluster=True, redis_less_than="8.8")
+def test_disk_statistics_config_is_immutable(env):
+    env.expect('CONFIG', 'SET', 'search-_disk-statistics', 'yes').error()
+    env.expect('CONFIG', 'GET', 'search-_disk-statistics').equal(['search-_disk-statistics', 'no'])
+
+
+@skip(cluster=True, redis_less_than="8.8")
+def test_disk_statistics_config_set_at_load_time():
+    # No legacy module-argument alias; load-time values come from the config file.
+    conf_path = os.path.join(tempfile.mkdtemp(), 'disk_statistics.conf')
+    with open(conf_path, 'w') as f:
+        f.write('search-_disk-statistics yes\n')
+    env = Env(noDefaultModuleArgs=True, redisConfigFile=conf_path)
+    if env.env == 'existing-env':
+        env.skip()
+    env.expect('CONFIG', 'GET', 'search-_disk-statistics').equal(['search-_disk-statistics', 'yes'])
+    env.stop()
+
+
+@skip(cluster=True, redis_less_than="8.8")
+def test_disk_sq8_config_defaults_and_runtime_update():
+    env = Env(noDefaultModuleArgs=True)
+    if env.env == 'existing-env':
+        env.skip()
+    env.expect('CONFIG', 'GET', 'search-disk-sq8-enabled').equal(
+        ['search-disk-sq8-enabled', 'no'])
+    for value in ['yes', 'no']:
+        env.expect('CONFIG', 'SET', 'search-disk-sq8-enabled', value).ok()
+        env.expect('CONFIG', 'GET', 'search-disk-sq8-enabled').equal(
+            ['search-disk-sq8-enabled', value])
     env.stop()

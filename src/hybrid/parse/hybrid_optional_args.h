@@ -54,10 +54,14 @@ typedef struct {
     AGGPlan *plan;                          // Aggregate plan for LIMIT/SORTBY
     RSSearchOptions *searchopts;            // Search options for PARAMS
     CursorConfig *cursorConfig;             // Cursor configuration
-    RequestConfig *reqConfig;               // Request configuration for DIALECT/TIMEOUT
+    RequestConfig *reqConfig;               // Request configuration for DIALECT
+    TimeoutConfig *timeoutConfig;
     QEFlags *reqFlags;                      // Request flags
     size_t *maxResults;                     // Maximum results
-    arrayof(sds) *prefixes;                 // Prefixes for the index
+    /* Index prefixes from _INDEX_PREFIXES: a borrowed window into the
+     * request's held argv (see QueryRequestArgs.argv). */
+    RedisModuleString **prefixes;
+    size_t nprefixes;
     const RedisModuleSlotRangeArray **querySlots; // Slots requested from coordinator (referenced from AREQ)
     uint32_t *keySpaceVersion;                 // Slots version for the request (referenced from AREQ)
     rs_wall_clock_ns_t *coordDispatchTime;     // Coordinator dispatch time for internal commands

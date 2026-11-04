@@ -48,24 +48,29 @@ fn exceeds_limit() {
     assert_eq!(err.len, MAX_RUNE_STR_LEN + 1);
 }
 
-// strToLowerRunes calls nu_readstr which reads until a null byte (ignoring
-// the utf8_len parameter). Rust &str is not null-terminated, so we must
-// pass a CString copy. Compare Rust output against C for BMP-only strings
-// where libnu and Rust's Unicode tables agree on lowercasing.
+// Compare Rust output against C for BMP-only strings where libnu and Rust's
+// Unicode tables agree on lowercasing.
 #[cfg(not(miri))]
 mod ffi_comparison {
     use proptest::prelude::*;
-    use std::ffi::{CString, c_void};
+    use std::ffi::c_void;
     use string_utils::runes::str_to_lower_runes;
 
     /// Call C `strToLowerRunes` via FFI and return the resulting rune slice.
     fn c_str_to_lower_runes(s: &str) -> Option<Vec<u16>> {
-        let cstr = CString::new(s).expect("input must not contain null bytes");
+        // An empty `&str` need not point into an object, and C forms `str + len`;
+        // that arithmetic is only defined on a pointer into one, so hand it a
+        // real one. Nothing is read through it.
+        static EMPTY: [u8; 1] = [0];
+        let ptr = if s.is_empty() {
+            EMPTY.as_ptr()
+        } else {
+            s.as_ptr()
+        };
         let mut unicode_len: usize = 0;
-        // SAFETY: `cstr` is a valid null-terminated buffer. `strToLowerRunes`
-        // internally calls `nu_readstr` which reads until null, and separately
-        // uses `utf8_len` for the lowercasing loop.
-        let ptr = unsafe { ffi::strToLowerRunes(cstr.as_ptr(), s.len(), &mut unicode_len) };
+        // SAFETY: `ptr` addresses at least `s.len()` live bytes, which
+        // `strToLowerRunes` reads no further than.
+        let ptr = unsafe { ffi::strToLowerRunes(ptr.cast(), s.len(), &mut unicode_len) };
         if ptr.is_null() {
             return None;
         }
@@ -73,7 +78,8 @@ mod ffi_comparison {
         let runes = unsafe { std::slice::from_raw_parts(ptr, unicode_len) }.to_vec();
         // SAFETY: `RedisModule_Free` is a `static mut` set by the test harness and
         // not mutated concurrently.
-        let rm_free = unsafe { ffi::RedisModule_Free.expect("Redis allocator not available") };
+        let rm_free =
+            unsafe { redis_module::RedisModule_Free.expect("Redis allocator not available") };
         // SAFETY: `ptr` was allocated by `rm_calloc` (backed by RedisModule_Alloc).
         unsafe { rm_free(ptr.cast::<c_void>()) };
         Some(runes)

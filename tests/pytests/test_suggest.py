@@ -1,4 +1,9 @@
-# -*- coding: utf-8 -*-
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 
 import unittest
 from includes import *
@@ -393,3 +398,16 @@ def testSuggestGetOverMaxPrefixLength(env):
         env.assertTrue(False)
     except Exception as e:
         env.assertContains('Invalid query', str(e))
+
+def testSuggestSplitKeepsHigherScoreFirst(env):
+    # Both entries rank 1.0 for prefix "bc" once divided by sqrt(1 + suffix length),
+    # so the one visited first wins MAX 1. The second insert splits "bcaaa" at "bc";
+    # its higher raw score must put its branch first.
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    env.assertEqual(1, conn.execute_command('FT.SUGADD', 'sug', 'bcaaa', '2'))
+    env.assertEqual(2, conn.execute_command('FT.SUGADD', 'sug', 'bczzzzzzzz', '3'))
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'bc', 'MAX', '1')
+    env.assertEqual(res, ['bczzzzzzzz'])

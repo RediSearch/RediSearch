@@ -8,7 +8,7 @@
 #include "defines.h"
 #include "utf16_internal.h"
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -27,8 +27,7 @@ const char* nu_utf16be_read(const char *utf16, uint32_t *unicode) {
 			*unicode = ((c & 0x03FF) << 10 | (nu_betohs(utf16 + 2) & 0x03FF)) + 0x10000;
 		}
 		return utf16 + 4;
-	}
-	else if (unicode != 0) {
+	} else if (unicode != 0) {
 		*unicode = c;
 	}
 
@@ -84,7 +83,7 @@ char* nu_utf16be_write(uint32_t unicode, char *utf16);
 
 #endif /* NU_WITH_UTF16BE_WRITER */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

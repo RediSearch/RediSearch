@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "pipeline/pipeline_construction.h"
 
 #include <string.h>
@@ -8,6 +17,7 @@
 #include "vector_normalization.h"
 #include "vector_index.h"
 #include "iterators_ffi.h"
+#include "query_eval_ffi.h"
 #include "util/misc.h"
 #include "search_disk.h"
 #include "VecSim/vec_sim_common.h"
@@ -181,6 +191,9 @@ static ResultProcessor *getGroupRP(Pipeline *pipeline, const AggregationPipeline
     rpUpstream = pushRP(&pipeline->qctx, rpLoader, rpUpstream);
   }
 
+  // Reducers and implicit loaders have resolved their inputs. Later stages use
+  // the group's output lookup, so the input keys must now remain append-only.
+  RLookup_Seal(lookup);
   return pushRP(&pipeline->qctx, groupRP, rpUpstream);
 }
 
@@ -485,9 +498,13 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, Qu
   pipeline->qctx.skipIndexResultDeepCopy =
       !QEFlags_RequireIndexResultsDownstream(params->common.reqflags);
 
-  ResultProcessor *rp = RPQueryIterator_New(params->rootiter, params->querySlots, params->keySpaceVersion, params->common.sctx);
-  params->rootiter = NULL; // Ownership of the root iterator is now with the pipeline.
-  params->querySlots = NULL; // Ownership of the slot ranges is now with the pipeline.
+  RS_ASSERT(params->iteratorTree);
+  ResultProcessor *rp = QueryIteratorTree_IntoResultProcessor(
+      params->iteratorTree, params->querySlots, params->keySpaceVersion, params->common.sctx,
+      params->common.reqflags & QEXEC_F_PROFILE);
+  // Ownership of the iterator tree and the slot ranges is now with the pipeline.
+  params->iteratorTree = NULL;
+  params->querySlots = NULL;
   ResultProcessor *rpUpstream = NULL;
   pipeline->qctx.rootProc = pipeline->qctx.endProc = rp;
   PUSH_RP();
@@ -608,7 +625,8 @@ int buildOutputPipeline(Pipeline *pipeline, const AggregationPipelineParams* par
       }
       ff->lookupKey = kk;
     }
-    rp = RPHighlighter_New(params->language, params->outFields, lookup);
+    rp = RPHighlighter_New(params->language, params->outFields, lookup,
+                           isSpecJson(params->common.sctx->spec));
     PUSH_RP();
   }
 

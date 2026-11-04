@@ -72,13 +72,6 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
         ARG_OPT_CALLBACK, handleNoSort, ctx,
         ARG_OPT_OPTIONAL, ARG_OPT_END);
 
-    // WITHCURSOR [COUNT count] [MAXIDLE maxidle] - enables cursor-based pagination
-    ArgParser_AddBitflagV(parser, "WITHCURSOR", "Enable cursor-based pagination",
-                         ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_IS_CURSOR,
-                         ARG_OPT_OPTIONAL,
-                         ARG_OPT_CALLBACK, handleWithCursor, ctx,
-                         ARG_OPT_END);
-
     // PARAMS param value [param value ...] - query parameterization
     ArgParser_AddSubArgsV(parser, "PARAMS", "Query parameters",
                          &subArgs, 1, -1,
@@ -89,15 +82,18 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
     // TIMEOUT timeout - query timeout in milliseconds
     // Parsed already in the main thread to support blocked client timeout.
     // We still register it here since it is a valid argument for the command.
+    // Defaults for absent arguments must come from the request's own config
+    // (the construction-time snapshot), not from RSGlobalConfig: parsing may
+    // run on a background thread, after the snapshot was taken.
     ArgParser_AddLongLongV(parser, "TIMEOUT", "Query timeout in milliseconds",
-                      &ctx->reqConfig->queryTimeoutMS,
+                      &ctx->timeoutConfig->queryTimeoutMS,
                       ARG_OPT_OPTIONAL,
-                      ARG_OPT_DEFAULT_INT, RSGlobalConfig.requestConfigParams.queryTimeoutMS,
+                      ARG_OPT_DEFAULT_INT, ctx->timeoutConfig->queryTimeoutMS,
                       ARG_OPT_CALLBACK, handleTimeout, ctx,
                       ARG_OPT_END);
 
     // DIALECT dialect - query dialect version
-    unsigned int defaultDialect = RSGlobalConfig.requestConfigParams.dialectVersion;
+    unsigned int defaultDialect = ctx->reqConfig->dialectVersion;
     if (defaultDialect < MIN_HYBRID_DIALECT) {
         defaultDialect = MIN_HYBRID_DIALECT;
     }
@@ -119,8 +115,14 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
                          ARG_OPT_CALLBACK, handleFormat, ctx,
                          ARG_OPT_END);
 
-    // we only support withscores when parsing commands from the coordinator
     if (internal) {
+        // WITHCURSOR [COUNT count] [MAXIDLE maxidle] - enables cursor-based pagination
+        ArgParser_AddBitflagV(parser, "WITHCURSOR", "Enable cursor-based pagination",
+                             ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_IS_CURSOR,
+                             ARG_OPT_OPTIONAL,
+                             ARG_OPT_CALLBACK, handleWithCursor, ctx,
+                             ARG_OPT_END);
+
         // WITHSCORES flag - sets QEXEC_F_SEND_SCORES
         ArgParser_AddBitflagV(parser, "WITHSCORES", "Include scores in results",
                             ctx->reqFlags, sizeof(*ctx->reqFlags), QEXEC_F_SEND_SCORES,
@@ -178,7 +180,7 @@ int HybridParseOptionalArgs(HybridParseContext *ctx, ArgsCursor *ac, bool intern
 
     // GROUPBY nproperties property [property ...] [REDUCE function nargs arg [arg ...] [AS alias]] [...]
     ArgParser_AddSubArgsV(parser, "GROUPBY", "Group results by properties with reducers",
-                         &subArgs, 1, -1,
+                         &subArgs, 0, MAX_GROUPBY_PROPERTIES,
                          ARG_OPT_OPTIONAL,
                          ARG_OPT_CALLBACK, handleGroupby, ctx,
                          ARG_OPT_END);

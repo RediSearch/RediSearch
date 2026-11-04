@@ -39,10 +39,18 @@ char* nu_cesu8_write(uint32_t unicode, char *cesu8) {
 
 	if (cesu8 != 0) {
 		switch (codepoint_len) {
-		case 1: *cesu8 = (char)(unicode); break;
-		case 2: b2_utf8(unicode, cesu8); break;
-		case 3: b3_utf8(unicode, cesu8); break;
-		default: b6_cesu8(unicode, cesu8); break; /* len == 6 */
+			case 1:
+				*cesu8 = (char)(unicode);
+				break;
+			case 2:
+				b2_utf8(unicode, cesu8);
+				break;
+			case 3:
+				b3_utf8(unicode, cesu8);
+				break;
+			default:
+				b6_cesu8(unicode, cesu8);
+				break; /* len == 6 */
 		}
 	}
 

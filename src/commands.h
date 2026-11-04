@@ -10,19 +10,13 @@
 
 #include <stdbool.h>
 
-// Forward declaration to keep this header self-contained.
-// `IsEnterprise()` is defined in module.c (declared in module.h).
-bool IsEnterprise();
-
-// Write commands - define both public (FT) and internal (_FT) variants.
-// The appropriate variant is selected at runtime via `CMD_FOR_ENV(...)` based
-// on `IsEnterprise()`:
-//   - Enterprise: uses public "FT" prefix (DMC handles routing)
-//   - OSS:        uses internal "_FT" prefix (coordinator registers public FT
-//                 commands separately)
-//
-// Each pair is defined so that the INTERNAL variant is derived from the PUBLIC
-// one by prepending "_". This guarantees the two strings always agree.
+#ifdef __cplusplus
+extern "C" {
+#endif
+bool RS_UsesProxyCoordination(void);
+#ifdef __cplusplus
+}
+#endif
 
 // RS_CREATE_CMD
 #define RS_CREATE_CMD_PUBLIC   "FT.CREATE"
@@ -96,10 +90,8 @@ bool IsEnterprise();
 #define RS_RESTORE_IF_NX_PUBLIC   "FT._RESTOREIFNX"
 #define RS_RESTORE_IF_NX_INTERNAL "_" RS_RESTORE_IF_NX_PUBLIC
 
-// Selects the runtime-appropriate variant of a write command name. `cmd` must
-// be the bare RS_*_CMD identifier; the macro appends `_PUBLIC` or `_INTERNAL`
-// via token concatenation. Example: `CMD_FOR_ENV(RS_CREATE_CMD)`.
-#define CMD_FOR_ENV(cmd) (IsEnterprise() ? cmd##_PUBLIC : cmd##_INTERNAL)
+// Local execution and replication must select the same command names.
+#define CMD_FOR_COORDINATOR(cmd) (RS_UsesProxyCoordination() ? cmd##_PUBLIC : cmd##_INTERNAL)
 
 // Legacy write commands that are key-bounded (+ extra legacy commands that have to be registered for enterprise)
 #define RS_ADD_CMD "FT.ADD"
@@ -120,9 +112,12 @@ bool IsEnterprise();
 #define RS_EXPLAINCLI_CMD "FT.EXPLAINCLI"
 #define RS_DICT_DUMP "FT.DICTDUMP"
 #define RS_SYNDUMP_CMD "FT.SYNDUMP"
-#define RS_INDEX_LIST_CMD "FT._LIST"
 #define RS_ALIASLIST_CMD "FT.ALIASLIST"
 #define RS_SYNADD_CMD "FT.SYNADD" // Deprecated, always returns an error
+
+// Index listing is local unless WITHCLUSTERSTATE requests a coordinator fanout.
+#define RS_INDEX_LIST_CMD_PUBLIC "FT._LIST"
+#define RS_INDEX_LIST_CMD_INTERNAL "_" RS_INDEX_LIST_CMD_PUBLIC
 
 // Read commands always use the internal "_FT" prefix
 #define RS_CMD_READ_PREFIX "_FT"

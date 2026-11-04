@@ -16,8 +16,9 @@ mod utils;
 use crate::automaton::{Automaton, wildcard::WildcardNfa};
 use crate::trie_map::{
     iter::{
-        AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter,
-        RangeIter, Values, WildcardBackend, WildcardFilterIter, WildcardIter, filter::VisitAll,
+        AutomatonIter, ContainsIter, IntoValues, Iter, LendingIter, PatternLendingIter,
+        PatternMode, PrefixesIter, RangeFilter, RangeIter, Values, WildcardBackend,
+        WildcardFilterIter, WildcardIter, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,
@@ -125,7 +126,10 @@ impl<Data> TrieMap<Data> {
     /// The value is obtained by calling the provided callback function.
     /// If the key already exists, the existing value is passed to the callback,
     /// otherwise `f(None)` is inserted.
-    pub fn insert_with<F>(&mut self, key: &[u8], f: F)
+    ///
+    /// Returns `true` if the key was newly inserted, `false` if it was
+    /// already present.
+    pub fn insert_with<F>(&mut self, key: &[u8], f: F) -> bool
     where
         F: FnOnce(Option<Data>) -> Data,
     {
@@ -149,6 +153,7 @@ impl<Data> TrieMap<Data> {
         if has_cardinality_increased {
             self.n_unique_keys += 1;
         }
+        has_cardinality_increased
     }
 
     #[cfg(feature = "test_utils")]
@@ -282,6 +287,9 @@ impl<Data> TrieMap<Data> {
     }
 
     /// Iterate over the entries that contain the target fragment, in lexicographical key order.
+    ///
+    /// The iterator borrows `target`; call
+    /// [`ContainsIter::into_owned`] to detach it from that borrow.
     pub fn contains_iter<'tm, 't>(&'tm self, target: &'t [u8]) -> ContainsIter<'tm, 't, Data> {
         ContainsIter::new(self.root.as_ref(), target)
     }
@@ -290,6 +298,16 @@ impl<Data> TrieMap<Data> {
     /// in lexicographical key order.
     pub fn prefixed_lending_iter(&self, prefix: &[u8]) -> LendingIter<'_, Data, VisitAll> {
         self.prefixed_iter(prefix).into()
+    }
+
+    /// Iterate over the entries whose key matches `pattern` under the given [`PatternMode`],
+    /// borrowing the current key from the iterator, in lexicographical key order.
+    pub fn pattern_lending_iter<'trie, 'pattern>(
+        &'trie self,
+        pattern: &'pattern [u8],
+        mode: PatternMode,
+    ) -> PatternLendingIter<'trie, 'pattern, Data> {
+        PatternLendingIter::new(self, pattern, mode)
     }
 
     /// Iterate over references to the values stored in this trie, in lexicographical key order.

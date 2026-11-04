@@ -61,10 +61,20 @@ static size_t OPT_NumEstimated(const QueryIterator *self) {
 // TODO: handle MOVED better
 static ValidateStatus OPT_Validate(QueryIterator *self, struct IndexSpec *spec) {
   OptimizerIterator *opt = (OptimizerIterator *)self;
-  if (opt->child->Revalidate(opt->child, spec) != VALIDATE_OK) {
+  ValidateStatus childStatus = opt->child->Revalidate(opt->child, spec);
+  // A timeout is passed up as such: unlike an abort, it says the query ran out of time and its
+  // results are partial, which only the caller can report.
+  if (childStatus == VALIDATE_TIMEOUT) {
+    return VALIDATE_TIMEOUT;
+  }
+  if (childStatus != VALIDATE_OK) {
     return VALIDATE_ABORTED;
   }
-  if (opt->numericIter->Revalidate(opt->numericIter, spec) != VALIDATE_OK) {
+  ValidateStatus numericStatus = opt->numericIter->Revalidate(opt->numericIter, spec);
+  if (numericStatus == VALIDATE_TIMEOUT) {
+    return VALIDATE_TIMEOUT;
+  }
+  if (numericStatus != VALIDATE_OK) {
     return VALIDATE_ABORTED;
   }
   return VALIDATE_OK;
@@ -282,7 +292,7 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   const FieldSpec *field = IndexSpec_GetFieldWithLength(qOpt->sctx->spec, qOpt->fieldName, strlen(qOpt->fieldName));
   // if there is no numeric range query but sortby, create a Numeric Filter
   if (!qOpt->nf) {
-    qOpt->nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc, field, NULL);
+    qOpt->nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc, field->index, NULL);
     oi->flags |= OPTIM_OWN_NF;
   }
   oi->lastLimitEstimate = qOpt->nf->limit =

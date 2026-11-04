@@ -32,19 +32,23 @@ typedef enum {
 #define SUMMARIZE_DEFAULT_CLOSE_TAG "</b>"
 #define SUMMARIZE_DEFAULT_SEPARATOR "... "
 
+// The strings in SummarizeSettings and HighlightSettings are borrowed: static defaults or the
+// request's held argv.
 typedef struct {
   uint32_t contextLen;
   uint16_t numFrags;
-  char *separator;
+  const char *separator;
 } SummarizeSettings;
 
 typedef struct {
-  char *openTag;
-  char *closeTag;
+  const char *openTag;
+  const char *closeTag;
 } HighlightSettings;
 
 typedef struct {
-  // path AS name
+  // The requested document path and its returned field name (`path AS name`).
+  // For HASH they are usually identical. For JSON, `path` may be a JSONPath
+  // such as `$.name` while `name` is the schema alias returned to the client.
   const char *path;
   const char *name;
 
@@ -69,8 +73,8 @@ typedef struct {
   uint16_t explicitReturn;
 } FieldList;
 
-// "path AS name"
-// If `path` is NULL then `path` = `name`
+// Gets or creates the returned-field entry for `path AS name`.
+// If `path` is NULL then `path` = `name`.
 ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path);
 void FieldList_Free(FieldList *fields);
 
@@ -96,7 +100,8 @@ typedef struct {
   t_fieldMask fieldmask;
   int slop;
 
-  const sds *inkeys;
+  /* Borrowed from the request's held argv (see QueryRequestArgs.argv) */
+  RedisModuleString **inkeys;
   size_t ninkeys;
 
   const StopWordList *stopwords;
@@ -106,7 +111,8 @@ typedef struct {
   struct {
     LegacyNumericFilter **filters;
     LegacyGeoFilter **geo_filters;
-    const char **infields;
+    /* Borrowed from the request's held argv (see QueryRequestArgs.argv) */
+    RedisModuleString **infields;
     size_t ninfields;
   } legacy;
 } RSSearchOptions;

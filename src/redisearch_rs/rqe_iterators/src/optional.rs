@@ -69,6 +69,19 @@ pub struct RawOptional<'query, Rf: Ref, I> {
     /// [`Optional::new`]. From that point onward all results will be virtual
     /// until `max_doc_id` is reached.
     child: OptionalChild<I>,
+
+    /// Whether the iterator has run *past* its last result, i.e. a
+    /// `read`/`skip_to` found nothing beyond `max_doc_id` — the state behind
+    /// [`current`](RQEIterator::current) and [`at_eof`](RQEIterator::at_eof),
+    /// and the *only* record of it: both entry points check it before anything
+    /// else, so an exhausted iterator stays exhausted until
+    /// [`rewind`](RQEIterator::rewind) whatever the position says.
+    ///
+    /// It cannot be folded into `result.doc_id`: that field *is*
+    /// [`last_doc_id`](RQEIterator::last_doc_id), so moving it to record
+    /// exhaustion — past `max_doc_id`, or onto it when a skip overshoots —
+    /// would report a position never yielded.
+    past_end: bool,
 }
 
 /// Child slot for [`RawOptional`].
@@ -140,6 +153,7 @@ const _: () = {
     assert!(offset_of!(A, weight) == offset_of!(S, weight));
     assert!(offset_of!(A, result) == offset_of!(S, result));
     assert!(offset_of!(A, child) == offset_of!(S, child));
+    assert!(offset_of!(A, past_end) == offset_of!(S, past_end));
     assert!(size_of::<A>() == size_of::<S>());
     assert!(align_of::<A>() == align_of::<S>());
 };
@@ -166,6 +180,7 @@ where
                 .field_mask(RS_FIELDMASK_ALL)
                 .build(),
             child: OptionalChild::Present(child),
+            past_end: false,
         }
     }
 
@@ -173,6 +188,25 @@ where
     /// wrapped by this [`Optional`] iterator.
     pub const fn child(&self) -> Option<&I> {
         self.child.as_ref()
+    }
+
+    /// Whether this iterator owes no further result, recording it if the
+    /// position has just reached `max_doc_id`.
+    ///
+    /// The single gate on both entry points, and the only predicate either of
+    /// them needs: once [`past_end`](Self::past_end) is set, only a
+    /// [`rewind`](RQEIterator::rewind) clears it. It is checked before the
+    /// position, which is what lets an overshooting
+    /// [`skip_to`](RQEIterator::skip_to) leave the position alone — the position
+    /// then sits below `max_doc_id` while the iterator owes nothing, so the
+    /// comparison alone would answer that there is more to come.
+    #[inline(always)]
+    const fn exhausted(&mut self) -> bool {
+        if self.past_end || self.result.doc_id >= self.max_doc_id {
+            self.past_end = true;
+            return true;
+        }
+        false
     }
 }
 
@@ -182,6 +216,9 @@ where
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end {
+            return None;
+        }
         if let Some(child) = self.child.as_mut()
             && child.last_doc_id() == self.result.doc_id
             && let Some(child_result) = child.current()
@@ -193,7 +230,7 @@ where
     }
 
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        if self.at_eof() {
+        if self.exhausted() {
             return Ok(None);
         }
 
@@ -234,10 +271,20 @@ where
         &mut self,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
+        // Checked before the precondition below, so a probe arriving after this
+        // iterator ran out is answered rather than asserted on: the position it
+        // holds is the last result it yielded, which such a probe legitimately
+        // sits above.
+        if self.exhausted() {
+            return Ok(None);
+        }
+
         debug_assert!(doc_id > self.result.doc_id);
 
-        if doc_id > self.max_doc_id || self.at_eof() {
-            self.result.doc_id = self.max_doc_id;
+        if doc_id > self.max_doc_id {
+            // Beyond the last document: this skip carries no result, so it may
+            // not move the position. `past_end` is what records the step.
+            self.past_end = true;
             return Ok(None);
         }
 
@@ -299,6 +346,7 @@ where
     #[inline(always)]
     fn rewind(&mut self) {
         self.result.doc_id = 0;
+        self.past_end = false;
         if let Some(child) = self.child.as_mut() {
             child.rewind();
         }
@@ -316,7 +364,7 @@ where
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        self.result.doc_id >= self.max_doc_id
+        self.past_end
     }
 
     #[inline(always)]
@@ -486,6 +534,11 @@ where
         // Mirror `revalidate`: a child that aborted or moved forces a re-read
         // iff the previous result came from the child (its doc id matches the
         // aggregate's current doc id) rather than being a virtual sentinel.
+        //
+        // The re-read's outcome needs no inspection here: if it ran off the end
+        // it set `past_end`, so `current()` reports no current and the `Moved`
+        // below carries the same "nothing left" signal that `revalidate`'s
+        // `Moved { current: None }` did.
         let moved = if child_disturbed && last_child_doc_id == active.result.doc_id {
             active.read()?;
             true
@@ -517,6 +570,7 @@ impl<'index> crate::interop::ProfileChildren<'index>
             weight: self.weight,
             result: self.result,
             child: self.child.map(crate::c2rust::CRQEIterator::into_profiled),
+            past_end: self.past_end,
         }
     }
 }

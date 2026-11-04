@@ -54,17 +54,24 @@ pub enum Value {
 
 impl Value {
     pub fn fully_dereferenced_ref(&self) -> &Self {
-        match self {
-            Value::Ref(ref_value) => ref_value.fully_dereferenced_ref(),
-            _ => self,
+        let mut value = self;
+
+        while let Value::Ref(ref_value) = value {
+            value = ref_value;
         }
+
+        value
     }
 
     pub fn fully_dereferenced_ref_and_trio(&self) -> &Self {
-        match self {
-            Value::Ref(ref_value) => ref_value.fully_dereferenced_ref_and_trio(),
-            Value::Trio(trio) => trio.left().fully_dereferenced_ref_and_trio(),
-            _ => self,
+        let mut value = self;
+
+        loop {
+            value = match value {
+                Value::Ref(ref_value) => ref_value,
+                Value::Trio(trio) => trio.left(),
+                _ => return value,
+            };
         }
     }
 
@@ -96,6 +103,20 @@ impl Value {
             Some(*num)
         } else {
             None
+        }
+    }
+
+    /// Converts the value to a number, following references and trios.
+    ///
+    /// A number converts as is and a string as parsed by [`util::str_to_float`];
+    /// no other type has a numeric value.
+    #[inline]
+    pub fn to_number(&self) -> Option<f64> {
+        match self.fully_dereferenced_ref_and_trio() {
+            Value::Number(num) => Some(*num),
+            Value::String(string) => util::str_to_float(string.as_bytes()),
+            Value::RedisString(string) => util::str_to_float(string.as_bytes()),
+            _ => None,
         }
     }
 

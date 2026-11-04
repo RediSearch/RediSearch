@@ -9,6 +9,7 @@
 
 use redis_module::RedisString;
 
+use crate::JsonPath;
 use crate::KeyValuesIterator;
 use crate::RedisJsonApi;
 use crate::ResultsIter;
@@ -114,7 +115,7 @@ impl<'a> JsonValueRef<'a> {
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_len(self.ptr, &raw mut out) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
         } else {
             None
@@ -145,7 +146,7 @@ impl<'a> JsonValueRef<'a> {
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_int(self.ptr, &raw mut out) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
         } else {
             None
@@ -161,7 +162,7 @@ impl<'a> JsonValueRef<'a> {
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_double(self.ptr, &raw mut out) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
         } else {
             None
@@ -177,7 +178,7 @@ impl<'a> JsonValueRef<'a> {
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_boolean(self.ptr, &raw mut out) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out != 0)
         } else {
             None
@@ -194,7 +195,7 @@ impl<'a> JsonValueRef<'a> {
         // Safety: `ptr` is valid by construction.
         let status = unsafe { get_string(self.ptr, &raw mut str, &raw mut len) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             // Safety: `getString` returns `OK` it promises to return a valid c string.
             let bytes = unsafe { slice::from_raw_parts(str.cast::<u8>(), len) };
 
@@ -214,7 +215,7 @@ impl<'a> JsonValueRef<'a> {
 
         // Safety: `ptr` is valid by construction, we correctly allocated the `JsonValue` before.
         let status = unsafe { get_at(self.ptr, idx, out.as_ptr()) };
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Some(out)
         } else {
             None
@@ -230,7 +231,7 @@ impl<'a> JsonValueRef<'a> {
     /// 1. `ctx` must be a valid Redis module context.
     pub unsafe fn key_values(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
     ) -> Option<KeyValuesIterator<'_>> {
         let (ptr, len) = if let Some(len) = self.len()
             && len > 0
@@ -264,6 +265,25 @@ impl<'a> JsonValueRef<'a> {
         Some(unsafe { ResultsIter::from_non_null(ptr, self.api) })
     }
 
+    /// Returns an iterator over values matched by a compiled [`JsonPath`].
+    ///
+    /// # Safety
+    ///
+    /// The compiled `path` must remain [valid]
+    /// until the returned iterator is dropped.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    pub unsafe fn get_with_path(&self, path: &JsonPath) -> Option<ResultsIter<'_>> {
+        let get_with_path = vtable_fn!(self.api, getWithPath);
+
+        // SAFETY: `self.ptr` and `path` are live RedisJSON handles by construction.
+        let ptr = unsafe { get_with_path(self.ptr, path.ptr.as_ptr()) };
+        let ptr = NonNull::new(ptr.cast_mut())?;
+
+        // SAFETY: we obtained this pointer from `getWithPath`.
+        Some(unsafe { ResultsIter::from_non_null(ptr, self.api) })
+    }
+
     /// Serializes this JSON value to a Redis module string.
     ///
     /// # Safety
@@ -272,16 +292,16 @@ impl<'a> JsonValueRef<'a> {
     #[inline]
     pub unsafe fn serialize(
         &self,
-        ctx: *mut ffi::RedisModuleCtx,
+        ctx: *mut redis_module::RedisModuleCtx,
     ) -> Result<RedisString, SerializeError> {
         let get_json = vtable_fn!(self.api, getJSON);
 
-        let mut str: *mut ffi::RedisModuleString = std::ptr::null_mut();
+        let mut str: *mut redis_module::RedisModuleString = std::ptr::null_mut();
 
         // Safety: ensured by caller (1.) and ptr is valid by construction.
         let status = unsafe { get_json(self.ptr, ctx, &mut str) };
 
-        if status == ffi::REDISMODULE_OK as i32 {
+        if status == redis_module::REDISMODULE_OK as i32 {
             Ok(RedisString::from_redis_module_string(
                 ctx.cast(),
                 str.cast(),

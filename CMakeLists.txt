@@ -124,17 +124,7 @@ function(setup_shared_object_target target)
     set_target_properties(${target} PROPERTIES PREFIX "")
 endfunction()
 
-# Define debug symbols extraction function
-function(extract_debug_symbols target)
-    if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" AND NOT APPLE)
-        add_custom_command(TARGET ${target} POST_BUILD
-        COMMAND cp $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
-        COMMAND objcopy --add-gnu-debuglink=$<TARGET_FILE:${target}>.debug $<TARGET_FILE:${target}>
-        COMMAND strip -g $<TARGET_FILE:${target}>
-        COMMENT "Extracting debug symbols from ${target}"
-    )
-    endif()
-endfunction()
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/ExtractDebugSymbols.cmake)
 
 #----------------------------------------------------------------------------------------------
 # Command line options with default values
@@ -192,10 +182,24 @@ message(STATUS "SAN: ${SAN}")
 if(SAN)
     if(SAN STREQUAL "address")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-omit-frame-pointer -fsanitize=address -fsanitize-recover=all")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-omit-frame-pointer -fsanitize=address -fsanitize-recover=all")
         set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=address")
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
         message(STATUS "CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}")
+        message(STATUS "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
+        message(STATUS "CMAKE_LINKER_FLAGS: ${CMAKE_LINKER_FLAGS}")
+        message(STATUS "CMAKE_SHARED_LINKER_FLAGS: ${CMAKE_SHARED_LINKER_FLAGS}")
+    elseif(SAN STREQUAL "alignment")
+        set(_alignment_sanitizer_flags
+            "-fno-omit-frame-pointer -fsanitize=alignment -fno-sanitize-recover=alignment")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${_alignment_sanitizer_flags}")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_alignment_sanitizer_flags}")
+        set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=alignment")
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=alignment")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=alignment")
+        message(STATUS "CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}")
+        message(STATUS "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
         message(STATUS "CMAKE_LINKER_FLAGS: ${CMAKE_LINKER_FLAGS}")
         message(STATUS "CMAKE_SHARED_LINKER_FLAGS: ${CMAKE_SHARED_LINKER_FLAGS}")
     endif()
@@ -299,16 +303,14 @@ endif()
 
 # Platform-specific settings
 if(APPLE)
-    # Find OpenSSL on macOS. Prefer explicit paths, then known Homebrew prefixes.
+    # Find OpenSSL on macOS. Prefer explicit paths, then Homebrew's openssl@4 prefixes.
     if(NOT OPENSSL_ROOT_DIR AND DEFINED LIBSSL_DIR)
         set(OPENSSL_ROOT_DIR "${LIBSSL_DIR}")
     endif()
     if(NOT OPENSSL_ROOT_DIR)
         foreach(_openssl_prefix
-            "/opt/homebrew/opt/openssl@3"
-            "/usr/local/opt/openssl@3"
-            "/opt/homebrew/opt/openssl"
-            "/usr/local/opt/openssl")
+            "/opt/homebrew/opt/openssl@4"
+            "/usr/local/opt/openssl@4")
             if(EXISTS "${_openssl_prefix}")
                 set(OPENSSL_ROOT_DIR "${_openssl_prefix}")
                 break()
@@ -316,6 +318,14 @@ if(APPLE)
         endforeach()
     endif()
     find_package(OpenSSL REQUIRED)
+    # The Homebrew Redis package ships only openssl@4, so a module linked against
+    # any other major fails to load there.
+    if(NOT OPENSSL_VERSION VERSION_GREATER_EQUAL 4 OR OPENSSL_VERSION VERSION_GREATER_EQUAL 5)
+        message(FATAL_ERROR "macOS builds require OpenSSL 4, found '${OPENSSL_VERSION}' "
+            "(${OPENSSL_CRYPTO_LIBRARY}). Install it with `brew install openssl@4`, or point "
+            "OPENSSL_ROOT_DIR at an OpenSSL 4 prefix. An existing build directory may have "
+            "cached another version: rebuild with `./build.sh FORCE`.")
+    endif()
     include_directories(${OPENSSL_INCLUDE_DIR})
 
     if(DEFINED LIBSSL_DIR)
@@ -358,7 +368,6 @@ set(Boost_NO_WARN_NEW_VERSIONS ON)
 include_directories(
     ${root}/src
     ${root}/src/buffer
-    ${root}/src/dict
     ${root}/src/coord
     ${root}/src/redisearch_rs/headers
     ${root}/deps/libuv/include
@@ -427,6 +436,12 @@ target_link_libraries(redisearch
     redisearch_rs
     ${SSL_LIBS}
     ${CMAKE_LD_LIBS})
+
+if(DEFINED RUST_COVERAGE_PROFILE_RUNTIME)
+    target_link_libraries(redisearch
+        "-Wl,-u,__llvm_profile_runtime"
+        "${RUST_COVERAGE_PROFILE_RUNTIME}")
+endif()
 
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch redisearch_rs)

@@ -27,12 +27,22 @@ extern "C" {
 // or main thread).
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
 
+// Schedules indexing for a successful ALTER. addedFieldsStart is the schema size before
+// that command added its fields. When safe, skips documents with none of those fields;
+// otherwise schedules the same full scan as IndexSpec_ScanAndReindex.
+// Same locking assumption as IndexSpec_ScanAndReindex.
+void IndexSpec_ScanAndReindexForAlter(RedisModuleCtx *ctx, StrongRef ref,
+                                      t_fieldIndex addedFieldsStart);
+
 // Schedule a background scan + reindex of all registered indexes.
 void Indexes_ScanAndReindex();
 
 // Upgrade legacy (pre-RDB-event) indexes by dropping their old keyspace
 // representation and publishing them into the global registry.
 void Indexes_UpgradeLegacyIndexes();
+
+// Called with the GIL and no spec lock; schedules at most one lazy map build.
+void IndexSpec_ActivateKeyMap(IndexSpec *spec);
 
 // Expose reindexpool for debug
 void ReindexPool_ThreadPoolDestroy();

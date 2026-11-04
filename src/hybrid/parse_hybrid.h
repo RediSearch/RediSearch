@@ -35,8 +35,13 @@ typedef struct ParseHybridCommandCtx {
     AGGPlan *tailPlan;
     HybridPipelineParams* hybridParams;
     RequestConfig* reqConfig;
+    TimeoutConfig *timeoutConfig;
     CursorConfig* cursorConfig;
     rs_wall_clock_ns_t *coordDispatchTime; // Coordinator dispatch time for internal commands
+
+    // Whether the client explicitly supplied TIMEOUT, and the value it gave.
+    bool timeoutSpecified;
+    long long clientTimeoutMS;
 } ParseHybridCommandCtx;
 
 // Function for parsing hybrid command arguments - exposed for testing

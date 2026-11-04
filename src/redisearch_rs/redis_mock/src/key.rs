@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::string::UserString;
+use crate::string::{RedisModule_CreateString, RedisModule_StringPtrLen, UserString};
 use core::panic;
 use redis_module::KeyType;
 use std::{ffi::c_char, mem::ManuallyDrop, ptr::NonNull, sync::Arc};
@@ -109,4 +109,56 @@ pub unsafe extern "C" fn RedisModule_KeyType(key: *mut redis_module::raw::RedisM
         KeyType::Stream => redis_module::raw::REDISMODULE_KEYTYPE_STREAM,
     };
     res as i32
+}
+
+/// Mock of `RedisModule_HashGet` for the `REDISMODULE_HASH_NONE` form with a single
+/// `(field, &value)` pair: `RedisModule_HashGet(key, flags, field, &value, NULL)`.
+///
+/// The variadic entry point Redis callers see is the C shim `RedisMock_HashGet` in
+/// `variadic_shims.c`, which unpacks the arguments and calls this fixed-arity function.
+///
+/// The value is looked up in the [`crate::TestContext`]'s injected key/values by exact
+/// field bytes. A missing field yields a null value.
+///
+/// # Safety
+///
+/// 1. `key` must be a pointer to a [UserKey] created by this mock.
+/// 2. `field` must be a `RedisModuleString` created by this mock.
+/// 3. `value` must be valid for writes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RedisMock_HashGetFixed(
+    key: *mut redis_module::raw::RedisModuleKey,
+    flags: ::std::ffi::c_int,
+    field: *mut redis_module::raw::RedisModuleString,
+    value: *mut *mut redis_module::raw::RedisModuleString,
+    _terminator: *const ::std::ffi::c_void,
+) -> ::std::ffi::c_int {
+    assert_eq!(
+        flags,
+        redis_module::raw::REDISMODULE_HASH_NONE as ::std::ffi::c_int,
+        "the mock supports only the REDISMODULE_HASH_NONE form"
+    );
+    // SAFETY: Caller has to ensure 1
+    let key = unsafe { &*(key.cast::<UserKey>()) };
+    let ctx = key.get_ctx();
+    // SAFETY: Caller has to ensure 1, thus the ctx is a TestContext
+    let test_ctx = unsafe { ctx.cast::<crate::TestContext>().as_ref() };
+
+    let mut len = 0usize;
+    // SAFETY: Caller has to ensure 2
+    let ptr = unsafe { RedisModule_StringPtrLen(field, &mut len) };
+    // SAFETY: `RedisModule_StringPtrLen` returns `len` readable bytes.
+    let wanted = unsafe { std::slice::from_raw_parts(ptr.cast::<u8>(), len) };
+
+    let found = test_ctx
+        .access_key_values()
+        .iter()
+        .find(|(k, _)| k.as_bytes() == wanted)
+        .map_or(std::ptr::null_mut(), |(_, v)| {
+            // SAFETY: `v` is a valid CString
+            unsafe { RedisModule_CreateString(ctx.as_ptr(), v.as_ptr(), v.as_bytes().len()) }
+        });
+    // SAFETY: Caller has to ensure 3
+    unsafe { value.write(found) };
+    redis_module::raw::REDISMODULE_OK as ::std::ffi::c_int
 }

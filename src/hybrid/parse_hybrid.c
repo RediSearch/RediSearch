@@ -47,6 +47,17 @@
 #include "slots_tracker_ffi.h"
 #include "util/arr/arr.h"
 
+// Record the sub-request's query argument by its index within the held argv.
+// Every parse cursor here walks the container's holds, and each sub's holds
+// mirror them index-for-index (all hold the same command argv, in order), so
+// a cursor-derived offset addresses the same token in the sub's own holds.
+// `queryOffset` is in root-cursor coordinates: for a slice cursor, the
+// caller adds the slice's base (the root offset recorded before AC_GetSlice).
+static void setSubQueryArg(AREQ *sub, uint32_t queryOffset) {
+  RS_ASSERT(queryOffset < sub->base.args.argc);
+  sub->base.args.queryOffset = queryOffset;
+}
+
 // Helper function to set error message with proper plural vs singular form
 static void setExpectedArgumentsError(QueryError *status, unsigned int expected, int provided) {
   const char *verb = (provided == 1) ? "was" : "were";
@@ -85,7 +96,8 @@ static int parseSearchSubquery(ArgsCursor *ac, AREQ *sreq, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  sreq->query = AC_GetStringNC(ac, NULL);
+  setSubQueryArg(sreq, (uint32_t)ac->offset);
+  AC_Advance(ac);
   RSSearchOptions *searchOpts = &sreq->searchopts;
 
   // Currently only SCORER is possible in SEARCH. Maybe will add support for SORTBY and others later
@@ -160,6 +172,21 @@ static int parseShardKRatioClause(ArgsCursor *ac, ParsedVectorData *pvd,
   return REDISMODULE_OK;
 }
 
+static int parseRerankClause(ArgsCursor *ac, VectorQuery *vq, bool *hasRerank, QueryError *status) {
+  if (*hasRerank) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_DUP_PARAM, "Duplicate RERANK argument");
+    return REDISMODULE_ERR;
+  }
+  if (CheckEnd(ac, "RERANK", status) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
+  }
+  size_t valueLen;
+  const char *value = AC_GetStringNC(ac, &valueLen);
+  addVectorQueryParam(vq, VECSIM_RERANK, sizeof(VECSIM_RERANK) - 1, value, valueLen);
+  *hasRerank = true;
+  return REDISMODULE_OK;
+}
+
 static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd, QueryError *status) {
   // VSIM @vectorfield vector KNN ...
   //                              ^
@@ -178,6 +205,7 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
   }
 
   bool hasEF = false;
+  bool hasRerank = false;
   bool hasShardKRatio = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
@@ -218,6 +246,11 @@ static int parseKNNClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *pvd
       // Add directly to VectorQuery params
       addVectorQueryParam(vq, VECSIM_EFRUNTIME, strlen(VECSIM_EFRUNTIME), value, valueLen);
       hasEF = true;
+
+    } else if (AC_AdvanceIfMatch(ac, "RERANK")) {
+      if (parseRerankClause(ac, vq, &hasRerank, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
 
     } else if (AC_AdvanceIfMatch(ac, "SHARD_K_RATIO")) {
       if (hasShardKRatio) {
@@ -262,6 +295,7 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
 
   bool hasRadius = false;
   bool hasEpsilon = false;
+  bool hasRerank = false;
   RS_ASSERT(pvd->vectorScoreFieldAlias == NULL);
 
   for (int i=0; i<argumentCount; i+=2) {
@@ -302,6 +336,11 @@ static int parseRangeClause(ArgsCursor *ac, VectorQuery *vq, ParsedVectorData *p
       addVectorQueryParam(vq, VECSIM_EPSILON, strlen(VECSIM_EPSILON), value, valueLen);
       hasEpsilon = true;
 
+    } else if (AC_AdvanceIfMatch(ac, "RERANK")) {
+      if (parseRerankClause(ac, vq, &hasRerank, status) != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+      }
+
     } else {
       const char *current;
       AC_GetString(ac, &current, NULL, AC_F_NOADVANCE);
@@ -321,6 +360,9 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
   //                                                 ^
 
   ArgsCursor argCursor= {0};
+  // The slice's base in root-cursor coordinates (AC_GetSlice anchors the
+  // slice at the parent's current offset, then advances the parent).
+  const uint32_t sliceBase = (uint32_t)ac->offset;
   int res = AC_GetSlice(ac, &argCursor, count);
   if (res == AC_ERR_NOARG) {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_SYNTAX, "Not enough arguments", " in %s, specified %llu but provided only %u", "FILTER", count, AC_NumRemaining(ac));
@@ -330,12 +372,14 @@ static int parseFilterClause(ArgsCursor *ac, AREQ *vreq, ParsedVectorData *pvd, 
     return REDISMODULE_ERR;
   }
 
-  // Parse filter-expression (required, positional) - store in vreq->query directly
-  vreq->query = AC_GetStringNC(&argCursor, NULL);
-  if (!vreq->query) {
+  // Parse filter-expression (required, positional): becomes the sub-request's
+  // query argument.
+  if (AC_IsAtEnd(&argCursor)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Missing filter-expression for FILTER");
     return REDISMODULE_ERR;
   }
+  setSubQueryArg(vreq, sliceBase + (uint32_t)argCursor.offset);
+  AC_Advance(&argCursor);
 
   // Use ArgParser for optional POLICY and BATCH_SIZE
   ArgParser *parser = ArgParser_New(&argCursor, "FILTER");
@@ -485,11 +529,12 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
     }
     if (AC_GetUnsignedLongLong(ac, &count, 0) != AC_OK) {
       // it's a string, not a number, preserving some degree of backward compatibility
-      vreq->query = AC_GetStringNC(ac, NULL);
-      if (!vreq->query) {
+      if (AC_IsAtEnd(ac)) {
         QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid filter-expression for FILTER");
         goto error;
       }
+      setSubQueryArg(vreq, (uint32_t)ac->offset);
+      AC_Advance(ac);
     } else if (parseFilterClause(ac, vreq, pvd, status, count) != REDISMODULE_OK) {
       goto error;
     }
@@ -515,17 +560,8 @@ static int parseVectorSubquery(ArgsCursor *ac, AREQ *vreq, QueryError *status) {
   }
 
 final:
-  // Set implicit "*" filter if no explicit filter was provided.
-  // For RANGE queries without explicit FILTER, we also set skipFilterIntegration
-  // so the vector node becomes the root directly (no PHRASE/intersection needed).
-  // This preserves BY_SCORE ordering from the iterator.
-  if (!vreq->query) {
-    vreq->query = "*";
-    // For RANGE without explicit filter, skip the filter integration
-    // so the vector node is the root and returns results sorted by score.
-    if (vq->type == VECSIM_QT_RANGE) {
-      pvd->skipFilterIntegration = true;
-    }
+  if (vreq->base.args.queryOffset == QUERY_OFFSET_NONE) {
+    pvd->skipFilterIntegration = true;
   }
 
   // Set vector data in VectorQuery based on type (KNN vs RANGE)
@@ -573,16 +609,6 @@ error:
   return REDISMODULE_ERR;
 }
 
-// Copy request configuration from source to destination
-static void copyRequestConfig(RequestConfig *dest, const RequestConfig *src) {
-  dest->queryTimeoutMS = src->queryTimeoutMS;
-  dest->dialectVersion = src->dialectVersion;
-  dest->timeoutPolicy = src->timeoutPolicy;
-  dest->printProfileClock = src->printProfileClock;
-  dest->BM25STD_TanhFactor = src->BM25STD_TanhFactor;
-  dest->oomPolicy = src->oomPolicy;
-}
-
 static void copyCursorConfig(CursorConfig *dest, const CursorConfig *src) {
   dest->maxIdle = src->maxIdle;
   dest->chunkSize = src->chunkSize;
@@ -591,20 +617,14 @@ static void copyCursorConfig(CursorConfig *dest, const CursorConfig *src) {
 // Helper function to copy hybrid request configuration to a single subquery
 static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
                                       ParseHybridCommandCtx *parsedCmdCtx,
-                                      RSSearchOptions *mergeSearchopts,
                                       uint32_t mergeReqflags, size_t maxHybridResults,
                                       ProfileOptions profileOptions) {
-  // Copy parameters if they exist
-  if (mergeSearchopts->params) {
-    subqueryRequest->searchopts.params = Param_DictClone(mergeSearchopts->params);
-  }
-
   // Copy cursor configuration and flags if cursor is enabled
   if (mergeReqflags & QEXEC_F_IS_CURSOR) {
     // We need to turn on the cursor flag so the cursor id will be sent back when reading from the cursor
     subqueryRequest->reqflags |= QEXEC_F_IS_CURSOR;
     // Copy cursor configuration using the helper function
-    copyCursorConfig(&subqueryRequest->cursorConfig, parsedCmdCtx->cursorConfig);
+    copyCursorConfig(&subqueryRequest->base.cursorConfig, parsedCmdCtx->cursorConfig);
   }
 
   // Copy score sending flags if enabled
@@ -620,8 +640,8 @@ static void copyHybridConfigToSubquery(AREQ *subqueryRequest,
     subqueryRequest->reqflags |= QEXEC_F_SEND_SCOREEXPLAIN;
   }
 
-  // Copy request configuration using the helper function
-  copyRequestConfig(&subqueryRequest->reqConfig, parsedCmdCtx->reqConfig);
+  subqueryRequest->base.reqConfig = *parsedCmdCtx->reqConfig;
+  subqueryRequest->base.limits.timeout.config = *parsedCmdCtx->timeoutConfig;
 
   // Copy max results limits
   subqueryRequest->maxSearchResults = maxHybridResults;
@@ -795,14 +815,13 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Don't expect any flag to be on yet
   RS_ASSERT(*mergeReqflags == 0);
   ApplyProfileFlags(mergeReqflags, profileOptions);
-  *parsedCmdCtx->reqConfig = RSGlobalConfig.requestConfigParams;
 
   // Use default dialect if > 1, otherwise use dialect 2
   if (parsedCmdCtx->reqConfig->dialectVersion < MIN_HYBRID_DIALECT) {
     parsedCmdCtx->reqConfig->dialectVersion = MIN_HYBRID_DIALECT;
   }
-  parsedCmdCtx->search->reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
-  parsedCmdCtx->vector->reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
+  parsedCmdCtx->search->base.reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
+  parsedCmdCtx->vector->base.reqConfig.dialectVersion = parsedCmdCtx->reqConfig->dialectVersion;
 
   RSSearchOptions mergeSearchopts = {0};
   RSSearchOptions_Init(&mergeSearchopts);
@@ -821,9 +840,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   searchRequest->ast.validationFlags |= QAST_NO_VECTOR;
   vectorRequest->ast.validationFlags |= QAST_NO_WEIGHT | QAST_NO_VECTOR;
 
-  // Prefixes for the index
-  arrayof(sds) prefixes = array_new(sds, 0);
-
   // Slot ranges info for distributed execution
   const RedisModuleSlotRangeArray *requestSlotRanges = NULL;
   uint32_t keySpaceVersion = INVALID_KEYSPACE_VERSION;
@@ -832,7 +848,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   const char *vectorScoreFieldAlias = NULL;
   PLN_VectorNormalizerStep *vnStep = NULL;
   PLN_ArrangeStep *arrangeStep = NULL;
-  size_t prefixCount = 0;
   AggregationPipelineParams params;
   HybridParseContext hybridParseCtx;
 
@@ -858,23 +873,28 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
       .searchopts = &mergeSearchopts,
       .cursorConfig = parsedCmdCtx->cursorConfig,
       .reqConfig = parsedCmdCtx->reqConfig,
+      .timeoutConfig = parsedCmdCtx->timeoutConfig,
       .maxResults = &maxHybridResults,
-      .prefixes = &prefixes,
       .querySlots = &requestSlotRanges,
       .keySpaceVersion = &keySpaceVersion,
       .coordDispatchTime = parsedCmdCtx->coordDispatchTime,
   };
-  // may change prefixes in internal array_ensure_append_1
   if (HybridParseOptionalArgs(&hybridParseCtx, ac, internal) != REDISMODULE_OK) {
     goto error;
   }
 
+  // Record whether TIMEOUT was explicitly given, and capture the client's value
+  // BEFORE the foreground-timeout cap below, so the coordinator can forward the
+  // exact client timeout to shards without re-scanning argv.
+  parsedCmdCtx->timeoutSpecified = (hybridParseCtx.specifiedArgs & SPECIFIED_ARG_TIMEOUT) != 0;
+  parsedCmdCtx->clientTimeoutMS = parsedCmdCtx->timeoutConfig->queryTimeoutMS;
+
   // Cap the effective query timeout to search-_max-foreground-timeout-limit
-  // when the limit is active. The hybrid request shares a single reqConfig
+  // when the limit is active. The hybrid request has a timeout configuration
   // that is later copied into both subqueries through copyHybridConfigToSubquery.
   // finishSendChunkReply_hybrid reads the cap flag from the search subquery
   // only, so the flag is set on searchRequest alone.
-  if (RSConfig_CapQueryTimeoutToForegroundLimit(&parsedCmdCtx->reqConfig->queryTimeoutMS)) {
+  if (RSConfig_CapQueryTimeoutToForegroundLimit(&parsedCmdCtx->timeoutConfig->queryTimeoutMS)) {
     searchRequest->stateflags |= QEXEC_S_MAX_TIMEOUT_CAPPED;
   }
 
@@ -919,13 +939,14 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
 
   // Copy hybrid request configuration to each subquery
   copyHybridConfigToSubquery(searchRequest, parsedCmdCtx,
-                            &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
+                            *mergeReqflags, maxHybridResults, profileOptions);
   copyHybridConfigToSubquery(vectorRequest, parsedCmdCtx,
-                            &mergeSearchopts, *mergeReqflags, maxHybridResults, profileOptions);
+                            *mergeReqflags, maxHybridResults, profileOptions);
 
-  // Clean up merge search options after copying
+  // Each subquery frees its own params dict, so one gets a clone and the other takes the original.
   if (mergeSearchopts.params) {
-    Param_DictFree(mergeSearchopts.params);
+    searchRequest->searchopts.params = Param_DictClone(mergeSearchopts.params);
+    vectorRequest->searchopts.params = mergeSearchopts.params;
     mergeSearchopts.params = NULL;
   }
 
@@ -959,13 +980,11 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   // Apply KNN K ≤ WINDOW constraint after all argument resolution is complete
   applyKNNTopKWindowConstraint(vectorRequest->parsedVectorData, hybridParams);
 
-  prefixCount = array_len(*hybridParseCtx.prefixes);
-  if (prefixCount && !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, *hybridParseCtx.prefixes, prefixCount)) {
+  if (hybridParseCtx.nprefixes &&
+      !IndexSpec_IsCoherent(parsedCmdCtx->search->sctx->spec, hybridParseCtx.prefixes, hybridParseCtx.nprefixes)) {
     QueryError_SetError(status, QUERY_ERROR_CODE_MISMATCH, NULL);
     goto error;
   }
-  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
-  prefixes = NULL;
 
   // Apply context to each request
   if (AREQ_ApplyContext(searchRequest, searchRequest->sctx, status) != REDISMODULE_OK) {
@@ -1005,8 +1024,6 @@ int parseHybridCommand(RedisModuleCtx *ctx, ArgsCursor *ac,
   return REDISMODULE_OK;
 
 error:
-  array_free_ex(prefixes, sdsfree(*(sds *)ptr));
-  prefixes = NULL;
   if (requestSlotRanges) {
     rm_free((void *)requestSlotRanges);
   }

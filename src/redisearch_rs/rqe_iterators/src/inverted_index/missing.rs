@@ -39,7 +39,7 @@ use super::{InvIndIterator, core::RawInvIndIterator, core::ResumeStatus};
 ///
 /// Used for `ismissing(@field)` queries, where the goal is to match every
 /// document that does not have the specified field indexed. The set of such
-/// documents is maintained per-field in the index spec's `missingFieldDict`.
+/// documents is maintained per-field in the index spec's `missing.indexes`.
 ///
 /// This iterator supports per-field expiration checks via
 /// [`FieldExpirationChecker`] using the
@@ -93,22 +93,30 @@ where
     E: DecodedBy + OpaqueEncoding<Storage = inverted_index::InvertedIndex<E>>,
     <E as DecodedBy>::Decoder: DocIdsDecoder,
 {
-    /// Check if the iterator should abort revalidation.
+    /// The missing-field inverted index, freshly fetched from `spec`, or `None`
+    /// when the iterator must [abort](RQEValidateStatus::Aborted).
     ///
     /// The garbage collector may remove all documents from the
     /// missing-field inverted index or replace it with a new allocation.
     /// In both cases the reader's pointer is stale and the iterator
-    /// must [abort](RQEValidateStatus::Aborted).
+    /// must abort.
+    ///
+    /// Hands back the resolution so the caller can
+    /// [reseat](inverted_index::RawIndexReaderCore::reseat_index) the reader on
+    /// it.
     ///
     /// # Safety
     ///
     /// 1. `self.field_index` must be a valid index into `spec.fields`.
-    /// 2. `spec.missingFieldDict` must be a non-null, valid dict pointer.
-    /// 3. The entry in `missingFieldDict` for `spec.fields[field_index].fieldName`,
+    /// 2. `spec.missing.indexes` must be a non-null, valid dict pointer.
+    /// 3. The entry in `missing.indexes` for `spec.fields[field_index].fieldName`,
     ///    when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
     ///    variant matches `E`.
-    fn should_abort(&self, spec: &IndexSpecReadGuard) -> bool {
+    fn resolve_live_index(
+        &self,
+        spec: &IndexSpecReadGuard,
+    ) -> Option<NonNull<inverted_index::InvertedIndex<E>>> {
         debug_assert!(
             !spec.missing_field_dict_ptr().is_null(),
             "spec.missing_field_dict_ptr() must be non-null",
@@ -125,14 +133,14 @@ where
 
         if missing_ii_ptr.is_null() {
             // The inverted index was removed from the dict (garbage collected).
-            return true;
+            return None;
         }
 
         let missing_ii = missing_ii_ptr.cast::<inverted_index::opaque::InvertedIndex>();
         // SAFETY: 3. guarantees the encoding variant matches E.
         let ii = E::from_opaque(unsafe { &*missing_ii });
 
-        !self.it.reader.points_to_ii(ii)
+        self.it.reader.points_to_ii(ii).then(|| NonNull::from(ii))
     }
 }
 
@@ -152,8 +160,8 @@ where
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
     /// 2. `context.spec` must be a non-null pointer to a valid `IndexSpec`.
     /// 3. `field_index` must be a valid index into `context.spec.fields`.
-    /// 4. `context.spec.missingFieldDict` must be a non-null, valid dict pointer.
-    /// 5. The entry in `missingFieldDict` for `spec.fields[field_index].fieldName`,
+    /// 4. `context.spec.missing.indexes` must be a non-null, valid dict pointer.
+    /// 5. The entry in `missing.indexes` for `spec.fields[field_index].fieldName`,
     ///    when non-null, must point to an opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex) whose encoding
     ///    variant matches `E`.
@@ -260,12 +268,19 @@ where
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Conditions (field_index validity, missingFieldDict, encoding
+        // Conditions (field_index validity, missing.indexes, encoding
         // match) are structural invariants guaranteed by the constructor's
         // pre-conditions.
-        if self.should_abort(spec) {
+        let Some(ii) = self.resolve_live_index(spec) else {
             return Ok(RQEValidateStatus::Aborted);
-        }
+        };
+
+        // `revalidate` reads the index's GC marker through the reader's pointer,
+        // which may not have survived a write to the index.
+        // SAFETY: 1. `points_to_ii` held. 2. `ii` was fetched just now, under the
+        // read lock `spec` witnesses. 3. The revalidation protocol only lets the
+        // index be written while the reader is parked across a lock release.
+        unsafe { self.it.reader.reseat_index(ii) };
 
         self.it.revalidate(spec)
     }
@@ -293,7 +308,7 @@ where
             map.kv_string_buffer(c"Field", field_bytes);
         }
         ctx.print_optional_counters(map);
-        map.kv_long_long(c"Estimated number of matches", self.num_estimated() as i64);
+        ctx.print_estimated(map);
     }
 }
 
@@ -305,7 +320,7 @@ where
 /// 1. `sctx` must point to a valid [`RedisSearchCtx`] whose `spec` is
 ///    non-null and valid.
 /// 2. `field_index` must be a valid index into `sctx.spec.fields`.
-/// 3. `sctx.spec.missingFieldDict` must be a non-null, valid dict pointer.
+/// 3. `sctx.spec.missing.indexes` must be a non-null, valid dict pointer.
 /// 4. The opaque inverted index must use either
 ///    [`DocIdsOnly`](inverted_index::doc_ids_only::DocIdsOnly) or
 ///    [`RawDocIdsOnly`](inverted_index::raw_doc_ids_only::RawDocIdsOnly)
@@ -326,7 +341,7 @@ pub unsafe fn new_missing_iterator<'index>(
             // SAFETY: caller guarantees sctx and spec validity (1-3).
             let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
             // SAFETY: caller guarantees sctx, spec, field_index, and
-            // missingFieldDict validity (1-3).
+            // missing.indexes validity (1-3).
             Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
         }
         inverted_index::opaque::InvertedIndex::RawDocIdsOnly(ii) => {
@@ -334,7 +349,7 @@ pub unsafe fn new_missing_iterator<'index>(
             // SAFETY: caller guarantees sctx and spec validity (1-3).
             let checker = unsafe { FieldExpirationChecker::new(sctx, filter_ctx, reader.flags()) };
             // SAFETY: caller guarantees sctx, spec, field_index, and
-            // missingFieldDict validity (1-3).
+            // missing.indexes validity (1-3).
             Box::new(unsafe { Missing::new(reader, sctx, field_index, checker) })
         }
         _ => panic!(
@@ -384,9 +399,16 @@ where
         // Step 1: identity check on the suspended form. On abort we drop the
         // suspended iterator without promoting it to Active — nothing is
         // materialized.
-        if self.should_abort(spec) {
+        let Some(ii) = self.resolve_live_index(spec) else {
             return Ok(ResumeOutcome::Aborted);
-        }
+        };
+
+        // `resume_in_place` first reads the index's GC marker through the reader's
+        // pointer, which may not have survived a write while suspended.
+        // SAFETY: 1. `points_to_ii` held. 2. `ii` was fetched just now, under the
+        // read lock `spec` witnesses. 3. The revalidation protocol only lets the
+        // index be written while the reader is parked across a lock release.
+        unsafe { self.it.reader.reseat_index(ii) };
 
         // Step 2: run the shared in-place resume transition on the inner
         // core iterator (refresh pointers, reset stale offsets, promote the

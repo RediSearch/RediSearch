@@ -129,7 +129,7 @@ impl<T> Drop for RedisSlice<T> {
         // SAFETY: `RedisModule_Free` is guaranteed to be initialized by the
         // time any module code runs; the Redis module loader sets up the API
         // table before calling `RedisModule_OnLoad`.
-        let free_fn = unsafe { ffi::RedisModule_Free.unwrap() };
+        let free_fn = unsafe { redis_module::RedisModule_Free.unwrap() };
         // SAFETY: The memory at `self.ptr` was allocated via
         // `RedisModule_Alloc` (guaranteed by the constructor's safety
         // contract) and has not been freed yet (guaranteed by Rust's

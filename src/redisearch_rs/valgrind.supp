@@ -46,3 +46,11 @@
    ...
    fun:_ZN5tests33writer_position_must_be_in_bounds*
 }
+
+{
+   accepts_the_maximum_length false positive: optimised vec! fill loop is reported as branching on uninitialised memory
+   Memcheck:Cond
+   ...
+   fun:accepts_the_maximum_length
+   obj:*/legacy_rdb-*
+}

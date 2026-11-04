@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 from common import *
 import json
 import os
@@ -500,6 +507,8 @@ def test_command_info_cacheability_tips_policy():
     manual_commands_with_dont_cache = set(_MANUAL_PUBLIC_COMMANDS_WITH_DONT_CACHE)
     if env.isCluster():
         manual_commands_with_dont_cache.update(_CLUSTER_CONTROL_COMMANDS_WITH_DONT_CACHE)
+        # COMMAND INFO hides internal commands such as SEARCH.CLUSTERSET from other clients.
+        conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
 
     missing_manual_dont_cache = []
     for cmd_name in manual_commands_with_dont_cache:

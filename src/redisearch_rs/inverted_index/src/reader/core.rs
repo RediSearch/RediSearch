@@ -12,7 +12,7 @@ use std::{io::Cursor, marker::PhantomData, ptr::NonNull, sync::atomic};
 use ref_mode::{Active, Ref, SharedPtr, Suspended};
 
 use super::{
-    IndexReader, NumericReader, PointsToOpaqueIndex, RefreshOutcome, ResumableReader,
+    IndexReader, NumericReader, PointsToOpaqueIndex, RefreshOutcome, ReseatIndex, ResumableReader,
     SuspendableReader, TermReader,
 };
 use crate::{
@@ -68,6 +68,11 @@ pub struct RawIndexReaderCore<Rf: Ref, E> {
     /// document ID for delta calculations.
     pub(crate) last_doc_id: DocId,
 
+    /// The ordinal (0-based position) within the current block of the *next* entry to be decoded.
+    /// Used to index the index's per-block `expiration` bitsets so each decoded result carries its
+    /// document-level field-expiration flag. Reset to 0 whenever the current block changes.
+    pub(crate) entry_in_block: u16,
+
     /// The marker of the inverted index when this reader last read from it. This is used to
     /// detect if the index has been modified since the last read, in which case the reader
     /// should be reset.
@@ -111,10 +116,52 @@ impl<Rf: Ref, E: Encoder> RawIndexReaderCore<Rf, E> {
     /// new one is allocated at the same address, the unique IDs will differ.
     ///
     /// Reads only the raw `ii` pointer and the cached `ii_unique_id` — it never
-    /// dereferences the index — so leaves (`Tag`, `Term`, …) can call it from
-    /// their suspended-side `should_abort` checks.
+    /// dereferences the index — so leaves can call it on their suspended form,
+    /// before deciding whether to [reseat](Self::reseat_index) the reader.
     pub fn points_to_ii(&self, index: &InvertedIndex<E>) -> bool {
         std::ptr::eq(self.ii.as_raw(), index) && self.ii_unique_id == index.unique_id()
+    }
+
+    /// Adopt `ii`'s provenance for this reader's index pointer.
+    ///
+    /// The pointer [`new`](RawIndexReaderCore::new) installs descends from the
+    /// `&InvertedIndex` it is handed. Any `&mut` taken on that index afterwards —
+    /// by a writer appending to it or by a garbage-collection pass — invalidates
+    /// the derivation while leaving the address and unique id alone, so reading
+    /// through it is undefined behaviour even though
+    /// [`points_to_ii`](RawIndexReaderCore::points_to_ii) still answers `true`.
+    /// Revalidation re-resolves the index through its owner anyway in order to
+    /// *ask* that question; this installs the answer's fresh derivation, so every
+    /// later read goes through a live one.
+    ///
+    /// Laundering, not a swap: `ii` must be the index the reader already reads.
+    /// [`swap_index`](RawIndexReaderCore::swap_index) is the latter.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ii` must point to the index this reader already reads, as
+    ///    [`points_to_ii`](RawIndexReaderCore::points_to_ii) defines it.
+    /// 2. `ii` must have been derived after the last write to the index, typically
+    ///    by resolving it again through its owner. A pointer obtained before that
+    ///    write — the reader's own included — does not qualify.
+    /// 3. From this call until the reader is next suspended across a lock release,
+    ///    or dropped, the index must stay allocated, must not be written to, and
+    ///    no `&mut` to it may exist. A write after that point must be followed by
+    ///    another reseat before the reader reads again. On an [`Active`] reader
+    ///    this is what stands in for the `'index` lifetime of the reference
+    ///    installed.
+    pub unsafe fn reseat_index(&mut self, ii: NonNull<InvertedIndex<E>>) {
+        debug_assert!(
+            // SAFETY: 3. makes `ii` valid for reads.
+            self.points_to_ii(unsafe { ii.as_ref() }),
+            "reseat must not move the reader to a different index"
+        );
+
+        // SAFETY: 3. upholds the `Active` invariant for as long as the reader reads
+        // through the pointer. Unlike the one `new` installs, it stays valid: by 2.
+        // `ii` postdates the last write, so it is not an heir of a pointer a write
+        // invalidated.
+        self.ii = unsafe { SharedPtr::from_non_null_unchecked(ii) };
     }
 }
 
@@ -178,10 +225,10 @@ where
             if !std::ptr::eq(old_base, new_base) {
                 // The block buffer was reallocated to a different address by a
                 // non-GC operation (e.g. an append that outgrew its allocation)
-                // without bumping the GC marker.
-                // Since GC has not run, the number of "old" blocks
-                // is the same and there is no risk of ABA confusion.
-                //
+                // without bumping the GC marker. Comparing addresses is ABA-safe
+                // here for the reason given in [`IndexReader::needs_revalidation`]:
+                // only an append can free and reallocate a buffer without moving
+                // the marker, and an append cannot leave the length where it was.
                 //
                 // Refreshing only `self.buf` would
                 // leave the iterator's cached `result` holding an `RSOffsetSlice`
@@ -215,7 +262,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder + NumericDecoder> Nu
 /// it against this reader's own `ii` pointer, via
 /// [`E::from_opaque`](crate::DecodedBy) and
 /// [`points_to_ii`](RawIndexReaderCore::points_to_ii). Implemented for every `Rf`
-/// so leaves (`Term`) can call it from their suspended-side `should_abort` checks.
+/// so leaves (`Term`) can call it on their suspended form, before reseating.
 impl<Rf: Ref, E: DecodedBy<Decoder = D> + OpaqueEncoding, D: Decoder + TermDecoder>
     PointsToOpaqueIndex for RawIndexReaderCore<Rf, E>
 where
@@ -225,6 +272,22 @@ where
         let storage = E::from_opaque(opaque);
         let ii = storage.inner_index();
         self.points_to_ii(ii)
+    }
+}
+
+/// Resolves the opaque index to the typed one it holds, as
+/// [`PointsToOpaqueIndex`] does, and reseats on that.
+impl<Rf: Ref, E: DecodedBy<Decoder = D> + OpaqueEncoding, D: Decoder + TermDecoder>
+    ReseatIndex<crate::opaque::InvertedIndex> for RawIndexReaderCore<Rf, E>
+where
+    E::Storage: HasInnerIndex<E>,
+{
+    unsafe fn reseat(&mut self, index: NonNull<crate::opaque::InvertedIndex>) {
+        // SAFETY: the trait's contract makes `index` valid for reads.
+        let ii = E::from_opaque(unsafe { index.as_ref() }).inner_index();
+        // SAFETY: derived from `index`, so it inherits the requirements the caller
+        // upholds for it.
+        unsafe { self.reseat_index(NonNull::from(ii)) }
     }
 }
 
@@ -253,11 +316,18 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
         }
 
         let ii = self.ii.get();
-        let base = D::base_id(&ii.blocks[self.current_block_idx], self.last_doc_id);
+        let block = &ii.blocks[self.current_block_idx];
+        let base = D::base_id(block, self.last_doc_id);
         let mut cursor = Cursor::new(self.buf.get());
         cursor.set_position(self.buf_pos);
         D::decode(&mut cursor, base, result)?;
         self.buf_pos = cursor.position();
+
+        // The codec does not carry the field-expiration flag; it lives in the
+        // index's per-block bitsets, indexed by block and entry ordinal.
+        result.has_field_expiration =
+            ii.expiration_bit(self.current_block_idx, self.entry_in_block);
+        self.entry_in_block += 1;
 
         self.last_doc_id = result.doc_id;
 
@@ -278,14 +348,20 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
         let base = D::base_id(&ii.blocks[self.current_block_idx], self.last_doc_id);
         let mut cursor = Cursor::new(self.buf.get());
         cursor.set_position(self.buf_pos);
-        let success = D::seek(&mut cursor, base, doc_id, result)?;
+        let skipped = D::seek(&mut cursor, base, doc_id, result)?;
         self.buf_pos = cursor.position();
 
-        if success {
-            self.last_doc_id = result.doc_id;
+        match skipped {
+            Some(skipped) => {
+                self.entry_in_block += skipped;
+                result.has_field_expiration =
+                    ii.expiration_bit(self.current_block_idx, self.entry_in_block);
+                self.entry_in_block += 1;
+                self.last_doc_id = result.doc_id;
+                Ok(true)
+            }
+            None => Ok(false),
         }
-
-        Ok(success)
     }
 
     #[inline(always)]
@@ -353,16 +429,36 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> IndexReader<'index>
     }
 
     fn needs_revalidation(&self) -> bool {
-        self.gc_marker != self.ii.get().gc_marker.load(atomic::Ordering::Relaxed)
-    }
-
-    fn refresh_buffer_pointers(&mut self) {
         let ii = self.ii.get();
-        if !ii.blocks.is_empty() && self.current_block_idx < ii.blocks.len() {
-            let current_block = &ii.blocks[self.current_block_idx];
-            // Update the cursor to point to the current position in the refreshed buffer
-            self.buf = SharedPtr::from_ref(current_block.buffer.as_slice());
+        if self.gc_marker != ii.gc_marker.load(atomic::Ordering::Relaxed) {
+            return true;
         }
+
+        // Appending to a block reallocates its buffer without bumping `gc_marker`, and either
+        // outcome invalidates what this reader cached. A moved buffer leaves the cached pointer
+        // dangling. A buffer grown in place keeps the pointer good but makes the cached length
+        // short, which would end the read at the old end of the block and drop the appended
+        // entries. Both are reported so the caller re-seeks, which repairs either.
+        //
+        // Only the cached pointer's address and length are read, never the pointee, which is
+        // what makes this safe to ask while the buffer it describes may already be freed.
+        //
+        // ABA-safe, and it is the length rather than the address that makes it so. Exactly two
+        // things write a block's buffer: GC repair, which bumps `gc_marker` as the last step of
+        // every pass, and appends, which start writing at `buffer.len()` and so only ever grow it.
+        // Freeing and reallocating the buffer therefore takes an append, which lengthens it
+        // whatever address the allocator hands back, and shortening it back takes a repair, which
+        // moves the marker. An unchanged marker, address and length together mean the block has
+        // not been written since the reader cached it.
+        let Some(block) = ii.blocks.get(self.current_block_idx) else {
+            // Nothing cached to go stale: an empty index leaves the reader on the empty slice,
+            // and blocks only ever disappear by GC, which the marker above already caught.
+            return false;
+        };
+
+        let cached = self.buf.as_raw();
+        let live: *const [u8] = block.buffer.as_slice();
+        !std::ptr::addr_eq(cached, live) || cached.len() != live.len()
     }
 
     fn current_block_max_score(&self, scorer: &crate::block_max_score::BlockScorer) -> f64 {
@@ -414,6 +510,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> RawIndexReaderCore<
             buf_pos: 0,
             current_block_idx: 0,
             last_doc_id,
+            entry_in_block: 0,
             gc_marker: ii.gc_marker.load(atomic::Ordering::Relaxed),
             ii_unique_id: ii.unique_id(),
             _phantom: PhantomData,
@@ -450,6 +547,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder> RawIndexReaderCore<
         self.last_doc_id = current_block.first_doc_id;
         self.buf = SharedPtr::from_ref(current_block.buffer.as_slice());
         self.buf_pos = 0;
+        self.entry_in_block = 0;
     }
 }
 

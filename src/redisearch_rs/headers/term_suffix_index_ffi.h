@@ -47,10 +47,75 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Create a new, empty [`TermSuffixIndex`]. Must be freed with
- * [`TermSuffixIndex_Free`].
+ * Free an iterator obtained from [`TermSuffixIndex_IterateAll`].
+ * Invalidates any string pointer previously returned by
+ * [`TermSuffixIndexIterator_Next`].
+ *
+ * # Safety
+ *
+ * 1. `it` must be a [valid], non-null pointer to a live
+ *    [`TermSuffixIndexIterator`].
+ * 2. `it` must not be used after this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct TermSuffixIndex *TermSuffixIndex_New(void);
+void TermSuffixIndexIterator_Free(struct TermSuffixIndexIterator *it);
+
+/**
+ * Advance the iterator. Returns 1 and points `*str`/`*len` at the next
+ * string — borrowed from the iterator, not copied into caller-provided
+ * storage — if there is one, or returns 0 once exhausted.
+ *
+ * Returning 0 does not free the iterator; it must still be released
+ * with [`TermSuffixIndexIterator_Free`].
+ *
+ * The string `*str` points at is NOT NUL-terminated, owned by the
+ * iterator, and only valid until the next call to
+ * [`TermSuffixIndexIterator_Next`] or [`TermSuffixIndexIterator_Free`].
+ *
+ * # Safety
+ *
+ * 1. `it` must be a [valid], non-null pointer to a live
+ *    [`TermSuffixIndexIterator`], not advanced or freed concurrently
+ *    from another thread.
+ * 2. `str` and `len` must be [valid], non-null pointers to writable
+ *    locations.
+ * 3. The [`TermSuffixIndex`] the iterator was obtained from must still
+ *    be alive, with no mutating call ([`TermSuffixIndex_Add`],
+ *    [`TermSuffixIndex_Remove`], [`TermSuffixIndex_Free`]) running
+ *    concurrently. Concurrent read-only calls are allowed.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char * *str, size_t *len);
+
+/**
+ * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
+ * empty term is a no-op, as is adding a term whose lowercased form
+ * exceeds `u16::MAX` bytes: it is skipped rather than inserted, since
+ * a single trie node label holds at most that many bytes and insertion
+ * would otherwise risk a panic.
+ *
+ * Matching is case-insensitive: `term` is lowercased before insertion,
+ * so subsequent lookups and removals are case-insensitive too.
+ *
+ * # Safety
+ *
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
+ *    [`TermSuffixIndex_New`].
+ * 2. No other access to `tsi` may occur concurrently with this call —
+ *    neither another mutator nor a read-only call such as
+ *    [`TermSuffixIndex_MemUsage`], and no iterator obtained from `tsi`
+ *    may be alive.
+ * 3. `term` must point to a [valid] byte sequence of length `len`.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t len);
 
 /**
  * Free a [`TermSuffixIndex`] and all terms it owns.
@@ -116,60 +181,6 @@ struct TermSuffixIndexIterator *TermSuffixIndex_IterateAll(const struct TermSuff
 void TermSuffixIndex_IterateContains(const struct TermSuffixIndex *tsi, const char *needle, size_t len, TermSuffixIterateCallback cb, void *ctx);
 
 /**
- * Add `term` (`len` UTF-8 bytes) to the index. Adding an existing or
- * empty term is a no-op, as is adding a term whose lowercased form
- * exceeds `u16::MAX` bytes — the trie cannot represent such a key.
- *
- * Matching is case-insensitive: `term` is lowercased before insertion,
- * so subsequent lookups and removals are case-insensitive too.
- *
- * # Safety
- *
- * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`].
- * 2. No other access to `tsi` may occur concurrently with this call —
- *    neither another mutator nor a read-only call such as
- *    [`TermSuffixIndex_MemUsage`], and no iterator obtained from `tsi`
- *    may be alive.
- * 3. `term` must point to a [valid] byte sequence of length `len`.
- *
- * # Panics
- *
- * Panics if `term` is not valid UTF-8.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void TermSuffixIndex_Add(struct TermSuffixIndex *tsi, const char *term, size_t len);
-
-/**
- * Advance the iterator. Returns 1 and points `*str`/`*len` at the next
- * string — borrowed from the iterator, not copied into caller-provided
- * storage — if there is one, or returns 0 once exhausted.
- *
- * Returning 0 does not free the iterator; it must still be released
- * with [`TermSuffixIndexIterator_Free`].
- *
- * The string `*str` points at is NOT NUL-terminated, owned by the
- * iterator, and only valid until the next call to
- * [`TermSuffixIndexIterator_Next`] or [`TermSuffixIndexIterator_Free`].
- *
- * # Safety
- *
- * 1. `it` must be a [valid], non-null pointer to a live
- *    [`TermSuffixIndexIterator`], not advanced or freed concurrently
- *    from another thread.
- * 2. `str` and `len` must be [valid], non-null pointers to writable
- *    locations.
- * 3. The [`TermSuffixIndex`] the iterator was obtained from must still
- *    be alive, with no mutating call ([`TermSuffixIndex_Add`],
- *    [`TermSuffixIndex_Remove`], [`TermSuffixIndex_Free`]) running
- *    concurrently. Concurrent read-only calls are allowed.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char * *str, size_t *len);
-
-/**
  * Invoke `cb` once per member term ending with the UTF-8 needle
  * `(needle, len)`; each matching term is reported exactly once. Iteration
  * stops early when the callback returns a non-zero value. An empty
@@ -195,65 +206,10 @@ int TermSuffixIndexIterator_Next(struct TermSuffixIndexIterator *it, const char 
 void TermSuffixIndex_IterateSuffix(const struct TermSuffixIndex *tsi, const char *needle, size_t len, TermSuffixIterateCallback cb, void *ctx);
 
 /**
- * Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent
- * or empty term is a no-op.
- *
- * Matching is case-insensitive: `term` is lowercased before lookup, so
- * it matches the entry regardless of the case it was added with.
- *
- * # Safety
- *
- * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`].
- * 2. No other access to `tsi` may occur concurrently with this call —
- *    neither another mutator nor a read-only call such as
- *    [`TermSuffixIndex_MemUsage`], and no iterator obtained from `tsi`
- *    may be alive.
- * 3. `term` must point to a [valid] byte sequence of length `len`.
- *
- * # Panics
- *
- * Panics if `term` is not valid UTF-8.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_t len);
-
-/**
- * Free an iterator obtained from [`TermSuffixIndex_IterateAll`].
- * Invalidates any string pointer previously returned by
- * [`TermSuffixIndexIterator_Next`].
- *
- * # Safety
- *
- * 1. `it` must be a [valid], non-null pointer to a live
- *    [`TermSuffixIndexIterator`].
- * 2. `it` must not be used after this call.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void TermSuffixIndexIterator_Free(struct TermSuffixIndexIterator *it);
-
-/**
- * Estimated heap memory currently held by the index, in bytes.
- *
- * # Safety
- *
- * 1. `tsi` must be a [valid], non-null pointer obtained from
- *    [`TermSuffixIndex_New`].
- * 2. No mutating call ([`TermSuffixIndex_Add`], [`TermSuffixIndex_Remove`],
- *    [`TermSuffixIndex_Free`]) may run concurrently with this call.
- *    Concurrent read-only calls are allowed.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
-
-/**
  * Invoke `cb` once per member term matching the wildcard pattern
  * `(pattern, len)` (`*` matches any run of characters, `?` exactly one
- * byte); a term may be reported more than once. Iteration stops early
- * when the callback returns a non-zero value.
+ * codepoint); a term may be reported more than once. Iteration stops
+ * early when the callback returns a non-zero value.
  *
  * When `should_stop` is non-NULL it is polled periodically while the
  * candidate set is scanned; once it returns `true` the scan is abandoned
@@ -286,6 +242,52 @@ size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int TermSuffixIndex_IterateWildcard(const struct TermSuffixIndex *tsi, const char *pattern, size_t len, TermSuffixIterateCallback cb, void *ctx, TermSuffixShouldStop should_stop, void *stop_ctx);
+
+/**
+ * Estimated heap memory currently held by the index, in bytes.
+ *
+ * # Safety
+ *
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
+ *    [`TermSuffixIndex_New`].
+ * 2. No mutating call ([`TermSuffixIndex_Add`], [`TermSuffixIndex_Remove`],
+ *    [`TermSuffixIndex_Free`]) may run concurrently with this call.
+ *    Concurrent read-only calls are allowed.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+size_t TermSuffixIndex_MemUsage(const struct TermSuffixIndex *tsi);
+
+/**
+ * Create a new, empty [`TermSuffixIndex`]. Must be freed with
+ * [`TermSuffixIndex_Free`].
+ */
+struct TermSuffixIndex *TermSuffixIndex_New(void);
+
+/**
+ * Remove `term` (`len` UTF-8 bytes) from the index. Removing an absent
+ * or empty term is a no-op.
+ *
+ * Matching is case-insensitive: `term` is lowercased before lookup, so
+ * it matches the entry regardless of the case it was added with.
+ *
+ * # Safety
+ *
+ * 1. `tsi` must be a [valid], non-null pointer obtained from
+ *    [`TermSuffixIndex_New`].
+ * 2. No other access to `tsi` may occur concurrently with this call —
+ *    neither another mutator nor a read-only call such as
+ *    [`TermSuffixIndex_MemUsage`], and no iterator obtained from `tsi`
+ *    may be alive.
+ * 3. `term` must point to a [valid] byte sequence of length `len`.
+ *
+ * # Panics
+ *
+ * Panics if `term` is not valid UTF-8.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+void TermSuffixIndex_Remove(struct TermSuffixIndex *tsi, const char *term, size_t len);
 
 #ifdef __cplusplus
 }  // extern "C"

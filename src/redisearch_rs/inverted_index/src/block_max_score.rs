@@ -158,7 +158,7 @@ impl BlockScorer {
     }
 
     /// DocScore: just returns max_doc_score
-    fn compute_docscore(block: &IndexBlock) -> f64 {
+    const fn compute_docscore(block: &IndexBlock) -> f64 {
         // Empty block has no documents to contribute
         if block.num_entries() == 0 {
             return 0.0;

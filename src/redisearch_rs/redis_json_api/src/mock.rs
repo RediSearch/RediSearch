@@ -10,9 +10,41 @@
 //! An in-memory implementation of the RedisJSON module API, for use in tests.
 
 use crate::RedisJsonApi;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, c_char, c_int, c_longlong, c_void};
 use std::ptr::{self, NonNull};
+
+/// API calls on the current test thread, used to verify compiled-path reuse and ownership.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct JsonApiCalls {
+    pub path_parse: usize,
+    pub path_parse_no_error_msg: usize,
+    pub path_free: usize,
+    pub get: usize,
+    pub get_with_path: usize,
+}
+
+thread_local! {
+    static API_CALLS: Cell<JsonApiCalls> = const { Cell::new(JsonApiCalls {
+        path_parse: 0, path_parse_no_error_msg: 0, path_free: 0, get: 0, get_with_path: 0,
+    }) };
+}
+
+/// Reset the current thread's [`JsonApiCalls`].
+pub fn reset_json_api_calls() {
+    API_CALLS.set(JsonApiCalls::default());
+}
+
+/// Read the current thread's [`JsonApiCalls`].
+pub fn json_api_calls() -> JsonApiCalls {
+    API_CALLS.get()
+}
+
+fn record_call(f: impl FnOnce(&mut JsonApiCalls)) {
+    let mut calls = API_CALLS.get();
+    f(&mut calls);
+    API_CALLS.set(calls);
+}
 
 /// Per-invocation mock state, owned by the [`with_json_api`] stack frame.
 struct MockState {
@@ -37,7 +69,7 @@ struct MockState {
 /// `f`.
 pub fn with_json_api<R>(
     doc: Option<serde_json::Value>,
-    f: impl FnOnce(RedisJsonApi, NonNull<ffi::RedisModuleCtx>) -> R,
+    f: impl FnOnce(RedisJsonApi, NonNull<redis_module::RedisModuleCtx>) -> R,
 ) -> R {
     with_json_api_state(doc, false, f)
 }
@@ -46,7 +78,7 @@ pub fn with_json_api<R>(
 /// exercise the by-name open fallback in the borrowed-handle path.
 pub fn with_json_api_broken_handle<R>(
     doc: Option<serde_json::Value>,
-    f: impl FnOnce(RedisJsonApi, NonNull<ffi::RedisModuleCtx>) -> R,
+    f: impl FnOnce(RedisJsonApi, NonNull<redis_module::RedisModuleCtx>) -> R,
 ) -> R {
     with_json_api_state(doc, true, f)
 }
@@ -54,7 +86,7 @@ pub fn with_json_api_broken_handle<R>(
 fn with_json_api_state<R>(
     doc: Option<serde_json::Value>,
     handle_returns_null: bool,
-    f: impl FnOnce(RedisJsonApi, NonNull<ffi::RedisModuleCtx>) -> R,
+    f: impl FnOnce(RedisJsonApi, NonNull<redis_module::RedisModuleCtx>) -> R,
 ) -> R {
     let state = MockState {
         doc,
@@ -63,7 +95,7 @@ fn with_json_api_state<R>(
     };
     // Derive the handle from a shared reference: we never form `&mut state`
     // afterwards, and all interior mutation goes through `RefCell`.
-    let ctx = NonNull::from(&state).cast::<ffi::RedisModuleCtx>();
+    let ctx = NonNull::from(&state).cast::<redis_module::RedisModuleCtx>();
     let api = RedisJsonApi::from_vtable(&VTABLE);
 
     f(api, ctx)
@@ -84,8 +116,8 @@ static VTABLE: ffi::RedisJSONAPI = ffi::RedisJSONAPI {
     getString: Some(get_string),
     getJSON: Some(get_json),
     isJSON: None,
-    pathParse: None,
-    pathFree: None,
+    pathParse: Some(path_parse),
+    pathFree: Some(path_free),
     pathIsSingle: None,
     pathHasDefinedOrder: None,
     getJSONFromIter: Some(get_json_from_iter),
@@ -99,6 +131,8 @@ static VTABLE: ffi::RedisJSONAPI = ffi::RedisJSONAPI {
     freeJson: Some(free_json),
     getArray: None,
     getJsonFromHandle: Some(get_json_from_handle),
+    getWithPath: Some(get_with_path),
+    pathParseNoErrorMsg: Some(path_parse_no_error_msg),
 };
 
 /// View a `RedisJSON` handle as the `serde_json::Value` node it points at.
@@ -118,7 +152,7 @@ const unsafe fn node<'a>(json: ffi::RedisJSON) -> &'a serde_json::Value {
 /// The buffer is parked in the mock's string arena so each transient buffer has
 /// a well-defined owner, but `RedisModule_CreateString` copies its input, so the
 /// arena is not load-bearing for correctness.
-fn arena_string(state: &MockState, bytes: Vec<u8>) -> *mut ffi::RedisModuleString {
+fn arena_string(state: &MockState, bytes: Vec<u8>) -> *mut redis_module::RedisModuleString {
     let buf = bytes.into_boxed_slice();
     let ptr = buf.as_ptr();
     let len = buf.len();
@@ -129,7 +163,7 @@ fn arena_string(state: &MockState, bytes: Vec<u8>) -> *mut ffi::RedisModuleStrin
 /// Mint a `RedisModuleString` over `len` bytes at `ptr`. The mock
 /// `RedisModule_CreateString` copies the bytes, so `ptr` only needs to stay
 /// valid for the duration of this call.
-fn module_string(ptr: *const u8, len: usize) -> *mut ffi::RedisModuleString {
+fn module_string(ptr: *const u8, len: usize) -> *mut redis_module::RedisModuleString {
     // SAFETY: initialized by `redis_mock::init_redis_module_mock`.
     let create = unsafe { redis_module::raw::RedisModule_CreateString }
         .expect("RedisModule_CreateString not initialized — call init_redis_module_mock()");
@@ -138,36 +172,84 @@ fn module_string(ptr: *const u8, len: usize) -> *mut ffi::RedisModuleString {
     s.cast()
 }
 
-/// Evaluate the minimal JSONPath subset the loader uses against `root`.
-fn eval_path(root: &serde_json::Value, path: &str) -> Vec<*const serde_json::Value> {
-    let rest = path
-        .strip_prefix('$')
-        .expect("mock: unsupported JSON path `{path}` (must start with `$`)");
+/// The same minimal JSONPath subset supported by the string-loading mock.
+enum MockPath {
+    Root,
+    Elements,
+    Field(String),
+}
 
-    if rest.is_empty() {
-        return vec![ptr::from_ref(root)];
+impl MockPath {
+    fn parse(path: &str) -> Option<Self> {
+        match path.strip_prefix('$')? {
+            "" => Some(Self::Root),
+            "[*]" => Some(Self::Elements),
+            rest => {
+                let key = rest.strip_prefix('.')?;
+                if key.is_empty() || key.contains(['.', '[', ']', '*']) {
+                    return None;
+                }
+                Some(Self::Field(key.to_owned()))
+            }
+        }
     }
 
-    if rest == "[*]" {
-        return match root {
-            serde_json::Value::Array(a) => a.iter().map(ptr::from_ref).collect(),
-            _ => Vec::new(),
-        };
+    fn evaluate(&self, root: &serde_json::Value) -> Vec<*const serde_json::Value> {
+        match self {
+            Self::Root => vec![ptr::from_ref(root)],
+            Self::Elements => root
+                .as_array()
+                .map_or_else(Vec::new, |a| a.iter().map(ptr::from_ref).collect()),
+            Self::Field(key) => root.get(key).map(ptr::from_ref).into_iter().collect(),
+        }
     }
+}
 
-    // A plain `$.key`: a present key matches, an absent key (or non-object root)
-    // is a missing field. Anything carrying further path syntax is a multi-level
-    // or wildcard path this mock does not model.
-    if let Some(key) = rest.strip_prefix('.')
-        && !key.contains(|c| matches!(c, '.' | '[' | ']' | '*'))
-    {
-        return match root {
-            serde_json::Value::Object(m) => m.get(key).map(ptr::from_ref).into_iter().collect(),
-            _ => Vec::new(),
-        };
+// These callbacks are only installed in the test vtable. Their raw inputs follow
+// the RedisJSON API contract; compiled handles are owned boxes of `MockPath`.
+unsafe extern "C" fn path_parse(
+    path: *const c_char,
+    _ctx: *mut redis_module::RedisModuleCtx,
+    error: *mut *mut redis_module::RedisModuleString,
+) -> ffi::JSONPath {
+    record_call(|calls| calls.path_parse += 1);
+    // SAFETY: the API caller supplies a live, null-terminated path.
+    let path = unsafe { CStr::from_ptr(path) };
+    if let Some(path) = path.to_str().ok().and_then(MockPath::parse) {
+        return Box::into_raw(Box::new(path)).cast();
     }
+    let message = b"invalid mock JSONPath";
+    // SAFETY: the API caller supplies writable storage for the error string.
+    unsafe { *error = module_string(message.as_ptr(), message.len()) };
+    ptr::null()
+}
 
-    unimplemented!("mock: unsupported JSON path `{path}`");
+unsafe extern "C" fn path_parse_no_error_msg(path: *const c_char) -> ffi::JSONPath {
+    record_call(|calls| calls.path_parse_no_error_msg += 1);
+    // SAFETY: the API caller supplies a live, null-terminated path.
+    let path = unsafe { CStr::from_ptr(path) };
+    path.to_str()
+        .ok()
+        .and_then(MockPath::parse)
+        .map_or(ptr::null(), |path| Box::into_raw(Box::new(path)).cast())
+}
+
+unsafe extern "C" fn path_free(path: ffi::JSONPath) {
+    record_call(|calls| calls.path_free += 1);
+    // SAFETY: the API caller transfers a handle returned by either mock path parser exactly once.
+    drop(unsafe { Box::from_raw(path.cast::<MockPath>().cast_mut()) });
+}
+
+unsafe extern "C" fn get_with_path(
+    json: ffi::RedisJSON,
+    path: ffi::JSONPath,
+) -> ffi::JSONResultsIterator {
+    record_call(|calls| calls.get_with_path += 1);
+    // SAFETY: the API caller supplies a live compiled mock path.
+    let path = unsafe { &*path.cast::<MockPath>() };
+    // SAFETY: the API caller supplies a live mock JSON value.
+    let json = unsafe { node(json) };
+    results(path.evaluate(json))
 }
 
 /// # Safety
@@ -176,8 +258,8 @@ fn eval_path(root: &serde_json::Value, path: &str) -> Vec<*const serde_json::Val
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe extern "C" fn open_key_with_flags(
-    ctx: *mut ffi::RedisModuleCtx,
-    _key_name: *mut ffi::RedisModuleString,
+    ctx: *mut redis_module::RedisModuleCtx,
+    _key_name: *mut redis_module::RedisModuleString,
     _flags: c_int,
 ) -> ffi::RedisJSON {
     // Safety: ensured by caller (1.)
@@ -196,7 +278,9 @@ unsafe extern "C" fn open_key_with_flags(
 /// 1. `key` must be a [valid], non-null pointer to a mock context created by this module.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-unsafe extern "C" fn get_json_from_handle(key: *mut ffi::RedisModuleKey) -> ffi::RedisJSON {
+unsafe extern "C" fn get_json_from_handle(
+    key: *mut redis_module::RedisModuleKey,
+) -> ffi::RedisJSON {
     // Safety: ensured by caller (1.)
     let state = unsafe { &*key.cast::<MockState>() };
     match &state.doc {
@@ -217,13 +301,18 @@ struct Results {
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe extern "C" fn get(json: ffi::RedisJSON, path: *const c_char) -> ffi::JSONResultsIterator {
+    record_call(|calls| calls.get += 1);
     // SAFETY: ensured by caller (2.)
     let Ok(path) = unsafe { CStr::from_ptr(path) }.to_str() else {
         return ptr::null();
     };
     // SAFETY: ensured by caller (1.)
     let json = unsafe { node(json) };
-    let items = eval_path(json, path);
+    let items = MockPath::parse(path).map_or_else(Vec::new, |path| path.evaluate(json));
+    results(items)
+}
+
+fn results(items: Vec<*const serde_json::Value>) -> ffi::JSONResultsIterator {
     if items.is_empty() {
         // A null iterator signals "no match"; the wrapper maps it to absence.
         return ptr::null();
@@ -288,8 +377,8 @@ unsafe extern "C" fn free_iter(iter: ffi::JSONResultsIterator) {
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe extern "C" fn get_json_from_iter(
     iter: ffi::JSONResultsIterator,
-    ctx: *mut ffi::RedisModuleCtx,
-    str: *mut *mut ffi::RedisModuleString,
+    ctx: *mut redis_module::RedisModuleCtx,
+    str: *mut *mut redis_module::RedisModuleString,
 ) -> c_int {
     // Safety: ensured by caller (1.)
     let it = unsafe { &*iter.cast::<Results>() };
@@ -312,7 +401,7 @@ unsafe extern "C" fn get_json_from_iter(
     // Safety: ensured by caller (3.)
     unsafe { *str = s };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -344,13 +433,13 @@ unsafe extern "C" fn get_len(json: ffi::RedisJSON, count: *mut usize) -> c_int {
     let value = match unsafe { node(json) } {
         serde_json::Value::Object(m) => m.len(),
         serde_json::Value::Array(a) => a.len(),
-        _ => return ffi::REDISMODULE_ERR as i32,
+        _ => return redis_module::REDISMODULE_ERR as i32,
     };
 
     // Safety: ensured by caller (2.)
     unsafe { *count = value };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -362,13 +451,13 @@ unsafe extern "C" fn get_len(json: ffi::RedisJSON, count: *mut usize) -> c_int {
 unsafe extern "C" fn get_int(json: ffi::RedisJSON, integer: *mut c_longlong) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(i) = unsafe { node(json) }.as_i64() else {
-        return ffi::REDISMODULE_ERR as i32;
+        return redis_module::REDISMODULE_ERR as i32;
     };
 
     // Safety: ensured by caller (2.)
     unsafe { *integer = i };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -380,13 +469,13 @@ unsafe extern "C" fn get_int(json: ffi::RedisJSON, integer: *mut c_longlong) -> 
 unsafe extern "C" fn get_double(json: ffi::RedisJSON, dbl: *mut f64) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(d) = unsafe { node(json) }.as_f64() else {
-        return ffi::REDISMODULE_ERR as i32;
+        return redis_module::REDISMODULE_ERR as i32;
     };
 
     // Safety: ensured by caller (2.)
     unsafe { *dbl = d };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -398,13 +487,13 @@ unsafe extern "C" fn get_double(json: ffi::RedisJSON, dbl: *mut f64) -> c_int {
 unsafe extern "C" fn get_boolean(json: ffi::RedisJSON, boolean: *mut c_int) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(b) = unsafe { node(json) }.as_bool() else {
-        return ffi::REDISMODULE_ERR as i32;
+        return redis_module::REDISMODULE_ERR as i32;
     };
 
     // Safety: ensured by caller (2.)
     unsafe { *boolean = c_int::from(b) };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -421,7 +510,7 @@ unsafe extern "C" fn get_string(
 ) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(s) = unsafe { node(json) }.as_str() else {
-        return ffi::REDISMODULE_ERR as i32;
+        return redis_module::REDISMODULE_ERR as i32;
     };
 
     // The bytes live in the document, valid for the mock's lifetime.
@@ -431,7 +520,7 @@ unsafe extern "C" fn get_string(
     // Safety: ensured by caller (3.)
     unsafe { *len = s.len() };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -443,8 +532,8 @@ unsafe extern "C" fn get_string(
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe extern "C" fn get_json(
     json: ffi::RedisJSON,
-    ctx: *mut ffi::RedisModuleCtx,
-    str: *mut *mut ffi::RedisModuleString,
+    ctx: *mut redis_module::RedisModuleCtx,
+    str: *mut *mut redis_module::RedisModuleString,
 ) -> c_int {
     // Safety: ensured by caller (1.)
     let state = unsafe { ctx.cast::<MockState>().as_ref().unwrap() };
@@ -456,7 +545,7 @@ unsafe extern "C" fn get_json(
     // Safety: ensured by caller (3.)
     unsafe { *str = s };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety
@@ -468,13 +557,13 @@ unsafe extern "C" fn get_json(
 unsafe extern "C" fn get_at(json: ffi::RedisJSON, index: usize, ptr: ffi::RedisJSONPtr) -> c_int {
     // Safety: ensured by caller (1.)
     let Some(elem) = unsafe { node(json) }.as_array().and_then(|a| a.get(index)) else {
-        return ffi::REDISMODULE_ERR as i32;
+        return redis_module::REDISMODULE_ERR as i32;
     };
 
     // Safety: ensured by caller (2.)
     unsafe { *ptr = ptr::from_ref(elem).cast() };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 struct KeyValues {
@@ -508,13 +597,13 @@ unsafe extern "C" fn get_key_values(json: ffi::RedisJSON) -> ffi::JSONKeyValuesI
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe extern "C" fn next_key_value(
     iter: ffi::JSONKeyValuesIterator,
-    key_name: *mut *mut ffi::RedisModuleString,
+    key_name: *mut *mut redis_module::RedisModuleString,
     ptr: ffi::RedisJSONPtr,
 ) -> c_int {
     // Safety: ensured by caller (1.)
     let it = unsafe { &mut *iter.cast::<KeyValues>().cast_mut() };
     let Some(&(key_ptr, key_len, value)) = it.entries.get(it.pos) else {
-        return ffi::REDISMODULE_ERR as i32;
+        return redis_module::REDISMODULE_ERR as i32;
     };
     it.pos += 1;
 
@@ -526,7 +615,7 @@ unsafe extern "C" fn next_key_value(
     // Safety: ensured by caller (3.)
     unsafe { *ptr = value.cast() };
 
-    ffi::REDISMODULE_OK as i32
+    redis_module::REDISMODULE_OK as i32
 }
 
 /// # Safety

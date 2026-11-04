@@ -12,7 +12,6 @@
 #include <string.h>
 #include <limits.h>
 #include <stdint.h>
-#include <stdlib.h>
 
 #include "util/heap.h"
 #include "util/misc.h"
@@ -41,12 +40,11 @@ size_t Trie_Size(const Trie *t) {
 
 Trie *NewTrie(TrieFreeCallback freecb, TrieSortMode sortMode) {
   Trie *tree = rm_malloc(sizeof(Trie));
-  rune *rs = strToRunes("", 0);
+  rune rs[1] = {0};
   tree->root = __newTrieNode(rs, 0, 0, NULL, 0, 0, 0, 0, sortMode, 0);
   tree->size = 0;
   tree->freecb = freecb;
   tree->sortMode = sortMode;
-  rm_free(rs);
   return tree;
 }
 
@@ -110,23 +108,16 @@ TrieNode *Trie_GetNode(Trie *t, const rune *str, t_len len, bool exact, int *off
   return TrieNode_Get(t->root, str, len, exact, offsetOut);
 }
 
-void Trie_IterateRange(const Trie *t, const rune *min, int minlen, bool includeMin,
-                       const rune *max, int maxlen, bool includeMax,
-                       TrieRangeCallback callback, void *ctx) {
-  TrieNode_IterateRange(t->root, min, minlen, includeMin, max, maxlen, includeMax, callback, ctx);
-}
-
 void Trie_IterateContains(const Trie *t, const rune *str, int nstr, bool prefix, bool suffix,
-                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                          bool skipTimeoutChecks) {
-  TrieNode_IterateContains(t->root, str, nstr, prefix, suffix, callback, ctx, timeout,
-                           skipTimeoutChecks);
+                          TrieRangeCallback callback, void *ctx,
+                          QueryRequestLimits *timeout) {
+  TrieNode_IterateContains(t->root, str, nstr, prefix, suffix, callback, ctx, timeout);
 }
 
 void Trie_IterateWildcard(const Trie *t, const rune *str, int nstr,
-                          TrieRangeCallback callback, void *ctx, struct timespec *timeout,
-                          bool skipTimeoutChecks) {
-  TrieNode_IterateWildcard(t->root, str, nstr, callback, ctx, timeout, skipTimeoutChecks);
+                          TrieRangeCallback callback, void *ctx,
+                          QueryRequestLimits *timeout) {
+  TrieNode_IterateWildcard(t->root, str, nstr, callback, ctx, timeout);
 }
 
 // Forward declaration for the internal rune-based function
@@ -245,8 +236,13 @@ Vector *Trie_CollectFuzzy(const Trie *t, const char *str, size_t len, size_t num
     return NULL;
   }
 
-  heap_t *pq = rm_malloc(heap_sizeof(num));
-  heap_init(pq, cmpEntries, NULL, num);
+  // `num` comes straight from FT.SUGGET's MAX. The heap never holds more than
+  // the trie's entries, and heap_size() reports its capacity as an int, so
+  // bound the capacity by both. At least one slot keeps the fill-then-evict
+  // loop below from polling an empty heap.
+  size_t capacity = MIN(num, MIN(MAX(t->size, 1), (size_t)INT_MAX));
+  heap_t *pq = rm_malloc(heap_sizeof(capacity));
+  heap_init(pq, cmpEntries, NULL, capacity);
 
   DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, mode);
 
@@ -358,29 +354,6 @@ Vector *Trie_CollectFuzzy(const Trie *t, const char *str, size_t len, size_t num
   return ret;
 }
 
-int Trie_RandomKey(Trie *t, char **str, t_len *len, double *score) {
-  if (t->size == 0) {
-    return 0;
-  }
-
-  rune *rstr;
-  t_len rlen;
-
-  // TODO: deduce steps from cardinality properly
-  TrieNode *n =
-      TrieNode_RandomWalk(t->root, 2 + rand() % 8 + (int)round(logb(1 + t->size)), &rstr, &rlen);
-  if (!n) {
-    return 0;
-  }
-  size_t sz;
-  *str = runesToStr(rstr, rlen, &sz);
-  *len = sz;
-  rm_free(rstr);
-
-  *score = n->score;
-  return 1;
-}
-
 /***************************************************************
  *
  *                       Trie type methods
@@ -434,6 +407,11 @@ void *TrieType_GenericLoad(RedisModuleIO *rdb, bool loadPayloads, bool loadNumDo
       RedisModule_LogIOError(
           rdb, "warning",
           "RDB Load: Failed to insert trie entry (payload overflow)");
+      goto cleanup;
+    }
+    if (rc == TRIE_ERR_TOO_MANY_CHILDREN) {
+      RedisModule_LogIOError(rdb, "warning",
+                             "RDB Load: Failed to insert trie entry (too many children)");
       goto cleanup;
     }
   }

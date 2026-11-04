@@ -8,7 +8,8 @@
 */
 
 use crate::{
-    AddRecordOutcome, DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, InvertedIndex,
+    AddRecordOutcome, DecodedBy, Encoder, GcApplyInfo, GcScanDelta, IndexBlock, IndexUniqueId,
+    InvertedIndex,
     debug::{BlockSummary, Summary},
     numeric::{NumericEncoder, PreparedValue},
     reader::IndexReaderCore,
@@ -69,6 +70,11 @@ impl<E: Encoder> EntriesTrackingIndex<E> {
     /// Returns the number of unique documents in the index.
     pub const fn unique_docs(&self) -> u32 {
         self.index.unique_docs()
+    }
+
+    /// Return the unique ID assigned when the underlying inverted index was created.
+    pub const fn unique_id(&self) -> IndexUniqueId {
+        self.index.unique_id()
     }
 
     /// Returns the flags of this index.
@@ -167,8 +173,11 @@ impl<E: NumericEncoder> EntriesTrackingIndex<E> {
         &mut self,
         doc_id: DocId,
         prepared: PreparedValue,
+        has_field_expiration: bool,
     ) -> std::io::Result<AddRecordOutcome> {
-        let result = self.index.add_prepared_record(doc_id, prepared)?;
+        let result = self
+            .index
+            .add_prepared_record(doc_id, prepared, has_field_expiration)?;
 
         self.number_of_entries += 1;
 

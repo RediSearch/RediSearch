@@ -126,7 +126,7 @@ impl NodeArena {
     ///
     /// Yields `(NodeIndex, &NumericRangeNode)` pairs.
     #[cfg_attr(
-        not(all(feature = "unittest", not(miri))),
+        not(all(feature = "unittest", debug_assertions, not(miri))),
         expect(dead_code, reason = "used by invariant checks in unittest feature")
     )]
     pub fn iter(&self) -> impl Iterator<Item = (NodeIndex, &NumericRangeNode)> {

@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 """
 Gate cargo-deny advisories.
 
@@ -31,8 +38,9 @@ def cargo_deny(repo: Path, output: Path, manifest: str) -> int:
         "--audit-compatible-output",
         "advisories",
     ]
+    # Keep diagnostic stderr in the CI log so concurrent writes cannot corrupt audit JSON.
     with output.open("w", encoding="utf-8") as fh:
-        return subprocess.run(cmd, cwd=repo, stdout=fh, stderr=subprocess.STDOUT, text=True).returncode
+        return subprocess.run(cmd, cwd=repo, stdout=fh, text=True).returncode
 
 
 def finding_from_object(value: dict[str, Any]) -> tuple[str, str, str] | None:

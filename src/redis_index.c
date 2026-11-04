@@ -21,9 +21,7 @@
 #include "indexes.h"
 #include "doc_table.h"
 #include "redismodule.h"
-#include "iterators_ffi.h"
 #include "inverted_index_ffi.h"
-#include "query_term_ffi.h"
 #include "search_disk.h"
 #include "query_error_ffi.h"
 #include "util/misc.h"
@@ -37,27 +35,14 @@
 #include "util/references.h"
 #include "util/timeout.h"
 
-static inline void updateTime(SearchTime *searchTime, int32_t durationNS) {
+static inline void updateTime(struct timespec *currentTime) {
   if (RS_IsMock) return;
-
-  // 0 disables the timeout
-  if (durationNS == 0) {
-    durationNS = INT32_MAX;
-  }
-
-  struct timespec duration = {.tv_sec = durationNS / 1000,
-                              .tv_nsec = ((durationNS % 1000) * 1000000)};
 #ifdef CLOCK_REALTIME_COARSE
-  clock_gettime(CLOCK_REALTIME_COARSE, &searchTime->current);
+  clock_gettime(CLOCK_REALTIME_COARSE, currentTime);
 #else
   // In some mac systems CLOCK_REALTIME_COARSE is not defined, we fallback to CLOCK_REALTIME
-  clock_gettime(CLOCK_REALTIME, &searchTime->current);
+  clock_gettime(CLOCK_REALTIME, currentTime);
 #endif
-
-  // The timeout mechanism is based on the monotonic clock, so we need another clock_gettime call
-  timespec monotoicNow = {.tv_sec = 0, .tv_nsec = 0};
-  clock_gettime(CLOCK_MONOTONIC_RAW, &monotoicNow);
-  rs_timeradd(&monotoicNow, &duration, &searchTime->timeout);
 }
 
 /**
@@ -103,48 +88,9 @@ RedisModuleString *Legacy_fmtRedisScoreIndexKey(const RedisSearchCtx *ctx, const
                                         term);
 }
 
-void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
-  RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
-  pthread_rwlock_rdlock(&ctx->spec->rwlock);
-  // pause rehashing while we're using the dict for reads only
-  // Assert that the pause value before we pause is valid.
-  RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
-  ctx->lock_state = SPEC_LOCK_READ;
-}
-
-int RedisSearchCtx_TryLockSpecRead(RedisSearchCtx *ctx) {
-  RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
-  int rc = pthread_rwlock_tryrdlock(&ctx->spec->rwlock);
-  if (rc != 0) {
-    // Lock is busy (EBUSY) or other error
-    return REDISMODULE_ERR;
-  }
-  // pause rehashing while we're using the dict for reads only
-  // Assert that the pause value before we pause is valid.
-  RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
-  ctx->lock_state = SPEC_LOCK_READ;
-  return REDISMODULE_OK;
-}
-
-void RedisSearchCtx_LockSpecWrite(RedisSearchCtx *ctx) {
-  RS_ASSERT(ctx->lock_state == SPEC_LOCK_UNSET);
-#ifdef ENABLE_ASSERT
-  // Bump the pending-writers counter before we may park on the rwlock so that
-  // tests can observe a queued writer via `PendingSpecWriters_Get` without
-  // depending on the main thread (the main thread is exactly what's blocked
-  // here when a BG worker holds the read lock).
-  PendingSpecWriters_Incr();
-#endif
-  pthread_rwlock_wrlock(&ctx->spec->rwlock);
-#ifdef ENABLE_ASSERT
-  PendingSpecWriters_Decr();
-#endif
-  ctx->lock_state = SPEC_LOCK_WRITE;
-}
-
-// DOES NOT INCREMENT REF COUNT
-RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
-  IndexLoadOptions loadOpts = {.nameC = indexName};
+RedisSearchCtx *NewSearchCtxCEx(RedisModuleCtx *ctx, const char *indexName, bool resetTTL,
+                                IndexLoadOptionsFlags flags) {
+  IndexLoadOptions loadOpts = {.nameC = indexName, .flags = flags};
   StrongRef ref = Indexes_LoadIndexSpecUnsafeEx(&loadOpts);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -154,6 +100,11 @@ RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool r
   RedisSearchCtx *sctx = rm_new(RedisSearchCtx);
   *sctx = SEARCH_CTX_STATIC(ctx, sp);
   return sctx;
+}
+
+// DOES NOT INCREMENT REF COUNT
+RedisSearchCtx *NewSearchCtxC(RedisModuleCtx *ctx, const char *indexName, bool resetTTL) {
+  return NewSearchCtxCEx(ctx, indexName, resetTTL, 0);
 }
 
 int SearchCtx_TakeDiskSnapshot(RedisSearchCtx *sctx, QueryError *status) {
@@ -185,37 +136,19 @@ RedisSearchCtx *NewSearchCtx(RedisModuleCtx *ctx, RedisModuleString *indexName, 
   return NewSearchCtxC(ctx, RedisModule_StringPtrLen(indexName, NULL), resetTTL);
 }
 
-void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
-  RS_ASSERT(sctx);
-  if (sctx->lock_state == SPEC_LOCK_UNSET) {
-    return;
-  }
-  if (sctx->lock_state == SPEC_LOCK_READ) {
-    // We paused rehashing when we locked the spec for read. Now we can resume it.
-    // Assert that it was actually previously paused
-    RS_ASSERT_ALWAYS(dictResumeRehashing(sctx->spec->keysDict));
-  }
-  pthread_rwlock_unlock(&sctx->spec->rwlock);
-  sctx->lock_state = SPEC_LOCK_UNSET;
-}
-
-void SearchCtx_UpdateTime(RedisSearchCtx *sctx, int32_t durationNS) {
-  updateTime(&sctx->time, durationNS);
+void SearchCtx_UpdateCurrentTime(RedisSearchCtx *sctx) {
+  updateTime(&sctx->currentTime);
 }
 
 void SearchCtx_CleanUp(RedisSearchCtx *sctx) {
-  if (sctx->key_) {
-    RedisModule_CloseKey(sctx->key_);
-    sctx->key_ = NULL;
-  }
   // Release the per-query disk snapshot (no-op when NULL). Must happen after every
-  // iterator built from `sctx` has been freed; the OSS query pipeline tears down
-  // iterators before reaching SearchCtx_CleanUp/SearchCtx_Free.
+  // iterator built from `sctx` has been freed; the OSS query pipeline tears down iterators
+  // before reaching SearchCtx_CleanUp/SearchCtx_Free. Also called early, once a subquery is
+  // fully depleted, so a parked cursor does not pin the snapshot.
   if (sctx->diskSnapshot) {
     SearchDisk_FreeSnapshot(sctx->diskSnapshot);
     sctx->diskSnapshot = NULL;
   }
-  RedisSearchCtx_UnlockSpec(sctx);
 }
 
 void SearchCtx_Free(RedisSearchCtx *sctx) {
@@ -266,19 +199,6 @@ InvertedIndex *Redis_OpenReaderIndex(const RedisSearchCtx *ctx, const RSToken *t
   return idx;
 }
 
-QueryIterator *Redis_OpenReader(const RedisSearchCtx *ctx, RSToken *tok, int tok_id, DocTable *dt,
-                                t_fieldMask fieldMask, double weight) {
-
-  InvertedIndex *idx = Redis_OpenReaderIndex(ctx, tok, fieldMask);
-  if (!idx) {
-    return NULL;
-  }
-
-  FieldMaskOrIndex fieldMaskOrIndex = {.mask_tag = FieldMaskOrIndex_Mask, .mask = fieldMask};
-  RSQueryTerm *term = NewQueryTerm(tok, tok_id);
-  return NewInvIndIterator_TermQuery(idx, ctx, fieldMaskOrIndex, term, weight);
-}
-
 int Redis_LegacyDropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaque) {
   // extract the term from the key
   RedisSearchCtx *sctx = opaque;
@@ -315,9 +235,8 @@ int Redis_LegacyDeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   return res;
 }
 
-int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
-  // Send command and args to replicas and AOF
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
+int Redis_UnlinkKey(RedisModuleCtx *ctx, const char *key, size_t len) {
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "UNLINK", "b!", key, len);
   RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);

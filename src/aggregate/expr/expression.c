@@ -27,6 +27,8 @@
 
 static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res);
 
+#define EXPR_INLINE_ARGS 8
+
 static void setReferenceValue(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
 }
@@ -66,7 +68,10 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   /** First, evaluate every argument */
   size_t nallocdargs = 0;
   size_t nargs = f->args->len;
-  RSValue *args[nargs];
+  // Argument counts are client-controlled (up to 65535 for variadic functions)
+  // and nested calls recurse through here, so only small counts use the stack.
+  RSValue *inlineArgs[EXPR_INLINE_ARGS];
+  RSValue **args = nargs <= EXPR_INLINE_ARGS ? inlineArgs : rm_malloc(nargs * sizeof(*args));
 
   // Normal function evaluation
   for (size_t ii = 0; ii < nargs; ii++) {
@@ -88,6 +93,9 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
 cleanup:
   for (size_t ii = 0; ii < nallocdargs; ii++) {
     RSValue_DecrRef(args[ii]);
+  }
+  if (args != inlineArgs) {
+    rm_free(args);
   }
   return rc;
 }
@@ -520,9 +528,21 @@ static int rpevalNext_filter(ResultProcessor *rp, SearchResult *r) {
       return RS_RESULT_OK;
     }
 
-    // Reduce the total number of results
-    RS_ASSERT(rp->parent->totalResults > 0);
-    rp->parent->totalResults--;
+    // Reduce the total number of results, unless there is nothing left to reduce.
+    //
+    // The row being rejected was not necessarily counted into the figure this is
+    // decrementing. A cursor read without WITHCOUNT resets `totalResults` to zero when it
+    // finishes (see the reset in `AREQ_Execute`'s cursor path), while a buffering stage
+    // upstream -- `SORTBY` with `MAX`, which accumulates every row before yielding any --
+    // hands rows counted during one read to this filter during a later one. Those rows were
+    // reported in the earlier read's total and cannot be taken back out of it here.
+    //
+    // Asserting instead of clamping made that a crash in a debug build, and `totalResults`
+    // is unsigned, so a release build wrapped it to ~4.29 billion and reported that as the
+    // result count.
+    if (rp->parent->totalResults > 0) {
+      rp->parent->totalResults--;
+    }
     // Otherwise, the result must be filtered out.
     SearchResult_Clear(r);
   }

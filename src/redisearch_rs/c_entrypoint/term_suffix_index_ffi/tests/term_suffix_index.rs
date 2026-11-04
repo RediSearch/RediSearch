@@ -122,6 +122,19 @@ fn iterate_wildcard_yields_matching_terms() {
 }
 
 #[test]
+fn iterate_wildcard_question_mark_matches_one_codepoint() {
+    // `?` consumes one codepoint, not one byte: `é` (U+00E9, two UTF-8
+    // bytes) satisfies the trailing `?` just like the ASCII `x` does,
+    // while `entrée` has two codepoints left after `r` and is rejected.
+    with_index(&["entré", "entrx", "entrée"], |t| {
+        let (rc, actual) = collect_wildcard(t, "ent*r?");
+
+        assert_eq!(rc, 1, "'ent' anchors the search");
+        assert_eq!(actual, to_set(&["entré", "entrx"]));
+    });
+}
+
+#[test]
 fn iterate_wildcard_without_anchor_returns_zero() {
     with_index(&["bike"], |t| {
         // Every `*`-separated token contains `?`, so none can seed a

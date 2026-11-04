@@ -14,6 +14,7 @@ use index_result::RSIndexResult;
 use pretty_assertions::assert_eq;
 
 #[test]
+#[expect(deprecated, reason = "exhaustive struct literal")]
 fn reading_filter_based_on_numeric_filter() {
     // Make an iterator with three records having different numeric values. The second record will be
     // filtered out based on the numeric filter.
@@ -28,7 +29,7 @@ fn reading_filter_based_on_numeric_filter() {
         max: 15.0,
         min_inclusive: true,
         max_inclusive: true,
-        field_spec: ptr::null(),
+        field_index: rqe_core::RS_INVALID_FIELD_INDEX,
         geo_filter: ptr::null(),
         ascending: true,
         limit: 10,

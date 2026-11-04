@@ -28,6 +28,8 @@ For these, a maintainer will either:
 
 You do not need to draft a spec to open an issue. The issue comes first; the spec is a follow-up only if the change is large enough to warrant one.
 
+There is also a lighter third option for *new* surface: land the feature behind the `ENABLE_UNSTABLE_FEATURES` runtime gate, where it is off by default and carries no compatibility promise. That defers the design and product review until the feature graduates out of the gate, which is when the artifacts described below become due. See [`CONTRIBUTING-unstable-features.md`](CONTRIBUTING-unstable-features.md) for the requirements and the graduation path.
+
 ## Where specs live
 
 This repository's convention is the OpenSpec directory layout, which any of the tooling options above (or a hand-written change) can target. The shape is what matters, not the tool that produced it:
@@ -88,6 +90,7 @@ It's fine. The spec workflow is here to make large changes reviewable, not to ad
 ## See also
 
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — the general contributor guide (setup, coding standards, PR workflow).
+- [`CONTRIBUTING-unstable-features.md`](CONTRIBUTING-unstable-features.md) — landing a new feature behind the default-off `ENABLE_UNSTABLE_FEATURES` gate, and graduating it later.
 - [`openspec/changes/example-add-ft-foo/`](../openspec/changes/example-add-ft-foo/) — a worked example change. Completed changes are archived under [`openspec/changes/archive/`](../openspec/changes/archive/).
 - Spec-framework options (all optional — pick one or write the artifacts by hand):
   - [OpenSpec](https://github.com/Fission-AI/OpenSpec) — the tool this repo's `openspec/` layout matches; its CLI can scaffold the artifacts.

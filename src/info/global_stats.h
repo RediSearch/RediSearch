@@ -42,6 +42,7 @@ typedef struct {
   size_t numVectorFields;
   size_t numVectorFieldsFlat;
   size_t numVectorFieldsHNSW;
+  size_t numVectorFieldsHNSWCompressed;
   size_t numVectorFieldsSvsVamana;
   size_t numVectorFieldsSvsVamanaCompressed;
   // Total number of indexing operations by each field type, doc can be counted multiple times if it has multiple fields of the same type.
@@ -51,10 +52,11 @@ typedef struct {
   size_t geoTotalDocsIndexed;
   size_t geometryTotalDocsIndexed;
   size_t vectorTotalDocsIndexed;
+  size_t vectorTotalDocsRelabeled;
 } FieldsGlobalStats;
 
 // The pipeline stage a timeout occurred in, used to break down the timeout metric.
-// Doubles as the execution-phase marker on RequestSyncState (QUEUE -> PIPELINE -> REPLY).
+// Doubles as the query request execution-phase marker (QUEUE -> PIPELINE -> REPLY).
 typedef enum {
   QUERY_TIMEOUT_STAGE_QUEUE = 0,    // before the result-processor pipeline started running
   QUERY_TIMEOUT_STAGE_PIPELINE = 1, // during result-processor pipeline execution
@@ -211,6 +213,10 @@ MultiThreadingStats GlobalStats_GetMultiThreadingStats();
 
 // Increase the number of documents indexed by the given field type by `toAdd`.
 void FieldsGlobalStats_UpdateFieldDocsIndexed(FieldType field_types, int toAdd);
+
+// Increase, by `toAdd`, the number of documents whose entry for the given field type was moved
+// onto a new doc-id rather than re-added.
+void FieldsGlobalStats_UpdateFieldDocsRelabeled(FieldType field_types, int toAdd);
 
 #ifdef __cplusplus
 }

@@ -654,6 +654,57 @@ TEST_P(PriorityThpoolTestRuntimeConfig, TestWorkerCanAddJobsWhileTerminateWhenEm
     ASSERT_EQ(stats.total_pending_jobs, 0);
 }
 
+/** Two non-worker threads race add_work on an uninitialized pool. One of
+ * them pushes a job that blocks until that submitter's add_work returns. A
+ * submitter that observes the pool mid-initialization and blocks on a revive
+ * barrier counting the worker running the blocked job would deadlock (the
+ * test hangs). The loop gives the race window (the thread-spawn duration)
+ * many chances to be hit. */
+TEST(ThpoolConcurrentInit, TestConcurrentLazyInitFromTwoThreads) {
+    struct RaceCtx {
+        std::atomic<bool> &release;
+        std::atomic<size_t> &executed;
+    };
+
+    auto blockedJob = [](void *p) {  // NOSONAR(S5008) thpool job signature
+        auto *ctx = (RaceCtx *)p;
+        while (!ctx->release) {
+            std::this_thread::sleep_for(std::chrono::microseconds(1));
+        }
+        ctx->executed++;
+    };
+    auto trivialJob = [](void *p) {  // NOSONAR(S5008) thpool job signature
+        auto *ctx = (RaceCtx *)p;
+        ctx->executed++;
+    };
+
+    for (int iter = 0; iter < 100; iter++) {
+        redisearch_thpool_t *pool = redisearch_thpool_create(4, 0, LogCallback, "test");
+
+        std::atomic release{false};
+        std::atomic<size_t> executed{0};
+        RaceCtx ctx = {release, executed};
+
+        std::thread first_submitter([pool, &ctx, trivialJob] {  // NOSONAR(S6168) C++17
+            redisearch_thpool_add_work(pool, trivialJob, &ctx, THPOOL_PRIORITY_HIGH);
+        });
+        std::thread io_submitter([pool, &ctx, &release, blockedJob] {  // NOSONAR(S6168) C++17
+            redisearch_thpool_add_work(pool, blockedJob, &ctx, THPOOL_PRIORITY_HIGH);
+            // The blocked job only completes on progress made after add_work
+            // returns, like a job depending on the IO thread's event loop.
+            release = true;
+        });
+
+        first_submitter.join();
+        io_submitter.join();
+
+        while (executed < 2) {
+            std::this_thread::sleep_for(std::chrono::microseconds(1));
+        }
+        redisearch_thpool_destroy(pool);
+    }
+}
+
 /** This test purpose is to show we can add threads to a pool that was set to 0 threads. */
 TEST_P(PriorityThpoolTestRuntimeConfig, TestAddThreadsToEmptyPool) {
     size_t total_jobs_pushed = 0;

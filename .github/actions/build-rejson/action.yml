@@ -90,6 +90,13 @@ runs:
       shell: bash -leo pipefail {0}
       env:
         SAN: ${{ inputs.san }}
+        # RedisJSON's Makefile adds `-C instrument-coverage` under COV=1, and make
+        # imports the environment, so this genuinely changes the binary — which is
+        # why `cov` is in the cache key above. Set it from the input here rather
+        # than inheriting it from the caller's job env: a caller that keys an
+        # entry on cov=1 without exporting COV would otherwise write an
+        # uninstrumented binary under the instrumented key.
+        COV: ${{ inputs.cov }}
         # Build the resolved SHA (not the moving branch ref) so the produced
         # binary always matches the cache key.
         REJSON_BRANCH: ${{ steps.resolve.outputs.sha }}

@@ -39,21 +39,6 @@ typedef struct TrieMap TrieMap;
  */
 typedef struct TrieMapIterator TrieMapIterator;
 
-/**
- * Callback type for passing to [`TrieMap_IterateRange`].
- */
-typedef void (*TrieMapRangeCallback)(const char *, size_t, void *, void *);
-
-/**
- * The length of a key string in the trie.
- */
-typedef uint16_t tm_len_t;
-
-/**
- * Callback type for passing to [`TrieMap_Add`].
- */
-typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
-
 #ifndef THINVEC_C_VOID__U16_DEFINED
 #define THINVEC_C_VOID__U16_DEFINED
 /**
@@ -63,11 +48,6 @@ typedef struct ThinVec_c_void__u16 {
   struct Header_u16 *ptr;
 } ThinVec_c_void__u16;
 #endif /* THINVEC_C_VOID__U16_DEFINED */
-
-/**
- * Callback type for passing to [`TrieMap_Delete`].
- */
-typedef void (*freeCB)(void *);
 
 #ifndef SMALLTHINVEC_C_VOID_DEFINED
 #define SMALLTHINVEC_C_VOID_DEFINED
@@ -81,9 +61,24 @@ typedef struct ThinVec_c_void__u16 SmallThinVec_c_void;
 #endif /* SMALLTHINVEC_C_VOID_DEFINED */
 
 /**
+ * Callback type for passing to [`TrieMap_Add`].
+ */
+typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
+
+/**
  * Opaque type TrieMapResultBuf. Holds the results of [`TrieMap_FindPrefixes`].
  */
 typedef SmallThinVec_c_void TrieMapResultBuf;
+
+/**
+ * Callback type for passing to [`TrieMap_Delete`].
+ */
+typedef void (*freeCB)(void *);
+
+/**
+ * The length of a key string in the trie.
+ */
+typedef uint16_t tm_len_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -95,173 +90,11 @@ extern "C" {
 extern void *TRIEMAP_NOTFOUND;
 
 /**
- * Find nodes that have a given prefix. Results are placed in an array.
- * The `results` buffer is initialized by this function using the Redis allocator
- * and should be freed by calling [`TrieMapResultBuf_Free`].
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
- * - `len` can be 0. If so, `str` is regarded as an empty string.
- *
- * [`NewTrieMap`]: crate::NewTrieMap
- */
-TrieMapResultBuf TrieMap_FindPrefixes(const struct TrieMap *t, const char *str, tm_len_t len);
-
-/**
  * Create a new [`TrieMap`]. Returns an opaque pointer to the newly created trie.
  *
  * To free the trie, use [`TrieMap_Free`].
  */
 struct TrieMap *NewTrieMap(void);
-
-/**
- * Iterate the trie within the specified key range.
- *
- * If `minLen` is 0, `min` is regarded as an empty string. It `minlen` is -1, the itaration starts from the beginning of the trie.
- * If `maxLen` is 0, `max` is regarded as an empty string. If `maxlen` is -1, the iteration goes to the end of the trie.
- * `includeMin` and `includeMax` determine whether the min and max values are included in the iteration.
- *
- * The passed [`TrieMapRangeCallback`] function is called for each key found,
- * passing the key and its length, the value, and the `ctx` pointer passed to this
- * function.
- *
- * Panics in case the passed callback is NULL.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `trie` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `min` can be NULL only if `minlen == 0` or `minlen == -1`. It is not necessarily NULL-terminated.
- * - `minlen` can be 0. If so, `min` is regarded as an empty string.
- * - `max` can be NULL only if `maxlen == 0` or `maxlen == -1`. It is not necessarily NULL-terminated.
- * - `maxlen` can be 0. If so, `max` is regarded as an empty string.
- * - `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
- *
- * [`NewTrieMap`]: crate::NewTrieMap
- */
-void TrieMap_IterateRange(const struct TrieMap *trie, const char *min, int minlen, bool includeMin, const char *max, int maxlen, bool includeMax, TrieMapRangeCallback callback, void *ctx);
-
-/**
- * Iterate over all the entries stored in the trie.
- *
- * Invoke [`TrieMapIterator_Next`] to get the results from the iteration. If there are no entries,
- * the first call to next will return 0.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `t` must not be freed while the iterator lives.
- */
-struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
-
-/**
- * Free the [`TrieMapResultBuf`] and its contents.
- */
-void TrieMapResultBuf_Free(TrieMapResultBuf buf);
-
-/**
- * Add a new string to a trie. Returns 1 if the key is new to the trie or 0 if
- * it already existed.
- *
- * If `cb` is given, instead of replacing and freeing the value using `rm_free`,
- * we call the callback with the old and new value, and the function should return the value to set in the
- * node, and take care of freeing any unwanted pointers. The returned value
- * can be NULL and doesn't have to be either the old or new value.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- *  - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- *  - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
- *  - `len` can be 0. If so, `str` is regarded as an empty string.
- *  - `value` holds a pointer to the value of the record, which can be NULL
- *  - `cb` must not free the value it returns
- *  - The Redis allocator must be initialized before calling this function,
- *    and `RedisModule_Free` must not get mutated while running this function.
- */
-int TrieMap_Add(struct TrieMap *t, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb);
-
-/**
- * Retrieve an element from the buffer, via a 0-initialized index.
- *
- * It returns `NULL` if the index is out of bounds.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
- */
-void *TrieMapResultBuf_GetByIndex(TrieMapResultBuf *buf, size_t index);
-
-/**
- * Iterate over the trie entries that match the given predicate.
- *
- * Depending on `iter_mode`, they can either be:
- * - All entries with a given key prefix;
- * - All entries with a given key suffix;
- * - All entries with a key that contains the specified string;
- * - All entries with a key matching the specified wildcard pattern.
- *
- * This method returns an iterator object. Invoke [`TrieMapIterator_Next`]
- * to get the results from the iteration. If no entry is found,
- * the first call to next will return 0.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `t` must not be freed while the iterator lives.
- * - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
- *   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
- */
-struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char *prefix, tm_len_t prefix_len, enum tm_iter_mode iter_mode);
-
-/**
- * Get the length of the TrieMapResultBuf.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
- */
-size_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
-
-/**
- * Set timeout limit used for affix queries. This timeout is checked in
- * [`TrieMapIterator_Next`], which will return `0` if the timeout is reached.
- *
- * If the provided timeout is 0, it's interpreted as unlimited.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
- *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
- */
-void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
-
-/**
- * Find the entry with a given string and length, and return its value, even if
- * that was NULL.
- *
- * Returns the tree root if the key is empty.
- *
- * NOTE: If the key does not exist in the trie, we return the special
- * constant value [`TRIEMAP_NOTFOUND`], so checking if the key exists is done by
- * comparing to it, because NULL can be a valid result.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
- * - `len` can be 0. If so, `str` is regarded as an empty string.
- * - The value behind the returned pointer must not be destroyed by the caller.
- *   Use [`TrieMap_Delete`] to remove it instead.
- * - In case [`TRIEMAP_NOTFOUND`] is returned, the key does not exist in the trie,
- *   and the pointer must not be dereferenced.
- */
-void *TrieMap_Find(const struct TrieMap *t, const char *str, tm_len_t len);
 
 /**
  * Free a trie iterator
@@ -289,6 +122,69 @@ void TrieMapIterator_Free(struct TrieMapIterator *it);
 int TrieMapIterator_Next(struct TrieMapIterator *it, char * *ptr, tm_len_t *len, void * *value);
 
 /**
+ * Set timeout limit used for affix queries. The deadline is enforced inside
+ * the underlying trie iterator's traversal loop; once it is reached
+ * [`TrieMapIterator_Next`] returns `0`, as if the iterator were exhausted.
+ *
+ * If the provided timeout is 0, it's interpreted as unlimited.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `it` must point to a valid [`TrieMapIterator`] obtained from [`TrieMap_Iterate`] or
+ *   [`TrieMap_IterateWithFilter`] and cannot be NULL.
+ */
+void TrieMapIterator_SetTimeout(struct TrieMapIterator *it, timespec timeout);
+
+/**
+ * Free the [`TrieMapResultBuf`] and its contents.
+ */
+void TrieMapResultBuf_Free(TrieMapResultBuf buf);
+
+/**
+ * Retrieve an element from the buffer, via a 0-initialized index.
+ *
+ * It returns `NULL` if the index is out of bounds.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+ */
+void *TrieMapResultBuf_GetByIndex(TrieMapResultBuf *buf, size_t index);
+
+/**
+ * Get the length of the TrieMapResultBuf.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+ */
+size_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
+
+/**
+ * Add a new string to a trie. Returns 1 if the key is new to the trie or 0 if
+ * it already existed.
+ *
+ * If `cb` is given, instead of replacing and freeing the value using `rm_free`,
+ * we call the callback with the old and new value, and the function should return the value to set in the
+ * node, and take care of freeing any unwanted pointers. The returned value
+ * can be NULL and doesn't have to be either the old or new value.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ *  - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ *  - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
+ *  - `len` can be 0. If so, `str` is regarded as an empty string.
+ *  - `value` holds a pointer to the value of the record, which can be NULL
+ *  - `cb` must not free the value it returns
+ *  - The Redis allocator must be initialized before calling this function,
+ *    and `RedisModule_Free` must not get mutated while running this function.
+ */
+int TrieMap_Add(struct TrieMap *t, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb);
+
+/**
  * Mark a node as deleted. It also optimizes the trie by merging nodes if
  * needed. If freeCB is given, it will be used to free the value (not the node)
  * of the deleted node. If it doesn't, we simply call free().
@@ -304,6 +200,45 @@ int TrieMapIterator_Next(struct TrieMapIterator *it, char * *ptr, tm_len_t *len,
 int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func);
 
 /**
+ * Find the entry with a given string and length, and return its value, even if
+ * that was NULL.
+ *
+ * Returns the tree root if the key is empty.
+ *
+ * NOTE: If the key does not exist in the trie, we return the special
+ * constant value [`TRIEMAP_NOTFOUND`], so checking if the key exists is done by
+ * comparing to it, because NULL can be a valid result.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
+ * - `len` can be 0. If so, `str` is regarded as an empty string.
+ * - The value behind the returned pointer must not be destroyed by the caller.
+ *   Use [`TrieMap_Delete`] to remove it instead.
+ * - In case [`TRIEMAP_NOTFOUND`] is returned, the key does not exist in the trie,
+ *   and the pointer must not be dereferenced.
+ */
+void *TrieMap_Find(const struct TrieMap *t, const char *str, tm_len_t len);
+
+/**
+ * Find nodes that have a given prefix. Results are placed in an array.
+ * The `results` buffer is initialized by this function using the Redis allocator
+ * and should be freed by calling [`TrieMapResultBuf_Free`].
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
+ * - `len` can be 0. If so, `str` is regarded as an empty string.
+ *
+ * [`NewTrieMap`]: crate::NewTrieMap
+ */
+TrieMapResultBuf TrieMap_FindPrefixes(const struct TrieMap *t, const char *str, tm_len_t len);
+
+/**
  * Free the trie's root and all its children recursively. If freeCB is given, we
  * call it to free individual payload values (not the nodes). If not, free() is used instead.
  *
@@ -316,6 +251,43 @@ int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func
 void TrieMap_Free(struct TrieMap *t, freeCB func);
 
 /**
+ * Iterate over all the entries stored in the trie.
+ *
+ * Invoke [`TrieMapIterator_Next`] to get the results from the iteration. If there are no entries,
+ * the first call to next will return 0.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `t` must not be freed while the iterator lives.
+ */
+struct TrieMapIterator *TrieMap_Iterate(struct TrieMap *t);
+
+/**
+ * Iterate over the trie entries that match the given predicate.
+ *
+ * Depending on `iter_mode`, they can either be:
+ * - All entries with a given key prefix;
+ * - All entries with a given key suffix;
+ * - All entries with a key that contains the specified string;
+ * - All entries with a key matching the specified wildcard pattern.
+ *
+ * This method returns an iterator object. Invoke [`TrieMapIterator_Next`]
+ * to get the results from the iteration. If no entry is found,
+ * the first call to next will return 0.
+ *
+ * # Safety
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ * - `t` must not be freed while the iterator lives.
+ * - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
+ *   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
+ * - `prefix` must stay valid and unmodified until the iterator is freed: the contains,
+ *   suffix and wildcard modes keep reading it while iterating.
+ */
+struct TrieMapIterator *TrieMap_IterateWithFilter(struct TrieMap *t, const char *prefix, tm_len_t prefix_len, enum tm_iter_mode iter_mode);
+
+/**
  * Determines the amount of memory used by the trie in bytes.
  *
  * # Safety
@@ -323,16 +295,6 @@ void TrieMap_Free(struct TrieMap *t, freeCB func);
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
 size_t TrieMap_MemUsage(struct TrieMap *t);
-
-/**
- * The number of unique keys stored in the provided triemap.
- *
- * # Safety
- *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- */
-size_t TrieMap_NUniqueKeys(const struct TrieMap *t);
 
 /**
  * The number of nodes stored in the provided triemap.
@@ -345,6 +307,16 @@ size_t TrieMap_NUniqueKeys(const struct TrieMap *t);
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
 size_t TrieMap_NNodes(const struct TrieMap *t);
+
+/**
+ * The number of unique keys stored in the provided triemap.
+ *
+ * # Safety
+ *
+ * The following invariants must be upheld when calling this function:
+ * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+ */
+size_t TrieMap_NUniqueKeys(const struct TrieMap *t);
 
 #ifdef __cplusplus
 }  // extern "C"

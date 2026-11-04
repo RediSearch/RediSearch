@@ -11,17 +11,22 @@
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 extern crate redisearch_rs;
 
+mod fuzzy;
 mod geo;
 mod geometry;
 mod ids;
+mod iterator_tree;
 mod missing;
 mod not;
 mod null;
 mod numeric;
 mod optional;
 mod phrase;
-mod qast_iterate;
+mod prefix;
+mod tag;
 mod token;
 mod union;
 mod util;
+mod vector;
 mod wildcard;
+mod wildcard_query;

@@ -1,5 +1,14 @@
-#include "hybrid/hybrid_request.h"
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
+#include "hybrid/hybrid_request.h"
+#include "config.h"
 #include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
@@ -18,6 +27,7 @@
 #include "search_ctx.h"
 #include "query_eval_ffi.h"
 #include "spec.h"
+#include "cursor.h"
 #include "module.h"
 #include "profile/profile.h"
 #include "iterators_ffi.h"
@@ -34,14 +44,48 @@
 extern "C" {
 #endif
 
-int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelineParams *params, bool depleteInBackground) {
+void HybridRequest_ReleaseDepletedUpstream(HybridRequest *req) {
+  // Profile output reads per-processor stats from the whole chain until the reply is sent.
+  if (IsProfile(req)) {
+    return;
+  }
+  for (size_t i = 0; i < req->nrequests; i++) {
+    AREQ *areq = req->requests[i];
+    RedisSearchCtx *sctx = AREQ_SearchCtx(areq);
+    if (!sctx->diskSnapshot) {
+      continue;
+    }
+    QueryProcessingCtx *qctx = AREQ_QueryProcessingCtx(areq);
+    ResultProcessor *depleter = qctx->endProc;
+    RS_ASSERT(depleter && (depleter->type == RP_DEPLETER || depleter->type == RP_SAFE_DEPLETER));
+
+    // Free from the depleter upstream, as QITR_FreeChain does: the iterators and the async read
+    // pool they feed must be gone before the snapshot they read from is released.
+    ResultProcessor *rp = depleter->upstream;
+    while (rp) {
+      ResultProcessor *next = rp->upstream;
+      rp->Free(rp);
+      rp = next;
+    }
+    depleter->upstream = NULL;
+    qctx->rootProc = depleter;
+    SearchCtx_CleanUp(sctx);
+  }
+}
+
+int HybridRequest_BuildDepletionPipeline(HybridRequest *req, bool depleteInBackground) {
     // Create synchronization context for coordinating depleter processors
     // This ensures thread-safe access when multiple depleters read from their pipelines
     StrongRef sync_ref = {0};
     int rc = REDISMODULE_OK;
     if (depleteInBackground) {
-      sync_ref = DepleterSync_New(req->nrequests, true);
+      sync_ref = DepleterSync_New(req->nrequests, !req->sctx->spec->diskSpec);
     }
+
+    // Each subquery takes its own disk snapshot below. They observe the same state only because
+    // the caller holds one spec read lock across this whole loop, so no write can land between
+    // two subqueries' snapshots.
+    RS_ASSERT(!req->sctx->spec->diskSpec || IndexSpec_IsReadLocked(req->sctx->spec));
 
     // Build individual pipelines for each search request
     for (size_t i = 0; i < req->nrequests; i++) {
@@ -59,18 +103,18 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         // Aborts the hybrid pipeline if any subquery on a disk index can't take a
         // snapshot — falling back to live reads is unsafe because the parent unlock
         // is unconditional and subsequent depleter / cursor reads would race with GC.
-        if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &req->errors[i]) != REDISMODULE_OK) {
+        if (SearchCtx_TakeDiskSnapshot(AREQ_SearchCtx(areq), &areq->base.reply.err) != REDISMODULE_OK) {
             rc = REDISMODULE_ERR;
             break;
         }
 
         // Parse subquery: Convert AST to iterator tree
-        areq->rootiter = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq), areq->reqflags, areq, &req->errors[i]);
-
+        areq->iteratorTree = QAST_Iterate(&areq->ast, &areq->searchopts, AREQ_SearchCtx(areq),
+                                          areq->reqflags, &areq->base.reply.err);
         rs_wall_clock parseClock;
         if (isProfile) {
           // Add a Profile iterators before every iterator in the tree
-          Profile_AddIters(&areq->rootiter);
+          QueryIteratorTree_Profile(areq->iteratorTree);
           // Initialize parseClock after adding profile iterators, we want that to be accounted in the parsing timing
           rs_wall_clock_init(&parseClock);
           // Calculate the time elapsed for subquery parsing (AST to iterator + profile setup)
@@ -79,7 +123,7 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
 
         // Build the complete pipeline for this individual search request
         // This includes indexing (search/scoring) and any request-specific aggregation
-        rc = AREQ_BuildPipeline(areq, &req->errors[i]);
+        rc = AREQ_BuildPipeline(areq, &areq->base.reply.err);
         if (isProfile) {
           areq->profileClocks.profilePipelineBuildTime = rs_wall_clock_elapsed_ns(&parseClock);
         }
@@ -98,9 +142,8 @@ int HybridRequest_BuildDepletionPipeline(HybridRequest *req, const HybridPipelin
         if (depleteInBackground) {
           // Create a safe depleter processor to extract results from this pipeline
           // The safe depleter will feed results to the hybrid merger
-          RedisSearchCtx *nextThread = params->aggregationParams.common.sctx; // We will use the context provided in the params
-          RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq); // when constructing the AREQ a new context should have been created
-          ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, nextThread, depleterPool);
+          RedisSearchCtx *depletingThread = AREQ_SearchCtx(areq);
+          ResultProcessor *depleter = RPSafeDepleter_New(StrongRef_Clone(sync_ref), depletingThread, depleterPool);
           QITR_PushRP(qctx, depleter);
         } else {
           // Create a depleter processor for foreground depletion (WORKERS == 0)
@@ -221,15 +264,27 @@ int HybridRequest_BuildMergePipeline(HybridRequest *req, const RLookupKey *score
         req->requests[i]->pipeline.qctx.skipIndexResultDeepCopy = false;
       }
     }
+    if (rc == REDISMODULE_OK) {
+      // The tail is final: at execution time the merger and loaders may only
+      // append keys to its lookups; changing an existing key panics in the
+      // Rust core. Seal both ends of the tail plan (they differ when the tail
+      // has its own GROUP BY).
+      RLookup_Seal(tailLookup);
+      RLookup *lastLookup = AGPLN_GetLookup(&req->tailPipeline->ap, NULL, AGPLN_GETLOOKUP_LAST);
+      if (lastLookup && lastLookup != tailLookup) {
+        RLookup_Seal(lastLookup);
+      }
+    }
     return rc;
 }
 
 int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params, bool depleteInBackground, QueryError *status) {
     // Build the depletion pipeline for extracting results from individual search requests
-    if (HybridRequest_BuildDepletionPipeline(req, params, depleteInBackground) != REDISMODULE_OK) {
+    if (HybridRequest_BuildDepletionPipeline(req, depleteInBackground) != REDISMODULE_OK) {
       for (size_t i = 0; i < req->nrequests; i++) {
-        if (QueryError_HasError(&req->errors[i])) {
-          QueryError_CloneFrom(&req->errors[i], status);
+        QueryError *subErr = &req->requests[i]->base.reply.err;
+        if (QueryError_HasError(subErr)) {
+          QueryError_CloneFrom(subErr, status);
           break;
         }
       }
@@ -271,25 +326,24 @@ int HybridRequest_BuildPipeline(HybridRequest *req, HybridPipelineParams *params
  */
 /**
  * Initialize an already-allocated (zeroed) HybridRequest.
- * Used when the HybridRequest is embedded in another struct (e.g., CoordRequestCtx).
+ * Used when the HybridRequest is reachable from another owner (e.g. the blocked-client cycle).
  *
  * @param hybridReq Pointer to zeroed HybridRequest to initialize
  * @param sctx The search context for the hybrid request
  * @param requests Array of AREQ pointers, the hybrid request takes ownership
  * @param nrequests Number of requests in the array
  */
-void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
+void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
+    RS_ASSERT(sctx);
+    QueryRequest_Init(&hybridReq->base, QUERY_REQUEST_KIND_HYBRID, &RSGlobalConfig.requestConfigParams,
+                      &RSGlobalConfig.timeoutConfigParams, argv, argc);
     hybridReq->requests = requests;
     hybridReq->nrequests = nrequests;
     hybridReq->sctx = sctx;
+    hybridReq->sctx->limits = &hybridReq->base.limits;
     hybridReq->kArgIndex = -1;
-
     rs_wall_clock now = {0};
     rs_wall_clock_init(&now);
-
-    // Initialize error tracking for each individual request
-    hybridReq->errors = array_new(QueryError, nrequests);
-    memset(hybridReq->errors, 0, nrequests * sizeof(QueryError));
 
     // Initialize return codes array for tracking subqueries final states
     hybridReq->subqueriesReturnCodes = rm_calloc(nrequests, sizeof(RPStatus));
@@ -297,50 +351,48 @@ void HybridRequest_Init(HybridRequest *hybridReq, RedisSearchCtx *sctx, AREQ **r
     // Initialize the tail pipeline that will merge results from all requests
     hybridReq->tailPipeline = rm_calloc(1, sizeof(Pipeline));
     AGPLN_Init(&hybridReq->tailPipeline->ap);
-    hybridReq->tailPipelineError = QueryError_Default();
-    Pipeline_Initialize(hybridReq->tailPipeline, requests[0]->pipeline.qctx.timeoutPolicy, &hybridReq->tailPipelineError);
+    Pipeline_Initialize(hybridReq->tailPipeline, hybridReq->base.limits.timeout.config.timeoutPolicy, &hybridReq->base.reply.err);
+    QueryRequest_SetEndProcRef(&hybridReq->base, &hybridReq->tailPipeline->qctx.endProc);
+    // Capture the background-scan-OOM warning flag while the spec is guaranteed
+    // alive (main-thread command handling). The reply path reads only this
+    // capture — it may run after the last strong spec reference was released.
+    if (sctx && sctx->spec) {
+      hybridReq->tailPipeline->qctx.bgScanOOM |=
+          RS_AtomicBoolLoadRelaxed(&sctx->spec->scan_failed_OOM);
+    }
 
     // Initialize pipelines for each individual request
     for (size_t i = 0; i < nrequests; i++) {
         initializeAREQ(requests[i]);
-        hybridReq->errors[i] = QueryError_Default();
-        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->reqConfig.timeoutPolicy, &hybridReq->errors[i]);
+        Pipeline_Initialize(&requests[i]->pipeline, requests[i]->base.limits.timeout.config.timeoutPolicy, &requests[i]->base.reply.err);
     }
     hybridReq->profileClocks.initClock = now;
 
-    // Initialize timeout coordination fields (embedded per-request slot only;
-    // the aggregate-coord fields live on the heap BlockedRequestCtx wrapper).
-    RequestSyncState_Init(&hybridReq->syncState);
-    pthread_mutex_init(&hybridReq->cursorMutex, NULL);
-
-
 }
 
-HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests) {
+void HybridRequest_BeginTimeoutCycle(HybridRequest *req, QueryRequestTimeoutKind kind) {
+    QueryRequestLimits_BeginCycle(&req->base.limits, kind);
+    for (size_t i = 0; i < req->nrequests; i++) {
+        QueryRequestLimits_BeginCycle(&req->requests[i]->base.limits, kind);
+    }
+}
+
+HybridRequest *HybridRequest_New(RedisSearchCtx *sctx, AREQ **requests, size_t nrequests, RedisModuleString **argv, uint32_t argc) {
+    // The requests hold the full command; each sub takes its own holds — a
+    // sub's borrows can outlive the container.
     HybridRequest *hybridReq = rm_calloc(1, sizeof(*hybridReq));
-    HybridRequest_Init(hybridReq, sctx, requests, nrequests);
-    // Wrap the top-level hybrid request in its single-owner sync context.
-    // Sets hybridReq->brc; ownership is released via HybridRequest_DecrRef.
-    BlockedRequestCtx_NewHybrid(hybridReq);
+    HybridRequest_Init(hybridReq, sctx, requests, nrequests, argv, argc);
     return hybridReq;
 }
 
-void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModuleString **argv, int argc) {
-  // skip command and index name
-  const int step = argc > 2 ? 2 : argc;
-  argv += step;
-  argc -= step;
-  req->args = rm_calloc(argc, sizeof(*req->args));
-  req->nargs = argc;
-  // Copy the arguments into an owned array of sds strings
-  for (size_t ii = 0; ii < argc; ++ii) {
-    size_t n;
-    const char *s = RedisModule_StringPtrLen(argv[ii], &n);
-    req->args[ii] = sdsnewlen(s, n);
-  }
-
-  // Parse the query and basic keywords first..
-  ArgsCursor_InitSDS(ac, req->args, req->nargs);
+void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, uint32_t argc) {
+  // argc bounds the parse; the holds may cover a superset (debug flows).
+  RS_ASSERT(argc <= req->base.args.argc);
+  // The cursor covers the whole held command, pre-advanced past the command
+  // and index names: recorded positions (sub queryOffsets, syntax-error
+  // offsets) are relative to the full command.
+  ArgsCursor_InitRString(ac, req->base.args.argv, (int)argc);
+  AC_AdvanceBy(ac, argc > 2 ? 2 : argc);
 }
 
 /**
@@ -353,52 +405,34 @@ void HybridRequest_InitArgsCursor(HybridRequest *req, ArgsCursor *ac, RedisModul
 void HybridRequest_Free(HybridRequest *req) {
     if (!req) return;
 
-    // Cursors should have been freed by the timeout callback or reply callback.
-    // If we reach here with cursors still set, it indicates a bug in the cleanup logic.
-    RS_ASSERT(req->cursors == NULL);
-
-    // Free all individual AREQ requests and their pipelines.
-    //
-    // Order matters: AREQ_DecrRef → AREQ_Free → Pipeline_Clean must tear down
-    // the subquery's iterators before SearchCtx_Free releases sctx->diskSnapshot,
-    // because disk iterators (term/tag/wildcard) borrow the snapshot pointer at
-    // construction time. Freeing sctx first would dangle those borrows during
-    // iterator teardown. Detach areq->sctx so AREQ_Free leaves it alone, decref
-    // to tear down iterators, then free sctx + thctx ourselves.
+    // Cycle-end disposition of the sub-cursors: the container dies on the
+    // main thread at the end of the initial cursor cycle, and each sub-cursor
+    // has owned its sub since reservation, so execute the disposition the
+    // cycle recorded — pause published cursors for reads, free the rest
+    // (never published, or published in a cycle whose timeout reply exposed
+    // no IDs). Subs without a cursor are the container's to release: AREQ_Free
+    // tears down the pipeline (and its disk-iterator borrows) before
+    // releasing the sctx and its diskSnapshot, and the subs own no
+    // RedisModuleCtx — each cycle lends and reclaims its own.
+    const bool timedOut =
+        QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits);
     for (size_t i = 0; i < req->nrequests; i++) {
-      AREQ *areq = req->requests[i];
-      RedisModuleCtx *thctx = NULL;
-      RedisSearchCtx *sctx = NULL;
-      uint32_t reqflags = 0;
-
-      if (areq && areq->sctx && areq->sctx->redisCtx) {
-        thctx = areq->sctx->redisCtx;
-        sctx = areq->sctx;
-        reqflags = areq->reqflags;
-        areq->sctx = NULL;
-      }
-
-      AREQ_DecrRef(req->requests[i]);
-
-      if (sctx) {
-        if (reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
-          // Background thread: schedule async cleanup. The scheduled callback
-          // runs after the current command completes, so iterator teardown
-          // (which happened inside AREQ_DecrRef above) is already done.
-          ScheduleContextCleanup(thctx, sctx);
-        } else {
-          // Main thread: iterators are already torn down by the AREQ_DecrRef
-          // above, safe to release the snapshot now.
-          SearchCtx_Free(sctx);
-          if (thctx) {
-            RedisModule_FreeThreadSafeContext(thctx);
-          }
-        }
+      AREQ *sub = req->requests[i];
+      struct Cursor *cursor = sub->base.cursorInfo.cursor;
+      if (cursor) {
+        // A parked sub never touches a ctx again; drop any foreground-cycle
+        // borrow before the cursor takes over.
+        AREQ_SearchCtx(sub)->redisCtx = NULL;
+        const bool free_it =
+            sub->base.cursorInfo.disposition != CURSOR_DISPOSITION_PAUSE || timedOut;
+        sub->base.cursorInfo.cursor = NULL;
+        sub->base.cursorInfo.disposition = CURSOR_DISPOSITION_FREE;
+        AREQ_CursorEndOfCycle(sub, cursor, free_it);
+      } else {
+        AREQ_Free(sub);
       }
     }
     array_free(req->requests);
-
-    array_free_ex(req->errors, QueryError_ClearError((QueryError*)ptr));
 
     rm_free(req->subqueriesReturnCodes);
     req->subqueriesReturnCodes = NULL;
@@ -415,105 +449,65 @@ void HybridRequest_Free(HybridRequest *req) {
       req->tailPipeline = NULL;
     }
 
-    // Clean up the tail pipeline error
-    QueryError_ClearError(&req->tailPipelineError);
-
-    // Destroy the cursor mutex
-    pthread_mutex_destroy(&req->cursorMutex);
-
     rm_free(req->debugParams);
 
-    RequestSyncState_Destroy(&req->syncState);
-
-    if (req->args) {
-      for (size_t ii = 0; ii < req->nargs; ++ii) {
-        sdsfree(req->args[ii]);
-      }
-      rm_free(req->args);
-    }
+    QueryRequest_Destroy(&req->base);
 
     rm_free(req);
 }
 
-HybridRequest *HybridRequest_IncrRef(HybridRequest *req) {
-  RS_LOG_ASSERT(req->brc != NULL, "HybridRequest_IncrRef called on unwrapped request");
-  BlockedRequestCtx_IncrRef(req->brc);
-  return req;
-}
-
-void HybridRequest_DecrRef(HybridRequest *req) {
-  if (!req) return;
-  // Delegate to the wrapper: BlockedRequestCtx_DecrRef → 0 → BlockedRequestCtx_Free
-  // → HybridRequest_Free.
-  RS_LOG_ASSERT(req->brc != NULL, "HybridRequest_DecrRef called on unwrapped request");
-  BlockedRequestCtx_DecrRef(req->brc);
-}
 
 static bool isSoftTailPipelineErrorCode(QueryErrorCode code) {
     return code == QUERY_ERROR_CODE_NO_PROP_VAL;
 }
 
-/**
- * Get error information from a HybridRequest.
- * This function checks for errors in priority order:
- * 1. Tail pipeline errors (soft codes skipped — emitted as warnings instead)
- * 2. Individual AREQ errors (sub-query failures)
- *
- * @param hreq The HybridRequest to check for errors
- * @param status QueryError pointer to store error information on failure
- * @return REDISMODULE_OK if no errors found, REDISMODULE_ERR if error found
- */
+/* Borrow the first fatal error. Soft tail errors stay in the request for warning serialization. */
+QueryError *HybridRequest_GetFatalError(HybridRequest *hreq) {
+  if (!hreq) return NULL;
+
+  QueryError *tailErr = &hreq->base.reply.err;
+  if (QueryError_HasError(tailErr) && !isSoftTailPipelineErrorCode(QueryError_GetCode(tailErr))) {
+    return tailErr;
+  }
+
+  for (size_t i = 0; i < hreq->nrequests; i++) {
+    QueryError *subErr = &hreq->requests[i]->base.reply.err;
+    if (QueryError_HasError(subErr)) return subErr;
+  }
+
+  return NULL;
+}
+
+/* Copy the selected error for callers that outlive or clear the request. */
 int HybridRequest_GetError(HybridRequest *hreq, QueryError *status) {
-    if (!hreq || !status) {
-        return REDISMODULE_ERR;
-    }
-
-    // Skip soft codes so the reply path can render them as warnings.
-    if (QueryError_HasError(&hreq->tailPipelineError) &&
-        !isSoftTailPipelineErrorCode(QueryError_GetCode(&hreq->tailPipelineError))) {
-        QueryError_CloneFrom(&hreq->tailPipelineError, status);
-        return REDISMODULE_ERR;
-    }
-
-    // Priority 2: Individual AREQ errors (sub-query failures)
-    for (size_t i = 0; i < hreq->nrequests; i++) {
-        if (QueryError_HasError(&hreq->errors[i])) {
-            QueryError_CloneFrom(&hreq->errors[i], status);
-            return REDISMODULE_ERR;
-        }
-    }
-
-    // No errors found
-    return REDISMODULE_OK;
+  if (!hreq || !status) return REDISMODULE_ERR;
+  QueryError *err = HybridRequest_GetFatalError(hreq);
+  if (!err) return REDISMODULE_OK;
+  QueryError_CloneFrom(err, status);
+  return REDISMODULE_ERR;
 }
 
 void HybridRequest_ClearErrors(HybridRequest *req) {
-  QueryError_ClearError(&req->tailPipelineError);
+  QueryError_ClearError(&req->base.reply.err);
   for (size_t i = 0; i < req->nrequests; i++) {
-    QueryError_ClearError(&req->errors[i]);
+    QueryError_ClearError(&req->requests[i]->base.reply.err);
   }
 }
 
-/**
- * Create a search context with a thread-safe redis module context.
- */
-static RedisSearchCtx* createThreadSafeSearchContext(RedisModuleCtx *ctx, const char *indexname) {
-  RedisModuleCtx *detachedCtx = RedisModule_GetDetachedThreadSafeContext(ctx);
-  RedisModule_SelectDb(detachedCtx, RedisModule_GetSelectedDb(ctx));
-  return NewSearchCtxC(detachedCtx, indexname, true);
-}
-
-HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx) {
+HybridRequest *MakeDefaultHybridRequest(RedisSearchCtx *sctx, RedisModuleString **argv, uint32_t argc) {
   extern size_t NumShards;  // Declared in module.c
-  AREQ *search = AREQ_New();
-  AREQ *vector = AREQ_New();
+  AREQ *search = AREQ_New(argv, argc);
+  AREQ *vector = AREQ_New(argv, argc);
   const char *indexName = HiddenString_GetUnsafe(sctx->spec->specName, NULL);
-  search->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName);
-  vector->sctx = createThreadSafeSearchContext(sctx->redisCtx, indexName);
+  // The subs borrow the handler's ctx, like the tail: whoever runs a cycle
+  // lends each sub a ctx valid for that cycle and reclaims it at cycle end
+  // (a background cycle's depleting threads each need a private one).
+  search->sctx = NewSearchCtxCEx(sctx->redisCtx, indexName, true, INDEXSPEC_LOAD_NOCOUNTERINC);
+  vector->sctx = NewSearchCtxCEx(sctx->redisCtx, indexName, true, INDEXSPEC_LOAD_NOCOUNTERINC);
   arrayof(AREQ*) requests = array_new(AREQ*, HYBRID_REQUEST_NUM_SUBQUERIES);
   requests = array_ensure_append_1(requests, search);
   requests = array_ensure_append_1(requests, vector);
-  return HybridRequest_New(sctx, requests, array_len(requests));
+  return HybridRequest_New(sctx, requests, array_len(requests), argv, argc);
 }
 
 void AddValidationErrorContext(AREQ *req, QueryError *status) {
@@ -550,38 +544,50 @@ void AddValidationErrorContext(AREQ *req, QueryError *status) {
   }
 }
 
-void HybridRequest_SetTimedOut(HybridRequest *req) {
-  RequestSyncState_SetTimedOut(&req->syncState);
-  // Propagate to each subquery AREQ so its RPNet's MRChannel_PopWithTimeout
-  // abort flag (&areq->syncState.timedOut) is flipped. Without this the BG
-  // worker can stay parked on the channel even after the hybrid-level flag
-  // is set.
+void HybridRequest_PropagateTimeoutToSubqueries(HybridRequest *req) {
+  // Propagate to each subquery AREQ so its RPNet wait observes the abort.
+  // Without this the BG worker can stay parked on the channel even after the
+  // hybrid-level flag is set.
   for (size_t i = 0; i < req->nrequests; i++) {
     if (req->requests[i]) {
-      AREQ_SetTimedOut(req->requests[i]);
+      QueryRequestLimits_MarkTimedOut(&req->requests[i]->base.limits);
+    }
+  }
+}
+
+void HybridRequest_WakeAbortChannels(HybridRequest *req) {
+  if (!req) {
+    return;
+  }
+  QueryRequestAsyncState_WakeAbortChannel(&req->base.async);
+  for (size_t i = 0; i < req->nrequests; i++) {
+    if (req->requests[i]) {
+      QueryRequestAsyncState_WakeAbortChannel(&req->requests[i]->base.async);
     }
   }
 }
 
 bool HybridRequest_TryClaimAggregateResults(HybridRequest *req) {
   bool expected = false;
-  return atomic_compare_exchange_strong_explicit(&req->brc->aggregatingResults, &expected, true,
-                                                 memory_order_relaxed, memory_order_relaxed);
+  return atomic_compare_exchange_strong_explicit(&req->base.async.aggregatingResults, &expected,
+                                                 true, memory_order_relaxed,
+                                                 memory_order_relaxed);
 }
 
 void HybridRequest_SignalAggregateResultsComplete(HybridRequest *req) {
-  pthread_mutex_lock(&req->brc->aggregateResultsLock);
-  req->brc->aggregateResultsDone = true;
-  pthread_cond_broadcast(&req->brc->aggregateResultsCond);
-  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  req->base.async.aggregateResultsDone = true;
+  pthread_cond_broadcast(&req->base.async.aggregateResultsCond);
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
 void HybridRequest_WaitForAggregateResultsComplete(HybridRequest *req) {
-  pthread_mutex_lock(&req->brc->aggregateResultsLock);
-  while (!req->brc->aggregateResultsDone) {
-    pthread_cond_wait(&req->brc->aggregateResultsCond, &req->brc->aggregateResultsLock);
+  pthread_mutex_lock(&req->base.async.aggregateResultsLock);
+  while (!req->base.async.aggregateResultsDone) {
+    pthread_cond_wait(&req->base.async.aggregateResultsCond,
+                      &req->base.async.aggregateResultsLock);
   }
-  pthread_mutex_unlock(&req->brc->aggregateResultsLock);
+  pthread_mutex_unlock(&req->base.async.aggregateResultsLock);
 }
 
 #ifdef __cplusplus

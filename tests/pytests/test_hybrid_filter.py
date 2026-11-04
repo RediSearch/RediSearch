@@ -1,3 +1,10 @@
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 import numpy as np
 from RLTest import Env
 from common import *
@@ -150,7 +157,7 @@ def test_hybrid_policy_errors():
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', '$BLOB',
         'FILTER', '5', '@category:{"vegetable"}', "POLICY", "ADHOC", "BATCH_SIZE", "100",
-        'PARAMS', '2', 'BLOB', query_vector).error().contains("SEARCH_ADHOC_BATCH_SIZE_IRRELEVANT 'batch size' is irrelevant for the selected policy (Error parsing vector similarity parameters)")
+        'PARAMS', '2', 'BLOB', query_vector).error().contains("SEARCH_ADHOC_BATCH_SIZE_IRRELEVANT 'batch size' is irrelevant for the selected policy (BATCH_SIZE is irrelevant for the 'adhoc_bf' hybrid policy)")
 
     env.expect(
         'FT.HYBRID', 'filter_idx',
@@ -164,14 +171,14 @@ def test_hybrid_policy_errors():
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', '$BLOB', "RANGE", "2", "RADIUS", "2",
         'FILTER', '3', '@category:{"vegetable"}', "POLICY", "ADHOC",
-        'PARAMS', '2', 'BLOB', query_vector ).error().contains("SEARCH_HYBRID_ATTR_NON_HYBRID hybrid query attributes were sent for a non-hybrid query (Error parsing vector similarity parameters)")
+        'PARAMS', '2', 'BLOB', query_vector ).error().contains("SEARCH_HYBRID_ATTR_NON_HYBRID hybrid query attributes were sent for a non-hybrid query (HYBRID_POLICY is only valid for hybrid queries)")
 
     env.expect(
         'FT.HYBRID', 'filter_idx',
         'SEARCH', '@text:(green)',
         'VSIM', '@vector', '$BLOB', "RANGE", "2", "RADIUS", "2",
         'FILTER', '3', '@category:{"vegetable"}', "BATCH_SIZE", "5",
-        'PARAMS', '2', 'BLOB', query_vector ).error().contains("SEARCH_HYBRID_ATTR_NON_HYBRID hybrid query attributes were sent for a non-hybrid query (Error parsing vector similarity parameters)")
+        'PARAMS', '2', 'BLOB', query_vector ).error().contains("SEARCH_HYBRID_ATTR_NON_HYBRID hybrid query attributes were sent for a non-hybrid query (BATCH_SIZE is only valid for hybrid queries)")
 
     env.expect(
         'FT.HYBRID', 'filter_idx',

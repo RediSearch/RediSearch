@@ -16,23 +16,11 @@
 #include "config.h"
 #include "hybrid_exec.h"
 #include "hybrid_request.h"
-#include "parse_hybrid.h"
 #include "result_processor.h"
 #include "rmutil/args.h"
-#include "rmalloc.h"
-#include "search_disk_utils.h"
-#include "aggregate/aggregate.h"
 #include "pipeline/pipeline.h"
-#include "profile/options.h"
 #include "query_error_ffi.h"
 #include "rmutil/rm_assert.h"
-#include "search_ctx.h"
-
-// Wrapper structure for hybrid request with debug capabilities
-typedef struct {
-  HybridRequest *hreq;                     // Base hybrid request
-  HybridDebugParams debug_params;          // Debug parameters
-} HybridRequest_Debug;
 
 HybridDebugParams parseHybridDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status) {
   HybridDebugParams debug_params = {0};
@@ -128,7 +116,7 @@ int parseHybridDebugParams(HybridDebugParams *params, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
+  if (RSGlobalConfig.timeoutConfigParams.timeoutPolicy == TimeoutPolicy_ReturnStrict) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
                         "FT.HYBRID debug timeout is not supported with ON_TIMEOUT RETURN-STRICT");
     return REDISMODULE_ERR;
@@ -164,123 +152,21 @@ int applyHybridDebugTimeout(HybridRequest *hreq, const HybridDebugParams *params
   return REDISMODULE_OK;
 }
 
-static int applyHybridDebugToBuiltPipelines(HybridRequest_Debug *debug_req, QueryError *status) {
-  if (applyHybridDebugTimeout(debug_req->hreq, &debug_req->debug_params) != REDISMODULE_OK) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Failed to apply timeout to built hybrid pipelines");
-    return REDISMODULE_ERR;
-  }
-
-  return REDISMODULE_OK;
-}
-
-static HybridRequest_Debug* HybridRequest_Debug_New(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                                                     RedisSearchCtx *sctx, const char *indexname, QueryError *status) {
-  // Parse debug parameters first
-  HybridDebugParams debug_params = parseHybridDebugParamsCount(argv, argc, status);
-  if (debug_params.debug_params_count == 0) {
-    return NULL;
-  }
-
-  // Calculate the number of arguments for the actual hybrid command (excluding debug params)
-  int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>`
-  int hybrid_argc = argc - debug_argv_count;
-
-  HybridRequest *hreq = MakeDefaultHybridRequest(sctx);
-  ArgsCursor ac = {0};
-  HybridRequest_InitArgsCursor(hreq, &ac, argv, hybrid_argc);
-
-  HybridPipelineParams hybridParams = {0};  // Stack allocation
-  ParseHybridCommandCtx cmd = {0};
-  cmd.search = hreq->requests[SEARCH_INDEX];
-  cmd.vector = hreq->requests[VECTOR_INDEX];
-  cmd.cursorConfig = &hreq->cursorConfig;
-  cmd.hybridParams = &hybridParams;
-  cmd.tailPlan = &hreq->tailPipeline->ap;
-  cmd.reqConfig = &hreq->reqConfig;
-  cmd.coordDispatchTime = &hreq->profileClocks.coordDispatchTime;
-
-  int rc = parseHybridCommand(ctx, &ac, sctx, &cmd, status, false, EXEC_NO_FLAGS);
-  if (rc != REDISMODULE_OK) {
-    HybridPipelineParams_Cleanup(&hybridParams);
-    HybridRequest_DecrRef(hreq);
-    return NULL;
-  }
-
-  SearchCtx_UpdateTime(hreq->sctx, hreq->reqConfig.queryTimeoutMS);
-  for (int i = 0; i < hreq->nrequests; i++) {
-    AREQ *subquery = hreq->requests[i];
-    SearchCtx_UpdateTime(AREQ_SearchCtx(subquery), hreq->reqConfig.queryTimeoutMS);
-  }
-
-  // Set request flags from hybridParams
-  hreq->reqflags = hybridParams.aggregationParams.common.reqflags;
-  if (HybridRequest_BuildPipeline(hreq, &hybridParams, false, status) != REDISMODULE_OK) {
-    HybridPipelineParams_Cleanup(&hybridParams);
-    HybridRequest_DecrRef(hreq);
-    return NULL;
-  }
-
-  HybridRequest_Debug *debug_req = rm_calloc(1, sizeof(HybridRequest_Debug));
-  debug_req->hreq = hreq;
-  debug_req->debug_params = debug_params;
-
-  return debug_req;
-}
-
-static void HybridRequest_Debug_Free(HybridRequest_Debug *debug_req) {
-  if (!debug_req) {
-    return;
-  }
-
-  if (debug_req->hreq) {
-    HybridRequest_DecrRef(debug_req->hreq);
-  }
-
-  rm_free(debug_req);
-}
-
-int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int DEBUG_hybridCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                               bool internal) {
   if (argc < 7) {  // Minimum: FT.HYBRID idx SEARCH query VSIM field vector
     return RedisModule_WrongArity(ctx);
   }
 
-  if (SearchDisk_MarkUnsupportedCommandIfDiskEnabled(ctx, "FT.HYBRID")) {
-    return REDISMODULE_OK;
-  }
   QueryError status = QueryError_Default();
-
-  // Get index name and create search context (same pattern as regular hybridCommandHandler)
-  const char *indexname = RedisModule_StringPtrLen(argv[1], NULL);
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, indexname, true);
-  if (!sctx) {
-    QueryError_SetWithUserDataFmt(&status, QUERY_ERROR_CODE_NO_INDEX, "Index not found", ": %s", indexname);
+  HybridDebugParams debugParams = parseHybridDebugParamsCount(argv, argc, &status);
+  if (QueryError_HasError(&status)) {
+    return QueryError_ReplyAndClear(ctx, &status);
+  }
+  if (parseHybridDebugParams(&debugParams, &status) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
-  // Create debug hybrid request using the same sctx
-  HybridRequest_Debug *debug_req = HybridRequest_Debug_New(ctx, argv, argc, sctx, indexname, &status);
-  if (!debug_req) {
-    // parseHybridCommand takes ownership of sctx but doesn't free it on error - we need to clean it up
-    SearchCtx_Free(sctx);
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-
-  // Parse debug parameters
-  if (parseHybridDebugParams(&debug_req->debug_params, &status) != REDISMODULE_OK) {
-    HybridRequest_Debug_Free(debug_req);
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-
-  HybridRequest *hreq = debug_req->hreq;
-
-  // Now apply debug parameters to the built pipelines
-  if (applyHybridDebugToBuiltPipelines(debug_req, &status) != REDISMODULE_OK) {
-    HybridRequest_Debug_Free(debug_req);
-    return QueryError_ReplyAndClear(ctx, &status);
-  }
-
-  HybridRequest_Execute(hreq, ctx, hreq->sctx);
-
-  HybridRequest_Debug_Free(debug_req);
-  return REDISMODULE_OK;
+  int hybridArgc = argc - debugParams.debug_params_count - 2;
+  return hybridCommandHandler(ctx, argv, hybridArgc, internal, EXEC_NO_FLAGS, &debugParams);
 }

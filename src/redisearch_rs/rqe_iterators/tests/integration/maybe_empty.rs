@@ -13,6 +13,7 @@ use rqe_iterators::{
     RQEValidateStatus, ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
     maybe_empty::MaybeEmpty,
 };
+use rqe_iterators_test_utils::ContractChecker;
 
 #[derive(Default)]
 #[repr(C)]
@@ -170,19 +171,19 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
 
 #[test]
 fn type_empty() {
-    let it = MaybeEmpty::<Infinite>::new_empty();
+    let it = ContractChecker::new(MaybeEmpty::<Infinite>::new_empty());
     assert_eq!(it.type_(), IteratorType::Empty);
 }
 
 #[test]
 fn type_not_empty() {
-    let it = MaybeEmpty::new(Infinite::default());
+    let it = ContractChecker::new(MaybeEmpty::new(Infinite::default()));
     assert_eq!(it.type_(), IteratorType::Mock);
 }
 
 #[test]
 fn initial_state_empty() {
-    let it = MaybeEmpty::<Infinite>::new_empty();
+    let it = ContractChecker::new(MaybeEmpty::<Infinite>::new_empty());
 
     assert_eq!(it.last_doc_id(), 0);
     assert!(it.at_eof());
@@ -191,7 +192,7 @@ fn initial_state_empty() {
 
 #[test]
 fn initial_state_not_empty() {
-    let it = MaybeEmpty::new(Infinite::default());
+    let it = ContractChecker::new(MaybeEmpty::new(Infinite::default()));
 
     assert_eq!(it.last_doc_id(), 0);
     assert!(!it.at_eof());
@@ -200,7 +201,7 @@ fn initial_state_not_empty() {
 
 #[test]
 fn read_empty() {
-    let mut it = MaybeEmpty::<Infinite>::new_empty();
+    let mut it = ContractChecker::new(MaybeEmpty::<Infinite>::new_empty());
 
     assert_eq!(it.num_estimated(), 0);
     assert!(it.at_eof());
@@ -213,7 +214,7 @@ fn read_empty() {
 
 #[test]
 fn read_not_empty() {
-    let mut it = MaybeEmpty::new(Infinite::default());
+    let mut it = ContractChecker::new(MaybeEmpty::new(Infinite::default()));
     for expected_id in 1..=5 {
         let result = it.read();
         let result = result.unwrap();
@@ -226,7 +227,7 @@ fn read_not_empty() {
 
 #[test]
 fn skip_to_empty() {
-    let mut it = MaybeEmpty::<Infinite>::new_empty();
+    let mut it = ContractChecker::new(MaybeEmpty::<Infinite>::new_empty());
 
     assert!(matches!(it.skip_to(1), Ok(None)));
     assert!(it.at_eof());
@@ -237,7 +238,7 @@ fn skip_to_empty() {
 
 #[test]
 fn skip_to_not_empty() {
-    let mut it = MaybeEmpty::new(Infinite::default());
+    let mut it = ContractChecker::new(MaybeEmpty::new(Infinite::default()));
 
     for i in 1..=5 {
         let id = (i * 5) as DocId;
@@ -255,7 +256,7 @@ fn skip_to_not_empty() {
 
 #[test]
 fn rewind_empty() {
-    let mut it = MaybeEmpty::<Infinite>::new_empty();
+    let mut it = ContractChecker::new(MaybeEmpty::<Infinite>::new_empty());
 
     assert!(matches!(it.read(), Ok(None)));
     assert!(it.at_eof());
@@ -269,7 +270,7 @@ fn rewind_empty() {
 
 #[test]
 fn rewind_not_empty() {
-    let mut it = MaybeEmpty::new(Infinite::default());
+    let mut it = ContractChecker::new(MaybeEmpty::new(Infinite::default()));
 
     // Read some documents
     for _i in 1..=3 {
@@ -297,7 +298,7 @@ fn rewind_not_empty() {
 #[test]
 fn revalidate_empty() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = MaybeEmpty::<Infinite>::new_empty();
+    let mut it = ContractChecker::new(MaybeEmpty::<Infinite>::new_empty());
     let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Ok);
 }
@@ -305,14 +306,14 @@ fn revalidate_empty() {
 #[test]
 fn revalidate_not_empty() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = MaybeEmpty::new(Infinite::default());
+    let mut it = ContractChecker::new(MaybeEmpty::new(Infinite::default()));
     let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
     assert_eq!(status, RQEValidateStatus::Ok);
 }
 
 #[test]
 fn current_empty_returns_none() {
-    let mut it = MaybeEmpty::<Infinite>::new_empty();
+    let mut it = ContractChecker::new(MaybeEmpty::<Infinite>::new_empty());
     assert!(it.current().is_none());
 }
 
@@ -482,4 +483,14 @@ mod via_resume {
         assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 10);
         assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 3);
     }
+}
+
+#[test]
+fn maybe_empty_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = ContractChecker::new(MaybeEmpty::new(crate::utils::Mock::new([
+        10u64, 20, 30, 50, 80,
+    ])));
+    assert_eq!(assert_current_contract(&mut it), [10, 20, 30, 50, 80]);
+    assert_current_contract_via_skip_to(&mut it, 81);
 }

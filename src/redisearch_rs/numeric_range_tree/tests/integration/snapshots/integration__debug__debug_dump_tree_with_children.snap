@@ -1,6 +1,5 @@
 ---
 source: numeric_range_tree/tests/integration/debug.rs
-assertion_line: 228
 expression: reply
 ---
 {
@@ -20,7 +19,7 @@ expression: reply
         "maxVal",
         7,
         "invertedIndexSize [bytes]",
-        113,
+        121,
         "card",
         8,
         "entries",
@@ -83,7 +82,7 @@ expression: reply
           "maxVal",
           42,
           "invertedIndexSize [bytes]",
-          217,
+          225,
           "card",
           31,
           "entries",
@@ -251,7 +250,7 @@ expression: reply
           "maxVal",
           99,
           "invertedIndexSize [bytes]",
-          272,
+          280,
           "card",
           62,
           "entries",

@@ -231,6 +231,53 @@ fn reader_needs_revalidation() {
     assert!(ir.needs_revalidation(), "index was modified");
 }
 
+/// A reader on an index with no blocks has cached nothing, so it has nothing to find stale — and
+/// must not ask to be revalidated on every cursor read for the lack of a block to compare against.
+#[test]
+fn reader_needs_no_revalidation_when_index_has_no_blocks() {
+    let ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    assert_eq!(ii.number_of_blocks(), 0);
+
+    assert!(!ii.reader().needs_revalidation());
+}
+
+/// A block buffer that grows *in place* must be reported too. The reader's cached pointer still
+/// aims at live memory, so nothing dangles, but its cached length stops short of the appended
+/// entries — reading on would end the block early and drop them.
+#[test]
+#[cfg_attr(miri, ignore = "the memory hack below raises error in miri")]
+fn reader_needs_revalidation_when_block_buffer_grew_in_place() {
+    let mut ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    ii.add_record(&RSIndexResult::build_virt().doc_id(10).build())
+        .unwrap();
+
+    // Spare capacity up front, so the append below cannot move the buffer.
+    let base_before = crate::test_utils::reserve_block_buffer(&mut ii, 0, 128);
+
+    // SAFETY: mirrors a suspended cursor — the reader is parked and untouched while the index is
+    // written to. The write only appends into the block's spare capacity, leaving the
+    // `InvertedIndex` itself in place.
+    let ii_ptr = &mut ii as *mut InvertedIndex<Dummy>;
+
+    let ir = ii.reader();
+    assert!(!ir.needs_revalidation(), "index was not modified yet");
+
+    // SAFETY: see the `ii_ptr` construction above.
+    unsafe {
+        (*ii_ptr)
+            .add_record(&RSIndexResult::build_virt().doc_id(11).build())
+            .unwrap();
+    }
+    assert_eq!(
+        ii.block_ref(0).unwrap().data().as_ptr(),
+        base_before,
+        "the append was supposed to grow the buffer in place"
+    );
+    assert_eq!(ii.gc_marker(), 0, "no GC ran");
+
+    assert!(ir.needs_revalidation(), "the cached length is now short");
+}
+
 #[test]
 fn reader_unique_docs() {
     let blocks = medium_thin_vec![
@@ -332,6 +379,22 @@ fn reader_is_index() {
 
     let ii2 = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
     assert!(!ir.points_to_ii(&ii2));
+}
+
+/// Reseating is only meant to refresh the reader's pointer to the index it
+/// already reads; moving it to another index would leave its position
+/// describing blocks it no longer reads.
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "reseat must not move the reader to a different index")]
+fn reseat_index_onto_another_index_panics() {
+    let ii = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    let other = InvertedIndex::<Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    let mut ir = ii.reader();
+
+    // SAFETY: violates requirement 1 on purpose: the identity check runs before
+    // anything is installed, and `other` is valid and not mutably aliased.
+    unsafe { ir.reseat_index(std::ptr::NonNull::from(&other)) };
 }
 
 #[test]
@@ -538,10 +601,6 @@ impl<'index, I: Iterator<Item = RSIndexResult<'index>>> IndexReader<'index> for 
 
     fn needs_revalidation(&self) -> bool {
         false
-    }
-
-    fn refresh_buffer_pointers(&mut self) {
-        unimplemented!("This test won't refresh buffer pointers")
     }
 
     fn current_block_max_score(&self, _scorer: &crate::block_max_score::BlockScorer) -> f64 {

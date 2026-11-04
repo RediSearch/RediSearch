@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# Copyright (c) 2006-Present, Redis Ltd.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+
 """Resolve PR context, eligibility, and failure logs for the auto-backport
 fix flow. See .github/workflows/task-backport_pr-agent-fix.yml.
 
@@ -7,7 +14,7 @@ this lives in `scripts/` — the file has to exist on the working tree).
 Verifies the trigger comment landed on an actual auto-backport PR,
 pulls the most recent failed `Pull Request Flow` run on the current
 HEAD, tails the failed-step logs, and gathers human-supplied
-`/backport-agent-context` hints. Writes a context JSON file to
+`/backport-context` hints. Writes a context JSON file to
 $RUNNER_TEMP that the Codex agent consumes via
 `BACKPORT_FIX_CONTEXT_FILE`.
 
@@ -15,7 +22,7 @@ Env contract (set by the workflow):
 - GH_TOKEN, GH_REPO, GITHUB_REPOSITORY -- consumed by `gh` / api paths.
 - RUNNER_TEMP, GITHUB_OUTPUT -- GitHub Actions standard.
 - PR_NUMBER_FROM_ISSUE -- the backport PR number.
-- COMMENT_BODY -- the `/backport-agent-fix [<inline context>]` comment.
+- COMMENT_BODY -- the `/backport-fix [<inline context>]` comment.
 
 Exit codes mirror resolve_create: 0 with skip=true on every "nothing to
 do" outcome, 0 with skip=false on success, non-zero only for genuine
@@ -41,22 +48,40 @@ LOG_TAIL_LINES = 200
 
 TRUSTED_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 
+# The login the workflow gives the bot (git identity + the App token's author).
+# Every dedup decision keyed off the bot must verify `.user.login == BOT_LOGIN`:
+# the marker text below is public, so an untrusted commenter could otherwise
+# forge it to suppress or resurface feedback.
+BOT_LOGIN = "redis-pr-app[bot]"
+
+# When the bot replies to a general PR comment or a review body it addressed, it
+# embeds this marker (see pr-backport-auto-fix.md) naming the exact item it
+# handled, e.g. `<!-- backport-agent-addressed: comment:123 -->`. Repeated fix
+# runs dedup on these markers rather than a coarse timestamp cutoff: only an item
+# the bot actually replied to is filtered out, so feedback an applied fix left
+# open (out of scope, or whose reply failed) is preserved for the next run
+# instead of being silently dropped once an "applied" summary is posted.
+ADDRESSED_MARKER_RE = re.compile(
+    r"<!--\s*backport-agent-addressed:\s*(comment|review):(\d+)\s*-->"
+)
+
 
 # ---- helpers -----------------------------------------------------------------
 
 
-# The first line must be exactly `/backport-agent-fix`, optionally followed by
+# The first line must be exactly `/backport-fix`, optionally followed by
 # whitespace and inline context. Anchored so longer words don't match.
-FIX_COMMAND_RE = re.compile(r"^/backport-agent-fix(\s|$)")
+FIX_COMMAND_RE = re.compile(r"^/backport-fix(\s|$)")
+CONTEXT_COMMAND_RE = re.compile(r"^/backport-context(?:\s|$)")
 
 
 def is_fix_command(comment_body: str) -> bool:
-    """True iff the first line's command token is exactly `/backport-agent-fix`.
+    """Accept the exact `/backport-fix` command token.
 
-    The workflow's `if:` gate uses `startsWith(body, '/backport-agent-fix')`,
-    which also matches longer words like `/backport-agent-fixes`. Those are not
+    The workflow's `if:` gate uses `startsWith(body, '/backport-fix')`,
+    which also matches longer words like `/backport-fixes`. Those are not
     our command; without this check `strip_inline_context` would strip the
-    `/backport-agent-fix` prefix and feed the mangled remainder (`es ...`) to
+    `/backport-fix` prefix and feed the mangled remainder (`es ...`) to
     the agent as inline context. Require an exact command token instead.
     """
     if not comment_body:
@@ -65,11 +90,11 @@ def is_fix_command(comment_body: str) -> bool:
 
 
 def strip_inline_context(comment_body: str) -> str:
-    """Return everything after `/backport-agent-fix` on the first line."""
+    """Return everything after `/backport-fix` on the first line."""
     if not comment_body:
         return ""
     first_line = comment_body.splitlines()[0]
-    return re.sub(r"^/backport-agent-fix\s*", "", first_line)
+    return re.sub(r"^/backport-fix\s*", "", first_line)
 
 
 def parse_canonical_backport_refs(body: str) -> tuple[int | None, str]:
@@ -138,7 +163,7 @@ def fetch_failed_jobs_and_excerpts(run_id: int) -> tuple[list[str], list[dict]]:
     failures on later pages are dropped from both `failed_jobs` and
     `log_excerpts`, which would silently hide the actual failing job.
     Use `gh_paginated_array` (the same helper we use for
-    /backport-agent-context comments) to stitch pages.
+    /backport-context comments) to stitch pages.
     """
     repo = os.environ["GITHUB_REPOSITORY"]
     jobs = common.gh_paginated_array(
@@ -163,7 +188,7 @@ def fetch_failed_jobs_and_excerpts(run_id: int) -> tuple[list[str], list[dict]]:
 
 
 def fetch_trusted_context_comments(pr: int) -> list[str]:
-    """All `/backport-agent-context <text>` bodies authored by write-level
+    """All `/backport-context <text>` bodies authored by write-level
     commenters, stripped of the command prefix.
 
     The author-association filter (OWNER/MEMBER/COLLABORATOR) is the
@@ -176,16 +201,351 @@ def fetch_trusted_context_comments(pr: int) -> list[str]:
         "api", "-X", "GET", f"repos/{repo}/issues/{pr}/comments",
         "--jq",
         "[ .[] "
-        '| select(.body | startswith("/backport-agent-context")) '
+        '| select(.body | startswith("/backport-context")) '
         "| select(.author_association == \"OWNER\" "
         '     or .author_association == "MEMBER" '
         '     or .author_association == "COLLABORATOR") '
         "| .body ]",
     )
     return [
-        re.sub(r"^/backport-agent-context\s*", "", b, count=1)
-        for b in bodies if b
+        CONTEXT_COMMAND_RE.sub("", b, count=1).lstrip()
+        for b in bodies if b and CONTEXT_COMMAND_RE.match(b)
     ]
+
+
+# A general comment starting with this is a slash-command, not reviewer
+# feedback: `/backport` / `/backport-fix` are triggers, and
+# `/backport-context` is already collected into `context[]`. The bot's own
+# output (summaries, `🤖 Re:` replies) is filtered by AUTHOR (== BOT_LOGIN), not
+# by body prefix — a `🤖`/`Re:` content check would also drop a maintainer's
+# comment that happens to quote the bot's heading.
+_COMMAND_PREFIX = "/backport"
+
+# Bound the reviewer feedback handed to the agent so a PR with many or very
+# large trusted comments (e.g. a pasted CI log in a review comment) can't bloat
+# the context JSON past the Codex step's input limit before it even attempts the
+# CI fix. Each body is clipped; each list keeps only its newest entries.
+MAX_FEEDBACK_ITEMS = 40
+MAX_FEEDBACK_BODY_CHARS = 4000
+_TRUNCATION_NOTE = "\n… [truncated by auto-backport-fix]"
+
+
+def _clip_body(body: str) -> str:
+    """Clip an over-long feedback body, leaving a visible truncation marker."""
+    if len(body) <= MAX_FEEDBACK_BODY_CHARS:
+        return body
+    return body[:MAX_FEEDBACK_BODY_CHARS] + _TRUNCATION_NOTE
+
+
+# `reviewThreads` is paginated (100 per page); a busy PR can exceed one page.
+# `$after` is a nullable cursor — omitted (→ null) on the first call by
+# `gh_graphql`, then set from `pageInfo.endCursor` on subsequent pages.
+#
+# The nested `comments(last:100)` fetches the *most recent* 100 comments of each
+# thread rather than the first 100. On a thread with >100 comments that keeps
+# `comments[-1]` accurate (it is genuinely the latest comment, so the
+# "did the bot already reply?" check below is correct) and keeps the freshest
+# reviewer feedback in view; older buried comments matter less for a fix run.
+REVIEW_THREADS_QUERY = """
+query($owner:String!, $repo:String!, $pr:Int!, $after:String) {
+  repository(owner:$owner, name:$repo) {
+    pullRequest(number:$pr) {
+      reviewThreads(first:100, after:$after) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          isResolved
+          isOutdated
+          path
+          line
+          comments(last:100) {
+            nodes { author { login __typename } authorAssociation body createdAt }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def _owner_repo() -> tuple[str, str]:
+    """Split `owner/repo` from GITHUB_REPOSITORY."""
+    repo = os.environ["GITHUB_REPOSITORY"]
+    owner, _, name = repo.partition("/")
+    return owner, name
+
+
+def addressed_feedback(pr: int) -> dict[str, str]:
+    """`{"comment:123": "<ack-time>", ...}` — for each feedback item a prior fix
+    run replied to, the timestamp of the (latest) bot reply that acknowledged
+    it, read back from the acknowledgement markers the bot embedded in its own
+    replies.
+
+    Only markers in comments authored by `BOT_LOGIN` count: the marker text is
+    public, so gating on the bot author stops an untrusted commenter from
+    forging a marker to hide (or, by omission, resurface) feedback. Per-item
+    identity is what makes this precise — a single applied fix that handled some
+    comments but left others open records markers only for the ones it replied
+    to, so the rest survive to the next run.
+
+    The timestamp lets the caller detect a comment that was *edited after* it
+    was addressed (its `updated_at` moves past the ack): that revised feedback
+    is surfaced again rather than staying hidden behind the stale marker.
+    Best-effort: {} on gh failure.
+    """
+    repo = os.environ["GITHUB_REPOSITORY"]
+    rows = common.gh_paginated_array(
+        "api", "-X", "GET", f"repos/{repo}/issues/{pr}/comments",
+        "--jq",
+        f'[ .[] | select(.user.login == "{BOT_LOGIN}") '
+        "| {created_at, body} ]",
+    )
+    acked: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        created = row.get("created_at") or ""
+        for kind, num in ADDRESSED_MARKER_RE.findall(row.get("body") or ""):
+            token = f"{kind}:{num}"
+            if created > acked.get(token, ""):
+                acked[token] = created
+    return acked
+
+
+def fetch_unresolved_review_threads(pr: int) -> list[dict]:
+    """Unresolved inline review threads whose root comment was authored by a
+    write-level user (OWNER/MEMBER/COLLABORATOR), across ALL pages.
+
+    Returns one entry per thread: its GraphQL node id (needed by the agent to
+    call `resolveReviewThread`), the `path`/`line` it anchors to, and the
+    write-level comment bodies in the thread. The author-association filter is
+    the same prompt-injection gate used for `/backport-context` — threads
+    started by non-write-level users are dropped here and reach the agent only
+    (if at all) as untrusted evidence, never as actionable input.
+
+    A thread qualifies if it holds **any** trusted (write-level) non-empty
+    comment — not only when its ROOT comment is trusted. That keeps threads a
+    non-write-level user (or a review bot) opened but a maintainer later
+    replied to with actionable feedback; the per-comment trust filter still
+    drops the untrusted comments themselves.
+
+    Each entry carries `bot_replied_last`: true when the bot has replied *after
+    the latest trusted comment* (not necessarily as the thread's final
+    commenter). Such a thread was already addressed by a prior run whose
+    `resolveReviewThread` did not stick (a clean resolve would have flipped
+    `isResolved`), so it is surfaced as **resolution-only** work
+    rather than skipped — the agent retries the resolve without posting a
+    duplicate reply (see pr-backport-auto-fix.md). Best-effort: any gh failure
+    returns the pages gathered so far rather than aborting the run.
+    """
+    owner, repo = _owner_repo()
+    threads: list[dict] = []
+    after: str | None = None
+    while True:
+        data = common.gh_graphql(
+            REVIEW_THREADS_QUERY, owner=owner, repo=repo, pr=pr, after=after,
+        )
+        try:
+            conn = data["repository"]["pullRequest"]["reviewThreads"]
+            nodes = conn["nodes"]
+        except (TypeError, KeyError):
+            break
+
+        for node in nodes or []:
+            if node.get("isResolved"):
+                continue
+            comments = ((node.get("comments") or {}).get("nodes")) or []
+            if not comments:
+                continue
+            # Actionable feedback must be a write-level *human*: exclude any
+            # Bot-typed author regardless of association. A review bot or machine
+            # account carrying MEMBER/COLLABORATOR would otherwise inject text
+            # the agent (holding contents+workflows write) treats as an order.
+            # This predicate MUST be applied everywhere a comment counts as
+            # trusted feedback (both the body list and the index math below),
+            # or the two disagree and a bot comment can skew `bot_replied_last`.
+            def _is_trusted_human(c: dict) -> bool:
+                return (c.get("authorAssociation") in TRUSTED_ASSOCIATIONS
+                        and bool(c.get("body"))
+                        and ((c.get("author") or {}).get("__typename")) != "Bot")
+
+            bodies = [
+                {
+                    "author": ((c.get("author") or {}).get("login")) or "",
+                    "body": _clip_body(c.get("body") or ""),
+                }
+                for c in comments
+                if _is_trusted_human(c)
+            ]
+            if not bodies:
+                continue
+            # Keep the newest trusted comments if a thread is enormous.
+            bodies = bodies[-MAX_FEEDBACK_ITEMS:]
+            # "The bot already handled the current feedback" means the bot
+            # replied *after the latest trusted comment* — not that the bot is
+            # the thread's absolute final commenter. Otherwise an untrusted
+            # contributor or unrelated bot commenting after the bot's reply would
+            # flip this off and make the next run re-address and re-reply. If a
+            # NEW trusted comment lands after the bot's reply, this is False and
+            # the feedback is treated as actionable again.
+            last_trusted_idx = max(
+                (i for i, c in enumerate(comments) if _is_trusted_human(c)),
+                default=-1,
+            )
+            last_bot_idx = max(
+                (i for i, c in enumerate(comments)
+                 if ((c.get("author") or {}).get("login")) == BOT_LOGIN),
+                default=-1,
+            )
+            bot_replied_last = last_bot_idx > last_trusted_idx
+            # Newest comment timestamp in this snapshot. The agent re-checks the
+            # thread just before resolving and refuses to resolve if a newer
+            # non-bot comment has appeared since — otherwise a reviewer follow-up
+            # that lands after this snapshot would be auto-closed unseen.
+            latest_comment_at = max(
+                (c.get("createdAt") or "" for c in comments), default=""
+            )
+            threads.append({
+                "thread_id": node.get("id"),
+                "path": node.get("path"),
+                "line": node.get("line"),
+                "is_outdated": bool(node.get("isOutdated")),
+                "bot_replied_last": bot_replied_last,
+                "latest_comment_at": latest_comment_at,
+                "comments": bodies,
+            })
+
+        page = conn.get("pageInfo") or {}
+        if not page.get("hasNextPage"):
+            break
+        after = page.get("endCursor")
+        if not after:
+            break
+    # Cap the number of threads, keeping those with the most recent activity, so
+    # an unusually busy PR can't blow the agent's context budget.
+    if len(threads) > MAX_FEEDBACK_ITEMS:
+        threads.sort(key=lambda t: t.get("latest_comment_at") or "")
+        threads = threads[-MAX_FEEDBACK_ITEMS:]
+    return threads
+
+
+def fetch_general_pr_comments(pr: int, acked: dict[str, str]) -> list[dict]:
+    """Write-level general (issue-style) PR comments, excluding the bot's own
+    output and `/backport*` command comments.
+
+    Same author-association trust gate as the review-thread / context
+    collectors, plus `.user.type != "Bot"`: a machine account carrying
+    MEMBER/COLLABORATOR must not have its text treated as actionable human
+    feedback. The bot's own comments are also dropped by AUTHOR
+    (`== BOT_LOGIN`), not by body prefix, so a maintainer's comment that quotes
+    the bot's `🤖 …` heading is still surfaced. `/backport*` command comments are
+    skipped by prefix (they're triggers, and `/backport-context` is
+    already collected into `context[]`). Each entry keeps its `id` and `kind`
+    ("comment") so the agent can stamp the acknowledgement marker when it
+    replies.
+
+    An item the bot already replied to (its `comment:<id>` token is in `acked`)
+    is filtered out — UNLESS the comment was edited after that reply
+    (`updated_at` is later than the ack), in which case the revised feedback is
+    surfaced again rather than staying hidden behind the stale marker.
+    """
+    repo = os.environ["GITHUB_REPOSITORY"]
+    raw = common.gh_paginated_array(
+        "api", "-X", "GET", f"repos/{repo}/issues/{pr}/comments",
+        "--jq",
+        "[ .[] "
+        '| select(.user.type != "Bot") '
+        "| select(.author_association == \"OWNER\" "
+        '     or .author_association == "MEMBER" '
+        '     or .author_association == "COLLABORATOR") '
+        "| {id: .id, author: .user.login, body: .body, updated_at: .updated_at} ]",
+    )
+    out: list[dict] = []
+    for c in raw:
+        if not isinstance(c, dict):
+            continue
+        body = c.get("body") or ""
+        if not body or (c.get("author") or "") == BOT_LOGIN:
+            continue
+        if body.startswith(_COMMAND_PREFIX):
+            continue
+        ack_ts = acked.get(f"comment:{c.get('id')}")
+        if ack_ts is not None and (c.get("updated_at") or "") <= ack_ts:
+            continue
+        out.append({"id": c.get("id"), "kind": "comment",
+                    "author": c.get("author") or "", "body": _clip_body(body)})
+    # Keep the newest items (the API returns comments oldest-first).
+    return out[-MAX_FEEDBACK_ITEMS:]
+
+
+def fetch_review_bodies(pr: int, acked: dict[str, str]) -> list[dict]:
+    """Write-level top-level PR *review* bodies (the summary text of a review,
+    e.g. a "Request changes" with no inline comment).
+
+    Such feedback is stored as a pull-request review, not an issue comment or a
+    review thread, so neither of the other collectors sees it. Same trust gate
+    and per-item `acked` dedup as `fetch_general_pr_comments`, including the
+    `.user.type != "Bot"` exclusion; the bot's own reviews are also dropped by
+    author (`== BOT_LOGIN`). There is no thread to
+    resolve — the agent replies via a normal PR comment, exactly as for general
+    comments, so entries share the same shape with `kind` set to "review".
+
+    Unlike issue comments, the reviews endpoint exposes no edit timestamp, so a
+    review whose `review:<id>` token is in `acked` is suppressed on presence
+    alone (review bodies are seldom edited after submission).
+
+    `DISMISSED` (and not-yet-submitted `PENDING`) reviews are excluded: a
+    dismissed review is feedback the reviewer explicitly withdrew. A review body
+    is also dropped when the same author later submitted an `APPROVED` review
+    (GitHub keeps the superseded record un-dismissed): the approval means the
+    reviewer is satisfied, so an earlier request-changes/comment body is stale
+    and must not be re-applied. A request-changes submitted *after* an approval
+    (a fresh review round) is newer than that approval and is kept.
+    """
+    repo = os.environ["GITHUB_REPOSITORY"]
+    # Fetch state + submitted_at too, and do NOT drop empty bodies in jq: an
+    # empty-body APPROVED review still supersedes that author's earlier bodies,
+    # so we need to see it here.
+    raw = common.gh_paginated_array(
+        "api", "-X", "GET", f"repos/{repo}/pulls/{pr}/reviews",
+        "--jq",
+        "[ .[] "
+        '| select(.user.type != "Bot") '
+        "| select(.author_association == \"OWNER\" "
+        '     or .author_association == "MEMBER" '
+        '     or .author_association == "COLLABORATOR") '
+        '| select(.state != "DISMISSED" and .state != "PENDING") '
+        "| {id: .id, author: .user.login, body: (.body // \"\"), "
+        "   state: .state, submitted_at: .submitted_at} ]",
+    )
+    rows = [r for r in raw if isinstance(r, dict)]
+
+    # Latest APPROVED submission time per author.
+    approved_at: dict[str, str] = {}
+    for r in rows:
+        if r.get("state") == "APPROVED":
+            author = r.get("author") or ""
+            ts = r.get("submitted_at") or ""
+            if ts > approved_at.get(author, ""):
+                approved_at[author] = ts
+
+    out: list[dict] = []
+    for r in rows:
+        body = r.get("body") or ""
+        author = r.get("author") or ""
+        if not body or author == BOT_LOGIN:
+            continue
+        if f"review:{r.get('id')}" in acked:
+            continue
+        # Superseded by a later (or same-time) approval from this author.
+        if r.get("state") != "APPROVED" and author in approved_at \
+                and (r.get("submitted_at") or "") <= approved_at[author]:
+            continue
+        out.append({"id": r.get("id"), "kind": "review",
+                    "author": author, "body": _clip_body(body)})
+    # Keep the newest items (the API returns reviews oldest-first).
+    return out[-MAX_FEEDBACK_ITEMS:]
 
 
 # ---- main --------------------------------------------------------------------
@@ -201,12 +561,15 @@ def main() -> int:
     comment_body = os.environ.get("COMMENT_BODY", "")
     if not is_fix_command(comment_body):
         # The workflow `if:` gate is a cheap `startsWith` pre-filter that also
-        # admits siblings like `/backport-agent-fixes`. Reject anything whose
-        # command token isn't exactly `/backport-agent-fix` so we never spin up
+        # admits siblings like `/backport-fixes`. Reject anything whose
+        # command token isn't exactly `/backport-fix` so we never spin up
         # Codex on a mistyped/unrelated command.
-        common.skip("Comment is not exactly the /backport-agent-fix command; skipping.")
+        common.skip("Comment is not exactly the /backport-fix command; skipping.")
 
     inline_context = strip_inline_context(comment_body)
+
+    if not common.has_write_permission(os.environ.get("GITHUB_ACTOR", "")):
+        common.skip("Backport fixes require repository write permission")
 
     pr_data = common.fetch_pr(pr, [
         "number", "headRefName", "baseRefName", "state",
@@ -238,7 +601,7 @@ def main() -> int:
     # provisioned out-of-band and a create run may legitimately fail to attach
     # it (e.g. the label definition is missing from the repo). Gating on a label
     # the create flow couldn't apply would lock a human out of
-    # `/backport-agent-fix` on an otherwise-valid backport PR, which is exactly
+    # `/backport-fix` on an otherwise-valid backport PR, which is exactly
     # the case where the fix flow is most useful.
     if not branch.startswith(BRANCH_PREFIX):
         common.skip(
@@ -261,6 +624,19 @@ def main() -> int:
     if inline_context:
         context_bodies.append(inline_context)
 
+    # Write-level reviewer feedback the agent should try to address alongside the
+    # CI-failure fix: unresolved inline review threads (which it can mark
+    # resolved), plus general PR comments and top-level review bodies (which it
+    # can only reply to). Comments/reviews the bot already replied to in a prior
+    # run are filtered out per-item via its acknowledgement markers, so a
+    # repeated run neither re-replies to handled feedback nor drops feedback it
+    # left open; review threads self-dedup via their resolved state and the
+    # bot-replied-last flag.
+    acked = addressed_feedback(int(pr))
+    review_threads = fetch_unresolved_review_threads(int(pr))
+    pr_comments = (fetch_general_pr_comments(int(pr), acked)
+                   + fetch_review_bodies(int(pr), acked))
+
     runner_temp = os.environ["RUNNER_TEMP"]
     context_file = os.path.join(runner_temp, "auto-backport-fix-context.json")
     common.write_context(context_file, {
@@ -275,6 +651,8 @@ def main() -> int:
         "failed_jobs": failed_jobs,
         "log_excerpts": excerpts,
         "context": context_bodies,
+        "review_threads": review_threads,
+        "pr_comments": pr_comments,
     })
 
     common.set_output("skip", "false")

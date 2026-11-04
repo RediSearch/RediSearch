@@ -53,13 +53,18 @@ Use this for RediSearch OSS release branch creation from `master`.
      Use the matching branch for PR/MQ only if it exists. Otherwise keep `master` and add a TODO in the workflow.
    - Preserve newer master CI infrastructure unless it conflicts with the release-branch gating policy.
 
-6. Validate.
+6. Register the new line for backports.
+   - Add the new branch to `release_branches` in `.github/release-branches.json` **on `master`** (oldest first; put a `-rse` variant immediately after its base line). This is what `/backport-agent >= <version>` expands over, so a line missing from the file is silently skipped by every "this version and newer" backport request.
+   - Create the matching backport labels so the label-driven flows can target the line: `backport <target-branch>` (legacy `task-backport_pr.yml` flow) and `backport-<target-branch>-agent` (Codex agent flow). Copy the description/colour convention from the previous line's labels.
+   - Retiring a line is the mirror image: remove it from the file. Leaving a dead branch listed is harmless — the backport agent's per-target `git ls-remote` pre-flight skips it — but keeping the list truthful avoids confusing expansion output.
+
+7. Validate.
    - Inspect diffs for `8.8`, `master`, and the new branch so release-only CI behavior is intentional.
    - Manually trigger `Nightly Flow` on the new branch if needed:
      `gh workflow run event-nightly.yml --repo RediSearch/RediSearch --ref <target-branch>`.
    - Remember that scheduled workflows run from the default branch; use manual dispatch for release branch nightlies unless a dedicated schedule exists.
 
-7. Future sync policy.
+8. Future sync policy.
    - Prefer normal merges from `master` into the release branch while the release branch is still tracking master closely.
    - Do not force-push or overwrite the official release branch.
    - During master-to-release merges, preserve release-only files such as `src/version.h` and release-branch CI differences.

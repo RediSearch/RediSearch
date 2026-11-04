@@ -41,7 +41,7 @@
 // (`ReducerDistCtx::alloc`).
 #define DIST_REDUCER_BLOCK_SIZE ((size_t)128)
 
-static char *getLastAlias(const PLN_GroupStep *gstp) {
+static const char *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;
 }
 
@@ -61,6 +61,14 @@ static const char *distAllocU64Str(BlkAlloc *alloc, uint64_t v) {
   size_t len = (size_t)n + 1;
   auto p = (char *)BlkAlloc_Alloc(alloc, len, std::max(len, DIST_REDUCER_BLOCK_SIZE));
   memcpy(p, buf, len);
+  return p;
+}
+
+// Copy `s` into the distribute step's allocator, which outlives the plan steps that borrow from it.
+static const char *distAllocStr(BlkAlloc *alloc, const char *s, size_t len) {
+  auto p = (char *)BlkAlloc_Alloc(alloc, len + 1, std::max(len + 1, DIST_REDUCER_BLOCK_SIZE));
+  memcpy(p, s, len);
+  p[len] = '\0';
   return p;
 }
 
@@ -95,7 +103,14 @@ struct ReducerDistCtx {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
-    array_tail(gstp->reducers).isLocal = (gstp == this->localGroup);
+    PLN_Reducer *added = &array_tail(gstp->reducers);
+    // The arguments here are assembled from other steps' strings rather than the held argv, so
+    // the reducer keeps its own copy instead of depending on their teardown order.
+    if (!added->ownsAlias) {
+      added->alias = rm_strdup(added->alias);
+      added->ownsAlias = true;
+    }
+    added->isLocal = (gstp == this->localGroup);
     if (alias) {
       *alias = getLastAlias(gstp);
     }
@@ -142,7 +157,8 @@ struct ReducerDistCtx {
   }
 
   const char *srcarg(size_t n) const {
-    auto *s = (const char *)srcReducer->args.objs[n];
+    // Type-aware: hybrid tail plans carry RString-backed arg cursors.
+    const char *s = AC_StringArg(&srcReducer->args, n, NULL);
     return stripAtPrefix(s);
   }
 };
@@ -362,12 +378,12 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   }
   array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
   std::string ss = std::string("(@") + localSumSumAlias + "/@" + localCountSumAlias + ")";
-  HiddenString *expr = NewHiddenString(ss.c_str(), ss.length(), false);
-  PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
-  HiddenString_Free(expr, false);
+  PLN_MapFilterStep *applyStep =
+      PLNMapFilterStep_New(distAllocStr(rdctx->alloc, ss.c_str(), ss.length()), ss.length(), PLN_T_APPLY);
   applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
                              // are not allowed to override aliases
-  applyStep->base.alias = rm_strdup(src->alias);
+  // `src` belongs to the original group step, which the distribute step keeps until the plan is freed.
+  applyStep->base.alias = src->alias;
 
   RS_ASSERT(rdctx->currentLocal);
   AGPLN_AddAfter(rdctx->localPlan, rdctx->currentLocal, &applyStep->base);
@@ -380,7 +396,7 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
  *
  * Both halves of the split GROUPBY forward the original COLLECT argv pointers
  * verbatim; only what actually differs between the two sides is synthesized.
- * FIELDS / SORTBY tokens are reused directly from `src->args.objs` — no
+ * FIELDS / SORTBY tokens reuse the source tokens' own string buffers — no
  * per-token duplication.
  *
  * Limited path: whenever the user supplied `LIMIT offset count`, the remote
@@ -408,13 +424,14 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   }
 
   const size_t srcArgc = src->args.argc;  // reducer args (no leading <nargs>)
-  auto srcObjs = (const char **)src->args.objs;
+  // Source tokens are read type-aware (the plan cursor may be RString-backed);
+  // each returned buffer is owned by the request for its whole lifetime.
 
   // Locate the LIMIT offset slot in the original argv.
-  size_t limitValIdx = SIZE_MAX;  // index into srcObjs of the LIMIT offset token
+  size_t limitValIdx = SIZE_MAX;  // index of the LIMIT offset token
   if (args.has_limit) {
     for (size_t i = 0; i + 2 < srcArgc; i++) {
-      if (!strcasecmp(srcObjs[i], "LIMIT")) {
+      if (!strcasecmp(AC_StringArg(&src->args, i, NULL), "LIMIT")) {
         limitValIdx = i + 1;
         break;
       }
@@ -434,8 +451,9 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
   // validated) COLLECT grammar it only appears `@`-prefixed, as a number, or as
   // `*`, so a bare alphabetic token can only be an option keyword.
   for (size_t i = 0; i < srcArgc; i++) {
-    const char *normalized = CollectArgs_NormalizedKeyword(srcObjs[i]);
-    remoteObjs[1 + i] = normalized ? normalized : srcObjs[i];
+    const char *tok = AC_StringArg(&src->args, i, NULL);
+    const char *normalized = CollectArgs_NormalizedKeyword(tok);
+    remoteObjs[1 + i] = normalized ? normalized : tok;
   }
   if (args.has_limit) {
     remoteObjs[1 + limitValIdx] = distAllocU64Str(rdctx->alloc, 0);
@@ -460,7 +478,9 @@ static int distributeCollect(ReducerDistCtx *rdctx, QueryError *status) {
       rdctx->alloc, sizeof(char *) * localTotal,
       std::max(sizeof(char *) * localTotal, DIST_REDUCER_BLOCK_SIZE));
   localObjs[0] = distAllocU64Str(rdctx->alloc, srcArgc);  // unchanged count
-  memcpy(localObjs + 1, srcObjs, srcArgc * sizeof(char *));
+  for (size_t i = 0; i < srcArgc; i++) {
+    localObjs[1 + i] = AC_StringArg(&src->args, i, NULL);
+  }
   localObjs[srcArgc + 1] = "AS";          // static literal, outside <nargs>
   localObjs[srcArgc + 2] = src->alias;    // owned by src; outlives this call
   ArgsCursor localArgs;
@@ -670,10 +690,8 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
         while (!AC_IsAtEnd(&ac)) {
           const char *name = AC_GetStringNC(&ac, NULL);
 
-          // Check for AS alias
-          if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
-            RS_ASSERT(!AC_IsAtEnd(&ac));
-            name = AC_GetStringNC(&ac, NULL); // structure is validated earlier, can safely assume it's not at the end
+          if (AC_NumRemaining(&ac) >= 2 && AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
+            name = AC_GetStringNC(&ac, NULL);
           }
           name = stripAtPrefix(name);
           RLookup_GetKey_Write(lookup, name, RLOOKUP_F_NOFLAGS);

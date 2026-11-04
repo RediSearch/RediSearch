@@ -7,12 +7,12 @@
  * with care.
  */
 
-#include "config.h"
 #include "casemap.h"
+#include "config.h"
 #include "defines.h"
 #include "strings.h"
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 extern "C" {
 #endif
 
@@ -225,7 +225,7 @@ const char* _nu_strstr(const char *haystack, const char *haystack_limit,
 
 #endif /* (defined NU_WITH_Z_COLLATION) || (defined NU_WITH_N_COLLATION) */
 
-#if defined (__cplusplus) || defined (c_plusplus)
+#if defined(__cplusplus) || defined(c_plusplus)
 }
 #endif
 

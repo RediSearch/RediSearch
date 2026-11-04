@@ -70,10 +70,10 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
     int rc = Trie_InsertRuneNoSize(trie, runes, rlen, 1, ADD_REPLACE, &payload, 0);
     RS_LOG_ASSERT(rc != TRIE_ERR_PAYLOAD_OVERFLOW,
                   "Trie_InsertRuneNoSize failed due to payload overflow");
-    if (rc == TRIE_ERR_PAYLOAD_OVERFLOW) {
+    if (rc < 0) {
       RedisModule_Log(
           RSDummyContext, "warning",
-          "Suffix trie: Trie_InsertRuneNoSize() failed due to payload overflow, suffix trie entry was not added");
+          "Suffix trie: Trie_InsertRuneNoSize() failed (%d), suffix trie entry was not added", rc);
       array_free(newdata.array);
       rm_free(copyStr);
       runeBufFree(&buf);
@@ -92,18 +92,25 @@ void addSuffixTrie(Trie *trie, const char *str, uint32_t len) {
 
     data = Suffix_GetData(trienode);
     if (!data) {
+      // Trie_InsertRune silently drops keys at or past TRIE_INITIAL_STRING_LEN, so
+      // building a payload for one strands it. The shorter suffixes that follow are
+      // still insertable, so this must not bail out.
+      if (rlen - j >= TRIE_INITIAL_STRING_LEN) {
+        continue;
+      }
+
       suffixData newdata = createSuffixNode(copyStr, 0);
       RSPayload payload = { .data = (char*)&newdata, .len = sizeof(newdata) };
       int rc = Trie_InsertRune(trie, runes + j, rlen - j, 1, ADD_REPLACE, &payload, 0);
       RS_LOG_ASSERT(rc != TRIE_ERR_PAYLOAD_OVERFLOW,
                   "TrieNode_Add failed due to payload overflow");
-      if (rc == TRIE_ERR_PAYLOAD_OVERFLOW) {
+      // Each suffix is its own key, so the shorter ones may still fit where this one did not.
+      if (rc < 0) {
         RedisModule_Log(
             RSDummyContext, "warning",
-            "Suffix trie: Trie_InsertRune() failed due to payload overflow, suffix trie entry was not added");
+            "Suffix trie: Trie_InsertRune() failed (%d), suffix trie entry was not added", rc);
         array_free(newdata.array);
-        runeBufFree(&buf);
-        return;
+        continue;
       }
 
     } else {
@@ -217,115 +224,76 @@ void Suffix_IterateContains(SuffixCtx *sufCtx) {
 /***********************************************************************************
 *                                    Wildcard                                      *
 ************************************************************************************/
-int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
-  int runner = 0;
-  int i = 0;
-  int init = 0;
-  while (i < len) {
-    // save location of token
-    if (str[i] != '*') {
-      tokenIdx[runner] = i;
-      init = 1;
-    }
-    // skip all characters other than `*`
-    while (i < len && str[i] != '*') {
-      ++i;
-    }
-    // save length of token
-    if (init) {
-      tokenLen[runner] = i - tokenIdx[runner];
-      ++runner;
-    }
-    // skip `*` characters
-    while (str[i] == '*') {
-      ++i;
-    }
-  }
-
-  // choose best option
+// Shared by the char and rune scorers; elemSize is a constant at each call
+// site, so the element read below is resolved at compile time once inlined.
+static inline int chooseToken(const void *str, size_t elemSize, size_t len,
+                              bool ordinalBonus, size_t *tokenIdx, size_t *tokenLen) {
+#define ELEM(j) (elemSize == 1 ? ((const char *)str)[j] : ((const rune *)str)[j])
   int score = INT32_MIN;
   int retidx = REDISEARCH_UNINITIALIZED;
-  for (int i = 0; i < runner; ++i) {
-    // 1. long string are likely to have less results
-    // 2. tokens at end of pattern are likely to be more relevant
-    int curScore = tokenLen[i] + i;
-
-    // iterating all children is demanding
-    if (str[tokenIdx[i] + tokenLen[i]] == '*') {
-      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
+  int ordinal = 0;
+  size_t i = 0;
+  while (i < len) {
+    // skip `*` characters
+    while (i < len && ELEM(i) == '*') {
+      ++i;
     }
-
-    // this branching is heavy
-    for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
-      if (str[j] == '?') {
+    if (i == len) {
+      break;
+    }
+    size_t start = i;
+    // 1. long string are likely to have less results
+    // 2. score ties are broken in favor of the later token (`>=` below)
+    int curScore = ordinalBonus ? ordinal : 1;
+    while (i < len && ELEM(i) != '*') {
+      // this branching is heavy
+      if (ELEM(i) == '?') {
         --curScore;
       }
+      ++i;
+    }
+    curScore += i - start;
+
+    // iterating all children is demanding
+    if (i < len) {
+      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
     }
 
     if (curScore >= score) {
       score = curScore;
-      retidx = i;
+      retidx = ordinal;
+      *tokenIdx = start;
+      *tokenLen = i - start;
     }
+    ++ordinal;
   }
+#undef ELEM
 
   return retidx;
+}
+
+int Suffix_ChooseToken(const char *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
+  // tokens at end of pattern are likely to be more relevant
+  return chooseToken(str, sizeof(char), len, true, tokenIdx, tokenLen);
 }
 
 int Suffix_ChooseToken_rune(const rune *str, size_t len, size_t *tokenIdx, size_t *tokenLen) {
-  int runner = 0;
-  int i = 0;
-  int init = 0;
-  while (i < len) {
-    // save location of token
-    if (str[i] != (rune)'*') {
-      tokenIdx[runner] = i;
-      init = 1;
-    }
-    // skip all characters other than `*`
-    while (i < len && str[i] != (rune)'*') {
-      ++i;
-    }
-    // save length of token
-    if (init) {
-      tokenLen[runner] = i - tokenIdx[runner];
-      ++runner;
-    }
-    // skip `*` characters
-    while (str[i] == (rune)'*') {
-      ++i;
-    }
-  }
-
-  // choose best option
-  int score = INT32_MIN;
-  int retidx = REDISEARCH_UNINITIALIZED;
-  for (int i = 0; i < runner; ++i) {
-    // 1. long string are likely to have less results
-    // 2. tokens at end of pattern are likely to be more relevant
-    int curScore = tokenLen[i] + 1;
-
-    // iterating all children is demanding
-    if (str[tokenIdx[i] + tokenLen[i]] == (rune)'*') {
-      curScore -= SUFFIX_STARRED_ANCHOR_PENALTY;
-    }
-
-    // this branching is heavy
-    for (int j = tokenIdx[i]; j < tokenIdx[i] + tokenLen[i]; ++j) {
-      if (str[j] == (rune)'?') {
-        --curScore;
-      }
-    }
-
-    if (curScore >= score) {
-      score = curScore;
-      retidx = i;
-    }
-  }
-
-  return retidx;
+  return chooseToken(str, sizeof(rune), len, false, tokenIdx, tokenLen);
 }
 
-int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, size_t numDocsInTerm) {
+// True if the UTF-8 string contains a supplementary-plane codepoint
+// (> U+FFFF, i.e. a 4-byte sequence, lead byte 0xF0..0xF4).
+static bool containsSupplementaryCodepoint(const char *str, size_t len) {
+  for (size_t i = 0; i < len; ++i) {
+    if ((unsigned char)str[i] >= 0xF0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+int Suffix_CB_Wildcard(const rune *keyRunes, size_t keyLen, void *p, void *payload,
+                       size_t numDocsInTerm) {
   SuffixCtx *sufCtx = p;
   TriePayload *pl = payload;
   if (!pl) {
@@ -335,9 +303,23 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, siz
   suffixData *data = (suffixData *)TriePayload_Data(pl);
   arrayof(char *) array = data->array;
   for (int i = 0; i < array_len(array); ++i) {
-    if (Wildcard_MatchChar(sufCtx->cstr, sufCtx->cstrlen, array[i], strlen(array[i]))
-            == FULL_MATCH) {
-      if (sufCtx->callback(array[i], strlen(array[i]), sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
+    size_t termLen = strlen(array[i]);
+    // The brute-force scan over the terms trie can never return terms with
+    // supplementary-plane codepoints: the 16-bit rune representation
+    // truncates them, so the inverted-index key it derives no longer exists.
+    // Skip such candidates to keep both paths result-identical.
+    if (containsSupplementaryCodepoint(array[i], termLen)) {
+      continue;
+    }
+    // Match rune-wise so `?` consumes one codepoint, keeping results
+    // identical to the brute-force scan over the terms trie.
+    runeBuf buf;
+    size_t termRuneLen;
+    rune *termRunes = runeBufFill(array[i], termLen, &buf, &termRuneLen);
+    match_t match = Wildcard_MatchRune(sufCtx->rune, sufCtx->runelen, termRunes, termRuneLen);
+    runeBufFree(&buf);
+    if (match == FULL_MATCH) {
+      if (sufCtx->callback(array[i], termLen, sufCtx->cbCtx, NULL) != REDISMODULE_OK) {
         return REDISEARCH_ERR;
       }
     }
@@ -346,23 +328,25 @@ int Suffix_CB_Wildcard(const rune *rune, size_t len, void *p, void *payload, siz
 }
 
 int Suffix_IterateWildcard(SuffixCtx *sufCtx) {
-  size_t idx[sufCtx->cstrlen];
-  size_t lens[sufCtx->cstrlen];
-  int useIdx = Suffix_ChooseToken_rune(sufCtx->rune, sufCtx->runelen, idx, lens);
-
-  if (useIdx == REDISEARCH_UNINITIALIZED) {
+  size_t tokidx, toklen;
+  if (Suffix_ChooseToken_rune(sufCtx->rune, sufCtx->runelen, &tokidx, &toklen) ==
+      REDISEARCH_UNINITIALIZED) {
     return 0;
   }
 
-  rune *token = sufCtx->rune + idx[useIdx];
-  size_t toklen = lens[useIdx];
-  if (token[toklen] == (rune)'*') {
+  if (tokidx + toklen < sufCtx->runelen && sufCtx->rune[tokidx + toklen] == (rune)'*') {
     toklen++;
   }
+  // The trie walk wants a NUL-terminated token, but the pattern buffer must
+  // stay intact: Suffix_CB_Wildcard re-filters every candidate against
+  // sufCtx->rune while the iteration is running. Terminate a copy instead.
+  // The copy is heap-allocated because its length is client-controlled.
+  rune *token = rm_malloc((toklen + 1) * sizeof(rune));
+  memcpy(token, sufCtx->rune + tokidx, toklen * sizeof(rune));
   token[toklen] = (rune)'\0';
 
-  Trie_IterateWildcard(sufCtx->trie, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->timeout,
-                       sufCtx->skipTimeoutChecks);
+  Trie_IterateWildcard(sufCtx->trie, token, toklen, Suffix_CB_Wildcard, sufCtx, sufCtx->limits);
+  rm_free(token);
   return 1;
 }
 
@@ -504,18 +488,14 @@ end:
 
 arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern, uint32_t len,
                                               struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks) {
-  size_t idx[len];
-  size_t lens[len];
+  size_t tokenidx, tokenlen;
   // find best token
-  int useIdx = Suffix_ChooseToken(pattern, len, idx, lens);
-  if (useIdx == REDISEARCH_UNINITIALIZED) {
+  if (Suffix_ChooseToken(pattern, len, &tokenidx, &tokenlen) == REDISEARCH_UNINITIALIZED) {
     return BAD_POINTER;
   }
 
-  size_t tokenidx = idx[useIdx];
-  size_t tokenlen = lens[useIdx];
   // if token end with '*', we iterate all its children
-  int prefix = pattern[tokenidx + tokenlen] == '*';
+  int prefix = tokenidx + tokenlen < len && pattern[tokenidx + tokenlen] == '*';
 
   TrieMapIterator *it = TrieMap_IterateWithFilter(trie, pattern + tokenidx, tokenlen + prefix, TM_WILDCARD_MODE);
   if (!it) return NULL;

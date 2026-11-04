@@ -5,7 +5,9 @@ name: Common Flow for Python Flow Tests
 # Reusable workflow that runs the Python flow tests (`make pytest`) against a
 # pre-built RediSearch module produced by `task-build.yml`. The build artifact
 # is downloaded into `bin/` and exactly one mode (`standalone` or `coordinator`)
-# is exercised per job invocation. No C/C++ or Rust compilation happens here.
+# is exercised per job invocation. No compilation happens here at all: the
+# redis-server and the RedisJSON module come from their own artifacts, uploaded
+# by `task-build-redis.yml` and `task-build-rejson.yml`.
 
 on:
   workflow_call:
@@ -24,9 +26,9 @@ on:
         type: boolean
         default: false
       redis-ref:
-        description: 'Redis version to use (e.g. "7.2.3", "unstable")'
+        description: 'Redis git ref to use (e.g. "7.2.3", "unstable", or a commit sha)'
         type: string
-        default: 3cd464263b03b425ffae2e23db24df3dc9346871
+        default: '559d143b4e0409c452f7d229ba420954b6b647a2'
       test-config:
         description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
@@ -42,7 +44,7 @@ on:
       rejson-branch:
         type: string
         default: master
-        description: "Branch to use when building RedisJSON for tests"
+        description: "RedisJSON ref the module in rejson-artifact-name was built from (reported by the test harness; nothing is built here)"
       test-timeout:
         type: number
         default: 120
@@ -59,6 +61,14 @@ on:
         default: 1
       artifact-name:
         description: 'Workflow artifact name to download (produced by task-build.yml).'
+        type: string
+        required: true
+      redis-artifact-name:
+        description: 'Workflow artifact holding redis-install.tar.gz (produced by task-build-redis.yml).'
+        type: string
+        required: true
+      rejson-artifact-name:
+        description: 'Workflow artifact holding rejson.so (produced by task-build-rejson.yml). Only downloaded when rejson is true.'
         type: string
         required: true
       # Resolved platform config — produced by task-get-config.yml at the
@@ -120,12 +130,16 @@ jobs:
   common-flow:
     name: ${{ inputs.test-mode == 'standalone' && 'Standalone' || 'Coordinator' }} flow tests${{ inputs.shard-total > 1 && format(' [{0}/{1}]', inputs.shard-index, inputs.shard-total) || '' }} on ${{ inputs.name }}, Redis ${{ inputs.redis-ref }}
     runs-on: ${{ inputs.env || vars.RUNS_ON || 'ubuntu-latest' }}
+    # Runner-local env is unavailable while GitHub creates the job container.
+    # Use the resolved runner label as the pre-container signal for GitHub-hosted
+    # mounts; runner-local env is not available yet.
     container: ${{
       inputs.container
         && fromJSON(
-          format('{{"image":"{0}","options":"--user root -v /usr/share/dotnet:/host_usr/dotnet -v /usr/local/lib/android:/host_usr/android -v /opt/ghc:/host_opt/ghc -v /opt/hostedtoolcache:/host_opt/hostedtoolcache {1}"}}',
+          format('{{"image":"{0}","options":"--user root {1} {2}"}}',
             inputs.image-built == 'true' && inputs.image || inputs.container,
-            startsWith(inputs.container, 'alpine:') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '')
+            startsWith(inputs.container, 'alpine:') && (startsWith(inputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /opt:/opt:rw,rshared -v /opt:/__e/node20:ro,rshared -v /opt:/__e/node24:ro,rshared' || '-v /opt/gha-alpine-node:/opt:rw -v /opt/gha-alpine-node:/__e/node20:ro -v /opt/gha-alpine-node:/__e/node24:ro') || '',
+            startsWith(inputs.env || vars.RUNS_ON || 'ubuntu-latest', 'ubuntu') && '-v /usr/share/dotnet:/host/usr/share/dotnet -v /usr/local/lib/android:/host/usr/local/lib/android -v /opt/ghc:/host/opt/ghc -v /opt/hostedtoolcache:/host/opt/hostedtoolcache' || '')
         )
       || null }}
 
@@ -147,30 +161,25 @@ jobs:
         shell: sh -l -eo pipefail {0}
         run: ${{ format(env.SETUP_RETRY_LOOP, 'apk add bash') }}
 
-      - name: Free up disk space (container)
-        if: ${{ inputs.container }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          rm -rf /host_usr/dotnet/* 2>/dev/null || true
-          rm -rf /host_usr/android/* 2>/dev/null || true
-          rm -rf /host_opt/ghc/* 2>/dev/null || true
-          rm -rf /host_opt/hostedtoolcache/CodeQL/* 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
-      - name: Free up disk space (non-container)
-        if: ${{ !inputs.container && !contains(inputs.env, 'macos') }}
-        run: |
-          echo "Before cleanup:"
-          df -h
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
-          sudo rm -rf /usr/local/share/boost || true
-          docker system prune -af 2>/dev/null || true
-          echo "After cleanup:"
-          df -h
+      - name: Setup Dependencies
+        if: inputs.image-built != 'true' && inputs.setup-script
+        env:
+          SETUP_SCRIPT: ${{ inputs.setup-script }}
+        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
+
+      - name: Post-setup
+        if: inputs.post-setup-script
+        env:
+          POST_SETUP_SCRIPT: ${{ inputs.post-setup-script }}
+        run: eval "$POST_SETUP_SCRIPT"
+
+      - name: Full checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          submodules: recursive
+
+      - name: Free up disk space
+        uses: ./.github/actions/github-hosted-runner-cleanup
       - name: Fix HOME Directory
         if: ${{ inputs.image-built == 'true' && inputs.container }}
         shell: bash
@@ -187,31 +196,6 @@ jobs:
           echo "id: $(id)"
           echo "HOME=$h" >> "$GITHUB_ENV"
 
-      - name: Setup Dependencies
-        if: inputs.image-built != 'true' && inputs.setup-script
-        env:
-          SETUP_SCRIPT: ${{ inputs.setup-script }}
-        run: ${{ format(env.SETUP_RETRY_LOOP, 'eval "$SETUP_SCRIPT"') }}
-
-      - name: Post-setup
-        if: inputs.post-setup-script
-        env:
-          POST_SETUP_SCRIPT: ${{ inputs.post-setup-script }}
-        run: eval "$POST_SETUP_SCRIPT"
-      - name: Free up disk space
-        env:
-          INSTALL_MODE: ${{ inputs.install-mode }}
-        run: |
-          df -h
-          $INSTALL_MODE rm -rf /usr/share/dotnet || true
-          $INSTALL_MODE rm -rf /usr/local/lib/android || true
-          $INSTALL_MODE rm -rf /opt/ghc || true
-          $INSTALL_MODE rm -rf /opt/hostedtoolcache/CodeQL || true
-          df -h
-      - name: Full checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          submodules: recursive
       - name: Setup build environment
         uses: ./.github/actions/setup-build-env
         with:
@@ -219,13 +203,19 @@ jobs:
           image-built: ${{ inputs.image-built }}
           san: ${{ inputs.san }}
           install-script: 'true'
+          rust-test-deps: ${{ inputs.coverage }}
+          github-token: ${{ github.token }}
           python-test-deps: 'true'
           sanitizer-setup: 'true'
           # Flow tests only need the ASAN symbolizer, not CC/CXX/LD pinned to clang.
           llvm-full-config: 'false'
-          # No compilation happens in this job, Redis included: the build job
-          # ships its redis-install tree in the artifact and we unpack it below.
+          # No compilation happens in this job, Redis included: the Redis build
+          # job ships its install tree as an artifact and we unpack it below.
           build-redis: 'false'
+
+      - name: Setup LCOV
+        if: inputs.coverage
+        uses: ./.github/actions/setup-lcov
 
       - name: Set Artifact Names
         id: artifact-names
@@ -262,7 +252,13 @@ jobs:
           echo "Module binaries:"
           find bin -name 'redisearch.so' -o -name 'redisearch.dylib' 2>/dev/null
 
-      - name: Restore Redis from build artifact
+      - name: Download Redis artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.redis-artifact-name }}
+          # redis-install.tar.gz lands in the working directory; unpacked next.
+
+      - name: Restore Redis from artifact
         # Same install tree, same toolchain as the module under test. The
         # `--version` check mirrors what RLTest parses to decide the server
         # version (it wants a "v=<version>" field on stdout): assert it here so a
@@ -293,6 +289,31 @@ jobs:
             chmod 0644 /etc/profile.d/redis-prefix.sh
           fi
 
+      - name: Download RedisJSON artifact
+        if: ${{ inputs.rejson }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ inputs.rejson-artifact-name }}
+          # rejson.tar.gz lands in the working directory; unpacked next.
+
+      - name: Unpack RedisJSON module
+        # Into bin/, where REJSON_PATH points below. Runs after the bin/ unpack
+        # so that tarball can never clobber it. The execute bit is asserted, not
+        # assumed: Redis checks X_OK before loading a module and refuses a
+        # non-executable one, and every server in the job then fails to start —
+        # which surfaces as every test reporting "Connection refused" with the
+        # cause only visible in the per-server logs.
+        if: ${{ inputs.rejson }}
+        run: |
+          set -euo pipefail
+          tar -xzf rejson.tar.gz -C bin
+          rm rejson.tar.gz
+          ls -l bin/rejson.so
+          [[ -x bin/rejson.so ]] || {
+            echo "::error::bin/rejson.so is not executable; Redis will refuse to load it"
+            exit 1
+          }
+
       # Enumerate the suite (LIST=1 => RLTest --collect-only, one "<file>:<test>"
       # spec per line). Needed to shard and as the input to flaky filtering.
       # Runs whenever we shard (shard-total > 1) OR can filter (internal PRs); a
@@ -304,7 +325,7 @@ jobs:
           SAN: ${{ inputs.san }}
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
-          # rejson.so was prebuilt and restored from the artifact; point
+          # rejson.so came from the RedisJSON build job's artifact; point
           # setup_rejson.sh at it so enumeration doesn't clone+build RedisJSON.
           REJSON_PATH: ${{ github.workspace }}/bin/rejson.so
           # Enumerate in the same mode the shard runs in, so collection matches.
@@ -406,8 +427,8 @@ jobs:
           FAILEDFILE: .failed_standalone.txt
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
-          # rejson.so was prebuilt by the build job and restored from the artifact.
-          # Pointing REJSON_PATH at it makes setup_rejson.sh skip its clone+build.
+          # rejson.so came from the RedisJSON build job's artifact. Pointing
+          # REJSON_PATH at it makes setup_rejson.sh skip its clone+build.
           REJSON_PATH: ${{ github.workspace }}/bin/rejson.so
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
@@ -430,8 +451,8 @@ jobs:
           FAILEDFILE: .failed_coordinator.txt
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
-          # rejson.so was prebuilt by the build job and restored from the artifact.
-          # Pointing REJSON_PATH at it makes setup_rejson.sh skip its clone+build.
+          # rejson.so came from the RedisJSON build job's artifact. Pointing
+          # REJSON_PATH at it makes setup_rejson.sh skip its clone+build.
           REJSON_PATH: ${{ github.workspace }}/bin/rejson.so
           ENABLE_ASSERT: 1
           TEST_CONFIG: ${{ inputs.test-config }}
@@ -549,6 +570,16 @@ jobs:
           echo "Flow tests (standalone): ${{ steps.standalone_tests.outcome }}"
           echo "Flow tests (coordinator): ${{ steps.coordinator_tests.outcome }}"
           exit 1
+
+      - name: Summarize branch coverage
+        if: inputs.coverage
+        env:
+          TEST_MODE: ${{ inputs.test-mode }}
+        run: |
+          python3 .github/scripts/coverage_summary.py \
+            --lcov "C ${TEST_MODE} flow" "bin/flow_${TEST_MODE}.info" \
+            --lcov "Rust ${TEST_MODE} flow" "bin/rust_flow_${TEST_MODE}.info"
+
       - name: Import Codecov GPG public key
         if: inputs.coverage
         run: gpg --import .github/codecov_gpg.pub
@@ -556,7 +587,7 @@ jobs:
         if: inputs.coverage && inputs.test-mode == 'standalone'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_standalone.info
+          files: bin/flow_standalone.info,bin/rust_flow_standalone.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}
@@ -565,7 +596,7 @@ jobs:
         if: inputs.coverage && inputs.test-mode == 'coordinator'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6.0.2 NOSONAR
         with:
-          files: bin/flow_coordinator.info
+          files: bin/flow_coordinator.info,bin/rust_flow_coordinator.info
           disable_search: true
           flags: flow
           fail_ci_if_error: ${{ env.IS_FORK_PR != 'true' }}

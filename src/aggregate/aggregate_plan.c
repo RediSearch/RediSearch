@@ -12,9 +12,11 @@
 #include <string.h>
 
 #include "obfuscation/hidden.h"
+#include "query_error.h"
 #include "rlookup_ffi.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+#include "spec.h"
 #include "util/dllist.h"
 
 static const char *steptypeToString(PLN_StepType type) {
@@ -235,6 +237,22 @@ PLN_LoadStep *PLNLoadStep_Clone(const PLN_LoadStep *original) {
   return cloned;
 }
 
+int PLNLoadStep_ValidateArgs(const ArgsCursor *args, QueryError *status) {
+  ArgsCursor ac = *args;
+  while (!AC_IsAtEnd(&ac)) {
+    AC_Advance(&ac);  // the field path
+    if (AC_AdvanceIfMatch(&ac, SPEC_AS_STR)) {
+      if (AC_IsAtEnd(&ac)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                            "LOAD path AS name - must be accompanied with NAME");
+        return REDISMODULE_ERR;
+      }
+      AC_Advance(&ac);  // the alias
+    }
+  }
+  return REDISMODULE_OK;
+}
+
 RLookup *AGPLN_GetLookup(const AGGPlan *pln, const PLN_BaseStep *bstp, AGPLNGetLookupMode mode) {
   const DLLIST_node *first = NULL, *last = NULL;
   int isReverse = 0;
@@ -328,7 +346,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
       case PLN_T_LOAD: {
         const PLN_LoadStep *lstp = (PLN_LoadStep *)stp;
         for (size_t ii = 0; ii < lstp->args.argc; ++ii) {
-          printf("  %s\n", (char *)lstp->args.objs[ii]);
+          printf("  %s\n", AC_StringArg(&lstp->args, ii, NULL));
         }
         break;
       }
@@ -346,7 +364,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
             printf("    ARGS:[");
           }
           for (size_t jj = 0; jj < r->args.argc; ++jj) {
-            printf("%s ", (char *)r->args.objs[jj]);
+            printf("%s ", AC_StringArg(&r->args, jj, NULL));
           }
           printf("]\n");
         }
@@ -375,7 +393,7 @@ static inline void append_uint(myArgArray_t *arr, unsigned long long ll) {
 }
 static inline void append_ac(myArgArray_t *arr, const ArgsCursor *ac) {
   for (size_t ii = 0; ii < ac->argc; ++ii) {
-    append_string(arr, AC_StringArg(ac, ii));
+    append_string(arr, AC_StringArg(ac, ii, NULL));
   }
 }
 

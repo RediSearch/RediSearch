@@ -93,7 +93,9 @@ pub struct GeoShape<'index, T, E, M: MemTracker> {
     /// duplicates (the geometry index does not guarantee uniqueness); they are
     /// yielded as-is.
     ids: OwnedSlice<DocId>,
-    /// Position of the next document ID to return. `offset == ids.len()` means EOF.
+    /// Position of the next document ID to return. `== ids.len()` means the last
+    /// id was read and the iterator still sits on it; `> ids.len()` means a read
+    /// or skip has since run past the end (see [`Self::past_end`]).
     offset: usize,
     /// The last document ID returned by [`read`](Self::read) or
     /// [`skip_to`](Self::skip_to). Reset to 0 on [`rewind`](Self::rewind).
@@ -171,10 +173,34 @@ where
         self.tracked_bytes
     }
 
-    /// Whether there are document IDs left to yield.
+    /// Whether there are document IDs left to yield, i.e. the next `read` will
+    /// find a candidate.
+    ///
+    /// Already `false` one step before [`Self::past_end`], while the iterator
+    /// still sits on its last id.
     #[inline(always)]
     fn has_next(&self) -> bool {
         self.offset < self.ids.len()
+    }
+
+    /// Whether the iterator has run *past* its last id, i.e. a `read`/`skip_to`
+    /// found nothing.
+    ///
+    /// The state behind [`current`](RQEIterator::current) and
+    /// [`at_eof`](RQEIterator::at_eof), encoded as in [`IdList`](crate::IdList) by
+    /// letting `offset` take one step beyond `ids.len()`. `last_doc_id` is a
+    /// separate field here, so that step is invisible to parents choosing skip
+    /// targets.
+    #[inline(always)]
+    fn past_end(&self) -> bool {
+        self.offset > self.ids.len()
+    }
+
+    /// Record that a `read`/`skip_to` ran off the end. Idempotent, and one-way
+    /// until [`rewind`](RQEIterator::rewind).
+    #[inline(always)]
+    fn mark_past_end(&mut self) {
+        self.offset = self.ids.len() + 1;
     }
 
     /// Examine the next candidate document, applying the field-expiration filter.
@@ -183,8 +209,10 @@ where
         let Some(&doc_id) = self.ids.get(self.offset) else {
             // No candidate to commit: keep `result` on the last valid doc so an
             // expired candidate probed on a previous iteration cannot leak via
-            // `current` once the scan settles on EOF.
+            // `current` once the scan settles on EOF. `current` reports nothing
+            // from here on anyway, but `last_doc_id` stays meaningful.
             self.result.doc_id = self.last_doc_id;
+            self.mark_past_end();
             return SingleRead::Eof;
         };
         self.offset += 1;
@@ -193,7 +221,13 @@ where
         // before the check.
         self.result.doc_id = doc_id;
         if self.expiration_checker.is_expired(&self.result) {
-            // The candidate is expired and must never surface.
+            // The candidate is expired and must never surface. Put `result` back on
+            // the last valid doc rather than leaving the candidate in it: the
+            // caller's loop checks its timeout between iterations, and returning
+            // there would otherwise leave `current` reporting this expired id while
+            // `last_doc_id` reports the previous valid one. Same reasoning as the
+            // `Eof` arm above.
+            self.result.doc_id = self.last_doc_id;
             return SingleRead::NotFound;
         }
 
@@ -273,6 +307,9 @@ where
 {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
+        if self.past_end() {
+            return None;
+        }
         Some(&mut self.result)
     }
 
@@ -298,6 +335,7 @@ where
         debug_assert!(self.last_doc_id < doc_id, "We're trying to skip backwards!");
 
         if !self.has_next() {
+            self.mark_past_end();
             return Ok(None);
         }
 
@@ -305,7 +343,7 @@ where
         let last = *self.ids.last().expect("non-empty list");
         if doc_id > last {
             // Past the end: mark EOF without touching `last_doc_id`.
-            self.offset = self.ids.len();
+            self.mark_past_end();
             return Ok(None);
         }
 
@@ -361,7 +399,7 @@ where
 
     #[inline(always)]
     fn at_eof(&self) -> bool {
-        !self.has_next()
+        self.past_end()
     }
 
     fn revalidate(

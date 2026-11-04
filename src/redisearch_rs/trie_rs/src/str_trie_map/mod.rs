@@ -41,11 +41,11 @@ impl<Data> StrTrieMap<Data> {
 
     /// Insert or update a `&str`-keyed entry via a callback.
     /// See [`TrieMap::insert_with`].
-    pub fn insert_with<F>(&mut self, key: &str, f: F)
+    pub fn insert_with<F>(&mut self, key: &str, f: F) -> bool
     where
         F: FnOnce(Option<Data>) -> Data,
     {
-        self.inner.insert_with(key.as_bytes(), f);
+        self.inner.insert_with(key.as_bytes(), f)
     }
 
     /// Remove a `&str`-keyed entry. See [`TrieMap::remove`].
@@ -82,6 +82,11 @@ impl<Data> StrTrieMap<Data> {
         self.inner.mem_usage()
     }
 
+    /// Borrow the underlying byte-keyed [`TrieMap`].
+    pub const fn byte_trie(&self) -> &TrieMap<Data> {
+        &self.inner
+    }
+
     /// Iterate over all entries in lexicographical key order. See [`TrieMap::iter`].
     ///
     /// Yields `(String, &Data)` — keys are decoded back into owned `String`s
@@ -94,9 +99,8 @@ impl<Data> StrTrieMap<Data> {
     /// order. See [`TrieMap::prefixed_iter`].
     ///
     /// Byte-prefix matching is codepoint-safe because UTF-8 codepoint
-    /// boundaries align with byte boundaries. Empty `prefix` yields zero
-    /// matches (this differs from the inner method, which would yield all
-    /// entries).
+    /// boundaries align with byte boundaries. Empty `prefix` yields every
+    /// entry — the empty string is a prefix of every key.
     pub fn prefixed_iter(&self, prefix: &str) -> iter::PrefixedIter<'_, Data> {
         iter::PrefixedIter::new(&self.inner, prefix)
     }
@@ -105,9 +109,8 @@ impl<Data> StrTrieMap<Data> {
     /// `prefix`, in lexicographical order. See [`TrieMap::prefixed_values`].
     ///
     /// Byte-prefix matching is codepoint-safe because UTF-8 codepoint
-    /// boundaries align with byte boundaries. Empty `prefix` yields zero
-    /// matches (this differs from the inner method, which would yield all
-    /// entries).
+    /// boundaries align with byte boundaries. Empty `prefix` yields every
+    /// value — the empty string is a prefix of every key.
     pub fn prefixed_values(&self, prefix: &str) -> iter::PrefixedValues<'_, Data> {
         iter::PrefixedValues::new(&self.inner, prefix)
     }
@@ -115,14 +118,19 @@ impl<Data> StrTrieMap<Data> {
     /// Yield every entry whose key ends with `suffix`. Filters by byte
     /// `ends_with` — correct because UTF-8 is self-synchronizing (a
     /// multibyte sequence cannot be a suffix of another codepoint). Empty
-    /// `suffix` yields zero matches.
+    /// `suffix` yields every entry — the empty string is a suffix of every
+    /// key.
     pub fn suffixed_iter(&self, suffix: &str) -> iter::SuffixedIter<'_, Data> {
         iter::SuffixedIter::new(&self.inner, suffix)
     }
 
     /// Yield every entry whose key contains `target` as a substring.
-    /// Empty `target` yields zero matches — without this short-circuit
-    /// memchr semantics would match every term.
+    /// Empty `target` yields every entry — the empty string is a substring
+    /// of every key.
+    ///
+    /// The iterator borrows `target`; call
+    /// [`ContainsIter::into_owned`](iter::ContainsIter::into_owned) to
+    /// detach it from that borrow.
     pub fn contains_iter<'tm, 'p>(&'tm self, target: &'p str) -> iter::ContainsIter<'tm, 'p, Data> {
         iter::ContainsIter::new(&self.inner, target)
     }

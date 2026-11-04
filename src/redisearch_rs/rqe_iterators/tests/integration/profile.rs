@@ -14,45 +14,47 @@ use rqe_iterators::{
     profile::{Profile, ProfileCounters},
 };
 
+use rqe_iterators_test_utils::ContractChecker;
+
 use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
 
 #[test]
 fn type_() {
     let child = Wildcard::new(10, 1.0);
-    let it = Profile::new(child);
+    let it = ContractChecker::new(Profile::new(child));
     assert_eq!(it.type_(), IteratorType::Profile);
 }
 
 #[test]
 fn initial_state() {
     let child = Wildcard::new(10, 1.0);
-    let profile = Profile::new(child);
+    let profile = ContractChecker::new(Profile::new(child));
 
-    assert_eq!(profile.counters().read, 0);
-    assert_eq!(profile.counters().skip_to, 0);
-    assert_eq!(profile.counters().eof, false);
-    assert_eq!(profile.wall_time_ns(), 0);
+    assert_eq!(profile.inner().counters().read, 0);
+    assert_eq!(profile.inner().counters().skip_to, 0);
+    assert_eq!(profile.inner().counters().eof, false);
+    assert_eq!(profile.inner().wall_time_ns(), 0);
 }
 
 #[test]
 fn profile_read() {
     let child = Wildcard::new(3, 1.0);
-    let mut profile = Profile::new(child);
+    let mut profile = ContractChecker::new(Profile::new(child));
 
     // Read all docs
     for i in 1..=3 {
         let result = profile.read().unwrap();
         assert!(result.is_some());
-        assert_eq!(profile.counters().read, i);
+        assert_eq!(profile.inner().counters().read, i);
     }
 
-    assert_eq!(profile.counters().skip_to, 0);
-    assert!(!profile.counters().eof);
+    assert_eq!(profile.inner().counters().skip_to, 0);
+    assert!(!profile.inner().counters().eof);
 
     // Next read returns None -> EOF
     let result = profile.read().unwrap();
     assert!(result.is_none());
-    assert!(profile.counters().eof);
+    assert!(profile.inner().counters().eof);
 }
 
 #[test]
@@ -64,31 +66,31 @@ fn initial_read_timed_out() {
             Duration::from_secs(1),
         ))));
 
-    let mut profile = Profile::new(child);
+    let mut profile = ContractChecker::new(Profile::new(child));
 
     assert!(matches!(
         profile.read(),
         Err(rqe_iterators::RQEIteratorError::TimedOut),
     ));
 
-    assert!(profile.wall_time_ns() >= 1_000_000_000);
+    assert!(profile.inner().wall_time_ns() >= 1_000_000_000);
 }
 
 #[test]
 fn profile_skip_to() {
     let child = Wildcard::new(10, 1.0);
-    let mut profile = Profile::new(child);
+    let mut profile = ContractChecker::new(Profile::new(child));
 
     let _ = profile.skip_to(5);
-    assert_eq!(profile.counters().skip_to, 1);
-    assert_eq!(profile.counters().read, 0);
-    assert!(!profile.counters().eof);
+    assert_eq!(profile.inner().counters().skip_to, 1);
+    assert_eq!(profile.inner().counters().read, 0);
+    assert!(!profile.inner().counters().eof);
 
     // Skip beyond range -> EOF
     let result = profile.skip_to(100).unwrap();
     assert!(result.is_none());
-    assert_eq!(profile.counters().skip_to, 2);
-    assert!(profile.counters().eof);
+    assert_eq!(profile.inner().counters().skip_to, 2);
+    assert!(profile.inner().counters().eof);
 }
 
 #[test]
@@ -100,20 +102,20 @@ fn initial_skip_to_timedout() {
             Duration::from_secs(1),
         ))));
 
-    let mut profile = Profile::new(child);
+    let mut profile = ContractChecker::new(Profile::new(child));
 
     assert!(matches!(
         profile.skip_to(1),
         Err(rqe_iterators::RQEIteratorError::TimedOut),
     ));
 
-    assert!(profile.wall_time_ns() >= 1_000_000_000);
+    assert!(profile.inner().wall_time_ns() >= 1_000_000_000);
 }
 
 #[test]
 fn profile_delegates_to_child() {
     let child = Wildcard::new(10, 2.5);
-    let mut profile = Profile::new(child);
+    let mut profile = ContractChecker::new(Profile::new(child));
 
     assert_eq!(profile.last_doc_id(), 0);
     assert_eq!(profile.num_estimated(), 10);
@@ -133,13 +135,13 @@ fn profile_delegates_to_child() {
 #[test]
 fn profile_rewind() {
     let child = Wildcard::new(10, 1.0);
-    let mut profile = Profile::new(child);
+    let mut profile = ContractChecker::new(Profile::new(child));
 
     // Read some docs
     let _ = profile.read(); // doc 1
     let _ = profile.read(); // doc 2
     assert_eq!(profile.last_doc_id(), 2);
-    assert_eq!(profile.counters().read, 2);
+    assert_eq!(profile.inner().counters().read, 2);
 
     // Rewind
     profile.rewind();
@@ -151,14 +153,14 @@ fn profile_rewind() {
     // Can read from start again
     let result = profile.read().unwrap().unwrap();
     assert_eq!(result.doc_id, 1);
-    assert_eq!(profile.counters().read, 3); // counter keeps incrementing
+    assert_eq!(profile.inner().counters().read, 3); // counter keeps incrementing
 }
 
 #[test]
 fn profile_revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let child = Wildcard::new(10, 1.0);
-    let mut profile = Profile::new(child);
+    let mut profile = ContractChecker::new(Profile::new(child));
 
     let _ = profile.read(); // doc 1
     let _ = profile.read(); // doc 2
@@ -382,4 +384,12 @@ mod via_resume {
             "an unrecoverable type-erased child must abort the whole profile",
         );
     }
+}
+
+#[test]
+fn profile_upholds_current_contract() {
+    use rqe_iterators_test_utils::{assert_current_contract, assert_current_contract_via_skip_to};
+    let mut it = ContractChecker::new(Profile::new(Mock::new([10u64, 20, 30, 50, 80])));
+    assert_eq!(assert_current_contract(&mut it), [10, 20, 30, 50, 80]);
+    assert_current_contract_via_skip_to(&mut it, 81);
 }

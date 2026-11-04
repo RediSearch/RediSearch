@@ -58,10 +58,34 @@ RUST_TOOLCHAIN_MODIFIER="" # Rust toolchain to use (e.g., +nightly)
 
 # Rust code is built first, so exclude benchmarking crates that link C code,
 # since the static libraries they depend on haven't been built yet.
-EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher --exclude trie_bencher --exclude triemap_ffi --exclude ttl_table_bencher --exclude vector_score_source_bencher"
+EXCLUDE_RUST_BENCHING_CRATES_LINKING_C="--exclude inverted_index_bencher --exclude numeric_score_source_bencher --exclude rqe_iterators_bencher --exclude iterators_ffi --exclude top_k_bencher --exclude trie_bencher --exclude triemap_ffi --exclude ttl_table_bencher --exclude vector_score_source_bencher"
 
 # Retrieve our pinned nightly version.
 NIGHTLY_VERSION=$(cat ${ROOT}/.rust-nightly)
+source "$ROOT/.install/min_versions.sh"
+source "$ROOT/.install/version_compare.sh"
+
+LCOV_BRANCH_ARGS=(--branch-coverage)
+LCOV_CAPTURE_ARGS=(--branch-coverage --filter branch,region,branch_region)
+LCOV_ERROR_ARGS=(--ignore-errors inconsistent,corrupt,mismatch,negative)
+LCOV_CAPTURE_ERROR_ARGS=(--ignore-errors inconsistent,corrupt,mismatch,negative,unused)
+LCOV_REMOVE_ERROR_ARGS=(--ignore-errors inconsistent,corrupt,mismatch,negative,unused)
+
+require_supported_lcov() {
+  local lcov_output lcov_version
+  if ! lcov_output=$(lcov --version 2>&1); then
+    echo "[coverage] Error: LCOV ${LCOV_MIN_VERSION} or newer is required; lcov is unavailable: ${lcov_output}" >&2
+    exit 1
+  fi
+
+  if [[ "${lcov_output}" =~ LCOV\ version\ ([0-9]+([.][0-9]+)*) ]]; then
+    lcov_version="${BASH_REMATCH[1]}"
+  fi
+  if [[ -z "${lcov_version:-}" ]] || ! version_ge "$lcov_version" "$LCOV_MIN_VERSION"; then
+    echo "[coverage] Error: LCOV ${LCOV_MIN_VERSION} or newer is required; found: ${lcov_output}" >&2
+    exit 1
+  fi
+}
 
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
@@ -208,6 +232,11 @@ setup_test_configuration() {
 # Configure the build environment variables
 #-----------------------------------------------------------------------------
 setup_build_environment() {
+  # Sanitizer configuration is consumed by downstream build and test scripts.
+  if [[ -n "$SAN" ]]; then
+    export SAN
+  fi
+
   # Determine Rust toolchain
   if [[ -n "$SAN" || "$COV" == "1" || "$RUN_MIRI" == "1" ]]; then
     # For coverage, we use the `nightly` compiler in order to include doc tests in the coverage computation.
@@ -220,6 +249,8 @@ setup_build_environment() {
   # Determine build flavor
   if [ "$SAN" == "address" ]; then
     FLAVOR="debug-asan"
+  elif [[ "$SAN" == "alignment" ]]; then
+    FLAVOR="debug-alignment"
   elif [[ "$RUN_MIRI" == "1" ]]; then
     FLAVOR="debug-miri"
   elif [[ "$DEBUG" == "1" ]]; then
@@ -329,9 +360,12 @@ end_group() {
 #-----------------------------------------------------------------------------
 prepare_coverage_capture() {
   start_group "Code Coverage Preparation"
-  lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
+  require_supported_lcov
+  lcov --zerocounters --directory $BINROOT --base-directory $ROOT \
+    "${LCOV_BRANCH_ARGS[@]}"
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
-    --ignore-errors inconsistent,corrupt,mismatch \
+    "${LCOV_CAPTURE_ARGS[@]}" \
+    "${LCOV_CAPTURE_ERROR_ARGS[@]}" \
     --exclude '*/_deps/*'
   end_group
 }
@@ -352,28 +386,64 @@ capture_coverage() {
   # later command re-reads the affected trace file. Demote these to warnings so
   # coverage post-processing doesn't flake the job. 'mismatch' is kept as well to
   # cover lcov versions that classify the same disagreement under that name.
+  # 'negative' covers the same race producing a corrupted (wrapped-negative) hit count.
   lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info \
-    --ignore-errors inconsistent,corrupt,mismatch \
+    "${LCOV_CAPTURE_ARGS[@]}" \
+    "${LCOV_CAPTURE_ERROR_ARGS[@]}" \
     --exclude '*/_deps/*'
 
   # Accumulate results with the baseline captured before the test
   lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info \
-    --ignore-errors inconsistent,corrupt,mismatch
+    "${LCOV_BRANCH_ARGS[@]}" \
+    "${LCOV_ERROR_ARGS[@]}"
 
   # Extract only the coverage of the project source files
   lcov --output-file $BINROOT/source.info --extract $BINROOT/full.info \
-    --ignore-errors inconsistent,corrupt,mismatch \
+    "${LCOV_BRANCH_ARGS[@]}" \
+    "${LCOV_ERROR_ARGS[@]}" \
     "$ROOT/src/*" \
     "$ROOT/deps/thpool/*" \
 
   # Remove coverage for directories we don't want (ignore if no file matches)
-  lcov -o $BINROOT/$NAME.info --ignore-errors inconsistent,corrupt,mismatch,unused --remove $BINROOT/source.info \
+  lcov -o $BINROOT/$NAME.info --remove $BINROOT/source.info \
+    "${LCOV_BRANCH_ARGS[@]}" \
+    "${LCOV_REMOVE_ERROR_ARGS[@]}" \
     "*/tests/*" \
 
   end_group
 
   # Clean up temporary files
   rm $BINROOT/base.info $BINROOT/test.info $BINROOT/full.info $BINROOT/source.info
+}
+
+#-----------------------------------------------------------------------------
+# Function: capture_rust_module_coverage
+# Capture coverage from Rust code linked into redisearch.so
+#-----------------------------------------------------------------------------
+capture_rust_module_coverage() {
+  local name=$1
+  local module=$2
+  local rust_target_libdir
+  local llvm_tools_dir
+  local raw_profiles
+
+  raw_profiles=("$BINROOT/${name}-"*.profraw)
+  if [[ ${#raw_profiles[@]} -eq 1 && ! -f "${raw_profiles[0]}" ]]; then
+    echo "Error: no Rust module coverage profiles found for $name" >&2
+    exit 1
+  fi
+
+  rust_target_libdir=$(rustc $RUST_TOOLCHAIN_MODIFIER --print target-libdir)
+  llvm_tools_dir="$(dirname "$rust_target_libdir")/bin"
+  "$llvm_tools_dir/llvm-profdata" merge --sparse "${raw_profiles[@]}" \
+    --output="$BINROOT/$name.profdata"
+  "$llvm_tools_dir/llvm-cov" export "$module" \
+    --format=lcov \
+    --instr-profile="$BINROOT/$name.profdata" \
+    --ignore-filename-regex='/.cargo/|/.rustup/|/bin/redisearch_rs/' \
+    > "$BINROOT/$name.info"
+
+  rm -f "${raw_profiles[@]}" "$BINROOT/$name.profdata"
 }
 
 #-----------------------------------------------------------------------------
@@ -413,7 +483,9 @@ prepare_cmake_arguments() {
     # 1. Use CC/CXX/LD if set by user
     # 2. Otherwise, try clang-$VERSION matching Rust's LLVM version
     # 3. Otherwise, fall back to clang/clang++/lld
-    RUSTC_LLVM_VERSION=$(rustc --version --verbose | grep "LLVM version" | awk '{print $3}' | cut -d. -f1)
+    RUSTC_VERBOSE_VERSION=$(rustc --version --verbose)
+    RUSTC_LLVM_VERSION=$(echo "$RUSTC_VERBOSE_VERSION" | sed -n 's/^LLVM version: \([0-9]*\).*/\1/p')
+    RUST_TARGET_TRIPLE=${CARGO_BUILD_TARGET:-$(echo "$RUSTC_VERBOSE_VERSION" | sed -n 's/^host: //p')}
     if [[ -z "$CC" ]]; then
       if command -v "clang-$RUSTC_LLVM_VERSION" &>/dev/null; then
         C_COMPILER="clang-$RUSTC_LLVM_VERSION"
@@ -464,11 +536,12 @@ prepare_cmake_arguments() {
     # Use 'sed -E' for compatibility with both GNU sed and BSD sed
     CLANG_LLVM_VERSION=$($C_COMPILER --version | head -n1 | sed -En 's/.*version ([0-9]+).*/\1/p' | head -n1)
 
-    if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" ]]; then
-        echo "Error: Could not detect LLVM versions for rustc and clang."
-        echo "Cross-language LTO requires matching LLVM major versions."
+    if [[ -z "$RUSTC_LLVM_VERSION" || -z "$CLANG_LLVM_VERSION" || -z "$RUST_TARGET_TRIPLE" ]]; then
+        echo "Error: Could not detect LLVM versions or the Rust target triple."
+        echo "Cross-language LTO requires matching LLVM major versions and a Rust target triple."
         echo "Rust LLVM version: $RUSTC_LLVM_VERSION"
         echo "Clang LLVM version: $CLANG_LLVM_VERSION"
+        echo "Rust target triple: $RUST_TARGET_TRIPLE"
         exit 1
     fi
 
@@ -558,8 +631,13 @@ prepare_cmake_arguments() {
     # branch always compiles with clang, which flags those as
     # -Wunknown-warning-option — a hard error in vendored targets that add
     # -Werror (e.g. VectorSimilarity spaces). Silence that diagnostic.
-    export CFLAGS="${CFLAGS:+${CFLAGS} }-Wno-unknown-warning-option ${GCC_COMMON_FLAGS}"
-    export CXXFLAGS="${CXXFLAGS:+${CXXFLAGS} }-Wno-unknown-warning-option ${GCC_COMMON_FLAGS}${GCC_CXX_FLAGS:+ ${GCC_CXX_FLAGS}}"
+    # LLVM warns once per imported module if the C/C++ and Rust bitcode use
+    # semantically equivalent but differently spelled target triples (for
+    # example, Clang's x86_64-pc-linux-gnu versus Rust's
+    # x86_64-unknown-linux-gnu). Use Rust's effective target for every Clang
+    # invocation, including those issued by Rust `cc` build scripts.
+    export CFLAGS="${CFLAGS:+${CFLAGS} }--target=${RUST_TARGET_TRIPLE} -Wno-unknown-warning-option ${GCC_COMMON_FLAGS}"
+    export CXXFLAGS="${CXXFLAGS:+${CXXFLAGS} }--target=${RUST_TARGET_TRIPLE} -Wno-unknown-warning-option ${GCC_COMMON_FLAGS}${GCC_CXX_FLAGS:+ ${GCC_CXX_FLAGS}}"
     # Export CC/CXX so that Rust's cc crate also uses clang, matching the
     # clang-specific flags in CFLAGS/CXXFLAGS (e.g. --gcc-install-dir).
     export CC="$C_COMPILER"
@@ -588,8 +666,8 @@ prepare_cmake_arguments() {
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DREDISEARCH_GENERATE_HEADERS=OFF"
   fi
 
+  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
   if [[ -n "$SAN" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
     DEBUG="1"
   fi
 
@@ -694,6 +772,19 @@ prepare_cmake_arguments() {
     RUSTDOCFLAGS="${RUSTDOCFLAGS:+${RUSTDOCFLAGS} }-C link-args=-lgcov"
     export RUSTDOCFLAGS
   fi
+  if [[ $COV == "1" && $OS_NAME != "macos" ]]; then
+    # Rust is linked into redisearch.so as a static library, so rustc does not
+    # perform the final link and cannot add its profiling runtime automatically.
+    local rust_target_libdir
+    local rust_profile_runtimes
+    rust_target_libdir=$(rustc $RUST_TOOLCHAIN_MODIFIER --print target-libdir)
+    rust_profile_runtimes=("$rust_target_libdir"/libprofiler_builtins-*.rlib)
+    if [[ ${#rust_profile_runtimes[@]} -ne 1 || ! -f "${rust_profile_runtimes[0]}" ]]; then
+      echo "Error: expected one Rust profiling runtime in $rust_target_libdir" >&2
+      exit 1
+    fi
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DRUST_COVERAGE_PROFILE_RUNTIME=${rust_profile_runtimes[0]}"
+  fi
   if [[ $SAN == "address" ]]; then
     # Add ASAN flags to RUSTFLAGS (following RedisJSON pattern)
     # -Zsanitizer=address enables ASAN in Rust
@@ -716,6 +807,11 @@ prepare_cmake_arguments() {
         echo "WARNING: Apple clang $APPLE_CLANG_MAJOR has a known ARM64 linker bug but ld64.lld is not installed at ${lld_path}"
       fi
     fi
+  fi
+
+  CMAKE_RUSTFLAGS="$RUSTFLAGS"
+  if [[ $COV == "1" ]]; then
+    CMAKE_RUSTFLAGS="${CMAKE_RUSTFLAGS:+${CMAKE_RUSTFLAGS} }-C instrument-coverage -Zcoverage-options=branch"
   fi
 
   # Export RUSTFLAGS so it's available to the Rust build process
@@ -771,9 +867,9 @@ run_cmake() {
 
   if [[ "$VERBOSE" == "1" ]]; then
     echo "Running CMake with verbose output..."
-    RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD --trace-expand
+    RUSTFLAGS="$CMAKE_RUSTFLAGS" $CMAKE_CMD --trace-expand
   else
-    RUSTFLAGS="$RUSTFLAGS" $CMAKE_CMD
+    RUSTFLAGS="$CMAKE_RUSTFLAGS" $CMAKE_CMD
   fi
 }
 
@@ -885,9 +981,9 @@ run_unit_tests() {
     export VERBOSE=1
   fi
 
-  # Set sanitizer mode if requested
-  if [[ "$SAN" == "address" ]]; then
-    export SAN="address"
+  # Set sanitizer mode if requested.
+  if [[ -n "$SAN" ]]; then
+    export SAN
   fi
 
   # Call the unit-tests script from the sbin directory
@@ -936,11 +1032,12 @@ select_rust_test_flags() {
     # require C symbols to be defined even if they aren't invoked at runtime.
     RUST_TEST_OPTIONS="
       --profile=$RUST_PROFILE
+      --branch
       --doctests
       $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C
-      --codecov
+      --cobertura
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*,top_k_bencher/*"
-      --output-path=$BINROOT/rust_cov.info
+      --output-path=$BINROOT/rust_cov.xml
     "
   elif [[ "$RUN_MIRI" == "1" ]]; then
     RUST_TEST_COMMAND="miri nextest run"
@@ -1040,10 +1137,10 @@ archive_rust_tests() {
   local archive_cmd archive_opts
   if [[ $COV == 1 ]]; then
     archive_cmd="llvm-cov nextest-archive"
-    # Drop the llvm-cov-specific reporting flags (--doctests, --codecov, etc.)
+    # Drop the llvm-cov-specific reporting flags (--doctests, --cobertura, etc.)
     # that don't apply to archive creation; keep the crate exclusions and use
     # nextest's --cargo-profile.
-    archive_opts="--cargo-profile=$RUST_PROFILE $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C"
+    archive_opts="--branch --cargo-profile=$RUST_PROFILE $EXCLUDE_RUST_BENCHING_CRATES_LINKING_C"
   else
     archive_cmd="nextest archive"
     archive_opts="$RUST_TEST_OPTIONS"
@@ -1099,11 +1196,12 @@ run_rust_tests_from_archive() {
     # llvm-cov target dir that `report` scans (this job has no local
     # bin/redisearch_rs target — it's excluded from the build artifact), so
     # report finds nothing.
-    cargo $RUST_TOOLCHAIN_MODIFIER llvm-cov nextest \
+    NEXTEST_PROFILE=coverage cargo $RUST_TOOLCHAIN_MODIFIER llvm-cov nextest \
       --archive-file "$RUST_TEST_ARCHIVE_PATH" \
-      --codecov \
+      --branch \
+      --cobertura \
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*,top_k_bencher/*" \
-      --output-path="$BINROOT/rust_cov.info" \
+      --output-path="$BINROOT/rust_cov.xml" \
       $TEST_FILTER
     RUST_TEST_RESULT=$?
   else
@@ -1234,7 +1332,17 @@ run_python_tests() {
   # runs no tests, so no .gcda files are produced and lcov capture would fail).
   # COV itself stays set so $BINDIR still resolves to the coverage build variant.
   if [[ $COV == 1 && "${LIST:-0}" != 1 ]]; then
+    if [[ "$REDIS_STANDALONE" == "1" ]]; then
+      DEPLOYMENT_TYPE="standalone"
+    else
+      DEPLOYMENT_TYPE="coordinator"
+    fi
     prepare_coverage_capture
+    if [[ $OS_NAME != "macos" ]]; then
+      RUST_FLOW_COVERAGE_NAME="rust_flow_$DEPLOYMENT_TYPE"
+      rm -f "$BINROOT/${RUST_FLOW_COVERAGE_NAME}-"*.profraw
+      export LLVM_PROFILE_FILE="$BINROOT/${RUST_FLOW_COVERAGE_NAME}-%8m.profraw"
+    fi
   fi
 
   # Use the runtests.sh script for Python tests
@@ -1254,12 +1362,10 @@ run_python_tests() {
   fi
 
   if [[ $COV == 1 && "${LIST:-0}" != 1 ]]; then
-    if [[ "$REDIS_STANDALONE" == "1" ]]; then
-      DEPLOYMENT_TYPE="standalone"
-    else
-      DEPLOYMENT_TYPE="coordinator"
-    fi
     capture_coverage flow_$DEPLOYMENT_TYPE
+    if [[ $OS_NAME != "macos" ]]; then
+      capture_rust_module_coverage "$RUST_FLOW_COVERAGE_NAME" "$MODULE"
+    fi
   fi
 }
 
@@ -1330,6 +1436,12 @@ run_micro_benchmarks() {
 
 # Parse command line arguments
 parse_arguments "$@"
+
+if [[ "$COV" == "1" && "$LTO" == "1" ]]; then
+  echo "Error: COV=1 and LTO=1 are mutually exclusive." >&2
+  echo "Coverage builds are test-only and are not shipped; run coverage without LTO." >&2
+  exit 1
+fi
 
 # Set up test configuration based on input parameters
 setup_test_configuration

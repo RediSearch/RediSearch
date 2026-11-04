@@ -26,38 +26,20 @@
 //! clear the always-timed-out callback another test is still asserting on.
 
 use std::{
-    ffi::c_void,
     num::NonZeroUsize,
     sync::{Mutex, MutexGuard, PoisonError},
 };
 
-use ffi::VecSimIndex_Free;
 use rqe_core::DocId;
 use rqe_iterators::{RQEIterator, RQEIteratorError};
-use top_k::{TopKIterator, TopKMode};
+use top_k::{ScoreSource as _, TopKIterator, TopKMode};
 use vector_score_source::new_vector_top_k_unfiltered;
-use vector_score_source::test_utils::{
-    asc, build_hnsw_index, make_child, make_source, uniform_blob,
-};
+use vector_score_source::test_utils::{MockTimeout, TestIndex, asc, make_child, uniform_blob};
 
 // Provide stubs for C symbols that the linked C archive references but that
 // these tests never exercise (Redis module API surface).
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 extern crate redisearch_rs;
-
-unsafe extern "C" {
-    fn VecSim_SetTimeoutCallbackFunction(
-        cb: Option<unsafe extern "C" fn(*mut c_void) -> std::ffi::c_int>,
-    );
-}
-
-unsafe extern "C" fn always_timed_out(_ctx: *mut c_void) -> std::ffi::c_int {
-    1
-}
-
-unsafe extern "C" fn never_timed_out(_ctx: *mut c_void) -> std::ffi::c_int {
-    0
-}
 
 /// Serializes the two timeout tests against each other: both install a
 /// process-global always-timed-out callback and restore the no-op on drop, so
@@ -75,23 +57,6 @@ fn serialize() -> MutexGuard<'static, ()> {
         .unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Installs the always-timeout callback; restores the no-op on drop so a
-/// panicking assertion cannot leak timeout state to the sibling test.
-struct MockTimeout;
-impl MockTimeout {
-    fn enable() -> Self {
-        // SAFETY: the fn pointer is valid for the whole program.
-        unsafe { VecSim_SetTimeoutCallbackFunction(Some(always_timed_out)) };
-        MockTimeout
-    }
-}
-impl Drop for MockTimeout {
-    fn drop(&mut self) {
-        // SAFETY: the fn pointer is valid for the whole program.
-        unsafe { VecSim_SetTimeoutCallbackFunction(Some(never_timed_out)) };
-    }
-}
-
 /// From `test_vecsim.py::TestTimeoutReached` (KNN branch).
 #[test]
 #[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
@@ -100,18 +65,13 @@ fn unfiltered_propagates_timeout() {
     // released after `_mock` restores the callback (reverse drop order).
     let _serial = serialize();
     let (n, k, dim) = (100, 10, 4);
-    let index = build_hnsw_index(n, dim);
+    let index = TestIndex::hnsw(n, dim);
     let _mock = MockTimeout::enable();
 
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
+    let source = index.source(uniform_blob(n as f32, dim), n, k, n);
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
-
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
 }
 
 /// From `test_vecsim.py::TestTimeoutReached` (hybrid BATCHES branch).
@@ -122,11 +82,10 @@ fn batches_propagates_timeout() {
     // released after `_mock` restores the callback (reverse drop order).
     let _serial = serialize();
     let (n, k, dim) = (100, 10, 4);
-    let index = build_hnsw_index(n, dim);
+    let index = TestIndex::hnsw(n, dim);
     let _mock = MockTimeout::enable();
 
-    // SAFETY: index outlives the iterator (freed at end of scope).
-    let source = unsafe { make_source(index, uniform_blob(n as f32, dim), n, k, n) };
+    let source = index.source(uniform_blob(n as f32, dim), n, k, n);
     let mut it = TopKIterator::new_with_mode(
         source,
         Some(make_child((1..=n as DocId).collect())),
@@ -136,8 +95,33 @@ fn batches_propagates_timeout() {
     );
 
     assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+}
 
-    drop(it);
-    // SAFETY: no live references to the index remain.
-    unsafe { VecSimIndex_Free(index.as_ptr()) };
+/// A timed-out unfiltered query must not consume the single-shot budget: the
+/// source is probed directly (no iterator rewind in between) so that re-issuing
+/// the query after the timeout clears returns the real top-k rather than EOF.
+#[test]
+#[cfg_attr(miri, ignore = "requires C FFI (VecSim)")]
+fn unfiltered_timeout_does_not_mark_consumed() {
+    // Acquire before enable() so the global-callback mutation stays exclusive;
+    // released after `_mock` restores the callback (reverse drop order).
+    let _serial = serialize();
+    let (n, k, dim) = (100, 10, 4);
+    let index = TestIndex::hnsw(n, dim);
+
+    let mut source = index.source(uniform_blob(n as f32, dim), n, k, n);
+
+    {
+        let _mock = MockTimeout::enable();
+        assert!(matches!(
+            source.all_results_unfiltered_batch(),
+            Err(RQEIteratorError::TimedOut)
+        ));
+    }
+
+    // The timeout left the single-shot flag clear, so this re-issues the query.
+    assert!(
+        source.all_results_unfiltered_batch().unwrap().is_some(),
+        "retry after a timed-out query must re-run it, not short-circuit to EOF"
+    );
 }

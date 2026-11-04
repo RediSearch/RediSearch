@@ -35,7 +35,7 @@ if [[ "$_need_gcc11_repo" == 1 ]]; then
     _run apt-get -o DPkg::Lock::Timeout="${APT_GET_LOCK_TIMEOUT_SECONDS:-600}" update -qq
 fi
 
-apt_install wget make clang-format gcc lcov git openssl libssl-dev \
+apt_install wget make clang-format gcc git openssl libssl-dev \
     unzip rsync build-essential gcc-11 g++-11 curl libclang-dev gdb
 
 # Only move the active compiler up, never down — another module's bootstrap

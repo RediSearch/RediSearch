@@ -30,7 +30,7 @@ extern "C" {
 #pragma pack(1)
 struct TriePayload {
   uint32_t len;  // 4G payload is more than enough!!!!
-  char data[];   // this means the data will not take an extra pointer.
+  char data[];   // `len` bytes plus a NUL terminator, inline so it costs no extra pointer.
 };
 #pragma pack()
 

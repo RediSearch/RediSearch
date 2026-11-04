@@ -47,7 +47,7 @@ pub struct DeadlineTimeoutChecker {
 }
 
 impl DeadlineTimeoutChecker {
-    /// Creates a new [`TimeoutChecker`] that expires after the given `duration`.
+    /// Creates a new [`DeadlineTimeoutChecker`] that expires after the given `duration`.
     ///
     /// The `limit` determines the granularity of the check. A higher limit
     /// improves performance but increases the potential delay between the

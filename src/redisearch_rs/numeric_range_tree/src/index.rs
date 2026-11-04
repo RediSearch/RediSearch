@@ -12,10 +12,12 @@
 //! This module contains the index and reader enums that abstract over
 //! compressed and uncompressed numeric storage in inverted indexes.
 
+use std::ptr::NonNull;
+
 use ffi::IndexFlags_Index_StoreNumeric;
 use index_result::RSIndexResult;
 use inverted_index::{
-    EntriesTrackingIndex, IndexReader, NumericReader, RawIndexReaderCore,
+    EntriesTrackingIndex, IndexReader, NumericReader, RawIndexReaderCore, ReseatIndex,
     debug::Summary,
     numeric::{Numeric, NumericEncoder, NumericFloatCompression, PreparedValue},
 };
@@ -98,10 +100,15 @@ impl NumericIndex {
         &mut self,
         doc_id: DocId,
         prepared: PreparedValue,
+        has_field_expiration: bool,
     ) -> inverted_index::AddRecordOutcome {
         let result = match self {
-            NumericIndex::Uncompressed(idx) => idx.add_prepared_record(doc_id, prepared),
-            NumericIndex::Compressed(idx) => idx.add_prepared_record(doc_id, prepared),
+            NumericIndex::Uncompressed(idx) => {
+                idx.add_prepared_record(doc_id, prepared, has_field_expiration)
+            }
+            NumericIndex::Compressed(idx) => {
+                idx.add_prepared_record(doc_id, prepared, has_field_expiration)
+            }
         };
         result.expect("in-memory inverted index write cannot fail")
     }
@@ -259,6 +266,45 @@ unsafe impl inverted_index::ResumableReader for RawNumericIndexReader<Suspended>
     }
 }
 
+/// Reseats on the encoding's inverted index inside a [`NumericIndex`]. The
+/// variant must match the reader's encoding — requirement 1 of the trait's
+/// contract implies it.
+impl<Rf: Ref> ReseatIndex<NumericIndex> for RawIndexReaderCore<Rf, Numeric> {
+    unsafe fn reseat(&mut self, index: NonNull<NumericIndex>) {
+        // SAFETY: the trait's contract makes `index` valid for reads.
+        let NumericIndex::Uncompressed(idx) = (unsafe { index.as_ref() }) else {
+            panic!("an uncompressed reader cannot read a compressed index");
+        };
+        // SAFETY: derived from `index`, so it inherits the requirements the caller
+        // upholds for it.
+        unsafe { self.reseat_index(NonNull::from(idx.inner())) }
+    }
+}
+
+/// See the [`Numeric`] impl above.
+impl<Rf: Ref> ReseatIndex<NumericIndex> for RawIndexReaderCore<Rf, NumericFloatCompression> {
+    unsafe fn reseat(&mut self, index: NonNull<NumericIndex>) {
+        // SAFETY: the trait's contract makes `index` valid for reads.
+        let NumericIndex::Compressed(idx) = (unsafe { index.as_ref() }) else {
+            panic!("a compressed reader cannot read an uncompressed index");
+        };
+        // SAFETY: derived from `index`, so it inherits the requirements the caller
+        // upholds for it.
+        unsafe { self.reseat_index(NonNull::from(idx.inner())) }
+    }
+}
+
+impl<Rf: Ref> ReseatIndex<NumericIndex> for RawNumericIndexReader<Rf> {
+    unsafe fn reseat(&mut self, index: NonNull<NumericIndex>) {
+        match self {
+            // SAFETY: the caller upholds the trait's contract, which forwards as is.
+            Self::Uncompressed(r) => unsafe { r.reseat(index) },
+            // SAFETY: as above.
+            Self::Compressed(r) => unsafe { r.reseat(index) },
+        }
+    }
+}
+
 /// Marker trait for readers producing numeric values.
 impl<'index> NumericReader<'index> for NumericIndexReader<'index> {}
 
@@ -320,13 +366,6 @@ impl<'a> IndexReader<'a> for NumericIndexReader<'a> {
         match self {
             Self::Uncompressed(r) => r.needs_revalidation(),
             Self::Compressed(r) => r.needs_revalidation(),
-        }
-    }
-
-    fn refresh_buffer_pointers(&mut self) {
-        match self {
-            Self::Uncompressed(r) => r.refresh_buffer_pointers(),
-            Self::Compressed(r) => r.refresh_buffer_pointers(),
         }
     }
 

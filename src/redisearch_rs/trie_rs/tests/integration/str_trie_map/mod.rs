@@ -8,8 +8,9 @@
 */
 
 mod case_insensitive_iter;
-mod empty_short_circuits;
+mod empty_input;
 mod fuzzy_iter;
+mod lending_iter;
 mod range_iter;
 mod return_value_contracts;
 mod suffixed_iter;
