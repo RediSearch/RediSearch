@@ -173,10 +173,12 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-/** `sctx` must carry the owning request's non-NULL timeout state. */
+/** `sctx` must carry the owning request's non-NULL timeout state. `denseAscendingScan` says whether
+ * `itr` visits every docId in ascending order, which a profile wrapper hides. */
 ResultProcessor *RPQueryIterator_New(QueryIterator *itr,
                                      const RedisModuleSlotRangeArray *querySlots,
-                                     uint32_t slotsVersion, RedisSearchCtx *sctx, bool isProfiled);
+                                     uint32_t slotsVersion, RedisSearchCtx *sctx, bool isProfiled,
+                                     bool denseAscendingScan);
 
 /** Read candidate counts from a profiled Index processor. */
 void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded,
