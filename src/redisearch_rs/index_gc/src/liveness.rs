@@ -177,8 +177,8 @@ impl GoneIds {
 
 /// The words a bitmap from `first` to `last` takes, when it fits `max_bytes`.
 fn window_words(first: DocId, last: DocId, max_bytes: usize) -> Option<usize> {
-    let words = usize::try_from((last - first) / 64 + 1).ok()?;
-    (words.checked_mul(8)? <= max_bytes).then_some(words)
+    let words = (last - first) / 64 + 1;
+    (words * 8 <= max_bytes as u64).then_some(words as usize)
 }
 
 impl Bits {
