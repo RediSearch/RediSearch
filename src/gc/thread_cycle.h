@@ -12,8 +12,9 @@
 #include "index_gc.h"
 
 // One collection cycle of the THREAD policy: the scanners run on the calling GC pool thread under
-// the spec's own read/write lock. Consumes `spec_ref`, holding it to the end; the driver still
-// promotes the weak reference for every lock it takes, so a drop mid-cycle ends the cycle. Returns
+// the spec's own read/write lock. Consumes `spec_ref`, keeping the spec alive to the end; the
+// driver still promotes the weak reference for every lock it takes, so a drop mid-cycle ends the
+// cycle. Returns
 // false only when the index was dropped. A failed cycle is recorded on `forced`, if any.
 bool ThreadCycle_Run(IndexGC *gc, GCForcedRun *forced, StrongRef spec_ref);
 
