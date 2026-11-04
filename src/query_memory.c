@@ -21,7 +21,7 @@ static _Atomic(float) forcedRatio = -1;
 static _Atomic(uint64_t) pressureAtCall = 0;
 static _Atomic(uint64_t) checkpointCalls = 0;
 
-void QueryMemory_SetRatioReadInterval(uint32_t interval) {
+void QueryMemoryDebug_SetRatioReadInterval(uint32_t interval) {
   atomic_store_explicit(&ratioReadInterval, interval ? interval : QUERY_MEMORY_RATIO_READ_INTERVAL,
                         memory_order_relaxed);
 }
@@ -56,7 +56,7 @@ uint64_t QueryMemory_GetCheckpointCalls(void) {
 void QueryMemory_ResetFakePressure(void) {
   QueryMemory_SetForcedRatio(-1);
   QueryMemory_SetPressureAtCall(0);
-  QueryMemory_SetRatioReadInterval(0);
+  QueryMemoryDebug_SetRatioReadInterval(0);
 }
 
 // Counts the call only while positional pressure is armed, so production pays one relaxed load.
@@ -92,8 +92,7 @@ static bool memoryStops(QueryRequestLimits *limits, bool forcedPressure) {
 }
 
 bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter) {
-  if (limits && (QueryRequestLimits_IsMemoryStopped(limits) ||
-                 QueryRequestLimits_IsBlockedClientTimedOut(limits))) {
+  if (limits && QueryRequestLimits_IsMemoryStopped(limits)) {
     return true;
   }
   const bool forcedPressure = isPressureAtThisCall();
@@ -115,8 +114,7 @@ bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter) {
 }
 
 bool QueryMemory_CheckpointNow(QueryRequestLimits *limits) {
-  if (limits && (QueryRequestLimits_IsMemoryStopped(limits) ||
-                 QueryRequestLimits_IsBlockedClientTimedOut(limits))) {
+  if (limits && QueryRequestLimits_IsMemoryStopped(limits)) {
     return true;
   }
   return memoryStops(limits, isPressureAtThisCall());

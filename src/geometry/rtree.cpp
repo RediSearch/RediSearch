@@ -411,11 +411,9 @@ auto RTree<cs>::query(const RedisSearchCtx *sctx, const FieldFilterContext* filt
       if (num == cap) {
         memoryCheckCounter = QueryMemory_GetRatioReadInterval() - 1;
       }
-      // Only a stop for memory abandons the collection (timeouts are left to the iterator's own
-      // checks). The request carries the stop, and the build checkpoint replies it; without a
-      // request the build fails instead.
-      if (QueryMemory_Checkpoint(timeout, &memoryCheckCounter) &&
-          (!timeout || QueryRequestLimits_IsMemoryStopped(timeout))) {
+      // The request carries the stop, and the build checkpoint replies it; without a request the
+      // build fails instead.
+      if (QueryMemory_Checkpoint(timeout, &memoryCheckCounter)) {
         if (!timeout) {
           throw std::runtime_error{
               QueryError_StrerrorDefaultMessage(QUERY_ERROR_CODE_OUT_OF_MEMORY)};
