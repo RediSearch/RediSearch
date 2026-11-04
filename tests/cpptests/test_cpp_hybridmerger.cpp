@@ -1727,7 +1727,7 @@ static void runStoppedUpstream(uint32_t timeoutMs, bool expectTimeout) {
   subCtx.timeoutPolicy = TimeoutPolicy_Fail;
   subCtx.oomPolicy = OomPolicy_Return;
 
-  MockUpstream stopped(2, {1.0, 1.0}, {1, 2});  // two rows, then TIMEDOUT
+  MockUpstream stopped(2, {1.0, 1.0}, {1, 2});  // two rows, then STOPPED
   MockUpstream other(0, {2.0, 2.0}, {11, 12});
   stopped.parent = &subCtx;
   arrayof(ResultProcessor *) upstreams = NULL;

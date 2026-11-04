@@ -862,7 +862,7 @@ static int rpsortNext_Stopped(ResultProcessor *rp, SearchResult *r) {
   // Both Return and ReturnStrict switch to Yield mode (so subsequent Next
   // calls pop the buffered, sorted prefix from the heap). They differ in
   // who drives that draining: Return surfaces a row inline now, while
-  // ReturnStrict returns TIMEDOUT immediately so the BG unwinds promptly,
+  // ReturnStrict returns STOPPED immediately so the BG unwinds promptly,
   // and the main-thread drain pops the heap.
   rp->Next = rpsortNext_Yield;
   if (policy == TimeoutPolicy_Return) {
@@ -2798,7 +2798,7 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
   * An upstream is released only once it stops depleting, and its terminal status (an ERROR in
   * particular) must still surface. Depleters buffer before yielding, so this reads rows already
   * held and allocates nothing. DEPLETING is returned as is; the caller retries the same upstream.
-  * A blocked-client timeout ends the drain with TIMEDOUT: its callback owns the reply and waits for
+  * A blocked-client timeout ends the drain with RS_RESULT_STOPPED: its callback owns the reply and waits for
   * this thread, so a long drain would stall the main thread. The depleters are released by the
   * callback's wait, as for any merger that stops consuming early. */
  static int hybridMergerDrainUpstream(ResultProcessor *upstream, const QueryRequestLimits *timeout) {
