@@ -24,6 +24,7 @@ workspace_hack.workspace = true
 [dev-dependencies]
 pretty_assertions.workspace = true
 proptest = { workspace = true, features = ["std"] }
+rmp-serde.workspace = true
 
 [features]
 test_utils = []

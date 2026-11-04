@@ -336,7 +336,16 @@ extern "C" fn revalidate<'index, I: RQEIterator<'index> + 'index>(
     let guard = unsafe { index_spec::IndexSpecReadGuard::from_locked(spec_ref) };
 
     match wrapper.inner.revalidate(&guard) {
-        Ok(RQEValidateStatus::Ok) => ValidateStatus_VALIDATE_OK,
+        Ok(RQEValidateStatus::Ok) => {
+            // The result has not moved, but the `&mut` borrow of the wrapper taken above
+            // invalidated the pointer `header.current` was derived from, and C reads the result
+            // through it next. Re-derive it from the live borrow. A null one stays null: the
+            // iterator has not yielded anything, or has run out.
+            if !wrapper.header.current.is_null() {
+                wrapper.sync_current();
+            }
+            ValidateStatus_VALIDATE_OK
+        }
         Ok(RQEValidateStatus::Moved { current }) => {
             if let Some(result) = current {
                 wrapper.header.current = result as *mut RSIndexResult as *mut ffi::RSIndexResult;
