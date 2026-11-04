@@ -72,20 +72,31 @@ impl TestSpec {
             _keys_dict: keys_dict,
         };
         for (term, doc_count) in terms {
-            test_spec.insert_trie_term(term, doc_count);
-
-            let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
-            for doc_id in 1..=doc_count {
-                ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
-                    .unwrap();
-            }
-            test_spec
-                ._keys_dict
-                .try_insert(term, Box::new(OpaqueInvertedIndex::DocIdsOnly(ii)))
-                .unwrap_or_else(|_| panic!("term already present in keysDict"));
+            test_spec.add_term(term, doc_count);
         }
 
         test_spec
+    }
+
+    fn add_term(&mut self, term: &[u8], doc_count: u64) {
+        self.insert_trie_term(term, doc_count);
+
+        let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
+        for doc_id in 1..=doc_count {
+            ii.add_record(&RSIndexResult::build_virt().doc_id(doc_id).build())
+                .unwrap();
+        }
+        self._keys_dict
+            .try_insert(term, Box::new(OpaqueInvertedIndex::DocIdsOnly(ii)))
+            .unwrap_or_else(|_| panic!("term already present in keysDict"));
+    }
+
+    fn delete_trie_term(&mut self, term: &[u8]) {
+        // SAFETY: `self.spec.terms` is live and `term` points to `term.len()` valid bytes.
+        let deleted = unsafe {
+            ffi::Trie_Delete(self.spec.terms, term.as_ptr().cast::<c_char>(), term.len())
+        };
+        assert_eq!(deleted, 1, "the term was in the trie");
     }
 
     fn insert_trie_term(&mut self, term: &[u8], doc_count: u64) {
@@ -458,6 +469,29 @@ fn receive_empty_term_returns_codec_error() {
     ));
 }
 
+/// Reports every doc id the fixtures use as present, whatever the spec's
+/// document table says, as a snapshot taken before those docs were deleted.
+fn all_live<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
+    const WORDS: usize = 1 << 14;
+    DocExistence::with_bitmap(
+        guard,
+        vec![u64::MAX; WORDS].into_boxed_slice(),
+        (WORDS * 64 - 1) as u64,
+    )
+}
+
+/// The scanner must answer existence from `docs`: the fixture's document table
+/// is empty, so a scanner that looked docs up itself would collect them all.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn docs_live_in_the_snapshot_are_kept() {
+    let spec = TestSpec::create([(&b"apple"[..], 3)]);
+    let guard = spec.read_guard();
+    let mut buf = Vec::new();
+    collect_terms(&mut buf, &guard, &all_live(&guard)).unwrap();
+    assert_only_terminator(&buf);
+}
+
 /// `scan_term` finds the same delta `collect_terms` sends for that term.
 #[test]
 #[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
@@ -523,4 +557,38 @@ fn a_terms_scan_resumes_after_the_last_term_visited() {
         .map(|(term, delta)| (term.into_bytes().into_vec(), delta))
         .collect();
     assert_eq!(found, collected);
+}
+
+/// A trie that changed between two chunks: the scan resumes strictly after the
+/// last term visited, so that term is not visited again even if it was
+/// deleted and reinserted, a term added before it waits for the next cycle,
+/// and every term after it, old or new, is visited once.
+#[test]
+#[cfg_attr(miri, ignore = "accesses extern static `invIdxDictType`")]
+fn a_terms_scan_resumes_after_its_cursor_in_a_changed_trie() {
+    let mut spec = TestSpec::create([(&b"bee"[..], 1), (&b"dog"[..], 1), (&b"fox"[..], 1)]);
+    let mut cursor = TermsCursor::default();
+    let mut found = Vec::new();
+    assert!(scan_terms_after(
+        &spec.read_guard(),
+        &mut cursor,
+        || true,
+        &mut found
+    ));
+
+    spec.delete_trie_term(b"bee");
+    spec.insert_trie_term(b"bee", 1);
+    spec.add_term(b"ant", 1);
+    spec.add_term(b"cat", 1);
+    spec.add_term(b"eel", 1);
+    while scan_terms_after(&spec.read_guard(), &mut cursor, || false, &mut found) {}
+
+    let found: Vec<_> = found
+        .into_iter()
+        .map(|(term, _)| term.into_bytes().into_vec())
+        .collect();
+    assert_eq!(
+        found,
+        [&b"bee"[..], b"cat", b"dog", b"eel", b"fox"].map(<[u8]>::to_vec)
+    );
 }

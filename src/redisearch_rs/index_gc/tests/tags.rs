@@ -354,6 +354,14 @@ impl TestSpec {
     fn remove_tag_index(&mut self, field: usize) {
         self.field_specs[field].__bindgen_anon_1.tagOpts.tagIndex = std::ptr::null_mut();
     }
+
+    /// Give `field` a new in-memory tag index holding `tags`, as recreating the
+    /// field would. The old index stays owned by the fixture.
+    fn replace_tag_index(&mut self, field: usize, tags: &[&[u8]]) {
+        self.remove_tag_index(field);
+        let tag_index = TestTagIndex::memory(&mut self.field_specs[field], tags, 3, false);
+        self.tag_indexes.push(tag_index);
+    }
 }
 
 impl Drop for TestSpec {
@@ -966,6 +974,50 @@ fn a_tag_scan_skips_a_field_that_lost_its_index_between_chunks() {
     assert_eq!(
         found.iter().map(|e| e.tag.to_vec()).collect::<Vec<_>>(),
         [b"blue".to_vec(), b"xl".to_vec()]
+    );
+}
+
+/// A field whose tag index was replaced between two chunks resumes in the new
+/// index after the last value visited, and its entries name the new index.
+#[test]
+fn a_tag_scan_resumes_in_a_tag_index_replaced_between_chunks() {
+    let mut test = TestSpec::create(vec![
+        Field::tag(c"colours", &[b"blue", b"red"], 3, false),
+        Field::tag(c"sizes", &[b"xl"], 3, false),
+    ]);
+
+    let mut cursor = TagsCursor::default();
+    let mut found = Vec::new();
+    assert!(scan_tags_after(
+        &test.read_guard(),
+        &mut cursor,
+        || true,
+        &mut found
+    ));
+    assert_eq!(&*found[0].tag, b"blue");
+    let old_unique_id = found[0].tag_index_unique_id;
+
+    test.replace_tag_index(0, &[b"azure", b"blue", b"cyan", b"red"]);
+    let new_unique_id = test.tag_indexes.last().unwrap().as_ref().uniqueId;
+    assert_ne!(new_unique_id, old_unique_id);
+    assert!(!scan_tags_after(
+        &test.read_guard(),
+        &mut cursor,
+        || false,
+        &mut found
+    ));
+
+    assert_eq!(
+        found
+            .iter()
+            .map(|e| (e.tag.to_vec(), e.tag_index_unique_id))
+            .collect::<Vec<_>>(),
+        [
+            (b"blue".to_vec(), old_unique_id),
+            (b"cyan".to_vec(), new_unique_id),
+            (b"red".to_vec(), new_unique_id),
+            (b"xl".to_vec(), test.tag_index(1).uniqueId),
+        ]
     );
 }
 
