@@ -1421,7 +1421,7 @@ static void rpSafeLoader_Load(RPSafeLoader *self) {
     if (!stopped && checkMemory && QueryMemory_Checkpoint(timeout, &self->loadMemoryCheckCalls)) {
       // The loaded prefix is yielded; the yield phase then ends on the stop.
       stopped = true;
-      self->last_buffered_rc = RS_RESULT_TIMEDOUT;
+      self->last_buffered_rc = RS_RESULT_STOPPED;
       RP_HoldStop(&self->base_loader.base);
     }
     if (stopped) {
@@ -1494,7 +1494,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     const bool fillStopped = RP_FillShouldStop(rp, &self->bufferMemoryCheckCalls);
     ownStop |= !heldUpstream && timeout && QueryRequestLimits_IsMemoryStopped(timeout);
     if (fillStopped) {
-      result_status = RS_RESULT_TIMEDOUT;
+      result_status = RS_RESULT_STOPPED;
       break;
     }
   }
@@ -1502,12 +1502,12 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // A stop requested by this loader's checkpoint under a RETURN stop policy still ends the query
   // after this buffer. A stop held upstream ends it when that stage runs out of rows.
   if (result_status == RS_RESULT_OK && ownStop) {
-    result_status = RS_RESULT_TIMEDOUT;
+    result_status = RS_RESULT_STOPPED;
   }
 
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
-       !(result_status == RS_RESULT_TIMEDOUT && RP_StopPolicy(rp) == TimeoutPolicy_Return)) ||
+       !(result_status == RS_RESULT_STOPPED && RP_StopPolicy(rp) == TimeoutPolicy_Return)) ||
       IsBufferEmpty(self)) {
     return result_status;
   }
