@@ -367,7 +367,7 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
   // Check if the request timed out or was stopped before starting the iterator
   if (QueryRequestLimits_IsMemoryStopped(&nc->areq->base.limits) ||
       QueryRequestLimits_IsBlockedClientTimedOut(&nc->areq->base.limits)) {
-    return RS_RESULT_TIMEDOUT;
+    return RS_RESULT_STOPPED;
   }
 
   // Lazy (non-deferred) path: create and immediately dispatch the iterator, then
