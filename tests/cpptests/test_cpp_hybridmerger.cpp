@@ -118,7 +118,7 @@ struct MockUpstream : public ResultProcessor {
 
     // Handle timeout
     if (p->timeoutAfterCount > 0 && p->counter >= p->timeoutAfterCount) {
-      return RS_RESULT_TIMEDOUT;
+      return RS_RESULT_STOPPED;
     }
 
     // Handle empty upstream (no scores provided)
@@ -964,7 +964,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
   EXPECT_EQ(expectedDocIdSet, receivedDocIdSet);
 
   // Final result should be EOF after collecting everything available
-  ASSERT_EQ(RS_RESULT_TIMEDOUT, rc);
+  ASSERT_EQ(RS_RESULT_STOPPED, rc);
 
   SearchResult_Destroy(&r);
   CleanupDummyLookupContext(lookupCtx);
@@ -1018,7 +1018,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
 
   // With Fail policy, should get no results and immediate timeout
   ASSERT_EQ(0, count);
-  ASSERT_EQ(RS_RESULT_TIMEDOUT, rc);
+  ASSERT_EQ(RS_RESULT_STOPPED, rc);
 
   SearchResult_Destroy(&r);
   CleanupDummyLookupContext(lookupCtx);
@@ -1374,7 +1374,7 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
 TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
   // Create upstreams with different behaviors:
   // upstream1: returns RS_RESULT_EOF (empty upstream)
-  // upstream2: returns RS_RESULT_TIMEDOUT after 1 call
+  // upstream2: returns RS_RESULT_STOPPED after 1 call
   // upstream3: returns RS_RESULT_ERROR after 1 call
   MockUpstream upstream1(0, {}, {}); // empty upstream (returns EOF)
   MockUpstream upstream2(1, {1.0, 2.0}, {1, 2}); // timeoutAfterCount=1 (timeout after 1 call)
@@ -1530,7 +1530,7 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
 
   // Create upstreams with different final return states
   MockUpstream upstream1(0, {1.0}, {1}); // Will return RS_RESULT_EOF after 1 result
-  MockUpstream upstream2(1, {2.0}, {2}); // Will return RS_RESULT_TIMEDOUT after 1 result
+  MockUpstream upstream2(1, {2.0}, {2}); // Will return RS_RESULT_STOPPED after 1 result
   MockUpstream upstream3(0, {3.0}, {3}, 0, 1); // Will return RS_RESULT_ERROR after 1 result
 
   ResultProcessor *rp1 = &upstream1;
@@ -1570,7 +1570,7 @@ TEST_F(HybridMergerTest, testUpstreamReturnCodes) {
   // Verify return codes were captured correctly
   // Note: upstream1 completes normally (EOF), upstream2 times out, upstream3 errors
   EXPECT_EQ(RS_RESULT_EOF, returnCodes[0]);      // upstream1: normal completion
-  EXPECT_EQ(RS_RESULT_TIMEDOUT, returnCodes[1]); // upstream2: timeout
+  EXPECT_EQ(RS_RESULT_STOPPED, returnCodes[1]); // upstream2: timeout
   EXPECT_EQ(RS_RESULT_ERROR, returnCodes[2]);    // upstream3: error
 
   SearchResult_Destroy(&r);
@@ -1694,8 +1694,8 @@ TEST_F(HybridMergerTest, MemoryStopDrainAbortsOnBlockedClientTimeout) {
   big.limits = sctx->limits;
 
   SearchResult r = SearchResult_New();
-  EXPECT_EQ(RS_RESULT_TIMEDOUT, merger->Next(merger, &r));
-  EXPECT_EQ(RS_RESULT_TIMEDOUT, returnCodes[0]);
+  EXPECT_EQ(RS_RESULT_STOPPED, merger->Next(merger, &r));
+  EXPECT_EQ(RS_RESULT_STOPPED, returnCodes[0]);
   EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(sctx->limits));
   // The first row, which stopped the merger, and the one that carried the timeout; not the
   // remaining kRows - 2.
@@ -1752,9 +1752,9 @@ static void runStoppedUpstream(uint32_t timeoutMs, bool expectTimeout) {
     rows++;
     SearchResult_Clear(&r);
   }
-  EXPECT_EQ(RS_RESULT_TIMEDOUT, returnCodes[0]);
+  EXPECT_EQ(RS_RESULT_STOPPED, returnCodes[0]);
   if (expectTimeout) {
-    EXPECT_EQ(RS_RESULT_TIMEDOUT, rc);
+    EXPECT_EQ(RS_RESULT_STOPPED, rc);
     EXPECT_EQ(0u, rows);
   } else {
     EXPECT_EQ(4u, rows);
@@ -1815,7 +1815,7 @@ TEST_F(HybridMergerTest, TailClockTimeoutAfterOwnMemoryStopEndsOnTimeout) {
     SearchResult_Clear(&r);
   }
   EXPECT_GT(rows, 0u);
-  EXPECT_EQ(RS_RESULT_TIMEDOUT, rc);
+  EXPECT_EQ(RS_RESULT_STOPPED, rc);
 
   SearchResult_Destroy(&r);
   CleanupDummyLookupContext(lookup);

@@ -40,22 +40,22 @@ extern "C" {
  * The memory check is off, and only an already requested memory stop is
  * reported, when ON_OOM is IGNORE, when no memory limit is configured, and when the server lacks
  * RedisModule_GetUsedMemoryRatioEstimate; the fake pressure below overrides
- * the last two. Callable with or without the GIL, but
- * calls for one request must be serialized like QueryRequestLimits_IsTimedOut,
- * since they share memory.counter; use QueryMemory_CheckpointNow where sites
- * may run concurrently. The ON_OOM policy is the global one, read with a
+ * the last two. Callable with or without the GIL, from any thread. The shared
+ * request counter is a relaxed atomic, so concurrent calls only shift when
+ * memory is read. Each site's own `counter` must not be shared between
+ * threads. The ON_OOM policy is the global one, read with a
  * relaxed atomic load because CONFIG SET writes it on the main thread. A NULL `limits` (no
  * owning request) still reports pressure but records no memory stop.
  */
 bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter);
 
 /**
- * Like QueryMemory_Checkpoint, but reads memory on every call and touches no
- * counter, so it is safe on several threads at once for one request. Reports
- * an already requested memory stop, and requests one on pressure. For sites
- * that are rare or expensive enough to make every call worth a read.
+ * The non-amortized checkpoint: reads memory on every call and touches no
+ * counter, like QueryRequestLimits_IsTimedOutExact. Reports an already
+ * requested memory stop, and requests one on pressure. For sites that are rare
+ * or expensive enough to make every call worth a read.
  */
-bool QueryMemory_CheckpointNow(QueryRequestLimits *limits);
+bool QueryMemory_CheckpointExact(QueryRequestLimits *limits);
 
 /**
  * The memory checkpoint between the build stages of a query, before it reads

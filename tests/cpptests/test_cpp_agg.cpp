@@ -335,7 +335,7 @@ TEST_F(AggTest, testGroupSplitEndsOnABlockedClientTimeout) {
 
   QueryRequestLimits_MarkTimedOut(&limits);
   SearchResult res = SearchResult_New();
-  EXPECT_EQ(gp->Next(gp, &res), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(gp->Next(gp, &res), RS_RESULT_STOPPED);
   EXPECT_EQ(gen.counter, 1);
 
   SearchResult_Destroy(&res);
