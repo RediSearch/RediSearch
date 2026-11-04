@@ -393,7 +393,7 @@ static void stopForMemory(QueryRequestLimits *limits, RSTimeoutPolicy policy, bo
 }
 
 TEST_F(ApplyOomStopTest, OomReturnKeepsATimeoutThatAlsoFired) {
-  // The timeout error (ON_TIMEOUT FAIL) or warning (RETURN) is derived from the TIMEDOUT rc;
+  // The timeout error (ON_TIMEOUT FAIL) or warning (RETURN) is derived from the STOPPED rc;
   // the OOM warning rides along.
   for (RSTimeoutPolicy policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return}) {
     QueryRequestLimits limits = {};
