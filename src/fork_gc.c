@@ -16,6 +16,7 @@
 #include "numeric_index.h"
 #include "tag_index.h"
 #include "time_sample.h"
+#include <errno.h>
 #include <stdlib.h>
 #include <stdbool.h>
 #include <unistd.h>
@@ -34,6 +35,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "obfuscation/hidden.h"
 #include "util/redis_mem_info.h"
+#include "debug_commands.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -911,7 +913,77 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   return used_memory_ratio > 1;
 }
 
-static bool periodicCb(void *privdata, bool force) {
+// Milliseconds left of a forced run's budget, or -1 when its caller set none.
+static long long forkBudgetLeftMs(const GCForcedRun *forced) {
+  if (forced->forkWaitMs <= 0) {
+    return -1;
+  }
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+  long long left = (forced->forkDeadline.tv_sec - now.tv_sec) * 1000 +
+                   (forced->forkDeadline.tv_nsec - now.tv_nsec) / 1000000;
+  return left > 0 ? left : 0;
+}
+
+// Takes the single child slot Redis allows. A forced cycle retries while a competing BGSAVE,
+// AOF rewrite or replication fork holds it (EEXIST), within the budget its caller set; a
+// scheduled cycle gets one attempt, since its next run is due anyway. Returns the child pid,
+// or -1 having logged why and recorded it on `forced`.
+//
+// Every attempt is gated on the budget, not just the retries: a job can sit queued behind the
+// single GC worker until its deadline has passed, and re-taking the GIL after a wait can overrun
+// it too, so forking on the strength of an earlier check could start a cycle for a caller that
+// has already been answered.
+//
+// The GIL must be held on entry and is held on return; it is released only while waiting, both
+// because the child being waited on needs the main thread and because its exit is what makes an
+// earlier isOutOfMemory() answer stale -- hence the guard inside the loop.
+static pid_t forkGCChild(RedisModuleCtx *ctx, GCForcedRun *forced) {
+  while (true) {
+    long long budget_left = forced ? forkBudgetLeftMs(forced) : -1;
+    if (budget_left == 0) {
+      RedisModule_Log(ctx, "warning", "GC fork budget spent, aborting fork GC");
+      forced->outcome = GC_FORCED_RUN_NO_FORK;
+      return -1;
+    }
+
+    if (isOutOfMemory(ctx)) {
+      RedisModule_Log(ctx, "warning", "Not enough memory for GC fork, skipping GC job");
+      return -1;
+    }
+
+    pid_t cpid = RedisModule_Fork(NULL, NULL);  // duplicate the current process
+    if (cpid != -1) {
+      return cpid;
+    }
+    if (!forced || errno != EEXIST) {
+      RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
+      if (forced) {
+        forced->outcome = GC_FORCED_RUN_NO_FORK;
+      }
+      return -1;
+    }
+
+    long long delay_ms = forced->retryIntervalMs;
+    if (budget_left > 0 && budget_left < delay_ms) {
+      delay_ms = budget_left;  // never sleep past the deadline
+    }
+    struct timespec delay = {.tv_sec = delay_ms / 1000,
+                             .tv_nsec = (delay_ms % 1000) * 1000000};
+
+    RedisModule_ThreadSafeContextUnlock(ctx);
+
+    // Test hook (ENABLE_ASSERT): park after a failed fork, so a test can observe the EEXIST.
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_GC_FORK_SLOT_BUSY);
+#endif
+
+    nanosleep(&delay, NULL);
+    RedisModule_ThreadSafeContextLock(ctx);
+  }
+}
+
+static bool periodicCb(void *privdata, GCForcedRun *forced) {
   ForkGC *gc = privdata;
   RedisModuleCtx *ctx = gc->ctx;
 
@@ -931,7 +1003,7 @@ static bool periodicCb(void *privdata, bool force) {
     return false;
   }
 
-  if (!force && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(early_check);
     return true;
   }
@@ -951,6 +1023,9 @@ static bool periodicCb(void *privdata, bool force) {
   int rc = pipe(pipefd);  // create the pipe
   if (rc == -1) {
     RedisModule_Log(ctx, "warning", "Couldn't create pipe - got errno %d, aborting fork GC", errno);
+    if (forced) {
+      forced->outcome = GC_FORCED_RUN_NO_FORK;
+    }
     IndexSpecRef_Release(early_check);
     return true;
   }
@@ -960,26 +1035,19 @@ static bool periodicCb(void *privdata, bool force) {
   gc->pollfd_read[0].fd = gc->pipe_read_fd;
   gc->pollfd_read[0].events = POLLIN;
 
+  // Test hook (ENABLE_ASSERT): park before the GIL, so a test can take the fork slot first.
+#ifdef ENABLE_ASSERT
+  SyncPoint_Wait(SYNC_POINT_GC_BEFORE_FORK);
+#endif
+
   // We need to acquire the GIL to use the fork api
   RedisModule_ThreadSafeContextLock(ctx);
 
-  // Check if we are out of memory before even trying to fork
-  if (isOutOfMemory(ctx)) {
-    RedisModule_Log(ctx, "warning", "Not enough memory for GC fork, skipping GC job");
-    gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval;
-    IndexSpecRef_Release(early_check);
-    RedisModule_ThreadSafeContextUnlock(ctx);
-    close(gc->pipe_read_fd);
-    close(gc->pipe_write_fd);
-    return true;
-  }
-
   gc->execState = FGC_STATE_SCANNING;
 
-  cpid = RedisModule_Fork(NULL, NULL);  // duplicate the current process
+  cpid = forkGCChild(ctx, forced);
 
   if (cpid == -1) {
-    RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
     gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval;
     IndexSpecRef_Release(early_check);
 

@@ -1402,13 +1402,13 @@ TEST_F(LLApiTest, testInfoSize) {
   EXPECT_EQ(RediSearch_MemUsage(index), 471 + additional_overhead + get_trie_entry_extra_overhead(2));
   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx, false);
+  gc->callbacks.periodicCallback(gc->gcCtx, NULL);
   EXPECT_EQ(RediSearch_MemUsage(index), 328 + additional_overhead + get_trie_entry_extra_overhead(1));
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
   EXPECT_EQ(RediSearch_MemUsage(index), 234 + additional_overhead + get_trie_entry_extra_overhead(1));
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx, false);
+  gc->callbacks.periodicCallback(gc->gcCtx, NULL);
   // we always keep the numeric index root.
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
   // The base inverted index is 24 bytes + 8 bytes for the entries count of numeric records
@@ -1464,13 +1464,13 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   EXPECT_EQ(RediSearch_MemUsage(index), 553 + additional_overhead + get_trie_entry_extra_overhead(2));
   RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx, false);
+  gc->callbacks.periodicCallback(gc->gcCtx, NULL);
   EXPECT_EQ(RediSearch_MemUsage(index), 409 + additional_overhead + get_trie_entry_extra_overhead(1));
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
   EXPECT_EQ(RediSearch_MemUsage(index), 315 + additional_overhead + get_trie_entry_extra_overhead(1));
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx, false);
+  gc->callbacks.periodicCallback(gc->gcCtx, NULL);
   // we always keep the numeric index root.
   // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
   // The base inverted index is 24 bytes + 8 bytes for the entries count of numeric records
