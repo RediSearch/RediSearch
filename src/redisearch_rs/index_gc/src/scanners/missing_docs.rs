@@ -9,11 +9,9 @@
 
 //! GC collection and application for the `missing.indexes` inverted indexes.
 
-use std::ffi::CString;
 use std::io::{self, Read, Write};
 
 use crate::{ForkPipe, GcApplyStats, GcError, HandleOutcome};
-use hidden_string::OwnedHiddenString;
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::{DocLiveness, GcScanDelta, GcSnapshotScope, opaque::InvertedIndex};
 use serde::{Deserialize, Serialize};
@@ -73,24 +71,12 @@ pub fn collect_missing_docs(
     serialize(writer, None::<MissingDocsEntry>)
 }
 
-/// The name the missing-docs dict keys the field at `field_index` by, or `None`
-/// when there is no such field. Owned, so the dict can be borrowed mutably while
-/// it is in use.
-fn missing_key(
-    field_specs: &[field_spec::FieldSpec],
-    field_index: ffi::t_fieldIndex,
-) -> Option<CString> {
-    let fs = field_specs.get(usize::from(field_index))?;
-    Some(fs.field_name().secret_value().to_owned())
-}
-
 fn missing_index<'a>(
     spec: &'a IndexSpecReadGuard<'_>,
     field_index: ffi::t_fieldIndex,
 ) -> Option<&'a InvertedIndex> {
-    let key = missing_key(spec.field_specs(), field_index)?;
-    spec.missing_field_dict()
-        .fetch(&OwnedHiddenString::new(&key))
+    let fs = spec.field_specs().get(usize::from(field_index))?;
+    spec.missing_field_dict().fetch(fs.field_name())
 }
 
 /// Position of every field that has a missing-docs inverted index, in field order.
@@ -99,10 +85,7 @@ pub fn missing_field_indexes(spec: &IndexSpecReadGuard) -> Vec<ffi::t_fieldIndex
     spec.field_specs()
         .iter()
         .enumerate()
-        .filter(|(_, fs)| {
-            dict.fetch(&OwnedHiddenString::new(fs.field_name().secret_value()))
-                .is_some()
-        })
+        .filter(|(_, fs)| dict.fetch(fs.field_name()).is_some())
         .map(|(i, _)| {
             ffi::t_fieldIndex::try_from(i)
                 .expect("a spec has fewer fields than a field index can count")
@@ -169,14 +152,17 @@ pub fn apply_missing_docs_with(
     live: Option<&dyn DocLiveness>,
     guard: &mut IndexSpecWriteGuard<'_>,
 ) -> Result<GcApplyStats, GcError> {
-    let Some(key) = missing_key(guard.field_specs(), field_index) else {
+    let (field_specs, dict) = guard.field_specs_and_missing_field_dict_mut();
+    let Some(name) = field_specs
+        .get(usize::from(field_index))
+        .map(|fs| fs.field_name())
+    else {
         return Err(GcError::ApplyError(
             "no field in the spec is at the scanned field index",
         ));
     };
-    let hidden = OwnedHiddenString::new(&key);
 
-    let Some(ii) = guard.missing_field_dict_mut().fetch_mut(&hidden) else {
+    let Some(ii) = dict.fetch_mut(name) else {
         return Err(GcError::ApplyError(
             "the field was removed from missing.indexes before the delta could be applied",
         ));
@@ -192,7 +178,7 @@ pub fn apply_missing_docs_with(
     let (extra, remaining_blocks) = if ii.unique_docs() == 0 {
         let extra = ii.memory_usage();
         let remaining_blocks = ii.number_of_blocks();
-        let removed = guard.missing_field_dict_mut().remove(&hidden);
+        let removed = dict.remove(name);
         debug_assert!(
             removed,
             "`fetch_mut` found this field in the same dict, under the write lock we still hold"
