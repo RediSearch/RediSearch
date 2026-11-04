@@ -110,7 +110,7 @@ bool RPNet_DebugPrepareRespSchema(RPNet *nc, MRReply *chunk, uint16_t maxColumns
 
 // Get the next reply from the channel.
 // Return RS_RESULT_OK if there is a next reply to process, RS_RESULT_EOF if there are no more replies
-// Or RS_RESULT_TIMEDOUT if we timed out
+// Or RS_RESULT_STOPPED if we timed out
 int getNextReply(RPNet *nc);
 
 #ifdef __cplusplus
