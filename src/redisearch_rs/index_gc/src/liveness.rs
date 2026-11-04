@@ -187,9 +187,8 @@ impl Bits {
         let Some(bit) = id.checked_sub(self.first) else {
             return self.gone_below;
         };
-        usize::try_from(bit / 64)
-            .ok()
-            .and_then(|i| self.words.get(i))
+        self.words
+            .get((bit / 64) as usize)
             .is_some_and(|word| word >> (bit % 64) & 1 != 0)
     }
 
