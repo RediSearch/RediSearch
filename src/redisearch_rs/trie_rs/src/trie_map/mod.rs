@@ -92,7 +92,12 @@ impl<Data> TrieMap<Data> {
         } else {
             // The node we need to remove is deeper in the trie.
             let data = root.remove_descendant(suffix, &mut self.memory_usage);
-            root.merge_child_if_possible(&mut self.memory_usage);
+            if root.data().is_none() && root.n_children() == 0 {
+                self.memory_usage -= root.mem_usage();
+                self.root = None;
+            } else {
+                root.merge_child_if_possible(&mut self.memory_usage);
+            }
             data
         };
         if data.is_some() {

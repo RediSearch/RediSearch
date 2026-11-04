@@ -304,30 +304,21 @@ impl<Data> Node<Data> {
 
         let suffix = strip_prefix(key, child.label())?;
 
-        if suffix.is_empty() {
-            // The child's label is equal to the key, so we remove the child.
-            let data = child.data_mut().take();
-
-            let is_leaf = child.n_children() == 0;
-            if is_leaf {
-                self.map(|current| {
-                    // If the child is a leaf, we remove the child node itself.
-                    // SAFETY:
-                    // Guaranteed by invariant 1. in [`Self::child_index_starting_with`].
-                    unsafe { current.remove_child_unchecked(child_index, total_memory_usage) }
-                });
-            } else {
-                // If there's a single grandchild,
-                // we merge the grandchild into the child.
-                child.merge_child_if_possible(total_memory_usage);
-            }
-
-            data
+        let data = if suffix.is_empty() {
+            child.data_mut().take()
         } else {
-            let data = child.remove_descendant(suffix, total_memory_usage);
+            child.remove_descendant(suffix, total_memory_usage)
+        };
+
+        if child.data().is_none() && child.n_children() == 0 {
+            self.map(|current| {
+                // SAFETY: The child index is in bounds and the child has no descendants.
+                unsafe { current.remove_child_unchecked(child_index, total_memory_usage) }
+            });
+        } else {
             child.merge_child_if_possible(total_memory_usage);
-            data
         }
+        data
     }
 
     /// If `self` has exactly one child, and `self` doesn't hold

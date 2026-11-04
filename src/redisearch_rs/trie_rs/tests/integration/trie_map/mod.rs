@@ -118,6 +118,42 @@ fn long_keys_preserve_lookup_iteration_removal_and_memory_accounting() {
 }
 
 #[test]
+fn removing_long_keys_reclaims_empty_chunks() {
+    for length in [u16::MAX as usize + 1, 2 * u16::MAX as usize + 1] {
+        for survivor in [None, Some(b"unrelated".as_slice()), Some(b"a".as_slice())] {
+            let mut trie = TrieMap::new();
+            let empty_memory = trie.mem_usage();
+            if let Some(key) = survivor {
+                trie.insert(key, 0);
+            }
+            let baseline_memory = trie.mem_usage();
+
+            for byte in b'b'..=b'd' {
+                let mut key = vec![byte; length];
+                key[0] = b'a';
+                assert_eq!(trie.insert(&key, 1), None);
+                assert_eq!(trie.remove(&key), Some(1));
+                assert_eq!(trie.remove(&key), None);
+                assert_eq!(trie.mem_usage(), baseline_memory);
+                assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
+                assert_eq!(trie.n_unique_keys(), usize::from(survivor.is_some()));
+                if let Some(key) = survivor {
+                    assert_eq!(trie.find(key), Some(&0));
+                    assert_eq!(trie.iter().collect::<Vec<_>>(), vec![(key.to_vec(), &0)]);
+                } else {
+                    assert_eq!(trie.iter().next(), None);
+                }
+            }
+
+            if let Some(key) = survivor {
+                assert_eq!(trie.remove(key), Some(0));
+            }
+            assert_eq!(trie.mem_usage(), empty_memory);
+        }
+    }
+}
+
+#[test]
 fn compaction_counts_accept_a_key_longer_than_one_node_label() {
     let key = vec![b'x'; 65541];
     let mut counts = trie_rs::TrieCount::new();
