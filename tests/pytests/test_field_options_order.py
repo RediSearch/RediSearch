@@ -114,3 +114,11 @@ def testTypeOptionErrorsAfterGenericOptions(env):
     # An argument that is not an option of the field's type still starts a new field.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 'CASESENSITIVE') \
         .error().contains('Field `CASESENSITIVE` does not have a type')
+    # NUMERIC, GEO and GEOSHAPE take INDEXMISSING once; a repeat is read as a field name, as before.
+    for field_type in ('NUMERIC', 'GEO', 'GEOSHAPE'):
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'f', field_type, 'INDEXMISSING', 'INDEXMISSING') \
+            .error().contains('Field `INDEXMISSING` does not have a type')
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'f', field_type, 'INDEXMISSING', 'SORTABLE', 'INDEXMISSING') \
+            .error().contains('Field `INDEXMISSING` does not have a type')
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'f', field_type, 'SORTABLE', 'INDEXMISSING', 'INDEXMISSING') \
+            .error().contains('Field `INDEXMISSING` does not have a type')

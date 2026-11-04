@@ -1242,8 +1242,8 @@ static int parseFieldTypeOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *stat
   if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
     return parseTagFieldOptions(fs, ac, status);
   }
-  // NUMERIC, GEO and GEOSHAPE
-  if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+  // NUMERIC, GEO and GEOSHAPE take INDEXMISSING once; a repeat is not an option of the field
+  if (!FieldSpec_IndexesMissing(fs) && AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
     fs->options |= FieldSpec_IndexMissing;
   }
   return 1;
