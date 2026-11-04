@@ -72,7 +72,7 @@ TEST_F(RPIndexStopTest, AStopAloneDoesNotEndTheRead) {
   EXPECT_GT(mock->readCount, 0);
 }
 
-TEST_F(RPIndexStopTest, EndRowSourceOnStopRepliesTimedOut) {
+TEST_F(RPIndexStopTest, EndRowSourceOnStopRepliesStopped) {
   QueryRequestLimits_RequestMemoryStop(&limits);
   RP_EndRowSourceOnStop(&qctx);
   RP_EndRowSourceOnStop(&qctx);
