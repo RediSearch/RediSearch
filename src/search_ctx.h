@@ -79,6 +79,11 @@ static inline RedisSearchCtx SEARCH_CTX_STATIC(RedisModuleCtx *ctx, IndexSpec *s
 // Refreshes the real-clock snapshot used for document, field, and disk TTL checks.
 void SearchCtx_UpdateCurrentTime(RedisSearchCtx *sctx);
 
+// Whether `docId` is within the query's `maxVisibleDocId` bound.
+static inline bool SearchCtx_IsDocVisible(const RedisSearchCtx *sctx, t_docId docId) {
+  return !sctx->maxVisibleDocId || docId <= sctx->maxVisibleDocId;
+}
+
 typedef struct QueryError QueryError;
 
 // Open a disk snapshot on `sctx` for the duration of one query, so every iterator

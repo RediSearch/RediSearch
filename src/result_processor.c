@@ -195,7 +195,7 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
     const bool deleted = !*dmd || ((*dmd)->flags & Document_Deleted);
     recordCandidate(self, deleted, isProfiled);
     if (deleted || DocTable_IsDocExpired(docs, *dmd, &sctx->currentTime) ||
-        (sctx->maxVisibleDocId && (*dmd)->id > sctx->maxVisibleDocId)) {
+        !SearchCtx_IsDocVisible(sctx, (*dmd)->id)) {
       DMD_Return(*dmd);
       return false;
     }
