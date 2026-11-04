@@ -421,6 +421,8 @@ fn a_scanners_few_keys_take_one_read_lock_and_one_write_lock() {
             max_read_hold: report.max_read_hold,
             max_write_hold: report.max_write_hold,
             retained: 0,
+            // The fixture's whole deleted set: nothing was denied.
+            pruned: 1024,
         }
     );
     assert_eq!(recorder.0.len(), 1, "one flush per applying write lock");

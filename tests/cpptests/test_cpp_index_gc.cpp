@@ -860,15 +860,35 @@ TEST_F(ThreadGCTest, testRunScannersCollectsTheTrackedDeletions) {
   ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
   ASSERT_EQ(1, trackedDeletions());
 
-  size_t taken = 0;
-  uint64_t retained = UINT64_MAX;
-  ASSERT_EQ(THREAD_GC_DONE, ThreadGC_RunScanners(fgc, &taken, &retained));
-  ASSERT_EQ(0, retained);
-  ASSERT_EQ(1, taken) << "the cycle took the deletion it collected";
+  uint64_t pruned = UINT64_MAX;
+  ASSERT_EQ(THREAD_GC_DONE, ThreadGC_RunScanners(fgc, &pruned));
+  ASSERT_EQ(1, pruned);
 
   ASSERT_EQ(0, trackedDeletions());
   ASSERT_EQ(1, get_spec(ism)->stats.numRecords);
   ASSERT_GT(fgc->stats.totalCollected, 0);
+}
+
+TEST_F(ThreadGCTest, testRunTakesOffWhatItPrunes) {
+  for (const char *key : {"doc1", "doc2", "doc3"}) {
+    ASSERT_TRUE(RS::addDocument(ctx, ism, key, "f1", "hello"));
+  }
+  ASSERT_TRUE(RS::deleteDocument(ctx, ism, "doc1"));
+  // Deleted the way slot cleanup does: the count reaches the GC only through the spec.
+  IndexSpec *spec = get_spec(ism);
+  IndexSpec_LockWrite(spec);
+  ASSERT_TRUE(IndexSpec_DeleteDocById_Unsafe(spec, 2));
+  IndexSpec_DeferGCDeletes(spec, 1);
+  IndexSpec_Unlock(spec);
+  ASSERT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 1);
+  ASSERT_EQ(2, trackedDeletions());
+
+  runGC();
+
+  EXPECT_EQ(0, trackedDeletions());
+  EXPECT_EQ(fgc->deletedOrUpdatedDocsFromLastRun, 0);
+  EXPECT_EQ(IndexSpec_TakeGCDeferredDeletes(spec), 0);
+  EXPECT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
 }
 
 static void keepObject(void *) {}
@@ -882,11 +902,11 @@ TEST_F(ThreadGCTest, testRunScannersReportsADroppedSpec) {
   WeakRef index = fgc->index;
   fgc->index = dropped;
 
-  size_t taken = 0;
-  uint64_t retained = 0;
-  ThreadGCResult result = ThreadGC_RunScanners(fgc, &taken, &retained);
+  uint64_t pruned = UINT64_MAX;
+  ThreadGCResult result = ThreadGC_RunScanners(fgc, &pruned);
 
   fgc->index = index;
   WeakRef_Release(dropped);
   ASSERT_EQ(THREAD_GC_SPEC_DELETED, result);
+  ASSERT_EQ(0, pruned);
 }

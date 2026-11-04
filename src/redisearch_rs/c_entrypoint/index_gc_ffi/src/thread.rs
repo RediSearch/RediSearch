@@ -7,14 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! C ABI entrypoint for the in-process GC driver.
+//! C ABI entrypoint for the THREAD GC policy's cycle.
 
-use index_gc::{GcError, stats::GcCounters, thread::run_cycle_with};
-use index_spec::{IndexSpecReadGuard, IndexSpecWeakRef};
+use index_gc::{GcError, stats::GcCounters, thread::run_cycle};
+use index_spec::IndexSpecWeakRef;
 use tracing::Level;
 use tracing_log_error::log_error;
 
-/// How an in-process GC cycle ended.
+/// How a THREAD GC cycle ended.
 #[cheadergen::config(export)]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,11 +34,9 @@ pub enum ThreadGCResult {
 /// spec's read/write lock, a bounded number of keys per hold.
 ///
 /// Returns how the cycle ended; see [`ThreadGCResult`]. Stats of the chunks applied
-/// before an early end are kept. `taken` is set to the deletion counter the cycle
-/// reset, read under the lock its copy of the deleted set is taken in so the two
-/// agree; it stays 0 if the cycle ended before. On [`ThreadGCResult::Done`],
-/// `retained` is set to the number of deleted IDs the cycle left in the set for a
-/// later one.
+/// before an early end are kept. `pruned` is set to the number of deleted IDs
+/// the cycle collected and pruned from the doc table's set, 0 unless it returns
+/// [`ThreadGCResult::Done`].
 ///
 /// # Safety
 ///
@@ -46,16 +44,15 @@ pub enum ThreadGCResult {
 ///    for the duration of this call. The main thread may update its deletion
 ///    counter and read its stats meanwhile, so this call borrows no part of it.
 /// 2. The calling thread must not hold any spec lock.
-/// 3. `taken` and `retained` must point to a writable `usize` and `u64`.
+/// 3. `pruned` must point to a writable `u64`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ThreadGC_RunScanners(
     gc: *mut ffi::IndexGC,
-    taken: *mut usize,
-    retained: *mut u64,
+    pruned: *mut u64,
 ) -> ThreadGCResult {
     debug_assert!(!gc.is_null(), "ThreadGC_RunScanners needs a GC");
     debug_assert!(
-        !retained.is_null(),
+        !pruned.is_null(),
         "ThreadGC_RunScanners needs somewhere to report"
     );
     // SAFETY: (1) `gc` is valid, and the field is read in place, without a reference
@@ -71,23 +68,10 @@ pub unsafe extern "C" fn ThreadGC_RunScanners(
     // the cycle records into them only under the spec's write lock.
     let mut stats = unsafe { GcCounters::new(counters) };
 
-    // SAFETY: (1) `gc` is valid; this only takes the counter's address.
     // SAFETY: caller guarantees (3).
-    unsafe { taken.write(0) };
-    let reset_counter = |guard: &IndexSpecReadGuard<'_>| {
-        // SAFETY: (1) `gc` is valid for the call; `guard` holds the spec's read lock, and
-        // the count is only changed atomically through the pointer.
-        let count = unsafe { ffi::IndexGC_TakeDeletionCount(gc, guard.as_mut_ptr()) };
-        // SAFETY: caller guarantees (3).
-        unsafe { taken.write(count) };
-    };
+    unsafe { pruned.write(0) };
 
-    match run_cycle_with(
-        &mut spec,
-        &mut stats,
-        clean_numeric_empty_nodes,
-        reset_counter,
-    ) {
+    match run_cycle(&mut spec, &mut stats, clean_numeric_empty_nodes) {
         Ok(report) => {
             tracing::debug!(
                 read_locks = report.read_locks,
@@ -95,10 +79,11 @@ pub unsafe extern "C" fn ThreadGC_RunScanners(
                 max_read_hold_us = report.max_read_hold.as_micros() as u64,
                 max_write_hold_us = report.max_write_hold.as_micros() as u64,
                 retained = report.retained,
+                pruned = report.pruned,
                 "thread GC cycle done"
             );
             // SAFETY: caller guarantees (3).
-            unsafe { retained.write(report.retained) };
+            unsafe { pruned.write(report.pruned) };
             ThreadGCResult::Done
         }
         Err((scanner, GcError::SpecDeleted)) => {

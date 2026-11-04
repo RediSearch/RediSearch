@@ -65,6 +65,8 @@ typedef struct IndexGC {
   void *readBuffer;
 
   struct timespec retryInterval;
+  // Deletions and updates not collected yet. A FORK cycle resets it as it forks; under THREAD it
+  // counts the doc table's deleted set, and a cycle subtracts the IDs it prunes from it.
   RS_Atomic(size_t) deletedOrUpdatedDocsFromLastRun;
   // Set while a thread cycle runs its scanners. Their deltas address blocks by position, so two
   // cycles on one index must never interleave; the GC scheduler guarantees it, this checks it.
@@ -81,10 +83,9 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks);
 // Tests call this directly with hooks to inject mutations at specific lifecycle points.
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook);
 
-// Take the deletions counted since the last cycle, those the spec deferred included, and reset the
-// count. Called under a spec lock, every deletion made under the write lock before it is counted.
+// Move the deletions `sp` deferred (made where the GC could not be called) into `gc`'s count.
 struct IndexSpec;
-size_t IndexGC_TakeDeletionCount(IndexGC *gc, struct IndexSpec *sp);
+void IndexGC_TakeDeferredDeletes(IndexGC *gc, struct IndexSpec *sp);
 
 #ifdef __cplusplus
 }

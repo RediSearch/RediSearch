@@ -150,7 +150,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/gc/index_gc.h",
-        fns: &["IndexGC_TakeDeletionCount"],
+        fns: &[],
         types: &["IndexGC"],
         vars: &[],
     },

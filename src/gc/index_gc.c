@@ -35,17 +35,12 @@ static bool threadPolicyEnabled(void) {
   return RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread;
 }
 
-static void takeDeferredDeletes(IndexGC *gc, IndexSpec *sp) {
+void IndexGC_TakeDeferredDeletes(IndexGC *gc, IndexSpec *sp) {
   const size_t deferred = IndexSpec_TakeGCDeferredDeletes(sp);
   if (deferred) {
     gc->deletedOrUpdatedDocsFromLastRun += deferred;
     IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
   }
-}
-
-size_t IndexGC_TakeDeletionCount(IndexGC *gc, struct IndexSpec *sp) {
-  takeDeferredDeletes(gc, sp);
-  return atomic_exchange(&gc->deletedOrUpdatedDocsFromLastRun, 0);
 }
 
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook) {
@@ -65,9 +60,7 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
     return false;
   }
 
-  // Taken before the fork: a deletion deferred after this point is counted next cycle, never reset
-  // away uncounted.
-  takeDeferredDeletes(gc, StrongRef_Get(early_check));
+  IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(early_check));
 
   if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(early_check);
@@ -76,8 +69,9 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
 
   if (threadPolicyEnabled()) {
     return ThreadCycle_Run(gc, early_check);
+  } else {
+    return ForkCycle_Run(gc, forced, hook, early_check);
   }
-  return ForkCycle_Run(gc, forced, hook, early_check);
 }
 
 static bool periodicCb(void *privdata, GCForcedRun *forced) {

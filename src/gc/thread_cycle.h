@@ -11,10 +11,10 @@
 
 #include "index_gc.h"
 
-// One collection cycle of the in-process policy: the scanners run on the calling GC pool thread
-// under the spec's own read/write lock, through the Rust driver, instead of in a forked child.
-// Consumes `spec_ref`; the driver promotes the weak reference again for every lock it takes, so
-// a drop mid-cycle just ends the cycle. Returns false only when the index was dropped.
+// One collection cycle of the THREAD policy: the scanners run on the calling GC pool thread under
+// the spec's own read/write lock. Consumes `spec_ref`, holding it to the end; the driver still
+// promotes the weak reference for every lock it takes, so a drop mid-cycle ends the cycle. Returns
+// false only when the index was dropped.
 bool ThreadCycle_Run(IndexGC *gc, StrongRef spec_ref);
 
 #endif  // THREAD_CYCLE_H__
