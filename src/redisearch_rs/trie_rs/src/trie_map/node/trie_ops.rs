@@ -36,9 +36,9 @@ impl<Data> Node<Data> {
                     // insert the old root as a child of the new root,
                     // and add a new child to the empty root.
                     current.map(|old_root| {
-                        let new_child = Node::new_leaf(key, Some(f(None)));
+                        let (new_child, memory_usage) = Node::new_path(key, Some(f(None)));
 
-                        *total_memory_usage += new_child.mem_usage();
+                        *total_memory_usage += memory_usage;
 
                         let new_root = {
                             let children = if ordering == Ordering::Greater {
@@ -79,7 +79,9 @@ impl<Data> Node<Data> {
                         //   found that its `equal_up_to` byte differed from the corresponding byte in
                         //   the current label.
                         let (_, new_child_suffix) = unsafe { key.split_at_unchecked(equal_up_to) };
-                        let new_child = Node::new_leaf(new_child_suffix, Some(f(None)));
+                        let (new_child, memory_usage) =
+                            Node::new_path(new_child_suffix, Some(f(None)));
+                        *total_memory_usage += memory_usage - new_child.mem_usage();
                         // SAFETY:
                         // - `old_root.label()` is at least `equal_up_to` bytes long, since `longest_common_prefix`
                         //   found that its `equal_up_to` byte differed from the corresponding byte in
@@ -170,7 +172,9 @@ impl<Data> Node<Data> {
                                         .unwrap_err();
 
                                     current.map(|root| {
-                                        let new_child = Node::new_leaf(key, Some(f(None)));
+                                        let (new_child, memory_usage) =
+                                            Node::new_path(key, Some(f(None)));
+                                        *total_memory_usage += memory_usage - new_child.mem_usage();
                                         // SAFETY:
                                         // - The index returned by `binary_search` is
                                         //   never greater than the length of the searched array.
@@ -330,7 +334,11 @@ impl<Data> Node<Data> {
     /// any data, merge child into `self`, by moving the child's data and
     /// children into `self`.
     pub fn merge_child_if_possible(&mut self, total_memory_usage: &mut usize) {
-        if self.data().is_some() || self.n_children() != 1 {
+        if self.data().is_some()
+            || self.n_children() != 1
+            || self.label_len() as usize + self.children()[0].label_len() as usize
+                > u16::MAX as usize
+        {
             return;
         }
         self.map(|old_parent| {

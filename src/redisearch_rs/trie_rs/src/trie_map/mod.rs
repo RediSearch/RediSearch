@@ -143,8 +143,8 @@ impl<Data> TrieMap<Data> {
         match &mut self.root {
             None => {
                 let data = wrapped_f(None);
-                let root = Node::new_leaf(key, Some(data));
-                self.memory_usage += root.mem_usage();
+                let (root, memory_usage) = Node::new_path(key, Some(data));
+                self.memory_usage += memory_usage;
                 self.root = Some(root);
             }
             Some(root) => root.insert_or_replace_with(key, wrapped_f, &mut self.memory_usage),

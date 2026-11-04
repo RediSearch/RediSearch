@@ -60,12 +60,76 @@ fn test_trie_child_additions() {
 }
 
 #[test]
-#[should_panic(
-    expected = "The label length is 65536, which exceeds the maximum allowed length, 65535"
-)]
-fn test_excessively_long_label() {
-    let mut trie = TrieMap::new();
-    trie.insert(&[1; u16::MAX as usize + 1], 0);
+fn long_keys_preserve_lookup_iteration_removal_and_memory_accounting() {
+    for length in [
+        u16::MAX as usize,
+        u16::MAX as usize + 1,
+        65541,
+        2 * u16::MAX as usize + 1,
+    ] {
+        for prefill in [None, Some(b"unrelated".as_slice()), Some(b"aab".as_slice())] {
+            let mut trie = TrieMap::new();
+            if let Some(key) = prefill {
+                trie.insert(key, 0);
+            }
+            let key = vec![b'a'; length];
+            let mut neighbour = key.clone();
+            neighbour[length / 2] = b'b';
+            let prefix = &key[..length / 2];
+            assert_eq!(trie.insert(&key, 1), None);
+            assert_eq!(trie.insert(&neighbour, 2), None);
+            assert_eq!(trie.insert(prefix, 3), None);
+            assert_eq!(trie.find(&key), Some(&1));
+            assert_eq!(trie.find(&neighbour), Some(&2));
+            assert_eq!(trie.find(prefix), Some(&3));
+            assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
+            let mut expected = vec![
+                (key.clone(), 1),
+                (neighbour.clone(), 2),
+                (prefix.to_vec(), 3),
+            ];
+            if let Some(key) = prefill {
+                expected.push((key.to_vec(), 0));
+            }
+            expected.sort();
+            assert_eq!(
+                trie.iter().map(|(k, v)| (k, *v)).collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(
+                trie.clone()
+                    .iter()
+                    .map(|(k, v)| (k, *v))
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(trie.remove(prefix), Some(3));
+            assert_eq!(trie.remove(&neighbour), Some(2));
+            assert_eq!(trie.find(&key), Some(&1));
+            assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
+            assert_eq!(trie.remove(&key), Some(1));
+            if let Some(key) = prefill {
+                assert_eq!(trie.remove(key), Some(0));
+            }
+            assert_eq!(trie.n_unique_keys(), 0);
+            assert_eq!(trie.mem_usage(), trie.recursive_mem_usage());
+        }
+    }
+}
+
+#[test]
+fn compaction_counts_accept_a_key_longer_than_one_node_label() {
+    let key = vec![b'x'; 65541];
+    let mut counts = trie_rs::TrieCount::new();
+    counts.increment(&key, 1);
+    counts.increment(&key, 2);
+    counts.increment(b"short", 4);
+    assert_eq!(counts.get(&key), Some(3));
+    assert_eq!(counts.n_unique_keys(), 2);
+    assert_eq!(
+        counts.iter().collect::<Vec<_>>(),
+        vec![(b"short".to_vec(), 4), (key, 3)]
+    );
 }
 
 #[test]
