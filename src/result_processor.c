@@ -856,7 +856,7 @@ static int rpsortNext_Stopped(ResultProcessor *rp, SearchResult *r) {
   // Both Return and ReturnStrict switch to Yield mode (so subsequent Next
   // calls pop the buffered, sorted prefix from the heap). They differ in
   // who drives that draining: Return surfaces a row inline now, while
-  // ReturnStrict returns TIMEDOUT immediately so the BG unwinds promptly,
+  // ReturnStrict returns STOPPED immediately so the BG unwinds promptly,
   // and the main-thread drain pops the heap.
   rp->Next = rpsortNext_Yield;
   if (policy == TimeoutPolicy_Return) {
