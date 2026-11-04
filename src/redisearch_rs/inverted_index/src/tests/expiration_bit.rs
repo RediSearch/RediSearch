@@ -63,6 +63,19 @@ fn bitset_prefix() {
         assert!(prefix.is_empty(), "prefix({entries})");
         assert_eq!(prefix.mem_usage(), 0, "prefix({entries})");
     }
+
+    // A set shorter than the cut keeps every bit it has: its last byte lies wholly below it.
+    let mut short = ExpirationBits::new();
+    for ordinal in [3, 5] {
+        short.insert(ordinal);
+    }
+    for entries in [16, 20] {
+        assert_eq!(
+            held(&short.prefix(entries)),
+            vec![3, 5],
+            "prefix({entries})"
+        );
+    }
 }
 
 /// An index whose entries never carry a field-level expiration never allocates the per-block
