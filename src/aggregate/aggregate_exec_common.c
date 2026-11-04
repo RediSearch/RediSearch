@@ -38,7 +38,7 @@
  }
 
  bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isProfile) {
-   return rc == RS_RESULT_TIMEDOUT
+   return rc == RS_RESULT_STOPPED
           && timeoutPolicy == TimeoutPolicy_Fail
           && !isProfile;
  }
@@ -65,7 +65,7 @@ int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryE
   // A timeout that also fired outranks the stop: ON_TIMEOUT FAIL replies its error (the OOM
   // warning is then unused) and RETURN replies both warnings, the timeout one derived from rc.
   if (QueryRequestLimits_IsTimedOutExact(limits)) {
-    return RS_RESULT_TIMEDOUT;
+    return RS_RESULT_STOPPED;
   }
   return RS_RESULT_EOF;
 }
@@ -166,7 +166,7 @@ static bool oomStopKeepsBufferedRows(const AREQ *areq) {
      // Check timeout after aggregation; a memory stop raised while filling the limit ends it the
      // same way.
      if (QueryRequestLimits_ShouldStopExact(ctx->limits)) {
-       *rc = RS_RESULT_TIMEDOUT;
+       *rc = RS_RESULT_STOPPED;
      }
    } else {
      // Send the results received from the pipeline as they come (no need to aggregate)

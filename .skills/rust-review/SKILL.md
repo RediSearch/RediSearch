@@ -290,6 +290,36 @@ Violations (report as suggestions):
 - A test calling `*_ffi` constructors or vtable callbacks where the crate's safe API
   covers the same path.
 
+#### 3i. Don't use `Box::leak`
+
+Treat [`Box::leak`](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.leak) as
+off-limits in this codebase. It exists for data that lives for the rest of the program,
+and RediSearch has almost no such data: every index, query, and result is eventually
+freed. A leaked value that is never reclaimed is a real leak, and Miri's leak checker
+fails `cargo miri test` whenever a test exercises the leaking path. A leaked value that
+*is* reclaimed with `Box::from_raw` works, but the `&'static mut T` it goes through
+misstates the ownership and hides the reclaim path from the reader.
+
+Use instead:
+- To hand ownership to C or store it as a raw pointer:
+  [`Box::into_raw`](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.into_raw),
+  reclaimed with `Box::from_raw`.
+- To get a `NonNull<T>`:
+  `NonNull::new(Box::into_raw(b)).expect("Box pointers are non-null")`, which needs no
+  `unsafe` while `Box::into_non_null` is unstable.
+- To keep an owned value alongside a borrowed one: store the `Box` (or an enum of owned
+  and borrowed variants) rather than leaking it to obtain a reference.
+- For a true process-lifetime global: a `static` with `OnceLock` / `LazyLock`.
+
+Violations:
+- Any new `Box::leak` call, whatever the result is used for and whether or not it is
+  later reclaimed. The only exception is a value that is provably initialized once and
+  never freed for the life of the process, with a comment stating why none of the
+  alternatives above fit.
+
+A leak on a path that repeats (per query, per index, per document) with no matching
+`Box::from_raw` is also unbounded allocation; report it under 3e as well.
+
 ### 4. Porting-mode checks (only when porting mode = true)
 
 #### 4a. Semantic equivalence
@@ -347,7 +377,7 @@ At the end, provide a short summary:
 - Total suggestions
 - Whether the change is **ready to merge** or **needs revision**
 
-Blocking violations: any issue in 3a, 3b, 4a, 4b, or 4c, plus any 3e issue that
+Blocking violations: any issue in 3a, 3b, 3i, 4a, 4b, or 4c, plus any 3e issue that
 can cause memory unsoundness, crashes, data exposure, unauthorized access, or
 denial of service, plus the first two 3g violations (behavior with no test, and
 uncovered code paths).
