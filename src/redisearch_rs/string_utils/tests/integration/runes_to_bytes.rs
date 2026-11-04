@@ -11,7 +11,9 @@
 #![cfg(not(miri))]
 
 use rstest::rstest;
-use string_utils::runes::{MAX_RUNE_STR_LEN, runes_to_bytes, str_to_lower_runes};
+use string_utils::runes::{
+    MAX_RUNE_STR_LEN, runes_to_bytes, runes_to_bytes_into, str_to_lower_runes,
+};
 
 #[test]
 fn roundtrips_ascii() {
@@ -71,4 +73,28 @@ fn exceeds_limit() {
     let runes = vec![b'a' as u16; MAX_RUNE_STR_LEN + 1];
     let err = runes_to_bytes(&runes).unwrap_err();
     assert_eq!(err.len, MAX_RUNE_STR_LEN + 1);
+}
+
+/// The Rust encoder agrees with the C one on every rune, each alone and each
+/// between two others, and reuses its buffer across calls.
+#[test]
+fn the_buffered_encoder_matches_the_c_one_on_every_rune() {
+    let mut out = vec![b'x'; 8];
+    for rune in 0..=u16::MAX {
+        for runes in [&[rune][..], &[0x41, rune, 0x7FF]] {
+            runes_to_bytes_into(runes, &mut out).unwrap();
+            assert_eq!(out, runes_to_bytes(runes).unwrap(), "runes {runes:x?}");
+        }
+    }
+}
+
+#[test]
+fn the_buffered_encoder_rejects_what_the_c_one_rejects() {
+    let mut out = b"stale".to_vec();
+    runes_to_bytes_into(&vec![b'a' as u16; MAX_RUNE_STR_LEN], &mut out).unwrap();
+    assert_eq!(out.len(), MAX_RUNE_STR_LEN);
+
+    let err = runes_to_bytes_into(&vec![b'a' as u16; MAX_RUNE_STR_LEN + 1], &mut out).unwrap_err();
+    assert_eq!(err.len, MAX_RUNE_STR_LEN + 1);
+    assert!(out.is_empty());
 }
