@@ -118,7 +118,7 @@ TEST_F(ResultProcessorTest, sorterEndsOnABlockedClientTimeoutAfterAnOomStop) {
   QueryRequestLimits_RequestMemoryStop(&timeout);
   QueryRequestLimits_MarkTimedOut(&timeout);
   SearchResult r = SearchResult_New();
-  EXPECT_EQ(sorter->Next(sorter, &r), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(sorter->Next(sorter, &r), RS_RESULT_STOPPED);
   EXPECT_EQ(p->counter, 1);
 
   SearchResult_Destroy(&r);

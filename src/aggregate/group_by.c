@@ -207,7 +207,7 @@ static int extractGroups(Grouper *g, const RSValue **xarr, size_t xpos, size_t x
     if (rowExpansion > 1 && g->base.parent->limits &&
         QueryMemory_Checkpoint(g->base.parent->limits, &g->expansionMemoryCheckCalls)) {
       RP_EndRowSourceOnStop(g->base.parent);
-      return RS_RESULT_TIMEDOUT;
+      return RS_RESULT_STOPPED;
     }
     Group *group = NULL;
 
@@ -305,7 +305,7 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
       if (QueryMemory_Checkpoint(base->parent->limits, &readNow)) {
         // No partial groups: like a timeout, the stop yields none, and Grouper_rpFree frees them.
         RP_EndRowSourceOnStop(base->parent);
-        rc = RS_RESULT_TIMEDOUT;
+        rc = RS_RESULT_STOPPED;
       }
     }
     if (rc != RS_RESULT_OK) {
@@ -322,7 +322,7 @@ static int Grouper_rpAccum(ResultProcessor *base, SearchResult *res) {
     g->iter = kh_begin(khid);
     return Grouper_rpYield(base, res);
   }
-  if (rc == RS_RESULT_TIMEDOUT && base->parent->limits &&
+  if (rc == RS_RESULT_STOPPED && base->parent->limits &&
       QueryRequestLimits_IsMemoryStopped(base->parent->limits)) {
     // No group is replied, so none is counted either.
     base->parent->totalResults = 0;

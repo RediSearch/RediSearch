@@ -111,6 +111,25 @@ pub struct Context<'a> {
 }
 
 impl Context<'_> {
+    /// Add GIL acquisition wait and hold time to this processor and its query.
+    ///
+    /// Call only for profiled queries, after releasing the GIL.
+    pub const fn add_gil_time(&mut self, elapsed: std::time::Duration) {
+        // SAFETY: the context exclusively accesses its processor header during this call.
+        let header = unsafe { self.ptr.as_mut() };
+        debug_assert!(
+            !header.parent.is_null(),
+            "profiled result processor must have a parent"
+        );
+        let elapsed_ns = elapsed.as_nanos() as ffi::rs_wall_clock_ns_t + 1;
+        header.rp_gil_time += elapsed_ns;
+        // SAFETY: the parent installed by the C pipeline outlives this processor. Its profiling
+        // counters are updated by the query worker, with no overlapping parent borrow here.
+        if let Some(parent) = unsafe { header.parent.cast_mut().as_mut() } {
+            parent.queryGILTime += elapsed_ns;
+        }
+    }
+
     /// Create a new context for calling the given type-erased result processor
     pub(crate) fn new(header: Pin<&mut Header>) -> Self {
         // Safety: Context & Upstream correctly treat the pointer as pinned
@@ -209,7 +228,7 @@ impl Upstream<'_> {
             ffi::RPStatus_RS_RESULT_PAUSED => {
                 unimplemented!("result processor returned unsupported error code PAUSED")
             }
-            ffi::RPStatus_RS_RESULT_TIMEDOUT => Err(Error::TimedOut),
+            ffi::RPStatus_RS_RESULT_STOPPED => Err(Error::TimedOut),
             ffi::RPStatus_RS_RESULT_ERROR => Err(Error::Error),
             code => {
                 unimplemented!("result processor returned unknown error code {code}")
@@ -425,7 +444,7 @@ where
         match me.result_processor.next(cx, res) {
             Ok(Some(())) => ffi::RPStatus_RS_RESULT_OK as c_int,
             Ok(None) => ffi::RPStatus_RS_RESULT_EOF as c_int,
-            Err(Error::TimedOut) => ffi::RPStatus_RS_RESULT_TIMEDOUT as c_int,
+            Err(Error::TimedOut) => ffi::RPStatus_RS_RESULT_STOPPED as c_int,
             Err(Error::Error) => ffi::RPStatus_RS_RESULT_ERROR as c_int,
         }
     }
@@ -535,7 +554,7 @@ pub(crate) mod test {
         }
 
         check(Error::Error, ffi::RPStatus_RS_RESULT_ERROR as i32);
-        check(Error::TimedOut, ffi::RPStatus_RS_RESULT_TIMEDOUT as i32);
+        check(Error::TimedOut, ffi::RPStatus_RS_RESULT_STOPPED as i32);
     }
 
     /// Assert that returning `Ok(None)` from Rust translates to EOF in C
@@ -649,7 +668,7 @@ pub(crate) mod test {
         check(ffi::RPStatus_RS_RESULT_EOF as i32, Ok(None));
         check(ffi::RPStatus_RS_RESULT_ERROR as i32, Err(Error::Error));
         check(
-            ffi::RPStatus_RS_RESULT_TIMEDOUT as i32,
+            ffi::RPStatus_RS_RESULT_STOPPED as i32,
             Err(Error::TimedOut),
         );
     }
