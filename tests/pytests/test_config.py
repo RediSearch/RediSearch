@@ -93,7 +93,6 @@ def testGetConfigOptions(env):
     check_config('GC_POLICY')
     check_config('FORK_GC_RUN_INTERVAL')
     check_config('FORK_GC_CLEAN_THRESHOLD')
-    check_config('GC_CLEAN_THRESHOLD_PER_MILLE')
     check_config('FORK_GC_RETRY_INTERVAL')
     check_config('PARTIAL_INDEXED_DOCS')
     check_config('UNION_ITERATOR_HEAP')
@@ -217,7 +216,6 @@ def testAllConfig(env):
     env.assertEqual(res_dict['MIN_PHONETIC_TERM_LEN'][0], '3')
     env.assertEqual(res_dict['FORK_GC_RUN_INTERVAL'][0], '5')
     env.assertEqual(res_dict['FORK_GC_CLEAN_THRESHOLD'][0], '100')
-    env.assertEqual(res_dict['GC_CLEAN_THRESHOLD_PER_MILLE'][0], '1')
     env.assertEqual(res_dict['FORK_GC_RETRY_INTERVAL'][0], '5')
     env.assertEqual(res_dict['CURSOR_MAX_IDLE'][0], '300000')
     env.assertEqual(res_dict['NO_MEM_POOLS'][0], 'false')
@@ -640,7 +638,6 @@ numericConfigs = [
     # The THREAD policy's default; see testGcRunIntervalDefaultFollowsThePolicy.
     ('search-fork-gc-run-interval', 'FORK_GC_RUN_INTERVAL', 5, 1, LLONG_MAX, False, False),
     ('search-fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, LLONG_MAX, False, False),
-    ('search-gc-clean-threshold-per-mille', 'GC_CLEAN_THRESHOLD_PER_MILLE', 1, 0, 1000, False, False),
     ('search-gc-scan-size', 'GCSCANSIZE', 100, 1, LLONG_MAX, True, False),
     ('search-index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, LLONG_MAX, False, False),
     ('search-max-aggregate-groups', 'MAX_AGGREGATE_GROUPS', DEFAULT_MAX_AGGREGATE_GROUPS, 1, MAX_AGGREGATE_GROUPS, False, False),
@@ -1802,6 +1799,7 @@ configOnlyNumericConfigs = [
     # configName, defaultValue, minValue, maxValue, legacyName
     ('search-min-maintenance-workers', 1, 0, MAX_WORKER_THREADS, 'MIN_MAINTENANCE_WORKERS'),
     ('search-gc-threads', 1, 1, 64, '_GC_THREADS'),
+    ('search-gc-clean-ratio-ppm', 1000, 0, 1_000_000, 'GC_CLEAN_RATIO_PPM'),
 ]
 
 @skip(redis_less_than='7.9.227')

@@ -168,10 +168,11 @@ def testThreadPolicyIsTakenAtLoad():
 
 @skip(cluster=True)
 def testThreadGCThresholdGrowsWithTheIndex():
-    """A scheduled THREAD cycle waits for GC_CLEAN_THRESHOLD_PER_MILLE of the index's documents
+    """A scheduled THREAD cycle waits for search-gc-clean-ratio-ppm of the index's live documents
     to be deleted, not just FORK_GC_CLEAN_THRESHOLD."""
-    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 GC_CLEAN_THRESHOLD_PER_MILLE 100', freshEnv=True)
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1', freshEnv=True)
     env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 1).ok()
+    env.expect('CONFIG', 'SET', 'search-gc-clean-ratio-ppm', 100_000).ok()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     waitForIndex(env, 'idx')
@@ -181,7 +182,7 @@ def testThreadGCThresholdGrowsWithTheIndex():
     def total_cycles():
         return int(to_dict(index_info(env, 'idx')['gc_stats'])['total_cycles'])
 
-    # 5 deletions leave 95 documents, whose 100 per mille is 9.
+    # 5 deletions leave 95 documents, whose 10% is 9.
     for i in range(5):
         conn.execute_command('DEL', f'doc:{i}')
     time.sleep(2.5)

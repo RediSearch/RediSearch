@@ -88,7 +88,6 @@ configPair_t __configPairs[] = {
   {"FORK_GC_RUN_INTERVAL",            "search-fork-gc-run-interval"},
   {"FORKGC_SLEEP_BEFORE_EXIT",        "search-fork-gc-sleep-before-exit"},
   {"FRISOINI",                        "search-friso-ini"},
-  {"GC_CLEAN_THRESHOLD_PER_MILLE",    "search-gc-clean-threshold-per-mille"},
   {"GC_POLICY",                       ""},
   {"GCSCANSIZE",                      "search-gc-scan-size"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
@@ -1128,25 +1127,6 @@ CONFIG_GETTER(getForkGcCleanThreshold) {
   return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcCleanThreshold);
 }
 
-// GC_CLEAN_THRESHOLD_PER_MILLE
-CONFIG_SETTER(setGcCleanThresholdPerMille) {
-  size_t perMille;
-  int acrc = AC_GetSize(ac, &perMille, AC_F_GE0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (perMille > MAX_GC_CLEAN_THRESHOLD_PER_MILLE) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT, "Value cannot exceed %d",
-                                     MAX_GC_CLEAN_THRESHOLD_PER_MILLE);
-    return REDISMODULE_ERR;
-  }
-  config->gcConfigParams.gcSettings.gcCleanThresholdPerMille = perMille;
-  return REDISMODULE_OK;
-}
-
-CONFIG_GETTER(getGcCleanThresholdPerMille) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.gcCleanThresholdPerMille);
-}
-
 // _GC_THREADS
 CONFIG_SETTER(setGcThreads) {
   size_t threads;
@@ -1852,11 +1832,6 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "will exceed this threshold",
          .setValue = setForkGcCleanThreshold,
          .getValue = getForkGcCleanThreshold},
-        {.name = "GC_CLEAN_THRESHOLD_PER_MILLE",
-         .helpText = "under the THREAD policy, the gc also waits for this many not cleaned "
-                     "documents per thousand in the index",
-         .setValue = setGcCleanThresholdPerMille,
-         .getValue = getGcCleanThresholdPerMille},
         {.name = "FORK_GC_RETRY_INTERVAL",
          .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
          .setValue = setForkGcRetryInterval,
@@ -2320,10 +2295,10 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig (
-      ctx, "search-gc-clean-threshold-per-mille", DEFAULT_GC_CLEAN_THRESHOLD_PER_MILLE,
+      ctx, "search-gc-clean-ratio-ppm", DEFAULT_GC_CLEAN_RATIO_PPM,
       REDISMODULE_CONFIG_UNPREFIXED, 0,
-      MAX_GC_CLEAN_THRESHOLD_PER_MILLE, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.gcCleanThresholdPerMille)
+      MAX_GC_CLEAN_RATIO_PPM, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.gcCleanRatioPpm)
     )
   )
 

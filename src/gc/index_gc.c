@@ -47,15 +47,15 @@ void IndexGC_TakeDeferredDeletes(IndexGC *gc, IndexSpec *sp) {
 // The deletions a scheduled cycle waits for; under THREAD it grows with the index.
 static size_t cleanThreshold(IndexSpec *sp) {
   const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
-  const size_t perMille = settings->gcCleanThresholdPerMille;
-  if (!threadPolicyEnabled() || !perMille) {
+  const size_t ppm = settings->gcCleanRatioPpm;
+  if (!threadPolicyEnabled() || !ppm) {
     return settings->forkGcCleanThreshold;
   }
   IndexSpec_LockRead(sp);
   const size_t docs = sp->stats.scoring.numDocuments;
   IndexSpec_Unlock(sp);
   // Split so the product cannot overflow.
-  const size_t share = docs / 1000 * perMille + docs % 1000 * perMille / 1000;
+  const size_t share = docs / 1000000 * ppm + docs % 1000000 * ppm / 1000000;
   return MAX(settings->forkGcCleanThreshold, share);
 }
 
