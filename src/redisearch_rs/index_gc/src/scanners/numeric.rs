@@ -26,18 +26,10 @@ use crate::spec_access::SpecWriteAccess;
 use crate::{ForkPipe, GcApplyStats, GcError, HandleOutcome};
 
 /// A numeric or geo field scanned by the child process.
-///
-/// The child uses borrowed field-name bytes to avoid copies; the parent
-/// deserializes the default owned form.
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(bound(
-    serialize = "T: serde_bytes::Serialize",
-    deserialize = "T: serde_bytes::Deserialize<'de>"
-))]
-pub struct NumericField<T = Box<[u8]>> {
-    /// Field name at scan time.
-    #[serde(with = "serde_bytes")]
-    pub field_name: T,
+pub struct NumericField {
+    /// Position of the field in the spec's field list.
+    pub field_index: ffi::t_fieldIndex,
     /// [`NumericRangeTree::unique_id`] at scan time.
     pub unique_id: u32,
 }
@@ -81,23 +73,22 @@ pub struct NumericTreeId {
 }
 
 impl NumericTreeId {
-    /// Find the field named `field_name` and name its tree, after checking that
-    /// it is the one the child scanned.
+    /// Name the tree of the field at `field_index`, after checking that it is
+    /// the one the child scanned.
     ///
     /// Returns an apply error when no field matches, the field has no tree, or
     /// the tree's unique id differs from `unique_id`.
     fn resolve(
         guard: &mut IndexSpecWriteGuard<'_>,
-        field_name: &[u8],
+        field_index: ffi::t_fieldIndex,
         unique_id: u32,
     ) -> Result<Self, GcError> {
-        let (field_index, fs) = guard
+        let field_index = usize::from(field_index);
+        let fs = guard
             .field_specs_mut()
-            .iter_mut()
-            .enumerate()
-            .find(|(_, fs)| fs.field_name().secret_value().to_bytes() == field_name)
+            .get_mut(field_index)
             .ok_or(GcError::ApplyError(
-                "no field in the spec matches the scanned field name",
+                "no field in the spec is at the scanned field index",
             ))?;
 
         let tree = fs
@@ -280,20 +271,22 @@ pub fn collect_numeric(
     spec: &IndexSpecReadGuard,
     live: impl DocLiveness + Copy,
 ) -> io::Result<()> {
-    for (fs, tree) in spec
+    for (field_index, tree) in spec
         .field_specs()
         .iter()
-        .filter(|fs| {
+        .enumerate()
+        .filter(|(_, fs)| {
             fs.types()
                 .intersects(FieldSpecType::Numeric | FieldSpecType::Geo)
         })
-        .filter_map(|fs| fs.tree().map(|tree| (fs, tree)))
+        .filter_map(|(i, fs)| fs.tree().map(|tree| (i, tree)))
     {
-        let field_name = fs.field_name().secret_value().to_bytes();
+        let field_index = ffi::t_fieldIndex::try_from(field_index)
+            .expect("a spec has fewer fields than a field index can count");
         serialize(
             writer,
             Some(NumericField {
-                field_name,
+                field_index,
                 unique_id: u32::from(tree.unique_id()),
             }),
         )?;
@@ -314,7 +307,7 @@ pub fn collect_numeric(
         serialize(writer, None::<NumericNodeDelta>)?;
     }
 
-    serialize(writer, None::<NumericField<&[u8]>>)
+    serialize(writer, None::<NumericField>)
 }
 
 /// Apply one node's delta to `tree`.
@@ -346,7 +339,7 @@ pub(crate) fn apply_numeric_node(
 fn apply_node_stream(
     reader: &mut impl Read,
     spec: &mut impl SpecWriteAccess,
-    field_name: &[u8],
+    field_index: ffi::t_fieldIndex,
     unique_id: u32,
     stats: &mut GcApplyStats,
 ) -> Result<Option<NumericTreeId>, GcError> {
@@ -357,7 +350,7 @@ fn apply_node_stream(
             let resolved_tree = match resolved_tree {
                 Some(resolved_tree) => resolved_tree,
                 None => {
-                    let tree = NumericTreeId::resolve(guard, field_name, unique_id)?;
+                    let tree = NumericTreeId::resolve(guard, field_index, unique_id)?;
                     resolved_tree = Some(tree);
                     tree
                 }
@@ -413,14 +406,14 @@ pub fn handle_numeric_with(
     clean_numeric_empty_nodes: bool,
 ) -> Result<HandleOutcome, GcError> {
     let Some(NumericField {
-        field_name,
+        field_index,
         unique_id,
     }) = deserialize::<Option<NumericField>>(reader, "decoding numeric field")?
     else {
         return Ok(HandleOutcome::Done);
     };
 
-    let resolved_tree = apply_node_stream(reader, spec, &field_name, unique_id, stats)?;
+    let resolved_tree = apply_node_stream(reader, spec, field_index, unique_id, stats)?;
 
     if clean_numeric_empty_nodes && let Some(resolved_tree) = resolved_tree {
         trim_empty_nodes(spec, resolved_tree, stats)?;

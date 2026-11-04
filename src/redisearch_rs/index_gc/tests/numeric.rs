@@ -133,7 +133,7 @@ impl Drop for TestSpec {
 
 /// A single decoded field from the wire: header + node entries.
 struct DecodedField {
-    name: Vec<u8>,
+    field_index: ffi::t_fieldIndex,
     unique_id: u32,
     entries: Vec<NumericNodeDelta>,
 }
@@ -147,10 +147,10 @@ fn build_two_leaf_tree_with_gc_work() -> NumericRangeTree {
 
 /// Read one field and its node stream, or `None` at the end of the field stream.
 fn read_field(cursor: &mut Cursor<&Vec<u8>>) -> Option<DecodedField> {
-    match deserialize::<Option<NumericField<Box<[u8]>>>>(&mut *cursor, "test message").unwrap() {
+    match deserialize::<Option<NumericField>>(&mut *cursor, "test message").unwrap() {
         None => None,
         Some(NumericField {
-            field_name,
+            field_index,
             unique_id,
         }) => {
             let mut entries = Vec::new();
@@ -160,7 +160,7 @@ fn read_field(cursor: &mut Cursor<&Vec<u8>>) -> Option<DecodedField> {
                 entries.push(node);
             }
             Some(DecodedField {
-                name: field_name.into_vec(),
+                field_index,
                 unique_id,
                 entries,
             })
@@ -200,7 +200,7 @@ fn encode_field(field: DecodedField) -> Vec<u8> {
     serialize(
         &mut buf,
         Some(NumericField {
-            field_name: &field.name,
+            field_index: field.field_index,
             unique_id: field.unique_id,
         }),
     )
@@ -209,7 +209,7 @@ fn encode_field(field: DecodedField) -> Vec<u8> {
         serialize(&mut buf, Some(entry)).unwrap();
     }
     serialize(&mut buf, Option::<NumericNodeDelta>::None).unwrap();
-    serialize(&mut buf, Option::<NumericField<&[u8]>>::None).unwrap();
+    serialize(&mut buf, Option::<NumericField>::None).unwrap();
     buf
 }
 
@@ -284,7 +284,7 @@ fn numeric_field_writes_header_and_node_deltas() {
 
     let fields = decode_fields(&buf);
     assert_eq!(fields.len(), 1);
-    assert_eq!(fields[0].name, b"price");
+    assert_eq!(fields[0].field_index, 0);
     assert_eq!(fields[0].unique_id, expected_unique_id);
     // Both leaves have GC work, so the field's node stream carries two entries.
     assert_eq!(fields[0].entries.len(), 2);
@@ -315,8 +315,8 @@ fn numeric_and_geo_fields_are_both_collected() {
     .unwrap();
 
     let fields = decode_fields(&buf);
-    let names: Vec<&[u8]> = fields.iter().map(|f| f.name.as_slice()).collect();
-    assert_eq!(names, [b"price".as_slice(), b"location".as_slice()]);
+    let indexes: Vec<_> = fields.iter().map(|f| f.field_index).collect();
+    assert_eq!(indexes, [0, 1]);
     for field in &fields {
         assert_eq!(field.entries.len(), 1);
     }
@@ -329,7 +329,7 @@ fn handle_numeric_with_rejects_a_wrongly_shaped_node_record() {
     serialize(
         &mut buf,
         Some(NumericField {
-            field_name: b"price",
+            field_index: 0,
             unique_id: 0,
         }),
     )
@@ -356,7 +356,7 @@ fn handle_numeric_with_preserves_deserialization_error() {
     serialize(
         &mut buf,
         Some(NumericField {
-            field_name: b"price",
+            field_index: 0,
             unique_id: 0,
         }),
     )
@@ -594,7 +594,7 @@ fn handle_numeric_with_preserves_progress_on_truncated_stream() {
     serialize(
         &mut buf,
         Some(NumericField {
-            field_name: &field.name,
+            field_index: field.field_index,
             unique_id: field.unique_id,
         }),
     )
