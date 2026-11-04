@@ -62,7 +62,7 @@ int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryE
   // A timeout that also fired outranks the stop: ON_TIMEOUT FAIL replies its error (the OOM
   // warning is then unused) and RETURN replies both warnings, the timeout one derived from rc.
   if (QueryRequestLimits_IsTimedOutExact(limits)) {
-    return RS_RESULT_TIMEDOUT;
+    return RS_RESULT_STOPPED;
   }
   return RS_RESULT_EOF;
 }

@@ -36,7 +36,7 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply);
  * - Otherwise: the query OOM warning in `err` and RS_RESULT_EOF, so the rows
  *   produced so far are the final, partial result instead of a timeout.
  *   If the request's timeout also fired (QueryRequestLimits_IsTimedOutExact),
- *   RS_RESULT_TIMEDOUT is returned instead, so the timeout outcome is kept: an
+ *   RS_RESULT_STOPPED is returned instead, so the timeout outcome is kept: an
  *   error under ON_TIMEOUT FAIL, a warning beside the OOM one otherwise.
  */
 int ApplyOomStop(const struct QueryRequestLimits *limits, RSOomPolicy oomPolicy,

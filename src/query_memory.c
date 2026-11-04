@@ -128,7 +128,7 @@ bool QueryMemory_CheckpointExact(QueryRequestLimits *limits) {
 int QueryMemory_CheckBeforeExecution(QueryRequestLimits *timeout, RSOomPolicy oomPolicy,
                                      QueryError *err) {
   RS_ASSERT(timeout);
-  if (!QueryMemory_CheckpointNow(timeout) || oomPolicy != OomPolicy_Fail ||
+  if (!QueryMemory_CheckpointExact(timeout) || oomPolicy != OomPolicy_Fail ||
       !QueryRequestLimits_IsMemoryStopped(timeout)) {
     return REDISMODULE_OK;
   }

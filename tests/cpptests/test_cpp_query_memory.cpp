@@ -386,7 +386,7 @@ TEST_F(ApplyOomStopTest, OomReturnKeepsATimeoutThatAlsoFired) {
   for (RSTimeoutPolicy policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return}) {
     QueryRequestLimits limits = {};
     stopForMemory(&limits, policy, true);
-    EXPECT_EQ(ApplyOomStop(&limits, OomPolicy_Return, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT)
+    EXPECT_EQ(ApplyOomStop(&limits, OomPolicy_Return, &err_, RS_RESULT_STOPPED), RS_RESULT_STOPPED)
         << "timeout policy " << policy;
     EXPECT_TRUE(QueryError_IsOk(&err_));
     EXPECT_TRUE(QueryError_HasQueryOOMWarning(&err_));
@@ -398,7 +398,7 @@ TEST_F(ApplyOomStopTest, OomReturnEndsWithEofWhenOnlyMemoryStopped) {
   for (RSTimeoutPolicy policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return}) {
     QueryRequestLimits limits = {};
     stopForMemory(&limits, policy, false);
-    EXPECT_EQ(ApplyOomStop(&limits, OomPolicy_Return, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_EOF)
+    EXPECT_EQ(ApplyOomStop(&limits, OomPolicy_Return, &err_, RS_RESULT_STOPPED), RS_RESULT_EOF)
         << "timeout policy " << policy;
     EXPECT_TRUE(QueryError_HasQueryOOMWarning(&err_));
     QueryError_ClearError(&err_);
@@ -409,7 +409,7 @@ TEST_F(ApplyOomStopTest, OomFailBeatsATimeoutThatAlsoFired) {
   for (RSTimeoutPolicy policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return}) {
     QueryRequestLimits limits = {};
     stopForMemory(&limits, policy, true);
-    EXPECT_EQ(ApplyOomStop(&limits, OomPolicy_Fail, &err_, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR)
+    EXPECT_EQ(ApplyOomStop(&limits, OomPolicy_Fail, &err_, RS_RESULT_STOPPED), RS_RESULT_ERROR)
         << "timeout policy " << policy;
     EXPECT_EQ(QueryError_GetCode(&err_), QUERY_ERROR_CODE_OUT_OF_MEMORY);
     QueryError_ClearError(&err_);
