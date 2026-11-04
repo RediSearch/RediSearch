@@ -3122,7 +3122,11 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
     sp->stats.invertedSize;
   size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
-    sp->docs.memsize + DocTable_DeletedDocsMemoryUsage(&sp->docs);
+    sp->docs.memsize;
+  if (!isDisk && !skip_unsafe_ops) {
+    // A crash can interrupt a change to the deleted set; inspecting it would reenter Rust.
+    doc_table_size += DocTable_DeletedDocsMemoryUsage(&sp->docs);
+  }
 
   RedisModule_InfoBeginDictField(ctx, "index_properties");
   RedisModule_InfoAddFieldULongLong(ctx, "max_doc_id", sp->docs.maxDocId);
