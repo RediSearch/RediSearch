@@ -473,7 +473,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         } else {
             Ok(Some(GcScanDelta {
                 last_block_idx: last_idx,
-                last_block_num_entries: last.num_entries,
+                last_block_num_entries: self.blocks[last_idx].num_entries,
                 deltas: results,
             }))
         }
