@@ -76,7 +76,7 @@ TEST_F(RPIndexStopTest, EndRowSourceOnStopRepliesTimedOut) {
   QueryRequestLimits_RequestMemoryStop(&limits);
   RP_EndRowSourceOnStop(&qctx);
   RP_EndRowSourceOnStop(&qctx);
-  EXPECT_EQ(next(), RS_RESULT_TIMEDOUT);
-  EXPECT_EQ(next(), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(next(), RS_RESULT_STOPPED);
+  EXPECT_EQ(next(), RS_RESULT_STOPPED);
   EXPECT_EQ(mock->readCount, 0);
 }
