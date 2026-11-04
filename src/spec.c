@@ -1443,9 +1443,9 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   }
 
   if (!parseFieldTypeOptions(fs, ac, status)) goto error;
-  // Type-specific options may also come between or after SORTABLE and NOINDEX. Schemas used to
-  // end the field at the first other argument here, so one that could start a field definition
-  // still does, keeping fields named after an option keyword working.
+  // Type-specific options may also come between or after SORTABLE and NOINDEX. An argument that
+  // can start a field definition (followed by AS or a field type) ends this field instead, so a
+  // field may be named after an option keyword.
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
