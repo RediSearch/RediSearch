@@ -177,7 +177,7 @@ jobs:
     secrets: inherit
     with:
       tool: valgrind
-      platform: ubuntu:latest
+      platform: ubuntu:noble
       architecture: x86_64
 
   pr-validation:
