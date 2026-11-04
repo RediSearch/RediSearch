@@ -178,7 +178,8 @@ pub fn numeric_tree_keys(spec: &IndexSpecReadGuard) -> Vec<NumericTreeKey> {
 }
 
 /// The doc IDs spanned by the ranges of the nodes `key`'s tree gained since `key`
-/// listed its nodes (`listed`, the same set), when its structure changed since.
+/// listed its nodes, when its structure changed since. `listed` is scratch space,
+/// filled only then.
 ///
 /// A leaf that splits copies every entry of its range into two new leaves, so a
 /// cycle that cleans the listed nodes leaves those copies, dead entries included,
@@ -188,7 +189,7 @@ pub fn numeric_tree_keys(spec: &IndexSpecReadGuard) -> Vec<NumericTreeKey> {
 pub fn ranges_of_nodes_added_since(
     spec: &IndexSpecReadGuard,
     key: &NumericTreeKey,
-    listed: &HashSet<NodeIndex>,
+    listed: &mut HashSet<NodeIndex>,
 ) -> Vec<RangeInclusive<DocId>> {
     let Some(tree) = key.id.tree(spec) else {
         return Vec::new();
@@ -196,6 +197,8 @@ pub fn ranges_of_nodes_added_since(
     if tree.revision_id() == key.revision_id {
         return Vec::new();
     }
+    listed.clear();
+    listed.extend(key.nodes.iter().copied());
     tree.indexed_post_order_iter()
         .filter(|(node_idx, _)| !listed.contains(node_idx))
         .filter_map(|(_, node)| node.range()?.entries().doc_id_range())

@@ -372,9 +372,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
 
             // A leaf split since the nodes were listed copied its entries, deleted ones
             // included, into leaves this cycle never scanned; their IDs stay in the set.
-            listed.clear();
-            listed.extend(tree.nodes.iter().copied());
-            for range in self.read(|guard| ranges_of_nodes_added_since(guard, tree, &listed))? {
+            for range in self.read(|guard| ranges_of_nodes_added_since(guard, tree, &mut listed))? {
                 self.retained.insert_range(range);
             }
 
