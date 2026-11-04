@@ -123,6 +123,25 @@ def testThreadGCRemovesEmptiedTermsTagsAndMissingFields():
 
 
 @skip(cluster=True)
+def testThreadGCCollectsPastMaxmemory():
+    # The fork cycle stands down above maxmemory, since a fork may double the memory; an
+    # in-process cycle allocates little, so it keeps collecting there.
+    env = thread_gc_env(fresh=True)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', *SCHEMA).ok()
+    add_docs(conn, 'doc:', 100)
+
+    set_tight_maxmemory_for_oom(env)
+    for i in range(100):
+        conn.execute_command('DEL', f'doc:{i}')
+    forceInvokeGC(env, 'idx')
+
+    gc_stats = to_dict(index_info(env, 'idx')['gc_stats'])
+    env.assertGreater(int(gc_stats['bytes_collected']), 0)
+    set_unlimited_maxmemory_for_oom(env)
+
+
+@skip(cluster=True)
 def testThreadPolicyIsTakenAtLoad():
     """GC_POLICY THREAD is taken at load as given, reported by FT.CONFIG, and its cycles do not
     fork."""
