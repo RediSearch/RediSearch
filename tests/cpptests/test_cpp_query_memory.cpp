@@ -73,7 +73,7 @@ TEST_F(QueryMemoryTest, ReadsMemoryOncePerInterval) {
 }
 
 TEST_F(QueryMemoryTest, PressureRequestsAMemoryStop) {
-  QueryMemory_SetRatioReadInterval(1);
+  QueryMemoryDebug_SetRatioReadInterval(1);
   uint32_t counter = 0;
   fakeRatio = 0.99f;
   EXPECT_FALSE(QueryMemory_Checkpoint(&timeout_, &counter));
@@ -91,16 +91,17 @@ TEST_F(QueryMemoryTest, PressureRequestsAMemoryStop) {
   EXPECT_EQ(fakeRatioReads.load(), reads);
 }
 
-TEST_F(QueryMemoryTest, ReportsTheBlockedClientTimeout) {
+TEST_F(QueryMemoryTest, IgnoresTheBlockedClientTimeout) {
   uint32_t counter = 0;
   QueryRequestLimits_BeginCycle(&timeout_, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestLimits_MarkTimedOut(&timeout_);
-  EXPECT_TRUE(QueryMemory_Checkpoint(&timeout_, &counter));
-  EXPECT_EQ(fakeRatioReads.load(), 0u);
+  EXPECT_FALSE(QueryMemory_Checkpoint(&timeout_, &counter));
+  EXPECT_FALSE(QueryMemory_CheckpointNow(&timeout_));
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 
 TEST_F(QueryMemoryTest, OffWhenOnOomIsIgnore) {
-  QueryMemory_SetRatioReadInterval(1);
+  QueryMemoryDebug_SetRatioReadInterval(1);
   RSGlobalConfig.requestConfigParams.oomPolicy = OomPolicy_Ignore;
   fakeRatio = 5.0f;
   uint32_t counter = 0;
@@ -111,7 +112,7 @@ TEST_F(QueryMemoryTest, OffWhenOnOomIsIgnore) {
 }
 
 TEST_F(QueryMemoryTest, OffWithoutTheMemoryApi) {
-  QueryMemory_SetRatioReadInterval(1);
+  QueryMemoryDebug_SetRatioReadInterval(1);
   RedisModule_GetUsedMemoryRatioEstimate = nullptr;
   uint32_t counter = 0;
   for (int i = 0; i < 10; ++i) {
@@ -121,7 +122,7 @@ TEST_F(QueryMemoryTest, OffWithoutTheMemoryApi) {
 }
 
 TEST_F(QueryMemoryTest, OffWithoutAMemoryLimit) {
-  QueryMemory_SetRatioReadInterval(1);
+  QueryMemoryDebug_SetRatioReadInterval(1);
   fakeRatio = 0;  // The API's answer when no limit is configured.
   uint32_t counter = 0;
   for (int i = 0; i < 10; ++i) {
@@ -131,14 +132,14 @@ TEST_F(QueryMemoryTest, OffWithoutAMemoryLimit) {
 }
 
 TEST_F(QueryMemoryTest, WithoutARequestReportsPressureOnly) {
-  QueryMemory_SetRatioReadInterval(1);
+  QueryMemoryDebug_SetRatioReadInterval(1);
   fakeRatio = 1.5f;
   uint32_t counter = 0;
   EXPECT_TRUE(QueryMemory_Checkpoint(nullptr, &counter));
 }
 
 TEST_F(QueryMemoryTest, SitesBelowTheIntervalShareTheRequestCount) {
-  QueryMemory_SetRatioReadInterval(8);
+  QueryMemoryDebug_SetRatioReadInterval(8);
   fakeRatio = 1.0f;
   uint32_t siteA = 0, siteB = 0;
   // Each site alone stays under the interval; together the eighth call reads.
@@ -157,7 +158,7 @@ TEST_F(QueryMemoryTest, SitesBelowTheIntervalShareTheRequestCount) {
 }
 
 TEST_F(QueryMemoryTest, APrimedCounterStillReadsImmediately) {
-  QueryMemory_SetRatioReadInterval(8);
+  QueryMemoryDebug_SetRatioReadInterval(8);
   fakeRatio = 1.0f;
   uint32_t counter = 7;
   EXPECT_TRUE(QueryMemory_Checkpoint(&timeout_, &counter));
@@ -167,7 +168,7 @@ TEST_F(QueryMemoryTest, APrimedCounterStillReadsImmediately) {
 }
 
 TEST_F(QueryMemoryTest, WithoutARequestEachSiteCountsAlone) {
-  QueryMemory_SetRatioReadInterval(4);
+  QueryMemoryDebug_SetRatioReadInterval(4);
   uint32_t siteA = 0, siteB = 0;
   for (int i = 0; i < 3; ++i) {
     EXPECT_FALSE(QueryMemory_Checkpoint(nullptr, &siteA));
@@ -215,7 +216,7 @@ TEST_F(QueryMemoryTest, ConcurrentCheckpointsStopTheSameRequest) {
 }
 
 TEST_F(QueryMemoryTest, ForcedRatioReplacesTheMemoryRead) {
-  QueryMemory_SetRatioReadInterval(1);
+  QueryMemoryDebug_SetRatioReadInterval(1);
   RedisModule_GetUsedMemoryRatioEstimate = nullptr;
   uint32_t counter = 0;
   QueryMemory_SetForcedRatio(0.5f);
@@ -226,7 +227,7 @@ TEST_F(QueryMemoryTest, ForcedRatioReplacesTheMemoryRead) {
 }
 
 TEST_F(QueryMemoryTest, NegativeForcedRatioRestoresTheRealRead) {
-  QueryMemory_SetRatioReadInterval(1);
+  QueryMemoryDebug_SetRatioReadInterval(1);
   uint32_t counter = 0;
   QueryMemory_SetForcedRatio(3.0f);
   QueryMemory_SetForcedRatio(-1);
@@ -321,7 +322,7 @@ TEST_F(QueryMemoryTest, ShouldStopNowPressureAtCallHonorsOnOomIgnore) {
 TEST_F(QueryMemoryTest, ResetClearsEveryFake) {
   QueryMemory_SetForcedRatio(2.0f);
   QueryMemory_SetPressureAtCall(5);
-  QueryMemory_SetRatioReadInterval(1);
+  QueryMemoryDebug_SetRatioReadInterval(1);
   QueryMemory_ResetFakePressure();
   EXPECT_LT(QueryMemory_GetForcedRatio(), 0);
   EXPECT_EQ(QueryMemory_GetPressureAtCall(), 0u);
