@@ -1065,7 +1065,6 @@ void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
 SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(
     RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges, size_t numRanges,
     t_docId maxDocId, size_t maxScanned, SearchDiskSlotTrimCallback callback, void *ctx);
-bool SearchDisk_WriteSlotTrimBatch(RedisSearchDiskIndexSpec *index, const SearchDiskSlotTrimBatch *batch);
 bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
                                    const SearchDiskSlotTrimBatch *batch);
 #ifdef __cplusplus

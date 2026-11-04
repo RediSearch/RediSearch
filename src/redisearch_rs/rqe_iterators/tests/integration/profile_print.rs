@@ -517,14 +517,17 @@ fn make_numeric_variant<'a>(
             0,
         )
     };
-    rqe_iterators::NumericIteratorVariant::new(
-        idx.reader(),
-        filter,
-        checker,
-        None,
-        range_min,
-        range_max,
-    )
+    // SAFETY: nothing writes to the index while the iterator lives.
+    unsafe {
+        rqe_iterators::NumericIteratorVariant::new(
+            idx.reader(),
+            filter,
+            checker,
+            None,
+            range_min,
+            range_max,
+        )
+    }
 }
 
 #[test]

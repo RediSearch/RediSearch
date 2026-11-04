@@ -864,12 +864,6 @@ SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(
                                           ctx);
 }
 
-bool SearchDisk_WriteSlotTrimBatch(RedisSearchDiskIndexSpec *index,
-                                  const SearchDiskSlotTrimBatch *batch) {
-  RS_ASSERT(disk && index && batch);
-  return disk->slotMigration.writeTrimBatch(index, batch);
-}
-
 bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
                                    const SearchDiskSlotTrimBatch *batch) {
   RS_ASSERT(disk && disk->slotMigration.applyTrimBatch);
