@@ -93,6 +93,7 @@ def testGetConfigOptions(env):
     check_config('GC_POLICY')
     check_config('FORK_GC_RUN_INTERVAL')
     check_config('FORK_GC_CLEAN_THRESHOLD')
+    check_config('GC_CLEAN_THRESHOLD_PER_MILLE')
     check_config('FORK_GC_RETRY_INTERVAL')
     check_config('PARTIAL_INDEXED_DOCS')
     check_config('UNION_ITERATOR_HEAP')
@@ -214,8 +215,9 @@ def testAllConfig(env):
     env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
     env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
     env.assertEqual(res_dict['MIN_PHONETIC_TERM_LEN'][0], '3')
-    env.assertEqual(res_dict['FORK_GC_RUN_INTERVAL'][0], '30')
+    env.assertEqual(res_dict['FORK_GC_RUN_INTERVAL'][0], '5')
     env.assertEqual(res_dict['FORK_GC_CLEAN_THRESHOLD'][0], '100')
+    env.assertEqual(res_dict['GC_CLEAN_THRESHOLD_PER_MILLE'][0], '1')
     env.assertEqual(res_dict['FORK_GC_RETRY_INTERVAL'][0], '5')
     env.assertEqual(res_dict['CURSOR_MAX_IDLE'][0], '300000')
     env.assertEqual(res_dict['NO_MEM_POOLS'][0], 'false')
@@ -227,7 +229,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['_PRIORITIZE_INTERSECT_UNION_CHILDREN'][0], 'false')
     env.assertEqual(res_dict['_FREE_RESOURCE_ON_THREAD'][0], 'true')
     env.assertEqual(res_dict['BG_INDEX_SLEEP_GAP'][0], '100')
-    env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
+    env.assertEqual(res_dict['GC_POLICY'][0], 'thread')
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
@@ -635,8 +637,10 @@ numericConfigs = [
     ('search-default-dialect', 'DEFAULT_DIALECT', 1, 1, 4, False, False),
     ('search-fork-gc-clean-threshold', 'FORK_GC_CLEAN_THRESHOLD', 100, 0, LLONG_MAX, False, False),
     ('search-fork-gc-retry-interval', 'FORK_GC_RETRY_INTERVAL', 5, 1, LLONG_MAX, False, False),
-    ('search-fork-gc-run-interval', 'FORK_GC_RUN_INTERVAL', 30, 1, LLONG_MAX, False, False),
+    # The THREAD policy's default; see testGcRunIntervalDefaultFollowsThePolicy.
+    ('search-fork-gc-run-interval', 'FORK_GC_RUN_INTERVAL', 5, 1, LLONG_MAX, False, False),
     ('search-fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, LLONG_MAX, False, False),
+    ('search-gc-clean-threshold-per-mille', 'GC_CLEAN_THRESHOLD_PER_MILLE', 1, 0, 1000, False, False),
     ('search-gc-scan-size', 'GCSCANSIZE', 100, 1, LLONG_MAX, True, False),
     ('search-index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, LLONG_MAX, False, False),
     ('search-max-aggregate-groups', 'MAX_AGGREGATE_GROUPS', DEFAULT_MAX_AGGREGATE_GROUPS, 1, MAX_AGGREGATE_GROUPS, False, False),
@@ -2629,3 +2633,26 @@ def test_flex_search_disk_async_read_pool_and_queue_set_together(env):
     # RLTest reuses the server across tests, so hand it back at the defaults
     env.expect('CONFIG', 'SET', 'search-_disk-async-read-pool-size', '16',
                'search-_disk-async-read-queue-factor', '1').ok()
+
+
+def testGcRunIntervalDefaultFollowsThePolicy():
+    # THREAD needs no fork, so its default interval is shorter; a value the user sets is kept.
+    for module_args, expected in [('', '5'), ('GC_POLICY FORK', '30'),
+                                  ('FORK_GC_RUN_INTERVAL 30', '30')]:
+        env = Env(moduleArgs=module_args, freshEnv=True)
+        env.expect('CONFIG', 'GET', 'search-fork-gc-run-interval').equal(
+            ['search-fork-gc-run-interval', expected])
+        env.stop()
+
+
+def testGcConfigAliases():
+    env = Env()
+    for name, alias in [('search-fork-gc-run-interval', 'search-gc-run-interval'),
+                        ('search-fork-gc-clean-threshold', 'search-gc-clean-threshold')]:
+        original = env.cmd('CONFIG', 'GET', name)[1]
+        try:
+            env.expect('CONFIG', 'SET', alias, 7).ok()
+            env.expect('CONFIG', 'GET', name).equal([name, '7'])
+            env.expect('CONFIG', 'GET', alias).equal([alias, '7'])
+        finally:
+            env.expect('CONFIG', 'SET', name, original).ok()

@@ -29,6 +29,7 @@
 #include "search_ctx.h"
 #include "spec.h"
 #include "util/references.h"
+#include "util/minmax.h"
 
 // GC_POLICY is load-time, so a GC runs the same policy for its whole life.
 static bool threadPolicyEnabled(void) {
@@ -41,6 +42,21 @@ void IndexGC_TakeDeferredDeletes(IndexGC *gc, IndexSpec *sp) {
     gc->deletedOrUpdatedDocsFromLastRun += deferred;
     IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
   }
+}
+
+// The deletions a scheduled cycle waits for; under THREAD it grows with the index.
+static size_t cleanThreshold(IndexSpec *sp) {
+  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
+  const size_t perMille = settings->gcCleanThresholdPerMille;
+  if (!threadPolicyEnabled() || !perMille) {
+    return settings->forkGcCleanThreshold;
+  }
+  IndexSpec_LockRead(sp);
+  const size_t docs = sp->stats.scoring.numDocuments;
+  IndexSpec_Unlock(sp);
+  // Split so the product cannot overflow.
+  const size_t share = docs / 1000 * perMille + docs % 1000 * perMille / 1000;
+  return MAX(settings->forkGcCleanThreshold, share);
 }
 
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook) {
@@ -62,7 +78,7 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
 
   IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(early_check));
 
-  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < cleanThreshold(StrongRef_Get(early_check))) {
     IndexSpecRef_Release(early_check);
     return true;
   }

@@ -68,8 +68,14 @@ class IndexGCTest : public ::testing::Test {
   RMCK::Context ctx;
   RefManager *ism;
   IndexGC *fgc;
+  GCPolicy savedPolicy;
+
+  // The policy the spec is created under; most of these tests drive the fork cycle.
+  virtual GCPolicy policy() const { return GCPolicy_Fork; }
 
   void SetUp() override {
+    savedPolicy = RSGlobalConfig.gcConfigParams.gcPolicy;
+    RSGlobalConfig.gcConfigParams.gcPolicy = policy();
     Initialize_KeyspaceNotifications();
     ism = createSpec(ctx);
     RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold = 0;
@@ -79,6 +85,7 @@ class IndexGCTest : public ::testing::Test {
 
   void TearDown() override {
     freeSpec(ism);
+    RSGlobalConfig.gcConfigParams.gcPolicy = savedPolicy;
   }
 
   size_t addDocumentWrapper(const char *docid, const char *field, const char *value) {
@@ -852,15 +859,7 @@ TEST(GCInterval, SecondsToMsClampsSoJitterCannotOverflow) {
 /** A spec made under the THREAD policy, whose doc table tracks its deleted IDs. */
 class ThreadGCTest : public IndexGCTestTag {
  protected:
-  void SetUp() override {
-    RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Thread;
-    IndexGCTestTag::SetUp();
-  }
-
-  void TearDown() override {
-    IndexGCTestTag::TearDown();
-    RSGlobalConfig.gcConfigParams.gcPolicy = GCPolicy_Fork;
-  }
+  GCPolicy policy() const override { return GCPolicy_Thread; }
 
   uint64_t trackedDeletions() {
     return DeletedDocs_Len(get_spec(ism)->docs.deletedDocs);

@@ -167,6 +167,34 @@ def testThreadPolicyIsTakenAtLoad():
     env.assertEqual(int(to_dict(index_info(env, 'idx')['gc_stats'])['total_cycles']), 1)
 
 @skip(cluster=True)
+def testThreadGCThresholdGrowsWithTheIndex():
+    """A scheduled THREAD cycle waits for GC_CLEAN_THRESHOLD_PER_MILLE of the index's documents
+    to be deleted, not just FORK_GC_CLEAN_THRESHOLD."""
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 GC_CLEAN_THRESHOLD_PER_MILLE 100', freshEnv=True)
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 1).ok()
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+    for i in range(100):
+        conn.execute_command('HSET', f'doc:{i}', 't', f'word{i}')
+
+    def total_cycles():
+        return int(to_dict(index_info(env, 'idx')['gc_stats'])['total_cycles'])
+
+    # 5 deletions leave 95 documents, whose 100 per mille is 9.
+    for i in range(5):
+        conn.execute_command('DEL', f'doc:{i}')
+    time.sleep(2.5)
+    env.assertEqual(total_cycles(), 0)
+
+    # 10 deletions reach the 9 of the 90 left.
+    for i in range(5, 10):
+        conn.execute_command('DEL', f'doc:{i}')
+    with TimeLimit(10, 'a scheduled cycle should run once the threshold is reached'):
+        while total_cycles() == 0:
+            time.sleep(0.1)
+
+@skip(cluster=True)
 def testThreadGCRunsWhileAnotherChildHoldsTheForkSlot():
     """The fork GC has to wait for a BGSAVE child to exit; the thread GC needs no child of its
     own, so it collects while the BGSAVE is still running."""
