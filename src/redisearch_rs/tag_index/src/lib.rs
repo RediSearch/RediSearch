@@ -164,7 +164,7 @@ use inverted_index::{DocId, IndexReader, InvertedIndex, doc_ids_only::DocIdsOnly
 use query_term::RSQueryTerm;
 use rqe_iterators::{
     FieldExpirationChecker,
-    inverted_index::{Tag as TagIterator, TagLookup, max_visible_doc_id},
+    inverted_index::{Tag as TagIterator, TagLookup},
     utils::duration_from_redis_timespec,
 };
 use rqe_wildcard::{MatchOutcome, WildcardPattern};
@@ -524,15 +524,10 @@ impl TagIndex<InMemoryMode> {
             "lookup must resolve the index this reader reads from"
         );
 
-        // SAFETY: contract 2 guarantees `sctx` is valid.
-        let max_doc_id = max_visible_doc_id(unsafe { sctx.as_ref() });
-        Some(
-            // SAFETY: `reader` reads the inverted index just resolved for `tag`,
-            // contract 2 guarantees `sctx` and `sctx.spec` are valid, and contract 3
-            // is `TagIterator::new`'s own requirement on `lookup`.
-            unsafe { TagIterator::new(reader, sctx, lookup, term, weight, checker) }
-                .with_max_doc_id(max_doc_id),
-        )
+        // SAFETY: `reader` reads the inverted index just resolved for `tag`,
+        // contract 2 guarantees `sctx` and `sctx.spec` are valid, and contract 3
+        // is `TagIterator::new`'s own requirement on `lookup`.
+        Some(unsafe { TagIterator::new(reader, sctx, lookup, term, weight, checker) })
     }
 }
 

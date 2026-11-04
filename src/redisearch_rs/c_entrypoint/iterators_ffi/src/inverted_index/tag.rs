@@ -18,7 +18,7 @@ use rqe_core::DocId;
 use rqe_iterators::{
     FieldExpirationChecker, IteratorType,
     interop::RQEIteratorWrapper,
-    inverted_index::{Tag, TagLookup, max_visible_doc_id},
+    inverted_index::{Tag, TagLookup},
     profile_print,
 };
 
@@ -216,8 +216,6 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
 
     // SAFETY: 5. guarantees sctx is valid and non-null
     let sctx_nn = unsafe { NonNull::new_unchecked(sctx as *mut _) };
-    // SAFETY: 5. guarantees sctx is valid and non-null
-    let max_doc_id = max_visible_doc_id(unsafe { sctx_nn.as_ref() });
 
     // SAFETY: 7. guarantees term is a heap-allocated RSQueryTerm
     let term = unsafe { Box::from_raw(term) };
@@ -240,10 +238,9 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
             // 5., 6. guarantee context/spec validity.
             // 7. guarantees term ownership transfer.
             // The DocIdsOnly match arm ensures the encoding variant matches.
-            TagIterator::Encoded(
-                unsafe { Tag::new(reader, sctx_nn, lookup, term, weight, checker) }
-                    .with_max_doc_id(max_doc_id),
-            )
+            TagIterator::Encoded(unsafe {
+                Tag::new(reader, sctx_nn, lookup, term, weight, checker)
+            })
         }
         inverted_index_ffi::InvertedIndex::RawDocIdsOnly(ii) => {
             let reader = ii.reader();
@@ -255,10 +252,7 @@ pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
             // 5., 6. guarantee context/spec validity.
             // 7. guarantees term ownership transfer.
             // The RawDocIdsOnly match arm ensures the encoding variant matches.
-            TagIterator::Raw(
-                unsafe { Tag::new(reader, sctx_nn, lookup, term, weight, checker) }
-                    .with_max_doc_id(max_doc_id),
-            )
+            TagIterator::Raw(unsafe { Tag::new(reader, sctx_nn, lookup, term, weight, checker) })
         }
         _ => panic!(
             "Tag iterator requires a DocIdsOnly or RawDocIdsOnly inverted index, got: {:?}",
