@@ -3315,8 +3315,7 @@ static bool replyShouldStop(searchRequestCtx *req, bool stoppedBefore, uint32_t 
   QueryRequestLimits *timeout = &req->base.limits;
   if (stoppedBefore || req->base.reqConfig.oomPolicy == OomPolicy_Fail ||
       !(memoryCheckCalls ? QueryMemory_Checkpoint(timeout, memoryCheckCalls)
-                         : QueryMemory_CheckpointNow(timeout)) ||
-      !QueryRequestLimits_IsMemoryStopped(timeout)) {
+                         : QueryMemory_CheckpointNow(timeout))) {
     return false;
   }
   req->queryOOM = true;
