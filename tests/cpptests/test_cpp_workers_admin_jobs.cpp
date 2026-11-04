@@ -120,3 +120,95 @@ TEST_F(WorkersAdminJobsMetricTest, MetricIncreasesOnThreadResize) {
                          << stats.workers_admin_priority_pending_jobs;
 
 }
+
+class WorkersDeferredShrinkTest : public WorkersAdminJobsMetricTest {
+ protected:
+  void SetUp() override {
+    WorkersAdminJobsMetricTest::SetUp();
+    workersThreadPool_wait();
+    RedisModule_CreateTimer = [](RedisModuleCtx *, mstime_t, RedisModuleTimerProc callback,
+                                 void *) -> RedisModuleTimerID {
+      pendingTimer = callback;
+      return 1;
+    };
+    RSGlobalConfig.minMaintenanceWorkers = 1;
+    RSGlobalConfig.numWorkerThreads = workerCount;
+    workersThreadPool_SetNumWorkers();
+  }
+
+  void TearDown() override {
+    for (auto &flag : flags) {
+      flag.should_finish.store(true);
+    }
+    if (workerThreadPool_isPaused()) {
+      workersThreadPool_resume();
+    }
+    workersThreadPool_wait();
+    if (pendingTimer) {
+      FireTimer();
+      workersThreadPool_wait();
+    }
+    RSGlobalConfig.numWorkerThreads = savedWorkers;
+    RSGlobalConfig.minMaintenanceWorkers = savedFloor;
+    workersThreadPool_SetNumWorkers();
+    workersThreadPool_wait();
+    RedisModule_CreateTimer = savedCreateTimer;
+    WorkersAdminJobsMetricTest::TearDown();
+  }
+
+  static void FireTimer() {
+    auto callback = pendingTimer;
+    pendingTimer = nullptr;
+    callback(RSDummyContext, nullptr);
+  }
+
+  static constexpr size_t workerCount = 4;
+  static inline RedisModuleTimerProc pendingTimer = nullptr;
+  const size_t savedWorkers = RSGlobalConfig.numWorkerThreads;
+  const size_t savedFloor = RSGlobalConfig.minMaintenanceWorkers;
+  const decltype(RedisModule_CreateTimer) savedCreateTimer = RedisModule_CreateTimer;
+  std::atomic<size_t> queuedJobsDone{0};
+};
+
+TEST_F(WorkersDeferredShrinkTest, ResumeKeepsAllWorkersUntilQueuedJobsStart) {
+  ASSERT_EQ(workersThreadPool_pause(), REDISMODULE_OK);
+  for (size_t i = 0; i < workerCount; ++i) {
+    ASSERT_EQ(workersThreadPool_AddWork(busyJobWithFlag, &flags[i]), 0);
+  }
+  ASSERT_EQ(workersThreadPool_AddWork(
+                [](void *arg) { static_cast<std::atomic<size_t> *>(arg)->fetch_add(1); },
+                &queuedJobsDone),
+            0);
+  const auto before = workersThreadPool_getStats();
+  ASSERT_EQ(before.high_priority_pending_jobs, workerCount + 1);
+
+  RSGlobalConfig.numWorkerThreads = 0;
+  workersThreadPool_SetNumWorkers();
+  ASSERT_EQ(workersThreadPool_resume(), REDISMODULE_OK);
+  ASSERT_EQ(workersThreadPool_NumThreads(), workerCount);
+  ASSERT_TRUE(RS::WaitForCondition([&]() {
+    for (size_t i = 0; i < workerCount; ++i) {
+      if (!flags[i].started.load()) return false;
+    }
+    return true;
+  }));
+
+  // Every worker is held in a job, so resume and timer polling cannot race the queued job.
+  ASSERT_NE(pendingTimer, nullptr);
+  FireTimer();
+  EXPECT_EQ(workersThreadPool_NumThreads(), workerCount);
+  EXPECT_EQ(workersThreadPool_getStats().high_priority_pending_jobs, 1);
+  EXPECT_EQ(queuedJobsDone.load(), 0);
+  ASSERT_NE(pendingTimer, nullptr);
+
+  for (auto &flag : flags) {
+    flag.should_finish.store(true);
+  }
+  workersThreadPool_wait();
+  EXPECT_EQ(queuedJobsDone.load(), 1);
+  EXPECT_EQ(workersThreadPool_getStats().total_jobs_done, before.total_jobs_done + workerCount + 1);
+  FireTimer();
+  workersThreadPool_wait();
+  EXPECT_EQ(workersThreadPool_NumThreads(), 1);
+  EXPECT_EQ(pendingTimer, nullptr);
+}
