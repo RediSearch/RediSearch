@@ -59,7 +59,7 @@ bool QueryMemory_CheckpointNow(QueryRequestLimits *limits);
  * Debug and test override of QUERY_MEMORY_RATIO_READ_INTERVAL for every
  * checkpoint, so tests can read memory on every call. 0 restores the default.
  */
-void QueryMemory_SetRatioReadInterval(uint32_t interval);
+void QueryMemoryDebug_SetRatioReadInterval(uint32_t interval);
 uint32_t QueryMemory_GetRatioReadInterval(void);
 
 #ifdef __cplusplus

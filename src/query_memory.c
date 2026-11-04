@@ -15,7 +15,7 @@
 
 static _Atomic(uint32_t) ratioReadInterval = QUERY_MEMORY_RATIO_READ_INTERVAL;
 
-void QueryMemory_SetRatioReadInterval(uint32_t interval) {
+void QueryMemoryDebug_SetRatioReadInterval(uint32_t interval) {
   atomic_store_explicit(&ratioReadInterval, interval ? interval : QUERY_MEMORY_RATIO_READ_INTERVAL,
                         memory_order_relaxed);
 }
