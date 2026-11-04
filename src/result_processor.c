@@ -2261,7 +2261,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     // timeout, an OOM stop under ON_OOM FAIL). Under a RETURN policy the upstream ends the rows;
     // the wall-clock deadline is handled by the upstream's own checks.
     if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls)) {
-      rc = RS_RESULT_TIMEDOUT;
+      rc = RS_RESULT_STOPPED;
       break;
     }
   }
@@ -2269,7 +2269,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
 
   // Save the last return code from the upstream.
   self->last_rc = rc;
-  if (rc == RS_RESULT_TIMEDOUT) {
+  if (rc == RS_RESULT_STOPPED) {
     // oomCut is written here, on the depleting thread: the consumer reads it only after observing
     // done_depleting under the sync lock, which orders this write before the read. A blocked-client
     // timeout wins over an OOM stop, so it records no OOM cut.
@@ -2280,7 +2280,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
   }
 
   // If TIMEOUT with policy FAIL, we can already clear the results - will not be used
-  if (rc == RS_RESULT_TIMEDOUT && RP_StopPolicy(&self->base) == TimeoutPolicy_Fail) {
+  if (rc == RS_RESULT_STOPPED && RP_StopPolicy(&self->base) == TimeoutPolicy_Fail) {
     RPSafeDepleter_ClearResults(self);
   }
 
@@ -2710,7 +2710,7 @@ static bool RPHybridMerger_UpstreamTimedOutBesideStop(const ResultProcessor *ups
  * reason and return code. */
 static bool RPHybridMerger_ReportsTimeout(const RPHybridMerger *self) {
   for (size_t i = 0; i < self->numUpstreams; i++) {
-    if (self->upstreamReturnCodes[i] == RS_RESULT_TIMEDOUT &&
+    if (self->upstreamReturnCodes[i] == RS_RESULT_STOPPED &&
         (!self->upstreams[i]->parent || !RP_UpstreamHold(self->upstreams[i]) ||
          RPHybridMerger_UpstreamTimedOutBesideStop(self->upstreams[i]))) {
       return true;
@@ -2725,7 +2725,7 @@ static bool RPHybridMerger_StopFails(const RPHybridMerger *self) {
   for (size_t i = 0; i < self->numUpstreams; i++) {
     // An upstream outside a pipeline (unit tests) applies the tail's policy.
     const ResultProcessor *upstream = self->upstreams[i]->parent ? self->upstreams[i] : &self->base;
-    if (self->upstreamReturnCodes[i] != RS_RESULT_TIMEDOUT) {
+    if (self->upstreamReturnCodes[i] != RS_RESULT_STOPPED) {
       continue;
     }
     RSTimeoutPolicy policy = RP_StopPolicy(upstream);
@@ -2808,7 +2808,7 @@ static bool RPHybridMerger_KeepsRowsPastStop(const RPHybridMerger *self) {
    while ((rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
      SearchResult_Clear(r);
      if (QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
-       rc = RS_RESULT_TIMEDOUT;
+       rc = RS_RESULT_STOPPED;
        break;
      }
    }
@@ -2868,7 +2868,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     // The amortized clock check may not have run since the stop: read the exact deadline once.
     const bool tailTimedOut =
         self->memoryStopped && QueryRequestLimits_IsTimedOutExact(self->sctx->limits);
-    return RPHybridMerger_ReportsTimeout(self) || tailTimedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    return RPHybridMerger_ReportsTimeout(self) || tailTimedOut ? RS_RESULT_STOPPED : RS_RESULT_EOF;
   } else if ((QueryRequestLimits_IsMemoryStopped(self->sctx->limits) &&
               !RPHybridMerger_KeepsRowsPastStop(self)) ||
              QueryRequestLimits_IsTimedOut(self->sctx->limits)) {
@@ -2949,7 +2949,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     // The stop is the tail's own, so the tail's policy applies (an OOM stop follows ON_OOM).
     // Under RETURN the rows held so far are the reply, with the warning guaranteed by oomCut.
     if (RP_StopPolicy(&self->base) != TimeoutPolicy_Return) {
-      return RS_RESULT_TIMEDOUT;
+      return RS_RESULT_STOPPED;
     }
     self->heldPastStop = RP_UpstreamHold(&self->base);
     RP_HoldStop(&self->base);

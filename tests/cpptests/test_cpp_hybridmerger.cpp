@@ -1694,8 +1694,8 @@ TEST_F(HybridMergerTest, MemoryStopDrainAbortsOnBlockedClientTimeout) {
   big.limits = sctx->limits;
 
   SearchResult r = SearchResult_New();
-  EXPECT_EQ(RS_RESULT_TIMEDOUT, merger->Next(merger, &r));
-  EXPECT_EQ(RS_RESULT_TIMEDOUT, returnCodes[0]);
+  EXPECT_EQ(RS_RESULT_STOPPED, merger->Next(merger, &r));
+  EXPECT_EQ(RS_RESULT_STOPPED, returnCodes[0]);
   EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(sctx->limits));
   // The first row, which stopped the merger, and the one that carried the timeout; not the
   // remaining kRows - 2.
@@ -1752,9 +1752,9 @@ static void runStoppedUpstream(uint32_t timeoutMs, bool expectTimeout) {
     rows++;
     SearchResult_Clear(&r);
   }
-  EXPECT_EQ(RS_RESULT_TIMEDOUT, returnCodes[0]);
+  EXPECT_EQ(RS_RESULT_STOPPED, returnCodes[0]);
   if (expectTimeout) {
-    EXPECT_EQ(RS_RESULT_TIMEDOUT, rc);
+    EXPECT_EQ(RS_RESULT_STOPPED, rc);
     EXPECT_EQ(0u, rows);
   } else {
     EXPECT_EQ(4u, rows);
@@ -1815,7 +1815,7 @@ TEST_F(HybridMergerTest, TailClockTimeoutAfterOwnMemoryStopEndsOnTimeout) {
     SearchResult_Clear(&r);
   }
   EXPECT_GT(rows, 0u);
-  EXPECT_EQ(RS_RESULT_TIMEDOUT, rc);
+  EXPECT_EQ(RS_RESULT_STOPPED, rc);
 
   SearchResult_Destroy(&r);
   CleanupDummyLookupContext(lookup);
