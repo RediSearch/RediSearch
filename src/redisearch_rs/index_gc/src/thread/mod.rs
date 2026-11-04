@@ -43,7 +43,7 @@
 //! index is only removed by this GC, and a replacement cannot hold an ID that
 //! was deleted before the cycle began.
 
-use std::{collections::HashSet, ffi::CString, ops::RangeInclusive, time::Instant};
+use std::{collections::HashSet, ops::RangeInclusive, time::Instant};
 
 use c_trie::TrieTerm;
 use deleted_docs::{DeletedDocs, RoaringTreemap};
@@ -58,7 +58,7 @@ use crate::{
         ExistingDocsEntry, apply_existing_docs_with, snapshot_existing_docs,
     },
     scanners::missing_docs::{
-        apply_missing_docs_with, missing_field_names, snapshot_missing_field,
+        apply_missing_docs_with, missing_field_indexes, snapshot_missing_field,
     },
     scanners::numeric::{
         NumericNodeSnapshot, ScannedNumericNode, apply_numeric_node_with, compact_tree,
@@ -418,7 +418,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
 
     fn missing_docs(&mut self) -> Result<(), GcError> {
         // One entry per INDEXMISSING field, so the list is short.
-        let keys: Vec<CString> = self.read(missing_field_names)?;
+        let keys: Vec<ffi::t_fieldIndex> = self.read(missing_field_indexes)?;
         if keys.is_empty() {
             return Ok(());
         }
@@ -426,20 +426,20 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
         self.run(
             "missing docs",
             &mut Buffers::new(),
-            keyed(&keys, |guard, field_name: &CString| {
-                snapshot_missing_field(guard, field_name, &live)
-                    .map(|snapshot| (field_name, snapshot))
+            keyed(&keys, |guard, &field_index: &ffi::t_fieldIndex| {
+                snapshot_missing_field(guard, field_index, &live)
+                    .map(|snapshot| (field_index, snapshot))
             }),
-            |(field_name, snapshot): (&CString, InvertedIndex)| {
+            |(field_index, snapshot): (ffi::t_fieldIndex, InvertedIndex)| {
                 let tail = snapshot.last_block_doc_id_range();
                 let unique_id = u32::from(snapshot.unique_id());
                 Ok(snapshot
                     .scan_gc(live)
                     .map_err(|e| (e, snapshot.doc_id_range()))?
-                    .map(|delta| ((field_name, unique_id, delta), tail)))
+                    .map(|delta| ((field_index, unique_id, delta), tail)))
             },
-            |(field_name, unique_id, delta), guard| {
-                apply_missing_docs_with(field_name, unique_id, delta, Some(&live), guard)
+            |(field_index, unique_id, delta), guard| {
+                apply_missing_docs_with(field_index, unique_id, delta, Some(&live), guard)
             },
         )?;
         Ok(())
