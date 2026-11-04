@@ -527,7 +527,7 @@ int getNextReply(RPNet *nc) {
     }
     if (popTimedOut || QueryRequestLimits_IsMemoryStopped(limits) ||
         QueryRequestLimits_IsBlockedClientTimedOut(limits)) {
-      return RS_RESULT_TIMEDOUT;
+      return RS_RESULT_STOPPED;
     }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
   }
@@ -735,7 +735,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
        (QueryRequest_UsesReplyCallback(&areq->base) &&
         QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)))) {
-    return RS_RESULT_TIMEDOUT;
+    return RS_RESULT_STOPPED;
   }
 
   MRReply *root = nc->current.root, *rows = nc->current.rows;
@@ -799,9 +799,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     int ret = getNextReply(nc);
     if (ret == RS_RESULT_EOF) {
       return RS_RESULT_EOF;
-    } else if (ret == RS_RESULT_TIMEDOUT) {
+    } else if (ret == RS_RESULT_STOPPED) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
-      return RS_RESULT_TIMEDOUT;
+      return RS_RESULT_STOPPED;
     } else if (ret == RS_RESULT_ERROR) {
       // Mapping-stage warning escalated under a FAIL policy (see
       // processHybridMappingWarning); the QueryError is already set.

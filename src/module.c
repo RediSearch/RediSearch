@@ -2215,7 +2215,7 @@ typedef struct searchReducerCtx {
 
 // Per merged row: the stop flag, and memory every QUERY_MEMORY_RATIO_READ_INTERVAL rows, so one
 // large shard reply cannot run far past the limit before the reducer's read after that reply.
-// Calls QueryMemory_CheckpointNow only on those rows, which keeps short replies out of the hook's
+// Calls QueryMemory_CheckpointExact only on those rows, which keeps short replies out of the hook's
 // AT_CALL count.
 static bool mergeRowShouldStop(searchReducerCtx *rCtx) {
   if (!rCtx->rowStopChecks) {
@@ -2230,7 +2230,7 @@ static bool mergeRowShouldStop(searchReducerCtx *rCtx) {
     return false;
   }
   rCtx->rowsSinceMemoryRead = 0;
-  return QueryMemory_CheckpointNow(timeout);
+  return QueryMemory_CheckpointExact(timeout);
 }
 
 typedef struct {
@@ -3310,7 +3310,7 @@ static bool replyShouldStop(searchRequestCtx *req, bool stoppedBefore, uint32_t 
   QueryRequestLimits *timeout = &req->base.limits;
   if (stoppedBefore || req->base.reqConfig.oomPolicy == OomPolicy_Fail ||
       !(memoryCheckCalls ? QueryMemory_Checkpoint(timeout, memoryCheckCalls)
-                         : QueryMemory_CheckpointNow(timeout))) {
+                         : QueryMemory_CheckpointExact(timeout))) {
     return false;
   }
   req->queryOOM = true;
@@ -3641,7 +3641,7 @@ static bool reducerShouldStop(searchRequestCtx *req, bool stoppedBeforeReducing,
   if (stoppedBeforeReducing || (lastReply && req->base.reqConfig.oomPolicy != OomPolicy_Fail)) {
     return false;
   }
-  return QueryMemory_CheckpointNow(timeout);
+  return QueryMemory_CheckpointExact(timeout);
 }
 
 static int searchResultReducer(searchRequestCtx *req, int count, MRReply **replies,
@@ -4618,7 +4618,7 @@ static int prepareCommand(MRCommand *cmd, const searchRequestCtx *req, RedisModu
 // Every shard reply is held until the last one lands, so memory is read once per reply.
 static bool searchReplyCheckpoint(struct MRCtx *mrctx) {
   searchRequestCtx *req = MRCtx_GetPrivData(mrctx);
-  return QueryMemory_CheckpointNow(&req->base.limits);
+  return QueryMemory_CheckpointExact(&req->base.limits);
 }
 
 static int FlatSearchCommandHandler(searchRequestCtx *req) {
