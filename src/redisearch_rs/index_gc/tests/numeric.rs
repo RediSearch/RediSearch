@@ -783,8 +783,8 @@ fn scanning_listed_numeric_nodes_matches_the_collected_stream() {
 
     let keys = numeric_tree_keys(&guard);
     assert_eq!(keys.len(), 1);
-    assert_eq!(keys[0].field_index, 0);
-    assert_eq!(keys[0].unique_id, u32::from(test.trees[0].unique_id()));
+    assert_eq!(keys[0].id.field_index, 0);
+    assert_eq!(keys[0].id.unique_id, u32::from(test.trees[0].unique_id()));
     let expected_nodes: Vec<_> = test.trees[0]
         .indexed_post_order_iter()
         .map(|(node_idx, _)| node_idx)
@@ -794,7 +794,7 @@ fn scanning_listed_numeric_nodes_matches_the_collected_stream() {
     let scanned: Vec<_> = keys[0]
         .nodes
         .iter()
-        .filter_map(|&node_idx| scan_numeric_node(&guard, &keys[0], node_idx))
+        .filter_map(|&node_idx| scan_numeric_node(&guard, &keys[0].id, node_idx))
         .collect();
 
     let mut buf = Vec::new();
@@ -815,9 +815,9 @@ fn scan_numeric_node_returns_none_for_a_replaced_tree() {
     let guard = test.read_guard();
 
     let mut key = numeric_tree_keys(&guard).remove(0);
-    key.unique_id = key.unique_id.wrapping_add(1);
+    key.id.unique_id = key.id.unique_id.wrapping_add(1);
     let node_idx = key.nodes[0];
-    assert!(scan_numeric_node(&guard, &key, node_idx).is_none());
+    assert!(scan_numeric_node(&guard, &key.id, node_idx).is_none());
 }
 
 /// A node index whose generation no longer matches (the node was removed and
@@ -836,8 +836,8 @@ fn scan_numeric_node_returns_none_for_a_removed_node() {
     let live = key.nodes[0];
     let stale = NodeIndex::from_raw_parts(live.position(), live.generation().wrapping_add(1));
     assert!(test.trees[0].try_node(stale).is_none());
-    assert!(scan_numeric_node(&guard, &key, stale).is_none());
-    assert!(scan_numeric_node(&guard, &key, live).is_some());
+    assert!(scan_numeric_node(&guard, &key.id, stale).is_none());
+    assert!(scan_numeric_node(&guard, &key.id, live).is_some());
 }
 
 /// Reports every doc id the fixtures use as present, whatever the spec's

@@ -46,24 +46,24 @@ pub struct NumericNodeDelta {
     pub delta: NodeGcDelta,
 }
 
-/// A numeric tree resolved from a field header.
+/// One NUMERIC or GEO field's tree, named so it can be found again across spec
+/// lock releases.
 ///
-/// Resolving a field by name walks the spec's field list, so [`apply_node_stream`]
-/// does it once and reuses the result for the rest of the field's node stream.
-///
-/// The index survives the lock releases between nodes because a spec's field array
-/// is only ever appended to. [`Self::get_mut`] re-checks the tree's unique id
-/// regardless, so a future violation of that invariant surfaces as an apply
-/// error instead of applying deltas to an unrelated tree.
-#[derive(Clone, Copy)]
-pub(crate) struct ResolvedTree {
-    field_index: usize,
-    unique_id: u32,
+/// The field position survives them because a spec's field array is only ever
+/// appended to. Every lookup re-checks the tree's unique id regardless, so a
+/// replaced tree, or a future violation of that invariant, is never mistaken for
+/// the one named.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NumericTreeId {
+    /// Position of the field in the spec's field array.
+    pub field_index: usize,
+    /// [`NumericRangeTree::unique_id`] of the tree named.
+    pub unique_id: u32,
 }
 
-impl ResolvedTree {
-    /// Find the field named `field_name` and resolve it, after checking that its
-    /// numeric tree is the one the child scanned.
+impl NumericTreeId {
+    /// Find the field named `field_name` and name its tree, after checking that
+    /// it is the one the child scanned.
     ///
     /// Returns an apply error when no field matches, the field has no tree, or
     /// the tree's unique id differs from `unique_id`.
@@ -85,17 +85,23 @@ impl ResolvedTree {
             .tree()
             .ok_or(GcError::ApplyError("the field has no numeric tree"))?;
 
-        Self::check_unique_id(tree, unique_id)?;
-
-        Ok(Self {
+        let id = Self {
             field_index,
             unique_id,
-        })
+        };
+        id.check(tree)?;
+        Ok(id)
     }
 
-    /// Borrow the resolved tree under the write lock, re-checking that the field
-    /// still holds the tree the child scanned.
-    pub(crate) fn get_mut<'g>(
+    /// The tree under the read lock; `None` when the field no longer holds it.
+    pub fn tree<'s>(&self, spec: &'s IndexSpecReadGuard) -> Option<&'s NumericRangeTree> {
+        let tree = spec.field_specs().get(self.field_index)?.tree()?;
+        self.check(tree).ok().map(|()| tree)
+    }
+
+    /// The tree under the write lock, or an apply error when the field no longer
+    /// holds it.
+    pub(crate) fn tree_mut<'g>(
         &self,
         guard: &'g mut IndexSpecWriteGuard<'_>,
     ) -> Result<&'g mut NumericRangeTree, GcError> {
@@ -106,32 +112,26 @@ impl ResolvedTree {
             .ok_or(GcError::ApplyError(
                 "the numeric tree was dropped while its deltas were being applied",
             ))?;
-
-        Self::check_unique_id(tree, self.unique_id)?;
-
+        self.check(tree)?;
         Ok(tree)
     }
 
-    /// Confirm `tree` is the one the child scanned.
-    fn check_unique_id(tree: &NumericRangeTree, unique_id: u32) -> Result<(), GcError> {
-        if u32::from(tree.unique_id()) != unique_id {
+    fn check(&self, tree: &NumericRangeTree) -> Result<(), GcError> {
+        if u32::from(tree.unique_id()) != self.unique_id {
             return Err(GcError::ApplyError(
                 "the field's numeric tree is not the one the child scanned",
             ));
         }
-
         Ok(())
     }
 }
 
-/// The nodes of one NUMERIC or GEO field's tree, named so they can be scanned
+/// The nodes of one NUMERIC or GEO field's tree, listed so they can be scanned
 /// one at a time across spec lock releases.
 #[derive(Debug, Clone)]
 pub struct NumericTreeKey {
-    /// Position of the field in the spec's field array, which only grows.
-    pub field_index: usize,
-    /// [`NumericRangeTree::unique_id`] when the nodes were listed.
-    pub unique_id: u32,
+    /// The tree the nodes belong to.
+    pub id: NumericTreeId,
     /// Every node of the tree, children before parents, as [`collect_numeric`]
     /// visits them.
     pub nodes: Vec<NodeIndex>,
@@ -149,8 +149,10 @@ pub fn numeric_tree_keys(spec: &IndexSpecReadGuard) -> Vec<NumericTreeKey> {
         .filter_map(|(field_index, fs)| {
             let tree = fs.tree()?;
             Some(NumericTreeKey {
-                field_index,
-                unique_id: u32::from(tree.unique_id()),
+                id: NumericTreeId {
+                    field_index,
+                    unique_id: u32::from(tree.unique_id()),
+                },
                 nodes: tree
                     .indexed_post_order_iter()
                     .map(|(node_idx, _)| node_idx)
@@ -160,20 +162,17 @@ pub fn numeric_tree_keys(spec: &IndexSpecReadGuard) -> Vec<NumericTreeKey> {
         .collect()
 }
 
-/// Run the GC scan of one node of the tree `key` names.
+/// Run the GC scan of node `node_idx` of the tree `id` names.
 ///
 /// Returns `None` when the field's tree was replaced, the node was removed,
 /// the scan found nothing to collect, or the scan failed.
 pub fn scan_numeric_node(
     spec: &IndexSpecReadGuard,
-    key: &NumericTreeKey,
+    id: &NumericTreeId,
     node_idx: NodeIndex,
 ) -> Option<NumericNodeDelta> {
-    let tree = spec.field_specs().get(key.field_index)?.tree()?;
-    if u32::from(tree.unique_id()) != key.unique_id {
-        return None;
-    }
-    let delta = tree
+    let delta = id
+        .tree(spec)?
         .try_node(node_idx)?
         .scan_gc(&|id| spec.doc_exists(id))?;
     Some(NumericNodeDelta {
@@ -269,7 +268,7 @@ fn apply_node_stream(
     field_name: &[u8],
     unique_id: u32,
     stats: &mut GcApplyStats,
-) -> Result<Option<ResolvedTree>, GcError> {
+) -> Result<Option<NumericTreeId>, GcError> {
     let mut resolved_tree = None;
 
     while let Some(node) = deserialize(&mut *reader, "decoding numeric node")? {
@@ -277,13 +276,13 @@ fn apply_node_stream(
             let resolved_tree = match resolved_tree {
                 Some(resolved_tree) => resolved_tree,
                 None => {
-                    let tree = ResolvedTree::resolve(guard, field_name, unique_id)?;
+                    let tree = NumericTreeId::resolve(guard, field_name, unique_id)?;
                     resolved_tree = Some(tree);
                     tree
                 }
             };
 
-            Ok(apply_numeric_node(resolved_tree.get_mut(guard)?, node))
+            Ok(apply_numeric_node(resolved_tree.tree_mut(guard)?, node))
         })?;
 
         match node_stats {
@@ -298,11 +297,11 @@ fn apply_node_stream(
 /// Compact the tree if GC left it sparse, recording what the trim freed into `stats`.
 pub(crate) fn trim_empty_nodes(
     spec: &mut impl SpecWriteAccess,
-    resolved_tree: ResolvedTree,
+    resolved_tree: NumericTreeId,
     stats: &mut GcApplyStats,
 ) -> Result<(), GcError> {
     spec.with_write(|guard| {
-        let result = resolved_tree.get_mut(guard)?.compact_if_sparse();
+        let result = resolved_tree.tree_mut(guard)?.compact_if_sparse();
 
         stats.record(GcApplyStats {
             bytes_collected: result.inverted_index_size_delta.min(0).unsigned_abs() as usize,
