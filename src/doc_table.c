@@ -780,3 +780,7 @@ t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len) {
 size_t DocTable_KeyMapMemoryUsage(const DocTable *t) {
   return DocKeyMap_MemoryUsage(t->keyMap);
 }
+
+size_t DocTable_DeletedDocsMemoryUsage(const DocTable *t) {
+  return t->deletedDocs ? DeletedDocs_MemoryUsage(t->deletedDocs) : 0;
+}
