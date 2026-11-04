@@ -804,16 +804,10 @@ typedef struct SlotMigrationAPI {
                                            const SearchDiskSlotRange *ranges, size_t numRanges,
                                            t_docId maxDocId, size_t maxScanned,
                                            SearchDiskSlotTrimCallback callback, void *ctx);
-  // Callback only, outside the spec write lock. Hold the checkpoint mutation gate
-  // through this storage write, validated RAM apply and memory-index accounting.
-  bool (*writeTrimBatch)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotTrimBatch *batch);
-  // Callback only, under spec write lock. Publish RAM state after writeTrimBatch:
-  // deleted IDs and progress. Validate current batch without
-  // mutation on failure. On success update deleted IDs, advance progress and,
-  // for the exhausted batch, clear logical intent. Search updates VecSim and stats
-  // before unlocking; all changes must share the checkpoint capture boundary.
-  // Revalidate concurrent deletions so stale batches can be retried without
-  // double accounting. Applied batches cannot be applied again, even after GC.
+  // Callback only, under the spec write lock and checkpoint mutation gate.
+  // Validate, commit one document-table write batch, then publish deleted IDs
+  // and cursor progress. A failed write leaves RAM state and progress unchanged.
+  // Search completes VecSim and statistics updates before releasing the lock.
   bool (*applyTrimBatch)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotTrimBatch *batch);
 } SlotMigrationAPI;
 
