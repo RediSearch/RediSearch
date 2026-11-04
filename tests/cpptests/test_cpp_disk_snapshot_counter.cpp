@@ -292,7 +292,7 @@ TEST_F(HybridStartCursorsTest, SuccessfulDepletionReleasesUpstreamAndSnapshotBef
 
 TEST_F(HybridStartCursorsTest, PartialTimeoutUnderReturnPolicyKeepsTheChainForTheTeardown) {
   // In-flight disk reads are drained when the iterators are freed, which must not delay the reply.
-  upstreamRc = RS_RESULT_TIMEDOUT;
+  upstreamRc = RS_RESULT_STOPPED;
   hybrid.base.limits.timeout.config.timeoutPolicy = TimeoutPolicy_Return;
   ASSERT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
   EXPECT_FALSE(released());
@@ -301,7 +301,7 @@ TEST_F(HybridStartCursorsTest, PartialTimeoutUnderReturnPolicyKeepsTheChainForTh
 }
 
 TEST_F(HybridStartCursorsTest, TimeoutUnderFailPolicyKeepsTheChainForTheTeardown) {
-  upstreamRc = RS_RESULT_TIMEDOUT;
+  upstreamRc = RS_RESULT_STOPPED;
   EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_ERR);
   EXPECT_FALSE(released());
   EXPECT_TRUE(freedIds.empty());
@@ -316,7 +316,7 @@ TEST_F(HybridStartCursorsTest, SiblingDeadlineBesideAnOomStopFollowsTheTimeoutPo
   QueryRequestLimits_RequestMemoryStop(&first.base.limits);
   *QueryRequestLimits_GetClockDeadlineForUpdate(&second.base.limits) = {0, 0};
   hybrid.base.reqConfig.oomPolicy = OomPolicy_Return;
-  upstreamRc = RS_RESULT_TIMEDOUT;
+  upstreamRc = RS_RESULT_STOPPED;
   EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_ERR);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_TIMED_OUT);
 }
@@ -327,7 +327,7 @@ TEST_F(HybridStartCursorsTest, OomStopAloneIgnoresTheTimeoutPolicy) {
   QueryRequestLimits_Init(&second.base.limits, &timeoutConfig);
   QueryRequestLimits_RequestMemoryStop(&first.base.limits);
   hybrid.base.reqConfig.oomPolicy = OomPolicy_Return;
-  upstreamRc = RS_RESULT_TIMEDOUT;
+  upstreamRc = RS_RESULT_STOPPED;
   secondSubqueryRc = RS_RESULT_EOF;
   EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
 }
@@ -341,7 +341,7 @@ TEST_F(HybridStartCursorsTest, StoppedSubqueryBesideItsOwnDeadlineFollowsTheTime
   QueryRequestLimits_RequestMemoryStop(&first.base.limits);
   *QueryRequestLimits_GetClockDeadlineForUpdate(&first.base.limits) = {0, 0};
   hybrid.base.reqConfig.oomPolicy = OomPolicy_Return;
-  upstreamRc = RS_RESULT_TIMEDOUT;
+  upstreamRc = RS_RESULT_STOPPED;
   secondSubqueryRc = RS_RESULT_EOF;
   EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_ERR);
   EXPECT_EQ(QueryError_GetCode(&status), QUERY_ERROR_CODE_TIMED_OUT);
@@ -356,7 +356,7 @@ TEST_F(HybridStartCursorsTest, SiblingFinishedJustBeforeItsDeadlineIsNotATimeout
   QueryRequestLimits_RequestMemoryStop(&first.base.limits);
   *QueryRequestLimits_GetClockDeadlineForUpdate(&second.base.limits) = {0, 0};
   hybrid.base.reqConfig.oomPolicy = OomPolicy_Return;
-  upstreamRc = RS_RESULT_TIMEDOUT;
+  upstreamRc = RS_RESULT_STOPPED;
   secondSubqueryRc = RS_RESULT_EOF;
   EXPECT_EQ(HybridRequest_StartCursors(&hybrid, nullptr, &status, false), REDISMODULE_OK);
 }

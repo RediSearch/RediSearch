@@ -176,10 +176,10 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_Timeout) {
 
   // Mock upstream processor: yields 3 results, then timeout.
   const int n_docs = 3;
-  MockUpstream mockUpstream(n_docs, RS_RESULT_TIMEDOUT);
+  MockUpstream mockUpstream(n_docs, RS_RESULT_STOPPED);
 
-  // The last return code should be RS_RESULT_TIMEDOUT, as the upstream last returned.
-  ASSERT_EQ(runDepleterToCompletion(&mockUpstream, n_docs), RS_RESULT_TIMEDOUT);
+  // The last return code should be RS_RESULT_STOPPED, as the upstream last returned.
+  ASSERT_EQ(runDepleterToCompletion(&mockUpstream, n_docs), RS_RESULT_STOPPED);
 }
 
 TEST_P(RPSafeDepleterTest, RPSafeDepleter_CrossWakeup) {
@@ -311,7 +311,7 @@ TEST_P(RPSafeDepleterTest, RPSafeDepleter_MarkTimedOut) {
 
   SearchResult res = SearchResult_New();
   int rc = depleter->Next(depleter, &res);
-  ASSERT_EQ(rc, RS_RESULT_TIMEDOUT);
+  ASSERT_EQ(rc, RS_RESULT_STOPPED);
 
   // Still a no-op after yielding on the marked depleter.
   AssertWaitForCompletionDoesNotBlock(depleter);
@@ -478,7 +478,7 @@ TEST(RPDepleterStopTest, OwnStopWithRowsLeftCutsAndWarns) {
   bool oomCut;
   depleteUnderOwnStop(3, &yielded, &lastRc, &oomCut);
   EXPECT_EQ(yielded, 1u);
-  EXPECT_EQ(lastRc, RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(lastRc, RS_RESULT_STOPPED);
   EXPECT_TRUE(oomCut);
 }
 

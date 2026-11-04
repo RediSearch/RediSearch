@@ -80,7 +80,7 @@ class HybridApplyOomStopTest : public ::testing::Test {
   }
   void stopSubqueryForOom(size_t i) {
     QueryRequestLimits_RequestMemoryStop(&hreq->requests[i]->base.limits);
-    hreq->subqueriesReturnCodes[i] = RS_RESULT_TIMEDOUT;
+    hreq->subqueriesReturnCodes[i] = RS_RESULT_STOPPED;
   }
 };
 
@@ -99,7 +99,7 @@ TEST_F(HybridApplyOomStopTest, subqueryOomStopWarnsWithoutStoppingTheTail) {
 TEST_F(HybridApplyOomStopTest, mergerTimeoutFromASubqueryOomStopIsNotATimeout) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Return;
   stopSubqueryForOom(0);
-  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_EOF);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_STOPPED), RS_RESULT_EOF);
   EXPECT_TRUE(QueryError_HasQueryOOMWarning(tailErr()));
 }
 
@@ -109,10 +109,10 @@ TEST_F(HybridApplyOomStopTest, concurrentSubqueryTimeoutStaysATimeout) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Return;
   stopSubqueryForOom(0);
   timeOutSubquery(1);
-  hreq->subqueriesReturnCodes[1] = RS_RESULT_TIMEDOUT;
-  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  hreq->subqueriesReturnCodes[1] = RS_RESULT_STOPPED;
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_STOPPED), RS_RESULT_STOPPED);
   EXPECT_EQ(hreq->subqueriesReturnCodes[0], RS_RESULT_EOF);
-  EXPECT_EQ(hreq->subqueriesReturnCodes[1], RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(hreq->subqueriesReturnCodes[1], RS_RESULT_STOPPED);
 }
 
 // Both stops on one subquery: the elapsed deadline outranks the OOM stop under ON_OOM RETURN, which
@@ -121,8 +121,8 @@ TEST_F(HybridApplyOomStopTest, subqueryTimeoutBesideItsOomStopStaysATimeoutUnder
   hreq->base.reqConfig.oomPolicy = OomPolicy_Return;
   stopSubqueryForOom(0);
   *QueryRequestLimits_GetClockDeadlineForUpdate(&hreq->requests[0]->base.limits) = {0, 0};
-  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
-  EXPECT_EQ(hreq->subqueriesReturnCodes[0], RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_STOPPED), RS_RESULT_STOPPED);
+  EXPECT_EQ(hreq->subqueriesReturnCodes[0], RS_RESULT_STOPPED);
   EXPECT_TRUE(QueryError_HasQueryOOMWarning(tailErr()));
 }
 
@@ -131,7 +131,7 @@ TEST_F(HybridApplyOomStopTest, subqueryOomStopBeatsItsTimeoutUnderOnOomFail) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
   stopSubqueryForOom(0);
   *QueryRequestLimits_GetClockDeadlineForUpdate(&hreq->requests[0]->base.limits) = {0, 0};
-  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_STOPPED), RS_RESULT_ERROR);
   EXPECT_EQ(QueryError_GetCode(tailErr()), QUERY_ERROR_CODE_OUT_OF_MEMORY);
 }
 
@@ -141,11 +141,11 @@ TEST_F(HybridApplyOomStopTest, tailTimeoutBesideItsOomStopFollowsTheStopPreceden
   hreq->base.reqConfig.oomPolicy = OomPolicy_Return;
   QueryRequestLimits_RequestMemoryStop(&hreq->base.limits);
   *QueryRequestLimits_GetClockDeadlineForUpdate(&hreq->base.limits) = {0, 0};
-  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_STOPPED), RS_RESULT_STOPPED);
   EXPECT_TRUE(QueryError_HasQueryOOMWarning(tailErr()));
 
   hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
-  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_STOPPED), RS_RESULT_ERROR);
   EXPECT_EQ(QueryError_GetCode(tailErr()), QUERY_ERROR_CODE_OUT_OF_MEMORY);
 }
 
@@ -172,7 +172,7 @@ TEST_F(HybridApplyOomStopTest, softTailErrorIsReplacedByATailOomStopUnderOnOomFa
   hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
   QueryError_SetCode(tailErr(), QUERY_ERROR_CODE_NO_PROP_VAL);
   QueryRequestLimits_RequestMemoryStop(&hreq->base.limits);
-  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_STOPPED), RS_RESULT_ERROR);
   EXPECT_EQ(QueryError_GetCode(tailErr()), QUERY_ERROR_CODE_OUT_OF_MEMORY);
   EXPECT_EQ(HybridRequest_GetFatalError(hreq), tailErr());
 }
@@ -181,7 +181,7 @@ TEST_F(HybridApplyOomStopTest, fatalTailErrorIsKeptByATailOomStopUnderOnOomFail)
   hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
   QueryError_SetCode(tailErr(), QUERY_ERROR_CODE_GENERIC);
   QueryRequestLimits_RequestMemoryStop(&hreq->base.limits);
-  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_STOPPED), RS_RESULT_ERROR);
   EXPECT_EQ(QueryError_GetCode(tailErr()), QUERY_ERROR_CODE_GENERIC);
 }
 
@@ -210,16 +210,16 @@ TEST_F(HybridApplyOomStopTest, fatalSubqueryErrorIsKeptByATailOomStopUnderOnOomF
   QueryError *subErr = &hreq->requests[1]->base.reply.err;
   QueryError_SetCode(subErr, QUERY_ERROR_CODE_GENERIC);
   QueryRequestLimits_RequestMemoryStop(&hreq->base.limits);
-  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_ERROR);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_STOPPED), RS_RESULT_ERROR);
   EXPECT_EQ(HybridRequest_GetFatalError(hreq), subErr);
 }
 
 TEST_F(HybridApplyOomStopTest, subqueryTimeoutIsNotAnOomStop) {
   hreq->base.reqConfig.oomPolicy = OomPolicy_Fail;
   timeOutSubquery(0);
-  hreq->subqueriesReturnCodes[0] = RS_RESULT_TIMEDOUT;
-  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
-  EXPECT_EQ(hreq->subqueriesReturnCodes[0], RS_RESULT_TIMEDOUT);
+  hreq->subqueriesReturnCodes[0] = RS_RESULT_STOPPED;
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_STOPPED), RS_RESULT_STOPPED);
+  EXPECT_EQ(hreq->subqueriesReturnCodes[0], RS_RESULT_STOPPED);
   EXPECT_TRUE(QueryError_IsOk(tailErr()));
   EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&hreq->base.limits));
 }
@@ -231,8 +231,8 @@ TEST_F(HybridApplyOomStopTest, blockedClientTimeoutIsNotRelabelled) {
   HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestLimits_MarkTimedOut(&hreq->base.limits);
   stopSubqueryForOom(0);
-  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
-  EXPECT_EQ(hreq->subqueriesReturnCodes[0], RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_STOPPED), RS_RESULT_STOPPED);
+  EXPECT_EQ(hreq->subqueriesReturnCodes[0], RS_RESULT_STOPPED);
   EXPECT_FALSE(QueryError_HasQueryOOMWarning(tailErr()));
 }
 
@@ -242,7 +242,7 @@ TEST_F(HybridApplyOomStopTest, blockedClientTimeoutWinsOverATailOomStop) {
   HybridRequest_BeginTimeoutCycle(hreq, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   QueryRequestLimits_RequestMemoryStop(&hreq->base.limits);
   QueryRequestLimits_MarkTimedOut(&hreq->base.limits);
-  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_STOPPED), RS_RESULT_STOPPED);
   EXPECT_FALSE(QueryError_HasQueryOOMWarning(tailErr()));
 }
 
@@ -254,5 +254,5 @@ TEST_F(HybridApplyOomStopTest, tailTimeoutAfterASubqueryOomStopStaysATimeout) {
   // The tail's clock deadline has elapsed.
   hreq->base.limits.timeout.kind = QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE;
   hreq->base.limits.timeout.source.clock.deadline = {1, 0};
-  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_TIMEDOUT), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(HybridRequest_ApplyOomStop(hreq, RS_RESULT_STOPPED), RS_RESULT_STOPPED);
 }
