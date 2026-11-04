@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
-#include "deleted_docs_ffi.h"
 
 #include <math.h>
 #include <limits.h>
@@ -429,7 +428,6 @@ static size_t indexSpecTotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t
   }
 
   res += sp->docs.memsize;
-  res += DocTable_DeletedDocsMemoryUsage(&sp->docs);
   res += DocTable_KeyMapMemoryUsage(&sp->docs);
   res += sp->docs.sortablesSize;
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
@@ -3068,7 +3066,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
   size_t inverted_size = isDisk ? SearchDisk_GetInvertedIndexTotalMemory(sp->diskSpec) :
     sp->stats.invertedSize;
   size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
-    sp->docs.memsize + DocTable_DeletedDocsMemoryUsage(&sp->docs);
+    sp->docs.memsize;
 
   RedisModule_InfoBeginDictField(ctx, "index_properties");
   RedisModule_InfoAddFieldULongLong(ctx, "max_doc_id", sp->docs.maxDocId);
@@ -3640,11 +3638,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   if (DocTable_LegacyRdbLoad(&sp->docs, rdb, encver) != REDISMODULE_OK) {
     StrongRef_Release(spec_ref);
     return NULL;
-  }
-  // The documents a legacy table drops as deleted left postings behind; the GC counts them as it
-  // counts any other deletion.
-  if (sp->docs.deletedDocs) {
-    IndexSpec_DeferGCDeletes(sp, DeletedDocs_Len(sp->docs.deletedDocs));
   }
   /* For version 3 or up - load the generic trie */
   if (encver >= 3) {
