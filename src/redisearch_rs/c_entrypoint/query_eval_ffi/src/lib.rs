@@ -109,6 +109,7 @@ pub unsafe extern "C" fn QAST_Iterate(
         reqFlags: reqflags,
         config: &raw mut qast.config,
         inNotSubTree: false,
+        memoryCheckCounter: 0,
     };
 
     let root = NonNull::new(qast.root).expect("QAST_Iterate: qast root is null");

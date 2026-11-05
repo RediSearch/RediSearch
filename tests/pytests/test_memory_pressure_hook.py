@@ -121,18 +121,30 @@ def test_forced_ratio_drives_coordinator_entry_guard(env):
 @skip(cluster=False)
 def test_search_checkpoint_runs_on_shards(env):
     """FT.SEARCH has no coordinator pipeline, so with or without INTERNAL_ONLY its checkpoint
-    runs on every shard: with AT_CALL 4 each shard stops after 3 rows."""
+    runs on every shard: each shard makes more calls with it than without it. Every process
+    also makes its build and other checkpoint calls, so only the difference counts."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
     conn = getConnectionByEnv(env)
-    # Enough docs that every shard holds more than 3.
     for i in range(100):
         conn.execute_command('HSET', f'doc{i}', 'n', i)
+    shards = [env.getConnection(i) for i in range(1, env.shardsCount + 1)]
+
+    def calls(*debug_args):
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1000)
+        query = ('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, 100)
+        if debug_args:
+            query = (debug_cmd(), *query, *debug_args, 'DEBUG_PARAMS_COUNT', len(debug_args))
+        res = env.cmd(*query)
+        env.assertEqual(len(res) - 1, 100, message=debug_args)
+        return [shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+                for shard in shards]
+
     try:
+        without = calls()
         for debug_args in (['MEMORY_CHECKPOINT'], ['MEMORY_CHECKPOINT', 'INTERNAL_ONLY']):
-            run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 4)
-            res = env.cmd(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, 100,
-                          *debug_args, 'DEBUG_PARAMS_COUNT', len(debug_args))
-            env.assertEqual(len(res) - 1, 3 * env.shardsCount, message=(debug_args, res))
+            with_checkpoint = calls(*debug_args)
+            for shard, (w, wo) in enumerate(zip(with_checkpoint, without), 1):
+                env.assertGreater(w, wo, message=(debug_args, shard))
     finally:
         run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
 
@@ -140,25 +152,28 @@ def test_search_checkpoint_runs_on_shards(env):
 @skip(cluster=False)
 def test_aggregate_checkpoint_routing(env):
     """In a multi-shard FT.AGGREGATE the checkpoint runs in the coordinator pipeline, or with
-    INTERNAL_ONLY in the shard pipelines only; the per-process call counter shows where."""
+    INTERNAL_ONLY in the shard pipelines only; the per-process call counters show where. Every
+    process also makes its build and other checkpoint calls, so only the difference between the
+    two placements counts."""
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
     conn = getConnectionByEnv(env)
     for i in range(100):
         conn.execute_command('HSET', f'doc{i}', 'n', i)
-    other_shard = env.getConnection(2)
+    coordinator, other_shard = env.getConnection(1), env.getConnection(2)
 
-    def checkpoint_calls(con):
-        return con.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+    def calls(*debug_args):
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1000)
+        res = _debug_aggregate(env, *debug_args)
+        env.assertEqual(len(res) - 1, 100, message=debug_args)
+        return [con.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+                for con in (coordinator, other_shard)]
 
     try:
-        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 4)
-        res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
-        env.assertEqual(len(res) - 1, 3, message=res)
-        env.assertEqual(checkpoint_calls(other_shard), 0)
-
-        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1000)
-        _debug_aggregate(env, 'MEMORY_CHECKPOINT', 'INTERNAL_ONLY')
-        env.assertGreater(checkpoint_calls(other_shard), 0)
+        coord_pipeline = calls('MEMORY_CHECKPOINT')
+        shard_pipelines = calls('MEMORY_CHECKPOINT', 'INTERNAL_ONLY')
+        # The coordinator's process also hosts a shard, whose pipeline counts there too.
+        env.assertGreater(coord_pipeline[0], shard_pipelines[0])
+        env.assertLess(coord_pipeline[1], shard_pipelines[1])
     finally:
         run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
 
@@ -168,7 +183,7 @@ def test_internal_only_checkpoint_runs_in_standalone(env):
     """Standalone has a single pipeline, so INTERNAL_ONLY still installs the checkpoint there."""
     _index_with_docs(env)
     try:
-        memory_pressure(env, 'AT_CALL', 4)
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
         res = _debug_aggregate(env, 'MEMORY_CHECKPOINT', 'INTERNAL_ONLY')
         env.assertEqual(len(res) - 1, 3, message=res)
     finally:
@@ -199,6 +214,8 @@ def test_raw_ratio_reports_the_memory_api(env):
 
 
 N_DOCS = 10
+# The query's build stages are checkpoints too, read before the debug checkpoint's first call.
+BUILD_CHECKPOINTS = 3
 
 
 def _index_with_docs(env):
@@ -215,17 +232,17 @@ def _debug_aggregate(env, *debug_args):
 
 @skip(cluster=True)
 def test_pressure_at_call_stops_a_query_at_a_debug_checkpoint(env):
-    """MEMORY_CHECKPOINT stands in for a real checkpoint: with AT_CALL n the query stops at its
-    n-th read, after n-1 rows, and ON_OOM IGNORE keeps it running."""
+    """MEMORY_CHECKPOINT stands in for a real checkpoint: with AT_CALL n past the build stages
+    the query stops at its n-th read, after n-1 rows, and ON_OOM IGNORE keeps it running."""
     _index_with_docs(env)
 
-    memory_pressure(env, 'AT_CALL', 4)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
     res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
     env.assertEqual(len(res) - 1, 3, message=res)
-    env.assertEqual(status(env)[5], 4)
+    env.assertEqual(status(env)[5], BUILD_CHECKPOINTS + 4)
 
     change_oom_policy(env, 'ignore')
-    memory_pressure(env, 'AT_CALL', 4)
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
     res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
     env.assertEqual(len(res) - 1, N_DOCS, message=res)
     change_oom_policy(env, 'return')
@@ -251,20 +268,20 @@ def test_oom_stop_replies_by_on_oom_policy(env):
 
     try:
         errors, warnings = _coord_oom_counters(env)
-        memory_pressure(env, 'AT_CALL', 4)
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
         res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
         env.assertEqual(len(res['results']), 3, message=res)
         env.assertEqual(res['warning'], [COORD_OOM_WARNING])
         env.assertEqual(_coord_oom_counters(env), (errors, warnings + 1))
 
         change_oom_policy(env, 'fail')
-        memory_pressure(env, 'AT_CALL', 4)
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
         env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
                    'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1).error().contains(OOM_QUERY_ERROR)
         env.assertEqual(_coord_oom_counters(env), (errors + 1, warnings + 1))
         change_oom_policy(env, 'return')
 
-        memory_pressure(env, 'AT_CALL', 4)
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
         res = env.cmd(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n',
                       'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1)
         env.assertEqual([r['id'] for r in res['results']], ['doc0', 'doc1', 'doc2'], message=res)
@@ -280,7 +297,7 @@ def test_oom_stop_ends_the_cursor(env):
     open as a timeout under ON_TIMEOUT RETURN would."""
     _index_with_docs(env)
     try:
-        memory_pressure(env, 'AT_CALL', 4)
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
         res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
                               'WITHCURSOR', 'COUNT', 2, 'MEMORY_CHECKPOINT',
                               'DEBUG_PARAMS_COUNT', 1)

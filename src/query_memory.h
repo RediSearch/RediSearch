@@ -12,6 +12,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "config.h"
 #include "query_request.h"
 
 #ifdef __cplusplus
@@ -55,6 +56,22 @@ bool QueryMemory_Checkpoint(QueryRequestLimits *limits, uint32_t *counter);
  * or expensive enough to make every call worth a read.
  */
 bool QueryMemory_CheckpointExact(QueryRequestLimits *limits);
+
+/**
+ * The memory checkpoint between the build stages of a query, before it reads
+ * its first row. Unless a stop is already requested, reads memory on this call,
+ * whatever the read interval. Under
+ * pressure the OOM stop is requested, and with `oomPolicy` FAIL the query fails
+ * before it runs: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` and REDISMODULE_ERR.
+ * Otherwise REDISMODULE_OK; the caller then ends the pipeline's row source
+ * on a requested stop (RP_EndRowSourceOnStop) once it is built, so the
+ * pipeline ends at its first read: an FT.SEARCH or FT.AGGREGATE then replies
+ * an empty result with the OOM warning (ApplyOomStop). FT.HYBRID calls it under
+ * ON_OOM FAIL only: its reply does not map an OOM stop under RETURN yet, so
+ * RETURN is excluded there. `timeout` must not be NULL.
+ */
+int QueryMemory_CheckBeforeExecution(QueryRequestLimits *timeout, RSOomPolicy oomPolicy,
+                                     QueryError *err);
 
 /**
  * Debug and test override of QUERY_MEMORY_RATIO_READ_INTERVAL for every
