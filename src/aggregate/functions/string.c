@@ -39,7 +39,7 @@ static int func_matchedTerms(ExprEval *ctx, RSValue **argv, size_t argc, RSValue
   const SearchResult *res = ctx->res;
 
   if (res && SearchResult_HasIndexResult(res)) {
-    RSQueryTerm *terms[maxTerms];
+    const RSQueryTerm *terms[maxTerms];
     size_t n = IndexResult_GetMatchedTerms(SearchResult_GetIndexResult(ctx->res), terms, maxTerms);
     if (n) {
       RSValue **arr = RSValue_NewArrayBuilder(n);
