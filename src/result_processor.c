@@ -252,38 +252,15 @@ static inline __attribute__((always_inline)) int refillQueueUsingIterator(RPQuer
   return RS_RESULT_OK;
 }
 
-// Metadata can outlive both its initial visibility check and the pending trim filter.
 static bool diskDmdIsVisible(IndexSpec *spec, const RSDocumentMetadata *dmd) {
-  if (!dmd->keyPtr) return false;
-  // Lock ownership is thread-local; preserve a lock already held by this caller.
-  const bool callerHoldsLock = IndexSpec_IsLocked(spec);
-  if (!callerHoldsLock) IndexSpec_LockRead(spec);
+  const bool acquired = IndexSpec_LockReadIfNeeded(spec);
   bool deleted = SearchDisk_DocIdDeleted(spec->diskSpec, dmd->id);
   if (!deleted && DocTable_HasPendingDeletions(&spec->docs)) {
     const uint16_t slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
     deleted = DocTable_IsDocPendingDeletionForSlot(&spec->docs, dmd->id, slot);
   }
-  if (!callerHoldsLock) IndexSpec_Unlock(spec);
+  if (acquired) IndexSpec_Unlock(spec);
   return !deleted;
-}
-
-static RedisSearchCtx *hybridMergerContext(ResultProcessor *rp);
-
-static RedisSearchCtx *bufferedResultContext(ResultProcessor *rp) {
-  ResultProcessor *root = rp->parent->rootProc;
-  if (!root) return NULL;
-  if (root->type == RP_INDEX) return ((RPQueryIterator *)root)->sctx;
-  if (root->type == RP_HYBRID_MERGER) return hybridMergerContext(root);
-  return NULL;
-}
-
-static bool bufferedResultIsVisible(ResultProcessor *rp, const SearchResult *result) {
-  const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(result);
-  RedisSearchCtx *sctx = bufferedResultContext(rp);
-  // Aggregated rows and coordinator results have no local document to validate.
-  if (!dmd || !sctx) return true;
-  IndexSpec *spec = sctx->spec;
-  return !spec || !spec->diskSpec || diskDmdIsVisible(spec, dmd);
 }
 
 /**
@@ -291,7 +268,11 @@ static bool bufferedResultIsVisible(ResultProcessor *rp, const SearchResult *res
  * Returns true if DMD is valid, false if it should be skipped.
  */
 static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadata *dmd) {
-  if (!dmd->keyPtr) return false;
+  // Defensive check: if keyPtr is NULL (allocation failure in disk API), skip this document
+  if (!dmd->keyPtr) {
+    return false;
+  }
+
   IndexSpec *spec = self->sctx->spec;
   if (spec->diskSpec && !diskDmdIsVisible(spec, dmd)) return false;
 
@@ -873,18 +854,9 @@ typedef struct {
 /* Yield - pops the current top result from the heap */
 static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   RPSorter *self = (RPSorter *)rp;
-  SearchResult *cur_best;
-  while ((cur_best = mmh_pop_max(self->pq))) {
-    if (!bufferedResultIsVisible(rp, cur_best)) {
-      rp->parent->skippedResults++;
-      SearchResult_Destroy(cur_best);
-      rm_free(cur_best);
-      RedisSearchCtx *sctx = bufferedResultContext(rp);
-      if (sctx && QueryRequestLimits_IsTimedOut(sctx->limits)) {
-        return RS_RESULT_TIMEDOUT;
-      }
-      continue;
-    }
+  SearchResult *cur_best = mmh_pop_max(self->pq);
+
+  if (cur_best) {
     SearchResult_Override(r, cur_best);
     rm_free(cur_best);
     return RS_RESULT_OK;
@@ -1939,29 +1911,16 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
 
  static int RPMaxScoreNormalizer_Yield(ResultProcessor *rp, SearchResult *r){
    RPMaxScoreNormalizer* self = (RPMaxScoreNormalizer*)rp;
-   bool yielded = false;
-   while (array_len(self->pool)) {
-     SearchResult *candidate = array_pop(self->pool);
-     if (!bufferedResultIsVisible(rp, candidate)) {
-       rp->parent->skippedResults++;
-       srDtor(candidate);
-       RedisSearchCtx *sctx = bufferedResultContext(rp);
-       if (sctx && QueryRequestLimits_IsTimedOut(sctx->limits)) {
-         return RS_RESULT_TIMEDOUT;
-       }
-       continue;
-     }
-     SearchResult_Override(r, candidate);
-     rm_free(candidate);
-     yielded = true;
-     break;
+   size_t length = array_len(self->pool);
+   if (length == 0) {
+    // We've already yielded all results, return EOF
+    int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    self->timedOut = false;
+    return ret;
    }
-   if (!yielded) {
-     // We've already yielded all results, return EOF
-     int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
-     self->timedOut = false;
-     return ret;
-   }
+  SearchResult *poppedResult = array_pop(self->pool);
+  SearchResult_Override(r, poppedResult);
+  rm_free(poppedResult);
   double oldScore = SearchResult_GetScore(r);
   if (self->maxValue != 0) {
     SearchResult_SetScore(r, SearchResult_GetScore(r) / self->maxValue);
@@ -1975,53 +1934,17 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
   return RS_RESULT_OK;
  }
 
- static int RPMaxScoreNormalizer_StartYield(ResultProcessor *rp, SearchResult *r) {
-   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
-   RedisSearchCtx *sctx = bufferedResultContext(rp);
-   IndexSpec *spec = sctx ? sctx->spec : NULL;
-   if (!spec || !spec->diskSpec) {
-     rp->Next = RPMaxScoreNormalizer_Yield;
-     return rp->Next(rp, r);
-   }
-
-   const bool callerHoldsLock = IndexSpec_IsLocked(spec);
-   if (!callerHoldsLock) IndexSpec_LockRead(spec);
-   // Freeze one visible score scale before emission; later pages must use that same scale.
-   double maxValue = 0;
-   bool complete = true;
-   for (size_t i = 0; i < array_len(self->pool); ++i) {
-     if (QueryRequestLimits_IsTimedOut(sctx->limits)) {
-       if (rp->parent->timeoutPolicy != TimeoutPolicy_Return) {
-         if (!callerHoldsLock) IndexSpec_Unlock(spec);
-         return RS_RESULT_TIMEDOUT;
-       }
-       self->timedOut = true;
-       complete = false;
-       break;
-     }
-     if (bufferedResultIsVisible(rp, self->pool[i])) {
-       maxValue = MAX(maxValue, SearchResult_GetScore(self->pool[i]));
-     }
-   }
-   // A partial reply retains the accumulation scale when its deadline prevents a full pass.
-   if (complete) self->maxValue = maxValue;
-   rp->Next = RPMaxScoreNormalizer_Yield;
-   const int rc = rp->Next(rp, r);
-   if (!callerHoldsLock) IndexSpec_Unlock(spec);
-   return rc;
- }
-
 static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
   // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
-    rp->Next = RPMaxScoreNormalizer_StartYield;
+    rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
   } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
     self->timedOut = true;
-    rp->Next = RPMaxScoreNormalizer_StartYield;
+    rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
   } else if (rc != RS_RESULT_OK) {
     return rc;
@@ -2795,48 +2718,41 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   RPHybridMerger *self = (RPHybridMerger *)rp;
 
   RS_ASSERT(self->iterator);
-  while (true) {
-    dictEntry *entry = dictNext(self->iterator);
-    if (!entry) {
-      int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
-      return ret;
-    } else if (QueryRequestLimits_IsMemoryStopped(self->sctx->limits) ||
-               QueryRequestLimits_IsTimedOut(self->sctx->limits)) {
-      return RS_RESULT_TIMEDOUT;
-    }
-
-    HybridSearchResult *hybridResult = (HybridSearchResult *)dictGetVal(entry);
-    RS_ASSERT(hybridResult);
-
-    SearchResult *mergedResult =
-        mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx, self->explainCtx);
-    if (!mergedResult) {
-      QueryError_SetError(rp->parent->err, QUERY_ERROR_CODE_GENERIC,
-                          "Failed to merge hybrid subquery results");
-      return RS_RESULT_ERROR;
-    }
-
-    // Counts and reducers can consume this row without passing through a sorter.
-    IndexSpec *spec = self->sctx->spec;
-    const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(mergedResult);
-    if (spec && spec->diskSpec && dmd && !diskDmdIsVisible(spec, dmd)) {
-      rp->parent->skippedResults++;
-      SearchResult_Destroy(mergedResult);
-      rm_free(mergedResult);
-      continue;
-    }
-
-    SearchResult_Override(r, mergedResult);
-    rm_free(mergedResult);
-
-    if (self->scoreKey) {
-      RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r),
-                          RSValue_NewNumber(SearchResult_GetScore(r)));
-    }
-
-    return RS_RESULT_OK;
+  // Get next entry from iterator
+  dictEntry *entry = dictNext(self->iterator);
+  if (!entry) {
+    // No more results to yield
+    int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    return ret;
+  } else if (QueryRequestLimits_IsMemoryStopped(self->sctx->limits) ||
+             QueryRequestLimits_IsTimedOut(self->sctx->limits)) {
+    // Timed out before we could yield all results
+    return RS_RESULT_TIMEDOUT;
   }
-}
+
+  // Get the key and value before removing the entry
+  void *key = dictGetKey(entry);
+  HybridSearchResult *hybridResult = (HybridSearchResult*)dictGetVal(entry);
+  RS_ASSERT(hybridResult);
+
+  SearchResult *mergedResult = mergeSearchResults(hybridResult, self->hybridScoringCtx, self->lookupCtx, self->explainCtx);
+  if (!mergedResult) {
+    QueryError_SetError(rp->parent->err, QUERY_ERROR_CODE_GENERIC,
+                        "Failed to merge hybrid subquery results");
+    return RS_RESULT_ERROR;
+  }
+
+  // Override the output result with merged data
+  SearchResult_Override(r, mergedResult);
+  rm_free(mergedResult);
+
+  // Add score as field if scoreKey is provided
+  if (self->scoreKey) {
+    RLookup_WriteOwnKey(self->scoreKey, SearchResult_GetRowDataMut(r), RSValue_NewNumber(SearchResult_GetScore(r)));
+  }
+
+  return RS_RESULT_OK;
+ }
 
  /* Accumulation phase - consume window results from all upstreams */
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
@@ -2927,10 +2843,6 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
    // Free the processor itself
    rm_free(self);
  }
-
-static RedisSearchCtx *hybridMergerContext(ResultProcessor *rp) {
-  return ((RPHybridMerger *)rp)->sctx;
-}
 
  const RLookupKey *RPHybridMerger_GetScoreKey(ResultProcessor *rp) {
    if (!rp || rp->type != RP_HYBRID_MERGER) {

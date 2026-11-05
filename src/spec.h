@@ -949,6 +949,14 @@ void IndexSpec_LockWrite(IndexSpec *sp);
 void IndexSpec_Unlock(IndexSpec *sp);
 bool IndexSpec_IsLocked(const IndexSpec *sp);
 bool IndexSpec_IsReadLocked(const IndexSpec *sp);
+
+// Returns true only when this call acquires the lock. Unlock only in that case;
+// an existing read or write lock remains owned by its original caller.
+static inline bool IndexSpec_LockReadIfNeeded(IndexSpec *sp) {
+  if (IndexSpec_IsLocked(sp)) return false;
+  IndexSpec_LockRead(sp);
+  return true;
+}
 // Debug-only check at worker-cycle boundaries, independent of request/context lifetime.
 void IndexSpec_AssertLockNotHeld(void);
 

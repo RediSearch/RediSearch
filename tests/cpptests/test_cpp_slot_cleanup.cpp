@@ -12,6 +12,7 @@
 #include "redismock/util.h"
 
 #include "common.h"
+#include "index_utils.h"
 #include "doc_id_meta.h"
 #include "indexes.h"
 #include "rmalloc.h"
@@ -32,9 +33,9 @@ extern RedisSearchDiskAPI *disk;
 extern RedisSearchDisk *disk_db;
 }
 
+#include <algorithm>
 #include <functional>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace {
@@ -505,87 +506,9 @@ class BufferedDiskQuery {
     processor = sorter;
   }
 
-  void scoreByDocId(std::function<void()> onExhausted = {}, int exhaustedStatus = RS_RESULT_EOF) {
-    struct ScoredSource {
-      ResultProcessor base{};
-      std::function<void()> onExhausted;
-      int exhaustedStatus;
-    };
-    auto *source = new ScoredSource;
-    source->onExhausted = std::move(onExhausted);
-    source->exhaustedStatus = exhaustedStatus;
-    source->base.Next = [](ResultProcessor *base, SearchResult *result) {
-      auto *self = reinterpret_cast<ScoredSource *>(base);
-      const int rc = base->upstream->Next(base->upstream, result);
-      if (rc == RS_RESULT_OK) {
-        const auto id = SearchResult_GetDocId(result);
-        SearchResult_SetScore(result, id == 2 ? 100.0 : static_cast<double>(id));
-      } else if (rc == RS_RESULT_EOF && self->onExhausted) {
-        self->onExhausted();
-      }
-      return rc == RS_RESULT_EOF ? self->exhaustedStatus : rc;
-    };
-    source->base.Free = [](ResultProcessor *base) {
-      delete reinterpret_cast<ScoredSource *>(base);
-    };
-    processor = &source->base;
-    QITR_PushRP(activeProcessing, processor);
-  }
-
-  std::pair<t_docId, double> nextScored() {
-    EXPECT_EQ(processor->Next(processor, &result), RS_RESULT_OK);
-    const auto value =
-        std::make_pair(SearchResult_GetDocId(&result), SearchResult_GetScore(&result));
-    SearchResult_Clear(&result);
-    return value;
-  }
-
   void normalizeScores() {
     processor = RPMaxScoreNormalizer_New(nullptr);
     QITR_PushRP(activeProcessing, processor);
-  }
-
-  void profileHybrid() {
-    processor = RPProfile_New(processor, activeProcessing);
-    activeProcessing->rootProc = activeProcessing->endProc = processor;
-  }
-
-  uint32_t countRemaining() {
-    auto *counter = RPCounter_New();
-    QITR_PushRP(activeProcessing, counter);
-    processor = counter;
-    EXPECT_EQ(processor->Next(processor, &result), RS_RESULT_EOF);
-    return QITR_ReportedTotal(activeProcessing);
-  }
-
-  double groupCountRemaining() {
-    auto *key = RLookup_GetKey_Write(&tailLookup, "count", RLOOKUP_F_NOFLAGS);
-    auto *group =
-        Grouper_New(nullptr, nullptr, 0, GroupByLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
-    ArgsCursor args{};
-    ReducerOptions options{};
-    options.args = &args;
-    Grouper_AddReducer(group, RDCRCount_New(&options), key);
-    processor = Grouper_GetRP(group);
-    QITR_PushRP(activeProcessing, processor);
-    EXPECT_EQ(processor->Next(processor, &result), RS_RESULT_OK);
-    double count = 0;
-    EXPECT_TRUE(RSValue_ToNumber(RLookupRow_Get(key, SearchResult_GetRowData(&result)), &count));
-    SearchResult_Clear(&result);
-    EXPECT_EQ(processor->Next(processor, &result), RS_RESULT_EOF);
-    return count;
-  }
-
-  void expire(RSTimeoutPolicy policy) {
-    activeProcessing->timeoutPolicy = policy;
-    QueryRequestLimits_BeginCycle(sctx.limits, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-    QueryRequestLimits_MarkTimedOut(sctx.limits);
-  }
-
-  int nextStatus() {
-    const int rc = processor->Next(processor, &result);
-    SearchResult_Clear(&result);
-    return rc;
   }
 
   uint32_t skipped() const {
@@ -771,226 +694,38 @@ TEST_F(DiskSlotAsyncVisibilityTest, EarlyQueryFreeReleasesEveryBufferedMetadataR
   for (auto *dmd : pool.decoded) EXPECT_EQ(dmd->ref_count, 1);
 }
 
-class DiskSlotNormalizedVisibilityTest : public DiskSlotAsyncVisibilityTest,
-                                         public ::testing::WithParamInterface<bool> {};
+enum class AcceptedResultBuffer { Sorter, Normalizer, HybridMerger };
 
-TEST_P(DiskSlotNormalizedVisibilityTest, NormalizedResultsRecheckBufferedVisibility) {
+class AcceptedDiskResultTest : public DiskSlotAsyncVisibilityTest,
+                               public ::testing::WithParamInterface<AcceptedResultBuffer> {};
+
+TEST_P(AcceptedDiskResultTest, AcceptedRowsSurviveLaterTrimRegistration) {
   BufferedDiskQuery query(ctx, spec, snapshot());
-  query.normalizeScores();
+  switch (GetParam()) {
+    case AcceptedResultBuffer::Sorter:
+      query.sortByScore();
+      break;
+    case AcceptedResultBuffer::Normalizer:
+      query.normalizeScores();
+      break;
+    case AcceptedResultBuffer::HybridMerger:
+      query.mergeHybrid();
+      break;
+  }
   const auto first = query.first();
-  auto *pending = registerTrim();
-  if (GetParam()) {
-    IndexSpec_LockWrite(spec);
-    pool.deletedIds = {2, 3};
-    DocTable_RemovePendingDeletion(&spec->docs, pending);
-    IndexSpec_Unlock(spec);
-  }
-  const auto ids = query.remaining();
-  for (auto id : ids) EXPECT_TRUE(id != 2 && id != 3);
-  EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1u : 2u);
-  EXPECT_EQ(ids.size(), first == 2 || first == 3 ? 4u : 3u);
-  if (!GetParam()) removePending(pending);
-}
-
-TEST_P(DiskSlotNormalizedVisibilityTest, NormalizerExcludesHiddenMaximumBeforeFirstYield) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
-  PendingSlotDeletion *pending = nullptr;
-  query.scoreByDocId([&] {
-    pending = registerTrim();
-    if (GetParam()) {
-      IndexSpec_LockWrite(spec);
-      pool.deletedIds = {2, 3};
-      DocTable_RemovePendingDeletion(&spec->docs, pending);
-      IndexSpec_Unlock(spec);
-      pending = nullptr;
-    }
-  });
-  query.normalizeScores();
-  for (const auto expected : {6u, 5u, 4u, 1u}) {
-    const auto [id, score] = query.nextScored();
-    EXPECT_EQ(id, expected);
-    EXPECT_DOUBLE_EQ(score, static_cast<double>(expected) / 6.0);
-  }
-  EXPECT_EQ(query.nextStatus(), RS_RESULT_EOF);
-  EXPECT_EQ(query.skipped(), 2u);
-  EXPECT_FALSE(IndexSpec_IsLocked(spec));
-  if (pending) removePending(pending);
-}
-
-TEST_F(DiskSlotAsyncVisibilityTest, NormalizerKeepsScoreScaleAfterFirstYield) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
-  query.scoreByDocId();
-  query.normalizeScores();
-  const auto [first, firstScore] = query.nextScored();
-  EXPECT_EQ(first, 6u);
-  EXPECT_DOUBLE_EQ(firstScore, 0.06);
-  auto *pending = registerTrim();
-  for (const auto expected : {5u, 4u, 1u}) {
-    const auto [id, score] = query.nextScored();
-    EXPECT_EQ(id, expected);
-    EXPECT_DOUBLE_EQ(score, static_cast<double>(expected) / 100.0);
-  }
-  EXPECT_EQ(query.nextStatus(), RS_RESULT_EOF);
-  EXPECT_EQ(query.skipped(), 2u);
-  removePending(pending);
-}
-
-TEST_F(DiskSlotAsyncVisibilityTest, NormalizerPreservesBufferedRowsWhenAccumulationTimesOut) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
-  query.scoreByDocId([&] { query.expire(TimeoutPolicy_Return); }, RS_RESULT_TIMEDOUT);
-  query.normalizeScores();
-  for (const auto expected : {6u, 5u, 4u, 3u, 2u, 1u}) {
-    const auto [id, score] = query.nextScored();
-    EXPECT_EQ(id, expected);
-    EXPECT_DOUBLE_EQ(score, expected == 2 ? 1.0 : static_cast<double>(expected) / 100.0);
-  }
-  EXPECT_EQ(query.nextStatus(), RS_RESULT_TIMEDOUT);
-  EXPECT_EQ(query.nextStatus(), RS_RESULT_EOF);
-  EXPECT_FALSE(IndexSpec_IsLocked(spec));
-}
-
-TEST_F(DiskSlotAsyncVisibilityTest, NormalizerStopsExpiredPoolBeforeFirstYield) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
-  query.scoreByDocId([&] { query.expire(TimeoutPolicy_Fail); });
-  query.normalizeScores();
-  EXPECT_EQ(query.nextStatus(), RS_RESULT_TIMEDOUT);
-  EXPECT_FALSE(IndexSpec_IsLocked(spec));
-}
-
-TEST_F(DiskSlotAsyncVisibilityTest, HiddenNormalizerRowsStopAtTimeoutForEveryPolicy) {
-  for (const auto policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return, TimeoutPolicy_ReturnStrict}) {
-    BufferedDiskQuery query(ctx, spec, snapshot());
-    query.normalizeScores();
-    query.first();
-    pool.deletedIds = {1, 2, 3, 4, 5, 6};
-    query.expire(policy);
-    EXPECT_EQ(query.nextStatus(), RS_RESULT_TIMEDOUT);
-    EXPECT_EQ(query.skipped(), 1u);
-    pool.deletedIds.clear();
-  }
-}
-
-INSTANTIATE_TEST_SUITE_P(TrimState, DiskSlotNormalizedVisibilityTest, ::testing::Bool(),
-                         [](const ::testing::TestParamInfo<bool> &info) {
-                           return info.param ? "Completed" : "Pending";
-                         });
-
-class DiskSlotSortedVisibilityTest : public DiskSlotAsyncVisibilityTest,
-                                     public ::testing::WithParamInterface<bool> {};
-
-TEST_P(DiskSlotSortedVisibilityTest, SortedResultsAreFilteredAfterTrimRegistration) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
-  if (GetParam()) query.mergeHybrid();
-  query.sortByScore();
-  const auto first = query.first();
+  EXPECT_EQ(pool.decoded.size(), 6u);
+  EXPECT_EQ(pool.syncReads, 0u);
   EXPECT_FALSE(hasPending());
   auto *pending = registerTrim();
   auto ids = query.remaining();
-  EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1 : 2);
-  for (auto id : ids) EXPECT_TRUE(id != 2 && id != 3);
-  EXPECT_EQ(ids.size(), first == 2 || first == 3 ? 4 : 3);
+  ids.push_back(first);
+  std::sort(ids.begin(), ids.end());
+  EXPECT_EQ(ids, (std::vector<t_docId>{1, 2, 3, 4, 5, 6}));
+  EXPECT_EQ(query.skipped(), 0u);
   removePending(pending);
 }
 
-TEST_P(DiskSlotSortedVisibilityTest, SortedResultsStayHiddenAfterTrimCompletes) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
-  if (GetParam()) query.mergeHybrid();
-  query.sortByScore();
-  const auto first = query.first();
-  auto *pending = registerTrim();
-  IndexSpec_LockWrite(spec);
-  pool.deletedIds = {2, 3};
-  DocTable_RemovePendingDeletion(&spec->docs, pending);
-  IndexSpec_Unlock(spec);
-  EXPECT_FALSE(hasPending());
-  auto ids = query.remaining();
-  EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1 : 2);
-  for (auto id : ids) EXPECT_TRUE(id != 2 && id != 3);
-  EXPECT_EQ(ids.size(), first == 2 || first == 3 ? 4 : 3);
-}
-
-TEST_P(DiskSlotSortedVisibilityTest, HiddenSorterRowsStopAtTimeoutForEveryPolicy) {
-  for (const auto policy : {TimeoutPolicy_Fail, TimeoutPolicy_Return, TimeoutPolicy_ReturnStrict}) {
-    BufferedDiskQuery query(ctx, spec, snapshot());
-    if (GetParam()) query.mergeHybrid();
-    query.sortByScore();
-    query.first();
-    pool.deletedIds = {1, 2, 3, 4, 5, 6};
-    query.expire(policy);
-    EXPECT_EQ(query.nextStatus(), RS_RESULT_TIMEDOUT);
-    EXPECT_EQ(query.skipped(), 1u);
-    pool.deletedIds.clear();
-  }
-}
-
-INSTANTIATE_TEST_SUITE_P(
-    QueryKinds, DiskSlotSortedVisibilityTest, ::testing::Bool(),
-    [](const ::testing::TestParamInfo<bool> &info) { return info.param ? "Hybrid" : "Search"; });
-
-class DiskSlotHybridVisibilityTest : public DiskSlotAsyncVisibilityTest,
-                                     public ::testing::WithParamInterface<bool> {
- protected:
-  PendingSlotDeletion *hideBufferedRows() {
-    auto *pending = registerTrim();
-    if (!GetParam()) return pending;
-    IndexSpec_LockWrite(spec);
-    pool.deletedIds = {2, 3};
-    DocTable_RemovePendingDeletion(&spec->docs, pending);
-    IndexSpec_Unlock(spec);
-    return nullptr;
-  }
-};
-
-TEST_P(DiskSlotHybridVisibilityTest, MergerSkipsHiddenRowsBeforeDownstreamProcessing) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
-  query.mergeHybrid();
-  const auto first = query.first();
-  auto *pending = hideBufferedRows();
-  for (auto id : query.remaining()) EXPECT_TRUE(id != 2 && id != 3);
-  EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1u : 2u);
-  if (pending) removePending(pending);
-}
-
-TEST_P(DiskSlotHybridVisibilityTest, CounterExcludesHiddenBufferedRows) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
-  query.mergeHybrid();
-  const auto first = query.first();
-  auto *pending = hideBufferedRows();
-  EXPECT_EQ(query.countRemaining(), first == 2 || first == 3 ? 5u : 4u);
-  if (pending) removePending(pending);
-}
-
-TEST_P(DiskSlotHybridVisibilityTest, GroupByExcludesHiddenBufferedRows) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
-  query.mergeHybrid();
-  const auto first = query.first();
-  auto *pending = hideBufferedRows();
-  EXPECT_EQ(query.groupCountRemaining(), first == 2 || first == 3 ? 4 : 3);
-  if (pending) removePending(pending);
-}
-
-INSTANTIATE_TEST_SUITE_P(CleanupPhases, DiskSlotHybridVisibilityTest, ::testing::Bool(),
-                         [](const ::testing::TestParamInfo<bool> &info) {
-                           return info.param ? "Completed" : "Pending";
-                         });
-
-TEST_F(DiskSlotAsyncVisibilityTest, ProfiledHybridMergerSkipsHiddenBufferedRows) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
-  query.mergeHybrid();
-  query.profileHybrid();
-  query.first();
-  auto *pending = registerTrim();
-  for (auto id : query.remaining()) EXPECT_TRUE(id != 2 && id != 3);
-  removePending(pending);
-}
-
-TEST_F(DiskSlotAsyncVisibilityTest, HybridMergerExhaustsWhenEveryBufferedRowIsDeleted) {
-  BufferedDiskQuery query(ctx, spec, snapshot());
-  query.mergeHybrid();
-  query.first();
-  IndexSpec_LockWrite(spec);
-  pool.deletedIds = {1, 2, 3, 4, 5, 6};
-  IndexSpec_Unlock(spec);
-  EXPECT_TRUE(query.remaining().empty());
-  EXPECT_EQ(query.skipped(), 5u);
-}
+INSTANTIATE_TEST_SUITE_P(BufferStage, AcceptedDiskResultTest,
+                         ::testing::Values(AcceptedResultBuffer::Sorter,
+                                           AcceptedResultBuffer::Normalizer,
+                                           AcceptedResultBuffer::HybridMerger));
