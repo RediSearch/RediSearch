@@ -41,7 +41,13 @@ export const GUIDES =
 
 // Miri runs in every stage, because nothing tells reliably whether a change reaches `unsafe` code.
 // cargo mutants skips `unsafe extern` functions, so only a swap that adds other Rust needs it.
-const LINT = ['make lint', 'cargo hakari generate --diff', 'cargo hakari manage-deps --dry-run'];
+// CI's lint job also checks formatting, which `make lint` does not.
+const LINT = [
+  'make lint',
+  'make fmt CHECK=1',
+  'cargo hakari generate --diff',
+  'cargo hakari manage-deps --dry-run',
+];
 /** The checks each stage's plan must have, by kind, and what each must run. */
 export const CHECKS: Record<Stage, Record<string, string[]>> = {
   rust: {

@@ -155,9 +155,13 @@ deleted, and no C ABI export left that only tests call.
 Otherwise the call blocks while the stage's checks run and, if they pass, two reviewers
 (correctness, idiomatic Rust); do not edit meanwhile. After the first review the same reviewers
 review only what changed since, and remember what they raised and how you answered; a plan
-amendment starts fresh ones. A rebase
-that leaves the stage's patch unchanged keeps its reviews. An admitted stage gets its PR opened
-or updated.
+amendment starts fresh ones. A rebase that leaves the stage's patch unchanged keeps its
+reviews. An admitted stage gets its PR opened or updated.
+
+Each stage gets a fresh worker thread. When the stage you started on is admitted, the plugin
+hands the job to a new thread, briefed with the plan, the next stage and the outstanding
+findings, and the claim result says so: end your turn then and change nothing more. Your thread
+stays readable but owns nothing; the new one also handles later fixes to your stage.
 
 After publishing a PR, subscribe to its CI and its comments with `create_github_subscription`,
 then end your turn when you have nothing else to do: the subscription wakes you, and the turn
@@ -228,9 +232,12 @@ under `.amp/rust-port/runs/` count), tests, or `{ "finding": "F7" }`.
 
 ## Context
 
-Your context is the largest cost of the job. Load only the four skills named above, and only
-once each, even after a compaction: the plugin and your checks replace `open-pr`,
-`adversarial-review`, `verify`, `build`, `lint` and the `run-*` skills.
+Your context is the largest cost of the job: every request re-reads all of it. Read bulky
+material through a subagent that returns only what you need: the C module's callers, other
+crates, long files and logs. Never print a whole log; the plugin keeps them in files and quotes
+their tails. Load only the four skills named above, and only once each, even after a compaction:
+the plugin and your checks replace `open-pr`, `adversarial-review`, `verify`, `build`, `lint`
+and the `run-*` skills.
 
 ## Limits
 

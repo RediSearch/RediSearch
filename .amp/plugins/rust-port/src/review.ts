@@ -21,6 +21,8 @@ trust any of it: assume every line is wrong until you have checked it yourself. 
 miss ships.
 
 The plugin runs the checks and judges their results; do not review check logs or build output.
+Read the diff and the code it touches; follow callers and other modules only as far as a finding
+needs, with Grep before Read, so your context holds the change rather than the codebase.
 You cannot run commands; the plugin runs your reproductions for you.`;
 
 const FORMAT = `
@@ -57,6 +59,9 @@ CI paths the change breaks. Prove each behavior defect with a failing test as it
 Check that each contract item has tests named for the behavior they assert, and that an item
 holding over a range of inputs, such as a conversion, a bound or an ordering, has a property
 test over generated inputs rather than a few hand-picked values; cite the repository rule.
+Audit every panic the safe API can reach: \`assert!\`, \`expect\`, \`unwrap\`, indexing, and calls
+into helpers that panic. For each, find a value a constructor or parser accepts that reaches it;
+a panic on an accepted value is a crash, and its repro is a test calling the method with it.
 At the FFI boundary, check every pointer for three things separately, because one does not imply
 another: initialization (writable memory may be uninitialized, so write through the raw pointer
 instead of making a reference to it), aliasing (no reference may overlap another live one or

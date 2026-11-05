@@ -6,7 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
-import type { PluginAPI } from '@ampcode/plugin';
+import type { PluginAPI, ThreadID } from '@ampcode/plugin';
 import { createHash } from 'node:crypto';
 import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -16,7 +16,17 @@ import { git, ran, runChecks, type CheckResult } from './checks.ts';
 import { confirm, reproduction, type Run } from './confirm.ts';
 import { gates, sizeClass, type Size } from './gates.ts';
 import { github } from './github.ts';
-import { cited, inspect, POLICY, pr, STAGES, validate, type Plan, type Stage } from './plan.ts';
+import {
+  cited,
+  describe,
+  inspect,
+  POLICY,
+  pr,
+  STAGES,
+  validate,
+  type Plan,
+  type Stage,
+} from './plan.ts';
 import { verify } from './refs.ts';
 import { REVIEWERS, reviewStage, type Review } from './review.ts';
 import {
@@ -62,6 +72,9 @@ export default function (amp: PluginAPI) {
   // Experimental in Amp, so optional: the job's state at a glance, next to the prompt.
   const statusItem = amp.experimental?.createStatusItem();
   const sh = (args: string[], input?: string) => git(root, args, input);
+  const link = (thread: string) => new URL(`/threads/${thread}`, amp.system.ampURL).toString();
+  /** The briefing of a new worker thread, sent once the state that makes it the owner is saved. */
+  let briefing: (() => Promise<unknown>) | undefined;
 
   /** Goes to Amp's log and to `debug.log` in the state directory, which is easier to follow. */
   function debug(message: string) {
@@ -127,6 +140,13 @@ export default function (amp: PluginAPI) {
       if (state?.job.owner !== thread) throw new Error('This thread does not own a rust-port job');
       const result = await fn(state);
       await save(state);
+      // Not awaited: the new thread's first turn queues behind this call.
+      const send = briefing;
+      briefing = undefined;
+      send?.().catch((error) => {
+        debug(`briefing the new worker ${state.job.owner} failed: ${error}`);
+        amp.ui.notify(`rust-port: brief ${link(state.job.owner)} by hand`).catch(() => {});
+      });
       return result;
     });
   }
@@ -305,7 +325,7 @@ export default function (amp: PluginAPI) {
     };
     const findings = await confirm(trials, reviews, {
       ...{ stage, candidate, tests: planned.filter((c) => c.kind === 'test') },
-      threadURL: (thread) => new URL(`/threads/${thread}`, amp.system.ampURL).toString(),
+      threadURL: link,
     });
     // Timed-out trials would weaken findings to suggestions, so a timeout discards the assessment.
     stop.throwIfAborted();
@@ -404,19 +424,64 @@ export default function (amp: PluginAPI) {
     debug(
       `${stage} ${admitted ? 'admitted' : 'not admitted'}, held by [${holding.map((f) => f.id)}]`,
     );
+    let handedTo = '';
     if (admitted) {
       // Recorded first, so the PR's run record shows it; a failed publication throws, and a
       // failed call saves nothing.
       job.admitted[stage] = { candidate, base, plan: job.planHash };
       await publish(state, stage, candidate);
+      const next = STAGES[STAGES.indexOf(stage) + 1];
+      // Only the worker of this stage hands on; a later one re-admitting it keeps the job.
+      if (next && STAGES.indexOf(stage) === (job.former?.length ?? 0))
+        handedTo = await handOff(state, stage, next, candidate);
     }
     const big = sizeClass(size.lines);
-    return digest(
+    const result = digest(
       state,
       `${admitted ? `Stage ${stage} admitted at ${candidate}. ${job.prs[stage]?.url ?? ''}` : `Stage ${stage} at ${candidate} was not admitted.`} ` +
         `It adds ${size.lines} lines in ${size.files} files, ${size.code} net lines of code.` +
         (big ? ` ${big.label}: ${big.note}` : ''),
     );
+    return handedTo
+      ? `${result}\n\nThe job continues in a fresh thread, ${handedTo}, which owns this checkout now. Change nothing more and end your turn.`
+      : result;
+  }
+
+  /**
+   * Hands the job to a fresh worker thread for `next`. Every request re-reads a thread's whole
+   * history, and the plugin holds all a stage needs, so the next stage starts without the earlier
+   * one's. The thread is created now and briefed once its ownership is saved.
+   */
+  async function handOff(state: State, stage: Stage, next: Stage, candidate: string) {
+    const { job } = state;
+    const previous = job.owner as ThreadID;
+    const agent = await amp.threads.get(previous).agent();
+    const child = await agent.createThread({ parentThreadID: previous });
+    await child.addLabels(['rust-port', next]).catch(() => {});
+    job.former = [...(job.former ?? []), previous];
+    job.owner = child.id;
+    const { deliverable, paths, checks } = job.plan.stages[next];
+    const prs = STAGES.flatMap((s) => job.prs[s]?.url ?? []);
+    const content = `[rust-port] You take over a rust-port job at stage \`${next}\` from ${link(previous)}, which got \`${stage}\` admitted at ${candidate}; the checkout is at that revision. Follow ${POLICY} and read the skills it names. The plugin holds the plan, the evidence and every finding, so you need nothing from earlier threads.
+
+First subscribe to the CI and comments of ${prs.join(' and ')} with \`create_github_subscription\`.
+
+## Stage \`${next}\`
+
+${deliverable}
+
+It may change ${paths.map((p) => `\`${p}\``).join(', ')}, and must pass ${checks.map((c) => `\`${c.command}\``).join(', ')}.
+
+## Outstanding findings
+
+${render(outstanding(state), tool('close')) || 'None.'}
+
+## The plan
+
+${describe(job.plan)}`;
+    briefing = () => child.appendUserMessage({ type: 'user-message', content });
+    debug(`handing the job to ${child.id} for ${next}`);
+    return link(child.id);
   }
 
   amp.registerTool({
@@ -606,6 +671,19 @@ export default function (amp: PluginAPI) {
   );
 
   amp.on('agent.start', async (event) => {
+    const former = await load().then(
+      (state) => state?.job.former?.includes(event.thread.id) && state.job.owner,
+      () => undefined,
+    );
+    // A former worker still wakes for its subscriptions and its user, but must not touch the
+    // checkout its successor works in.
+    if (former)
+      return {
+        message: {
+          content: `[rust-port] This thread handed the job to ${link(former)}, which works in this checkout now. Change no files, make no commits and call no ${tool('*')} tools: answer what you were asked, then end your turn.`,
+          display: true,
+        },
+      };
     if (!(await owns(event.thread.id))) return {};
     return serial('agent.start', async () => {
       const state = (await load())!;

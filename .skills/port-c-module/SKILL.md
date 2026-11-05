@@ -72,7 +72,9 @@ from the names alone what each item guarantees, and which test fails when it bre
 
 A contract item that holds over a range of inputs, such as a conversion, a bound, an ordering or
 a round trip, is pinned by a property test over generated inputs, not by a few hand-picked
-values. Keep example tests for the boundaries and for regressions.
+values. Keep example tests for the boundaries and for regressions. One such property holds for
+every type the port adds: any value its constructors or parsers accept survives every method
+without panicking. A NaN that passes validation is such a value.
 
 #### Two PRs
 
