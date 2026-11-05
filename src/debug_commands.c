@@ -1080,7 +1080,7 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
         ctx, "GC_COMPACT_ALL_INCOMPLETE COMPACT_ALL did not complete (background work paused or compaction cancelled)");
   }
   if (outcome && *outcome == GC_FORCED_RUN_BUSY) {
-    return RedisModule_ReplyWithError(ctx, "GC DID NOT RUN: another GC run of this index is in progress");
+    return RedisModule_ReplyWithError(ctx, "GC_BUSY another GC run of this index is in progress");
   }
   return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
