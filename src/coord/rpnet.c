@@ -132,7 +132,7 @@ static const struct timespec *getAbsTimeout(const RPNet *nc) {
 //     coord's own deadline (handled by the strict timeout callback) is the
 //     authoritative stop signal.
 //   - TimeoutPolicy_Return / TimeoutPolicy_Fail: a shard timeout
-//     bails the coord pipeline early by returning RS_RESULT_TIMEDOUT.
+//     bails the coord pipeline early by returning RS_RESULT_STOPPED.
 static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   bool shard_timed_out = false;
   // Check for warnings (resp3 only)
@@ -169,7 +169,7 @@ static int processWarningsAndCleanup(RPNet *nc, bool is_resp3) {
   RPNet_resetCurrent(nc);
 
   if (shard_timed_out && nc->areq->base.limits.timeout.config.timeoutPolicy != TimeoutPolicy_ReturnStrict) {
-    return RS_RESULT_TIMEDOUT;
+    return RS_RESULT_STOPPED;
   }
 
   return RS_RESULT_OK;
@@ -210,7 +210,7 @@ static int processHybridMappingWarning(RPNet *nc, const char *warning_str) {
     case QUERY_WARNING_CODE_TIMED_OUT:
       nc->areq->stateflags |= QEXEC_S_SHARD_TIMED_OUT_WARNING;
       if (nc->areq->base.limits.timeout.config.timeoutPolicy == TimeoutPolicy_Fail) {
-        return RS_RESULT_TIMEDOUT;
+        return RS_RESULT_STOPPED;
       }
       break;
     case QUERY_WARNING_CODE_OUT_OF_MEMORY_SHARD:
@@ -378,12 +378,13 @@ int getNextReply(RPNet *nc) {
       return RS_RESULT_EOF;
     }
   }
-  // Pop wake mechanisms: the abort flag is flipped by the FAIL / RETURN-STRICT
+  // Pop wake mechanisms: the timed-out flag is flipped by the FAIL / RETURN-STRICT
   // timeout callback via MRChannel_WakeAbort. Under RETURN the flag is never
-  // flipped: aggregate streams degrade to a blocking pop (legacy RETURN waits
+  // flipped: aggregate streams wait without a deadline (legacy RETURN waits
   // beyond the deadline for in-flight shard replies), while hybrid streams get
   // the in-band wall-clock deadline from getAbsTimeout — see its doc for why.
-  // An unarmed timeout source provides neither mechanism and uses MRIterator_Next.
+  // The memory stop flag aborts the pop in every timeout kind, including
+  // unarmed; whoever requests the memory stop wakes the channel.
 #ifdef ENABLE_ASSERT
   // Sync point (debug): park BG when it is about to wait for the next shard
   // reply. Reaching this site implies any previously admitted reply has been
@@ -391,19 +392,19 @@ int getNextReply(RPNet *nc) {
   SyncPoint_WaitUntil(SYNC_POINT_RPNET_WAITING_FOR_REPLY, areq_timed_out, nc->areq);
 #endif
   RS_ASSERT(nc->areq);
-  QueryRequestLimits *timeout = &nc->areq->base.limits;
+  QueryRequestLimits *limits = &nc->areq->base.limits;
   const struct timespec *deadline = getAbsTimeout(nc);
-  RS_Atomic(bool) *abortFlag =
-      timeout->timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
-          ? QueryRequestLimits_GetBlockedClientFlag(timeout)
+  RS_Atomic(bool) *timedOutFlag =
+      limits->timeout.kind == QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT
+          ? QueryRequestLimits_GetBlockedClientFlag(limits)
           : NULL;
+  RS_Atomic(bool) *memoryStopFlag = QueryRequestLimits_GetMemoryStopFlag(limits);
   bool popTimedOut = false;
   rs_wall_clock waitStart;
   if (nc->profileBreakdown) rs_wall_clock_init(&waitStart);
   MRReply *root = nc->drainOnly ? MRIterator_TryNext(nc->it)
-                  : deadline || abortFlag
-                      ? MRIterator_NextWithTimeout(nc->it, deadline, abortFlag, &popTimedOut)
-                      : MRIterator_Next(nc->it);
+                                : MRIterator_NextWithTimeout(nc->it, deadline, timedOutFlag, memoryStopFlag,
+                                                             &popTimedOut);
   if (nc->profileBreakdown) {
     accumulateSince(&nc->breakdown.waitTime, &waitStart);
     if (root) nc->breakdown.replies++;
@@ -416,8 +417,9 @@ int getNextReply(RPNet *nc) {
     if (nc->drainOnly) {
       return RS_RESULT_EOF;
     }
-    if (popTimedOut || QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
-      return RS_RESULT_TIMEDOUT;
+    if (popTimedOut || QueryRequestLimits_IsMemoryStopped(limits) ||
+        QueryRequestLimits_IsBlockedClientTimedOut(limits)) {
+      return RS_RESULT_STOPPED;
     }
     return MRIterator_GetPending(nc->it) ? RS_RESULT_OK : RS_RESULT_EOF;
   }
@@ -504,8 +506,8 @@ int getNextReply(RPNet *nc) {
     RedisModule_Log(RSDummyContext, "verbose", "An empty reply was received from a shard");
     int ret = processWarningsAndCleanup(nc, nc->cmd.protocol == 3);
 
-    if (ret == RS_RESULT_TIMEDOUT) {
-      return RS_RESULT_TIMEDOUT;
+    if (ret == RS_RESULT_STOPPED) {
+      return RS_RESULT_STOPPED;
     }
   }
 
@@ -590,12 +592,15 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
   SyncPoint_WaitUntil(SYNC_POINT_BEFORE_RPNET_NEXT, areq_timed_out, areq);
 #endif
 
-  // Surface RETURN_STRICT timeouts on follow-up cursor reads where the channel
-  // may already hold a buffered reply (the NULL-reply check below wouldn't fire
-  // and we'd silently return rows). Skipped during the timer's own drain.
-  if (QueryRequest_UsesReplyCallback(&areq->base) && !nc->drainOnly &&
-      QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)) {
-    return RS_RESULT_TIMEDOUT;
+  // Surface a memory stop, and RETURN_STRICT timeouts on follow-up cursor
+  // reads, where the channel may already hold a buffered reply (the NULL-reply
+  // check below wouldn't fire and we'd silently return rows). Skipped during
+  // the timer's own drain.
+  if (!nc->drainOnly &&
+      (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
+       (QueryRequest_UsesReplyCallback(&areq->base) &&
+        QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)))) {
+    return RS_RESULT_STOPPED;
   }
 
   MRReply *root = nc->current.root, *rows = nc->current.rows;
@@ -620,8 +625,8 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     size_t len = MRReply_Length(rows);
 
     if (nc->curIdx == len) {
-      if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_TIMEDOUT) {
-        return RS_RESULT_TIMEDOUT;
+      if (processWarningsAndCleanup(nc, resp3) == RS_RESULT_STOPPED) {
+        return RS_RESULT_STOPPED;
       }
 
       root = rows = NULL;
@@ -640,7 +645,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       // callback so that a `CURSOR DEL` command will be dispatched instead of
       // a `CURSOR READ` command.
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
-      return RS_RESULT_TIMEDOUT;
+      return RS_RESULT_STOPPED;
     } else if (!nc->drainOnly && MRIteratorCallback_GetTimedOut(MRIterator_GetCtx(nc->it))) {
       // if timeout was set in previous reads, reset it. Drain-only must keep
       // the flag set so the post-drain callback dispatches CURSOR DEL.
@@ -650,9 +655,9 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
     int ret = getNextReply(nc);
     if (ret == RS_RESULT_EOF) {
       return RS_RESULT_EOF;
-    } else if (ret == RS_RESULT_TIMEDOUT) {
+    } else if (ret == RS_RESULT_STOPPED) {
       MRIteratorCallback_SetTimedOut(MRIterator_GetCtx(nc->it));
-      return RS_RESULT_TIMEDOUT;
+      return RS_RESULT_STOPPED;
     } else if (ret == RS_RESULT_ERROR) {
       // Mapping-stage warning escalated under a FAIL policy (see
       // processHybridMappingWarning); the QueryError is already set.

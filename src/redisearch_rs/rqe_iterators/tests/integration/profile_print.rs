@@ -300,6 +300,27 @@ fn union_limited_geo_prints_full() {
 }
 
 #[test]
+fn union_limited_lexrange_collapses() {
+    use query_types::QueryNodeType;
+    use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
+
+    let mut replier = init();
+    let children = vec![rqe_iterators::Empty];
+    let flat = UnionFullFlat::new(children);
+    let iter = UnionOpaque {
+        variant: UnionVariant::FlatFull(flat),
+        query_node_type: QueryNodeType::LexRange,
+        query_string: None,
+    };
+    let reply = capture_single_reply(|| {
+        let mut ctx = ProfilePrintCtx::new(true, false);
+        let mut map = replier.map();
+        iter.print_profile(&mut map, &mut ctx);
+    });
+    insta::assert_debug_snapshot!(reply);
+}
+
+#[test]
 fn union_with_query_string() {
     use query_types::QueryNodeType;
     use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
@@ -311,6 +332,24 @@ fn union_with_query_string() {
     let iter = UnionOpaque {
         variant: UnionVariant::FlatFull(flat),
         query_node_type: QueryNodeType::Prefix,
+        query_string: Some(query_str.as_c_str()),
+    };
+    let reply = print(&mut replier, &iter, false);
+    insta::assert_debug_snapshot!(reply);
+}
+
+#[test]
+fn union_lexrange_with_bound() {
+    use query_types::QueryNodeType;
+    use rqe_iterators::union_opaque::{UnionOpaque, UnionVariant};
+
+    let mut replier = init();
+    let children = vec![rqe_iterators::Empty];
+    let flat = UnionFullFlat::new(children);
+    let query_str = std::ffi::CString::new("bob").unwrap();
+    let iter = UnionOpaque {
+        variant: UnionVariant::FlatFull(flat),
+        query_node_type: QueryNodeType::LexRange,
         query_string: Some(query_str.as_c_str()),
     };
     let reply = print(&mut replier, &iter, false);
@@ -517,15 +556,18 @@ fn make_numeric_variant<'a>(
             0,
         )
     };
-    rqe_iterators::NumericIteratorVariant::new(
-        idx.reader(),
-        filter,
-        checker,
-        None,
-        range_min,
-        range_max,
-        rqe_core::DocId::MAX,
-    )
+    // SAFETY: nothing writes to the index while the iterator lives.
+    unsafe {
+        rqe_iterators::NumericIteratorVariant::new(
+            idx.reader(),
+            filter,
+            checker,
+            None,
+            range_min,
+            range_max,
+            rqe_core::DocId::MAX,
+        )
+    }
 }
 
 #[test]
