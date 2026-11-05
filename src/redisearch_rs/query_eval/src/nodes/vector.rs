@@ -69,24 +69,28 @@ pub(crate) fn eval<'index>(
         "a vector node has at most one (filter) child"
     );
     let child = if node.num_children() == 0 {
-        std::ptr::null_mut()
+        None
     } else {
         // A child that yields nothing leaves the hybrid query with nothing to
         // filter, so the whole node yields nothing.
-        eval_node(ctx, node.child_mut(0), config)?
-            .into_c_iterator()
-            .as_ptr()
+        Some(eval_node(ctx, node.child_mut(0), config)?.into_c_iterator())
     };
 
     // SAFETY: `ctx` wraps a valid, exclusively-held `QueryEvalCtx`, `vq` is a
-    // valid `VectorQuery`, and `child` is either null or an owning iterator that
-    // `NewVectorIterator` takes over on success.
-    let it = unsafe { ffi::NewVectorIterator(ctx.as_non_null().as_ptr(), vq, child) };
+    // valid `VectorQuery`, and `child` is either absent (null) or an owning
+    // iterator that `NewVectorIterator` takes over on success.
+    let it = unsafe {
+        ffi::NewVectorIterator(
+            ctx.as_non_null().as_ptr(),
+            vq,
+            child.map_or(std::ptr::null_mut(), NonNull::as_ptr),
+        )
+    };
 
     let Some(it) = NonNull::new(it) else {
         // `NewVectorIterator` does not take ownership of the child on its
         // failure paths, so the child is ours to release.
-        if let Some(child) = NonNull::new(child) {
+        if let Some(child) = child {
             // SAFETY: `child` is an owning `QueryIterator` handle with all its
             // callbacks populated, and nothing else holds it.
             drop(unsafe { CRQEIterator::new(child) });
