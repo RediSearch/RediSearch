@@ -68,7 +68,7 @@ fn batches_under_memory_pressure_stop_for_oom_before_the_second_batch() {
         let _pressure = ForcedMemoryRatio::set(1.0);
         let mut it = far_filter_top_k(&index);
 
-        assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+        assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
         assert_eq!(it.metrics().num_batches, 1);
         // The second batch was never requested from VecSim.
         assert_eq!(it.source().num_iterations, 1);
@@ -153,7 +153,7 @@ fn an_adhoc_scan_shorter_than_the_read_interval_stops_for_oom_at_its_end() {
         let _pressure = ForcedMemoryRatio::set(1.0);
         let mut it = adhoc_top_k(&index);
 
-        assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+        assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
         assert!(memory_stopped(&index));
     }
 }

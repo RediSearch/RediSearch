@@ -32,7 +32,7 @@ use crate::{RQEIteratorError, utils::timespec::deadline_passed};
 pub trait TimeoutContext {
     /// Report whether the query has timed out.
     ///
-    /// Returns [`RQEIteratorError::TimedOut`] when the deadline has been
+    /// Returns [`RQEIteratorError::Stopped`] when the deadline has been
     /// reached (or, for externally-signalled variants, when the signal has
     /// flipped). Otherwise returns `Ok(())`.
     ///
@@ -55,7 +55,7 @@ impl<TC: TimeoutChecker> TimeoutContext for TC {
         let res = TimeoutChecker::check_timeout(self);
         match res {
             TimeoutCheckResult::Ok => Ok(()),
-            TimeoutCheckResult::TimedOut => Err(RQEIteratorError::TimedOut),
+            TimeoutCheckResult::TimedOut => Err(RQEIteratorError::Stopped),
         }
     }
 

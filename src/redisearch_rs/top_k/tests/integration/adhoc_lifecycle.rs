@@ -168,7 +168,7 @@ impl<'index> RQEIterator<'index> for ErrOnSecondRead<'index> {
             self.result.doc_id = 1;
             Ok(Some(&mut self.result))
         } else {
-            Err(RQEIteratorError::TimedOut)
+            Err(RQEIteratorError::Stopped)
         }
     }
 
@@ -221,7 +221,7 @@ fn end_adhoc_runs_when_child_errors_midscan() {
         Ascending,
         TopKMode::AdhocBF,
     );
-    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::Stopped));
 
     let source = it.source();
     assert_eq!(source.begin_calls, 1);
@@ -268,7 +268,7 @@ fn rerank_skipped_on_timeout() {
         Ascending,
         TopKMode::AdhocBF,
     );
-    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::TimedOut));
+    assert!(matches!(it.read().unwrap_err(), RQEIteratorError::Stopped));
 
     let source = it.source();
     assert_eq!(

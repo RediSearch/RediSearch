@@ -2045,7 +2045,7 @@ macro_rules! union_common_tests {
             loop {
                 match union.read() {
                     Ok(Some(_)) => continue,
-                    Err(RQEIteratorError::TimedOut) => return,
+                    Err(RQEIteratorError::Stopped) => return,
                     Ok(None) => panic!("expected timeout error, got EOF"),
                     Err(e) => panic!("expected timeout error, got {e:?}"),
                 }
@@ -2062,7 +2062,7 @@ macro_rules! union_common_tests {
                     Ok(Some(SkipToOutcome::Found(_) | SkipToOutcome::NotFound(_))) => {
                         next = union.last_doc_id() + 1;
                     }
-                    Err(RQEIteratorError::TimedOut) => return,
+                    Err(RQEIteratorError::Stopped) => return,
                     Ok(None) => panic!("expected timeout error, got EOF"),
                     Err(e) => panic!("expected timeout error, got {e:?}"),
                 }
