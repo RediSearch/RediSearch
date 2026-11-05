@@ -31,7 +31,7 @@ pub mod score_batch;
 pub mod source;
 
 pub use range_iterator::NumericRangeIterator;
-pub use reducer::{HeapReserveError, NewNumericTopK, new_numeric_top_k};
+pub use reducer::{HeapReserveError, new_numeric_top_k};
 pub use score_batch::NumericScoreBatch;
 pub use source::{AllValid, DocValidity, NumericScoreSource};
 
@@ -48,8 +48,8 @@ use top_k::{RuntimeOrder, TopKHeap, TopKIterator, TopKMetrics, TopKMode, TopKSou
 
 /// A [`TopKIterator`] parameterised over [`NumericScoreSource`].
 ///
-/// Production code constructs one with [`new_numeric_top_k`], which picks
-/// between [`new_numeric_top_k_unfiltered`] and [`new_numeric_top_k_filtered`].
+/// Production code uses [`new_numeric_top_k`] for child reduction and fallible
+/// heap allocation.
 ///
 /// `I` is the filter child iterator type, defaulting to the production
 /// [`CRQEIterator`]; the iterator implements [`ProfilePrint`] whenever `I` does.
