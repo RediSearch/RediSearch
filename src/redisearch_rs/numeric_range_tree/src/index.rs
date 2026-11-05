@@ -12,10 +12,12 @@
 //! This module contains the index and reader enums that abstract over
 //! compressed and uncompressed numeric storage in inverted indexes.
 
+use std::ptr::NonNull;
+
 use ffi::IndexFlags_Index_StoreNumeric;
 use index_result::RSIndexResult;
 use inverted_index::{
-    EntriesTrackingIndex, IndexReader, NumericReader, RawIndexReaderCore,
+    EntriesTrackingIndex, IndexReader, NumericReader, RawIndexReaderCore, ReseatIndex,
     debug::Summary,
     numeric::{Numeric, NumericEncoder, NumericFloatCompression, PreparedValue},
 };
@@ -260,6 +262,45 @@ unsafe impl inverted_index::ResumableReader for RawNumericIndexReader<Suspended>
             Self::Uncompressed(r) => unsafe { r.refresh_pointers() },
             // SAFETY: as above.
             Self::Compressed(r) => unsafe { r.refresh_pointers() },
+        }
+    }
+}
+
+/// Reseats on the encoding's inverted index inside a [`NumericIndex`]. The
+/// variant must match the reader's encoding — requirement 1 of the trait's
+/// contract implies it.
+impl<Rf: Ref> ReseatIndex<NumericIndex> for RawIndexReaderCore<Rf, Numeric> {
+    unsafe fn reseat(&mut self, index: NonNull<NumericIndex>) {
+        // SAFETY: the trait's contract makes `index` valid for reads.
+        let NumericIndex::Uncompressed(idx) = (unsafe { index.as_ref() }) else {
+            panic!("an uncompressed reader cannot read a compressed index");
+        };
+        // SAFETY: derived from `index`, so it inherits the requirements the caller
+        // upholds for it.
+        unsafe { self.reseat_index(NonNull::from(idx.inner())) }
+    }
+}
+
+/// See the [`Numeric`] impl above.
+impl<Rf: Ref> ReseatIndex<NumericIndex> for RawIndexReaderCore<Rf, NumericFloatCompression> {
+    unsafe fn reseat(&mut self, index: NonNull<NumericIndex>) {
+        // SAFETY: the trait's contract makes `index` valid for reads.
+        let NumericIndex::Compressed(idx) = (unsafe { index.as_ref() }) else {
+            panic!("a compressed reader cannot read an uncompressed index");
+        };
+        // SAFETY: derived from `index`, so it inherits the requirements the caller
+        // upholds for it.
+        unsafe { self.reseat_index(NonNull::from(idx.inner())) }
+    }
+}
+
+impl<Rf: Ref> ReseatIndex<NumericIndex> for RawNumericIndexReader<Rf> {
+    unsafe fn reseat(&mut self, index: NonNull<NumericIndex>) {
+        match self {
+            // SAFETY: the caller upholds the trait's contract, which forwards as is.
+            Self::Uncompressed(r) => unsafe { r.reseat(index) },
+            // SAFETY: as above.
+            Self::Compressed(r) => unsafe { r.reseat(index) },
         }
     }
 }

@@ -84,6 +84,9 @@ pub trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
     type Suspended: RQESuspendedIterator<'index> + 'index;
 
     /// Transition to the suspended state.
+    ///
+    /// Must be called while the spec read lock is still held: an implementation may still read
+    /// index memory, as [`CRQEIterator`](c2rust::CRQEIterator) does to snapshot its estimate.
     fn suspend(self: Box<Self>) -> Box<Self::Suspended>;
 }
 
@@ -235,7 +238,7 @@ impl<'query> TypeErasedRQESuspendedIterator<'query> {
 /// Call it in a `const {}` block so the check runs at monomorphization: a
 /// mismatch fails to compile instead of causing undefined behaviour when the
 /// suspend/resume helpers reinterpret an allocation from `A` to `B`.
-pub(crate) const fn assert_layout_compatible<A, B>() {
+pub const fn assert_layout_compatible<A, B>() {
     assert!(
         std::mem::size_of::<A>() == std::mem::size_of::<B>(),
         "size mismatch across suspend/resume transition: active and suspended representations must have identical size"
@@ -329,7 +332,7 @@ where
 /// Outcome of [`resume_child_slot_in_place`], mirroring the recoverable
 /// discriminants of [`ResumeOutcome`] but *without* carrying the iterator —
 /// the resumed child is written back into the slot instead.
-pub(crate) enum ResumeSlotOutcome {
+pub enum ResumeSlotOutcome {
     /// The child resumed at the same position; the slot now holds the active child.
     Unchanged,
     /// The child resumed but its position moved forward; the slot now holds the
@@ -376,7 +379,7 @@ pub(crate) enum ResumeSlotOutcome {
 /// implementations and could panic; as in [`suspend_child_slot_in_place`], a
 /// panic is converted into a process abort rather than an unwind through the
 /// uninitialised slot.
-pub(crate) unsafe fn resume_child_slot_in_place<'query, 'a, S>(
+pub unsafe fn resume_child_slot_in_place<'query, 'a, S>(
     slot: *mut S,
     guard: &IndexSpecReadGuard<'a>,
 ) -> Result<ResumeSlotOutcome, RQEIteratorError>

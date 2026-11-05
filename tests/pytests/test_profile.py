@@ -12,6 +12,68 @@ from common import *
 from time import sleep
 from RLTest import Env
 
+def _candidate_profile_index(env):
+  env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
+  return getConnectionByEnv(env)
+
+
+def _assert_candidate_counts(env, conn, discarded, not_discarded, keys):
+  reply = conn.execute_command(
+    'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello', 'NOCONTENT', 'LIMIT', 0, 100)
+  shard = get_shards_profile(env, reply)[0]
+  processors = shard['Result processors profile']
+  if env.protocol == 2:
+    processors = [to_dict(processor) for processor in processors]
+  index = next(processor for processor in processors if processor['Type'] == 'Index')
+  env.assertEqual(index['Deleted candidates discarded'], discarded)
+  env.assertEqual(index['Candidates not discarded'], not_discarded)
+  if env.protocol == 3:
+    env.assertEqual(reply['Results']['total_results'], len(keys))
+    env.assertEqual(sorted(row['id'] for row in reply['Results']['results']), sorted(keys))
+  else:
+    env.assertEqual(reply[0][0], len(keys))
+    env.assertEqual(sorted(reply[0][1:]), sorted(keys))
+
+
+@skip(cluster=True)
+def testProfileCandidatesEmpty(env):
+  conn = _candidate_profile_index(env)
+  _assert_candidate_counts(env, conn, 0, 0, [])
+
+
+@skip(cluster=True)
+def testProfileCandidatesLive(env):
+  conn = _candidate_profile_index(env)
+  keys = ['doc:1', 'doc:2', 'doc:3']
+  for key in keys:
+    conn.execute_command('HSET', key, 't', 'hello')
+  _assert_candidate_counts(env, conn, 0, 3, keys)
+
+
+@skip(cluster=True)
+def testProfileCandidatesDeletedAndSuperseded(env):
+  conn = _candidate_profile_index(env)
+  for i in range(1, 5):
+    conn.execute_command('HSET', f'doc:{i}', 't', 'hello')
+  conn.execute_command('DEL', 'doc:1')
+  conn.execute_command('HSET', 'doc:2', 't', 'goodbye')
+  for _ in range(2):
+    _assert_candidate_counts(env, conn, 2, 2, ['doc:3', 'doc:4'])
+
+
+@skip(cluster=True)
+def testProfileCandidatesAllDeleted(env):
+  conn = _candidate_profile_index(env)
+  # Keep a live nonmatching document so query planning still visits the stale postings.
+  conn.execute_command('HSET', 'doc:other', 't', 'goodbye')
+  for i in range(1, 4):
+    conn.execute_command('HSET', f'doc:{i}', 't', 'hello')
+  conn.execute_command('DEL', 'doc:1', 'doc:2', 'doc:3')
+  _assert_candidate_counts(env, conn, 3, 0, [])
+
+
 @skip(cluster=True)
 def testProfileSearch(env):
   conn = getConnectionByEnv(env)
@@ -149,7 +211,8 @@ def testProfileAggregate(env):
   conn.execute_command('hset', '1', 't', 'hello')
   conn.execute_command('hset', '2', 't', 'world')
 
-  expected_res = [['Type', 'Index', 'Results processed', 1],
+  expected_res = [['Type', 'Index', 'Results processed', 1,
+                   'Deleted candidates discarded', 0, 'Candidates not discarded', 1],
                   ['Type', 'Loader', 'Results processed', 1],
                   ['Type', 'Grouper', 'Results processed', 1]]
   actual_res = conn.execute_command('ft.profile', 'idx', 'aggregate', 'query', 'hello',
@@ -157,7 +220,8 @@ def testProfileAggregate(env):
                                     'REDUCE', 'count', '0', 'as', 'sum')
   env.assertEqual(actual_res[1][1][0][5], expected_res)
 
-  expected_res = [['Type', 'Index', 'Results processed', 2],
+  expected_res = [['Type', 'Index', 'Results processed', 2,
+                   'Deleted candidates discarded', 0, 'Candidates not discarded', 2],
                   ['Type', 'Loader', 'Results processed', 2],
                   ['Type', 'Projector - Function startswith', 'Results processed', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
@@ -165,7 +229,8 @@ def testProfileAggregate(env):
                 'apply', 'startswith(@t, "hel")', 'as', 'prefix') # codespell:ignore hel
   env.assertEqual(actual_res[1][1][0][5], expected_res)
 
-  expected_res = [['Type', 'Index', 'Results processed', 2],
+  expected_res = [['Type', 'Index', 'Results processed', 2,
+                   'Deleted candidates discarded', 0, 'Candidates not discarded', 2],
                   ['Type', 'Loader', 'Results processed', 2],
                   ['Type', 'Projector - Literal banana', 'Results processed', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
@@ -173,7 +238,8 @@ def testProfileAggregate(env):
                 'apply', '"banana"', 'as', 'prefix')
   env.assertEqual(actual_res[1][1][0][5], expected_res)
 
-  expected_res = [['Type', 'Index', 'Results processed', 2],
+  expected_res = [['Type', 'Index', 'Results processed', 2,
+                   'Deleted candidates discarded', 0, 'Candidates not discarded', 2],
                   ['Type', 'Loader', 'Results processed', 2],
                   ['Type', 'Sorter', 'Results processed', 2],
                   ['Type', 'Loader', 'Results processed', 2]]
@@ -609,7 +675,8 @@ def testResultProcessorCounter(env):
 
   actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', 'foo|bar', 'limit', '0', '0')
   env.assertEqual(actual_res[0], [2])
-  res = [['Type', 'Index', 'Results processed', 2],
+  res = [['Type', 'Index', 'Results processed', 2,
+          'Deleted candidates discarded', 0, 'Candidates not discarded', 2],
          ['Type', 'Counter', 'Results processed', 1]]
   env.assertEqual(actual_res[1][1][0][5], res)
 
@@ -629,7 +696,8 @@ def testNotIterator(env):
             'Iterators profile', # Static query optimization: foo && -@t:baz => foo && -(EMPTY) => foo && ALL => foo
             ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1, 'Estimated number of matches', 1],
             'Result processors profile',
-             [['Type', 'Index',  'Results processed', 1],
+             [['Type', 'Index',  'Results processed', 1,
+               'Deleted candidates discarded', 0, 'Candidates not discarded', 1],
               ['Type', 'Scorer', 'Results processed', 1],
               ['Type', 'Sorter', 'Results processed', 1],
               ['Type', 'Loader', 'Results processed', 1]]
@@ -669,7 +737,8 @@ def TimeoutWarningInProfile(env):
        'Iterators profile',
          ['Type', 'WILDCARD', 'Time', ANY, 'Number of reading operations', ANY],
        'Result processors profile',
-         [['Type', 'Index',  'Time', ANY, 'Results processed', ANY],
+         [['Type', 'Index',  'Time', ANY, 'Results processed', ANY,
+           'Deleted candidates discarded', 0, 'Candidates not discarded', ANY],
           ['Type', 'Scorer', 'Time', ANY, 'Results processed', ANY],
           ['Type', 'Sorter', 'Time', ANY, 'Results processed', ANY],
           ['Type', 'Loader', 'Time', ANY, 'Results processed', ANY],
@@ -690,7 +759,8 @@ def TimeoutWarningInProfile(env):
        'Iterators profile',
         ['Type', 'WILDCARD', 'Time', ANY, 'Number of reading operations', ANY],
        'Result processors profile',
-        [['Type', 'Index', 'Time', ANY, 'Results processed', ANY],
+        [['Type', 'Index', 'Time', ANY, 'Results processed', ANY,
+          'Deleted candidates discarded', 0, 'Candidates not discarded', ANY],
          ['Type', 'Pager/Limiter', 'Time', ANY, 'Results processed', ANY]]
       ]],
      'Coordinator', []]

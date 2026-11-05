@@ -997,7 +997,7 @@ static ResultProcessor *findSafeDepleter(const HybridRequest *hreq, size_t i) {
 // the tail hybrid merger job that cv-waits on their completion or this will
 // deadlock (see submitHybridTail).
 static void scheduleDepleters(HybridRequest *hreq) {
-    const bool timedOut = QueryRequestLimits_IsTimedOutExact(&hreq->base.limits);
+    const bool timedOut = QueryRequestLimits_ShouldStopExact(&hreq->base.limits);
     for (size_t i = 0; i < hreq->nrequests; i++) {
         ResultProcessor *depleter = findSafeDepleter(hreq, i);
         if (timedOut) {

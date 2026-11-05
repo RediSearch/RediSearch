@@ -152,6 +152,11 @@ typedef struct QueryRequestTimeoutState {
 typedef struct QueryRequestMemoryState {
   // Set when process memory crossed the out-of-memory threshold.
   RS_Atomic(bool) stopped;
+
+  // Calls of QueryMemory_Checkpoint since the last memory read, across all checkpoint sites.
+  // Request-scoped like the stop: reset only by Init. Relaxed atomic, updated with a plain
+  // load and store rather than a read-modify-write, so concurrent calls may lose increments.
+  RS_Atomic(uint32_t) counter;
 } QueryRequestMemoryState;
 
 /**
@@ -176,6 +181,9 @@ typedef struct QueryRequestMemoryState {
  * - During a CLOCK_DEADLINE cycle, the deadline is immutable. The counter is
  *   shared across amortized call sites but is not atomic, so calls to
  *   IsTimedOut for one request must be serialized.
+ * - memory.counter is shared by every QueryMemory_Checkpoint call with this
+ *   request. It is a relaxed atomic, so any thread may call the checkpoint;
+ *   concurrent calls only shift when memory is read.
  * - In every kind, including UNARMED, any thread may set the memory stop
  *   concurrently with timeout checks (QueryRequestLimits_RequestMemoryStop).
  *   It lives outside the source union, so it never disturbs the active source.
@@ -293,6 +301,14 @@ bool QueryRequestLimits_IsTimedOutExact(const QueryRequestLimits *limits);
  * concurrency requirements as QueryRequestLimits_IsTimedOutExact.
  */
 bool QueryRequestLimits_IsBlockedClientTimedOut(const QueryRequestLimits *limits);
+
+/**
+ * Whether the query should stop, never missing an elapsed deadline. Call it
+ * once at a point that decides the outcome (before starting work, after
+ * collecting results); too costly for per-row loops. Callers report a stop as
+ * RS_RESULT_STOPPED and the reply boundary applies ON_OOM.
+ */
+bool QueryRequestLimits_ShouldStopExact(const QueryRequestLimits *limits);
 
 /**
  * Primary timeout operation:

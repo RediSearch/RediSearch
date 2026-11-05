@@ -212,6 +212,50 @@ fn conditional_trim_above_threshold(#[values(false, true)] compress_floats: bool
     assert!(tree.num_leaves() < leaves_before);
 }
 
+/// An emptied single-leaf tree has nothing to trim, yet compacting it can still
+/// move its root, so the revision must change for iterators reading the root's
+/// range to look it up again.
+#[rstest]
+fn compaction_without_trimming_bumps_revision(#[values(false, true)] compress_floats: bool) {
+    let mut tree = build_single_leaf_tree(10, compress_floats);
+    gc_all_ranges(&mut tree, &|_| false);
+    assert!(
+        tree.is_sparse(),
+        "the emptied root leaf must make the tree sparse"
+    );
+
+    let revision_before = tree.revision_id();
+    let result = tree.compact_if_sparse();
+    assert!(
+        result.node_size_delta < 0,
+        "the root must have moved for this test to cover the bug"
+    );
+    assert_eq!(tree.revision_id(), revision_before.wrapping_add(1));
+}
+
+/// Once compacted, the slab has nothing left to reclaim, so compacting it again
+/// moves no node and must leave the revision alone: bumping it would abort parked
+/// iterators for nothing.
+#[rstest]
+fn compaction_that_moves_nothing_keeps_revision(#[values(false, true)] compress_floats: bool) {
+    let mut tree = build_single_leaf_tree(10, compress_floats);
+    gc_all_ranges(&mut tree, &|_| false);
+    tree.compact_if_sparse();
+
+    // Refill and empty the leaf, so the tree is sparse again with nothing to trim.
+    tree.add(11, 11.0, false, false, 0);
+    gc_all_ranges(&mut tree, &|_| false);
+    assert!(
+        tree.is_sparse(),
+        "the emptied root leaf must make the tree sparse"
+    );
+
+    let revision_before = tree.revision_id();
+    let result = tree.compact_if_sparse();
+    assert_eq!(result.node_size_delta, 0, "nothing was left to reclaim");
+    assert_eq!(tree.revision_id(), revision_before);
+}
+
 // ============================================================================
 // Cardinality after GC
 // ============================================================================

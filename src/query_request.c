@@ -28,6 +28,7 @@ void QueryRequestLimits_Init(QueryRequestLimits *limits, const TimeoutConfig *co
   RS_ASSERT(config->queryTimeoutMS >= 0);
   limits->timeout.config = *config;
   RS_AtomicBoolStoreRelaxed(&limits->memory.stopped, false);
+  RS_AtomicUintStoreRelaxed(&limits->memory.counter, 0);
   QueryRequestLimits_Reset(limits);
 }
 
@@ -120,6 +121,11 @@ bool QueryRequestLimits_IsBlockedClientTimedOut(const QueryRequestLimits *limits
       return QueryRequestLimits_IsTimedOutExact(limits);
   }
   RS_ABORT_ALWAYS("Invalid query timeout kind");
+}
+
+bool QueryRequestLimits_ShouldStopExact(const QueryRequestLimits *limits) {
+  return QueryRequestLimits_IsMemoryStopped(limits) ||
+         QueryRequestLimits_IsTimedOutExact(limits);
 }
 
 bool QueryRequestLimits_IsTimedOut(QueryRequestLimits *limits) {

@@ -40,12 +40,13 @@ if [[ $(id -u) -ne 0 ]]; then
   install_mode=sudo
 fi
 
+# COV=1 installs the LCOV release coverage builds require, which the setup tools below include.
 check_dependencies() {
-  (cd .install && env CHECK_DEPS=1 SKIP_BOOST=1 bash ./install_script.sh "$install_mode")
+  (cd .install && env CHECK_DEPS=1 SKIP_BOOST=1 COV=1 bash ./install_script.sh "$install_mode")
 }
 
 install_dependencies() {
-  (cd .install && env SKIP_BOOST=1 bash ./install_script.sh "$install_mode")
+  (cd .install && env SKIP_BOOST=1 COV=1 bash ./install_script.sh "$install_mode")
 }
 
 check_setup_tools() {
@@ -96,6 +97,19 @@ install_rust_test_dependencies() {
 }
 
 run_step "Install Rust test dependencies" install_rust_test_dependencies
+
+install_cargo_mutants() {
+  local version=27.1.0
+
+  if cargo mutants --version 2>/dev/null | grep -Fqx "cargo-mutants $version"; then
+    return 0
+  fi
+
+  # Built from source: the prebuilt binary needs a newer glibc than Debian 12's.
+  cargo install --locked --force cargo-mutants@"$version"
+}
+
+run_step "Install cargo-mutants" install_cargo_mutants
 
 install_python_test_dependencies() {
   if [[ -x .venv/bin/python ]] && .venv/bin/python -m pip --version >/dev/null 2>&1; then
@@ -170,7 +184,7 @@ link_tool() {
   fi
 }
 
-for tool in cargo rustc rustup cargo-nextest cargo-llvm-cov cargo-hakari cheadergen rustfmt cargo-clippy clippy-driver; do
+for tool in cargo rustc rustup cargo-nextest cargo-llvm-cov cargo-hakari cargo-mutants cheadergen rustfmt cargo-clippy clippy-driver; do
   link_tool "$tool" "$HOME/.cargo/bin/$tool"
 done
 link_tool uv "$HOME/.local/bin/uv"
