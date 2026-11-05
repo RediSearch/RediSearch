@@ -146,7 +146,7 @@ impl DocumentFormat for JsonDocumentFormat<'_> {
         // Safety: the `&'key` reference guarantees `open_key` is valid for `'key`.
         let value = unsafe {
             self.japi
-                .open_from_handle(Some(NonNull::from_ref(open_key).cast()))
+                .open_from_handle(NonNull::from_ref(open_key).cast())
         }
         // If we fail to open the JSON root from the borrowed handle: fall back to
         // open the document by name.
