@@ -10378,8 +10378,8 @@ function declarations(header) {
 async function inspect(plan, root, git) {
     const problems = [];
     const url = await git(['remote', 'get-url', plan.remote]).catch(() => '');
-    if (!new RegExp(`[/:]${plan.repository.replace(/\./g, '\\.')}(\\.git)?/?$`, 'i').test(url))
-        problems.push(`remote ${plan.remote} is not ${plan.repository}, where the PRs open`);
+    if (!new RegExp(`[/@]github\\.com[/:]${plan.repository.replace(/\./g, '\\.')}(\\.git)?/?$`, 'i').test(url))
+        problems.push(`remote ${plan.remote} is not github.com/${plan.repository}, where the PRs open`);
     for (const stage of STAGES) {
         const branch = `${plan.branchPrefix}-${stage}`;
         await git(['check-ref-format', '--branch', branch]).catch(() => problems.push(`${branch} is not a valid branch name`));
