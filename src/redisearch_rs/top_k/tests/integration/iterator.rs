@@ -36,6 +36,15 @@ struct PartialThenTimingOutSource {
 }
 
 impl ScoreSource for PartialThenTimingOutSource {
+    fn release_index_handles(&mut self) {
+        // Only a call counter; its batches are built in memory.
+    }
+
+    fn can_collect_after_lock_release(&self) -> bool {
+        // Never crosses a lock release in these tests; `false` is the safe answer.
+        false
+    }
+
     type Batch = MockScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -99,6 +108,15 @@ struct TimingOutSource {
 }
 
 impl ScoreSource for TimingOutSource {
+    fn release_index_handles(&mut self) {
+        // Only a call counter; its batches are built in memory.
+    }
+
+    fn can_collect_after_lock_release(&self) -> bool {
+        // Never crosses a lock release in these tests; `false` is the safe answer.
+        false
+    }
+
     type Batch = MockScoreBatch;
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -836,6 +854,15 @@ fn rewind_after_mid_collect_error_does_not_retain_stale_heap() {
     }
 
     impl ScoreSource for OnceErrorSource {
+        fn release_index_handles(&mut self) {
+            // Only call counters; its batches are built in memory.
+        }
+
+        fn can_collect_after_lock_release(&self) -> bool {
+            // Never crosses a lock release in these tests; `false` is the safe answer.
+            false
+        }
+
         type Batch = MockScoreBatch;
 
         fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
@@ -1085,6 +1112,15 @@ fn adhoc_timeout_propagated() {
         adhoc_calls: u32,
     }
     impl ScoreSource for TimingOutAdhocSource {
+        fn release_index_handles(&mut self) {
+            // Only a call counter; its batches are built in memory.
+        }
+
+        fn can_collect_after_lock_release(&self) -> bool {
+            // Never crosses a lock release in these tests; `false` is the safe answer.
+            false
+        }
+
         type Batch = MockScoreBatch;
         fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
             Ok(None)
