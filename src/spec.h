@@ -692,7 +692,7 @@ IndexSpecSlotTrimJob *IndexSpec_RegisterDiskSlotTrim(StrongRef specRef,
                                                    size_t numRanges);
 // Release only after worker calls stop. Unfinished intent and query hiding remain for resumption.
 void IndexSpec_FreeDiskSlotTrim(IndexSpecSlotTrimJob *job);
-// Main thread, after disk restore: install pending filters and schedule unfinished backend jobs.
+// Main thread, after disk restore: schedule unfinished backend jobs.
 void IndexSpec_ResumeDiskSlotTrims(IndexSpec *spec);
 // Caller holds the spec write lock.
 void IndexSpec_RemoveDocFromMemoryIndexes(IndexSpec *spec, t_docId docId);

@@ -14,7 +14,6 @@
 #include "slot_ranges.h"
 
 #include <stdatomic.h>
-#include <limits.h>
 
 typedef struct {
   WeakRef spec_ref;
@@ -137,7 +136,6 @@ struct IndexSpecSlotTrimJob {
   SearchDiskSlotRange *ranges;
   size_t numRanges;
   t_docId maxDocId;
-  PendingSlotDeletion *pending;
 };
 
 static atomic_bool diskJobsStopped = false;
@@ -146,44 +144,14 @@ void SlotCleanup_StartDiskJobs(void) {
   atomic_store(&diskJobsStopped, false);
 }
 
-static PendingSlotDeletion *pendingDiskTrim(IndexSpec *spec, const SearchDiskSlotRange *ranges,
-                                            size_t numRanges, t_docId maxDocId) {
-  for (PendingSlotDeletion *pending = spec->docs.pendingSlotDeletions; pending;
-       pending = pending->next) {
-    if (pending->maxDocId != maxDocId || pending->slots->num_ranges != numRanges) continue;
-    bool equal = true;
-    for (size_t i = 0; i < numRanges; ++i) {
-      if (pending->slots->ranges[i].start != ranges[i].start ||
-          pending->slots->ranges[i].end != ranges[i].end) {
-        equal = false;
-        break;
-      }
-    }
-    if (equal) return pending;
-  }
-  RS_LOG_ASSERT_ALWAYS(numRanges <= INT32_MAX, "too many slot ranges");
-  RedisModuleSlotRangeArray *slots = rm_malloc(SlotRangeArray_SizeOf(numRanges));
-  slots->num_ranges = numRanges;
-  for (size_t i = 0; i < numRanges; ++i) {
-    slots->ranges[i].start = ranges[i].start;
-    slots->ranges[i].end = ranges[i].end;
-  }
-  PendingSlotDeletion *pending =
-      DocTable_AddPendingDeletionWithCutoff(&spec->docs, slots, maxDocId);
-  rm_free(slots);
-  return pending;
-}
-
 static IndexSpecSlotTrimJob *newDiskJob(StrongRef ref, const SearchDiskSlotRange *ranges,
-                                        size_t numRanges, t_docId maxDocId,
-                                        PendingSlotDeletion *pending) {
+                                        size_t numRanges, t_docId maxDocId) {
   IndexSpecSlotTrimJob *job = rm_calloc(1, sizeof(*job));
   job->specRef = StrongRef_Demote(ref);
   job->ranges = rm_malloc(sizeof(*ranges) * numRanges);
   memcpy(job->ranges, ranges, sizeof(*ranges) * numRanges);
   job->numRanges = numRanges;
   job->maxDocId = maxDocId;
-  job->pending = pending;
   return job;
 }
 
@@ -196,11 +164,8 @@ IndexSpecSlotTrimJob *IndexSpec_RegisterDiskSlotTrim(StrongRef specRef,
   IndexSpec_LockWrite(spec);
   bool registered = SearchDisk_RegisterSlotTrim(spec->diskSpec, ranges, numRanges, &maxDocId);
   RS_LOG_ASSERT_ALWAYS(registered, "valid slot cleanup registration must succeed");
-  PendingSlotDeletion *before = spec->docs.pendingSlotDeletions;
-  PendingSlotDeletion *pending = pendingDiskTrim(spec, ranges, numRanges, maxDocId);
-  bool created = spec->docs.pendingSlotDeletions != before;
   IndexSpec_Unlock(spec);
-  return created ? newDiskJob(specRef, ranges, numRanges, maxDocId, pending) : NULL;
+  return newDiskJob(specRef, ranges, numRanges, maxDocId);
 }
 
 typedef struct {
