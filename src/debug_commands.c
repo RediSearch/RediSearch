@@ -34,6 +34,7 @@
 #include "gc/gc.h"
 #include "module.h"
 #include "query_memory.h"
+#include "query_request.h"
 #include "util/redis_mem_info.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"
@@ -3783,6 +3784,53 @@ DEBUG_COMMAND(MemoryPressure) {
 }
 
 /**
+ * FT.DEBUG FORCE_TIMEOUT <subcommand>
+ * Forces a timeout on this process's own queries (QueryRequestLimits_SetForcedTimeoutAtCycle),
+ * so a test can time out one shard of a cluster: the shard replies the genuine ON_TIMEOUT
+ * outcome, which TIMEOUT_AFTER_N cannot do for a cursor read under ON_TIMEOUT FAIL.
+ * Only queries whose timeout is a clock deadline (no workers, or ON_TIMEOUT RETURN) are forced.
+ *   AT_CALL <n>  - the n-th such query cycle from now (1-based) starts timed out; 0 disarms.
+ *   RESET        - same as AT_CALL 0.
+ *   STATUS       - [at_call, <n>, cycles, <n>]
+ */
+DEBUG_COMMAND(ForceTimeout) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcasecmp("RESET", op) || !strcasecmp("STATUS", op)) {
+    if (argc != 3) {
+      return RedisModule_WrongArity(ctx);
+    }
+    if (!strcasecmp("RESET", op)) {
+      QueryRequestLimits_SetForcedTimeoutAtCycle(0);
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+    RedisModule_ReplyWithArray(ctx, 4);
+    RedisModule_ReplyWithSimpleString(ctx, "at_call");
+    RedisModule_ReplyWithLongLong(ctx, (long long)QueryRequestLimits_GetForcedTimeoutAtCycle());
+    RedisModule_ReplyWithSimpleString(ctx, "cycles");
+    RedisModule_ReplyWithLongLong(ctx, (long long)QueryRequestLimits_GetClockCycles());
+    return REDISMODULE_OK;
+  }
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  if (strcasecmp("AT_CALL", op)) {
+    return RedisModule_ReplyWithError(ctx, "Invalid command for 'FORCE_TIMEOUT'");
+  }
+  long long n;
+  if (RedisModule_StringToLongLong(argv[3], &n) != REDISMODULE_OK || n < 0) {
+    return RedisModule_ReplyWithError(ctx, "Invalid count");
+  }
+  QueryRequestLimits_SetForcedTimeoutAtCycle((uint64_t)n);
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
  * FT.DEBUG MOCK_REVALIDATE_TIMEOUT <enable|disable|status>
  * Make every iterator revalidation report VALIDATE_TIMEOUT, globally
  * enable - every revalidation reports a timeout, as if the query ran out of time while re-seeking
@@ -4107,6 +4155,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_SCHEMA", DumpSchema},
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
                                {"MEMORY_PRESSURE", MemoryPressure},
+                               {"FORCE_TIMEOUT", ForceTimeout},
                                {"MOCK_REVALIDATE_TIMEOUT", MockRevalidateTimeout},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},
