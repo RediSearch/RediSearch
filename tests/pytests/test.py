@@ -2315,7 +2315,7 @@ def testTimeout(env):
     if VALGRIND:
         env.skip()
 
-    num_range = 1000
+    num_range = 20000
     env.cmd('ft.config', 'set', 'timeout', '1')
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
 
@@ -2330,7 +2330,7 @@ def testTimeout(env):
        .contains('Timeout limit was reached')
 
     # test `TIMEOUT` param in query
-    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 10000)
+    res = env.cmd('ft.search', 'myIdx', '*', 'timeout', 20000)
     env.assertEqual(res[0], num_range)
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1)    \
         .error().contains('Timeout limit was reached')
@@ -2369,15 +2369,14 @@ def testTimeout(env):
        .contains('Timeout limit was reached')
 
     # test cursor
-    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 500)
-    l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
-    cursor = res[1]
-
-    time.sleep(0.01)
-    while cursor != 0:
-        r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
-        l += (len(r) - 1)
-    env.assertEqual(l, 1000)
+    # Unlike later versions, 2.6 never fails a cursor read on timeout, even with
+    # `on_timeout fail`: the read returns the rows it collected and closes the cursor.
+    # A timeout while building the query is still an error, so the query must be cheap
+    # to build (`*`) and slow to read (LOAD).
+    res, cursor = env.cmd('FT.AGGREGATE', 'myIdx', '*', 'LOAD', 1, '@t',
+                          'WITHCURSOR', 'COUNT', num_range, 'TIMEOUT', 1)
+    env.assertLess(len(res) - 1, num_range) # the first element is the result count, not a row
+    env.assertEqual(cursor, 0)
 
     # restore old configuration
     env.cmd('ft.config', 'set', 'timeout', '500')
