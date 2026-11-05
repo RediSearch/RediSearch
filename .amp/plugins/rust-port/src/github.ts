@@ -86,26 +86,18 @@ export function readFeedback(
     ...{ source, key, title, body, stage, revision: pr.headRefOid },
     ...{ blocking: true, links: [url] },
   });
-  const ci = (title: string, body: string, url: string) => ({
-    comments: [] as NewFinding[],
-    pending: false,
-    failures: [finding('ci', `ci:${stage}`, title, body, url)],
-  });
-
   // A PR closed unmerged, or one whose head moved past what the job published, no longer carries
-  // the assessed candidate, so its CI and comments say nothing about it.
-  if (pr.state === 'CLOSED')
-    return ci(
-      `PR #${number} was closed without merging`,
-      'Reopen it or publish the stage again.',
-      pr.url,
-    );
-  if (head && pr.headRefOid !== head)
-    return ci(
-      `PR #${number} head is ${pr.headRefOid.slice(0, 10)}, not the published ${head.slice(0, 10)}`,
-      'Something else pushed to its branch; claim the stage again.',
-      pr.url,
-    );
+  // the assessed candidate, so its CI says nothing about it. Its comments are still heard.
+  const ci = (title: string, body: string) => finding('ci', `ci:${stage}`, title, body, pr.url);
+  const stale =
+    pr.state === 'CLOSED'
+      ? ci(`PR #${number} was closed without merging`, 'Reopen it or publish the stage again.')
+      : head && pr.headRefOid !== head
+        ? ci(
+            `PR #${number} head is ${pr.headRefOid.slice(0, 10)}, not the published ${head.slice(0, 10)}`,
+            'Something else pushed to its branch; claim the stage again.',
+          )
+        : undefined;
 
   const comments: NewFinding[] = [];
   const keys = new Set<string>();
@@ -151,6 +143,8 @@ export function readFeedback(
           c.url,
         ),
       );
+
+  if (stale) return { comments, pending: false, failures: [stale] };
 
   // The gate reports after the slowest check, so until then a failed check is reported at once
   // under the gate; once it reports, only an explicit success passes.

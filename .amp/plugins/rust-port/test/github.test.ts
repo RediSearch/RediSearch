@@ -142,9 +142,13 @@ test('a merged PR still reports a gate that did not pass', () => {
   assert.equal(merged(null).pending, true);
 });
 
-test('a PR that no longer carries the published head is a CI finding, not feedback', () => {
-  const closed = readFeedback(data({ state: 'CLOSED' }), 'rust', 1, [], 'h')!;
+test('a PR that no longer carries the published head is a CI finding; its comments still count', () => {
+  const said = {
+    nodes: [{ ...comment(9, 'maintainer', 'Please split this.'), author: { login: 'm' } }],
+  };
+  const closed = readFeedback(data({ state: 'CLOSED', comments: said }), 'rust', 1, [], 'h')!;
   assert.match(closed.failures[0].title, /closed without merging/);
+  assert.equal(closed.comments.length, 1);
   const moved = readFeedback(data({}), 'rust', 1, [], 'other')!;
   assert.match(moved.failures[0].title, /head is h, not the published other/);
   assert.deepEqual(readFeedback(data({}), 'rust', 1, [], 'h')!.failures, []);
