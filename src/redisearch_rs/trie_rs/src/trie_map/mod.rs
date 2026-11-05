@@ -23,10 +23,11 @@ use crate::trie_map::{
     node::Node,
     utils::strip_prefix,
 };
+use lending_iterator::LendingIterator;
 use rqe_wildcard::WildcardPattern;
 use std::fmt;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 /// A trie data structure that maps keys of type `&[u8]` to values.
 pub struct TrieMap<Data> {
     /// The root node of the trie.
@@ -339,6 +340,25 @@ impl<Data> TrieMap<Data> {
         }
     }
 }
+
+impl<Data: PartialEq> PartialEq for TrieMap<Data> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.n_unique_keys != other.n_unique_keys {
+            return false;
+        }
+        let mut left = self.lending_iter();
+        let mut right = other.lending_iter();
+        loop {
+            match (left.next(), right.next()) {
+                (None, None) => return true,
+                (Some(left), Some(right)) if left == right => {}
+                _ => return false,
+            }
+        }
+    }
+}
+
+impl<Data: Eq> Eq for TrieMap<Data> {}
 
 impl<Data> Default for TrieMap<Data> {
     fn default() -> Self {
