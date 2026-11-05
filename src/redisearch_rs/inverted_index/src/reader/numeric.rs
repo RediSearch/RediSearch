@@ -10,7 +10,8 @@
 use std::ffi::c_void;
 
 use super::{
-    IndexReader, IndexReaderCore, NumericReader, RefreshOutcome, ResumableReader, SuspendableReader,
+    IndexReader, IndexReaderCore, NumericReader, RefreshOutcome, ReseatIndex, ResumableReader,
+    SuspendableReader,
 };
 use crate::{DecodedBy, Decoder, InvertedIndex};
 use ffi::IndexFlags;
@@ -141,6 +142,14 @@ impl<'index, IR: NumericReader<'index>> FilterNumericReader<IR> {
 /// proof there), given `IR`'s own layout compatibility.
 unsafe impl<IR: SuspendableReader> SuspendableReader for FilterNumericReader<IR> {
     type Suspended = FilterNumericReader<IR::Suspended>;
+}
+
+/// Forwards the reseat to the inner reader, in either reader form.
+impl<I: ?Sized, IR: ReseatIndex<I>> ReseatIndex<I> for FilterNumericReader<IR> {
+    unsafe fn reseat(&mut self, index: std::ptr::NonNull<I>) {
+        // SAFETY: the caller upholds the trait's contract, which forwards as is.
+        unsafe { self.inner.reseat(index) }
+    }
 }
 
 /// Inverse of the above: `FilterNumericReader<RS>` resumes to
