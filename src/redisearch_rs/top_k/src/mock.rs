@@ -83,6 +83,7 @@ pub struct MockScoreSource {
     batch_pos: usize,
     scores: HashMap<DocId, f64>,
     batch_strategy: Box<dyn FnMut(usize, usize) -> BatchStrategy>,
+    accept_candidate: Box<dyn FnMut(DocId, f64) -> Result<bool, RQEIteratorError>>,
     num_estimated: usize,
     /// Exact scores applied by [`ScoreSource::rerank`]. `None` disables
     /// reranking (the default); `Some` map rescores any retained doc it
@@ -134,6 +135,7 @@ impl MockScoreSource {
             batch_pos: 0,
             scores: scores.into_iter().collect(),
             batch_strategy: Box::new(batch_strategy),
+            accept_candidate: Box::new(|_, _| Ok(true)),
             num_estimated,
             rerank_scores: None,
             expired: HashSet::new(),
@@ -163,6 +165,15 @@ impl MockScoreSource {
     /// Report the given doc ids as expired from [`ScoreSource::is_expired`].
     pub fn with_expired(mut self, docs: impl IntoIterator<Item = DocId>) -> Self {
         self.expired = docs.into_iter().collect();
+        self
+    }
+
+    /// Override [`ScoreSource::accept_candidate`].
+    pub fn with_candidate_filter(
+        mut self,
+        accept: impl FnMut(DocId, f64) -> Result<bool, RQEIteratorError> + 'static,
+    ) -> Self {
+        self.accept_candidate = Box::new(accept);
         self
     }
 
@@ -215,6 +226,10 @@ impl ScoreSource for MockScoreSource {
 
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64> {
         self.scores.get(&doc_id).copied()
+    }
+
+    fn accept_candidate(&mut self, doc_id: DocId, score: f64) -> Result<bool, RQEIteratorError> {
+        (self.accept_candidate)(doc_id, score)
     }
 
     fn is_expired(&self, result: &RSIndexResult) -> bool {

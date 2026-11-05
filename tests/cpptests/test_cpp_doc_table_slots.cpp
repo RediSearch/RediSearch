@@ -204,9 +204,8 @@ TEST_F(DocTableSlotsTest, NumericTopKPreservesVisibilityAcrossConstructorReducti
     std::optional<std::vector<t_docId>> expectedRows;
   };
   const Case cases[] = {
-      {"unfiltered top one", 1, ChildKind::None, std::vector<t_docId>{newInSlot}},
-      {"unfiltered top two", 2, ChildKind::None, std::vector<t_docId>{newInSlot, otherSlot}},
-      {"filtered", 1, ChildKind::Filtered, std::vector<t_docId>{otherSlot}},
+      {"unfiltered", 2, ChildKind::None, std::vector<t_docId>{newInSlot, otherSlot}},
+      {"profiled filtered", 1, ChildKind::Filtered, std::vector<t_docId>{otherSlot}},
       {"empty child", 1, ChildKind::Empty, std::vector<t_docId>{}},
       {"zero k", 0, ChildKind::Filtered, std::vector<t_docId>{}},
       {"oversized k", std::numeric_limits<size_t>::max(), ChildKind::Filtered, std::nullopt},
@@ -223,9 +222,11 @@ TEST_F(DocTableSlotsTest, NumericTopKPreservesVisibilityAcrossConstructorReducti
         child.reset(NewEmptyIterator());
         break;
       case ChildKind::Filtered: {
-        auto *ids = static_cast<t_docId *>(rm_malloc(sizeof(t_docId)));
-        ids[0] = otherSlot;
-        child.reset(NewSortedIdListIterator(ids, 1, 1.0));
+        auto *ids = static_cast<t_docId *>(rm_malloc(3 * sizeof(t_docId)));
+        ids[0] = hidden;
+        ids[1] = otherSlot;
+        ids[2] = deleted;
+        child.reset(NewSortedIdListIterator(ids, 3, 1.0));
         break;
       }
     }
@@ -238,7 +239,7 @@ TEST_F(DocTableSlotsTest, NumericTopKPreservesVisibilityAcrossConstructorReducti
       // Failed construction must leave the child usable and owned by the caller.
       ASSERT_NE(child, nullptr);
       ASSERT_EQ(child->Read(child.get()), ITERATOR_OK);
-      EXPECT_EQ(child->current->docId, otherSlot);
+      EXPECT_EQ(child->current->docId, hidden);
       continue;
     }
     ASSERT_NE(it, nullptr);
@@ -246,11 +247,14 @@ TEST_F(DocTableSlotsTest, NumericTopKPreservesVisibilityAcrossConstructorReducti
     if (!testCase.expectedRows->empty()) {
       EXPECT_EQ(it->SkipTo, nullptr);
       ASSERT_NE(it->ProfileChildren, nullptr);
-      auto *unprofiled = it.release();
-      it.reset(unprofiled->ProfileChildren(unprofiled));
-      ASSERT_NE(it, nullptr);
-      EXPECT_EQ(it->ProfileChildren, nullptr);
-      EXPECT_EQ(it->SkipTo, nullptr);
+      // Leave the unfiltered case unprofiled to exercise the original wrapper too.
+      if (testCase.child == ChildKind::Filtered) {
+        auto *unprofiled = it.release();
+        it.reset(unprofiled->ProfileChildren(unprofiled));
+        ASSERT_NE(it, nullptr);
+        EXPECT_EQ(it->ProfileChildren, nullptr);
+        EXPECT_EQ(it->SkipTo, nullptr);
+      }
     }
     for (t_docId expected : *testCase.expectedRows) {
       ASSERT_EQ(it->Read(it.get()), ITERATOR_OK);

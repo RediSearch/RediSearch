@@ -129,6 +129,16 @@ pub trait ScoreSource {
     /// Used in Adhoc-BF mode where the child iterator drives traversal.
     fn lookup_score(&mut self, doc_id: DocId) -> Option<f64>;
 
+    /// Whether a candidate may enter the result set.
+    ///
+    /// Called after matching the child, if any, but before heap insertion.
+    /// Native unfiltered results are checked before yielding instead, without
+    /// backfilling. Unlike [`is_expired`](Self::is_expired), this is an admission
+    /// check, not a recheck of buffered results. Errors propagate to the caller.
+    fn accept_candidate(&mut self, _doc_id: DocId, _score: f64) -> Result<bool, RQEIteratorError> {
+        Ok(true)
+    }
+
     /// Whether `result` is no longer valid and must not be surfaced
     /// (e.g. its field has expired).
     ///

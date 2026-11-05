@@ -302,6 +302,58 @@ fn make_crqe_child(ids: Vec<DocId>) -> CRQEIterator {
 // ── State machine ─────────────────────────────────────────────────────────────
 
 #[test]
+fn candidate_rejection_uses_the_score_in_every_collection_mode() {
+    for (name, mode, ids) in [
+        ("filtered", TopKMode::Batches, Some(vec![1, 2, 3])),
+        ("unfiltered", TopKMode::Batches, None),
+        ("adhoc", TopKMode::AdhocBF, Some(vec![1, 2, 3])),
+        ("direct", TopKMode::Unfiltered, None),
+    ] {
+        let scores = vec![(1, 1.0), (2, 2.0), (3, 3.0)];
+        let source =
+            MockScoreSource::new(vec![scores.clone()], scores, |_, _| BatchStrategy::Continue)
+                .with_candidate_filter(|_, score| Ok(score > 1.0));
+        let mut it = TopKIterator::new_with_mode(
+            source,
+            ids.map(IdList::<true>::new),
+            NonZeroUsize::new(3).unwrap(),
+            Ascending,
+            mode,
+        );
+        let mut ids = Vec::new();
+        while let Some(result) = it.read().unwrap() {
+            ids.push(result.doc_id);
+        }
+        assert_eq!(ids, vec![2, 3], "{name}");
+    }
+}
+
+#[test]
+fn candidate_errors_propagate_with_a_child_and_in_direct_mode() {
+    for (mode, child) in [
+        (TopKMode::Batches, Some(IdList::<true>::new(vec![1]))),
+        (TopKMode::AdhocBF, Some(IdList::<true>::new(vec![1]))),
+        (TopKMode::Unfiltered, None),
+    ] {
+        let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![(1, 1.0)], |_, _| {
+            BatchStrategy::Continue
+        })
+        .with_candidate_filter(|_, _| Err(RQEIteratorError::TimedOut));
+        let mut it = TopKIterator::new_with_mode(
+            source,
+            child,
+            NonZeroUsize::new(1).unwrap(),
+            Ascending,
+            mode,
+        );
+        assert!(
+            matches!(it.read(), Err(RQEIteratorError::TimedOut)),
+            "{mode:?}"
+        );
+    }
+}
+
+#[test]
 fn read_triggers_collection_on_first_call() {
     let source = MockScoreSource::new(vec![vec![(1, 1.0), (2, 2.0)]], vec![], |_, _| {
         BatchStrategy::Continue
