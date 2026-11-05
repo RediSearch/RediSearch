@@ -224,6 +224,205 @@ def test_build_checkpoint_stop_on_shards_reaches_the_coordinator(env):
     env.assertEqual(len(res['results']), N_DOCS, message=res)
 
 
+def ids(res):
+    return [r['id'] for r in res['results']]
+
+
+def first_rows_desc(k):
+    """The rows a stopped query holds when it stopped after reading k rows, in doc id order,
+    sorted by n descending."""
+    return [f'doc{i}' for i in reversed(range(k))]
+
+
+TIMEOUT_POLICIES = ('RETURN', 'FAIL', 'RETURN-STRICT')
+
+
+def timeout_policies(env):
+    """Yields each ON_TIMEOUT policy after setting it, and restores RETURN afterwards."""
+    try:
+        for policy in TIMEOUT_POLICIES:
+            env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', policy).ok()
+            yield policy
+    finally:
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
+
+SORTED_SEARCH = ('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n', 'DESC', 'LIMIT', 0, N_DOCS)
+SORTED_AGGREGATE = ('FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'DESC', 'MAX', N_DOCS)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_sorter_stop_yields_its_sorted_prefix(env):
+    """A sorter stopped while filling its heap replies the rows it holds, sorted, with the OOM
+    warning, under every timeout policy (the timeout policy decides only what a timeout keeps),
+    with and without workers. ON_OOM FAIL replies the OOM error."""
+    create_index(env)
+    k = 4
+    for policy in timeout_policies(env):
+        for workers in worker_counts(env):
+            res = run_at_call(env, BUILD_CHECKPOINTS + k, *SORTED_SEARCH)
+            env.assertEqual(ids(res), first_rows_desc(k), message=(policy, workers, res))
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, workers, res))
+
+            res = run_at_call(env, BUILD_CHECKPOINTS + k, *SORTED_AGGREGATE)
+            env.assertEqual([r['extra_attributes']['n'] for r in res['results']],
+                            [str(i) for i in reversed(range(k))], message=(policy, workers, res))
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, workers, res))
+
+            with oom_policy(env, 'fail'):
+                expect_oom_error_at_call(env, BUILD_CHECKPOINTS + k, *SORTED_SEARCH)
+                expect_oom_error_at_call(env, BUILD_CHECKPOINTS + k, *SORTED_AGGREGATE)
+            with oom_policy(env, 'ignore'):
+                res = run_at_call(env, BUILD_CHECKPOINTS + k, *SORTED_SEARCH)
+                env.assertEqual(ids(res), first_rows_desc(N_DOCS), message=(policy, workers, res))
+
+
+@skip(cluster=True)
+@env_spec(protocol=2)
+def test_sorter_stop_in_resp2(env):
+    """RESP2 replies the sorted prefix without a warning."""
+    create_index(env)
+    k = 4
+    res = run_at_call(env, BUILD_CHECKPOINTS + k, *SORTED_SEARCH)
+    env.assertEqual(res, [k] + first_rows_desc(k), message=res)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_stop_past_the_offset_warns(env):
+    """A stopped sorter or normalizer may hold enough rows past OFFSET to fill LIMIT, so the pager
+    ends the reply before the stop is read; the reply still carries the OOM warning."""
+    create_index(env)
+    env.expect('FT.CREATE', 'bodies', 'SCHEMA', 'body', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'body{i}', 'body', ' '.join(['hello'] * (i + 1)))
+    k = 4
+    queries = (('FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n', 'DESC', 'LIMIT', 2, 2),
+               ('FT.AGGREGATE', 'idx', '*', 'SORTBY', 2, '@n', 'DESC', 'LIMIT', 2, 2),
+               ('FT.SEARCH', 'bodies', 'hello', 'SCORER', 'BM25STD.NORM', 'NOCONTENT',
+                'LIMIT', 2, 1))
+    for policy in timeout_policies(env):
+        for workers in worker_counts(env):
+            for query in queries:
+                res = run_at_call(env, BUILD_CHECKPOINTS + k, *query)
+                env.assertEqual(len(res['results']), query[-1],
+                                message=(policy, workers, query, res))
+                env.assertEqual(res['warning'], [COORD_OOM_WARNING],
+                                message=(policy, workers, query, res))
+                res = env.cmd(*query)
+                env.assertEqual(res['warning'], [], message=(policy, workers, query, res))
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_normalizer_stop_normalizes_by_the_partial_max(env):
+    """BM25STD.NORM pools every match to find the max score. Stopped while pooling, it replies the
+    pooled rows normalized by the max among them, under every timeout policy."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'body', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'doc{i}', 'body', ' '.join(['hello'] * (i + 1) + ['x'] * 5))
+    query = ('FT.SEARCH', 'idx', 'hello', 'SCORER', 'BM25STD.NORM', 'WITHSCORES', 'NOCONTENT',
+             'LIMIT', 0, N_DOCS)
+    k = 4
+    for policy in timeout_policies(env):
+        for workers in worker_counts(env):
+            res = run_at_call(env, BUILD_CHECKPOINTS + k, *query)
+            env.assertEqual(sorted(ids(res)), [f'doc{i}' for i in range(k)],
+                            message=(policy, workers, res))
+            env.assertEqual(res['results'][0]['score'], 1.0, message=(policy, workers, res))
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, workers, res))
+
+            with oom_policy(env, 'fail'):
+                expect_oom_error_at_call(env, BUILD_CHECKPOINTS + k, *query)
+            with oom_policy(env, 'ignore'):
+                res = run_at_call(env, BUILD_CHECKPOINTS + k, *query)
+                env.assertEqual(len(res['results']), N_DOCS, message=(policy, workers, res))
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_sorter_stop_over_cursor_reads(env):
+    """A sorted prefix longer than a cursor read is read to its end, and the read that ends it
+    carries the OOM warning and closes the cursor."""
+    create_index(env)
+    k = 4
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+    try:
+        res, cursor = env.cmd(*SORTED_AGGREGATE, 'WITHCURSOR', 'COUNT', 3)
+    finally:
+        memory_pressure(env, 'RESET')
+    rows = [r['extra_attributes']['n'] for r in res['results']]
+    env.assertEqual(res['warning'], [], message=res)
+    env.assertNotEqual(cursor, 0)
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+    rows += [r['extra_attributes']['n'] for r in res['results']]
+    env.assertEqual(rows, [str(i) for i in reversed(range(k))])
+    env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+    env.assertEqual(cursor, 0)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_normalizer_stop_over_cursor_reads(env):
+    """A normalizer stopped while pooling yields its pooled rows across cursor reads, normalized by
+    the max among them; the read that ends them carries the OOM warning and closes the cursor."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'body', 'TEXT').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'doc{i}', 'body', ' '.join(['hello'] * (i + 1) + ['x'] * 5))
+    query = ('FT.AGGREGATE', 'idx', 'hello', 'SCORER', 'BM25STD.NORM', 'ADDSCORES',
+             'LOAD', 1, '@__key')
+    k = 4
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+    try:
+        res, cursor = env.cmd(*query, 'WITHCURSOR', 'COUNT', 3)
+    finally:
+        memory_pressure(env, 'RESET')
+    rows = res['results']
+    env.assertEqual(len(rows), 3, message=res)
+    env.assertEqual(res['warning'], [], message=res)
+    env.assertNotEqual(cursor, 0)
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+    rows += res['results']
+    env.assertEqual(sorted(r['extra_attributes']['__key'] for r in rows),
+                    [f'doc{i}' for i in range(k)], message=rows)
+    env.assertEqual(max(float(r['extra_attributes']['__score']) for r in rows), 1.0, message=rows)
+    env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+    env.assertEqual(cursor, 0)
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_shard_sorter_stop_reaches_the_coordinator(env):
+    """Shards stopped while sorting reply their sorted prefix with the OOM warning; the FT.SEARCH
+    coordinator merges the prefixes and passes the warning on, or fails under ON_OOM FAIL. Only
+    the shards without the coordinator are armed, since pressure is counted per process."""
+    create_index(env)
+    shards = [env.getConnection(i) for i in range(2, env.shardsCount + 1)]
+
+    def arm(*args):
+        for shard in shards:
+            shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', *args)
+
+    arm('AT_CALL', BUILD_CHECKPOINTS + 1)
+    try:
+        res = env.cmd(*SORTED_SEARCH)
+    finally:
+        arm('RESET')
+    env.assertLess(len(res['results']), N_DOCS, message=res)
+    env.assertEqual(res['warning'], [SHARD_OOM_WARNING], message=res)
+
+    with oom_policy(env, 'fail'):
+        arm('AT_CALL', BUILD_CHECKPOINTS + 1)
+        try:
+            env.expect(*SORTED_SEARCH).error().contains(OOM_QUERY_ERROR)
+        finally:
+            arm('RESET')
+
+
 N_PREFIX_TERMS = 400
 
 

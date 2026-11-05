@@ -281,7 +281,9 @@ def test_oom_stop_replies_by_on_oom_policy(env):
         env.assertEqual(_coord_oom_counters(env), (errors + 1, warnings + 1))
         change_oom_policy(env, 'return')
 
-        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 4)
+        # The sorter checkpoints every row it buffers too, so the two alternate: the 6th call is
+        # the sorter's 3rd.
+        memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + 6)
         res = env.cmd(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n',
                       'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1)
         env.assertEqual([r['id'] for r in res['results']], ['doc0', 'doc1', 'doc2'], message=res)
