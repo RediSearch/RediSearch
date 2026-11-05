@@ -199,7 +199,13 @@ def testThreadGCThresholdGrowsWithTheIndex():
     # 5 deletions leave 95 documents, whose 10% is 9.
     for i in range(5):
         conn.execute_command('DEL', f'doc:{i}')
-    time.sleep(2.5)
+    # Every scheduled pass re-arms the timer once; two more arms prove one pass began after the
+    # deletions and checked the threshold.
+    arms = lambda: env.cmd(debug_cmd(), 'GC_TIMER_ARMS', 'TOTAL')
+    armed = arms()
+    with TimeLimit(10, 'a scheduled pass should check the threshold'):
+        while arms() < armed + 2:
+            time.sleep(0.1)
     env.assertEqual(total_cycles(), 0)
 
     # 10 deletions reach the 9 of the 90 left.
