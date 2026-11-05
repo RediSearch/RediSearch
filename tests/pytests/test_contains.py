@@ -270,7 +270,7 @@ def test_misc1(env):
 
 @skip(cluster=True)
 def testContainsGC(env):
-  env.expect(config_cmd() + ' set THREAD_GC_CLEAN_THRESHOLD 0').ok()
+  set_thread_gc_config(env, clean_threshold=0)
 
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'WITHSUFFIXTRIE', 'SORTABLE')
@@ -299,7 +299,7 @@ def testContainsGC(env):
 def testContainsGCDeepSuffixTrie(env):
   max_prefix_expansions = env.cmd(config_cmd(), 'GET', 'MAXPREFIXEXPANSIONS')[0][1]
   try:
-    env.expect(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', 0).ok()
+    set_thread_gc_config(env, clean_threshold=0)
     env.expect(config_cmd(), 'SET', 'MAXPREFIXEXPANSIONS', 1000000).ok()
 
     conn = getConnectionByEnv(env)
@@ -335,7 +335,7 @@ def testContainsGCDeepSuffixTrie(env):
 
 @skip(cluster=True)
 def testContainsGCTag(env):
-  env.expect(config_cmd() + ' set THREAD_GC_CLEAN_THRESHOLD 0').ok()
+  set_thread_gc_config(env, clean_threshold=0)
 
   conn = getConnectionByEnv(env)
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG', 'WITHSUFFIXTRIE', 'SORTABLE')
