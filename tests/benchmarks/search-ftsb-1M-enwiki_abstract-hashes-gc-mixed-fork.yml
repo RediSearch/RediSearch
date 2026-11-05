@@ -18,6 +18,7 @@ dbconfig:
     - save: '""'
   - module-configuration-parameters:
       redisearch:
+        GC_POLICY: FORK
         # On in both variants of the pair, so the GC policy is the only difference.
         FORK_GC_RUN_INTERVAL: 1
         FORK_GC_CLEAN_THRESHOLD: 0
