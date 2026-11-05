@@ -199,8 +199,12 @@ describe('findings', () => {
       undelivered(state).map((f) => [f.id, f.revision]),
       [['F2', 'r2']],
     );
+    // A rerun on the same head that fails differently replaces the stale details.
+    reconcile(state, 'swap', 'ci', [{ ...failure('r2'), body: 'lint failed' }]);
+    assert.equal(state.findings.F2.closed?.resolution, 'superseded');
+    assert.equal(state.findings.F3.body, 'lint failed');
     reconcile(state, 'swap', 'ci', []);
-    assert.equal(state.findings.F2.closed?.resolution, 'passed');
+    assert.equal(state.findings.F3.closed?.resolution, 'passed');
   });
 
   test('each finding is delivered once', () => {

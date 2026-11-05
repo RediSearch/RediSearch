@@ -49,6 +49,7 @@ test('a test ran if some check ran it, not if every check ignored or skipped it'
   const ignored = 'test geo::radius_nan ... ignored';
   const skipped = '    SKIP [   0.000s] geo::integration radius_nan';
   assert.equal(ran(`${ignored}\n${skipped}`, 'radius_nan'), false);
+  assert.equal(ran('test_geo.py::testUnits SKIPPED (cluster only)', 'testUnits'), false);
   assert.equal(ran(`${skipped}\ntest geo::radius_nan ... ok`, 'radius_nan'), true);
   assert.equal(ran('test other::radius_nan ... ok', 'target::radius_nan'), false);
   assert.equal(ran('test geo::target::radius_nan ... ok', 'target::radius_nan'), true);

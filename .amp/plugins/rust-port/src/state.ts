@@ -238,7 +238,8 @@ export function receive(state: State, findings: NewFinding[]): void {
 
 /**
  * Replaces the open findings of one stage and source with the current failures. A failure reported
- * again on another revision supersedes the open one with a new finding, so the worker hears of it.
+ * again on another revision, or with other details, supersedes the open one with a new finding,
+ * so the worker hears of it.
  */
 export function reconcile(state: State, stage: Stage, source: Source, failures: NewFinding[]) {
   const open = outstanding(state).filter((f) => f.stage === stage && f.source === source);
@@ -246,7 +247,7 @@ export function reconcile(state: State, stage: Stage, source: Source, failures: 
     if (!failures.some((f) => f.key === finding.key)) finding.closed = { resolution: 'passed' };
   for (const failure of failures) {
     const existing = open.find((f) => f.key === failure.key);
-    if (existing?.revision === failure.revision) continue;
+    if (existing?.revision === failure.revision && existing.body === failure.body) continue;
     if (existing) existing.closed = { resolution: 'superseded' };
     insert(state, failure);
   }
