@@ -341,6 +341,8 @@ const HEADERS: &[HeaderAllowlist] = &[
             "AllocateKeyCallback",
             "AsyncPollResult",
             "AsyncReadResult",
+            "AsyncReadFailure",
+            "DiskReadFailureReason",
             "BasicDiskAPI",
             // RETURN_STRICT GIL handshake context.
             "QueryRequest",
