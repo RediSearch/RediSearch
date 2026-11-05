@@ -104,7 +104,7 @@ void QueryIteratorTree_Free(struct QueryIteratorTree *tree);
  *    whose `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec), and
  *    must outlive the returned processor.
  */
-ResultProcessor *QueryIteratorTree_IntoResultProcessor(struct QueryIteratorTree *tree, const struct RedisModuleSlotRangeArray *query_slots, uint32_t key_space_version, RedisSearchCtx *sctx);
+ResultProcessor *QueryIteratorTree_IntoResultProcessor(struct QueryIteratorTree *tree, const struct RedisModuleSlotRangeArray *query_slots, uint32_t key_space_version, RedisSearchCtx *sctx, bool is_profiled);
 
 /**
  * Profile `tree` in place, via [`QueryIteratorTree::into_profiled`].
