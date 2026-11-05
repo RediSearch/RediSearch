@@ -320,6 +320,7 @@ namespace {
 
 std::function<void(IndexSpec *, t_docId)> onDiskMetadataRead;
 bool firstDiskDocDeleted = false;
+std::vector<std::pair<t_docId, DiskReadFailureReason>> metadataFailures;
 
 class DiskSlotVisibilityTest : public SlotCleanupTest {
  protected:
@@ -335,6 +336,7 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
     disk_db = nullptr;
     spec->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(spec);
     firstDiskDocDeleted = false;
+    metadataFailures.clear();
     onDiskMetadataRead = {};
     api.docTable.isDocIdDeleted = [](RedisSearchDiskIndexSpec *, t_docId id) {
       return firstDiskDocDeleted && id == 1;
@@ -342,14 +344,23 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
     api.docTable.getDocumentMetadata = [](RedisSearchDiskIndexSpec *handle, t_docId id,
                                           RSDocumentMetadata *dmd, AllocateKeyCallback allocateKey,
                                           const t_expirationTimePoint *,
-                                          RedisSearchDiskSnapshot *) {
+                                          RedisSearchDiskSnapshot *, DiskReadFailureReason *reason) {
       EXPECT_FALSE(IndexSpec_IsLocked(reinterpret_cast<IndexSpec *>(handle)));
+      if (onDiskMetadataRead) onDiskMetadataRead(reinterpret_cast<IndexSpec *>(handle), id);
+      if (firstDiskDocDeleted && id == 1) {
+        *reason = DISK_READ_DELETED;
+        return false;
+      }
+      for (const auto &[failedId, failure] : metadataFailures) {
+        if (failedId == id) {
+          *reason = failure;
+          return false;
+        }
+      }
       const char *key = id == 2 ? "{b}other" : "{a}moving";
       dmd->id = id;
       dmd->keyPtr = allocateKey(key, strlen(key));
-      // The disk decoder leaves this field unset; filtering must hash the loaded key.
       dmd->slot = 0;
-      if (onDiskMetadataRead) onDiskMetadataRead(reinterpret_cast<IndexSpec *>(handle), id);
       return true;
     };
   }
@@ -405,15 +416,17 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
 
 }  // namespace
 
-TEST_F(DiskSlotVisibilityTest, PendingDeletionFiltersLoadedKeysBeforeAnyBatchIsApplied) {
+TEST_F(DiskSlotVisibilityTest, BackendDeletionReasonsReclassifySyncCandidates) {
   IndexSpec_LockWrite(spec);
   PendingSlotDeletion *pending = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 3);
   IndexSpec_Unlock(spec);
 
+  metadataFailures = {{1, DISK_READ_DELETED}, {3, DISK_READ_DELETED}};
   std::pair<uint64_t, uint64_t> counts;
   EXPECT_EQ(queryIds(&counts), (std::vector<t_docId>{2, 4}));
   EXPECT_EQ(counts, (std::pair<uint64_t, uint64_t>{2, 2}));
   removePending(pending);
+  metadataFailures.clear();
   EXPECT_EQ(queryIds(&counts), (std::vector<t_docId>{1, 2, 3, 4}));
   EXPECT_EQ(counts, (std::pair<uint64_t, uint64_t>{0, 4}));
 }
@@ -583,7 +596,8 @@ class DiskSlotAsyncVisibilityTest : public DiskSlotVisibilityTest {
     };
     api.docTable.getDocumentMetadata = [](RedisSearchDiskIndexSpec *, t_docId, RSDocumentMetadata *,
                                           AllocateKeyCallback, const t_expirationTimePoint *,
-                                          RedisSearchDiskSnapshot *) {
+                                          RedisSearchDiskSnapshot *, DiskReadFailureReason *reason) {
+      *reason = DISK_READ_ERROR;
       ++bufferedAsyncPool->syncReads;
       ADD_FAILURE() << "the async query must not fall back to synchronous metadata reads";
       return false;
@@ -604,14 +618,21 @@ class DiskSlotAsyncVisibilityTest : public DiskSlotVisibilityTest {
       return true;
     };
     api.docTable.pollAsyncReads = [](RedisSearchDiskAsyncReadPool handle, uint32_t,
-                                     AsyncReadResult *results, uint16_t capacity, uint64_t *,
-                                     uint16_t, t_expirationTimePoint,
+                                     AsyncReadResult *results, uint16_t capacity, AsyncReadFailure *failures,
+                                     uint16_t failureCapacity, t_expirationTimePoint,
                                      AllocateDMDCallback allocate) {
       auto *pool = static_cast<BufferedAsyncPool *>(handle);
       ++pool->polls;
       EXPECT_LE(pool->reads.size(), capacity);
-      uint16_t ready = 0;
+      uint16_t ready = 0, failed = 0;
       for (const auto &read : pool->reads) {
+        const auto failure = std::find_if(metadataFailures.begin(), metadataFailures.end(),
+            [&](const auto &entry) { return entry.first == read.id; });
+        if (failure != metadataFailures.end()) {
+          EXPECT_LT(failed, failureCapacity);
+          failures[failed++] = {read.userData, failure->second};
+          continue;
+        }
         const std::string key = std::string(read.id == 1 || read.id == 5 ? "{b}other:" : "{a}moving:") +
                                 std::to_string(read.id);
         auto *dmd = allocate(key.data(), key.size());
@@ -622,7 +643,7 @@ class DiskSlotAsyncVisibilityTest : public DiskSlotVisibilityTest {
         results[ready++] = {dmd, read.userData};
       }
       pool->reads.clear();
-      return AsyncPollResult{ready, 0, 0};
+      return AsyncPollResult{ready, failed, 0};
     };
     api.docTable.freeAsyncReadPool = [](RedisSearchDiskAsyncReadPool handle) {
       auto *pool = static_cast<BufferedAsyncPool *>(handle);
@@ -668,22 +689,22 @@ class DiskSlotAsyncVisibilityTest : public DiskSlotVisibilityTest {
 
 }  // namespace
 
-TEST_F(DiskSlotAsyncVisibilityTest, BufferedMetadataIsFilteredWhenTrimStartsBeforeConsumption) {
+TEST_F(DiskSlotAsyncVisibilityTest, DeliveredMetadataSurvivesTrimBeforeConsumption) {
   {
     BufferedDiskQuery query(ctx, spec, snapshot(), true);
     ASSERT_EQ(query.first(), 1);
     expectDecodedBeforeTrim();
     EXPECT_EQ(query.candidateCounts(), (std::pair<uint64_t, uint64_t>{0, 6}));
     auto *pending = registerTrim();
-    EXPECT_EQ(query.remaining(), (std::vector<t_docId>{4, 5, 6}));
-    EXPECT_EQ(query.candidateCounts(), (std::pair<uint64_t, uint64_t>{2, 4}));
+    EXPECT_EQ(query.remaining(), (std::vector<t_docId>{2, 3, 4, 5, 6}));
+    EXPECT_EQ(query.candidateCounts(), (std::pair<uint64_t, uint64_t>{0, 6}));
     EXPECT_TRUE(hasPending());
     removePending(pending);
   }
   EXPECT_EQ(pool.frees, 1);
 }
 
-TEST_F(DiskSlotAsyncVisibilityTest, BufferedMetadataStaysHiddenAfterFinalBatchRemovesFilter) {
+TEST_F(DiskSlotAsyncVisibilityTest, DeliveredMetadataSurvivesFinalBatchCompletion) {
   {
     BufferedDiskQuery query(ctx, spec, snapshot());
     ASSERT_EQ(query.first(), 1);
@@ -694,7 +715,7 @@ TEST_F(DiskSlotAsyncVisibilityTest, BufferedMetadataStaysHiddenAfterFinalBatchRe
     DocTable_RemovePendingDeletion(&spec->docs, pending);
     IndexSpec_Unlock(spec);
     EXPECT_FALSE(hasPending());
-    EXPECT_EQ(query.remaining(), (std::vector<t_docId>{4, 5, 6}));
+    EXPECT_EQ(query.remaining(), (std::vector<t_docId>{2, 3, 4, 5, 6}));
   }
   EXPECT_EQ(pool.frees, 1);
 }
@@ -746,3 +767,23 @@ INSTANTIATE_TEST_SUITE_P(BufferStage, AcceptedDiskResultTest,
                          ::testing::Values(AcceptedResultBuffer::Sorter,
                                            AcceptedResultBuffer::Normalizer,
                                            AcceptedResultBuffer::HybridMerger));
+
+TEST_F(DiskSlotVisibilityTest, OnlyDeletedSyncFailuresChangeDeletedCandidateCount) {
+  metadataFailures = {{1, DISK_READ_DELETED}, {2, DISK_READ_EXPIRED},
+                      {3, DISK_READ_NOT_FOUND}, {4, DISK_READ_ERROR}};
+  std::pair<uint64_t, uint64_t> counts;
+  EXPECT_TRUE(queryIds(&counts).empty());
+  EXPECT_EQ(counts, (std::pair<uint64_t, uint64_t>{1, 3}));
+}
+
+TEST_F(DiskSlotAsyncVisibilityTest, OnlyDeletedAsyncFailuresChangeDeletedCandidateCount) {
+  metadataFailures = {{2, DISK_READ_DELETED}, {3, DISK_READ_EXPIRED},
+                      {4, DISK_READ_NOT_FOUND}, {5, DISK_READ_ERROR}};
+  {
+    BufferedDiskQuery query(ctx, spec, snapshot(), true);
+    EXPECT_EQ(query.remaining(), (std::vector<t_docId>{1, 6}));
+    EXPECT_EQ(query.candidateCounts(), (std::pair<uint64_t, uint64_t>{1, 5}));
+  }
+  EXPECT_EQ(pool.decoded.size(), 2u);
+  EXPECT_EQ(pool.frees, 1u);
+}
