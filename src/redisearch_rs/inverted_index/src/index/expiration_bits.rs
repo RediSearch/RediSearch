@@ -47,7 +47,7 @@ impl ExpirationBits {
     pub(crate) fn prefix(&self, entries: u16) -> Self {
         let bytes = &self.0.as_slice()[..usize::from(entries).div_ceil(8).min(self.0.len())];
         // Only the byte holding ordinal `entries` has bits past the cut, if the set reaches it.
-        let cut = entries % 8 != 0 && bytes.len() == Self::byte(entries) + 1;
+        let cut = !entries.is_multiple_of(8) && bytes.len() == Self::byte(entries) + 1;
         let Some((&last, head)) = bytes.split_last() else {
             return Self::new();
         };
