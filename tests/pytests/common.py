@@ -779,6 +779,8 @@ def getRDBFile(env, file_name, depth=0):
     # Materialise a bundled RDB fixture from tests/pytests/test_rdbs/<file_name>.zip
     # into REDISEARCH_CACHE_DIR/<file_name>. Extraction is idempotent: if the
     # target file already exists with non-zero size we skip re-extracting.
+    # Parallel tests share the cache, so the fixture is written to a private
+    # temporary file and renamed into place: a reader never sees it half-written.
     src = os.path.join(TEST_RDBS_DIR, file_name + '.zip')
     dst = os.path.join(REDISEARCH_CACHE_DIR, file_name)
     if os.path.exists(dst) and os.path.getsize(dst) > 0:
@@ -790,12 +792,19 @@ def getRDBFile(env, file_name, depth=0):
             depth=depth + 1,
         )
         return False
+    import shutil
     import zipfile
     os.makedirs(os.path.dirname(dst), exist_ok=True)
+    tmp = None
     try:
-        with zipfile.ZipFile(src, 'r') as z:
-            z.extract(os.path.basename(file_name), os.path.dirname(dst))
+        with zipfile.ZipFile(src, 'r') as z, z.open(os.path.basename(file_name)) as member:
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(dst), prefix='.extract-')
+            with os.fdopen(fd, 'wb') as out:
+                shutil.copyfileobj(member, out)
+        os.replace(tmp, dst)
     except (zipfile.BadZipFile, KeyError, OSError) as e:
+        if tmp is not None and os.path.exists(tmp):
+            os.remove(tmp)
         env.assertTrue(
             False,
             message=f"failed to extract bundled RDB fixture {src}: {e}",
