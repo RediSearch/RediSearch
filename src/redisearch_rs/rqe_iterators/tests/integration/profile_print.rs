@@ -628,3 +628,21 @@ fn numeric_variant_geo() {
     let reply = print(&mut replier, &iter, false);
     insta::assert_debug_snapshot!(reply);
 }
+
+/// A disk wildcard is a shell around the enterprise backend's iterator, so its
+/// profile is the backend's, before and after a suspend.
+#[test]
+fn disk_wildcard_prints_its_backend() {
+    use rqe_iterators::RQEIteratorBoxed;
+
+    let mut replier = init();
+    let backend = rqe_iterators::id_list::IdListSorted::new(vec![1, 2, 3]);
+    let expected = print(&mut replier, &backend, false);
+
+    let disk = Box::new(rqe_iterators::wildcard::DiskWildcardIterator::new(
+        rqe_iterators::TypeErasedRQEIterator::new(Box::new(backend)),
+    ));
+    assert_eq!(print(&mut replier, &*disk, false), expected);
+    let suspended = disk.suspend();
+    assert_eq!(print(&mut replier, &*suspended, false), expected);
+}

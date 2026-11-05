@@ -1211,6 +1211,16 @@ impl<const N: usize> rqe_iterators::profile_print::ProfilePrint for MockSuspende
     }
 }
 
+impl rqe_iterators::profile_print::ProfilePrint for MockVec<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"MOCK VEC");
+    }
+}
+
 impl rqe_iterators::profile_print::ProfilePrint for MockVecSuspended {
     fn print_profile(
         &self,

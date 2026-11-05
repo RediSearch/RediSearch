@@ -119,7 +119,7 @@ pub trait RQESuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     /// `'query: 'index` is required because the retained query-pipeline
     /// borrows must outlive the (shorter) guard window the iterator is
     /// resumed into.
-    type Resumed<'index>: RQEIteratorBoxed<'index>
+    type Resumed<'index>: RQEIteratorBoxed<'index> + crate::profile_print::ProfilePrint
     where
         'query: 'index;
 
@@ -181,7 +181,9 @@ pub trait RQESuspendedIterator<'query>: crate::profile_print::ProfilePrint {
 /// You shouldn't implement this trait by hand; the blanket
 /// `impl<T: RQEIteratorBoxed<'index> + 'index> RQEDynIterator<'index> for T` below
 /// produces it for every concrete iterator.
-pub trait RQEDynIterator<'index>: RQEIterator<'index> + 'index {
+pub trait RQEDynIterator<'index>:
+    RQEIterator<'index> + crate::profile_print::ProfilePrint + 'index
+{
     /// Type-erased counterpart of [`RQEIteratorBoxed::suspend`].
     fn suspend(self: Box<Self>) -> TypeErasedRQESuspendedIterator<'index>;
 }
@@ -230,7 +232,10 @@ pub struct TypeErasedRQESuspendedIterator<'query>(
 
 impl<'index> TypeErasedRQEIterator<'index> {
     /// Wrap a concrete iterator into the type-erased wrapper.
-    pub fn new<I: RQEIteratorBoxed<'index> + 'index>(iter: Box<I>) -> Self {
+    pub fn new<I>(iter: Box<I>) -> Self
+    where
+        I: RQEIteratorBoxed<'index> + crate::profile_print::ProfilePrint + 'index,
+    {
         Self(iter as Box<dyn RQEDynIterator<'index> + 'index>)
     }
 }
@@ -533,7 +538,10 @@ impl<S> Drop for UninitBox<S> {
 /// Only `suspend` is bridged here — the read/skip surface is inherited from
 /// the legacy [`RQEIterator`] supertrait, which the
 /// concrete iterator already implements.
-impl<'index, T: RQEIteratorBoxed<'index> + 'index> RQEDynIterator<'index> for T {
+impl<'index, T> RQEDynIterator<'index> for T
+where
+    T: RQEIteratorBoxed<'index> + crate::profile_print::ProfilePrint + 'index,
+{
     #[inline(always)]
     fn suspend(self: Box<Self>) -> TypeErasedRQESuspendedIterator<'index> {
         let suspended = <T as RQEIteratorBoxed<'index>>::suspend(self);
@@ -643,6 +651,21 @@ impl<'index> RQEIterator<'index> for TypeErasedRQEIterator<'index> {
     #[inline(always)]
     fn intersection_sort_weight(&self, prioritize_union_children: bool) -> f64 {
         self.0.intersection_sort_weight(prioritize_union_children)
+    }
+}
+
+/// Forwarding [`ProfilePrint`](crate::profile_print::ProfilePrint) impl so [`TypeErasedRQEIterator`] satisfies the
+/// `ProfilePrint` bound expected by [`crate::interop::RQEIteratorWrapper::boxed_new`].
+///
+/// Delegates to the erased iterator, so `FT.PROFILE` prints the same tree
+/// whether or not a node was type-erased on its way into it.
+impl crate::profile_print::ProfilePrint for TypeErasedRQEIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.0.print_profile(map, ctx);
     }
 }
 
