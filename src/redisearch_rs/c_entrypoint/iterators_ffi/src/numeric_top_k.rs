@@ -11,14 +11,11 @@
 
 use std::ptr::NonNull;
 
-use ffi::{DocTable, DocTable_IsVisible, QueryIterator, RedisSearchCtx};
+use ffi::{DocTable_IsVisible, QueryIterator, RedisSearchCtx};
 use field::FieldFilterContext;
 use inverted_index::NumericFilter;
 use numeric_range_tree::NumericRangeTree;
-use numeric_score_source::{
-    DocValidity, NewNumericTopK, new_numeric_top_k, range_iterator::NumericTreeRef,
-};
-use rqe_core::DocId;
+use numeric_score_source::{new_numeric_top_k, range_iterator::NumericTreeRef};
 use rqe_iterators::{
     FieldExpirationChecker,
     c2rust::CRQEIterator,
@@ -32,29 +29,6 @@ const TIMEOUT_CHECK_GRANULARITY: u32 = 100;
 #[track_caller]
 fn debug_assert_non_null<T>(ptr: *const T, name: &str) {
     debug_assert!(!ptr.is_null(), "{name} must be non-null");
-}
-
-/// [`DocValidity`] backed by the spec's document table: a doc id is valid iff it
-/// passes [`DocTable_IsVisible`]. This excludes pending slot deletions as well as
-/// deleted documents whose numeric entries have not yet been reclaimed by GC,
-/// before they can displace visible documents from the top-k heap.
-///
-/// Invariant: `doc_table` is [valid] and outlives the oracle.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-struct DocTableValidity {
-    doc_table: NonNull<DocTable>,
-}
-
-impl DocValidity for DocTableValidity {
-    fn is_valid(&self, doc_id: DocId) -> bool {
-        // SAFETY: `doc_table` is valid for the oracle's lifetime per the type invariant.
-        unsafe { DocTable_IsVisible(self.doc_table.as_ptr(), doc_id) }
-    }
-
-    fn may_filter(&self) -> bool {
-        true
-    }
 }
 
 /// Construct a numeric top-k iterator and expose it as a C [`QueryIterator`].
@@ -114,11 +88,11 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     // SAFETY: guaranteed by 4.
     let spec = unsafe { sctx_nn.as_ref() }.spec;
     debug_assert_non_null(spec, "sctx.spec");
-    // SAFETY: guaranteed by 4: `spec` is valid and outlives the iterator, so
-    // its inline `docs` field upholds the `DocTableValidity` invariant.
-    let docs = unsafe { &raw mut (*spec).docs };
-    let validity = DocTableValidity {
-        doc_table: NonNull::new(docs).expect("spec is non-null"),
+    // SAFETY: guaranteed by 4.
+    let docs = unsafe { &raw const (*spec).docs };
+    let validity = move |doc_id| {
+        // SAFETY: 4 keeps the inline document table valid for the iterator's lifetime.
+        unsafe { DocTable_IsVisible(docs, doc_id) }
     };
 
     let tree = NonNull::new(tree.cast_mut()).expect("tree must be non-null");
@@ -133,21 +107,15 @@ pub unsafe extern "C" fn NewNumericTopKIterator(
     // SAFETY: guaranteed by 3.
     let child = NonNull::new(child).map(|c| unsafe { CRQEIterator::new(c) });
 
-    let reduced = match new_numeric_top_k(
+    let ptr = match new_numeric_top_k(
         tree, filter, ascending, k, num_docs, validity, expiration, timeout, child,
     ) {
-        Ok(reduced) => reduced,
+        Ok(Some(it)) => RQEIteratorWrapper::boxed_new_compound(it),
+        Ok(None) => return RQEIteratorWrapper::boxed_new(rqe_iterators::Empty),
         Err(err) => {
             let _ = err.child.map(CRQEIterator::into_raw);
             return std::ptr::null_mut();
         }
-    };
-    let ptr = match reduced {
-        NewNumericTopK::ReducedEmpty => {
-            return RQEIteratorWrapper::boxed_new(rqe_iterators::Empty);
-        }
-        NewNumericTopK::Unfiltered(it) => RQEIteratorWrapper::boxed_new(it),
-        NewNumericTopK::Filtered(it) => RQEIteratorWrapper::boxed_new_compound(it),
     };
     // Top-k is score-ordered: the C highlighter must use sequential reads.
     // SAFETY: `ptr` is freshly boxed above and has no other aliases.

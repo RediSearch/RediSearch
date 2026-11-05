@@ -15,27 +15,13 @@ use std::{collections::TryReserveError, num::NonZeroUsize};
 use inverted_index::NumericFilter;
 use numeric_range_tree::RangeWindow;
 use rqe_iterators::{ExpirationChecker, RQEIterator, c2rust::CRQEIterator, utils::TimeoutContext};
-use top_k::{ChildReduction, TopKHeap, reduce_child};
+use top_k::{ChildReduction, TopKHeap, TopKIterator, TopKMode, reduce_child};
 
 use crate::{
     DocValidity, NumericScoreSource, NumericTopKIterator, cmp_for,
-    numeric_top_k_filtered_with_heap, numeric_top_k_unfiltered_with_heap,
     range_iterator::NumericTreeRef,
     source::{DEFAULT_RANGE_BATCH_SIZE, estimate_limit},
 };
-
-/// Result of [`new_numeric_top_k`]: the iterator to expose, already reduced to
-/// the right variant. The two iterator variants share one type and differ only
-/// in holding a filter child; they are not C's optimizer modes.
-pub enum NewNumericTopK<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> {
-    /// The query yields nothing (empty child, or `k == 0`).
-    ReducedEmpty,
-    /// Scan the value-ordered range alone, with no filter child.
-    Unfiltered(NumericTopKIterator<'index, V, E, T>),
-    /// Intersect the value-ordered range with a filter child, with the
-    /// expand-and-retry window path enabled.
-    Filtered(NumericTopKIterator<'index, V, E, T>),
-}
 
 /// Error of [`new_numeric_top_k`]: the heap for `k` results could not be
 /// reserved.
@@ -61,8 +47,8 @@ impl std::fmt::Debug for HeapReserveError {
 /// `num_docs` is the total document count; with the child's selectivity
 /// estimate it sizes the initial retry window. `validity`, `expiration` and
 /// `timeout` are the source's [`DocValidity`], [`ExpirationChecker`] and
-/// [`TimeoutContext`]. A `k` of `0` reduces to an empty query; callers raise a
-/// zero `LIMIT` to the default first, as C's `QOptimizer_Parse` does.
+/// [`TimeoutContext`]. An empty child or `k == 0` returns [`None`]; callers raise
+/// a zero `LIMIT` to the default first, as C's `QOptimizer_Parse` does.
 ///
 /// # Errors
 ///
@@ -79,30 +65,26 @@ pub fn new_numeric_top_k<'index, V, E, T>(
     expiration: E,
     timeout: T,
     child: Option<CRQEIterator>,
-) -> Result<NewNumericTopK<'index, V, E, T>, HeapReserveError>
+) -> Result<Option<NumericTopKIterator<'index, V, E, T>>, HeapReserveError>
 where
     V: DocValidity + 'index,
     E: ExpirationChecker + 'index,
     T: TimeoutContext + 'index,
 {
     let Some(k) = NonZeroUsize::new(k) else {
-        return Ok(NewNumericTopK::ReducedEmpty);
+        return Ok(None);
     };
     let heap = match TopKHeap::try_new(k, cmp_for(ascending)) {
         Ok(heap) => heap,
         Err(error) => return Err(HeapReserveError { error, child }),
     };
 
-    match reduce_child(child) {
-        ChildReduction::Empty => Ok(NewNumericTopK::ReducedEmpty),
+    let (source, child) = match reduce_child(child) {
+        ChildReduction::Empty => return Ok(None),
         ChildReduction::Unfiltered => {
-            let source = NumericScoreSource::unfiltered(tree, filter, ascending)
-                .with_validity(validity)
-                .with_expiration(expiration)
-                .with_timeout(timeout);
-            Ok(NewNumericTopK::Unfiltered(
-                numeric_top_k_unfiltered_with_heap(source, heap),
-            ))
+            let mut source = NumericScoreSource::unfiltered(tree, filter, ascending);
+            source.narrow_window_to_top_k(k.get());
+            (source, None)
         }
         ChildReduction::Filtered(child) => {
             let child_estimate = child.num_estimated();
@@ -121,13 +103,17 @@ where
                 DEFAULT_RANGE_BATCH_SIZE,
                 num_docs,
                 child_estimate,
-            )
+            );
+            (source, Some(child))
+        }
+    };
+    Ok(Some(TopKIterator::from_heap(
+        source
             .with_validity(validity)
             .with_expiration(expiration)
-            .with_timeout(timeout);
-            Ok(NewNumericTopK::Filtered(numeric_top_k_filtered_with_heap(
-                source, child, heap,
-            )))
-        }
-    }
+            .with_timeout(timeout),
+        child,
+        heap,
+        TopKMode::Batches,
+    )))
 }

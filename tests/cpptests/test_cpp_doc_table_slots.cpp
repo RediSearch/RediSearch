@@ -245,9 +245,12 @@ TEST_F(DocTableSlotsTest, NumericTopKPreservesVisibilityAcrossConstructorReducti
     EXPECT_EQ(it->type, testCase.expectedRows->empty() ? EMPTY_ITERATOR : OPTIMUS_ITERATOR);
     if (!testCase.expectedRows->empty()) {
       EXPECT_EQ(it->SkipTo, nullptr);
-      if (testCase.child == ChildKind::Filtered) {
-        EXPECT_NE(it->ProfileChildren, nullptr);
-      }
+      ASSERT_NE(it->ProfileChildren, nullptr);
+      auto *unprofiled = it.release();
+      it.reset(unprofiled->ProfileChildren(unprofiled));
+      ASSERT_NE(it, nullptr);
+      EXPECT_EQ(it->ProfileChildren, nullptr);
+      EXPECT_EQ(it->SkipTo, nullptr);
     }
     for (t_docId expected : *testCase.expectedRows) {
       ASSERT_EQ(it->Read(it.get()), ITERATOR_OK);

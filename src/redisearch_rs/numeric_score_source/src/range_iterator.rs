@@ -154,11 +154,18 @@ impl<'index> NumericRangeIterator<'index> {
     /// disjoint value window, so a doc already scored on a better value must
     /// stay suppressed. Use [`forget_emitted`](Self::forget_emitted) to reset it
     /// when restarting the whole query.
-    pub fn refind(&mut self, filter: &NumericFilter, window: RangeWindow) {
+    pub fn refind(&mut self, window: RangeWindow) {
         self.ranges = None;
         self.window = window;
         self.pos = 0;
-        self.filter = *filter;
+    }
+
+    pub(crate) fn window(&self) -> RangeWindow {
+        self.window
+    }
+
+    pub(crate) fn ascending(&self) -> bool {
+        self.filter.ascending
     }
 
     /// Drop the record of already-emitted doc ids, so a full rewind can score

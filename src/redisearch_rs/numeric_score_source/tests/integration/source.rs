@@ -21,7 +21,7 @@ use inverted_index::NumericFilter;
 use numeric_range_tree::test_utils::build_tree;
 use numeric_range_tree::{NumericRangeTree, RangeWindow};
 use numeric_score_source::{
-    AllValid, DocValidity, NewNumericTopK, NumericScoreSource, new_numeric_top_k,
+    AllValid, DocValidity, NumericScoreSource, NumericTopKIterator, new_numeric_top_k,
     new_numeric_top_k_filtered, new_numeric_top_k_unfiltered, range_iterator::NumericTreeRef,
 };
 use redis_mock::reply::{ReplyValue, capture_replies};
@@ -799,7 +799,7 @@ fn build_top_k<'t, V, E, T>(
     expiration: E,
     timeout: T,
     child: Option<CRQEIterator>,
-) -> NewNumericTopK<'t, V, E, T>
+) -> Option<NumericTopKIterator<'t, V, E, T>>
 where
     V: DocValidity + 't,
     E: ExpirationChecker + 't,
@@ -831,9 +831,7 @@ fn factory_unfiltered_drops_deleted_and_field_expired_docs() {
         let deleted = DeletedDocs::from_iter([1]);
         let expired = ExpiredDocs::from_iter([3]);
         let built = build_top_k(&tree, 3, 5, deleted, expired, NoTimeoutChecker, child);
-        let NewNumericTopK::Unfiltered(mut it) = built else {
-            panic!("expected an unfiltered top-k");
-        };
+        let mut it = built.expect("non-empty top-k");
         assert_eq!(drain_top_k(&mut it), vec![(5, 3.0), (4, 2.0), (2, 1.0)]);
     }
 }
@@ -860,9 +858,7 @@ fn factory_filtered_sizes_window_and_drops_deleted_and_field_expired_docs() {
         NoTimeoutChecker,
         child,
     );
-    let NewNumericTopK::Filtered(mut it) = built else {
-        panic!("expected a filtered top-k");
-    };
+    let mut it = built.expect("non-empty top-k");
     assert_eq!(drain_top_k(&mut it), vec![(2, 2.0), (1, 1.0)]);
     assert_eq!(it.metrics().strategy_switches, 0);
 }
@@ -872,13 +868,13 @@ fn factory_empty_child_or_zero_k_reduces_to_empty() {
     let tree = tree_from(&[(1, 5.0), (2, 1.0)]);
     let empty = Some(CRQEIterator::from_rust_leaf(Empty));
     let built = build_top_k(&tree, 2, 2, AllValid, NoOpChecker, NoTimeoutChecker, empty);
-    assert!(matches!(built, NewNumericTopK::ReducedEmpty));
+    assert!(built.is_none());
 
     let child = Some(CRQEIterator::from_rust_leaf(IdList::<true>::new(vec![
         1u64, 2,
     ])));
     let built = build_top_k(&tree, 0, 2, AllValid, NoOpChecker, NoTimeoutChecker, child);
-    assert!(matches!(built, NewNumericTopK::ReducedEmpty));
+    assert!(built.is_none());
 }
 
 #[test]
@@ -915,9 +911,7 @@ fn factory_passes_the_query_deadline_to_both_constructions() {
     ])));
     for child in [None, child] {
         let built = build_top_k(&tree, 2, 3, AllValid, NoOpChecker, expired_clock(), child);
-        let (NewNumericTopK::Unfiltered(mut it) | NewNumericTopK::Filtered(mut it)) = built else {
-            panic!("expected a non-empty top-k");
-        };
+        let mut it = built.expect("non-empty top-k");
         assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
     }
 }
@@ -1132,23 +1126,27 @@ fn profile_renders_child_subtree() {
     );
 }
 
+fn mutable_top_k(owner: &UnsafeCell<NumericRangeTree>, k: usize) -> Box<NumericTopKIterator<'_>> {
+    let tree = NonNull::new(owner.get()).unwrap();
+    // SAFETY: (1) the returned iterator borrows `owner`; (2) the pointer comes
+    // from its cell; (3) tests mutate only while idle and revalidate before reuse.
+    let tree_ref = unsafe { NumericTreeRef::from_raw(tree) };
+    let source = NumericScoreSource::unfiltered(tree_ref, full_range(), true);
+    Box::new(new_numeric_top_k_unfiltered(
+        source,
+        NonZeroUsize::new(k).unwrap(),
+    ))
+}
+
 #[test]
 fn revalidate_aborts_once_the_tree_changes() {
     let mock_ctx = MockContext::new(0, 0);
     let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
-    let tree = NonNull::new(owner.get()).unwrap();
-    // SAFETY: (1) `owner` outlives the iterator, including during unwinding;
-    // (2) `tree` comes from its cell; (3) mutation occurs only while suspended.
-    let tree_ref = unsafe { NumericTreeRef::from_raw(tree) };
-    let source = NumericScoreSource::unfiltered(tree_ref, full_range(), true);
-    let it = Box::new(new_numeric_top_k_unfiltered(
-        source,
-        NonZeroUsize::new(2).unwrap(),
-    ));
+    let it = mutable_top_k(&owner, 2);
     let suspended = it.suspend();
 
     // SAFETY: stands in for GC restructuring the tree while the query is suspended.
-    unsafe { (*tree.as_ptr()).increment_revision() };
+    unsafe { (*owner.get()).increment_revision() };
     assert!(matches!(
         suspended.resume(&mock_ctx.spec_read()).unwrap(),
         ResumeOutcome::Aborted
@@ -1159,29 +1157,19 @@ fn revalidate_aborts_once_the_tree_changes() {
 fn revalidate_picks_up_docs_that_turned_multivalued_while_suspended() {
     let mock_ctx = MockContext::new(0, 0);
     let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
-    let tree = NonNull::new(owner.get()).unwrap();
-    // SAFETY: (1) `owner` outlives the iterator, including during unwinding;
-    // (2) `tree` comes from its cell; (3) mutation occurs only while suspended.
-    let tree_ref = unsafe { NumericTreeRef::from_raw(tree) };
-    let source = NumericScoreSource::unfiltered(tree_ref, full_range(), true);
-    let it = Box::new(new_numeric_top_k_unfiltered(
-        source,
-        NonZeroUsize::new(3).unwrap(),
-    ));
+    let it = mutable_top_k(&owner, 3);
     let suspended = it.suspend();
 
     // SAFETY: stands in for indexing a multivalue document while the query is
     // suspended, before its first read.
-    let revision = unsafe {
-        let tree = &mut *tree.as_ptr();
+    unsafe {
+        let tree = &mut *owner.get();
         let revision = tree.revision_id();
         tree.add(3, 3.0, false, true, 0);
         tree.add(3, 0.5, false, true, 0);
         assert!(tree.has_multivalued_docs());
-        revision
-    };
-    // SAFETY: the mutation above has finished.
-    assert_eq!(unsafe { tree.as_ref() }.revision_id(), revision);
+        assert_eq!(tree.revision_id(), revision);
+    }
     let ResumeOutcome::Ok(mut it) = suspended.resume(&mock_ctx.spec_read()).unwrap() else {
         panic!("unchanged tree structure should permit collection");
     };
@@ -1215,20 +1203,12 @@ fn resume_before_collection_and_rewind_keep_numeric_results() {
 fn changed_tree_preserves_buffered_results_but_prevents_recollection() {
     let mock_ctx = MockContext::new(0, 0);
     let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
-    let tree = NonNull::new(owner.get()).unwrap();
-    // SAFETY: (1) `owner` outlives the iterator; (2) `tree` comes from its cell;
-    // (3) mutation occurs only while suspended.
-    let tree_ref = unsafe { NumericTreeRef::from_raw(tree) };
-    let source = NumericScoreSource::unfiltered(tree_ref, full_range(), true);
-    let mut it = Box::new(new_numeric_top_k_unfiltered(
-        source,
-        NonZeroUsize::new(2).unwrap(),
-    ));
+    let mut it = mutable_top_k(&owner, 2);
     assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
     let suspended = it.suspend();
 
     // SAFETY: suspension released the ranges borrowed from `tree`.
-    unsafe { (*tree.as_ptr()).increment_revision() };
+    unsafe { (*owner.get()).increment_revision() };
     let ResumeOutcome::Ok(mut it) = suspended.resume(&mock_ctx.spec_read()).unwrap() else {
         panic!("buffered results should survive a tree revision change");
     };
@@ -1241,17 +1221,12 @@ fn changed_tree_preserves_buffered_results_but_prevents_recollection() {
 fn legacy_revalidation_refreshes_ranges_without_a_suspend_callback() {
     let mock_ctx = MockContext::new(0, 0);
     let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
-    let tree = NonNull::new(owner.get()).unwrap();
-    // SAFETY: (1) `owner` outlives the iterator; (2) `tree` comes from its cell;
-    // (3) revalidation precedes any use after the simulated lock release.
-    let tree_ref = unsafe { NumericTreeRef::from_raw(tree) };
-    let source = NumericScoreSource::unfiltered(tree_ref, full_range(), true);
-    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
+    let mut it = mutable_top_k(&owner, 3);
 
     // SAFETY: simulates indexing while the C caller has released the spec lock.
     unsafe {
-        (*tree.as_ptr()).add(3, 3.0, false, true, 0);
-        (*tree.as_ptr()).add(3, 0.5, false, true, 0);
+        (*owner.get()).add(3, 3.0, false, true, 0);
+        (*owner.get()).add(3, 0.5, false, true, 0);
     }
     assert!(matches!(
         it.revalidate(&mock_ctx.spec_read()).unwrap(),
@@ -1264,19 +1239,14 @@ fn legacy_revalidation_refreshes_ranges_without_a_suspend_callback() {
 fn legacy_revalidation_aborts_after_range_storage_is_freed() {
     let mock_ctx = MockContext::new(0, 0);
     let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
-    let tree = NonNull::new(owner.get()).unwrap();
-    // SAFETY: (1) the tree's cell outlives the iterator; (2) the pointer comes
-    // from that cell; (3) revalidation precedes any use after replacement.
-    let tree_ref = unsafe { NumericTreeRef::from_raw(tree) };
-    let source = NumericScoreSource::unfiltered(tree_ref, full_range(), true);
-    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(2).unwrap());
+    let mut it = mutable_top_k(&owner, 2);
 
     let mut replacement = tree_from(&[(3, 3.0)]);
     replacement.increment_revision();
     // SAFETY: simulates GC during C's unlocked interval, without a Rust suspend
     // callback. The tree stays initialized at the same address; dropping its old
     // contents frees the storage behind every cached range reference.
-    unsafe { drop(tree.as_ptr().replace(replacement)) };
+    unsafe { drop(owner.get().replace(replacement)) };
     assert!(matches!(
         it.revalidate(&mock_ctx.spec_read()).unwrap(),
         rqe_iterators::RQEValidateStatus::Aborted
@@ -1287,19 +1257,14 @@ fn legacy_revalidation_aborts_after_range_storage_is_freed() {
 fn legacy_buffered_results_survive_freed_range_storage() {
     let mock_ctx = MockContext::new(0, 0);
     let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
-    let tree = NonNull::new(owner.get()).unwrap();
-    // SAFETY: (1) the tree's cell outlives the iterator; (2) the pointer comes
-    // from that cell; (3) revalidation precedes any use after replacement.
-    let tree_ref = unsafe { NumericTreeRef::from_raw(tree) };
-    let source = NumericScoreSource::unfiltered(tree_ref, full_range(), true);
-    let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(2).unwrap());
+    let mut it = mutable_top_k(&owner, 2);
     assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
 
     let mut replacement = tree_from(&[(3, 3.0)]);
     replacement.increment_revision();
     // SAFETY: simulates GC during C's unlocked interval. The cell stays valid
     // while the old range storage is freed.
-    unsafe { drop(tree.as_ptr().replace(replacement)) };
+    unsafe { drop(owner.get().replace(replacement)) };
     assert!(matches!(
         it.revalidate(&mock_ctx.spec_read()).unwrap(),
         rqe_iterators::RQEValidateStatus::Ok
