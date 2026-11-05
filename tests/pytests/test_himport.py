@@ -7,7 +7,7 @@
 
 from contextlib import contextmanager
 
-from common import skip, to_dict, waitForIndex
+from common import config_cmd, run_command_on_all_shards, skip, to_dict, waitForIndex
 
 
 @contextmanager
@@ -236,3 +236,77 @@ def test_hash_template_conversion_on_rdb_load(env):
                             'books', 12, extra)
     finally:
         env.cmd('CONFIG SET', *[arg for item in config.items() for arg in item])
+
+
+# Fields not in the schema reach a reply only through the load-all path, which reads the hash
+# with RedisModule_ScanKey. A listpack stores integer-looking values as integers, and ScanKey
+# rebuilds those from a long long, so the set mixes integers, their edges, and strings that
+# merely look numeric.
+SCAN_VALUES = {
+    'title': 'scan', 'price': '12', 'neg': '-5', 'zero': '0',
+    'int_max': '9223372036854775807', 'int_min': '-9223372036854775808',
+    'over_max': '9223372036854775808', 'lead_zero': '007', 'plus': '+1', 'float': '1.5',
+    'empty': '', 'nul': 'a\x00b', 'utf8': 'שלום',
+}
+
+
+def load_all_cases(env):
+    config = env.cmd('CONFIG GET', 'hash-max-listpack-value', 'hash-max-listpack-entries')
+    value_limit = int(config['hash-max-listpack-value'])
+    entries_limit = int(config['hash-max-listpack-entries'])
+    return [
+        ('lp', SCAN_VALUES, 'listpack', 'template-listpack'),
+        ('big', {**SCAN_VALUES, 'big': 'x' * (value_limit + 1)}, 'hashtable', 'template-array'),
+        ('wide', {**SCAN_VALUES, **{f'f{i}': str(i) for i in range(entries_limit)}},
+         'hashtable', 'template-array'),
+    ]
+
+
+@skip(redis_less_than='8.10.0', missing_redis_command='HIMPORT')
+def test_hash_template_load_all_fields(env):
+    """Loading every field of a template hash returns what a plain hash with the same data does."""
+    create_index(env)
+    conn = env.getClusterConnectionIfNeeded()
+    saved = {
+        'hash-min-template-entries': env.cmd('CONFIG GET', 'hash-min-template-entries'),
+        'workers': env.cmd(config_cmd(), 'GET', 'WORKERS'),
+    }
+    cases = load_all_cases(env)
+    try:
+        for label, fields, plain_encoding, template_encoding in cases:
+            fields = {**fields, 'category': label}
+            plain, template = f'doc:plain:{label}', f'doc:tmpl:{label}'
+            run_command_on_all_shards(env, 'CONFIG', 'SET', 'hash-min-template-entries', 0)
+            conn.execute_command('HSET', plain, *[x for kv in fields.items() for x in kv])
+            run_command_on_all_shards(env, 'CONFIG', 'SET', 'hash-min-template-entries', 1)
+            conn.execute_command('HSET', template, *[x for kv in fields.items() for x in kv])
+            env.assertEqual(conn.execute_command('OBJECT', 'ENCODING', plain), plain_encoding)
+            env.assertEqual(conn.execute_command('OBJECT', 'ENCODING', template),
+                            template_encoding)
+            env.assertEqual(to_dict(conn.execute_command('HGETALL', template)), fields)
+
+        for workers in (0, 2):
+            run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
+            for label, fields, _, _ in cases:
+                expected = {**fields, 'category': label}
+                query = f'@category:{{{label}}}'
+                msg = f'{label} workers={workers}'
+
+                res = env.cmd('FT.SEARCH', 'idx', query, 'LIMIT', 0, 10)
+                env.assertEqual(res[0], 2, message=msg)
+                docs = dict(zip(res[1::2], map(to_dict, res[2::2])))
+                env.assertEqual(sorted(docs), [f'doc:plain:{label}', f'doc:tmpl:{label}'],
+                                message=msg)
+                for key, doc in docs.items():
+                    env.assertEqual(doc, expected, message=f'{msg} FT.SEARCH {key}')
+
+                res = env.cmd('FT.AGGREGATE', 'idx', query, 'LOAD', '*',
+                              'APPLY', '@price * 2', 'AS', 'doubled')
+                env.assertEqual(len(res) - 1, 2, message=msg)
+                for row in res[1:]:
+                    env.assertEqual(to_dict(row), {**expected, 'doubled': '24'},
+                                    message=f'{msg} FT.AGGREGATE')
+    finally:
+        run_command_on_all_shards(env, 'CONFIG', 'SET', 'hash-min-template-entries',
+                                  saved['hash-min-template-entries']['hash-min-template-entries'])
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', saved['workers'][0][1])
