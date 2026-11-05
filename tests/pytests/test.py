@@ -2369,15 +2369,12 @@ def testTimeout(env):
        .contains('Timeout limit was reached')
 
     # test cursor
-    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 20000)
-    l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
-    cursor = res[1]
-
-    time.sleep(0.01)
-    while cursor != 0:
-        r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
-        l += (len(r) - 1)
-    env.assertEqual(l, num_range)
+    # Unlike later versions, 2.6 never fails a cursor read on timeout, even with
+    # `on_timeout fail`: the read returns the rows it collected and closes the cursor.
+    res, cursor = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'COUNT', num_range,
+                          'TIMEOUT', 1)
+    env.assertLess(len(res) - 1, num_range) # the first element is the result count, not a row
+    env.assertEqual(cursor, 0)
 
     # restore old configuration
     env.cmd('ft.config', 'set', 'timeout', '500')
