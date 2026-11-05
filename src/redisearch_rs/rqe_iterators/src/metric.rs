@@ -24,7 +24,7 @@ use ffi::QueryIterator;
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref, Suspended};
-use rlookup::{RLookupKey, RLookupKeyHandle};
+use rlookup::{KeyHandleSlot, RLookupKey, RLookupKeyHandle};
 use rqe_core::DocId;
 
 /// The different types of metrics.
@@ -57,14 +57,9 @@ pub struct RawMetric<'query, Rf: Ref, const SORTED_BY_ID: bool> {
     metric_data: OwnedSlice<f64>,
     type_: MetricType,
     own_key: *mut RLookupKey<'query>,
-    /// # Invariants
-    ///
-    /// The handle is either:
-    ///
-    /// - [`None`], indicating that the iterator is not associated with a key.
-    /// - A pointer to an initialized [`RLookupKeyHandle`] that remains alive until
-    ///   this iterator is dropped or the handle is replaced.
-    key_handle: Option<NonNull<RLookupKeyHandle<'query>>>,
+    /// The handle tracking [`own_key`](Self::own_key), invalidated when this
+    /// iterator is dropped or the handle is replaced.
+    key_handle: KeyHandleSlot<'query>,
 }
 
 // Compile-time proof that the `Metric` and its suspended counterpart are layout-identical.
@@ -97,23 +92,6 @@ impl<'query, Rf: Ref, const SORTED_BY_ID: bool> RawMetric<'query, Rf, SORTED_BY_
     #[inline(always)]
     pub(super) fn _num_estimated(&self) -> usize {
         self.base._num_estimated()
-    }
-}
-
-impl<'query, Rf: Ref, const SORTED_BY_ID: bool> RawMetric<'query, Rf, SORTED_BY_ID> {
-    const fn invalidate_handle(&mut self) {
-        if let Some(key_handle) = self.key_handle.take() {
-            // SAFETY: [`Self::key_handle`]'s invariant keeps the handle initialized
-            // and alive until now. Writing through the raw place creates no
-            // reference, so other live pointers to the handle are not invalidated.
-            unsafe { (*key_handle.as_ptr()).is_valid = false };
-        }
-    }
-}
-
-impl<'query, Rf: Ref, const SORTED_BY_ID: bool> Drop for RawMetric<'query, Rf, SORTED_BY_ID> {
-    fn drop(&mut self) {
-        self.invalidate_handle();
     }
 }
 
@@ -151,7 +129,7 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
             metric_data,
             type_: MetricType::VectorDistance,
             own_key: std::ptr::null_mut(),
-            key_handle: None,
+            key_handle: KeyHandleSlot::new(),
         }
     }
 
@@ -169,7 +147,7 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
             metric_data: OwnedSlice::default(),
             type_,
             own_key: std::ptr::null_mut(),
-            key_handle: None,
+            key_handle: KeyHandleSlot::new(),
         }
     }
 
@@ -184,19 +162,16 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     /// Set the [`RLookupKeyHandle`] for the metric iterator, invalidating any different
     /// previously attached handle.
     ///
+    /// [`None`] detaches the current handle, indicating that the metric iterator
+    /// does not have a key.
+    ///
     /// # Safety
     ///
-    /// The provided `key_handle` can either be:
-    ///
-    /// - [`None`], indicating that the metric iterator does not have a key.
-    /// - A pointer to an initialized [`RLookupKeyHandle`] that remains alive until
-    ///   this iterator is dropped or the handle is replaced. Its `is_valid` field
-    ///   must be writable exclusively when either happens.
+    /// The conditions of [`KeyHandleSlot::set`], with this iterator as the slot's
+    /// owner.
     pub unsafe fn set_handle(&mut self, key_handle: Option<NonNull<RLookupKeyHandle<'index>>>) {
-        if self.key_handle != key_handle {
-            self.invalidate_handle();
-            self.key_handle = key_handle;
-        }
+        // SAFETY: forwarded to the caller.
+        unsafe { self.key_handle.set(key_handle) };
     }
 
     /// Get the metric type used by this iterator.
@@ -559,10 +534,11 @@ pub unsafe fn own_key_ref<'index>(
 ///    for [`own_key_ref`] — metric-ness is a run-time check here too, not a
 ///    pre-condition.
 /// 2. The caller holds that iterator exclusively for the duration of the call.
-/// 3. `handle` is [`None`], or points to a valid [`RLookupKeyHandle`] that outlives
-///    the iterator. The iterator clears the handle's validity flag on its way
-///    out, so freeing the handle first is a use-after-free at a distance: the
-///    write lands whenever the iterator is dropped, not during this call.
+/// 3. The conditions of [`KeyHandleSlot::set`], with the iterator as the slot's
+///    owner. The iterator clears the validity flag of the handle it holds when
+///    it is dropped or the handle is replaced, and clears the previous handle's
+///    flag during this call when `handle` differs from it. Freeing a handle
+///    while the iterator still holds it is a use-after-free at a distance.
 ///
 /// # Panics
 ///

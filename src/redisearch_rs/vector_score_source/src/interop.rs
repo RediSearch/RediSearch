@@ -100,22 +100,24 @@ pub unsafe fn own_key_ref<'index>(header: NonNull<QueryIterator>) -> *mut *mut R
 ///    1. the iterator the header was boxed from, and its layout,
 ///    2. that it did not reduce to `Empty`,
 ///    3. that it and what it borrows are alive and exclusively held.
-/// 2. `handle` is null, or points to a [valid] [`RLookupKeyHandle`] that
-///    outlives the iterator. The iterator clears the handle's validity flag on
-///    its way out, so freeing the handle first is a use-after-free at a
-///    distance: the write lands whenever the iterator is dropped, not during
-///    this call.
+/// 2. The conditions of [`KeyHandleSlot::set`] for `handle` (null standing for
+///    [`None`]), with the iterator as the slot's owner. The iterator clears the
+///    validity flag of the handle it holds when it is dropped or the handle is
+///    replaced, and clears the previous handle's flag during this call when
+///    `handle` differs from it. Freeing a handle while the iterator still holds
+///    it is a use-after-free at a distance.
 ///
 /// # Panics
 ///
 /// Panics if the header's type tag is not [`IteratorType::Hybrid`].
 ///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+/// [`KeyHandleSlot::set`]: rlookup::KeyHandleSlot::set
 pub unsafe fn set_key_handle<'index>(
     header: NonNull<QueryIterator>,
     handle: *mut RLookupKeyHandle<'index>,
 ) {
     // SAFETY: guaranteed by 1.
-    let wrapper = unsafe { wrapper_mut::<'index>(header) };
-    wrapper.inner.source_mut().key_handle = handle;
+    let source = unsafe { wrapper_mut::<'index>(header) }.inner.source_mut();
+    // SAFETY: guaranteed by 2.
+    unsafe { source.key_handle.set(NonNull::new(handle)) };
 }
