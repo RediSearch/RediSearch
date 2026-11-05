@@ -286,3 +286,21 @@ TEST_F(SlotCleanupTest, SpecDroppedWithCleanupQueuedIsSafe) {
   // reports a use-after-free or a leaked node otherwise.
   CleanPool_Wait();
 }
+
+TEST_F(SlotCleanupTest, ExplicitCutoffDoesNotUseRamDocTableMaxId) {
+  IndexSpec_LockWrite(spec);
+  EXPECT_EQ(spec->docs.maxDocId, 0);
+  PendingSlotDeletion *first = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 10);
+  PendingSlotDeletion *second = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 20);
+  EXPECT_TRUE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 10, SLOT_A));
+  EXPECT_TRUE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 20, SLOT_A));
+  EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 21, SLOT_A));
+  EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 10, SLOT_A - 1));
+
+  DocTable_RemovePendingDeletion(&spec->docs, second);
+  EXPECT_TRUE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 10, SLOT_A));
+  EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 11, SLOT_A));
+  DocTable_RemovePendingDeletion(&spec->docs, first);
+  EXPECT_FALSE(DocTable_IsDocPendingDeletionForSlot(&spec->docs, 10, SLOT_A));
+  IndexSpec_Unlock(spec);
+}
