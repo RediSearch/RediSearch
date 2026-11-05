@@ -21,8 +21,7 @@ use std::{collections::HashSet, num::NonZeroUsize, ptr};
 use ffi::{RLookupKey, t_docId};
 use index_result::{RSIndexResult, RSResultKind};
 use rqe_iterators::{
-    Empty, ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorBoxed,
-    RQESuspendedIterator, ResumeOutcome,
+    Empty, ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQESuspendedIterator, ResumeOutcome,
 };
 use rqe_iterators_test_utils::{MockContext, MockExpirationChecker};
 use top_k::{ScoreSource, TopKIterator, TopKMode};

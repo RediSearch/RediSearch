@@ -603,7 +603,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
 /// cycle and the behaviour at the `max_doc_id` boundary.
 mod optional_optimized_iterator_resume_tests {
     use super::*;
-    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+    use rqe_iterators::{RQEIterator, RQESuspendedIterator};
 
     const MAX_DOC_ID: DocId = 100;
     const WEIGHT: f64 = 2.;

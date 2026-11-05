@@ -15,8 +15,8 @@ use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     expiration_checker::{ExpirationChecker, NoOpChecker},
 };
 
@@ -80,7 +80,7 @@ pub struct RawInvIndIterator<'query, Rf: Ref, R, E = NoOpChecker, RA = R> {
 
     /// Count of unique documents in the underlying index, as last read from the
     /// live reader: at construction and again at every
-    /// [`suspend`](RQEIteratorBoxed::suspend), while the read lock is still held. The
+    /// [`suspend`](RQEIterator::suspend), while the read lock is still held. The
     /// live reader is only callable in the [`Active`] instantiation, so this is
     /// what the suspended form reports, and refreshing it on suspend keeps the
     /// estimate from jumping back to its construction-time value across an unlock.
@@ -390,7 +390,7 @@ where
 
         // The seeker found a record but it's expired. Fall back to read to get the next valid record.
         // This matches the C implementation behavior in InvIndIterator_SkipTo_CheckExpiration.
-        match self.read()? {
+        match (self.read_impl)(self)? {
             Some(_) => {
                 // Found a valid record, it must be greater than the requested doc_id.
                 // It cannot be equal to the requested doc_id because multi-values indices are only
@@ -407,9 +407,45 @@ where
 
 impl<'index, R, E> RQEIterator<'index> for InvIndIterator<'index, R, E>
 where
-    R: IndexReader<'index>,
-    E: ExpirationChecker,
+    R: IndexReader<'index> + SuspendableReader + 'index,
+    E: ExpirationChecker + 'static,
+    R::Suspended: ResumableReader,
 {
+    // Reader weakens `R -> R::Suspended`, but the frozen `RA` slot stays `R` (the
+    // active reader), so `read_impl`/`skip_to_impl` keep an identical type.
+    type Suspended = RawInvIndIterator<'index, Suspended, R::Suspended, E, R>;
+
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        self.refresh_num_docs();
+        // Reuse the same allocation so external pointers into the iterator
+        // interior (composite aggregate results) stay valid across the cycle.
+        let active: *mut Self = Box::into_raw(self);
+
+        // SAFETY: `active` just came from a `Box`, so it is non-null, aligned,
+        // initialized, and unaliased (we own it). `&raw mut` forms a field
+        // pointer without creating a reference, leaving provenance over the
+        // whole allocation intact for the cast below.
+        let result_slot = unsafe { &raw mut (*active).result };
+        // SAFETY: `result_slot` points at an initialized `RSIndexResult<'index>`
+        // and is unaliased. Suspending only loosens validity, so there is no
+        // further precondition. Converting the `Rf`-carrying `result` field
+        // through the canonical in-place conversion — rather than folding it
+        // into the blanket struct reinterpretation below — keeps the
+        // borrowed-data transition explicit and auditable.
+        unsafe { RawIndexResult::<Active<'index>>::into_suspended_in_place(result_slot) };
+
+        // SAFETY: `result` is now the suspended form; the only other `Rf`-dependent
+        // field, `reader`, is reinterpreted `R -> R::Suspended` — sound by
+        // invariant 1 on `RawInvIndIterator` (const proof above) given invariant 1
+        // on the reader `R`. The `read_impl`/`skip_to_impl` fn-pointer fields are
+        // frozen at `RA = R` and so are *not* reinterpreted by this cast at all.
+        // `Box::from_raw` reuses the same allocation, so the box address is
+        // preserved.
+        unsafe {
+            Box::from_raw(active.cast::<RawInvIndIterator<'index, Suspended, R::Suspended, E, R>>())
+        }
+    }
+
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         // `at_eos` is set only by a read/skip that found no record, never while
@@ -651,48 +687,6 @@ where
                     }
                 })
             }
-        }
-    }
-}
-
-impl<'index, R, E> RQEIteratorBoxed<'index> for InvIndIterator<'index, R, E>
-where
-    R: IndexReader<'index> + SuspendableReader + 'index,
-    R::Suspended: ResumableReader,
-    E: ExpirationChecker + 'static,
-{
-    // Reader weakens `R -> R::Suspended`, but the frozen `RA` slot stays `R` (the
-    // active reader), so `read_impl`/`skip_to_impl` keep an identical type.
-    type Suspended = RawInvIndIterator<'index, Suspended, R::Suspended, E, R>;
-
-    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
-        self.refresh_num_docs();
-        // Reuse the same allocation so external pointers into the iterator
-        // interior (composite aggregate results) stay valid across the cycle.
-        let active: *mut Self = Box::into_raw(self);
-
-        // SAFETY: `active` just came from a `Box`, so it is non-null, aligned,
-        // initialized, and unaliased (we own it). `&raw mut` forms a field
-        // pointer without creating a reference, leaving provenance over the
-        // whole allocation intact for the cast below.
-        let result_slot = unsafe { &raw mut (*active).result };
-        // SAFETY: `result_slot` points at an initialized `RSIndexResult<'index>`
-        // and is unaliased. Suspending only loosens validity, so there is no
-        // further precondition. Converting the `Rf`-carrying `result` field
-        // through the canonical in-place conversion — rather than folding it
-        // into the blanket struct reinterpretation below — keeps the
-        // borrowed-data transition explicit and auditable.
-        unsafe { RawIndexResult::<Active<'index>>::into_suspended_in_place(result_slot) };
-
-        // SAFETY: `result` is now the suspended form; the only other `Rf`-dependent
-        // field, `reader`, is reinterpreted `R -> R::Suspended` — sound by
-        // invariant 1 on `RawInvIndIterator` (const proof above) given invariant 1
-        // on the reader `R`. The `read_impl`/`skip_to_impl` fn-pointer fields are
-        // frozen at `RA = R` and so are *not* reinterpreted by this cast at all.
-        // `Box::from_raw` reuses the same allocation, so the box address is
-        // preserved.
-        unsafe {
-            Box::from_raw(active.cast::<RawInvIndIterator<'index, Suspended, R::Suspended, E, R>>())
         }
     }
 }

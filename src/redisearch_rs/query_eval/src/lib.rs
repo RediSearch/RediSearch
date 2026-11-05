@@ -25,7 +25,7 @@ use std::{marker::PhantomData, ptr::NonNull};
 
 use query_types::{QueryNodeOptions, scorers::slop_forces_offsets};
 use rqe_iterators::{
-    Empty, IteratorType, RQEIteratorPrintable, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    Empty, IteratorType, RQEIterator, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
 };
 
 // The query wrapper types live in the `query` crate (`c_wrappers/query`), and
@@ -49,7 +49,7 @@ use nodes::{
 };
 
 /// The return type of [`eval_node`]: a boxed Rust iterator that implements
-/// both [`RQEIterator`](rqe_iterators::RQEIterator) and
+/// both [`RQEIterator`] and
 /// [`ProfilePrint`](rqe_iterators::profile_print::ProfilePrint).
 pub type EvalResult<'index> = rqe_iterators::TypeErasedRQEIterator<'index>;
 
@@ -219,7 +219,7 @@ impl<'index> QueryIteratorTree<'index> {
 
     /// Consume the tree into its root iterator, which still borrows the
     /// context for `'index`.
-    pub fn into_root(self) -> impl RQEIteratorPrintable<'index> + 'index {
+    pub fn into_root(self) -> impl RQEIterator<'index> + 'index {
         self.root
     }
 

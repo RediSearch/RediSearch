@@ -633,8 +633,6 @@ fn numeric_variant_geo() {
 /// profile is the backend's, before and after a suspend.
 #[test]
 fn disk_wildcard_prints_its_backend() {
-    use rqe_iterators::RQEIteratorBoxed;
-
     let mut replier = init();
     let backend = rqe_iterators::id_list::IdListSorted::new(vec![1, 2, 3]);
     let expected = print(&mut replier, &backend, false);

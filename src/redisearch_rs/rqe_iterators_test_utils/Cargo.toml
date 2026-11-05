@@ -30,6 +30,7 @@ numeric_range_tree = { workspace = true, features = ["test-utils"] }
 query_error.workspace = true
 redis-module.workspace = true
 redis_mock.workspace = true
+redis_reply.workspace = true
 rlookup.workspace = true
 rqe_core.workspace = true
 rqe_iterators = { path = "../rqe_iterators" }

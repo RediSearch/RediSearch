@@ -247,10 +247,9 @@ pub fn revalidate_via_resume_across<'index>(
     let previous_last_doc_id = it.last_doc_id();
     let was_positioned = it.current().is_some();
 
-    let suspended =
-        <TypeErasedRQEIterator<'index> as rqe_iterators::RQEIteratorBoxed<'index>>::suspend(
-            Box::new(it),
-        );
+    let suspended = <TypeErasedRQEIterator<'index> as rqe_iterators::RQEIterator<'index>>::suspend(
+        Box::new(it),
+    );
     // Resume via the dyn path: it yields a single `TypeErasedRQEIterator`,
     // whereas the concrete `RQESuspendedIterator::resume` on the already-erased
     // suspended type would double-box. `resume` re-reads/seeks the index to

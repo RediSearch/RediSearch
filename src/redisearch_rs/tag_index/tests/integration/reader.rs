@@ -17,7 +17,7 @@
 use std::ptr::NonNull;
 
 use field::FieldMaskOrIndex;
-use rqe_iterators::{RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
+use rqe_iterators::{RQEIterator, RQESuspendedIterator, ResumeOutcome};
 use rqe_iterators_test_utils::MockContext;
 use tag_index::{InMemoryMode, TagIndex, TrieLookup};
 

@@ -17,9 +17,9 @@ use ffi::{
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    ResumeOutcome, SkipToOutcome, interop::RQEIteratorWrapper, intersection::Intersection,
-    profile_print, profile_print::ProfilePrint,
+    IteratorType, RQEIterator, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, interop::RQEIteratorWrapper, intersection::Intersection, profile_print,
+    profile_print::ProfilePrint,
 };
 use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
@@ -65,7 +65,7 @@ pub struct CRQEIterator {
     /// 4. All callbacks can be safely called, when the right aliasing conditions are
     ///    in place
     header: NonNull<QueryIterator>,
-    /// The estimate taken by [`RQEIteratorBoxed::suspend`] and served by
+    /// The estimate taken by [`RQEIterator::suspend`] and served by
     /// [`CRQESuspendedIterator`]: once the read lock is released, the C `NumEstimated` callback
     /// may read index memory that GC has freed.
     ///
@@ -188,7 +188,7 @@ impl CRQEIterator {
     /// the callback that recurses into their children during profiling.
     pub fn from_rust_leaf<'index, I>(inner: I) -> Self
     where
-        I: RQEIteratorBoxed<'index> + ProfilePrint + 'index,
+        I: RQEIterator<'index> + ProfilePrint + 'index,
         I::Suspended: crate::RQESuspendedIterator<'index, Resumed<'index> = I>,
     {
         let ptr = RQEIteratorWrapper::boxed_new(inner);
@@ -221,6 +221,33 @@ impl CRQEIterator {
 }
 
 impl<'index> RQEIterator<'index> for CRQEIterator {
+    type Suspended = CRQESuspendedIterator;
+
+    /// Delegate suspend invocation to the C-side `Suspend` vtable entry.
+    ///
+    /// Chains the suspend signal to the wrapped C iterator so it can drop any
+    /// lock-dependent state before the spec read lock is released. For a Rust
+    /// iterator nested under a `CRQEIterator` wrapper (the common case for
+    /// composite children), this triggers the inner wrapper's typestate flip
+    /// from Active to Suspended.
+    ///
+    /// Every iterator's vtable installs a non-null `Suspend`: a no-op for C
+    /// iterators without lock-dependent state, or the [`RQEIteratorWrapper`]
+    /// callback for Rust ones.
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        // Snapshot while the read lock is still held, see the field. It has to precede the C-side
+        // `Suspend`, after which a Rust child no longer answers.
+        self.num_estimated_snapshot = <Self as RQEIterator<'index>>::num_estimated(&self);
+        // SAFETY: invariant 3. of [`CRQEIterator::header`] guarantees the
+        // callback is non-null: every vtable installs a `Suspend`.
+        let callback = unsafe { self.Suspend.unwrap_unchecked() };
+        // SAFETY: the handle is unique (consumed by value into `self`); the
+        // C-side callback is safe to call per invariant 4.
+        unsafe { callback(self.header.as_ptr()) };
+        // SAFETY: `CRQESuspendedIterator` is `#[repr(transparent)]` over `CRQEIterator`.
+        unsafe { Box::from_raw(Box::into_raw(self).cast::<CRQESuspendedIterator>()) }
+    }
+
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
         // SAFETY: Safe thanks to invariant 3. of [`CRQEIterator::header`].
         let callback = unsafe { self.Read.unwrap_unchecked() };
@@ -506,35 +533,6 @@ impl profile_print::ProfilePrint for CRQEIterator {
     }
 }
 
-impl<'index> RQEIteratorBoxed<'index> for CRQEIterator {
-    type Suspended = CRQESuspendedIterator;
-
-    /// Delegate suspend invocation to the C-side `Suspend` vtable entry.
-    ///
-    /// Chains the suspend signal to the wrapped C iterator so it can drop any
-    /// lock-dependent state before the spec read lock is released. For a Rust
-    /// iterator nested under a `CRQEIterator` wrapper (the common case for
-    /// composite children), this triggers the inner wrapper's typestate flip
-    /// from Active to Suspended.
-    ///
-    /// Every iterator's vtable installs a non-null `Suspend`: a no-op for C
-    /// iterators without lock-dependent state, or the [`RQEIteratorWrapper`]
-    /// callback for Rust ones.
-    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
-        // Snapshot while the read lock is still held, see the field. It has to precede the C-side
-        // `Suspend`, after which a Rust child no longer answers.
-        self.num_estimated_snapshot = <Self as RQEIterator<'index>>::num_estimated(&self);
-        // SAFETY: invariant 3. of [`CRQEIterator::header`] guarantees the
-        // callback is non-null: every vtable installs a `Suspend`.
-        let callback = unsafe { self.Suspend.unwrap_unchecked() };
-        // SAFETY: the handle is unique (consumed by value into `self`); the
-        // C-side callback is safe to call per invariant 4.
-        unsafe { callback(self.header.as_ptr()) };
-        // SAFETY: `CRQESuspendedIterator` is `#[repr(transparent)]` over `CRQEIterator`.
-        unsafe { Box::from_raw(Box::into_raw(self).cast::<CRQESuspendedIterator>()) }
-    }
-}
-
 /// The suspended form of a [`CRQEIterator`].
 ///
 /// Exposes only the [`RQESuspendedIterator`] API, as every [`RQEIterator`] method calls into C
@@ -548,6 +546,18 @@ impl CRQESuspendedIterator {
     /// Ownership rules are those of [`CRQEIterator::as_raw`].
     pub const fn as_raw(&self) -> NonNull<QueryIterator> {
         self.0.as_raw()
+    }
+}
+
+/// Profile printing reads the counters the C `QueryIterator` keeps for itself, which are not
+/// index-owned, so the suspended form prints exactly as the active one does.
+impl profile_print::ProfilePrint for CRQESuspendedIterator {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.0.print_profile(map, ctx);
     }
 }
 
@@ -594,17 +604,5 @@ impl<'query> RQESuspendedIterator<'query> for CRQESuspendedIterator {
     fn num_estimated(&self) -> usize {
         // Not a call into C: see the field.
         self.0.num_estimated_snapshot
-    }
-}
-
-/// Profile printing reads the counters the C `QueryIterator` keeps for itself, which are not
-/// index-owned, so the suspended form prints exactly as the active one does.
-impl profile_print::ProfilePrint for CRQESuspendedIterator {
-    fn print_profile(
-        &self,
-        map: &mut redis_reply::MapBuilder<'_>,
-        ctx: &mut profile_print::ProfilePrintCtx<'_>,
-    ) {
-        self.0.print_profile(map, ctx);
     }
 }

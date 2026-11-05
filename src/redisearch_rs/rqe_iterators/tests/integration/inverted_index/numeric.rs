@@ -421,9 +421,7 @@ mod from_tree {
     use inverted_index::NumericFilter;
     use numeric_range_tree::NumericRangeTree;
     use rqe_core::DocId;
-    use rqe_iterators::{
-        NumericIteratorVariant, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome,
-    };
+    use rqe_iterators::{NumericIteratorVariant, RQEIterator, RQESuspendedIterator, ResumeOutcome};
     use rqe_iterators_test_utils::{ContractChecker, MockContext};
 
     fn make_field_ctx() -> FieldFilterContext {
@@ -817,7 +815,7 @@ mod variant {
     }
 }
 
-/// Suspend/resume coverage for `NumericIteratorVariant` — the `RQEIteratorBoxed`
+/// Suspend/resume coverage for `NumericIteratorVariant` — the `RQEIterator`
 /// and `RQESuspendedIterator` impls on the variant enum itself, as opposed to the
 /// `Numeric` leaf instantiation that `NumericBuilder` produces.
 ///
@@ -847,8 +845,7 @@ mod variant_resume {
     use numeric_range_tree::{NodeIndex, NumericIndex, NumericIndexReader, NumericRangeTree};
     use rqe_core::{DocId, RS_INVALID_FIELD_INDEX};
     use rqe_iterators::{
-        NumericIteratorVariant, RQEIterator, RQEIteratorBoxed, RQESuspendedIterator, RangeSource,
-        ResumeOutcome,
+        NumericIteratorVariant, RQEIterator, RQESuspendedIterator, RangeSource, ResumeOutcome,
     };
     use rqe_iterators_test_utils::MockContext;
 
@@ -1956,7 +1953,7 @@ mod not_miri {
     /// its estimate fall back to the construction-time count across an unlock.
     #[test]
     fn numeric_suspend_keeps_the_estimate_the_active_iterator_last_reported() {
-        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+        use rqe_iterators::RQESuspendedIterator;
 
         let test = NumericRevalidateTest::new(10);
         let it = Box::new(test.create_iterator());
