@@ -922,7 +922,7 @@ def binary_has_command(name):
 
 
 def _any_skip_condition_set(*, cluster, macos, musl, asan, msan, redis_less_than,
-                            redis_greater_equal, min_shards, arch, gc_no_fork,
+                            redis_greater_equal, min_shards, arch,
                             no_json, enterprise, missing_redis_command):
     """True if the caller provided at least one skip condition.
 
@@ -931,7 +931,7 @@ def _any_skip_condition_set(*, cluster, macos, musl, asan, msan, redis_less_than
     """
     return ((cluster is not None) or macos or musl or asan or msan or redis_less_than
             or redis_greater_equal or min_shards or (arch is not None)
-            or gc_no_fork or no_json or (enterprise is not None)
+            or no_json or (enterprise is not None)
             or (missing_redis_command is not None))
 
 
@@ -939,7 +939,7 @@ def _skip_fires_statically(*, cluster, macos, musl, asan, msan, min_shards, arch
                            missing_redis_command):
     """Evaluate the subset of @skip predicates that don't need a live Redis.
 
-    Excludes redis_less_than/redis_greater_equal/gc_no_fork — those genuinely
+    Excludes redis_less_than/redis_greater_equal — those genuinely
     need a running env, so they can't decide at module-load time.
     """
     if cluster is not None and cluster == CLUSTER:
@@ -965,28 +965,24 @@ def _skip_fires_statically(*, cluster, macos, musl, asan, msan, min_shards, arch
     return False
 
 
-def _skip_fires_at_runtime(*, redis_less_than, redis_greater_equal, gc_no_fork):
+def _skip_fires_at_runtime(*, redis_less_than, redis_greater_equal):
     """Evaluate the @skip predicates that need a live Redis.
 
-    Spawns a transient Env for gc_no_fork; the version helpers maintain their
-    own connection.
+    The version helpers maintain their own connection.
     """
     if redis_less_than and server_version_is_less_than(redis_less_than):
         return True
     if redis_greater_equal and server_version_is_at_least(redis_greater_equal):
         return True
-    if gc_no_fork and Env().cmd(config_cmd(), 'GET', 'GC_POLICY')[0][1] != 'fork':
-        return True
     return False
 
 
-def skip(cluster=None, macos=False, musl=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, gc_no_fork=None, no_json=False, enterprise=None, missing_redis_command=None):
+def skip(cluster=None, macos=False, musl=False, asan=False, msan=False, redis_less_than=None, redis_greater_equal=None, min_shards=None, arch=None, no_json=False, enterprise=None, missing_redis_command=None):
     static_kwargs = dict(cluster=cluster, macos=macos, musl=musl, asan=asan, msan=msan,
                          min_shards=min_shards, arch=arch, no_json=no_json, enterprise=enterprise,
                          missing_redis_command=missing_redis_command)
     runtime_kwargs = dict(redis_less_than=redis_less_than,
-                          redis_greater_equal=redis_greater_equal,
-                          gc_no_fork=gc_no_fork)
+                          redis_greater_equal=redis_greater_equal)
     any_condition = _any_skip_condition_set(
         **static_kwargs, **runtime_kwargs,
     )
@@ -1000,10 +996,10 @@ def skip(cluster=None, macos=False, musl=False, asan=False, msan=False, redis_le
             # fires, strip the @env_spec marker (so no env is built) and
             # replace __init__ with one that raises SkipTest the moment
             # RLTest tries to instantiate the class.
-            if redis_less_than or redis_greater_equal or gc_no_fork:
+            if redis_less_than or redis_greater_equal:
                 raise TypeError(
                     "@skip on a class cannot use redis_less_than, "
-                    "redis_greater_equal, or gc_no_fork because those need a "
+                    "redis_greater_equal because those need a "
                     "live Redis and would defeat the purpose of skipping "
                     "before env provisioning. Use skipTest() inside a method "
                     "instead, or apply @skip to individual functions."
