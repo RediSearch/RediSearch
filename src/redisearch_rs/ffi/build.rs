@@ -161,7 +161,13 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/geo_index.h",
-        fns: &["GeoFilter_Free", "GeoFilter_Validate", "NewGeoFilter"],
+        fns: &[
+            "GeoDistance_Parse_Buffer",
+            "GeoFilter_Free",
+            "GeoFilter_Validate",
+            "NewGeoFilter",
+            "isWithinRadius",
+        ],
         types: &[],
         vars: &[],
     },
