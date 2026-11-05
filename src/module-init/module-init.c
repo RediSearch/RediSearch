@@ -32,6 +32,7 @@
 #include "util/logging.h"
 #include "asm_state_machine.h"
 #include "VecSim/vec_sim_common.h"
+#include "iterators/vector_top_k.h"
 #include "aggregate/functions/function.h"
 #include "gc/gc.h"
 #include "hiredis/sds.h"
@@ -148,6 +149,7 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
   VecSimMemoryFunctions vecsimMemoryFunctions = {.allocFunction = rm_malloc, .callocFunction = rm_calloc, .reallocFunction = rm_realloc, .freeFunction = rm_free};
   VecSim_SetMemoryFunctions(vecsimMemoryFunctions);
   VecSim_SetTimeoutCallbackFunction((timeoutCallbackFunction)VecSim_TimedOut);
+  VecSim_SetStopCallbackFunction(RS_VecSimShouldStop);
   VecSim_SetLogCallbackFunction(VecSimLogCallback);
 
   // Init threadpool.

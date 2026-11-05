@@ -46,6 +46,7 @@ impl ReplyOrder {
 /// Errors produced by VecSim query calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueryError {
-    /// VecSim reported `VecSim_QueryReply_TimedOut` via the query reply code.
-    TimedOut,
+    /// Ended early on a timeout or a requested stop; the request's limits say which. VecSim
+    /// reported `VecSim_QueryReply_Stopped` via the query reply code.
+    Stopped,
 }

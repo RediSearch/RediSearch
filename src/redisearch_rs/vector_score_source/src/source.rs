@@ -285,7 +285,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
                 &mut self.query_params,
                 ReplyOrder::ByScore,
             )
-            .map_err(|QueryError::TimedOut| RQEIteratorError::Stopped)?;
+            .map_err(|QueryError::Stopped| RQEIteratorError::Stopped)?;
         // Mark consumed only after the query succeeds: a timeout above propagates
         // with the flag still clear, so a retry re-issues the query instead of
         // taking the fast path and returning EOF.
@@ -297,7 +297,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
 
     fn next_batch(&mut self) -> Result<Option<Self::Batch>, RQEIteratorError> {
         // Timeout is propagated via self.query_params.timeoutCtx. VecSim checks it
-        // internally and returns VecSim_QueryReply_TimedOut from Next/New.
+        // internally and returns VecSim_QueryReply_Stopped from Next/New.
 
         let further_batch = self.batch_iter.is_some();
         // Lazily create the batch iterator on first call.
@@ -361,7 +361,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         let batch_iter = self.batch_iter.as_mut().expect("just initialised above");
         let reply = batch_iter
             .next(batch_size, ReplyOrder::ById)
-            .map_err(|QueryError::TimedOut| RQEIteratorError::Stopped)?;
+            .map_err(|QueryError::Stopped| RQEIteratorError::Stopped)?;
         Ok(reply
             .and_then(|r| r.into_results())
             .map(VecSimScoreBatch::new))
