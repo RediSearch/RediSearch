@@ -789,11 +789,14 @@ pub unsafe fn new_wildcard_iterator_on_disk<'index>(
     let enterprise_iters_api = SEARCH_ENTERPRISE_ITERATORS
         .get()
         .expect("SEARCH_ENTERPRISE_ITERATORS not initialized");
-    let status = status.map(|status| {
-        // SAFETY: caller guarantees `status`, when present, points to a valid `QueryError`.
-        unsafe { QueryError::from_opaque_mut_ptr(status.as_ptr().cast()) }
-            .expect("`status` must not be null")
-    });
+    // SAFETY: caller guarantees `status`, when present, points to a valid
+    // `QueryError` (4). An absent `status` becomes null, which converts back
+    // to `None`.
+    let status = unsafe {
+        QueryError::from_opaque_mut_ptr(
+            status.map_or(std::ptr::null_mut(), |status| status.as_ptr().cast()),
+        )
+    };
     // On failure the enterprise implementation populates `status` with the
     // cause; we just fall back to an empty iterator so the query aborts via the
     // existing `QueryError_HasError` check rather than returning empty results.
