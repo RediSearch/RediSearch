@@ -85,9 +85,10 @@ typedef struct QueryError QueryError;
  *
  *       - **`MEMORY_CHECKPOINT [INTERNAL_ONLY]`**:
  *         - Inserts an RP, at the TIMEOUT_AFTER_N position, that calls the query memory
- *           checkpoint before every upstream read; once it says to stop, the RP reports a
- *           timeout. Drive it with `_FT.DEBUG MEMORY_PRESSURE`. No timeout policy restriction
- *           beyond the coordinator-wide one.
+ *           checkpoint before every upstream read; once it says to stop, the RP ends the
+ *           read with RS_RESULT_STOPPED, a memory stop on the request. Drive it with
+ *           `_FT.DEBUG MEMORY_PRESSURE`. No timeout policy restriction beyond the
+ *           coordinator-wide one.
  *         - **`INTERNAL_ONLY` (optional)**: in a multi-shard cluster, adds it to the shard
  *           pipelines instead of the coordinator's. FT.SEARCH has no coordinator pipeline, so
  *           its shards take it with or without the flag. Not combinable with TIMEOUT_AFTER_N or
