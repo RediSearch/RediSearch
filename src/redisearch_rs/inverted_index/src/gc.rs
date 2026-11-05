@@ -294,6 +294,7 @@ pub(crate) fn compact_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decod
     let mut unique_read = 0;
     let mut unique_write = 0;
     let mut last_read_doc_id: Option<DocId> = None;
+    let mut removed_entries = 0usize;
 
     for (offset, block) in blocks.iter().enumerate() {
         debug_assert!(
@@ -325,6 +326,8 @@ pub(crate) fn compact_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decod
                 if new_doc {
                     unique_write += 1;
                 }
+            } else {
+                removed_entries += 1;
             }
             if new_doc {
                 unique_read += 1;
@@ -339,9 +342,10 @@ pub(crate) fn compact_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decod
             n_unique_docs_removed: unique_read,
         }));
     }
-    // A codec with a narrow delta may split the merged entries back into as many
-    // blocks as before (or more); then the run is left to per-block repair.
-    if tmp_inverted_index.blocks.len() >= blocks.len() {
+    // A codec with a narrow delta may split the merged entries back into as many blocks as
+    // before (or more). A run that lost nothing is then left as it is, or every cycle would
+    // rewrite it; one that lost entries is still replaced, as nothing else repairs its blocks.
+    if tmp_inverted_index.blocks.len() >= blocks.len() && removed_entries == 0 {
         return Ok(None);
     }
     let new_blocks = tmp_inverted_index
@@ -415,132 +419,75 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
         let Some(span) = self.doc_id_range() else {
             return Ok(None);
         };
-        if !doc_exist.any_gone(*span.start(), *span.end()) && !self.has_compactable_run() {
+        let compactable = self.has_compactable_run();
+        if !doc_exist.any_gone(*span.start(), *span.end()) && !compactable {
             return Ok(None);
         }
         // `repair` must see every surviving entry, so blocks are only skipped without it.
         let skip_clean_blocks = repair.is_none();
         let last_idx = self.blocks.len() - 1;
-
-        // First pass: repair each block on its own, as before compaction existed, and
-        // count what each keeps; a block left alone keeps all its entries.
-        let mut results = Vec::new();
-        let mut survivors: Vec<u32> = Vec::with_capacity(self.blocks.len());
-        for (i, block) in self.blocks.iter().enumerate() {
-            let kept = u32::from(block.num_entries);
-            if skip_clean_blocks && !doc_exist.any_gone(block.first_doc_id, block.last_doc_id) {
-                survivors.push(kept);
-                continue;
-            }
-            match block.repair(
-                i,
-                self.expiration.get(i),
-                |id| doc_exist.exists(id),
-                repair.as_mut(),
-                PhantomData::<E>,
-            )? {
-                Some(repair) => {
-                    survivors.push(match &repair {
-                        RepairType::Delete { .. } => 0,
-                        RepairType::Replace { blocks, .. } => {
-                            blocks.iter().map(|(b, _)| u32::from(b.num_entries)).sum()
-                        }
-                    });
-                    results.push(BlockGcScanResult {
-                        index: i,
-                        span: 1,
-                        repair,
-                    });
-                }
-                None => survivors.push(kept),
-            }
-        }
-
-        // Second pass: runs of consecutive copied blocks before the last whose surviving
-        // entries fit one block are re-encoded together. The last block never joins: it
-        // is the one writers append to, and the apply's staleness check names it by position.
-        // Most scans have no such run, and keep the first pass's results as they are.
         let limit = u32::from(E::RECOMMENDED_BLOCK_ENTRIES);
-        let joinable = |i: usize| i < last_idx && self.blocks[i].has_data();
-        let any_run = (1..last_idx)
-            .any(|i| joinable(i - 1) && joinable(i) && survivors[i - 1] + survivors[i] <= limit);
-        if any_run {
-            results = self.compact_runs(results, &survivors, limit, &doc_exist, repair.as_mut())?;
-        }
-
-        if results.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(GcScanDelta {
-                last_block_idx: last_idx,
-                last_block_num_entries: self.blocks[last_idx].num_entries,
-                deltas: results,
-            }))
-        }
-    }
-
-    /// Rebuild `results`, the first pass's per-block repairs, around the runs of
-    /// blocks before the last whose `survivors` fit `limit` together, re-encoding
-    /// each such run into fewer blocks.
-    fn compact_runs<'a>(
-        &'a self,
-        results: Vec<BlockGcScanResult>,
-        survivors: &[u32],
-        limit: u32,
-        doc_exist: &impl DocLiveness,
-        mut repair: Option<
-            &mut impl for<'call> FnMut(&RSIndexResult<'call>, &RepairContext<'call>),
-        >,
-    ) -> std::io::Result<Vec<BlockGcScanResult>> {
-        let last_idx = self.blocks.len() - 1;
-        let mut by_block: Vec<Option<RepairType>> = (0..self.blocks.len()).map(|_| None).collect();
-        for result in results {
-            by_block[result.index] = Some(result.repair);
-        }
-        let mut compacted_results = Vec::new();
+        let mut results = Vec::new();
         let mut i = 0;
         while i < self.blocks.len() {
+            // A run is the consecutive copied blocks from here whose entries fit one block,
+            // as `has_compactable_run` finds them; the last block never joins one, as writers
+            // append to it and the apply's staleness check names it by position. A run is
+            // packed as it is read, so each of its entries is decoded once and each survivor
+            // encoded once.
             let mut run = 0;
-            let mut total = 0;
-            while i + run < last_idx && self.blocks[i + run].has_data() {
-                let next = total + survivors[i + run];
-                if next > limit {
-                    break;
+            if compactable {
+                let mut total = 0;
+                while i + run < last_idx && self.blocks[i + run].has_data() {
+                    let next = total + u32::from(self.blocks[i + run].num_entries);
+                    if next > limit {
+                        break;
+                    }
+                    total = next;
+                    run += 1;
                 }
-                total = next;
-                run += 1;
             }
-            let compacted = if run > 1 {
-                compact_run(
+            if run > 1 {
+                if let Some(packed) = compact_run(
                     &self.blocks[i..i + run],
                     &self.expiration,
                     i,
                     |id| doc_exist.exists(id),
-                    repair.as_deref_mut(),
+                    repair.as_mut(),
                     PhantomData::<E>,
-                )?
-            } else {
-                None
-            };
-            if let Some(repair) = compacted {
-                compacted_results.push(BlockGcScanResult {
-                    index: i,
-                    span: run,
-                    repair,
-                });
+                )? {
+                    results.push(BlockGcScanResult {
+                        index: i,
+                        span: run,
+                        repair: packed,
+                    });
+                }
                 i += run;
                 continue;
             }
-            if let Some(repair) = by_block[i].take() {
-                compacted_results.push(BlockGcScanResult {
+            let block = &self.blocks[i];
+            if !(skip_clean_blocks && !doc_exist.any_gone(block.first_doc_id, block.last_doc_id))
+                && let Some(fixed) = block.repair(
+                    i,
+                    self.expiration.get(i),
+                    |id| doc_exist.exists(id),
+                    repair.as_mut(),
+                    PhantomData::<E>,
+                )?
+            {
+                results.push(BlockGcScanResult {
                     index: i,
                     span: 1,
-                    repair,
+                    repair: fixed,
                 });
             }
             i += 1;
         }
-        Ok(compacted_results)
+        Ok((!results.is_empty()).then(|| GcScanDelta {
+            last_block_idx: last_idx,
+            last_block_num_entries: self.blocks[last_idx].num_entries,
+            deltas: results,
+        }))
     }
 
     pub fn apply_gc(&mut self, delta: GcScanDelta) -> GcApplyInfo {
