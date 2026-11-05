@@ -28,7 +28,7 @@ def runTestWithSeed(env, s=None):
     loop_count = int(count / cleaning_loops)
 
     ### test increasing integers
-    env.expect(config_cmd() + ' set THREAD_GC_CLEAN_THRESHOLD 0').ok()
+    set_thread_gc_config(env, clean_threshold=0)
 
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     check_index_info(env, idx, 0, 0, "initial")
@@ -141,7 +141,7 @@ def testMemoryAfterDrop(env):
     pl = env.getConnection().pipeline()
 
     env.cmd('FLUSHALL')
-    env.cmd(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0)
+    set_thread_gc_config(env, clean_threshold=0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -174,7 +174,7 @@ def testIssue1497(env):
 
     env.cmd('FLUSHALL')
     waitForRdbSaveToFinish(env)
-    env.cmd(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0)
+    set_thread_gc_config(env, clean_threshold=0)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'tg', 'TAG', 'g', 'GEO').ok()
 
     res = env.cmd('ft.info', 'idx')
@@ -205,7 +205,7 @@ def testMemoryAfterDrop_numeric(env):
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
-    env.execute_command(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0)
+    set_thread_gc_config(env, clean_threshold=0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'n', 'NUMERIC').ok()
@@ -238,7 +238,7 @@ def testMemoryAfterDrop_geo(env):
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
-    env.execute_command(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0)
+    set_thread_gc_config(env, clean_threshold=0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'g', 'GEO').ok()
@@ -271,7 +271,7 @@ def testMemoryAfterDrop_text(env):
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
-    env.execute_command(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0)
+    set_thread_gc_config(env, clean_threshold=0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 't', 'TEXT').ok()
@@ -302,7 +302,7 @@ def testMemoryAfterDrop_tag(env):
     pl = env.getConnection().pipeline()
 
     env.execute_command('FLUSHALL')
-    env.execute_command(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0)
+    set_thread_gc_config(env, clean_threshold=0)
 
     for i in range(idx_count):
         env.expect('FT.CREATE', 'idx%d' % i, 'PREFIX', 1, '%ddoc' % i, 'SCHEMA', 'tg', 'TAG').ok()

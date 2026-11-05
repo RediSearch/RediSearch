@@ -109,7 +109,7 @@ def testBasic(env):
 
     conn = getConnectionByEnv(env)
 
-    conn.execute_command(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', 0)
+    conn.execute_command('CONFIG', 'SET', 'search-thread-gc-clean-threshold', 0)
 
     env.expect('FT.CREATE', 'idx1', 'ON', 'JSON', 'SCHEMA', '$..loc[*]', 'AS', 'loc', 'GEO').ok()
     env.expect('FT.CREATE', 'idx2', 'ON', 'JSON', 'SCHEMA',

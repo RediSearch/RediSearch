@@ -359,7 +359,7 @@ def testInfoAndGC(env):
 
     printSeed(env)
 
-    env.expect(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', 0).ok()
+    set_thread_gc_config(env, clean_threshold=0)
 
     # Various lambdas to create and delete docs
     def create_json_docs_multi(env, doc_num):
@@ -659,7 +659,7 @@ def checkUpdateNumRecords(env, is_json):
         env.skip()
     conn = getConnectionByEnv(env)
 
-    env.expect(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', 0).ok()
+    set_thread_gc_config(env, clean_threshold=0)
 
     if is_json:
         env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.val', 'AS', 'val', 'NUMERIC').ok()

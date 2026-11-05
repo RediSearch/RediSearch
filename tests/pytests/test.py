@@ -1422,7 +1422,7 @@ def testTagErrors(env):
 
 @skip(cluster=True)
 def testGeoDeletion(env):
-    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).ok()
+    set_thread_gc_config(env, clean_threshold=0)
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema',
             'g1', 'geo', 'g2', 'geo', 't1', 'text')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -3669,7 +3669,7 @@ def testIssue1169(env):
 def testIssue1184(env):
 
     field_types = ['TEXT', 'NUMERIC', 'TAG', 'GEO']
-    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).ok()
+    set_thread_gc_config(env, clean_threshold=0)
     num_docs = 5
 
     for ft in field_types:
