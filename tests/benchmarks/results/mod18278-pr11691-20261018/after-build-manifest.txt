@@ -1,0 +1,53 @@
+af82b359e2a293a1824d4dc32f841e7c440d5f30 6fa99d7e9eee0b60fc59117c7120feb66972bf5e [MOD-18169] Pass ALTER-added field range to the reindex so added vector fields insert without a compare (#11691)
+ fcdeb37b1c264c00ad2e8176d91cc2c0d071625a deps/VectorSimilarity (v8.2.12-60-gfcdeb37b)
+ 6910c9d9165801d8827d628cb72eb7ea9dd538c5 deps/googletest (release-1.8.0-3518-g6910c9d9)
+ bd01f10daf773b622260ea3c7daf8a64df50acb1 deps/hiredis (v1.0.2-280-gbd01f10)
+ e9f29cb984231524e3931aa0ae2c5dae1a32884e deps/libuv (v1.48.0)
+ 4764395431c8f2a0b4fe18b816ab1fc966a45837 deps/snowball (v2.1.0)
+e1998e6cd7420ea8acf265a6852fe6a436346aa8d3d01ad15a8bc853fcc52e04  /home/ubuntu/mod18278-pr11691-20261018/after.so
+gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+Redis server v=8.9.241 sha=d3abc02f:0 malloc=jemalloc-5.3.0 bits=64 build=ca913d1e3fdd976f
+755d96455ec7e6be37df84e0e3b3a75db9b5fc9ca8a4cefcb5f7f3b3f969f2e4  /home/ubuntu/wt/redis-mod18278/src/redis-server
+Architecture:                            x86_64
+CPU op-mode(s):                          32-bit, 64-bit
+Address sizes:                           46 bits physical, 48 bits virtual
+Byte Order:                              Little Endian
+CPU(s):                                  16
+On-line CPU(s) list:                     0-15
+Vendor ID:                               GenuineIntel
+Model name:                              Intel(R) Xeon(R) Platinum 8375C CPU @ 2.90GHz
+CPU family:                              6
+Model:                                   106
+Thread(s) per core:                      2
+Core(s) per socket:                      8
+Socket(s):                               1
+Stepping:                                6
+BogoMIPS:                                5799.91
+Flags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology nonstop_tsc cpuid aperfmperf tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c rdrand hypervisor lahf_lm abm 3dnowprefetch cpuid_fault ssbd ibrs ibpb stibp ibrs_enhanced fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves wbnoinvd ida arat avx512vbmi pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg tme avx512_vpopcntdq rdpid md_clear flush_l1d arch_capabilities
+Hypervisor vendor:                       KVM
+Virtualization type:                     full
+L1d cache:                               384 KiB (8 instances)
+L1i cache:                               256 KiB (8 instances)
+L2 cache:                                10 MiB (8 instances)
+L3 cache:                                54 MiB (1 instance)
+NUMA node(s):                            1
+NUMA node0 CPU(s):                       0-15
+Vulnerability Gather data sampling:      Unknown: Dependent on hypervisor status
+Vulnerability Ghostwrite:                Not affected
+Vulnerability Indirect target selection: Mitigation; Aligned branch/return thunks
+Vulnerability Itlb multihit:             Not affected
+Vulnerability L1tf:                      Not affected
+Vulnerability Mds:                       Not affected
+Vulnerability Meltdown:                  Not affected
+Vulnerability Mmio stale data:           Mitigation; Clear CPU buffers; SMT Host state unknown
+Vulnerability Old microcode:             Not affected
+Vulnerability Reg file data sampling:    Not affected
+Vulnerability Retbleed:                  Not affected
+Vulnerability Spec rstack overflow:      Not affected
+Vulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl
+Vulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+Vulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; PBRSB-eIBRS SW sequence; BHI SW loop, KVM SW loop
+Vulnerability Srbds:                     Not affected
+Vulnerability Tsa:                       Not affected
+Vulnerability Tsx async abort:           Not affected
+Vulnerability Vmscape:                   Not affected
