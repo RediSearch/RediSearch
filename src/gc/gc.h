@@ -178,6 +178,8 @@ static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
 }
 
 void GC_ThreadPoolStart();
+// Resize a started GC pool to what the policy and search-gc-threads call for.
+void GC_ThreadPoolSetSize(void);
 void GC_ThreadPoolDestroy();
 // Stop the GC pool from pulling new jobs. Returns immediately; use GC_ThreadPoolWaitForPause
 // to wait out the ones already running.

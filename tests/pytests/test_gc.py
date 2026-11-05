@@ -932,9 +932,9 @@ def testGCContinueScheduleDuringRun_MOD_17309():
     # Release the parked run. SIGNAL also disarms, so nothing parks again.
     env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
 
-    # GC_WAIT_FOR_JOBS queues a marker at the end of the single-threaded pool and blocks until
-    # it runs, so it drains the parked run and any duplicate queued behind it. That is a
-    # barrier rather than a wall-clock window: no poll can be descheduled past a stray cycle.
+    # GC_WAIT_FOR_JOBS returns once the GC pool has nothing queued or running, so it drains the
+    # parked run and any duplicate queued behind it: no wall-clock window a stray cycle could
+    # slip past.
     env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
     completed = gcCycles(env, 'idx')
     env.assertEqual(completed, before + 1,
