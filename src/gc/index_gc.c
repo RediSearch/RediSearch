@@ -47,16 +47,19 @@ void IndexGC_TakeDeferredDeletes(IndexGC *gc, IndexSpec *sp) {
 // The deletions a scheduled cycle waits for; under THREAD it grows with the index.
 static size_t cleanThreshold(IndexSpec *sp) {
   const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
-  const size_t ppm = settings->gcCleanRatioPpm;
-  if (!threadPolicyEnabled() || !ppm) {
+  if (!threadPolicyEnabled()) {
     return settings->forkGcCleanThreshold;
+  }
+  const size_t ppm = settings->gcCleanRatioPpm;
+  if (!ppm) {
+    return settings->threadGcCleanThreshold;
   }
   IndexSpec_LockRead(sp);
   const size_t docs = sp->stats.scoring.numDocuments;
   IndexSpec_Unlock(sp);
   // Split so the product cannot overflow.
   const size_t share = docs / 1000000 * ppm + docs % 1000000 * ppm / 1000000;
-  return MAX(settings->forkGcCleanThreshold, share);
+  return MAX(settings->threadGcCleanThreshold, share);
 }
 
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook) {
@@ -154,7 +157,9 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
       .index = StrongRef_Demote(spec_ref),
       .deletedOrUpdatedDocsFromLastRun = 0,
   };
-  forkGc->retryIntervalMs = GC_IntervalSecToMs(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
+  forkGc->retryIntervalMs = GC_IntervalSecToMs(threadPolicyEnabled()
+                                                    ? RSGlobalConfig.gcConfigParams.gcSettings.threadGcRunIntervalSec
+                                                    : RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
 
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
   forkGc->ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);

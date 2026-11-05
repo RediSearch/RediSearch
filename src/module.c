@@ -4964,7 +4964,7 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
   }
 
   // Load default values
-  RM_TRY_F(RSConfig_LoadDefaultConfigs, ctx);
+  RM_TRY_F(RedisModule_LoadDefaultConfigs, ctx);
 
   char *err = NULL;
   // Read module configuration from module ARGS
@@ -4987,7 +4987,6 @@ static int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **
     RedisModule_Log(ctx, "warning", "Could not run RedisModule_LoadConfigs(ctx)");
     return REDISMODULE_ERR;
   }
-  RSConfig_ApplyGcPolicyDefaults();
   if (RSGlobalConfig.diskMinMemoryBudgetPercentage >
       RSGlobalConfig.diskMaxMemoryPercentage) {
     RedisModule_Log(ctx, "warning",
