@@ -11,8 +11,8 @@ if ! command -v apt_install >/dev/null 2>&1; then
 fi
 
 coverage_arch="$(uname -m)"
-if [[ "${OS:-}" != ubuntu_* || "$coverage_arch" != x86_64 || "$PM" != apt ]]; then
-    echo "coverage bootstrap is supported only on Ubuntu x86_64; found OS=${OS:-unknown}, architecture=$coverage_arch" >&2
+if [[ ("${OS:-}" != ubuntu_* && "${OS:-}" != debian_*) || "$coverage_arch" != x86_64 || "$PM" != apt ]]; then
+    echo "coverage bootstrap is supported only on Ubuntu and Debian x86_64; found OS=${OS:-unknown}, architecture=$coverage_arch" >&2
     return 1 2>/dev/null || exit 1
 fi
 
