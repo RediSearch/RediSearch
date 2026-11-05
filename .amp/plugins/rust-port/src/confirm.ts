@@ -12,7 +12,7 @@ import { git, runChecks, type Check, type CheckResult } from './checks.ts';
 import { parseDiff } from './gates.ts';
 import type { Stage } from './plan.ts';
 import { isRule, isTest, RUNNERS } from './redisearch.ts';
-import { anchor, defines, verify } from './refs.ts';
+import { anchor, verify } from './refs.ts';
 import type { Proposal, Review } from './review.ts';
 import { nonTest } from './rules.ts';
 import { hash, type NewFinding, type Repro } from './state.ts';
@@ -116,10 +116,10 @@ async function trial(run: Run, patch: string, checks: Check[]): Promise<CheckRes
 /** Runs a reproduction's command, with its test patched in unless the candidate already has it. */
 export async function reproduction(run: Run, repro: Repro, kind: string) {
   const check = [{ kind, command: repro.command }];
-  const present = await readFile(join(run.root, repro.path), 'utf8').then(
-    (text) => defines(text, repro.test),
-    () => false,
-  );
+  // Present only verbatim: a weakened test of the same name must not stand in for it.
+  const added = parseDiff(repro.patch).find((f) => f.path === repro.path)?.added ?? [];
+  const text = await readFile(join(run.root, repro.path), 'utf8').catch(() => undefined);
+  const present = text !== undefined && added.length > 0 && added.every((l) => text.includes(l));
   return present
     ? (await runChecks(run.root, run.dir, check, run.signal, run.debug, run.vars))[0]
     : trial(run, repro.patch, check).then((r) => (typeof r === 'string' ? r : r[0]));

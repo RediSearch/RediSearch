@@ -8,6 +8,8 @@
  */
 
 const TEST_GATE = '#[cfg(test)]';
+// Strings, char literals and comments are skipped whole, so a gate or brace in them does not count.
+const LITERAL = /b?r(#*)"[\s\S]*?"\1|"(\\.|[^"\\])*"|'(\\.|[^'\\])'|\/\/[^\n]*|\/\*[\s\S]*?\*\//y;
 
 /**
  * A house rule, as far as a pattern can catch it. Each is a ratchet: a file may not have more
@@ -33,27 +35,28 @@ export function violations(rules: Rule[], path: string, before: string | undefin
  */
 export function nonTest(text: string): string {
   let kept = '';
-  let rest = text;
-  for (let at = rest.indexOf(TEST_GATE); at !== -1; at = rest.indexOf(TEST_GATE)) {
-    kept += rest.slice(0, at);
-    let depth = 0;
-    let end = rest.length;
-    // Strings, char literals and comments are skipped whole, so their braces do not count.
-    const skip = /b?r(#*)"[\s\S]*?"\1|"(\\.|[^"\\])*"|'(\\.|[^'\\])'|\/\/[^\n]*|\/\*[\s\S]*?\*\//y;
-    for (let i = at + TEST_GATE.length; i < rest.length; i++) {
-      skip.lastIndex = i;
-      if (skip.test(rest)) {
-        i = skip.lastIndex - 1;
-        continue;
-      }
-      if (rest[i] === '{') depth++;
-      else if (rest[i] === '}' && --depth === 0) end = i + 1;
-      else if (rest[i] === ';' && depth === 0) end = i + 1;
-      if (end !== rest.length) break;
+  let from = 0;
+  let gate = -1;
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    LITERAL.lastIndex = i;
+    if (LITERAL.test(text)) {
+      i = LITERAL.lastIndex - 1;
+      continue;
     }
-    rest = rest.slice(end);
+    if (gate < 0) {
+      if (!text.startsWith(TEST_GATE, i)) continue;
+      kept += text.slice(from, i);
+      gate = i;
+      depth = 0;
+      i += TEST_GATE.length - 1;
+    } else if (text[i] === '{') depth++;
+    else if ((text[i] === '}' && --depth === 0) || (text[i] === ';' && depth === 0)) {
+      gate = -1;
+      from = i + 1;
+    }
   }
-  return kept + rest;
+  return gate < 0 ? kept + text.slice(from) : kept;
 }
 export const matches = (text: string, pattern: RegExp) => text.match(pattern)?.length ?? 0;
 

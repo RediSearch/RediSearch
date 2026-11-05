@@ -9898,6 +9898,8 @@ getIpcExport();
  * GNU Affero General Public License v3 (AGPLv3).
  */
 const TEST_GATE = '#[cfg(test)]';
+// Strings, char literals and comments are skipped whole, so a gate or brace in them does not count.
+const LITERAL = /b?r(#*)"[\s\S]*?"\1|"(\\.|[^"\\])*"|'(\\.|[^'\\])'|\/\/[^\n]*|\/\*[\s\S]*?\*\//y;
 /** What `path` breaks of `rules` that it did not already break at `before`. */
 function violations(rules, path, before, after) {
     return rules
@@ -9910,31 +9912,31 @@ function violations(rules, path, before, after) {
  */
 function nonTest(text) {
     let kept = '';
-    let rest = text;
-    for (let at = rest.indexOf(TEST_GATE); at !== -1; at = rest.indexOf(TEST_GATE)) {
-        kept += rest.slice(0, at);
-        let depth = 0;
-        let end = rest.length;
-        // Strings, char literals and comments are skipped whole, so their braces do not count.
-        const skip = /b?r(#*)"[\s\S]*?"\1|"(\\.|[^"\\])*"|'(\\.|[^'\\])'|\/\/[^\n]*|\/\*[\s\S]*?\*\//y;
-        for (let i = at + TEST_GATE.length; i < rest.length; i++) {
-            skip.lastIndex = i;
-            if (skip.test(rest)) {
-                i = skip.lastIndex - 1;
-                continue;
-            }
-            if (rest[i] === '{')
-                depth++;
-            else if (rest[i] === '}' && --depth === 0)
-                end = i + 1;
-            else if (rest[i] === ';' && depth === 0)
-                end = i + 1;
-            if (end !== rest.length)
-                break;
+    let from = 0;
+    let gate = -1;
+    let depth = 0;
+    for (let i = 0; i < text.length; i++) {
+        LITERAL.lastIndex = i;
+        if (LITERAL.test(text)) {
+            i = LITERAL.lastIndex - 1;
+            continue;
         }
-        rest = rest.slice(end);
+        if (gate < 0) {
+            if (!text.startsWith(TEST_GATE, i))
+                continue;
+            kept += text.slice(from, i);
+            gate = i;
+            depth = 0;
+            i += TEST_GATE.length - 1;
+        }
+        else if (text[i] === '{')
+            depth++;
+        else if ((text[i] === '}' && --depth === 0) || (text[i] === ';' && depth === 0)) {
+            gate = -1;
+            from = i + 1;
+        }
     }
-    return kept + rest;
+    return gate < 0 ? kept + text.slice(from) : kept;
 }
 const matches = (text, pattern) => text.match(pattern)?.length ?? 0;
 /**
@@ -10274,6 +10276,8 @@ async function judgeBenchmarks(dirs, since, slowdownPercent = SLOWDOWN_PERCENT) 
 /** A port lands as two stacked PRs: the Rust, then the swap that deletes the C. */
 const STAGES = ['rust', 'swap'];
 const POLICY = '.amp/plugins/rust-port/policy.md';
+/** The start of a GitHub remote URL, before the repository: HTTPS, SSH or scp-style. */
+const GITHUB = /^(https:\/\/([^@/]+@)?github\.com\/|ssh:\/\/([^@/]+@)?github\.com\/|[^@/:]+@github\.com:)/i;
 /** The tests the plan cites up to `stage`: a stage's candidate must contain them and run them. */
 const cited = (plan, stage) => [...plan.contract.flatMap((c) => c.tests), ...plan.divergences.map((d) => d.test)].filter((t) => STAGES.indexOf(t.stage) <= STAGES.indexOf(stage));
 const blank = (text) => typeof text !== 'string' || !text.trim();
@@ -10378,7 +10382,9 @@ function declarations(header) {
 async function inspect(plan, root, git) {
     const problems = [];
     const url = await git(['remote', 'get-url', plan.remote]).catch(() => '');
-    if (!new RegExp(`[/@]github\\.com[/:]${plan.repository.replace(/\./g, '\\.')}(\\.git)?/?$`, 'i').test(url))
+    const path = url.replace(GITHUB, '');
+    if (path === url ||
+        !new RegExp(`^${plan.repository.replace(/\./g, '\\.')}(\\.git)?/?$`, 'i').test(path))
         problems.push(`remote ${plan.remote} is not github.com/${plan.repository}, where the PRs open`);
     for (const stage of STAGES) {
         const branch = `${plan.branchPrefix}-${stage}`;
@@ -11084,7 +11090,10 @@ async function trial(run, patch, checks) {
 /** Runs a reproduction's command, with its test patched in unless the candidate already has it. */
 async function reproduction(run, repro, kind) {
     const check = [{ kind, command: repro.command }];
-    const present = await readFile(join(run.root, repro.path), 'utf8').then((text) => defines(text, repro.test), () => false);
+    // Present only verbatim: a weakened test of the same name must not stand in for it.
+    const added = parseDiff(repro.patch).find((f) => f.path === repro.path)?.added ?? [];
+    const text = await readFile(join(run.root, repro.path), 'utf8').catch(() => undefined);
+    const present = text !== undefined && added.length > 0 && added.every((l) => text.includes(l));
     return present
         ? (await runChecks(run.root, run.dir, check, run.signal, run.debug, run.vars))[0]
         : trial(run, repro.patch, check).then((r) => (typeof r === 'string' ? r : r[0]));
@@ -15742,8 +15751,11 @@ async function github(cwd, repository) {
             const fetched = o.existing
                 ? (await octokit.rest.pulls.get({ owner, repo, pull_number: o.existing.number })).data
                 : undefined;
-            // A merged or closed PR cannot carry a new candidate: a new one replaces it.
-            const current = fetched?.state === 'open' ? fetched : undefined;
+            // A merged or closed PR cannot carry a new candidate: a new one replaces it. A merged one
+            // still takes a new description for the candidate it merged, such as the retrospective.
+            const current = fetched?.state === 'open' || (fetched?.merged && o.existing.head === o.candidate)
+                ? fetched
+                : undefined;
             // The lease refuses to overwrite anything but this job's last publication, or, with none, a
             // branch that exists at all. A retry after a successful push, including one whose PR
             // creation then failed, needs only the unfinished metadata update.
