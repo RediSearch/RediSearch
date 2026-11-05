@@ -54,6 +54,9 @@ Look for inputs or states that break a contract item, behave differently from C 
 listed divergence, crash on user input or are undefined behavior; for a deliverable that is
 incomplete or departs from the recorded interfaces; and for build scripts, lint exclusions and
 CI paths the change breaks. Prove each behavior defect with a failing test as its repro.
+Check that each contract item has tests named for the behavior they assert, and that an item
+holding over a range of inputs, such as a conversion, a bound or an ordering, has a property
+test over generated inputs rather than a few hand-picked values; cite the repository rule.
 At the FFI boundary, check every pointer for three things separately, because one does not imply
 another: initialization (writable memory may be uninitialized, so write through the raw pointer
 instead of making a reference to it), aliasing (no reference may overlap another live one or
