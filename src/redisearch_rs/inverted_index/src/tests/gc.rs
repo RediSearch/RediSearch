@@ -1337,17 +1337,37 @@ fn under_filled_runs_are_compacted_into_one_block() {
     assert!(!ii.has_compactable_run());
 }
 
-/// A run whose merged entries would not fit fewer blocks (here the codec's delta
-/// cannot span the gap) is left to per-block repair, so a clean one yields no delta.
+/// Blocks the codec's delta cannot span form no run, so a clean index is not copied or
+/// rescanned every cycle for a merge that would split back into the same blocks; a
+/// dirty block among them is still repaired on its own.
 #[test]
-fn a_run_that_would_not_shrink_is_not_compacted() {
+fn blocks_the_delta_cannot_span_form_no_run() {
     let far = 1 << 33;
     let ii = InvertedIndex::<Dummy>::from_blocks(
         IndexFlags_Index_DocIdsOnly,
         medium_thin_vec![block(&[1]), block(&[far]), block(&[far + 1])],
     );
-    assert!(ii.has_compactable_run());
+    assert!(!ii.has_compactable_run());
+    assert!(
+        ii.gc_snapshot(&Gone(vec![]), GcSnapshotScope::DirtyBlocks)
+            .is_none()
+    );
     assert_eq!(ii.scan_gc(Gone(vec![]), None::<NoRepair>).unwrap(), None);
+
+    let delta = ii
+        .scan_gc(Gone(vec![1]), None::<NoRepair>)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        delta.deltas,
+        vec![BlockGcScanResult {
+            index: 0,
+            span: 1,
+            repair: RepairType::Delete {
+                n_unique_docs_removed: 1,
+            },
+        }]
+    );
 }
 
 /// The last block is the one writers append to and the one the apply checks for
