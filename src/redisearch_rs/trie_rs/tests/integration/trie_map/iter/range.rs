@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::time::Instant;
+
 use lending_iterator::LendingIterator;
 use trie_rs::{
     TrieMap,
@@ -217,6 +219,27 @@ fn excluded_empty_lower_bound_skips_empty_key() {
         got.is_empty(),
         "excluded empty min leaked the empty key: {got:?}"
     );
+}
+
+#[test]
+fn an_elapsed_deadline_stops_the_walk_early() {
+    // Several times the steps the iterator walks between two clock probes (the
+    // crate-private `TIMEOUT_CHECK_GRANULARITY`), so an elapsed deadline must
+    // cut the walk short. Kept small because inserting the keys dominates the
+    // test's cost under Miri.
+    const KEYS: u32 = 300;
+    let mut trie = TrieMap::new();
+    for i in 0..KEYS {
+        trie.insert(format!("a{i:04}").as_bytes(), i);
+    }
+
+    let mut iter: RangeLendingIter<_> = trie.range_iter(RangeFilter::all()).into();
+    iter.set_timeout(Some(Instant::now()));
+    let mut yielded = 0;
+    while LendingIterator::next(&mut iter).is_some() {
+        yielded += 1;
+    }
+    assert!(yielded < KEYS as usize, "the walk yielded {yielded} keys");
 }
 
 mod property_based {

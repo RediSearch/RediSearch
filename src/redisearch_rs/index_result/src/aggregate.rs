@@ -227,9 +227,8 @@ impl<'a> RSBorrowedAggregateResult<'a> {
 
     /// Create an owned copy of this aggregate result, allocating new memory for the records.
     ///
-    /// The returned aggregate result will have the same lifetime as the original one,
-    /// since it may borrow terms from the original result.
-    pub fn to_owned(&'a self) -> RSOwnedAggregateResult<'a> {
+    /// See [`RSIndexResult::to_owned`] for what the copy still shares.
+    pub fn to_owned(&self) -> RSOwnedAggregateResult<'a> {
         let mut records = MediumThinVec::with_capacity(self.records.len());
 
         records.extend(
@@ -343,9 +342,8 @@ impl<'a> RSOwnedAggregateResult<'a> {
 
     /// Create an owned copy of this aggregate result, allocating new memory for the records.
     ///
-    /// The returned aggregate result will have the same lifetime as the original one,
-    /// since it may borrow terms from the original result.
-    pub fn to_owned(&'a self) -> RSOwnedAggregateResult<'a> {
+    /// See [`RSIndexResult::to_owned`] for what the copy still shares.
+    pub fn to_owned(&self) -> RSOwnedAggregateResult<'a> {
         let mut records = MediumThinVec::with_capacity(self.records.len());
 
         records.extend(
@@ -538,9 +536,8 @@ impl<'a> RSAggregateResult<'a> {
 
     /// Create an owned copy of this aggregate result, allocating new memory for the records.
     ///
-    /// The returned aggregate result will have the same lifetime as the original one,
-    /// since it may borrow terms from the original result.
-    pub fn to_owned(&'a self) -> RSAggregateResult<'a> {
+    /// See [`RSIndexResult::to_owned`] for what the copy still shares.
+    pub fn to_owned(&self) -> RSAggregateResult<'a> {
         match self {
             Self::Borrowed(agg) => Self::Owned(agg.to_owned()),
             Self::Owned(agg) => Self::Owned(agg.to_owned()),

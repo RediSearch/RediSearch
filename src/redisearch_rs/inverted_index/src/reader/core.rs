@@ -12,7 +12,7 @@ use std::{io::Cursor, marker::PhantomData, ptr::NonNull, sync::atomic};
 use ref_mode::{Active, Ref, SharedPtr, Suspended};
 
 use super::{
-    IndexReader, NumericReader, PointsToOpaqueIndex, RefreshOutcome, ResumableReader,
+    IndexReader, NumericReader, PointsToOpaqueIndex, RefreshOutcome, ReseatIndex, ResumableReader,
     SuspendableReader, TermReader,
 };
 use crate::{
@@ -116,10 +116,52 @@ impl<Rf: Ref, E: Encoder> RawIndexReaderCore<Rf, E> {
     /// new one is allocated at the same address, the unique IDs will differ.
     ///
     /// Reads only the raw `ii` pointer and the cached `ii_unique_id` — it never
-    /// dereferences the index — so leaves (`Tag`, `Term`, …) can call it from
-    /// their suspended-side `should_abort` checks.
+    /// dereferences the index — so leaves can call it on their suspended form,
+    /// before deciding whether to [reseat](Self::reseat_index) the reader.
     pub fn points_to_ii(&self, index: &InvertedIndex<E>) -> bool {
         std::ptr::eq(self.ii.as_raw(), index) && self.ii_unique_id == index.unique_id()
+    }
+
+    /// Adopt `ii`'s provenance for this reader's index pointer.
+    ///
+    /// The pointer [`new`](RawIndexReaderCore::new) installs descends from the
+    /// `&InvertedIndex` it is handed. Any `&mut` taken on that index afterwards —
+    /// by a writer appending to it or by a garbage-collection pass — invalidates
+    /// the derivation while leaving the address and unique id alone, so reading
+    /// through it is undefined behaviour even though
+    /// [`points_to_ii`](RawIndexReaderCore::points_to_ii) still answers `true`.
+    /// Revalidation re-resolves the index through its owner anyway in order to
+    /// *ask* that question; this installs the answer's fresh derivation, so every
+    /// later read goes through a live one.
+    ///
+    /// Laundering, not a swap: `ii` must be the index the reader already reads.
+    /// [`swap_index`](RawIndexReaderCore::swap_index) is the latter.
+    ///
+    /// # Safety
+    ///
+    /// 1. `ii` must point to the index this reader already reads, as
+    ///    [`points_to_ii`](RawIndexReaderCore::points_to_ii) defines it.
+    /// 2. `ii` must have been derived after the last write to the index, typically
+    ///    by resolving it again through its owner. A pointer obtained before that
+    ///    write — the reader's own included — does not qualify.
+    /// 3. From this call until the reader is next suspended across a lock release,
+    ///    or dropped, the index must stay allocated, must not be written to, and
+    ///    no `&mut` to it may exist. A write after that point must be followed by
+    ///    another reseat before the reader reads again. On an [`Active`] reader
+    ///    this is what stands in for the `'index` lifetime of the reference
+    ///    installed.
+    pub unsafe fn reseat_index(&mut self, ii: NonNull<InvertedIndex<E>>) {
+        debug_assert!(
+            // SAFETY: 3. makes `ii` valid for reads.
+            self.points_to_ii(unsafe { ii.as_ref() }),
+            "reseat must not move the reader to a different index"
+        );
+
+        // SAFETY: 3. upholds the `Active` invariant for as long as the reader reads
+        // through the pointer. Unlike the one `new` installs, it stays valid: by 2.
+        // `ii` postdates the last write, so it is not an heir of a pointer a write
+        // invalidated.
+        self.ii = unsafe { SharedPtr::from_non_null_unchecked(ii) };
     }
 }
 
@@ -220,7 +262,7 @@ impl<'index, E: DecodedBy<Decoder = D> + 'index, D: Decoder + NumericDecoder> Nu
 /// it against this reader's own `ii` pointer, via
 /// [`E::from_opaque`](crate::DecodedBy) and
 /// [`points_to_ii`](RawIndexReaderCore::points_to_ii). Implemented for every `Rf`
-/// so leaves (`Term`) can call it from their suspended-side `should_abort` checks.
+/// so leaves (`Term`) can call it on their suspended form, before reseating.
 impl<Rf: Ref, E: DecodedBy<Decoder = D> + OpaqueEncoding, D: Decoder + TermDecoder>
     PointsToOpaqueIndex for RawIndexReaderCore<Rf, E>
 where
@@ -230,6 +272,22 @@ where
         let storage = E::from_opaque(opaque);
         let ii = storage.inner_index();
         self.points_to_ii(ii)
+    }
+}
+
+/// Resolves the opaque index to the typed one it holds, as
+/// [`PointsToOpaqueIndex`] does, and reseats on that.
+impl<Rf: Ref, E: DecodedBy<Decoder = D> + OpaqueEncoding, D: Decoder + TermDecoder>
+    ReseatIndex<crate::opaque::InvertedIndex> for RawIndexReaderCore<Rf, E>
+where
+    E::Storage: HasInnerIndex<E>,
+{
+    unsafe fn reseat(&mut self, index: NonNull<crate::opaque::InvertedIndex>) {
+        // SAFETY: the trait's contract makes `index` valid for reads.
+        let ii = E::from_opaque(unsafe { index.as_ref() }).inner_index();
+        // SAFETY: derived from `index`, so it inherits the requirements the caller
+        // upholds for it.
+        unsafe { self.reseat_index(NonNull::from(ii)) }
     }
 }
 

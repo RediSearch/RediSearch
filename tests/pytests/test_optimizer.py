@@ -113,7 +113,8 @@ def testOptimizer(env):
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
                         ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 801, 'Estimated number of matches', 10000]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Index', 'Results processed', 10,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Loader', 'Results processed', 10],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 15]', 'SORTBY', 'n', *params)
@@ -135,7 +136,8 @@ def testOptimizer(env):
                             ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 600, 'Estimated number of matches', 3200],
                             ['Type', 'NUMERIC', 'Term', '16 - 54', 'Number of reading operations', 600, 'Estimated number of matches', 8000]]]]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 1200],
+                    ['Type', 'Index', 'Results processed', 1200,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 1200],
                     ['Type', 'Scorer', 'Results processed', 1200],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo @n:[10 20]', *params)
@@ -157,7 +159,8 @@ def testOptimizer(env):
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
                         ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 1401, 'Estimated number of matches', 10000]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Index', 'Results processed', 10,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Loader', 'Results processed', 10],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', *params)
@@ -178,7 +181,8 @@ def testOptimizer(env):
                         ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 19, 'Estimated number of matches', 3200],
                         ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 13, 'Estimated number of matches', 10000]]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 9],
+                    ['Type', 'Index', 'Results processed', 9,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 15]', *params)
     env.assertEqual(res[0][1:], ['10', '12', '14', '110', '112', '114', '210', '212', '214', '310'])
@@ -198,7 +202,8 @@ def testOptimizer(env):
     profiler =  {'Iterators profile':
                     ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 1200, 'Estimated number of matches', 3200],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 1200],
+                    ['Type', 'Index', 'Results processed', 1200,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 1200],
                     ['Type', 'Loader', 'Results processed', 1200],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', 'SORTBY', 'n', *params)
@@ -217,7 +222,8 @@ def testOptimizer(env):
     profiler =  {'Iterators profile':
                     ['Type', 'NUMERIC', 'Term', '0 - 14', 'Number of reading operations', 10, 'Estimated number of matches', 3200],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 9],
+                    ['Type', 'Index', 'Results processed', 9,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', *params)
     env.assertEqual(res[0], [1, '10', '11', '12', '13', '14', '15', '110', '111', '112', '113'])
@@ -238,7 +244,8 @@ def testOptimizer(env):
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
                         ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 1800, 'Estimated number of matches', 10000]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Index', 'Results processed', 10,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Loader', 'Results processed', 10],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo', 'SORTBY', 'n', *params)
@@ -260,7 +267,8 @@ def testOptimizer(env):
     profiler =  {'Iterators profile':
                     ['Type', 'TEXT', 'Term', 'foo', 'Number of reading operations', 10000, 'Estimated number of matches', 10000],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10000],
+                    ['Type', 'Index', 'Results processed', 10000,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10000],
                     ['Type', 'Scorer', 'Results processed', 10000],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', 'foo', *params)
@@ -282,7 +290,8 @@ def testOptimizer(env):
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
                         ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 1800, 'Estimated number of matches', 10000]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Index', 'Results processed', 10,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Loader', 'Results processed', 10],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', 'SORTBY', 'n', *params)
@@ -301,7 +310,8 @@ def testOptimizer(env):
     profiler =  {'Iterators profile':
                     ['Type', 'TAG', 'Term', 'foo', 'Number of reading operations', 10, 'Estimated number of matches', 10000],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 9],
+                    ['Type', 'Index', 'Results processed', 9,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', *params)
     env.assertEqual(res[0][1:], ['0', '2', '4', '6', '8', '10', '12', '14', '16', '18'])
@@ -322,7 +332,8 @@ def testOptimizer(env):
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
                         ['Type', 'WILDCARD', 'Number of reading operations', 3400]],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 10],
+                    ['Type', 'Index', 'Results processed', 10,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Loader', 'Results processed', 10],
                     ['Type', 'Sorter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', 'SORTBY', 'n', *params)
@@ -341,7 +352,8 @@ def testOptimizer(env):
     profiler =  {'Iterators profile':
                     ['Type', 'WILDCARD', 'Number of reading operations', 10],
                  'Result processors profile': [
-                    ['Type', 'Index', 'Results processed', 9],
+                    ['Type', 'Index', 'Results processed', 9,
+                     'Deleted candidates discarded', 0, 'Candidates not discarded', 10],
                     ['Type', 'Pager/Limiter', 'Results processed', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', *params)
     env.assertEqual(res[0][1:], ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
