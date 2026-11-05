@@ -331,27 +331,6 @@ static void processField(HlpProcessor *hlpCtx, hlpDocContext *docParams, Returne
   }
 }
 
-static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
-  QueryIterator *it = QITR_GetRootFilter(rp->parent);
-  if (!it) return NULL;
-
-  it->Rewind(it);
-  IteratorStatus rc;
-  if (it->SkipTo) {
-    rc = it->SkipTo(it, docId);
-  } else {
-    // If the root iterator does not support SkipTo, we have to read the iterator until we find the
-    // document. This is logically equivalent to SkipTo, especially in this context where we know
-    // that the document was found in the root iterator before.
-    // This is not efficient, but if the root iterator does not support SkipTo, we have no other
-    // choice. Look for "SkipTo = NULL" in the codebase for examples.
-    do {
-      rc = it->Read(it);
-    } while (rc == ITERATOR_OK && it->lastDocId != docId);
-  }
-  return rc == ITERATOR_OK ? it->current : NULL;
-}
-
 static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
   int rc = rbase->upstream->Next(rbase->upstream, r);
   if (rc != RS_RESULT_OK) {
@@ -360,14 +339,14 @@ static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
 
   HlpProcessor *hlp = (HlpProcessor *)rbase;
 
-  // Get the index result for the current document from the root iterator.
-  // The current result should not contain an index result
-  const RSIndexResult *ir = SearchResult_HasIndexResult(r) ? SearchResult_GetIndexResult(r) : getIndexResult(rbase, SearchResult_GetDocId(r));
-
-  // we can't work without the index result, just return QUEUED
-  if (!ir) {
+  // Highlighting makes every buffering processor deep-copy the index result, offsets included,
+  // so a row that reaches us carries its own. One without it is passed through unhighlighted:
+  // looking it up in the root iterator would move the iterator, and the spec read lock may no
+  // longer be held.
+  if (!SearchResult_HasIndexResult(r)) {
     return RS_RESULT_OK;
   }
+  const RSIndexResult *ir = SearchResult_GetIndexResult(r);
 
   size_t numIovsArr = 0;
   const FieldList *fields = hlp->fields;
