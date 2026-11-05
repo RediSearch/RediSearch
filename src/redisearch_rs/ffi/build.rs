@@ -126,15 +126,31 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["RM_SCAN_KEY_API_FIX", "RSGlobalConfig"],
     },
     HeaderAllowlist {
-        path: "src/doc_table.h",
-        fns: &["DMD_Free", "DocTable_Exists", "DocTable_Put"],
+        path: "src/doc_id_meta.h",
+        fns: &["DocIdMeta_Get"],
         types: &[],
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/fork_gc.h",
+        path: "src/doc_table.h",
+        fns: &[
+            "DMD_Free",
+            "DocTable_Exists",
+            "DocTable_FillLiveBitmap",
+            "DocTable_ForEachLiveId",
+            "DocTable_LiveBitmapWords",
+            "DocTable_Put",
+            "DocTable_KeyEquals",
+            "DocTable_StartKeyMap",
+            "DocTable_BuildKeyMapBatch",
+        ],
+        types: &[],
+        vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/gc/index_gc.h",
         fns: &[],
-        types: &["ForkGC"],
+        types: &["IndexGC"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -280,7 +296,7 @@ const HEADERS: &[HeaderAllowlist] = &[
     },
     HeaderAllowlist {
         path: "src/result_processor.h",
-        fns: &["RPProfile_IncrementCount"],
+        fns: &["RPProfile_IncrementCount", "RPQueryIterator_New"],
         types: &["RPStatus"],
         vars: &[],
     },
@@ -389,6 +405,8 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/tag_index.h",
         fns: &[
             "TagIndex_Commit",
+            "TagIndex_DeleteTagSuffix",
+            "TagIndex_DeleteTagValue",
             "TagIndex_Ensure",
             "TagIndex_Free",
             "TagIndex_GetSuffixMatches",
@@ -400,6 +418,16 @@ const HEADERS: &[HeaderAllowlist] = &[
         ],
         types: &[],
         vars: &[],
+    },
+    HeaderAllowlist {
+        path: "src/redisearch_rs/headers/triemap_ffi.h",
+        fns: &[
+            "TrieMap_Iterate",
+            "TrieMapIterator_Free",
+            "TrieMapIterator_Next",
+        ],
+        types: &["TrieMapIterator"],
+        vars: &["TRIEMAP_NOTFOUND"],
     },
     HeaderAllowlist {
         path: "src/trie/levenshtein.h",
@@ -501,11 +529,19 @@ const HEADERS: &[HeaderAllowlist] = &[
         types: &[],
         vars: &[],
     },
-    // `vector_score_source` passes the request-owned `QueryRequestTimeout` directly to VecSim.
+    // `vector_score_source` passes the request-owned `QueryRequestLimits` directly to VecSim.
     HeaderAllowlist {
         path: "src/util/timeout.h",
         fns: &[],
-        types: &["QueryRequestTimeout"],
+        types: &["QueryRequestLimits"],
+        vars: &[],
+    },
+    // Lets a Rust expansion observe a blocked-client cancellation, which publishes a
+    // flag rather than a clock deadline and so is invisible to a deadline-driven walk.
+    HeaderAllowlist {
+        path: "src/query_request.h",
+        fns: &["QueryRequestLimits_IsBlockedClientTimedOut"],
+        types: &[],
         vars: &[],
     },
     // `VecSimSearchMode` (+ `_ToString`) labels the top-k query strategy
@@ -572,6 +608,9 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     "rqe_iterator_type.h",
     // `IteratorsConfig` is embedded by value in `RSGlobalConfig` (src/config.h).
     "rqe_iterators.h",
+    // `QueryIteratorTree` is referenced by `AREQ` (src/aggregate/aggregate.h)
+    // and `QueryPipelineParams` (src/pipeline/pipeline.h).
+    "query_eval.h",
     // `src/rlookup.h` has `static inline` accessors that dereference
     // `RLookupKey` / `RLookupIterator` fields, so the full struct bodies in
     // these three are required. (`rlookup_ffi.h` includes `search_result_rs.h`
@@ -585,6 +624,8 @@ const PERMITTED_GENERATED_HEADERS: &[&str] = &[
     // `src/search_result.h` includes this for the `IndexResult_DeepCopy`
     // declaration used by the inline `SearchResult_TakeOwnedIndexResult`.
     "types_ffi.h",
+    // TAG GC walks the C TagIndex values trie directly.
+    "triemap_ffi.h",
     // `aggregate.h` includes `value_ffi.h`; reachable via
     // `optimizer_reader.h` -> `query_optimizer.h` -> `aggregate.h`.
     "value_ffi.h",

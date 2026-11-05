@@ -245,7 +245,9 @@ void SearchDisk_AsyncLoader_SetSyncCtx(ResultProcessor *rp, QueryRequest *reques
  * @param offsetsLen Length of the offsets data in bytes
  * @return true if successful, false otherwise
  */
-bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask, uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
+bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+                          const char *term, size_t termLen, t_docId docId, t_fieldMask fieldMask,
+                          uint32_t freq, const uint8_t *offsets, size_t offsetsLen);
 
 /**
  * @brief Index multiple tag values for a document
@@ -260,8 +262,6 @@ bool SearchDisk_IndexTerm(RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchH
  * @return true if successful, false otherwise
  */
 bool SearchDisk_IndexTags(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch, const char **values, size_t numValues, t_docId docId, t_fieldIndex fieldIndex);
-
-bool SearchDisk_InitializeMissingStorage(RedisModuleCtx *ctx, RedisSearchDiskIndexSpec *index);
 
 /** Stage absent INDEXMISSING fields in the document batch; false requires aborting it.
  * The field-index array is borrowed only for the call. See IndexDiskAPI.indexMissingFields. */
@@ -531,6 +531,15 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
  *         no numeric index on this handle.
  */
 char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex);
+
+/**
+ * @brief Debug: storage-engine stats text of a disk index, for FT.DEBUG DISK_STATS.
+ *
+ * @param withStatistics Also append the sections shared by every index (block cache and
+ *        statistics enabled by search-_disk-statistics)
+ * @return sds text (release with sdsfree), or NULL if it could not be produced
+ */
+char *SearchDisk_DebugDiskStats(RedisSearchDiskIndexSpec *handle, bool withStatistics);
 
 /**
  * @brief Replace the key name in document metadata for a given document ID
@@ -918,6 +927,11 @@ void SearchDisk_Flush(RedisSearchDiskIndexSpec* index);
  * @param index Pointer to the disk index spec
  */
 void SearchDisk_FlushNoWait(RedisSearchDiskIndexSpec* index);
+
+/**
+ * @brief Debug only: see `compactNonGcStorage` in search_disk_api.h.
+ */
+bool SearchDisk_CompactNonGcStorage(RedisSearchDiskIndexSpec* index);
 
 /**
  * @brief Pause background flush and compaction work on the index's database.

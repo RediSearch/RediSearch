@@ -9,6 +9,7 @@
 
 //! The `SUM` and `AVG` reducers.
 
+use bumpalo::Bump;
 use rlookup::{RLookupKey, RLookupRow};
 use value::SharedValue;
 
@@ -42,9 +43,9 @@ pub struct SumState {
 }
 
 impl Accumulator for Sum<'_> {
-    type State = SumState;
+    type State<'arena> = SumState;
 
-    fn init(&self) -> SumState {
+    fn init(&self, _arena: &Bump) -> SumState {
         SumState::default()
     }
 

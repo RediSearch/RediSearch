@@ -8,6 +8,7 @@
 */
 #include "info_command.h"
 
+#include <math.h>
 #include <stdbool.h>
 #include <string.h>
 
@@ -24,6 +25,7 @@
 #include "rmr/rmr.h"
 #include "rmutil/rm_assert.h"
 #include "util/arr/arr.h"
+#include "util/units.h"
 
 struct MRCtx;
 
@@ -57,13 +59,12 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "text_overhead_sz_mb", .type = InfoField_DoubleSum},
     {.name = "total_index_memory_sz_mb", .type = InfoField_DoubleSum},
     {.name = "geoshapes_sz_mb", .type = InfoField_DoubleSum},
-    {.name = "records_per_doc_avg", .type = InfoField_DoubleAverage},
-    {.name = "bytes_per_record_avg", .type = InfoField_DoubleAverage},
     {.name = "offsets_per_term_avg", .type = InfoField_DoubleAverage},
     {.name = "offset_bits_per_record_avg", .type = InfoField_DoubleAverage},
     {.name = "indexing", .type = InfoField_WholeSum},
     {.name = "percent_indexed", .type = InfoField_DoubleAverage},
     {.name = "hash_indexing_failures", .type = InfoField_WholeSum},
+    {.name = "total_indexing_time", .type = InfoField_DoubleSum},
     {.name = "number_of_uses", .type = InfoField_Max},
     {.name = "number_of_admin_ops", .type = InfoField_Max},
     {.name = "cleaning", .type = InfoField_WholeSum}};
@@ -180,6 +181,20 @@ static void convertField(InfoValue *dst, MRReply *src, InfoFieldType type) {
   dst->isSet = 1;
 }
 
+static const char *fieldSchemaType(const MRReply *indexSchema, size_t fieldIndex) {
+  if (!indexSchema || fieldIndex >= MRReply_Length(indexSchema)) {
+    return NULL;
+  }
+  const MRReply *schema = MRReply_ArrayElement(indexSchema, fieldIndex);
+  // RESP2 schema entries can end with bare flags, so preserve their array format.
+  for (size_t i = 0; i + 1 < MRReply_Length(schema); i += 2) {
+    if (MRReply_StringEquals(MRReply_ArrayElement(schema, i), "type", false)) {
+      return MRReply_String(MRReply_ArrayElement(schema, i + 1), NULL);
+    }
+  }
+  return NULL;
+}
+
 // Extract an array of FieldSpecInfo from MRReply
 void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) {
   // Input validations
@@ -204,6 +219,10 @@ void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) 
   for (size_t i = 0; i < len; i++) {
     MRReply *serializedFieldSpecInfo = MRReply_ArrayElement(src, i);
     AggregatedFieldSpecInfo fieldSpecInfo = AggregatedFieldSpecInfo_Deserialize(serializedFieldSpecInfo);
+    const char *type = fieldSchemaType(fields->indexSchema, i);
+    if (type && strcmp(type, "VECTOR") == 0) {
+      FieldSpecStats_DeserializeVectorMetrics(&fieldSpecInfo.stats, serializedFieldSpecInfo);
+    }
     AggregatedFieldSpecInfo_Combine(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
     AggregatedFieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
   }
@@ -355,6 +374,25 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
   }
 }
 
+static void replyIndexAverages(RedisModule_Reply *reply, InfoFields *fields) {
+  InfoValue *values = fields->toplevelValues;
+  const InfoValue *docs =
+      findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "num_docs").value;
+  const InfoValue *records =
+      findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "num_records").value;
+  const InfoValue *size =
+      findInfoTypeAndValue(values, toplevelSpecs_g, NUM_FIELDS_SPEC, "inverted_sz_mb").value;
+
+  if (records && docs && records->isSet && docs->isSet) {
+    double average = docs->u.total_l ? (double)records->u.total_l / docs->u.total_l : NAN;
+    RedisModule_ReplyKV_Double(reply, "records_per_doc_avg", average);
+  }
+  if (size && records && size->isSet && records->isSet) {
+    double average = records->u.total_l ? MB_TO_BYTES(size->u.total_d / records->u.total_l) : NAN;
+    RedisModule_ReplyKV_Double(reply, "bytes_per_record_avg", average);
+  }
+}
+
 static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bool obfuscate) {
   RedisModule_Reply_Map(reply);
 
@@ -392,6 +430,7 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
   RedisModule_Reply_MapEnd(reply);
 
   replyKvArray(reply, fields, fields->toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC);
+  replyIndexAverages(reply, fields);
 
 
   // Global index error stats

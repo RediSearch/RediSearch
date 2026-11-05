@@ -179,9 +179,10 @@ QueryIterator *NewEmptyIterator(void);
  * 1. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
  *    `spec` is a valid [`IndexSpec`](ffi::IndexSpec); both must outlive the
  *    returned iterator, and `sctx` must stay at a stable address for that
- *    whole window. The request timeout reached through `sctx.timeout` must also remain valid
+ *    whole window. The request timeout reached through `sctx.limits` must also remain valid
  *    at a stable address until the iterator is dropped. Timeout source changes and deadline
- *    writes may happen only between probes; only the blocked-client flag may change concurrently.
+ *    writes may happen only between probes;
+ *    only the blocked-client marker and the memory stop flag may change concurrently.
  * 2. `filter_ctx` must be a non-null pointer to a valid [`FieldFilterContext`].
  * 3. `ids` must be null, or point to `num` initialized [`DocId`]s allocated via
  *    `RedisModule_Alloc`. Ownership is transferred to the iterator. When `ids`
@@ -308,7 +309,7 @@ QueryIterator *NewInvIndIterator_TermQuery(const InvertedIndex *idx, const Redis
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, double radius, VecSimQueryParams query_params, VecSimQueryReply_Order order, bool yields_metric, QueryRequestTimeout *timeout);
+QueryIterator *NewLazyVectorRangeIteratorFromParams(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, double radius, VecSimQueryParams query_params, VecSimQueryReply_Order order, bool yields_metric, QueryRequestLimits *timeout);
 
 /**
  * Creates a new metric iterator sorted by ID.
@@ -331,7 +332,7 @@ QueryIterator *NewMetricIteratorSortedById(t_docId *ids, double *metric_list, si
  * If the child is trivially reducible (empty or wildcard), a simplified
  * iterator is returned directly.
  *
- * The request timeout reached through `q.sctx.timeout` selects no timeout,
+ * The request timeout reached through `q.sctx.limits` selects no timeout,
  * the Blocked Client Timeout, or the Clock Based Timeout. Clock deadlines are
  * read back on every probe so a re-armed deadline is honoured.
  *
@@ -345,7 +346,8 @@ QueryIterator *NewMetricIteratorSortedById(t_docId *ids, double *metric_list, si
  *    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay valid and at a stable
  *    address for the lifetime of the returned iterator. Its request timeout must also remain
  *    valid at a stable address for that lifetime. Timeout source changes and deadline writes
- *    may happen only between probes; only the blocked-client flag may change concurrently.
+ *    may happen only between probes;
+ *    only the blocked-client marker and the memory stop flag may change concurrently.
  * 5. `q.sctx.spec` must be a non-null pointer to a valid
  *    [`IndexSpec`](ffi::IndexSpec).
  * 6. `q.sctx.spec.rule`, when non-null, must point to a valid
@@ -449,7 +451,7 @@ QueryIterator *NewUnionIterator(QueryIterator * *its, int32_t num, bool quick_ex
  * [`IteratorType::Empty`]: rqe_iterators::IteratorType::Empty
  * [`IteratorType::Hybrid`]: rqe_iterators::IteratorType::Hybrid
  */
-QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, const VecSimQueryParams *query_params, size_t k, bool can_trim_deep_results, QueryIterator *child, QueryRequestTimeout *timeout, RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
+QueryIterator *NewVectorTopKIterator(VecSimIndex *index, const void *query_vector, size_t vector_byte_len, const VecSimQueryParams *query_params, size_t k, bool can_trim_deep_results, QueryIterator *child, QueryRequestLimits *timeout, RedisSearchCtx *sctx, const struct FieldFilterContext *filter_ctx);
 
 /**
  * Creates a new non-optimized wildcard iterator over the `[0, max_id]` document id range.
@@ -466,21 +468,6 @@ QueryIterator *NewWildcardIterator_NonOptimized(t_docId max_id, double weight);
  * 3. `ctx` must be a valid pointer to a [`ProfilePrintCtx`].
  */
 void Optimus_PrintProfile(const QueryIterator *self_, struct MapBuilder *map, struct ProfilePrintCtx *ctx);
-
-/**
- * Add profile iterators to all nodes in the iterator tree.
- *
- * Wraps the root as a [`CRQEIterator`], calls
- * [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled)
- * (which recursively profiles
- * all descendants), then writes the result back as a `QueryIterator*`.
- *
- * # Safety
- *
- * 1. `root` must be a valid non-null pointer to a `*mut QueryIterator`.
- * 2. `*root` must be null or a valid non-null, non-aliased pointer to a `QueryIterator`.
- */
-void Profile_AddIters(QueryIterator * *root);
 
 /**
  * Print iterator profile tree as a Redis reply.
@@ -503,7 +490,8 @@ void Profile_AddIters(QueryIterator * *root);
  *
  * 1. `ctx` must be a valid [`RedisModuleCtx`] pointer.
  * 2. `root` must be null or a valid pointer to a [`QueryIterator`] tree
- *    that has been profile-wrapped via `Profile_AddIters`.
+ *    that has been profile-wrapped via
+ *    [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled).
  */
 void Profile_PrintIterators(struct RedisModuleCtx *ctx, const QueryIterator *root, bool limited, bool print_profile_clock);
 

@@ -37,25 +37,25 @@ class NonMockTimeoutChecks {
 
 TEST(VecSimTimeoutSourceTest, RetainedContextFollowsSourceChangesBetweenCursorCycles) {
   NonMockTimeoutChecks enableTimeoutChecks;
-  QueryRequestTimeout timeout = {};
+  QueryRequestLimits timeout = {};
   TimeoutConfig timeoutConfig = {};
   timeoutConfig.timeoutPolicy = TimeoutPolicy_Fail;
   timeoutConfig.queryTimeoutMS = 60'000;
-  QueryRequestTimeout_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
 
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   for (size_t i = 0; i < QUERY_REQUEST_TIMEOUT_COUNTER_LIMIT; ++i) {
     EXPECT_EQ(NOT_TIMED_OUT, VecSim_TimedOut(&timeout));
   }
 
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
-  QueryRequestTimeout_MarkTimedOut(&timeout);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_MarkTimedOut(&timeout);
   EXPECT_EQ(TIMED_OUT, VecSim_TimedOut(&timeout));
 
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
   EXPECT_EQ(NOT_TIMED_OUT, VecSim_TimedOut(&timeout));
 
-  QueryRequestTimeout_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
   EXPECT_EQ(NOT_TIMED_OUT, VecSim_TimedOut(&timeout));
 }
 

@@ -8,8 +8,8 @@
 */
 
 //! FFI layer for the [`Accumulator`] reducers: `COUNT`, `SUM`, `AVG`, `MIN`,
-//! `MAX`, `STDDEV`, `FIRST_VALUE`, `COUNT_DISTINCT`, `COUNT_DISTINCTISH`, `HLL`
-//! and `HLL_SUM`.
+//! `MAX`, `STDDEV`, `FIRST_VALUE`, `COUNT_DISTINCT`, `COUNT_DISTINCTISH`, `HLL`,
+//! `HLL_SUM` and `RANDOM_SAMPLE`.
 //!
 //! C parses the reducer arguments and calls one of the constructors below; the
 //! rest of the vtable is one set of callbacks, generic over the accumulator.
@@ -23,6 +23,7 @@ use reducers::count_distinct::CountDistinct;
 use reducers::count_distinctish::{CountDistinctish, HllSum, Output};
 use reducers::first_value::{Direction, FirstValue, SortBy};
 use reducers::min_max::{Extreme, MinMax};
+use reducers::random_sample::RandomSample;
 use reducers::std_dev::StdDev;
 use reducers::sum::{Sum, SumMode};
 use rlookup::{RLookupKey, RLookupRow};
@@ -186,6 +187,26 @@ pub unsafe extern "C" fn HllSumReducer_Create(srckey: *const ffi::RLookupKey) ->
     into_c_reducer(HllSum::new(key))
 }
 
+/// Creates a `RANDOM_SAMPLE` reducer of `srckey`, keeping up to `size` values per
+/// group, and returns its base [`ffi::Reducer`], which the caller frees through
+/// its `Free` callback.
+///
+/// # Safety
+///
+/// 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
+///    remains valid, and is not mutated, for the lifetime of the returned reducer.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RandomSampleReducer_Create(
+    srckey: *const ffi::RLookupKey,
+    size: u32,
+) -> *mut ffi::Reducer {
+    // SAFETY: ensured by caller (1.)
+    let key = unsafe { srckey.cast::<RLookupKey>().as_ref() }.expect("srckey must not be null");
+    into_c_reducer(RandomSample::new(key, size as usize))
+}
+
 /// Boxes an [`AccumulatorReducer`] running `accumulator` and wires its vtable.
 fn into_c_reducer<A: Accumulator>(accumulator: A) -> *mut ffi::Reducer {
     let mut reducer = Box::new(AccumulatorReducer::new(accumulator));
@@ -196,7 +217,7 @@ fn into_c_reducer<A: Accumulator>(accumulator: A) -> *mut ffi::Reducer {
         .set_finalize(finalize::<A>)
         .set_free(free::<A>);
     // Optimization only: skip the per-group callback when dropping the state is a no-op.
-    if std::mem::needs_drop::<A::State>() {
+    if std::mem::needs_drop::<A::State<'static>>() {
         vtable.set_free_instance(free_instance::<A>);
     }
     Box::into_raw(reducer).cast()
@@ -231,7 +252,7 @@ unsafe extern "C" fn add<A: Accumulator>(
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<AccumulatorReducer<A>>().as_ref() }.unwrap();
     // SAFETY: ensured by caller (2.)
-    let state = unsafe { state.cast::<Option<A::State>>().as_mut() }.unwrap();
+    let state = unsafe { state.cast::<Option<A::State<'_>>>().as_mut() }.unwrap();
     // SAFETY: ensured by caller (3.)
     let row = unsafe { row.cast::<RLookupRow>().as_ref() }.unwrap();
 
@@ -254,7 +275,7 @@ unsafe extern "C" fn finalize<A: Accumulator>(
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<AccumulatorReducer<A>>().as_ref() }.unwrap();
     // SAFETY: ensured by caller (2.)
-    let state = unsafe { state.cast::<Option<A::State>>().as_ref() }.unwrap();
+    let state = unsafe { state.cast::<Option<A::State<'_>>>().as_ref() }.unwrap();
 
     r.finalize(state).into_raw() as *mut ffi::RSValue
 }
@@ -271,7 +292,7 @@ unsafe extern "C" fn free_instance<A: Accumulator>(r: *mut ffi::Reducer, state: 
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<AccumulatorReducer<A>>().as_ref() }.unwrap();
     // SAFETY: ensured by caller (2.)
-    let state = unsafe { state.cast::<Option<A::State>>().as_mut() }.unwrap();
+    let state = unsafe { state.cast::<Option<A::State<'_>>>().as_mut() }.unwrap();
     r.drop_state(state);
 }
 

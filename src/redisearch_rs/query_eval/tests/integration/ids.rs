@@ -152,18 +152,21 @@ fn eval_ids_empty_keys() {
 }
 
 #[test]
-#[should_panic(expected = "QN_IDS nodes must carry pre-resolved doc_ids")]
-fn eval_ids_requires_pre_resolved_doc_ids() {
+fn eval_empty_deferred_ids_without_map() {
     let mut mock_ctx = MockQueryEvalCtx::new();
+    // SAFETY: the mock owns the backing fields for the duration of evaluation.
     let mut ctx = unsafe { QueryEvalContext::new(mock_ctx.as_non_null()) };
-
-    let keys = MockKeys::nulls(1);
-
+    let keys = MockKeys::nulls(0);
     let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
     mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+    // SAFETY: the mock owns the node and no key is accessed for an empty filter.
     let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
-
-    let _ = eval_node(&mut ctx, node, Config::default());
+    let mut it = ContractChecker::new(
+        eval_node(&mut ctx, node, Config::default())
+            .expect("empty iterator")
+            .into_boxed(),
+    );
+    assert!(matches!(it.read(), Ok(None)));
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +220,41 @@ mod ids_doctable {
         assert_eq!(r.doc_id, id_b);
         assert!(matches!(it.read(), Ok(None)));
         assert!(it.at_eof());
+    }
+
+    #[test]
+    fn eval_ids_resolves_deferred_keys_through_map() {
+        let _guard = GlobalGuard::default();
+        let context = TestContext::term(IndexFlags_Index_StoreFreqs, std::iter::empty(), false);
+        let qctx = context.qctx();
+        let id_a = context.add_document("doc\0a");
+        let id_b = context.add_document("doc_b");
+        // SAFETY: this test has exclusive access to its document table.
+        unsafe {
+            let table = (*qctx.as_ptr()).docTable;
+            assert_eq!(
+                ffi::DocTable_StartKeyMap(table),
+                ffi::DocKeyMapActivation_DocKeyMapActivation_NeedsBackfill
+            );
+            let mut iter = std::mem::zeroed();
+            assert!(ffi::DocTable_BuildKeyMapBatch(table, &mut iter, usize::MAX));
+        }
+        // SAFETY: context owns the backing fields and outlives evaluation.
+        let mut ctx = unsafe { QueryEvalContext::new(qctx) };
+        let keys = MockKeys::new(&["doc_b", "ghost", "doc\0a", "doc_b"]);
+        let mut mock_node = MockQueryNode::new(QueryNodeType::Ids);
+        mock_node.set_ids(keys.as_ptr(), std::ptr::null_mut(), keys.len());
+        // SAFETY: mock_node owns the subtree exclusively; keys outlive evaluation.
+        let node = unsafe { QueryNodeMut::new(mock_node.as_non_null()) };
+
+        let mut it = ContractChecker::new(
+            eval_node(&mut ctx, node, Config::default())
+                .expect("should not be None")
+                .into_boxed(),
+        );
+        assert_eq!(it.read().unwrap().unwrap().doc_id, id_a);
+        assert_eq!(it.read().unwrap().unwrap().doc_id, id_b);
+        assert!(matches!(it.read(), Ok(None)));
     }
 
     #[test]

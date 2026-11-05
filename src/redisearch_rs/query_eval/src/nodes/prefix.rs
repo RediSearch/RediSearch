@@ -11,7 +11,7 @@
 
 use std::ops::ControlFlow;
 
-use c_trie::{QueryRequestTimeoutHandle, SuffixMode, SuffixTrie, TermsTrie};
+use c_trie::{QueryRequestLimitsHandle, SuffixMode, SuffixTrie, TermsTrie};
 use query::WildcardMode;
 use query_error::QueryErrorCode;
 use query_types::QueryNodeType;
@@ -21,7 +21,7 @@ use rs_token::RSTokenRefNulTerminated;
 use string_utils::runes::runes_to_bytes;
 
 use crate::{
-    Config, Evaluated, QueryEvalContext, QueryNodeRef, expansion::Expansion,
+    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeRef, expansion::Expansion,
     expansion_needs_offsets,
 };
 
@@ -40,6 +40,7 @@ pub(crate) fn eval<'index>(
     tok: RSTokenRefNulTerminated,
     mode: WildcardMode,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> Option<Evaluated<'index>> {
     // A pattern shorter than the configured minimum is rejected to avoid
     // over-broad expansions (e.g. a bare `a*`). Not setting a ctx error: the minimum
@@ -87,7 +88,7 @@ pub(crate) fn eval<'index>(
 
     let field_mask = node_field_mask & ctx.opts().fieldmask;
     let is_disk = !ctx.spec().diskSpec.is_null();
-    let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config);
+    let needs_offsets = expansion_needs_offsets(ctx, node.opts(), config, offsets);
 
     let suffix_trie = ctx.spec().suffix;
     let suffix_mask = ctx.spec().suffixMask;
@@ -98,8 +99,9 @@ pub(crate) fn eval<'index>(
     // Resolved here, with every other read of `ctx`, because `Expansion` borrows
     // it mutably for the rest of the expansion.
     // SAFETY: the request timeout outlives query evaluation. Its source is fixed for this execution
-    // cycle; only the blocked-client flag may change concurrently, through the C atomic API.
-    let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ctx.sctx().timeout) };
+    // cycle; only the blocked-client marker and the memory stop flag may change concurrently,
+    // through the C atomic API.
+    let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ctx.sctx().limits) };
 
     let expansion = Expansion {
         ctx,
@@ -225,7 +227,7 @@ impl Expansion<'_> {
         pattern: &[ffi::rune],
         match_prefix: bool,
         match_suffix: bool,
-        timeout: Option<&QueryRequestTimeoutHandle>,
+        timeout: Option<&QueryRequestLimitsHandle>,
     ) -> Vec<CRQEIterator> {
         // The primary trie hands terms back as runes (with their document count, used
         // for the disk IDF), which must be encoded back into the term's key, byte for

@@ -196,11 +196,13 @@ as production code.
 - `src/hybrid/hybrid_scoring.c` — combined scoring
 
 ### Garbage Collection
-- `src/fork_gc/fork_gc.c` — fork-based GC (main orchestrator, also triggers tiered vector index GC)
-- `src/fork_gc/terms.c`, `tags.c`, `numeric.c` — per-index-type GC for inverted indexes
-- `src/fork_gc/existing_docs.c`, `missing_docs.c` — document-level GC
-- `src/gc.c`, `src/gc.h` — GC interface and scheduling
-- Vector (tiered) indexes use VecSim's own GC, called from the fork GC cycle
+- `src/gc/gc.c`, `src/gc/gc.h` — GC interface and scheduling (timers, the GC thread pool, forced runs)
+- `src/gc/index_gc.c`, `src/gc/index_gc.h` — per-index GC context (`IndexGC`): counters, stats, the cycle entry point
+- `src/gc/fork_cycle.c` — the forking policy's cycle: fork a child, apply its deltas in the parent, reap it
+- `src/gc/pipe.c` — the parent/child pipe
+- `src/gc/disk_gc.c` — the disk-backed GC policy
+- The scanners (terms, tags, numeric, missing docs, existing docs) are Rust: `src/redisearch_rs/index_gc/src/scanners/`, with the fork-specific pipe and orchestration in `src/redisearch_rs/index_gc/src/fork/` and the C ABI in `c_entrypoint/index_gc_ffi`
+- Vector (tiered) indexes use VecSim's own GC, called from the GC cycle
 - Geometry indexes remove entries inline on document deletion (no deferred GC)
 
 ### Specialized Indexes
@@ -251,7 +253,7 @@ as production code.
 ```
 src/                          # C source code
 ├── aggregate/                # FT.AGGREGATE pipeline
-├── fork_gc/                  # Fork-based garbage collection
+├── gc/                       # Garbage collection: scheduler, per-index context, fork cycle
 ├── hybrid/                   # Hybrid (vector+text) search
 ├── iterators/                # Query iterator implementations
 ├── info/                     # FT.INFO implementation
@@ -358,7 +360,7 @@ git worktree add --no-track -b <your-handle>-<feature> .worktree/<your-handle>-<
 
 To remove a worktree, use `git worktree remove --force <path>` (plain `remove` fails on initialized submodules).
 
-The git-worktree guidance above applies to plain git checkouts. In a checkout managed by jj (a `.jj/` directory is present), the equivalent is a **jj workspace** — invoke [/jj-workspace](.skills/jj-workspace/SKILL.md) to create or delete one, and do not hand-roll it. jj does not support submodules, so a workspace needs a git worktree attached to it in a specific order; getting that wrong silently breaks the submodules in every other checkout on the machine.
+The git-worktree guidance above applies to plain git checkouts. In a checkout managed by jj (a `.jj/` directory is present), the equivalent is a **jj workspace** — invoke [/jj-workspace](.skills/jj-workspace/SKILL.md) to create or delete one, and do not hand-roll it. jj does not support submodules, so a workspace must be created as a git worktree (`jj workspace add --colocate`, jj ≥ 0.46); a hand-rolled `.git` pointer silently breaks the submodules in every other checkout on the machine.
 
 ### C Code
 Invoke [/code-review](.skills/code-review/SKILL.md) to review C code changes or PRs.

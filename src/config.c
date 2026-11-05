@@ -1305,7 +1305,7 @@ CONFIG_SETTER(setUpgradeIndex) {
   ArgsCursor rule_prefixes = {0};
 
   ACArgSpec argopts[] = {
-      SPEC_FOLLOW_HASH_ARGS_DEF(rule){.name = NULL},
+      SPEC_FOLLOW_HASH_ARGS_DEF(rule, &rule_prefixes){.name = NULL},
   };
 
   ACArgSpec *errarg = NULL;
@@ -1499,7 +1499,8 @@ CONFIG_SETTER(setOnOom) {
     QueryError_SetError(status, QUERY_ERROR_CODE_BAD_VAL, "Invalid ON_OOM value");
     return REDISMODULE_ERR;
   }
-  config->requestConfigParams.oomPolicy = oom;
+  // Atomic: query threads read it concurrently (QueryMemory_Checkpoint).
+  __atomic_store_n(&config->requestConfigParams.oomPolicy, oom, __ATOMIC_RELAXED);
   return REDISMODULE_OK;
 }
 
@@ -1511,7 +1512,8 @@ CONFIG_GETTER(getOnOom) {
 static int set_on_oom(const char *name, int val, void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
-  *((RSOomPolicy *)privdata) = (RSOomPolicy)val;
+  // Atomic: query threads read it concurrently (QueryMemory_Checkpoint).
+  __atomic_store_n((RSOomPolicy *)privdata, (RSOomPolicy)val, __ATOMIC_RELAXED);
   return REDISMODULE_OK;
 }
 
@@ -2796,6 +2798,24 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.diskUseDirectReads)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-disk-sq8-enabled", 0,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.diskSq8Enabled)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-_disk-statistics", 0,
+      REDISMODULE_CONFIG_HIDDEN | REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.diskStatistics)
     )
   )
 

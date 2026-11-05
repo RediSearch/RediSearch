@@ -100,6 +100,11 @@ static VectorIndex_RelabelFn relabelFnForTests = NULL;
 void VectorIndex_SetRelabelFnForTests(VectorIndex_RelabelFn fn) {
   relabelFnForTests = fn;
 }
+
+static VectorIndex_BasicInfoFn basicInfoFnForTests = NULL;
+void VectorIndex_SetBasicInfoFnForTests(VectorIndex_BasicInfoFn fn) {
+  basicInfoFnForTests = fn;
+}
 #endif
 
 bool VectorIndex_RelabelField(VecSimIndex *vecsim, t_docId oldDocId, t_docId newDocId) {
@@ -135,13 +140,22 @@ VecSimIndex *openVectorIndex(RedisModuleCtx *ctx, FieldSpec *fieldSpec, bool cre
 
   if (!fieldSpec->vectorOpts.vecSimIndex && create_if_missing) {
     if (fieldSpec->vectorOpts.diskCtx.storage) {
+      VecSimParams diskIndexParams = fieldSpec->vectorOpts.vecSimParams;
+      TieredIndexParams *tieredParams = &diskIndexParams.algoParams.tieredParams;
+      // FieldSpec keeps RAM-shaped tiered parameters for persistence; the disk member differs.
+      size_t trainingThreshold =
+          tieredParams->specificParams.tieredHnswParams.QuantNormalizationSetSize;
+      tieredParams->specificParams.tieredHnswDiskParams.QuantNormalizationSetSize =
+          tieredParams->primaryIndexParams->algoParams.hnswParams.quantType == VecSimQuant_SQ8
+              ? trainingThreshold
+              : 0;
       // Disk path - create disk-based HNSW index
       VecSimParamsDisk diskParams = {
-        .indexParams = &fieldSpec->vectorOpts.vecSimParams,
-        .diskContext = &fieldSpec->vectorOpts.diskCtx,
+          .indexParams = &diskIndexParams,
+          .diskContext = &fieldSpec->vectorOpts.diskCtx,
       };
-      fieldSpec->vectorOpts.vecSimIndex = SearchDisk_CreateVectorIndex(
-        ctx, fieldSpec->vectorOpts.diskCtx.storage, &diskParams);
+      fieldSpec->vectorOpts.vecSimIndex =
+          SearchDisk_CreateVectorIndex(ctx, fieldSpec->vectorOpts.diskCtx.storage, &diskParams);
     } else {
       // RAM path - use standard VectorSimilarity
       fieldSpec->vectorOpts.vecSimIndex = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
@@ -179,6 +193,18 @@ static int VectorQuery_ValidateDiskHybridPolicy(const QueryEvalCtx *q, const Vec
   return REDISMODULE_OK;
 }
 
+bool VectorIndex_GetBlobSize(size_t dim, VecSimType type, size_t *size, QueryError *status) {
+  size_t elementSize = VecSimType_sizeof(type);
+  // Leave room for normalization and storage metadata in downstream size calculations.
+  if (!elementSize || !dim || dim > SIZE_MAX / 2 / elementSize) {
+    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                        "Invalid vector DIM: vector size is too large");
+    return false;
+  }
+  *size = dim * elementSize;
+  return true;
+}
+
 QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   // FieldSpec* captured back then could no longer be trusted.
@@ -189,19 +215,28 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
     return NULL;
   }
 
+#ifdef ENABLE_ASSERT
+  VecSimIndexBasicInfo info =
+      basicInfoFnForTests ? basicInfoFnForTests(vecsim) : VecSimIndex_BasicInfo(vecsim);
+#else
   VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsim);
+#endif
   size_t dim = info.dim;
   VecSimType type = info.type;
+  size_t blobSize;
+  if (!VectorIndex_GetBlobSize(dim, type, &blobSize, q->status)) {
+    return NULL;
+  }
 
   VecSimQueryParams qParams = {0};
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = fieldSpec->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
-      if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
-        QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
-                                      "Error parsing vector similarity query: query vector blob size",
-                                      " (%zu) does not match index's expected size (%zu).",
-                                      vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
+      if (blobSize != vq->knn.vecLen) {
+        QueryError_SetWithUserDataFmt(
+            q->status, QUERY_ERROR_CODE_INVAL,
+            "Error parsing vector similarity query: query vector blob size",
+            " (%zu) does not match index's expected size (%zu).", vq->knn.vecLen, blobSize);
         return NULL;
       }
       if (VectorQuery_ValidateDiskHybridPolicy(q, vq, child_it) != REDISMODULE_OK) {
@@ -224,17 +259,17 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                                "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
       }
-      RS_ASSERT(q->sctx->timeout);
-      return NewVectorTopKIterator(vecsim, vq->knn.vector, dim * VecSimType_sizeof(type), &qParams,
-                                   vq->knn.k, q->opts->flags & Search_CanSkipRichResults, child_it,
-                                   q->sctx->timeout, q->sctx, &filterCtx);
+      RS_ASSERT(q->sctx->limits);
+      return NewVectorTopKIterator(vecsim, vq->knn.vector, blobSize, &qParams, vq->knn.k,
+                                   q->opts->flags & Search_CanSkipRichResults, child_it,
+                                   q->sctx->limits, q->sctx, &filterCtx);
     }
     case VECSIM_QT_RANGE: {
-      if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
-        QueryError_SetWithUserDataFmt(q->status, QUERY_ERROR_CODE_INVAL,
-                               "Error parsing vector similarity query: query vector blob size",
-                               " (%zu) does not match index's expected size (%zu).",
-                               vq->range.vecLen, (dim * VecSimType_sizeof(type)));
+      if (blobSize != vq->range.vecLen) {
+        QueryError_SetWithUserDataFmt(
+            q->status, QUERY_ERROR_CODE_INVAL,
+            "Error parsing vector similarity query: query vector blob size",
+            " (%zu) does not match index's expected size (%zu).", vq->range.vecLen, blobSize);
         return NULL;
       }
       if (vq->range.radius < 0) {
@@ -248,12 +283,12 @@ QueryIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, QueryIterator
                                     &qParams, QUERY_TYPE_RANGE, q->status) != VecSim_OK)  {
         return NULL;
       }
-      RS_ASSERT(q->sctx->timeout);
+      RS_ASSERT(q->sctx->limits);
       // Defer the actual range query to the first read, so it runs after the spec lock is
       // released and writes can proceed concurrently.
       return NewLazyVectorRangeIteratorFromParams(
           vecsim, vq->range.vector, vq->range.vecLen, vq->range.radius, qParams, vq->range.order,
-          /*yields_metric=*/vq->scoreField != NULL, q->sctx->timeout);
+          /*yields_metric=*/vq->scoreField != NULL, q->sctx->limits);
     }
   }
   return NULL;

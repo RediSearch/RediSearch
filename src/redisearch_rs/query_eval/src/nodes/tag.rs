@@ -11,11 +11,12 @@
 
 use std::{
     ffi::{CStr, c_void},
+    ops::Bound,
     ptr::NonNull,
     time::Instant,
 };
 
-use c_trie::QueryRequestTimeoutHandle;
+use c_trie::QueryRequestLimitsHandle;
 use fat_array::{FatArray, FatArrayRef};
 use lending_iterator::LendingIterator as _;
 use query::{QueryNode, WildcardMode};
@@ -27,8 +28,13 @@ use rqe_iterators::{
     union_opaque::{build_union, build_union_with_q_str},
     utils::duration_from_redis_timespec,
 };
-use trie_rs::{TrieMap, TrieMapOpaque, iter::PatternMode};
+use string_utils::{tag::unescape, unicode::tolower_bytes};
+use trie_rs::{
+    TrieMap, TrieMapOpaque,
+    iter::{PatternMode, RangeBoundary, RangeFilter, RangeLendingIter},
+};
 
+use super::wildcard_query::below_min_term_prefix;
 use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, into_child_iterator};
 
 /// The request's clock deadline, or `None` when it has no clock-based timeout.
@@ -36,10 +42,24 @@ fn clock_deadline(ctx: &QueryEvalContext) -> Option<ffi::timespec> {
     // SAFETY: a non-null request timeout is an initialized C object, aligned by its allocation,
     // that outlives query evaluation; the handle lives only for the single deadline read below,
     // so it never outlives the request. Its source is fixed for this execution cycle; only the
-    // blocked-client flag may change concurrently, through the C atomic API. Nothing in the
-    // evaluator holds a Rust reference to the timeout object.
-    let timeout = unsafe { QueryRequestTimeoutHandle::from_raw(ctx.sctx().timeout) }?;
+    // blocked-client marker and the memory stop flag may change concurrently, through the C
+    // atomic API. Nothing in the evaluator holds a Rust reference to the timeout object.
+    let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ctx.sctx().limits) }?;
     timeout.clock_deadline()
+}
+
+/// Whether the request has been cancelled by the blocked-client callback.
+///
+/// A background query under `ON_TIMEOUT FAIL` or `RETURN_STRICT` runs a
+/// blocked-client cycle, which publishes a flag instead of a clock deadline, so
+/// [`clock_deadline`] reports nothing for it and a deadline-driven walk would
+/// run on past the client's timeout while holding the spec read lock.
+fn blocked_client_cancelled(ctx: &QueryEvalContext) -> bool {
+    // SAFETY: as in `clock_deadline` -- a non-null request timeout is an
+    // initialized C object that outlives query evaluation, and the handle lives
+    // only for the single flag read below.
+    let timeout = unsafe { QueryRequestLimitsHandle::from_raw(ctx.sctx().limits) };
+    timeout.is_some_and(QueryRequestLimitsHandle::blocked_client_timed_out)
 }
 
 /// The `(timeout, skip_timeout_checks)` pair the suffix trie lookups take: the
@@ -181,13 +201,26 @@ fn eval_child<'index>(
             effective_weight,
             field,
             case_sensitive,
+            min_term_prefix,
             max_prefix_expansions,
             config,
         ),
         QueryNodeType::Phrase => {
             eval_phrase(ctx, index, child, effective_weight, field, case_sensitive)
         }
-        _ => unreachable!("tag child grammar admits only token, prefix, wildcard and phrase nodes"),
+        QueryNodeType::LexRange => eval_lex_range(
+            ctx,
+            index,
+            child,
+            effective_weight,
+            field,
+            case_sensitive,
+            max_prefix_expansions,
+            config,
+        ),
+        _ => unreachable!(
+            "tag child grammar admits only token, prefix, wildcard, phrase and lex range nodes"
+        ),
     }
 }
 
@@ -325,6 +358,153 @@ fn eval_prefix<'index>(
     Some(Evaluated::RustCompound(iter))
 }
 
+/// Evaluate a `@tag:>{bound}` child, and its `>=`, `<` and `<=` spellings, as a
+/// union of every indexed value inside the range.
+#[expect(clippy::too_many_arguments)]
+fn eval_lex_range<'index>(
+    ctx: &'index mut QueryEvalContext,
+    index: TagIndexRef,
+    child: QueryNodeMut<'_>,
+    effective_weight: f64,
+    field: &ffi::FieldSpec,
+    case_sensitive: bool,
+    max_prefix_expansions: usize,
+    config: Config,
+) -> Option<Evaluated<'index>> {
+    let QueryNode::LexRange { begin, end } = child.as_enum() else {
+        unreachable!("lex range evaluation requires a lex range node")
+    };
+
+    // The bound this clause carries, for profiling output. The grammar builds
+    // one node per clause and leaves the other side unbounded, so naming it
+    // tells two clauses on the same field apart, which the node type alone does
+    // not. Which side it bounds is not in here; `FT.EXPLAIN` spells that out.
+    let clause_bound = match (begin, end) {
+        (Bound::Included(bound) | Bound::Excluded(bound), _)
+        | (Bound::Unbounded, Bound::Included(bound) | Bound::Excluded(bound)) => Some(bound),
+        (Bound::Unbounded, Bound::Unbounded) => None,
+    };
+
+    // Compare against the values as they were indexed, which is what
+    // `RSTokenMut::normalize_tag` arranges for a tag token. A bound is a plain
+    // string rather than a token, so it takes the same two passes directly. Both
+    // outlive the filter that borrows them.
+    let begin = normalize_bound(begin, case_sensitive);
+    let end = normalize_bound(end, case_sensitive);
+
+    let children = collect_range_readers(
+        ctx,
+        index,
+        RangeFilter {
+            min: range_boundary(&begin),
+            max: range_boundary(&end),
+        },
+        field.index,
+        max_prefix_expansions,
+    );
+    let iter = match clause_bound {
+        // SAFETY: the bound is owned by the AST node and, unlike a token, is
+        // never rewritten during evaluation, so it outlives the query iterator
+        // that retains it for profiling.
+        Some(q_str) => unsafe {
+            build_union_with_q_str(
+                children,
+                true,
+                config.min_union_iter_heap,
+                QueryNodeType::LexRange,
+                q_str,
+                effective_weight,
+            )
+        },
+        None => build_union(
+            children,
+            true,
+            config.min_union_iter_heap,
+            QueryNodeType::LexRange,
+            effective_weight,
+        ),
+    };
+    Some(Evaluated::RustCompound(iter))
+}
+
+/// Normalize one bound the way tag indexing normalized the values it is compared
+/// against: escape removal, then case folding unless the field is CASESENSITIVE.
+fn normalize_bound(bound: Bound<&CStr>, case_sensitive: bool) -> Bound<Vec<u8>> {
+    fn normalize(value: &CStr, case_sensitive: bool) -> Vec<u8> {
+        let unescaped = unescape(value.to_bytes());
+        if case_sensitive {
+            unescaped.into_owned()
+        } else {
+            tolower_bytes(&unescaped).into_owned()
+        }
+    }
+
+    match bound {
+        Bound::Unbounded => Bound::Unbounded,
+        Bound::Included(value) => Bound::Included(normalize(value, case_sensitive)),
+        Bound::Excluded(value) => Bound::Excluded(normalize(value, case_sensitive)),
+    }
+}
+
+/// The trie's boundary for a normalized bound. `None` leaves that side open,
+/// which an empty bound does not: `""` is a value of its own.
+fn range_boundary(bound: &Bound<Vec<u8>>) -> Option<RangeBoundary<'_>> {
+    match bound {
+        Bound::Unbounded => None,
+        Bound::Included(value) => Some(RangeBoundary::included(value)),
+        Bound::Excluded(value) => Some(RangeBoundary::excluded(value)),
+    }
+}
+
+/// Values walked between two blocked-client cancellation probes, matching the
+/// cadence `trie_rs` uses between its own clock probes.
+const CANCELLATION_CHECK_GRANULARITY: u32 = 100;
+
+/// Open one reader per value the range covers, up to the expansion cap.
+///
+/// The cap counts readers opened, not values visited, and a value whose reader
+/// cannot be opened leaves it where it was, so the walk carries the request
+/// deadline as the pattern walk in [`collect_filtered_readers`] does, and
+/// observes a blocked-client cancellation, which carries no deadline.
+fn collect_range_readers(
+    ctx: &mut QueryEvalContext,
+    index: TagIndexRef,
+    filter: RangeFilter<'_>,
+    field_index: ffi::t_fieldIndex,
+    max_prefix_expansions: usize,
+) -> Vec<CRQEIterator> {
+    let values = index.values().range_iter(filter);
+    let mut values = RangeLendingIter::from(values);
+    values.set_timeout(
+        clock_deadline(ctx)
+            .and_then(duration_from_redis_timespec)
+            .map(|remaining| Instant::now() + remaining),
+    );
+
+    let mut children = Vec::new();
+    let mut until_cancellation_check = CANCELLATION_CHECK_GRANULARITY;
+    while let Some((value, _)) = values.next() {
+        if children.len() == max_prefix_expansions {
+            ctx.status()
+                .warnings_mut()
+                .set_reached_max_prefix_expansions();
+            break;
+        }
+        // The deadline installed above covers a clock cycle. A blocked-client
+        // cycle carries no deadline, so without this the walk would not observe
+        // that the client has already timed out.
+        until_cancellation_check -= 1;
+        if until_cancellation_check == 0 {
+            until_cancellation_check = CANCELLATION_CHECK_GRANULARITY;
+            if blocked_client_cancelled(ctx) {
+                break;
+            }
+        }
+        children.extend(open_reader_child(ctx, index, value, field_index));
+    }
+    children
+}
+
 /// Evaluate a `@tag:{w'pattern'}` child as a union of every value matching the pattern.
 #[expect(clippy::too_many_arguments)]
 fn eval_wildcard<'index>(
@@ -334,6 +514,7 @@ fn eval_wildcard<'index>(
     effective_weight: f64,
     field: &ffi::FieldSpec,
     case_sensitive: bool,
+    min_term_prefix: usize,
     max_prefix_expansions: usize,
     config: Config,
 ) -> Option<Evaluated<'index>> {
@@ -348,6 +529,9 @@ fn eval_wildcard<'index>(
     let pattern = tok_ref
         .as_bytes()
         .expect("a tag wildcard token must carry a string");
+    if below_min_term_prefix(pattern, min_term_prefix) {
+        return None;
+    }
 
     let children = if pattern.is_empty() {
         // Not `b""`: an empty slice's pointer dangles, while this one points at

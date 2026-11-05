@@ -34,9 +34,9 @@ def _geoshape_ops(env):
     infos = run_command_on_all_shards(env, 'INFO', 'MODULES')
     return sum(int(i['search_total_indexing_ops_geoshape_fields']) for i in infos)
 
-def _dump(env, field='geom'):
+def _dump(env, field='geom', index='idx'):
     """{doc-id: shape} from DUMP_GEOMIDX; asserts no stale or duplicate entry."""
-    res = env.cmd(debug_cmd(), 'DUMP_GEOMIDX', 'idx', field)
+    res = env.cmd(debug_cmd(), 'DUMP_GEOMIDX', index, field)
     res = {res[i]: res[i + 1] for i in range(0, len(res), 2)}
     shapes = {}
     for doc in res['docs']:
@@ -316,3 +316,56 @@ def test_alter_skipinitialscan_geoshape():
     env.assertEqual(_geoshape_ops(env) - ops_before, 0)
     env.assertEqual(_dump(env), dump_before)
     env.assertEqual(_search(env, 'WITHIN', WITHIN_ALL), keys)
+
+
+def _dump_shape(wkt):
+    """`wkt` as DUMP_GEOMIDX prints it: normalised, with no space after a comma."""
+    return wkt.replace(', ', ',')
+
+
+def _check_never_indexed_entry_is_inserted(rtree_exists):
+    """`geom` joins the schema through ALTER SKIPINITIALSCAN, so no document has an entry for it
+    when the next ALTER replaces them. There is no old entry to move, so each shape is inserted:
+    once, and counted as indexed. `rtree_exists`: whether a write has already created the
+    field's R-tree, as opposed to the field having no index yet."""
+    env, conn = _start('title', 'TEXT')
+    _write_docs(conn, 3)
+    env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'geom', 'GEOSHAPE',
+               'FLAT').ok()
+    if rtree_exists:
+        conn.execute_command('HSET', 'doc:9', 'title', 't', 'geom', SHAPES[3])
+        env.assertEqual(list(_dump(env).values()), [_dump_shape(SHAPES[3])])
+    # Nothing may query or dump the field here when the R-tree is meant to be absent: both open
+    # the R-tree and create it if missing.
+    keys = _keys(range(3))
+    ids_before = _ids(env, keys)
+    ops_before = _geoshape_ops(env)
+    if rtree_exists:
+        doc9_id = get_internal_id(env, 'doc:9')
+
+    _alter_and_wait(env, 'extra', 'TAG')
+
+    ids_after = _ids(env, keys)
+    for k in keys:
+        env.assertGreater(ids_after[k], ids_before[k], message=f'{k} internal id')
+    env.assertEqual(_geoshape_ops(env) - ops_before, 3, message='inserted, not moved')
+    expected = {ids_after[f'doc:{i}']: _dump_shape(SHAPES[i]) for i in range(3)}
+    if rtree_exists:
+        # doc:9 has no `extra`, so the ALTER skips it and its entry keeps its id.
+        env.assertEqual(get_internal_id(env, 'doc:9'), doc9_id, message='doc:9 was not skipped')
+        expected[doc9_id] = _dump_shape(SHAPES[3])
+    env.assertEqual(_dump(env), expected)
+    env.assertEqual(_search(env, 'WITHIN', WITHIN_ALL), keys + (['doc:9'] if rtree_exists else []))
+
+
+@skip(cluster=True)
+def test_alter_never_indexed_geoshape_is_inserted_into_existing_rtree():
+    """The field's R-tree already exists (another document was written after the field was
+    added), but holds no entry for the replaced documents."""
+    _check_never_indexed_entry_is_inserted(rtree_exists=True)
+
+
+@skip(cluster=True)
+def test_alter_never_indexed_geoshape_is_inserted_without_rtree():
+    """The field has no R-tree at all when the ALTER replaces the documents."""
+    _check_never_indexed_entry_is_inserted(rtree_exists=False)
