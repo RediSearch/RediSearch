@@ -30,5 +30,4 @@ jobs:
       actions: write # read the run's jobs and call rerun-failed-jobs
       checks: read   # job annotations carry the runner's "Set up job" error
     steps:
-      # TODO before merge: switch to @v1 once redislabsdev/redisearch-ci-common#15 is released.
-      - uses: redislabsdev/redisearch-ci-common/.github/actions/rerun-action-download-failures@2aa378b09c6b09b3fdffa8166000234aade8026a
+      - uses: redislabsdev/redisearch-ci-common/.github/actions/rerun-action-download-failures@v1
