@@ -360,8 +360,7 @@ int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters);
 /**
 * Launches all the safe depleters in the array, without waiting for depletion to finish: on
 * RS_RESULT_OK, depletion is still in flight, and each depleter's Next waits for its own
-* completion, so consumers observe results in completion order. The caller must not hold a spec
-* lock: each depleter's sub-pipeline takes its own read lock on its pool thread.
+* completion, so consumers observe results in completion order.
 * @param safeDepleters Array of safe depleter processors
 * @param status Query error object to populate in case of error
 * @return RS_RESULT_OK if all safe depleters launched successfully, otherwise an error code
