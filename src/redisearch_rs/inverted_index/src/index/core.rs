@@ -206,14 +206,20 @@ impl<E: Encoder> InvertedIndex<E> {
     /// a header-only test for leftovers of earlier cycles, so a GC pass is worth it
     /// even when nothing is gone.
     pub fn has_compactable_run(&self) -> bool {
-        let limit = u32::from(E::RECOMMENDED_BLOCK_ENTRIES);
-        let Some(last_idx) = self.blocks.len().checked_sub(1) else {
+        (0..self.blocks.len()).any(|i| self.packs_with_next(i))
+    }
+
+    /// Whether block `i` and the one after it, both before the last, fit one block
+    /// together. A run the GC packs is a chain of such pairs, so a block that packs with
+    /// neither neighbour never joins one.
+    fn packs_with_next(&self, i: usize) -> bool {
+        let (Some(a), Some(b)) = (self.blocks.get(i), self.blocks.get(i + 1)) else {
             return false;
         };
-        self.blocks[..last_idx].windows(2).any(|w| {
-            u32::from(w[0].num_entries) + u32::from(w[1].num_entries) <= limit
-                && Self::spans_one_block(w[0].first_doc_id, w[1].last_doc_id)
-        })
+        i + 2 < self.blocks.len()
+            && u32::from(a.num_entries) + u32::from(b.num_entries)
+                <= u32::from(E::RECOMMENDED_BLOCK_ENTRIES)
+            && Self::spans_one_block(a.first_doc_id, b.last_doc_id)
     }
 
     /// Whether entries from `first` to `last` can share one block: every delta between
@@ -228,8 +234,8 @@ impl<E: Encoder> InvertedIndex<E> {
     /// With [`GcSnapshotScope::DirtyBlocks`](crate::GcSnapshotScope::DirtyBlocks), blocks
     /// whose doc-ID range holds nothing `live` reports gone keep their bounds and entry
     /// count but no data, so a scan of the copy skips them as it would skip the originals,
-    /// and a repair never touches them. Under-filled blocks before the last are copied
-    /// regardless, so the scan can compact a run of them. Returns `None` when no block
+    /// and a repair never touches them. Blocks that pack with a neighbour (see
+    /// [`Self::has_compactable_run`]) are copied regardless, so the scan can compact their run. Returns `None` when no block
     /// needs a look. Scan the
     /// copy with the same `live`: another source may find a dataless block dirty and leave
     /// its entries uncollected for this cycle.
@@ -251,13 +257,12 @@ impl<E: Encoder> InvertedIndex<E> {
             expiration: ThinVec::new(),
             _encoder: Default::default(),
         };
-        let last_idx = self.blocks.len() - 1;
         for (i, b) in self.blocks.iter().enumerate() {
-            // Under-filled blocks before the last are GC leftovers; copying them lets
-            // the scan compact a run of them even where nothing is gone.
-            let under_filled = i < last_idx && b.num_entries < E::RECOMMENDED_BLOCK_ENTRIES;
+            // Copying the blocks that pack with a neighbour lets the scan compact their run
+            // even where nothing is gone.
+            let packs = self.packs_with_next(i) || (i > 0 && self.packs_with_next(i - 1));
             if scope == crate::GcSnapshotScope::AllBlocks
-                || under_filled
+                || packs
                 || live.any_gone(b.first_doc_id, b.last_doc_id)
             {
                 // The bits go with the block: a repair carries them onto the survivors.
