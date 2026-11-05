@@ -867,9 +867,8 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         if !self.buffers_carry_no_index_borrows() {
             return Ok(RQEValidateStatus::Aborted);
         }
-        // Otherwise only a child abort aborts us. Results come from our own
-        // score-ordered buffer, so a moved child does not move our cursor:
-        // collapse it to Ok.
+        // Results come from our own score-ordered buffer, so a moved child does
+        // not move our cursor. Child aborts and errors still propagate.
         if let Some(child) = self.child.as_mut() {
             match child.revalidate(spec)? {
                 RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),

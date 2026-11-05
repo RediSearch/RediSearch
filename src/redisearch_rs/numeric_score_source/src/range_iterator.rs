@@ -29,21 +29,26 @@ use crate::score_batch::NumericScoreBatch;
 /// A tree borrowed for a query, including while its spec lock is released.
 ///
 /// Immutable Rust trees convert through [`From`]; mutable C-owned trees enter
-/// through [`from_raw`](Self::from_raw), which owns the lifetime and revalidation
+/// through [`from_raw`](Self::from_raw), which specifies the lifetime and revalidation
 /// contract used by the numeric source's safe constructors.
-pub struct NumericTree<'index> {
+pub struct NumericTreeRef<'index> {
     ptr: NonNull<NumericRangeTree>,
     _lifetime: PhantomData<&'index NumericRangeTree>,
 }
 
-impl<'index> NumericTree<'index> {
+impl<'index> NumericTreeRef<'index> {
     /// Borrow a tree that may change while the query is suspended.
     ///
     /// # Safety
     ///
-    /// `tree` must remain [valid] for `'index`. It may be mutated only while the
-    /// query is suspended; revalidate the consuming iterator before any further
-    /// use, and discard it if revalidation aborts.
+    /// 1. `tree` points to an initialized [`NumericRangeTree`] that remains
+    ///    [valid] at a stable address for `'index`.
+    /// 2. If the tree may be mutated during `'index`, `tree` must retain the
+    ///    owner's raw-pointer provenance, not come from a reference to the tree
+    ///    that a later mutable borrow would invalidate.
+    /// 3. Mutation or mutable borrowing is allowed only while all consuming
+    ///    iterators are idle across a lock release. Revalidate each iterator
+    ///    before using it again, and discard it if revalidation aborts.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn from_raw(tree: NonNull<NumericRangeTree>) -> Self {
@@ -54,23 +59,25 @@ impl<'index> NumericTree<'index> {
     }
 
     fn get(&self) -> &'index NumericRangeTree {
-        // SAFETY: immutable borrow or the `from_raw` contract keeps the tree
-        // valid and excludes mutation during iterator operations.
+        // SAFETY: the shared borrow or `from_raw` (1, 2) keeps this pointer valid;
+        // (3) excludes mutation during iterator operations.
         unsafe { self.ptr.as_ref() }
     }
 }
 
-impl<'index> From<&'index NumericRangeTree> for NumericTree<'index> {
+impl<'index> From<&'index NumericRangeTree> for NumericTreeRef<'index> {
     fn from(tree: &'index NumericRangeTree) -> Self {
-        // SAFETY: the shared borrow keeps the tree valid and immutable for `'index`.
-        unsafe { Self::from_raw(NonNull::from(tree)) }
+        Self {
+            ptr: NonNull::from(tree),
+            _lifetime: PhantomData,
+        }
     }
 }
 
 /// Streams a numeric tree's ranges in value order, restricted to a
 /// [`RangeWindow`] and chunked by [`next_n`](Self::next_n).
 pub struct NumericRangeIterator<'index> {
-    tree: NumericTree<'index>,
+    tree: NumericTreeRef<'index>,
     /// Ranges matching `window`, best-score-first, or `None` until they are
     /// next resolved from the tree.
     ranges: Option<Vec<&'index NumericRange>>,
@@ -90,8 +97,8 @@ pub struct NumericRangeIterator<'index> {
     /// field occupies one range per doc and needs no such tracking, so it skips
     /// the per-record set lookup entirely.
     emitted: Option<HashSet<DocId>>,
-    /// The tree's revision when this iterator was built. GC bumps it when it
-    /// splits or removes nodes, freeing the ranges borrowed above.
+    /// Construction-time snapshot of [`NumericRangeTree::revision_id`], never
+    /// refreshed: a changed tree revision invalidates this cursor.
     revision_id: u32,
 }
 
@@ -99,12 +106,11 @@ impl<'index> NumericRangeIterator<'index> {
     /// Resolve `filter` against `tree` over `window` and prepare to stream the
     /// matching ranges best-score-first.
     pub fn new(
-        tree: impl Into<NumericTree<'index>>,
+        tree: impl Into<NumericTreeRef<'index>>,
         filter: &NumericFilter,
         window: RangeWindow,
     ) -> Self {
         let tree = tree.into();
-        let emitted = tree.get().has_multivalued_docs().then(HashSet::new);
         let revision_id = tree.get().revision_id();
         Self {
             tree,
@@ -112,21 +118,25 @@ impl<'index> NumericRangeIterator<'index> {
             window,
             pos: 0,
             filter: *filter,
-            emitted,
+            emitted: None,
             revision_id,
         }
     }
 
     fn ranges(&mut self) -> &[&'index NumericRange] {
-        let (tree, filter, window) = (self.tree.get(), self.filter, self.window);
-        if self.emitted.is_none() && tree.has_multivalued_docs() {
-            self.emitted = Some(HashSet::new());
-        }
-        self.ranges
-            .get_or_insert_with(|| tree.find_windowed(&filter, window))
+        self.ranges.get_or_insert_with(|| {
+            let tree = self.tree.get();
+            if self.emitted.is_none() && tree.has_multivalued_docs() {
+                self.emitted = Some(HashSet::new());
+            }
+            tree.find_windowed(&self.filter, self.window)
+        })
     }
 
-    /// Drop borrowed ranges before releasing the spec lock.
+    /// Discard cached ranges without accessing their contents.
+    ///
+    /// Suspension calls this before unlocking; legacy revalidation calls it
+    /// after relocking, before any range can be read again.
     pub fn release_index_handles(&mut self) {
         self.ranges = None;
     }
