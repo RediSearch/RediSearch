@@ -164,13 +164,12 @@ def testThreadPolicyIsTakenAtLoad():
     env.assertEqual(total_forks(env), forks_before)
     env.assertEqual(int(to_dict(index_info(env, 'idx')['gc_stats'])['total_cycles']), 1)
 
-@skip(cluster=True)
-def testThreadGCThresholdGrowsWithTheIndex():
-    """A scheduled THREAD cycle waits for search-gc-clean-ratio-ppm of the index's live documents
-    to be deleted, not just FORK_GC_CLEAN_THRESHOLD."""
-    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1', freshEnv=True)
+def threshold_env(module_args, ratio_ppm):
+    """100 documents under a 1 s GC interval, FORK_GC_CLEAN_THRESHOLD 1 and the given
+    search-gc-clean-ratio-ppm. Returns the env, a connection and a cycle counter."""
+    env = Env(moduleArgs=f'FORK_GC_RUN_INTERVAL 1 {module_args}', freshEnv=True)
     env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 1).ok()
-    env.expect('CONFIG', 'SET', 'search-gc-clean-ratio-ppm', 100_000).ok()
+    env.expect('CONFIG', 'SET', 'search-gc-clean-ratio-ppm', ratio_ppm).ok()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     waitForIndex(env, 'idx')
@@ -179,6 +178,18 @@ def testThreadGCThresholdGrowsWithTheIndex():
 
     def total_cycles():
         return int(to_dict(index_info(env, 'idx')['gc_stats'])['total_cycles'])
+    return env, conn, total_cycles
+
+def wait_for_scheduled_cycle(total_cycles):
+    with TimeLimit(10, 'a scheduled cycle should run once the threshold is reached'):
+        while total_cycles() == 0:
+            time.sleep(0.1)
+
+@skip(cluster=True)
+def testThreadGCThresholdGrowsWithTheIndex():
+    """A scheduled THREAD cycle waits for search-gc-clean-ratio-ppm of the index's live documents
+    to be deleted, not just FORK_GC_CLEAN_THRESHOLD."""
+    env, conn, total_cycles = threshold_env('', 100_000)
 
     # 5 deletions leave 95 documents, whose 10% is 9.
     for i in range(5):
@@ -189,9 +200,22 @@ def testThreadGCThresholdGrowsWithTheIndex():
     # 10 deletions reach the 9 of the 90 left.
     for i in range(5, 10):
         conn.execute_command('DEL', f'doc:{i}')
-    with TimeLimit(10, 'a scheduled cycle should run once the threshold is reached'):
-        while total_cycles() == 0:
-            time.sleep(0.1)
+    wait_for_scheduled_cycle(total_cycles)
+
+@skip(cluster=True)
+def testThreadGCZeroRatioWaitsForTheCleanThresholdOnly():
+    """search-gc-clean-ratio-ppm 0 leaves a scheduled THREAD cycle to FORK_GC_CLEAN_THRESHOLD."""
+    env, conn, total_cycles = threshold_env('', 0)
+    conn.execute_command('DEL', 'doc:0')
+    wait_for_scheduled_cycle(total_cycles)
+
+@skip(cluster=True)
+def testForkGCIgnoresTheCleanRatio():
+    """search-gc-clean-ratio-ppm applies to THREAD only; a scheduled FORK cycle waits for
+    FORK_GC_CLEAN_THRESHOLD alone."""
+    env, conn, total_cycles = threshold_env('GC_POLICY FORK', 100_000)
+    conn.execute_command('DEL', 'doc:0')
+    wait_for_scheduled_cycle(total_cycles)
 
 @skip(cluster=True)
 def testThreadGCRunsWhileAnotherChildHoldsTheForkSlot():
