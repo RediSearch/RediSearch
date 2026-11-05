@@ -28,6 +28,7 @@ const FEEDBACK = `query($owner: String!, $name: String!, $number: Int!, $after: 
     state headRefOid url
     reviewThreads(first: 100, after: $after) { pageInfo { hasNextPage endCursor }
       nodes { id isResolved path line
+      root: comments(first: 1) { nodes { databaseId } }
       comments(last: 20) { nodes { databaseId author { login } body url } } } }
     reviews(last: 50) { nodes { databaseId author { login __typename } body url
       comments { totalCount } } }
@@ -122,7 +123,8 @@ export function readFeedback(
         body,
         last.url,
       ),
-      replies: [{ pr: number, comment: last.databaseId, thread: t.id }],
+      // GitHub takes replies only to a thread's first comment.
+      replies: [{ pr: number, comment: t.root.nodes[0].databaseId, thread: t.id }],
     });
   }
   // People are always heard. Bots are heard in review threads only: their review bodies summarize

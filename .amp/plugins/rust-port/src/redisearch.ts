@@ -57,6 +57,18 @@ export const CHECKS: Record<Stage, Record<string, string[]>> = {
 /** What a reproduction may run: a `*` stands for a word. */
 export const RUNNERS = ['cargo test', 'cargo nextest run', './build.sh RUN_*'];
 
+const RELEASE_NOTES = /^- \[([ x])\] This PR (requires|does not require) release notes/gim;
+
+/** What the PR template's release-notes check, which `pr-validation` does not include, rejects. */
+export function bodyErrors(body: string): string[] {
+  const boxes = [...body.matchAll(RELEASE_NOTES)];
+  const kinds = new Set(boxes.map((b) => b[2].toLowerCase()));
+  const ticked = boxes.filter((b) => b[1].toLowerCase() === 'x').length;
+  return kinds.size === 2 && ticked === 1
+    ? []
+    : ['needs both release-notes boxes of the PR template, exactly one of them ticked'];
+}
+
 /** The check that aggregates the others: the only CI result that decides. */
 export const CI_GATE = 'pr-validation';
 /** Checks that never block, even before the gate reports. */

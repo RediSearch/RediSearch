@@ -8,7 +8,7 @@
  */
 import { execa } from 'execa';
 import { criterion, type Check } from './checks.ts';
-import { CHECKS } from './redisearch.ts';
+import { bodyErrors, CHECKS } from './redisearch.ts';
 import { namedForArtifact } from './rules.ts';
 
 /** A port lands as two stacked PRs: the Rust, then the swap that deletes the C. */
@@ -93,6 +93,7 @@ export function validate(plan: Plan): string[] {
     if (!s?.paths?.length || s.paths.some(blank))
       errors.push(`${stage} needs the paths it may change`);
     if (blank(s?.title) || blank(s?.body)) errors.push(`${stage} needs a PR title and body`);
+    else errors.push(...bodyErrors(s.body).map((e) => `${stage} body ${e}`));
     const filter = benchFilter(s?.checks?.find((c) => c.kind === 'bench')?.command ?? '');
     if (filter)
       errors.push(`${stage} bench check filters the benchmarks (${filter}); run them all`);
@@ -136,9 +137,12 @@ export function benchFilter(command: string): string | undefined {
  */
 export function declarations(header: string): string[] {
   // Comments become blank space, keeping lines, so prose in them never reads as a prototype.
+  // `extern` is dropped, so a variable typed by a macro call, `extern arrayof(int*) x;`, does
+  // not read as a function named for its macro.
   const code = header
     .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '))
-    .replace(/\/\/[^\n]*/g, '');
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/^extern\s+/gm, '');
   const pattern =
     /^(?!typedef\b|static\b|#|\/\/|\/?\*|\s)(?:\w+\([^()]*\)(?:[ \t]*|[ \t]*\n[ \t]+)|(?:[\w*]+[\s*]+)+)(\w+)\s*\(/gm;
   return [...code.matchAll(pattern)].map((m) => m[1]);

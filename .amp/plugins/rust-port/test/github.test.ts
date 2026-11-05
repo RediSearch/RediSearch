@@ -44,11 +44,18 @@ test('a comment is keyed by its text, so the same comment on a stacked PR matche
     isResolved: false,
     path: 'a.cpp',
     line,
-    comments: { nodes: [comment(id, 'bot', 'strlen on a non-terminated buffer')] },
+    root: { nodes: [{ databaseId: id }] },
+    comments: {
+      nodes: [
+        comment(id, 'bot', 'strlen on a non-terminated buffer'),
+        comment(id * 10, 'me', 'agreed'),
+      ],
+    },
   });
   const one = readFeedback(data({ reviewThreads: { nodes: [thread(148, 1)] } }), 'rust', 1);
   const two = readFeedback(data({ reviewThreads: { nodes: [thread(98, 2)] } }), 'swap', 2);
   assert.equal(one!.comments[0].key, two!.comments[0].key);
+  // The reply goes to the thread's first comment; GitHub refuses a reply to a reply.
   assert.deepEqual(two!.comments[0].replies, [{ pr: 2, comment: 2, thread: 't2' }]);
 });
 
@@ -58,6 +65,7 @@ test('resolved threads, plugin replies, and summaries of inline reviews are left
     isResolved,
     path: 'a.rs',
     line: 1,
+    root: { nodes: [{ databaseId: id }] },
     comments: { nodes: [comment(id, 'me', body)] },
   });
   const by = (id: number, login: string, type: string, body = `${login} ${id}`) => ({
@@ -96,6 +104,7 @@ test('bot markup is stripped from comment text', () => {
     isResolved: false,
     path: 'a.rs',
     line: 1,
+    root: { nodes: [{ databaseId: 1 }] },
     comments: {
       nodes: [comment(1, 'bot', 'Real issue.<!-- meta --><details>badges</details>')],
     },
@@ -160,6 +169,7 @@ test('two threads with the same text stay two findings; an edited comment is a n
     isResolved: false,
     path: 'a.rs',
     line: id,
+    root: { nodes: [{ databaseId: id }] },
     comments: { nodes: [comment(id, 'me', 'use expect here')] },
   });
   const both = readFeedback(data({ reviewThreads: { nodes: [thread(1), thread(2)] } }), 'rust', 1);

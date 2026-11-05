@@ -263,12 +263,12 @@ async function definesRust(git: Git, candidate: string, path: string): Promise<b
  * export only tests call keeps C ABI alive for nothing; its tests belong on the Rust API.
  */
 export async function orphans(git: Git, files: FileChange[], candidate: string): Promise<string[]> {
-  const grep = (...args: string[]) => git(['grep', '-h', ...args]).catch(() => '');
+  const grep = (...args: string[]) => git(['grep', ...args]).catch(() => '');
   const touched = new Set(files.flatMap((f) => f.removed.join('\n').match(/\w+/g) ?? []));
   for (const f of files)
     for (const m of f.added.join('\n').matchAll(/#\[unsafe\(no_mangle\)\][^{;]*?\bfn\s+(\w+)/g))
       touched.add(m[1]);
-  const exports = await grep('-A4', '#\\[unsafe(no_mangle)\\]', candidate, '--', '*.rs');
+  const exports = await grep('-h', '-A4', '#\\[unsafe(no_mangle)\\]', candidate, '--', '*.rs');
   const names = new Set(
     [...exports.matchAll(/\bfn\s+(\w+)/g)].map((m) => m[1]).filter((n) => touched.has(n)),
   );
@@ -276,13 +276,18 @@ export async function orphans(git: Git, files: FileChange[], candidate: string):
   const skip = [':!tests', ':!**/tests/**', ':!**/benches/**'];
   const result = [];
   for (const name of names) {
-    const uses = (await grep('-w', name, candidate, '--', ...sources, ...skip))
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(
-        (line) => line && !/^(\/\/|\/?\*)/.test(line) && !new RegExp(`fn\\s+${name}\\b`).test(line),
-      );
-    if (!uses.length) result.push(name);
+    const word = new RegExp(`\\b${name}\\b`);
+    const call = (line: string) =>
+      word.test(line) && !/^(\/\/|\/?\*)/.test(line.trim()) && !/\bfn\s/.test(line);
+    let used = false;
+    for (const hit of (await grep('-lw', name, candidate, '--', ...sources, ...skip)).split('\n')) {
+      const path = hit.slice(candidate.length + 1);
+      if (!path || used) continue;
+      // A Rust file's own `#[cfg(test)]` items are tests too.
+      const text = await git(['show', `${candidate}:${path}`]);
+      used = (path.endsWith('.rs') ? nonTest(text) : text).split('\n').some(call);
+    }
+    if (!used) result.push(name);
   }
   return result;
 }

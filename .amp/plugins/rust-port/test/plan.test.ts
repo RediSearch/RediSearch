@@ -12,6 +12,7 @@ import { benchFilter, declarations, pr, STAGES, validate, type Plan } from '../s
 import { brief, REVIEWERS } from '../src/review.ts';
 
 const LINT = 'make lint && cargo hakari generate --diff && cargo hakari manage-deps --dry-run';
+const NOTES = '- [ ] This PR requires release notes\n- [x] This PR does not require release notes';
 const unitsTest = { path: 'tests/pytests/test_geo.py', name: 'testUnits', stage: 'rust' as const };
 const checks = {
   rust: [
@@ -56,7 +57,7 @@ const plan: Plan = {
         deliverable: `${s} deliverable`,
         paths: [`src/redisearch_rs/geo/`],
         title: 't',
-        body: 'b',
+        body: `b\n\n${NOTES}`,
         checks: checks[s].map((command, i) => ({ kind: kinds[s][i], command })),
       },
     ]),
@@ -73,12 +74,14 @@ test('a plan needs tested contract items and divergences, and the stage checks',
   broken.stages.rust.checks = broken.stages.rust.checks.filter((c) => c.kind !== 'bench');
   broken.stages.swap.checks[2].command = 'make lint';
   broken.stages.swap.checks[1].command += ' || true';
+  broken.stages.swap.body = NOTES.replace('[ ]', '[x]');
   assert.deepEqual(validate(broken), [
     'module needs the C files being ported: sources and headers',
     'contract[0] needs the tests that pin it',
     'divergences[0] needs a test: { path, name, stage }, stage one of rust, swap',
     'symbols[0] needs c and rust',
     'rust needs a bench check running `cargo bench`',
+    'swap body needs both release-notes boxes of the PR template, exactly one of them ticked',
     'swap miri check chains commands with something other than `&&`',
     'swap needs a lint check running `make lint` and running `cargo hakari generate --diff` and ' +
       'running `cargo hakari manage-deps --dry-run`',
@@ -101,6 +104,8 @@ int isWithinRadius(const GeoFilter *gf, double d, double *distance);
 static inline int helper(void) { return 0; }
 extern const char *GEO_UNITS;
 extern void GeoFilter_Free(GeoFilter *gf);
+extern arrayof(int*) asm_sanitizer_allocs;
+extern khash_t(cursors) *cursorsTable;
 arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, rune *str);
 arrayof(char **)
     TagIndex_GetSuffixMatches(const TagIndex *idx, const char *str);

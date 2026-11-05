@@ -10027,6 +10027,16 @@ const CHECKS = {
 };
 /** What a reproduction may run: a `*` stands for a word. */
 const RUNNERS = ['cargo test', 'cargo nextest run', './build.sh RUN_*'];
+const RELEASE_NOTES = /^- \[([ x])\] This PR (requires|does not require) release notes/gim;
+/** What the PR template's release-notes check, which `pr-validation` does not include, rejects. */
+function bodyErrors(body) {
+    const boxes = [...body.matchAll(RELEASE_NOTES)];
+    const kinds = new Set(boxes.map((b) => b[2].toLowerCase()));
+    const ticked = boxes.filter((b) => b[1].toLowerCase() === 'x').length;
+    return kinds.size === 2 && ticked === 1
+        ? []
+        : ['needs both release-notes boxes of the PR template, exactly one of them ticked'];
+}
 /** The check that aggregates the others: the only CI result that decides. */
 const CI_GATE = 'pr-validation';
 /** Checks that never block, even before the gate reports. */
@@ -10326,6 +10336,8 @@ function validate(plan) {
             errors.push(`${stage} needs the paths it may change`);
         if (blank(s?.title) || blank(s?.body))
             errors.push(`${stage} needs a PR title and body`);
+        else
+            errors.push(...bodyErrors(s.body).map((e) => `${stage} body ${e}`));
         const filter = benchFilter(s?.checks?.find((c) => c.kind === 'bench')?.command ?? '');
         if (filter)
             errors.push(`${stage} bench check filters the benchmarks (${filter}); run them all`);
@@ -10367,9 +10379,12 @@ function benchFilter(command) {
  */
 function declarations(header) {
     // Comments become blank space, keeping lines, so prose in them never reads as a prototype.
+    // `extern` is dropped, so a variable typed by a macro call, `extern arrayof(int*) x;`, does
+    // not read as a function named for its macro.
     const code = header
         .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '))
-        .replace(/\/\/[^\n]*/g, '');
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/^extern\s+/gm, '');
     const pattern = /^(?!typedef\b|static\b|#|\/\/|\/?\*|\s)(?:\w+\([^()]*\)(?:[ \t]*|[ \t]*\n[ \t]+)|(?:[\w*]+[\s*]+)+)(\w+)\s*\(/gm;
     return [...code.matchAll(pattern)].map((m) => m[1]);
 }
@@ -10998,22 +11013,29 @@ async function definesRust(git, candidate, path) {
  * export only tests call keeps C ABI alive for nothing; its tests belong on the Rust API.
  */
 async function orphans(git, files, candidate) {
-    const grep = (...args) => git(['grep', '-h', ...args]).catch(() => '');
+    const grep = (...args) => git(['grep', ...args]).catch(() => '');
     const touched = new Set(files.flatMap((f) => f.removed.join('\n').match(/\w+/g) ?? []));
     for (const f of files)
         for (const m of f.added.join('\n').matchAll(/#\[unsafe\(no_mangle\)\][^{;]*?\bfn\s+(\w+)/g))
             touched.add(m[1]);
-    const exports = await grep('-A4', '#\\[unsafe(no_mangle)\\]', candidate, '--', '*.rs');
+    const exports = await grep('-h', '-A4', '#\\[unsafe(no_mangle)\\]', candidate, '--', '*.rs');
     const names = new Set([...exports.matchAll(/\bfn\s+(\w+)/g)].map((m) => m[1]).filter((n) => touched.has(n)));
     const sources = ['*.c', '*.h', '*.cpp', '*.cc', '*.hpp', '*.rs', `:!${HEADERS}`];
     const skip = [':!tests', ':!**/tests/**', ':!**/benches/**'];
     const result = [];
     for (const name of names) {
-        const uses = (await grep('-w', name, candidate, '--', ...sources, ...skip))
-            .split('\n')
-            .map((line) => line.trim())
-            .filter((line) => line && !/^(\/\/|\/?\*)/.test(line) && !new RegExp(`fn\\s+${name}\\b`).test(line));
-        if (!uses.length)
+        const word = new RegExp(`\\b${name}\\b`);
+        const call = (line) => word.test(line) && !/^(\/\/|\/?\*)/.test(line.trim()) && !/\bfn\s/.test(line);
+        let used = false;
+        for (const hit of (await grep('-lw', name, candidate, '--', ...sources, ...skip)).split('\n')) {
+            const path = hit.slice(candidate.length + 1);
+            if (!path || used)
+                continue;
+            // A Rust file's own `#[cfg(test)]` items are tests too.
+            const text = await git(['show', `${candidate}:${path}`]);
+            used = (path.endsWith('.rs') ? nonTest(text) : text).split('\n').some(call);
+        }
+        if (!used)
             result.push(name);
     }
     return result;
@@ -15626,6 +15648,7 @@ const FEEDBACK = `query($owner: String!, $name: String!, $number: Int!, $after: 
     state headRefOid url
     reviewThreads(first: 100, after: $after) { pageInfo { hasNextPage endCursor }
       nodes { id isResolved path line
+      root: comments(first: 1) { nodes { databaseId } }
       comments(last: 20) { nodes { databaseId author { login } body url } } } }
     reviews(last: 50) { nodes { databaseId author { login __typename } body url
       comments { totalCount } } }
@@ -15694,7 +15717,8 @@ function readFeedback(data, stage, number, posted = [], head) {
         keys.add(key);
         comments.push({
             ...finding('comment', key, `review comment on PR #${number} · ${t.path}:${t.line}`, body, last.url),
-            replies: [{ pr: number, comment: last.databaseId, thread: t.id }],
+            // GitHub takes replies only to a thread's first comment.
+            replies: [{ pr: number, comment: t.root.nodes[0].databaseId, thread: t.id }],
         });
     }
     // People are always heard. Bots are heard in review threads only: their review bodies summarize
@@ -16179,8 +16203,10 @@ function plugin (amp) {
             log: '',
             problem,
         });
-        // Checks skipped after a failure ran none of their tests, which is not a failure of the plan.
-        if (checks.length === planned.length) {
+        // A failed check already rejects the candidate, and the checks after it ran none of their
+        // tests, so neither the cited tests nor the fixes' reproductions are looked at.
+        const rejected = checks.some((c) => c.problem);
+        if (!rejected) {
             const logs = (await Promise.all(checks.map((c) => readFile(c.log, 'utf8').catch(() => '')))).join('\n');
             const unrun = cited(job.plan, stage).filter((t) => !ran(logs, t.name));
             if (unrun.length)
@@ -16188,7 +16214,7 @@ function plugin (amp) {
         }
         // A fix stands only while its reproduction passes: a later candidate can bring the failure back.
         let n = 0;
-        for (const f of Object.values(state.findings)) {
+        for (const f of rejected ? [] : Object.values(state.findings)) {
             if (f.stage !== stage || f.closed?.resolution !== 'fixed' || !f.repro)
                 continue;
             const result = await reproduction(trials, f.repro, `fix-${++n}`);
