@@ -109,8 +109,6 @@ configPair_t __configPairs[] = {
   {"PARTIAL_INDEXED_DOCS",            "search-partial-indexed-docs"},
   {"RAW_DOCID_ENCODING",              "search-raw-docid-encoding"},
   {"SEARCH_THREADS",                  "search-threads"},
-  {"THREAD_GC_CLEAN_THRESHOLD",       "search-thread-gc-clean-threshold"},
-  {"THREAD_GC_RUN_INTERVAL",          "search-thread-gc-run-interval"},
   {"TIERED_HNSW_BUFFER_LIMIT",        "search-tiered-hnsw-buffer-limit"},
   {"TIMEOUT",                         "search-timeout"},
   {"TOPOLOGY_VALIDATION_TIMEOUT",     "search-topology-validation-timeout"},
@@ -1106,28 +1104,6 @@ CONFIG_GETTER(getForkGcCleanThreshold) {
   return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcCleanThreshold);
 }
 
-// THREAD_GC_RUN_INTERVAL
-CONFIG_SETTER(setThreadGcInterval) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.threadGcRunIntervalSec, AC_F_GE1);
-  RETURN_STATUS(acrc);
-}
-
-CONFIG_GETTER(getThreadGcInterval) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.threadGcRunIntervalSec);
-}
-
-// THREAD_GC_CLEAN_THRESHOLD
-CONFIG_SETTER(setThreadGcCleanThreshold) {
-  int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.threadGcCleanThreshold, 0);
-  RETURN_STATUS(acrc);
-}
-
-CONFIG_GETTER(getThreadGcCleanThreshold) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.threadGcCleanThreshold);
-}
-
 // FORK_GC_RETRY_INTERVAL
 CONFIG_SETTER(setForkGcRetryInterval) {
   int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcRetryInterval, AC_F_GE1);
@@ -1812,16 +1788,6 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "will exceed this threshold",
          .setValue = setForkGcCleanThreshold,
          .getValue = getForkGcCleanThreshold},
-        {.name = "THREAD_GC_RUN_INTERVAL",
-         .helpText = "interval (in seconds) in which to run the thread gc (relevant only when "
-                     "thread gc is used)",
-         .setValue = setThreadGcInterval,
-         .getValue = getThreadGcInterval},
-        {.name = "THREAD_GC_CLEAN_THRESHOLD",
-         .helpText = "the least number of not cleaned documents the thread gc waits for before "
-                     "cleaning; search-gc-clean-ratio-ppm can raise it",
-         .setValue = setThreadGcCleanThreshold,
-         .getValue = getThreadGcCleanThreshold},
         {.name = "FORK_GC_RETRY_INTERVAL",
          .helpText = "interval (in seconds) in which to retry running the forkgc after failure.",
          .setValue = setForkGcRetryInterval,
