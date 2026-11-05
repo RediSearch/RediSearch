@@ -404,9 +404,11 @@ fn expiration_bit_survives_a_snapshot_scan() {
 /// Compacting a run of under-filled blocks keeps the bit of every entry it merges.
 #[test]
 fn expiration_bit_survives_block_compaction() {
-    let mut ii = InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly);
-    let per_block = DocId::from(<DocIdsOnly as crate::Encoder>::RECOMMENDED_BLOCK_ENTRIES);
-    let has_exp = |doc_id: DocId| doc_id % 3 == 0;
+    // `Dummy`'s small blocks keep the test quick under Miri; the bits live on the index,
+    // not in the encoding, so the codec does not matter here.
+    let mut ii = InvertedIndex::<super::Dummy>::new(IndexFlags_Index_DocIdsOnly);
+    let per_block = DocId::from(<super::Dummy as crate::Encoder>::RECOMMENDED_BLOCK_ENTRIES);
+    let has_exp = |doc_id: DocId| doc_id % per_block == 0;
     for doc_id in 1..=3 * per_block {
         let rec = RSIndexResult::build_virt()
             .doc_id(doc_id)
@@ -416,8 +418,9 @@ fn expiration_bit_survives_block_compaction() {
     }
     assert_eq!(ii.number_of_blocks(), 3);
 
-    // The first two blocks keep a tenth of their entries, which fit one block.
-    let live = |doc_id: DocId| doc_id > 2 * per_block || doc_id % 10 == 0;
+    // The first two blocks keep one entry each, which fit one block; the one with the
+    // bit moves to a new ordinal there.
+    let live = |doc_id: DocId| doc_id == 1 || doc_id >= 2 * per_block;
     // The first cycle removes the dead entries block by block; the next packs the two
     // blocks it left under-filled.
     for _ in 0..2 {
