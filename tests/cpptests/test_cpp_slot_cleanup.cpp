@@ -34,6 +34,7 @@ extern RedisSearchDisk *disk_db;
 
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -504,6 +505,41 @@ class BufferedDiskQuery {
     processor = sorter;
   }
 
+  void scoreByDocId(std::function<void()> onExhausted = {}, int exhaustedStatus = RS_RESULT_EOF) {
+    struct ScoredSource {
+      ResultProcessor base{};
+      std::function<void()> onExhausted;
+      int exhaustedStatus;
+    };
+    auto *source = new ScoredSource;
+    source->onExhausted = std::move(onExhausted);
+    source->exhaustedStatus = exhaustedStatus;
+    source->base.Next = [](ResultProcessor *base, SearchResult *result) {
+      auto *self = reinterpret_cast<ScoredSource *>(base);
+      const int rc = base->upstream->Next(base->upstream, result);
+      if (rc == RS_RESULT_OK) {
+        const auto id = SearchResult_GetDocId(result);
+        SearchResult_SetScore(result, id == 2 ? 100.0 : static_cast<double>(id));
+      } else if (rc == RS_RESULT_EOF && self->onExhausted) {
+        self->onExhausted();
+      }
+      return rc == RS_RESULT_EOF ? self->exhaustedStatus : rc;
+    };
+    source->base.Free = [](ResultProcessor *base) {
+      delete reinterpret_cast<ScoredSource *>(base);
+    };
+    processor = &source->base;
+    QITR_PushRP(activeProcessing, processor);
+  }
+
+  std::pair<t_docId, double> nextScored() {
+    EXPECT_EQ(processor->Next(processor, &result), RS_RESULT_OK);
+    const auto value =
+        std::make_pair(SearchResult_GetDocId(&result), SearchResult_GetScore(&result));
+    SearchResult_Clear(&result);
+    return value;
+  }
+
   void normalizeScores() {
     processor = RPMaxScoreNormalizer_New(nullptr);
     QITR_PushRP(activeProcessing, processor);
@@ -754,6 +790,71 @@ TEST_P(DiskSlotNormalizedVisibilityTest, NormalizedResultsRecheckBufferedVisibil
   EXPECT_EQ(query.skipped(), first == 2 || first == 3 ? 1u : 2u);
   EXPECT_EQ(ids.size(), first == 2 || first == 3 ? 4u : 3u);
   if (!GetParam()) removePending(pending);
+}
+
+TEST_P(DiskSlotNormalizedVisibilityTest, NormalizerExcludesHiddenMaximumBeforeFirstYield) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  PendingSlotDeletion *pending = nullptr;
+  query.scoreByDocId([&] {
+    pending = registerTrim();
+    if (GetParam()) {
+      IndexSpec_LockWrite(spec);
+      pool.deletedIds = {2, 3};
+      DocTable_RemovePendingDeletion(&spec->docs, pending);
+      IndexSpec_Unlock(spec);
+      pending = nullptr;
+    }
+  });
+  query.normalizeScores();
+  for (const auto expected : {6u, 5u, 4u, 1u}) {
+    const auto [id, score] = query.nextScored();
+    EXPECT_EQ(id, expected);
+    EXPECT_DOUBLE_EQ(score, static_cast<double>(expected) / 6.0);
+  }
+  EXPECT_EQ(query.nextStatus(), RS_RESULT_EOF);
+  EXPECT_EQ(query.skipped(), 2u);
+  EXPECT_FALSE(IndexSpec_IsLocked(spec));
+  if (pending) removePending(pending);
+}
+
+TEST_F(DiskSlotAsyncVisibilityTest, NormalizerKeepsScoreScaleAfterFirstYield) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  query.scoreByDocId();
+  query.normalizeScores();
+  const auto [first, firstScore] = query.nextScored();
+  EXPECT_EQ(first, 6u);
+  EXPECT_DOUBLE_EQ(firstScore, 0.06);
+  auto *pending = registerTrim();
+  for (const auto expected : {5u, 4u, 1u}) {
+    const auto [id, score] = query.nextScored();
+    EXPECT_EQ(id, expected);
+    EXPECT_DOUBLE_EQ(score, static_cast<double>(expected) / 100.0);
+  }
+  EXPECT_EQ(query.nextStatus(), RS_RESULT_EOF);
+  EXPECT_EQ(query.skipped(), 2u);
+  removePending(pending);
+}
+
+TEST_F(DiskSlotAsyncVisibilityTest, NormalizerPreservesBufferedRowsWhenAccumulationTimesOut) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  query.scoreByDocId([&] { query.expire(TimeoutPolicy_Return); }, RS_RESULT_TIMEDOUT);
+  query.normalizeScores();
+  for (const auto expected : {6u, 5u, 4u, 3u, 2u, 1u}) {
+    const auto [id, score] = query.nextScored();
+    EXPECT_EQ(id, expected);
+    EXPECT_DOUBLE_EQ(score, expected == 2 ? 1.0 : static_cast<double>(expected) / 100.0);
+  }
+  EXPECT_EQ(query.nextStatus(), RS_RESULT_TIMEDOUT);
+  EXPECT_EQ(query.nextStatus(), RS_RESULT_EOF);
+  EXPECT_FALSE(IndexSpec_IsLocked(spec));
+}
+
+TEST_F(DiskSlotAsyncVisibilityTest, NormalizerStopsExpiredPoolBeforeFirstYield) {
+  BufferedDiskQuery query(ctx, spec, snapshot());
+  query.scoreByDocId([&] { query.expire(TimeoutPolicy_Fail); });
+  query.normalizeScores();
+  EXPECT_EQ(query.nextStatus(), RS_RESULT_TIMEDOUT);
+  EXPECT_FALSE(IndexSpec_IsLocked(spec));
 }
 
 TEST_F(DiskSlotAsyncVisibilityTest, HiddenNormalizerRowsStopAtTimeoutForEveryPolicy) {
