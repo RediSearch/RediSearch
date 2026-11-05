@@ -205,7 +205,7 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
 /**
  * Refill the IndexResult queue from the iterator.
  * Fills up to current capacity, doesn't grow the queue.
- * Returns RS_RESULT_OK on success, RS_RESULT_TIMEDOUT on timeout.
+ * Returns RS_RESULT_OK on success, RS_RESULT_STOPPED on timeout.
  */
 static inline __attribute__((always_inline)) int refillQueueUsingIterator(RPQueryIterator *self,
                                                                           bool isProfiled) {
@@ -220,14 +220,14 @@ static inline __attribute__((always_inline)) int refillQueueUsingIterator(RPQuer
   // Fill the queue up to max capacity
   while (self->async.iteratorResultCount < self->async.queueSize && !it->atEOF) {
     if (QueryRequestLimits_IsTimedOut(sctx->limits)) {
-      return RS_RESULT_TIMEDOUT;
+      return RS_RESULT_STOPPED;
     }
 
     IteratorStatus rc = it->Read(it);
     if (rc == ITERATOR_EOF) {
       break;
     } else if (rc == ITERATOR_TIMEOUT) {
-      return RS_RESULT_TIMEDOUT;
+      return RS_RESULT_STOPPED;
     }
 
     // Skip deleted documents (in-memory check, no IO)
@@ -332,7 +332,7 @@ typedef enum {
  * On VALIDATE_ABORTED and VALIDATE_TIMEOUT alike the iterator is unusable and gets replaced by an
  * empty one, so the pipeline stays safe if it reads again. The two part ways in what the caller
  * reports: an abort lets the query end as if the index were exhausted, while a timeout means the
- * results are partial and must be returned as `RS_RESULT_TIMEDOUT`.
+ * results are partial and must be returned as `RS_RESULT_STOPPED`.
  *
  * * For disk indexes, we skip the lock acquisition because:
  * 1. All in-memory structure accesses (terms Trie, suffix Trie, stats) happen
@@ -387,7 +387,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
   // Handle spec lock and revalidation
   RevalidateOutcome revalidateOutcome = handleSpecLockAndRevalidate(self);
   if (revalidateOutcome == REVALIDATE_TIMEDOUT) {
-    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
   }
   bool needToValidateCurrent = (revalidateOutcome == REVALIDATE_VALIDATE_CURRENT);
 
@@ -408,7 +408,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
 
   while (1) {
     if (QueryRequestLimits_IsTimedOut(sctx->limits)) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
     }
 
     if (!needToValidateCurrent) {
@@ -417,7 +417,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
         case ITERATOR_EOF:
           return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
         case ITERATOR_TIMEOUT:
-          return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+          return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
         default:
           RS_ASSERT(rc == ITERATOR_OK);
       }
@@ -456,7 +456,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
   // but the timeout is answered defensively, so that a disk spec which one day does revalidate
   // reports the timeout instead of reading past it as end-of-results.
   if (handleSpecLockAndRevalidate(self) == REVALIDATE_TIMEDOUT) {
-    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+    return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
   }
 
   // Always update it after revalidation as iterator may have been replaced
@@ -472,7 +472,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
 
   while (1) {
     if (QueryRequestLimits_IsTimedOut(sctx->limits)) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
     }
 
     // Free the previous deep-copied IndexResult if any
@@ -484,8 +484,8 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
 
     // Step 1: Refill the IndexResult queue if needed (cheap iterator reads)
     int refillResult = refillQueueUsingIterator(self, isProfiled);
-    if (refillResult == RS_RESULT_TIMEDOUT) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+    if (refillResult == RS_RESULT_STOPPED) {
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
     }
 
     // Step 1b: Submit any queued results to async pool (keep pipeline full)
@@ -524,7 +524,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
     // which is too coarse once an iteration can sleep. Re-check unthrottled after a
     // blocking poll.
     if (index_poll_timeout_ms > 0 && QueryRequestLimits_IsTimedOutExact(sctx->limits)) {
-      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_TIMEDOUT);
+      return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
     }
 
     // Step 4: Check if we're completely done
@@ -628,7 +628,7 @@ void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded
 
 static int rpQueryItNext_Stopped(ResultProcessor *base, SearchResult *res) {
   (void)res;
-  return UnlockSpec_and_ReturnRPResult(((RPQueryIterator *)base)->sctx, RS_RESULT_TIMEDOUT);
+  return UnlockSpec_and_ReturnRPResult(((RPQueryIterator *)base)->sctx, RS_RESULT_STOPPED);
 }
 
 void RP_EndRowSourceOnStop(QueryProcessingCtx *qctx) {
@@ -847,7 +847,7 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     rm_free(cur_best);
     return RS_RESULT_OK;
   }
-  int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+  int ret = self->timedOut ? RS_RESULT_STOPPED : RS_RESULT_EOF;
   self->timedOut = false;
   return ret;
 }
@@ -875,7 +875,7 @@ static int rpsortNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   if (rc == RS_RESULT_EOF) {
     rp->Next = rpsortNext_Yield;
     return rpsortNext_Yield(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT) {
+  } else if (rc == RS_RESULT_STOPPED) {
     RSTimeoutPolicy policy = rp->parent->timeoutPolicy;
 
     if (policy == TimeoutPolicy_Fail) {
@@ -1475,7 +1475,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
-      !(result_status == RS_RESULT_TIMEDOUT && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
+      !(result_status == RS_RESULT_STOPPED && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
       IsBufferEmpty(self)) {
     return result_status;
   }
@@ -1503,7 +1503,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // that we are about to take the GIL so the timeout callback can preempt us; if
   // it already timed out, bail instead of blocking. See aggregate.h.
   if (self->request && !QueryRequest_SafeLoaderEnterGIL(self->request)) {
-    return RS_RESULT_TIMEDOUT;
+    return RS_RESULT_STOPPED;
   }
 
 #ifdef ENABLE_ASSERT
@@ -1900,7 +1900,7 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
    size_t length = array_len(self->pool);
    if (length == 0) {
     // We've already yielded all results, return EOF
-    int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    int ret = self->timedOut ? RS_RESULT_STOPPED : RS_RESULT_EOF;
     self->timedOut = false;
     return ret;
    }
@@ -1928,7 +1928,7 @@ static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult 
   if (rc == RS_RESULT_EOF) {
     rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
-  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+  } else if (rc == RS_RESULT_STOPPED && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
     self->timedOut = true;
     rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
@@ -2204,7 +2204,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
     QueryRequestLimits *timeout = self->depletingThreadCtx->limits;
     if (QueryRequestLimits_IsMemoryStopped(timeout) ||
         QueryRequestLimits_IsBlockedClientTimedOut(timeout)) {
-      rc = RS_RESULT_TIMEDOUT;
+      rc = RS_RESULT_STOPPED;
       break;
     }
   }
@@ -2214,7 +2214,7 @@ static void RPSafeDepleter_DepleteFromUpstream(RPSafeDepleter *self, DepleterSyn
   self->last_rc = rc;
 
   // If TIMEOUT with policy FAIL, we can already clear the results - will not be used
-  if (rc == RS_RESULT_TIMEDOUT && self->base.parent->timeoutPolicy == TimeoutPolicy_Fail) {
+  if (rc == RS_RESULT_STOPPED && self->base.parent->timeoutPolicy == TimeoutPolicy_Fail) {
     RPSafeDepleter_ClearResults(self);
   }
 
@@ -2249,7 +2249,7 @@ static void RPSafeDepleter_Deplete(void *arg) {
     RPSafeDepleter_DepleteFromUpstream(self, sync);
   } else {
     // Timeout before starting - no need to acquire lock or do any work
-    self->last_rc = RS_RESULT_TIMEDOUT;
+    self->last_rc = RS_RESULT_STOPPED;
     if (sync->take_index_lock) {
       // Signal that we're skipping the lock phase (for WaitForDepletionToStart)
       atomic_fetch_add(&sync->num_skipped_lock, 1);
@@ -2409,8 +2409,8 @@ void RPSafeDepleter_MarkTimedOut(ResultProcessor *base) {
   RPSafeDepleter *self = (RPSafeDepleter *)base;
   RS_ASSERT(!self->depletion_scheduled);
   // depletion_scheduled stays false: WaitForCompletion has no signal to wait
-  // for, and Next yields RS_RESULT_TIMEDOUT immediately.
-  self->last_rc = RS_RESULT_TIMEDOUT;
+  // for, and Next yields RS_RESULT_STOPPED immediately.
+  self->last_rc = RS_RESULT_STOPPED;
   base->Next = RPSafeDepleter_Next_Yield;
 }
 
@@ -2557,13 +2557,13 @@ int RPSafeDepleter_DepleteAll(arrayof(ResultProcessor*) safeDepleters, RedisSear
       QueryError_SetError(status, QUERY_ERROR_CODE_SAFE_DEPLETER_FAILURE,
                           SAFE_DEPLETER_LOCK_FAILURE_MSG);
       return RS_RESULT_ERROR;
-    } else if (safeDepleter->last_rc == RS_RESULT_TIMEDOUT) {
+    } else if (safeDepleter->last_rc == RS_RESULT_STOPPED) {
       anyTimedOut = true;
     }
   }
 
   if (anyTimedOut) {
-    return RS_RESULT_TIMEDOUT;
+    return RS_RESULT_STOPPED;
   }
 
   return RS_RESULT_OK;
@@ -2619,7 +2619,7 @@ static bool RPHybridMerger_HasReturnCode(const RPHybridMerger *self, int returnC
 
 /* Helper function to check if any upstream timed out */
 static inline bool RPHybridMerger_TimedOut(const RPHybridMerger *self) {
-  return RPHybridMerger_HasReturnCode(self, RS_RESULT_TIMEDOUT);
+  return RPHybridMerger_HasReturnCode(self, RS_RESULT_STOPPED);
 }
 
 /* Helper function to check if any upstream errored */
@@ -2708,12 +2708,12 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
   dictEntry *entry = dictNext(self->iterator);
   if (!entry) {
     // No more results to yield
-    int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    int ret = RPHybridMerger_TimedOut(self) ? RS_RESULT_STOPPED : RS_RESULT_EOF;
     return ret;
   } else if (QueryRequestLimits_IsMemoryStopped(self->sctx->limits) ||
              QueryRequestLimits_IsTimedOut(self->sctx->limits)) {
     // Timed out before we could yield all results
-    return RS_RESULT_TIMEDOUT;
+    return RS_RESULT_STOPPED;
   }
 
   // Get the key and value before removing the entry
@@ -2783,7 +2783,7 @@ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
     return RS_RESULT_ERROR;
   } else if (RPHybridMerger_TimedOut(self) && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
     // If any of the threads timed out and we're in FAIL mode, return timeout without yielding any result
-    return RS_RESULT_TIMEDOUT;
+    return RS_RESULT_STOPPED;
   }
 
   // Initialize iterator for yield phase
@@ -3071,7 +3071,7 @@ static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
     RPTimeoutAfterCount_SimulateTimeout(self->sctx);
 
     int rc = base->upstream->Next(base->upstream, r);
-    if (rc == RS_RESULT_TIMEDOUT) {
+    if (rc == RS_RESULT_STOPPED) {
       // reset the counter for the next run in cursor mode
       self->remaining = self->count;
     }
@@ -3322,10 +3322,10 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   // Only TimeoutPolicy_Return yields buffered results on timeout; FAIL and
   // RETURN-STRICT propagate TIMEDOUT immediately since the buffer will be
   // discarded by the serializer anyway.
-  if (self->last_rc == RS_RESULT_TIMEDOUT &&
+  if (self->last_rc == RS_RESULT_STOPPED &&
       base->parent->timeoutPolicy != TimeoutPolicy_Return) {
     self->last_rc = RS_RESULT_EOF;
-    return RS_RESULT_TIMEDOUT;
+    return RS_RESULT_STOPPED;
   }
 
   // Switch to yield mode
@@ -3377,9 +3377,9 @@ int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {
     const RPDepleter *depleter = (const RPDepleter *)depleters[i];
     if (depleter->last_rc == RS_RESULT_ERROR) {
       return RS_RESULT_ERROR;
-    } else if (depleter->last_rc == RS_RESULT_TIMEDOUT) {
+    } else if (depleter->last_rc == RS_RESULT_STOPPED) {
       anyTimedOut = true;
     }
   }
-  return anyTimedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_OK;
+  return anyTimedOut ? RS_RESULT_STOPPED : RS_RESULT_OK;
 }
