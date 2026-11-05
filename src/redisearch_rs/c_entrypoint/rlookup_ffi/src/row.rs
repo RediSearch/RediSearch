@@ -13,7 +13,7 @@ use rlookup::{OpaqueRLookupRow, RLookup, RLookupKey, RLookupRow};
 use std::{
     cmp::Ordering,
     ffi::{c_char, c_int},
-    mem::{self, ManuallyDrop},
+    mem::ManuallyDrop,
     ptr, slice,
 };
 use value::comparison::cmp_fields;
@@ -89,22 +89,7 @@ pub unsafe extern "C" fn RLookup_WriteOwnKey(
     row.write_key(key, value);
 }
 
-/// Wipes a RLookupRow by decrementing all values and resetting the row.
-///
-/// # Safety
-///
-/// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupRow_Wipe(row: *mut OpaqueRLookupRow) {
-    // Safety: ensured by caller (1.)
-    let row = unsafe { RLookupRow::from_opaque_mut_ptr(row) }.expect("`row` must not be null");
-
-    row.wipe();
-}
-
-/// Resets a RLookupRow by wiping it (see [`RLookupRow_Wipe`]) and deallocating the memory of the dynamic values.
+/// Resets a RLookupRow by wiping it and deallocating the memory of the dynamic values.
 ///
 /// This does not affect the sorting vector.
 ///
@@ -193,59 +178,7 @@ pub unsafe extern "C" fn RLookupRow_MoveDynamicKey(
 ///
 /// Ownership of `name` remains with the caller, this function will make a copy if required.
 ///
-/// Like [`RLookupRow_WriteByNameOwned`], but increases the refcount.
-///
-/// # Safety
-///
-/// 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
-/// 2. `name` must be [valid] for reads of `name_len` bytes, all within a single allocation.
-/// 3. `name` must be non-null even when `name_len` is `0`.
-/// 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
-/// 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
-///
-/// No null terminator is required; `name_len` alone bounds the read. An interior
-/// NUL byte is not a safety precondition; it panics on the insert path, where the
-/// name is copied into an owned [`CString`](std::ffi::CString).
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RLookupRow_WriteByName<'a>(
-    lookup: *mut RLookup<'a>,
-    name: *const c_char,
-    name_len: size_t,
-    row: *mut OpaqueRLookupRow,
-    value: *mut RSValue,
-) {
-    // Safety: ensured by caller (1.)
-    let lookup = unsafe { lookup.as_mut() }.expect("lookup must not be null");
-
-    debug_assert!(!name.is_null(), "name must not be null");
-    // SAFETY: ensured by caller (2., 3.)
-    let name = unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len) };
-
-    // Safety: ensured by caller (4.)
-    let row = unsafe { RLookupRow::from_opaque_mut_ptr(row) }.expect("`row` must not be null");
-
-    assert!(!value.is_null(), "value must not be null");
-
-    // Safety: ensured by caller (5.)
-    let value = unsafe { into_shared_value(value) };
-
-    // In order to increase the refcount, we first clone `value` (which increases the refcount)
-    // and move the clone into the function.
-    // We then make sure the original `value` is not dropped (which would decrease the refcount again)
-    // by giving it to `mem::forget()`.
-    row.write_key_by_name_bytes(lookup, name, value.clone());
-    mem::forget(value);
-}
-
-/// Write a value by-name to the lookup table. This is useful for 'dynamic' keys
-/// for which it is not necessary to use the boilerplate of getting an explicit
-/// key.
-///
-/// Ownership of `name` remains with the caller, this function will make a copy if required.
-///
-/// Like [`RLookupRow_WriteByName`], but does not affect the refcount.
+/// Does not affect the refcount of `value`.
 ///
 /// # Safety
 ///

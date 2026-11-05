@@ -88,21 +88,6 @@ RSSortingVector RSSortingVector_LegacyRdbLoad(struct RedisModuleIO *rdb);
 RSSortingVector RSSortingVector_New(size_t len);
 
 /**
- * Puts a null at the given index in the sorting vector.  If a out of bounds occurs it returns silently.
- *
- * # Panics
- *
- * Panics if the `idx` is out of bounds for the vector.
- *
- * # Safety
- *
- * 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void RSSortingVector_PutNull(RSSortingVector *vec, size_t idx);
-
-/**
  * Puts a number (double) at the given index in the sorting vector. If a out of bounds occurs it returns silently.
  *
  * # Panics

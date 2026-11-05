@@ -1074,15 +1074,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "idf_ffi"
-version = "0.0.1"
-dependencies = [
- "build_utils",
- "idf",
- "workspace_hack",
-]
-
-[[package]]
 name = "index_gc"
 version = "0.0.1"
 dependencies = [
@@ -2231,7 +2222,6 @@ dependencies = [
  "doc_key_map_ffi",
  "fnv_ffi",
  "geo_ffi",
- "idf_ffi",
  "index_gc_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
@@ -2614,7 +2604,6 @@ dependencies = [
  "ffi",
  "fnv_ffi",
  "geo_ffi",
- "idf_ffi",
  "index_gc_ffi",
  "inverted_index_ffi",
  "iterators_ffi",

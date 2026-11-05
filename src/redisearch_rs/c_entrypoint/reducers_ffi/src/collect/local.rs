@@ -39,7 +39,7 @@ unsafe fn copy_c_names(names: *const *const c_char, len: usize) -> Box<[CString]
         .collect()
 }
 
-/// Create a local COLLECT reducer; free it with [`collectLocalFree`].
+/// Create a local COLLECT reducer; free it through the returned reducer's `Free` callback.
 ///
 /// # Safety
 ///
@@ -87,11 +87,11 @@ pub unsafe extern "C" fn CollectReducer_CreateLocal(
     ));
 
     cr.reducer_mut()
-        .set_new_instance(collectLocalNewInstance)
-        .set_add(collectLocalAdd)
-        .set_finalize(collectLocalFinalize)
-        .set_free_instance(collectLocalFreeInstance)
-        .set_free(collectLocalFree);
+        .set_new_instance(collect_local_new_instance)
+        .set_add(collect_local_add)
+        .set_finalize(collect_local_finalize)
+        .set_free_instance(collect_local_free_instance)
+        .set_free(collect_local_free);
 
     Box::into_raw(cr).cast()
 }
@@ -112,8 +112,7 @@ pub const unsafe extern "C" fn CollectReducer_IsLocalLoadAll(r: *const ffi::Redu
 /// 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectLocalNewInstance(r: *mut ffi::Reducer) -> *mut c_void {
+pub unsafe extern "C" fn collect_local_new_instance(r: *mut ffi::Reducer) -> *mut c_void {
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<LocalCollectReducer>().as_mut().unwrap() };
 
@@ -125,8 +124,7 @@ pub unsafe extern "C" fn collectLocalNewInstance(r: *mut ffi::Reducer) -> *mut c
 /// 1. `ctx` must point to a [valid] `CoordCollectCtx` masquerading as a void pointer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectLocalFreeInstance(_r: *mut ffi::Reducer, ctx: *mut c_void) {
+pub unsafe extern "C" fn collect_local_free_instance(_r: *mut ffi::Reducer, ctx: *mut c_void) {
     // SAFETY: ensured by caller (1.); `ctx` points to a valid, initialized
     // `LocalCollectCtx`. After this call the pointee is logically uninitialized,
     // but the arena memory is freed later when `LocalCollectReducer` (and its
@@ -141,8 +139,7 @@ pub unsafe extern "C" fn collectLocalFreeInstance(_r: *mut ffi::Reducer, ctx: *m
 /// 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectLocalAdd(
+pub unsafe extern "C" fn collect_local_add(
     r: *mut ffi::Reducer,
     ctx: *mut c_void,
     srcrow: *const ffi::RLookupRow,
@@ -165,8 +162,7 @@ pub unsafe extern "C" fn collectLocalAdd(
 /// 2. `ctx` must point to a [valid] `CoordCollectCtx` masquerading as a void pointer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectLocalFinalize(
+pub unsafe extern "C" fn collect_local_finalize(
     r: *mut ffi::Reducer,
     ctx: *mut c_void,
 ) -> *mut ffi::RSValue {
@@ -184,8 +180,7 @@ pub unsafe extern "C" fn collectLocalFinalize(
 ///    originally created by [`CollectReducer_CreateLocal`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectLocalFree(r: *mut ffi::Reducer) {
+pub unsafe extern "C" fn collect_local_free(r: *mut ffi::Reducer) {
     // SAFETY: ensured by caller (1.); `r` originates from `Box::into_raw` of a
     // `Box<LocalCollectReducer>` and is still owned by C, so we can reclaim it here.
     drop(unsafe { Box::from_raw(r.cast::<LocalCollectReducer>()) });

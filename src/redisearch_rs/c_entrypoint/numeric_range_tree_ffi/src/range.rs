@@ -99,7 +99,7 @@ pub unsafe extern "C" fn NumericRange_GetEntries(
 /// Create an [`IndexReader`] for iterating over a [`NumericRange`]'s entries.
 ///
 /// This is the primary way to iterate over numeric index entries from C code.
-/// The returned reader can be used with `IndexReader_Next()`, `IndexReader_Seek()`, etc.
+/// The returned reader can be used with `IndexReader_Next()` and the other `IndexReader_*` functions.
 /// from `inverted_index_ffi`.
 ///
 /// If `filter` is NULL, all entries are returned. Otherwise, entries are filtered

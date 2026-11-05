@@ -9,11 +9,9 @@
 
 use crate::RSValue;
 use crate::util::{expect_shared_value, into_rs_value, into_shared_value};
-use libc::size_t;
 use redis_module::RedisModuleString;
 use std::ffi::{c_char, c_double};
 use std::ops::Deref;
-use value::util::str_to_float;
 use value::{RedisString, SharedValue, String, Trio, Value};
 
 /// Creates and returns a new [`RSValue`] of type [`Value::Undefined`].
@@ -185,39 +183,6 @@ pub unsafe extern "C" fn RSValue_NewCopiedString(str: *const c_char, len: u32) -
     let value = Value::String(string);
     let shared_value = SharedValue::new(value);
     into_rs_value(shared_value)
-}
-
-/// Creates and returns a new [`RSValue`] of type [`Value::Number`] by parsing the given
-/// string as a floating-point number. Returns a null pointer if the string
-/// cannot be parsed.
-///
-/// The caller retains ownership of `value`.
-///
-/// The returned [`RSValue`] is heap-allocated. The caller must ensure it is eventually
-/// passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be
-/// transferred through other `RSValue_` functions before that happens.
-///
-/// # Safety
-///
-/// 1. `value` must be a [valid], non-null pointer to a string buffer.
-/// 2. `value` must be [valid] for reads of `len` bytes.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_NewParsedNumber(
-    value: *const c_char,
-    len: size_t,
-) -> *mut RSValue {
-    // Safety: ensured by caller (1., 2.)
-    let slice = unsafe { std::slice::from_raw_parts(value.cast::<u8>(), len) };
-
-    let Some(number) = str_to_float(slice) else {
-        return std::ptr::null_mut();
-    };
-
-    let shared = SharedValue::new(Value::Number(number));
-
-    into_rs_value(shared)
 }
 
 /// Creates and returns a new [`RSValue`] of type [`Value::Number`] from an `i64`.

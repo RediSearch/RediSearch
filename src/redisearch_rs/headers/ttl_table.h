@@ -210,22 +210,6 @@ struct FieldExpirationSlice TimeToLiveTable_GetFieldExpirations(const struct Tim
 bool TimeToLiveTable_IsEmpty(const struct TimeToLiveTable *table);
 
 /**
- * Test-only: number of buckets currently allocated.
- *
- * Number of buckets currently allocated (lazy-growth high-water mark).
- * Returns 0 if `table` is `NULL`. Exposed for the C `test_cpp_expire`
- * lazy-growth tests.
- *
- * # Returns
- * The current bucket-array length, or `0` if `table` is `NULL`.
- *
- * # Safety
- *  - If non-null, `table` must point to a valid, initialized
- *    [`TimeToLiveTable`].
- */
-size_t TimeToLiveTable_NAllocatedBuckets(const struct TimeToLiveTable *table);
-
-/**
  * Remove the entry for `doc_id`, if any. No-op if absent.
  *
  * # Safety

@@ -7,7 +7,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "rqe_core.h"
 
 /**
  * An append-only list of [`RLookupKey`]s.
@@ -29,29 +28,12 @@ typedef struct RLookup RLookup;
 
 typedef struct RLookupKey RLookupKey;
 
-/**
- * Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
- * or from dynamic values stored in the row during processing.
- *
- * The C-visible layout comes from the `OpaqueRLookupRow` wrapper (which is
- * `#[repr(C, align(8))]` and `#[cheadergen::config(rename = "RLookupRow")]`).
- * Force this internal type to opaque so cheadergen does not warn about it
- * being reached by value through `SearchResult._row_data` — both names emit
- * to the same C tag, and the wrapper provides the actual layout.
- */
-typedef struct RLookupRow RLookupRow;
-
-/**
- * The C version of a [`SharedValue`](value::SharedValue)
- */
-typedef struct RSValue RSValue;
-
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
 
 /**
- * Create a local COLLECT reducer; free it with [`collectLocalFree`].
+ * Create a local COLLECT reducer; free it through the returned reducer's `Free` callback.
  *
  * # Safety
  *
@@ -71,8 +53,8 @@ Reducer *CollectReducer_CreateLocal(const RLookupKey *input_key, const char *con
  * Creates a new [`RemoteCollectReducer`] from pre-parsed configuration and
  * returns a pointer to its base [`ffi::Reducer`] with the vtable fully wired.
  *
- * The caller is responsible for eventually calling [`collectRemoteFree`] on
- * the returned pointer.
+ * The caller is responsible for eventually freeing the returned reducer
+ * through its `Free` callback.
  *
  * # Safety
  *
@@ -267,116 +249,6 @@ Reducer *StdDevReducer_Create(const RLookupKey *srckey);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 Reducer *SumReducer_Create(const RLookupKey *srckey, bool average);
-
-/**
- * # Safety
- *
- * 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
- * 2. `ctx` must point to a [valid] `CoordCollectCtx` masquerading as a void pointer.
- * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-int collectLocalAdd(Reducer *r, void *ctx, const RLookupRow *srcrow);
-
-/**
- * # Safety
- *
- * 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
- * 2. `ctx` must point to a [valid] `CoordCollectCtx` masquerading as a void pointer.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-RSValue *collectLocalFinalize(Reducer *r, void *ctx);
-
-/**
- * # Safety
- *
- * 1. `r` must point to a [valid] `CoordCollectReducer` masquerading as a `ffi::Reducer`,
- *    originally created by [`CollectReducer_CreateLocal`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void collectLocalFree(Reducer *r);
-
-/**
- * # Safety
- *
- * 1. `ctx` must point to a [valid] `CoordCollectCtx` masquerading as a void pointer.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void collectLocalFreeInstance(Reducer *_r, void *ctx);
-
-/**
- * # Safety
- *
- * 1. `r` must point to a [valid] `LocalCollectReducer` masquerading as a `ffi::Reducer`.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void *collectLocalNewInstance(Reducer *r);
-
-/**
- * Processes the provided [`ffi::RLookupRow`] and document id with the shard
- * collect reducer instance.
- *
- * # Safety
- *
- * 1. `r` must point to a [valid] `ShardCollectReducer` masquerading as a `ffi::Reducer`.
- * 2. `ctx` must point to a [valid] `ShardCollectCtx` masquerading as a void pointer.
- * 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-int collectRemoteAddWithDocId(Reducer *r, void *ctx, const RLookupRow *srcrow, t_docId doc_id);
-
-/**
- * Finalizes the shard collect reducer instance result into an `RSValue`.
- *
- * # Safety
- *
- * 1. `r` must point to a [valid] `ShardCollectReducer` masquerading as a `ffi::Reducer`.
- * 2. `ctx` must point to a [valid] `ShardCollectCtx` masquerading as a void pointer.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-RSValue *collectRemoteFinalize(Reducer *r, void *ctx);
-
-/**
- * Frees the provided shard collect reducer (the global struct, not a
- * per-group instance).
- *
- * # Safety
- *
- * 1. `r` must point to a [valid] `ShardCollectReducer` masquerading as a `ffi::Reducer`,
- *    originally created by [`CollectReducer_CreateRemote`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void collectRemoteFree(Reducer *r);
-
-/**
- * Frees a per-group shard collect reducer instance.
- *
- * # Safety
- *
- * 1. `ctx` must point to a [valid] `ShardCollectCtx` masquerading as a void pointer.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void collectRemoteFreeInstance(Reducer *_r, void *ctx);
-
-/**
- * Creates a new per-group shard collect reducer instance.
- *
- * # Safety
- *
- * 1. `r` must point to a [valid] `ShardCollectReducer` masquerading as a `ffi::Reducer`.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void *collectRemoteNewInstance(Reducer *r);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -298,27 +298,6 @@ pub unsafe extern "C" fn slots_tracker_remove_deleted_slots(ranges: *const SlotR
     });
 }
 
-/// Checks if there is any overlap between the given slot ranges and the fully available slots.
-///
-/// This function checks if any of the provided slot ranges overlap with "fully available slots".
-/// Returns true if there is at least one overlapping slot, false otherwise.
-///
-/// # Safety
-///
-/// This function must be called from the main thread only.
-/// The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
-/// The ranges array must contain `num_ranges` valid elements.
-/// All ranges must be sorted and have start <= end, with values in [0, 16383].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn slots_tracker_has_fully_available_overlap(
-    ranges: *const SlotRangeArray,
-) -> bool {
-    // SAFETY: Caller guarantees valid pointer
-    let ranges = unsafe { parse_slot_ranges(ranges) };
-
-    with_tracker(|tracker| tracker.has_fully_available_overlap(ranges))
-}
-
 /// Returns the current local slot ranges as a newly allocated array.
 ///
 /// The returned array is allocated with the Rust global allocator, which in the

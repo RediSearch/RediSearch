@@ -501,21 +501,6 @@ void RSValue_MapBuilderSetEntry(struct RSValueMapBuilder *map, size_t index, str
 void RSValue_Map_GetEntry(const struct RSValue *map, uint32_t index, struct RSValue * *key, struct RSValue * *value);
 
 /**
- * Returns the number of key-value pairs in a map [`RSValue`].
- *
- * # Safety
- *
- * 1. `map` must be a [valid], non-null pointer to an [`RSValue`].
- *
- * # Panics
- *
- * Panics if `map` is not a map value.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-uint32_t RSValue_Map_Len(const struct RSValue *map);
-
-/**
  * Allocates an array of null pointers with space for `len` [`RSValue`] pointers.
  *
  * The returned buffer must be populated and then passed to [`RSValue_NewArrayFromBuilder`]
@@ -637,26 +622,6 @@ struct RSValue *RSValue_NewNumber(double value);
  * transferred through other `RSValue_` functions before that happens.
  */
 struct RSValue *RSValue_NewNumberFromInt64(int64_t number);
-
-/**
- * Creates and returns a new [`RSValue`] of type [`Value::Number`] by parsing the given
- * string as a floating-point number. Returns a null pointer if the string
- * cannot be parsed.
- *
- * The caller retains ownership of `value`.
- *
- * The returned [`RSValue`] is heap-allocated. The caller must ensure it is eventually
- * passed to [`RSValue_DecrRef`](crate::shared::RSValue_DecrRef). Ownership may be
- * transferred through other `RSValue_` functions before that happens.
- *
- * # Safety
- *
- * 1. `value` must be a [valid], non-null pointer to a string buffer.
- * 2. `value` must be [valid] for reads of `len` bytes.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-struct RSValue *RSValue_NewParsedNumber(const char *value, size_t len);
 
 /**
  * Creates and returns a new [`RSValue`] of type [`Value::String`],
@@ -984,21 +949,6 @@ bool RSValue_ToNumber(const struct RSValue *value, double *d);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const struct RSValue *RSValue_Trio_GetLeft(const struct RSValue *value);
-
-/**
- * Borrows an immutable reference to the middle value of a trio.
- *
- * # Panic
- *
- * Panics if the value is not a [`Value::Trio`].
- *
- * # Safety
- *
- * 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-const struct RSValue *RSValue_Trio_GetMiddle(const struct RSValue *value);
 
 /**
  * Borrows an immutable reference to the right value of a trio.
