@@ -44,18 +44,22 @@ impl MockScoreBatch {
     }
 }
 
-impl ScoreBatch for MockScoreBatch {
-    fn next(&mut self) -> Option<(DocId, f64)> {
+impl<S: ?Sized> ScoreBatch<S> for MockScoreBatch {
+    fn next(&mut self, _source: &mut S) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
         let item = self.items.get(self.pos).copied();
         if item.is_some() {
             self.pos += 1;
         }
-        item
+        Ok(item)
     }
 
-    fn skip_to(&mut self, target: DocId) -> Option<(DocId, f64)> {
+    fn skip_to(
+        &mut self,
+        source: &mut S,
+        target: DocId,
+    ) -> Result<Option<(DocId, f64)>, RQEIteratorError> {
         self.pos += self.items[self.pos..].partition_point(|(id, _)| *id < target);
-        self.next()
+        self.next(source)
     }
 }
 
