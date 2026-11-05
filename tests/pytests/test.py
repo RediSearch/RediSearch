@@ -2315,7 +2315,7 @@ def testTimeout(env):
     if VALGRIND:
         env.skip()
 
-    num_range = 1000
+    num_range = 20000
     env.cmd('ft.config', 'set', 'timeout', '1')
     env.cmd('ft.config', 'set', 'maxprefixexpansions', num_range)
 
@@ -2330,7 +2330,7 @@ def testTimeout(env):
        .contains('Timeout limit was reached')
 
     # test `TIMEOUT` param in query
-    res = env.cmd('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 10000)
+    res = env.cmd('ft.search', 'myIdx', '*', 'timeout', 20000)
     env.assertEqual(res[0], num_range)
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'timeout', 1)    \
         .error().contains('Timeout limit was reached')
@@ -2369,7 +2369,7 @@ def testTimeout(env):
        .contains('Timeout limit was reached')
 
     # test cursor
-    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 500)
+    res = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'count', 50, 'timeout', 20000)
     l = len(res[0]) - 1 # do not count the number of results (the first element in the results)
     cursor = res[1]
 
@@ -2377,7 +2377,7 @@ def testTimeout(env):
     while cursor != 0:
         r, cursor = env.cmd('FT.CURSOR', 'READ', 'myIdx', str(cursor))
         l += (len(r) - 1)
-    env.assertEqual(l, 1000)
+    env.assertEqual(l, num_range)
 
     # restore old configuration
     env.cmd('ft.config', 'set', 'timeout', '500')
