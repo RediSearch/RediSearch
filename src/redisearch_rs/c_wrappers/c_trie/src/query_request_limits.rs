@@ -72,6 +72,20 @@ impl QueryRequestLimitsHandle {
         Some(unsafe { (*clock).deadline })
     }
 
+    /// Whether a blocked-client cycle has been marked as timed out.
+    ///
+    /// Reports `false` for every other source, the clock cycle included, so a
+    /// caller that already enforces the clock deadline itself adds no clock
+    /// checks here and leaves the request's shared counter alone. A walk driven
+    /// by [`clock_deadline`](Self::clock_deadline) needs this as well: a
+    /// blocked-client cycle has no deadline to enforce, only a flag to observe.
+    pub fn blocked_client_timed_out(&self) -> bool {
+        // SAFETY: `from_raw` guarantees the object is live, and its cycle
+        // contract allows the blocked-client marker to be published or observed
+        // atomically while this handle is in use, which is all this reads.
+        unsafe { ffi::QueryRequestLimits_IsBlockedClientTimedOut(self.inner.get()) }
+    }
+
     /// Exposes the borrowed object to a synchronous C operation.
     ///
     /// The pointer must not be retained after the operation returns.
