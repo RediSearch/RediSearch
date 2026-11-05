@@ -925,15 +925,15 @@ TEST_F(ThreadGCTest, testDeletedIdsCountInTheDocTableMemory) {
     ASSERT_TRUE(RS::addDocument(ctx, ism, ("doc" + std::to_string(i)).c_str(), "f1", "hello"));
   }
   const DocTable *docs = &get_spec(ism)->docs;
-  const size_t empty = DocTable_DeletedDocsMemoryUsage(docs);
+  EXPECT_EQ(DocTable_DeletedDocsMemoryUsage(docs), 0) << "an empty set counts for nothing";
   for (int i = 0; i < 100; i += 3) {
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, ("doc" + std::to_string(i)).c_str()));
   }
-  EXPECT_GT(DocTable_DeletedDocsMemoryUsage(docs), empty);
+  EXPECT_GT(DocTable_DeletedDocsMemoryUsage(docs), 0);
 
   runGC();
 
-  EXPECT_EQ(DocTable_DeletedDocsMemoryUsage(docs), empty);
+  EXPECT_EQ(DocTable_DeletedDocsMemoryUsage(docs), 0);
 }
 
 static void keepObject(void *) {}
