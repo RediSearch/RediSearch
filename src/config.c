@@ -775,16 +775,9 @@ CONFIG_GETTER(getMinOperationWorkers) {
 // [1, MAX_GC_THREADS], so it fits the byte it is kept in.
 static int set_gc_threads(const char *name, long long val, void *privdata,
                           RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
-  *(uint8_t *)privdata = (uint8_t)val;
+  int rc = set_uint8_numeric_config(name, val, privdata, err);
   GC_ThreadPoolSetSize();
-  return REDISMODULE_OK;
-}
-
-static long long get_gc_threads(const char *name, void *privdata) {
-  REDISMODULE_NOT_USED(name);
-  return *(const uint8_t *)privdata;
+  return rc;
 }
 
 // Shared by search-min-operation-workers and search-min-maintenance-workers.
@@ -2383,7 +2376,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-gc-threads", 1,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
-      MAX_GC_THREADS, get_gc_threads, set_gc_threads, NULL,
+      MAX_GC_THREADS, get_uint8_numeric_config, set_gc_threads, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcThreads)
     )
   )

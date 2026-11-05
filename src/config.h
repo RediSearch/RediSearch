@@ -96,8 +96,8 @@ typedef struct {
   bool enableGC;
   // GC pool threads under GCPolicy_Thread, at most MAX_GC_THREADS; other policies always use one.
   uint8_t gcThreads;
-  size_t gcScanSize;
   GCPolicy gcPolicy;
+  size_t gcScanSize;
   GCSettings gcSettings;
 } GCConfig;
 
