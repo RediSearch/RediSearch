@@ -29,7 +29,7 @@ typedef struct {
   Buffer buf;
   BufferReader br;
   uint32_t lastValue;
-  RSQueryTerm *term;
+  const RSQueryTerm *term;
 } _RSOffsetVectorIterator;
 
 typedef struct {
@@ -37,13 +37,13 @@ typedef struct {
   size_t size;
   RSOffsetIterator *iters;
   uint32_t *offsets;
-  RSQueryTerm **terms;
+  const RSQueryTerm **terms;
   // uint32_t lastOffset; - TODO: Avoid duplicate offsets
 
 } _RSAggregateOffsetIterator;
 
 /* Get the next entry, or return RS_OFFSETVECTOR_EOF */
-uint32_t _ovi_Next(void *ctx, RSQueryTerm **t);
+uint32_t _ovi_Next(void *ctx, const RSQueryTerm **t);
 /* Rewind the iterator */
 void _ovi_Rewind(void *ctx);
 
@@ -65,7 +65,7 @@ void *newOffsetIterator() {
   return rm_malloc(sizeof(_RSOffsetVectorIterator));
 }
 /* Create an offset iterator interface  from a raw offset vector */
-RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t) {
+RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, const RSQueryTerm *t) {
   mempool_t *pool = pthread_getspecific(__offsetIters);
   if (!pool) {
     mempool_options options = {
@@ -85,7 +85,7 @@ RSOffsetIterator RSOffsetVector_Iterate(const RSOffsetVector *v, RSQueryTerm *t)
 }
 
 /* An aggregate offset iterator yielding offsets one by one */
-uint32_t _aoi_Next(void *ctx, RSQueryTerm **term);
+uint32_t _aoi_Next(void *ctx, const RSQueryTerm **term);
 void _aoi_Free(void *ctx);
 void _aoi_Rewind(void *ctx);
 
@@ -127,7 +127,7 @@ static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
     rm_free(it->terms);
     it->iters = rm_calloc(numChildren, sizeof(RSOffsetIterator));
     it->offsets = rm_calloc(numChildren, sizeof(uint32_t));
-    it->terms = rm_calloc(numChildren, sizeof(RSQueryTerm *));
+    it->terms = rm_calloc(numChildren, sizeof(const RSQueryTerm *));
   }
 
   AggregateRecordsSlice children = AggregateResult_GetRecordsSlice(agg);
@@ -139,7 +139,7 @@ static RSOffsetIterator _aggregateResult_iterate(const RSAggregateResult *agg) {
 
   return (RSOffsetIterator){.Next = _aoi_Next, .Rewind = _aoi_Rewind, .Free = _aoi_Free, .ctx = it};
 }
-uint32_t _empty_Next(void *ctx, RSQueryTerm **t) {
+uint32_t _empty_Next(void *ctx, const RSQueryTerm **t) {
   return RS_OFFSETVECTOR_EOF;
 }
 void _empty_Free(void *ctx) {
@@ -159,7 +159,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
     case RSResultData_Term:
     {
       const RSOffsetVector *offsets = IndexResult_TermOffsetsRef(res);
-      RSQueryTerm *term = IndexResult_QueryTermRef(res);
+      const RSQueryTerm *term = IndexResult_QueryTermRef(res);
       return RSOffsetVector_Iterate(offsets, term);
     }
 
@@ -201,7 +201,7 @@ void _ovi_Free(void *ctx) {
   rm_free(ctx);
 }
 
-uint32_t _ovi_Next(void *ctx, RSQueryTerm **t) {
+uint32_t _ovi_Next(void *ctx, const RSQueryTerm **t) {
   _RSOffsetVectorIterator *vi = ctx;
 
   if (!BufferReader_AtEnd(&vi->br)) {
@@ -213,7 +213,7 @@ uint32_t _ovi_Next(void *ctx, RSQueryTerm **t) {
   return RS_OFFSETVECTOR_EOF;
 }
 
-uint32_t _aoi_Next(void *ctx, RSQueryTerm **t) {
+uint32_t _aoi_Next(void *ctx, const RSQueryTerm **t) {
   _RSAggregateOffsetIterator *it = ctx;
 
   int minIdx = -1;
