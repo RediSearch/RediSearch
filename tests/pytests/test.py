@@ -13,7 +13,10 @@ def testAddErrors(env):
     env.expect('ft.add idx doc1').error().contains("wrong number of arguments")
     env.expect('ft.add idx doc1 42').error().contains("Score must be between 0 and 1")
     env.expect('ft.add idx doc1 1.0').error().contains("No field list found")
-    env.expect('ft.add fake_idx doc1 1.0 fields foo bar').error().contains("no such index")
+    # The enterprise build has no coordinator check in front of FT.ADD, so the
+    # shard's own reply reaches the client.
+    env.expect('ft.add fake_idx doc1 1.0 fields foo bar').error().contains(
+        'Unknown index name' if RS_TEST_ENTERPRISE else "no such index")
 
 def testConditionalUpdate(env):
     env.assertOk(env.cmd(
@@ -190,7 +193,10 @@ def testGet(env):
     env.expect('ft.mget', 'idx').error().contains("wrong number of arguments")
     env.expect('ft.mget', 'fake_idx').error().contains("wrong number of arguments")
 
-    env.expect('ft.get fake_idx foo').error().contains("no such index")
+    # As for FT.ADD in testAddErrors: on enterprise the shard's FT.GET reply
+    # reaches the client.
+    unknown_index_get = 'Unknown Index name' if RS_TEST_ENTERPRISE else "no such index"
+    env.expect('ft.get fake_idx foo').error().contains(unknown_index_get)
     env.expect('ft.mget fake_idx foo').error().contains("no such index")
 
     for i in range(100):
@@ -203,7 +209,7 @@ def testGet(env):
         env.assertEqual(set(['foo', 'hello world', 'bar', 'wat wat']), set(res))
         env.assertIsNone(env.cmd(
             'ft.get', 'idx', 'doc%dsdfsd' % i))
-    env.expect('ft.get', 'no_idx', 'doc0').error().contains("no such index")
+    env.expect('ft.get', 'no_idx', 'doc0').error().contains(unknown_index_get)
 
     rr = env.cmd(
         'ft.mget', 'idx', *(f"doc{i}" for i in range(100)))
