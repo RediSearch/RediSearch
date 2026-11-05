@@ -142,12 +142,16 @@ export function declarations(header: string): string[] {
 }
 
 /**
- * What the plan gets wrong about the repository and its tools: stage branches git refuses,
+ * What the plan gets wrong about the repository and its tools: a remote that is not the
+ * repository, where the PRs open from its branches; stage branches git refuses,
  * missing tools, headers not on the base branch, functions the symbols leave out or invent, and
  * paths spanning several crates.
  */
 export async function inspect(plan: Plan, root: string, git: (args: string[]) => Promise<string>) {
   const problems: string[] = [];
+  const url = await git(['remote', 'get-url', plan.remote]).catch(() => '');
+  if (!new RegExp(`[/:]${plan.repository.replace(/\./g, '\\.')}(\\.git)?/?$`, 'i').test(url))
+    problems.push(`remote ${plan.remote} is not ${plan.repository}, where the PRs open`);
   for (const stage of STAGES) {
     const branch = `${plan.branchPrefix}-${stage}`;
     await git(['check-ref-format', '--branch', branch]).catch(() =>

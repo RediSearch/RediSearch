@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readFile, writeFile, readdir, stat, mkdir, appendFile, rename } from 'node:fs/promises';
-import path, { normalize, isAbsolute, join } from 'node:path';
+import { writeFile, readFile, readdir, stat, mkdir, appendFile, rename } from 'node:fs/promises';
+import path, { join, normalize, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { stripVTControlCharacters, debuglog, inspect as inspect$1, promisify, callbackify, aborted } from 'node:util';
 import { ChildProcess, execFile, spawnSync, spawn } from 'node:child_process';
@@ -10112,85 +10112,6 @@ const RULES = [
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
-/**
- * Why each reference does not hold in the workspace at `root`: a missing file, a line past its
- * end, a test it does not define, or an unknown finding. Empty when every reference holds.
- */
-async function verify(root, refs, findings = {}) {
-    if (!Array.isArray(refs))
-        return ['evidence must be a list of references'];
-    const problems = [];
-    for (const ref of refs) {
-        if (typeof ref !== 'object' || ref === null) {
-            problems.push(`${JSON.stringify(ref)} is not a reference`);
-            continue;
-        }
-        if ('finding' in ref) {
-            if (!findings[ref.finding])
-                problems.push(`there is no finding ${ref.finding}`);
-            continue;
-        }
-        const path = typeof ref?.path === 'string' ? normalize(ref.path) : '';
-        if (!path || isAbsolute(path) || path.startsWith('..')) {
-            problems.push(`${JSON.stringify(ref)} needs a path inside the workspace`);
-            continue;
-        }
-        if (ref.line !== undefined && typeof ref.line !== 'number') {
-            problems.push(`${path}: line must be a number`);
-            continue;
-        }
-        if (ref.test !== undefined && typeof ref.test !== 'string') {
-            problems.push(`${path}: test must be a name`);
-            continue;
-        }
-        const text = await readFile(join(root, path), 'utf8').catch(() => undefined);
-        if (text === undefined)
-            problems.push(`${path} does not exist`);
-        else if (ref.line && !(ref.line >= 1 && ref.line <= text.split('\n').length))
-            problems.push(`${path} has no line ${ref.line}`);
-        else if (ref.test && !defines(text, ref.test))
-            problems.push(`${path} defines no ${ref.test}`);
-    }
-    return problems;
-}
-/** Whether `text` defines the test `name`: its last path segment, as a whole word. */
-function defines(text, name) {
-    const word = name.split(/::|\./).at(-1).replace(/[^\w]/g, '');
-    return !!word && new RegExp(`\\b${word}\\b`).test(text);
-}
-/**
- * A finding's location as `path:line`, whether it names the line, a range starting
- * there, or a symbol defined on it. A location that resolves to neither is returned as given.
- */
-async function anchor(root, location) {
-    const at = location.indexOf(':');
-    const [path, spot] = at < 0 ? [location, ''] : [location.slice(0, at), location.slice(at + 1)];
-    const line = /^\d+/.exec(spot)?.[0];
-    if (line)
-        return `${path}:${line}`;
-    const file = normalize(path);
-    if (isAbsolute(file) || file.startsWith('..'))
-        return location;
-    const text = await readFile(join(root, file), 'utf8').catch(() => '');
-    const name = spot.split(/::|\./).at(-1).replace(/[^\w]/g, '');
-    const lines = text.split('\n');
-    const kinds = 'fn|struct|enum|union|trait|type|const|static|def|class';
-    const definition = new RegExp(`\\b(${kinds})\\s+${name}\\b`);
-    const c = new RegExp(`^\\S.*\\b${name}\\s*\\(`);
-    let found = name ? lines.findIndex((l) => definition.test(l)) : -1;
-    if (found < 0 && name)
-        found = lines.findIndex((l) => c.test(l));
-    return found < 0 ? location : `${path}:${found + 1}`;
-}
-
-/*
- * Copyright (c) 2006-Present, Redis Ltd.
- * All rights reserved.
- *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
- * GNU Affero General Public License v3 (AGPLv3).
- */
 const env = { GIT_EDITOR: 'true', GIT_TERMINAL_PROMPT: '0', NO_COLOR: '1' };
 /** How much slower than C, in percent, Rust may be in any benchmark. */
 const SLOWDOWN_PERCENT = 5;
@@ -10250,10 +10171,13 @@ async function run(cwd, command, log, signal, vars) {
     return signal.aborted ? null : (exitCode ?? null);
 }
 /**
- * Whether checks' logs show the test `name` ran: a line naming it that does not report it ignored
- * or skipped. Another check may still skip it, say under Miri.
+ * Whether checks' logs show the test `name` ran: a line naming it, module path included, that
+ * does not report it ignored or skipped. Another check may still skip it, say under Miri.
  */
-const ran = (logs, name) => logs.split('\n').some((line) => defines(line, name) && !/\b(ignored|SKIP)\b/.test(line));
+function ran(logs, name) {
+    const named = new RegExp(`(?<!\\w)${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`);
+    return logs.split('\n').some((line) => named.test(line) && !/\b(ignored|SKIP)\b/.test(line));
+}
 /** Why a check that exited 0 still failed, judged from its log or its output files. */
 async function judge(check, root) {
     if (check.kind === 'bench')
@@ -10446,12 +10370,16 @@ function declarations(header) {
     return [...code.matchAll(pattern)].map((m) => m[1]);
 }
 /**
- * What the plan gets wrong about the repository and its tools: stage branches git refuses,
+ * What the plan gets wrong about the repository and its tools: a remote that is not the
+ * repository, where the PRs open from its branches; stage branches git refuses,
  * missing tools, headers not on the base branch, functions the symbols leave out or invent, and
  * paths spanning several crates.
  */
 async function inspect(plan, root, git) {
     const problems = [];
+    const url = await git(['remote', 'get-url', plan.remote]).catch(() => '');
+    if (!new RegExp(`[/:]${plan.repository.replace(/\./g, '\\.')}(\\.git)?/?$`, 'i').test(url))
+        problems.push(`remote ${plan.remote} is not ${plan.repository}, where the PRs open`);
     for (const stage of STAGES) {
         const branch = `${plan.branchPrefix}-${stage}`;
         await git(['check-ref-format', '--branch', branch]).catch(() => problems.push(`${branch} is not a valid branch name`));
@@ -10547,6 +10475,85 @@ ${plan.structure}
 ### Interfaces later stages rely on
 
 ${plan.interfaces}`;
+}
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+/**
+ * Why each reference does not hold in the workspace at `root`: a missing file, a line past its
+ * end, a test it does not define, or an unknown finding. Empty when every reference holds.
+ */
+async function verify(root, refs, findings = {}) {
+    if (!Array.isArray(refs))
+        return ['evidence must be a list of references'];
+    const problems = [];
+    for (const ref of refs) {
+        if (typeof ref !== 'object' || ref === null) {
+            problems.push(`${JSON.stringify(ref)} is not a reference`);
+            continue;
+        }
+        if ('finding' in ref) {
+            if (!findings[ref.finding])
+                problems.push(`there is no finding ${ref.finding}`);
+            continue;
+        }
+        const path = typeof ref?.path === 'string' ? normalize(ref.path) : '';
+        if (!path || isAbsolute(path) || path.startsWith('..')) {
+            problems.push(`${JSON.stringify(ref)} needs a path inside the workspace`);
+            continue;
+        }
+        if (ref.line !== undefined && typeof ref.line !== 'number') {
+            problems.push(`${path}: line must be a number`);
+            continue;
+        }
+        if (ref.test !== undefined && typeof ref.test !== 'string') {
+            problems.push(`${path}: test must be a name`);
+            continue;
+        }
+        const text = await readFile(join(root, path), 'utf8').catch(() => undefined);
+        if (text === undefined)
+            problems.push(`${path} does not exist`);
+        else if (ref.line && !(ref.line >= 1 && ref.line <= text.split('\n').length))
+            problems.push(`${path} has no line ${ref.line}`);
+        else if (ref.test && !defines(text, ref.test))
+            problems.push(`${path} defines no ${ref.test}`);
+    }
+    return problems;
+}
+/** Whether `text` defines the test `name`: its last path segment, as a whole word. */
+function defines(text, name) {
+    const word = name.split(/::|\./).at(-1).replace(/[^\w]/g, '');
+    return !!word && new RegExp(`\\b${word}\\b`).test(text);
+}
+/**
+ * A finding's location as `path:line`, whether it names the line, a range starting
+ * there, or a symbol defined on it. A location that resolves to neither is returned as given.
+ */
+async function anchor(root, location) {
+    const at = location.indexOf(':');
+    const [path, spot] = at < 0 ? [location, ''] : [location.slice(0, at), location.slice(at + 1)];
+    const line = /^\d+/.exec(spot)?.[0];
+    if (line)
+        return `${path}:${line}`;
+    const file = normalize(path);
+    if (isAbsolute(file) || file.startsWith('..'))
+        return location;
+    const text = await readFile(join(root, file), 'utf8').catch(() => '');
+    const name = spot.split(/::|\./).at(-1).replace(/[^\w]/g, '');
+    const lines = text.split('\n');
+    const kinds = 'fn|struct|enum|union|trait|type|const|static|def|class';
+    const definition = new RegExp(`\\b(${kinds})\\s+${name}\\b`);
+    const c = new RegExp(`^\\S.*\\b${name}\\s*\\(`);
+    let found = name ? lines.findIndex((l) => definition.test(l)) : -1;
+    if (found < 0 && name)
+        found = lines.findIndex((l) => c.test(l));
+    return found < 0 ? location : `${path}:${found + 1}`;
 }
 
 /*
@@ -15654,17 +15661,14 @@ function readFeedback(data, stage, number, posted = [], head) {
         ...{ source, key, title, body, stage, revision: pr.headRefOid },
         ...{ blocking: true, links: [url] },
     });
-    const ci = (title, body, url) => ({
-        comments: [],
-        pending: false,
-        failures: [finding('ci', `ci:${stage}`, title, body, url)],
-    });
     // A PR closed unmerged, or one whose head moved past what the job published, no longer carries
-    // the assessed candidate, so its CI and comments say nothing about it.
-    if (pr.state === 'CLOSED')
-        return ci(`PR #${number} was closed without merging`, 'Reopen it or publish the stage again.', pr.url);
-    if (head && pr.headRefOid !== head)
-        return ci(`PR #${number} head is ${pr.headRefOid.slice(0, 10)}, not the published ${head.slice(0, 10)}`, 'Something else pushed to its branch; claim the stage again.', pr.url);
+    // the assessed candidate, so its CI says nothing about it. Its comments are still heard.
+    const ci = (title, body) => finding('ci', `ci:${stage}`, title, body, pr.url);
+    const stale = pr.state === 'CLOSED'
+        ? ci(`PR #${number} was closed without merging`, 'Reopen it or publish the stage again.')
+        : head && pr.headRefOid !== head
+            ? ci(`PR #${number} head is ${pr.headRefOid.slice(0, 10)}, not the published ${head.slice(0, 10)}`, 'Something else pushed to its branch; claim the stage again.')
+            : undefined;
     const comments = [];
     const keys = new Set();
     for (const t of pr.reviewThreads.nodes) {
@@ -15694,6 +15698,8 @@ function readFeedback(data, stage, number, posted = [], head) {
     ])
         for (const c of nodes.filter(human))
             comments.push(finding('comment', `${kind}:${c.databaseId}:${hash(c.body)}`, `${kind} by ${c.author?.login} on PR #${number}`, trim(c.body), c.url));
+    if (stale)
+        return { comments, pending: false, failures: [stale] };
     // The gate reports after the slowest check, so until then a failed check is reported at once
     // under the gate; once it reports, only an explicit success passes.
     const runs = (pr.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []).map((c) => ({

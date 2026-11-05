@@ -11,7 +11,6 @@ import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { WORKSPACE } from './redisearch.ts';
-import { defines } from './refs.ts';
 
 const env = { GIT_EDITOR: 'true', GIT_TERMINAL_PROMPT: '0', NO_COLOR: '1' };
 
@@ -103,11 +102,13 @@ async function run(
 }
 
 /**
- * Whether checks' logs show the test `name` ran: a line naming it that does not report it ignored
- * or skipped. Another check may still skip it, say under Miri.
+ * Whether checks' logs show the test `name` ran: a line naming it, module path included, that
+ * does not report it ignored or skipped. Another check may still skip it, say under Miri.
  */
-export const ran = (logs: string, name: string) =>
-  logs.split('\n').some((line) => defines(line, name) && !/\b(ignored|SKIP)\b/.test(line));
+export function ran(logs: string, name: string): boolean {
+  const named = new RegExp(`(?<!\\w)${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`);
+  return logs.split('\n').some((line) => named.test(line) && !/\b(ignored|SKIP)\b/.test(line));
+}
 
 /** Why a check that exited 0 still failed, judged from its log or its output files. */
 async function judge(check: CheckResult, root: string): Promise<string | undefined> {
