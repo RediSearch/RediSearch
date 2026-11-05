@@ -466,7 +466,7 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
                 continue;
             }
             let block = &self.blocks[i];
-            if !(skip_clean_blocks && !doc_exist.any_gone(block.first_doc_id, block.last_doc_id))
+            if (!skip_clean_blocks || doc_exist.any_gone(block.first_doc_id, block.last_doc_id))
                 && let Some(fixed) = block.repair(
                     i,
                     self.expiration.get(i),
