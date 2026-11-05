@@ -276,7 +276,7 @@ pub trait ScoreSource {
     ///
     /// Kept apart from the timeout poll so the cheap deadline check keeps its
     /// own cadence while the costlier memory read is amortized by the source.
-    /// Returns [`RQEIteratorError::TimedOut`] when the query should stop; a
+    /// Returns [`RQEIteratorError::Stopped`] when the query should stop; a
     /// memory stop is told from a timeout by the request's memory stop, which
     /// is sticky. The default never stops.
     fn check_stop(&mut self) -> Result<(), RQEIteratorError> {

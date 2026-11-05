@@ -344,7 +344,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
         // SAFETY: the constructor contract keeps the request timeout valid; the callee reads its
         // flags, may request a stop atomically, and does not retain the pointer.
         if further_batch && unsafe { RS_VecSimCheckMemory(self.timeout.as_ptr()) } != 0 {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
 
         let batch_size = self.compute_next_batch_size();
@@ -556,7 +556,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
             RS_VecSimCheckMemoryEvery(self.timeout.as_ptr(), &raw mut self.adhoc_memory_counter)
         };
         if stop != 0 {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         Ok(())
     }
@@ -564,7 +564,7 @@ impl<'index, E: ExpirationChecker> ScoreSource for VectorScoreSource<'index, E> 
     fn check_stop_now(&mut self) -> Result<(), RQEIteratorError> {
         // SAFETY: as in `check_stop`; this variant has no counter.
         if unsafe { RS_VecSimCheckMemory(self.timeout.as_ptr()) } != 0 {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         Ok(())
     }
