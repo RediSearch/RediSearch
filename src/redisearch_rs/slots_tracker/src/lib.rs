@@ -15,6 +15,9 @@ mod slots_tracker;
 
 pub use slots_tracker::{SlotsTracker, Version};
 
+/// Number of Redis Cluster hash slots.
+pub const CLUSTER_SLOTS: u16 = 16384;
+
 // ============================================================================
 // C FFI Interface - Public API
 // ============================================================================
