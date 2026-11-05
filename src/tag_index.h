@@ -62,7 +62,7 @@ extern "C" {
  *    FT.CREATE idx SCHEMA tags TAG SEPARATOR ";"
  *
  * An unlimited number of tag fields can be created per document, as long as the overall number of
- * fields is under 1024.
+ * fields is within the schema field limit.
  *
  * ## Querying Tag Fields
  *

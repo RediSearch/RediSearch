@@ -118,7 +118,11 @@ struct IndexesScanner;
 #define INDEX_SPEC_KEY_PREFIX "idx:"
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
 
-#define SPEC_MAX_FIELDS 1024
+// Total schema fields. The sorting-vector ceiling `RS_SORTABLES_MAX` (sorting_vector crate) must
+// stay >= this value, and 4096 must stay within the uint16_t / int16_t field and sort indexes.
+#define SPEC_MAX_FIELDS 4096
+static_assert(SPEC_MAX_FIELDS < UINT16_MAX && SPEC_MAX_FIELDS <= INT16_MAX,
+              "SPEC_MAX_FIELDS must fit FieldIndex (uint16_t) and FieldSpec.sortIdx (int16_t)");
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
 #define MAX_SYNONYM_TERMS 1000000     // reasonable limit for synonym map terms
 #define MAX_SYNONYM_GROUP_IDS 4096    // reasonable limit for group IDs per term

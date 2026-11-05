@@ -196,9 +196,9 @@ def testMaxSynonymGroupIdsLimitAtomic(env):
 
 
 def testMaxFieldsLimit(env):
-    """Test that creating an index with more than SPEC_MAX_FIELDS (1024) fields
+    """Test that creating an index with more than SPEC_MAX_FIELDS (4096) fields
     fails"""
-    SPEC_MAX_FIELDS = 1024
+    SPEC_MAX_FIELDS = 4096
 
     # Verify that creating an index with exactly SPEC_MAX_FIELDS works
     fields = []
@@ -242,3 +242,22 @@ def testMaxStopwordsLimit(env):
     idx_info = env.cmd('FT.INFO', 'idx')
     idx_stopwords = idx_info[idx_info.index('stopwords_list') + 1]
     env.assertEqual(len(idx_stopwords), MAX_STOPWORDLIST_SIZE)
+
+
+def testMaxSortableFieldsWithSparseDoc(env):
+    """More than 1024 SORTABLE fields: a sparse document must not abort the
+    server (the Rust sorting-vector ceiling must follow SPEC_MAX_FIELDS)."""
+    n_fields = 4096
+    schema = []
+    for i in range(n_fields):
+        schema.extend([f'n{i}', 'NUMERIC', 'SORTABLE'])
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', *schema).ok()
+
+    conn = getConnectionByEnv(env)
+    last = n_fields - 1
+    conn.execute_command('HSET', 'doc:1', f'n{last}', '7')
+    conn.execute_command('HSET', 'doc:2', f'n{last}', '3')
+    waitForIndex(env, 'idx')
+
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', f'n{last}', 'ASC', 'NOCONTENT')
+    env.assertEqual(res[1:], ['doc:2', 'doc:1'])

@@ -96,7 +96,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
   size_t numTextIndexable = 0;
 
-  // size: uint16_t * SPEC_MAX_FIELDS
+  // size: uint16_t * SPEC_MAX_FIELDS (8 KiB on the stack)
   FieldSpecDedupeArray dedupe = {0};
   int hasTextFields = 0;
   int hasOtherFields = 0;
