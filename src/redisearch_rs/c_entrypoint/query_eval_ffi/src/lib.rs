@@ -80,7 +80,7 @@ fn eval_config(iterators: &IteratorsConfig) -> Config {
 /// 4. `status` must be a non-null pointer to a [valid] [`QueryError`].
 ///
 /// Together these are exactly the invariants documented on
-/// [`QueryEvalContext::new`] for the assembled context, which remains [valid] for
+/// [`QueryEvalContext::new`] for the assembled context, which remains valid for
 /// the lifetime of the returned tree.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
