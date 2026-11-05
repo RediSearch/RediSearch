@@ -169,12 +169,13 @@ async function reproduce(run: Run, repro: Repro, n: number): Promise<Trial> {
 }
 
 /**
- * Whether a deletion removes tests, which proves nothing: a test file, or a line of a Rust source
- * that appears only inside its `#[cfg(test)]` items. `read` gives the candidate's text of a file.
+ * Whether a deletion removes or disables tests, which proves nothing: a test file, an added
+ * `#[ignore]` or `#[cfg]`, or a line of a Rust source that appears only inside its `#[cfg(test)]`
+ * items. `read` gives the candidate's text of a file.
  */
 export async function deletesTests(patch: string, read: (path: string) => Promise<string>) {
   for (const f of parseDiff(patch)) {
-    if (isTest(f.path)) return true;
+    if (isTest(f.path) || f.added.some((line) => /#\[(ignore|cfg)\b/.test(line))) return true;
     if (!f.path.endsWith('.rs')) continue;
     const text = await read(f.path).catch(() => '');
     const production = nonTest(text);

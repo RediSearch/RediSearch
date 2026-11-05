@@ -14,7 +14,9 @@ Guidelines for writing new tests for Rust code.
 3. Use `insta` whenever you are testing output that is difficult to predict or compare.
 4. Test a behavior that holds over a range of inputs, such as a conversion, a bound, an ordering
    or a round trip, with a property test over generated inputs, not with a few hand-picked
-   values. Keep example tests for boundaries and regressions.
+   values. Keep example tests for boundaries and regressions. One property holds for every type:
+   any value its constructors or parsers accept survives every method without panicking. A NaN
+   that passes validation is such a value.
 5. Testing code should be written with the same care reserved to production code.
    Avoid unnecessary duplication, introduce helpers to reduce boilerplate and ensure readability.
    The intent of a test should be obvious or, if not possible, clearly documented.

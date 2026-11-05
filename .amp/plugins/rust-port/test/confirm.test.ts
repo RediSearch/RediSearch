@@ -37,6 +37,11 @@ test('a deletion that removes tests proves nothing, wherever the tests live', as
     ['production code', patch('src/geo.rs', 'pub fn spare() {}'), false],
     ['a test item beside the code', patch('src/geo.rs', '    fn checks_spare() {}'), true],
     ['a test file', patch('geo/tests/a.rs', 'fn t() {}'), true],
+    [
+      'production code, with a test switched off',
+      `${patch('src/geo.rs', 'pub fn spare() {}')}+#[ignore]\n`,
+      true,
+    ],
   ] as const;
   for (const [name, diff, expected] of cases)
     assert.equal(await deletesTests(diff, read), expected, name);

@@ -10194,7 +10194,9 @@ async function run(cwd, command, log, signal, vars) {
  */
 function ran(logs, name) {
     const named = new RegExp(`(?<!\\w)${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`);
-    return logs.split('\n').some((line) => named.test(line) && !/\b(ignored|SKIP)\b/.test(line));
+    return logs
+        .split('\n')
+        .some((line) => named.test(line) && !/\b(ignored|skip(ped)?)\b/i.test(line));
 }
 /** Why a check that exited 0 still failed, judged from its log or its output files. */
 async function judge(check, root) {
@@ -10695,7 +10697,8 @@ function receive(state, findings) {
 }
 /**
  * Replaces the open findings of one stage and source with the current failures. A failure reported
- * again on another revision supersedes the open one with a new finding, so the worker hears of it.
+ * again on another revision, or with other details, supersedes the open one with a new finding,
+ * so the worker hears of it.
  */
 function reconcile(state, stage, source, failures) {
     const open = outstanding(state).filter((f) => f.stage === stage && f.source === source);
@@ -10704,7 +10707,7 @@ function reconcile(state, stage, source, failures) {
             finding.closed = { resolution: 'passed' };
     for (const failure of failures) {
         const existing = open.find((f) => f.key === failure.key);
-        if (existing?.revision === failure.revision)
+        if (existing?.revision === failure.revision && existing.body === failure.body)
             continue;
         if (existing)
             existing.closed = { resolution: 'superseded' };
@@ -11163,12 +11166,13 @@ async function reproduce(run, repro, n) {
     };
 }
 /**
- * Whether a deletion removes tests, which proves nothing: a test file, or a line of a Rust source
- * that appears only inside its `#[cfg(test)]` items. `read` gives the candidate's text of a file.
+ * Whether a deletion removes or disables tests, which proves nothing: a test file, an added
+ * `#[ignore]` or `#[cfg]`, or a line of a Rust source that appears only inside its `#[cfg(test)]`
+ * items. `read` gives the candidate's text of a file.
  */
 async function deletesTests(patch, read) {
     for (const f of parseDiff(patch)) {
-        if (isTest(f.path))
+        if (isTest(f.path) || f.added.some((line) => /#\[(ignore|cfg)\b/.test(line)))
             return true;
         if (!f.path.endsWith('.rs'))
             continue;
@@ -16037,8 +16041,6 @@ function plugin (amp) {
     const statusItem = amp.experimental?.createStatusItem();
     const sh = (args, input) => git(root, args, input);
     const link = (thread) => new URL(`/threads/${thread}`, amp.system.ampURL).toString();
-    /** The briefing of a new worker thread, sent once the state that makes it the owner is saved. */
-    let briefing;
     /** Goes to Amp's log and to `debug.log` in the state directory, which is easier to follow. */
     function debug(message) {
         amp.logger.log(message);
@@ -16099,13 +16101,6 @@ function plugin (amp) {
                 throw new Error('This thread does not own a rust-port job');
             const result = await fn(state);
             await save(state);
-            // Not awaited: the new thread's first turn queues behind this call.
-            const send = briefing;
-            briefing = undefined;
-            send?.().catch((error) => {
-                debug(`briefing the new worker ${state.job.owner} failed: ${error}`);
-                amp.ui.notify(`rust-port: brief ${link(state.job.owner)} by hand`).catch(() => { });
-            });
             return result;
         });
     }
@@ -16376,16 +16371,11 @@ function plugin (amp) {
     /**
      * Hands the job to a fresh worker thread for `next`. Every request re-reads a thread's whole
      * history, and the plugin holds all a stage needs, so the next stage starts without the earlier
-     * one's. The thread is created now and briefed once its ownership is saved.
+     * one's.
      */
     async function handOff(state, stage, next, candidate) {
         const { job } = state;
         const previous = job.owner;
-        const agent = await amp.threads.get(previous).agent();
-        const child = await agent.createThread({ parentThreadID: previous });
-        await child.addLabels(['rust-port', next]).catch(() => { });
-        job.former = [...(job.former ?? []), previous];
-        job.owner = child.id;
         const { deliverable, paths, checks } = job.plan.stages[next];
         const prs = STAGES.flatMap((s) => job.prs[s]?.url ?? []);
         const content = `[rust-port] You take over a rust-port job at stage \`${next}\` from ${link(previous)}, which got \`${stage}\` admitted at ${candidate}; the checkout is at that revision. Follow ${POLICY} and read the skills it names. The plugin holds the plan, the evidence and every finding, so you need nothing from earlier threads.
@@ -16405,9 +16395,22 @@ ${render(outstanding(state), tool('close')) || 'None.'}
 ## The plan
 
 ${describe(job.plan)}`;
-        briefing = () => child.appendUserMessage({ type: 'user-message', content });
-        debug(`handing the job to ${child.id} for ${next}`);
-        return link(child.id);
+        // Ownership moves only once the new thread has its briefing. Its first tool calls queue behind
+        // this claim, by when it owns the job; if anything fails, the current worker carries on.
+        try {
+            const agent = await amp.threads.get(previous).agent();
+            const child = await agent.createThread({ parentThreadID: previous });
+            await child.addLabels(['rust-port', next]).catch(() => { });
+            await child.appendUserMessage({ type: 'user-message', content });
+            job.former = [...(job.former ?? []), previous];
+            job.owner = child.id;
+            debug(`handed the job to ${child.id} for ${next}`);
+            return link(child.id);
+        }
+        catch (error) {
+            debug(`handing the job on failed, so ${previous} keeps it: ${error}`);
+            return '';
+        }
     }
     amp.registerTool({
         name: tool('plan'),
@@ -16548,12 +16551,13 @@ ${describe(job.plan)}`;
         name: tool('findings'),
         description: 'List every outstanding finding.',
         inputSchema: { type: 'object', properties: {} },
-        execute: async (_, ctx) => {
+        // Queued, so a new worker asking while its predecessor's claim saves sees itself the owner.
+        execute: (_, ctx) => serial(tool('findings'), async () => {
             const state = await load();
             if (state?.job.owner !== ctx.thread.id)
                 throw new Error('This thread does not own a rust-port job');
             return `${summary(state)}\n\n${render(outstanding(state), tool('close')) || 'No outstanding findings.'}`;
-        },
+        }),
     });
     amp.registerCommand('grant', {
         title: 'Grant assessments',

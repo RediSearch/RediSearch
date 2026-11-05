@@ -70,11 +70,8 @@ Rust, and in the flow tests wherever users can see the behavior. The test names 
 contract, such as `invalid_unit_is_reported_before_coordinates_and_radius`: a reviewer can tell
 from the names alone what each item guarantees, and which test fails when it breaks.
 
-A contract item that holds over a range of inputs, such as a conversion, a bound, an ordering or
-a round trip, is pinned by a property test over generated inputs, not by a few hand-picked
-values. Keep example tests for the boundaries and for regressions. One such property holds for
-every type the port adds: any value its constructors or parsers accept survives every method
-without panicking. A NaN that passes validation is such a value.
+Pin a contract item that holds over a range of inputs with property tests, as
+[`/rust-tests-guidelines`](../rust-tests-guidelines/SKILL.md) rule 4 requires.
 
 #### Two PRs
 
@@ -158,8 +155,6 @@ workspace does not enable yet, so `make lint` enforces them for the new code:
   `build_utils::bind_foreign_c_symbols`, and each benchmark is a group with a `c` function
   calling the C through the generated `ffi` bindings and a `rust` function calling the Rust
   API. Never copy C sources into the benchmark or rebuild C from git history.
-- Pin contract items that hold over a range of inputs with property tests, as _Contract and
-  divergences_ requires
 - Testing code should be written with the same care reserved to production code
 
 ### 5. Compare Rust API with C API

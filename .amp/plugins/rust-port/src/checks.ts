@@ -107,7 +107,9 @@ async function run(
  */
 export function ran(logs: string, name: string): boolean {
   const named = new RegExp(`(?<!\\w)${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`);
-  return logs.split('\n').some((line) => named.test(line) && !/\b(ignored|SKIP)\b/.test(line));
+  return logs
+    .split('\n')
+    .some((line) => named.test(line) && !/\b(ignored|skip(ped)?)\b/i.test(line));
 }
 
 /** Why a check that exited 0 still failed, judged from its log or its output files. */
