@@ -334,12 +334,11 @@ def testDeleteEntireBlock(env):
         env.assertEqual(set(res[2]), set(['test', 'checking', 'test2', 'checking250']))
 
 @skip(cluster=True)
-def testGCIntegrationWithRedisFork(env):
+def testGCIntegrationWithRedisFork():
+    env = Env(moduleArgs='GC_POLICY FORK')
     if env.env == 'existing-env':
         env.skip()
     if env.env == 'enterprise':
-        env.skip()
-    if env.cmd(config_cmd(), 'GET', 'GC_POLICY')[0][1] != 'fork':
         env.skip()
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.expect(config_cmd(), 'SET', 'FORKGC_SLEEP_BEFORE_EXIT', '4').ok()
@@ -571,8 +570,9 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
 
 
 # Fork-only: the thread GC policy neither forks nor skips cycles under memory pressure.
-@skip(cluster=True, gc_no_fork=True)
-def test_gc_oom(env:Env):
+@skip(cluster=True)
+def test_gc_oom():
+    env = Env(moduleArgs='GC_POLICY FORK')
     env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
     env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
     num_docs = 10
@@ -618,7 +618,7 @@ def test_gc_oom_replica_relaxed():
     # Set FORK_GC_CLEAN_THRESHOLD to 0 via module args since FT.CONFIG SET
     # cannot be executed on a read-only replica
     env = Env(useSlaves=True, forceTcp=True,
-              moduleArgs='FORK_GC_CLEAN_THRESHOLD 0 FORK_GC_RUN_INTERVAL 30000')
+              moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 0 FORK_GC_RUN_INTERVAL 30000')
 
     master = env.getConnection()
     slave = env.getSlaveConnection()
@@ -722,7 +722,7 @@ def testForceGCBypassesThreshold(env):
 # Regression for [MOD-15940](https://redislabs.atlassian.net/browse/MOD-15940)
 @skip(cluster=True)
 def testForkGCEmptyTagSuffixTrieMap_emptyValue_MOD_15996():
-    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
                't', 'TAG', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
     waitForIndex(env, 'idx')
@@ -734,7 +734,7 @@ def testForkGCEmptyTagSuffixTrieMap_emptyValue_MOD_15996():
 
 @skip(cluster=True)
 def testForkGCEmptyTextSuffixTrie_emptyValue():
-    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    env = Env(moduleArgs='GC_POLICY FORK FORK_GC_CLEAN_THRESHOLD 0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA',
                't', 'TEXT', 'INDEXEMPTY', 'WITHSUFFIXTRIE').ok()
     waitForIndex(env, 'idx')
@@ -1138,12 +1138,12 @@ def holdForkSlot(env, key_delay_us):
 
 
 # Fork-only: the thread GC policy never takes the fork slot.
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testForcedGCWaitsForForkSlot():
     """A forced GC replying DONE has to mean it collected. Parking the cycle before its fork lets
     a bgsave take the only child slot first, and parking it again after the failed fork is what
     proves the EEXIST retry ran rather than the cycle winning the slot on a lucky schedule."""
-    env = Env()
+    env = Env(moduleArgs='GC_POLICY FORK')
     skipIfNoEnableAssert(env)
     indexWithCollectableDocs(env)
     env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -1170,11 +1170,11 @@ def testForcedGCWaitsForForkSlot():
 
 
 # Fork-only: the thread GC policy never takes the fork slot.
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testForcedGCReportsWhenItCannotFork():
     """A forced GC that never gets the slot has to say so. Replying DONE would be the original
     bug at a longer timescale: a collection reported but never made."""
-    env = Env()
+    env = Env(moduleArgs='GC_POLICY FORK')
     skipIfNoEnableAssert(env)
     indexWithCollectableDocs(env)
     env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')

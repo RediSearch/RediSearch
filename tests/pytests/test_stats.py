@@ -125,14 +125,14 @@ def runTestWithSeed(env, s=None):
         forceInvokeGC(env, 'idx')
     check_index_info_empty(env, 'idx', ['NUMERIC'])
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testRandom(env):
 
     runTestWithSeed(env, 2)
 
     runTestWithSeed(env)
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testMemoryAfterDrop(env):
 
     idx_count = 100
@@ -165,7 +165,7 @@ def testMemoryAfterDrop(env):
     for i in range(idx_count):
         check_index_info_empty(env, 'idx%d' % i, ['NUMERIC'])
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testIssue1497(env):
 
     count = 110
@@ -197,7 +197,7 @@ def testIssue1497(env):
     # Here we have 2 numeric tree field - NUMERIC and GEO
     check_index_info_empty(env, 'idx', ['NUMERIC', 'GEO'])
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testMemoryAfterDrop_numeric(env):
 
     idx_count = 100
@@ -229,7 +229,7 @@ def testMemoryAfterDrop_numeric(env):
         # An initialized numeric tree always contains an inverted index in its root node.
         check_index_info_empty(env, 'idx%d' % i, ['NUMERIC'])
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testMemoryAfterDrop_geo(env):
 
     idx_count = 100
@@ -263,7 +263,7 @@ def testMemoryAfterDrop_geo(env):
         # An initialized numeric tree always contains an inverted index in its root node.
         check_index_info_empty(env, 'idx%d' % i, ['NUMERIC'])
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testMemoryAfterDrop_text(env):
 
     idx_count = 10
@@ -294,7 +294,7 @@ def testMemoryAfterDrop_text(env):
     for i in range(idx_count):
         check_index_info(env, 'idx%d' % i, 0, 0)
 
-@skip(cluster=True, gc_no_fork=True)
+@skip(cluster=True)
 def testMemoryAfterDrop_tag(env):
 
     idx_count = 1
