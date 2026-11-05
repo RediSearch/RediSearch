@@ -337,13 +337,13 @@ impl<'index, const SORTED_BY_ID: bool> RQEIteratorBoxed<'index> for Metric<'inde
     type Suspended = SuspendedMetric<'index, SORTED_BY_ID>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let active = NonNull::from(Box::leak(self));
+        let active = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
 
         // SAFETY: `suspend_in_place`'s contract is met — `active` is aligned and
         // initialized (it just came from a `Box`), and unaliased (this function owns `self`).
         let suspended_ptr = unsafe { Metric::<'index, SORTED_BY_ID>::suspend_in_place(active) };
 
-        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::leak` above, so the
+        // SAFETY: `suspended_ptr` reuses the same allocation from `Box::into_raw` above, so the
         // address is unchanged and every field is now valid at the suspended type.
         unsafe { Box::from_raw(suspended_ptr.as_ptr()) }
     }
@@ -409,7 +409,7 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
     where
         'query: 'index,
     {
-        let suspended = NonNull::from(Box::leak(self));
+        let suspended = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
 
         // SAFETY: `resume_in_place`'s contract is met:
         // 1. `suspended` is aligned and initialized — it just came from a `Box`.
@@ -418,7 +418,7 @@ impl<'query, const SORTED_BY_ID: bool> RQESuspendedIterator<'query>
             SuspendedMetric::<'query, SORTED_BY_ID>::resume_in_place::<'index>(suspended)
         } {
             Ok(active_ptr) => {
-                // SAFETY: `active_ptr` reuses the same allocation from `Box::leak` above, so
+                // SAFETY: `active_ptr` reuses the same allocation from `Box::into_raw` above, so
                 // the address is unchanged and every field is now valid at the active type for
                 // `'index`.
                 Ok(ResumeOutcome::Ok(unsafe {

@@ -69,10 +69,10 @@ where
         // Derive the self-referential `current` pointer only *after* the box is
         // stable behind a raw pointer. `sync_current` reads `inner` and writes
         // `header.current` through a single `&mut self`, so the borrow never
-        // escapes across the leaked box's `Unique` retag (which would pop it).
-        let mut raw = NonNull::from(Box::leak(wrapper));
-        // SAFETY: `raw` is the leaked box: initialized, aligned, and — since
-        // nothing else has seen it yet — uniquely ours to borrow mutably.
+        // escapes across `Box::into_raw`'s `Unique` retag (which would pop it).
+        let mut raw = NonNull::new(Box::into_raw(wrapper)).expect("Box pointers are non-null");
+        // SAFETY: `raw` was just produced by `Box::into_raw`: initialized, aligned,
+        // and — since nothing else has seen it yet — uniquely ours to borrow mutably.
         unsafe {
             raw.as_mut().sync_current();
         }
