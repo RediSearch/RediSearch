@@ -188,3 +188,26 @@ TEST_F(SpecLockTest, CursorReservationReclaimsIdleRequestsWithoutReleasingActive
     if (active) Cursor_Free(active);
   }
 }
+
+TEST_F(SpecLockTest, ConditionalReadLockPreservesOuterReadScope) {
+  const bool outer = IndexSpec_LockReadIfNeeded(&spec);
+  EXPECT_TRUE(outer);
+  const bool inner = IndexSpec_LockReadIfNeeded(&spec);
+  EXPECT_FALSE(inner);
+  if (inner) IndexSpec_Unlock(&spec);
+  EXPECT_TRUE(IndexSpec_IsReadLocked(&spec));
+  EXPECT_EQ(spec.keysDict->pauserehash, 1);
+  if (outer) IndexSpec_Unlock(&spec);
+  EXPECT_FALSE(IndexSpec_IsLocked(&spec));
+}
+
+TEST_F(SpecLockTest, ConditionalReadLockPreservesOuterWriteScope) {
+  IndexSpec_LockWrite(&spec);
+  const bool acquired = IndexSpec_LockReadIfNeeded(&spec);
+  EXPECT_FALSE(acquired);
+  if (acquired) IndexSpec_Unlock(&spec);
+  EXPECT_TRUE(IndexSpec_IsLocked(&spec));
+  EXPECT_FALSE(IndexSpec_IsReadLocked(&spec));
+  EXPECT_EQ(spec.keysDict->pauserehash, 0);
+  IndexSpec_Unlock(&spec);
+}
