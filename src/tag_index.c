@@ -22,6 +22,8 @@
 #include "rmutil/rm_assert.h"
 #include "iterators_ffi.h"
 #include "inverted_index_ffi.h"
+#include "query_error_ffi.h"
+#include "query_memory.h"
 #include "metrics_ffi.h"
 #include "query_term_ffi.h"
 #include "search_disk.h"
@@ -406,8 +408,15 @@ void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
   void *ptr;
   RedisModule_ReplyWithSet(ctx, REDISMODULE_POSTPONED_LEN);
   long long count = 0;
+  uint32_t memoryCheckCounter = 0;
   while (TrieMapIterator_Next(it, &str, &slen, &ptr)) {
     ++count;
+    // The reply has started, so a stop for memory can only end it with the error in place of
+    // the next value.
+    if (QueryMemory_Checkpoint(NULL, &memoryCheckCounter)) {
+      RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+      break;
+    }
     RedisModule_ReplyWithStringBuffer(ctx, str, slen);
   }
 

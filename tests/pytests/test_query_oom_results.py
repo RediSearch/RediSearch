@@ -5,7 +5,7 @@
 # (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
 # GNU Affero General Public License v3 (AGPLv3).
 
-"""Query memory checkpoints in the result buffering and reply paths, driven by
+"""Query memory checkpoints in the result buffering, reply and dump paths, driven by
 `_FT.DEBUG MEMORY_PRESSURE AT_CALL`, which makes the n-th checkpoint call report pressure."""
 
 from common import *
@@ -929,6 +929,218 @@ def test_geoshape_collection_stop_replies_by_on_oom_policy(env):
             env.assertEqual(env.cmd(*query)['total_results'], N_DOCS, message=predicate)
     finally:
         _reset(env)
+
+
+def _is_oom_error(v):
+    return isinstance(v, redis_exceptions.ResponseError) and OOM_QUERY_ERROR in str(v)
+
+
+def _split_dump(reply):
+    """A dump stopped for memory ends with the OOM error in place of its next value: returns the
+    values before it and whether that last element is the OOM error. A RESP3 set may come back as
+    a Python set, which has no order: there the OOM error only has to be one of its elements.
+    A RESP3 map is flattened to key, value order. A stop between FT.SYNDUMP group IDs puts the
+    error at the end of the last term's group array: it counts as stopped, and that array is
+    returned without the error."""
+    if isinstance(reply, dict):
+        reply = [x for kv in reply.items() for x in kv]
+    if isinstance(reply, (set, frozenset)):
+        errors = [v for v in reply if isinstance(v, redis_exceptions.ResponseError)]
+        stopped = len(errors) == 1 and OOM_QUERY_ERROR in str(errors[0])
+        if len(errors) > int(stopped):
+            raise AssertionError(f'unexpected error elements: {reply}')
+        return [v for v in reply if not isinstance(v, redis_exceptions.ResponseError)], stopped
+    reply = list(reply)
+    last = reply[-1] if reply else None
+    stopped = isinstance(last, redis_exceptions.ResponseError) and OOM_QUERY_ERROR in str(last)
+    values = reply[:-1] if stopped else reply
+    if isinstance(last, list) and last and _is_oom_error(last[-1]):
+        stopped = True
+        values = reply[:-1] + [last[:-1]]
+        if any(isinstance(v, redis_exceptions.ResponseError) for v in last[:-1]):
+            raise AssertionError(f'error element before the end: {reply}')
+    if any(isinstance(v, redis_exceptions.ResponseError) for v in values):
+        raise AssertionError(f'error element before the end: {reply}')
+    return values, stopped
+
+
+@skip(cluster=True)
+def test_dumps_stop_with_the_oom_error(env):
+    """FT.TAGVALS, FT.DICTDUMP and FT.SYNDUMP stream every value into a reply that has already
+    started when memory runs out, so a stop replies the OOM error in place of the next value.
+    ON_OOM IGNORE dumps everything."""
+    try:
+        env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
+        conn = getConnectionByEnv(env)
+        for i in range(N_DOCS):
+            conn.execute_command('HSET', f't{i}', 't', f'tag{i}')
+            conn.execute_command('FT.DICTADD', 'dict', f'term{i}')
+            conn.execute_command('FT.SYNUPDATE', 'tidx', f'group{i}', f'syn{i}')
+        dumps = [('FT.TAGVALS', 'tidx', 't'), ('FT.DICTDUMP', 'dict'), ('FT.SYNDUMP', 'tidx')]
+        for dump in dumps:
+            env.assertEqual(len(env.cmd(*dump)), N_DOCS * (2 if dump[0] == 'FT.SYNDUMP' else 1))
+
+        # RESP2 flattens the FT.SYNDUMP map: term, groups, term, groups, term, error.
+        expected_values = {'FT.TAGVALS': 2, 'FT.DICTDUMP': 2, 'FT.SYNDUMP': 5}
+        for on_oom in ['return', 'fail']:
+            change_oom_policy(env, on_oom)
+            for dump in dumps:
+                _memory_pressure(env, 'AT_CALL', 3)
+                res = env.cmd(*dump)
+                values, stopped = _split_dump(res)
+                env.assertEqual((len(values), stopped), (expected_values[dump[0]], True),
+                                message=(on_oom, res))
+
+        change_oom_policy(env, 'ignore')
+        for dump in dumps:
+            _memory_pressure(env, 'AT_CALL', 3)
+            env.assertFalse(_split_dump(env.cmd(*dump))[1], message=dump)
+    finally:
+        _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_dumps_stop_with_the_oom_error_resp3(env):
+    """RESP3 carries the stopped dump's OOM error inside its set or map the same way."""
+    try:
+        env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
+        conn = getConnectionByEnv(env)
+        for i in range(N_DOCS):
+            conn.execute_command('HSET', f't{i}', 't', f'tag{i}')
+            conn.execute_command('FT.DICTADD', 'dict', f'term{i}')
+            conn.execute_command('FT.SYNUPDATE', 'tidx', f'group{i}', f'syn{i}')
+        _memory_pressure(env, 'AT_CALL', 3)
+        res = env.cmd('FT.TAGVALS', 'tidx', 't')
+        values, stopped = _split_dump(res)
+        env.assertEqual((len(values), stopped), (2, True), message=res)
+        _memory_pressure(env, 'AT_CALL', 3)
+        res = env.cmd('FT.DICTDUMP', 'dict')
+        values, stopped = _split_dump(res)
+        env.assertEqual((len(values), stopped), (2, True), message=res)
+        env.assertTrue(all(v.startswith('term') for v in values), message=res)
+        _memory_pressure(env, 'AT_CALL', 3)
+        res = env.cmd('FT.SYNDUMP', 'tidx')
+        env.assertEqual(len(res), 3, message=res)
+        env.assertEqual(_split_dump(res.values())[1], True, message=res)
+    finally:
+        _reset(env)
+
+
+@skip(cluster=True)
+def test_syndump_counts_group_ids_toward_the_memory_read(env):
+    """A term can belong to thousands of groups, and FT.SYNDUMP checkpoints once per group ID: the
+    read interval counts the group IDs replied, so pressure is read within the dump even when it
+    has fewer terms than the interval."""
+    env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
+    terms, groups = 3, 60
+    for g in range(groups):
+        env.cmd('FT.SYNUPDATE', 'tidx', f'group{g}', *[f'term{i}' for i in range(terms)])
+    env.assertEqual(len(env.cmd('FT.SYNDUMP', 'tidx')), 2 * terms)
+    try:
+        _memory_pressure(env, 'READ_INTERVAL', 100)
+        _memory_pressure(env, 'RATIO', 2)
+        values, stopped = _split_dump(env.cmd('FT.SYNDUMP', 'tidx'))
+        env.assertTrue(stopped, message=values)
+        env.assertLess(len(values), 2 * terms - 1, message=values)
+    finally:
+        _reset(env)
+
+
+def _syndump_checks_pressure_per_group_id(env):
+    """A term in more groups than the read interval gets a checkpoint per group ID, not one per
+    term: pressure that lands on a later ID ends the dump with the OOM error in place of that
+    term's groups, and the reply stays a well-formed map in both protocols."""
+    def flat(res):
+        # RESP3 decodes the map to a dict: flatten it to RESP2's term, groups, term, groups order.
+        if isinstance(res, dict):
+            return [x for kv in res.items() for x in kv]
+        return res
+
+    env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
+    groups = 300
+    for g in range(groups):
+        env.cmd('FT.SYNUPDATE', 'tidx', f'group{g}', 'term0', 'term1')
+    env.assertEqual(len(flat(env.cmd('FT.SYNDUMP', 'tidx'))), 4)
+    try:
+        # Calls 1..300 belong to the first term, 301..600 to the second.
+        _memory_pressure(env, 'AT_CALL', groups + 100)
+        res = flat(env.cmd('FT.SYNDUMP', 'tidx'))
+        env.assertEqual(len(res), 4, message=res)
+        env.assertEqual(len(res[1]), groups, message=res)
+        env.assertEqual(len(res[3]), 100, message=res)
+        env.assertTrue(isinstance(res[3][-1], redis_exceptions.ResponseError)
+                       and OOM_QUERY_ERROR in str(res[3][-1]), message=res)
+        # A stop inside the first term's IDs leaves only that term, its array holding the IDs
+        # written before the stop and closed by the error.
+        _memory_pressure(env, 'AT_CALL', 100)
+        res = flat(env.cmd('FT.SYNDUMP', 'tidx'))
+        env.assertEqual(len(res), 2, message=res)
+        env.assertEqual(len(res[1]), 100, message=res)
+        env.assertTrue(isinstance(res[1][-1], redis_exceptions.ResponseError)
+                       and OOM_QUERY_ERROR in str(res[1][-1]), message=res)
+        env.assertFalse(any(isinstance(v, redis_exceptions.ResponseError)
+                            for v in res[1][:-1]), message=res)
+    finally:
+        _reset(env)
+
+
+@skip(cluster=True)
+def test_syndump_checks_pressure_per_group_id(env):
+    _syndump_checks_pressure_per_group_id(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_syndump_checks_pressure_per_group_id_resp3(env):
+    _syndump_checks_pressure_per_group_id(env)
+
+
+@skip(cluster=False)
+def test_tagvals_shard_stop_through_the_coordinator(env):
+    """The coordinator merges the shards' FT.TAGVALS values; a shard's OOM error element is not
+    a value: the merged set ends with it, as a single shard's dump does, or it is the reply when
+    no shard got to a value."""
+    env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f't{i}', 't', f'tag{i}')
+    try:
+        _memory_pressure(env, 'AT_CALL', 1)
+        res = env.cmd('FT.TAGVALS', 'tidx', 't')
+        values, stopped = _split_dump(res)
+        env.assertTrue(stopped, message=res)
+        env.assertLess(len(values), N_DOCS, message=res)
+        env.assertTrue(all(v.startswith('tag') for v in values), message=res)
+
+        # Every shard stopping before its first value is an error, not an empty field.
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+        env.expect('FT.TAGVALS', 'tidx', 't').error().contains(OOM_QUERY_ERROR)
+    finally:
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_tagvals_shard_stop_through_the_coordinator_resp3(env):
+    """Under RESP3 the shards' FT.TAGVALS sets reach the reducer as sets and the merged reply is a
+    set: a shard's OOM error is one member of it, or the whole reply when no shard got to a value."""
+    env.expect('FT.CREATE', 'tidx', 'SCHEMA', 't', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f't{i}', 't', f'tag{i}')
+    try:
+        _memory_pressure(env, 'AT_CALL', 1)
+        res = env.cmd('FT.TAGVALS', 'tidx', 't')
+        values, stopped = _split_dump(res)
+        env.assertTrue(stopped, message=res)
+        env.assertLess(len(values), N_DOCS, message=res)
+        env.assertTrue(all(v.startswith('tag') for v in values), message=res)
+
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+        env.expect('FT.TAGVALS', 'tidx', 't').error().contains(OOM_QUERY_ERROR)
+    finally:
+        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
 
 
 @skip(cluster=False)
