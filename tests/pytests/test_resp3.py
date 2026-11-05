@@ -11,6 +11,11 @@ import json
 from test_coordinator import test_error_propagation_from_shards
 from test_profile import TimedoutTest_resp3, TimedOutWarningtestCoord
 
+def _index_profile(count):
+    return {'Type': 'Index', 'Time': ANY, 'Results processed': count,
+            'Deleted candidates discarded': 0, 'Candidates not discarded': count}
+
+
 def order_dict(d):
     ''' Sorts a dictionary recursively by keys '''
 
@@ -296,7 +301,7 @@ def test_profile(env):
           'Iterators profile':
             {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': 2},
           'Result processors profile': [
-            {'Type': 'Index',  'Time': ANY, 'Results processed': 2},
+            _index_profile(2),
             {'Type': 'Scorer', 'Time': ANY, 'Results processed': 2},
             {'Type': 'Sorter', 'Time': ANY, 'Results processed': 2},
             {'Type': 'Loader', 'Time': ANY, 'Results processed': 2}
@@ -336,7 +341,7 @@ def test_coord_profile():
         'Shards': env.shardsCount * [
                       {'Shard ID': ANY, 'Total profile time': ANY, 'Parsing time': ANY, 'Workers queue time': ANY, 'Pipeline creation time': ANY, 'Coordinator dispatch time [ms]': ANY, 'Warning': ['None'],
                         'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
-                        'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},
+                        'Result processors profile': [_index_profile(ANY),
                                                       {'Type': 'Scorer', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Sorter', 'Time': ANY, 'Results processed': ANY},
                                                       {'Type': 'Loader', 'Time': ANY, 'Results processed': ANY}]}],
@@ -385,7 +390,7 @@ def test_coord_profile():
       'Warning': ['None'],
       'Internal cursor reads': ANY,
       'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Number of reading operations': ANY},
-      'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Results processed': ANY},]
+      'Result processors profile': [_index_profile(ANY),]
     }
     res = env.cmd('FT.PROFILE', 'idx1', 'AGGREGATE', 'QUERY', '*', 'FORMAT', 'STRING')
     env.assertEqual(res, exp)
@@ -829,7 +834,7 @@ def test_profile_crash_mod5323():
           'Pipeline creation time': ANY,
           'Warning': ['None'],
           'Result processors profile': [
-            { 'Results processed': 3, 'Time': ANY, 'Type': 'Index' },
+            _index_profile(3),
             { 'Results processed': 3, 'Time': ANY, 'Type': 'Scorer' },
             { 'Results processed': 3, 'Time': ANY, 'Type': 'Sorter' }
           ],
@@ -878,7 +883,7 @@ def test_profile_child_itrerators_array():
           'Pipeline creation time': ANY,
           'Warning': ['None'],
           'Result processors profile': [
-            {'Results processed': 2, 'Time': ANY, 'Type': 'Index'},
+            _index_profile(2),
             {'Results processed': 2, 'Time': ANY, 'Type': 'Scorer'},
             {'Results processed': 2, 'Time': ANY, 'Type': 'Sorter'}
           ],
@@ -916,7 +921,7 @@ def test_profile_child_itrerators_array():
           'Pipeline creation time': ANY,
           'Warning': ['None'],
           'Result processors profile': [
-            { 'Results processed': 0, 'Time': ANY, 'Type': 'Index'},
+            _index_profile(0),
             { 'Results processed': 0, 'Time': ANY, 'Type': 'Scorer'},
             {'Results processed': 0, 'Time': ANY, 'Type': 'Sorter'}
           ],
