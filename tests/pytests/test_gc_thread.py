@@ -186,9 +186,8 @@ def threshold_env(policy, ratio_ppm):
     return env, conn, total_cycles
 
 def wait_for_scheduled_cycle(total_cycles):
-    with TimeLimit(10, 'a scheduled cycle should run once the threshold is reached'):
-        while total_cycles() == 0:
-            time.sleep(0.1)
+    wait_for_condition(lambda: (total_cycles() > 0, {}),
+                       'a scheduled cycle should run once the threshold is reached', timeout=10)
 
 @skip(cluster=True)
 def testThreadGCThresholdGrowsWithTheIndex():
@@ -203,9 +202,8 @@ def testThreadGCThresholdGrowsWithTheIndex():
     # deletions and checked the threshold.
     arms = lambda: env.cmd(debug_cmd(), 'GC_TIMER_ARMS', 'TOTAL')
     armed = arms()
-    with TimeLimit(10, 'a scheduled pass should check the threshold'):
-        while arms() < armed + 2:
-            time.sleep(0.1)
+    wait_for_condition(lambda: (arms() >= armed + 2, {'arms': arms()}),
+                       'a scheduled pass should check the threshold', timeout=10)
     env.assertEqual(total_cycles(), 0)
 
     # 10 deletions reach the 9 of the 90 left.
