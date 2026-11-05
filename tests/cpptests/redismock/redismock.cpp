@@ -614,11 +614,18 @@ static void RMCK__Assert(const char *estr, const char *file, int line) {
 }
 
 /** Allocators */
+static thread_local void (*freeObserver)(void *) = nullptr;
+
+void RMCK_SetFreeObserver(void (*observer)(void *)) {
+  freeObserver = observer;
+}
+
 void *RMCK_Alloc(size_t n) {
   return malloc(n);
 }
 
 void RMCK_Free(void *p) {
+  if (freeObserver) freeObserver(p);
   free(p);
 }
 

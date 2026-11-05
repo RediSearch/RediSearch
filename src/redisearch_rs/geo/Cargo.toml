@@ -15,3 +15,7 @@ workspace_hack.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true, features = ["std"] }
+
+[[bench]]
+name = "filter"
+harness = false
