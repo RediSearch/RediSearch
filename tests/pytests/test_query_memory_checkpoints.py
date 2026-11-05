@@ -181,9 +181,9 @@ def test_hybrid_build_checkpoint_fails_before_execution(env):
     env.assertGreater(full, 0)
     with oom_policy(env, 'fail'):
         for workers in worker_counts(env):
-            for at_call in (1, 2, 3):
+            # Calls from 4 on are the tail's buffering checkpoints, which fail it the same way.
+            for at_call in (1, 2, 3, 4):
                 expect_oom_error_at_call(env, at_call, *HYBRID)
-            env.assertEqual(hybrid_result_count(run_at_call(env, 4, *HYBRID)), full)
     memory_pressure(env, 'AT_CALL', 1)
     try:
         env.assertEqual(hybrid_result_count(env.cmd(*HYBRID)), full)
