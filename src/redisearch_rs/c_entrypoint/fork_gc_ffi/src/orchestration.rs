@@ -10,15 +10,14 @@
 //! C ABI entrypoints for the Fork GC child and parent orchestration.
 
 use fork_gc::{
-    DocExistence, ForkGC, HandleError, HandleOutcome,
+    DocExistence, HandleError, HandleOutcome,
     orchestration::{collect_scanners, handle_scanners},
 };
 use index_spec::IndexSpecReadGuard;
 use tracing::Level;
 use tracing_log_error::log_error;
 
-use crate::FGCError;
-use std::ptr::NonNull;
+use crate::{FGCError, util::borrow_fork_gc};
 
 /// Scan every Fork GC index kind and send its deltas to the parent process.
 ///
@@ -33,11 +32,8 @@ use std::ptr::NonNull;
 ///    from a [`DocExistence::snapshot`] of it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_childScanIndexes(gc: *mut ffi::ForkGC, spec: *mut ffi::IndexSpec) {
-    debug_assert!(!gc.is_null(), "`gc` must not be null");
-    // SAFETY: caller guarantees (1), which implies `gc` is non-null.
-    let fgc = unsafe { NonNull::new_unchecked(gc) };
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_gc(gc) };
     // SAFETY: caller guarantees (2).
     let spec = unsafe { &*spec };
     // SAFETY: caller guarantees (3). We don't actually hold a read lock, but when the Fork GC code
@@ -58,11 +54,8 @@ pub unsafe extern "C" fn FGC_childScanIndexes(gc: *mut ffi::ForkGC, spec: *mut f
 ///    alive for the duration of this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_parentHandleFromChild(gc: *mut ffi::ForkGC) -> FGCError {
-    debug_assert!(!gc.is_null(), "`gc` must not be null");
-    // SAFETY: caller guarantees (1), which implies `gc` is non-null.
-    let fgc = unsafe { NonNull::new_unchecked(gc) };
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_gc(gc) };
 
     match handle_scanners(fgc) {
         Ok(HandleOutcome::Collected) => FGCError::Collected,

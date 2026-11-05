@@ -18,10 +18,9 @@
 use std::{
     ffi::{c_char, c_int, c_void},
     io::{Read, Write},
-    ptr::NonNull,
 };
 
-use fork_gc::{ForkGC, Frame, io_result_ext::IoResultExt};
+use fork_gc::{Frame, io_result_ext::IoResultExt};
 use nul_terminated_bytes::NulTerminatedBytes;
 
 use tracing::Level;
@@ -29,6 +28,8 @@ use tracing_log_error::log_error;
 
 mod orchestration;
 mod util;
+
+use util::borrow_fork_gc;
 
 /// Status code returned by Fork GC parent-side pipe-receive operations.
 #[cheadergen::config(export)]
@@ -67,11 +68,8 @@ pub enum FGCError {
 pub unsafe extern "C" fn FGC_sendFixed(fgc: *mut ffi::ForkGC, buff: *const c_void, len: usize) {
     debug_assert!(len > 0, "buffer length cannot be 0");
 
-    debug_assert!(!fgc.is_null(), "`fgc` must not be null");
-    // SAFETY: caller guarantees (1), which implies `fgc` is non-null.
-    let fgc = unsafe { NonNull::new_unchecked(fgc) };
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_gc(fgc) };
     // SAFETY: caller guarantees (2).
     let slice = unsafe { std::slice::from_raw_parts(buff.cast::<u8>(), len) };
 
@@ -93,11 +91,8 @@ pub unsafe extern "C" fn FGC_sendFixed(fgc: *mut ffi::ForkGC, buff: *const c_voi
 ///    (including NULL).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_sendBuffer(fgc: *mut ffi::ForkGC, buff: *const c_void, len: usize) {
-    debug_assert!(!fgc.is_null(), "`fgc` must not be null");
-    // SAFETY: caller guarantees (1), which implies `fgc` is non-null.
-    let fgc = unsafe { NonNull::new_unchecked(fgc) };
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_gc(fgc) };
 
     let slice = if len > 0 {
         // SAFETY: caller guarantees (2).
@@ -123,11 +118,8 @@ pub unsafe extern "C" fn FGC_sendBuffer(fgc: *mut ffi::ForkGC, buff: *const c_vo
 ///    writable file descriptor.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn FGC_sendTerminator(fgc: *mut ffi::ForkGC) {
-    debug_assert!(!fgc.is_null(), "`fgc` must not be null");
-    // SAFETY: caller guarantees (1), which implies `fgc` is non-null.
-    let fgc = unsafe { NonNull::new_unchecked(fgc) };
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_gc(fgc) };
 
     Frame::Terminator.encode(&mut fgc.writer()).unwrap_or_exit();
 }
@@ -149,11 +141,8 @@ pub unsafe extern "C" fn FGC_recvFixed(
     buf: *mut c_void,
     len: usize,
 ) -> c_int {
-    debug_assert!(!fgc.is_null(), "`fgc` must not be null");
-    // SAFETY: caller guarantees (1), which implies `fgc` is non-null.
-    let fgc = unsafe { NonNull::new_unchecked(fgc) };
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_gc(fgc) };
     // SAFETY: caller guarantees (2).
     let slice = unsafe { std::slice::from_raw_parts_mut(buf.cast::<u8>(), len) };
 
@@ -192,11 +181,8 @@ pub unsafe extern "C" fn FGC_recvBuffer(
     buf: *mut *mut c_void,
     len: *mut usize,
 ) -> c_int {
-    debug_assert!(!fgc.is_null(), "`fgc` must not be null");
-    // SAFETY: caller guarantees (1), which implies `fgc` is non-null.
-    let fgc = unsafe { NonNull::new_unchecked(fgc) };
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_gc(fgc) };
 
     let frame = match Frame::decode_nul_terminated(&mut fgc.reader()) {
         Ok(frame) => frame,
@@ -238,11 +224,8 @@ pub unsafe extern "C" fn recvFieldHeader(
     field_name_len: *mut usize,
     id_ptr: *mut u64,
 ) -> FGCError {
-    debug_assert!(!fgc.is_null(), "`fgc` must not be null");
-    // SAFETY: caller guarantees (1), which implies `fgc` is non-null.
-    let fgc = unsafe { NonNull::new_unchecked(fgc) };
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkGC::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_gc(fgc) };
     let mut reader = fgc.reader();
 
     let frame = match Frame::decode_nul_terminated(&mut reader) {
