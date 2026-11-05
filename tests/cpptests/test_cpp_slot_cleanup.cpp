@@ -36,6 +36,7 @@ extern RedisSearchDisk *disk_db;
 #include <algorithm>
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -361,7 +362,7 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
     SlotCleanupTest::TearDown();
   }
 
-  std::vector<t_docId> queryIds() {
+  std::vector<t_docId> queryIds(std::pair<uint64_t, uint64_t> *counts = nullptr) {
     struct Iterator {
       QueryIterator base{};
       RSIndexResult current{};
@@ -385,7 +386,9 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
     sctx.redisCtx = ctx;
     sctx.spec = spec;
     QueryProcessingCtx processing{};
-    ResultProcessor *processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, false, false);
+    processing.isProfile = counts != nullptr;
+    ResultProcessor *processor =
+        RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, counts != nullptr, false);
     processor->parent = &processing;
     SearchResult result = SearchResult_New();
     std::vector<t_docId> ids;
@@ -393,6 +396,7 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
       ids.push_back(SearchResult_GetDocId(&result));
       SearchResult_Clear(&result);
     }
+    if (counts) RPQueryIterator_GetCandidateCounts(processor, &counts->first, &counts->second);
     SearchResult_Destroy(&result);
     processor->Free(processor);
     return ids;
@@ -406,9 +410,12 @@ TEST_F(DiskSlotVisibilityTest, PendingDeletionFiltersLoadedKeysBeforeAnyBatchIsA
   PendingSlotDeletion *pending = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 3);
   IndexSpec_Unlock(spec);
 
-  EXPECT_EQ(queryIds(), (std::vector<t_docId>{2, 4}));
+  std::pair<uint64_t, uint64_t> counts;
+  EXPECT_EQ(queryIds(&counts), (std::vector<t_docId>{2, 4}));
+  EXPECT_EQ(counts, (std::pair<uint64_t, uint64_t>{2, 2}));
   removePending(pending);
-  EXPECT_EQ(queryIds(), (std::vector<t_docId>{1, 2, 3, 4}));
+  EXPECT_EQ(queryIds(&counts), (std::vector<t_docId>{1, 2, 3, 4}));
+  EXPECT_EQ(counts, (std::pair<uint64_t, uint64_t>{0, 4}));
 }
 
 TEST_F(DiskSlotVisibilityTest, MetadataReadBeforeFinalBatchRemainsHiddenAfterFilterRemoval) {
@@ -477,12 +484,14 @@ class BufferedDiskQuery {
   SearchResult result;
 
  public:
-  BufferedDiskQuery(RedisModuleCtx *ctx, IndexSpec *spec, RedisSearchDiskSnapshot *snapshot)
+  BufferedDiskQuery(RedisModuleCtx *ctx, IndexSpec *spec, RedisSearchDiskSnapshot *snapshot,
+                    bool profiled = false)
       : result(SearchResult_New()) {
     sctx.redisCtx = ctx;
     sctx.spec = spec;
     sctx.diskSnapshot = snapshot;
-    processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, false, false);
+    processing.isProfile = profiled;
+    processor = RPQueryIterator_New(&iterator.base, nullptr, 0, &sctx, profiled, false);
     QITR_PushRP(&processing, processor);
   }
 
@@ -509,6 +518,12 @@ class BufferedDiskQuery {
   void normalizeScores() {
     processor = RPMaxScoreNormalizer_New(nullptr);
     QITR_PushRP(activeProcessing, processor);
+  }
+
+  std::pair<uint64_t, uint64_t> candidateCounts() const {
+    std::pair<uint64_t, uint64_t> counts;
+    RPQueryIterator_GetCandidateCounts(processor, &counts.first, &counts.second);
+    return counts;
   }
 
   uint32_t skipped() const {
@@ -655,11 +670,13 @@ class DiskSlotAsyncVisibilityTest : public DiskSlotVisibilityTest {
 
 TEST_F(DiskSlotAsyncVisibilityTest, BufferedMetadataIsFilteredWhenTrimStartsBeforeConsumption) {
   {
-    BufferedDiskQuery query(ctx, spec, snapshot());
+    BufferedDiskQuery query(ctx, spec, snapshot(), true);
     ASSERT_EQ(query.first(), 1);
     expectDecodedBeforeTrim();
+    EXPECT_EQ(query.candidateCounts(), (std::pair<uint64_t, uint64_t>{0, 6}));
     auto *pending = registerTrim();
     EXPECT_EQ(query.remaining(), (std::vector<t_docId>{4, 5, 6}));
+    EXPECT_EQ(query.candidateCounts(), (std::pair<uint64_t, uint64_t>{2, 4}));
     EXPECT_TRUE(hasPending());
     removePending(pending);
   }

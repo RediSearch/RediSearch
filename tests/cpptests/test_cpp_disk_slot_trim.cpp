@@ -46,6 +46,7 @@ struct TrimState {
   size_t batchCount = 1, batchesApplied = 0, batchApplyCalls = 0, failBatch = SIZE_MAX;
   std::vector<SearchDiskSlotRange> ranges;
   std::function<void(size_t)> beforeBatch;
+  std::function<void()> beforeBackendClose;
   RedisModuleCmdFunc forceGC = nullptr;
   RedisModuleEventCallback persistenceEvent = nullptr, sstEvent = nullptr;
   size_t windowsOpened = 0, windowsClosed = 0, flushes = 0;
@@ -644,9 +645,21 @@ TEST_F(DiskSlotTrimTest, RegistrationDeduplicatesOnlyMatchingRangesAndCutoff) {
   IndexSpec_FreeDiskSlotTrim(newer);
 }
 
-TEST_F(DiskSlotTrimTest, StoppedRegistrationDoesNotPublishWork) {
+TEST_F(DiskSlotTrimTest, BackendCloseStopsRegistrationBeforeDestroyingContext) {
   const SearchDiskSlotRange range{7, 9};
-  SlotCleanup_StopDiskJobs();
+  bool closed = false;
+  state.beforeBackendClose = [&] {
+    closed = true;
+    EXPECT_NE(spec->diskSpec, nullptr);
+    EXPECT_EQ(IndexSpec_RegisterDiskSlotTrim(ref, &range, 1), nullptr);
+  };
+  api.metrics.stopMetrics = [](RedisSearchDisk *) {};
+  api.basic.close = [](RedisModuleCtx *, RedisSearchDisk *) { state.beforeBackendClose(); };
+  SearchDisk_Close(RSDummyContext);
+  state.beforeBackendClose = {};
+  EXPECT_TRUE(closed);
+  EXPECT_EQ(disk_db, nullptr);
+  EXPECT_NE(spec->diskSpec, nullptr);
   EXPECT_EQ(IndexSpec_RegisterDiskSlotTrim(ref, &range, 1), nullptr);
   EXPECT_EQ(state.registrations, 0u);
   EXPECT_EQ(spec->docs.pendingSlotDeletions, nullptr);
