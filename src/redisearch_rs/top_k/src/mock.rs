@@ -98,6 +98,11 @@ pub struct MockScoreSource {
     timeout_once_at: Option<usize>,
     /// Count of [`ScoreSource::check_timeout`] calls so far.
     n_timeout_checks: usize,
+    /// Returned by [`ScoreSource::yields_child_record`]. `true` by default.
+    yields_child_record: bool,
+    /// Returned by [`ScoreSource::can_collect_after_lock_release`]. `false` by
+    /// default, the answer that is always safe.
+    can_collect_after_lock_release: bool,
 }
 
 impl MockScoreSource {
@@ -135,6 +140,8 @@ impl MockScoreSource {
             timeout_after_n_checks: None,
             timeout_once_at: None,
             n_timeout_checks: 0,
+            yields_child_record: true,
+            can_collect_after_lock_release: false,
         }
     }
 
@@ -156,6 +163,22 @@ impl MockScoreSource {
     /// Report the given doc ids as expired from [`ScoreSource::is_expired`].
     pub fn with_expired(mut self, docs: impl IntoIterator<Item = DocId>) -> Self {
         self.expired = docs.into_iter().collect();
+        self
+    }
+
+    /// Build every yielded result from the source, as a numeric `SORTBY` does,
+    /// instead of handing back the child's record (see
+    /// [`ScoreSource::yields_child_record`]).
+    pub fn without_child_records(mut self) -> Self {
+        self.yields_child_record = false;
+        self
+    }
+
+    /// Report that collection survives a lock release, as a source holding no
+    /// reshapeable index state does (see
+    /// [`ScoreSource::can_collect_after_lock_release`]).
+    pub fn collectable_after_lock_release(mut self) -> Self {
+        self.can_collect_after_lock_release = true;
         self
     }
 
@@ -257,6 +280,14 @@ impl ScoreSource for MockScoreSource {
     }
 
     fn yields_child_record(&self) -> bool {
-        true
+        self.yields_child_record
+    }
+
+    fn can_collect_after_lock_release(&self) -> bool {
+        self.can_collect_after_lock_release
+    }
+
+    fn release_index_handles(&mut self) {
+        // In-memory batches and scores only; nothing borrows from an index.
     }
 }
