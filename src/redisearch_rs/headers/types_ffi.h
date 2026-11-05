@@ -319,6 +319,9 @@ double IndexResult_NumValue(const RSIndexResult *result);
  * Get the query term from a result if it is a term result. If the result is not a term, then
  * this function will return a `NULL` pointer.
  *
+ * The pointer is `const` because the term may be shared with other records, possibly read on
+ * other threads.
+ *
  * # Safety
  *
  * The following invariant must be upheld when calling this function:
@@ -326,7 +329,7 @@ double IndexResult_NumValue(const RSIndexResult *result);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-struct RSQueryTerm *IndexResult_QueryTermRef(const RSIndexResult *result);
+const struct RSQueryTerm *IndexResult_QueryTermRef(const RSIndexResult *result);
 
 /**
  * Set the numeric value of the result if it is a numeric result. If the result is not numeric,

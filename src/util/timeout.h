@@ -76,10 +76,10 @@ static inline int TimedOut(const struct timespec *timeout) {
 
 // VecSim timeout callback adapter. The request timeout owns the active source and decides how it
 // is checked; its shared counter amortizes clock reads without delaying blocked-client checks.
-static inline int VecSim_TimedOut(QueryRequestTimeout *timeout) {
+static inline int VecSim_TimedOut(QueryRequestLimits *timeout) {
   RS_ASSERT(timeout);
   if (RS_IsMock) return NOT_TIMED_OUT;
-  return QueryRequestTimeout_IsTimedOut(timeout);
+  return QueryRequestLimits_IsTimedOut(timeout);
 }
 
 #ifdef __cplusplus

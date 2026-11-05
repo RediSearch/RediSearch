@@ -170,7 +170,7 @@ unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutCont
 /// If the child is trivially reducible (empty or wildcard), a simplified
 /// iterator is returned directly.
 ///
-/// The request timeout reached through `q.sctx.timeout` selects no timeout,
+/// The request timeout reached through `q.sctx.limits` selects no timeout,
 /// the Blocked Client Timeout, or the Clock Based Timeout. Clock deadlines are
 /// read back on every probe so a re-armed deadline is honoured.
 ///
@@ -184,7 +184,8 @@ unsafe fn build_timeout_context(q: NonNull<ffi::QueryEvalCtx>) -> AnyTimeoutCont
 ///    [`RedisSearchCtx`](ffi::RedisSearchCtx), which must stay [valid] and at a stable
 ///    address for the lifetime of the returned iterator. Its request timeout must also remain
 ///    [valid] at a stable address for that lifetime. Timeout source changes and deadline writes
-///    may happen only between probes; only the blocked-client flag may change concurrently.
+///    may happen only between probes;
+///    only the blocked-client marker and the memory stop flag may change concurrently.
 /// 5. `q.sctx.spec` must be a non-null pointer to a [valid]
 ///    [`IndexSpec`](ffi::IndexSpec).
 /// 6. `q.sctx.spec.rule`, when non-null, must point to a [valid]

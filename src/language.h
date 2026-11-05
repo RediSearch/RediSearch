@@ -51,7 +51,12 @@ typedef enum {
 
 #define DEFAULT_LANGUAGE RS_LANG_ENGLISH
 
-/* check if a language is supported by our stemmers */
+/* Look up a supported language by name.
+ * - Reads exactly `len` bytes of `language`; it need not be NUL-terminated.
+ * - `len == 0` is the empty string and returns RS_LANG_UNSUPPORTED; pass strlen(s) for a C string.
+ * - `language == NULL` returns DEFAULT_LANGUAGE.
+ * - Matches case-insensitively (strncasecmp; ASCII in the C locale) on all `len` bytes;
+ *   anything else returns RS_LANG_UNSUPPORTED. */
 RSLanguage RSLanguage_Find(const char *language, size_t len);
 const char *RSLanguage_ToString(RSLanguage language);
 

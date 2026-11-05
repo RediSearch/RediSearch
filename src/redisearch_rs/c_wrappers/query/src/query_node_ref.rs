@@ -9,7 +9,12 @@
 
 //! Safe wrapper around [`ffi::RSQueryNode`].
 
-use std::{ffi::c_char, marker::PhantomData, ops::Deref, ptr::NonNull};
+use std::{
+    ffi::{CStr, c_char},
+    marker::PhantomData,
+    ops::{Bound, Deref},
+    ptr::NonNull,
+};
 
 use inverted_index::NumericFilter;
 use query_types::{QueryNodeOptions, QueryNodeType};
@@ -98,10 +103,10 @@ pub enum QueryNode<'a> {
     /// A filter by explicit document key names.
     Ids {
         /// The key names to match against: `RedisModuleString`s borrowed
-        /// from storage owned by the request (its held argv). Opaque to Rust.
+        /// from storage owned by the request (its held argv).
         keys: &'a [*mut redis_module::raw::RedisModuleString],
-        /// Document IDs resolved from [`keys`](Self::Ids::keys) on the main
-        /// thread during query construction.
+        /// IDs resolved from [`keys`](Self::Ids::keys) before evaluation, or
+        /// [`None`] when evaluation must resolve through the lookup map.
         doc_ids: Option<&'a [DocId]>,
     },
     /// Matches every document in the index (the `*` query).
@@ -120,6 +125,13 @@ pub enum QueryNode<'a> {
         tok: RSTokenRefNulTerminated<'a>,
         /// Maximum edit distance (1, 2, or 3).
         max_dist: i32,
+    },
+    /// A lexicographic range on a tag field.
+    LexRange {
+        /// Start of the range, or [`Bound::Unbounded`] for no lower limit.
+        begin: Bound<&'a CStr>,
+        /// End of the range, or [`Bound::Unbounded`] for no upper limit.
+        end: Bound<&'a CStr>,
     },
     /// A vector similarity search node.
     Vector {
@@ -378,6 +390,19 @@ impl QueryNodeRef {
                     field_index: miss.fieldIndex,
                 }
             }
+            QueryNodeType::LexRange => {
+                // SAFETY: `type_` is `LexRange`, so the union holds a `QueryLexRangeNode`.
+                let lxrng = unsafe { &*union_ptr.cast::<ffi::QueryLexRangeNode>() };
+                // Each bound is a NUL-terminated string written once when the node
+                // is built or its query parameter resolved, and never rewritten, so
+                // it stays valid for the node's borrow.
+                //
+                // SAFETY: per the paragraph above.
+                let begin = unsafe { char_ptr_to_bound(lxrng.begin, lxrng.includeBegin) };
+                // SAFETY: per the paragraph above.
+                let end = unsafe { char_ptr_to_bound(lxrng.end, lxrng.includeEnd) };
+                QueryNode::LexRange { begin, end }
+            }
             QueryNodeType::Max => {
                 unreachable!("Max is a sentinel, not a real node type")
             }
@@ -456,6 +481,9 @@ impl QueryNodeMut<'_> {
     ///    case-insensitive field those of [`RSTokenMut::normalize_tag`]. The
     ///    parser allocates every token that way, and query expansion leaves tag
     ///    subtrees alone.
+    /// 6. Every [`QueryNodeType::Ids`] node without pre-resolved document IDs
+    ///    must borrow non-null, live Redis strings in its key array. The request
+    ///    retains those strings for the entire evaluation.
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn new(ptr: NonNull<ffi::RSQueryNode>) -> Self {
@@ -668,4 +696,24 @@ fn child_ptr(node: &ffi::RSQueryNode, index: usize) -> NonNull<ffi::RSQueryNode>
     let child = unsafe { *slot };
     // SAFETY: all children in the AST are valid, non-null nodes.
     unsafe { NonNull::new_unchecked(child) }
+}
+
+/// Read one side of a lex range: a null pointer is an unbounded side, and a
+/// non-null one is a bound whose inclusivity `inclusive` carries.
+///
+/// # Safety
+///
+/// A non-null `ptr` must point to a NUL-terminated string that stays valid and
+/// unmutated for `'a`.
+const unsafe fn char_ptr_to_bound<'a>(ptr: *mut c_char, inclusive: bool) -> Bound<&'a CStr> {
+    if ptr.is_null() {
+        return Bound::Unbounded;
+    }
+    // SAFETY: guaranteed by the caller.
+    let s = unsafe { CStr::from_ptr(ptr) };
+    if inclusive {
+        Bound::Included(s)
+    } else {
+        Bound::Excluded(s)
+    }
 }

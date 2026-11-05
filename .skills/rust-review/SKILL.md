@@ -63,22 +63,37 @@ git diff <commit1>..<commit2> -- '*.rs'
 git show <commit> -- '*.rs'
 ```
 
-**For a GitHub PR** (`pr:<number>`), fetch the PR head ref and diff against master:
+**For a GitHub PR** (`pr:<number>`), use the PR's actual base, including for stacked
+PRs and release branches. Inspect the configured remotes and select the one belonging
+to the PR's base repository; do not assume `origin` or `master`. Capture both commit
+IDs from one metadata response and use those immutable IDs throughout the review.
+Stop on a failed metadata lookup, fetch, or merge-base calculation rather than falling
+back to another branch.
 
 ```bash
-# When .jj/ is absent:
-git fetch origin refs/pull/<number>/head
-git diff origin/master...FETCH_HEAD -- '*.rs'
+# Fetch Git objects in either checkout, including fork PR heads available from GitHub.
+refs=$(gh pr view <number> --repo <owner/repo> --json baseRefOid,headRefOid)
+base_sha=$(printf '%s\n' "$refs" | jq -er '.baseRefOid')
+head_sha=$(printf '%s\n' "$refs" | jq -er '.headRefOid')
+git fetch <verified-remote> "$base_sha" "$head_sha"
+merge_base=$(git merge-base "$base_sha" "$head_sha")
 
-# When .jj/ is present:
-git fetch origin refs/pull/<number>/head
+# When .jj/ is absent:
+git diff "$merge_base" "$head_sha" -- '*.rs'
+
+# When .jj/ is present, import the fetched objects and review with jj:
 jj git import
-# Use the fetched SHA directly in the revset
-jj diff -r 'master@origin..<sha>' --git -- glob:'**/*.rs'
+jj diff --from "$merge_base" --to "$head_sha" --git -- glob:'**/*.rs'
 ```
 
+Review a stacked PR's own diff, not its ancestors' changes again. Read dependencies
+for context. A cumulative review of the stack is a separate scope with an explicitly
+selected base. Before posting findings, recheck the PR's base and head IDs; if either
+changed, reconcile the findings against the new diff.
+
 Read the full source of every Rust file that was added or modified so that you have
-complete context (not just the diff hunks).
+complete context (not just the diff hunks). For a PR, read the captured head's source,
+not an unrelated or dirty working copy.
 
 **When reviewing source files or directories**, there is no diff — read the full source
 of every `.rs` file at the given path(s) and review them in their entirety.
@@ -93,6 +108,12 @@ Scan the diff and commit messages for signals that the change re-implements exis
 If detected, set **porting mode = true** and identify the original C module(s) by reading
 them with [`/read-unmodified-c-module`](../read-unmodified-c-module/SKILL.md).
 
+A port ships as the two PRs [`/port-c-module`](../port-c-module/SKILL.md) describes: the
+Rust PR and the swap PR. Establish which one this change is from the PR description or, when
+reviewing commits or a local path, the commit message. If neither says, ask; do not infer the
+Rust PR merely because wiring is missing. Semantic equivalence and contract coverage still
+apply to behavior implemented in the Rust PR; record the wiring it leaves to the swap.
+
 ### 3. Review checklist
 
 Run every check below on the changed Rust code. For each violation found, record:
@@ -104,43 +125,52 @@ Run every check below on the changed Rust code. For each violation found, record
 #### 3a. Unsafe — method pre-conditions
 
 Every `unsafe fn` must have a `# Safety` section in its doc comment that documents
-**all** pre-conditions the caller must uphold.
+**all** pre-conditions the caller must uphold, as a numbered list (`1.`, `2.`, …) so call
+sites can discharge each one by number.
 
 Violations:
 - `unsafe fn` with no doc comment at all.
 - `unsafe fn` with a doc comment but no `# Safety` section.
 - `# Safety` section that omits a pre-condition required for soundness
   (e.g. pointer validity, alignment, aliasing, lifetime, initialized memory).
+- `# Safety` pre-conditions written as prose or an unnumbered list.
 
 #### 3b. Unsafe — call-site safety comments
 
 Every `unsafe` block (or `unsafe` call inside an `unsafe fn`) must have a
 `// SAFETY:` comment **immediately preceding** the unsafe block or call that
 explains why every pre-condition of the called function / accessed operation
-is satisfied at that call site.
+is satisfied at that call site. It discharges the callee's pre-conditions by number, or
+delegates them by number to the enclosing `unsafe fn`'s own, as
+`rqe_iterators/src/optional_reducer.rs` does (`// SAFETY: 1, 2.`).
 
 Violations:
 - Missing `// SAFETY:` comment.
+- A comment that discharges a numbered `# Safety` contract without naming the numbers.
 - Comment that does not address every pre-condition listed in the callee's `# Safety`
   section (or the standard library's documented safety requirements).
 - Generic or vacuous comments (e.g. `// SAFETY: safe to call`) that do not reference
   the specific pre-conditions.
 
-#### 3c. Unsafe — validate cheap pre-conditions with `debug_assert!`
+#### 3c. Unsafe — validate cheap pre-conditions with assertion helpers
 
 When an `unsafe fn` (or an `unsafe` block) relies on a caller-supplied
 pre-condition that is **cheap to check at runtime** — most commonly a raw
 pointer that must be non-null, but also index/length bounds, capacity
-relationships, or enum-tag/variant expectations — the code should assert it with
-`debug_assert!` / `debug_assert_eq!` immediately before the first `unsafe` use
-that depends on it.
+relationships, or enum-tag/variant expectations — the code should assert it
+immediately before the first `unsafe` use that depends on it, through a small named
+assertion helper rather than a bare `debug_assert!(cond)`. The helper's name states the
+pre-condition, so the call reads as the contract and one helper serves every entry point
+that shares it; `slots_tracker/src/slot_set.rs` (`debug_assert_valid_ranges`) is the
+pattern.
 
-`debug_assert!` compiles out of release builds, so it costs nothing in
-production while turning silent UB-on-violation into a loud, well-located panic
+The helper wraps `debug_assert!`, which compiles out of release builds, so it costs nothing
+in production while turning silent UB-on-violation into a loud, well-located panic
 in debug and test builds (unit tests, Miri, and the C/C++ debug test suites). It
 documents the invariant next to the code and catches callers that break the
-`# Safety` contract. Example: before `unsafe { (*gf.fieldSpec).index }`, add
-`debug_assert!(!gf.fieldSpec.is_null(), "geo filter must have a field spec");`.
+`# Safety` contract. Example: before `unsafe { gf.fieldSpec.as_ref() }`, call
+`debug_assert_non_null(gf.fieldSpec, "geo filter field spec");`, where the helper is a
+`#[track_caller]` function holding the one `debug_assert!`.
 
 Apply this only to pre-conditions that are locally checkable without side
 effects or significant cost. Do **not** require it for pre-conditions that
@@ -151,7 +181,8 @@ guards.
 
 Violations (report as suggestions):
 - An `unsafe` dereference of a raw pointer whose non-nullness is a documented
-  pre-condition, with no preceding `debug_assert!(!p.is_null(), …)`.
+  pre-condition, with no preceding assertion.
+- A bare `debug_assert!(cond)` checking an FFI pre-condition instead of a named helper.
 - An unchecked slice/array index or `get_unchecked` whose in-bounds
   pre-condition is not asserted with `debug_assert!`.
 - A trivially checkable `# Safety` pre-condition that is neither validated with a
@@ -290,42 +321,132 @@ Violations (report as suggestions):
 - A test calling `*_ffi` constructors or vtable callbacks where the crate's safe API
   covers the same path.
 
+#### 3i. Don't use `Box::leak`
+
+Treat [`Box::leak`](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.leak) as
+off-limits in this codebase. It exists for data that lives for the rest of the program,
+and RediSearch has almost no such data: every index, query, and result is eventually
+freed. A leaked value that is never reclaimed is a real leak, and Miri's leak checker
+fails `cargo miri test` whenever a test exercises the leaking path. A leaked value that
+*is* reclaimed with `Box::from_raw` works, but the `&'static mut T` it goes through
+misstates the ownership and hides the reclaim path from the reader.
+
+Use instead:
+- To hand ownership to C or store it as a raw pointer:
+  [`Box::into_raw`](https://doc.rust-lang.org/std/boxed/struct.Box.html#method.into_raw),
+  reclaimed with `Box::from_raw`.
+- To get a `NonNull<T>`:
+  `NonNull::new(Box::into_raw(b)).expect("Box pointers are non-null")`, which needs no
+  `unsafe` while `Box::into_non_null` is unstable.
+- To keep an owned value alongside a borrowed one: store the `Box` (or an enum of owned
+  and borrowed variants) rather than leaking it to obtain a reference.
+- For a true process-lifetime global: a `static` with `OnceLock` / `LazyLock`.
+
+Violations:
+- Any new `Box::leak` call, whatever the result is used for and whether or not it is
+  later reclaimed. The only exception is a value that is provably initialized once and
+  never freed for the life of the process, with a comment stating why none of the
+  alternatives above fit.
+
+A leak on a path that repeats (per query, per index, per document) with no matching
+`Box::from_raw` is also unbounded allocation; report it under 3e as well.
+
+#### 3j. Generated-code smells
+
+Agent-written code drifts towards patterns a careful reviewer would not write. Each makes the
+code longer without making it more correct:
+
+| Smell | Instead |
+| --- | --- |
+| A C sentinel mirrored as an enum variant (`Invalid = -1`) that every caller must re-check | `Option` or `Result` at the boundary, and an enum of real values |
+| Machinery that reproduces incidental C state, such as the partial writes a failed parse leaves in an output argument | Leave the output unspecified on error, unless the contract says otherwise |
+| A trait, generic or helper with a single implementation or call site, often added only so a test can mock it (the assertion helpers § 3c requires are exempt) | Inline it; test through the real type |
+| The same conversion or check written in several places | One function, called from each |
+| A magic number duplicating an existing constant or the enum's own discriminants | Use the constant or the enum |
+| Text rebuilt by slicing or concatenating another message | Format it once, where the parts are known |
+| Data copied only to measure or inspect it | Borrow it |
+| An immediately-invoked closure used to get `?` inside a function | A named helper returning `Result` |
+| Checks for states the types or callers already rule out | Delete them |
+| Unrelated churn: reformatted licence headers, reworded comments, renames outside the change | Revert it |
+
+Violations: any of the above. Report one finding per root cause, naming what to delete or
+merge and roughly how many lines it saves.
+
+#### 3k. House rules
+
+Maintainers raise these on every port, so check each one explicitly:
+
+| Rule | Instead of |
+| --- | --- |
+| `expect("<the invariant it relies on>")` outside tests, e.g. `.expect("Redis allocator not initialized")` | `unwrap()` |
+| Raw pointers dereferenced through methods: `p.as_ref()`, `p.as_mut()`, `p.write(v)` | `*p`, `&*p`, `(*p).field` |
+| Allocate with `Box` (the global allocator is already Redis-backed, see `c_entrypoint/redisearch_rs/src/lib.rs`) | Calling `RedisModule_Alloc` directly |
+| The Rust wrapper for a C type, from `src/redisearch_rs/c_wrappers/` (e.g. `hidden_string`) | Raw `ffi::` calls on that type |
+| An error enum deriving `thiserror::Error` | `Result<_, &'static str>` or other stringly errors |
+| Parse, don't validate: build the validated type once, when the value is constructed | Re-validating on every use, e.g. `validate().expect(…)` in a read loop |
+| C ABI types and `extern "C"` items only in the `c_entrypoint/*_ffi` crate | ABI types or `extern` declarations in the pure crate |
+| An exported C ABI symbol has a production C caller | Exports kept only for C/C++ tests |
+
+Clippy enforces part of this list in crates that opt in (see
+[`/port-c-module`](../port-c-module/SKILL.md)). Review for all of them anyway: a lint only
+catches the patterns it can match.
+
+Violations: any of the above.
+
 ### 4. Porting-mode checks (only when porting mode = true)
 
 #### 4a. Semantic equivalence
 
-Compare the new Rust implementation against the original C code and verify:
-- All branches / code paths in the C code have a corresponding path in Rust.
-- Edge cases (NULL checks, overflow, empty inputs, error returns) are preserved or
-  replaced with idiomatic Rust equivalents (e.g. `Option`, `Result`).
-- Numeric types and casts preserve the original semantics (watch for sign / width changes).
-- Side effects (global state mutations, logging, metric updates) are preserved.
+A port preserves the module's contract — the behavior callers rely on: replies and error
+texts users see, persisted formats, and the C API semantics other modules depend on — and
+may change everything else. Compare the new Rust implementation against the original C code
+and verify:
+- Every contract behavior has a corresponding path in Rust: branches, edge cases (overflow,
+  empty inputs, error returns), numeric semantics (watch for sign / width changes) and side
+  effects (global state mutations, logging, metric updates).
+- Every behavior that differs from the C is listed as a divergence in the PR description,
+  with what C does, what Rust does, and why.
 
-A C quirk kept on purpose — behavior that looks like a bug but is what callers observe
-today — is not a divergence, but it must be named in the item's docs and pinned by a test,
-so that a later cleanup is a decision rather than an accident.
+Incidental C behavior — the state of output arguments after an error, handling of
+out-of-range enum values or sentinels, a crash that becomes an error — should be ported
+idiomatically, not replicated. Replicating it is a 3j smell unless the contract names it.
 
-Violations: any semantic divergence that could change observable behavior, or a kept
-quirk that is neither documented nor tested.
+Violations: a contract behavior that changes, or a divergence the PR description does not
+list.
 
-#### 4b. Test parity with the C implementation
+#### 4b. Contract coverage
 
-This is in addition to 3g, which applies to every Rust change. Here the bar is parity:
-identify all C/C++ tests that exercise the ported module (look under `tests/` for files
-that reference the module's functions or types), and verify that an equivalent Rust test
-exists covering the same scenario.
+This is in addition to 3g, which applies to every Rust change. Identify the C/C++ and
+Python tests that exercise the ported module (look under `tests/` for files that reference
+the module's functions or types) and the contract behaviors they cover. Verify that each
+contract behavior is still tested, once, at the lowest layer that can observe it: Rust tests
+for logic, flow tests for user-visible behavior.
 
 Violations:
-- A C/C++ test scenario that has no corresponding Rust test.
+- A contract behavior that no test covers any more.
+- The same behavior re-tested at several layers, such as a new C/C++ suite repeating the
+  Rust tests. A Rust test of a contract behavior in the Rust PR is not a repeat: the flow
+  tests still exercise C until the swap.
 
 #### 4c. Wiring
 
-A faithful port that is never called proves nothing. Verify that the C call sites
-(dispatchers, factory tables, vtables) now reach the Rust entry point, and that the
-replaced C implementation is deleted rather than left beside it — duplicate symbols only
-surface at link time, and dead C code misleads every later port.
+Check wiring against the PR:
 
-Violations: the Rust path is unreachable, or the replaced C code is still present.
+- **Rust PR:** C remains the production implementation. Require the Rust crate to be
+  included in the intended build/test configuration and exercised by Rust tests. Missing
+  production callers and retained C are expected, not findings, and the PR exports no C ABI
+  symbols.
+- **Swap PR:** Require the FFI crate's wrappers, generated headers, and boundary tests to
+  agree. Verify that C call sites (dispatchers, factory tables, vtables) reach the Rust entry
+  point under the C functions' own names and that the replaced C implementation is deleted in
+  the same change. Check both standalone and coordinator wiring where applicable.
+
+Passing end-to-end tests in the Rust PR only exercise C; do not cite them as evidence that
+the Rust production path works.
+
+Violations: missing wiring the PR requires, production switching, C deletion or C ABI exports
+in the Rust PR, or, in the swap PR, an unreachable Rust replacement or retained replaced C
+code.
 
 ### 5. Emit the report
 
@@ -345,13 +466,15 @@ no-findings signal.
 At the end, provide a short summary:
 - Total blocking findings
 - Total suggestions
+- For PRs, the captured base and head commits; for ports, which of the two PRs this is
+  and the wiring it leaves to the swap
 - Whether the change is **ready to merge** or **needs revision**
 
-Blocking violations: any issue in 3a, 3b, 4a, 4b, or 4c, plus any 3e issue that
+Blocking violations: any issue in 3a, 3b, 3i, 4a, 4b, or 4c, plus any 3e issue that
 can cause memory unsoundness, crashes, data exposure, unauthorized access, or
 denial of service, plus the first two 3g violations (behavior with no test, and
-uncovered code paths).
+uncovered code paths), plus any 3j smell that adds more than about ten lines.
 Suggestions: issues in 3c (debug-assert pre-conditions), 3d (intra-doc links),
 3f (reaching Rust-native types/functions through `ffi` instead of their owning
-crate), 3h (avoidable `unsafe`), low-risk robustness improvements in 3e, and tests
-that exist but are misplaced or otherwise deviate from the guidelines (3g).
+crate), 3h (avoidable `unsafe`), smaller 3j smells, low-risk robustness improvements in 3e,
+and tests that exist but are misplaced or otherwise deviate from the guidelines (3g).

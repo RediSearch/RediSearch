@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use index_result::RSIndexResult;
 use inverted_index::numeric::StoredValue;
 use inverted_index::{GcApplyInfo, GcScanDelta};
+use serde::{Deserialize, Serialize};
 
 use super::{NumericRangeTree, TrimEmptyLeavesResult};
 use crate::NumericRangeNode;
@@ -33,13 +34,15 @@ use crate::range::{Hll, ValueBounds};
 ///
 /// The registers and bounds come in two versions because the parent drops the
 /// scan's result for the last block if that block changed since the fork.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct NodeGcDelta {
     /// The inverted index GC scan delta.
     pub delta: GcScanDelta,
     /// HLL registers including the last scanned block's cardinality.
+    #[serde(with = "serde_bytes")]
     pub registers_with_last_block: [u8; Hll::size()],
     /// HLL registers excluding the last scanned block's cardinality.
+    #[serde(with = "serde_bytes")]
     pub registers_without_last_block: [u8; Hll::size()],
     /// Bounds of the surviving entries, including the last scanned block.
     pub bounds_with_last_block: ValueBounds,
@@ -232,6 +235,14 @@ impl NumericRangeTree {
 
         let rv = self._trim_empty_leaves();
         let slab_freed = self.compact_slab();
+        // Compaction can move every node even when trimming changed nothing: the
+        // slab is shrunk to fit, which reallocates it whenever it has spare
+        // capacity, so the revision must change as `revision_id` documents. Nodes
+        // move exactly when the slab frees memory — spare capacity or holes are
+        // what compaction reclaims.
+        if !rv.changed && slab_freed > 0 {
+            self.revision_id = self.revision_id.wrapping_add(1);
+        }
         CompactIfSparseResult {
             inverted_index_size_delta: rv.size_delta,
             node_size_delta: -(slab_freed as i64),

@@ -68,7 +68,7 @@ impl DocValidity for AllValid {
 /// boundary. Callers (chiefly tests) override it to force multi-batch behavior.
 ///
 /// [`TopKIterator`]: top_k::TopKIterator
-const DEFAULT_RANGE_BATCH_SIZE: usize = 8;
+pub(crate) const DEFAULT_RANGE_BATCH_SIZE: usize = 8;
 
 /// Maximum number of expand-and-retry iterations before the next retry reads
 /// every remaining document.
@@ -563,6 +563,19 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
         // TODO: Production metric-key wiring is tracked by MOD-14946.
     }
 
+    fn release_index_handles(&mut self) {
+        // Nothing to release: the range stream holds plain references into the
+        // numeric tree and is never dereferenced on drop, and since
+        // `can_collect_after_lock_release` is `false` no collection reads it
+        // again after the lock is released.
+    }
+
+    fn can_collect_after_lock_release(&self) -> bool {
+        // The range stream points into the numeric tree, which a concurrent
+        // writer or GC can reshape while the lock is released.
+        false
+    }
+
     fn yields_child_record(&self) -> bool {
         // Numeric `SORTBY` orders purely by the field value the source supplies,
         // with no relevance scoring, so yield the source-built numeric result
@@ -575,10 +588,10 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
 /// child's selectivity (`estimate`/`num_docs`).
 ///
 /// Returns `0` when `num_docs` or `estimate` is `0`, guarding the division.
-fn estimate_limit(num_docs: usize, estimate: usize, limit: usize) -> usize {
+pub(crate) fn estimate_limit(num_docs: usize, estimate: usize, limit: usize) -> usize {
     if num_docs == 0 || estimate == 0 {
         return 0;
     }
     let ratio = estimate as f64 / num_docs as f64;
-    (limit as f64 / ratio) as usize + 1
+    ((limit as f64 / ratio) as usize).saturating_add(1)
 }
