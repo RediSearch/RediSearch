@@ -277,13 +277,14 @@ fn a_forgotten_write_lock_keeps_its_spec_alive() {
 ///
 /// # Safety
 ///
-/// `dmd` holds a reference the caller owns.
+/// 1. `dmd` points to live document metadata.
+/// 2. The caller owns one of its references, which this call releases.
 unsafe fn dmd_return(dmd: *mut ffi::RSDocumentMetadata) {
-    // SAFETY: the caller owns a reference, so the metadata is live; C updates the
-    // count atomically, so it is accessed atomically here too.
+    // SAFETY: (1) the metadata is live; C updates the count atomically, so it is
+    // accessed atomically here too.
     let count = unsafe { std::sync::atomic::AtomicU16::from_ptr(&raw mut (*dmd).ref_count) };
     if count.fetch_sub(1, std::sync::atomic::Ordering::AcqRel) == 1 {
-        // SAFETY: that was the last reference.
+        // SAFETY: (2) the reference released was the last one, so nothing else uses it.
         unsafe { ffi::DMD_Free(dmd) };
     }
 }
@@ -319,7 +320,8 @@ fn a_tracking_doc_table_records_deleted_documents() {
                 assert!(!dmd.is_null());
                 // SAFETY: `DocTable_Put` returned a reference for the caller.
                 let id = unsafe { (*dmd).id };
-                // SAFETY: as above; the table keeps its own reference.
+                // SAFETY: (1) the metadata is live; (2) `DocTable_Put` gave the caller this
+                // reference, and the table keeps its own.
                 unsafe { dmd_return(dmd) };
                 id
             })
@@ -327,7 +329,8 @@ fn a_tracking_doc_table_records_deleted_documents() {
         // SAFETY: the table is live and `ids[1]` is in it.
         let removed = unsafe { ffi::DocTable_DeleteById(&raw mut spec.docs, ids[1]) };
         assert!(!removed.is_null());
-        // SAFETY: the delete hands the table's reference to the caller.
+        // SAFETY: (1) the metadata is live; (2) the delete handed the table's reference
+        // to the caller.
         unsafe { dmd_return(removed) };
 
         {

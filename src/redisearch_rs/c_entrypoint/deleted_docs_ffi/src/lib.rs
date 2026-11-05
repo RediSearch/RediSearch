@@ -23,14 +23,13 @@ pub extern "C" fn DeletedDocs_New() -> *mut DeletedDocs {
 ///
 /// # Safety
 ///
-/// `docs` is null, or a live set from [`DeletedDocs_New`] that this call consumes:
-/// it has not been freed before, no other reference to it is live, and it is not
-/// used afterwards.
+/// 1. `docs` is null, or came from [`DeletedDocs_New`] and has not been freed.
+/// 2. No other reference to the set is live, and it is not used after this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DeletedDocs_Free(docs: *mut DeletedDocs) {
     if !docs.is_null() {
-        // SAFETY: the caller guarantees `docs` is a live, exclusively owned allocation from
-        // `Box::into_raw` in `DeletedDocs_New`, freed exactly once, here.
+        // SAFETY: (1) `docs` is a live allocation from `Box::into_raw` in
+        // `DeletedDocs_New`; (2) nothing else refers to it, so it is freed exactly once.
         drop(unsafe { Box::from_raw(docs) });
     }
 }
@@ -39,10 +38,11 @@ pub unsafe extern "C" fn DeletedDocs_Free(docs: *mut DeletedDocs) {
 ///
 /// # Safety
 ///
-/// `docs` came from [`DeletedDocs_New`], is not freed, and no other reference to it is live.
+/// 1. `docs` came from [`DeletedDocs_New`] and has not been freed.
+/// 2. No other reference to the set is live for the duration of the call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn DeletedDocs_Record(docs: *mut DeletedDocs, id: DocId) {
     debug_assert!(!docs.is_null(), "DeletedDocs_Record needs a set");
-    // SAFETY: the caller guarantees `docs` is a live, uniquely referenced set.
+    // SAFETY: (1) `docs` points to a live set; (2) this is its only reference.
     unsafe { &mut *docs }.record(id);
 }
