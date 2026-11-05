@@ -1907,17 +1907,53 @@ void Profile_AddRPs(QueryProcessingCtx *qctx) {
   return RS_RESULT_OK;
  }
 
+ static int RPMaxScoreNormalizer_StartYield(ResultProcessor *rp, SearchResult *r) {
+   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+   RedisSearchCtx *sctx = bufferedResultContext(rp);
+   IndexSpec *spec = sctx ? sctx->spec : NULL;
+   if (!spec || !spec->diskSpec) {
+     rp->Next = RPMaxScoreNormalizer_Yield;
+     return rp->Next(rp, r);
+   }
+
+   const bool callerHoldsLock = IndexSpec_IsLocked(spec);
+   if (!callerHoldsLock) IndexSpec_LockRead(spec);
+   // Freeze one visible score scale before emission; later pages must use that same scale.
+   double maxValue = 0;
+   bool complete = true;
+   for (size_t i = 0; i < array_len(self->pool); ++i) {
+     if (QueryRequestLimits_IsTimedOut(sctx->limits)) {
+       if (rp->parent->timeoutPolicy != TimeoutPolicy_Return) {
+         if (!callerHoldsLock) IndexSpec_Unlock(spec);
+         return RS_RESULT_TIMEDOUT;
+       }
+       self->timedOut = true;
+       complete = false;
+       break;
+     }
+     if (bufferedResultIsVisible(rp, self->pool[i])) {
+       maxValue = MAX(maxValue, SearchResult_GetScore(self->pool[i]));
+     }
+   }
+   // A partial reply retains the accumulation scale when its deadline prevents a full pass.
+   if (complete) self->maxValue = maxValue;
+   rp->Next = RPMaxScoreNormalizer_Yield;
+   const int rc = rp->Next(rp, r);
+   if (!callerHoldsLock) IndexSpec_Unlock(spec);
+   return rc;
+ }
+
 static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
   // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
-    rp->Next = RPMaxScoreNormalizer_Yield;
+    rp->Next = RPMaxScoreNormalizer_StartYield;
     return rp->Next(rp, r);
   } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
     self->timedOut = true;
-    rp->Next = RPMaxScoreNormalizer_Yield;
+    rp->Next = RPMaxScoreNormalizer_StartYield;
     return rp->Next(rp, r);
   } else if (rc != RS_RESULT_OK) {
     return rc;
