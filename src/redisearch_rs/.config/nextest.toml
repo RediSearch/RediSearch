@@ -13,6 +13,11 @@ retries = 1
 slow-timeout = { period = "10s", terminate-after = 4 }
 fail-fast = false
 
+[[profile.default-miri.overrides]]
+# The full property test takes about 101 seconds under Miri; keep all cases enabled.
+filter = 'package(geo) & test(=filter::units_preserve_membership)'
+slow-timeout = { period = "30s", terminate-after = 10 }
+
 [profile.coverage]
 # Branch instrumentation slows the largest property tests enough to exceed the
 # default hang detector while they are still making progress.
