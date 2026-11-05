@@ -1308,6 +1308,21 @@ def testLoadPosition(env):
                    'LOAD', '1', 't2').error().contains('not loaded nor in pipeline')
 
 
+@skip(cluster=True)
+def testQuantileStream(env):
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'value', 'TEXT')
+    for i, value in enumerate(['1', '3', '7', '9', 'not-a-number']):
+        env.cmd('HSET', f'doc{i}', 'value', value)
+    prefix = ['FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@value']
+    for grouping in [[], ['GROUPBY', 0, 'REDUCE', 'TOLIST', 1, '@value', 'AS', 'value']]:
+        query = prefix + grouping + ['GROUPBY', 0, 'REDUCE', 'QUANTILE', 3, '@value']
+        for q, expected in [(0, '1'), (0.5, '3'), (1, '9')]:
+            env.expect(*query, q, 500, 'AS', 'q').equal([1, ['q', expected]])
+    for q in [-0.1, 1.1]:
+        env.expect(*query, q, 2).error().contains('Percentage must be between 0.0 and 1.0')
+    env.expect(*query, 0.5, 0).error().contains('Invalid resolution')
+
+
 def testAggregateGroup0Field(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'num', 'NUMERIC', 'SORTABLE')
