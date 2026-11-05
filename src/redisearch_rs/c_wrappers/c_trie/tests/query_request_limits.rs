@@ -63,3 +63,54 @@ fn clock_deadline_is_absent_for_other_sources() {
         assert!(handle.clock_deadline().is_none(), "kind {kind}");
     }
 }
+
+// Unlike the two above, these call into C, so the marker is set through the C
+// publisher and Miri cannot run them.
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "`QueryRequestLimits_IsBlockedClientTimedOut` is a foreign function, not supported by Miri"
+)]
+fn a_marked_blocked_client_cycle_reports_a_timeout() {
+    let mut timeout =
+        timeout_of_kind(ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+    // SAFETY: `timeout` outlives the handle and is not otherwise accessed while it is borrowed.
+    let handle = unsafe { QueryRequestLimitsHandle::from_raw(ptr::from_mut(&mut timeout)) }
+        .expect("the timeout pointer is non-null");
+    assert!(
+        !handle.blocked_client_timed_out(),
+        "an unmarked cycle has not timed out"
+    );
+
+    timeout.timeout.source.blockedClientTimedOut = true;
+    // SAFETY: `timeout` outlives the handle and is not otherwise accessed while it is borrowed.
+    let handle = unsafe { QueryRequestLimitsHandle::from_raw(ptr::from_mut(&mut timeout)) }
+        .expect("the timeout pointer is non-null");
+    assert!(handle.blocked_client_timed_out());
+}
+
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "`QueryRequestLimits_IsBlockedClientTimedOut` is a foreign function, not supported by Miri"
+)]
+fn other_sources_never_report_a_blocked_client_timeout() {
+    // A clock cycle is checked against its deadline, not this flag, so reporting
+    // one here would add a clock check to every caller that polls it.
+    for kind in [
+        ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED,
+        ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE,
+    ] {
+        let mut timeout = timeout_of_kind(kind);
+        timeout.timeout.source.clock.deadline = ffi::timespec {
+            tv_sec: 1,
+            tv_nsec: 0,
+        };
+        // SAFETY: `timeout` outlives the handle and is not otherwise accessed while it is
+        // borrowed.
+        let handle = unsafe { QueryRequestLimitsHandle::from_raw(ptr::from_mut(&mut timeout)) }
+            .expect("the timeout pointer is non-null");
+
+        assert!(!handle.blocked_client_timed_out(), "kind {kind}");
+    }
+}

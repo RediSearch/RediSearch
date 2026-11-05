@@ -500,7 +500,8 @@ void Pipeline_BuildQueryPart(Pipeline *pipeline, QueryPipelineParams *params, Qu
 
   RS_ASSERT(params->iteratorTree);
   ResultProcessor *rp = QueryIteratorTree_IntoResultProcessor(
-      params->iteratorTree, params->querySlots, params->keySpaceVersion, params->common.sctx);
+      params->iteratorTree, params->querySlots, params->keySpaceVersion, params->common.sctx,
+      params->common.reqflags & QEXEC_F_PROFILE);
   // Ownership of the iterator tree and the slot ranges is now with the pipeline.
   params->iteratorTree = NULL;
   params->querySlots = NULL;
