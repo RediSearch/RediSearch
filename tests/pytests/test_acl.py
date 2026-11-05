@@ -30,10 +30,11 @@ def test_acl_search_commands(env):
     ]
     if not env.isCluster():
         if RS_TEST_ENTERPRISE:
-            # These are unrelated: FT.CONFIG has no public alias on enterprise
-            # (only _FT.CONFIG, already in the base list above), while
-            # FT._RESTOREIFNX is separately registered as public there.
-            commands.append('FT._RESTOREIFNX')
+            # FT.CONFIG has no public alias on enterprise (only _FT.CONFIG,
+            # already in the base list above). Its write prefix is FT, so
+            # SAFEADD is public there, and the legacy _FT.SAFEADD exists only
+            # on an enterprise cluster.
+            commands[commands.index('_FT.SAFEADD')] = 'FT.SAFEADD'
         else:
             commands.append('FT.CONFIG')
     if env.env != 'enterprise':
