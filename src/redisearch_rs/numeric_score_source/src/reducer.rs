@@ -20,7 +20,7 @@ use top_k::{ChildReduction, TopKHeap, reduce_child};
 use crate::{
     DocValidity, NumericScoreSource, NumericTopKIterator, cmp_for,
     numeric_top_k_filtered_with_heap, numeric_top_k_unfiltered_with_heap,
-    range_iterator::NumericTree,
+    range_iterator::NumericTreeRef,
     source::{DEFAULT_RANGE_BATCH_SIZE, estimate_limit},
 };
 
@@ -70,7 +70,7 @@ impl std::fmt::Debug for HeapReserveError {
 /// reserved; C's `NewOptimizerIterator` likewise rejects such a `LIMIT`.
 #[expect(clippy::too_many_arguments, reason = "one parameter per query input")]
 pub fn new_numeric_top_k<'index, V, E, T>(
-    tree: impl Into<NumericTree<'index>>,
+    tree: impl Into<NumericTreeRef<'index>>,
     filter: NumericFilter,
     ascending: bool,
     k: usize,

@@ -25,7 +25,7 @@ use rqe_iterators::{
 };
 use top_k::{BatchStrategy, ScoreSource};
 
-use crate::range_iterator::{NumericRangeIterator, NumericTree};
+use crate::range_iterator::{NumericRangeIterator, NumericTreeRef};
 use crate::score_batch::NumericScoreBatch;
 
 /// Reports whether a doc id still resolves to a live result document — one that
@@ -178,7 +178,7 @@ impl<'index> NumericScoreSource<'index> {
     /// to read; its `offset`/`limit` window is ignored here and sized from `k`
     /// instead, by [`narrow_window_to_top_k`](Self::narrow_window_to_top_k).
     pub fn unfiltered(
-        tree: impl Into<NumericTree<'index>>,
+        tree: impl Into<NumericTreeRef<'index>>,
         filter: NumericFilter,
         ascending: bool,
     ) -> Self {
@@ -188,7 +188,7 @@ impl<'index> NumericScoreSource<'index> {
     /// Like [`unfiltered`](Self::unfiltered) but with an explicit per-batch range
     /// count, so tests can force multi-batch behavior on small inputs.
     pub fn with_range_batch_size(
-        tree: impl Into<NumericTree<'index>>,
+        tree: impl Into<NumericTreeRef<'index>>,
         mut filter: NumericFilter,
         ascending: bool,
         range_batch_size: usize,
@@ -212,7 +212,7 @@ impl<'index> NumericScoreSource<'index> {
     /// `num_docs` is the total document count and `child_estimate` the filter
     /// child's selectivity estimate; both size the retry windows.
     pub fn filtered(
-        tree: impl Into<NumericTree<'index>>,
+        tree: impl Into<NumericTreeRef<'index>>,
         mut filter: NumericFilter,
         window: RangeWindow,
         ascending: bool,
@@ -235,7 +235,7 @@ impl<'index> NumericScoreSource<'index> {
 
     #[expect(clippy::too_many_arguments, reason = "private constructor")]
     fn build(
-        tree: impl Into<NumericTree<'index>>,
+        tree: impl Into<NumericTreeRef<'index>>,
         filter: NumericFilter,
         window: RangeWindow,
         ascending: bool,

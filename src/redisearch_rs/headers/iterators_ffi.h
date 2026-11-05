@@ -398,16 +398,16 @@ QueryIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const struct 
  *
  * # Safety
  *
- * 1. `tree` is non-null and [valid] for a [`NumericRangeTree`] that outlives the
- *    returned iterator, and is mutated only while the spec lock is released,
- *    with the iterator revalidated before it is read again.
+ * 1. `tree` is non-null and satisfies [`NumericTreeRef::from_raw`]'s safety
+ *    requirements for the returned iterator's lifetime, including owner-derived
+ *    provenance if the tree may be mutated.
  * 2. `filter` is non-null and [valid] for a [`NumericFilter`] for the duration
  *    of this call.
  * 3. `child`, when non-null, is a [valid], owning `QueryIterator *` with every
  *    callback populated.
  * 4. `sctx` is non-null and [valid] for a [`RedisSearchCtx`] with a [valid]
  *    `spec`, both outliving the returned iterator at a stable address. The request
- *    timeout reached through `sctx.timeout` must also remain valid at a stable address
+ *    timeout reached through `sctx.limits` must also remain valid at a stable address
  *    until the iterator is dropped. Timeout source changes and deadline writes may
  *    happen only between probes; only the blocked-client flag may change concurrently.
  * 5. `filter_ctx` is non-null and [valid] for a [`FieldFilterContext`] for the

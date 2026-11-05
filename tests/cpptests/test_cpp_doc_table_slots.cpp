@@ -12,8 +12,10 @@
 #include <initializer_list>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "doc_table.h"
 #include "inverted_index.h"
@@ -161,7 +163,7 @@ TEST_F(DocTableSlotsTest, DeleteByIdRemovesHiddenDoc) {
   EXPECT_FALSE(visible(id + 1));
 }
 
-TEST_F(DocTableSlotsTest, NumericTopKExcludesPendingDeletionsBeforeFillingHeap) {
+TEST_F(DocTableSlotsTest, NumericTopKPreservesVisibilityAcrossConstructorReductions) {
   const t_docId hidden = put("{a}old");
   const t_docId otherSlot = put("{b}live");
   addPending({{SLOT_A, SLOT_A}});
@@ -194,17 +196,62 @@ TEST_F(DocTableSlotsTest, NumericTopKExcludesPendingDeletionsBeforeFillingHeap) 
   filterCtx.field.index = 0;
   filterCtx.predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT;
 
-  const t_docId expected[] = {newInSlot, otherSlot};
-  for (size_t k : {1, 2}) {
-    SCOPED_TRACE(k);
-    auto freeIterator = [](QueryIterator *it) { it->Free(it); };
-    auto it = std::unique_ptr<QueryIterator, decltype(freeIterator)>(
-        NewNumericTopKIterator(tree.get(), &filter, true, k, 3, nullptr, &sctx, &filterCtx),
-        freeIterator);
+  enum class ChildKind { None, Filtered, Empty };
+  struct Case {
+    const char *name;
+    size_t k;
+    ChildKind child;
+    std::optional<std::vector<t_docId>> expectedRows;
+  };
+  const Case cases[] = {
+      {"unfiltered top one", 1, ChildKind::None, std::vector<t_docId>{newInSlot}},
+      {"unfiltered top two", 2, ChildKind::None, std::vector<t_docId>{newInSlot, otherSlot}},
+      {"filtered", 1, ChildKind::Filtered, std::vector<t_docId>{otherSlot}},
+      {"empty child", 1, ChildKind::Empty, std::vector<t_docId>{}},
+      {"zero k", 0, ChildKind::Filtered, std::vector<t_docId>{}},
+      {"oversized k", std::numeric_limits<size_t>::max(), ChildKind::Filtered, std::nullopt},
+  };
+  auto freeIterator = [](QueryIterator *it) { it->Free(it); };
+  using IteratorHandle = std::unique_ptr<QueryIterator, decltype(freeIterator)>;
+  for (const auto &testCase : cases) {
+    SCOPED_TRACE(testCase.name);
+    IteratorHandle child(nullptr, freeIterator);
+    switch (testCase.child) {
+      case ChildKind::None:
+        break;
+      case ChildKind::Empty:
+        child.reset(NewEmptyIterator());
+        break;
+      case ChildKind::Filtered: {
+        auto *ids = static_cast<t_docId *>(rm_malloc(sizeof(t_docId)));
+        ids[0] = otherSlot;
+        child.reset(NewSortedIdListIterator(ids, 1, 1.0));
+        break;
+      }
+    }
+    IteratorHandle it(NewNumericTopKIterator(tree.get(), &filter, true, testCase.k, 3, child.get(),
+                                             &sctx, &filterCtx),
+                      freeIterator);
+    if (it) child.release();
+    if (!testCase.expectedRows) {
+      ASSERT_EQ(it, nullptr);
+      // Failed construction must leave the child usable and owned by the caller.
+      ASSERT_NE(child, nullptr);
+      ASSERT_EQ(child->Read(child.get()), ITERATOR_OK);
+      EXPECT_EQ(child->current->docId, otherSlot);
+      continue;
+    }
     ASSERT_NE(it, nullptr);
-    for (size_t i = 0; i < k; ++i) {
+    EXPECT_EQ(it->type, testCase.expectedRows->empty() ? EMPTY_ITERATOR : OPTIMUS_ITERATOR);
+    if (!testCase.expectedRows->empty()) {
+      EXPECT_EQ(it->SkipTo, nullptr);
+      if (testCase.child == ChildKind::Filtered) {
+        EXPECT_NE(it->ProfileChildren, nullptr);
+      }
+    }
+    for (t_docId expected : *testCase.expectedRows) {
       ASSERT_EQ(it->Read(it.get()), ITERATOR_OK);
-      EXPECT_EQ(it->current->docId, expected[i]);
+      EXPECT_EQ(it->current->docId, expected);
     }
     EXPECT_EQ(it->Read(it.get()), ITERATOR_EOF);
   }
