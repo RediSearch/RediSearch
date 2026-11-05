@@ -37,7 +37,7 @@ fn timed_out_range_query_reports_timeout_then_eof() {
             yields_metric,
         );
         assert!(
-            matches!(it.read(), Err(RQEIteratorError::TimedOut)),
+            matches!(it.read(), Err(RQEIteratorError::Stopped)),
             "yields_metric {yields_metric}"
         );
         assert!(

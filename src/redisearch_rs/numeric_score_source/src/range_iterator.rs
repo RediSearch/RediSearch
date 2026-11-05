@@ -105,7 +105,7 @@ impl<'index> NumericRangeIterator<'index> {
     /// batch, or `Ok(None)` once the window is exhausted.
     ///
     /// `n` is clamped to at least `1`. `timeout` is polled once per record read
-    /// so a long materialization aborts with [`RQEIteratorError::TimedOut`]
+    /// so a long materialization aborts with [`RQEIteratorError::Stopped`]
     /// rather than running past the query deadline.
     pub fn next_n(
         &mut self,

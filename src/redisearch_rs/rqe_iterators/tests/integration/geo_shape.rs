@@ -467,7 +467,7 @@ fn timeout_during_an_expired_run_does_not_leave_the_expired_doc_current() {
     assert_eq!(it.last_doc_id(), 1);
 
     // The next read walks onto expired 2 and then times out.
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 
     assert_eq!(
         it.last_doc_id(),
@@ -493,7 +493,7 @@ fn timeout_aborts_read() {
         NoTracker,
     ));
 
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 #[test]
