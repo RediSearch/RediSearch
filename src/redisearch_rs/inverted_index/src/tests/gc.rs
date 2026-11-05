@@ -1400,3 +1400,41 @@ fn a_packed_run_repairs_each_survivor_once() {
         }]
     );
 }
+
+/// A packed run starts with its first block's entries before the first dead one, copied
+/// as they are; the rest are encoded again, and the whole is what encoding the survivors
+/// from scratch gives.
+#[test]
+fn a_packed_run_copies_its_first_blocks_clean_prefix() {
+    let ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![block(&[1, 2]), block(&[5]), block(&[20])],
+    );
+    let prefix_len = block(&[1, 2]).buffer.len();
+
+    for (gone, packed) in [
+        (vec![], vec![1, 2, 5]),
+        (vec![2], vec![1, 5]),
+        (vec![5], vec![1, 2]),
+    ] {
+        let delta = ii
+            .scan_gc(Gone(gone.clone()), None::<NoRepair>)
+            .unwrap()
+            .unwrap();
+        let [
+            BlockGcScanResult {
+                index: 0,
+                span: 2,
+                repair: RepairType::Replace { blocks, .. },
+            },
+        ] = &delta.deltas[..]
+        else {
+            panic!("the run is packed into one block; gone: {gone:?}");
+        };
+        assert_eq!(blocks.len(), 1, "gone: {gone:?}");
+        assert_eq!(blocks[0].0, block(&packed), "gone: {gone:?}");
+        if gone.is_empty() {
+            assert_eq!(&blocks[0].0.buffer[..prefix_len], &ii.blocks[0].buffer[..]);
+        }
+    }
+}
