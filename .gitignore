@@ -44,3 +44,8 @@ compile_commands.json
 oss-*--*.json
 # Raw LLVM coverage profiles, written wherever an instrumented process runs
 *.profraw
+# Mutation runs generate counterexamples for deliberately broken implementations, as a
+# directory or a sibling file of the test, and rotate their output to `mutants.out.old`.
+proptest-regressions/
+*.proptest-regressions
+mutants.out*
