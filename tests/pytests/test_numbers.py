@@ -15,7 +15,7 @@ import math
 @skip(cluster=True)
 def testOverrides(env):
 
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'num', 'numeric').ok()
 
@@ -142,8 +142,8 @@ def testEmptyNumericLeakIncrease(env):
     # test numeric field which updates with increasing value
 
     # Make sure GC is not triggered sporadically (only manually)
-    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
-    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'SET', 'THREAD_GC_RUN_INTERVAL', 3600).equal('OK')
+    env.expect(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
@@ -176,8 +176,8 @@ def testEmptyNumericLeakCenter(env):
     # check that no empty node are left
 
     # Make sure GC is not triggered sporadically (only manually)
-    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
-    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'SET', 'THREAD_GC_RUN_INTERVAL', 3600).equal('OK')
+    env.expect(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')

@@ -49,7 +49,7 @@ def testTagIndexGCWithRawDocIdEncoding():
     RAW_DOCID_ENCODING=true.
     """
     env = Env(moduleArgs='RAW_DOCID_ENCODING true')
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).ok()
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't', 'TAG').ok()
 
     # Add enough documents to span multiple blocks (RECOMMENDED_BLOCK_ENTRIES is 1000)
@@ -87,7 +87,7 @@ def testTagIndexGCWithRawDocIdEncoding():
 def testMultipleTagValuesWithRawDocIdEncoding():
     """Test multiple TAG values with RAW_DOCID_ENCODING"""
     env = Env(moduleArgs='RAW_DOCID_ENCODING true')
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).ok()
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't', 'TAG').ok()
 
     # Add documents with different tag values
@@ -127,7 +127,7 @@ def testTagIntersectionWithRawDocIdEncoding():
     matching documents across multiple posting lists.
     """
     env = Env(moduleArgs='RAW_DOCID_ENCODING true')
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).ok()
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'TAG', 't2', 'TAG').ok()
 
     # Add documents with two tag fields
@@ -180,7 +180,7 @@ def testWildcardWithRawDocIdEncoding():
     existingDocs inverted index uses RawDocIdsOnly encoding. The
     optimized wildcard iterator must handle this encoding correctly.
     """
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 RAW_DOCID_ENCODING true FORK_GC_CLEAN_THRESHOLD 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 RAW_DOCID_ENCODING true THREAD_GC_CLEAN_THRESHOLD 0')
     env.expect('ft.create', 'idx', 'INDEXALL', 'ENABLE',
                'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
 

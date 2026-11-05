@@ -327,7 +327,7 @@ def testBasic():
 
 def testSuffixCleanup(env):
   conn = getConnectionByEnv(env)
-  env.expect(config_cmd() + ' SET FORK_GC_CLEAN_THRESHOLD 0').ok()
+  env.expect(config_cmd() + ' SET THREAD_GC_CLEAN_THRESHOLD 0').ok()
 
   conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 'WITHSUFFIXTRIE', 't2', 'TEXT')
   conn.execute_command('HSET', 'doc', 't1', 'foo', 't2', 'bar')
