@@ -15,6 +15,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
@@ -34,7 +35,7 @@ def measure(command):
 def main():
     stage, binary, baseline_path = sys.argv[1:]
     path = Path(baseline_path)
-    if stage not in ("baseline", "rust"):
+    if stage not in ("baseline", "rust", "ffi"):
         raise ValueError(f"Unknown stage: {stage}")
     source_hash = hashlib.sha256(Path("src/geo_index.c").read_bytes()).hexdigest()
     if stage != "baseline" or path.exists():
@@ -44,7 +45,7 @@ def main():
         if stage == "baseline":
             print(f"Reusing unchanged C baseline: {baseline}")
             return
-    current_c = measure([binary, "--gtest_filter=GeoIndex.Benchmark"])
+    current_c = measure([binary, "--gtest_filter=GeoIndex/GeoFilterTest.Benchmark/0"])
     if current_c["implementation"] != "c":
         raise RuntimeError("The baseline executable must execute C")
     if stage == "baseline":
@@ -52,12 +53,21 @@ def main():
         with path.open("x") as output:
             json.dump(current_c, output, indent=2)
         return
-    candidate = measure(["cargo", "bench", "--manifest-path", "src/redisearch_rs/Cargo.toml",
-                         "-p", "geo", "--bench", "filter"])
+    if stage == "rust":
+        candidate = measure(["cargo", "bench", "--manifest-path", "src/redisearch_rs/Cargo.toml",
+                             "-p", "geo", "--bench", "filter"])
+    else:
+        candidate = measure([binary, "--gtest_filter=GeoIndex/GeoFilterTest.Benchmark/1"])
+        # Preserve both linked artifacts before the swap removes the C implementation.
+        retained = path.with_suffix(".ffi-baseline")
+        retained.mkdir(exist_ok=True)
+        shutil.copy2(binary, retained / "rstest")
+        shutil.copy2(Path(binary).parents[2] / "redisearch.so", retained / "redisearch.so")
     if candidate["implementation"] != "rust":
         raise RuntimeError("The candidate must execute Rust")
     failures = []
-    for case in ("parse", "validate", "radius"):
+    cases = ("parse", "validate", "radius") if stage == "rust" else ("parse", "validate", "radius", "lifecycle")
+    for case in cases:
         old, new = baseline[case], candidate[case]
         if not (math.isfinite(old) and math.isfinite(new) and old > 0 and new > 0):
             raise RuntimeError(f"Invalid timing for {case}: {old}, {new}")
