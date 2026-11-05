@@ -207,8 +207,6 @@ impl IndexBlock {
     }
 }
 
-/// Which blocks [`InvertedIndex::gc_snapshot`](crate::InvertedIndex::gc_snapshot) copies
-/// with their data.
 /// Rewrite `blocks`, consecutive blocks starting at `first_block_idx`, without the
 /// entries of gone documents: [`IndexBlock::repair`] for one block, and the GC's block
 /// compaction for a run of under-filled ones, whose survivors are packed into as few
@@ -221,7 +219,8 @@ impl IndexBlock {
 /// would reproduce the bytes they already occupy. A later block's first entry is encoded
 /// against that block's start, so from there the survivors are encoded again.
 ///
-/// `Ok(None)` when no entry is gone and the blocks would not shrink to fewer.
+/// `Ok(None)` when one block is given and no entry of it is gone. A run is never left
+/// as it is: its blocks are chosen to pack into one.
 pub(crate) fn repair_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decoder>(
     blocks: &'blocks [IndexBlock],
     expiration: &[ExpirationBits],
@@ -305,12 +304,10 @@ pub(crate) fn repair_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decode
             n_unique_docs_removed: unique_read,
         }));
     }
-    // A codec with a narrow delta may split the merged entries back into as many blocks as
-    // before (or more). A run that lost nothing is then left as it is, or every cycle would
-    // rewrite it; one that lost entries is still replaced, as nothing else repairs its blocks.
-    if removed_entries == 0 && survivors.blocks.len() >= blocks.len() {
-        return Ok(None);
-    }
+    debug_assert!(
+        removed_entries > 0 || survivors.blocks.len() < blocks.len(),
+        "a run is formed only of blocks whose entries fit one"
+    );
     // The replacement blocks grew by doubling; they are long-lived, so give the slack back
     // (the fork parent gets them tight through serde anyway).
     let blocks = survivors
@@ -326,6 +323,8 @@ pub(crate) fn repair_run<'blocks, E: Encoder + DecodedBy<Decoder = D>, D: Decode
     }))
 }
 
+/// Which blocks [`InvertedIndex::gc_snapshot`](crate::InvertedIndex::gc_snapshot) copies
+/// with their data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GcSnapshotScope {
     /// Only the blocks whose doc-ID range holds a gone document: enough for a scan
@@ -404,8 +403,11 @@ impl<E: Encoder + DecodedBy> InvertedIndex<E> {
             if compactable {
                 let mut total = 0;
                 while i + run < last_idx && self.blocks[i + run].has_data() {
-                    let next = total + u32::from(self.blocks[i + run].num_entries);
-                    if next > limit {
+                    let block = &self.blocks[i + run];
+                    let next = total + u32::from(block.num_entries);
+                    if next > limit
+                        || !Self::spans_one_block(self.blocks[i].first_doc_id, block.last_doc_id)
+                    {
                         break;
                     }
                     total = next;

@@ -109,14 +109,14 @@ const _: () = assert!(std::mem::size_of::<IndexBlock>() == 48);
 impl IndexBlock {
     pub(crate) const STACK_SIZE: usize = std::mem::size_of::<Self>();
 
-    /// Make a new index block with primed with the initial doc ID. The next entry written into
-    /// the block should be for this doc ID else the block will contain incoherent data.
     /// Whether the block carries its entries, as opposed to a dataless snapshot copy that
     /// kept only its bounds and count. See [`InvertedIndex::gc_snapshot`].
     pub(crate) const fn has_data(&self) -> bool {
         !self.buffer.is_empty() || self.num_entries == 0
     }
 
+    /// Make a new index block with primed with the initial doc ID. The next entry written into
+    /// the block should be for this doc ID else the block will contain incoherent data.
     pub(crate) const fn new(doc_id: DocId) -> Self {
         Self {
             first_doc_id: doc_id,
@@ -210,9 +210,17 @@ impl<E: Encoder> InvertedIndex<E> {
         let Some(last_idx) = self.blocks.len().checked_sub(1) else {
             return false;
         };
-        self.blocks[..last_idx]
-            .windows(2)
-            .any(|w| u32::from(w[0].num_entries) + u32::from(w[1].num_entries) <= limit)
+        self.blocks[..last_idx].windows(2).any(|w| {
+            u32::from(w[0].num_entries) + u32::from(w[1].num_entries) <= limit
+                && Self::spans_one_block(w[0].first_doc_id, w[1].last_doc_id)
+        })
+    }
+
+    /// Whether entries from `first` to `last` can share one block: every delta between
+    /// them fits the codec's, whichever base it takes. A run spanning more would split
+    /// back into as many blocks, so packing it would never shrink it.
+    pub(crate) fn spans_one_block(first: DocId, last: DocId) -> bool {
+        E::Delta::from_u64(last - first).is_some()
     }
 
     /// A private copy of the blocks a GC scan has to decode, for scanning without a lock.
