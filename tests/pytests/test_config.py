@@ -1799,7 +1799,7 @@ configOnlyNumericConfigs = [
     ('search-min-maintenance-workers', 1, 0, MAX_WORKER_THREADS, 'MIN_MAINTENANCE_WORKERS'),
     ('search-gc-threads', 1, 1, 64, '_GC_THREADS'),
     ('search-gc-clean-ratio-ppm', 1000, 0, 1_000_000, 'GC_CLEAN_RATIO_PPM'),
-    ('search-thread-gc-run-interval', 5, 1, LLONG_MAX, 'THREAD_GC_RUN_INTERVAL'),
+    ('search-thread-gc-run-interval', 5, 1, LLONG_MAX // 2000, 'THREAD_GC_RUN_INTERVAL'),
     ('search-thread-gc-clean-threshold', 100, 0, LLONG_MAX, 'THREAD_GC_CLEAN_THRESHOLD'),
 ]
 
