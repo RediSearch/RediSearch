@@ -127,3 +127,10 @@ mod tests {
 pub fn new() -> u8 { y.unwrap() }`;
   assert.equal(nonTest(text).trim(), 'pub fn new() -> u8 { y.unwrap() }');
 });
+
+test('a test gate in a comment or string does not hide the production code after it', () => {
+  const text = `// Put helpers behind #[cfg(test)]
+const NOTE: &str = "#[cfg(test)]";
+pub fn new() -> u8 { y.unwrap() }`;
+  assert.equal(nonTest(text), text);
+});

@@ -16,6 +16,9 @@ export const STAGES = ['rust', 'swap'] as const;
 export type Stage = (typeof STAGES)[number];
 
 export const POLICY = '.amp/plugins/rust-port/policy.md';
+/** The start of a GitHub remote URL, before the repository: HTTPS, SSH or scp-style. */
+const GITHUB =
+  /^(https:\/\/([^@/]+@)?github\.com\/|ssh:\/\/([^@/]+@)?github\.com\/|[^@/:]+@github\.com:)/i;
 
 /** A test named as evidence: `name` is defined in the file at `path` from `stage` on. */
 export interface Test {
@@ -150,11 +153,10 @@ export function declarations(header: string): string[] {
 export async function inspect(plan: Plan, root: string, git: (args: string[]) => Promise<string>) {
   const problems: string[] = [];
   const url = await git(['remote', 'get-url', plan.remote]).catch(() => '');
+  const path = url.replace(GITHUB, '');
   if (
-    !new RegExp(
-      `[/@]github\\.com[/:]${plan.repository.replace(/\./g, '\\.')}(\\.git)?/?$`,
-      'i',
-    ).test(url)
+    path === url ||
+    !new RegExp(`^${plan.repository.replace(/\./g, '\\.')}(\\.git)?/?$`, 'i').test(path)
   )
     problems.push(`remote ${plan.remote} is not github.com/${plan.repository}, where the PRs open`);
   for (const stage of STAGES) {

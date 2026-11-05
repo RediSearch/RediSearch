@@ -211,8 +211,12 @@ export async function github(cwd: string, repository: string) {
       const fetched = o.existing
         ? (await octokit.rest.pulls.get({ owner, repo, pull_number: o.existing.number })).data
         : undefined;
-      // A merged or closed PR cannot carry a new candidate: a new one replaces it.
-      const current = fetched?.state === 'open' ? fetched : undefined;
+      // A merged or closed PR cannot carry a new candidate: a new one replaces it. A merged one
+      // still takes a new description for the candidate it merged, such as the retrospective.
+      const current =
+        fetched?.state === 'open' || (fetched?.merged && o.existing!.head === o.candidate)
+          ? fetched
+          : undefined;
       // The lease refuses to overwrite anything but this job's last publication, or, with none, a
       // branch that exists at all. A retry after a successful push, including one whose PR
       // creation then failed, needs only the unfinished metadata update.
