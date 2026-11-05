@@ -86,8 +86,11 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
 typedef struct {
   size_t forkGcRunIntervalSec;
   size_t forkGcCleanThreshold;
+  // GCPolicy_Thread's own, so settings tuned for the fork's cost do not carry over to it.
+  size_t threadGcRunIntervalSec;
+  size_t threadGcCleanThreshold;
   // Under GCPolicy_Thread, the clean threshold also grows with the index: a cycle waits for this
-  // many deletions per million live documents, and for at least forkGcCleanThreshold. The share
+  // many deletions per million live documents, and for at least threadGcCleanThreshold. The share
   // is of the live documents, so its maximum waits until as many are deleted as remain.
   size_t gcCleanRatioPpm;
   size_t forkGcRetryInterval;
@@ -339,15 +342,6 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx);
  * REDISMODULE_ERR, which would abort module init. */
 void RSConfig_SetLoadingStartupConfig(bool loading);
 
-/* Load the registered configs' defaults, then forget which ones that set, so
- * RSConfig_ApplyGcPolicyDefaults can tell a user's value from a default. */
-int RSConfig_LoadDefaultConfigs(RedisModuleCtx *ctx);
-
-/* Once every config source is read: give the GC settings the user left unset their GC policy's
- * defaults. The registered defaults cannot depend on the policy, which module arguments set
- * after registration. */
-void RSConfig_ApplyGcPolicyDefaults(void);
-
 /**
  * Writes the retrieval of the configuration value to the network.
  * isHelp will use a more dict-like pattern, which should be a bit friendlier
@@ -403,10 +397,10 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
 #define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
 #define DEFAULT_FORK_GC_RETRY_INTERVAL 5
-// THREAD, the default policy, needs no fork, so its cycles can run more often. Its interval is
-// the registered default, so CONFIG REWRITE persists FORK's only when FORK is chosen.
-#define DEFAULT_THREAD_GC_RUN_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
+// A THREAD cycle needs no fork, so it can run more often.
+#define DEFAULT_THREAD_GC_RUN_INTERVAL 5
+#define DEFAULT_THREAD_GC_CLEAN_THRESHOLD 100
 #define DEFAULT_GC_CLEAN_RATIO_PPM 1000
 #define MAX_GC_CLEAN_RATIO_PPM 1000000
 #define MAX_GC_THREADS 64
@@ -511,7 +505,9 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                       \
     .gcConfigParams.gcPolicy = GCPolicy_Thread,                                \
     .gcConfigParams.gcThreads = 1,                                             \
-    .gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_THREAD_GC_RUN_INTERVAL,\
+    .gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
+    .gcConfigParams.gcSettings.threadGcRunIntervalSec = DEFAULT_THREAD_GC_RUN_INTERVAL,\
+    .gcConfigParams.gcSettings.threadGcCleanThreshold = DEFAULT_THREAD_GC_CLEAN_THRESHOLD,\
     .gcConfigParams.gcSettings.forkGcSleepBeforeExit = 0,                      \
     .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
     .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
