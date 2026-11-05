@@ -10,7 +10,7 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thin_vec::ThinVec;
 
-/// The entries of an [`IndexBlock`](super::IndexBlock) that belong to a field carrying a
+/// The entries of one [`IndexBlock`](super::IndexBlock) that belong to a field carrying a
 /// field-level expiration (HFE), keyed by the entry's 0-based ordinal within the block. For tag
 /// and numeric indexes that is the single owning field; for term indexes, any field in the
 /// posting's field mask.
@@ -18,7 +18,8 @@ use thin_vec::ThinVec;
 /// Readers look an entry up by ordinal to set
 /// [`RSIndexResult::has_field_expiration`](index_result::RSIndexResult::has_field_expiration),
 /// letting expiration-aware iterators skip the TTL-table lookup for documents that have no field
-/// TTL. Serialized with the block, so the bits survive the fork GC.
+/// TTL. Stored per block in [`InvertedIndex::expiration`](super::InvertedIndex::expiration) and
+/// serialized with the GC's repaired blocks, so the bits survive the fork GC.
 ///
 /// The set reaches only as far as the highest ordinal inserted; ordinals past its end are absent.
 /// An empty set does not allocate.
@@ -38,6 +39,11 @@ impl ExpirationBits {
             self.0.resize(byte + 1, 0);
         }
         self.0.as_mut_slice()[byte] |= Self::mask(ordinal);
+    }
+
+    /// Whether the set holds no ordinal.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     /// Whether `ordinal` is in the set.

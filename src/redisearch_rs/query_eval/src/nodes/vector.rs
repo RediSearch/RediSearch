@@ -72,7 +72,8 @@ pub(crate) fn eval<'index>(
         std::ptr::null_mut()
     } else {
         // A child that yields nothing leaves the hybrid query with nothing to
-        // filter, so the whole node yields nothing.
+        // filter, so the whole node yields nothing. The offset requirement is
+        // not inherited; see `OffsetRequirement`.
         eval_node(ctx, node.child_mut(0), config)?.into_c_iterator()
     };
 

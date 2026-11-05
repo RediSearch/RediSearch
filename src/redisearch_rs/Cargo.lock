@@ -778,57 +778,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fork_gc"
-version = "0.0.1"
-dependencies = [
- "build_utils",
- "c_trie",
- "dict",
- "ffi",
- "field_spec",
- "fork_gc",
- "global_config",
- "hidden_string",
- "index_result",
- "index_spec",
- "inverted_index",
- "lending-iterator",
- "libc",
- "nix",
- "nul_terminated_bytes",
- "numeric_range_tree",
- "proptest",
- "redis-module",
- "redis_mock",
- "redisearch_rs",
- "rmp-serde",
- "roaring",
- "rqe_core",
- "serde",
- "serde_bytes",
- "string_utils",
- "thiserror",
- "tracing",
- "trie_rs",
- "workspace_hack",
-]
-
-[[package]]
-name = "fork_gc_ffi"
-version = "0.0.1"
-dependencies = [
- "cheadergen",
- "ffi",
- "fork_gc",
- "index_spec",
- "nul_terminated_bytes",
- "redis-module",
- "tracing",
- "tracing_log_error",
- "workspace_hack",
-]
-
-[[package]]
 name = "fs-err"
 version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1134,6 +1083,57 @@ dependencies = [
 ]
 
 [[package]]
+name = "index_gc"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "c_trie",
+ "dict",
+ "ffi",
+ "field_spec",
+ "global_config",
+ "hidden_string",
+ "index_gc",
+ "index_result",
+ "index_spec",
+ "inverted_index",
+ "lending-iterator",
+ "libc",
+ "nix",
+ "nul_terminated_bytes",
+ "numeric_range_tree",
+ "proptest",
+ "redis-module",
+ "redis_mock",
+ "redisearch_rs",
+ "rmp-serde",
+ "roaring",
+ "rqe_core",
+ "serde",
+ "serde_bytes",
+ "string_utils",
+ "thiserror",
+ "tracing",
+ "trie_rs",
+ "workspace_hack",
+]
+
+[[package]]
+name = "index_gc_ffi"
+version = "0.0.1"
+dependencies = [
+ "cheadergen",
+ "ffi",
+ "index_gc",
+ "index_spec",
+ "nul_terminated_bytes",
+ "redis-module",
+ "tracing",
+ "tracing_log_error",
+ "workspace_hack",
+]
+
+[[package]]
 name = "index_result"
 version = "0.0.1"
 dependencies = [
@@ -1216,6 +1216,7 @@ dependencies = [
  "query_term",
  "redis_reply",
  "ref_mode",
+ "rmp-serde",
  "rqe_core",
  "serde",
  "smallvec",
@@ -2229,9 +2230,9 @@ dependencies = [
  "buffer",
  "doc_key_map_ffi",
  "fnv_ffi",
- "fork_gc_ffi",
  "geo_ffi",
  "idf_ffi",
+ "index_gc_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "metrics_ffi",
@@ -2611,9 +2612,9 @@ dependencies = [
  "doc_key_map_ffi",
  "ffi",
  "fnv_ffi",
- "fork_gc_ffi",
  "geo_ffi",
  "idf_ffi",
+ "index_gc_ffi",
  "inverted_index_ffi",
  "iterators_ffi",
  "memchr",
@@ -3367,6 +3368,7 @@ name = "top_k"
 version = "0.0.1"
 dependencies = [
  "build_utils",
+ "ffi",
  "index_result",
  "index_spec",
  "inverted_index",
@@ -3374,6 +3376,7 @@ dependencies = [
  "redis_mock",
  "redis_reply",
  "redisearch_rs",
+ "ref_mode",
  "rqe_core",
  "rqe_iterator_type",
  "rqe_iterators",
@@ -3782,7 +3785,6 @@ dependencies = [
  "redisearch_rs",
  "rlookup",
  "rqe_core",
- "rqe_iterator_type",
  "rqe_iterators",
  "rqe_iterators_test_utils",
  "top_k",

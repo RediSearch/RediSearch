@@ -14,10 +14,15 @@ use std::ptr::NonNull;
 use rqe_iterators::{
     Empty,
     interop::RQEIteratorWrapper,
-    intersection::{Intersection, NewIntersectionIterator, new_intersection_iterator},
+    intersection::{
+        Intersection, NewIntersectionIterator, filters_by_position, new_intersection_iterator,
+    },
 };
 
-use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, eval_child_iterator, eval_node};
+use crate::{
+    Config, Evaluated, OffsetRequirement, QueryEvalContext, QueryNodeMut, eval_child_iterator,
+    eval_node_with_offsets,
+};
 
 /// `QN_PHRASE` — an ordered/unordered conjunction of child terms.
 ///
@@ -34,11 +39,14 @@ use crate::{Config, Evaluated, QueryEvalContext, QueryNodeMut, eval_child_iterat
 ///   matching is required, ignoring the per-node and query-wide slop/in-order
 ///   settings. When `false`, the slop and in-order constraints are resolved
 ///   from the node's own options, falling back to the query-wide defaults.
+/// * `offsets` — the requirement inherited from the phrase's ancestors, which
+///   the phrase may raise for its children as [`OffsetRequirement`] describes.
 pub(crate) fn eval<'index>(
     ctx: &'index mut QueryEvalContext,
     mut node: QueryNodeMut<'_>,
     exact: bool,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> Option<Evaluated<'index>> {
     let num_children = node.num_children();
     let node_mask = node.opts().field_mask;
@@ -46,7 +54,7 @@ pub(crate) fn eval<'index>(
     if num_children == 1 {
         let mut child = node.child_mut(0);
         child.and_field_mask(node_mask);
-        return eval_node(ctx, child, config);
+        return eval_node_with_offsets(ctx, child, config, offsets);
     }
 
     let weight = node.opts().weight;
@@ -65,12 +73,18 @@ pub(crate) fn eval<'index>(
         (max_slop, in_order)
     };
 
+    let child_offsets = if filters_by_position(max_slop, in_order) {
+        OffsetRequirement::Required
+    } else {
+        offsets
+    };
+
     // Recursively evaluate every child, narrowing its field mask first.
     let mut children = Vec::with_capacity(num_children);
     for i in 0..num_children {
         let mut child = node.child_mut(i);
         child.and_field_mask(node_mask);
-        children.push(eval_child_iterator(ctx, child, config));
+        children.push(eval_child_iterator(ctx, child, config, child_offsets));
     }
 
     let result_ptr = match new_intersection_iterator(children) {
