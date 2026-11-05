@@ -295,13 +295,7 @@ impl<T, S: VecCapacity> ThinVec<T, S> {
     ///
     /// This will not allocate.
     pub const fn new() -> ThinVec<T, S> {
-        // SAFETY:
-        // The pointer is not null since it comes from a (static) reference.
-        let ptr = unsafe {
-            // TODO: Use [NonNull::from_ref](https://doc.rust-lang.org/std/ptr/struct.NonNull.html#method.from_ref)
-            //   when it stabilizes
-            NonNull::new_unchecked(S::EMPTY_HEADER as *const Header<S> as *mut Header<S>)
-        };
+        let ptr = NonNull::from_ref(S::EMPTY_HEADER);
         ThinVec {
             ptr,
             _phantom: PhantomData,

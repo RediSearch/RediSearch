@@ -105,7 +105,7 @@ impl SlotsTracker {
         Self {
             local: SlotSet::from_ranges(&[SlotRange {
                 start: 0,
-                end: 16383,
+                end: crate::CLUSTER_SLOTS - 1,
             }]),
             fully_available: SlotSet::new(),
             partially_available: SlotSet::new(),
