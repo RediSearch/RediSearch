@@ -296,9 +296,9 @@ def force_gc_from_parallel_clients(env):
 def testThreadGCWaitForJobsCoversEveryGCThread():
     """GC_WAIT_FOR_JOBS with nothing queued still waits for a cycle running on another GC thread.
     The cycle is parked, so the wait cannot pass by it finishing first."""
-    env = thread_gc_env(f'_GC_THREADS {GC_THREADS} FORK_GC_RUN_INTERVAL 1')
+    env = thread_gc_env('FORK_GC_RUN_INTERVAL 1')
     skipIfNoEnableAssert(env)
-    env.assertEqual(env.cmd(config_cmd(), 'GET', '_GC_THREADS'), [['_GC_THREADS', str(GC_THREADS)]])
+    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
     env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
 
     env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
@@ -323,7 +323,8 @@ def testThreadGCWaitForJobsCoversEveryGCThread():
 @skip(cluster=True)
 def testThreadGCWaitForJobsWithBackgroundRuns():
     """GC_WAIT_FOR_JOBS returns only after background forced runs on every index finished."""
-    env = thread_gc_env(f'_GC_THREADS {GC_THREADS}')
+    env = thread_gc_env()
+    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
     create_indexes_with_garbage(env)
 
     waitForRdbSaveToFinish(env)
@@ -337,7 +338,8 @@ def testThreadGCWaitForJobsWithBackgroundRuns():
 @skip(cluster=True)
 def testThreadGCCleansSeveralIndexesConcurrently():
     """Several GC threads clean several indexes at once, without forking."""
-    env = thread_gc_env(f'_GC_THREADS {GC_THREADS}')
+    env = thread_gc_env()
+    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
     create_indexes_with_garbage(env)
 
     forks_before = total_forks(env)
@@ -352,7 +354,8 @@ def testThreadGCNeverRunsTwoCyclesOfOneIndexAtOnce():
     """Forced runs from many clients and the index's own schedule all target one index while
     several GC threads are free. Deltas address blocks by position, so an overlap would apply
     one cycle's delta to blocks the other already rewrote; the index must stay exact."""
-    env = thread_gc_env(f'_GC_THREADS {GC_THREADS} FORK_GC_RUN_INTERVAL 1')
+    env = thread_gc_env('FORK_GC_RUN_INTERVAL 1')
+    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'INDEXALL', 'ENABLE', *SCHEMA).ok()
     add_docs(conn, 'doc:', 1000)
@@ -418,7 +421,13 @@ def testDumpDeletedIdsListsWhatTheNextCycleCollects():
 
 @skip(cluster=True)
 def testThreadGCSettingsBounds():
-    """`_GC_THREADS` is load-time and between 1 and 64."""
-    env = Env(moduleArgs='GC_POLICY THREAD _GC_THREADS 64')
-    env.assertEqual(env.cmd(config_cmd(), 'GET', '_GC_THREADS'), [['_GC_THREADS', '64']])
-    env.expect(config_cmd(), 'SET', '_GC_THREADS', 2).error().contains('Not modifiable at runtime')
+    """search-gc-threads is a CONFIG-only setting, changeable at runtime, between 1 and 64."""
+    env = Env(moduleArgs='GC_POLICY THREAD', freshEnv=True)
+    name = 'search-gc-threads'
+    env.expect('CONFIG', 'GET', name).equal([name, '1'])
+    for threads in [64, 2, 1]:
+        env.expect('CONFIG', 'SET', name, threads).ok()
+        env.expect('CONFIG', 'GET', name).equal([name, str(threads)])
+    for threads in [0, 65]:
+        env.expect('CONFIG', 'SET', name, threads).error().contains('CONFIG SET failed')
+    env.expect(config_cmd(), 'GET', '_GC_THREADS').equal([])
