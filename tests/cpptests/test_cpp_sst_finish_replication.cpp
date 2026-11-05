@@ -59,7 +59,7 @@ class SSTFinishReplicationTestBase : public ::testing::Test {
     api.basic.updateMemoryLimit = [](RedisSearchDisk *, size_t, size_t) { return true; };
     api.basic.openIndexSpecWithRdbState =
         [](RedisModuleCtx *, RedisSearchDisk *, const HiddenString *, const char *, size_t,
-           DocumentType, RedisSearchDiskRdbState *, const SearchDiskField *, size_t,
+           DocumentType, bool, RedisSearchDiskRdbState *, const SearchDiskField *, size_t,
            const SearchDiskCompactionCallbacks *, void *privateData) {
           ++opens[privateData];
           return reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData);
@@ -100,7 +100,7 @@ class SSTFinishReplicationTest : public SSTFinishReplicationTestBase,
 TEST_F(SSTFinishReplicationTestBase, FailedOpenAbortsCompletion) {
   stageSpec("sst_finish_open_failure");
   api.basic.openIndexSpecWithRdbState = [](RedisModuleCtx *, RedisSearchDisk *,
-                                           const HiddenString *, const char *, size_t, DocumentType,
+                                           const HiddenString *, const char *, size_t, DocumentType, bool,
                                            RedisSearchDiskRdbState *, const SearchDiskField *,
                                            size_t, const SearchDiskCompactionCallbacks *, void *) {
     return static_cast<RedisSearchDiskIndexSpec *>(nullptr);

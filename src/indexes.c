@@ -104,6 +104,12 @@ static void quiesceSpecIfWindowOpen(IndexSpec *sp) {
 // it into the global registry, and schedule its initial scan.
 IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              QueryError *status) {
+  return Indexes_CreateNewSpecWithLayout(ctx, argv, argc, status,
+                                         RSGlobalConfig.diskSharedFieldCFs);
+}
+
+IndexSpec *Indexes_CreateNewSpecWithLayout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                           QueryError *status, bool sharedFieldCFs) {
   size_t rawSpecNameLen = 0;
   const char *rawSpecName = RedisModule_StringPtrLen(argv[1], &rawSpecNameLen);
   if (checkIfSpecExists(rawSpecName, rawSpecNameLen)) {
@@ -116,7 +122,7 @@ IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, 
     return NULL;
   }
 
-  IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, status);
+  IndexSpec *sp = IndexSpec_CreateNewWithLayout(ctx, argv, argc, status, sharedFieldCFs);
   if (sp == NULL) {
     return NULL;
   }

@@ -198,6 +198,7 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
+  Index_SharedFieldCFs = 0x100000,
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -588,6 +589,11 @@ size_t IndexSpec_TotalBlockCount(const IndexSpec *sp);
 StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name,
                                    RedisModuleString **argv, int argc, QueryError *status);
 
+// Explicit creation input for private replication; ordinary creation uses the configured default.
+StrongRef IndexSpec_ParseRedisArgsWithLayout(RedisModuleCtx *ctx, const HiddenString *name,
+                                             RedisModuleString **argv, int argc, QueryError *status,
+                                             bool sharedFieldCFs);
+
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type);
 int isRdbLoading(RedisModuleCtx *ctx);
 
@@ -598,7 +604,8 @@ int isRdbLoading(RedisModuleCtx *ctx);
  */
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status);
-
+IndexSpec *IndexSpec_CreateNewWithLayout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                         QueryError *status, bool sharedFieldCFs);
 
 /**
  * Convert an IndexSpec to its RDB serialized form, by calling the `IndexSpecType` rdb_save function.

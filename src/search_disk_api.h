@@ -191,6 +191,7 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedName Obfuscated name of the index (for logging)
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type
+   * @param sharedFieldCFs Saved schema layout choice; false uses per-field column families.
    * @param deleteBeforeOpen If true, delete any existing data before opening
    * @param fields Borrowed schema declarations, used to open CFs with their final options.
    * @param numFields Number of declarations in fields.
@@ -203,13 +204,11 @@ typedef struct BasicDiskAPI {
    * @note This both opens the database and registers it with Redis BigModule APIs.
    *       Registration is atomic with creation; there is no separate register step.
    */
-  RedisSearchDiskIndexSpec *(*openIndexSpec)(RedisModuleCtx *ctx, RedisSearchDisk *disk,
-                                             const HiddenString *indexName,
-                                             const char *obfuscatedName, size_t obfuscatedNameLen,
-                                             DocumentType type, bool deleteBeforeOpen,
-                                             const SearchDiskField *fields, size_t numFields,
-                                             const SearchDiskCompactionCallbacks *callbacks,
-                                             void *private_data);
+  RedisSearchDiskIndexSpec *(*openIndexSpec)(
+      RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
+      const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type, bool sharedFieldCFs,
+      bool deleteBeforeOpen, const SearchDiskField *fields, size_t numFields,
+      const SearchDiskCompactionCallbacks *callbacks, void *private_data);
   /**
    * @brief Close an index spec
    * @param disk Pointer to the disk context (for cleanup of index metrics)
@@ -290,6 +289,7 @@ typedef struct BasicDiskAPI {
    * @param obfuscatedName Obfuscated name of the index (for logging)
    * @param obfuscatedNameLen Length of the obfuscated name
    * @param type Document type for this index
+   * @param sharedFieldCFs Saved schema layout choice; false uses per-field column families.
    * @param rdbState Temporary RDB state from loadRdbToTempObject (will be consumed)
    * @param fields Borrowed schema declarations, used to open CFs with their final options.
    * @param numFields Number of declarations in fields.
@@ -301,7 +301,7 @@ typedef struct BasicDiskAPI {
    */
   RedisSearchDiskIndexSpec *(*openIndexSpecWithRdbState)(
       RedisModuleCtx *ctx, RedisSearchDisk *disk, const HiddenString *indexName,
-      const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type,
+      const char *obfuscatedName, size_t obfuscatedNameLen, DocumentType type, bool sharedFieldCFs,
       RedisSearchDiskRdbState *rdbState, const SearchDiskField *fields, size_t numFields,
       const SearchDiskCompactionCallbacks *callbacks, void *private_data);
 
