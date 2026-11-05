@@ -24,7 +24,7 @@ from common import *
 # frontend is likewise in-place -- hence the `WORKERS DRAIN` after loading.
 
 DIM = 4
-MODULE_ARGS = 'WORKERS 1 FORK_GC_RUN_INTERVAL 50000'
+MODULE_ARGS = 'WORKERS 1 THREAD_GC_RUN_INTERVAL 50000'
 
 def _blob(fill):
     return create_np_array_typed([fill] * DIM, 'FLOAT32').tobytes()

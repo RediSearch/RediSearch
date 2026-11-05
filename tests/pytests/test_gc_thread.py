@@ -24,7 +24,7 @@ def thread_gc_env(module_args='', fresh=False):
     # other tests rely on asks for a server of its own.
     env = Env(moduleArgs=f'GC_POLICY THREAD {module_args}',
               freshEnv=fresh)
-    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', 0).ok()
     return env
 
 
@@ -75,7 +75,7 @@ def testThreadGCCollectsEveryIndexKindWithoutForking():
 def testThreadGCConsecutiveCyclesCollectWhatWasDeletedSince():
     """Each cycle works off the IDs deleted since the previous one and must leave exactly the
     surviving documents' postings."""
-    env = thread_gc_env('FORK_GC_RUN_INTERVAL 3600')
+    env = thread_gc_env('THREAD_GC_RUN_INTERVAL 3600')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'INDEXALL', 'ENABLE', *SCHEMA).ok()
     waitForIndex(env, 'idx')
@@ -153,7 +153,7 @@ def testThreadPolicyIsTakenAtLoad():
     """GC_POLICY THREAD is taken at load as given, reported by FT.CONFIG, and its cycles do not
     fork."""
     env = Env(moduleArgs='GC_POLICY THREAD')
-    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', 0).ok()
     env.assertEqual(env.cmd(config_cmd(), 'GET', 'GC_POLICY'), [['GC_POLICY', 'thread']])
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
@@ -166,11 +166,11 @@ def testThreadPolicyIsTakenAtLoad():
     env.assertEqual(total_forks(env), forks_before)
     env.assertEqual(int(to_dict(index_info(env, 'idx')['gc_stats'])['total_cycles']), 1)
 
-def threshold_env(module_args, ratio_ppm):
-    """100 documents under a 1 s GC interval, FORK_GC_CLEAN_THRESHOLD 1 and the given
+def threshold_env(policy, ratio_ppm):
+    """100 documents under `policy` with a 1 s GC interval, a clean threshold of 1 and the given
     search-gc-clean-ratio-ppm. Returns the env, a connection and a cycle counter."""
-    env = Env(moduleArgs=f'FORK_GC_RUN_INTERVAL 1 {module_args}', freshEnv=True)
-    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 1).ok()
+    env = Env(moduleArgs=f'GC_POLICY {policy} {policy}_GC_RUN_INTERVAL 1', freshEnv=True)
+    env.expect(config_cmd(), 'SET', f'{policy}_GC_CLEAN_THRESHOLD', 1).ok()
     env.expect('CONFIG', 'SET', 'search-gc-clean-ratio-ppm', ratio_ppm).ok()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
@@ -190,8 +190,8 @@ def wait_for_scheduled_cycle(total_cycles):
 @skip(cluster=True)
 def testThreadGCThresholdGrowsWithTheIndex():
     """A scheduled THREAD cycle waits for search-gc-clean-ratio-ppm of the index's live documents
-    to be deleted, not just FORK_GC_CLEAN_THRESHOLD."""
-    env, conn, total_cycles = threshold_env('', 100_000)
+    to be deleted, not just THREAD_GC_CLEAN_THRESHOLD."""
+    env, conn, total_cycles = threshold_env('THREAD', 100_000)
 
     # 5 deletions leave 95 documents, whose 10% is 9.
     for i in range(5):
@@ -206,8 +206,8 @@ def testThreadGCThresholdGrowsWithTheIndex():
 
 @skip(cluster=True)
 def testThreadGCZeroRatioWaitsForTheCleanThresholdOnly():
-    """search-gc-clean-ratio-ppm 0 leaves a scheduled THREAD cycle to FORK_GC_CLEAN_THRESHOLD."""
-    env, conn, total_cycles = threshold_env('', 0)
+    """search-gc-clean-ratio-ppm 0 leaves a scheduled THREAD cycle to THREAD_GC_CLEAN_THRESHOLD."""
+    env, conn, total_cycles = threshold_env('THREAD', 0)
     conn.execute_command('DEL', 'doc:0')
     wait_for_scheduled_cycle(total_cycles)
 
@@ -215,7 +215,7 @@ def testThreadGCZeroRatioWaitsForTheCleanThresholdOnly():
 def testForkGCIgnoresTheCleanRatio():
     """search-gc-clean-ratio-ppm applies to THREAD only; a scheduled FORK cycle waits for
     FORK_GC_CLEAN_THRESHOLD alone."""
-    env, conn, total_cycles = threshold_env('GC_POLICY FORK', 100_000)
+    env, conn, total_cycles = threshold_env('FORK', 100_000)
     conn.execute_command('DEL', 'doc:0')
     wait_for_scheduled_cycle(total_cycles)
 
@@ -364,7 +364,7 @@ def assert_all_indexes_collected(env):
 def testThreadGCWaitForJobsCoversEveryGCThread():
     """GC_WAIT_FOR_JOBS with nothing queued still waits for a cycle running on another GC thread.
     The cycle is parked, so the wait cannot pass by it finishing first."""
-    env = pool_env('FORK_GC_RUN_INTERVAL 1')
+    env = pool_env('THREAD_GC_RUN_INTERVAL 1')
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
 
@@ -449,7 +449,7 @@ def testThreadGCNeverRunsTwoCyclesOfOneIndexAtOnce():
     """Forced runs from many clients and the index's own schedule all target one index while
     several GC threads are free. Deltas address blocks by position, so an overlap would apply
     one cycle's delta to blocks the other already rewrote; the index must stay exact."""
-    env = pool_env('FORK_GC_RUN_INTERVAL 1')
+    env = pool_env('THREAD_GC_RUN_INTERVAL 1')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'INDEXALL', 'ENABLE', *SCHEMA).ok()
     add_docs(conn, 'doc:', 1000)
@@ -484,7 +484,7 @@ def testThreadGCNeverRunsTwoCyclesOfOneIndexAtOnce():
 @skip(cluster=True)
 def testScheduledThreadGCCollectsWithoutForking():
     """The index's own schedule, not only forced runs, collects in-process."""
-    env = thread_gc_env('FORK_GC_RUN_INTERVAL 1')
+    env = thread_gc_env('THREAD_GC_RUN_INTERVAL 1')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
     add_docs(conn, 'doc:', 50)

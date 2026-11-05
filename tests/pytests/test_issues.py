@@ -505,7 +505,7 @@ def test_SkipFieldWithNoMatch(env):
 @skip(cluster=True)
 def test_update_num_terms(env):
   conn = getConnectionByEnv(env)
-  env.cmd(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+  env.cmd(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', '0')
 
   env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
   conn.execute_command('HSET', 'doc1', 't', 'foo')
@@ -899,7 +899,7 @@ def test_mod5252(env):
 @skip(cluster=True)
 def test_mod_6276(env):
   # Setting the gc threshold to 0 so the gc won't skip its periodic run
-  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  env.expect(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', '0').ok()
   # Create an index and add a document + garbage
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   env.expect('HSET', 'doc', 't', 'Hello').equal(1)
@@ -1023,7 +1023,7 @@ def test_mod5910(env):
 
 @skip(cluster=True)
 def test_mod5880(env):
-    env.cmd(config_cmd(), "set", "FORK_GC_CLEAN_THRESHOLD", "0")
+    env.cmd(config_cmd(), "set", "THREAD_GC_CLEAN_THRESHOLD", "0")
     env.cmd("ft.create", "idx", "schema", "t", "TEXT")
 
     env.cmd("HSET", "doc1", "t", "d")
@@ -1413,7 +1413,7 @@ def test_mod_7609(env:Env):
 
 @skip(cluster=True)
 def test_mod_8561(env:Env):
-  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  env.expect(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', '0').ok()
   env.expect('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT').ok()
   env.expect('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TAG').ok()
 
