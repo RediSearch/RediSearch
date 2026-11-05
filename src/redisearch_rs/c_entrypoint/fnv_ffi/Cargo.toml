@@ -6,7 +6,7 @@ license-file.workspace = true
 publish.workspace = true
 
 [lib]
-# This crate has no tests nor benches.
+# The library has no unit tests nor benches; tests/ holds its integration tests.
 # Compiling a no-op bench/test binary can cause linking issues with C.
 test = false
 bench = false
