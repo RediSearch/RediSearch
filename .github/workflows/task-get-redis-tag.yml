@@ -8,11 +8,13 @@ on:
         type: string
         default: ''
       pinned-ref:
-        description: "Redis ref to use instead of the latest release tag. Empty uses the latest release tag."
+        description: "Redis ref override. Empty uses .github/redis-ref or REDIS_REF."
         type: string
-        # TODO: Replace with a released Redis version once one includes the hexpired notification fix
-        # and the OpenSSL 4 tls.c fix (redis/redis#15227).
-        default: 559d143b4e0409c452f7d229ba420954b6b647a2
+        default: ''
+      use-latest-release:
+        description: "Resolve the latest release tag instead of the repository Redis ref."
+        type: boolean
+        default: false
     outputs:
       tag:
         description: "Redis tag or pinned ref"
@@ -20,20 +22,20 @@ on:
 
 jobs:
   pinned-ref:
-    if: ${{ inputs.pinned-ref != '' }}
+    if: ${{ !inputs.use-latest-release }}
     runs-on: ubuntu-slim
     outputs:
-      tag: ${{ steps.redis-ref.outputs.tag }}
+      tag: ${{ steps.resolve-redis-ref.outputs.ref }}
     steps:
-      - id: redis-ref
-        env:
-          PINNED_REDIS_REF: ${{ inputs.pinned-ref }}
-        run: |
-          echo "Using pinned Redis ref: $PINNED_REDIS_REF"
-          echo "tag=$PINNED_REDIS_REF" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - id: resolve-redis-ref
+        uses: ./.github/actions/resolve-redis-ref
+        with:
+          redis-ref: ${{ inputs.pinned-ref }}
+          redis-ref-variable: ${{ vars.REDIS_REF }}
 
   latest-release-tag:
-    if: ${{ inputs.pinned-ref == '' }}
+    if: ${{ inputs.use-latest-release }}
     permissions: {}
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:

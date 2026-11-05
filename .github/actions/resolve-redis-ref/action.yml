@@ -1,0 +1,50 @@
+name: Resolve Redis ref
+description: Resolve the Redis ref from an explicit input, repository variable, or the repository default file.
+
+inputs:
+  redis-ref:
+    description: Explicit Redis ref override.
+    required: false
+    default: ""
+  redis-ref-variable:
+    description: Redis ref override from the caller's REDIS_REF repository variable.
+    required: false
+    default: ""
+
+outputs:
+  ref:
+    description: Resolved Redis ref.
+    value: ${{ steps.resolve.outputs.ref }}
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        INPUT_REDIS_REF: ${{ inputs.redis-ref }}
+        VARIABLE_REDIS_REF: ${{ inputs.redis-ref-variable }}
+      run: |
+        set -euo pipefail
+
+        if [[ -n "$INPUT_REDIS_REF" ]]; then
+          redis_ref="$INPUT_REDIS_REF"
+          source="workflow input"
+        elif [[ -n "$VARIABLE_REDIS_REF" ]]; then
+          redis_ref="$VARIABLE_REDIS_REF"
+          source="REDIS_REF repository variable"
+        else
+          redis_ref="$(< .github/redis-ref)"
+          source=".github/redis-ref"
+        fi
+
+        redis_ref="${redis_ref//$'\n'/}"
+        if [[ -z "$redis_ref" ]]; then
+          echo "Redis ref resolved to an empty value" >&2
+          exit 1
+        fi
+
+        echo "Using Redis ref from $source: $redis_ref"
+        echo "ref=$redis_ref" >> "$GITHUB_OUTPUT"
+        echo "REDIS_REF=$redis_ref" >> "$GITHUB_ENV"
+        echo "REDIS_VER=$redis_ref" >> "$GITHUB_ENV"
