@@ -18,8 +18,8 @@ use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 
 use crate::{
-    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, RQEValidateStatus,
-    ResumeOutcome, SkipToOutcome,
+    RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome,
     boxed::suspend_child_slot_in_place,
     maybe_empty::MaybeEmpty,
     profile_print::{ProfilePrint, ProfilePrintCtx},
@@ -61,7 +61,7 @@ pub struct RawOptionalOptimized<'query, Rf: Ref, W, I> {
     wcii: W,
     /// Query child — provides real hits at positions where it has a match.
     /// Wrapped in [`MaybeEmpty`] so it can be replaced with an empty iterator
-    /// when it is aborted during [`RQEIterator::revalidate`].
+    /// when it is aborted during [`RQESuspendedIterator::resume`].
     child: MaybeEmpty<I>,
     /// Virtual result returned when `wcii` has a doc but `child` does not.
     virt: RawIndexResult<'query, Rf>,
@@ -205,9 +205,9 @@ where
     /// [`Self::weight`] applied when it has one at `doc_id`, otherwise the
     /// virtual sentinel.
     ///
-    /// Shared by `read`, `skip_to`, `revalidate` and the resume path so this
-    /// bookkeeping — in particular applying the optional weight — exists once
-    /// rather than in four copies that can drift apart.
+    /// Shared by `read`, `skip_to` and the resume path so this bookkeeping — in
+    /// particular applying the optional weight — exists once rather than in
+    /// copies that can drift apart.
     ///
     /// `doc_id` must already be within `max_doc_id`; every caller bound-checks
     /// before settling.
@@ -348,86 +348,6 @@ where
         } else {
             SkipToOutcome::NotFound(result)
         }))
-    }
-
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Simple enum to avoid holding a borrow through the match.
-        enum ValidateOutcome {
-            Ok,
-            Moved,
-        }
-
-        // Step 1: Revalidate wcii. If it aborts or is at EOF, we can return immediately.
-        let wcii_outcome = match self.wcii.revalidate(spec)? {
-            RQEValidateStatus::Ok => ValidateOutcome::Ok,
-            RQEValidateStatus::Moved { current: Some(_) } => ValidateOutcome::Moved,
-            RQEValidateStatus::Moved { current: None } => {
-                self.past_end = true;
-                return Ok(RQEValidateStatus::Moved { current: None });
-            }
-            RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
-        };
-        // A wildcard that has run past its end means we have too. Monotonic on
-        // purpose: an iterator that already returned `None` must not be revived by
-        // a wildcard that still has documents beyond `max_doc_id` — `rewind` is
-        // the way to restart one.
-        self.past_end |= self.wcii.at_eof();
-
-        // `last_doc_id` is `None` in the initial/rewound state, which is always
-        // virtual.
-        let current_was_virtual =
-            self.last_doc_id == 0 || self.child.last_doc_id() != self.last_doc_id;
-
-        // Step 2: Revalidate child. If it aborts, replace with an empty iterator.
-        // Abort is treated as Moved: child's state changed, so we must re-evaluate.
-        let child_outcome = match self.child.revalidate(spec)? {
-            RQEValidateStatus::Ok => ValidateOutcome::Ok,
-            RQEValidateStatus::Moved { .. } => ValidateOutcome::Moved,
-            RQEValidateStatus::Aborted => {
-                let _ = self.child.take_iterator(); // replace with Empty
-                ValidateOutcome::Moved
-            }
-        };
-
-        // Step 3: Determine the outcome based on wcii's and child's status.
-        match wcii_outcome {
-            ValidateOutcome::Ok => {
-                if matches!(child_outcome, ValidateOutcome::Ok) || current_was_virtual {
-                    // Child is still valid, or the current result was virtual — no change.
-                    return Ok(RQEValidateStatus::Ok);
-                }
-                // Child moved or aborted while current was a real result.
-                // Advance to the next valid state.
-                let current = self.read()?;
-                Ok(RQEValidateStatus::Moved { current })
-            }
-            ValidateOutcome::Moved => {
-                // A wildcard that moved onto a live document does not revive an
-                // iterator that has already run past its own end — `rewind` is the
-                // way to restart one. Report that, so the status agrees with what
-                // `current()` and `at_eof()` say.
-                if self.past_end {
-                    return Ok(RQEValidateStatus::Moved { current: None });
-                }
-
-                // wcii moved to a new valid position; update child accordingly.
-                let wcii_doc_id = self.wcii.last_doc_id();
-
-                // wcii may have moved past max_doc_id.
-                if wcii_doc_id > self.max_doc_id {
-                    self.past_end = true;
-                    return Ok(RQEValidateStatus::Moved { current: None });
-                }
-
-                let is_real = self.settle_at(wcii_doc_id)?;
-                Ok(RQEValidateStatus::Moved {
-                    current: Some(self.settled_result(is_real)),
-                })
-            }
-        }
     }
 
     #[inline(always)]
@@ -678,9 +598,8 @@ where
         }
 
         // Capture the child's pre-resume position: `current_was_virtual` below
-        // has to be judged against where the child was *before* it resumed, the
-        // way `revalidate` snapshots it before revalidating the child. The read
-        // happens before `self` is consumed by `Box::into_raw`.
+        // has to be judged against where the child was *before* it resumed. The
+        // read happens before `self` is consumed by `Box::into_raw`.
         //
         // No such snapshot is needed for `wcii`: its resumed `current()` answers
         // "did the move land anywhere" directly.
@@ -697,8 +616,8 @@ where
             ResumeOutcome::Moved(w) => (w, true),
         };
 
-        // An aborted query child is replaced by `Empty` (mirroring `revalidate`'s
-        // `take_iterator`) and treated as "moved".
+        // An aborted query child is replaced by `Empty` and treated as "moved":
+        // its documents are gone, so every later position is virtual.
         let child_out = Box::new(child).resume(guard);
         let (child, child_moved_or_aborted) = match child_out? {
             ResumeOutcome::Aborted => (Box::new(MaybeEmpty::new_empty()), true),
@@ -726,7 +645,7 @@ where
         // A wildcard that has run past its end means we have too. OR-ed, not assigned:
         // `past_end` rode along in the whole-box cast, and an iterator that had already
         // run past its own end must not be revived by a wildcard that still has
-        // documents — `rewind` is the way to restart one. This mirrors `revalidate`.
+        // documents — `rewind` is the way to restart one.
         active.past_end |= active.wcii.at_eof();
 
         let current_was_virtual =
@@ -746,9 +665,8 @@ where
 
         // A wildcard that moved onto a live document does not revive an iterator
         // that has already run past its own end — `rewind` is the way to restart
-        // one. Report the move without settling, exactly as `revalidate` does:
-        // settling would drag `last_doc_id` and the child forward on a finished
-        // iterator that `revalidate` leaves untouched.
+        // one. Report the move without settling: settling would drag
+        // `last_doc_id` and the child forward on an iterator that has finished.
         if active.past_end {
             return Ok(ResumeOutcome::Moved(active));
         }

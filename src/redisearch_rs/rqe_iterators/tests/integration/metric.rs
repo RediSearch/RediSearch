@@ -7,11 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use rlookup::RLookupKeyHandle;
+use rqe_iterators::TypeErasedRQEIterator;
 use rqe_iterators::{
-    IteratorType, RQEIterator, RQEValidateStatus,
+    IteratorType, RQEIterator,
     metric::{MetricSortedById, MetricSortedByScore},
 };
-use rqe_iterators_test_utils::ContractChecker;
+use rqe_iterators_test_utils::{ContractChecker, ResumeOutcomeExt, revalidate_via_resume};
 
 #[test]
 fn type_sorted_by_id() {
@@ -293,38 +295,22 @@ mod metrics_tests {
 fn revalidate() {
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let metric_data = vec![0.1, 0.2, 0.3];
-    let mut it = ContractChecker::new(MetricSortedById::new(vec![1, 2, 3], metric_data));
-    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, RQEValidateStatus::Ok);
-}
+    let mut handle = RLookupKeyHandle {
+        key_ptr: std::ptr::null_mut(),
+        is_valid: true,
+    };
+    let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
+    // SAFETY: `handle` is a valid, stack-allocated `RLookupKeyHandle` that outlives `it`.
+    unsafe { it.set_handle(&raw mut handle) };
 
-mod via_resume {
-    use super::*;
-    use rlookup::RLookupKeyHandle;
-    use rqe_iterators::TypeErasedRQEIterator;
-    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+    let _it = revalidate_via_resume(
+        TypeErasedRQEIterator::new(Box::new(it)),
+        &mock_ctx.spec_read(),
+    )
+    .expect("resume should not fail")
+    .expect_ok();
 
-    #[test]
-    fn revalidate() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let metric_data = vec![0.1, 0.2, 0.3];
-        let mut handle = RLookupKeyHandle {
-            key_ptr: std::ptr::null_mut(),
-            is_valid: true,
-        };
-        let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
-        // SAFETY: handle_ptr points to a valid, stack-allocated RLookupKeyHandle.
-        unsafe { it.set_handle(&raw mut handle) };
-
-        let _it = revalidate_via_resume(
-            TypeErasedRQEIterator::new(Box::new(it)),
-            &mock_ctx.spec_read(),
-        )
-        .expect("resume should not fail")
-        .expect_ok();
-
-        assert!(handle.is_valid);
-    }
+    assert!(handle.is_valid);
 }
 
 #[test]

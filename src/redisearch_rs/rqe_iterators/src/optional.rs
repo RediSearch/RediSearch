@@ -15,7 +15,7 @@ use std::cmp;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
@@ -63,7 +63,7 @@ pub struct RawOptional<'query, Rf: Ref, I> {
     /// It is used while it can still produce results. Once exhausted,
     /// the iterator yields virtual results until [`Optional::max_doc_id`] is reached.
     ///
-    /// In case child aborts during [`RQEIterator::revalidate`],
+    /// In case child aborts during [`RQESuspendedIterator::resume`],
     /// this child is turned into [`OptionalChild::Gone`], changed from the
     /// [`OptionalChild::Present`] state it starts at when creating using
     /// [`Optional::new`]. From that point onward all results will be virtual
@@ -93,7 +93,7 @@ pub struct RawOptional<'query, Rf: Ref, I> {
 /// `MaybeEmptyOption` for the same reason.
 #[repr(C)]
 enum OptionalChild<I> {
-    /// Child aborted during [`RQEIterator::revalidate`] (or otherwise gone):
+    /// Child aborted during [`RQESuspendedIterator::resume`] (or otherwise gone):
     /// only virtual results from here on.
     Gone,
     /// Child still producing results.
@@ -311,40 +311,6 @@ where
         Ok(Some(SkipToOutcome::Found(&mut self.result)))
     }
 
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        let Some(child) = self.child.as_mut() else {
-            return Ok(RQEValidateStatus::Ok);
-        };
-        let last_child_doc_id = child.last_doc_id();
-
-        // Revalidate the child iterator
-        match child.revalidate(spec)? {
-            // Abort: Handle child validation results (but continue processing)
-            status @ (RQEValidateStatus::Aborted | RQEValidateStatus::Moved { .. }) => {
-                if matches!(status, RQEValidateStatus::Aborted) {
-                    self.child = OptionalChild::Gone; // Drop it so we become fully virtual until max is reached
-                }
-
-                Ok(if last_child_doc_id != self.result.doc_id {
-                    // virtual
-                    RQEValidateStatus::Ok
-                } else {
-                    // was real before abort, re-read to
-                    // prevent returning stale data.
-                    RQEValidateStatus::Moved {
-                        current: self.read()?,
-                    }
-                })
-            }
-            // If the current result is virtual,
-            // or if the child was not moved, we can return VALIDATE_OK
-            RQEValidateStatus::Ok => Ok(RQEValidateStatus::Ok),
-        }
-    }
-
     #[inline(always)]
     fn rewind(&mut self) {
         self.result.doc_id = 0;
@@ -489,8 +455,8 @@ where
             }
         };
 
-        // Mirror `revalidate`: an aborted child is dropped (`Gone`), leaving us
-        // fully virtual — it never aborts the whole `Optional`.
+        // An aborted child is dropped (`Gone`), leaving us fully virtual — it
+        // never aborts the whole `Optional`.
         let (child_disturbed, last_child_doc_id) = match step {
             ChildResume::Absent => (false, 0),
             ChildResume::Active { last, moved } => (moved, last),
@@ -533,14 +499,13 @@ where
         // `Box::from_raw` reuses the same allocation.
         let mut active = unsafe { Box::from_raw(raw.cast::<Optional<'a, S::Resumed<'a>>>()) };
 
-        // Mirror `revalidate`: a child that aborted or moved forces a re-read
-        // iff the previous result came from the child (its doc id matches the
-        // aggregate's current doc id) rather than being a virtual sentinel.
+        // A child that aborted or moved forces a re-read iff the previous
+        // result came from the child (its doc id matches the aggregate's current
+        // doc id) rather than being a virtual sentinel.
         //
         // The re-read's outcome needs no inspection here: if it ran off the end
-        // it set `past_end`, so `current()` reports no current and the `Moved`
-        // below carries the same "nothing left" signal that `revalidate`'s
-        // `Moved { current: None }` did.
+        // it set `past_end`, so `current()` reports no current, and a `Moved`
+        // with no current is what tells the parent nothing is left.
         let moved = if child_disturbed && last_child_doc_id == active.result.doc_id {
             active.read()?;
             true

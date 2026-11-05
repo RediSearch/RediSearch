@@ -20,7 +20,7 @@ use crate::union::{
 };
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     boxed::{ResumeSlotOutcome, resume_child_slot_in_place},
 };
 use index_spec::IndexSpecReadGuard;
@@ -62,10 +62,9 @@ impl<I> std::ops::DerefMut for IndexedChild<I> {
 /// Rebuilds a union's borrowed entries for the document `result` describes,
 /// when no child changed position since the aggregate was built.
 ///
-/// Shared by [`RQEIterator::revalidate`] and
-/// [`resume`](RQESuspendedIterator::resume), on the exit that publishes the
-/// aggregate without a settle behind it: there, taking each child mutably to
-/// revalidate or resume it has invalidated the entries borrowed from it.
+/// Used by [`resume`](RQESuspendedIterator::resume), on the exit that publishes
+/// the aggregate without a settle behind it: there, taking each child mutably
+/// to resume it has invalidated the entries borrowed from it.
 ///
 /// Children are offered in slot order, the order the read path scans them in,
 /// so a full union's entries come back as
@@ -261,27 +260,8 @@ where
     /// Settles the union's position after its children have moved, and reports where
     /// that leaves it.
     ///
-    /// [`rebuild_unchanged_entries`] on the active union, for the exit of
-    /// [`revalidate`](RQEIterator::revalidate) where no child changed.
-    fn refresh_aggregate(&mut self) -> RebuildOutcome {
-        // SAFETY: the two `Ref` modes of `RawIndexResult` are layout-identical
-        // (the const proof in `index_result`'s core), and viewing the result as
-        // suspended only weakens its pointers. The rebuild derives every entry
-        // afresh from a live borrow of a child this union owns for `'index`, and
-        // nothing takes `&mut` to a child before the result is read back as
-        // active, so the entries are as valid as `push_borrowed` would make
-        // them. `self.result` is a field disjoint from `self.children`.
-        let result =
-            unsafe { &mut *(&raw mut self.result).cast::<RawIndexResult<'index, Suspended>>() };
-        rebuild_unchanged_entries::<_, QUICK_EXIT>(result, &mut self.children)
-    }
-
-    /// The single place that decides a union's post-change position, shared by
-    /// [`RQEIterator::revalidate`] and
-    /// [`RQESuspendedIterator::resume`] so the two
-    /// cannot drift apart — the legacy and the `Box<Self>` path must make the same
-    /// re-seek and moved-versus-unchanged decisions, and a divergence between them is a
-    /// bug. Each caller re-admits every child first (`num_active = children.len()`),
+    /// The single place that decides a union's post-change position on the
+    /// [`RQESuspendedIterator::resume`] path. The caller re-admits every child first (`num_active = children.len()`),
     /// because removing an aborted child invalidates the active/parked partition —
     /// not because a parked child can come back. The scan below re-parks the ones
     /// that are still exhausted.
@@ -326,7 +306,7 @@ where
         // A minimum *behind* the union is not a position to move to — adopting it
         // would replay documents, because a reported move has the caller emit
         // `current` in place of a read and the read after that resumes from there.
-        // A move is forward by contract, and `Not::revalidate` asserts that of its
+        // A move is forward by contract, and `Not`'s resume asserts that of its
         // child — which is where a `QUICK_EXIT` union usually sits.
         //
         // With `QUICK_EXIT` this is the mode's own early return, and routine:
@@ -334,9 +314,9 @@ where
         // an earlier round's id, or answers 0 having never been read at all.
         //
         // A full union cannot get here: `advance_and_find_min` leaves no active
-        // child behind the union, and exhaustion is terminal across a revalidation
-        // *and* a resume (see [`RQEIterator::at_eof`]), so a child dropped on EOF
-        // cannot re-enter the active set behind us on either path. Asserted rather
+        // child behind the union, and exhaustion is terminal across a resume (see
+        // [`RQEIterator::at_eof`]), so a child dropped on EOF cannot re-enter the
+        // active set behind us. Asserted rather
         // than compensated for — the recovery below is quick mode's, and a full
         // union arriving in it means a child is broken.
         if min_doc_id < original_last_doc_id {
@@ -508,9 +488,8 @@ where
     ///
     /// Only [`Self::read_full`] calls this, so no child can be *behind* `current_id`:
     /// full-mode [`read`](RQEIterator::read)/[`skip_to`](RQEIterator::skip_to)
-    /// advance every active child, and neither
-    /// [`revalidate`](RQEIterator::revalidate) nor
-    /// [`resume`](RQESuspendedIterator::resume) can leave one behind the union — a child dropped
+    /// advance every active child, and
+    /// [`resume`](RQESuspendedIterator::resume) cannot leave one behind the union — a child dropped
     /// on EOF stays dropped, since exhaustion is terminal
     /// ([`at_eof`](RQEIterator::at_eof)). A child behind would become the minimum
     /// and hand back a document already delivered, so the invariant is asserted
@@ -891,79 +870,6 @@ where
         self.is_eof
     }
 
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Already at EOF - nothing to do
-        if self.is_eof {
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        let original_last_doc_id = self.last_doc_id();
-        let mut any_change = false;
-
-        // Revalidate ALL children (including exhausted ones past num_active) and remove aborted ones.
-        // The exhausted ones still hold index references, and an aborted one has to go either way —
-        // but they cannot come back active, since exhaustion is terminal (see
-        // [`RQEIterator::at_eof`]).
-        // We use index-based iteration because we need to remove elements while iterating.
-        let mut i = 0;
-        while i < self.children.len() {
-            match self.children[i].revalidate(spec)? {
-                RQEValidateStatus::Aborted => {
-                    // Remove aborted child using swap_remove for O(1) removal.
-                    // Order doesn't matter for union iteration.
-                    self.children.swap_remove(i);
-                    any_change = true;
-                    // Don't increment i - the swapped element needs to be checked
-                }
-                RQEValidateStatus::Moved { .. } => {
-                    any_change = true;
-                    i += 1;
-                }
-                RQEValidateStatus::Ok => {
-                    i += 1;
-                }
-            }
-        }
-
-        // If all children aborted, we abort too (union of nothing is nothing)
-        if self.children.is_empty() {
-            self.is_eof = true;
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        // Both the rebuild below and the settle rebuild the aggregate in place.
-        if !result_is_borrowed_union(&self.result) {
-            return Ok(RQEValidateStatus::Aborted);
-        }
-
-        // Nothing moved or aborted: the children still sit on the positions the
-        // aggregate describes, so it stands, with its entries derived afresh.
-        if !any_change {
-            let rebuilt = self.refresh_aggregate();
-            debug_assert_ne!(
-                rebuilt,
-                RebuildOutcome::Unbacked,
-                "a union whose children all revalidated unchanged cannot lose its aggregate",
-            );
-            if rebuilt == RebuildOutcome::Unbacked {
-                return Ok(RQEValidateStatus::Aborted);
-            }
-            return Ok(RQEValidateStatus::Ok);
-        }
-
-        // Removing an aborted child pulls an arbitrary other one into its slot, so
-        // the active/parked split no longer describes anything: rebuild it from
-        // scratch and let the settle re-park the children that are still exhausted.
-        self.num_active = self.children.len();
-
-        Ok(self
-            .settle_after_children_changed(original_last_doc_id)?
-            .into_validate_status(&mut self.result))
-    }
-
     #[inline(always)]
     fn type_(&self) -> IteratorType {
         IteratorType::Union
@@ -1059,9 +965,9 @@ where
             return Ok(ResumeOutcome::Aborted);
         }
 
-        // The pre-resume position, read off the suspended form. Unlike
-        // `revalidate` there is no is-EOF return before the walk: the suspended
-        // children must be transitioned regardless of the outcome.
+        // The pre-resume position, read off the suspended form. There is no
+        // is-EOF return before the walk: the suspended children must be
+        // transitioned regardless of the outcome.
         let original_last_doc_id = self.result.doc_id;
 
         let raw = Box::into_raw(self);
@@ -1069,7 +975,7 @@ where
         // Resume every child *in place*, including the exhausted tail past
         // `num_active`: the cast below retypes the whole buffer, and [`rewind`]
         // re-admits exhausted children, so none may be left suspended. Aborted
-        // children are removed, as in `revalidate`.
+        // children are removed.
         //
         // [`rewind`]: RQEIterator::rewind
         //
@@ -1126,15 +1032,14 @@ where
             // `Aborted`/`Err`.
             //
             // An `Err` returns through `?`, dropping `shell` — even for a spent
-            // union, which `revalidate` would report `Ok` without asking any
-            // child: the child was consumed, so there is no union left to hand
-            // back. Pinned by `resume_of_a_spent_union_surfaces_a_child_error`.
+            // union, which has nothing left to yield: the child was consumed, so
+            // there is no union left to hand back. Pinned by `resume_of_a_spent_union_surfaces_a_child_error`.
             match unsafe { resume_child_slot_in_place(inner, guard) }? {
                 ResumeSlotOutcome::Unchanged => {}
                 ResumeSlotOutcome::Moved => any_change = true,
                 ResumeSlotOutcome::Aborted => {
-                    // Dropped from the union, as `revalidate` drops an aborted
-                    // child; the hole is compacted over by later survivors.
+                    // Dropped from the union: its state is unrecoverable. The
+                    // hole is compacted over by later survivors.
                     any_change = true;
                     continue;
                 }
@@ -1222,20 +1127,17 @@ where
         // Aborted children shrank the vec; the active region cannot outgrow it.
         active.num_active = active.num_active.min(active.children.len());
 
-        // From here on, mirror `revalidate` decision for decision, in the same
-        // order: a spent union stays spent whatever its children report. Unlike
-        // `revalidate`, its aborted children are already gone, which a later
-        // `rewind` can observe — deliberately, since their state is
-        // unrecoverable. Pinned by
-        // `resume_of_a_spent_union_drops_children_that_revalidate_would_rewind`.
+        // A spent union stays spent whatever its children report. Its aborted
+        // children are already gone, which a later `rewind` can observe —
+        // deliberately, since their state is unrecoverable. Pinned by
+        // `resume_of_a_spent_union_drops_an_aborting_child`.
         if active.is_eof {
             return Ok(ResumeOutcome::Ok(active));
         }
 
         // All children aborted → the union aborts (a union of nothing is
-        // nothing). `revalidate` also sets `is_eof` before reporting `Aborted`;
-        // here the box is dropped instead of handed back, so the flag has no
-        // observer.
+        // nothing). The box is dropped rather than handed back, so `is_eof` is
+        // left alone: it has no observer.
         if active.children.is_empty() {
             return Ok(ResumeOutcome::Aborted);
         }
@@ -1259,7 +1161,7 @@ where
             return Ok(ResumeOutcome::Ok(active));
         }
 
-        // As in `revalidate`: the compaction over an aborted child moved survivors
+        // The compaction over an aborted child moved survivors
         // between the active region and the parked tail, so the split describes
         // nothing until it is rebuilt. The settle re-parks the children that are
         // still exhausted — every one that was, since resume cannot revive them —

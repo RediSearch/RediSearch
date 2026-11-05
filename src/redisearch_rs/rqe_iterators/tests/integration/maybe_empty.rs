@@ -10,10 +10,11 @@
 use rqe_core::DocId;
 use rqe_iterators::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator,
-    maybe_empty::MaybeEmpty,
+    ResumeOutcome, SkipToOutcome, TypeErasedRQEIterator, maybe_empty::MaybeEmpty,
 };
-use rqe_iterators_test_utils::ContractChecker;
+use rqe_iterators_test_utils::{ContractChecker, ResumeOutcomeExt, revalidate_via_resume};
+
+use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
 
 #[derive(Default)]
 #[repr(C)]
@@ -150,13 +151,6 @@ impl<'index> RQEIterator<'index> for Infinite<'index> {
 
     fn at_eof(&self) -> bool {
         false
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(RQEValidateStatus::Ok)
     }
 
     #[inline(always)]
@@ -296,22 +290,6 @@ fn rewind_not_empty() {
 }
 
 #[test]
-fn revalidate_empty() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = ContractChecker::new(MaybeEmpty::<Infinite>::new_empty());
-    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, RQEValidateStatus::Ok);
-}
-
-#[test]
-fn revalidate_not_empty() {
-    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-    let mut it = ContractChecker::new(MaybeEmpty::new(Infinite::default()));
-    let status = it.revalidate(&*mock_ctx.spec_read()).unwrap();
-    assert_eq!(status, RQEValidateStatus::Ok);
-}
-
-#[test]
 fn current_empty_returns_none() {
     let mut it = ContractChecker::new(MaybeEmpty::<Infinite>::new_empty());
     assert!(it.current().is_none());
@@ -346,143 +324,137 @@ fn take_iterator_from_empty_returns_none() {
     assert!(matches!(it.read(), Ok(None)));
 }
 
-mod via_resume {
-    use super::*;
-    use crate::utils::{Mock, MockIteratorError, MockRevalidateResult};
-    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
+#[test]
+fn revalidate_empty() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let it = Box::new(MaybeEmpty::<Infinite>::new_empty());
+    // Resuming an empty wrapper stays at the same (empty) position.
+    revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+        .expect("resume failed")
+        .expect_ok();
+}
 
-    #[test]
-    fn revalidate_empty() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let guard = mock_ctx.spec_read();
-        let it = Box::new(MaybeEmpty::<Infinite>::new_empty());
-        // Resuming an empty wrapper stays at the same (empty) position.
-        revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-            .expect("resume failed")
-            .expect_ok();
-    }
+#[test]
+fn revalidate_not_empty() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let it = Box::new(MaybeEmpty::new(Infinite::default()));
+    // The mock child resumes as `Ok`, so the wrapper does too.
+    revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+        .expect("resume failed")
+        .expect_ok();
+}
 
-    #[test]
-    fn revalidate_not_empty() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let guard = mock_ctx.spec_read();
-        let it = Box::new(MaybeEmpty::new(Infinite::default()));
-        // The mock child resumes as `Ok`, so the wrapper does too.
-        revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-            .expect("resume failed")
-            .expect_ok();
-    }
+/// Regression: both `suspend` and `resume` must **reuse the allocation**.
+/// `MaybeEmpty` delegates `current()`/`read()` into its inline child, so the
+/// FFI's cached `header.current` points into the box; rebuilding via
+/// `Box::new` (the previous `resume`) would move the child and dangle it.
+#[test]
+fn resume_preserves_box_address() {
+    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
 
-    /// Regression: both `suspend` and `resume` must **reuse the allocation**.
-    /// `MaybeEmpty` delegates `current()`/`read()` into its inline child, so the
-    /// FFI's cached `header.current` points into the box; rebuilding via
-    /// `Box::new` (the previous `resume`) would move the child and dangle it.
-    #[test]
-    fn resume_preserves_box_address() {
-        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let it = Box::new(MaybeEmpty::new(Infinite::default()));
+    let addr_before = &*it as *const _ as usize;
 
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let guard = mock_ctx.spec_read();
-        let it = Box::new(MaybeEmpty::new(Infinite::default()));
-        let addr_before = &*it as *const _ as usize;
+    let suspended = it.suspend();
+    assert_eq!(
+        &*suspended as *const _ as usize, addr_before,
+        "suspend must reuse the allocation"
+    );
 
-        let suspended = it.suspend();
-        assert_eq!(
-            &*suspended as *const _ as usize, addr_before,
-            "suspend must reuse the allocation"
-        );
+    let active = match suspended.resume(&guard).expect("resume failed") {
+        ResumeOutcome::Ok(it) | ResumeOutcome::Moved(it) => it,
+        ResumeOutcome::Aborted => panic!("infinite child should not abort"),
+    };
+    assert_eq!(
+        &*active as *const _ as usize, addr_before,
+        "resume must reuse the allocation (MaybeEmpty delegates into its inline child)"
+    );
+}
 
-        let active = match suspended.resume(&guard).expect("resume failed") {
-            ResumeOutcome::Ok(it) | ResumeOutcome::Moved(it) => it,
-            ResumeOutcome::Aborted => panic!("infinite child should not abort"),
-        };
-        assert_eq!(
-            &*active as *const _ as usize, addr_before,
-            "resume must reuse the allocation (MaybeEmpty delegates into its inline child)"
-        );
-    }
+// The local `Infinite` mock always resumes `Ok`/`Unchanged`, so the shared
+// `Mock` (steerable via `MockData`) drives the remaining resume outcomes:
+// Moved, Aborted, and a child-resume error.
 
-    // The local `Infinite` mock always resumes `Ok`/`Unchanged`, so the shared
-    // `Mock` (steerable via `MockData`) drives the remaining resume outcomes:
-    // Moved, Aborted, and a child-resume error.
+/// `Some` child that resumes `Moved` → the wrapper forwards `Moved`.
+#[test]
+fn resume_some_child_moved_forwards_moved() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let child = Mock::new([1, 2, 3]);
+    child
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Move);
+    let it = Box::new(MaybeEmpty::new(child));
 
-    /// `Some` child that resumes `Moved` → the wrapper forwards `Moved`.
-    #[test]
-    fn resume_some_child_moved_forwards_moved() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let guard = mock_ctx.spec_read();
-        let child = Mock::new([1, 2, 3]);
-        child
-            .data()
-            .set_revalidate_result(MockRevalidateResult::Move);
-        let it = Box::new(MaybeEmpty::new(child));
+    let outcome = it.suspend().resume(&guard).expect("resume must not error");
+    assert!(
+        matches!(outcome, ResumeOutcome::Moved(_)),
+        "a child that moved must forward Moved",
+    );
+}
 
-        let outcome = it.suspend().resume(&guard).expect("resume must not error");
-        assert!(
-            matches!(outcome, ResumeOutcome::Moved(_)),
-            "a child that moved must forward Moved",
-        );
-    }
+/// `Some` child that aborts → the whole wrapper aborts (MaybeEmpty has no
+/// virtual fallback); the moved-from child slot is torn down as
+/// `None(Empty)` before the box is freed.
+#[test]
+fn resume_some_child_aborted_forwards_aborted() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let child = Mock::new([1, 2, 3]);
+    child
+        .data()
+        .set_revalidate_result(MockRevalidateResult::Abort);
+    let it = Box::new(MaybeEmpty::new(child));
 
-    /// `Some` child that aborts → the whole wrapper aborts (MaybeEmpty has no
-    /// virtual fallback); the moved-from child slot is torn down as
-    /// `None(Empty)` before the box is freed.
-    #[test]
-    fn resume_some_child_aborted_forwards_aborted() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let guard = mock_ctx.spec_read();
-        let child = Mock::new([1, 2, 3]);
-        child
-            .data()
-            .set_revalidate_result(MockRevalidateResult::Abort);
-        let it = Box::new(MaybeEmpty::new(child));
+    let outcome = it.suspend().resume(&guard).expect("resume must not error");
+    assert!(
+        matches!(outcome, ResumeOutcome::Aborted),
+        "an aborted child must abort the whole MaybeEmpty",
+    );
+}
 
-        let outcome = it.suspend().resume(&guard).expect("resume must not error");
-        assert!(
-            matches!(outcome, ResumeOutcome::Aborted),
-            "an aborted child must abort the whole MaybeEmpty",
-        );
-    }
+/// `Some` child whose resume itself fails → the error propagates out, after
+/// the slot is restored to `None(Empty)` so the box drops soundly.
+#[test]
+fn resume_some_child_error_propagates() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let child = Mock::new([1, 2, 3]);
+    child
+        .data()
+        .set_error_on_resume(Some(MockIteratorError::TimeoutError(None)));
+    let it = Box::new(MaybeEmpty::new(child));
 
-    /// `Some` child whose resume itself fails → the error propagates out, after
-    /// the slot is restored to `None(Empty)` so the box drops soundly.
-    #[test]
-    fn resume_some_child_error_propagates() {
-        let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
-        let guard = mock_ctx.spec_read();
-        let child = Mock::new([1, 2, 3]);
-        child
-            .data()
-            .set_error_on_resume(Some(MockIteratorError::TimeoutError(None)));
-        let it = Box::new(MaybeEmpty::new(child));
+    let result = it.suspend().resume(&guard);
+    assert!(
+        matches!(result, Err(RQEIteratorError::TimedOut)),
+        "a child resume error must propagate out of MaybeEmpty::resume",
+    );
+}
 
-        let result = it.suspend().resume(&guard);
-        assert!(
-            matches!(result, Err(RQEIteratorError::TimedOut)),
-            "a child resume error must propagate out of MaybeEmpty::resume",
-        );
-    }
+/// Suspended-form accessors on the `None` arm: an empty wrapper reports
+/// position 0 and estimate 0 (delegating to `Empty`).
+#[test]
+fn suspended_accessors_none_arm() {
+    let it = Box::new(MaybeEmpty::<Infinite>::new_empty());
+    let suspended = it.suspend();
+    assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 0);
+    assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 0);
+}
 
-    /// Suspended-form accessors on the `None` arm: an empty wrapper reports
-    /// position 0 and estimate 0 (delegating to `Empty`).
-    #[test]
-    fn suspended_accessors_none_arm() {
-        let it = Box::new(MaybeEmpty::<Infinite>::new_empty());
-        let suspended = it.suspend();
-        assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 0);
-        assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 0);
-    }
-
-    /// Suspended-form accessors on the `Some` arm: they delegate to the child's
-    /// suspended accessors.
-    #[test]
-    fn suspended_accessors_some_arm() {
-        let mut it = Box::new(MaybeEmpty::new(Mock::new([10, 20, 30])));
-        let _ = it.read().unwrap(); // advance the child to doc 10
-        let suspended = it.suspend();
-        assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 10);
-        assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 3);
-    }
+/// Suspended-form accessors on the `Some` arm: they delegate to the child's
+/// suspended accessors.
+#[test]
+fn suspended_accessors_some_arm() {
+    let mut it = Box::new(MaybeEmpty::new(Mock::new([10, 20, 30])));
+    let _ = it.read().unwrap(); // advance the child to doc 10
+    let suspended = it.suspend();
+    assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 10);
+    assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 3);
 }
 
 #[test]

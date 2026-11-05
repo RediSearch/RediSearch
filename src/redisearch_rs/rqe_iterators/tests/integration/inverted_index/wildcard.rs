@@ -82,9 +82,13 @@ fn wildcard_empty_index() {
 #[cfg(not(miri))]
 mod not_miri {
     use super::*;
-    use crate::inverted_index::utils::{RevalidateIndexType, RevalidateTest};
+    use crate::inverted_index::utils::{
+        RevalidateIndexType, RevalidateTest, revalidate_after_document_deleted, revalidate_at_eof,
+        revalidate_at_eof_after_gc, revalidate_basic,
+    };
     use inverted_index::opaque::OpaqueEncoding;
-    use rqe_iterators::RQEValidateStatus;
+    use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
+    use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
 
     struct WildcardRevalidateTest {
         test: RevalidateTest,
@@ -118,44 +122,79 @@ mod not_miri {
         }
     }
 
+    /// Test that `reader()` returns a reference to the underlying reader.
+    #[test]
+    fn wildcard_reader_accessor() {
+        let test = WildcardRevalidateTest::new(10);
+        let it = test.create_iterator();
+
+        let reader = it.reader();
+        let ii = DocIdsOnly::from_opaque(test.test.context.wildcard_inverted_index());
+        assert!(reader.points_to_ii(ii));
+    }
+
+    /// The suspended form can no longer read the live count, so it reports the
+    /// one cached at suspend: an index that grew since construction must not see
+    /// its estimate fall back to the construction-time count across an unlock.
+    #[test]
+    fn wildcard_suspend_keeps_the_estimate_the_active_iterator_last_reported() {
+        use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+        let test = WildcardRevalidateTest::new(10);
+        let it = Box::new(test.create_iterator());
+        let constructed = it.num_estimated();
+
+        // Doc ids in this fixture are odd and end at 2 * n_docs + 1; append a
+        // fresh, larger one.
+        DocIdsOnly::from_mut_opaque(test.test.context.wildcard_inverted_index())
+            .add_record(&WildcardRevalidateTest::expected_record(23))
+            .expect("failed to add record");
+        assert_eq!(it.num_estimated(), constructed + 1);
+
+        let suspended = it.suspend();
+        assert_eq!(
+            RQESuspendedIterator::num_estimated(&*suspended),
+            constructed + 1
+        );
+    }
+
     #[test]
     fn wildcard_revalidate_basic() {
         let test = WildcardRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
-        test.test.revalidate_basic(&mut it);
+        let it = test.create_iterator();
+        revalidate_basic(&test.test, Box::new(it));
     }
 
     #[test]
     fn wildcard_revalidate_at_eof() {
         let test = WildcardRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
-        test.test.revalidate_at_eof(&mut it);
+        let it = test.create_iterator();
+        revalidate_at_eof(&test.test, Box::new(it));
     }
 
     #[test]
     fn wildcard_revalidate_at_eof_after_gc() {
         let test = WildcardRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
+        let it = test.create_iterator();
         let ii = DocIdsOnly::from_mut_opaque(test.test.context.wildcard_inverted_index());
 
-        test.test.revalidate_at_eof_after_gc(&mut it, ii);
+        revalidate_at_eof_after_gc(&test.test, Box::new(it), ii);
     }
 
     #[test]
     fn wildcard_revalidate_after_index_disappears() {
         let test = WildcardRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
+        let it = Box::new(test.create_iterator());
 
         // Verify the iterator works normally and read at least one document
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let guard = test.test.context.spec_read();
+        let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
         assert!(it.read().expect("failed to read").is_some());
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let it = revalidate_via_resume(it, &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
 
         // Simulate existingDocs being garbage collected and recreated by
         // pointing spec.existingDocs to a different inverted index.
@@ -170,10 +209,9 @@ mod not_miri {
 
         // Revalidate should return Aborted because existingDocs no longer
         // points to the same index the reader was created from.
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Aborted);
+        let outcome =
+            revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
+        assert!(matches!(outcome, ResumeOutcome::Aborted));
 
         // Restore original existingDocs and free the temporary index for
         // proper cleanup.
@@ -189,10 +227,10 @@ mod not_miri {
     #[test]
     fn wildcard_revalidate_after_document_deleted() {
         let test = WildcardRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
+        let it = test.create_iterator();
         let ii = DocIdsOnly::from_mut_opaque(test.test.context.wildcard_inverted_index());
 
-        test.test.revalidate_after_document_deleted(&mut it, ii);
+        revalidate_after_document_deleted(&test.test, Box::new(it), ii);
     }
 
     /// Test that revalidation returns `Aborted` when `existingDocs` is set to
@@ -200,14 +238,14 @@ mod not_miri {
     #[test]
     fn wildcard_revalidate_after_existing_docs_nulled() {
         let test = WildcardRevalidateTest::new(10);
-        let mut it = ContractChecker::new(test.create_iterator());
+        let mut it = Box::new(test.create_iterator());
 
         // Read at least one document so the iterator has a position.
         assert!(it.read().expect("failed to read").is_some());
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Ok);
+        let guard = test.test.context.spec_read();
+        let it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
+            .expect("resume should not fail in this test")
+            .expect_ok();
 
         // Simulate the garbage collector setting existingDocs to NULL after
         // collecting all documents.
@@ -217,171 +255,15 @@ mod not_miri {
             .spec_write()
             .set_existing_docs_ptr(std::ptr::null_mut());
 
-        let status = it
-            .revalidate(&*test.test.context.spec_read())
-            .expect("revalidate failed");
-        assert_eq!(status, RQEValidateStatus::Aborted);
+        let outcome =
+            revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
+        assert!(matches!(outcome, ResumeOutcome::Aborted));
 
         // Restore for proper cleanup.
         test.test
             .context
             .spec_write()
             .set_existing_docs_ptr(old_existing_docs);
-    }
-
-    /// Test that `reader()` returns a reference to the underlying reader.
-    #[test]
-    fn wildcard_reader_accessor() {
-        let test = WildcardRevalidateTest::new(10);
-        let it = test.create_iterator();
-
-        let reader = it.reader();
-        let ii = DocIdsOnly::from_opaque(test.test.context.wildcard_inverted_index());
-        assert!(reader.points_to_ii(ii));
-    }
-
-    mod via_resume {
-        use super::*;
-        use crate::inverted_index::utils::via_resume::{
-            revalidate_after_document_deleted, revalidate_at_eof, revalidate_at_eof_after_gc,
-            revalidate_basic,
-        };
-        use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
-        use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
-
-        /// The suspended form can no longer read the live count, so it reports the
-        /// one cached at suspend: an index that grew since construction must not see
-        /// its estimate fall back to the construction-time count across an unlock.
-        #[test]
-        fn wildcard_suspend_keeps_the_estimate_the_active_iterator_last_reported() {
-            use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
-
-            let test = WildcardRevalidateTest::new(10);
-            let it = Box::new(test.create_iterator());
-            let constructed = it.num_estimated();
-
-            // Doc ids in this fixture are odd and end at 2 * n_docs + 1; append a
-            // fresh, larger one.
-            DocIdsOnly::from_mut_opaque(test.test.context.wildcard_inverted_index())
-                .add_record(&WildcardRevalidateTest::expected_record(23))
-                .expect("failed to add record");
-            assert_eq!(it.num_estimated(), constructed + 1);
-
-            let suspended = it.suspend();
-            assert_eq!(
-                RQESuspendedIterator::num_estimated(&*suspended),
-                constructed + 1
-            );
-        }
-
-        #[test]
-        fn wildcard_revalidate_basic() {
-            let test = WildcardRevalidateTest::new(10);
-            let it = test.create_iterator();
-            revalidate_basic(&test.test, Box::new(it));
-        }
-
-        #[test]
-        fn wildcard_revalidate_at_eof() {
-            let test = WildcardRevalidateTest::new(10);
-            let it = test.create_iterator();
-            revalidate_at_eof(&test.test, Box::new(it));
-        }
-
-        #[test]
-        fn wildcard_revalidate_at_eof_after_gc() {
-            let test = WildcardRevalidateTest::new(10);
-            let it = test.create_iterator();
-            let ii = DocIdsOnly::from_mut_opaque(test.test.context.wildcard_inverted_index());
-
-            revalidate_at_eof_after_gc(&test.test, Box::new(it), ii);
-        }
-
-        #[test]
-        fn wildcard_revalidate_after_index_disappears() {
-            let test = WildcardRevalidateTest::new(10);
-            let it = Box::new(test.create_iterator());
-
-            // Verify the iterator works normally and read at least one document
-            let guard = test.test.context.spec_read();
-            let mut it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-                .expect("resume should not fail in this test")
-                .expect_ok();
-            assert!(it.read().expect("failed to read").is_some());
-            let it = revalidate_via_resume(it, &guard)
-                .expect("resume should not fail in this test")
-                .expect_ok();
-
-            // Simulate existingDocs being garbage collected and recreated by
-            // pointing spec.existingDocs to a different inverted index.
-            let new_ii =
-                Box::into_raw(Box::new(inverted_index::opaque::InvertedIndex::DocIdsOnly(
-                    inverted_index::InvertedIndex::<DocIdsOnly>::new(IndexFlags_Index_DocIdsOnly),
-                )));
-            let old_existing_docs = test.test.context.spec_read().existing_docs_ptr();
-            test.test
-                .context
-                .spec_write()
-                .set_existing_docs_ptr(new_ii.cast());
-
-            // Revalidate should return Aborted because existingDocs no longer
-            // points to the same index the reader was created from.
-            let outcome =
-                revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
-            assert!(matches!(outcome, ResumeOutcome::Aborted));
-
-            // Restore original existingDocs and free the temporary index for
-            // proper cleanup.
-            test.test
-                .context
-                .spec_write()
-                .set_existing_docs_ptr(old_existing_docs);
-            unsafe {
-                drop(Box::from_raw(new_ii));
-            }
-        }
-
-        #[test]
-        fn wildcard_revalidate_after_document_deleted() {
-            let test = WildcardRevalidateTest::new(10);
-            let it = test.create_iterator();
-            let ii = DocIdsOnly::from_mut_opaque(test.test.context.wildcard_inverted_index());
-
-            revalidate_after_document_deleted(&test.test, Box::new(it), ii);
-        }
-
-        /// Test that revalidation returns `Aborted` when `existingDocs` is set to
-        /// NULL, simulating the garbage collector removing all documents.
-        #[test]
-        fn wildcard_revalidate_after_existing_docs_nulled() {
-            let test = WildcardRevalidateTest::new(10);
-            let mut it = Box::new(test.create_iterator());
-
-            // Read at least one document so the iterator has a position.
-            assert!(it.read().expect("failed to read").is_some());
-            let guard = test.test.context.spec_read();
-            let it = revalidate_via_resume(TypeErasedRQEIterator::new(it), &guard)
-                .expect("resume should not fail in this test")
-                .expect_ok();
-
-            // Simulate the garbage collector setting existingDocs to NULL after
-            // collecting all documents.
-            let old_existing_docs = test.test.context.spec_read().existing_docs_ptr();
-            test.test
-                .context
-                .spec_write()
-                .set_existing_docs_ptr(std::ptr::null_mut());
-
-            let outcome =
-                revalidate_via_resume(it, &guard).expect("resume should not fail in this test");
-            assert!(matches!(outcome, ResumeOutcome::Aborted));
-
-            // Restore for proper cleanup.
-            test.test
-                .context
-                .spec_write()
-                .set_existing_docs_ptr(old_existing_docs);
-        }
     }
 }
 
@@ -403,16 +285,10 @@ fn register_existing_docs(
     opaque
 }
 
-/// Builds a wildcard iterator over `existingDocs`, reads it up to `parked_on`,
-/// then appends `appended` through a `&mut` to the index, as a writer would while
-/// the query has released the spec lock.
-///
-/// The `&mut` invalidates the reference the reader was opened with, so the
-/// iterator only stays sound if revalidation stops reading through it.
-fn wildcard_parked_across_a_write<'index>(
+/// Builds a wildcard iterator over `existingDocs` and reads it up to `parked_on`.
+fn wildcard_parked<'index>(
     opaque: *mut inverted_index::opaque::InvertedIndex,
     parked_on: DocId,
-    appended: DocId,
 ) -> Wildcard<'index, DocIdsOnly> {
     use inverted_index::opaque::OpaqueEncoding;
 
@@ -423,15 +299,25 @@ fn wildcard_parked_across_a_write<'index>(
         let record = it.read().expect("read failed").expect("doc expected");
         assert_eq!(record.doc_id, doc_id);
     }
+    it
+}
 
-    // SAFETY: the iterator is parked, per the revalidation protocol.
+/// Appends `appended` through a `&mut` to the index `opaque` points to, as a
+/// writer would while the query has released the spec lock.
+///
+/// The `&mut` invalidates the reference a reader was opened with, so a
+/// suspended iterator only stays sound if resumption stops reading through it.
+///
+/// # Safety
+///
+/// 1. `opaque` points to a live `DocIdsOnly` index that nothing else borrows.
+unsafe fn append_to(opaque: *mut inverted_index::opaque::InvertedIndex, appended: DocId) {
+    // SAFETY: 1.
     let inverted_index::opaque::InvertedIndex::DocIdsOnly(ii) = (unsafe { &mut *opaque }) else {
         unreachable!("registered as `DocIdsOnly`")
     };
     ii.add_record(&WildcardBaseTest::expected_record(appended))
         .expect("append failed");
-
-    it
 }
 
 /// Unregisters and frees what [`register_existing_docs`] set up: the spec owns
@@ -440,48 +326,28 @@ fn unregister_existing_docs(mock_ctx: &MockContext) {
     mock_ctx.spec_write().clear_existing_docs();
 }
 
-/// A reader revalidated after a write to `existingDocs` must not read through
-/// the pointer it was opened with: the writer's `&mut` invalidated it, even
-/// though the index kept its address and identity. Run under Miri to catch it.
-#[test]
-fn wildcard_revalidate_after_write_reads_through_a_live_pointer() {
-    const N: DocId = 4;
-    let mock_ctx = MockContext::new(N, N as usize);
-    let opaque = register_existing_docs(&mock_ctx, N);
-
-    let mut it = wildcard_parked_across_a_write(opaque, 2, N + 1);
-    let status = it
-        .revalidate(&mock_ctx.spec_read())
-        .expect("revalidate failed");
-    assert!(
-        !matches!(status, rqe_iterators::RQEValidateStatus::Aborted),
-        "`existingDocs` is still the index the reader holds, so it must not abort"
-    );
-    let mut rest = Vec::new();
-    while let Some(record) = it.read().expect("read failed") {
-        rest.push(record.doc_id);
-    }
-    assert_eq!(rest, (3..=N + 1).collect::<Vec<_>>());
-
-    drop(it);
-    unregister_existing_docs(&mock_ctx);
-}
-
-/// The suspend/resume twin of
-/// [`wildcard_revalidate_after_write_reads_through_a_live_pointer`].
+/// A reader resumed after a write to `existingDocs` must not read through the
+/// pointer it was opened with: the writer's `&mut` invalidated it, even though
+/// the index kept its address and identity. Run under Miri to catch it.
 #[test]
 fn wildcard_resume_after_write_reads_through_a_live_pointer() {
     use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
-    use rqe_iterators_test_utils::revalidate_via_resume;
+    use rqe_iterators_test_utils::revalidate_via_resume_across;
 
     const N: DocId = 4;
     let mock_ctx = MockContext::new(N, N as usize);
     let opaque = register_existing_docs(&mock_ctx, N);
 
-    let it = wildcard_parked_across_a_write(opaque, 2, N + 1);
+    let it = wildcard_parked(opaque, 2);
     let guard = mock_ctx.spec_read();
-    let outcome = revalidate_via_resume(TypeErasedRQEIterator::new(Box::new(it)), &guard)
-        .expect("resume failed");
+    // SAFETY: 1 — registered as `DocIdsOnly` above, and the iterator over it is
+    // suspended while the append runs.
+    let outcome = revalidate_via_resume_across(
+        TypeErasedRQEIterator::new(Box::new(it)),
+        &guard,
+        || unsafe { append_to(opaque, N + 1) },
+    )
+    .expect("resume failed");
     let (ResumeOutcome::Ok(mut it) | ResumeOutcome::Moved(mut it)) = outcome else {
         panic!("`existingDocs` is still the index the reader holds, so it must not abort")
     };

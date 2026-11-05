@@ -13,7 +13,7 @@ use std::ptr::NonNull;
 
 use crate::{
     IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
-    RQEValidateStatus, ResumeOutcome, SkipToOutcome,
+    ResumeOutcome, SkipToOutcome,
     id_list::{IdList, RawIdList, SuspendedIdList},
     interop::RQEIteratorWrapper,
     metric_lazy::{MetricLazySortedById, MetricLazySortedByScore},
@@ -260,14 +260,6 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for Metric<'index, SO
     #[inline(always)]
     fn at_eof(&self) -> bool {
         self.base.at_eof()
-    }
-
-    #[inline(always)]
-    fn revalidate(
-        &mut self,
-        spec: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        self.base.revalidate(spec)
     }
 
     #[inline(always)]

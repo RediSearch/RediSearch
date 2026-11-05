@@ -17,10 +17,11 @@ use index_result::{RSIndexResult, RSOffsetSlice, RSQueryTerm, RSTermRecord};
 use index_spec::IndexSpecReadGuard;
 use rqe_iterator_type::IteratorType;
 use rqe_iterators::{
-    IdList, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome, c2rust::CRQEIterator,
-    interop::ProfileChildren, union::Union,
+    IdList, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator, ResumeOutcome,
+    SkipToOutcome, TypeErasedRQEIterator, c2rust::CRQEIterator, interop::ProfileChildren,
+    union::Union,
 };
-use rqe_iterators_test_utils::ContractChecker;
+use rqe_iterators_test_utils::{ContractChecker, ResumeOutcomeExt, revalidate_via_resume};
 use top_k::Ascending;
 use top_k::{
     BatchStrategy, ScoreSource, TopKIterator, TopKMode, mock::MockScoreBatch, mock::MockScoreSource,
@@ -196,7 +197,7 @@ fn drain_scoring_fields<'a>(it: &mut impl RQEIterator<'a>) -> Vec<(DocId, u32, F
 struct TermLeaf<'index> {
     ids: IdList<'index, true>,
     result: RSIndexResult<'index>,
-    abort_on_revalidate: bool,
+    abort_on_resume: bool,
 }
 
 impl TermLeaf<'_> {
@@ -211,15 +212,25 @@ impl TermLeaf<'_> {
                     RSOffsetSlice::from_slice(Self::OFFSETS),
                 )
                 .build(),
-            abort_on_revalidate: false,
+            abort_on_resume: false,
         }
     }
 
-    /// Make [`RQEIterator::revalidate`] report [`RQEValidateStatus::Aborted`], as a leaf
-    /// whose index changed under it does.
-    fn aborting_on_revalidate(mut self) -> Self {
-        self.abort_on_revalidate = true;
+    /// Make [`resume`](RQESuspendedIterator::resume) report [`ResumeOutcome::Aborted`], as a
+    /// leaf whose index changed under it does.
+    fn aborting_on_resume(mut self) -> Self {
+        self.abort_on_resume = true;
         self
+    }
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for TermLeaf<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"TERM_LEAF", map);
     }
 }
 
@@ -256,17 +267,6 @@ impl<'index> RQEIterator<'index> for TermLeaf<'index> {
         }))
     }
 
-    fn revalidate(
-        &mut self,
-        _: &IndexSpecReadGuard,
-    ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        Ok(if self.abort_on_revalidate {
-            RQEValidateStatus::Aborted
-        } else {
-            RQEValidateStatus::Ok
-        })
-    }
-
     fn rewind(&mut self) {
         self.ids.rewind();
     }
@@ -289,6 +289,49 @@ impl<'index> RQEIterator<'index> for TermLeaf<'index> {
 
     fn intersection_sort_weight(&self, _: bool) -> f64 {
         1.0
+    }
+}
+
+impl<'index> RQEIteratorBoxed<'index> for TermLeaf<'index> {
+    type Suspended = Self;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        // Nothing to weaken: the record's offsets borrow `'static` data.
+        self
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for TermLeaf<'query> {
+    type Resumed<'index>
+        = TermLeaf<'index>
+    where
+        'query: 'index;
+
+    fn resume<'index>(
+        self: Box<Self>,
+        _guard: &IndexSpecReadGuard<'index>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'index>>>, RQEIteratorError>
+    where
+        'query: 'index,
+    {
+        if self.abort_on_resume {
+            // Consumed and dropped, as an aborted resume must be.
+            return Ok(ResumeOutcome::Aborted);
+        }
+        // SAFETY: the record's offsets borrow `'static` data and its term is
+        // shared, so re-labelling `'query` as the shorter `'index` narrows a
+        // claim nothing relies on. The allocation is reused, as every resume
+        // must.
+        let resumed = unsafe { Box::from_raw(Box::into_raw(self).cast::<TermLeaf<'index>>()) };
+        Ok(ResumeOutcome::Ok(resumed))
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        RQEIterator::last_doc_id(self)
+    }
+
+    fn num_estimated(&self) -> usize {
+        RQEIterator::num_estimated(self)
     }
 }
 
@@ -1296,7 +1339,7 @@ fn batches_yield_a_copy_of_the_child_term_record() {
     );
 }
 
-/// A union in the filter drops an aborted child during revalidation, and with it the query
+/// A union in the filter drops an aborted child during resume, and with it the query
 /// term that child's leaf owns, while the top-k still holds the records it captured from that
 /// leaf. Reading their terms afterwards must not touch the freed term; run under miri to
 /// check, since outside it a freed term usually still reads back its old values.
@@ -1306,21 +1349,21 @@ fn batches_captured_terms_survive_a_union_dropping_an_aborted_child() {
     let source = MockScoreSource::new(vec![vec![(1, 0.9), (2, 0.5)]], vec![], |_, _| {
         BatchStrategy::Continue
     });
-    // `bar` matches past the batch, so the union is not at EOF when revalidated: a union at
-    // EOF skips revalidating its children.
-    let foo = TermLeaf::new(vec![1, 2], "foo").aborting_on_revalidate();
+    // `bar` matches past the batch, so the union is not at EOF when resumed: a union at
+    // EOF skips resuming its children.
+    let foo = TermLeaf::new(vec![1, 2], "foo").aborting_on_resume();
     let bar = TermLeaf::new(vec![100], "bar");
     let child = Union::new(vec![
-        Box::new(foo) as Box<dyn RQEIterator<'_> + '_>,
-        Box::new(bar),
+        TypeErasedRQEIterator::new(Box::new(foo)),
+        TypeErasedRQEIterator::new(Box::new(bar)),
     ]);
 
-    let mut it = ContractChecker::new_unordered(TopKIterator::new(
+    let mut it = TypeErasedRQEIterator::new(Box::new(TopKIterator::new(
         source,
-        Box::new(child) as Box<dyn RQEIterator<'_> + '_>,
+        child,
         NonZeroUsize::new(10).unwrap(),
         Ascending,
-    ));
+    )));
 
     let mut emitted = Vec::new();
     let mut read_term = |r: &RSIndexResult<'_>| {
@@ -1334,11 +1377,10 @@ fn batches_captured_terms_survive_a_union_dropping_an_aborted_child() {
 
     // The first read collects every match, capturing `foo`'s records.
     read_term(it.read().unwrap().expect("a first match"));
-    assert_eq!(
-        it.revalidate(&mock_ctx.spec_read()).unwrap(),
-        RQEValidateStatus::Ok,
-        "the union survives on `bar`, so the top-k carries on",
-    );
+    // The union survives on `bar`, so the top-k carries on.
+    let mut it = revalidate_via_resume(it, &mock_ctx.spec_read())
+        .unwrap()
+        .expect_ok();
     while let Some(r) = it.read().unwrap() {
         read_term(r);
     }

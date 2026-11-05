@@ -39,9 +39,9 @@ use rqe_iterators::{IteratorType, RQEIterator, WildcardIterator};
 /// reference counted cell.  Test code can obtain a handle to this
 /// state through [`Mock::data`] in order to:
 ///
-/// * Inspect how many times [`RQEIterator::revalidate`] was called.
+/// * Inspect how many times the suspended mock was resumed.
 /// * Inspect how many times [`RQEIterator::read`] was called.
-/// * Configure what [`RQEIterator::revalidate`] will return through
+/// * Configure what [`RQESuspendedIterator::resume`](rqe_iterators::RQESuspendedIterator::resume) will report through
 ///   [`MockData::set_revalidate_result`].
 /// * Configure an error that will be returned once the iterator
 ///   reaches the end of the document ids through
@@ -142,8 +142,8 @@ impl MockData {
             delays: Vec::new(),
             force_read_none: false,
             resume_reseeks_past_end: false,
-            revalidate_reseeks_to: None,
             revalidate_moves_in_place: false,
+            forgets_current_after_resume: false,
             drop_count: 0,
         })))
     }
@@ -170,36 +170,24 @@ impl MockData {
         self
     }
 
-    /// Make `revalidate` reproduce an inverted-index re-seek after a GC cycle.
-    ///
-    /// A plain [`MockRevalidateResult::Move`] models a revalidation that steps to
-    /// the next document. The inverted-index iterators do something else: when the
-    /// cached block offset may have been invalidated, `revalidate` *rewinds* and
-    /// then seeks back to the position it held. `rewind` clears the past-the-end
-    /// state, so this resurrects an *exhausted* iterator — it comes back live on
-    /// whatever the seek lands on. That landing is at or after the child's own old
-    /// position, but says nothing about where the parent composite moved to
-    /// meanwhile, which is what makes the state impossible to express with `Move`.
-    ///
-    /// `doc_id` is the document the seek lands on and must be one the mock holds.
-    /// Landing back on the pre-revalidation position reports `Ok` (the seek found
-    /// it); any other landing reports `Moved`.
-    pub fn set_revalidate_reseeks_to(&mut self, doc_id: Option<DocId>) -> &mut Self {
-        self.0.borrow_mut().revalidate_reseeks_to = doc_id;
+    /// Make [`Mock`] answer [`current`](RQEIterator::current) with `None` once it
+    /// has been resumed, whatever its position: a resume that loses the result
+    /// it was positioned on.
+    pub fn set_forgets_current_after_resume(&mut self, forgets: bool) -> &mut Self {
+        self.0.borrow_mut().forgets_current_after_resume = forgets;
         self
     }
 
-    /// Make `revalidate` and `resume` report a move onto the position the mock
-    /// already holds, as an iterator may to hand back a republished result
-    /// object.
+    /// Make `resume` report a move onto the position the mock already holds,
+    /// as an iterator may to hand back a republished result object.
     pub fn set_revalidate_moves_in_place(&mut self, in_place: bool) -> &mut Self {
         self.0.borrow_mut().revalidate_moves_in_place = in_place;
         self
     }
 
-    /// Configure the result that [`Mock::revalidate`] will report.
+    /// Configure the result that resuming the suspended mock will report.
     ///
-    /// This value is read on every call to `revalidate` of the owning
+    /// This value is read on every resume of the owning
     /// iterator.  Tests can update it at any time to change how the
     /// iterator reacts to validation requests.
     pub fn set_revalidate_result(&mut self, result: MockRevalidateResult) -> &mut Self {
@@ -261,10 +249,10 @@ impl MockData {
         self
     }
 
-    /// Number of times [`Mock::revalidate`] was called.
+    /// Number of times the suspended mock was resumed.
     ///
-    /// This counter is incremented whenever the owning iterator calls
-    /// `revalidate` on its child.  Tests use this to assert that a
+    /// This counter is incremented whenever the owning iterator resumes
+    /// its suspended child.  Tests use this to assert that a
     /// particular code path triggers the expected number of validation
     /// attempts.
     pub fn revalidate_count(&self) -> usize {
@@ -320,12 +308,12 @@ struct MockDataInternal {
     /// If true, `resume` rewinds and reports `Moved` past the end — see
     /// [`MockData::set_resume_reseeks_past_end`].
     resume_reseeks_past_end: bool,
-    /// Document `revalidate` rewinds and re-seeks onto — see
-    /// [`MockData::set_revalidate_reseeks_to`].
-    revalidate_reseeks_to: Option<DocId>,
-    /// If true, `revalidate` reports `Moved` without moving — see
+    /// If true, `resume` reports a move without moving — see
     /// [`MockData::set_revalidate_moves_in_place`].
     revalidate_moves_in_place: bool,
+    /// If true, [`Mock::current`] answers `None` after a resume — see
+    /// [`MockData::set_forgets_current_after_resume`].
+    forgets_current_after_resume: bool,
     /// Number of [`Mock`] values dropped — see [`MockData::drop_count`].
     drop_count: usize,
 }
@@ -344,8 +332,8 @@ impl MockDataInternal {
     }
 }
 
-/// Result configured through [`MockData`] that controls what
-/// [`Mock::revalidate`] reports.
+/// Result configured through [`MockData`] that controls what resuming the
+/// suspended mock reports.
 ///
 /// The enum mirrors the conceptual outcomes of validation that are
 /// relevant for the higher level iterators under test.
@@ -470,7 +458,11 @@ impl<const N: usize> Drop for Mock<'_, N> {
 
 impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
-        if self.past_end() {
+        let forgotten = {
+            let data = self.data.0.borrow();
+            data.forgets_current_after_resume && data.validation_count > 0
+        };
+        if forgotten || self.past_end() {
             return None;
         }
         Some(&mut self.result)
@@ -526,7 +518,7 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
         // violation, mirroring the real iterator's
         // `debug_assert!(self.last_doc_id() < doc_id)` (see
         // `rqe_iterators::inverted_index::core`). Resume-driven re-skips
-        // `rewind()` first — exactly like the real `revalidate` path — so they
+        // `rewind()` first — exactly like a real iterator's resume — so they
         // never target the current position.
         debug_assert!(
             self.last_doc_id() < doc_id,
@@ -564,77 +556,6 @@ impl<'index, const N: usize> RQEIterator<'index> for Mock<'index, N> {
                 rqe_iterators::SkipToOutcome::NotFound(result)
             }
         }))
-    }
-
-    fn revalidate(
-        &mut self,
-        _spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        let (revalidate_result, reseeks_to, moves_in_place) = {
-            let mut data = self.data.0.borrow_mut();
-            data.validation_count += 1;
-            (
-                data.revalidate_result,
-                data.revalidate_reseeks_to,
-                data.revalidate_moves_in_place,
-            )
-        };
-
-        // A failing outcome ends the call before any of the repositioning below: it leaves the
-        // iterator indeterminate, which is exactly what the caller is told by the `Err`.
-        if let Some(err) = revalidate_result.as_error() {
-            return Err(err);
-        }
-
-        if moves_in_place && !self.past_end() {
-            return Ok(rqe_iterators::RQEValidateStatus::Moved {
-                current: Some(&mut self.result),
-            });
-        }
-
-        // Rewind-and-re-seek takes precedence: it describes the whole outcome,
-        // including where the mock ends up. See
-        // [`MockData::set_revalidate_reseeks_to`].
-        if let Some(target) = reseeks_to {
-            let index = self
-                .doc_ids
-                .iter()
-                .position(|&id| id == target)
-                .expect("the re-seek target must be one of the mock's documents");
-            let was_at = self.last_doc_id();
-            self.set_result(index);
-            self.next_index = index + 1;
-
-            return Ok(if target == was_at {
-                rqe_iterators::RQEValidateStatus::Ok
-            } else {
-                rqe_iterators::RQEValidateStatus::Moved {
-                    current: Some(&mut self.result),
-                }
-            });
-        }
-
-        Ok(match revalidate_result {
-            MockRevalidateResult::Ok => rqe_iterators::RQEValidateStatus::Ok,
-            MockRevalidateResult::Abort => rqe_iterators::RQEValidateStatus::Aborted,
-            MockRevalidateResult::Move => {
-                if self.next_index < N {
-                    // Simulate a move by incrementing nextIndex
-                    self.set_result(self.next_index);
-                    self.next_index += 1;
-                    rqe_iterators::RQEValidateStatus::Moved {
-                        current: Some(&mut self.result),
-                    }
-                } else {
-                    // The move ran off the end, leaving the iterator unpositioned.
-                    self.next_index = past_end_cursor(N);
-                    rqe_iterators::RQEValidateStatus::Moved { current: None }
-                }
-            }
-            MockRevalidateResult::TimedOut | MockRevalidateResult::IoError => {
-                unreachable!("failing outcomes returned above")
-            }
-        })
     }
 
     fn rewind(&mut self) {
@@ -750,9 +671,7 @@ impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for Moc
         'query: 'a,
     {
         // Honour the [`MockRevalidateResult`] configured on the mock's
-        // [`MockData`] — mirrors what `Mock::revalidate` does on the legacy
-        // path, so tests driving suspend/resume see the same per-mock
-        // outcomes as before.
+        // [`MockData`].
         let (revalidate_result, resume_error, reseeks_past_end, moves_in_place) = {
             let mut data = self.data.0.borrow_mut();
             data.validation_count += 1;
@@ -798,9 +717,8 @@ impl<'query, const N: usize> rqe_iterators::RQESuspendedIterator<'query> for Moc
             MockRevalidateResult::Move => {
                 if self.next_index < N {
                     // Rebuild the full result (doc_id + offsets for positioned
-                    // mocks), mirroring `Mock::set_result` on the legacy
-                    // `revalidate` path. Without this, positioned mocks would
-                    // carry stale offsets after a resume-driven move.
+                    // mocks). Without this, positioned mocks would carry stale
+                    // offsets after a resume-driven move.
                     let index = self.next_index;
                     let doc_id = self.doc_ids[index];
                     if let Some(positions) = self.positions {
@@ -995,45 +913,6 @@ impl<'index> RQEIterator<'index> for MockVec<'index> {
         }))
     }
 
-    fn revalidate(
-        &mut self,
-        _spec: &index_spec::IndexSpecReadGuard,
-    ) -> Result<rqe_iterators::RQEValidateStatus<'_, 'index>, rqe_iterators::RQEIteratorError> {
-        let revalidate_result = {
-            let mut data = self.data.0.borrow_mut();
-            data.validation_count += 1;
-            data.revalidate_result
-        };
-
-        // See `Mock::revalidate`: a failing outcome ends the call, leaving the iterator
-        // indeterminate.
-        if let Some(err) = revalidate_result.as_error() {
-            return Err(err);
-        }
-
-        let n = self.doc_ids.len();
-        Ok(match revalidate_result {
-            MockRevalidateResult::Ok => rqe_iterators::RQEValidateStatus::Ok,
-            MockRevalidateResult::Abort => rqe_iterators::RQEValidateStatus::Aborted,
-            MockRevalidateResult::Move => {
-                if self.next_index < n {
-                    self.result.doc_id = self.doc_ids[self.next_index];
-                    self.next_index += 1;
-                    rqe_iterators::RQEValidateStatus::Moved {
-                        current: Some(&mut self.result),
-                    }
-                } else {
-                    // The move ran off the end, leaving the iterator unpositioned.
-                    self.next_index = past_end_cursor(n);
-                    rqe_iterators::RQEValidateStatus::Moved { current: None }
-                }
-            }
-            MockRevalidateResult::TimedOut | MockRevalidateResult::IoError => {
-                unreachable!("failing outcomes returned above")
-            }
-        })
-    }
-
     fn rewind(&mut self) {
         self.next_index = 0;
         self.result.doc_id = 0;
@@ -1122,9 +1001,7 @@ impl<'query> rqe_iterators::RQESuspendedIterator<'query> for MockVecSuspended {
         'query: 'a,
     {
         // Honour the [`MockRevalidateResult`] configured on the mock's
-        // [`MockData`] — mirrors what `MockVec::revalidate` does on the legacy
-        // path, so tests driving suspend/resume see the same per-mock
-        // outcomes as before.
+        // [`MockData`].
         let (revalidate_result, resume_error) = {
             let mut data = self.data.0.borrow_mut();
             data.validation_count += 1;
@@ -1145,8 +1022,7 @@ impl<'query> rqe_iterators::RQESuspendedIterator<'query> for MockVecSuspended {
             MockRevalidateResult::Ok => false,
             MockRevalidateResult::Move => {
                 if self.next_index < self.doc_ids.len() {
-                    // Mirror `MockVec::revalidate`'s Move path: advance to the
-                    // next doc id. `MockVec` results are always virtual (no
+                    // Advance to the next doc id. `MockVec` results are always virtual (no
                     // offsets), so setting `doc_id` alone is sufficient.
                     self.result.doc_id = self.doc_ids[self.next_index];
                     self.next_index += 1;
