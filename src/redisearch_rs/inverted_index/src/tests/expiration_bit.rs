@@ -418,11 +418,15 @@ fn expiration_bit_survives_block_compaction() {
 
     // The first two blocks keep a tenth of their entries, which fit one block.
     let live = |doc_id: DocId| doc_id > 2 * per_block || doc_id % 10 == 0;
-    let delta = ii
-        .scan_gc(live, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
-        .expect("scan_gc ok")
-        .expect("scan_gc found entries to remove");
-    ii.apply_gc(delta);
+    // The first cycle removes the dead entries block by block; the next packs the two
+    // blocks it left under-filled.
+    for _ in 0..2 {
+        let delta = ii
+            .scan_gc(live, None::<fn(&RSIndexResult, &RepairContext<'_>)>)
+            .expect("scan_gc ok")
+            .expect("scan_gc found work");
+        ii.apply_gc(delta);
+    }
     assert_eq!(
         ii.number_of_blocks(),
         2,
