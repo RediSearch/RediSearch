@@ -1293,6 +1293,31 @@ impl TestContext {
         }
     }
 
+    /// Arm a blocked-client cycle whose cancellation marker is already
+    /// published, which is what `buildPipelineAndExecute` selects for a
+    /// background query under `ON_TIMEOUT FAIL` or `RETURN_STRICT`.
+    ///
+    /// Such a cycle carries no deadline, so a reader of the clock deadline sees
+    /// nothing to enforce and only the marker says the client is gone.
+    pub fn set_blocked_client_cancelled(&mut self) {
+        let request_timeout = self.timeout.get_or_insert_with(|| {
+            // SAFETY: all-zero is the valid UNARMED representation. The active kind
+            // and the marker are initialized below before exposure through `sctx`.
+            Box::new(unsafe { std::mem::zeroed::<ffi::QueryRequestLimits>() })
+        });
+
+        request_timeout.timeout.kind =
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
+
+        // SAFETY: `request_timeout` and `self.sctx` are exclusively owned by this
+        // context, and `kind` selects the union's marker member. The boxed limits
+        // remain at a stable address until after `sctx` is freed.
+        unsafe {
+            request_timeout.timeout.source.blockedClientTimedOut = true;
+            self.sctx.as_mut().limits = request_timeout.as_mut();
+        }
+    }
+
     /// Mark the given field of the given documents as expired.
     ///
     /// Sets the field expiration time to the past and the current query time
