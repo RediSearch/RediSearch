@@ -321,13 +321,22 @@ def test_oom_stop_on_shards_reaches_the_coordinator(env):
              'MEMORY_CHECKPOINT', 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 2]
 
     try:
-        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+        # The coordinator's process reads memory in its own shard stream, so only the other shards
+        # are armed; the coordinator's shard replies its rows.
+        remote_shards = [env.getConnection(i) for i in range(2, env.shardsCount + 1)]
+
+        def arm_remote_shards():
+            for conn in remote_shards:
+                conn.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+
+        arm_remote_shards()
         res = env.cmd(*query)
-        env.assertEqual(res['results'], [], message=res)
+        local_docs = env.getConnection(1).execute_command('KEYS', '*')
+        env.assertEqual(len(res['results']), len(local_docs), message=res)
         env.assertEqual(res['warning'], [COORD_OOM_WARNING])
 
         allShards_change_oom_policy(env, 'fail')
-        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
+        arm_remote_shards()
         env.expect(*query).error().contains(OOM_QUERY_ERROR)
         allShards_change_oom_policy(env, 'return')
 

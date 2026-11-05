@@ -21,6 +21,8 @@
 #include "redismodule.h"
 #include "rmr/rmr.h"
 #include "rmutil/rm_assert.h"
+#include "query_memory.h"
+#include "debug_commands.h"
 
 static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *ctx, bool shardTimedOut);
 
@@ -168,6 +170,22 @@ void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
         // condition with the coordinator thread that might reset the shared timedOut flag.
         shardTimedOut = true;
       }
+    }
+  }
+
+  // Without a cursor every reply is resent at once, so replies pile up in the channel while the
+  // reader is slower than the shards: read memory once per reply, and on pressure stop resending.
+  // This reply is kept; the reader stops its request.
+  MRIteratorCtx *itCtx = MRIteratorCallback_GetCtx(ctx);
+  if (cursorId != CURSOR_EOF && !cmd->forCursor && !cmd->forProfiling &&
+      MRIteratorCallback_HasMemoryCheckpoint(ctx) && !MRIteratorCallback_GetTimedOut(itCtx)) {
+#ifdef ENABLE_ASSERT
+    SyncPoint_Wait(SYNC_POINT_BEFORE_CURSOR_RESEND_CHECKPOINT);
+    // A shard's later reads only, not its first reply.
+    if (cmd->rootCommand == C_READ) SyncPoint_Wait(SYNC_POINT_BEFORE_FOLLOW_UP_RESEND_CHECKPOINT);
+#endif
+    if (QueryMemory_CheckpointExact(NULL)) {
+      MRIteratorCallback_SetMemoryStopped(ctx);
     }
   }
 
