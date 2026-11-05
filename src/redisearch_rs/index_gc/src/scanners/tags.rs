@@ -145,7 +145,7 @@ impl TagSnapshot {
 /// Scan failures skip the tag, leaving it for the next GC cycle. Write errors are
 /// surfaced so the caller can terminate the child process.
 ///
-/// `live` says which documents are gone.
+/// `live` says which documents still exist; see [`DocLiveness`].
 pub fn collect_tags(
     writer: &mut impl Write,
     spec: &IndexSpecReadGuard,

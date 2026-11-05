@@ -42,7 +42,7 @@ pub struct MissingDocsEntry {
 /// cycle). Write errors are surfaced to the caller so they can terminate the
 /// child process.
 ///
-/// `live` says which documents are gone.
+/// `live` says which documents still exist; see [`DocLiveness`].
 ///
 /// [`GcScanDelta`]: inverted_index::GcScanDelta
 pub fn collect_missing_docs(
