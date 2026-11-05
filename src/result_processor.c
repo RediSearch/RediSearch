@@ -267,14 +267,22 @@ static bool diskDmdIsVisible(IndexSpec *spec, const RSDocumentMetadata *dmd) {
  * Validate DMD against sharding/slot filters.
  * Returns true if DMD is valid, false if it should be skipped.
  */
-static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadata *dmd) {
+static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadata *dmd,
+                            bool isProfiled) {
   // Defensive check: if keyPtr is NULL (allocation failure in disk API), skip this document
   if (!dmd->keyPtr) {
     return false;
   }
 
   IndexSpec *spec = self->sctx->spec;
-  if (spec->diskSpec && !diskDmdIsVisible(spec, dmd)) return false;
+  if (spec->diskSpec && !diskDmdIsVisible(spec, dmd)) {
+    if (isProfiled) {
+      RPQueryIteratorProfiled *profiled = (RPQueryIteratorProfiled *)self;
+      profiled->candidatesNotDiscarded--;
+      profiled->deletedCandidatesDiscarded++;
+    }
+    return false;
+  }
 
   // Check trimming (sharding migration)
   if (isTrimming && RedisModule_ShardingGetKeySlot) {
@@ -446,7 +454,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
       continue;
     }
 
-    if (!validateDmdSlot(self, dmd)) {
+    if (!validateDmdSlot(self, dmd, isProfiled)) {
       DMD_Return(dmd);
       continue;
     }
@@ -510,7 +518,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
     if (indexResult) {
       RS_ASSERT(indexResult->dmd);  // DMD should be populated
 
-      if (!validateDmdSlot(self, indexResult->dmd)) {
+      if (!validateDmdSlot(self, indexResult->dmd, isProfiled)) {
         DMD_Return(indexResult->dmd);
         // Free the deep-copied IndexResult since we're not using it
         IndexResult_Free(indexResult);
