@@ -1127,25 +1127,6 @@ CONFIG_GETTER(getForkGcCleanThreshold) {
   return sdscatprintf(ss, "%lu", config->gcConfigParams.gcSettings.forkGcCleanThreshold);
 }
 
-// _GC_THREADS
-CONFIG_SETTER(setGcThreads) {
-  size_t threads;
-  int acrc = AC_GetSize(ac, &threads, AC_F_GE1);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (threads > MAX_GC_THREADS) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
-                                     "_GC_THREADS must be at most %d", MAX_GC_THREADS);
-    return REDISMODULE_ERR;
-  }
-  config->gcConfigParams.gcThreads = threads;
-  return REDISMODULE_OK;
-}
-
-CONFIG_GETTER(getGcThreads) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%zu", config->gcConfigParams.gcThreads);
-}
-
 // FORK_GC_RETRY_INTERVAL
 CONFIG_SETTER(setForkGcRetryInterval) {
   int acrc = AC_GetSize(ac, &config->gcConfigParams.gcSettings.forkGcRetryInterval, AC_F_GE1);
