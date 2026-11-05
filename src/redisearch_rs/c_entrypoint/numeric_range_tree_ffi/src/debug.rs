@@ -24,7 +24,7 @@ use redis_module::RedisModuleCtx;
 ///
 /// # Safety
 ///
-/// - `ctx` must be a [valid] Redis module context.
+/// - `ctx` must be a non-null, [valid] pointer to a Redis module context.
 /// - `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -50,7 +50,7 @@ pub unsafe extern "C" fn NumericRangeTree_DebugSummary(
 ///
 /// # Safety
 ///
-/// - `ctx` must be a [valid] Redis module context.
+/// - `ctx` must be a non-null, [valid] pointer to a Redis module context.
 /// - `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -77,7 +77,7 @@ pub unsafe extern "C" fn NumericRangeTree_DebugDumpIndex(
 ///
 /// # Safety
 ///
-/// - `ctx` must be a [valid] Redis module context.
+/// - `ctx` must be a non-null, [valid] pointer to a Redis module context.
 /// - `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

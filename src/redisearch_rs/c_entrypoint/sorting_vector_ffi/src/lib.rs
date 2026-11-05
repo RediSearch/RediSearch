@@ -247,8 +247,8 @@ pub unsafe extern "C" fn RSSortingVector_ClearAndDeAlloc(vec: *mut RSSortingVect
 ///
 /// # Safety
 ///
-/// 1. `rdb` must be a [valid] pointer to the [`RedisModuleIO`] of the RDB load in
-///    progress.
+/// 1. `rdb` must be a non-null, [valid] pointer to the [`RedisModuleIO`] of the RDB
+///    load in progress.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

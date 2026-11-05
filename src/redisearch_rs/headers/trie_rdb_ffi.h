@@ -53,7 +53,7 @@ struct LexTrieRs *LexTrieRs_New(void);
  *
  * # Safety
  *
- * - `io` must be a [valid] `*mut RedisModuleIO` supplied by the calling
+ * - `io` must be a non-null, [valid] `*mut RedisModuleIO` supplied by the calling
  *   Redis module type loader and remain [valid] for the duration of the
  *   call.
  *
@@ -70,7 +70,7 @@ struct LexTrieRs *LexTrieRs_RdbLoad(struct RedisModuleIO *io, bool load_payloads
  *
  * # Safety
  *
- * - `io` must be a [valid] `*mut RedisModuleIO` supplied by the calling
+ * - `io` must be a non-null, [valid] `*mut RedisModuleIO` supplied by the calling
  *   Redis module command and remain [valid] for the duration of the call.
  * - `map` must be a [valid] pointer to a [`LexTrieRs`] (typically obtained
  *   from [`LexTrieRs_New`] / [`LexTrieRs_RdbLoad`]). It is borrowed

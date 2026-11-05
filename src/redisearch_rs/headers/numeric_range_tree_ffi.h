@@ -170,7 +170,7 @@ size_t NumericRangeTree_BaseSize(void);
  *
  * # Safety
  *
- * - `ctx` must be a [valid] Redis module context.
+ * - `ctx` must be a non-null, [valid] pointer to a Redis module context.
  * - `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -186,7 +186,7 @@ void NumericRangeTree_DebugDumpIndex(struct RedisModuleCtx *ctx, const struct Nu
  *
  * # Safety
  *
- * - `ctx` must be a [valid] Redis module context.
+ * - `ctx` must be a non-null, [valid] pointer to a Redis module context.
  * - `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -201,7 +201,7 @@ void NumericRangeTree_DebugDumpTree(struct RedisModuleCtx *ctx, const struct Num
  *
  * # Safety
  *
- * - `ctx` must be a [valid] Redis module context.
+ * - `ctx` must be a non-null, [valid] pointer to a Redis module context.
  * - `t` must be either NULL or a [valid] pointer to a [`NumericRangeTree`].
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

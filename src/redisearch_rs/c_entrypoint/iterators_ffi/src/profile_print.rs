@@ -95,7 +95,7 @@ pub unsafe extern "C" fn Optimus_PrintProfile(
 ///
 /// # Safety
 ///
-/// 1. `ctx` must be a [valid] [`RedisModuleCtx`] pointer.
+/// 1. `ctx` must be a non-null, [valid] [`RedisModuleCtx`] pointer.
 /// 2. `root` must be null or a [valid] pointer to a [`QueryIterator`] tree
 ///    that has been profile-wrapped via
 ///    [`CRQEIterator::into_profiled`](rqe_iterators::c2rust::CRQEIterator::into_profiled).
