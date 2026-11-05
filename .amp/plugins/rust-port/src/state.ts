@@ -30,6 +30,8 @@ export interface State {
 
 export interface Job {
   owner: string;
+  /** Worker threads that owned the job before {@link Job.owner}: one per stage handed on. */
+  former?: string[];
   plan: Plan;
   /** Evidence and admissions hold only under the plan they were gathered under. */
   planHash: string;
@@ -325,7 +327,7 @@ export function report(state: State): string {
   const lines = [
     '### Run',
     '',
-    `- Started ${job.started}; ${job.used} of ${budget(job)} assessments used, ${job.grants.length} grants.`,
+    `- Started ${job.started}; ${job.used} of ${budget(job)} assessments used, ${job.grants.length} grants, ${(job.former?.length ?? 0) + 1} worker threads.`,
     `- ${stages.join('; ')}.`,
     `- ${findings.length} findings: ${tally((f) => f.source, ['review', 'comment', 'check', 'ci'])}. ` +
       `${confirmed} of ${reviewed} reviewer findings confirmed or citing a rule.`,

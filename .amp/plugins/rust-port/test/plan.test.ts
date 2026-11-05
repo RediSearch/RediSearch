@@ -11,7 +11,8 @@ import { test } from 'node:test';
 import { benchFilter, declarations, pr, STAGES, validate, type Plan } from '../src/plan.ts';
 import { brief, REVIEWERS } from '../src/review.ts';
 
-const LINT = 'make lint && cargo hakari generate --diff && cargo hakari manage-deps --dry-run';
+const LINT =
+  'make lint && make fmt CHECK=1 && cargo hakari generate --diff && cargo hakari manage-deps --dry-run';
 const NOTES = '- [ ] This PR requires release notes\n- [x] This PR does not require release notes';
 const unitsTest = { path: 'tests/pytests/test_geo.py', name: 'testUnits', stage: 'rust' as const };
 const checks = {
@@ -83,7 +84,8 @@ test('a plan needs tested contract items and divergences, and the stage checks',
     'rust needs a bench check running `cargo bench`',
     'swap body needs both release-notes boxes of the PR template, exactly one of them ticked',
     'swap miri check chains commands with something other than `&&`',
-    'swap needs a lint check running `make lint` and running `cargo hakari generate --diff` and ' +
+    'swap needs a lint check running `make lint` and running `make fmt CHECK=1` and running ' +
+      '`cargo hakari generate --diff` and ' +
       'running `cargo hakari manage-deps --dry-run`',
   ]);
 });

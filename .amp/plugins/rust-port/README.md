@@ -48,7 +48,9 @@ The thread that calls `port_plan` owns the job; hooks ignore every other thread.
    asked about the change since. A finding blocks only if its failing test fails, its deletion
    keeps the tests passing, or it cites a rule.
 4. **Admission**, if the evidence passed and no blocking finding holds the stage: the stage PR is
-   opened or updated, stacked on the one before it.
+   opened or updated, stacked on the one before it. Admitting the stage a worker started on
+   hands the job to a fresh thread for the next stage, briefed with the plan and the outstanding
+   findings, because every request re-reads its thread's history. Former workers own nothing.
 
 Evidence is keyed by stage, candidate, base and plan hash, so passing evidence is reused and an
 amendment invalidates every admission. Everything left to do is a finding; the worker closes
@@ -72,5 +74,6 @@ After each turn the worker continues only while it has budget, has not reported 
 until its GitHub subscription wakes it. Otherwise it waits for a human, who can run **rust-port:
 Grant assessments** from the command palette; agents cannot.
 
-To measure a run, use `amp threads usage <id> --details` and `amp threads export <id>` for the
-owner and each reviewer thread; reviewer thread IDs and check times are in the evidence.
+To measure a run, use `amp threads usage <id> --details` and `amp threads export <id>` for each
+worker thread (the owner and `job.former`) and each reviewer thread; reviewer thread IDs and
+check times are in the evidence.
