@@ -45,7 +45,7 @@ class RPIndexStopTest : public ::testing::Test {
     QueryRequestLimits_Init(&limits, &timeoutConfig);
     sctx->limits = &limits;
     mock = new MockIterator(t_docId{1}, t_docId{2}, t_docId{3});
-    rp = RPQueryIterator_New(&mock->base, NULL, 0, sctx, false);
+    rp = RPQueryIterator_New(&mock->base, NULL, 0, sctx, false, false);
     QITR_PushRP(&qctx, rp);
   }
 

@@ -26,7 +26,7 @@ use super::term_record::RawTermRecord;
 pub enum RawResultData<'query, R: Ref> {
     Union(RawAggregateResult<'query, R>) = 1,
     Intersection(RawAggregateResult<'query, R>) = 2,
-    Term(RawTermRecord<'query, R>) = 4,
+    Term(RawTermRecord<R>) = 4,
     Virtual = 8,
     Numeric(f64) = 16,
     Metric(f64) = 32,
@@ -85,8 +85,9 @@ impl<'query, R: Ref> RawResultData<'query, R> {
 impl<'a> RSResultData<'a> {
     /// Create an owned copy of this result data, allocating new memory for the contained data.
     ///
-    /// The returned data may borrow the term from the original data.
-    pub fn to_owned(&'a self) -> RSResultData<'a> {
+    /// See [`RSIndexResult::to_owned`](crate::RSIndexResult::to_owned) for what the copy still
+    /// shares.
+    pub fn to_owned(&self) -> RSResultData<'a> {
         match self {
             Self::Union(agg) => Self::Union(agg.to_owned()),
             Self::Intersection(agg) => Self::Intersection(agg.to_owned()),
