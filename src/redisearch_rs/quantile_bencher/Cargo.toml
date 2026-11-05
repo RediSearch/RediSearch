@@ -14,13 +14,5 @@ criterion.workspace = true
 quantile.workspace = true
 workspace_hack.workspace = true
 
-[target.'cfg(not(miri))'.dependencies]
-ffi.workspace = true
-redis_mock.workspace = true
-redisearch_rs = { workspace = true, features = ["mock_allocator"] }
-
-[build-dependencies]
-build_utils.workspace = true
-
 [lints]
 workspace = true

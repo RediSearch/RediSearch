@@ -500,12 +500,6 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &["DICT_OK", "dictTypeHeapHiddenStrings"],
     },
     HeaderAllowlist {
-        path: "src/util/quantile.h",
-        fns: &["NewQuantileStream", "QS_Insert", "QS_Query", "QS_Free"],
-        types: &["QuantStream"],
-        vars: &[],
-    },
-    HeaderAllowlist {
         path: "src/util/references.h",
         fns: &["StrongRef_Get"],
         types: &[],

@@ -20,9 +20,7 @@
 #include "version.h"
 #include "search_result.h"
 
-extern "C" {
-#include "util/quantile.h"
-}
+#include "quantile_ffi.h"
 
 #include <vector>
 #include <array>
