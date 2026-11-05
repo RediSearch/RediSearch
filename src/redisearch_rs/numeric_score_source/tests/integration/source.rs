@@ -10,7 +10,7 @@
 //! Tests for [`NumericScoreSource`], driven by real [`NumericRangeTree`]
 //! fixtures.
 
-use std::cell::{Cell, UnsafeCell};
+use std::cell::{Cell, RefCell, UnsafeCell};
 use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::Duration;
@@ -30,7 +30,7 @@ use rqe_core::DocId;
 use rqe_iterators::utils::DeadlineTimeoutChecker;
 use rqe_iterators::{
     Empty, ExpirationChecker, IdList, NoOpChecker, RQEIterator, RQEIteratorBoxed, RQEIteratorError,
-    RQESuspendedIterator, ResumeOutcome, Wildcard,
+    RQESuspendedIterator, RQEValidateStatus, ResumeOutcome, Wildcard,
     c2rust::CRQEIterator,
     profile_print::{ProfilePrint, ProfilePrintCtx},
     utils::{NoTimeoutChecker, TimeoutContext},
@@ -429,12 +429,10 @@ fn unfiltered_excludes_deleted_docs() {
 }
 
 #[test]
-fn filtered_excludes_deleted_docs() {
-    // The child passes docs 2 and 4, and doc 4 has the higher value — but it is
-    // deleted, so only the live match survives the liveness filter.
+fn filtered_checks_only_matching_docs_and_backfills_deleted_matches() {
     let tree = tree_from(&[(1, 1.0), (2, 2.0), (3, 3.0), (4, 100.0), (5, 5.0)]);
-    let deleted = DeletedDocs::from_iter([4]);
-    let child_ids = vec![2u64, 4u64];
+    let checked = RefCell::new(Vec::new());
+    let child_ids = vec![2u64, 4, 5];
     let source = NumericScoreSource::filtered(
         &tree,
         full_range(),
@@ -444,7 +442,10 @@ fn filtered_excludes_deleted_docs() {
         5,
         child_ids.len(),
     )
-    .with_validity(deleted);
+    .with_validity(|doc_id| {
+        checked.borrow_mut().push(doc_id);
+        doc_id != 4
+    });
     let mut it = new_numeric_top_k_filtered(
         source,
         IdList::<true>::new(child_ids),
@@ -455,7 +456,8 @@ fn filtered_excludes_deleted_docs() {
     while let Some(result) = it.read().unwrap() {
         got.push((result.doc_id, result.as_numeric().expect("numeric result")));
     }
-    assert_eq!(got, vec![(2, 2.0)]);
+    assert_eq!(got, vec![(5, 5.0), (2, 2.0)]);
+    assert_eq!(*checked.borrow(), vec![2, 4, 5]);
 }
 
 #[test]
@@ -679,15 +681,10 @@ fn iterator_read_propagates_timeout() {
 }
 
 #[test]
-fn filtering_scan_is_timeout_aware() {
-    // Single-leaf tree of four records, materialized into one batch. Materialization
-    // polls once per record and once before the sort; the stale-record filtering
-    // scan then adds one poll per record. A deadline primed to survive
-    // materialization must therefore surface inside that scan.
+fn candidate_admission_is_timeout_aware() {
     let pairs = [(1u64, 4.0), (2, 3.0), (3, 2.0), (4, 1.0)];
     let tree = tree_from(&pairs);
-    // Pin the number of polls materialization performs, so the filtered case can
-    // prime a one-shot timeout that fires only once the filtering scan begins.
+    // Let materialization finish, then expire on the first admission check.
     let counter = CountingTimeout::default();
     let mut unfiltered =
         NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(counter.clone());
@@ -695,15 +692,26 @@ fn filtering_scan_is_timeout_aware() {
     let materialization_polls = counter.calls();
     assert_eq!(materialization_polls, pairs.len() as u32 + 1);
 
-    // A one-shot timeout that survives materialization fires on the filtering
-    // scan's first poll, proving the scan honors the deadline.
-    let mut filtered = NumericScoreSource::unfiltered(&tree, full_range(), false)
-        .with_validity(DeletedDocs::from_iter([2]))
-        .with_timeout(TimeoutOnce::new(materialization_polls));
-    assert!(matches!(
-        filtered.next_batch(),
-        Err(RQEIteratorError::TimedOut)
-    ));
+    for (name, deleted, expired) in [
+        ("document visibility", vec![2], vec![]),
+        ("field expiration", vec![], vec![2]),
+    ] {
+        let source = NumericScoreSource::unfiltered(&tree, full_range(), false)
+            .with_validity(DeletedDocs::from_iter(deleted))
+            .with_expiration(ExpiredDocs::from_iter(expired))
+            .with_timeout(TimeoutOnce::new(materialization_polls));
+        let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(4).unwrap());
+        assert!(
+            matches!(it.read(), Err(RQEIteratorError::TimedOut)),
+            "{name}"
+        );
+        it.rewind();
+        assert_eq!(
+            drain_top_k(&mut it),
+            vec![(1, 4.0), (3, 2.0), (4, 1.0)],
+            "{name}"
+        );
+    }
 }
 
 #[test]
@@ -1132,48 +1140,74 @@ fn mutable_top_k(owner: &UnsafeCell<NumericRangeTree>, k: usize) -> Box<NumericT
     // from its cell; (3) tests mutate only while idle and revalidate before reuse.
     let tree_ref = unsafe { NumericTreeRef::from_raw(tree) };
     let source = NumericScoreSource::unfiltered(tree_ref, full_range(), true);
-    Box::new(new_numeric_top_k_unfiltered(
+    // A filtered top-k preserves the source's populated cache; an unfiltered
+    // top-k would discard it when narrowing the initial window.
+    let child = CRQEIterator::from_rust_leaf(IdList::<true>::new(vec![1, 2, 3]));
+    Box::new(new_numeric_top_k_filtered(
         source,
+        child,
         NonZeroUsize::new(k).unwrap(),
     ))
 }
 
-#[test]
-fn revalidate_aborts_once_the_tree_changes() {
-    let mock_ctx = MockContext::new(0, 0);
-    let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
-    let it = mutable_top_k(&owner, 2);
-    let suspended = it.suspend();
+#[derive(Clone, Copy, Debug)]
+enum LockRelease {
+    Legacy,
+    SuspendResume,
+}
 
-    // SAFETY: stands in for GC restructuring the tree while the query is suspended.
-    unsafe { (*owner.get()).increment_revision() };
-    assert!(matches!(
-        suspended.resume(&mock_ctx.spec_read()).unwrap(),
-        ResumeOutcome::Aborted
-    ));
+impl LockRelease {
+    fn after_change<'index>(
+        self,
+        mut it: Box<NumericTopKIterator<'index>>,
+        ctx: &'index MockContext,
+        change: impl FnOnce(),
+    ) -> Option<Box<NumericTopKIterator<'index>>> {
+        match self {
+            Self::Legacy => {
+                change();
+                let keep = match it.revalidate(&ctx.spec_read()).unwrap() {
+                    RQEValidateStatus::Ok => true,
+                    RQEValidateStatus::Aborted => false,
+                    RQEValidateStatus::Moved { .. } => panic!("top-k must not reposition"),
+                };
+                keep.then_some(it)
+            }
+            Self::SuspendResume => {
+                let suspended = it.suspend();
+                change();
+                match suspended.resume(&ctx.spec_read()).unwrap() {
+                    ResumeOutcome::Ok(it) => Some(it),
+                    ResumeOutcome::Aborted => None,
+                    ResumeOutcome::Moved(_) => panic!("top-k must not reposition"),
+                }
+            }
+        }
+    }
 }
 
 #[test]
-fn revalidate_picks_up_docs_that_turned_multivalued_while_suspended() {
-    let mock_ctx = MockContext::new(0, 0);
-    let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
-    let it = mutable_top_k(&owner, 3);
-    let suspended = it.suspend();
-
-    // SAFETY: stands in for indexing a multivalue document while the query is
-    // suspended, before its first read.
-    unsafe {
-        let tree = &mut *owner.get();
-        let revision = tree.revision_id();
-        tree.add(3, 3.0, false, true, 0);
-        tree.add(3, 0.5, false, true, 0);
-        assert!(tree.has_multivalued_docs());
-        assert_eq!(tree.revision_id(), revision);
+fn revalidation_picks_up_new_multivalue_docs_without_a_revision_change() {
+    for boundary in [LockRelease::Legacy, LockRelease::SuspendResume] {
+        let ctx = MockContext::new(0, 0);
+        let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
+        let mut it = boundary
+            .after_change(mutable_top_k(&owner, 3), &ctx, || {
+                // SAFETY: the iterator is idle until after_change revalidates it.
+                let tree = unsafe { &mut *owner.get() };
+                let revision = tree.revision_id();
+                tree.add(3, 1.5, false, true, 0);
+                tree.add(3, 0.5, false, true, 0);
+                assert!(tree.has_multivalued_docs());
+                assert_eq!(tree.revision_id(), revision);
+            })
+            .expect("unchanged structure permits collection");
+        assert_eq!(
+            drain_top_k(&mut it),
+            vec![(3, 0.5), (1, 1.0), (2, 2.0)],
+            "{boundary:?}"
+        );
     }
-    let ResumeOutcome::Ok(mut it) = suspended.resume(&mock_ctx.spec_read()).unwrap() else {
-        panic!("unchanged tree structure should permit collection");
-    };
-    assert_eq!(drain_top_k(&mut it), vec![(3, 0.5), (1, 1.0), (2, 2.0)]);
 }
 
 #[test]
@@ -1200,76 +1234,38 @@ fn resume_before_collection_and_rewind_keep_numeric_results() {
 }
 
 #[test]
-fn changed_tree_preserves_buffered_results_but_prevents_recollection() {
-    let mock_ctx = MockContext::new(0, 0);
-    let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
-    let mut it = mutable_top_k(&owner, 2);
-    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
-    let suspended = it.suspend();
-
-    // SAFETY: suspension released the ranges borrowed from `tree`.
-    unsafe { (*owner.get()).increment_revision() };
-    let ResumeOutcome::Ok(mut it) = suspended.resume(&mock_ctx.spec_read()).unwrap() else {
-        panic!("buffered results should survive a tree revision change");
-    };
-    assert_eq!(drain_top_k(&mut it), vec![(2, 2.0)]);
-    it.rewind();
-    assert!(it.read().unwrap().is_none());
-}
-
-#[test]
-fn legacy_revalidation_refreshes_ranges_without_a_suspend_callback() {
-    let mock_ctx = MockContext::new(0, 0);
-    let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
-    let mut it = mutable_top_k(&owner, 3);
-
-    // SAFETY: simulates indexing while the C caller has released the spec lock.
-    unsafe {
-        (*owner.get()).add(3, 3.0, false, true, 0);
-        (*owner.get()).add(3, 0.5, false, true, 0);
+fn revalidation_aborts_before_collection_when_range_storage_is_freed() {
+    for boundary in [LockRelease::Legacy, LockRelease::SuspendResume] {
+        let ctx = MockContext::new(0, 0);
+        let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
+        let it = boundary.after_change(mutable_top_k(&owner, 2), &ctx, || {
+            let mut replacement = tree_from(&[(3, 3.0)]);
+            replacement.increment_revision();
+            // SAFETY: the iterator is idle; the cell stays initialized while
+            // dropping its old contents frees the cached ranges' storage.
+            unsafe { drop(owner.get().replace(replacement)) };
+        });
+        assert!(it.is_none(), "{boundary:?}");
     }
-    assert!(matches!(
-        it.revalidate(&mock_ctx.spec_read()).unwrap(),
-        rqe_iterators::RQEValidateStatus::Ok
-    ));
-    assert_eq!(drain_top_k(&mut it), vec![(3, 0.5), (1, 1.0), (2, 2.0)]);
 }
 
 #[test]
-fn legacy_revalidation_aborts_after_range_storage_is_freed() {
-    let mock_ctx = MockContext::new(0, 0);
-    let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
-    let mut it = mutable_top_k(&owner, 2);
-
-    let mut replacement = tree_from(&[(3, 3.0)]);
-    replacement.increment_revision();
-    // SAFETY: simulates GC during C's unlocked interval, without a Rust suspend
-    // callback. The tree stays initialized at the same address; dropping its old
-    // contents frees the storage behind every cached range reference.
-    unsafe { drop(owner.get().replace(replacement)) };
-    assert!(matches!(
-        it.revalidate(&mock_ctx.spec_read()).unwrap(),
-        rqe_iterators::RQEValidateStatus::Aborted
-    ));
-}
-
-#[test]
-fn legacy_buffered_results_survive_freed_range_storage() {
-    let mock_ctx = MockContext::new(0, 0);
-    let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
-    let mut it = mutable_top_k(&owner, 2);
-    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
-
-    let mut replacement = tree_from(&[(3, 3.0)]);
-    replacement.increment_revision();
-    // SAFETY: simulates GC during C's unlocked interval. The cell stays valid
-    // while the old range storage is freed.
-    unsafe { drop(owner.get().replace(replacement)) };
-    assert!(matches!(
-        it.revalidate(&mock_ctx.spec_read()).unwrap(),
-        rqe_iterators::RQEValidateStatus::Ok
-    ));
-    assert_eq!(drain_top_k(&mut it), vec![(2, 2.0)]);
-    it.rewind();
-    assert!(it.read().unwrap().is_none());
+fn revalidation_keeps_buffered_results_but_cannot_recollect_freed_ranges() {
+    for boundary in [LockRelease::Legacy, LockRelease::SuspendResume] {
+        let ctx = MockContext::new(0, 0);
+        let owner = UnsafeCell::new(tree_from(&[(1, 1.0), (2, 2.0)]));
+        let mut it = mutable_top_k(&owner, 2);
+        assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+        let mut it = boundary
+            .after_change(it, &ctx, || {
+                let mut replacement = tree_from(&[(3, 3.0)]);
+                replacement.increment_revision();
+                // SAFETY: the iterator is idle until revalidation; its owner stays live.
+                unsafe { drop(owner.get().replace(replacement)) };
+            })
+            .expect("buffered results survive a tree revision change");
+        assert_eq!(drain_top_k(&mut it), vec![(2, 2.0)], "{boundary:?}");
+        it.rewind();
+        assert!(it.read().unwrap().is_none(), "{boundary:?}");
+    }
 }

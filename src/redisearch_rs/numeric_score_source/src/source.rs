@@ -271,11 +271,8 @@ impl<'index> NumericScoreSource<'index> {
 impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
     NumericScoreSource<'index, V, E, T>
 {
-    /// Attach a document-validity oracle, dropping records for doc ids it reports
-    /// invalid (deleted) from every batch. This is the
-    /// source's equivalent of the numeric optimizer's per-document validity
-    /// check, keeping entries that survive in the index until GC out of the
-    /// top-k results.
+    /// Attach a document-validity oracle. [`ScoreSource::accept_candidate`]
+    /// rejects deleted documents after child intersection, before heap insertion.
     pub fn with_validity<V2: DocValidity>(
         self,
         validity: V2,
@@ -288,11 +285,8 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext>
         }
     }
 
-    /// Attach a field-level TTL checker, dropping records whose sort field has
-    /// expired from every batch. This mirrors the numeric optimizer feeding a
-    /// field-expiration predicate to its numeric sub-iterator: the check is
-    /// pre-heap so expired records never displace a live document from the
-    /// bounded top-k.
+    /// Attach a field-level TTL checker. [`ScoreSource::accept_candidate`]
+    /// rejects expired sort fields before they can occupy a top-k slot.
     pub fn with_expiration<E2: ExpirationChecker>(
         self,
         expiration: E2,
@@ -430,29 +424,21 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
             return Ok(None);
         };
         self.scan.num_batches += 1;
-        // Drop stale entries pre-heap so they never displace a live document from
-        // the bounded top-k: document deletion and field-level TTL, the two the
-        // range tree only sheds at GC time. Each gate keeps the common
-        // no-filtering case free of its per-record check.
+        Ok(Some(batch))
+    }
+
+    fn accept_candidate(&mut self, doc_id: DocId, score: f64) -> Result<bool, RQEIteratorError> {
         let filter_validity = self.validity.may_filter();
         let filter_expiration = self.expiration.has_expiration();
         if !filter_validity && !filter_expiration {
-            return Ok(Some(batch));
+            return Ok(true);
         }
-        let batch = batch.retain(|doc_id, score| {
-            self.timeout.check_timeout()?;
-            if filter_validity && !self.validity.is_valid(doc_id) {
-                return Ok(false);
-            }
-            if filter_expiration {
-                let record = RSIndexResult::build_numeric(score).doc_id(doc_id).build();
-                if self.expiration.is_expired(&record) {
-                    return Ok(false);
-                }
-            }
-            Ok(true)
-        })?;
-        Ok(Some(batch))
+        self.timeout.check_timeout()?;
+        Ok((!filter_validity || self.validity.is_valid(doc_id))
+            && (!filter_expiration
+                || !self
+                    .expiration
+                    .is_expired(&self.build_result(doc_id, score))))
     }
 
     fn lookup_score(&mut self, _doc_id: DocId) -> Option<f64> {
@@ -518,9 +504,7 @@ impl<'index, V: DocValidity, E: ExpirationChecker, T: TimeoutContext> ScoreSourc
     }
 
     fn check_timeout(&mut self) -> Result<(), RQEIteratorError> {
-        // Yielding-phase hook. Collection self-checks per record via `next_batch`,
-        // because the surrounding `TopKIterator` collects eagerly and only polls
-        // this during yielding.
+        // Materialization and candidate admission also poll during collection.
         self.timeout.check_timeout()
     }
 
