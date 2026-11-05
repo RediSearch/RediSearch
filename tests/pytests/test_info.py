@@ -188,7 +188,7 @@ def test_vecsim_info_stats_memory():
   env.assertEqual(total_memory, info["field statistics"][0]["memory"])
 
 def test_vecsim_info_stats_marked_deleted():
-  env = Env(protocol=3, moduleArgs='WORKERS 1 FORK_GC_RUN_INTERVAL 50000')
+  env = Env(protocol=3, moduleArgs='WORKERS 1 THREAD_GC_RUN_INTERVAL 50000')
   conn = env.getClusterConnectionIfNeeded()
   vec_size = 6
   data_type = 'FLOAT16'
@@ -201,7 +201,7 @@ def test_vecsim_info_stats_marked_deleted():
   verify_command_OK_on_all_shards(env, debug_cmd(), 'WORKERS', 'PAUSE') # pause to prevent repair jobs on the graph
 
   # Set the GC clean threshold to 0
-  run_command_on_all_shards(env, config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', '0')
 
   docs_to_delete = 500
   for i in range(docs_to_delete):

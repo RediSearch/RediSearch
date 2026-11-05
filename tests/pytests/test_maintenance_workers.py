@@ -17,8 +17,8 @@ N_DELETED = 100
 N_OVERWRITTEN = 100
 N_LIVE = N_DOCS - N_DELETED
 EF_RUNTIME = 2 * N_DOCS
-# Keeps the periodic fork GC from clearing marked-deleted nodes while a test counts them.
-NO_PERIODIC_GC = 'FORK_GC_RUN_INTERVAL 1000000'
+# Keeps the periodic GC from clearing marked-deleted nodes while a test counts them.
+NO_PERIODIC_GC = 'THREAD_GC_RUN_INTERVAL 1000000'
 
 
 def _vector(rng):

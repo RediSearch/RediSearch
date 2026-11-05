@@ -404,7 +404,7 @@ def test_buffer_limit():
 @skip(asan=True, msan=True)
 def test_async_updates_sanity():
     env = initEnv(moduleArgs='WORKERS 2 DEFAULT_DIALECT 2 TIERED_HNSW_BUFFER_LIMIT 10000')
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).ok()
     n_shards = env.shardsCount
     dim = 4
     block_size = 1024

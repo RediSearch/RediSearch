@@ -43,7 +43,7 @@ def test_existing_GC():
         conn.execute_command('HSET', f'doc{2 * i + 1}', 't2', fake.name())
 
     # Set the GC clean threshold to 0, and stop its periodic execution
-    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+    env.expect(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', '0').ok()
     env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
 
     # Delete docs with 'missing values'
@@ -74,7 +74,7 @@ def testOptimized():
     existing-index.
     """
 
-    env = Env(moduleArgs="DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 0")
+    env = Env(moduleArgs="DEFAULT_DIALECT 2 THREAD_GC_CLEAN_THRESHOLD 0")
 
     env.expect('FT.CREATE', 'idx', 'INDEXALL', 'ENABLE', 'SCHEMA', 't', 'TEXT').ok()
     # Stop GC from running periodically
@@ -153,7 +153,7 @@ def test_wildcard_cursor_gc_null_existing_docs():
     IndexReader_IsIndex without a NULL check, causing a NULL pointer
     dereference on the next cursor read."""
 
-    env = Env(moduleArgs="DEFAULT_DIALECT 2 FORK_GC_CLEAN_THRESHOLD 0")
+    env = Env(moduleArgs="DEFAULT_DIALECT 2 THREAD_GC_CLEAN_THRESHOLD 0")
     conn = getConnectionByEnv(env)
 
     # Create an index with INDEXALL so wildcard queries use existingDocs.

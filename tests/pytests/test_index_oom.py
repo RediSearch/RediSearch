@@ -287,8 +287,8 @@ def test_delete_docs_during_bg_indexing(env):
   # Set delta to 100
   delta = n_docs//100
 
-  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
-  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
+  env.expect(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', '0').ok()
+  env.expect(config_cmd(), 'SET', 'THREAD_GC_RUN_INTERVAL', '30000').ok()
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
 
   # Set pause before indexing

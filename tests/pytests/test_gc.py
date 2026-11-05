@@ -13,7 +13,7 @@ import time
 
 @skip(cluster=True)
 def testBasicGC(env):
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH',
                          'schema', 'title', 'text', 'id', 'numeric', 't', 'tag'))
     waitForIndex(env, 'idx')
@@ -41,7 +41,7 @@ def testBasicGCWithEmptyInvIdx(env):
     if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
         # this test is not relevant for legacy gc cause its not squashing inverted index
         env.skip()
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text'))
     waitForIndex(env, 'idx')
     env.assertOk(env.cmd('ft.add', 'idx', 'doc1', 1.0, 'fields',
@@ -63,7 +63,7 @@ def testGCMissingFieldNumRecords(env):
     # entries are not counted in num_records on insertion, so the fork GC must
     # not subtract them on removal (it previously did, driving num_records
     # negative once enough missing-field docs were collected).
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'schema', 't', 'text', 'm', 'tag', 'INDEXMISSING'))
     waitForIndex(env, 'idx')
 
@@ -94,7 +94,7 @@ def testGCMissingFieldNumRecords(env):
 @skip(cluster=True)
 def testNumericGCIntensive(env):
     NumberOfDocs = 1000
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id', 'numeric'))
     waitForIndex(env, 'idx')
 
@@ -116,7 +116,7 @@ def testNumericGCIntensive(env):
 @skip(cluster=True)
 def testNumericCompleteGCAndRepopulation(env):
     """Test that after deleting all docs used for a numeric index through GC that the index is still usable"""
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id', 'numeric'))
     waitForIndex(env, 'idx')
 
@@ -166,7 +166,7 @@ def testNumericCompleteGCAndRepopulation(env):
 @skip(cluster=True)
 def testNumericMergesTrees(env):
     """Test to check the numeric index trees merges nodes when half or more of all the nodes are empty"""
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'id', 'numeric'))
     waitForIndex(env, 'idx')
 
@@ -211,7 +211,7 @@ def testNumericMergesTrees(env):
 @skip(cluster=True)
 def testGeoGCIntensive(env:Env):
     NumberOfDocs = 1000
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).ok()
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'g', 'geo').ok()
 
     for i in range(NumberOfDocs):
@@ -231,7 +231,7 @@ def testGeoGCIntensive(env:Env):
 @skip(cluster=True)
 def testTagGC(env):
     NumberOfDocs = 101
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't', 'tag'))
     waitForIndex(env, 'idx')
 
@@ -254,7 +254,7 @@ def testTagGC(env):
 @skip(cluster=True)
 def testTagCompleteGCAndRepopulation(env):
     """Test that after deleting all docs used for a tag index through GC that the index is still usable"""
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 't', 'tag'))
     waitForIndex(env, 'idx')
 
@@ -308,7 +308,7 @@ def testTagCompleteGCAndRepopulation(env):
 
 @skip(cluster=True)
 def testDeleteEntireBlock(env):
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH',
                'SCHEMA', 'test', 'TEXT', 'SORTABLE', 'test2', 'TEXT', 'SORTABLE', ).ok()
     waitForIndex(env, 'idx')
@@ -416,7 +416,7 @@ def testGFreeEmpryTerms(env):
 
 @skip(cluster=True)
 def testAutoMemory_MOD_3951():
-    env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
+    env = Env(moduleArgs='THREAD_GC_CLEAN_THRESHOLD 0')
     conn = getConnectionByEnv(env)
 
     # create index with filter
@@ -439,8 +439,8 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
     and garbage collected. This tests the robustness of FT.INFO during GC operations.
     """
     # Configure GC to be more aggressive for testing
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
-    env.expect(config_cmd(), 'set', 'FORK_GC_RUN_INTERVAL', 100).equal('OK')  # Run GC more frequently
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 0).equal('OK')
+    env.expect(config_cmd(), 'set', 'THREAD_GC_RUN_INTERVAL', 100).equal('OK')  # Run GC more frequently
 
     # Number of indexes to create and test with
     num_indexes = 5
@@ -691,8 +691,8 @@ def testForceGCBypassesThreshold(env):
 
     # High threshold so periodic GC (force=false) always skips,
     # short interval so it actually attempts during our sleep window.
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1000).equal('OK')
-    env.expect(config_cmd(), 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'THREAD_GC_CLEAN_THRESHOLD', 1000).equal('OK')
+    env.expect(config_cmd(), 'set', 'THREAD_GC_RUN_INTERVAL', 1).equal('OK')
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
     waitForIndex(env, 'idx')
@@ -792,7 +792,7 @@ def testGCPeriodicScheduleStopAndResume():
     which never re-arms, so nothing else notices if the chain stops after its first pass."""
     # No garbage on purpose: a GC that finds nothing still has to re-arm. CLEAN_THRESHOLD 0
     # keeps those empty passes from short-circuiting ahead of the total_cycles counter.
-    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    env = Env(moduleArgs='THREAD_GC_RUN_INTERVAL 1 THREAD_GC_CLEAN_THRESHOLD 0')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
     # A second index nobody stops, used to time the negative window below instead of sleeping.
     # It is what keeps that window from passing for the wrong reason: a runner slow enough to
@@ -839,7 +839,7 @@ def testGCStopScheduleDuringRun():
     """GC_STOP_SCHEDULE while a run is in flight: the completing run's own re-arm has to notice
     that collection was disabled under it. Nothing disarms a timer armed from there, so the
     chain would outlive the stop -- and after a drop it would arm one over a freed context."""
-    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    env = Env(moduleArgs='THREAD_GC_RUN_INTERVAL 1 THREAD_GC_CLEAN_THRESHOLD 0')
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
@@ -867,8 +867,9 @@ def testGCStopScheduleDuringRun():
 @skip(cluster=True)
 def testForcedGCFailsWhileARunOfTheIndexIsInFlight():
     """A forced run never overlaps another run of its index: while one is in flight it fails
-    at once instead of waiting (a background one included, rather than being dropped), and works again once that run has finished."""
-    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    at once instead of waiting (a background one included, rather than being dropped), and works
+    again once that run has finished."""
+    env = Env(moduleArgs='THREAD_GC_RUN_INTERVAL 1 THREAD_GC_CLEAN_THRESHOLD 0')
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
@@ -887,7 +888,7 @@ def testForcedGCFailsWhileARunOfTheIndexIsInFlight():
 @skip(cluster=True)
 def testGCKeepsReschedulingItself_MOD_17309():
     """Every arm goes through the main-thread one-shot, and the chain sustains itself."""
-    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1')
+    env = Env(moduleArgs='THREAD_GC_RUN_INTERVAL 1')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
     def arms(which):
@@ -917,7 +918,7 @@ def testGCContinueScheduleDuringRun_MOD_17309():
     """GC_CONTINUE_SCHEDULE must not queue a second run while one is already in flight: two
     runs behind one RUN_PENDING bit let the first one's tail arm a timer while the second is
     still queued, and a second run that finds the index dropped then frees the GC under it."""
-    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    env = Env(moduleArgs='THREAD_GC_RUN_INTERVAL 1 THREAD_GC_CLEAN_THRESHOLD 0')
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
@@ -988,7 +989,7 @@ def testGCTeardownAfterContinueAndDrop_MOD_17309():
     drop finds RUN_PENDING held and hands the discovery to that run, so the parked pass is the
     only thing left that can free the context -- and onTerm returning this index's
     logically-deleted docs to the global counter is the evidence that it did."""
-    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    env = Env(moduleArgs='THREAD_GC_RUN_INTERVAL 1 THREAD_GC_CLEAN_THRESHOLD 0')
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT').ok()
 
@@ -1024,7 +1025,7 @@ def testGCTeardownWhenDropOvertakesPendingRearm_MOD_17309():
     still owed, must still end in teardown. GCContext_BeginDrop defers to "a run in flight",
     which by then is just that pending post -- so the one-shot has to be able to arm the timer
     that discovers the unlink, which is why the drop re-enables collection before deciding."""
-    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    env = Env(moduleArgs='THREAD_GC_RUN_INTERVAL 1 THREAD_GC_CLEAN_THRESHOLD 0')
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT').ok()
 

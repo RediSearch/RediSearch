@@ -205,7 +205,7 @@ def test_rdb_load_trained_svs_vamana():
 @skip(cluster=True)
 def test_svs_vector_survives_repeated_numeric_updates():
     """Repeated numeric-only updates must preserve every backend-resident SVS vector."""
-    env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2 WORKERS 2 FORK_GC_RUN_INTERVAL 50000')
+    env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2 WORKERS 2 THREAD_GC_RUN_INTERVAL 50000')
     conn = getConnectionByEnv(env)
 
     num_docs = DEFAULT_BLOCK_SIZE
@@ -608,7 +608,7 @@ def queries_sanity(test_name, compression_type, data_type, metric, workers):
     env.assertEqual(range_res[1], f'doc{1}', message=message)
 
 def empty_index(env):
-    env.execute_command(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '1000000')
+    env.execute_command(config_cmd(), 'SET', 'THREAD_GC_RUN_INTERVAL', '1000000')
     dim = 2
     data_type = random.choice(VECSIM_SVS_DATA_TYPES)
     env.debugPrint(f"data_type for test {env.testName}: {data_type}", force=True)
@@ -910,7 +910,7 @@ def _gc_compressed_types():
 @skip(cluster=True)
 def test_gc():
     num_workers = 2
-    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 THREAD_GC_RUN_INTERVAL 1000000 THREAD_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
                          f' _FREE_RESOURCE_ON_THREAD FALSE')
     gc_test_common(env, num_workers, ['NO_COMPRESSION'] + _gc_compressed_types())
 
@@ -923,14 +923,14 @@ def test_gc():
 def test_gc_no_workers():
     num_workers = 0
     # No maintenance workers either, so GC runs in place.
-    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 THREAD_GC_RUN_INTERVAL 1000000 THREAD_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
                          f' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=min_maintenance_workers_conf(0))
     gc_test_common(env, num_workers, ['NO_COMPRESSION'])
 
 @skip(cluster=True)
 def test_gc_maintenance_worker():
     # At the default WORKERS 0 GC jobs go to the single maintenance worker.
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS 0'
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 THREAD_GC_RUN_INTERVAL 1000000 THREAD_GC_CLEAN_THRESHOLD 0 WORKERS 0'
                          ' _FREE_RESOURCE_ON_THREAD FALSE')
     gc_test_common(env, 1, ['NO_COMPRESSION'])
 
@@ -938,7 +938,7 @@ def test_gc_maintenance_worker():
 def test_gc_no_workers_compressed():
     num_workers = 0
     # No maintenance workers either, so GC runs in place.
-    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 FORK_GC_RUN_INTERVAL 1000000 FORK_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 THREAD_GC_RUN_INTERVAL 1000000 THREAD_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
                          f' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=min_maintenance_workers_conf(0))
     gc_test_common(env, num_workers, _gc_compressed_types())
 
@@ -1098,7 +1098,7 @@ def test_multiple_svs_indexes_share_pool():
 # WORKERS 2 is load-bearing: with no worker threads the tiered index indexes in place, and there
 # is no background transfer to race with. Periodic fork GC is disabled, as in the sibling SVS
 # tests that read NUMBER_OF_MARKED_DELETED, so it cannot compact the backend under the assertions.
-_RACE_MODULE_ARGS = 'DEFAULT_DIALECT 2 WORKERS 2 FORK_GC_RUN_INTERVAL 1000000'
+_RACE_MODULE_ARGS = 'DEFAULT_DIALECT 2 WORKERS 2 THREAD_GC_RUN_INTERVAL 1000000'
 _RACE_DIM = 32
 _RACE_K = 10
 # A margin, not a proof: whether a resumed worker actually reaches any of these vectors before

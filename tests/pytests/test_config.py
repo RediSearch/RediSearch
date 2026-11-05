@@ -94,6 +94,8 @@ def testGetConfigOptions(env):
     check_config('FORK_GC_RUN_INTERVAL')
     check_config('FORK_GC_CLEAN_THRESHOLD')
     check_config('FORK_GC_RETRY_INTERVAL')
+    check_config('THREAD_GC_RUN_INTERVAL')
+    check_config('THREAD_GC_CLEAN_THRESHOLD')
     check_config('PARTIAL_INDEXED_DOCS')
     check_config('UNION_ITERATOR_HEAP')
     check_config('_NUMERIC_COMPRESS')
@@ -214,8 +216,10 @@ def testAllConfig(env):
     env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
     env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
     env.assertEqual(res_dict['MIN_PHONETIC_TERM_LEN'][0], '3')
-    env.assertEqual(res_dict['FORK_GC_RUN_INTERVAL'][0], '5')
+    env.assertEqual(res_dict['FORK_GC_RUN_INTERVAL'][0], '30')
     env.assertEqual(res_dict['FORK_GC_CLEAN_THRESHOLD'][0], '100')
+    env.assertEqual(res_dict['THREAD_GC_RUN_INTERVAL'][0], '5')
+    env.assertEqual(res_dict['THREAD_GC_CLEAN_THRESHOLD'][0], '100')
     env.assertEqual(res_dict['FORK_GC_RETRY_INTERVAL'][0], '5')
     env.assertEqual(res_dict['CURSOR_MAX_IDLE'][0], '300000')
     env.assertEqual(res_dict['NO_MEM_POOLS'][0], 'false')
@@ -635,10 +639,11 @@ numericConfigs = [
     ('search-default-dialect', 'DEFAULT_DIALECT', 1, 1, 4, False, False),
     ('search-fork-gc-clean-threshold', 'FORK_GC_CLEAN_THRESHOLD', 100, 0, LLONG_MAX, False, False),
     ('search-fork-gc-retry-interval', 'FORK_GC_RETRY_INTERVAL', 5, 1, LLONG_MAX, False, False),
-    # The THREAD policy's default; see testGcRunIntervalDefaultFollowsThePolicy.
-    ('search-fork-gc-run-interval', 'FORK_GC_RUN_INTERVAL', 5, 1, LLONG_MAX, False, False),
+    ('search-fork-gc-run-interval', 'FORK_GC_RUN_INTERVAL', 30, 1, LLONG_MAX, False, False),
     ('search-fork-gc-sleep-before-exit', 'FORKGC_SLEEP_BEFORE_EXIT', 0, 0, LLONG_MAX, False, False),
     ('search-gc-scan-size', 'GCSCANSIZE', 100, 1, LLONG_MAX, True, False),
+    ('search-thread-gc-clean-threshold', 'THREAD_GC_CLEAN_THRESHOLD', 100, 0, LLONG_MAX, False, False),
+    ('search-thread-gc-run-interval', 'THREAD_GC_RUN_INTERVAL', 5, 1, LLONG_MAX, False, False),
     ('search-index-cursor-limit', 'INDEX_CURSOR_LIMIT', 128, 0, LLONG_MAX, False, False),
     ('search-max-aggregate-groups', 'MAX_AGGREGATE_GROUPS', DEFAULT_MAX_AGGREGATE_GROUPS, 1, MAX_AGGREGATE_GROUPS, False, False),
     ('search-max-aggregate-results', 'MAXAGGREGATERESULTS', DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS, 0, MAX_AGGREGATE_REQUEST_RESULTS, False, False),
@@ -2633,21 +2638,23 @@ def test_flex_search_disk_async_read_pool_and_queue_set_together(env):
                'search-_disk-async-read-queue-factor', '1').ok()
 
 
-def testGcRunIntervalDefaultFollowsThePolicy():
-    # THREAD needs no fork, so its default interval is shorter; a value the user sets is kept.
-    for module_args, expected in [('', '5'), ('GC_POLICY FORK', '30'),
-                                  ('FORK_GC_RUN_INTERVAL 30', '30'),
-                                  ('GC_POLICY FORK FORK_GC_RUN_INTERVAL 5', '5')]:
-        env = Env(moduleArgs=module_args, freshEnv=True)
-        env.expect('CONFIG', 'GET', 'search-fork-gc-run-interval').equal(
-            ['search-fork-gc-run-interval', expected])
-        env.stop()
+def testForkGcSettingsDoNotTuneTheThreadPolicy():
+    # Settings tuned for the fork's cost stay with FORK, so an upgrade that moves to THREAD by
+    # default gets THREAD's defaults, while a server that keeps GC_POLICY FORK keeps its tuning.
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 3600 FORK_GC_CLEAN_THRESHOLD 100000', freshEnv=True)
+    env.expect('CONFIG', 'GET', 'search-thread-gc-run-interval').equal(
+        ['search-thread-gc-run-interval', '5'])
+    env.expect('CONFIG', 'GET', 'search-thread-gc-clean-threshold').equal(
+        ['search-thread-gc-clean-threshold', '100'])
+    env.expect('CONFIG', 'GET', 'search-fork-gc-run-interval').equal(
+        ['search-fork-gc-run-interval', '3600'])
+    env.stop()
 
 
 def testGcConfigAliases():
     env = Env()
-    for name, alias in [('search-fork-gc-run-interval', 'search-gc-run-interval'),
-                        ('search-fork-gc-clean-threshold', 'search-gc-clean-threshold')]:
+    for name, alias in [('search-thread-gc-run-interval', 'search-gc-run-interval'),
+                        ('search-thread-gc-clean-threshold', 'search-gc-clean-threshold')]:
         original = env.cmd('CONFIG', 'GET', name)[1]
         try:
             env.expect('CONFIG', 'SET', alias, 7).ok()

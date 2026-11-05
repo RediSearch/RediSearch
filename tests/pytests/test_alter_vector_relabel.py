@@ -28,9 +28,9 @@ SQ8_DIM = 64
 # tombstone) for a value that ends up identical either way. WORKERS DRAIN (see _drain) then
 # moves vectors into the backend before each snapshot, matching test_vector_relabel.py's
 # rationale for the same setting.
-# FORK_GC_RUN_INTERVAL 50000: keeps the fork GC from clearing tombstones between the snapshot
+# THREAD_GC_RUN_INTERVAL 50000: keeps the GC from clearing tombstones between the snapshot
 # taken before an ALTER and the one taken after it.
-MODULE_ARGS = 'WORKERS 1 FORK_GC_RUN_INTERVAL 50000'
+MODULE_ARGS = 'WORKERS 1 THREAD_GC_RUN_INTERVAL 50000'
 # protocol=3 (RESP3): FT.SEARCH and FT.INFO reply with maps instead of flat arrays, which is
 # what _knn, _marked_deleted and _vector_ops all read.
 
@@ -534,7 +534,7 @@ def test_alter_relabels_hnsw_vector_with_no_worker_pool():
     those vectors the same way as when a pool moved them there. WORKERS 0 alone leaves the
     maintenance-worker floor (one thread), so the floor is removed too."""
     env, conn = _start(*TITLE_AND_VEC,
-                       module_args='WORKERS 0 MIN_OPERATION_WORKERS 0 FORK_GC_RUN_INTERVAL 50000',
+                       module_args='WORKERS 0 MIN_OPERATION_WORKERS 0 THREAD_GC_RUN_INTERVAL 50000',
                        redisConfigFile=min_maintenance_workers_conf(0))
     env.assertEqual(getWorkersThpoolNumThreads(env), 0)
     _write_docs(env, conn, 5)
