@@ -368,6 +368,12 @@ void RPDepleter_StartDepletion(ResultProcessor *depleter);
 rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *depleter);
 
 /**
+* Whether a depleter (RP_DEPLETER or RP_SAFE_DEPLETER) ended its depletion on a timeout. Valid
+* once its depletion is over and before its rows are first read.
+*/
+bool RPDepleter_EndedOnTimeout(const ResultProcessor *depleter);
+
+/**
  * Triggers depletion for all depleters in the array.
  * Stops on first error and returns the error code.
  * @param depleters Array of depleter processors (must be RP_DEPLETER type)

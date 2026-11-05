@@ -402,18 +402,22 @@ def test_hybrid_buffered_results_stop_replies_by_on_oom_policy(env):
     already holds and replies it with the OOM warning."""
     try:
         _hybrid_index(env)
+        rows = len(env.cmd(*HYBRID)['results'])
+
+        def tail_buffering_call(n):
+            # The tail buffers one checkpoint call per row and the replay follows with one per row:
+            # those are the query's last 2 * rows calls.
+            return _checkpoint_calls(env, HYBRID) - 2 * rows + n
+
         for workers in [0, 2]:
             _set_policies(env, 'return', 'fail', workers)
             errors, warnings = _oom_counters(env)
-            # Under ON_OOM FAIL each subquery's build is a checkpoint call: call 4 is the tail's
-            # second buffered row.
-            _memory_pressure(env, 'AT_CALL', 4)
+            _memory_pressure(env, 'AT_CALL', tail_buffering_call(2))
             env.expect(*HYBRID).error().contains(OOM_QUERY_ERROR)
             env.assertEqual(_oom_counters(env), (errors + 1, warnings), message=workers)
 
             _set_policies(env, 'fail', 'return', workers)
-            rows = len(env.cmd(*HYBRID)['results'])
-            _memory_pressure(env, 'AT_CALL', 2)
+            _memory_pressure(env, 'AT_CALL', tail_buffering_call(2))
             res = env.cmd(*HYBRID)
             env.assertEqual(len(res['results']), rows, message=(workers, res))
             env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=workers)
@@ -448,5 +452,474 @@ def test_buffered_results_stop_through_the_coordinator(env):
         res = run()
         env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
     finally:
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+        allShards_change_oom_policy(env, 'return')
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_reply_loop_stop_truncates(env):
+    """A query that streams its rows into the reply checks memory before each row after the
+    first. A stop there ends the stream at the index, with the OOM warning: a plain FT.AGGREGATE
+    without workers keeps the rows already replied (the reply loop's 3rd call, B + 3, cuts after
+    3 rows; RETURN-STRICT streams too without workers). Where stages hold rows (the safe loader
+    with workers, FT.SEARCH's sorter) every stop position replies either everything or what was
+    kept with the warning, as for any ON_OOM RETURN stop."""
+    try:
+        _index_with_docs(env)
+        search = ['FT.SEARCH', 'idx', '*']
+        for on_timeout in ['return', 'return-strict']:
+            _set_policies(env, on_timeout, 'return', 0)
+            errors, warnings = _oom_counters(env)
+            _memory_pressure(env, 'AT_CALL', B + 3)
+            res = env.cmd(*AGGREGATE)
+            env.assertEqual(len(res['results']), 3, message=(on_timeout, res))
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=on_timeout)
+            env.assertEqual(_oom_counters(env), (errors, warnings + 1), message=on_timeout)
+
+        for query, workers in [(AGGREGATE, 2), (search, 0), (search, 2)]:
+            _set_policies(env, 'return', 'return', workers)
+            warned = 0
+            for at_call in range(B + 1, _checkpoint_calls(env, query) + 1):
+                _memory_pressure(env, 'AT_CALL', at_call)
+                res = env.cmd(*query)
+                rows = len(res['results'])
+                env.assertTrue(res['warning'] == [COORD_OOM_WARNING] or
+                               (rows == N_DOCS and res['warning'] == []),
+                               message=(query, workers, at_call, res))
+                warned += res['warning'] == [COORD_OOM_WARNING]
+            env.assertGreater(warned, 0, message=(query, workers))
+
+        change_oom_policy(env, 'ignore')
+        _memory_pressure(env, 'AT_CALL', B + 3)
+        res = env.cmd(*AGGREGATE)
+        env.assertEqual((len(res['results']), res['warning']), (N_DOCS, []), message=res)
+    finally:
+        _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=2)
+def test_reply_loop_stop_truncates_resp2(env):
+    """RESP2 has no warning channel: a reply loop stopped for OOM is a silent partial result."""
+    try:
+        _index_with_docs(env)
+        _memory_pressure(env, 'AT_CALL', B + 3)
+        env.assertEqual(len(env.cmd(*AGGREGATE)) - 1, 3)
+    finally:
+        _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_reply_loop_stop_ends_the_cursor(env):
+    """A cursor chunk stopped in the reply loop ends the cursor instead of resuming later."""
+    try:
+        _index_with_docs(env)
+        query = [*AGGREGATE, 'WITHCURSOR', 'COUNT', 4]
+        # The chunk's reply loop makes 3 calls, the last ones of the query.
+        _memory_pressure(env, 'AT_CALL', _checkpoint_calls(env, query) - 3 + 2)
+        res, cursor = env.cmd(*query)
+        env.assertEqual(len(res['results']), 2, message=res)
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING])
+        env.assertEqual(cursor, 0)
+    finally:
+        _reset(env)
+
+
+H_RRF = ['FT.HYBRID', 'hidx', 'SEARCH', '@name:hello', 'VSIM', '@v', '$BLOB', 'COMBINE', 'RRF', 2,
+         'WINDOW', 20, 'LOAD', 1, '@name', 'LIMIT', 0, 20, 'PARAMS', 2, 'BLOB',
+         np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+H_RANGE = ['FT.HYBRID', 'hidx', 'SEARCH', '@name:hello', 'VSIM', '@v', '$BLOB', 'RANGE', 2,
+           'RADIUS', 1000, 'COMBINE', 'RRF', 2, 'WINDOW', 20, 'LIMIT', 0, 20, 'PARAMS', 2, 'BLOB',
+           np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+# The to_hybrid_fire shape (large K, WINDOW and LIMIT, loading); LOAD * would return the raw
+# vector bytes, which the test client cannot decode.
+H_KNN_LARGE = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB', 'KNN', 2, 'K', 1000,
+               'COMBINE', 'RRF', 2, 'WINDOW', 1000, 'LOAD', 1, '@name', 'LIMIT', 0, 1000,
+               'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+# No tail sorter: the reply pulls straight from the merger, which holds every merged row.
+H_NOSORT = ['FT.HYBRID', 'hidx', 'SEARCH', '@name:hello', 'VSIM', '@v', '$BLOB', 'NOSORT',
+            'LIMIT', 0, 20, 'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+HYBRID_SHAPES = {'h_rrf': H_RRF, 'h_range': H_RANGE, 'h_knn_large': H_KNN_LARGE,
+                 'h_nosort': H_NOSORT}
+
+
+def _hybrid_reply(env, res):
+    """(rows, warnings) of an FT.HYBRID reply in either protocol."""
+    if isinstance(res, dict):
+        return res['results'], res['warnings']
+    return res[res.index('results') + 1], res[res.index('warnings') + 1]
+
+
+def _sweep_hybrid(env, query, check):
+    """Arms pressure at every checkpoint call the query makes (build, subquery and tail
+    pipelines, reply) and checks each reply. `check(res, at_call, calls)`."""
+    try:
+        calls = _checkpoint_calls(env, query)
+        env.assertGreater(calls, 0, message=query)
+        for at_call in range(1, calls + 1):
+            _memory_pressure(env, 'AT_CALL', at_call)
+            try:
+                res = env.cmd(*query)
+            except redis_exceptions.ResponseError as e:
+                res = e
+            check(res, at_call, calls)
+    finally:
+        _memory_pressure(env, 'RESET')
+
+
+def _hybrid_stop_shapes(env):
+    """FT.HYBRID maps a stop for OOM anywhere in the query, at a subquery's build, in a subquery
+    pipeline, in the tail or in the reply, per ON_OOM: under RETURN the rows kept with the OOM
+    warning and no timeout warning; under FAIL the OOM error, except in the replay of the
+    buffered result, which can only truncate and warn; IGNORE runs to the end."""
+    try:
+        _hybrid_index(env)
+        for name, query in HYBRID_SHAPES.items():
+            full = len(_hybrid_reply(env, env.cmd(*query))[0])
+            env.assertGreater(full, 0, message=name)
+            for workers in [0, 2]:
+                _set_policies(env, 'return', 'return', workers)
+
+                # A stop that lands after a stage read everything truncates nothing and warns of
+                # nothing; any cut carries the OOM warning and never a timeout one.
+                def returns_with_warning(res, at_call, calls):
+                    env.assertFalse(isinstance(res, Exception), message=(name, workers, at_call, res))
+                    rows, warnings = _hybrid_reply(env, res)
+                    env.assertTrue(warnings == [COORD_OOM_WARNING] or
+                                   (len(rows) == full and warnings == []),
+                                   message=(name, workers, at_call, res))
+                _sweep_hybrid(env, query, returns_with_warning)
+
+                _set_policies(env, 'return', 'fail', workers)
+
+                def fails_before_the_replay(res, at_call, calls):
+                    if at_call <= calls - full:
+                        env.assertTrue(isinstance(res, redis_exceptions.ResponseError) and
+                                       OOM_QUERY_ERROR in str(res),
+                                       message=(name, workers, at_call, calls, res))
+                    else:
+                        rows, warnings = _hybrid_reply(env, res)
+                        env.assertEqual((len(rows), warnings),
+                                        (at_call - (calls - full) - 1, [COORD_OOM_WARNING]),
+                                        message=(name, workers, at_call, calls, res))
+                _sweep_hybrid(env, query, fails_before_the_replay)
+
+                _set_policies(env, 'return', 'ignore', workers)
+                _memory_pressure(env, 'AT_CALL', 1)
+                rows, warnings = _hybrid_reply(env, env.cmd(*query))
+                env.assertEqual((len(rows), warnings), (full, []), message=(name, workers))
+    finally:
+        _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_hybrid_stop_replies_by_on_oom_policy(env):
+    _hybrid_stop_shapes(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=2)
+def test_hybrid_stop_replies_by_on_oom_policy_resp2(env):
+    _hybrid_stop_shapes(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_hybrid_build_stop_reads_no_row(env):
+    """A SEARCH subquery stopped at its build checkpoint under ON_OOM RETURN reads no row, with
+    or without workers: the reply holds the vector subquery's rows only, with the OOM warning."""
+    try:
+        env.expect('FT.CREATE', 'hidx', 'PREFIX', 1, 'h:', 'SCHEMA', 'name', 'TEXT',
+                   'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+        conn = getConnectionByEnv(env)
+        # The first doc the SEARCH subquery reads is the farthest from the vector query.
+        for i in range(N_DOCS):
+            far = float(N_DOCS - 1 - i)
+            conn.execute_command('HSET', f'h:{i}', 'name', 'hello',
+                                 'v', np.array([far, far], dtype=np.float32).tobytes())
+        query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB', 'KNN', 2, 'K', 2,
+                 'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+        nearest = {f'h:{N_DOCS - 1}', f'h:{N_DOCS - 2}'}
+        for workers in [0, 2]:
+            _set_policies(env, 'return', 'return', workers)
+            # Call 1 is the SEARCH subquery's build checkpoint.
+            _memory_pressure(env, 'AT_CALL', 1)
+            res = env.cmd(*query)
+            _memory_pressure(env, 'RESET')
+            env.assertEqual({r['__key'] for r in res['results']}, nearest, message=(workers, res))
+            env.assertEqual(res['warnings'], [COORD_OOM_WARNING], message=(workers, res))
+    finally:
+        _reset(env)
+
+
+def _hybrid_index_on_a_line(env, name_of):
+    """N_DOCS docs on one vector axis, the i-th named `name_of(i)`."""
+    env.expect('FT.CREATE', 'hidx', 'PREFIX', 1, 'h:', 'SCHEMA', 'name', 'TEXT',
+               'v', 'VECTOR', 'FLAT', 6, 'TYPE', 'FLOAT32', 'DIM', 2, 'DISTANCE_METRIC', 'L2').ok()
+    conn = getConnectionByEnv(env)
+    for i in range(N_DOCS):
+        conn.execute_command('HSET', f'h:{i}', 'name', name_of(i),
+                             'v', np.array([float(i), 0.0], dtype=np.float32).tobytes())
+
+
+def _expect_every_hybrid_cut_warns(env, query, keys):
+    """Pressure at every checkpoint call of `query` in turn, with and without workers: a reply
+    whose `keys` differ from the complete one carries the OOM warning, and some stop cuts."""
+    try:
+        for workers in [0, 2]:
+            _set_policies(env, 'return', 'return', workers)
+            complete = keys(env.cmd(*query))
+            cuts = 0
+            for at_call in range(1, _checkpoint_calls(env, query) + 1):
+                _memory_pressure(env, 'AT_CALL', at_call)
+                res = env.cmd(*query)
+                _memory_pressure(env, 'RESET')
+                if keys(res) != complete:
+                    cuts += 1
+                    env.assertEqual(res['warnings'], [COORD_OOM_WARNING],
+                                    message=(workers, at_call, res))
+            env.assertGreater(cuts, 0, message=workers)
+    finally:
+        _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_hybrid_subquery_stop_filling_the_window_warns(env):
+    """A subquery sorter stopped while filling holds at most WINDOW rows, so the merger can take
+    them all without reading the subquery's stop."""
+    _hybrid_index_on_a_line(env, lambda i: ' '.join(['hello'] * (i + 1)))
+    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
+             'COMBINE', 'RRF', 2, 'WINDOW', 4, 'LIMIT', 0, N_DOCS,
+             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+    _expect_every_hybrid_cut_warns(env, query,
+                                   lambda res: sorted(r['__key'] for r in res['results']))
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_hybrid_stop_past_the_offset_warns(env):
+    """A tail sorter stopped while filling holds OFFSET + LIMIT rows at most, so the pager can end
+    the reply before the stop is read."""
+    _hybrid_index_on_a_line(env, lambda i: f'hello{i}')
+    query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello*', 'VSIM', '@v', '$BLOB', 'LIMIT', 2, 2,
+             'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+    _expect_every_hybrid_cut_warns(env, query, lambda res: [r['__key'] for r in res['results']])
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_hybrid_tail_stop_fails_over_a_soft_tail_error(env):
+    """A tail APPLY on a field no doc has records a soft error (it only warns); under ON_OOM FAIL
+    a stop at any checkpoint still fails the query with the OOM error, never a reply with rows."""
+    try:
+        _hybrid_index(env)
+        query = ['FT.HYBRID', 'hidx', 'SEARCH', 'hello', 'VSIM', '@v', '$BLOB',
+                 'LOAD', 1, '@opt', 'APPLY', '@opt', 'AS', 'x',
+                 'PARAMS', 2, 'BLOB', np.array([0.0, 0.0], dtype=np.float32).tobytes()]
+        for workers in [0, 2]:
+            _set_policies(env, 'return', 'fail', workers)
+            complete = env.cmd(*query)
+            failures = 0
+
+            def fails_or_is_complete(res, at_call, calls):
+                nonlocal failures
+                if isinstance(res, redis_exceptions.ResponseError):
+                    env.assertContains(OOM_QUERY_ERROR, str(res), message=(workers, at_call, res))
+                    failures += 1
+                else:
+                    env.assertEqual(res, complete, message=(workers, at_call, res))
+            _sweep_hybrid(env, query, fails_or_is_complete)
+            env.assertGreater(failures, 0, message=workers)
+    finally:
+        _reset(env)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_hybrid_reply_loop_stop_truncates(env):
+    """FT.HYBRID streams its tail rows into the reply with the same per-row check; a stop there
+    ends the stream at the tail's merger, so some stop positions keep a strict prefix of the
+    rows with the OOM warning, and none replies a cut without it."""
+    try:
+        _hybrid_index(env)
+        for workers in [0, 2]:
+            _set_policies(env, 'return', 'return', workers)
+            full = len(env.cmd(*HYBRID)['results'])
+            cuts = 0
+            for at_call in range(1, _checkpoint_calls(env, HYBRID) + 1):
+                _memory_pressure(env, 'AT_CALL', at_call)
+                res = env.cmd(*HYBRID)
+                rows = len(res['results'])
+                env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
+                               (rows == full and res['warnings'] == []),
+                               message=(workers, at_call, res))
+                cuts += 0 < rows < full
+            env.assertGreater(cuts, 0, message=workers)
+    finally:
+        _reset(env)
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_reply_loop_stop_on_a_shard_reaches_the_coordinator(env):
+    """A shard stopped in its reply loop ends its rows with the shard OOM warning, which the
+    coordinator replies as its own. Shard 2 runs no coordinator pipeline, so its calls are its
+    own; its reply loop's are its last."""
+    _index_with_docs(env)
+    shard = env.getConnection(2)
+    shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', NEVER)
+    env.cmd(*AGGREGATE)
+    calls = shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+    env.assertGreater(calls, B, message=calls)
+    shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', calls)
+    try:
+        res = env.cmd(*AGGREGATE)
+    finally:
+        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+    env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_hybrid_shard_stop_replies_by_on_oom_policy(env):
+    """A shard's FT.HYBRID subqueries run the memory checkpoints too; stopped for OOM anywhere
+    (build, depletion, cursor reads), the shard reports it in the shard wording, never as a
+    timeout, and the coordinator replies per ON_OOM: under RETURN the rows kept with its OOM
+    warning, under FAIL the OOM error (a replay stop only warns). Shard 2 runs no coordinator pipeline, so its calls are its
+    own; every one of them is tried, under both ON_TIMEOUT RETURN and FAIL."""
+    _hybrid_index(env)
+    full = len(env.cmd(*HYBRID)['results'])
+    shard = env.getConnection(2)
+
+    def shard_calls():
+        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', NEVER)
+        env.cmd(*HYBRID)
+        calls = shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+        return calls
+
+    def run_at(at_call):
+        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', at_call)
+        try:
+            return env.cmd(*HYBRID)
+        except redis_exceptions.ResponseError as e:
+            return e
+        finally:
+            shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+
+    try:
+        for on_timeout in ['return', 'fail']:
+            run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, on_timeout)
+            allShards_change_oom_policy(env, 'return')
+            calls = shard_calls()
+            env.assertGreater(calls, 0)
+            for at_call in range(1, calls + 1):
+                res = run_at(at_call)
+                env.assertFalse(isinstance(res, Exception), message=(on_timeout, at_call, res))
+                env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
+                               (len(res['results']) == full and res['warnings'] == []),
+                               message=(on_timeout, at_call, res))
+
+            # Under FAIL a stop in the replay of a shard's buffered cursor read can only warn, as
+            # standalone; everywhere else it is the OOM error.
+            allShards_change_oom_policy(env, 'fail')
+            # FAIL under ON_TIMEOUT RETURN buffers and replays, so it has checkpoints RETURN lacks.
+            calls = shard_calls()
+            errors = 0
+            for at_call in range(1, calls + 1):
+                res = run_at(at_call)
+                if isinstance(res, Exception):
+                    env.assertContains(OOM_QUERY_ERROR, str(res), message=(on_timeout, at_call))
+                    errors += 1
+                else:
+                    env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
+                                   (len(res['results']) == full and res['warnings'] == []),
+                                   message=(on_timeout, at_call, res))
+            env.assertGreater(errors, 0, message=on_timeout)
+    finally:
+        run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
+        allShards_change_oom_policy(env, 'return')
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_hybrid_coordinator_stop_replies_by_on_oom_policy(env):
+    """The coordinator process runs the FT.HYBRID tail and reply loop plus its own shard's
+    subqueries, all on one checkpoint counter that no scope splits. Sweeping every position of
+    that counter reaches every coordinator checkpoint, whatever the thread interleaving, and
+    each stop must reply per ON_OOM: under RETURN the complete reply or a strict prefix of it
+    with the OOM warning, under FAIL the OOM error or such a prefix (a replay stop only warns),
+    never a timeout, a foreign row or a duplicate."""
+    _hybrid_index(env)
+    coord = env.getConnection(1)
+
+    def arm(n):
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', n)
+
+    def disarm():
+        coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+
+    # Keys only: a stopped subquery changes the fused scores of the rows that remain.
+    def row_ids(res):
+        return [row['__key'] for row in res['results']]
+
+    full = row_ids(env.cmd(*HYBRID))
+    env.assertGreater(len(full), 0)
+
+    def run_at(at_call):
+        arm(at_call)
+        try:
+            return env.cmd(*HYBRID)
+        except redis_exceptions.ResponseError as e:
+            return e
+        finally:
+            disarm()
+
+    def check_reply(res, message):
+        ids = row_ids(res)
+        env.assertEqual(len(ids), len(set(ids)), message=message)
+        env.assertTrue(set(ids) <= set(full), message=message)
+        env.assertTrue(res['warnings'] == [COORD_OOM_WARNING] or
+                       (ids == full and res['warnings'] == []), message=message)
+        return res['warnings'] == [COORD_OOM_WARNING]
+
+    try:
+        for on_timeout in ['return', 'fail']:
+            run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, on_timeout)
+            allShards_change_oom_policy(env, 'return')
+            arm(NEVER)
+            env.cmd(*HYBRID)
+            calls = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+            disarm()
+            env.assertGreater(calls, 0, message=on_timeout)
+
+            warned = 0
+            for at_call in range(1, calls + 1):
+                res = run_at(at_call)
+                env.assertFalse(isinstance(res, Exception), message=(on_timeout, at_call, res))
+                warned += check_reply(res, (on_timeout, at_call, res))
+            env.assertGreater(warned, 0, message=on_timeout)
+
+            allShards_change_oom_policy(env, 'fail')
+            # FAIL under ON_TIMEOUT RETURN buffers and replays, so it has checkpoints RETURN lacks.
+            arm(NEVER)
+            env.cmd(*HYBRID)
+            calls = coord.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
+            disarm()
+            errors = 0
+            for at_call in range(1, calls + 1):
+                res = run_at(at_call)
+                if isinstance(res, Exception):
+                    env.assertContains(OOM_QUERY_ERROR, str(res), message=(on_timeout, at_call))
+                    errors += 1
+                else:
+                    check_reply(res, (on_timeout, at_call, res))
+            env.assertGreater(errors, 0, message=on_timeout)
+    finally:
+        disarm()
         run_command_on_all_shards(env, 'CONFIG', 'SET', ON_TIMEOUT_CONFIG, 'return')
         allShards_change_oom_policy(env, 'return')
