@@ -391,10 +391,15 @@ arrayof(char **)
   return idx->suffix ? GetList_SuffixTrieMap(idx->suffix, str, len, prefix, timeout, skipTimeoutChecks) : NULL;
 }
 
-arrayof(char *)
-    TagIndex_GetSuffixWildcardMatches(const TagIndex *idx, const char *pattern, uint32_t len,
-                                               struct timespec timeout, long long maxPrefixExpansions, bool skipTimeoutChecks) {
-  return idx->suffix ? GetList_SuffixTrieMap_Wildcard(idx->suffix, pattern, len, timeout, maxPrefixExpansions, skipTimeoutChecks) : NULL;
+SuffixWildcardStatus TagIndex_GetSuffixWildcardMatches(const TagIndex *idx, const char *pattern, uint32_t len,
+                                                       struct timespec timeout, long long maxPrefixExpansions,
+                                                       bool skipTimeoutChecks, arrayof(char *) *matches) {
+  if (!idx->suffix) {
+    *matches = NULL;
+    return SUFFIX_WILDCARD_NO_MATCHES;
+  }
+  return GetList_SuffixTrieMap_Wildcard(idx->suffix, pattern, len, timeout, maxPrefixExpansions,
+                                        skipTimeoutChecks, matches);
 }
 
 /* Serialize all the tags in the index to the redis client */
