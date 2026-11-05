@@ -174,7 +174,7 @@ enum Phase {
 ///    re-narrows. `carries_no_index_borrow` states the property in code;
 ///    because neither that trait contract nor the `&mut` handout from
 ///    [`current`](RQEIterator::current) can be enforced statically, it is
-///    *checked* — not assumed — by `survives_lock_release`, at both boundaries
+///    *checked* — not assumed — by `buffers_carry_no_index_borrows`, at both boundaries
 ///    that hand the records back after a lock release
 ///    ([`resume`](RQESuspendedIterator::resume) and the legacy
 ///    [`revalidate`](RQEIterator::revalidate)), which abort on violation.
@@ -587,15 +587,23 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             // `self.heap.push` at the same time.  Pass fields explicitly.
             let capture = self.child_capture();
             if let Some(child) = self.child.as_mut() {
-                intersect_batch_with_child(child, &mut batch, &mut self.heap, capture)?;
+                intersect_batch_with_child(
+                    child,
+                    &mut batch,
+                    &mut self.heap,
+                    capture,
+                    &mut self.source,
+                )?;
             } else {
                 // No filter child: every source batch record is a candidate, so feed
                 // the whole batch through the heap, which retains the top k.
                 while let Some((doc_id, score)) = batch.next() {
-                    self.heap.push(doc_id, score);
+                    if self.source.accept_candidate(doc_id, score)? {
+                        self.heap.push(doc_id, score);
+                    }
                 }
             }
-            // Batch consumption is unpolled; check once at the boundary.
+            // Check the boundary even if candidate admission does not poll.
             self.source.check_timeout()?;
             match self.source.batch_strategy(self.heap.len(), self.k.get()) {
                 BatchStrategy::Continue => continue,
@@ -663,7 +671,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
             // Poll before the lookup so an expired deadline skips the expensive
             // VecSim distance lookup.
             scope.0.check_timeout()?;
-            if let Some(score) = scope.0.lookup_score(doc_id) {
+            if let Some(score) = scope.0.lookup_score(doc_id)
+                && scope.0.accept_candidate(doc_id, score)?
+            {
                 // Capture the child's data only if the heap retains this entry,
                 // before the next `child.read()` reuses its storage, so the yield
                 // phase needn't re-walk the child. A discarded candidate skips the
@@ -710,6 +720,9 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
 
             match item {
                 Some((doc_id, score)) => {
+                    if !self.source.accept_candidate(doc_id, score)? {
+                        continue;
+                    }
                     let result = self.source.build_result(doc_id, score);
                     if self.source.is_expired(&result) {
                         continue;
@@ -864,18 +877,22 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
         &mut self,
         spec: &IndexSpecReadGuard,
     ) -> Result<RQEValidateStatus<'_, 'index>, RQEIteratorError> {
-        // Same decisions as `resume`; see `survives_lock_release`.
-        if !self.survives_lock_release() {
+        if !self.buffers_carry_no_index_borrows() {
             return Ok(RQEValidateStatus::Aborted);
         }
-        // Otherwise only a child abort aborts us. Results come from our own
-        // score-ordered buffer, so a moved child does not move our cursor:
-        // collapse it to Ok.
+        // Results come from our own score-ordered buffer, so a moved child does
+        // not move our cursor. Child aborts and errors still propagate.
         if let Some(child) = self.child.as_mut() {
             match child.revalidate(spec)? {
                 RQEValidateStatus::Aborted => return Ok(RQEValidateStatus::Aborted),
                 RQEValidateStatus::Ok | RQEValidateStatus::Moved { .. } => {}
             }
+        }
+        // Legacy callers have no suspend hook. Discard cached handles before
+        // the source is consulted again, but preserve child errors over a source abort.
+        self.source.release_index_handles();
+        if !self.can_resume_collection() {
+            return Ok(RQEValidateStatus::Aborted);
         }
         self.source_stale = true;
         Ok(RQEValidateStatus::Ok)
@@ -1033,7 +1050,7 @@ impl<'query, S: ScoreSource + 'query, IS: RQESuspendedIterator<'query>, O: Score
         // not `Err`, since `RQEIteratorError` is for genuine `TimedOut`/`IoError`
         // failures. Checked on `&self`, before `Box::into_raw`, so a violation
         // simply drops the box.
-        if !self.survives_lock_release() {
+        if !self.buffers_carry_no_index_borrows() {
             return Ok(ResumeOutcome::Aborted);
         }
 
@@ -1109,6 +1126,11 @@ impl<'query, S: ScoreSource + 'query, IS: RQESuspendedIterator<'query>, O: Score
             Box::from_raw(raw.cast::<RawTopK<'index, Active<'index>, S, IS::Resumed<'index>, O>>())
         };
 
+        // A child timeout must not be hidden by a source that cannot resume collection.
+        if !active.can_resume_collection() {
+            return Ok(ResumeOutcome::Aborted);
+        }
+
         // Always `Ok`, never `Moved`: our position is `yield_pos` into our own
         // score-ordered buffer, which the suspension left untouched, so the
         // document `current()` reports is still the one the caller last read.
@@ -1150,16 +1172,9 @@ impl<'query, Rf: Ref, S: ScoreSource, I, O: ScoreOrdering> RawTopK<'query, Rf, S
                 .all(carries_no_index_borrow)
     }
 
-    /// Whether the state carried across a lock release can be handed back:
-    /// invariants 2 and 4 hold.
-    ///
-    /// The shared decision point for both [`resume`](RQESuspendedIterator::resume)
-    /// and the legacy [`revalidate`](RQEIterator::revalidate), so the two paths
-    /// cannot drift. The cost is `O(k)` plus each record's subtree, paid only
-    /// when the lock was released.
-    fn survives_lock_release(&self) -> bool {
-        (self.phase != Phase::NotStarted || self.source.can_collect_after_lock_release())
-            && self.buffers_carry_no_index_borrows()
+    /// Collection needs a resumable source; buffered output does not read it.
+    fn can_resume_collection(&self) -> bool {
+        self.phase != Phase::NotStarted || self.source.can_collect_after_lock_release()
     }
 }
 
@@ -1251,6 +1266,7 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
     batch: &mut impl ScoreBatch,
     heap: &mut TopKHeap<'index, O>,
     capture: ChildCapture,
+    source: &mut impl ScoreSource,
 ) -> Result<(), RQEIteratorError> {
     child.rewind();
 
@@ -1269,9 +1285,11 @@ fn intersect_batch_with_child<'index, C: RQEIterator<'index>, O: ScoreOrdering>(
                 // Capture the matching child data only if the heap retains it,
                 // before advancing past it, so the yield phase can return it
                 // without re-reading the child. A discarded match skips the copy.
-                heap.push_with_record_lazy(batch_doc, batch_score, || {
-                    child.current().and_then(|r| capture.apply(r))
-                });
+                if source.accept_candidate(batch_doc, batch_score)? {
+                    heap.push_with_record_lazy(batch_doc, batch_score, || {
+                        child.current().and_then(|r| capture.apply(r))
+                    });
+                }
                 // Advance the batch first; only read the child when another
                 // batch doc remains. Reading the child past an exhausted batch
                 // is needless work that inflates its profile counters and could

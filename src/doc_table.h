@@ -154,6 +154,10 @@ static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
  * Returns NULL if docId is not inside the table or is hidden by a pending slot deletion */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);
 
+/* Whether DocTable_Borrow would return metadata, without acquiring a reference.
+ * Caller holds the spec read or write lock. */
+bool DocTable_IsVisible(const DocTable *t, t_docId docId);
+
 /* Hint that `docId` will be borrowed soon: starts loading the head of its bucket's chain into
  * the cache, so the cache miss overlaps with work on earlier docs. Changes no state, and does
  * nothing for an id outside the table. Caller holds the spec lock, as for DocTable_Borrow. */

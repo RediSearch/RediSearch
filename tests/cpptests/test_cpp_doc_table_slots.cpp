@@ -10,12 +10,20 @@
 #include "gtest/gtest.h"
 
 #include <initializer_list>
+#include <limits>
+#include <memory>
+#include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "doc_table.h"
+#include "inverted_index.h"
+#include "iterators_ffi.h"
+#include "numeric_range_tree_ffi.h"
 #include "rmalloc.h"
 #include "slot_ranges.h"
+#include "spec.h"
 
 namespace {
 
@@ -51,6 +59,7 @@ class DocTableSlotsTest : public ::testing::Test {
 
   bool visible(t_docId id) {
     const RSDocumentMetadata *dmd = DocTable_Borrow(&dt, id);
+    EXPECT_EQ(DocTable_IsVisible(&dt, id), dmd != nullptr);
     DMD_Return(dmd);
     return dmd != nullptr;
   }
@@ -149,6 +158,110 @@ TEST_F(DocTableSlotsTest, DeleteByIdRemovesHiddenDoc) {
   EXPECT_EQ(removed->id, id);
   DMD_Return(removed);
   EXPECT_FALSE(DocTable_Exists(&dt, id));
+  EXPECT_FALSE(visible(id));
+  EXPECT_FALSE(visible(0));
+  EXPECT_FALSE(visible(id + 1));
+}
+
+TEST_F(DocTableSlotsTest, NumericTopKPreservesVisibilityAcrossConstructorReductions) {
+  const t_docId hidden = put("{a}old");
+  const t_docId otherSlot = put("{b}live");
+  addPending({{SLOT_A, SLOT_A}});
+  const t_docId newInSlot = put("{a}new");
+  const t_docId deleted = put("{b}deleted");
+  DMD_Return(DocTable_DeleteById(&dt, deleted));
+
+  auto tree = std::unique_ptr<NumericRangeTree, decltype(&NumericRangeTree_Free)>(
+      NewNumericRangeTree(false), NumericRangeTree_Free);
+  _NumericRangeTree_Add(tree.get(), hidden, 1.0, false, false, 0);
+  _NumericRangeTree_Add(tree.get(), otherSlot, 3.0, false, false, 0);
+  _NumericRangeTree_Add(tree.get(), newInSlot, 2.0, false, false, 0);
+  _NumericRangeTree_Add(tree.get(), deleted, 0.0, false, false, 0);
+
+  ASSERT_TRUE(DocTable_Exists(&dt, hidden));
+  ASSERT_FALSE(visible(hidden));
+  ASSERT_TRUE(visible(newInSlot));
+
+  // Borrow the fixture's table without transferring ownership to the search context.
+  IndexSpec spec = {};
+  spec.docs = dt;
+  RedisSearchCtx sctx = {};
+  sctx.spec = &spec;
+  NumericFilter filter = {};
+  filter.min = -std::numeric_limits<double>::infinity();
+  filter.max = std::numeric_limits<double>::infinity();
+  filter.minInclusive = filter.maxInclusive = true;
+  FieldFilterContext filterCtx = {};
+  filterCtx.field.index_tag = FieldMaskOrIndex_Index;
+  filterCtx.field.index = 0;
+  filterCtx.predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT;
+
+  enum class ChildKind { None, Filtered, Empty };
+  struct Case {
+    const char *name;
+    size_t k;
+    ChildKind child;
+    std::optional<std::vector<t_docId>> expectedRows;
+  };
+  const Case cases[] = {
+      {"unfiltered", 2, ChildKind::None, std::vector<t_docId>{newInSlot, otherSlot}},
+      {"profiled filtered", 1, ChildKind::Filtered, std::vector<t_docId>{otherSlot}},
+      {"empty child", 1, ChildKind::Empty, std::vector<t_docId>{}},
+      {"zero k", 0, ChildKind::Filtered, std::vector<t_docId>{}},
+      {"oversized k", std::numeric_limits<size_t>::max(), ChildKind::Filtered, std::nullopt},
+  };
+  auto freeIterator = [](QueryIterator *it) { it->Free(it); };
+  using IteratorHandle = std::unique_ptr<QueryIterator, decltype(freeIterator)>;
+  for (const auto &testCase : cases) {
+    SCOPED_TRACE(testCase.name);
+    IteratorHandle child(nullptr, freeIterator);
+    switch (testCase.child) {
+      case ChildKind::None:
+        break;
+      case ChildKind::Empty:
+        child.reset(NewEmptyIterator());
+        break;
+      case ChildKind::Filtered: {
+        auto *ids = static_cast<t_docId *>(rm_malloc(3 * sizeof(t_docId)));
+        ids[0] = hidden;
+        ids[1] = otherSlot;
+        ids[2] = deleted;
+        child.reset(NewSortedIdListIterator(ids, 3, 1.0));
+        break;
+      }
+    }
+    IteratorHandle it(NewNumericTopKIterator(tree.get(), &filter, true, testCase.k, 3, child.get(),
+                                             &sctx, &filterCtx),
+                      freeIterator);
+    if (it) child.release();
+    if (!testCase.expectedRows) {
+      ASSERT_EQ(it, nullptr);
+      // Failed construction must leave the child usable and owned by the caller.
+      ASSERT_NE(child, nullptr);
+      ASSERT_EQ(child->Read(child.get()), ITERATOR_OK);
+      EXPECT_EQ(child->current->docId, hidden);
+      continue;
+    }
+    ASSERT_NE(it, nullptr);
+    EXPECT_EQ(it->type, testCase.expectedRows->empty() ? EMPTY_ITERATOR : OPTIMUS_ITERATOR);
+    if (!testCase.expectedRows->empty()) {
+      EXPECT_EQ(it->SkipTo, nullptr);
+      ASSERT_NE(it->ProfileChildren, nullptr);
+      // Leave the unfiltered case unprofiled to exercise the original wrapper too.
+      if (testCase.child == ChildKind::Filtered) {
+        auto *unprofiled = it.release();
+        it.reset(unprofiled->ProfileChildren(unprofiled));
+        ASSERT_NE(it, nullptr);
+        EXPECT_EQ(it->ProfileChildren, nullptr);
+        EXPECT_EQ(it->SkipTo, nullptr);
+      }
+    }
+    for (t_docId expected : *testCase.expectedRows) {
+      ASSERT_EQ(it->Read(it.get()), ITERATOR_OK);
+      EXPECT_EQ(it->current->docId, expected);
+    }
+    EXPECT_EQ(it->Read(it.get()), ITERATOR_EOF);
+  }
 }
 
 TEST_F(DocTableSlotsTest, FreeReleasesPendingDeletions) {

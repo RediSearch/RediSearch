@@ -84,11 +84,20 @@ static RSDocumentMetadata *DocTable_DmdUnchain(DocTable *t, t_docId docId) {
   return NULL;
 }
 
-const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
+static RSDocumentMetadata *DocTable_GetVisible(const DocTable *t, t_docId docId) {
   RSDocumentMetadata *dmd = DocTable_GetOwn(t, docId);
   if (dmd && DocTable_HasPendingDeletions(t) && DocTable_IsDocPendingDeletion(t, dmd)) {
     return NULL;
   }
+  return dmd;
+}
+
+bool DocTable_IsVisible(const DocTable *t, t_docId docId) {
+  return DocTable_GetVisible(t, docId) != NULL;
+}
+
+const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId) {
+  RSDocumentMetadata *dmd = DocTable_GetVisible(t, docId);
   if (dmd) {
     DMD_Incref(dmd);
   }
