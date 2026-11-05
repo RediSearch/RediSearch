@@ -9,6 +9,8 @@
 
 //! Supporting types for [`Optional`].
 
+use std::ptr::NonNull;
+
 use index_result::{RSIndexResult, RSResultKind, RawIndexResult};
 use ref_mode::{Active, Ref, Suspended};
 use std::cmp;
@@ -398,7 +400,7 @@ where
         if let OptionalChild::Present(c) = unsafe { &mut (*raw).child } {
             // SAFETY: `c` points at a valid, exclusively-owned `I`; the helper
             // reinitialises the slot as a valid `I::Suspended` in place.
-            unsafe { suspend_child_slot_in_place(c as *mut I) };
+            unsafe { suspend_child_slot_in_place(NonNull::from(c)) };
         }
         // SAFETY: the `Present` child (if any) now holds `I::Suspended` and `Gone`
         // has no payload, so the allocation is a valid
@@ -478,7 +480,7 @@ where
                 // payload. On Unchanged/Moved the helper rewrites the slot as a
                 // valid `S::Resumed<'a>`; on Aborted/Err it consumes the child,
                 // leaving the payload uninitialised (handled below).
-                match unsafe { resume_child_slot_in_place(c as *mut S, guard) } {
+                match unsafe { resume_child_slot_in_place(NonNull::from(c), guard) } {
                     Ok(ResumeSlotOutcome::Unchanged) => ChildResume::Active { last, moved: false },
                     Ok(ResumeSlotOutcome::Moved) => ChildResume::Active { last, moved: true },
                     Ok(ResumeSlotOutcome::Aborted) => ChildResume::Aborted { last },
