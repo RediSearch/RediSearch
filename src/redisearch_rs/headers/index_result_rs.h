@@ -251,6 +251,15 @@ typedef struct RSOffsetVector {
 } RSOffsetVector;
 #endif /* RSOFFSETVECTOR_DEFINED */
 
+/**
+ * A reference-counted [`RSQueryTerm`], shared by the iterator that produced it and every
+ * record copied from that iterator's results.
+ *
+ * Equivalent to an [`Arc<RSQueryTerm>`], but stored as a pointer to the term itself
+ * rather than to the [`Arc`]'s allocation, so C sees a plain `RSQueryTerm *`.
+ */
+typedef struct RSQueryTerm *SharedQueryTerm;
+
 #ifndef RAWTERMRECORD_ACTIVE_DEFINED
 #define RAWTERMRECORD_ACTIVE_DEFINED
 /**
@@ -261,9 +270,18 @@ enum RawTermRecord_Active_Tag
   : uint8_t
 #endif // __cplusplus
  {
+  /**
+   * A record whose offsets may borrow from the index block they were decoded from, so it
+   * cannot outlive that block. Its term is shared, not borrowed.
+   *
+   * [`RSTermRecord::to_owned`] turns it into an [`Owned`](Self::Owned) record.
+   */
   RawTermRecord_Active_Borrowed,
+  /**
+   * A record that borrows nothing, so it can outlive both the source of its offsets and the
+   * iterator holding its term (see [`RSTermRecord::to_owned`]).
+   */
   RawTermRecord_Active_Owned,
-  RawTermRecord_Active_FullyOwned,
 };
 #ifndef __cplusplus
 typedef uint8_t RawTermRecord_Active_Tag;
@@ -274,13 +292,10 @@ typedef struct RawTermRecord_Active_Borrowed_Body {
   /**
    * The term that brought up this record.
    *
-   * The term is owned by the record. The name of the variant, `Borrowed`,
-   * refers to the `offsets` field.
-   *
-   * The term is wrapped in a `Box` to ensure that both `Owned` and `Borrowed`
-   * variants have the same memory layout.
+   * Shared so that [`RSTermRecord::to_owned`] copies of the record
+   * can keep the term alive without copying it.
    */
-  struct RSQueryTerm *term;
+  SharedQueryTerm term;
   /**
    * The encoded offsets in which the term appeared in the document
    *
@@ -295,50 +310,23 @@ typedef struct RawTermRecord_Active_Owned_Body {
   /**
    * The term that brought up this record.
    *
-   * It borrows the term from another record. `None` encodes "no
-   * term"; thanks to the `NonNull` niche of `&T`, `Option<&'query RSQueryTerm>`
-   * has the same C ABI as a nullable `*const RSQueryTerm`.
-   *
-   * The borrowed query term belongs to the query pipeline, so it lives
-   * under the `'query` lifetime and is never weakened by the
-   * `Active`/`Suspended` ref-mode transitions — it stays a genuine
-   * `&'query` borrow, so it is modelled as a plain reference rather than
-   * a ref-mode-parametrised `SharedPtr`.
+   * The record shares ownership of the term, same as in the `Borrowed`
+   * variant.
    */
-  const struct RSQueryTerm *term;
-  /**
-   * The encoded offsets in which the term appeared in the document
-   *
-   * The owned version owns a copy of the offsets data, which is freed on drop.
-   */
-  RSOffsetVector offsets;
-} RawTermRecord_Active_Owned_Body;
-
-typedef struct RawTermRecord_Active_FullyOwned_Body {
-  RawTermRecord_Active_Tag tag;
-  /**
-   * The term that brought up this record.
-   *
-   * The term is owned by the record (wrapped in a `Box`), same as in the
-   * `Borrowed` variant.
-   */
-  struct RSQueryTerm *term;
+  SharedQueryTerm term;
   /**
    * The encoded offsets in which the term appeared in the document.
    *
    * Unlike `Borrowed`, the offsets are owned by the record as well and
-   * therefore do not tie the record to an external lifetime. Used when
-   * the decoded record must outlive the source of the offset bytes
-   * (e.g. reading from a disk page that may be evicted).
+   * therefore do not tie the record to an external lifetime.
    */
   RSOffsetVector offsets;
-} RawTermRecord_Active_FullyOwned_Body;
+} RawTermRecord_Active_Owned_Body;
 
 typedef union RawTermRecord_Active {
   RawTermRecord_Active_Tag tag;
   struct RawTermRecord_Active_Borrowed_Body borrowed;
   struct RawTermRecord_Active_Owned_Body owned;
-  struct RawTermRecord_Active_FullyOwned_Body fullyowned;
 } RawTermRecord_Active;
 #endif /* RAWTERMRECORD_ACTIVE_DEFINED */
 
@@ -642,7 +630,6 @@ typedef struct RawIndexResult_Active RSIndexResult;
 #define RSAggregateResult_Borrowed RawAggregateResult_Active_Borrowed
 #define RSAggregateResult_Owned    RawAggregateResult_Active_Owned
 
-#define RSTermRecord_Borrowed   RawTermRecord_Active_Borrowed
-#define RSTermRecord_Owned      RawTermRecord_Active_Owned
-#define RSTermRecord_FullyOwned RawTermRecord_Active_FullyOwned
+#define RSTermRecord_Borrowed RawTermRecord_Active_Borrowed
+#define RSTermRecord_Owned    RawTermRecord_Active_Owned
 
