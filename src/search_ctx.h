@@ -47,9 +47,7 @@ typedef struct RedisSearchCtx {
   // so all iterators created during one query observe a consistent on-disk view.
   // Owned by the query setup that took the snapshot; iterators borrow it.
   RedisSearchDiskSnapshot *diskSnapshot;
-  // When non-zero, documents with a larger id are hidden from this query. Set for an in-memory
-  // subquery that reads the index under a later lock than the one its iterators were built under,
-  // so that documents added in between stay out of its view. 0 means no bound.
+  // The index's max doc id at the moment this was set. 0 means unset.
   t_docId maxVisibleDocId;
 } RedisSearchCtx;
 

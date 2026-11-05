@@ -930,10 +930,9 @@ static int buildPipelineAndExecute(HybridRequest *hreq, HybridPipelineParams *hy
     rs_wall_clock_init(&pipelineClock);
   }
 
-  // In-memory background depleters take their own read locks after this thread unlocks, bounded
-  // to the documents that existed at build time. Synchronous in-memory depletion keeps this
-  // thread's lock across all subqueries: reacquiring the writer-preferring rwlock on this thread
-  // could deadlock against a queued GC writer. Disk depletion uses the snapshot taken during the
+  // Without RoR, background depleters take their own read locks after this thread unlocks,
+  // bounded to the documents that existed at build time. Synchronous depletion keeps this
+  // thread's lock across all subqueries. RoR depletion uses the snapshot taken during the
   // build and needs no spec lock.
   const bool suppressSubqueryUnlocks = !depleteInBackground && !sctx->spec->diskSpec;
   bool unlockSuppressed = false;

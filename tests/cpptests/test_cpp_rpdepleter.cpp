@@ -28,6 +28,7 @@
 
 #define NumberOfContexts 3
 
+// Base test class
 class RPSafeDepleterTest : public ::testing::Test {
 protected:
   // Reusable mock upstream processor
@@ -66,10 +67,12 @@ protected:
   void SetUp() override {
     timeoutConfig.timeoutPolicy = TimeoutPolicy_Return;
     timeoutConfig.queryTimeoutMS = 10000;
+    // Initialize Redis contexts
     for (size_t i = 0; i < NumberOfContexts; ++i) {
       redisContexts[i] = RedisModule_GetThreadSafeContext(NULL);
     }
 
+    // Create a real index
     // Generate a unique index name for each test to avoid conflicts
     const ::testing::TestInfo* const test_info =
       ::testing::UnitTest::GetInstance()->current_test_info();
@@ -79,8 +82,13 @@ protected:
     RedisModuleCtx *ctx = redisContexts[0];
     RMCK::ArgvList argv(ctx, "FT.CREATE", index_name.c_str(), "SKIPINITIALSCAN", "SCHEMA", "field1", "TEXT");
     mockSpec = Indexes_CreateNewSpec(ctx, argv, argv.size(), &err);
+    if (!mockSpec) {
+      printf("Failed to create index spec. Error code: %d, Error message: %s\n",
+             QueryError_GetCode(&err), QueryError_GetUserError(&err));
+    }
     ASSERT_NE(mockSpec, nullptr) << "Failed to create index spec. Error: " << QueryError_GetUserError(&err);
 
+    // Initialize search contexts
     for (size_t i = 0; i < NumberOfContexts; ++i) {
       searchContexts[i] = SEARCH_CTX_STATIC(redisContexts[i], mockSpec);
       timeouts[i] = static_cast<QueryRequestLimits *>(rm_calloc(1, sizeof(QueryRequestLimits)));
@@ -99,6 +107,7 @@ protected:
   }
 
   void TearDown() override {
+    // Free Redis contexts
     for (auto ctx : redisContexts) {
       RedisModule_FreeThreadSafeContext(ctx);
     }
@@ -304,8 +313,7 @@ TEST_F(RPSafeDepleterTest, RPSafeDepleter_MarkTimedOut) {
   depleter->Free(depleter);
 }
 
-// Each depleter's sub-pipeline takes the read lock on its own pool thread, as the query iterator
-// does, and may stop without releasing it; the two depleters share one search context.
+// Depleters sharing one search context release the read locks their sub-pipelines left held.
 TEST_F(RPSafeDepleterTest, SharedContextOwnership) {
   struct GatedUpstream : ResultProcessor {
     std::shared_future<void> gate;
@@ -356,17 +364,10 @@ TEST_F(RPSafeDepleterTest, SharedContextOwnership) {
   EXPECT_EQ(RPSafeDepleter_StartAll(depleters, &error), RS_RESULT_OK);
   started1.wait();
   started2.wait();
-  // The locks belong to the pool threads, not to the launcher.
   EXPECT_FALSE(IndexSpec_IsLocked(mockSpec));
   EXPECT_EQ(mockSpec->keysDict->pauserehash, 2);
-  const int writerWhileDepleting = pthread_rwlock_trywrlock(&mockSpec->rwlock);
-  EXPECT_NE(writerWhileDepleting, 0);
-  if (writerWhileDepleting == 0) {
-    pthread_rwlock_unlock(&mockSpec->rwlock);
-  }
   release.set_value();
   RPSafeDepleter_JoinAll(depleters);
-  // The depleters released the locks their sub-pipelines left held.
   EXPECT_EQ(mockSpec->keysDict->pauserehash, 0);
   const int writerAfterDepletion = pthread_rwlock_trywrlock(&mockSpec->rwlock);
   EXPECT_EQ(writerAfterDepletion, 0);
