@@ -517,10 +517,12 @@ impl profile_print::ProfilePrint for CRQEIterator {
         map: &mut redis_reply::MapBuilder<'_>,
         ctx: &mut profile_print::ProfilePrintCtx<'_>,
     ) {
-        let ptr = std::ptr::NonNull::from(self.as_ref());
-        // SAFETY: ptr is valid (owned by self) and its PrintProfile vtable
-        // entry was set at construction time by RQEIteratorWrapper::boxed_new
-        // or by the C iterator constructor.
-        unsafe { call_print_profile(ptr, map, ctx) };
+        // SAFETY: `as_raw` returns the owning pointer, live while `self` is, and
+        // its PrintProfile vtable entry was set at construction time by
+        // RQEIteratorWrapper::boxed_new or by the C iterator constructor. Its
+        // provenance spans the whole allocation, which a Rust-wrapped
+        // iterator's callback needs to read the wrapper's `inner`; a pointer
+        // derived from `&QueryIterator` would cover only the header.
+        unsafe { call_print_profile(self.as_raw(), map, ctx) };
     }
 }
