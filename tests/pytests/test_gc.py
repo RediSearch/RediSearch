@@ -1133,5 +1133,5 @@ def testForcedGCReportsWhenItCannotFork():
         env.cmd('CONFIG', 'SET', 'rdb-key-save-delay', '0')
         waitForRdbSaveToFinish(env)
 
-    env.assertContains('GC DID NOT RUN', forced.get('error', ''),
+    env.assertContains('GC_NO_FORK', forced.get('error', ''),
                        message=f'expected an error, got {forced}')
