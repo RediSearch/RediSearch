@@ -16,6 +16,8 @@ dbconfig:
       - oss-standalone
   - configuration-parameters:
     - save: '""'
+    # The threshold stays 0, as in the fork variant: the ratio would raise it with the index.
+    - search-gc-clean-ratio-ppm: 0
   - module-configuration-parameters:
       redisearch:
         GC_POLICY: THREAD
