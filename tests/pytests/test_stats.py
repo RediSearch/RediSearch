@@ -358,8 +358,10 @@ def testDocTableInfo(env):
     sortable_size1 = float(d['sortable_values_size_mb'])
     env.assertGreater(sortable_size1, 0)
 
-    # check size after an update with larger text
+    # check size after an update with larger text. Under the THREAD GC policy the doc
+    # table also holds the IDs it deleted until a cycle collects them.
     conn.execute_command('HSET', 'a', 'txt', 'hello world')
+    run_command_on_all_shards(env, debug_cmd(), 'GC_FORCEINVOKE', 'idx')
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size2 = float(d['doc_table_size_mb'])
@@ -369,6 +371,7 @@ def testDocTableInfo(env):
 
     # check size after an update with identical text
     conn.execute_command('HSET', 'b', 'txt', 'world')
+    run_command_on_all_shards(env, debug_cmd(), 'GC_FORCEINVOKE', 'idx')
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 2)
     doctable_size3 = float(d['doc_table_size_mb'])
@@ -379,6 +382,7 @@ def testDocTableInfo(env):
     # check 0 after deletion
     conn.execute_command('DEL', 'a')
     conn.execute_command('DEL', 'b')
+    run_command_on_all_shards(env, debug_cmd(), 'GC_FORCEINVOKE', 'idx')
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 0)
     env.assertEqual(float(d['doc_table_size_mb']), n * doc_table_size_mb)
