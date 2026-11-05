@@ -137,6 +137,16 @@ static inline __attribute__((always_inline)) void recordCandidate(RPQueryIterato
   }
 }
 
+static inline void reclassifyDeletedCandidates(RPQueryIterator *self, size_t count,
+                                               bool isProfiled) {
+  if (isProfiled) {
+    RPQueryIteratorProfiled *profiled = (RPQueryIteratorProfiled *)self;
+    RS_ASSERT(profiled->candidatesNotDiscarded >= count);
+    profiled->candidatesNotDiscarded -= count;
+    profiled->deletedCandidatesDiscarded += count;
+  }
+}
+
 /****
  * getDocumentMetadata - get the document metadata for the current document from the iterator.
  * If the document is deleted or expired, return false.
@@ -163,10 +173,14 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
     // Start from checking the deleted-ids (in memory), then perform IO
     const bool deleted = SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId);
     recordCandidate(self, deleted, isProfiled);
+    DiskReadFailureReason failureReason = DISK_READ_ERROR;
     const bool foundDocument =
         !deleted && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId,
-                                                   diskDmd, &sctx->currentTime);
+                                                   diskDmd, &sctx->currentTime, &failureReason);
     if (!foundDocument) {
+      if (!deleted && failureReason == DISK_READ_DELETED) {
+        reclassifyDeletedCandidates(self, 1, isProfiled);
+      }
       DMD_Return(diskDmd);
       return false;
     }
@@ -252,35 +266,13 @@ static inline __attribute__((always_inline)) int refillQueueUsingIterator(RPQuer
   return RS_RESULT_OK;
 }
 
-static bool diskDmdIsVisible(IndexSpec *spec, const RSDocumentMetadata *dmd) {
-  const bool acquired = IndexSpec_LockReadIfNeeded(spec);
-  bool deleted = SearchDisk_DocIdDeleted(spec->diskSpec, dmd->id);
-  if (!deleted && DocTable_HasPendingDeletions(&spec->docs)) {
-    const uint16_t slot = RedisModule_ClusterKeySlotC(dmd->keyPtr, sdslen(dmd->keyPtr));
-    deleted = DocTable_IsDocPendingDeletionForSlot(&spec->docs, dmd->id, slot);
-  }
-  if (acquired) IndexSpec_Unlock(spec);
-  return !deleted;
-}
-
 /**
  * Validate DMD against sharding/slot filters.
  * Returns true if DMD is valid, false if it should be skipped.
  */
-static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadata *dmd,
-                            bool isProfiled) {
+static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadata *dmd) {
   // Defensive check: if keyPtr is NULL (allocation failure in disk API), skip this document
   if (!dmd->keyPtr) {
-    return false;
-  }
-
-  IndexSpec *spec = self->sctx->spec;
-  if (spec->diskSpec && !diskDmdIsVisible(spec, dmd)) {
-    if (isProfiled) {
-      RPQueryIteratorProfiled *profiled = (RPQueryIteratorProfiled *)self;
-      profiled->candidatesNotDiscarded--;
-      profiled->deletedCandidatesDiscarded++;
-    }
     return false;
   }
 
@@ -454,7 +446,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextImpl(ResultProcess
       continue;
     }
 
-    if (!validateDmdSlot(self, dmd, isProfiled)) {
+    if (!validateDmdSlot(self, dmd)) {
       DMD_Return(dmd);
       continue;
     }
@@ -518,7 +510,7 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
     if (indexResult) {
       RS_ASSERT(indexResult->dmd);  // DMD should be populated
 
-      if (!validateDmdSlot(self, indexResult->dmd, isProfiled)) {
+      if (!validateDmdSlot(self, indexResult->dmd)) {
         DMD_Return(indexResult->dmd);
         // Free the deep-copied IndexResult since we're not using it
         IndexResult_Free(indexResult);
@@ -539,8 +531,10 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
       // until a completion lands instead of making progress.
       index_poll_timeout_ms = ASYNC_POLL_TIMEOUT_SATURATED_MS;
     }
-    const size_t pendingCount =
-        IndexResultAsyncRead_Poll(&self->async, index_poll_timeout_ms, &sctx->currentTime);
+    size_t deletedCount = 0;
+    const size_t pendingCount = IndexResultAsyncRead_Poll(
+        &self->async, index_poll_timeout_ms, &sctx->currentTime, &deletedCount);
+    reclassifyDeletedCandidates(self, deletedCount, isProfiled);
 
     // The loop-head check amortizes clock samples across iterations,
     // which is too coarse once an iteration can sleep. Re-check unthrottled after a
