@@ -115,7 +115,11 @@ Existing defects that T1 fixes, because per-index settings make them worse:
 
 - Replace the dual use of `ForkGC.retryInterval` with an explicit "last fork failed"
   state. Only scheduled cycles change it; a forced run's fork result leaves it as it
-  was. The design leaves room for a third state, "yielded, continue soon", needed by
+  was. A successful fork clears it, and so does a scheduled cycle that skips the fork
+  because the count is below the threshold: there is nothing left to retry, so the next
+  arm uses the run interval. Without that, raising the threshold after a failed fork
+  would keep the index on the retry interval until enough changes accumulate. The
+  design leaves room for a third state, "yielded, continue soon", needed by
   [MOD-19577](https://redislabs.atlassian.net/browse/MOD-19577).
 - Compute the delay on the main thread when arming, from the effective interval and the
   scheduling state, instead of copying it on the GC thread. This fixes defects 1 and 3
@@ -180,23 +184,29 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   configs are integers, and whole percents are enough: the percentage only wins when it
   is below `CLEAN_THRESHOLD`, which is the small-index case.
 - With `p` the effective percentage and `N` the effective `CLEAN_THRESHOLD`, a scheduled
-  cycle forks once the index's counted deletes and updates reach
-  `min(N, max(1, ceil(p × base / 100)))`. With `p = 0` the threshold is `N`, as today.
+  cycle forks once the index's counted deletes and updates reach the combined
+  threshold: `N` when `p = 0`, as today, and otherwise
+  `min(N, max(1, ceil(p × base / 100)))`. The `p = 0` case is checked first; the
+  formula alone would give 1.
 - Both counts are the index's own. The numerator is the existing counter of deletes and
   updates since the last cycle. Each update gives the key a new document ID and retires
   the old one, so the counter approximates garbage document IDs. It does not count
   garbage index entries.
-- `base = max(live documents now, live documents when the counter was last reset)`.
-  Live documents alone would overstate deletes: 50 deletes in a 100-document index leave
-  50 live, which would read as 100%. Taking the larger value keeps deletes at 50% and
-  updates at their share, and an index that grew since the last cycle uses its new
-  size.
-- The reset-time value is the live count sampled at queue time for the run that resets
-  the counter, so the GC thread reads no live count. `ForkGC` stores it where it resets
-  the counter today. It starts at the live count when the GC context is created.
-  Limitation: until the index's first successful fork, deletes of documents added after
-  that point count against the current live count, so the percentage can trigger that
-  first fork early. That costs at most one early fork.
+- `base` is the largest live-document count seen since the counter was last reset.
+  Live documents now would overstate deletes: 50 deletes in a 100-document index leave
+  50 live, which would read as 100%. The largest count keeps deletes at 50% and updates
+  at their share, and an index that grew uses its new size even if it shrank again:
+  100 documents, then 100 added and 100 deleted, reads as 50% of 200.
+- The largest count is sampled, not tracked on every document add. `ForkGC` keeps a
+  peak value. Each queue-time copy raises it to the live count at that moment, then
+  uses it as `base`. The run that resets the counter sets the peak to its own
+  queue-time live count, where it resets the counter today. The peak starts at the
+  live count when the GC context is created. Both writes hold the GIL, so the GC thread
+  reads no live count. Every timer fire queues a run, including cycles the threshold
+  then skips, so the peak is sampled once per interval.
+- Limitation: growth and deletes between two samples aren't seen. 100 documents, then
+  100 added and 100 deleted within one interval, still reads as 100%, so the
+  percentage can fork early. It can't fork late, and a fork resets the window.
 - The floor of 1 keeps an empty index from forking every interval: without it,
   `ceil(p × 0 / 100)` is 0 and the check always passes. `CLEAN_THRESHOLD 0` still forks
   every interval, because the minimum is then 0.
@@ -231,8 +241,10 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   pytest matches on the old text.
 - `commands.json`: `FT.ALTER` gets a `oneof` between a `SCHEMA` branch
   (`[SKIPINITIALSCAN] SCHEMA ADD ...`) and a `GC` branch, so the published syntax
-  doesn't allow `SKIPINITIALSCAN GC`. `src/command_info/command_info.c` is regenerated
-  with `srcutil/gen_command_info.py`, and `COMMAND DOCS` is checked.
+  doesn't allow `SKIPINITIALSCAN GC`. The summary, today "Adds a new field to the
+  index", covers both actions, and the complexity says `O(N)` applies to `SCHEMA ADD`
+  and `GC` is `O(1)`. `src/command_info/command_info.c` is regenerated with
+  `srcutil/gen_command_info.py`, and `COMMAND DOCS` is checked.
 - An `FT.DEBUG` subcommand reports the time left on an index's GC timer and whether it
   is a run-interval or retry timer, so flow tests can check timing without sleeping
   for the jitter. T5 adds the combined threshold and its `base` to the same reply.
@@ -294,8 +306,10 @@ Existing defects that T1 fixes, because per-index settings make them worse:
 Existing behavior that per-index settings do not depend on, left as it is:
 
 - A dropped index keeps its `GCContext` until its timer fires.
-- `reap_child_blocking` truncates its timeout to `int`. It only ever uses the global
-  interval.
+- `reap_child_blocking` truncates its timeout to `int`. Its call keeps passing the global
+  run interval, not the per-index helper: it is a timeout for reaping a child, not a
+  scheduling read, and changing it would change kill-failure handling, which this
+  design leaves alone.
 - No upper-bound check on the index encoding version at load. It would only protect a
   future downgrade.
 
@@ -319,6 +333,8 @@ Existing behavior that per-index settings do not depend on, left as it is:
 | A per-index `POLICY` now (`FORK`, `NONE`) | Commits to a policy that changes per index at runtime before MOD-20523 decides that; the thread GC creates its deleted-ID set only when the whole node runs THREAD. `NONE` also stops tiered vector GC, which runs inside the cycle. Postponed; it can be added later as one more setting with no version bump. |
 | Percentage only when both thresholds are met (AND) | Only helps large indexes fork less, which the per-index `CLEAN_THRESHOLD` already does. OR lets one global setting fit small and large indexes. |
 | Percentage of live documents only | Overstates deletes: 50 deletes in 100 documents would read as 100%. |
+| `base` as the larger of the live count now and at the last reset | Loses growth that is deleted again: 100 documents, then 100 added and 100 deleted, reads as 100% instead of 50%. |
+| Track the exact peak on every document add | Adds work to every document add, and the reset after a fork would need the lock the adds hold. Sampling once per interval only misses changes within one interval. |
 | Percentage of `num_records` | Counts inverted-index entries, live and dead, not garbage documents. |
 | Fractional percentages | Module numeric configs are integers, and the percentage only matters below `CLEAN_THRESHOLD`, where whole percents are fine. |
 
@@ -343,13 +359,15 @@ The spec delta describes the recommended answer to each.
 - C++ unit tests: saturation and the cap, timer restart when the effective interval
   differs from the armed one and no restart when it doesn't, the restart as a no-op in
   every no-timer state and on a retry timer, a forced run leaving the scheduling state
-  alone, the queue-time threshold copy (including a dropped index with an armed timer,
-  `GCContext_FinishDrop`, and `QueueRun` returning early while a run holds the context),
-  RDB round trip at version 30 and load of version 29, a block with an unknown setting
-  id loading with that setting skipped.
-- C++ unit tests for T5: the combined threshold for updates, deletes, growth, deletes
-  before the first fork, an empty index, `p = 0`, `CLEAN_THRESHOLD 0`, and values near
-  the overflow limit.
+  alone, a scheduled cycle skipped by the threshold after a failed fork arming with the
+  run interval, the queue-time threshold copy (including a dropped index with an armed
+  timer, `GCContext_FinishDrop`, and `QueueRun` returning early while a run holds the
+  context), RDB round trip at version 30 and load of version 29, a block with an
+  unknown setting id loading with that setting skipped, and a known id with an
+  out-of-range value (`RUN_INTERVAL` 0, a value above 2^63−1) failing the load.
+- C++ unit tests for T5: the combined threshold for updates, deletes, growth, growth
+  then deletes across samples, deletes before the first fork, an empty index, `p = 0`
+  with `N` above 1, `CLEAN_THRESHOLD 0`, and values near the overflow limit.
 - Flow tests for T5: the two-index example in the spec delta, inheritance of the global
   percentage, `DEFAULT`, range errors, FT.INFO in RESP2 and RESP3.
 - Flow tests for T1: an idle index below the threshold picks up a new global interval

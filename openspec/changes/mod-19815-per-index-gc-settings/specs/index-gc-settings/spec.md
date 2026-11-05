@@ -87,9 +87,11 @@ clean threshold of 0 every scheduled cycle forks.
 ### Requirement: The clean threshold can be a percentage of the index (T5)
 With `N` the effective clean threshold and `p` the effective clean threshold
 percentage, a scheduled cycle SHALL fork once the index's deletes and updates since the
-last cycle reach `min(N, max(1, ceil(p × base / 100)))`. `base` SHALL be the larger of
-the index's live documents now and its live documents when the count was last reset. A
-percentage of 0 SHALL leave the threshold at `N`. Both counts SHALL be the index's own.
+last cycle reach the combined threshold. When `p` is 0 the combined threshold SHALL be
+`N`. Otherwise it SHALL be `min(N, max(1, ceil(p × base / 100)))`, where `base` is the
+largest live-document count of the index sampled since the count was last reset. The
+live count SHALL be sampled at least each time a scheduled run is queued. Both counts
+SHALL be the index's own.
 
 #### Scenario: Each index reaches a different threshold
 - **WHEN** the global clean threshold is 90 and the global percentage is 60
@@ -102,6 +104,19 @@ percentage of 0 SHALL leave the threshold at `N`. Both counts SHALL be the index
 - **WHEN** `idx` had 100 live documents at its last cycle and has `CLEAN_THRESHOLD_PERCENT 60`
   with a clean threshold of 1000
 - **AND** 50 documents were deleted since, leaving 50
+- **THEN** the next scheduled cycle SHALL NOT fork
+
+#### Scenario: Growth that is deleted again
+- **WHEN** `idx` had 100 live documents at its last cycle and has `CLEAN_THRESHOLD_PERCENT 60`
+  with a clean threshold of 1000
+- **AND** 100 documents were added, and a scheduled run was queued and skipped by the
+  threshold
+- **AND** 100 documents were deleted after that, leaving 100
+- **THEN** the next scheduled cycle SHALL NOT fork, because 100 is 50% of 200
+
+#### Scenario: Zero percent with a larger clean threshold
+- **WHEN** `idx` has `CLEAN_THRESHOLD_PERCENT 0` and a clean threshold of 100
+- **AND** 1 document was deleted since its last cycle
 - **THEN** the next scheduled cycle SHALL NOT fork
 
 #### Scenario: Empty index
@@ -174,6 +189,17 @@ A global `CONFIG SET` SHALL NOT change any waiting timer.
 - **THEN** that run SHALL use the threshold in effect when it was queued
 - **AND** the next run queued for `idx` SHALL use the new threshold
 
+### Requirement: Only a failed fork keeps an index on the retry interval
+After a failed scheduled fork, the next timer SHALL use the fork retry interval. A
+scheduled cycle that skips the fork because the count is below the threshold SHALL arm
+the next timer with the run interval, whether or not the previous fork failed.
+
+#### Scenario: Raising the threshold after a failed fork
+- **WHEN** a scheduled fork of `idx` failed and its retry timer is waiting
+- **AND** the clean threshold of `idx` is raised above its count
+- **THEN** the retry cycle SHALL NOT fork
+- **AND** the next timer of `idx` SHALL use the run interval, not the retry interval
+
 ### Requirement: Overrides are durable and consistent across nodes
 Overrides SHALL be saved in the RDB, replicated, and written to the AOF. An index created
 on a shard by slot migration SHALL arrive with its overrides. Every node SHALL store an
@@ -204,6 +230,11 @@ overrides. On a cluster, `FT.ALTER ... GC` on the coordinator SHALL apply to eve
 - **WHEN** a node loads an RDB whose override block holds a setting it does not know
 - **THEN** the load SHALL succeed
 - **AND** the index SHALL keep every override the node knows, ignoring the unknown one
+
+#### Scenario: Known setting with an invalid value
+- **WHEN** a node loads an RDB whose override block holds a known setting with a value
+  outside its range, such as a run interval of 0
+- **THEN** the load SHALL fail as corrupt
 
 ### Requirement: TEMPORARY indexes reject GC overrides
 `FT.ALTER ... GC` on a TEMPORARY index SHALL return an error and change nothing.

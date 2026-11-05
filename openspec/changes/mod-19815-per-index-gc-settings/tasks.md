@@ -21,7 +21,8 @@ settings without a version bump.
 ## 1. Scheduler ([MOD-20260](https://redislabs.atlassian.net/browse/MOD-20260))
 
 - [ ] 1.1 Replace the dual use of `ForkGC.retryInterval` with an explicit "last fork
-      failed" state, changed only by scheduled cycles
+      failed" state, changed only by scheduled cycles; a scheduled cycle skipped by the
+      threshold clears it
 - [ ] 1.2 Compute the next delay on the main thread when arming; remove
       `pendingInterval`
 - [ ] 1.3 Keep today's jitter range, drawn on each arm; cap delays and saturate
@@ -34,7 +35,8 @@ settings without a version bump.
 - [ ] 1.5 C++ unit tests: saturation and the cap, restart when the effective interval
       differs from the armed one and no restart when it doesn't, the restart as a no-op
       in each no-timer state and on a retry timer, forced runs leaving the scheduling
-      state alone; run under UBSan if practical
+      state alone, a threshold-skipped cycle after a failed fork arming with the run
+      interval; run under UBSan if practical
 - [ ] 1.6 Flow tests: an idle index below the threshold picks up a new global interval
       within one old period; a change in the capture-to-drain window
       (`SYNC_POINT_GC_BEFORE_REARM_POST`) takes effect on the next arm; fork-failure
@@ -61,7 +63,9 @@ settings without a version bump.
       index with an armed timer, `GCContext_FinishDrop`, and `QueueRun` returning early
       while a run holds the context; RDB round trip with no override, one, and both,
       plus threshold 0; overrides on a spec without a GC context; version-29 load; a
-      block with an unknown setting id; the unset state on every construction path
+      block with an unknown setting id; a known id with an out-of-range value
+      (`RUN_INTERVAL` 0, above 2^63−1) failing the load; the unset state on every
+      construction path
       (create, RDB load, legacy load, deserialize)
 - [ ] 2.7 Flow test (`ENABLE_ASSERT`): park a run at `SYNC_POINT_GC_TASK_START`, change
       the threshold, and check that the parked run uses the old value and the next
@@ -77,9 +81,10 @@ settings without a version bump.
       armed one. If MOD-20523 has landed, call `GCContext_RunIfWaitedFor` after a
       threshold change
 - [ ] 3.4 Replicate through `_FT._ALTERIFNX`; new unknown-action error text
-- [ ] 3.5 `commands.json`: `oneof` between `[SKIPINITIALSCAN] SCHEMA ADD` and `GC`;
-      regenerate `src/command_info/command_info.c` with `srcutil/gen_command_info.py`
-      and check `COMMAND DOCS`
+- [ ] 3.5 `commands.json`: `oneof` between `[SKIPINITIALSCAN] SCHEMA ADD` and `GC`, a
+      summary covering both actions, and per-action complexity; regenerate
+      `src/command_info/command_info.c` with `srcutil/gen_command_info.py` and check
+      `COMMAND DOCS`
 - [ ] 3.6 `FT.DEBUG` hook that reports the time left and the type of an index's GC timer
 - [ ] 3.7 Flow tests: two indexes making progress with different settings, syntax, arity
       and validation, aliases, ACL, unknown index, inheritance and `DEFAULT`,
@@ -106,15 +111,17 @@ settings without a version bump.
       default 0
 - [ ] 5.2 Per-index `CLEAN_THRESHOLD_PERCENT` override: parser, storage, RDB setting id,
       effective-value helper
-- [ ] 5.3 Combined threshold `min(N, max(1, ceil(p × base / 100)))`, computed on the main
-      thread in the queue-time copy, with `base` the larger of the live documents now and
-      at the last counter reset; read the live count under the spec read lock; store the
-      queue-time sample of the run that resets the counter in `ForkGC`, starting at the
+- [ ] 5.3 Combined threshold: `N` when `p = 0`, otherwise
+      `min(N, max(1, ceil(p × base / 100)))`, computed on the main thread in the
+      queue-time copy; read the live count under the spec read lock; `base` is a peak in
+      `ForkGC` that each queue-time copy raises to the live count, that the run
+      resetting the counter sets to its own queue-time sample, and that starts at the
       live count when the GC context is created
 - [ ] 5.4 `clean_threshold_percent` in FT.INFO `gc_settings`; combined threshold and
       `base` in the `FT.DEBUG` hook
-- [ ] 5.5 C++ unit tests: updates, deletes, growth, deletes before the first fork,
-      empty index, `p = 0`, `CLEAN_THRESHOLD 0`, overflow limits
+- [ ] 5.5 C++ unit tests: updates, deletes, growth, growth then deletes across samples,
+      deletes before the first fork, empty index, `p = 0` with `N` above 1,
+      `CLEAN_THRESHOLD 0`, overflow limits
 - [ ] 5.6 Flow tests: the two-index example, global inheritance, `DEFAULT`, range errors,
       FT.INFO in RESP2 and RESP3
 
