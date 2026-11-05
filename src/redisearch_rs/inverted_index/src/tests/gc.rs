@@ -1458,3 +1458,29 @@ fn a_packed_run_copies_its_first_blocks_clean_prefix() {
         }
     }
 }
+
+/// A snapshot copies the blocks that pack with a neighbour, not every under-filled one: a
+/// block too full to pack with either neighbour stays without data when nothing in it is gone.
+#[test]
+fn a_snapshot_copies_only_the_blocks_that_pack_with_a_neighbour() {
+    let ii = InvertedIndex::<Dummy>::from_blocks(
+        IndexFlags_Index_DocIdsOnly,
+        medium_thin_vec![
+            block(&[1, 2]),
+            block(&[4, 5]),
+            block(&[8]),
+            block(&[9]),
+            block(&[20])
+        ],
+    );
+
+    let snapshot = ii
+        .gc_snapshot(&Gone(vec![]), GcSnapshotScope::DirtyBlocks)
+        .unwrap();
+    let copied: Vec<bool> = snapshot
+        .blocks
+        .iter()
+        .map(|b| !b.buffer.is_empty())
+        .collect();
+    assert_eq!(copied, vec![false, true, true, true, false]);
+}
