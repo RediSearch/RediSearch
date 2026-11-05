@@ -23,9 +23,8 @@ extern "C" {
  *
  * # Safety
  *
- * `docs` is null, or a live set from [`DeletedDocs_New`] that this call consumes:
- * it has not been freed before, no other reference to it is live, and it is not
- * used afterwards.
+ * 1. `docs` is null, or came from [`DeletedDocs_New`] and has not been freed.
+ * 2. No other reference to the set is live, and it is not used after this call.
  */
 void DeletedDocs_Free(struct DeletedDocs *docs);
 
@@ -39,7 +38,8 @@ struct DeletedDocs *DeletedDocs_New(void);
  *
  * # Safety
  *
- * `docs` came from [`DeletedDocs_New`], is not freed, and no other reference to it is live.
+ * 1. `docs` came from [`DeletedDocs_New`] and has not been freed.
+ * 2. No other reference to the set is live for the duration of the call.
  */
 void DeletedDocs_Record(struct DeletedDocs *docs, t_docId id);
 
