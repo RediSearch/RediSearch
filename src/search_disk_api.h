@@ -796,15 +796,17 @@ typedef struct SlotMigrationAPI {
   // register logical intent keyed by normalized ranges and cutoff. Retain ranges, cutoff and
   // progress across supported recovery, including before the first batch. Called at the trim
   // notification after ownership transfer and earlier writes have drained.
+  // Registration immediately hides covered IDs at query metadata delivery.
   // Valid normalized ranges must register successfully; false denotes a contract failure.
   // Existing documents must not change slots while cleanup is pending.
   // This API does not control Redis migration admission.
   bool (*registerTrim)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
                        size_t numRanges, t_docId *maxDocId);
   // Main thread, under the spec write lock; no I/O. Enumerate restored logical
-  // jobs before queries resume, so Search can reinstall filters and schedule work.
+  // jobs after restore so Search can schedule unfinished cleanup. The backend restores visibility.
   void (*forEachPendingTrim)(RedisSearchDiskIndexSpec *index,
                              SearchDiskPendingSlotTrimCallback callback, void *ctx);
+  // Serialize complete read/apply turns per index on the cleanup worker.
   // Worker only, without GIL/spec lock. Scan at most maxScanned membership records,
   // counting skipped IDs too. Resume after the last applied batch even if GC has
   // reclaimed its records. Invoke callback at most once, including an empty batch

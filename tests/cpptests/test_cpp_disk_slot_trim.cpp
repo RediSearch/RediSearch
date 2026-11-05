@@ -283,11 +283,26 @@ class DiskSlotTrimTest : public ::testing::Test {
     return collector()->deletesFromLastRun.load() +
            __atomic_load_n(&spec->stats.gcDeferredDeletes, __ATOMIC_RELAXED);
   }
-  bool pendingFilter(t_docId id = 1, uint16_t slot = 7) {
-    IndexSpec_LockRead(spec);
-    const bool hidden = DocTable_IsDocPendingDeletionForSlot(&spec->docs, id, slot);
+  bool pendingTrim(t_docId id = 1, uint16_t slot = 7) {
+    struct Lookup {
+      t_docId id;
+      uint16_t slot;
+      bool covered = false;
+    } lookup{id, slot};
+    IndexSpec_LockWrite(spec);
+    EXPECT_EQ(spec->docs.pendingSlotDeletions, nullptr);
+    SearchDisk_ForEachPendingSlotTrim(
+        spec->diskSpec,
+        [](void *ctx, const SearchDiskSlotRange *ranges, size_t count, t_docId cutoff) {
+          auto &lookup = *static_cast<Lookup *>(ctx);
+          for (size_t i = 0; i < count; ++i) {
+            lookup.covered |= lookup.id <= cutoff && ranges[i].start <= lookup.slot &&
+                              lookup.slot <= ranges[i].end;
+          }
+        },
+        &lookup);
     IndexSpec_Unlock(spec);
-    return hidden;
+    return lookup.covered;
   }
 };
 
@@ -379,7 +394,7 @@ TEST_F(DiskSlotTrimTest, UnchargedStorageIdsDoNotConsumeOtherIndexesGlobalContri
   IndexsGlobalStats_DecreaseLogicallyDeleted(4);
 }
 
-TEST_F(DiskSlotTrimTest, RegistrationInstallsCutoffFilterWithoutScanning) {
+TEST_F(DiskSlotTrimTest, RegistrationLeavesVisibilityAndCutoffInTheBackend) {
   const SearchDiskSlotRange range{7, 9};
   state.maxDocId = 17;
   job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
@@ -388,9 +403,9 @@ TEST_F(DiskSlotTrimTest, RegistrationInstallsCutoffFilterWithoutScanning) {
   EXPECT_EQ(state.applyCalls, 0u);
   EXPECT_EQ(state.ranges[0].start, 7u);
   EXPECT_EQ(state.ranges[0].end, 9u);
-  EXPECT_TRUE(pendingFilter(17, 7));
-  EXPECT_FALSE(pendingFilter(18, 7));
-  EXPECT_FALSE(pendingFilter(1, 10));
+  EXPECT_TRUE(pendingTrim(17, 7));
+  EXPECT_FALSE(pendingTrim(18, 7));
+  EXPECT_FALSE(pendingTrim(1, 10));
   EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
   EXPECT_EQ(pendingDeletes(), 0u);
 }
@@ -441,7 +456,7 @@ TEST_F(DiskSlotTrimTest, StaleBatchRetriesBeforeCheckingScoringBounds) {
   EXPECT_EQ(state.batchApplyCalls, 1u);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 0u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 0u);
-  EXPECT_TRUE(pendingFilter());
+  EXPECT_TRUE(pendingTrim());
 }
 
 TEST_F(DiskSlotTrimTest, ReadFailureRetainsTheFilterAndCursorForRetry) {
@@ -451,10 +466,10 @@ TEST_F(DiskSlotTrimTest, ReadFailureRetainsTheFilterAndCursorForRetry) {
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 40u);
   EXPECT_EQ(state.batchesApplied, 0u);
   EXPECT_EQ(state.batchApplyCalls, 0u);
-  EXPECT_TRUE(pendingFilter());
+  EXPECT_TRUE(pendingTrim());
   state.readAccepted = true;
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
-  EXPECT_FALSE(pendingFilter());
+  EXPECT_FALSE(pendingTrim());
 }
 
 TEST_F(DiskSlotTrimTest, FinalApplyFailureDoesNotCompleteCleanupOrDoubleAccountOnRetry) {
@@ -462,20 +477,18 @@ TEST_F(DiskSlotTrimTest, FinalApplyFailureDoesNotCompleteCleanupOrDoubleAccountO
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
   EXPECT_TRUE(state.logicalPending);
-  EXPECT_TRUE(pendingFilter());
+  EXPECT_TRUE(pendingTrim());
   EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
   EXPECT_EQ(pendingDeletes(), 0u);
   state.failBatch = SIZE_MAX;
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
   EXPECT_FALSE(state.logicalPending);
-  EXPECT_FALSE(pendingFilter());
+  EXPECT_FALSE(pendingTrim());
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
   EXPECT_EQ(pendingDeletes(), 3u);
-  EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
   EXPECT_EQ(state.applyCalls, 3u);
   EXPECT_EQ(state.batchesApplied, 1u);
-  EXPECT_EQ(pendingDeletes(), 3u);
 }
 
 TEST_F(DiskSlotTrimTest, EmptyFinalBatchStillCompletesTheLogicalJob) {
@@ -484,7 +497,7 @@ TEST_F(DiskSlotTrimTest, EmptyFinalBatchStillCompletesTheLogicalJob) {
   EXPECT_EQ(state.batchApplyCalls, 1u);
   EXPECT_EQ(state.batchesApplied, 1u);
   EXPECT_FALSE(state.logicalPending);
-  EXPECT_FALSE(pendingFilter());
+  EXPECT_FALSE(pendingTrim());
   EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 40u);
   EXPECT_EQ(pendingDeletes(), 0u);
@@ -513,7 +526,7 @@ TEST_F(DiskSlotTrimTest, OneWorkerTurnAppliesOnlyOneBatch) {
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_MORE);
   EXPECT_EQ(state.batchesApplied, 1u);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 8u);
-  EXPECT_TRUE(pendingFilter());
+  EXPECT_TRUE(pendingTrim());
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_MORE);
   EXPECT_EQ(state.batchesApplied, 2u);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 6u);
@@ -536,7 +549,7 @@ TEST_F(DiskSlotTrimTest, RetryDoesNotReapplyACompletedEarlierBatch) {
   EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 49u);
   EXPECT_EQ(pendingDeletes(), 3u);
-  EXPECT_TRUE(pendingFilter());
+  EXPECT_TRUE(pendingTrim());
   state.failBatch = SIZE_MAX;
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
   EXPECT_EQ(state.batchesApplied, 2u);
@@ -598,7 +611,7 @@ TEST_F(DiskSlotTrimTest, FreeingAJobRetainsItsPendingIntentAndFilter) {
   IndexSpec_FreeDiskSlotTrim(job);
   job = nullptr;
   EXPECT_TRUE(state.logicalPending);
-  EXPECT_TRUE(pendingFilter());
+  EXPECT_TRUE(pendingTrim());
   EXPECT_EQ(state.applyCalls, 0u);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
 }
@@ -617,32 +630,19 @@ TEST_F(DiskSlotTrimTest, InvalidatedOwnerCancelsBeforeCallingTheBackend) {
   EXPECT_EQ(state.applyCalls, 0u);
 }
 
-TEST_F(DiskSlotTrimTest, RegistrationDeduplicatesOnlyMatchingRangesAndCutoff) {
+TEST_F(DiskSlotTrimTest, RegistrationReturnsIndependentHandlesForBackendIntent) {
   const SearchDiskSlotRange range{7, 9};
   state.maxDocId = 17;
   job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
   ASSERT_NE(job, nullptr);
-  PendingSlotDeletion *first = spec->docs.pendingSlotDeletions;
-  EXPECT_EQ(IndexSpec_RegisterDiskSlotTrim(ref, &range, 1), nullptr);
-  EXPECT_EQ(spec->docs.pendingSlotDeletions, first);
-
-  const SearchDiskSlotRange shifted{8, 10};
-  IndexSpecSlotTrimJob *other = IndexSpec_RegisterDiskSlotTrim(ref, &shifted, 1);
+  auto *other = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
   ASSERT_NE(other, nullptr);
-  EXPECT_NE(spec->docs.pendingSlotDeletions, first);
+  EXPECT_NE(job, other);
   IndexSpec_FreeDiskSlotTrim(other);
-
-  const SearchDiskSlotRange split[]{{7, 7}, {9, 9}};
-  other = IndexSpec_RegisterDiskSlotTrim(ref, split, 2);
-  ASSERT_NE(other, nullptr);
-  IndexSpec_FreeDiskSlotTrim(other);
-
-  state.maxDocId = 23;
-  IndexSpecSlotTrimJob *newer = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
-  ASSERT_NE(newer, nullptr);
-  EXPECT_TRUE(pendingFilter(23, 7));
-  EXPECT_FALSE(pendingFilter(24, 7));
-  IndexSpec_FreeDiskSlotTrim(newer);
+  EXPECT_TRUE(pendingTrim(17, 7));
+  EXPECT_FALSE(pendingTrim(18, 7));
+  EXPECT_EQ(state.registrations, 2u);
+  EXPECT_EQ(state.applyCalls, 0u);
 }
 
 TEST_F(DiskSlotTrimTest, BackendCloseStopsRegistrationBeforeDestroyingContext) {
@@ -665,7 +665,7 @@ TEST_F(DiskSlotTrimTest, BackendCloseStopsRegistrationBeforeDestroyingContext) {
   EXPECT_EQ(spec->docs.pendingSlotDeletions, nullptr);
 }
 
-TEST_F(DiskSlotTrimTest, RestoredTrimEnumerationReinstallsRangesAndOriginalCutoff) {
+TEST_F(DiskSlotTrimTest, RestoredTrimEnumerationPreservesRangesAndOriginalCutoff) {
   state.logicalPending = true;
   state.ranges = {{7, 9}, {12, 14}};
   state.maxDocId = 17;
@@ -687,21 +687,17 @@ TEST_F(DiskSlotTrimTest, RestoredTrimEnumerationReinstallsRangesAndOriginalCutof
         EXPECT_EQ(ranges[1].start, 12);
         EXPECT_EQ(ranges[1].end, 14);
         EXPECT_EQ(cutoff, 17u);
-        auto *slots = static_cast<RedisModuleSlotRangeArray *>(rm_malloc(SlotRangeArray_SizeOf(count)));
-        slots->num_ranges = count;
-        for (size_t i = 0; i < count; ++i) slots->ranges[i] = {ranges[i].start, ranges[i].end};
-        DocTable_AddPendingDeletionWithCutoff(&restore.spec->docs, slots, cutoff);
-        rm_free(slots);
+        EXPECT_EQ(restore.spec->docs.pendingSlotDeletions, nullptr);
       },
       &restore);
   IndexSpec_Unlock(spec);
 
   EXPECT_EQ(restore.calls, 1u);
   for (uint16_t slot : {7, 9, 12, 14}) {
-    EXPECT_TRUE(pendingFilter(17, slot));
-    EXPECT_FALSE(pendingFilter(18, slot));
+    EXPECT_TRUE(pendingTrim(17, slot));
+    EXPECT_FALSE(pendingTrim(18, slot));
   }
-  for (uint16_t slot : {6, 10, 11, 15}) EXPECT_FALSE(pendingFilter(1, slot));
+  for (uint16_t slot : {6, 10, 11, 15}) EXPECT_FALSE(pendingTrim(1, slot));
   EXPECT_EQ(state.registrations, 0u);
 }
 
@@ -775,7 +771,7 @@ TEST_F(DiskSlotTrimTest, PausedWorkerDoesNotBeginAStorageScan) {
   SlotCleanup_PauseDiskJobs();
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
   EXPECT_EQ(state.applyCalls, 0u);
-  EXPECT_TRUE(pendingFilter());
+  EXPECT_TRUE(pendingTrim());
   SlotCleanup_ResumeDiskJobs();
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
 }
@@ -894,7 +890,7 @@ TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDro
 
 }  // namespace
 
-TEST_F(DiskSlotTrimTest, DuplicateRegistrationDoesNotShareAWorkerOrResetProgress) {
+TEST_F(DiskSlotTrimTest, ReleasingAWorkerHandlePreservesBackendProgress) {
   state.batchCount = 2;
   spec->stats.scoring.numDocuments = 6;
   spec->stats.scoring.totalDocsLen = 42;
@@ -902,20 +898,11 @@ TEST_F(DiskSlotTrimTest, DuplicateRegistrationDoesNotShareAWorkerOrResetProgress
   job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
   ASSERT_NE(job, nullptr);
   EXPECT_EQ(IndexSpec_RunDiskSlotTrim(job), INDEX_DISK_TRIM_MORE);
-  auto *pending = spec->docs.pendingSlotDeletions;
-  EXPECT_EQ(IndexSpec_RegisterDiskSlotTrim(ref, &range, 1), nullptr);
-  EXPECT_EQ(spec->docs.pendingSlotDeletions, pending);
-  EXPECT_EQ(pending->next, nullptr);
+  IndexSpec_FreeDiskSlotTrim(job);
+  job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
+  ASSERT_NE(job, nullptr);
   EXPECT_EQ(state.batchesApplied, 1u);
   EXPECT_EQ(IndexSpec_RunDiskSlotTrim(job), INDEX_DISK_TRIM_FINISHED);
-  EXPECT_EQ(spec->docs.pendingSlotDeletions, nullptr);
-  // A new identical intent is not suppressed by the finished worker object.
-  auto *later = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
-  ASSERT_NE(later, nullptr);
-  state.batchesApplied = 0;
-  state.batchCount = 1;
-  state.emptyBatch = true;
-  EXPECT_EQ(IndexSpec_RunDiskSlotTrim(later), INDEX_DISK_TRIM_FINISHED);
-  IndexSpec_FreeDiskSlotTrim(later);
-  EXPECT_EQ(spec->docs.pendingSlotDeletions, nullptr);
+  EXPECT_FALSE(state.logicalPending);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 0u);
 }
