@@ -696,7 +696,7 @@ impl TestContext {
             }
         }
 
-        // Set spec.existingDocs so Wildcard::should_abort() can find the index
+        // Set spec.existingDocs so Wildcard's revalidation can find the index
         // during revalidation (it compares spec.existingDocs with the reader's index).
         unsafe {
             (&mut *spec).existingDocs = ii_ptr.cast();
@@ -1141,20 +1141,33 @@ impl TestContext {
         }
     }
 
+    /// The node holding the range [`Self::numeric_inverted_index`] returns.
+    fn numeric_leaf(&self) -> numeric_range_tree::NodeIndex {
+        self.numeric_range_tree_ref()
+            .indexed_iter()
+            .find_map(|(index, node)| (node.has_range() && node.is_leaf()).then_some(index))
+            .expect("There must be at least one leaf!")
+    }
+
     /// Get the ffi inverted index for this context.
     pub fn numeric_inverted_index(&self) -> &mut NumericIndex {
-        let tree = self.numeric_range_tree_mut();
-        let index = tree
-            .indexed_iter()
-            .find_map(|(index, node)| {
-                if node.has_range() && node.is_leaf() {
-                    Some(index)
-                } else {
-                    None
-                }
-            })
-            .expect("There must be at least one leaf!");
-        tree.node_mut(index).range_mut().unwrap().entries_mut()
+        let index = self.numeric_leaf();
+        self.numeric_range_tree_mut()
+            .node_mut(index)
+            .range_mut()
+            .unwrap()
+            .entries_mut()
+    }
+
+    /// Locates [`Self::numeric_inverted_index`] in the context's tree, for an
+    /// iterator reading it to revalidate against: pair it only with a reader over
+    /// that index.
+    pub fn numeric_range_source(&self) -> rqe_iterators::RangeSource {
+        // SAFETY: the tree is owned by the context's field spec, which outlives
+        // the iterators tests build from it; the pointer is the one the context
+        // keeps, not one derived from a reference to the tree; and tests only
+        // write to the tree while those iterators are parked.
+        unsafe { rqe_iterators::RangeSource::new(self.numeric_range_tree(), self.numeric_leaf()) }
     }
 
     /// Initialize the TTL table if not already initialized.

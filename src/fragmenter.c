@@ -495,7 +495,7 @@ int FragmentTermIterator_Next(FragmentTermIterator *iter, FragmentTerm **termInf
     return 1;
   }
 
-  RSQueryTerm *term = iter->curMatchRec;
+  const RSQueryTerm *term = iter->curMatchRec;
 
   iter->tmpTerm.score = QueryTerm_GetIDF(term);
   iter->tmpTerm.termId = QueryTerm_GetID(term);
