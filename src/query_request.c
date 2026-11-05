@@ -28,6 +28,7 @@ void QueryRequestLimits_Init(QueryRequestLimits *limits, const TimeoutConfig *co
   RS_ASSERT(config->queryTimeoutMS >= 0);
   limits->timeout.config = *config;
   RS_AtomicBoolStoreRelaxed(&limits->memory.stopped, false);
+  RS_AtomicUintStoreRelaxed(&limits->memory.counter, 0);
   QueryRequestLimits_Reset(limits);
 }
 
