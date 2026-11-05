@@ -1105,9 +1105,9 @@ int RSConfig_LoadDefaultConfigs(RedisModuleCtx *ctx) {
 }
 
 void RSConfig_ApplyGcPolicyDefaults(void) {
-  if (RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread && !gcRunIntervalSet &&
+  if (RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Fork && !gcRunIntervalSet &&
       !SearchDisk_IsEnabledForValidation()) {
-    RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_THREAD_GC_RUN_INTERVAL;
+    RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL;
   }
 }
 
@@ -2295,7 +2295,7 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-fork-gc-run-interval|search-gc-run-interval",
-      SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_RUN_INTERVAL : DEFAULT_FORK_GC_RUN_INTERVAL,
+      SearchDisk_IsEnabledForValidation() ? DEFAULT_DISK_GC_RUN_INTERVAL : DEFAULT_THREAD_GC_RUN_INTERVAL,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_size_t_numeric_config, set_gc_run_interval_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec)

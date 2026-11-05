@@ -2636,7 +2636,8 @@ def test_flex_search_disk_async_read_pool_and_queue_set_together(env):
 def testGcRunIntervalDefaultFollowsThePolicy():
     # THREAD needs no fork, so its default interval is shorter; a value the user sets is kept.
     for module_args, expected in [('', '5'), ('GC_POLICY FORK', '30'),
-                                  ('FORK_GC_RUN_INTERVAL 30', '30')]:
+                                  ('FORK_GC_RUN_INTERVAL 30', '30'),
+                                  ('GC_POLICY FORK FORK_GC_RUN_INTERVAL 5', '5')]:
         env = Env(moduleArgs=module_args, freshEnv=True)
         env.expect('CONFIG', 'GET', 'search-fork-gc-run-interval').equal(
             ['search-fork-gc-run-interval', expected])
