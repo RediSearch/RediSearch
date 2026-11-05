@@ -16,6 +16,10 @@ import random
 from vecsim_utils import *
 from common import (
     getConnectionByEnv,
+    thread_gc_conf,
+    thread_gc_settings,
+    redis_config_file,
+    set_thread_gc_config,
     skip,
     assertInfoField,
     index_info,
@@ -205,7 +209,7 @@ def test_rdb_load_trained_svs_vamana():
 @skip(cluster=True)
 def test_svs_vector_survives_repeated_numeric_updates():
     """Repeated numeric-only updates must preserve every backend-resident SVS vector."""
-    env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2 WORKERS 2 THREAD_GC_RUN_INTERVAL 50000')
+    env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2 WORKERS 2', redisConfigFile=thread_gc_conf(run_interval=50000))
     conn = getConnectionByEnv(env)
 
     num_docs = DEFAULT_BLOCK_SIZE
@@ -608,7 +612,7 @@ def queries_sanity(test_name, compression_type, data_type, metric, workers):
     env.assertEqual(range_res[1], f'doc{1}', message=message)
 
 def empty_index(env):
-    env.execute_command(config_cmd(), 'SET', 'THREAD_GC_RUN_INTERVAL', '1000000')
+    set_thread_gc_config(env, run_interval='1000000')
     dim = 2
     data_type = random.choice(VECSIM_SVS_DATA_TYPES)
     env.debugPrint(f"data_type for test {env.testName}: {data_type}", force=True)
@@ -910,8 +914,8 @@ def _gc_compressed_types():
 @skip(cluster=True)
 def test_gc():
     num_workers = 2
-    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 THREAD_GC_RUN_INTERVAL 1000000 THREAD_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE')
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {num_workers}'
+                         f' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=thread_gc_conf(run_interval=1000000, clean_threshold=0))
     gc_test_common(env, num_workers, ['NO_COMPRESSION'] + _gc_compressed_types())
 
 # Split from the compressed variants (MOD-15571 precedent in test_vecsim.py): with no workers, GC
@@ -923,23 +927,23 @@ def test_gc():
 def test_gc_no_workers():
     num_workers = 0
     # No maintenance workers either, so GC runs in place.
-    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 THREAD_GC_RUN_INTERVAL 1000000 THREAD_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=min_maintenance_workers_conf(0))
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {num_workers}'
+                         f' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=redis_config_file({'search-min-maintenance-workers': 0, **thread_gc_settings(run_interval=1000000, clean_threshold=0)}))
     gc_test_common(env, num_workers, ['NO_COMPRESSION'])
 
 @skip(cluster=True)
 def test_gc_maintenance_worker():
     # At the default WORKERS 0 GC jobs go to the single maintenance worker.
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 THREAD_GC_RUN_INTERVAL 1000000 THREAD_GC_CLEAN_THRESHOLD 0 WORKERS 0'
-                         ' _FREE_RESOURCE_ON_THREAD FALSE')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 WORKERS 0'
+                         ' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=thread_gc_conf(run_interval=1000000, clean_threshold=0))
     gc_test_common(env, 1, ['NO_COMPRESSION'])
 
 @skip(cluster=True)
 def test_gc_no_workers_compressed():
     num_workers = 0
     # No maintenance workers either, so GC runs in place.
-    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 THREAD_GC_RUN_INTERVAL 1000000 THREAD_GC_CLEAN_THRESHOLD 0 WORKERS {num_workers}'
-                         f' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=min_maintenance_workers_conf(0))
+    env = Env(moduleArgs=f'DEFAULT_DIALECT 2 WORKERS {num_workers}'
+                         f' _FREE_RESOURCE_ON_THREAD FALSE', redisConfigFile=redis_config_file({'search-min-maintenance-workers': 0, **thread_gc_settings(run_interval=1000000, clean_threshold=0)}))
     gc_test_common(env, num_workers, _gc_compressed_types())
 
 @skip(cluster=True)
@@ -1098,7 +1102,7 @@ def test_multiple_svs_indexes_share_pool():
 # WORKERS 2 is load-bearing: with no worker threads the tiered index indexes in place, and there
 # is no background transfer to race with. Periodic fork GC is disabled, as in the sibling SVS
 # tests that read NUMBER_OF_MARKED_DELETED, so it cannot compact the backend under the assertions.
-_RACE_MODULE_ARGS = 'DEFAULT_DIALECT 2 WORKERS 2 THREAD_GC_RUN_INTERVAL 1000000'
+_RACE_MODULE_ARGS = 'DEFAULT_DIALECT 2 WORKERS 2'
 _RACE_DIM = 32
 _RACE_K = 10
 # A margin, not a proof: whether a resumed worker actually reaches any of these vectors before
@@ -1229,7 +1233,7 @@ def _delete_docs_racing_transfers(env, vectors_per_doc, on_json):
 def test_delete_during_background_indexing():
     """Delete docs while a transfer into the SVS-VAMANA backend index is pending and while it
     runs, for a single-value vector field (MOD-13168, VectorSimilarity #903)."""
-    _delete_docs_racing_transfers(Env(moduleArgs=_RACE_MODULE_ARGS),
+    _delete_docs_racing_transfers(Env(moduleArgs=_RACE_MODULE_ARGS, redisConfigFile=thread_gc_conf(run_interval=1000000)),
                                   vectors_per_doc=1, on_json=False)
 
 
@@ -1237,5 +1241,5 @@ def test_delete_during_background_indexing():
 def test_delete_during_background_indexing_multi_value():
     """Same as `test_delete_during_background_indexing` for a multi-value JSON vector field:
     deleting a doc has to delete all of its vectors, also when the deletion races a transfer."""
-    _delete_docs_racing_transfers(Env(moduleArgs=_RACE_MODULE_ARGS),
+    _delete_docs_racing_transfers(Env(moduleArgs=_RACE_MODULE_ARGS, redisConfigFile=thread_gc_conf(run_interval=1000000)),
                                   vectors_per_doc=5, on_json=True)

@@ -24,7 +24,7 @@ from common import *
 # frontend is likewise in-place -- hence the `WORKERS DRAIN` after loading.
 
 DIM = 4
-MODULE_ARGS = 'WORKERS 1 THREAD_GC_RUN_INTERVAL 50000'
+MODULE_ARGS = 'WORKERS 1'
 
 def _blob(fill):
     return create_np_array_typed([fill] * DIM, 'FLOAT32').tobytes()
@@ -112,7 +112,7 @@ def test_vector_survives_repeated_numeric_updates():
     This catches cumulative label loss or swapping that a single-document, single-update
     check can miss, while the operation counters distinguish relabeling from reindexing.
     """
-    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS, redisConfigFile=thread_gc_conf(run_interval=50000))
     conn = env.getClusterConnectionIfNeeded()
 
     num_docs = 200
@@ -199,7 +199,7 @@ def test_relabel_unchanged_vector_on_text_update():
     running this against a server that predates subkey notifications is the coverage for
     the comparison route on a hash.
     """
-    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS, redisConfigFile=thread_gc_conf(run_interval=50000))
     conn = env.getClusterConnectionIfNeeded()
 
     _create_index(env)
@@ -227,7 +227,7 @@ def test_vector_change_reindexes():
     change set names `vector`, and without one the comparison sees VEC_B differ from
     VEC_A. Both reach the re-add this asserts.
     """
-    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS, redisConfigFile=thread_gc_conf(run_interval=50000))
     conn = env.getClusterConnectionIfNeeded()
 
     _create_index(env)
@@ -249,7 +249,7 @@ def test_relabel_requires_optimize_partial_update():
     the config off). Needs no subkey-notification support: with the config off the
     change set is not consulted at all.
     """
-    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS, redisConfigFile=thread_gc_conf(run_interval=50000))
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-optimize-partial-update', 'no')
     conn = env.getClusterConnectionIfNeeded()
 
@@ -277,7 +277,7 @@ def test_json_doc_relabels_unchanged_vector():
     unchanged blob a move and a re-add are indistinguishable in the index contents, and
     only the tombstone count separates them.
     """
-    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS, redisConfigFile=thread_gc_conf(run_interval=50000))
     conn = env.getClusterConnectionIfNeeded()
 
     _create_json_index(env)
@@ -298,7 +298,7 @@ def test_json_doc_with_changed_vector_reindexes():
     Nothing external says the vector changed, so only the blob comparison stands
     between this and a stale entry surviving under the new doc-id.
     """
-    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS, redisConfigFile=thread_gc_conf(run_interval=50000))
     conn = env.getClusterConnectionIfNeeded()
 
     _create_json_index(env)
@@ -322,7 +322,7 @@ def test_json_doc_relabels_multi_value_vectors():
     under the label, so changing one vector out of the set tombstones both old entries, not
     just the one that changed.
     """
-    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS, redisConfigFile=thread_gc_conf(run_interval=50000))
     conn = env.getClusterConnectionIfNeeded()
 
     env.expect('FT.CREATE', 'jsonidx', 'ON', 'JSON', 'SCHEMA',
@@ -375,7 +375,7 @@ def test_json_doc_relabel_dispatches_on_vector_type():
     shortcut. One index per type, in the same env, so a failure on one type doesn't hide a
     failure on another.
     """
-    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS, redisConfigFile=thread_gc_conf(run_interval=50000))
     conn = env.getClusterConnectionIfNeeded()
 
     for data_type in [t for t in VECSIM_DATA_TYPES if t != 'FLOAT32'] + ['INT8', 'UINT8']:
@@ -412,7 +412,7 @@ def test_json_doc_relabel_dispatches_on_vector_type():
 @skip(no_json=True)
 def test_json_doc_relabel_requires_optimize_partial_update():
     """The gate, on the JSON path: config off, so no comparison and no move."""
-    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS, redisConfigFile=thread_gc_conf(run_interval=50000))
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-optimize-partial-update', 'no')
     conn = env.getClusterConnectionIfNeeded()
 
@@ -438,7 +438,7 @@ def test_json_doc_nulling_the_vector_leaves_no_orphan():
     Either way the entry must go: an orphan sits at a doc-id no document owns, is returned by
     KNN queries, and is never collected.
     """
-    env = Env(protocol=3, moduleArgs=MODULE_ARGS)
+    env = Env(protocol=3, moduleArgs=MODULE_ARGS, redisConfigFile=thread_gc_conf(run_interval=50000))
     conn = env.getClusterConnectionIfNeeded()
 
     _create_json_index(env)

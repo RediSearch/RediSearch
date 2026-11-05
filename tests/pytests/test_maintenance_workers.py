@@ -18,7 +18,7 @@ N_OVERWRITTEN = 100
 N_LIVE = N_DOCS - N_DELETED
 EF_RUNTIME = 2 * N_DOCS
 # Keeps the periodic GC from clearing marked-deleted nodes while a test counts them.
-NO_PERIODIC_GC = 'THREAD_GC_RUN_INTERVAL 1000000'
+NO_PERIODIC_GC = thread_gc_settings(run_interval=1000000)
 
 
 def _vector(rng):
@@ -165,7 +165,7 @@ def _assert_ran_exactly_once(env, queued):
 def test_graph_repair_deferred_at_workers_0():
     """At WORKERS 0, deletes and overwrites in a MULTI/EXEC only mark HNSW nodes deleted; the graph
     repair runs on the maintenance worker while queries stay on the main thread."""
-    env = Env(moduleArgs=f'WORKERS 0 {NO_PERIODIC_GC}', enableDebugCommand=True)
+    env = Env(moduleArgs='WORKERS 0', enableDebugCommand=True, redisConfigFile=redis_config_file(NO_PERIODIC_GC))
     env.assertEqual(getWorkersThpoolNumThreads(env), 1)
     rng = np.random.default_rng(18989)
     _create_indexes(env)
@@ -309,7 +309,8 @@ def test_workers_transitions_under_concurrent_load():
 def test_enable_maintenance_workers_at_runtime():
     """Raising search-min-maintenance-workers at WORKERS 0 switches live indexes from in-place to deferred
     repair."""
-    env = Env(moduleArgs=f'WORKERS 0 {NO_PERIODIC_GC}', enableDebugCommand=True, redisConfigFile=min_maintenance_workers_conf(0))
+    env = Env(moduleArgs='WORKERS 0', enableDebugCommand=True,
+              redisConfigFile=redis_config_file({'search-min-maintenance-workers': 0, **NO_PERIODIC_GC}))
     rng = np.random.default_rng(18989)
     _create_indexes(env)
     docs = _load_docs(env, rng)
@@ -335,7 +336,7 @@ def test_enable_maintenance_workers_at_runtime():
 def test_disable_maintenance_workers_with_pending_repairs():
     """Dropping search-min-maintenance-workers to 0 with repairs queued lets them drain before the pool
     empties, while new writes already run in place."""
-    env = Env(moduleArgs=f'WORKERS 0 {NO_PERIODIC_GC}', enableDebugCommand=True)
+    env = Env(moduleArgs='WORKERS 0', enableDebugCommand=True, redisConfigFile=redis_config_file(NO_PERIODIC_GC))
     rng = np.random.default_rng(18989)
     _create_indexes(env)
     docs = _load_docs(env, rng)
@@ -789,8 +790,8 @@ def test_flat_buffer_fills_at_workers_0():
 def test_deprecated_only_on_operations_keeps_maintenance_worker():
     """MT_MODE_ONLY_ON_OPERATIONS is about query workers, so its repair still runs on the maintenance
     worker."""
-    env = Env(moduleArgs=f'WORKERS 0 WORKER_THREADS 2 MT_MODE MT_MODE_ONLY_ON_OPERATIONS {NO_PERIODIC_GC}',
-              enableDebugCommand=True)
+    env = Env(moduleArgs='WORKERS 0 WORKER_THREADS 2 MT_MODE MT_MODE_ONLY_ON_OPERATIONS',
+              enableDebugCommand=True, redisConfigFile=redis_config_file(NO_PERIODIC_GC))
     env.assertEqual(getWorkersThpoolNumThreads(env), 1)
     rng = np.random.default_rng(18989)
     _create_indexes(env)

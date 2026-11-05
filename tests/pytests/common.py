@@ -361,14 +361,35 @@ def getWorkersThpoolStats(env):
 def getWorkersThpoolNumThreads(env):
     return env.cmd(debug_cmd(), "WORKERS", "n_threads")
 
+def redis_config_file(settings):
+    """Path of a config file that gives Redis CONFIG settings their values at startup, for
+    Env(redisConfigFile=...): the way to set a config that has no module argument before any
+    index exists. The same settings give the same path, so envs that ask for them can share a
+    server."""
+    return _redis_config_file(tuple(sorted(settings.items())))
+
 @functools.lru_cache(maxsize=None)
-def min_maintenance_workers_conf(workers):
-    """Path of a config file that sets search-min-maintenance-workers at startup, for
-    Env(redisConfigFile=...). The setting has no module argument."""
-    fd, path = tempfile.mkstemp(prefix=f'min-maintenance-workers-{workers}-', suffix='.conf')
+def _redis_config_file(settings):
+    fd, path = tempfile.mkstemp(prefix='search-', suffix='.conf')
     with os.fdopen(fd, 'w') as f:
-        f.write(f'search-min-maintenance-workers {workers}\n')
+        for name, value in settings:
+            f.write(f'{name} {value}\n')
     return path
+
+def min_maintenance_workers_conf(workers):
+    """A config file setting search-min-maintenance-workers; see redis_config_file."""
+    return redis_config_file({'search-min-maintenance-workers': workers})
+
+def thread_gc_settings(run_interval=None, clean_threshold=None):
+    """The THREAD GC's CONFIG settings among the given ones, for redis_config_file."""
+    return {name: value for name, value in (('search-thread-gc-run-interval', run_interval),
+                                            ('search-thread-gc-clean-threshold', clean_threshold))
+            if value is not None}
+
+def thread_gc_conf(run_interval=None, clean_threshold=None):
+    """A config file setting the THREAD GC's run interval and clean threshold; see
+    redis_config_file."""
+    return redis_config_file(thread_gc_settings(run_interval, clean_threshold))
 
 def set_workers(env, workers):
     """Set the worker thread count and verify that the change took effect. The pool never shrinks
@@ -646,6 +667,12 @@ def run_command_on_all_shards(env, *args):
 def verify_command_OK_on_all_shards(env, *args):
     res = run_command_on_all_shards(env, *args)
     env.assertEqual(res, ['OK'] * env.shardsCount)
+
+def set_thread_gc_config(env, run_interval=None, clean_threshold=None):
+    """Change the THREAD GC's settings on a running server. An index takes the run interval when
+    its GC is created, so one set after FT.CREATE applies from that index's next cycle."""
+    for name, value in thread_gc_settings(run_interval, clean_threshold).items():
+        verify_command_OK_on_all_shards(env, 'CONFIG', 'SET', name, value)
 
 def drain_workers(env):
     """Wait on every shard until queued worker jobs are done. Vector writes are asynchronous

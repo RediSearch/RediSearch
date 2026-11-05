@@ -543,7 +543,7 @@ def testMissingGC():
     env.assertEqual(res, [1, 'doc2'])
 
     # Set the GC clean threshold to 0, and stop its periodic execution
-    env.expect(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', '0').ok()
+    set_thread_gc_config(env, clean_threshold='0')
     env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
 
     # Delete `doc2`
@@ -578,7 +578,7 @@ def testMissingGC():
         conn.execute_command('HSET', f'doc{2 * i + 1}', 't2', fake.name())
 
     # Set the GC clean threshold to 0, and stop its periodic execution
-    env.expect(config_cmd(), 'SET', 'THREAD_GC_CLEAN_THRESHOLD', '0').ok()
+    set_thread_gc_config(env, clean_threshold='0')
     env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx').ok()
 
     # Delete docs with 'missing values'
