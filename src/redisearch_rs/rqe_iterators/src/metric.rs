@@ -167,10 +167,17 @@ impl<'index, const SORTED_BY_ID: bool> Metric<'index, SORTED_BY_ID> {
     ///
     /// # Safety
     ///
-    /// The conditions of [`KeyHandleSlot::set`], with this iterator as the slot's
-    /// owner.
+    /// 1. `key_handle` is [`None`], or points to an initialized [`RLookupKeyHandle`]
+    ///    that remains alive until this iterator is dropped or the handle is
+    ///    replaced.
+    /// 2. The `is_valid` field of the previously attached handle, if it differs
+    ///    from `key_handle`, must be writable exclusively during this call.
+    /// 3. The `is_valid` field of `key_handle` must be writable exclusively whenever
+    ///    this iterator invalidates it: when the iterator is dropped or the handle
+    ///    is replaced.
     pub unsafe fn set_handle(&mut self, key_handle: Option<NonNull<RLookupKeyHandle<'index>>>) {
-        // SAFETY: forwarded to the caller.
+        // SAFETY: (1), (2) and (3) are [`KeyHandleSlot::set`]'s (1), (2) and (3) for
+        // the slot this iterator owns.
         unsafe { self.key_handle.set(key_handle) };
     }
 
@@ -555,7 +562,7 @@ pub unsafe fn set_key_handle(
             // SAFETY: safe thanks to 1 + 2.
             let wrapper =
                 unsafe { RQEIteratorWrapper::<MetricSortedById>::mut_ref_from_header_ptr(header) };
-            // SAFETY: safe thanks to 3.
+            // SAFETY: (3) covers `set_handle`'s (1), (2) and (3).
             unsafe { wrapper.inner.set_handle(handle) };
         }
         IteratorType::MetricSortedByScore => {
@@ -563,7 +570,7 @@ pub unsafe fn set_key_handle(
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricSortedByScore>::mut_ref_from_header_ptr(header)
             };
-            // SAFETY: safe thanks to 3.
+            // SAFETY: (3) covers `set_handle`'s (1), (2) and (3).
             unsafe { wrapper.inner.set_handle(handle) };
         }
         IteratorType::MetricLazySortedById => {
@@ -571,7 +578,7 @@ pub unsafe fn set_key_handle(
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricLazySortedById>::mut_ref_from_header_ptr(header)
             };
-            // SAFETY: safe thanks to 3.
+            // SAFETY: (3) covers `set_handle`'s (1), (2) and (3).
             unsafe { wrapper.inner.set_handle(handle) };
         }
         IteratorType::MetricLazySortedByScore => {
@@ -579,7 +586,7 @@ pub unsafe fn set_key_handle(
             let wrapper = unsafe {
                 RQEIteratorWrapper::<MetricLazySortedByScore>::mut_ref_from_header_ptr(header)
             };
-            // SAFETY: safe thanks to 3.
+            // SAFETY: (3) covers `set_handle`'s (1), (2) and (3).
             unsafe { wrapper.inner.set_handle(handle) };
         }
         _ => unreachable!(

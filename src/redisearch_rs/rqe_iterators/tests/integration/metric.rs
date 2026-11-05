@@ -314,7 +314,9 @@ mod via_resume {
             is_valid: true,
         };
         let mut it = MetricSortedById::new(vec![1, 2, 3], metric_data);
-        // SAFETY: handle_ptr points to a valid, stack-allocated RLookupKeyHandle.
+        // SAFETY: (1) `handle` is initialized and declared before `it`, so it outlives it.
+        // (2) No handle was attached before. (3) Nothing else borrows `handle` while `it`
+        // is dropped.
         unsafe { it.set_handle(Some(NonNull::from(&mut handle))) };
 
         let _it = revalidate_via_resume(
@@ -356,7 +358,9 @@ fn set_handle_non_null_invalidates_on_drop() {
 
     {
         let mut it = MetricSortedById::new(vec![1], vec![0.5]);
-        // SAFETY: handle_ptr points to a valid, stack-allocated RLookupKeyHandle.
+        // SAFETY: (1) `handle` is initialized and declared before `it`, so it outlives it.
+        // (2) No handle was attached before. (3) Nothing else borrows `handle` while `it`
+        // is dropped.
         unsafe { it.set_handle(Some(handle_ptr)) };
         // it is dropped here
     }

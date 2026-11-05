@@ -101,9 +101,17 @@ impl<'index, const SORTED_BY_ID: bool> MetricLazy<'index, SORTED_BY_ID> {
     ///
     /// # Safety
     ///
-    /// Same contract as [`Metric::set_handle`].
+    /// 1. `key_handle` is [`None`], or points to an initialized [`RLookupKeyHandle`]
+    ///    that remains alive until this iterator is dropped or the handle is
+    ///    replaced.
+    /// 2. The `is_valid` field of the previously attached handle, if it differs
+    ///    from `key_handle`, must be writable exclusively during this call.
+    /// 3. The `is_valid` field of `key_handle` must be writable exclusively whenever
+    ///    this iterator invalidates it: when the iterator is dropped or the handle
+    ///    is replaced.
     pub unsafe fn set_handle(&mut self, key_handle: Option<NonNull<RLookupKeyHandle<'index>>>) {
-        // SAFETY: contract forwarded to the caller of this function.
+        // SAFETY: (1), (2) and (3) are [`Metric::set_handle`]'s (1), (2) and (3): the
+        // inner iterator is dropped with this one.
         unsafe { self.inner.set_handle(key_handle) };
     }
 
