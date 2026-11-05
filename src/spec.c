@@ -258,7 +258,8 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
 
 // Forward declaration
 static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
-                                           ArgsCursor *ac_in, QueryError *status);
+                                              ArgsCursor *ac_in, QueryError *status,
+                                              bool sharedFieldCFs);
 static void IndexSpec_BindFieldsStorage(IndexSpec *sp);
 
 /*
@@ -271,11 +272,18 @@ static void IndexSpec_BindFieldsStorage(IndexSpec *sp);
 */
 StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name,
                                     RedisModuleString **argv, int argc, QueryError *status) {
+  return IndexSpec_ParseRedisArgsWithLayout(ctx, name, argv, argc, status,
+                                            RSGlobalConfig.diskSharedFieldCFs);
+}
+
+StrongRef IndexSpec_ParseRedisArgsWithLayout(RedisModuleCtx *ctx, const HiddenString *name,
+                                             RedisModuleString **argv, int argc, QueryError *status,
+                                             bool sharedFieldCFs) {
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv, argc);
   // IndexSpec_ParseFromArgCursor returns a valid spec, or sets the error and
   // returns INVALID_STRONG_REF after tearing down its partial state.
-  return IndexSpec_ParseFromArgCursor(ctx, name, &ac, status);
+  return IndexSpec_ParseFromArgCursor(ctx, name, &ac, status, sharedFieldCFs);
 }
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type) {
@@ -473,12 +481,18 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName) {
 // TODO: multithreaded: use global metadata locks to protect global data structures
 IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                                QueryError *status) {
+  return IndexSpec_CreateNewWithLayout(ctx, argv, argc, status, RSGlobalConfig.diskSharedFieldCFs);
+}
+
+IndexSpec *IndexSpec_CreateNewWithLayout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                         QueryError *status, bool sharedFieldCFs) {
   setMemoryInfo(ctx);
   size_t nameLen;
   const char *rawName = RedisModule_StringPtrLen(argv[1], &nameLen);
   HiddenString *name = NewHiddenString(rawName, nameLen, true);
   // Create the IndexSpec, along with its corresponding weak\strong refs
-  StrongRef spec_ref = IndexSpec_ParseRedisArgs(ctx, name, &argv[2], argc - 2, status);
+  StrongRef spec_ref =
+      IndexSpec_ParseRedisArgsWithLayout(ctx, name, &argv[2], argc - 2, status, sharedFieldCFs);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (sp == NULL) {
     return NULL;
@@ -1834,7 +1848,8 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
 }
 
 static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
-                                           ArgsCursor *ac, QueryError *status) {
+                                              ArgsCursor *ac, QueryError *status,
+                                              bool sharedFieldCFs) {
   IndexSpec *spec = NewIndexSpec(name);
   StrongRef spec_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   spec->own_ref = spec_ref;
@@ -1844,6 +1859,9 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
   IndexSpecOptions options;
   int rc = IndexSpec_ParseOptions(ac, isSpecOnDiskForValidation(spec), &options, status);
   spec->flags = options.flags;
+  if (SearchDisk_IsEnabled() && sharedFieldCFs) {
+    spec->flags |= Index_SharedFieldCFs;
+  }
   SchemaRuleArgs *rule_args = &options.rule;
   ArgsCursor *rule_prefixes = &options.prefixes;
   ArgsCursor *acStopwords = &options.stopwords;
@@ -1931,7 +1949,7 @@ StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **a
   ArgsCursor_InitCString(&ac, argv, argc);
   // IndexSpec_ParseFromArgCursor returns a valid spec, or sets the error and
   // returns INVALID_STRONG_REF after tearing down its partial state.
-  return IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status);
+  return IndexSpec_ParseFromArgCursor(ctx, hidden, &ac, status, RSGlobalConfig.diskSharedFieldCFs);
 }
 
 static void RSIndexStats_FromScoringStats(const ScoringIndexStats *scoring, RSIndexStats *stats) {

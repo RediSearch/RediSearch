@@ -253,6 +253,8 @@ typedef struct {
   bool diskStatistics;
   // Admit new disk SQ8 fields only after every node has upgraded; existing indexes still load.
   bool diskSq8Enabled;
+  // Creation default only; each index persists its resolved layout in its schema flags.
+  bool diskSharedFieldCFs;
   // Per-DB SpeedB open-file cap, and the per-index cost charged against the process-wide file-descriptor reservation
   // (see SearchDisk_CanCreateIndex). Immutable, so a deployment with few, very large indexes must set this at startup
   // rather than raising it later.

@@ -16,8 +16,12 @@ extern "C" {
 #include "search_disk.h"
 extern RedisSearchDiskAPI *disk;
 extern bool isFlex;
+int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 }
 
+#include <cstdarg>
+#include <cstring>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -49,6 +53,9 @@ class DiskSchemaOpenTest : public ::testing::Test {
   Restore<decltype(disk)> diskApi{disk};
   Restore<decltype(disk_db)> diskDb{disk_db};
   Restore<decltype(isFlex)> flex{isFlex};
+  Restore<decltype(RSGlobalConfig.diskSharedFieldCFs)> sharedFieldCFs{
+      RSGlobalConfig.diskSharedFieldCFs};
+  Restore<decltype(RSGlobalConfig.simulateInFlex)> simulatedFlex{RSGlobalConfig.simulateInFlex};
   Restore<decltype(RSGlobalConfig.gcConfigParams.enableGC)> gcEnabled{
       RSGlobalConfig.gcConfigParams.enableGC};
   RedisSearchDiskAPI api{};
@@ -59,16 +66,50 @@ class DiskSchemaOpenTest : public ::testing::Test {
   // The schema must be complete before the database is opened.
   static inline std::vector<size_t> numFieldsAtOpen;
   static inline bool openResult = true;
+  static inline bool supportsSharedLayout = true;
+  static inline std::vector<bool> openedLayouts;
   static inline bool initMissingResult = true;
   static inline int closeOnMainThreadCalls = 0;
   static inline int closeIndexSpecCalls = 0;
   static inline int rdbStateToken = 0;
+  static inline int freedRdbStates = 0;
+  static inline std::vector<std::string> replicatedArgs;
+  static inline std::string replicatedFormat;
+  static inline int wrongArityCalls = 0;
+
+  static int recordReplication(RedisModuleCtx *, const char *, const char *format, ...) {
+    replicatedFormat = format;
+    va_list args;
+    va_start(args, format);
+    if (replicatedFormat == "sclv") {
+      RedisModuleString *name = va_arg(args, RedisModuleString *);
+      size_t len;
+      const char *value = RedisModule_StringPtrLen(name, &len);
+      replicatedArgs.emplace_back(value, len);
+      replicatedArgs.emplace_back(va_arg(args, const char *));
+      replicatedArgs.push_back(std::to_string(va_arg(args, long long)));
+    } else if (replicatedFormat != "v") {
+      ADD_FAILURE() << "unexpected replication format: " << replicatedFormat;
+      va_end(args);
+      return REDISMODULE_ERR;
+    }
+    RedisModuleString **argv = va_arg(args, RedisModuleString **);
+    size_t argc = va_arg(args, size_t);
+    va_end(args);
+    for (size_t i = 0; i < argc; ++i) {
+      size_t len;
+      const char *value = RedisModule_StringPtrLen(argv[i], &len);
+      replicatedArgs.emplace_back(value, len);
+    }
+    return REDISMODULE_OK;
+  }
 
   static bool recordSchema(RedisModuleCtx *ctx, void *privateData, const SearchDiskField *fields,
-                           size_t n) {
+                           size_t n, bool sharedLayout) {
     auto *index = reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData);
     EXPECT_EQ(ctx, RSDummyContext);
     numFieldsAtOpen.push_back(reinterpret_cast<IndexSpec *>(index)->numFields);
+    openedLayouts.push_back(sharedLayout);
     std::vector<Desc> descs;
     bool indexMissing = false;
     for (size_t i = 0; i < n; ++i) {
@@ -94,43 +135,56 @@ class DiskSchemaOpenTest : public ::testing::Test {
       }
     }
     openCalls.push_back(std::move(descs));
-    return openResult && (!indexMissing || initMissingResult);
+    return openResult && (!sharedLayout || supportsSharedLayout) &&
+           (!indexMissing || initMissingResult);
   }
 
   void SetUp() override {
     ConcurrentSearch_CreatePool(1);
     RSGlobalConfig.gcConfigParams.enableGC = false;
+    RSGlobalConfig.diskSharedFieldCFs = false;
+    RSGlobalConfig.simulateInFlex = false;
     events.clear();
     openCalls.clear();
     numFieldsAtOpen.clear();
+    replicatedArgs.clear();
+    replicatedFormat.clear();
+    openedLayouts.clear();
     openResult = true;
+    supportsSharedLayout = true;
     initMissingResult = true;
-    closeOnMainThreadCalls = closeIndexSpecCalls = 0;
+    closeOnMainThreadCalls = closeIndexSpecCalls = freedRdbStates = 0;
 
     api.basic.updateMemoryLimit = [](RedisSearchDisk *, size_t, size_t) { return true; };
     api.basic.reserveOpenFiles = [](RedisSearchDisk *) { return true; };
     api.basic.releaseOpenFiles = [](RedisSearchDisk *) {};
     // The mock uses the C spec as an opaque disk handle.
     api.basic.openIndexSpec = [](RedisModuleCtx *ctx, RedisSearchDisk *, const HiddenString *,
-                                 const char *, size_t, DocumentType, bool,
+                                 const char *, size_t, DocumentType, bool sharedLayout, bool,
                                  const SearchDiskField *fields, size_t n,
                                  const SearchDiskCompactionCallbacks *, void *privateData) {
       events.emplace_back("openIndex");
-      return recordSchema(ctx, privateData, fields, n)
+      return recordSchema(ctx, privateData, fields, n, sharedLayout)
                  ? reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData)
                  : nullptr;
     };
     api.basic.openIndexSpecWithRdbState =
         [](RedisModuleCtx *ctx, RedisSearchDisk *, const HiddenString *, const char *, size_t,
-           DocumentType, RedisSearchDiskRdbState *state, const SearchDiskField *fields, size_t n,
-           const SearchDiskCompactionCallbacks *, void *privateData) {
+           DocumentType, bool sharedLayout, RedisSearchDiskRdbState *state,
+           const SearchDiskField *fields, size_t n, const SearchDiskCompactionCallbacks *,
+           void *privateData) {
           EXPECT_EQ(state, reinterpret_cast<RedisSearchDiskRdbState *>(&rdbStateToken));
+          ++freedRdbStates;
           events.emplace_back("openIndexWithRdbState");
-          return recordSchema(ctx, privateData, fields, n)
+          return recordSchema(ctx, privateData, fields, n, sharedLayout)
                      ? reinterpret_cast<RedisSearchDiskIndexSpec *>(privateData)
                      : nullptr;
         };
-    api.basic.freeRdbState = [](RedisSearchDiskRdbState *) {};
+    api.basic.indexSpecRdbSave = [](RedisModuleIO *, RedisSearchDiskIndexSpec *) {};
+    api.basic.loadRdbToTempObject = [](RedisModuleIO *) {
+      return reinterpret_cast<RedisSearchDiskRdbState *>(&rdbStateToken);
+    };
+    api.basic.freeRdbState = [](RedisSearchDiskRdbState *) { ++freedRdbStates; };
     api.basic.closeIndexOnMainThread = [](RedisModuleCtx *, RedisSearchDisk *,
                                           RedisSearchDiskIndexSpec *) { ++closeOnMainThreadCalls; };
     api.basic.closeIndexSpec = [](RedisSearchDisk *, RedisSearchDiskIndexSpec *) {
@@ -208,6 +262,7 @@ TEST_F(DiskSchemaOpenTest, CreateOpensAllFieldsOnceAfterParsing) {
                               {4, INDEXFLD_T_VECTOR},
                               {5, INDEXFLD_T_VECTOR},
                           }));
+  EXPECT_FALSE(sp->flags & Index_SharedFieldCFs);
   // C-side field handles are bound after a successful database open.
   EXPECT_EQ(sp->fields[4].vectorOpts.diskCtx.storage, sp->diskSpec);
   EXPECT_TRUE(sp->fields[4].vectorOpts.diskCtx.rerank);
@@ -223,6 +278,207 @@ TEST_F(DiskSchemaOpenTest, MemoryIndexDoesNotOpenDiskFieldStorage) {
   EXPECT_EQ(sp->diskSpec, nullptr);
   EXPECT_TRUE(events.empty());
   EXPECT_TRUE(openCalls.empty());
+}
+
+TEST_F(DiskSchemaOpenTest, BackendRejectsUnsupportedSharedLayoutWithoutPublishingIndex) {
+  RSGlobalConfig.diskSharedFieldCFs = true;
+  supportsSharedLayout = false;
+  QueryError err = QueryError_Default();
+  EXPECT_EQ(create("unsupported_shared_layout", {"tags", "TAG", "price", "NUMERIC"}, &err),
+            nullptr);
+  EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_DISK_CREATION);
+  QueryError_ClearError(&err);
+  EXPECT_EQ(events, (std::vector<std::string>{"openIndex"}));
+  EXPECT_EQ(openedLayouts, (std::vector<bool>{true}));
+  EXPECT_EQ(openCalls.size(), 1u);
+  EXPECT_EQ(StrongRef_Get(Indexes_LoadIndexSpecUnsafe("unsupported_shared_layout")), nullptr);
+  EXPECT_EQ(closeOnMainThreadCalls, 0);
+  EXPECT_EQ(closeIndexSpecCalls, 0);
+}
+
+TEST_F(DiskSchemaOpenTest, SharedDefaultDoesNotAffectMemoryOrValidationOnlyIndexes) {
+  RSGlobalConfig.diskSharedFieldCFs = true;
+  isFlex = false;
+  for (bool simulate : {false, true}) {
+    SCOPED_TRACE(simulate);
+    RSGlobalConfig.simulateInFlex = simulate;
+    QueryError err = QueryError_Default();
+    IndexSpec *sp = create(simulate ? "layout_validation_only" : "layout_memory",
+                           {"tags", "TAG", "price", "NUMERIC"}, &err);
+    ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+    EXPECT_FALSE(sp->flags & Index_SharedFieldCFs);
+    EXPECT_EQ(sp->diskSpec, nullptr);
+    EXPECT_TRUE(events.empty());
+    EXPECT_TRUE(openCalls.empty());
+  }
+}
+
+TEST_F(DiskSchemaOpenTest, PerFieldCreateKeepsLegacyReplicationArguments) {
+  Restore<decltype(RedisModule_Replicate)> replicate{RedisModule_Replicate};
+  RedisModule_Replicate = recordReplication;
+  const char *argv[] = {
+      "FT.CREATE", "legacy_replication_arguments", "SKIPINITIALSCAN", "SCHEMA", "tags", "TAG"};
+  RMCK::ArgvList args(RSDummyContext, argv, std::size(argv));
+  EXPECT_EQ(CreateIndexCommand(RSDummyContext, args, args.size()), REDISMODULE_OK);
+  auto *sp = static_cast<IndexSpec *>(
+      StrongRef_Get(Indexes_LoadIndexSpecUnsafe("legacy_replication_arguments")));
+  ASSERT_NE(sp, nullptr) << RMCK_GetLastError(RSDummyContext);
+  created.push_back(IndexSpec_GetStrongRefUnsafe(sp));
+  EXPECT_FALSE(sp->flags & Index_SharedFieldCFs);
+  EXPECT_EQ(replicatedFormat, "v");
+  EXPECT_EQ(replicatedArgs, (std::vector<std::string>{"legacy_replication_arguments",
+                                                      "SKIPINITIALSCAN", "SCHEMA", "tags", "TAG"}));
+}
+
+TEST_F(DiskSchemaOpenTest, ReplicatedPerFieldLayoutIgnoresChangedDefault) {
+  RSGlobalConfig.diskSharedFieldCFs = true;
+  for (bool metadata : {false, true}) {
+    SCOPED_TRACE(metadata);
+    const char *name = metadata ? "replicated_per_field_layout" : "legacy_per_field_layout";
+    std::vector<const char *> argv = {"FT._CREATEIFNX", name};
+    if (metadata) argv.insert(argv.end(), {"_DISK_LAYOUT", "0"});
+    argv.insert(argv.end(), {"SKIPINITIALSCAN", "SCHEMA", "tags", "TAG"});
+    RMCK::ArgvList args(RSDummyContext, argv.data(), argv.size());
+    EXPECT_EQ(CreateIndexIfNotExistsCommand(RSDummyContext, args, args.size()), REDISMODULE_OK);
+    StrongRef ref = Indexes_LoadIndexSpecUnsafe(name);
+    auto *sp = static_cast<IndexSpec *>(StrongRef_Get(ref));
+    ASSERT_NE(sp, nullptr) << RMCK_GetLastError(RSDummyContext);
+    created.push_back(IndexSpec_GetStrongRefUnsafe(sp));
+    EXPECT_FALSE(sp->flags & Index_SharedFieldCFs);
+    EXPECT_NE(sp->diskSpec, nullptr);
+  }
+  EXPECT_EQ(openCalls.size(), 2u);
+}
+
+TEST_F(DiskSchemaOpenTest, ReplicatedSharedLayoutDoesNotFallBackToPerFieldDefault) {
+  const char *argv[] = {"FT._CREATEIFNX",
+                        "replicated_shared_layout",
+                        "_DISK_LAYOUT",
+                        "1",
+                        "SKIPINITIALSCAN",
+                        "SCHEMA",
+                        "tags",
+                        "TAG"};
+  RMCK::ArgvList args(RSDummyContext, argv, std::size(argv));
+  EXPECT_EQ(CreateIndexIfNotExistsCommand(RSDummyContext, args, args.size()), REDISMODULE_OK);
+  auto *sp = static_cast<IndexSpec *>(
+      StrongRef_Get(Indexes_LoadIndexSpecUnsafe("replicated_shared_layout")));
+  ASSERT_NE(sp, nullptr) << RMCK_GetLastError(RSDummyContext);
+  created.push_back(IndexSpec_GetStrongRefUnsafe(sp));
+  EXPECT_TRUE(sp->flags & Index_SharedFieldCFs);
+  EXPECT_EQ(openedLayouts, (std::vector<bool>{true}));
+}
+
+TEST_F(DiskSchemaOpenTest, SharedCreateReplicatesItsResolvedLayoutAcrossDifferentDefaults) {
+  Restore<decltype(RedisModule_Replicate)> replicate{RedisModule_Replicate};
+  RedisModule_Replicate = recordReplication;
+  RSGlobalConfig.diskSharedFieldCFs = true;
+  const char *argv[] = {
+      "FT.CREATE", "replicated_chosen_layout", "SKIPINITIALSCAN", "SCHEMA", "tags", "TAG"};
+  RMCK::ArgvList args(RSDummyContext, argv, std::size(argv));
+  EXPECT_EQ(CreateIndexCommand(RSDummyContext, args, args.size()), REDISMODULE_OK);
+  auto *sp = static_cast<IndexSpec *>(
+      StrongRef_Get(Indexes_LoadIndexSpecUnsafe("replicated_chosen_layout")));
+  ASSERT_NE(sp, nullptr) << RMCK_GetLastError(RSDummyContext);
+  EXPECT_TRUE(sp->flags & Index_SharedFieldCFs);
+  EXPECT_EQ(replicatedFormat, "sclv");
+  EXPECT_EQ(replicatedArgs,
+            (std::vector<std::string>{"replicated_chosen_layout", "_DISK_LAYOUT", "1",
+                                      "SKIPINITIALSCAN", "SCHEMA", "tags", "TAG"}));
+  Indexes_RemoveSpecFromGlobals(IndexSpec_GetStrongRefUnsafe(sp), false);
+  RedisModule_Replicate = replicate.saved;
+  RSGlobalConfig.diskSharedFieldCFs = false;
+  openedLayouts.clear();
+  std::vector<const char *> replay = {"FT._CREATEIFNX"};
+  for (const auto &arg : replicatedArgs) replay.push_back(arg.c_str());
+  RMCK::ArgvList replayArgs(RSDummyContext, replay.data(), replay.size());
+  EXPECT_EQ(CreateIndexIfNotExistsCommand(RSDummyContext, replayArgs, replayArgs.size()),
+            REDISMODULE_OK);
+  auto *replica = static_cast<IndexSpec *>(
+      StrongRef_Get(Indexes_LoadIndexSpecUnsafe("replicated_chosen_layout")));
+  ASSERT_NE(replica, nullptr) << RMCK_GetLastError(RSDummyContext);
+  created.push_back(IndexSpec_GetStrongRefUnsafe(replica));
+  EXPECT_TRUE(replica->flags & Index_SharedFieldCFs);
+  EXPECT_EQ(openedLayouts, (std::vector<bool>{true}));
+}
+
+TEST_F(DiskSchemaOpenTest, ReplicatedExistingIndexRetainsItsLayoutAndSchema) {
+  QueryError err = QueryError_Default();
+  IndexSpec *sp = create("existing_replicated_layout", {"tags", "TAG"}, &err);
+  ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+  const auto fingerprint = IndexSpec_SchemaFingerprint(sp);
+  events.clear();
+  openCalls.clear();
+  RSGlobalConfig.diskSharedFieldCFs = true;
+  const char *argv[] = {"FT._CREATEIFNX",  "existing_replicated_layout",
+                        "_DISK_LAYOUT",    "1",
+                        "SKIPINITIALSCAN", "SCHEMA",
+                        "price",           "NUMERIC"};
+  RMCK::ArgvList args(RSDummyContext, argv, std::size(argv));
+  EXPECT_EQ(CreateIndexIfNotExistsCommand(RSDummyContext, args, args.size()), REDISMODULE_OK);
+  EXPECT_EQ(IndexSpec_SchemaFingerprint(sp), fingerprint);
+  EXPECT_FALSE(sp->flags & Index_SharedFieldCFs);
+  EXPECT_EQ(sp->numFields, 1u);
+  EXPECT_TRUE(events.empty());
+  EXPECT_TRUE(openCalls.empty());
+}
+
+TEST_F(DiskSchemaOpenTest, PublicCreateDoesNotAcceptPrivateLayoutMetadata) {
+  const char *argv[] = {"FT.CREATE",
+                        "private_layout_in_public_create",
+                        "_DISK_LAYOUT",
+                        "1",
+                        "SKIPINITIALSCAN",
+                        "SCHEMA",
+                        "tags",
+                        "TAG"};
+  RMCK::ArgvList args(RSDummyContext, argv, std::size(argv));
+  RMCK_GetLastError(RSDummyContext).clear();
+  EXPECT_EQ(CreateIndexCommand(RSDummyContext, args, args.size()), REDISMODULE_OK);
+  EXPECT_FALSE(RMCK_GetLastError(RSDummyContext).empty());
+  EXPECT_EQ(StrongRef_Get(Indexes_LoadIndexSpecUnsafe("private_layout_in_public_create")), nullptr);
+  EXPECT_TRUE(events.empty());
+  EXPECT_TRUE(openCalls.empty());
+}
+
+TEST_F(DiskSchemaOpenTest, TruncatedPrivateLayoutMetadataUsesWrongArityWithoutCreatingStorage) {
+  Restore<decltype(RedisModule_WrongArity)> wrongArity{RedisModule_WrongArity};
+  wrongArityCalls = 0;
+  RedisModule_WrongArity = [](RedisModuleCtx *) {
+    ++wrongArityCalls;
+    return REDISMODULE_ERR;
+  };
+  const char *argv[] = {
+      "FT._CREATEIFNX", "truncated_private_layout", "_DISK_LAYOUT", "0", "SCHEMA", "tags"};
+  for (size_t argc : {5u, 6u}) {
+    SCOPED_TRACE(argc);
+    RMCK::ArgvList args(RSDummyContext, argv, argc);
+    EXPECT_EQ(CreateIndexIfNotExistsCommand(RSDummyContext, args, args.size()), REDISMODULE_ERR);
+    EXPECT_EQ(wrongArityCalls, argc - 4);
+    EXPECT_EQ(StrongRef_Get(Indexes_LoadIndexSpecUnsafe("truncated_private_layout")), nullptr);
+    EXPECT_TRUE(events.empty());
+    EXPECT_TRUE(openCalls.empty());
+  }
+}
+
+TEST_F(DiskSchemaOpenTest, InvalidReplicatedLayoutDoesNotCreateStorage) {
+  for (const char *layout : {"2", "-1", "invalid"}) {
+    SCOPED_TRACE(layout);
+    const char *argv[] = {"FT._CREATEIFNX",
+                          "invalid_replicated_layout",
+                          "_DISK_LAYOUT",
+                          layout,
+                          "SKIPINITIALSCAN",
+                          "SCHEMA",
+                          "tags",
+                          "TAG"};
+    RMCK::ArgvList args(RSDummyContext, argv, std::size(argv));
+    EXPECT_EQ(CreateIndexIfNotExistsCommand(RSDummyContext, args, args.size()), REDISMODULE_OK);
+    EXPECT_EQ(RMCK_GetLastError(RSDummyContext), "Invalid replicated disk CF layout");
+    EXPECT_EQ(StrongRef_Get(Indexes_LoadIndexSpecUnsafe("invalid_replicated_layout")), nullptr);
+    EXPECT_TRUE(events.empty());
+    EXPECT_TRUE(openCalls.empty());
+  }
 }
 
 TEST_F(DiskSchemaOpenTest, CreateWithSchemaErrorOpensNoField) {
@@ -325,17 +581,23 @@ class DiskSchemaOpenLoadTest : public DiskSchemaOpenTest {
     QueryError err = QueryError_Default();
     IndexSpec *sp = create(name, schema, &err);
     ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+    saveAndLoadSpec(sp, false);
+  }
+
+  void saveAndLoadSpec(IndexSpec *sp, bool useSst) {
     io = RMCK_CreateRdbIO();
-    IndexSpec_RdbSave(io, sp, 0);
+    IndexSpec_RdbSave(io, sp, useSst ? REDISMODULE_CTX_FLAGS_SST_RDB : 0);
     ASSERT_EQ(RMCK_IsIOError(io), 0);
     Indexes_RemoveSpecFromGlobals(created.back(), false);
     created.pop_back();
     io->read_pos = 0;
 
-    loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, false, &err);
+    QueryError err = QueryError_Default();
+    loaded = IndexSpec_RdbLoad(io, INDEX_CURRENT_VERSION, useSst, &err);
     ASSERT_NE(loaded, nullptr) << QueryError_GetUserError(&err);
     events.clear();
     openCalls.clear();
+    openedLayouts.clear();
     closeOnMainThreadCalls = closeIndexSpecCalls = 0;
   }
 
@@ -350,6 +612,65 @@ class DiskSchemaOpenLoadTest : public DiskSchemaOpenTest {
     DiskSchemaOpenTest::TearDown();
   }
 };
+
+class DiskLayoutRdbTest : public DiskSchemaOpenLoadTest,
+                          public ::testing::WithParamInterface<std::tuple<bool, bool>> {};
+
+TEST_P(DiskLayoutRdbTest, SavedLayoutSurvivesReloadWithAnOppositeDefault) {
+  const auto [sharedLayout, useSst] = GetParam();
+  RSGlobalConfig.diskSharedFieldCFs = sharedLayout;
+  QueryError err = QueryError_Default();
+  IndexSpec *sp = create("persisted_disk_layout", {"tags", "TAG", "price", "NUMERIC"}, &err);
+  ASSERT_NE(sp, nullptr) << QueryError_GetUserError(&err);
+  EXPECT_EQ(openedLayouts, (std::vector<bool>{sharedLayout}));
+  const auto fingerprint = IndexSpec_SchemaFingerprint(sp);
+  RSGlobalConfig.diskSharedFieldCFs = !sharedLayout;
+  ASSERT_NO_FATAL_FAILURE(saveAndLoadSpec(sp, useSst));
+  ASSERT_NE(loaded, nullptr);
+  EXPECT_EQ(bool(loaded->flags & Index_SharedFieldCFs), sharedLayout);
+  EXPECT_EQ(IndexSpec_SchemaFingerprint(loaded), fingerprint);
+  EXPECT_EQ(loaded->pendingDiskRdbState != nullptr, useSst);
+  EXPECT_EQ(RMCK_IsIOError(io), 0);
+  if (useSst) {
+    ASSERT_TRUE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));
+  } else {
+    ASSERT_EQ(IndexSpec_RdbLoadOpenDisk(RSDummyContext, loaded, false, &err), REDISMODULE_OK)
+        << QueryError_GetUserError(&err);
+  }
+  EXPECT_EQ(openedLayouts, (std::vector<bool>{sharedLayout}));
+  EXPECT_EQ(loaded->pendingDiskRdbState, nullptr);
+}
+
+INSTANTIATE_TEST_SUITE_P(OrdinaryAndSst, DiskLayoutRdbTest,
+                         ::testing::Combine(::testing::Bool(), ::testing::Bool()));
+
+TEST_F(DiskSchemaOpenLoadTest, UnsupportedSharedRdbLayoutFailsWithoutPublishingNativeHandle) {
+  RSGlobalConfig.diskSharedFieldCFs = true;
+  ASSERT_NO_FATAL_FAILURE(saveAndLoad("unsupported_rdb_layout", {"tags", "TAG"}));
+  RSGlobalConfig.diskSharedFieldCFs = false;
+  supportsSharedLayout = false;
+  QueryError err = QueryError_Default();
+  EXPECT_EQ(IndexSpec_RdbLoadOpenDisk(RSDummyContext, loaded, false, &err), REDISMODULE_ERR);
+  EXPECT_EQ(QueryError_GetCode(&err), QUERY_ERROR_CODE_DISK_CREATION);
+  QueryError_ClearError(&err);
+  EXPECT_EQ(openCalls.size(), 1u);
+  EXPECT_EQ(openedLayouts, (std::vector<bool>{true}));
+  EXPECT_EQ(loaded->diskSpec, nullptr);
+}
+
+TEST_F(DiskSchemaOpenLoadTest, UnsupportedSharedSstLayoutConsumesStateOnBackendFailure) {
+  RSGlobalConfig.diskSharedFieldCFs = true;
+  ASSERT_NO_FATAL_FAILURE(saveAndLoad("unsupported_sst_layout", {"tags", "TAG"}));
+  RSGlobalConfig.diskSharedFieldCFs = false;
+  supportsSharedLayout = false;
+  loaded->pendingDiskRdbState = reinterpret_cast<RedisSearchDiskRdbState *>(&rdbStateToken);
+  EXPECT_FALSE(IndexSpec_SSTRdbOpenAndApply(RSDummyContext, loaded));
+  EXPECT_EQ(openCalls.size(), 1u);
+  EXPECT_EQ(openedLayouts, (std::vector<bool>{true}));
+  EXPECT_EQ(loaded->pendingDiskRdbState, nullptr);
+  EXPECT_EQ(loaded->diskSpec, nullptr);
+  EXPECT_EQ(freedRdbStates, 1);
+}
 
 const std::vector<Desc> kLoadedFields = {
     {0, INDEXFLD_T_FULLTEXT},

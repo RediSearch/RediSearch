@@ -63,6 +63,16 @@ TEST_F(SchemaFingerprintTest, EqualSchemasHashEqualRegardlessOfName) {
   ASSERT_EQ(fp(a), fp(a));
 }
 
+TEST_F(SchemaFingerprintTest, DiskStorageLayoutChangesFingerprint) {
+  IndexSpec *sp = parse("layout_fingerprint", {"SCHEMA", "tags", "TAG", "price", "NUMERIC"});
+  ASSERT_NE(sp, nullptr);
+  const auto perField = fp(sp);
+  sp->flags = IndexFlags(sp->flags | Index_SharedFieldCFs);
+  EXPECT_NE(fp(sp), perField);
+  sp->flags = IndexFlags(sp->flags & ~Index_SharedFieldCFs);
+  EXPECT_EQ(fp(sp), perField);
+}
+
 TEST_F(SchemaFingerprintTest, SchemaChangesChangeFingerprint) {
   const uint64_t base = fp(parse("idx_base", {"SCHEMA", "title", "TEXT"}));
 

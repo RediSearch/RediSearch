@@ -642,7 +642,10 @@ overwritten
 
     OK or an error
 */
-int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static const char diskLayoutReplicationArg[] = "_DISK_LAYOUT";
+
+static int createIndexWithLayout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                 bool sharedFieldCFs) {
   // at least one field, the SCHEMA keyword, and number of field/text args must be even
   if (argc < 5) {
     return RedisModule_WrongArity(ctx);
@@ -653,7 +656,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
   QueryError status = QueryError_Default();
 
-  IndexSpec *sp = Indexes_CreateNewSpec(ctx, argv, argc, &status);
+  IndexSpec *sp = Indexes_CreateNewSpecWithLayout(ctx, argv, argc, &status, sharedFieldCFs);
   if (sp == NULL) {
     RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
@@ -669,9 +672,19 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
    * On replica of the destination will get the ft.create command from
    * all the src shards and not need to recreate it.
    */
-  RedisModule_Replicate(ctx, CMD_FOR_COORDINATOR(RS_CREATE_IF_NX_CMD), "v", argv + 1, (size_t)argc - 1);
+  if (sp->flags & Index_SharedFieldCFs) {
+    RedisModule_Replicate(ctx, CMD_FOR_COORDINATOR(RS_CREATE_IF_NX_CMD), "sclv", argv[1],
+                          diskLayoutReplicationArg, 1LL, argv + 2, (size_t)argc - 2);
+  } else {
+    RedisModule_Replicate(ctx, CMD_FOR_COORDINATOR(RS_CREATE_IF_NX_CMD), "v", argv + 1,
+                          (size_t)argc - 1);
+  }
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return createIndexWithLayout(ctx, argv, argc, RSGlobalConfig.diskSharedFieldCFs);
 }
 
 int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -688,7 +701,29 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
-  return CreateIndexCommand(ctx, argv, argc);
+  size_t metadataLen;
+  const char *metadata = RedisModule_StringPtrLen(argv[2], &metadataLen);
+  if (metadataLen == sizeof(diskLayoutReplicationArg) - 1 &&
+      memcmp(metadata, diskLayoutReplicationArg, metadataLen) == 0) {
+    if (argc < 7) {
+      return RedisModule_WrongArity(ctx);
+    }
+    long long layout;
+    if (RedisModule_StringToLongLong(argv[3], &layout) != REDISMODULE_OK ||
+        (layout != 0 && layout != 1)) {
+      return RedisModule_ReplyWithError(ctx, "Invalid replicated disk CF layout");
+    }
+    RedisModuleString **createArgs = rm_malloc((size_t)(argc - 2) * sizeof(*createArgs));
+    createArgs[0] = argv[0];
+    createArgs[1] = argv[1];
+    memcpy(createArgs + 2, argv + 4, (size_t)(argc - 4) * sizeof(*createArgs));
+    int result = createIndexWithLayout(ctx, createArgs, argc - 2, layout != 0);
+    rm_free(createArgs);
+    return result;
+  }
+
+  // Messages emitted before layout metadata existed always used per-field CFs.
+  return createIndexWithLayout(ctx, argv, argc, false);
 }
 
 static void DropIndex_ReplicateDropIfExists(RedisModuleCtx *ctx, RedisModuleString *indexName) {

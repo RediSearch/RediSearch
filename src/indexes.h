@@ -36,6 +36,8 @@ extern dict *specIdDict_g;  // Maps specId (uint64_t) -> RefManager* (same as sp
 // Returns the new spec, or NULL on error (with `status` set).
 IndexSpec *Indexes_CreateNewSpec(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                              QueryError *status);
+IndexSpec *Indexes_CreateNewSpecWithLayout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                                           QueryError *status, bool sharedFieldCFs);
 
 /**
  * Add an already-built spec to the global registry directly. For testing only.
