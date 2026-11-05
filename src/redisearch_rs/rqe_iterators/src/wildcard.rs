@@ -510,7 +510,7 @@ impl<'index> RQEIteratorBoxed<'index> for OptimizedWildcard<'index> {
         // SAFETY: `raw` came from `Box::into_raw` (non-null, aligned,
         // initialised, exclusively owned); the `&mut` borrow is confined to the
         // match.
-        match unsafe { &mut *raw } {
+        match unsafe { raw.as_mut() }.expect("`Box::into_raw` never returns null") {
             RawOptimizedWildcard::DocIdsOnly(it) => {
                 // SAFETY: `it` is the valid, exclusively-owned payload; the
                 // helper reinitialises the slot as its `Suspended` form in place.
@@ -556,7 +556,7 @@ impl<'query> RQESuspendedIterator<'query> for OptimizedWildcardSuspended<'query>
         // match. On `Unchanged`/`Moved` the helper rewrites the payload as its
         // resumed form; on `Aborted`/`Err` it consumes the payload, leaving it
         // uninitialised (handled below).
-        let outcome = match unsafe { &mut *raw } {
+        let outcome = match unsafe { raw.as_mut() }.expect("`Box::into_raw` never returns null") {
             RawOptimizedWildcard::DocIdsOnly(it) => {
                 // SAFETY: `it` is the valid, exclusively-owned payload.
                 unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, spec) }
@@ -567,47 +567,11 @@ impl<'query> RQESuspendedIterator<'query> for OptimizedWildcardSuspended<'query>
             }
         };
 
-        match outcome {
-            Ok(crate::boxed::ResumeSlotOutcome::Unchanged) => {
-                // SAFETY: the payload holds its resumed form at the same offset
-                // and the tag is unchanged; `Box::from_raw` reuses the same
-                // allocation, so the box address — and the FFI's cached
-                // `header.current` into the payload's result — stay valid.
-                let active = unsafe { Box::from_raw(raw.cast::<OptimizedWildcard<'a>>()) };
-                Ok(ResumeOutcome::Ok(active))
-            }
-            Ok(crate::boxed::ResumeSlotOutcome::Moved) => {
-                // SAFETY: as above.
-                let active = unsafe { Box::from_raw(raw.cast::<OptimizedWildcard<'a>>()) };
-                Ok(ResumeOutcome::Moved(active))
-            }
-            Ok(crate::boxed::ResumeSlotOutcome::Aborted) => {
-                // The payload was consumed; the allocation holds only the tag
-                // and an uninitialised payload, so it must be freed without
-                // dropping anything.
-                // SAFETY: `raw` was allocated by `Box` with exactly this layout;
-                // nothing in it is live any more.
-                unsafe {
-                    std::alloc::dealloc(
-                        raw.cast::<u8>(),
-                        std::alloc::Layout::new::<OptimizedWildcardSuspended<'query>>(),
-                    )
-                };
-                Ok(ResumeOutcome::Aborted)
-            }
-            Err(e) => {
-                // As `Aborted`: the payload was consumed; free the allocation
-                // without dropping it.
-                // SAFETY: as above.
-                unsafe {
-                    std::alloc::dealloc(
-                        raw.cast::<u8>(),
-                        std::alloc::Layout::new::<OptimizedWildcardSuspended<'query>>(),
-                    )
-                };
-                Err(e)
-            }
-        }
+        // SAFETY: 1 — `raw` came from `Box::into_raw` and the borrow above has ended;
+        // 2 — `outcome` is the payload slot's, and the tag needs no drop; 3 — the
+        // resumed payload keeps its tag, which encodes the same variant in the
+        // active enum (invariant 1).
+        unsafe { crate::boxed::finish_resume_in_place::<_, OptimizedWildcard<'a>>(raw, outcome) }
     }
 
     fn last_doc_id(&self) -> DocId {
