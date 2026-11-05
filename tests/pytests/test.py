@@ -2371,8 +2371,10 @@ def testTimeout(env):
     # test cursor
     # Unlike later versions, 2.6 never fails a cursor read on timeout, even with
     # `on_timeout fail`: the read returns the rows it collected and closes the cursor.
-    res, cursor = env.cmd('FT.AGGREGATE', 'myIdx', 'aa*', 'WITHCURSOR', 'COUNT', num_range,
-                          'TIMEOUT', 1)
+    # A timeout while building the query is still an error, so the query must be cheap
+    # to build (`*`) and slow to read (LOAD).
+    res, cursor = env.cmd('FT.AGGREGATE', 'myIdx', '*', 'LOAD', 1, '@t',
+                          'WITHCURSOR', 'COUNT', num_range, 'TIMEOUT', 1)
     env.assertLess(len(res) - 1, num_range) # the first element is the result count, not a row
     env.assertEqual(cursor, 0)
 
