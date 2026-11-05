@@ -29,6 +29,11 @@ Standards to follow when writing Rust documentation.
   ```
   Non-doc `// SAFETY:` comments keep the plain form too: rustdoc does not render them, so the
   brackets would stay literal text.
+  std's definition leaves two requirements out, so state them where they apply. It counts every
+  pointer, null included, as valid for a zero-sized access, so a handle to an opaque type that
+  Rust never dereferences (a `RedisModuleCtx`, say) must also be required to be non-null. It
+  does not include alignment either, so a pointer the function dereferences, or turns into a
+  reference or a slice, must also be required to be properly aligned.
 - Avoid referring to specific lines or line ranges, as they may change over time.
   Use line comments if the documentation needs to be attached to a specific code section inside
   a function/method body.
