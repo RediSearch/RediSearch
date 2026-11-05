@@ -126,8 +126,6 @@ typedef struct GCCallbacks {
   void (*getStats)(void* gcCtx, InfoGCStats* out);
 } GCCallbacks;
 
-struct GCDebugTask;
-
 typedef struct GCContext {
   void* gcCtx;
   RedisModuleTimerID timerID;  // a live timer, or 0. Never a sentinel. Guarded by the GIL
@@ -139,9 +137,6 @@ typedef struct GCContext {
   // thread clears it. A bit set so a bit added later can be tested against RUN_PENDING in one
   // read-modify-write; separate relaxed accesses would not be ordered.
   RS_Atomic(unsigned) schedFlags;
-  // The forced run holding RUN_PENDING, answered by its run's tail once the bit is free again,
-  // or NULL. Set on the main thread before the run is queued.
-  struct GCDebugTask *forcedRun;
   GCCallbacks callbacks;
 } GCContext;
 
