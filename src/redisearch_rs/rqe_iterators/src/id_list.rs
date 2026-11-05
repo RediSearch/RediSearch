@@ -46,6 +46,7 @@ pub struct RawIdList<'query, Rf: Ref, const SORTED: bool> {
     /// # Invariant
     ///
     /// `result`'s kind is either virtual or metric.
+    /// If its kind is metric, its `RLookupKey` handles are required to outlive the iterator.
     result: RawIndexResult<'query, Rf>,
 }
 
