@@ -458,7 +458,7 @@ mod via_resume {
 
         let result = it.suspend().resume(&guard);
         assert!(
-            matches!(result, Err(RQEIteratorError::TimedOut)),
+            matches!(result, Err(RQEIteratorError::Stopped)),
             "a child resume error must propagate out of MaybeEmpty::resume",
         );
     }

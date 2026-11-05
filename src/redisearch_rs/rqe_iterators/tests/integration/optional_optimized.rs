@@ -542,7 +542,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
         wcii_data.set_error_at_done(Some(utils::MockIteratorError::TimeoutError(None)));
 
         let err = it.read().expect_err("expected timeout error");
-        assert!(matches!(err, rqe_iterators::RQEIteratorError::TimedOut));
+        assert!(matches!(err, rqe_iterators::RQEIteratorError::Stopped));
     }
 
     /// An error from `wcii.skip_to()` is propagated by `skip_to()`.
@@ -559,7 +559,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
         wcii_data.set_error_at_done(Some(utils::MockIteratorError::TimeoutError(None)));
 
         let err = it.skip_to(10).expect_err("expected timeout error");
-        assert!(matches!(err, rqe_iterators::RQEIteratorError::TimedOut));
+        assert!(matches!(err, rqe_iterators::RQEIteratorError::Stopped));
     }
 
     /// An error from `child.skip_to()` is propagated by `skip_to()`.
@@ -574,7 +574,7 @@ mod optional_optimized_iterator_sparse_wcii_tests {
         let mut it = ContractChecker::new(OptionalOptimized::new(wcii, child, MAX_DOC_ID, WEIGHT));
 
         let err = it.skip_to(30).expect_err("expected timeout error");
-        assert!(matches!(err, rqe_iterators::RQEIteratorError::TimedOut));
+        assert!(matches!(err, rqe_iterators::RQEIteratorError::Stopped));
     }
 
     /// `skip_to()` calls `child.skip_to()` to advance the child to `effective_id`
@@ -1712,7 +1712,7 @@ mod via_resume {
         wcii_data.set_error_on_resume(Some(utils::MockIteratorError::TimeoutError(None)));
         let result = it.suspend().resume(&guard);
         assert!(
-            matches!(result, Err(rqe_iterators::RQEIteratorError::TimedOut)),
+            matches!(result, Err(rqe_iterators::RQEIteratorError::Stopped)),
             "a wildcard resume failure must propagate out of OptionalOptimized::resume",
         );
     }

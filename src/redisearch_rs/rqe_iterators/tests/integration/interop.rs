@@ -119,7 +119,7 @@ fn flatten(report: Result<ResumeReport, RQEIteratorError>) -> FlatReport {
         Ok(ResumeReport::Ok) => FlatReport::Ok,
         Ok(ResumeReport::Moved(position)) => FlatReport::Moved(position),
         Ok(ResumeReport::Aborted) => FlatReport::Aborted,
-        Err(RQEIteratorError::TimedOut) => FlatReport::TimedOut,
+        Err(RQEIteratorError::Stopped) => FlatReport::TimedOut,
         Err(RQEIteratorError::IoError(_)) => FlatReport::IoError,
     }
 }
@@ -135,7 +135,7 @@ fn a_resume_that_times_out_is_reported_as_an_error() {
          unreachable",
     );
     assert!(
-        matches!(err, RQEIteratorError::TimedOut),
+        matches!(err, RQEIteratorError::Stopped),
         "expected a timeout, got {err:?}: reported as an abort instead, the query would end as if \
          the index were exhausted and hand the client a truncated result set labelled complete",
     );
@@ -385,7 +385,7 @@ fn a_timed_out_resume_through_the_type_erased_bridge_stays_a_timeout() {
         .expect("the erased bridge forwards the error rather than swallowing it");
 
     assert!(
-        matches!(err, RQEIteratorError::TimedOut),
+        matches!(err, RQEIteratorError::Stopped),
         "expected a timeout, got {err:?}"
     );
     assert_eq!(
@@ -568,14 +568,14 @@ fn a_c_child_that_times_out_hands_its_rust_parent_an_error() {
     mock.data()
         .set_revalidate_result(MockRevalidateResult::TimedOut);
     // Lowering the mock to the C ABI and adopting it back puts both mappings in the path, so this
-    // covers the round trip: `Err(TimedOut)` -> `VALIDATE_TIMEOUT` -> `Err(TimedOut)`.
+    // covers the round trip: `Err(Stopped)` -> `VALIDATE_TIMEOUT` -> `Err(Stopped)`.
     let mut child = CRQEIterator::from_rust_leaf(mock);
 
     let err = child
         .revalidate(&guard)
         .expect_err("a timed-out child must surface as an error, not as a status");
     assert!(
-        matches!(err, RQEIteratorError::TimedOut),
+        matches!(err, RQEIteratorError::Stopped),
         "expected a timeout, got {err:?}: a Rust composite propagates this to the root of the \
          tree, exactly as it does for a child that times out during a read or a skip",
     );

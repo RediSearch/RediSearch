@@ -87,12 +87,12 @@ pub unsafe extern "C" fn NewLazyVectorRangeIteratorFromParams(
         // SAFETY: `query_params.timeoutCtx` is `timeout`, which 3 keeps valid for the iterator's
         // lifetime and so for this call, made by the iterator.
         let reply = unsafe { index.range_query(&query_vector, radius, &mut query_params, order) }
-            .map_err(|QueryError::TimedOut| RQEIteratorError::TimedOut)?;
+            .map_err(|QueryError::TimedOut| RQEIteratorError::Stopped)?;
         // The reply holds every match and the copy below doubles it, so check memory first; the
         // reply is freed on the way out.
         // SAFETY: `timeoutCtx` is `timeout`, which 3 keeps valid for this call.
         if unsafe { RS_VecSimCheckMemory(query_params.timeoutCtx.cast()) } != 0 {
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         Ok(collect_results(reply, yields_metric))
     });
