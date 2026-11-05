@@ -2279,7 +2279,6 @@ dependencies = [
  "libc",
  "min-max-heap",
  "priority-queue",
- "query_error",
  "redis_mock",
  "redisearch_rs",
  "reducers",
