@@ -97,6 +97,8 @@ typedef struct MRCtx {
   MRReduceFunc fn;
 
   const RS_Atomic(bool) * abortFlag;
+  const RS_Atomic(bool) * stopFlag;
+  MRReplyCheckpoint replyCheckpoint;
   MRCtxFreePrivDataCB freePrivDataCB;
 } MRCtx;
 
@@ -211,6 +213,21 @@ bool MRCtx_IsAborted(const struct MRCtx *ctx) {
   return ctx->abortFlag && RS_AtomicBoolLoadRelaxed(ctx->abortFlag);
 }
 
+void MRCtx_SetStopFlag(struct MRCtx *ctx, const RS_Atomic(bool) * stopFlag) {
+  ctx->stopFlag = stopFlag;
+}
+
+void MRCtx_SetReplyCheckpoint(struct MRCtx *ctx, MRReplyCheckpoint checkpoint) {
+  ctx->replyCheckpoint = checkpoint;
+}
+
+static bool searchReplyStops(MRCtx *ctx) {
+  if (ctx->stopFlag && RS_AtomicBoolLoadRelaxed(ctx->stopFlag)) {
+    return true;
+  }
+  return ctx->replyCheckpoint && ctx->replyCheckpoint(ctx);
+}
+
 void MRCtx_SetValidateConnections(struct MRCtx *ctx, bool validateConnections) {
   ctx->validateConnections = validateConnections;
 }
@@ -281,6 +298,14 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 static void searchFanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   MRCtx *ctx = privdata;
   if (!MRCtx_IsAborted(ctx)) {
+    // Failed sends and error replies hold no rows; they reach the reducer as before.
+    if (r && MRReply_Type(r) != MR_REPLY_ERROR && searchReplyStops(ctx)) {
+      // The reducer still owns the reply: count this one as errored and complete as usual.
+      if (r) {
+        MRReply_Free(r);
+      }
+      r = NULL;
+    }
     fanoutCallback(c, r, privdata);
     return;
   }
