@@ -148,9 +148,9 @@ const HEADERS: &[HeaderAllowlist] = &[
         vars: &[],
     },
     HeaderAllowlist {
-        path: "src/fork_gc.h",
+        path: "src/gc/index_gc.h",
         fns: &[],
-        types: &["ForkGC"],
+        types: &["IndexGC"],
         vars: &[],
     },
     HeaderAllowlist {
@@ -534,6 +534,14 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/util/timeout.h",
         fns: &[],
         types: &["QueryRequestLimits"],
+        vars: &[],
+    },
+    // Lets a Rust expansion observe a blocked-client cancellation, which publishes a
+    // flag rather than a clock deadline and so is invisible to a deadline-driven walk.
+    HeaderAllowlist {
+        path: "src/query_request.h",
+        fns: &["QueryRequestLimits_IsBlockedClientTimedOut"],
+        types: &[],
         vars: &[],
     },
     // `VecSimSearchMode` (+ `_ToString`) labels the top-k query strategy

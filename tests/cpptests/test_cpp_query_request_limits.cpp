@@ -242,6 +242,73 @@ TEST_F(QueryRequestLimitsTest, MemoryStopSurvivesResetAndBeginCycle) {
   EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout));
 }
 
+TEST_F(QueryRequestLimitsTest, MemoryStopAndBlockedClientTimeoutAreIndependent) {
+  auto stops = [](const QueryRequestLimits *l) {
+    return QueryRequestLimits_IsMemoryStopped(l) || QueryRequestLimits_IsBlockedClientTimedOut(l);
+  };
+  QueryRequestLimits timeout = {};
+  TimeoutConfig timeoutConfig = {1000, TimeoutPolicy_Fail};
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  EXPECT_FALSE(stops(&timeout));
+
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  EXPECT_FALSE(stops(&timeout));
+  QueryRequestLimits_MarkTimedOut(&timeout);
+  EXPECT_TRUE(stops(&timeout));
+  EXPECT_FALSE(QueryRequestLimits_IsMemoryStopped(&timeout));
+
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  EXPECT_FALSE(stops(&timeout));
+  QueryRequestLimits_RequestMemoryStop(&timeout);
+  EXPECT_TRUE(stops(&timeout));
+  EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout));
+  EXPECT_FALSE(QueryRequestLimits_IsBlockedClientTimedOut(&timeout));
+}
+
+TEST_F(QueryRequestLimitsTest, ShouldStopExactReportsEitherInEveryKind) {
+  for (auto kind : {QUERY_REQUEST_TIMEOUT_UNARMED, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT,
+                    QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE}) {
+    QueryRequestLimits timeout = {};
+    TimeoutConfig timeoutConfig = {60000, TimeoutPolicy_Return};
+    QueryRequestLimits_Init(&timeout, &timeoutConfig);
+    if (kind != QUERY_REQUEST_TIMEOUT_UNARMED) {
+      QueryRequestLimits_BeginCycle(&timeout, kind);
+    }
+    ASSERT_EQ(timeout.timeout.kind, kind);
+    EXPECT_FALSE(QueryRequestLimits_ShouldStopExact(&timeout)) << kind;
+    QueryRequestLimits_RequestMemoryStop(&timeout);
+    EXPECT_TRUE(QueryRequestLimits_ShouldStopExact(&timeout)) << kind;
+  }
+
+  QueryRequestLimits timeout = {};
+  TimeoutConfig timeoutConfig = {1000, TimeoutPolicy_Fail};
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryRequestLimits_MarkTimedOut(&timeout);
+  EXPECT_TRUE(QueryRequestLimits_ShouldStopExact(&timeout));
+
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  *QueryRequestLimits_GetClockDeadlineForUpdate(&timeout) = {0, 0};
+  EXPECT_TRUE(QueryRequestLimits_ShouldStopExact(&timeout));
+}
+
+TEST_F(QueryRequestLimitsTest, BlockedClientTimeoutCheckNeverReadsTheClock) {
+  auto stops = [](const QueryRequestLimits *l) {
+    return QueryRequestLimits_IsMemoryStopped(l) || QueryRequestLimits_IsBlockedClientTimedOut(l);
+  };
+  ScopedRealClockChecks enableClockChecks;
+  QueryRequestLimits timeout = {};
+  TimeoutConfig timeoutConfig = {1000, TimeoutPolicy_Return};
+  QueryRequestLimits_Init(&timeout, &timeoutConfig);
+  QueryRequestLimits_BeginCycle(&timeout, QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE);
+  *QueryRequestLimits_GetClockDeadlineForUpdate(&timeout) = {0, 0};
+  ASSERT_TRUE(QueryRequestLimits_IsTimedOutExact(&timeout));
+
+  EXPECT_FALSE(stops(&timeout));
+  QueryRequestLimits_RequestMemoryStop(&timeout);
+  EXPECT_TRUE(stops(&timeout));
+}
+
 TEST_F(QueryRequestLimitsTest, RequestOwnsConfigurationAcrossCycles) {
   for (auto kind : {QUERY_REQUEST_KIND_AREQ, QUERY_REQUEST_KIND_HYBRID, QUERY_REQUEST_KIND_COORD_SEARCH}) {
     RequestConfig defaults = {};

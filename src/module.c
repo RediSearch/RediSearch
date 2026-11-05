@@ -74,7 +74,7 @@
 #include "legacy_types.h"
 #include "search_disk.h"
 #include "search_disk_utils.h"
-#include "disk_gc.h"
+#include "gc/disk_gc.h"
 #include "rs_wall_clock.h"
 #include "hybrid/hybrid_exec.h"
 #include "hybrid/hybrid_debug.h"
@@ -90,7 +90,7 @@
 #include "doc_table.h"
 #include "extension.h"
 #include "field_spec.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "hiredis/alloc.h"
 #include "indexes_scanner.h"
 #include "info/index_error.h"
@@ -3480,6 +3480,14 @@ static bool should_return_error(const searchRequestCtx *req, QueryErrorCode errC
   return true;
 }
 
+// Whether merging replies should end. The timeout callback owns the reply, so a fired
+// blocked-client timeout does not stop its own merge, but a memory stop still does: it must not
+// leave the main thread merging every queued shard reply.
+static inline bool replyMergeShouldStop(searchRequestCtx *req, bool fromTimeout) {
+  return QueryRequestLimits_IsMemoryStopped(&req->base.limits) ||
+         (!fromTimeout && QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits));
+}
+
 static int searchResultReducer(searchRequestCtx *req, int count, MRReply **replies,
                                bool fromTimeout) {
   RedisModuleBlockedClient *bc = NULL;
@@ -3589,7 +3597,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   if (!profile) {
     for (int i = 0; i < count; ++i) {
       rCtx->processReply(replies[i], rCtx);
-      if (!fromTimeout && QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
+      if (replyMergeShouldStop(req, fromTimeout)) {
         goto cleanup;
       }
     }
@@ -3609,7 +3617,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
         mr_reply = MRReply_ArrayElement(replies[i], 0);
       }
       rCtx->processReply(mr_reply, rCtx);
-      if (!fromTimeout && QueryRequestLimits_IsBlockedClientTimedOut(&req->base.limits)) {
+      if (replyMergeShouldStop(req, fromTimeout)) {
         goto cleanup;
       }
     }

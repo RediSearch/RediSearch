@@ -15,3 +15,9 @@ disallowed-types = [
     { path = "std::os::raw::c_ushort", replacement = "std::ffi::c_ushort" },
     { path = "std::os::raw::c_void", replacement = "std::ffi::c_void" },
 ]
+
+# Restriction lints that crates opt into (see .skills/port-c-module) do not apply to tests.
+allow-unwrap-in-tests = true
+allow-panic-in-tests = true
+allow-print-in-tests = true
+allow-indexing-slicing-in-tests = true

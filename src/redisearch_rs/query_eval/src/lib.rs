@@ -25,7 +25,7 @@ use std::{marker::PhantomData, ptr::NonNull};
 
 use query_types::{QueryNodeOptions, scorers::slop_forces_offsets};
 use rqe_iterators::{
-    Empty, RQEIteratorPrintable, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
+    Empty, IteratorType, RQEIteratorPrintable, c2rust::CRQEIterator, interop::RQEIteratorWrapper,
 };
 
 // The query wrapper types live in the `query` crate (`c_wrappers/query`), and
@@ -156,6 +156,15 @@ impl<'index> Evaluated<'index> {
     }
 }
 
+/// Which document ids the root iterator of a [`QueryIteratorTree`] visits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DocIdCoverage {
+    /// Every document id, in ascending order: a wildcard scan.
+    Dense,
+    /// Only the document ids that match, which may be few.
+    Selective,
+}
+
 /// The executable iterator tree built from a parsed query AST.
 ///
 /// A dedicated type rather than a bare root iterator, so it can carry more as
@@ -169,6 +178,10 @@ pub struct QueryIteratorTree<'index> {
     // out bound to `'index` (`into_root`) or as a raw pointer, which needs
     // `unsafe` to use beyond the borrow of the context.
     root: CRQEIterator,
+    /// Which document ids [`Self::root`] visits, decided before
+    /// [`Self::into_profiled`] wraps it in a profile iterator that hides its
+    /// type.
+    coverage: DocIdCoverage,
     // FIXME: remove once CRQEIterator has been removed (MOD-14254) so `root` can carry the lifetime itself.
     _ctx: PhantomData<&'index mut QueryEvalContext>,
 }
@@ -179,12 +192,15 @@ impl<'index> QueryIteratorTree<'index> {
     /// Evaluates `root` via [`eval_node`], substituting an [`Empty`] iterator
     /// when it yields none.
     pub fn new(ctx: &'index mut QueryEvalContext, root: QueryNodeMut<'_>, config: Config) -> Self {
-        Self::from_root(into_child_iterator(eval_node(ctx, root, config)))
+        let root = into_child_iterator(eval_node(ctx, root, config));
+        let coverage = DocIdCoverage::of(&root);
+        Self::from_root(root, coverage)
     }
 
-    const fn from_root(root: CRQEIterator) -> Self {
+    const fn from_root(root: CRQEIterator, coverage: DocIdCoverage) -> Self {
         Self {
             root,
+            coverage,
             _ctx: PhantomData,
         }
     }
@@ -196,7 +212,7 @@ impl<'index> QueryIteratorTree<'index> {
     ///
     /// Panics if the tree has already been profiled.
     pub fn into_profiled(self) -> Self {
-        Self::from_root(self.root.into_profiled())
+        Self::from_root(self.root.into_profiled(), self.coverage)
     }
 
     /// Consume the tree into its root iterator, which still borrows the
@@ -210,9 +226,16 @@ impl<'index> QueryIteratorTree<'index> {
         self.root.as_raw()
     }
 
+    /// Which document ids the root iterator visits, unchanged by
+    /// [`Self::into_profiled`].
+    pub const fn doc_id_coverage(&self) -> DocIdCoverage {
+        self.coverage
+    }
+
     /// Replace the root iterator with `root`, returning the previous one
     /// unfreed, typically because `root` already owns it as a child.
     pub fn replace_root(&mut self, root: CRQEIterator) -> NonNull<ffi::QueryIterator> {
+        self.coverage = DocIdCoverage::of(&root);
         std::mem::replace(&mut self.root, root).into_raw()
     }
 
@@ -231,8 +254,47 @@ impl<'index> QueryIteratorTree<'index> {
     ///    stay valid, as required by the invariants of [`QueryEvalContext::new`].
     /// 2. No other iterator tree may be built from that context.
     pub unsafe fn erase_lifetime(self) -> QueryIteratorTree<'static> {
-        QueryIteratorTree::from_root(self.root)
+        QueryIteratorTree::from_root(self.root, self.coverage)
     }
+}
+
+impl DocIdCoverage {
+    /// [`Self::Dense`] for a wildcard iterator, whether it walks the doc id
+    /// range or the index's existing-docs inverted index.
+    fn of(root: &CRQEIterator) -> Self {
+        match root.type_ {
+            IteratorType::Wildcard | IteratorType::InvIdxWildcard => Self::Dense,
+            _ => Self::Selective,
+        }
+    }
+}
+
+/// Whether the disk term readers of a subtree must read offsets whatever the
+/// scorer.
+///
+/// A phrase that filters by term position
+/// ([`filters_by_position`](rqe_iterators::intersection::filters_by_position))
+/// checks the positions in its children's results, but the children don't
+/// carry the phrase's slop or order, so their own options never ask for
+/// offsets. The phrase therefore evaluates them under
+/// [`Required`](Self::Required).
+///
+/// - [`eval_node`] starts at [`Automatic`](Self::Automatic).
+/// - Union, optional and phrase nodes pass the requirement on, so it reaches
+///   every term a child expands into; a phrase that filters by position
+///   raises it to [`Required`](Self::Required).
+/// - NOT and a vector query's filter restart their child at
+///   [`Automatic`](Self::Automatic): a NOT yields virtual results, and a
+///   phrase never looks inside a hybrid result, so neither exposes the child's
+///   positions to an enclosing phrase.
+/// - Term leaves (token, prefix, fuzzy, wildcard query) hand it to
+///   [`expansion_needs_offsets`]; every other leaf ignores it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OffsetRequirement {
+    /// The node's own options and the scorer decide.
+    Automatic,
+    /// An enclosing phrase filters by term position.
+    Required,
 }
 
 /// Evaluate a single query node, producing the corresponding iterator.
@@ -251,6 +313,17 @@ pub fn eval_node<'index>(
     node: QueryNodeMut<'_>,
     config: Config,
 ) -> Option<Evaluated<'index>> {
+    eval_node_with_offsets(ctx, node, config, OffsetRequirement::Automatic)
+}
+
+/// [`eval_node`] under the [`OffsetRequirement`] imposed by the node's
+/// ancestors.
+fn eval_node_with_offsets<'index>(
+    ctx: &'index mut QueryEvalContext,
+    node: QueryNodeMut<'_>,
+    config: Config,
+    offsets: OffsetRequirement,
+) -> Option<Evaluated<'index>> {
     match node.as_enum() {
         QueryNode::Null => Some(null::eval()),
         QueryNode::Wildcard => Some(wildcard::eval(ctx, &node)),
@@ -258,21 +331,28 @@ pub fn eval_node<'index>(
         QueryNode::Missing { field_index } => {
             missing::eval(ctx, field_index).map(Evaluated::RustLeaf)
         }
-        QueryNode::Optional => Some(optional::eval(ctx, node, config)),
+        QueryNode::Optional => Some(optional::eval(ctx, node, config, offsets)),
         QueryNode::Not => Some(not::eval(ctx, node, config)),
-        QueryNode::Phrase { exact } => phrase::eval(ctx, node, exact, config),
-        QueryNode::Union => Some(union::eval(ctx, node, config)),
+        QueryNode::Phrase { exact } => phrase::eval(ctx, node, exact, config, offsets),
+        QueryNode::Union => Some(union::eval(ctx, node, config, offsets)),
         QueryNode::Numeric { nf } => numeric::eval(ctx, nf, config),
         QueryNode::Geo { gf } => geo::eval(ctx, gf, config),
-        QueryNode::Token { tok } => token::eval(ctx, &node, tok, config),
+        QueryNode::Token { tok } => token::eval(ctx, &node, tok, config, offsets),
         QueryNode::Geometry { geomq } => geometry::eval(ctx, geomq),
         QueryNode::Vector { vq } => vector::eval(ctx, node, vq, config),
-        QueryNode::Prefix { tok, mode } => prefix::eval(ctx, &node, tok, mode, config),
-        QueryNode::Fuzzy { tok, max_dist } => fuzzy::eval(ctx, &node, tok, max_dist, config),
+        QueryNode::Prefix { tok, mode } => prefix::eval(ctx, &node, tok, mode, config, offsets),
+        QueryNode::Fuzzy { tok, max_dist } => {
+            fuzzy::eval(ctx, &node, tok, max_dist, config, offsets)
+        }
         QueryNode::Tag { field_index } => tag::eval(ctx, node, field_index, config),
+        // A lex range only ever hangs off a tag node, whose evaluator dispatches
+        // its own children, so reaching it from here is a bug.
+        QueryNode::LexRange { .. } => {
+            unreachable!("a lex range is evaluated as a child of a tag node")
+        }
         // Binds nothing, so the node stays free to be passed on by value —
         // evaluation rewrites its token.
-        QueryNode::WildcardQuery { .. } => wildcard_query::eval(ctx, node, config),
+        QueryNode::WildcardQuery { .. } => wildcard_query::eval(ctx, node, config, offsets),
     }
 }
 
@@ -282,8 +362,9 @@ fn eval_child_iterator(
     ctx: &mut QueryEvalContext,
     child: QueryNodeMut<'_>,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> CRQEIterator {
-    into_child_iterator(eval_node(&mut *ctx, child, config))
+    into_child_iterator(eval_node_with_offsets(&mut *ctx, child, config, offsets))
 }
 
 /// Lower an evaluated node into an owning [`CRQEIterator`], for use as a child
@@ -303,12 +384,15 @@ fn into_child_iterator(evaluated: Option<Evaluated<'_>>) -> CRQEIterator {
 }
 
 /// Whether a term disk reader must carry term offsets: required when the node
-/// forces slop/in-order matching, or when the effective scorer needs positions.
+/// forces slop/in-order matching ([`slop_forces_offsets`]), when an enclosing
+/// phrase does so on its behalf ([`OffsetRequirement::Required`]), or when the
+/// effective scorer needs positions.
 /// Used only on the disk path.
 fn expansion_needs_offsets(
     ctx: &mut QueryEvalContext,
     opts: &QueryNodeOptions,
     config: Config,
+    offsets: OffsetRequirement,
 ) -> bool {
     // The query's own scorer wins; a query that sets none falls back to the
     // configured default, while a custom (non built-in) scorer conservatively
@@ -318,7 +402,8 @@ fn expansion_needs_offsets(
         RequestedScorer::Custom(_) => None,
         RequestedScorer::BuiltIn(scorer) => Some(scorer),
     };
-    slop_forces_offsets(opts.max_slop, opts.in_order)
+    offsets == OffsetRequirement::Required
+        || slop_forces_offsets(opts.max_slop, opts.in_order)
         || scorer.is_none_or(BuiltInScorer::needs_offsets)
 }
 

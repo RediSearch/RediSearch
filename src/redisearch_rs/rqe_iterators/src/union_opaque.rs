@@ -299,8 +299,9 @@ where
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let node_type = self.query_node_type;
         // Union and Geo always print full children even in limited mode —
-        // these types have few enough children that collapsing them would lose
-        // useful information.
+        // these types have few enough children that collapsing them would
+        // lose useful information. An expansion, LexRange included, can have
+        // up to `MAXPREFIXEXPANSIONS` of them, so it collapses.
         let print_full =
             !ctx.limited || matches!(node_type, QueryNodeType::Union | QueryNodeType::Geo);
 
@@ -313,6 +314,7 @@ where
             QueryNodeType::Fuzzy => "FUZZY",
             QueryNodeType::Prefix => "PREFIX",
             QueryNodeType::Numeric => "NUMERIC",
+            QueryNodeType::LexRange => "LEXRANGE",
             QueryNodeType::WildcardQuery => "WILDCARD",
             _ => unreachable!("Invalid type for union"),
         };
@@ -381,13 +383,9 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
         // SAFETY: `it` is a valid, uniquely-owned C iterator; it is consumed
         // here and replaced below, so it is neither leaked nor double-freed.
         let profiled = unsafe { CRQEIterator::new(it) }.into_profiled();
-        // `CRQEIterator` is `#[repr(transparent)]` over `NonNull<QueryIterator>`,
-        // so a `&mut CRQEIterator` can be viewed as a `*mut *mut QueryIterator`
-        // slot for in-place replacement.
-        let slot = child as *mut CRQEIterator as *mut *mut QueryIterator;
-        // SAFETY: `slot` is a valid, writable pointer; store the profiled
-        // iterator back in place.
-        unsafe { *slot = profiled.into_raw().as_ptr() };
+        // SAFETY: `child` is a valid, exclusively borrowed slot. The old value must not be
+        // dropped: the profiled wrapper now owns its `QueryIterator`.
+        unsafe { std::ptr::write(child, profiled) };
     }
     base.as_ptr()
 }
