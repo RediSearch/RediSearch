@@ -8,7 +8,7 @@
 */
 
 use super::RedisJsonApi;
-use crate::JsonValue;
+use crate::{JsonValue, value::JsonValueSlot};
 use redis_module::RedisString;
 use std::{ffi::c_void, ptr::NonNull};
 
@@ -80,15 +80,16 @@ impl<'a> Iterator for KeyValuesIterator<'a> {
     /// Only available with RedisJSON API v6 and later.
     fn next(&mut self) -> Option<Self::Item> {
         let mut key: *mut redis_module::RedisModuleString = std::ptr::null_mut();
-        let value = JsonValue::new(self.api);
+        let value = JsonValueSlot::new(self.api);
 
-        // Safety: `JsonValue::new` calls `allocJson` and correctly tracks ownership
-        let status = unsafe { (self.next)(self.ptr?.as_ptr(), &raw mut key, value.ptr) };
+        // Safety: `JsonValueSlot::new` calls `allocJson` and correctly tracks ownership
+        let status = unsafe { (self.next)(self.ptr?.as_ptr(), &raw mut key, value.as_ptr()) };
 
         if status == redis_module::REDISMODULE_OK as i32 {
             let key = RedisString::from_redis_module_string(self.ctx.as_ptr().cast(), key.cast());
             self.remaining = self.remaining.saturating_sub(1);
-            Some((key, value))
+            // Safety: `nextKeyValue` filled the slot, as it returned `OK`.
+            Some((key, unsafe { value.assume_init() }))
         } else {
             debug_assert!(key.is_null());
             self.remaining = 0;

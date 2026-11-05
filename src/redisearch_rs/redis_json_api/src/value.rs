@@ -211,12 +211,13 @@ impl<'a> JsonValueRef<'a> {
     pub fn get_at(&self, idx: usize) -> Option<JsonValue<'_>> {
         let get_at = vtable_fn!(self.api, getAt);
 
-        let mut out = JsonValue::new(self.api);
+        let out = JsonValueSlot::new(self.api);
 
-        // Safety: `ptr` is valid by construction, we correctly allocated the `JsonValue` before.
+        // Safety: `ptr` is valid by construction, we correctly allocated the slot before.
         let status = unsafe { get_at(self.ptr.as_ptr(), idx, out.as_ptr()) };
         if status == redis_module::REDISMODULE_OK as i32 {
-            Some(out)
+            // Safety: `getAt` filled the slot, as it returned `OK`.
+            Some(unsafe { out.assume_init() })
         } else {
             None
         }
@@ -312,21 +313,25 @@ impl<'a> JsonValueRef<'a> {
     }
 }
 
-pub struct JsonValue<'a> {
-    pub(crate) ptr: ffi::RedisJSONPtr,
-    pub(crate) free: unsafe extern "C" fn(ptr: ffi::RedisJSONPtr),
-    pub(crate) api: &'a RedisJsonApi,
+/// A value slot allocated with `allocJson` and released with `freeJson`.
+///
+/// RedisJSON calls such as `getAt` and `nextKeyValue` fill the slot with a value;
+/// [`Self::assume_init`] then turns it into a [`JsonValue`].
+pub(crate) struct JsonValueSlot<'a> {
+    ptr: ffi::RedisJSONPtr,
+    free: unsafe extern "C" fn(ptr: ffi::RedisJSONPtr),
+    api: &'a RedisJsonApi,
 }
 
-impl Drop for JsonValue<'_> {
+impl Drop for JsonValueSlot<'_> {
     fn drop(&mut self) {
         // Safety: we obtained this pointer from `allocJson`
         unsafe { (self.free)(self.ptr) }
     }
 }
 
-impl<'a> JsonValue<'a> {
-    /// Allocate a new `JsonValue`.
+impl<'a> JsonValueSlot<'a> {
+    /// Allocate a new, unfilled slot.
     ///
     /// Only available with RedisJSON API v6 and later.
     pub(crate) fn new(api: &'a RedisJsonApi) -> Self {
@@ -340,22 +345,43 @@ impl<'a> JsonValue<'a> {
         Self { ptr, free, api }
     }
 
-    /// Get a non-owning reference to this `JsonValue`.
-    pub fn as_ref(&self) -> JsonValueRef<'_> {
-        // Safety: we obtained this pointer from `allocJson` and the `new` constructor is private
-        // where we ensure the value is actually initialized before being handed out.
-        let ptr = unsafe { *self.ptr }.cast_mut();
-        debug_assert!(!ptr.is_null());
-
-        JsonValueRef {
-            // SAFETY: successful `getAt` or `nextKeyValue` calls initialize the inner value
-            // before it is exposed; the assertion above checks that inner pointer.
-            ptr: unsafe { NonNull::new_unchecked(ptr) },
-            api: self.api,
-        }
+    /// The slot pointer to pass to the RedisJSON call that fills it.
+    pub(crate) const fn as_ptr(&self) -> ffi::RedisJSONPtr {
+        self.ptr
     }
 
-    pub(crate) const fn as_ptr(&mut self) -> ffi::RedisJSONPtr {
-        self.ptr
+    /// Take the value a RedisJSON call has filled the slot with.
+    ///
+    /// # Safety
+    ///
+    /// 1. A RedisJSON call has filled the slot with a value, as `getAt` and
+    ///    `nextKeyValue` do when they return `REDISMODULE_OK`.
+    pub(crate) unsafe fn assume_init(self) -> JsonValue<'a> {
+        // Safety: `ptr` was obtained from `allocJson`, so it points to a readable slot.
+        let value = unsafe { *self.ptr }.cast_mut();
+        debug_assert!(
+            !value.is_null(),
+            "a filled RedisJSON value slot must not be NULL"
+        );
+        // SAFETY: a filled slot holds a non-null value (1).
+        let value = unsafe { NonNull::new_unchecked(value) };
+
+        JsonValue { slot: self, value }
+    }
+}
+
+/// An owned RedisJSON value, released with `freeJson` when dropped.
+pub struct JsonValue<'a> {
+    slot: JsonValueSlot<'a>,
+    value: NonNull<c_void>,
+}
+
+impl JsonValue<'_> {
+    /// Get a non-owning reference to this `JsonValue`.
+    pub const fn as_ref(&self) -> JsonValueRef<'_> {
+        JsonValueRef {
+            ptr: self.value,
+            api: self.slot.api,
+        }
     }
 }
