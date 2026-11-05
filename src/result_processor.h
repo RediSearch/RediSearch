@@ -506,9 +506,9 @@ bool RP_FillShouldCut(ResultProcessor *rp, uint32_t *counter);
 
 /** For debugging purposes
  * Adds a result processor, downstream of the last one, that calls the query memory
- * checkpoint (QueryMemory_Checkpoint) before every upstream read and reports a timeout once it
- * says to stop. It stands in for the real checkpoints so `_FT.DEBUG MEMORY_PRESSURE` can stop
- * a query end to end. */
+ * checkpoint (QueryMemory_Checkpoint) before every upstream read and returns RS_RESULT_STOPPED
+ * once it says to stop (the checkpoint has requested the memory stop). It stands in for the
+ * real checkpoints so `_FT.DEBUG MEMORY_PRESSURE` can stop a query end to end. */
 void PipelineAddMemoryCheckpoint(QueryProcessingCtx *qctx, RedisSearchCtx *sctx);
 
 /*******************************************************************************************************************
