@@ -277,7 +277,7 @@ def testInitConfig():
     _test_config_true_false('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true')
 
     _test_config_str('GC_POLICY', 'fork')
-    _test_config_str('GC_POLICY', 'default', 'fork')
+    _test_config_str('GC_POLICY', 'default', 'thread')
     _test_config_str('ON_TIMEOUT', 'fail')
     _test_config_str('ON_TIMEOUT', 'return-strict')
     _test_config_str('TIMEOUT', '0', '0')
