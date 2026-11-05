@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { git } from '../src/checks.ts';
 import { CRATE_LINTS } from '../src/redisearch.ts';
-import { cosmetic, gates, measure, outside, parseDiff, sizeClass } from '../src/gates.ts';
+import { cosmetic, gates, measure, orphans, outside, parseDiff, sizeClass } from '../src/gates.ts';
 import type { Plan } from '../src/plan.ts';
 import { newState } from '../src/state.ts';
 
@@ -166,4 +166,17 @@ test('the gates report every problem of an in-scope claim, and only the scope ot
       `${crate}tests/a.rs does not exist`,
     ],
   );
+});
+
+test('an export only a test module beside it calls is an orphan', async () => {
+  const { sh, commit } = await repository();
+  const ffi = 'src/redisearch_rs/c_entrypoint/geo_ffi/src/lib.rs';
+  const exported = '#[unsafe(no_mangle)]\npub extern "C" fn Geo_Free() {}\n';
+  const base = await commit({ 'src/geo.c': 'void f(void) { Geo_Free(); }\n', [ffi]: exported });
+  await sh(['rm', '-q', 'src/geo.c']);
+  const candidate = await commit({
+    [ffi]: `${exported}#[cfg(test)]\nmod tests {\n    fn frees() { super::Geo_Free(); }\n}\n`,
+  });
+  const files = parseDiff(await sh(['diff', base, candidate]));
+  assert.deepEqual(await orphans(sh, files, candidate), ['Geo_Free']);
 });

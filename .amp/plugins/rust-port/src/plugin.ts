@@ -257,8 +257,10 @@ export default function (amp: PluginAPI) {
         log: '',
         problem,
       });
-    // Checks skipped after a failure ran none of their tests, which is not a failure of the plan.
-    if (checks.length === planned.length) {
+    // A failed check already rejects the candidate, and the checks after it ran none of their
+    // tests, so neither the cited tests nor the fixes' reproductions are looked at.
+    const rejected = checks.some((c) => c.problem);
+    if (!rejected) {
       const logs = (
         await Promise.all(checks.map((c) => readFile(c.log, 'utf8').catch(() => '')))
       ).join('\n');
@@ -271,7 +273,7 @@ export default function (amp: PluginAPI) {
     }
     // A fix stands only while its reproduction passes: a later candidate can bring the failure back.
     let n = 0;
-    for (const f of Object.values(state.findings)) {
+    for (const f of rejected ? [] : Object.values(state.findings)) {
       if (f.stage !== stage || f.closed?.resolution !== 'fixed' || !f.repro) continue;
       const result = await reproduction(trials, f.repro, `fix-${++n}`);
       const exitCode = typeof result === 'string' ? 1 : result.exitCode;
