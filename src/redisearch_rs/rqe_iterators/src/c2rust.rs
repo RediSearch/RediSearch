@@ -11,7 +11,7 @@
 
 use ffi::{
     IteratorStatus_ITERATOR_EOF, IteratorStatus_ITERATOR_NOTFOUND, IteratorStatus_ITERATOR_OK,
-    IteratorStatus_ITERATOR_TIMEOUT, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
+    IteratorStatus_ITERATOR_STOPPED, QueryIterator, ValidateStatus_VALIDATE_ABORTED,
     ValidateStatus_VALIDATE_MOVED, ValidateStatus_VALIDATE_OK, ValidateStatus_VALIDATE_TIMEOUT,
 };
 use rqe_core::DocId;
@@ -227,7 +227,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         #[expect(non_upper_case_globals)]
         match status {
             IteratorStatus_ITERATOR_EOF => Ok(None),
-            IteratorStatus_ITERATOR_TIMEOUT => Err(RQEIteratorError::TimedOut),
+            IteratorStatus_ITERATOR_STOPPED => Err(RQEIteratorError::Stopped),
             IteratorStatus_ITERATOR_OK => {
                 let data = self.current as *mut RSIndexResult;
                 // SAFETY:
@@ -264,7 +264,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         #[expect(non_upper_case_globals)]
         match status {
             IteratorStatus_ITERATOR_EOF => Ok(None),
-            IteratorStatus_ITERATOR_TIMEOUT => Err(RQEIteratorError::TimedOut),
+            IteratorStatus_ITERATOR_STOPPED => Err(RQEIteratorError::Stopped),
             IteratorStatus_ITERATOR_OK => {
                 let data = self.current as *mut RSIndexResult;
                 // SAFETY:
@@ -317,7 +317,7 @@ impl<'index> RQEIterator<'index> for CRQEIterator {
         let status = match status {
             // A timed-out child is reported the same way as one that timed out during a read or a
             // skip: as an error, which a Rust parent propagates to the root of the tree.
-            ValidateStatus_VALIDATE_TIMEOUT => return Err(RQEIteratorError::TimedOut),
+            ValidateStatus_VALIDATE_TIMEOUT => return Err(RQEIteratorError::Stopped),
             ValidateStatus_VALIDATE_ABORTED => RQEValidateStatus::Aborted,
             ValidateStatus_VALIDATE_MOVED => RQEValidateStatus::Moved {
                 current: self.current(),
@@ -584,7 +584,7 @@ impl<'query> RQESuspendedIterator<'query> for CRQESuspendedIterator {
         #[expect(non_upper_case_globals)]
         Ok(match status {
             // An error, as in `revalidate`, so the query reports a partial result set.
-            ValidateStatus_VALIDATE_TIMEOUT => return Err(RQEIteratorError::TimedOut),
+            ValidateStatus_VALIDATE_TIMEOUT => return Err(RQEIteratorError::Stopped),
             ValidateStatus_VALIDATE_ABORTED => ResumeOutcome::Aborted,
             ValidateStatus_VALIDATE_MOVED => ResumeOutcome::Moved(it),
             ValidateStatus_VALIDATE_OK => ResumeOutcome::Ok(it),

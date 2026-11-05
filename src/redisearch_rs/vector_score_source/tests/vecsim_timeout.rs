@@ -71,7 +71,7 @@ fn unfiltered_propagates_timeout() {
     let source = index.source(uniform_blob(n as f32, dim), n, k, n);
     let mut it = new_vector_top_k_unfiltered(source, NonZeroUsize::new(k).unwrap());
 
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 /// From `test_vecsim.py::TestTimeoutReached` (hybrid BATCHES branch).
@@ -94,7 +94,7 @@ fn batches_propagates_timeout() {
         TopKMode::Batches,
     );
 
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 /// A timed-out unfiltered query must not consume the single-shot budget: the
@@ -115,7 +115,7 @@ fn unfiltered_timeout_does_not_mark_consumed() {
         let _mock = MockTimeout::enable();
         assert!(matches!(
             source.all_results_unfiltered_batch(),
-            Err(RQEIteratorError::TimedOut)
+            Err(RQEIteratorError::Stopped)
         ));
     }
 

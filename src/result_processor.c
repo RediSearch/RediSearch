@@ -194,7 +194,7 @@ static int refillQueueUsingIterator(RPQueryIterator *self) {
     IteratorStatus rc = it->Read(it);
     if (rc == ITERATOR_EOF) {
       break;
-    } else if (rc == ITERATOR_TIMEOUT) {
+    } else if (rc == ITERATOR_STOPPED) {
       return RS_RESULT_STOPPED;
     }
 
@@ -380,7 +380,7 @@ static int rpQueryItNext(ResultProcessor *base, SearchResult *res) {
       switch (rc) {
       case ITERATOR_EOF:
         return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_EOF);
-      case ITERATOR_TIMEOUT:
+      case ITERATOR_STOPPED:
         return UnlockSpec_and_ReturnRPResult(sctx, RS_RESULT_STOPPED);
       default:
         RS_ASSERT(rc == ITERATOR_OK);

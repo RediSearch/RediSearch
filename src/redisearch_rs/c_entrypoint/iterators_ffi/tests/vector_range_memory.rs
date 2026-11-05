@@ -38,7 +38,7 @@ fn range_query_under_memory_pressure_stops_for_oom_then_eof() {
     let _pressure = ForcedMemoryRatio::set(1.0);
 
     let mut it = common::range_iterator(&index, &query, 400.0, VecSimQueryReply_Order_BY_ID, true);
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
     assert!(memory_stopped(&index));
     assert!(matches!(it.read(), Ok(None)));
 }

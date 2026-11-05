@@ -660,7 +660,7 @@ fn collection_times_out_during_materialization() {
 
     assert!(matches!(
         source.next_batch(),
-        Err(RQEIteratorError::TimedOut)
+        Err(RQEIteratorError::Stopped)
     ));
 }
 
@@ -673,7 +673,7 @@ fn iterator_read_propagates_timeout() {
         NumericScoreSource::unfiltered(&tree, full_range(), false).with_timeout(expired_clock());
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(3).unwrap());
 
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 #[test]
@@ -700,7 +700,7 @@ fn filtering_scan_is_timeout_aware() {
         .with_timeout(TimeoutOnce::new(materialization_polls));
     assert!(matches!(
         filtered.next_batch(),
-        Err(RQEIteratorError::TimedOut)
+        Err(RQEIteratorError::Stopped)
     ));
 }
 
@@ -760,7 +760,7 @@ impl TimeoutContext for TimeoutOnce {
         }
         if self.succeed_first == 0 {
             self.fired = true;
-            return Err(RQEIteratorError::TimedOut);
+            return Err(RQEIteratorError::Stopped);
         }
         self.succeed_first -= 1;
         Ok(())
@@ -916,7 +916,7 @@ fn factory_passes_the_query_deadline_to_both_constructions() {
         let (NewNumericTopK::Unfiltered(mut it) | NewNumericTopK::Filtered(mut it)) = built else {
             panic!("expected a non-empty top-k");
         };
-        assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+        assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
     }
 }
 
@@ -937,7 +937,7 @@ fn rewind_after_timeout_reproduces_full_results() {
     let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1)
         .with_timeout(TimeoutOnce::new(8));
     let mut it = new_numeric_top_k_unfiltered(source, k);
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 
     // Rewind discards the partial heap and re-resolves the ranges from the start;
     // the one-shot deadline has fired, so the second pass runs clean and must
@@ -957,9 +957,9 @@ fn rewind_after_persistent_timeout_times_out_again() {
         .with_timeout(expired_clock());
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(5).unwrap());
 
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
     it.rewind();
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 }
 
 /// Look up a string-keyed entry in a captured map reply.
@@ -1097,7 +1097,7 @@ fn profile_reports_batches_read_before_a_timeout() {
     let source = NumericScoreSource::with_range_batch_size(&tree, full_range(), false, 1)
         .with_timeout(TimeoutOnce::new(20));
     let mut it = new_numeric_top_k_unfiltered(source, NonZeroUsize::new(20).unwrap());
-    assert!(matches!(it.read(), Err(RQEIteratorError::TimedOut)));
+    assert!(matches!(it.read(), Err(RQEIteratorError::Stopped)));
 
     let metrics = *it.metrics();
     assert!(metrics.num_batches > 0, "timeout fired mid-collection");
