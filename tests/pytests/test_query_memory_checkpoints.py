@@ -342,6 +342,129 @@ def test_normalizer_stop_normalizes_by_the_partial_max(env):
                 env.assertEqual(len(res['results']), N_DOCS, message=(policy, workers, res))
 
 
+GROUPBY_QUERIES = (
+    ('FT.AGGREGATE', 'idx', '*', 'GROUPBY', 1, '@n', 'REDUCE', 'COUNT', 0, 'AS', 'c'),
+    ('FT.AGGREGATE', 'idx', '*', 'GROUPBY', 0,
+     'REDUCE', 'TOLIST', 1, '@n', 'AS', 'list',
+     'REDUCE', 'COUNT_DISTINCT', 1, '@n', 'AS', 'distinct',
+     'REDUCE', 'QUANTILE', 2, '@n', 0.5, 'AS', 'median',
+     'REDUCE', 'COLLECT', 3, 'FIELDS', 1, '@n', 'AS', 'rows'),
+)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_grouper_stop_yields_no_partial_groups(env):
+    """A GROUPBY stopped while accumulating replies no groups: ON_OOM RETURN an empty result with
+    the OOM warning, ON_OOM FAIL the OOM error, under every timeout policy. It counts rows, not
+    groups, so a stop also lands while rows only grow existing groups."""
+    create_index(env)
+    # The grouper's checkpoint runs once per READ_INTERVAL rows: its 2nd call, at row 4, stops it.
+    rows_per_check, k = 2, 2
+
+    def at_call(n):
+        memory_pressure(env, 'READ_INTERVAL', rows_per_check)
+        return n
+
+    for policy in timeout_policies(env):
+        for workers in worker_counts(env):
+            for query in GROUPBY_QUERIES:
+                full = env.cmd(*query)
+                env.assertGreater(len(full['results']), 0)
+                res = run_at_call(env, at_call(BUILD_CHECKPOINTS + k), *query)
+                expect_empty_with_oom_warning(env, res)
+                env.assertEqual(res['total_results'], 0, message=(policy, workers, query, res))
+                with oom_policy(env, 'fail'):
+                    expect_oom_error_at_call(env, at_call(BUILD_CHECKPOINTS + k), *query)
+                with oom_policy(env, 'ignore'):
+                    env.assertEqual(
+                        run_at_call(env, at_call(BUILD_CHECKPOINTS + k), *query)['results'],
+                        full['results'], message=(policy, workers, query))
+
+
+@skip(cluster=True)
+def test_grouper_stop_ends_the_cursor(env):
+    """A cursor whose GROUPBY is stopped while accumulating replies no groups and is not left
+    open; under ON_OOM FAIL the query fails and no cursor is created."""
+    create_index(env)
+    query = (*GROUPBY_QUERIES[0], 'WITHCURSOR', 'COUNT', 2)
+    # The grouper's checkpoint runs once per READ_INTERVAL rows: its 2nd call, at row 4, stops it.
+    rows_per_check, k = 2, 2
+    for workers in worker_counts(env):
+        memory_pressure(env, 'READ_INTERVAL', rows_per_check)
+        res, cursor = run_at_call(env, BUILD_CHECKPOINTS + k, *query)
+        env.assertEqual(res, [0], message=workers)
+        env.assertEqual(cursor, 0, message=workers)
+        with oom_policy(env, 'fail'):
+            memory_pressure(env, 'READ_INTERVAL', rows_per_check)
+            expect_oom_error_at_call(env, BUILD_CHECKPOINTS + k, *query)
+        env.assertEqual(to_dict(to_dict(env.cmd('FT.INFO', 'idx'))['cursor_stats'])['index_total'],
+                        0, message=workers)
+
+
+@skip(cluster=True)
+def test_grouper_stop_inside_one_rows_groups(env):
+    """One row with an array value opens a group per element before the per-row check runs; the
+    grouper also reads memory as that row opens groups, and replies none of them."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    parts = 50
+    env.cmd('HSET', 'doc', 't', ','.join(f'p{i}' for i in range(parts)))
+    query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', 'split(@t, ",")', 'AS', 'p',
+             'GROUPBY', 1, '@p', 'REDUCE', 'COUNT', 0, 'AS', 'c')
+    env.assertEqual(env.cmd(*query)[0], parts)
+    # Calls past the build checkpoints land inside the row's expansion: the grouper's per-row
+    # check runs once per read interval, and at most one other checkpoint runs per row upstream.
+    at_call = BUILD_CHECKPOINTS + 3
+    for workers in worker_counts(env):
+        env.assertEqual(run_at_call(env, at_call, *query), [0], message=workers)
+        with oom_policy(env, 'fail'):
+            expect_oom_error_at_call(env, at_call, *query)
+
+
+@skip(cluster=True)
+def test_grouper_stop_inside_one_rows_existing_groups(env):
+    """A later multi-valued row adds to the groups earlier rows opened, which grows reducer state
+    as much as opening them; the grouper reads memory there too."""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    parts = 50
+    for doc in ('a', 'b'):
+        env.cmd('HSET', doc, 't', ','.join(f'p{i}' for i in range(parts)))
+    query = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', 'split(@t, ",")', 'AS', 'p',
+             'GROUPBY', 1, '@p', 'REDUCE', 'COUNT', 0, 'AS', 'c')
+    env.assertEqual(env.cmd(*query)[0], parts)
+    # Past the first row's groups, whatever few calls other checkpoints add per row.
+    at_call = BUILD_CHECKPOINTS + parts + 10
+    for workers in worker_counts(env):
+        env.assertEqual(run_at_call(env, at_call, *query), [0], message=workers)
+        with oom_policy(env, 'fail'):
+            expect_oom_error_at_call(env, at_call, *query)
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_shard_grouper_stop_leaves_the_other_shards_groups(env):
+    """In a cluster each shard groups its own rows. A shard stopped while grouping replies none
+    and warns; as for a shard timeout, the coordinator merges the other shards' groups, so the
+    aggregates miss the stopped shard's rows, and replies its OOM warning."""
+    create_index(env)
+    conn = getConnectionByEnv(env)
+    total = 60
+    for i in range(N_DOCS, total):
+        conn.execute_command('HSET', f'doc{i}', 'n', i % 3, 't', f'hello{i}')
+    query = ('FT.AGGREGATE', 'idx', '*', 'GROUPBY', 0, 'REDUCE', 'COUNT', 0, 'AS', 'c')
+    # Shard 2's process hosts no coordinator pipeline, so its calls are its own pipeline's.
+    shard = env.getConnection(2)
+    # One grouper checkpoint per row, so the shard's few rows reach it.
+    shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'READ_INTERVAL', 1)
+    shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', BUILD_CHECKPOINTS + 1)
+    try:
+        res = env.cmd(*query)
+    finally:
+        shard.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
+    env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+    env.assertLess(int(res['results'][0]['extra_attributes']['c']), total, message=res)
+
+
 @skip(cluster=True)
 @env_spec(protocol=3)
 def test_sorter_stop_over_cursor_reads(env):

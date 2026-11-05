@@ -296,6 +296,54 @@ TEST_F(AggTest, testGroupSplit) {
   RLookup_Cleanup(&lk_out);
 }
 
+TEST_F(AggTest, testGroupSplitEndsOnABlockedClientTimeout) {
+  // A blocked-client timeout fired while a row's array values expand into groups ends the
+  // accumulation with a timeout and yields no partial groups.
+  TimeoutConfig config = {1000, TimeoutPolicy_ReturnStrict};
+  QueryRequestLimits limits = {};
+  QueryRequestLimits_Init(&limits, &config);
+  QueryRequestLimits_BeginCycle(&limits, QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT);
+  QueryProcessingCtx qitr = {0};
+  qitr.limits = &limits;
+  qitr.timeoutPolicy = TimeoutPolicy_ReturnStrict;
+
+  ArrayGenerator gen;
+  gen.type = RP_SCORER;  // Not an RP_INDEX root: ending the row source must not touch it.
+  RLookup lk_in = RLookup_New();
+  RLookup lk_out = RLookup_New();
+  gen.kvalue = RLookup_GetKey_Write(&lk_in, "value", RLOOKUP_F_NOFLAGS);
+  RLookupKey *val_out = RLookup_GetKey_Write(&lk_out, "value", RLOOKUP_F_NOFLAGS);
+  Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1,
+                            GroupByLimits_Default(DEFAULT_MAX_AGGREGATE_GROUPS));
+  gen.Next = [](ResultProcessor *rp, SearchResult *res) -> int {
+    ArrayGenerator *p = static_cast<ArrayGenerator *>(rp);
+    if (p->counter >= NUM_RESULTS) return RS_RESULT_EOF;
+    SearchResult_SetDocId(res, ++p->counter);
+    uint32_t sz = p->values.size();
+    char **strs = (char **)&p->values[0];
+    RSValue **arr = RSValue_NewArrayBuilder(sz);
+    for (uint32_t i = 0; i < sz; i++) {
+      arr[i] = RSValue_NewBorrowedString(strs[i], strlen(strs[i]));
+    }
+    RLookup_WriteOwnKey(p->kvalue, SearchResult_GetRowDataMut(res),
+                        RSValue_NewArrayFromBuilder(arr, sz));
+    return RS_RESULT_OK;
+  };
+  QITR_PushRP(&qitr, &gen);
+  ResultProcessor *gp = Grouper_GetRP(gr);
+  QITR_PushRP(&qitr, gp);
+
+  QueryRequestLimits_MarkTimedOut(&limits);
+  SearchResult res = SearchResult_New();
+  EXPECT_EQ(gp->Next(gp, &res), RS_RESULT_STOPPED);
+  EXPECT_EQ(gen.counter, 1);
+
+  SearchResult_Destroy(&res);
+  gp->Free(gp);
+  RLookup_Cleanup(&lk_in);
+  RLookup_Cleanup(&lk_out);
+}
+
 #if 0
 int testAggregatePlan() {
   CmdString *argv = CmdParser_NewArgListV(
