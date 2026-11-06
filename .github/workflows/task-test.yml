@@ -102,6 +102,8 @@ jobs:
     permissions: {} # task-get-config.yml only resolves config values
     name: Get build configurations for platform
     uses: ./.github/workflows/task-get-config.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
@@ -129,6 +131,8 @@ jobs:
     if: ${{ needs.get-config.outputs.container }}
     name: Build container for platform
     uses: ./.github/workflows/task-build-cached-container.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
     with:
       container: ${{ needs.get-config.outputs.container }}
       runner-env: ${{ needs.get-config.outputs.env }}
@@ -210,6 +214,11 @@ jobs:
           echo "USER: $USER"
           echo "id: $(id)"
           echo "HOME=$h" >> "$GITHUB_ENV"
+
+      - name: Configure Tracebit canary credentials
+        uses: ./.github/actions/tracebit-container
+        with:
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
 
       - name: Disable automatic apt updates (self-hosted Linux)
         if: ${{ needs.get-config.outputs.ec2_image_id && !needs.get-config.outputs.container && !contains(needs.get-config.outputs.env, 'macos') }}

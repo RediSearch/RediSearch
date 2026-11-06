@@ -56,6 +56,8 @@ jobs:
     permissions: {} # task-get-config.yml only resolves config values
     name: Get build configurations for platform
     uses: ./.github/workflows/task-get-config.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
@@ -114,6 +116,11 @@ jobs:
 
       - name: Checkout RediSearch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Configure Tracebit canary credentials
+        uses: ./.github/actions/tracebit-container
+        with:
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
 
       - name: Free up disk space
         uses: ./.github/actions/github-hosted-runner-cleanup
