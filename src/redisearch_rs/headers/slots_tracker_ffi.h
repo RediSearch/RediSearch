@@ -63,21 +63,6 @@ struct OptionSlotTrackerVersion slots_tracker_check_availability(const struct Re
 struct RedisModuleSlotRangeArray *slots_tracker_get_local_slots(void);
 
 /**
- * Checks if there is any overlap between the given slot ranges and the fully available slots.
- *
- * This function checks if any of the provided slot ranges overlap with "fully available slots".
- * Returns true if there is at least one overlapping slot, false otherwise.
- *
- * # Safety
- *
- * This function must be called from the main thread only.
- * The `ranges` pointer must be valid and point to a properly initialized RedisModuleSlotRangeArray.
- * The ranges array must contain `num_ranges` valid elements.
- * All ranges must be sorted and have start <= end, with values in [0, 16383].
- */
-bool slots_tracker_has_fully_available_overlap(const struct RedisModuleSlotRangeArray *ranges);
-
-/**
  * Marks the given slot ranges as fully available non-owned.
  *
  * This function updates the "fully available slots" set by adding the provided ranges.

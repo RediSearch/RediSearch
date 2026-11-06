@@ -101,30 +101,6 @@ pub unsafe extern "C" fn RSValue_NewMapFromBuilder(map: *mut RSValueMapBuilder) 
     into_rs_value(shared)
 }
 
-/// Returns the number of key-value pairs in a map [`RSValue`].
-///
-/// # Safety
-///
-/// 1. `map` must be a [valid], non-null pointer to an [`RSValue`].
-///
-/// # Panics
-///
-/// Panics if `map` is not a map value.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Map_Len(map: *const RSValue) -> u32 {
-    // Safety: ensured by caller (1.)
-    let map = unsafe { expect_value(map) };
-
-    if let Value::Map(map) = map {
-        map.len_u32()
-    } else {
-        // Compatibility: C does an RS_ASSERT on incorrect type
-        panic!("Expected 'Map' type, got '{}'", map.variant_name())
-    }
-}
-
 /// Retrieves a key-value pair from a map [`RSValue`] at a specific index.
 ///
 /// The returned key and value pointers are borrowed from the map and must

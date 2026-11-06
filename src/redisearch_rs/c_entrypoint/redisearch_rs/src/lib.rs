@@ -24,7 +24,6 @@ static REDIS_MODULE_ALLOCATOR: over_aligned_alloc::OverAligned<redis_module::all
 pub use doc_key_map_ffi as doc_key_map;
 pub use fnv_ffi as fnv;
 pub use geo_ffi as geo;
-pub use idf_ffi as idf;
 pub use index_gc_ffi as index_gc;
 pub use inverted_index_ffi as inverted_index;
 pub use iterators_ffi as iterators;

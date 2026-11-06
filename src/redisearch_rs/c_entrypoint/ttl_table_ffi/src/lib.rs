@@ -275,29 +275,6 @@ pub unsafe extern "C" fn TimeToLiveTable_FieldMaskSatisfiesPredicate(
     inner.field_mask_satisfies_predicate(doc_id, field_mask, predicate, ep, ft, wide)
 }
 
-/// Test-only: number of buckets currently allocated.
-///
-/// Number of buckets currently allocated (lazy-growth high-water mark).
-/// Returns 0 if `table` is `NULL`. Exposed for the C `test_cpp_expire`
-/// lazy-growth tests.
-///
-/// # Returns
-/// The current bucket-array length, or `0` if `table` is `NULL`.
-///
-/// # Safety
-///  - If non-null, `table` must point to a valid, initialized
-///    [`TimeToLiveTable`].
-#[unsafe(no_mangle)]
-pub const unsafe extern "C" fn TimeToLiveTable_NAllocatedBuckets(
-    table: *const TimeToLiveTable,
-) -> usize {
-    if table.is_null() {
-        return 0;
-    }
-    // SAFETY: caller guarantees non-null `table` is initialized.
-    unsafe { &*table }.n_allocated_buckets()
-}
-
 /// Construct an empty [`FieldExpirations`].
 ///
 /// No heap allocation is performed until the first insertion.

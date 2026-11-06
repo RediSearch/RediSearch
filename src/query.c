@@ -40,7 +40,6 @@
 #include "suffix.h"
 #include "search_disk.h"
 #include "shard_window_ratio.h"
-#include "idf_ffi.h"
 #include "VecSim/query_results.h"
 #include "VecSim/vec_sim_common.h"
 #include "aggregate/reducer.h"

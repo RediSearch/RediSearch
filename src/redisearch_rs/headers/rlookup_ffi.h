@@ -221,7 +221,7 @@ void RLookupRow_MoveFieldsFrom(const struct RLookup *lookup, struct RLookupRow *
 struct RLookupRow RLookupRow_New(void);
 
 /**
- * Resets a RLookupRow by wiping it (see [`RLookupRow_Wipe`]) and deallocating the memory of the dynamic values.
+ * Resets a RLookupRow by wiping it and deallocating the memory of the dynamic values.
  *
  * This does not affect the sorting vector.
  *
@@ -247,49 +247,13 @@ void RLookupRow_Reset(struct RLookupRow *row);
 void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *sv);
 
 /**
- * Wipes a RLookupRow by decrementing all values and resetting the row.
- *
- * # Safety
- *
- * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void RLookupRow_Wipe(struct RLookupRow *row);
-
-/**
  * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
  * for which it is not necessary to use the boilerplate of getting an explicit
  * key.
  *
  * Ownership of `name` remains with the caller, this function will make a copy if required.
  *
- * Like [`RLookupRow_WriteByNameOwned`], but increases the refcount.
- *
- * # Safety
- *
- * 1. `lookup` must be a [valid], non-null pointer to an [`RLookup`].
- * 2. `name` must be [valid] for reads of `name_len` bytes, all within a single allocation.
- * 3. `name` must be non-null even when `name_len` is `0`.
- * 4. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
- * 5. `value` must be a [valid], non-null pointer to an [`RSValue`].
- *
- * No null terminator is required; `name_len` alone bounds the read. An interior
- * NUL byte is not a safety precondition; it panics on the insert path, where the
- * name is copied into an owned [`CString`](std::ffi::CString).
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
-void RLookupRow_WriteByName(struct RLookup *lookup, const char *name, size_t name_len, struct RLookupRow *row, struct RSValue *value);
-
-/**
- * Write a value by-name to the lookup table. This is useful for 'dynamic' keys
- * for which it is not necessary to use the boilerplate of getting an explicit
- * key.
- *
- * Ownership of `name` remains with the caller, this function will make a copy if required.
- *
- * Like [`RLookupRow_WriteByName`], but does not affect the refcount.
+ * Does not affect the refcount of `value`.
  *
  * # Safety
  *

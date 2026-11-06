@@ -53,19 +53,6 @@ void SearchResult_Clear(SearchResult *res);
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void SearchResult_DeallocateDestroy(SearchResult *res);
-
-/**
- * Destroys the [`SearchResult`] pointed to by `res` releasing any resources owned by it.
- * This method takes ownership of the search result, therefore the pointer must **must not** be used again after this function is called.
- *
- * # Safety
- *
- * 1. `res` must be a [valid], non-null pointer to a [`SearchResult`].
- * 2. `res` **must not** be used again after this function is called.
- *
- * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
- */
 void SearchResult_Destroy(SearchResult *res);
 
 /**

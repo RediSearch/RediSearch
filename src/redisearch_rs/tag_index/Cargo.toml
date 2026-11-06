@@ -37,6 +37,6 @@ redis_mock.workspace = true
 rqe_iterators_test_utils.workspace = true
 
 # Crate required to invoke C symbols: its `#[used]` symbol table keeps the Rust FFI
-# functions (e.g. `IndexResult_Free`, `IsWildcardIterator`) that the linked C code
+# functions (e.g. `IndexResult_Free`) that the linked C code
 # calls back into, so they aren't stripped from the test binary.
 redisearch_rs = { path = "../c_entrypoint/redisearch_rs", features = ["mock_allocator"] }
