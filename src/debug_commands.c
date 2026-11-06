@@ -1406,8 +1406,8 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
-// Wait for all GC jobs **THAT CURRENTLY IN THE QUEUE** to finish.
-// This command blocks the client and adds a job to the end of the GC queue, that will later unblock it.
+// Block the client until the GC pool is idle: no job queued and none running on any GC thread.
+// Callers stop the schedules they wait on first, or the pool may never go idle.
 DEBUG_COMMAND(GCWaitForAllJobs) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
