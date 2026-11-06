@@ -537,12 +537,12 @@ size_t SearchDisk_GetLiveSnapshotCount(void) {
     return atomic_load(&liveSnapshots);
 }
 
-void SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
+DiskGCRunResult SearchDisk_RunGC(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
     RS_ASSERT(disk && index && stats);
-    disk->index.runGC(index, stats);
+    return disk->index.runGC(index, stats);
 }
 
-t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId) {
+t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWriteBatchHandle *batch, const char *key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId) {
     RS_ASSERT(disk && handle && batch);
     return disk->docTable.putDocument(handle, batch, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
 }
@@ -858,4 +858,18 @@ void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
                                        SearchDiskPendingSlotTrimCallback callback, void *ctx) {
   RS_ASSERT(disk && disk->slotMigration.forEachPendingTrim);
   disk->slotMigration.forEachPendingTrim(index, callback, ctx);
+}
+
+SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(
+    RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges, size_t numRanges,
+    t_docId maxDocId, size_t maxScanned, SearchDiskSlotTrimCallback callback, void *ctx) {
+  RS_ASSERT(disk && disk->slotMigration.runTrimBatch);
+  return disk->slotMigration.runTrimBatch(index, ranges, numRanges, maxDocId, maxScanned, callback,
+                                          ctx);
+}
+
+bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
+                                   const SearchDiskSlotTrimBatch *batch) {
+  RS_ASSERT(disk && disk->slotMigration.applyTrimBatch);
+  return disk->slotMigration.applyTrimBatch(index, batch);
 }

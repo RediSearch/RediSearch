@@ -156,6 +156,12 @@ typedef struct AsyncReadResult {
   uint64_t user_data;       // Generic user data passed to addAsyncRead (e.g., index, pointer, flags)
 } AsyncReadResult;
 
+typedef enum {
+  DISK_GC_RUN_OK = 0,
+  // Pending changes remain eligible for retry; cycle statistics must not be accumulated.
+  DISK_GC_RUN_RETRY_REQUIRED,
+} DiskGCRunResult;
+
 // Stats reported by a single GC compaction cycle.
 //
 // Populated by `IndexDiskAPI::runGC`: the caller zero-initializes the struct
@@ -634,13 +640,13 @@ typedef struct IndexDiskAPI {
    *
    * On return, `stats` is populated with per-cycle counters
    * (see `DiskGCRunStats`). Caller MUST zero-initialize `stats` before the
-   * call.
+   * call. See `DiskGCRunResult` for recoverable failure handling.
    *
    * @param index Pointer to the disk index
    * @param stats Caller-allocated, zero-initialized stats out-parameter
    *              (MUST NOT be NULL)
    */
-  void (*runGC)(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
+  DiskGCRunResult (*runGC)(RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats);
 
   /**
    * @brief Get the total disk usage for this index.
@@ -800,6 +806,23 @@ typedef struct SlotMigrationAPI {
   // jobs after restore so Search can schedule unfinished cleanup. The backend restores visibility.
   void (*forEachPendingTrim)(RedisSearchDiskIndexSpec *index,
                              SearchDiskPendingSlotTrimCallback callback, void *ctx);
+  // Serialize complete read/apply turns per index on the cleanup worker.
+  // Worker only, without GIL/spec lock. Scan at most maxScanned membership records,
+  // counting skipped IDs too. Resume after the last applied batch even if GC has
+  // reclaimed its records. Invoke callback at most once, including an empty batch
+  // to commit progress or completion. No progress mutation outside the callback.
+  // FINISHED requires successful application of the final exhausted batch.
+  // RETRY denotes a stale scan, storage failure or declined callback; caller-contract
+  // violations are fatal. maxScanned must be positive and the ranges/cutoff job must be pending.
+  SearchDiskSlotTrimResult (*runTrimBatch)(RedisSearchDiskIndexSpec *index,
+                                           const SearchDiskSlotRange *ranges, size_t numRanges,
+                                           t_docId maxDocId, size_t maxScanned,
+                                           SearchDiskSlotTrimCallback callback, void *ctx);
+  // Callback only, under the spec write lock and checkpoint mutation gate.
+  // Validate, commit one document-table write batch, then publish deleted IDs
+  // and cursor progress. A failed write leaves RAM state and progress unchanged.
+  // Search completes VecSim and statistics updates before releasing the lock.
+  bool (*applyTrimBatch)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotTrimBatch *batch);
 } SlotMigrationAPI;
 
 typedef struct DocTableDiskAPI {
@@ -828,10 +851,10 @@ typedef struct DocTableDiskAPI {
    * @param docLen Sum of the frequencies of all terms in the document
    * @param oldLen Pointer to an integer to store the length of the deleted document
    * @param documentTtl Document expiration time (must be positive if Document_HasExpiration flag is set; must be 0 and is ignored if the flag is not set)
-   * @param oldDocId Old document ID from DocIdMeta (0 if new document)
+   * @param oldDocId In/out old ID from DocIdMeta; cleared when its live row is absent.
    * @return New document ID, or 0 on error
    */
-  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId oldDocId);
+  t_docId (*putDocument)(RedisSearchDiskIndexSpec* handle, SearchDiskWriteBatchHandle *batch, const char* key, size_t keyLen, float score, uint32_t flags, uint32_t maxTermFreq, uint32_t docLen, uint32_t *oldLen, t_expirationTimePoint documentTtl, t_docId *oldDocId);
 
   /**
    * @brief Returns whether the docId is in the deleted set
