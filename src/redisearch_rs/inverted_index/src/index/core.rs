@@ -109,6 +109,12 @@ const _: () = assert!(std::mem::size_of::<IndexBlock>() == 48);
 impl IndexBlock {
     pub(crate) const STACK_SIZE: usize = std::mem::size_of::<Self>();
 
+    /// Whether the block carries its entries, as opposed to a dataless snapshot copy that
+    /// kept only its bounds and count. See [`InvertedIndex::gc_snapshot`].
+    pub(crate) const fn has_data(&self) -> bool {
+        !self.buffer.is_empty() || self.num_entries == 0
+    }
+
     /// Make a new index block with primed with the initial doc ID. The next entry written into
     /// the block should be for this doc ID else the block will contain incoherent data.
     pub(crate) const fn new(doc_id: DocId) -> Self {
@@ -196,12 +202,41 @@ impl<E: Encoder> InvertedIndex<E> {
         }
     }
 
+    /// Whether two consecutive blocks before the last would fit one block together:
+    /// a header-only test for leftovers of earlier cycles, so a GC pass is worth it
+    /// even when nothing is gone.
+    pub fn has_compactable_run(&self) -> bool {
+        (0..self.blocks.len()).any(|i| self.packs_with_next(i))
+    }
+
+    /// Whether block `i` and the one after it, both before the last, fit one block
+    /// together. A run the GC packs is a chain of such pairs, so a block that packs with
+    /// neither neighbour never joins one.
+    fn packs_with_next(&self, i: usize) -> bool {
+        let (Some(a), Some(b)) = (self.blocks.get(i), self.blocks.get(i + 1)) else {
+            return false;
+        };
+        i + 2 < self.blocks.len()
+            && u32::from(a.num_entries) + u32::from(b.num_entries)
+                <= u32::from(E::RECOMMENDED_BLOCK_ENTRIES)
+            && Self::spans_one_block(a.first_doc_id, b.last_doc_id)
+    }
+
+    /// Whether entries from `first` to `last` can share one block: every delta between
+    /// them fits the codec's, whichever base it takes. A run spanning more would split
+    /// back into as many blocks, so packing it would never shrink it.
+    pub(crate) fn spans_one_block(first: DocId, last: DocId) -> bool {
+        E::Delta::from_u64(last - first).is_some()
+    }
+
     /// A private copy of the blocks a GC scan has to decode, for scanning without a lock.
     ///
     /// With [`GcSnapshotScope::DirtyBlocks`](crate::GcSnapshotScope::DirtyBlocks), blocks
     /// whose doc-ID range holds nothing `live` reports gone keep their bounds and entry
     /// count but no data, so a scan of the copy skips them as it would skip the originals,
-    /// and a repair never touches them. Returns `None` when no block needs a look. Scan the
+    /// and a repair never touches them. Blocks that pack with a neighbour (see
+    /// [`Self::has_compactable_run`]) are copied regardless, so the scan can compact their run. Returns `None` when no block
+    /// needs a look. Scan the
     /// copy with the same `live`: another source may find a dataless block dirty and leave
     /// its entries uncollected for this cycle.
     pub fn gc_snapshot(
@@ -210,7 +245,7 @@ impl<E: Encoder> InvertedIndex<E> {
         scope: crate::GcSnapshotScope,
     ) -> Option<Self> {
         let span = self.doc_id_range()?;
-        if !live.any_gone(*span.start(), *span.end()) {
+        if !live.any_gone(*span.start(), *span.end()) && !self.has_compactable_run() {
             return None;
         }
         let mut copy = Self {
@@ -223,7 +258,11 @@ impl<E: Encoder> InvertedIndex<E> {
             _encoder: Default::default(),
         };
         for (i, b) in self.blocks.iter().enumerate() {
+            // Copying the blocks that pack with a neighbour lets the scan compact their run
+            // even where nothing is gone.
+            let packs = self.packs_with_next(i) || (i > 0 && self.packs_with_next(i - 1));
             if scope == crate::GcSnapshotScope::AllBlocks
+                || packs
                 || live.any_gone(b.first_doc_id, b.last_doc_id)
             {
                 // The bits go with the block: a repair carries them onto the survivors.
