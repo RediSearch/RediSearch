@@ -23,7 +23,7 @@ use thin_vec::ThinVec;
 ///
 /// The set reaches only as far as the highest ordinal inserted; ordinals past its end are absent.
 /// An empty set does not allocate.
-#[derive(Debug, Default, Eq, PartialEq)]
+#[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub(crate) struct ExpirationBits(ThinVec<u8, u16>);
 
 impl ExpirationBits {
@@ -39,6 +39,35 @@ impl ExpirationBits {
             self.0.resize(byte + 1, 0);
         }
         self.0.as_mut_slice()[byte] |= Self::mask(ordinal);
+    }
+
+    /// The ordinals below `entries`: a copy of the bytes that hold them, with the bits past them
+    /// masked off. Trailing bytes with no bit left are not copied, so a prefix that holds no
+    /// ordinal does not allocate.
+    pub(crate) fn prefix(&self, entries: u16) -> Self {
+        let bytes = &self.0.as_slice()[..usize::from(entries).div_ceil(8).min(self.0.len())];
+        // Only the byte holding ordinal `entries` has bits past the cut, if the set reaches it.
+        let cut = !entries.is_multiple_of(8) && bytes.len() == Self::byte(entries) + 1;
+        let Some((&last, head)) = bytes.split_last() else {
+            return Self::new();
+        };
+        let last = if cut {
+            last & (Self::mask(entries) - 1)
+        } else {
+            last
+        };
+        let prefix = if last != 0 {
+            let mut prefix = ThinVec::from(bytes);
+            prefix.as_mut_slice()[bytes.len() - 1] = last;
+            prefix
+        } else {
+            let len = head
+                .iter()
+                .rposition(|&byte| byte != 0)
+                .map_or(0, |i| i + 1);
+            ThinVec::from(&head[..len])
+        };
+        Self(prefix)
     }
 
     /// Whether the set holds no ordinal.
