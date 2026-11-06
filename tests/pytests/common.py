@@ -771,8 +771,14 @@ def shard_set_info_on_zero_indexes(env, enabled: bool):
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
+# GC_FORCEINVOKE TIMEOUT (ms) forceInvokeGC uses under a sanitizer, where a cycle on a loaded
+# runner can outlast the command's default.
+GC_FORCEINVOKE_SANITIZER_TIMEOUT_MS = 120000
+
 def forceInvokeGC(env, idx='idx', timeout=None):
     waitForRdbSaveToFinish(env)
+    if timeout is None and SANITIZER:
+        timeout = GC_FORCEINVOKE_SANITIZER_TIMEOUT_MS
     if timeout is not None:
         # Note: timeout==0 means infinite (no timeout)
         env.cmd(debug_cmd(), 'GC_FORCEINVOKE', idx, timeout)
