@@ -2922,7 +2922,7 @@ static void ProcessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, do
       scoredSearchResultWrapper* resWrapper = rm_malloc(sizeof(scoredSearchResultWrapper));
       resWrapper->result = res;
       resWrapper->score = score;
-      heap_offerx(knnCtx->pq, resWrapper);
+      heap_offer(&knnCtx->pq, resWrapper);
     } else {
       // Check for upper bound
       scoredSearchResultWrapper tmpWrapper;
@@ -3058,6 +3058,17 @@ static void debugCheckAndPauseBeforeReduce(searchReducerCtx *rCtx) {
 }
 #endif
 
+// The reducer heaps keep up to offset+limit (or K) results. Neither is bounded by MAXSEARCHRESULTS
+// on the coordinator (K only by MAX_KNN_K), so the heaps start at most this large and grow as shard
+// results arrive.
+#define COORD_HEAP_INITIAL_CAPACITY 1024
+
+// The heap's capacity may be below requestedResultsCount and grows on insert, so the bound is read
+// from the request, not from the heap.
+static inline bool reducerHeapHasRoom(const searchReducerCtx *rCtx) {
+  return (long long)heap_count(rCtx->pq) < rCtx->searchCtx->requestedResultsCount;
+}
+
 static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx) {
 #ifdef ENABLE_ASSERT
   debugCheckAndPauseBeforeReduce(rCtx);
@@ -3076,8 +3087,8 @@ static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx) 
   rCtx->cachedResult = NULL;
 
   // TODO: minmax_heap?
-  if (heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
-    heap_offerx(rCtx->pq, res);
+  if (reducerHeapHasRoom(rCtx)) {
+    heap_offer(&rCtx->pq, res);
   } else {
     searchResult *smallest = heap_peek(rCtx->pq);
     int c = cmp_results(res, smallest, rCtx->searchCtx);
@@ -3186,8 +3197,8 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
       scoredSearchResultWrapper* wrappedResult = heap_poll(reducerSpecialCaseCtx->knn.pq);
       searchResult* res = wrappedResult->result;
       rm_free(wrappedResult);
-      if(heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
-        heap_offerx(rCtx->pq, res);
+      if (reducerHeapHasRoom(rCtx)) {
+        heap_offer(&rCtx->pq, res);
       }
       else {
         searchResult *smallest = heap_peek(rCtx->pq);
@@ -3202,7 +3213,7 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
       }
     }
     // `shouldSort`: ProcessKNNSearchReply never accumulated the shards'
-    // total_results, it only fed the K-bounded knn.pq. rCtx->pq is sized
+    // total_results, it only fed the K-bounded knn.pq. rCtx->pq is bounded by
     // MAX(K, offset+count) on this path (see setKNNSpecialCase), so the merge
     // above dropped nothing and its count is exactly the number of matching
     // documents, min(K, global matches).
@@ -3210,7 +3221,7 @@ static void knnPostProcess(searchReducerCtx *rCtx) {
   } else {
     // SORTBY by the distance field: processSearchReply already summed each
     // shard's total_results, i.e. sum_i min(K, matches_i). rCtx->pq here is only
-    // a response window sized MIN(K, offset+count), so its count is not a hit
+    // a response window bounded by MIN(K, offset+count), so its count is not a hit
     // count. Clamping the sum to K is exact: if every shard has at most K
     // matches the sum *is* the global match count, and otherwise both the sum
     // and the global match count are >= K.
@@ -3567,7 +3578,7 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
   getReplyOffsets(rCtx->searchCtx, &rCtx->offsets);
 
   // Init results heap.
-  num = req->requestedResultsCount;
+  num = MIN(req->requestedResultsCount, COORD_HEAP_INITIAL_CAPACITY);
   rCtx->pq = rm_malloc(heap_sizeof(num));
   heap_init(rCtx->pq, cmp_results, req, num);
 
@@ -3583,8 +3594,9 @@ static int searchResultReducer(searchRequestCtx *req, int count, MRReply **repli
         rCtx->postProcess = (postProcessReplyCB) knnPostProcess;
         rCtx->reduceSpecialCaseCtxKnn = knnCtx;
         if (knnCtx->knn.shouldSort) {
-          knnCtx->knn.pq = rm_malloc(heap_sizeof(knnCtx->knn.k));
-          heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnCtx->knn.k);
+          size_t knnInitial = MIN(knnCtx->knn.k, COORD_HEAP_INITIAL_CAPACITY);
+          knnCtx->knn.pq = rm_malloc(heap_sizeof(knnInitial));
+          heap_init(knnCtx->knn.pq, cmp_scored_results, NULL, knnInitial);
           rCtx->processReply = (processReplyCB) ProcessKNNSearchReply;
           break;
         }
