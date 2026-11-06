@@ -2400,8 +2400,9 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
   ArgsCursor dialectArgs = {0};
   ArgsCursor formatArgs = {0};
 
-  // Note: SORTBY captures only the field name. ASC/DESC is checked separately
-  // because it's optional and we don't want to fail if it's missing.
+  // Note: SORTBY is not in here; it is read in the loop below so that repeated
+  // clauses can be counted. Its ASC/DESC is checked separately either way,
+  // because it is optional and a missing one must not fail.
   ACArgSpec specs[] = {
     {.name = "WITHSCORES",    .type = AC_ARGTYPE_BOOLFLAG, .target = &withScores},
     {.name = "EXPLAINSCORE",  .type = AC_ARGTYPE_BOOLFLAG, .target = &withExplainScores},
@@ -2410,7 +2411,6 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
     {.name = "WITHPAYLOADS",  .type = AC_ARGTYPE_BOOLFLAG, .target = &withPayload},
     {.name = "RETURN",        .type = AC_ARGTYPE_LLONG,    .target = &numReturns},
     {.name = "LIMIT",         .type = AC_ARGTYPE_SUBARGS_N, .target = &limitArgs, .slicelen = 2},
-    {.name = "SORTBY",        .type = AC_ARGTYPE_SUBARGS_N, .target = &sortbyArgs, .slicelen = 1},
     {.name = "DIALECT",       .type = AC_ARGTYPE_SUBARGS_N, .target = &dialectArgs, .slicelen = 1},
     {.name = "FORMAT",        .type = AC_ARGTYPE_SUBARGS_N, .target = &formatArgs, .slicelen = 1},
     {NULL}  // Sentinel
@@ -2420,10 +2420,37 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
   ArgsCursor_InitRString(&ac, argv + argvOffset, argc - argvOffset);
   // Parse all known arguments in a single pass. Unknown arguments are skipped.
   // AC_ParseArgSpec returns AC_ERR_ENOENT for unknown args, which we handle by advancing.
+  unsigned sortbyClauses = 0;
   while (!AC_IsAtEnd(&ac)) {
     ACArgSpec *errSpec = NULL;
     int rv = AC_ParseArgSpec(&ac, specs, &errSpec);
     if (rv == AC_ERR_ENOENT) {
+      // SORTBY is deliberately absent from `specs`, so this is where every
+      // clause surfaces. AC_ParseArgSpec consumes all consecutive recognized
+      // options in one call, so a SORTBY left in `specs` would let
+      // `SORTBY a SORTBY b` overwrite `sortbyArgs` with no way to count the
+      // clauses. It reports an unrecognized token without consuming it, which is
+      // what makes catching it here reliable wherever the clause appears.
+      if (AC_AdvanceIfMatch(&ac, "SORTBY")) {
+        // Sorting on several fields is gated, and the coordinator cannot answer
+        // it: it merges shard replies on a single sort key, so each shard would
+        // sort its own results by every field and the merge would hand back a
+        // wrong global order. The gate is read here only so that a flag-off
+        // query is left exactly as it was, down to which argument reports the
+        // error: the second clause overwrites the first as it always has, and
+        // the shards report the same message.
+        if (++sortbyClauses > 1 && RSGlobalConfig.enableUnstableFeatures) {
+          QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                              "Multiple SORTBY steps are not allowed");
+          return REDISMODULE_ERR;
+        }
+        if (AC_GetSlice(&ac, &sortbyArgs, 1) != AC_OK) {
+          QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                                           "Need an argument for %s", "SORTBY");
+          return REDISMODULE_ERR;
+        }
+        continue;
+      }
       // Unknown argument - skip it and continue
       AC_Advance(&ac);
     } else if (rv != AC_OK) {
