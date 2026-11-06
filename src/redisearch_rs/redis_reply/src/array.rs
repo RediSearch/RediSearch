@@ -118,7 +118,7 @@ impl Drop for ArrayBuilder<'_> {
             // SAFETY: ctx is validated at Replier construction
             unsafe {
                 RedisModule_ReplySetArrayLength.expect("RedisModule_ReplySetArrayLength")(
-                    self.replier.ctx,
+                    self.replier.ctx.as_ptr(),
                     i64::from(self.len),
                 );
             }
