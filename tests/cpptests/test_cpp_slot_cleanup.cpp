@@ -416,7 +416,7 @@ class DiskSlotVisibilityTest : public SlotCleanupTest {
 
 }  // namespace
 
-TEST_F(DiskSlotVisibilityTest, BackendDeletionReasonsReclassifySyncCandidates) {
+TEST_F(DiskSlotVisibilityTest, BackendDeletionDoesNotReclassifySyncCandidates) {
   IndexSpec_LockWrite(spec);
   PendingSlotDeletion *pending = DocTable_AddPendingDeletionWithCutoff(&spec->docs, slotA, 3);
   IndexSpec_Unlock(spec);
@@ -424,7 +424,7 @@ TEST_F(DiskSlotVisibilityTest, BackendDeletionReasonsReclassifySyncCandidates) {
   metadataFailures = {{1, DISK_READ_DELETED}, {3, DISK_READ_DELETED}};
   std::pair<uint64_t, uint64_t> counts;
   EXPECT_EQ(queryIds(&counts), (std::vector<t_docId>{2, 4}));
-  EXPECT_EQ(counts, (std::pair<uint64_t, uint64_t>{2, 2}));
+  EXPECT_EQ(counts, (std::pair<uint64_t, uint64_t>{0, 4}));
   removePending(pending);
   metadataFailures.clear();
   EXPECT_EQ(queryIds(&counts), (std::vector<t_docId>{1, 2, 3, 4}));
@@ -768,22 +768,33 @@ INSTANTIATE_TEST_SUITE_P(BufferStage, AcceptedDiskResultTest,
                                            AcceptedResultBuffer::Normalizer,
                                            AcceptedResultBuffer::HybridMerger));
 
-TEST_F(DiskSlotVisibilityTest, OnlyDeletedSyncFailuresChangeDeletedCandidateCount) {
+TEST_F(DiskSlotVisibilityTest, MetadataFailuresDoNotReclassifySyncCandidates) {
   metadataFailures = {{1, DISK_READ_DELETED}, {2, DISK_READ_EXPIRED},
                       {3, DISK_READ_NOT_FOUND}, {4, DISK_READ_ERROR}};
   std::pair<uint64_t, uint64_t> counts;
   EXPECT_TRUE(queryIds(&counts).empty());
+  EXPECT_EQ(counts, (std::pair<uint64_t, uint64_t>{0, 4}));
+  firstDiskDocDeleted = true;
+  EXPECT_TRUE(queryIds(&counts).empty());
   EXPECT_EQ(counts, (std::pair<uint64_t, uint64_t>{1, 3}));
 }
 
-TEST_F(DiskSlotAsyncVisibilityTest, OnlyDeletedAsyncFailuresChangeDeletedCandidateCount) {
+TEST_F(DiskSlotAsyncVisibilityTest, MetadataFailuresDoNotReclassifyAsyncCandidates) {
   metadataFailures = {{2, DISK_READ_DELETED}, {3, DISK_READ_EXPIRED},
                       {4, DISK_READ_NOT_FOUND}, {5, DISK_READ_ERROR}};
   {
     BufferedDiskQuery query(ctx, spec, snapshot(), true);
     EXPECT_EQ(query.remaining(), (std::vector<t_docId>{1, 6}));
-    EXPECT_EQ(query.candidateCounts(), (std::pair<uint64_t, uint64_t>{1, 5}));
+    EXPECT_EQ(query.candidateCounts(), (std::pair<uint64_t, uint64_t>{0, 6}));
   }
   EXPECT_EQ(pool.decoded.size(), 2u);
   EXPECT_EQ(pool.frees, 1u);
+  pool.deletedIds = {1};
+  {
+    BufferedDiskQuery query(ctx, spec, snapshot(), true);
+    EXPECT_EQ(query.remaining(), (std::vector<t_docId>{6}));
+    EXPECT_EQ(query.candidateCounts(), (std::pair<uint64_t, uint64_t>{1, 5}));
+  }
+  EXPECT_EQ(pool.decoded.size(), 3u);
+  EXPECT_EQ(pool.frees, 2u);
 }
