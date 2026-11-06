@@ -1061,6 +1061,9 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_ReplyWithError(
         ctx, "GC DID NOT RUN: no child process could be created within TIMEOUT");
   }
+  if (outcome && *outcome == GC_DISK_FORCED_RUN_RETRY_REQUIRED) {
+    return RedisModule_ReplyWithError(ctx, "GC FAILED: disk cleanup requires retry");
+  }
   if (outcome && *outcome == GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE) {
     return RedisModule_ReplyWithError(ctx,
                                       "COMPACT_ALL did not complete (index unavailable, background "
@@ -1183,7 +1186,10 @@ DEBUG_COMMAND(GCForceInvoke) {
     // context to accumulate into and FT.INFO/INFO render no GC section, so run
     // the compaction inline and let the stats go nowhere.
     DiskGCRunStats stats = {0};
-    SearchDisk_RunGC(sp->diskSpec, &stats);
+    const DiskGCRunResult result = SearchDisk_RunGC(sp->diskSpec, &stats);
+    if (result == DISK_GC_RUN_RETRY_REQUIRED) {
+      return RedisModule_ReplyWithError(ctx, "GC FAILED: disk cleanup requires retry");
+    }
     return RedisModule_ReplyWithSimpleString(ctx, "DONE");
   }
   return RedisModule_ReplyWithError(ctx, "GC is not available for this index");
