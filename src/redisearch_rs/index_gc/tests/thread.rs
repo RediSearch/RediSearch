@@ -246,9 +246,11 @@ impl Drop for TestSpec {
     fn drop(&mut self) {
         // SAFETY: all pointers were allocated by `create` and are freed once.
         unsafe {
-            drop(Box::from_raw(
-                self.spec.docs.deletedDocs.cast::<DeletedDocs>(),
-            ));
+            if !self.spec.docs.deletedDocs.is_null() {
+                drop(Box::from_raw(
+                    self.spec.docs.deletedDocs.cast::<DeletedDocs>(),
+                ));
+            }
             ffi::TrieType_Free(self.spec.terms.cast());
             ffi::HiddenString_Free(self.spec.specName, true);
             drop(CString::from_raw(self.spec.obfuscatedName));
@@ -314,6 +316,22 @@ const fn write_locks(apply_chunks: u64) -> u64 {
 /// leaves split since, then one each for tags, missing fields and existing docs.
 const fn numeric_only_read_locks(node_chunks: u64) -> u64 {
     1 + 1 + 1 + node_chunks + 1 + 3
+}
+
+#[test]
+fn a_cycle_on_a_table_that_does_not_track_deletions_fails_and_collects_nothing() {
+    let mut spec = TestSpec::create([(&b"apple"[..], 3)], vec![]);
+    // SAFETY: `create` boxed this set; taking it back leaves the table as one created
+    // without tracking, and `Drop` skips the null pointer.
+    drop(unsafe { Box::from_raw(spec.spec.docs.deletedDocs.cast::<DeletedDocs>()) });
+    spec.spec.docs.deletedDocs = std::ptr::null_mut();
+    let mut recorder = Recorder::default();
+
+    let error = run_cycle(&mut spec, &mut recorder, true).unwrap_err();
+
+    assert!(matches!(error, ("deleted docs", GcError::ApplyError(_))));
+    assert!(spec.has_term(b"apple"));
+    assert_eq!(recorder.total(), GcApplyStats::default());
 }
 
 #[test]
