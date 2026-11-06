@@ -81,6 +81,7 @@ typedef enum {
   RP_CRASH,
   RP_CRASH_IN_RUST,
   RP_PAUSE,
+  RP_MEMORY_CHECKPOINT,
   RP_MAX_DEBUG
 } ResultProcessorType;
 
@@ -478,6 +479,13 @@ enum CrashLocation {
 };
 ResultProcessor *RPCrash_New(enum CrashLocation location);
 void PipelineAddCrash(struct AREQ *r, enum CrashLocation location);
+
+/** For debugging purposes
+ * Adds a result processor, downstream of the last one, that calls the query memory
+ * checkpoint (QueryMemory_Checkpoint) before every upstream read and returns RS_RESULT_STOPPED
+ * once it says to stop (the checkpoint has requested the memory stop). It stands in for the
+ * real checkpoints so `_FT.DEBUG MEMORY_PRESSURE` can stop a query end to end. */
+void PipelineAddMemoryCheckpoint(QueryProcessingCtx *qctx, RedisSearchCtx *sctx);
 
 /*******************************************************************************************************************
  *  Pause Processor - DEBUG ONLY
