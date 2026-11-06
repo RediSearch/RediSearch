@@ -113,14 +113,14 @@ uint16_t IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state);
  *
  * Polls the async pool for completed reads and updates the ready results.
  * Resets the readyResultsIndex to start consuming from the beginning.
- * Releases failed reads and reports how many were excluded by deletion.
+ * Releases failed reads.
  *
  * @param state Async read state structure
  * @param timeout_ms Timeout in milliseconds for the poll operation
  * @param expiration_point Current time for expiration check.
  * @return Number of pending async reads still in progress
  */
-size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t timeout_ms, const t_expirationTimePoint *expiration_point, size_t *deleted_count);
+size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t timeout_ms, const t_expirationTimePoint *expiration_point);
 
 /**
  * Pop a ready result from the completed async reads
