@@ -8,6 +8,8 @@
 */
 #include "doc_table.h"
 #include "doc_key_map_ffi.h"
+#include "deleted_docs_ffi.h"
+#include "rmutil/rm_assert.h"
 
 #include <sys/param.h>
 #include <string.h>
@@ -28,7 +30,7 @@ static inline uint16_t keySlot(const char *key, size_t len) {
 }
 
 /* Creates a new DocTable with a given capacity */
-DocTable NewDocTable(size_t cap, size_t max_size) {
+DocTable NewDocTable(size_t cap, size_t max_size, bool track_deleted) {
   DocTable ret = {
       .size = 1,
       .cap = cap,
@@ -36,6 +38,7 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .memsize = 0,
       .sortablesSize = 0,
       .maxSize = max_size,
+      .deletedDocs = track_deleted ? DeletedDocs_New() : NULL,
   };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
   ret.memsize = cap * sizeof(*ret.buckets) + sizeof(DocTable);
@@ -477,6 +480,7 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
 }
 
 void DocTable_Free(DocTable *t) {
+  DeletedDocs_Free(t->deletedDocs);
   for (int i = 0; i < t->cap; ++i) {
     DMDChain *chain = &t->buckets[i];
     RSDocumentMetadata *md, *next;
@@ -507,6 +511,9 @@ RSDocumentMetadata *DocTable_DeleteById(DocTable *t, t_docId docId) {
   RSDocumentMetadata *md = DocTable_DmdUnchain(t, docId);
   if (!md) {
     return NULL;
+  }
+  if (t->deletedDocs) {
+    DeletedDocs_Record(t->deletedDocs, docId);
   }
 
   if (t->keyMap) {
