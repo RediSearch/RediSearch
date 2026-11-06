@@ -543,7 +543,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     const char *s = AC_GetStringNC(&subArgs, NULL);
     if (array_len(keys) >= SORTASCMAP_MAXFIELDS) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
-                                       "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
+                                       "Cannot sort by more than %d fields", SORTASCMAP_MAXFIELDS);
       goto err;
     }
     array_append(keys, s);
