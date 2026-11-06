@@ -106,10 +106,22 @@ typedef struct SearchDiskCompactionCallbacks {
   void (*endUpdate)(void *update_ctx);
 } SearchDiskCompactionCallbacks;
 
+typedef enum DiskReadFailureReason {
+  DISK_READ_NOT_FOUND,
+  DISK_READ_EXPIRED,
+  DISK_READ_DELETED,
+  DISK_READ_ERROR,
+} DiskReadFailureReason;
+
+typedef struct AsyncReadFailure {
+  uint64_t user_data;
+  DiskReadFailureReason reason;
+} AsyncReadFailure;
+
 // Result of polling the async read pool
 typedef struct AsyncPollResult {
   uint16_t ready_count;   // Number of successful reads in results buffer
-  uint16_t failed_count;  // Number of failed reads in failed_user_data buffer
+  uint16_t failed_count;  // Number of failed reads in failed_reads buffer
   uint16_t pending_count; // Number of reads still in flight
 } AsyncPollResult;
 
@@ -803,9 +815,10 @@ typedef struct DocTableDiskAPI {
    *                 When non-NULL, must have been returned by `IndexDiskAPI.createSnapshot(index)`
    *                 (where `index` is the same index this `handle` belongs to) and must remain
    *                 valid for the duration of this call.
-   * @return true if found and not expired, false if not found, expired, or on error
+   * @param failure_reason Required output written when the read fails.
+   * @return true if found and visible, false if missing, expired, deleted, or on error
    */
-  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, const t_expirationTimePoint* expiration_point, RedisSearchDiskSnapshot *snapshot);
+  bool (*getDocumentMetadata)(RedisSearchDiskIndexSpec* handle, t_docId docId, RSDocumentMetadata* dmd, AllocateKeyCallback allocate_key, const t_expirationTimePoint* expiration_point, RedisSearchDiskSnapshot *snapshot, DiskReadFailureReason *failure_reason);
 
   /**
    * @brief Gets the maximum document ID assigned in the index
@@ -881,7 +894,7 @@ typedef struct DocTableDiskAPI {
    *
    * Checks for completed async reads and fills two buffers:
    * - results: successful reads with valid DMDs
-   * - failed_user_data: user_data pointers for reads that failed or found no document
+   * - failed_reads: request identifiers and reasons for unsuccessful reads
    *
    * Both buffers are required and must have capacity > 0. Polling stops when either buffer
    * is full, so callers should size buffers appropriately for their use case.
@@ -890,15 +903,15 @@ typedef struct DocTableDiskAPI {
    * @param timeout_ms 0 for non-blocking, >0 to wait up to that many milliseconds
    * @param results Buffer to fill with successful AsyncReadResult structures (DMD + user_data)
    * @param results_capacity Size of the results buffer (must be > 0)
-   * @param failed_user_data Buffer to fill with user_data from failed reads (not found/error)
-   * @param failed_capacity Size of the failed_user_data buffer (must be > 0)
+   * @param failed_reads Buffer of failed request identifiers and reasons
+   * @param failed_capacity Size of the failed_reads buffer (must be > 0)
    * @param expiration_point Current time for expiration check.
    * @param allocate_dmd Callback to allocate a new RSDocumentMetadata with ref_count=1 and keyPtr
    * @return AsyncPollResult with counts of ready, failed, and pending reads
    */
   AsyncPollResult (*pollAsyncReads)(RedisSearchDiskAsyncReadPool pool, uint32_t timeout_ms,
                                     AsyncReadResult* results, uint16_t results_capacity,
-                                    uint64_t* failed_user_data, uint16_t failed_capacity,
+                                    AsyncReadFailure* failed_reads, uint16_t failed_capacity,
                                     t_expirationTimePoint expiration_point,
                                     AllocateDMDCallback allocate_dmd);
 
