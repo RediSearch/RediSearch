@@ -15,13 +15,13 @@ use std::ptr::NonNull;
 use field_spec::{FieldSpecBuilder, FieldSpecType, FieldSpecTypes};
 use index_gc::scanners::numeric::{
     NumericField, NumericNodeDelta, collect_numeric, handle_numeric_with, numeric_tree_keys,
-    scan_numeric_node,
+    scan_numeric_node, snapshot_numeric_node,
 };
 use index_gc::spec_access::SpecWriteAccess;
-use index_gc::{DocExistence, GcApplyStats, GcError, HandleOutcome};
+use index_gc::{GcApplyStats, GcError, HandleOutcome};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use numeric_range_tree::test_utils::{
-    SPLIT_TRIGGER, build_single_leaf_tree, build_tree, build_tree_at_split_edge,
+    ENTRIES_PER_BLOCK, SPLIT_TRIGGER, build_single_leaf_tree, build_tree, build_tree_at_split_edge,
 };
 use numeric_range_tree::{NodeIndex, NumericRangeTree};
 
@@ -133,7 +133,7 @@ impl Drop for TestSpec {
 
 /// A single decoded field from the wire: header + node entries.
 struct DecodedField {
-    name: Vec<u8>,
+    field_index: ffi::t_fieldIndex,
     unique_id: u32,
     entries: Vec<NumericNodeDelta>,
 }
@@ -147,10 +147,10 @@ fn build_two_leaf_tree_with_gc_work() -> NumericRangeTree {
 
 /// Read one field and its node stream, or `None` at the end of the field stream.
 fn read_field(cursor: &mut Cursor<&Vec<u8>>) -> Option<DecodedField> {
-    match deserialize::<Option<NumericField<Box<[u8]>>>>(&mut *cursor, "test message").unwrap() {
+    match deserialize::<Option<NumericField>>(&mut *cursor, "test message").unwrap() {
         None => None,
         Some(NumericField {
-            field_name,
+            field_index,
             unique_id,
         }) => {
             let mut entries = Vec::new();
@@ -160,7 +160,7 @@ fn read_field(cursor: &mut Cursor<&Vec<u8>>) -> Option<DecodedField> {
                 entries.push(node);
             }
             Some(DecodedField {
-                name: field_name.into_vec(),
+                field_index,
                 unique_id,
                 entries,
             })
@@ -187,11 +187,9 @@ fn decode_fields(buf: &Vec<u8>) -> Vec<DecodedField> {
 /// Collect a complete numeric stream from `test`.
 fn collect_stream(test: &TestSpec) -> Vec<u8> {
     let mut buf = Vec::new();
-    collect_numeric(
-        &mut buf,
-        &test.read_guard(),
-        &DocExistence::snapshot(&test.read_guard()),
-    )
+    collect_numeric(&mut buf, &test.read_guard(), |id| {
+        test.read_guard().doc_exists(id)
+    })
     .unwrap();
     buf
 }
@@ -202,7 +200,7 @@ fn encode_field(field: DecodedField) -> Vec<u8> {
     serialize(
         &mut buf,
         Some(NumericField {
-            field_name: &field.name,
+            field_index: field.field_index,
             unique_id: field.unique_id,
         }),
     )
@@ -211,7 +209,7 @@ fn encode_field(field: DecodedField) -> Vec<u8> {
         serialize(&mut buf, Some(entry)).unwrap();
     }
     serialize(&mut buf, Option::<NumericNodeDelta>::None).unwrap();
-    serialize(&mut buf, Option::<NumericField<&[u8]>>::None).unwrap();
+    serialize(&mut buf, Option::<NumericField>::None).unwrap();
     buf
 }
 
@@ -222,11 +220,9 @@ fn no_fields_writes_only_terminator() {
     let test = TestSpec::create(vec![]);
 
     let mut buf = Vec::new();
-    collect_numeric(
-        &mut buf,
-        &test.read_guard(),
-        &DocExistence::snapshot(&test.read_guard()),
-    )
+    collect_numeric(&mut buf, &test.read_guard(), |id| {
+        test.read_guard().doc_exists(id)
+    })
     .unwrap();
 
     assert!(decode_fields(&buf).is_empty());
@@ -239,11 +235,9 @@ fn field_without_tree_is_skipped() {
     let test = TestSpec::create(vec![(c"price", FieldSpecType::Numeric.into(), None)]);
 
     let mut buf = Vec::new();
-    collect_numeric(
-        &mut buf,
-        &test.read_guard(),
-        &DocExistence::snapshot(&test.read_guard()),
-    )
+    collect_numeric(&mut buf, &test.read_guard(), |id| {
+        test.read_guard().doc_exists(id)
+    })
     .unwrap();
 
     assert!(decode_fields(&buf).is_empty());
@@ -260,11 +254,9 @@ fn non_numeric_field_is_skipped() {
     )]);
 
     let mut buf = Vec::new();
-    collect_numeric(
-        &mut buf,
-        &test.read_guard(),
-        &DocExistence::snapshot(&test.read_guard()),
-    )
+    collect_numeric(&mut buf, &test.read_guard(), |id| {
+        test.read_guard().doc_exists(id)
+    })
     .unwrap();
 
     assert!(decode_fields(&buf).is_empty());
@@ -285,16 +277,14 @@ fn numeric_field_writes_header_and_node_deltas() {
     let expected_unique_id = u32::from(test.trees[0].unique_id());
 
     let mut buf = Vec::new();
-    collect_numeric(
-        &mut buf,
-        &test.read_guard(),
-        &DocExistence::snapshot(&test.read_guard()),
-    )
+    collect_numeric(&mut buf, &test.read_guard(), |id| {
+        test.read_guard().doc_exists(id)
+    })
     .unwrap();
 
     let fields = decode_fields(&buf);
     assert_eq!(fields.len(), 1);
-    assert_eq!(fields[0].name, b"price");
+    assert_eq!(fields[0].field_index, 0);
     assert_eq!(fields[0].unique_id, expected_unique_id);
     // Both leaves have GC work, so the field's node stream carries two entries.
     assert_eq!(fields[0].entries.len(), 2);
@@ -319,16 +309,14 @@ fn numeric_and_geo_fields_are_both_collected() {
     ]);
 
     let mut buf = Vec::new();
-    collect_numeric(
-        &mut buf,
-        &test.read_guard(),
-        &DocExistence::snapshot(&test.read_guard()),
-    )
+    collect_numeric(&mut buf, &test.read_guard(), |id| {
+        test.read_guard().doc_exists(id)
+    })
     .unwrap();
 
     let fields = decode_fields(&buf);
-    let names: Vec<&[u8]> = fields.iter().map(|f| f.name.as_slice()).collect();
-    assert_eq!(names, [b"price".as_slice(), b"location".as_slice()]);
+    let indexes: Vec<_> = fields.iter().map(|f| f.field_index).collect();
+    assert_eq!(indexes, [0, 1]);
     for field in &fields {
         assert_eq!(field.entries.len(), 1);
     }
@@ -341,7 +329,7 @@ fn handle_numeric_with_rejects_a_wrongly_shaped_node_record() {
     serialize(
         &mut buf,
         Some(NumericField {
-            field_name: b"price",
+            field_index: 0,
             unique_id: 0,
         }),
     )
@@ -368,7 +356,7 @@ fn handle_numeric_with_preserves_deserialization_error() {
     serialize(
         &mut buf,
         Some(NumericField {
-            field_name: b"price",
+            field_index: 0,
             unique_id: 0,
         }),
     )
@@ -438,11 +426,9 @@ fn handle_numeric_with_preserves_progress_when_spec_is_deleted() {
         Some(build_two_leaf_tree_with_gc_work()),
     )]);
     let mut buf = Vec::new();
-    collect_numeric(
-        &mut buf,
-        &test.read_guard(),
-        &DocExistence::snapshot(&test.read_guard()),
-    )
+    collect_numeric(&mut buf, &test.read_guard(), |id| {
+        test.read_guard().doc_exists(id)
+    })
     .unwrap();
     test.fail_lock_on_attempt = Some(2);
 
@@ -508,7 +494,7 @@ fn roundtrip_applies_gc_to_tree() {
     let mut buf = Vec::new();
     {
         let guard = test.read_guard();
-        collect_numeric(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
+        collect_numeric(&mut buf, &guard, |id| guard.doc_exists(id)).unwrap();
     }
 
     let entries_before = test.trees[0].num_entries();
@@ -608,7 +594,7 @@ fn handle_numeric_with_preserves_progress_on_truncated_stream() {
     serialize(
         &mut buf,
         Some(NumericField {
-            field_name: &field.name,
+            field_index: field.field_index,
             unique_id: field.unique_id,
         }),
     )
@@ -795,11 +781,13 @@ fn scanning_listed_numeric_nodes_matches_the_collected_stream() {
     let scanned: Vec<_> = keys[0]
         .nodes
         .iter()
-        .filter_map(|&node_idx| scan_numeric_node(&guard, &keys[0].id, node_idx))
+        .filter_map(|&node_idx| {
+            scan_numeric_node(&guard, &keys[0].id, node_idx, |id| guard.doc_exists(id))
+        })
         .collect();
 
     let mut buf = Vec::new();
-    collect_numeric(&mut buf, &guard, &DocExistence::snapshot(&guard)).unwrap();
+    collect_numeric(&mut buf, &guard, |id| guard.doc_exists(id)).unwrap();
     let fields = decode_fields(&buf);
     assert_eq!(scanned, fields[0].entries);
 }
@@ -818,7 +806,7 @@ fn scan_numeric_node_returns_none_for_a_replaced_tree() {
     let mut key = numeric_tree_keys(&guard).remove(0);
     key.id.unique_id = key.id.unique_id.wrapping_add(1);
     let node_idx = key.nodes[0];
-    assert!(scan_numeric_node(&guard, &key.id, node_idx).is_none());
+    assert!(scan_numeric_node(&guard, &key.id, node_idx, |id| guard.doc_exists(id)).is_none());
 }
 
 /// A node index whose generation no longer matches (the node was removed and
@@ -837,19 +825,42 @@ fn scan_numeric_node_returns_none_for_a_removed_node() {
     let live = key.nodes[0];
     let stale = NodeIndex::from_raw_parts(live.position(), live.generation().wrapping_add(1));
     assert!(test.trees[0].try_node(stale).is_none());
-    assert!(scan_numeric_node(&guard, &key.id, stale).is_none());
-    assert!(scan_numeric_node(&guard, &key.id, live).is_some());
+    assert!(scan_numeric_node(&guard, &key.id, stale, |id| guard.doc_exists(id)).is_none());
+    assert!(scan_numeric_node(&guard, &key.id, live, |id| guard.doc_exists(id)).is_some());
 }
 
-/// Reports every doc id the fixtures use as present, whatever the spec's
-/// document table says, as a snapshot taken before those docs were deleted.
-fn all_live<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
-    const WORDS: usize = 1 << 14;
-    DocExistence::with_bitmap(
-        guard,
-        vec![u64::MAX; WORDS].into_boxed_slice(),
-        (WORDS * 64 - 1) as u64,
-    )
+/// A node snapshot scans to the same delta as the live node, spans the node's doc
+/// IDs, and is not taken for a replaced tree.
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn a_node_snapshot_scans_like_the_live_node() {
+    // More docs than one block holds, so the last block's span is a strict tail.
+    let docs = ENTRIES_PER_BLOCK + 2;
+    let test = TestSpec::create(vec![(
+        c"price",
+        FieldSpecType::Numeric.into(),
+        Some(build_single_leaf_tree(docs)),
+    )]);
+    let guard = test.read_guard();
+    let mut key = numeric_tree_keys(&guard).remove(0);
+    let node_idx = key.nodes[0];
+    let exists = |id: u64| id != 3;
+
+    let live = scan_numeric_node(&guard, &key.id, node_idx, exists).expect("doc 3 is gone");
+    let scanned = snapshot_numeric_node(&guard, &key.id, node_idx, &exists)
+        .expect("doc 3 is gone")
+        .scan(exists)
+        .unwrap()
+        .expect("doc 3 is gone");
+    assert_eq!(scanned.node, live);
+    assert_eq!(scanned.doc_id_range, Some(1..=docs));
+    assert_eq!(
+        scanned.last_block_doc_id_range,
+        Some(ENTRIES_PER_BLOCK + 1..=docs)
+    );
+
+    key.id.unique_id = key.id.unique_id.wrapping_add(1);
+    assert!(snapshot_numeric_node(&guard, &key.id, node_idx, &exists).is_none());
 }
 
 /// The scanner must answer existence from `docs`: the fixture's document table
@@ -861,7 +872,7 @@ fn docs_live_in_the_snapshot_are_kept() {
     let test = TestSpec::create(vec![(c"price", FieldSpecType::Numeric.into(), Some(tree))]);
     let guard = test.read_guard();
     let mut buf = Vec::new();
-    collect_numeric(&mut buf, &guard, &all_live(&guard)).unwrap();
+    collect_numeric(&mut buf, &guard, |_| true).unwrap();
 
     let fields = decode_fields(&buf);
     assert_eq!(fields.len(), 1);
