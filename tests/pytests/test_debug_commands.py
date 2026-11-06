@@ -721,7 +721,7 @@ def test_hideUserDataFromLogs(env):
     # 'hide-user-data-from-log' is not a RediSearch-owned config: notifications.c
     # only reads the server's own config (getRedisConfigValue), so whether it's
     # registered at all depends on the enterprise server build, not on this module.
-    if RS_TEST_ENTERPRISE:
+    if is_enterprise_server(env):
         env.skip()
     value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
     env.assertEqual(value, 0)
