@@ -31,6 +31,9 @@
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
+// Upper bound on how long to wait for the fork GC child to exit on its own
+// before falling back to signalling it under the GIL.
+#define FORK_GC_CHILD_EXIT_BUDGET_MS 500
 
 // GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
@@ -54,17 +57,31 @@ static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   return used_memory_ratio > 1;
 }
 
-static void wait_for_child_exit(pid_t cpid, size_t timeout_ms) {
-  struct timespec now, timeout = {.tv_sec = timeout_ms / 1000,
-                                  .tv_nsec = (timeout_ms % 1000) * 1000000}, deadline;
+static bool child_exited_within(pid_t cpid, size_t budget_ms) {
+  struct timespec now, budget = {.tv_sec = budget_ms / 1000,
+                                 .tv_nsec = (budget_ms % 1000) * 1000000}, deadline;
   clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-  rs_timeradd(&now, &timeout, &deadline);
+  rs_timeradd(&now, &budget, &deadline);
 
-  while (waitpid(cpid, NULL, WNOHANG) == 0) {
-    if (TimedOut(&deadline)) {
-      break;
+  useconds_t sleep_us = 500;
+  for (;;) {
+    siginfo_t info = {0};
+    int rc = waitid(P_PID, cpid, &info, WEXITED | WNOHANG | WNOWAIT);
+    // ECHILD: serverCron already reaped it
+    if (rc == -1) {
+      return true;
     }
-    usleep(500);
+    if (info.si_pid == cpid) {
+      return true;
+    }
+    if (TimedOut(&deadline)) {
+      return false;
+    }
+    usleep(sleep_us);
+    sleep_us *= 2;
+    if (sleep_us > 10000) {
+      sleep_us = 10000;
+    }
   }
 }
 
@@ -233,7 +250,8 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
       gcrv = false;
     }
     close(gc->pipe_read_fd);
-    wait_for_child_exit(cpid, RSGlobalConfig.gcConfigParams.gcSettings.forkGcChildWaitMs);
+    // give the child some time to exit gracefully
+    child_exited_within(cpid, FORK_GC_CHILD_EXIT_BUDGET_MS);
     // KillForkChild must be called when holding the GIL
     // otherwise it might cause a pipe leak and eventually run
     // out of file descriptor
