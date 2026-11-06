@@ -1259,10 +1259,10 @@ CONFIG_SETTER(setGcPolicy) {
   const char *policy;
   int acrc = AC_GetString(ac, &policy, NULL, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
-    config->gcConfigParams.gcPolicy = GCPolicy_Fork;
-  } else if (!strcasecmp(policy, "THREAD")) {
+  if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "THREAD")) {
     config->gcConfigParams.gcPolicy = GCPolicy_Thread;
+  } else if (!strcasecmp(policy, "FORK")) {
+    config->gcConfigParams.gcPolicy = GCPolicy_Fork;
   } else if (!strcasecmp(policy, "LEGACY")) {
     QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
     return REDISMODULE_ERR;
@@ -1776,7 +1776,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMinPhoneticTermLen,
          .getValue = getMinPhoneticTermLen},
         {.name = "GC_POLICY",
-         .helpText = "gc policy to use (DEFAULT/FORK/THREAD)",
+         .helpText = "gc policy to use (DEFAULT/THREAD/FORK); DEFAULT is THREAD",
          .setValue = setGcPolicy,
          .getValue = getGcPolicy,
          .flags = RSCONFIGVAR_F_IMMUTABLE},
@@ -2248,6 +2248,33 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-thread-gc-clean-threshold|search-gc-clean-threshold",
+      DEFAULT_THREAD_GC_CLEAN_THRESHOLD, REDISMODULE_CONFIG_UNPREFIXED, 0,
+      LLONG_MAX, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.threadGcCleanThreshold)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-thread-gc-run-interval|search-gc-run-interval",
+      DEFAULT_THREAD_GC_RUN_INTERVAL, REDISMODULE_CONFIG_UNPREFIXED, 1,
+      MAX_THREAD_GC_RUN_INTERVAL, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.threadGcRunIntervalSec)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-gc-clean-ratio-ppm", DEFAULT_GC_CLEAN_RATIO_PPM,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
+      MAX_GC_CLEAN_RATIO_PPM, get_size_t_numeric_config, set_size_t_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.gcConfigParams.gcSettings.gcCleanRatioPpm)
     )
   )
 

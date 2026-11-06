@@ -86,6 +86,13 @@ static inline const char *GCPolicy_ToString(GCPolicy policy) {
 typedef struct {
   size_t forkGcRunIntervalSec;
   size_t forkGcCleanThreshold;
+  // GCPolicy_Thread's own, so settings tuned for the fork's cost do not carry over to it.
+  size_t threadGcRunIntervalSec;
+  size_t threadGcCleanThreshold;
+  // Under GCPolicy_Thread, the clean threshold also grows with the index: a cycle waits for this
+  // many deletions per million live documents, and for at least threadGcCleanThreshold. The share
+  // is of the live documents, so its maximum waits until as many are deleted as remain.
+  size_t gcCleanRatioPpm;
   size_t forkGcRetryInterval;
   size_t forkGcSleepBeforeExit;
   int forkGCCleanNumericEmptyNodes;
@@ -391,6 +398,13 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
 #define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
+// A THREAD cycle needs no fork, so it can run more often.
+#define DEFAULT_THREAD_GC_RUN_INTERVAL 5
+#define DEFAULT_THREAD_GC_CLEAN_THRESHOLD 100
+// The GC timer is armed in milliseconds with up to as much again of jitter.
+#define MAX_THREAD_GC_RUN_INTERVAL (LLONG_MAX / 2000)
+#define DEFAULT_GC_CLEAN_RATIO_PPM 1000
+#define MAX_GC_CLEAN_RATIO_PPM 1000000
 #define MAX_GC_THREADS 64
 static_assert(MAX_GC_THREADS <= UINT8_MAX, "search-gc-threads is kept in a byte");
 #define DEFAULT_DISK_GC_RUN_INTERVAL 300
@@ -491,12 +505,15 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,               \
     .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                          \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                       \
-    .gcConfigParams.gcPolicy = GCPolicy_Fork,                                  \
+    .gcConfigParams.gcPolicy = GCPolicy_Thread,                                \
     .gcConfigParams.gcThreads = 1,                                             \
     .gcConfigParams.gcSettings.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
+    .gcConfigParams.gcSettings.threadGcRunIntervalSec = DEFAULT_THREAD_GC_RUN_INTERVAL,\
+    .gcConfigParams.gcSettings.threadGcCleanThreshold = DEFAULT_THREAD_GC_CLEAN_THRESHOLD,\
     .gcConfigParams.gcSettings.forkGcSleepBeforeExit = 0,                      \
     .gcConfigParams.gcSettings.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
     .gcConfigParams.gcSettings.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
+    .gcConfigParams.gcSettings.gcCleanRatioPpm = DEFAULT_GC_CLEAN_RATIO_PPM,   \
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
     .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \

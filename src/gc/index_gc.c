@@ -43,6 +43,29 @@ void IndexGC_TakeDeferredDeletes(IndexGC *gc, IndexSpec *sp) {
   }
 }
 
+static size_t runIntervalSec(void) {
+  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
+  return threadPolicyEnabled() ? settings->threadGcRunIntervalSec : settings->forkGcRunIntervalSec;
+}
+
+// Whether a scheduled cycle should wait for more deletions; under THREAD the wait grows with the
+// index. The absolute threshold is checked first, so an idle index never takes the lock.
+static bool belowCleanThreshold(IndexSpec *sp, size_t deleted) {
+  const GCSettings *settings = &RSGlobalConfig.gcConfigParams.gcSettings;
+  if (!threadPolicyEnabled()) {
+    return deleted < settings->forkGcCleanThreshold;
+  }
+  const size_t ppm = settings->gcCleanRatioPpm;
+  if (deleted < settings->threadGcCleanThreshold || !ppm) {
+    return deleted < settings->threadGcCleanThreshold;
+  }
+  IndexSpec_LockRead(sp);
+  const size_t docs = sp->stats.scoring.numDocuments;
+  IndexSpec_Unlock(sp);
+  // Split so the product cannot overflow.
+  return deleted < docs / 1000000 * ppm + docs % 1000000 * ppm / 1000000;
+}
+
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook) {
   // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
   // early termination might never change after index deletion and will cause periodicCb to always return true,
@@ -62,7 +85,10 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
 
   IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(early_check));
 
-  if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
+  if (!forced && belowCleanThreshold(StrongRef_Get(early_check), gc->deletedOrUpdatedDocsFromLastRun)) {
+    // A cycle sets the interval it re-arms with; a skipped one must too, or a CONFIG SET never
+    // reaches an index that stays below the threshold.
+    gc->retryInterval.tv_sec = runIntervalSec();
     IndexSpecRef_Release(early_check);
     return true;
   }
@@ -138,7 +164,7 @@ IndexGC *IndexGC_Create(StrongRef spec_ref, GCCallbacks *callbacks) {
       .index = StrongRef_Demote(spec_ref),
       .deletedOrUpdatedDocsFromLastRun = 0,
   };
-  forkGc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
+  forkGc->retryInterval.tv_sec = runIntervalSec();
   forkGc->retryInterval.tv_nsec = 0;
 
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.gcSettings.forkGCCleanNumericEmptyNodes;
