@@ -14,6 +14,8 @@ import threading
 
 from common import *
 
+SYNC_POINT_GC_TASK_START = 'GCTaskStart'  # src/debug_commands.h
+
 SCHEMA = ['SCHEMA', 't', 'TEXT', 'n', 'NUMERIC', 'g', 'TAG', 'm', 'TAG', 'INDEXMISSING']
 
 
@@ -49,6 +51,8 @@ def assert_matches_fresh_index(env, idx, prefix):
 
 @skip(cluster=True)
 def testThreadGCCollectsEveryIndexKindWithoutForking():
+    """Every index kind is collected in-process: Redis records no fork, and the index ends up
+    holding exactly what an index built from the surviving documents holds."""
     env = thread_gc_env()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'INDEXALL', 'ENABLE', *SCHEMA).ok()
@@ -107,6 +111,7 @@ def testThreadGCCollectsAcrossSeveralReadLockChunks():
 
 @skip(cluster=True)
 def testThreadGCRemovesEmptiedTermsTagsAndMissingFields():
+    """Terms, tag values and missing-field entries left with no documents are removed."""
     env = thread_gc_env()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
@@ -161,8 +166,8 @@ def testThreadPolicyIsTakenAtLoad():
 
 @skip(cluster=True)
 def testThreadGCRunsWhileAnotherChildHoldsTheForkSlot():
-    # The fork GC has to wait for a BGSAVE child to exit; the thread GC needs
-    # no child of its own, so it collects while the BGSAVE is still running.
+    """The fork GC has to wait for a BGSAVE child to exit; the thread GC needs no child of its
+    own, so it collects while the BGSAVE is still running."""
     env = thread_gc_env()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
@@ -192,8 +197,9 @@ def testThreadGCRunsWhileAnotherChildHoldsTheForkSlot():
 
 @skip(cluster=True)
 def testThreadGCKeepsConcurrentQueriesCorrect():
-    # Queries hold the read lock between results and revalidate their readers
-    # when they re-take it; the thread GC applies its deltas in between.
+    """Queries hold the read lock between results and revalidate their readers when they re-take
+    it; the thread GC applies its deltas in between. Every result stays a duplicate-free subset of
+    the documents ever indexed, and the end state is empty."""
     env = thread_gc_env()
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
@@ -246,9 +252,144 @@ def testThreadGCKeepsConcurrentQueriesCorrect():
     env.assertEqual(index_info(env, 'idx')['num_records'], index_info(env, 'fresh')['num_records'])
 
 
+GC_THREADS = 4
+N_INDEXES = 8
+
+
+def create_indexes_with_garbage(env):
+    conn = getConnectionByEnv(env)
+    for n in range(N_INDEXES):
+        env.expect('FT.CREATE', f'idx{n}', 'PREFIX', 1, f'i{n}:', *SCHEMA).ok()
+        # Let the creation scan finish first: a key it re-indexes after being added gets a new
+        # doc id, and one re-indexed after the GC cycle leaves garbage no single cycle can see.
+        waitForIndex(env, f'idx{n}')
+        add_docs(conn, f'i{n}:', 50)
+        for i in range(0, 50, 2):
+            conn.execute_command('DEL', f'i{n}:{i}')
+
+
+def assert_all_indexes_collected(env):
+    # Count what survived: without GC each posting list would still hold all 50 documents.
+    for n in range(N_INDEXES):
+        postings = env.cmd(debug_cmd(), 'DUMP_INVIDX', f'idx{n}', 'hello')
+        env.assertEqual(len(postings), 25, message=f'idx{n}: {postings}')
+
+
+def force_gc_from_parallel_clients(env):
+    errors = []
+
+    def force(n):
+        try:
+            getConnectionByEnv(env).execute_command(debug_cmd(), 'GC_FORCEINVOKE', f'idx{n}')
+        except Exception as e:  # noqa: BLE001 - any error fails the test below
+            errors.append(e)
+
+    clients = [threading.Thread(target=force, args=(n,)) for n in range(N_INDEXES)]
+    for client in clients:
+        client.start()
+    for client in clients:
+        client.join()
+    env.assertEqual(errors, [])
+
+
+@skip(cluster=True)
+def testThreadGCWaitForJobsCoversEveryGCThread():
+    """GC_WAIT_FOR_JOBS with nothing queued still waits for a cycle running on another GC thread.
+    The cycle is parked, so the wait cannot pass by it finishing first."""
+    env = thread_gc_env('FORK_GC_RUN_INTERVAL 1')
+    skipIfNoEnableAssert(env)
+    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
+    env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_TASK_START, 30000).ok()
+    wait_for_condition(
+        lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', SYNC_POINT_GC_TASK_START) == 1, {}),
+        'Timeout waiting for a scheduled GC run to park')
+
+    replies = []
+    waiter = threading.Thread(target=lambda: replies.append(
+        getConnectionByEnv(env).execute_command(debug_cmd(), 'GC_WAIT_FOR_JOBS')))
+    waiter.start()
+    # Long enough for an idle GC pool to have answered many times over.
+    waiter.join(timeout=1)
+    env.assertEqual(replies, [], message='GC_WAIT_FOR_JOBS returned while a GC cycle was parked')
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
+    waiter.join(timeout=30)
+    env.assertEqual(replies, ['DONE'])
+
+
+@skip(cluster=True)
+def testThreadGCWaitForJobsWithBackgroundRuns():
+    """GC_WAIT_FOR_JOBS returns only after background forced runs on every index finished."""
+    env = thread_gc_env()
+    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
+    create_indexes_with_garbage(env)
+
+    waitForRdbSaveToFinish(env)
+    for n in range(N_INDEXES):
+        env.cmd(debug_cmd(), 'GC_FORCEBGINVOKE', f'idx{n}')
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
+
+    assert_all_indexes_collected(env)
+
+
+@skip(cluster=True)
+def testThreadGCCleansSeveralIndexesConcurrently():
+    """Several GC threads clean several indexes at once, without forking."""
+    env = thread_gc_env()
+    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
+    create_indexes_with_garbage(env)
+
+    forks_before = total_forks(env)
+    force_gc_from_parallel_clients(env)
+
+    env.assertEqual(total_forks(env), forks_before)
+    assert_all_indexes_collected(env)
+
+
+@skip(cluster=True)
+def testThreadGCNeverRunsTwoCyclesOfOneIndexAtOnce():
+    """Forced runs from many clients and the index's own schedule all target one index while
+    several GC threads are free. Deltas address blocks by position, so an overlap would apply
+    one cycle's delta to blocks the other already rewrote; the index must stay exact."""
+    env = thread_gc_env('FORK_GC_RUN_INTERVAL 1')
+    env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'INDEXALL', 'ENABLE', *SCHEMA).ok()
+    add_docs(conn, 'doc:', 1000)
+
+    errors = []
+
+    def force_repeatedly():
+        client = getConnectionByEnv(env)
+        for _ in range(5):
+            try:
+                client.execute_command(debug_cmd(), 'GC_FORCEINVOKE', 'idx')
+            except Exception as e:  # noqa: BLE001 - any error fails the test below
+                # Losing the race to another run of the index is the expected refusal.
+                if GC_RUN_IN_PROGRESS not in str(e):
+                    errors.append(e)
+
+    for round_ in range(3):
+        for i in range(round_, 1000, 3):
+            conn.execute_command('DEL', f'doc:{i}')
+        clients = [threading.Thread(target=force_repeatedly) for _ in range(GC_THREADS * 2)]
+        for client in clients:
+            client.start()
+        for client in clients:
+            client.join()
+
+    env.assertEqual(errors, [])
+    add_docs(conn, 'doc:', 300)
+    forceInvokeGC(env, 'idx')
+    assert_matches_fresh_index(env, 'idx', 'doc:')
+
+
 @skip(cluster=True)
 def testScheduledThreadGCCollectsWithoutForking():
-    # Every other test here forces its cycles; this one waits for the index's own schedule.
+    """The index's own schedule, not only forced runs, collects in-process."""
     env = thread_gc_env('FORK_GC_RUN_INTERVAL 1')
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', *SCHEMA).ok()
@@ -276,3 +417,17 @@ def testDumpDeletedIdsListsWhatTheNextCycleCollects():
     env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([2, 5, 7])
     forceInvokeGC(env, 'idx')
     env.expect(debug_cmd(), 'DUMP_DELETED_IDS', 'idx').equal([])
+
+
+@skip(cluster=True)
+def testThreadGCSettingsBounds():
+    """search-gc-threads is a CONFIG-only setting, changeable at runtime, between 1 and 64."""
+    env = Env(moduleArgs='GC_POLICY THREAD', freshEnv=True)
+    name = 'search-gc-threads'
+    env.expect('CONFIG', 'GET', name).equal([name, '1'])
+    for threads in [64, 2, 1]:
+        env.expect('CONFIG', 'SET', name, threads).ok()
+        env.expect('CONFIG', 'GET', name).equal([name, str(threads)])
+    for threads in [0, 65]:
+        env.expect('CONFIG', 'SET', name, threads).error().contains('CONFIG SET failed')
+    env.expect(config_cmd(), 'GET', '_GC_THREADS').equal([])

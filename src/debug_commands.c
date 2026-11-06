@@ -1079,6 +1079,9 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_ReplyWithError(
         ctx, "GC_COMPACT_ALL_INCOMPLETE COMPACT_ALL did not complete (background work paused or compaction cancelled)");
   }
+  if (outcome && *outcome == GC_FORCED_RUN_BUSY) {
+    return RedisModule_ReplyWithError(ctx, "GC_BUSY another GC run of this index is in progress");
+  }
   return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
 
@@ -1364,9 +1367,14 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   // Nobody is waiting on this one, so it gets the default budget rather than a TIMEOUT.
   GCForcedRun forced = GCForcedRun_New(GC_FORCED_RUN_DEFAULT_WAIT_MS,
                                        GC_FORCED_RUN_RETRY_INTERVAL_MS);
-  GCContext_ForceBGInvoke(sp->gc, forced);
-  RedisModule_ReplyWithSimpleString(ctx, "OK");
-  return REDISMODULE_OK;
+  switch (GCContext_ForceBGInvoke(sp->gc, forced)) {
+    case GC_FORCED_RUN_BUSY:
+      return RedisModule_ReplyWithError(ctx, "GC_BUSY another GC run of this index is in progress");
+    case GC_FORCED_RUN_FAILED:
+      return RedisModule_ReplyWithError(ctx, "GC_FAILED the run could not be queued");
+    default:
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
 }
 
 DEBUG_COMMAND(GCStopFutureRuns) {
@@ -1403,8 +1411,8 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
-// Wait for all GC jobs **THAT CURRENTLY IN THE QUEUE** to finish.
-// This command blocks the client and adds a job to the end of the GC queue, that will later unblock it.
+// Block the client until the GC pool is idle: no job queued and none running on any GC thread.
+// Callers stop the schedules they wait on first, or the pool may never go idle.
 DEBUG_COMMAND(GCWaitForAllJobs) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);

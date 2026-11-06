@@ -864,6 +864,25 @@ def testGCStopScheduleDuringRun():
                             f'{stopped_at} -> {after_stop}')
     env.expect('PING').equal(True)
 
+@skip(cluster=True)
+def testForcedGCFailsWhileARunOfTheIndexIsInFlight():
+    """A forced run never overlaps another run of its index: while one is in flight it fails
+    at once instead of waiting (a background one included, rather than being dropped), and works again once that run has finished."""
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+    armParkedGCRun(env)
+    before = gcCycles(env, 'idx')
+    env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').error().contains(GC_RUN_IN_PROGRESS)
+    env.expect(debug_cmd(), 'GC_FORCEBGINVOKE', 'idx').error().contains(GC_RUN_IN_PROGRESS)
+
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
+    waitForGCCycles(env, 'idx', before)
+    forceInvokeGC(env, 'idx')
+    env.assertGreaterEqual(gcCycles(env, 'idx'), before + 2)
+
+
 # Regression for MOD-17309: the re-arm moved off the GC thread onto a main-thread one-shot.
 @skip(cluster=True)
 def testGCKeepsReschedulingItself_MOD_17309():
@@ -914,9 +933,9 @@ def testGCContinueScheduleDuringRun_MOD_17309():
     # Release the parked run. SIGNAL also disarms, so nothing parks again.
     env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
 
-    # GC_WAIT_FOR_JOBS queues a marker at the end of the single-threaded pool and blocks until
-    # it runs, so it drains the parked run and any duplicate queued behind it. That is a
-    # barrier rather than a wall-clock window: no poll can be descheduled past a stray cycle.
+    # GC_WAIT_FOR_JOBS returns once the GC pool has nothing queued or running, so it drains the
+    # parked run and any duplicate queued behind it: no wall-clock window a stray cycle could
+    # slip past.
     env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
     completed = gcCycles(env, 'idx')
     env.assertEqual(completed, before + 1,

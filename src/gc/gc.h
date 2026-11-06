@@ -22,7 +22,6 @@
 extern "C" {
 #endif
 
-#define GC_THREAD_POOL_SIZE 1
 
 // Bits of GCContext.schedFlags.
 typedef enum {
@@ -61,6 +60,8 @@ typedef enum {
   GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE,
   // The cycle stopped on an error, logged as a warning, and collected only what it applied first.
   GC_FORCED_RUN_FAILED,
+  // Another run of the index was in flight, so this one did not start.
+  GC_FORCED_RUN_BUSY,
 } GCForcedRunOutcome;
 
 // What a caller that demanded a collection asked for, and what it got. A cycle receives a
@@ -144,7 +145,8 @@ void GCContext_OnUpdate(GCContext* gc);
 // keeps no ownership. With a blocked client, the outcome reaches its reply as unblock privdata,
 // freed by GCForcedRunOutcomeFree.
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc, GCForcedRun forced);
-void GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced);
+// OK once the run is queued; BUSY or FAILED when it never will be.
+GCForcedRunOutcome GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced);
 // free_privdata for the blocked client above; matches RedisModule_BlockClient's signature.
 void GCForcedRunOutcomeFree(RedisModuleCtx* ctx, void* privdata);
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);
@@ -172,6 +174,8 @@ static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
 }
 
 void GC_ThreadPoolStart();
+// Resize a started GC pool to what the policy and search-gc-threads call for.
+void GC_ThreadPoolSetSize(void);
 void GC_ThreadPoolDestroy();
 // Stop the GC pool from pulling new jobs. Returns immediately; use GC_ThreadPoolWaitForPause
 // to wait out the ones already running.
