@@ -333,3 +333,188 @@ def testSortkeyWithEmbeddedNul(env):
 
     res = env.cmd('FT.SEARCH', 'idx_nul', '*', 'SORTBY', 't', 'ASC', 'WITHSORTKEYS', 'NOCONTENT')
     env.assertEqual(res, [2, 'doc:nul:2', '$a\x00a', 'doc:nul:1', '$a\x00b'])
+
+
+# ---------------------------------------------------------------------------
+# Sorting by more than one field, behind ENABLE_UNSTABLE_FEATURES.
+#
+# FT.SEARCH names a second sort field in a second SORTBY clause, the way it
+# names a second numeric filter in a second FILTER clause. FT.AGGREGATE keeps
+# its `SORTBY <nargs> @f ASC ...` spelling and still rejects a second step.
+# ---------------------------------------------------------------------------
+
+def build_sortby_pairs(env, idx, prefix):
+    """The shape from the feature request: a primary field whose ties only a
+    secondary field can break.
+
+    PREFIX keeps the index off the documents the other tests in this file leave
+    behind, since they share one server.
+    """
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', idx, 'ON', 'HASH', 'PREFIX', '1', f'{prefix}:',
+               'SCHEMA', 'a', 'NUMERIC', 'SORTABLE', 'b', 'NUMERIC', 'SORTABLE').ok()
+    conn.execute_command('HSET', f'{prefix}:1', 'a', '1', 'b', '1')
+    conn.execute_command('HSET', f'{prefix}:2', 'a', '1', 'b', '2')
+    conn.execute_command('HSET', f'{prefix}:3', 'a', '2', 'b', '3')
+    return conn
+
+
+def testMultiSortbyRequiresUnstableFeatures(env):
+    """With the flag off, a second SORTBY returns the error it returns today.
+
+    `SORTBY a ASC SORTBY b DESC` already parses on a shipped build and fails
+    with this message, so Requirement 1 of
+    `docs/CONTRIBUTING-unstable-features.md` keeps it as it is rather than
+    replacing it with one that names the flag.
+    """
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'no')
+    build_sortby_pairs(env, 'idx_ms_off', 'ms_off')
+
+    env.expect('FT.SEARCH', 'idx_ms_off', '*', 'SORTBY', 'a', 'ASC', 'SORTBY', 'b', 'DESC') \
+        .error().contains('Multiple SORTBY steps are not allowed')
+
+
+@skip(cluster=True)
+def testMultiSortbySecondFieldBreaksTies(env):
+    """The second clause orders the documents the first leaves tied."""
+    enable_unstable_features(env)
+    build_sortby_pairs(env, 'idx_ms', 'ms')
+
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx_ms', '*', 'NOCONTENT',
+                            'SORTBY', 'a', 'ASC', 'SORTBY', 'b', 'ASC'),
+                    [3, 'ms:1', 'ms:2', 'ms:3'])
+    # Only the tie between ms:1 and ms:2 moves, which is the whole point: the
+    # primary still decides everything it can decide.
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx_ms', '*', 'NOCONTENT',
+                            'SORTBY', 'a', 'ASC', 'SORTBY', 'b', 'DESC'),
+                    [3, 'ms:2', 'ms:1', 'ms:3'])
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx_ms', '*', 'NOCONTENT',
+                            'SORTBY', 'a', 'DESC', 'SORTBY', 'b', 'ASC'),
+                    [3, 'ms:3', 'ms:1', 'ms:2'])
+
+
+@skip(cluster=True)
+def testMultiSortbyDefaultsToAscending(env):
+    """A clause without ASC or DESC sorts ascending, as a single clause does."""
+    enable_unstable_features(env)
+    build_sortby_pairs(env, 'idx_ms_def', 'ms_def')
+
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx_ms_def', '*', 'NOCONTENT',
+                            'SORTBY', 'a', 'SORTBY', 'b'),
+                    [3, 'ms_def:1', 'ms_def:2', 'ms_def:3'])
+    # The direction belongs to the clause it follows, not to the whole sort.
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx_ms_def', '*', 'NOCONTENT',
+                            'SORTBY', 'a', 'SORTBY', 'b', 'DESC'),
+                    [3, 'ms_def:2', 'ms_def:1', 'ms_def:3'])
+
+
+@skip(cluster=True)
+def testMultiSortbyThirdFieldBreaksRemainingTies(env):
+    """Three clauses, with the first two tied across two documents."""
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx_ms3', 'ON', 'HASH', 'PREFIX', '1', 'ms3:',
+               'SCHEMA', 'a', 'NUMERIC', 'SORTABLE', 'b', 'NUMERIC', 'SORTABLE',
+               'c', 'TAG', 'SORTABLE').ok()
+    conn.execute_command('HSET', 'ms3:1', 'a', '1', 'b', '1', 'c', 'y')
+    conn.execute_command('HSET', 'ms3:2', 'a', '1', 'b', '1', 'c', 'x')
+    conn.execute_command('HSET', 'ms3:3', 'a', '1', 'b', '0', 'c', 'z')
+
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx_ms3', '*', 'NOCONTENT',
+                            'SORTBY', 'a', 'ASC', 'SORTBY', 'b', 'ASC', 'SORTBY', 'c', 'ASC'),
+                    [3, 'ms3:3', 'ms3:2', 'ms3:1'])
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx_ms3', '*', 'NOCONTENT',
+                            'SORTBY', 'a', 'ASC', 'SORTBY', 'b', 'ASC', 'SORTBY', 'c', 'DESC'),
+                    [3, 'ms3:3', 'ms3:1', 'ms3:2'])
+
+
+@skip(cluster=True)
+def testMultiSortbyLoadsFieldsThatAreNotSortable(env):
+    """A secondary field that is not SORTABLE is loaded for the sort.
+
+    The shared arrange step resolves each key for reading and falls back to
+    loading it when the field has no sorting vector, so the field only has to be
+    in the schema.
+    """
+    enable_unstable_features(env)
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx_ms_load', 'ON', 'HASH', 'PREFIX', '1', 'ms_load:',
+               'SCHEMA', 'a', 'NUMERIC', 'SORTABLE', 'b', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'ms_load:1', 'a', '1', 'b', '2')
+    conn.execute_command('HSET', 'ms_load:2', 'a', '1', 'b', '1')
+
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx_ms_load', '*', 'NOCONTENT',
+                            'SORTBY', 'a', 'ASC', 'SORTBY', 'b', 'ASC'),
+                    [2, 'ms_load:2', 'ms_load:1'])
+
+
+@skip(cluster=True)
+def testMultiSortbyRejectsUnknownFieldInALaterClause(env):
+    """A later clause names a field like the first one does, and is checked."""
+    enable_unstable_features(env)
+    build_sortby_pairs(env, 'idx_ms_unknown', 'ms_unknown')
+
+    env.expect('FT.SEARCH', 'idx_ms_unknown', '*', 'SORTBY', 'a', 'ASC',
+               'SORTBY', 'nosuch', 'ASC').error()
+
+
+@skip(cluster=True)
+def testMultiSortbyFieldLimit(env):
+    """The sort directions live in a bitmap with a fixed number of slots, so the
+    clause count is capped rather than silently losing a direction."""
+    enable_unstable_features(env)
+    build_sortby_pairs(env, 'idx_ms_cap', 'ms_cap')
+
+    # SORTASCMAP_MAXFIELDS clauses are accepted, one more is not.
+    args = []
+    for _ in range(8):
+        args += ['SORTBY', 'a', 'ASC']
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx_ms_cap', '*', 'NOCONTENT', *args)[0], 3)
+
+    env.expect('FT.SEARCH', 'idx_ms_cap', '*', 'NOCONTENT', *(args + ['SORTBY', 'b', 'ASC'])) \
+        .error().contains('Cannot sort by more than')
+
+
+@skip(cluster=True)
+def testMultiSortbyWithSortkeysReturnsTheFirstKey(env):
+    """WITHSORTKEYS still returns one key per document, the primary one.
+
+    The reply carries a single key per result, so this pins which one rather
+    than leaving it to the reader. Returning every key would change the shape of
+    the reply, which is a decision for graduation.
+    """
+    enable_unstable_features(env)
+    build_sortby_pairs(env, 'idx_ms_keys', 'ms_keys')
+
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx_ms_keys', '*', 'NOCONTENT', 'WITHSORTKEYS',
+                            'SORTBY', 'a', 'ASC', 'SORTBY', 'b', 'DESC'),
+                    [3, 'ms_keys:2', '#1', 'ms_keys:1', '#1', 'ms_keys:3', '#2'])
+
+
+@skip(cluster=True)
+def testMultiSortbyDoesNotChangeAggregate(env):
+    """FT.AGGREGATE names every field in one step, and still rejects a second
+    step with the flag on."""
+    enable_unstable_features(env)
+    build_sortby_pairs(env, 'idx_ms_agg', 'ms_agg')
+
+    env.expect('FT.AGGREGATE', 'idx_ms_agg', '*', 'SORTBY', '2', '@a', 'ASC',
+               'SORTBY', '2', '@b', 'ASC') \
+        .error().contains('Multiple SORTBY steps are not allowed. Sort multiple fields in a single step')
+    # The supported spelling is unaffected.
+    env.assertEqual(env.cmd('FT.AGGREGATE', 'idx_ms_agg', '*', 'LOAD', '1', '@a',
+                            'SORTBY', '4', '@a', 'ASC', '@b', 'DESC')[0], 3)
+
+
+def testMultiSortbyRejectedInCluster(env):
+    """The coordinator merges shard replies on a single sort key, so it rejects
+    a second clause instead of returning a wrong global order."""
+    SkipOnNonCluster(env)
+    enable_unstable_features(env)
+    build_sortby_pairs(env, 'idx_ms_cluster', 'ms_cluster')
+
+    env.expect('FT.SEARCH', 'idx_ms_cluster', '*', 'SORTBY', 'a', 'ASC', 'SORTBY', 'b', 'DESC') \
+        .error().contains('Multiple SORTBY steps are not allowed')
+    # One clause is unaffected.
+    env.assertEqual(env.cmd('FT.SEARCH', 'idx_ms_cluster', '*', 'NOCONTENT',
+                            'SORTBY', 'a', 'ASC')[0], 3)

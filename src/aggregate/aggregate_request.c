@@ -481,14 +481,28 @@ static int handleCommonArgs(ParseAggPlanContext *papCtx, ArgsCursor *ac, QueryEr
 
 static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status, ParseAggPlanContext *papCtx) {
   bool isLegacy = *papCtx->reqflags & QEXEC_F_IS_SEARCH;
-  // Prevent multiple SORTBY steps
+  // A repeated SORTBY appends another sort field, the way repeated FILTER and
+  // GEOFILTER clauses append another filter. FT.AGGREGATE names every field in a
+  // single step, so a second step stays an error there.
+  //
+  // The flag-off message is the one this query already returns, rather than one
+  // naming the flag: `SORTBY a ASC SORTBY b DESC` parses on a shipped build and
+  // fails here, so Requirement 1 of docs/CONTRIBUTING-unstable-features.md keeps
+  // both the result and the error as they are.
+  bool appendField = false;
   if (arng->sortKeys != NULL) {
-    if (isLegacy) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Multiple SORTBY steps are not allowed");
-    } else {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+    if (!isLegacy) {
+      QueryError_SetError(
+          status, QUERY_ERROR_CODE_PARSE_ARGS,
+          "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+      return REDISMODULE_ERR;
     }
-    return REDISMODULE_ERR;
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "Multiple SORTBY steps are not allowed");
+      return REDISMODULE_ERR;
+    }
+    appendField = true;
   }
 
   // Assume argument is at 'SORTBY'
@@ -498,7 +512,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
 
   // We build a bitmap of maximum 64 sorting parameters. 1 means asc, 0 desc
   // By default all bits are 1. Whenever we encounter DESC we flip the corresponding bit
-  uint64_t ascMap = SORTASCMAP_INIT;
+  uint64_t ascMap = appendField ? arng->sortAscMap : SORTASCMAP_INIT;
   const char **keys = NULL;
 
   if (isLegacy) {
@@ -521,16 +535,21 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     }
   }
 
-  keys = array_new(const char *, 8);
+  keys = appendField ? arng->sortKeys : array_new(const char *, 8);
 
   if (isLegacy) {
     // Legacy demands one field and an optional ASC/DESC parameter. Both
     // of these are handled above, so no need for argument parsing
     const char *s = AC_GetStringNC(&subArgs, NULL);
+    if (array_len(keys) >= SORTASCMAP_MAXFIELDS) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_LIMIT,
+                                       "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
+      goto err;
+    }
     array_append(keys, s);
 
     if (legacyDesc) {
-      SORTASCMAP_SETDESC(ascMap, 0);
+      SORTASCMAP_SETDESC(ascMap, array_len(keys) - 1);
     }
   } else {
     while (!AC_IsAtEnd(&subArgs)) {
@@ -580,7 +599,13 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
 err:
   QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad SORTBY arguments");
   if (keys) {
-    array_free(keys);
+    if (appendField) {
+      // The array is the step's own, and `array_append` may have moved it. Hand
+      // it back so the plan frees it once, rather than freeing it here.
+      arng->sortKeys = keys;
+    } else {
+      array_free(keys);
+    }
   }
   return REDISMODULE_ERR;
 }

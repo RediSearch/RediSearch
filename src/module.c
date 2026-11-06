@@ -2422,6 +2422,18 @@ int rscParseRequest(searchRequestCtx *req, RedisModuleString **argv, int argc, Q
   // AC_ParseArgSpec returns AC_ERR_ENOENT for unknown args, which we handle by advancing.
   while (!AC_IsAtEnd(&ac)) {
     ACArgSpec *errSpec = NULL;
+    // A second SORTBY would overwrite the first in `specs` and be forwarded to
+    // the shards regardless. Each shard would then sort its own results by every
+    // field while the merge below compares a single sort key, so the coordinator
+    // would return a wrong global order instead of an error. Reject it here with
+    // the message the shards already return for this query.
+    const char *tok;
+    if (AC_IsInitialized(&sortbyArgs) && AC_GetString(&ac, &tok, NULL, AC_F_NOADVANCE) == AC_OK &&
+        !strcasecmp(tok, "SORTBY")) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS,
+                          "Multiple SORTBY steps are not allowed");
+      return REDISMODULE_ERR;
+    }
     int rv = AC_ParseArgSpec(&ac, specs, &errSpec);
     if (rv == AC_ERR_ENOENT) {
       // Unknown argument - skip it and continue
