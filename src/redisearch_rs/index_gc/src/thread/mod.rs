@@ -485,15 +485,18 @@ pub fn run_cycle(
     report.read_locks += 1;
     report.max_read_hold = held;
 
-    // A table that does not track deletions has nothing for this GC to work from.
-    debug_assert!(
-        dead.is_some(),
-        "a THREAD GC cycle ran on a table without a deleted set"
-    );
     let dead = match dead {
+        // A table that does not track deletions gives this GC nothing to find garbage with;
+        // reporting success would leave its stale postings in place silently.
+        None => {
+            return Err((
+                "deleted docs",
+                GcError::ApplyError("the document table does not track deleted documents"),
+            ));
+        }
         // Nothing to collect, and nothing to tell the doc table.
-        Some(dead) if !dead.is_empty() => dead,
-        _ => return Ok(report),
+        Some(dead) if dead.is_empty() => return Ok(report),
+        Some(dead) => dead,
     };
     let gone = GoneIds::from_set(dead);
 
