@@ -137,16 +137,6 @@ static inline __attribute__((always_inline)) void recordCandidate(RPQueryIterato
   }
 }
 
-static inline void reclassifyDeletedCandidates(RPQueryIterator *self, size_t count,
-                                               bool isProfiled) {
-  if (isProfiled) {
-    RPQueryIteratorProfiled *profiled = (RPQueryIteratorProfiled *)self;
-    RS_ASSERT(profiled->candidatesNotDiscarded >= count);
-    profiled->candidatesNotDiscarded -= count;
-    profiled->deletedCandidatesDiscarded += count;
-  }
-}
-
 /****
  * getDocumentMetadata - get the document metadata for the current document from the iterator.
  * If the document is deleted or expired, return false.
@@ -178,9 +168,6 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
         !deleted && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId,
                                                    diskDmd, &sctx->currentTime, &failureReason);
     if (!foundDocument) {
-      if (!deleted && failureReason == DISK_READ_DELETED) {
-        reclassifyDeletedCandidates(self, 1, isProfiled);
-      }
       DMD_Return(diskDmd);
       return false;
     }
@@ -531,10 +518,8 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
       // until a completion lands instead of making progress.
       index_poll_timeout_ms = ASYNC_POLL_TIMEOUT_SATURATED_MS;
     }
-    size_t deletedCount = 0;
     const size_t pendingCount = IndexResultAsyncRead_Poll(
-        &self->async, index_poll_timeout_ms, &sctx->currentTime, &deletedCount);
-    reclassifyDeletedCandidates(self, deletedCount, isProfiled);
+        &self->async, index_poll_timeout_ms, &sctx->currentTime);
 
     // The loop-head check amortizes clock samples across iterations,
     // which is too coarse once an iteration can sleep. Re-check unthrottled after a
