@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{fmt::Debug, ptr::NonNull};
+use std::{fmt::Debug, mem::MaybeUninit, ptr::NonNull};
 
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::{RSIndexResult, RSQueryTerm};
@@ -16,17 +16,162 @@ use inverted_index::{
 };
 use rqe_core::DocId;
 use rqe_iterators::{
-    FieldExpirationChecker, IteratorType,
+    FieldExpirationChecker, IteratorType, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
+    ResumeOutcome,
+    boxed::{ResumeSlotOutcome, resume_child_slot_in_place, suspend_child_slot_in_place},
     interop::RQEIteratorWrapper,
     inverted_index::{Tag, TagLookup},
     profile_print,
 };
+
+/// Suspended counterpart of [`TagIterator`] — produced by
+/// [`RQEIteratorBoxed::suspend`] and consumed by [`RQESuspendedIterator::resume`].
+///
+/// Retains the `'query` lifetime so query-attached borrows stay valid across
+/// the suspend/resume cycle.
+///
+/// `#[repr(C, u8)]`, like [`TagIterator`], so the two enums share their tag
+/// encoding and payload offset. Suspend and resume rewrite the payload in place
+/// and relabel the whole box, rather than rebuilding it, so the iterator's
+/// result keeps its address across the cycle: a parent's aggregate result
+/// points into it.
+#[repr(C, u8)]
+#[expect(
+    dead_code,
+    reason = "only ever produced by relabelling a `TagIterator` in place, never constructed by name"
+)]
+pub(super) enum TagIteratorSuspended<'query> {
+    Encoded(
+        <Tag<'query, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended,
+    ),
+    Raw(
+        <Tag<'query, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker> as RQEIteratorBoxed<'query>>::Suspended,
+    ),
+}
+
+// Compile-time proof that each payload, and hence the whole enum, is
+// layout-identical across modes: with `#[repr(C, u8)]` the payload offset is
+// fixed by the payloads' alignment, so equal sizes and alignments per variant
+// pin the offset too. The in-place rewrite and relabel below rely on it.
+const _: () = {
+    use rqe_iterators::boxed::assert_layout_compatible;
+    type Encoded = Tag<'static, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker>;
+    type Raw = Tag<'static, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker>;
+    assert_layout_compatible::<Encoded, <Encoded as RQEIteratorBoxed<'static>>::Suspended>();
+    assert_layout_compatible::<Raw, <Raw as RQEIteratorBoxed<'static>>::Suspended>();
+    assert_layout_compatible::<TagIterator<'static>, TagIteratorSuspended<'static>>();
+};
+
+impl<'index> RQEIteratorBoxed<'index> for TagIterator<'index> {
+    type Suspended = TagIteratorSuspended<'index>;
+
+    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+        let mut raw = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
+        // SAFETY: `raw` came from `Box::into_raw`, so it is valid and exclusively
+        // owned; the borrow only reaches the live payload and ends with the match.
+        let variant = unsafe { raw.as_mut() };
+        match variant {
+            TagIterator::Encoded(t) => {
+                // SAFETY: `t` is the valid, exclusively-owned payload; the slot is
+                // relabelled as its suspended form below.
+                unsafe { suspend_child_slot_in_place(t as *mut _) }
+            }
+            TagIterator::Raw(t) => {
+                // SAFETY: as above.
+                unsafe { suspend_child_slot_in_place(t as *mut _) }
+            }
+        }
+        // SAFETY: the payload now holds its suspended form at the same offset and
+        // the tag is unchanged, so the allocation is a valid
+        // `TagIteratorSuspended` (layout proof above). `Box::from_raw` reuses the
+        // allocation, keeping the result's address.
+        unsafe { Box::from_raw(raw.cast::<TagIteratorSuspended<'index>>().as_ptr()) }
+    }
+}
+
+impl<'query> RQESuspendedIterator<'query> for TagIteratorSuspended<'query> {
+    type Resumed<'a>
+        = TagIterator<'a>
+    where
+        'query: 'a;
+
+    fn resume<'a>(
+        self: Box<Self>,
+        guard: &index_spec::IndexSpecReadGuard<'a>,
+    ) -> Result<ResumeOutcome<Box<Self::Resumed<'a>>>, RQEIteratorError>
+    where
+        'query: 'a,
+    {
+        // Mirror of `TagIterator::suspend`: resume the payload in place, then
+        // relabel the box, or free it as a shell if the payload was consumed.
+        let mut raw = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
+        // SAFETY: `raw` came from `Box::into_raw`, so it is valid and exclusively
+        // owned; the borrow only reaches the live payload and ends with the match.
+        let variant = unsafe { raw.as_mut() };
+        let outcome = match variant {
+            TagIteratorSuspended::Encoded(s) => {
+                // SAFETY: `s` is the valid, exclusively-owned payload. On a
+                // recoverable outcome the slot holds its resumed form; otherwise it
+                // is left uninitialised and the shell is freed below without
+                // dropping it.
+                unsafe { resume_child_slot_in_place(s as *mut _, guard) }
+            }
+            TagIteratorSuspended::Raw(s) => {
+                // SAFETY: as above.
+                unsafe { resume_child_slot_in_place(s as *mut _, guard) }
+            }
+        };
+
+        let rebox = || {
+            // SAFETY: the payload holds its resumed form at the same offset and the
+            // tag is unchanged, so the allocation is a valid `TagIterator<'a>`
+            // (layout proof above). `Box::from_raw` reuses the allocation.
+            unsafe { Box::from_raw(raw.cast::<TagIterator<'a>>().as_ptr()) }
+        };
+        let free_shell = || {
+            // SAFETY: `raw` owns an allocation of `Self`'s layout whose payload was
+            // consumed; reboxing it as `MaybeUninit` frees it without running drop
+            // glue on the consumed payload.
+            drop(unsafe { Box::from_raw(raw.cast::<MaybeUninit<Self>>().as_ptr()) });
+        };
+
+        match outcome {
+            Ok(ResumeSlotOutcome::Unchanged) => Ok(ResumeOutcome::Ok(rebox())),
+            Ok(ResumeSlotOutcome::Moved) => Ok(ResumeOutcome::Moved(rebox())),
+            Ok(ResumeSlotOutcome::Aborted) => {
+                free_shell();
+                Ok(ResumeOutcome::Aborted)
+            }
+            Err(e) => {
+                free_shell();
+                Err(e)
+            }
+        }
+    }
+
+    fn last_doc_id(&self) -> DocId {
+        match self {
+            TagIteratorSuspended::Encoded(s) => s.last_doc_id(),
+            TagIteratorSuspended::Raw(s) => s.last_doc_id(),
+        }
+    }
+
+    fn num_estimated(&self) -> usize {
+        match self {
+            TagIteratorSuspended::Encoded(s) => s.num_estimated(),
+            TagIteratorSuspended::Raw(s) => s.num_estimated(),
+        }
+    }
+}
 
 /// Wrapper around different tag iterator encoding types to avoid generics in FFI code.
 ///
 /// Tag inverted indices are always created with `DocIdsOnly` flags, so only
 /// the standard variable-length encoding ([`DocIdsOnly`]) and the fixed 4-byte
 /// raw encoding ([`RawDocIdsOnly`]) are supported.
+///
+/// `#[repr(C, u8)]` so it shares its layout with [`TagIteratorSuspended`].
+#[repr(C, u8)]
 pub(super) enum TagIterator<'index> {
     Encoded(Tag<'index, DocIdsOnly, CTagIndexLookup, FieldExpirationChecker>),
     Raw(Tag<'index, RawDocIdsOnly, CTagIndexLookup, FieldExpirationChecker>),
@@ -270,5 +415,18 @@ impl profile_print::ProfilePrint for TagIterator<'_> {
         ctx: &mut profile_print::ProfilePrintCtx<'_>,
     ) {
         tag_it_dispatch!(self, print_profile, map, ctx);
+    }
+}
+
+impl profile_print::ProfilePrint for TagIteratorSuspended<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut profile_print::ProfilePrintCtx<'_>,
+    ) {
+        match self {
+            TagIteratorSuspended::Encoded(t) => t.print_profile(map, ctx),
+            TagIteratorSuspended::Raw(t) => t.print_profile(map, ctx),
+        }
     }
 }

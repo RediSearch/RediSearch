@@ -294,6 +294,16 @@ impl<'index> SteerableChild<'index> {
     }
 }
 
+impl rqe_iterators::profile_print::ProfilePrint for SteerableChild<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"STEERABLE", map);
+    }
+}
+
 impl<'index> RQEIterator<'index> for SteerableChild<'index> {
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         if self.positioned {

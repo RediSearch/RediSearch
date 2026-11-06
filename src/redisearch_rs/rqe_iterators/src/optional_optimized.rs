@@ -87,6 +87,13 @@ pub struct RawOptionalOptimized<'query, Rf: Ref, W, I> {
 /// with an [`RQEIterator`] impl today.
 pub type OptionalOptimized<'index, W, I> = RawOptionalOptimized<'index, Active<'index>, W, I>;
 
+impl<'query, Rf: Ref, W, I> RawOptionalOptimized<'query, Rf, W, I> {
+    /// Returns a reference to the child iterator, if any. Mode-independent.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+}
+
 // Compile-time proof of invariant 1 on `RawOptionalOptimized`: for representative
 // concrete `wcii`/`child` types, the `Active` and `Suspended` instantiations are
 // layout-identical. The `wcii`/`child` slots' own compatibility is their invariant
@@ -116,11 +123,6 @@ where
     W: WildcardIterator<'index>,
     I: RQEIterator<'index>,
 {
-    /// Returns a reference to the child iterator, if any.
-    pub const fn child(&self) -> Option<&I> {
-        self.child.as_ref()
-    }
-
     /// Sets the child iterator.
     pub fn set_child(&mut self, child: I) {
         self.child = MaybeEmpty::new(child);
@@ -770,13 +772,14 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        // Mirrors the active `num_estimated`, which delegates to the wildcard base.
         self.wcii.num_estimated()
     }
 }
 
-impl<'index, W: WildcardIterator<'index> + 'index> crate::interop::ProfileChildren<'index>
+impl<'index, W> crate::interop::ProfileChildren<'index>
     for OptionalOptimized<'index, W, crate::c2rust::CRQEIterator>
+where
+    W: crate::RQEIteratorBoxed<'index> + 'index,
 {
     fn profile_children(self) -> Self {
         OptionalOptimized {
@@ -791,10 +794,9 @@ impl<'index, W: WildcardIterator<'index> + 'index> crate::interop::ProfileChildr
     }
 }
 
-impl<'index, W, I> ProfilePrint for OptionalOptimized<'index, W, I>
+impl<'query, Rf: Ref, W, I> ProfilePrint for RawOptionalOptimized<'query, Rf, W, I>
 where
-    W: crate::WildcardIterator<'index>,
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         ctx.print_single_child(c"OPTIONAL", self.child(), map);

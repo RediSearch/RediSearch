@@ -432,3 +432,27 @@ def test_highlight_after_multi_value_json_field_small_slop():
     res = env.cmd('FT.SEARCH', 'idx', '@title:hello', 'RETURN', '1', 'title',
                   'HIGHLIGHT', 'FIELDS', '1', 'title')
     env.assertEqual(_docs(res), {'doc:1': {'title': '<b>hello</b> big world'}})
+
+
+@skip(cluster=True)
+def test_highlight_after_trimmed_numeric_union(env):
+    """The highlighter reads the term offsets from each row's own index result
+    and never goes back to the root iterator. A numeric-only query sorted by
+    that field with WITHOUTCOUNT trims its numeric union: the sorter drains it
+    and releases the read lock before the highlighter runs, and a trimmed union
+    can be neither revalidated nor sought."""
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'body', 'TEXT', 'n', 'NUMERIC', 'SORTABLE').ok()
+    for i in range(1000):
+        conn.hset(f'doc:{i}', mapping={'body': f'brown fox {i}', 'n': i})
+    # The union is only trimmed when the range spans at least three leaves.
+    env.assertGreaterEqual(numeric_tree_summary(env, 'idx', 'n')['numLeaves'], 3)
+
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[0 999]', 'SORTBY', 'n', 'ASC', 'LIMIT', '0', '3',
+                  'WITHOUTCOUNT', 'HIGHLIGHT', 'FIELDS', '1', 'body')
+    env.assertEqual(_docs(res), {
+        'doc:0': {'n': '0', 'body': 'brown fox 0'},
+        'doc:1': {'n': '1', 'body': 'brown fox 1'},
+        'doc:2': {'n': '2', 'body': 'brown fox 2'},
+    })

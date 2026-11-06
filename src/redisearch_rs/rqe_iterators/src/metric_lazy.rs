@@ -201,7 +201,9 @@ impl<'index, const SORTED_BY_ID: bool> RQEIterator<'index> for MetricLazy<'index
     }
 }
 
-impl<const SORTED_BY_ID: bool> ProfilePrint for MetricLazy<'_, SORTED_BY_ID> {
+impl<'query, Rf: Ref, const SORTED_BY_ID: bool> ProfilePrint
+    for RawMetricLazy<'query, Rf, SORTED_BY_ID>
+{
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         self.inner.print_profile(map, ctx);
     }

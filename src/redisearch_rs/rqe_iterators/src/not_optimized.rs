@@ -78,6 +78,13 @@ pub struct RawNotOptimized<'query, Rf: Ref, W, I, TC> {
 /// with an [`RQEIterator`] impl today.
 pub type NotOptimized<'index, W, I, TC> = RawNotOptimized<'index, Active<'index>, W, I, TC>;
 
+impl<'query, Rf: Ref, W, I, TC> RawNotOptimized<'query, Rf, W, I, TC> {
+    /// Get a shared reference to the _child_ iterator. Mode-independent.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+}
+
 // Compile-time proof of invariant 1 on `RawNotOptimized`: for representative
 // concrete `wcii`/`child` types, the `Active` and `Suspended` instantiations are
 // layout-identical. The child slots' own compatibility is their invariant 1
@@ -158,11 +165,6 @@ where
             return Ok(false);
         }
         Ok(true)
-    }
-
-    /// Get a shared reference to the _child_ iterator.
-    pub const fn child(&self) -> Option<&I> {
-        self.child.as_ref()
     }
 
     /// Whether there is another result to yield: the iterator has not run past its
@@ -702,7 +704,6 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        // Mirrors the active `num_estimated`, which delegates to the wildcard base.
         self.wcii.num_estimated()
     }
 }
@@ -710,8 +711,8 @@ where
 impl<'index, W, TC> crate::interop::ProfileChildren<'index>
     for NotOptimized<'index, W, crate::c2rust::CRQEIterator, TC>
 where
-    W: crate::WildcardIterator<'index> + 'index,
-    TC: TimeoutContext + 'index,
+    W: crate::RQEIteratorBoxed<'index> + 'index,
+    TC: TimeoutContext + 'index + 'static,
 {
     fn profile_children(self) -> Self {
         NotOptimized {
@@ -725,10 +726,9 @@ where
     }
 }
 
-impl<'index, W, I, TC> ProfilePrint for NotOptimized<'index, W, I, TC>
+impl<'query, Rf: Ref, W, I, TC> ProfilePrint for RawNotOptimized<'query, Rf, W, I, TC>
 where
-    W: crate::WildcardIterator<'index>,
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
     TC: TimeoutContext,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {

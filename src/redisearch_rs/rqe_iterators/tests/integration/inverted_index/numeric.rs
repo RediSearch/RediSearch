@@ -2150,6 +2150,32 @@ mod not_miri {
         use rqe_iterators::{ResumeOutcome, TypeErasedRQEIterator};
         use rqe_iterators_test_utils::{ResumeOutcomeExt, revalidate_via_resume};
 
+        /// The suspended form can no longer read the live count, so it reports the
+        /// one cached at suspend: an index that grew since construction must not see
+        /// its estimate fall back to the construction-time count across an unlock.
+        #[test]
+        fn numeric_suspend_keeps_the_estimate_the_active_iterator_last_reported() {
+            use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator};
+
+            let test = NumericRevalidateTest::new(10);
+            let it = Box::new(test.create_iterator());
+            let constructed = it.num_estimated();
+
+            // Doc ids in this fixture are odd and end at 2 * n_docs + 1; append a
+            // fresh, larger one.
+            test.test
+                .context
+                .numeric_inverted_index()
+                .add_record(&NumericRevalidateTest::expected_record(23));
+            assert_eq!(it.num_estimated(), constructed + 1);
+
+            let suspended = it.suspend();
+            assert_eq!(
+                RQESuspendedIterator::num_estimated(&*suspended),
+                constructed + 1
+            );
+        }
+
         #[test]
         fn numeric_revalidate_basic() {
             let test = NumericRevalidateTest::new(10);

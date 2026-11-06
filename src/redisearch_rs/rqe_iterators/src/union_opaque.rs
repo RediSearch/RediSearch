@@ -54,12 +54,11 @@ use index_spec::IndexSpecReadGuard;
 ///    transitions is layout-identical across modes, which the slot helpers
 ///    that rewrite it ([`suspend_child_slot_in_place`] /
 ///    [`resume_child_slot_in_place`]) enforce at compile time.
-///    [`Trimmed`](Self::Trimmed) never transitions, but its payload still
-///    shapes the enum's size, alignment and payload offset; an
+///    A [`Trimmed`](Self::Trimmed) resume aborts before touching the payload,
+///    so the resume direction of its payload is not covered by a slot helper; an
 ///    [`assert_layout_compatible`] guard on that payload in the enclosing
-///    [`RawUnionOpaque`]'s
-///    [`suspend`](RQEIteratorBoxed::suspend) /
-///    [`resume`](RQESuspendedIterator::resume) covers it. Hence
+///    [`RawUnionOpaque`]'s [`resume`](RQESuspendedIterator::resume) covers it.
+///    Hence
 ///    `RawUnionVariant<Active, I>` and `RawUnionVariant<Suspended, I::Suspended>`
 ///    are layout-identical, and a payload rewritten in place keeps its tag.
 ///
@@ -198,6 +197,44 @@ const _: () = {
     assert!(align_of::<A>() == align_of::<S>());
 };
 
+impl<'query, Rf: Ref, I> RawUnionOpaque<'query, Rf, I> {
+    /// Returns the total number of children (including exhausted ones).
+    /// Mode-independent.
+    pub const fn num_children_total(&self) -> usize {
+        match &self.variant {
+            RawUnionVariant::FlatFull(it) => it.num_children_total(),
+            RawUnionVariant::FlatQuick(it) => it.num_children_total(),
+            RawUnionVariant::HeapFull(it) => it.num_children_total(),
+            RawUnionVariant::HeapQuick(it) => it.num_children_total(),
+            RawUnionVariant::Trimmed(it) => it.num_children_total(),
+        }
+    }
+
+    /// Returns the number of currently active (non-exhausted) children.
+    /// Mode-independent.
+    pub const fn num_children_active(&self) -> usize {
+        match &self.variant {
+            RawUnionVariant::FlatFull(it) => it.num_children_active(),
+            RawUnionVariant::FlatQuick(it) => it.num_children_active(),
+            RawUnionVariant::HeapFull(it) => it.num_children_active(),
+            RawUnionVariant::HeapQuick(it) => it.num_children_active(),
+            RawUnionVariant::Trimmed(it) => it.num_children_active(),
+        }
+    }
+
+    /// Returns a shared reference to the child at `idx` (across all children).
+    /// Returns [`None`] if the index is out of range. Mode-independent.
+    pub fn child_at(&self, idx: usize) -> Option<&I> {
+        match &self.variant {
+            RawUnionVariant::FlatFull(it) => it.child_at(idx),
+            RawUnionVariant::FlatQuick(it) => it.child_at(idx),
+            RawUnionVariant::HeapFull(it) => it.child_at(idx),
+            RawUnionVariant::HeapQuick(it) => it.child_at(idx),
+            RawUnionVariant::Trimmed(it) => it.child_at(idx),
+        }
+    }
+}
+
 impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
     /// Set the weight on the union's aggregate result.
     /// Must be called before the first read/skip.
@@ -205,22 +242,6 @@ impl<'index, I: RQEIterator<'index>> UnionOpaque<'index, I> {
         if let Some(result) = self.current() {
             result.weight = weight;
         }
-    }
-
-    /// Returns the total number of children (including exhausted ones).
-    pub const fn num_children_total(&self) -> usize {
-        delegate_variant_ref!(self, num_children_total)
-    }
-
-    /// Returns the number of currently active (non-exhausted) children.
-    pub const fn num_children_active(&self) -> usize {
-        delegate_variant_ref!(self, num_children_active)
-    }
-
-    /// Returns a shared reference to the child at `idx` (across all children).
-    /// Returns [`None`] if the index is out of range.
-    pub fn child_at(&self, idx: usize) -> Option<&I> {
-        delegate_variant_ref!(self, child_at, idx)
     }
 
     /// Returns a mutable iterator over all children (including exhausted ones).
@@ -292,9 +313,9 @@ impl<'index, I: RQEIterator<'index>> RQEIterator<'index> for UnionOpaque<'index,
     }
 }
 
-impl<'index, I> ProfilePrint for UnionOpaque<'index, I>
+impl<'query, Rf: Ref, I> ProfilePrint for RawUnionOpaque<'query, Rf, I>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         let node_type = self.query_node_type;
@@ -356,7 +377,7 @@ where
 }
 
 /// Concrete [`RQEIteratorWrapper`] used to expose a [`UnionOpaque`] to C.
-type UnionWrapper<'index> = RQEIteratorWrapper<UnionOpaque<'index, CRQEIterator>>;
+type UnionWrapper<'index> = RQEIteratorWrapper<'index, UnionOpaque<'index, CRQEIterator>>;
 
 /// `ProfileChildren` callback for union iterators.
 ///
@@ -374,7 +395,7 @@ unsafe extern "C" fn union_profile_children(base: *mut QueryIterator) -> *mut Qu
     debug_assert!(!base.is_null());
     // SAFETY: caller guarantees `base` is valid and points to a union wrapper.
     let wrapper = unsafe { UnionWrapper::mut_ref_from_header_ptr(base) };
-    for child in wrapper.inner.children_mut() {
+    for child in wrapper.inner_mut().children_mut() {
         // Read the child's owning pointer without consuming the slot; ownership
         // is moved out here and handed back in place below.
         let it = child.as_raw();
@@ -513,25 +534,9 @@ where
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
         // The const proof on `RawUnionOpaque` fixes a representative child; the
         // whole-box cast below is generic over `I`, so check every instantiation.
-        // `Trimmed` never goes through a slot helper, so its payload gets its
-        // own check: equal outer sizes alone do not pin the payload offset.
         const {
             crate::boxed::assert_layout_compatible::<Self, Self::Suspended>();
-            crate::boxed::assert_layout_compatible::<
-                RawUnionTrimmed<'index, Active<'index>, I>,
-                RawUnionTrimmed<'index, Suspended, I::Suspended>,
-            >();
         };
-
-        // Refused on `&self`, before `Box::into_raw`, so that the panic unwinds
-        // and drops the box normally, as the legacy `revalidate` path does.
-        // Inside the slot helper's abort-on-unwind window, `UnionTrimmed`'s own
-        // `unreachable!` would abort the process instead.
-        if matches!(self.variant, UnionVariant::Trimmed(_)) {
-            unreachable!(
-                "suspend is not supported on UnionTrimmed — trimmed unions are not subject to GC"
-            );
-        }
 
         let raw = Box::into_raw(self);
 
@@ -561,7 +566,10 @@ where
                 // SAFETY: as above.
                 unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
             }
-            UnionVariant::Trimmed(_) => unreachable!("refused before `Box::into_raw` above"),
+            UnionVariant::Trimmed(it) => {
+                // SAFETY: as above.
+                unsafe { crate::boxed::suspend_child_slot_in_place(it as *mut _) }
+            }
         }
 
         // SAFETY: the variant now holds its suspended form at the same offset
@@ -589,7 +597,9 @@ where
     where
         'query: 'a,
     {
-        // See `suspend` for why the outer cast and `Trimmed` need their own guards.
+        // The outer cast is generic over `S`, as in `suspend`. `Trimmed` never
+        // goes through a slot helper here, so its payload gets its own check:
+        // equal outer sizes alone do not pin the payload offset.
         const {
             crate::boxed::assert_layout_compatible::<Self, Self::Resumed<'a>>();
             crate::boxed::assert_layout_compatible::<
@@ -598,12 +608,11 @@ where
             >();
         };
 
-        // `suspend` never produces a suspended trimmed union; refused before
-        // `Box::into_raw` for the reason given there.
+        // A trimmed union always aborts its resume (see `RawUnionTrimmed::resume`).
+        // Decided before `Box::into_raw`, so the box is dropped normally rather
+        // than torn down through the slot helper.
         if matches!(self.variant, RawUnionVariant::Trimmed(_)) {
-            unreachable!(
-                "resume is not supported on UnionTrimmed — trimmed unions are not subject to GC"
-            );
+            return Ok(ResumeOutcome::Aborted);
         }
 
         let raw = Box::into_raw(self);
@@ -633,7 +642,7 @@ where
                 // SAFETY: as above.
                 unsafe { crate::boxed::resume_child_slot_in_place(it as *mut _, guard) }
             }
-            RawUnionVariant::Trimmed(_) => unreachable!("refused before `Box::into_raw` above"),
+            RawUnionVariant::Trimmed(_) => unreachable!("aborted before `Box::into_raw` above"),
         };
 
         // Only valid once the payload holds its resumed form.
@@ -687,7 +696,9 @@ where
             RawUnionVariant::HeapQuick(it) => {
                 <RawUnionHeap<'query, Suspended, S, true> as RQESuspendedIterator<'query>>::last_doc_id(it)
             }
-            RawUnionVariant::Trimmed(_) => unreachable!("`suspend` refuses trimmed unions"),
+            RawUnionVariant::Trimmed(it) => {
+                <RawUnionTrimmed<'query, Suspended, S> as RQESuspendedIterator<'query>>::last_doc_id(it)
+            }
         }
     }
 
@@ -705,7 +716,9 @@ where
             RawUnionVariant::HeapQuick(it) => {
                 <RawUnionHeap<'query, Suspended, S, true> as RQESuspendedIterator<'query>>::num_estimated(it)
             }
-            RawUnionVariant::Trimmed(_) => unreachable!("`suspend` refuses trimmed unions"),
+            RawUnionVariant::Trimmed(it) => {
+                <RawUnionTrimmed<'query, Suspended, S> as RQESuspendedIterator<'query>>::num_estimated(it)
+            }
         }
     }
 }

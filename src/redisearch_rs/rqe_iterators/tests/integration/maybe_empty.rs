@@ -494,3 +494,13 @@ fn maybe_empty_upholds_current_contract() {
     assert_eq!(assert_current_contract(&mut it), [10, 20, 30, 50, 80]);
     assert_current_contract_via_skip_to(&mut it, 81);
 }
+
+impl rqe_iterators::profile_print::ProfilePrint for InfiniteSuspended<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"INFINITE");
+    }
+}

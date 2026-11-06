@@ -258,12 +258,12 @@ where
     }
 }
 
-impl<'index, E, L, C> ProfilePrint for Tag<'index, E, L, C>
+impl<'query, Rf: Ref, E, L, C> ProfilePrint for RawTag<'query, Rf, E, L, C>
 where
-    E: inverted_index::DecodedBy + 'index,
+    E: inverted_index::DecodedBy + 'static,
     <E as inverted_index::DecodedBy>::Decoder: inverted_index::DocIdsDecoder,
-    C: crate::expiration_checker::ExpirationChecker,
-    L: TagLookup<E>,
+    C: crate::expiration_checker::ExpirationChecker + 'static,
+    L: TagLookup<E> + 'static,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"TAG");
@@ -287,7 +287,8 @@ where
     // identical across the cast while the inner reader weakens.
     type Suspended = RawTag<'index, Suspended, E, L, C>;
 
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        self.it.refresh_num_docs();
         let raw = Box::into_raw(self);
         // SAFETY: `RawTag` is a `#[repr(C)]` struct whose only `Rf`-dependent
         // field is the inner `RawInvIndIterator`, layout-identical across modes
@@ -359,6 +360,6 @@ where
     }
 
     fn num_estimated(&self) -> usize {
-        self.it.num_estimated()
+        self.it.num_docs_field() as usize
     }
 }

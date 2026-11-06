@@ -176,7 +176,7 @@ impl<'index, const SORTED: bool> RQEIterator<'index> for IdListLazy<'index, SORT
     }
 }
 
-impl<const SORTED: bool> ProfilePrint for IdListLazy<'_, SORTED> {
+impl<'query, Rf: Ref, const SORTED: bool> ProfilePrint for RawIdListLazy<'query, Rf, SORTED> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         self.inner.print_profile(map, ctx);
     }

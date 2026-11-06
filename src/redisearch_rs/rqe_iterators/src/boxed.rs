@@ -105,7 +105,14 @@ pub trait RQEIteratorBoxed<'index>: RQEIterator<'index> + 'index {
 /// That is why this trait carries `'query` instead of a `'static` bound: a
 /// suspended iterator holds no live *index* references, but may still borrow
 /// query-pipeline data for `'query`.
-pub trait RQESuspendedIterator<'query> {
+///
+/// It is also [`ProfilePrint`](crate::profile_print::ProfilePrint) so
+/// `FT.PROFILE` introspection can print a suspended iterator's profile tree
+/// without resuming it (see [`crate::interop::RQEIteratorWrapper`]'s
+/// `print_profile` callback). The profile fields (counters, wall-time, child
+/// accessors) are stored on the mode-independent `Raw…` structs, so the same
+/// `ProfilePrint` impl serves the active and suspended counterparts.
+pub trait RQESuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     /// The active counterpart this iterator resumes into, parameterised by
     /// the lifetime of the freshly re-acquired read guard.
     ///
@@ -164,10 +171,8 @@ pub trait RQESuspendedIterator<'query> {
     /// resuming. Used by FFI introspection (`FT.PROFILE` printing) which
     /// is called after the iterator has been suspended at the unlock site.
     ///
-    /// The value is an estimate, so returning a snapshot from construction
-    /// is acceptable — the underlying invariant is that the FFI consumer
-    /// uses it for display only. Default returns 0 for iterators that do
-    /// not maintain a cached estimate.
+    /// The value is an estimate, so returning one cached before the suspend is
+    /// acceptable — the FFI consumer uses it for display only.
     fn num_estimated(&self) -> usize;
 }
 
@@ -186,7 +191,11 @@ pub trait RQEDynIterator<'index>: RQEIterator<'index> + 'index {
 /// As with [`RQEDynIterator`], implementers don't write this directly — the
 /// blanket bridge below produces it from any
 /// `T: RQESuspendedIterator`.
-pub trait RQEDynSuspendedIterator<'query> {
+///
+/// It is [`ProfilePrint`](crate::profile_print::ProfilePrint) (via the
+/// `RQESuspendedIterator: ProfilePrint` supertrait, forwarded by the blanket
+/// bridge) so a type-erased suspended child can print its profile.
+pub trait RQEDynSuspendedIterator<'query>: crate::profile_print::ProfilePrint {
     /// Type-erased counterpart of [`RQESuspendedIterator::resume`].
     fn resume<'index>(
         self: Box<Self>,
@@ -687,5 +696,22 @@ impl<'query> RQESuspendedIterator<'query> for TypeErasedRQESuspendedIterator<'qu
     #[inline(always)]
     fn num_estimated(&self) -> usize {
         self.0.num_estimated()
+    }
+}
+
+/// Forwarding [`crate::profile_print::ProfilePrint`] impl so
+/// [`TypeErasedRQESuspendedIterator`] satisfies the `ProfilePrint` bound
+/// required by the `RQESuspendedIterator: ProfilePrint` supertrait.
+///
+/// Delegates to the erased concrete suspended iterator's own `print_profile`
+/// through the [`RQEDynSuspendedIterator`] vtable, so `FT.PROFILE` reports the
+/// real iterator even when the tree is suspended at the unlock site.
+impl crate::profile_print::ProfilePrint for TypeErasedRQESuspendedIterator<'_> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        self.0.print_profile(map, ctx);
     }
 }

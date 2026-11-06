@@ -442,6 +442,35 @@ fn revalidate_is_a_noop_and_preserves_position() {
     assert!(matches!(it.read(), Ok(None)));
 }
 
+/// The iterator owns its materialized id list, so a suspend/resume cycle has
+/// nothing to re-derive: it must resume in place and pick up where it left off.
+#[test]
+fn suspend_and_resume_preserve_position() {
+    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
+
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let mut it = Box::new(plain(vec![1, 2, 3]));
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 1);
+    let num_estimated = RQEIterator::num_estimated(&*it);
+
+    let suspended = it.suspend();
+    assert_eq!(RQESuspendedIterator::last_doc_id(&*suspended), 1);
+    assert_eq!(
+        RQESuspendedIterator::num_estimated(&*suspended),
+        num_estimated
+    );
+
+    let guard = mock_ctx.spec_read();
+    let ResumeOutcome::Ok(mut it) = suspended.resume(&guard).expect("resume failed") else {
+        panic!("an iterator with nothing to re-derive must resume in place");
+    };
+    assert_eq!(RQEIterator::last_doc_id(&*it), 1);
+    assert_eq!(RQEIterator::num_estimated(&*it), num_estimated);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 2);
+    assert_eq!(it.read().unwrap().unwrap().doc_id, 3);
+    assert!(matches!(it.read(), Ok(None)));
+}
+
 /// An expired candidate must not survive in `result` when the scan's timeout check
 /// returns between iterations: `current` would then report a document the filter
 /// exists to hide, and disagree with `last_doc_id`.

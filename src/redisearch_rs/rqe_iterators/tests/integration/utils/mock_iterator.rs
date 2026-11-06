@@ -698,6 +698,13 @@ pub struct MockSuspended<const N: usize> {
     data: MockData,
 }
 
+// A wrapper that is suspended when C frees it drops this form, not `Mock`, so it has to count too.
+impl<const N: usize> Drop for MockSuspended<N> {
+    fn drop(&mut self) {
+        self.data.0.borrow_mut().drop_count += 1;
+    }
+}
+
 // Compile-time proof that the `Mock` and `MockSuspended` are layout-identical.
 const _: () = {
     use std::mem::offset_of;
@@ -1192,4 +1199,24 @@ fn mock_vec_upholds_current_contract() {
     let mut it = MockVec::new(CONTRACT_DOCS.to_vec());
     assert_eq!(assert_current_contract(&mut it), CONTRACT_DOCS);
     assert_current_contract_via_skip_to(&mut it, 81);
+}
+
+impl<const N: usize> rqe_iterators::profile_print::ProfilePrint for MockSuspended<N> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"MOCK");
+    }
+}
+
+impl rqe_iterators::profile_print::ProfilePrint for MockVecSuspended {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        _ctx: &mut rqe_iterators::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        map.kv_simple_string(c"Type", c"MOCK VEC");
+    }
 }

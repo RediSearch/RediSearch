@@ -935,8 +935,12 @@ impl<'index, S: ScoreSource + 'index, C: RQEIterator<'index> + 'index, O: ScoreO
     }
 }
 
-impl<'index, S: ScoreSource + 'index, I: RQEIteratorBoxed<'index>, O: ScoreOrdering + 'index>
-    RQEIteratorBoxed<'index> for TopKIterator<'index, S, I, O>
+impl<
+    'index,
+    S: ScoreSource + TopKSourceProfile + 'index,
+    I: RQEIteratorBoxed<'index>,
+    O: ScoreOrdering + 'index,
+> RQEIteratorBoxed<'index> for TopKIterator<'index, S, I, O>
 {
     type Suspended = RawTopK<'index, Suspended, S, I::Suspended, O>;
 
@@ -997,8 +1001,12 @@ impl<'index, S: ScoreSource + 'index, I: RQEIteratorBoxed<'index>, O: ScoreOrder
     }
 }
 
-impl<'query, S: ScoreSource + 'query, IS: RQESuspendedIterator<'query>, O: ScoreOrdering + 'query>
-    RQESuspendedIterator<'query> for RawTopK<'query, Suspended, S, IS, O>
+impl<
+    'query,
+    S: ScoreSource + TopKSourceProfile + 'query,
+    IS: RQESuspendedIterator<'query>,
+    O: ScoreOrdering + 'query,
+> RQESuspendedIterator<'query> for RawTopK<'query, Suspended, S, IS, O>
 {
     type Resumed<'index>
         = RawTopK<'index, Active<'index>, S, IS::Resumed<'index>, O>
@@ -1330,6 +1338,10 @@ impl<S: ScoreSource> Drop for AdhocScope<'_, S> {
 
 /// Source-side profile rendering. The blanket [`ProfilePrint`] impl below
 /// forwards [`TopKIterator`] profile output to the source.
+///
+/// A suspended [`TopKIterator`] must print its profile too, so every source it
+/// is built over needs this. The default renders a plain `VECTOR` leaf, which
+/// suffices for sources that never reach `FT.PROFILE`.
 pub trait TopKSourceProfile {
     /// Render this source's profile entry.
     ///
@@ -1348,13 +1360,16 @@ pub trait TopKSourceProfile {
         map: &mut MapBuilder<'_>,
         ctx: &mut ProfilePrintCtx<'_>,
         child: Option<&dyn ProfilePrint>,
-    );
+    ) {
+        let _ = (mode, metrics, child);
+        ctx.print_leaf(c"VECTOR", map);
+    }
 }
 
-impl<'index, S, C, O> ProfilePrint for TopKIterator<'index, S, C, O>
+impl<'query, Rf: Ref, S, I, O> ProfilePrint for RawTopK<'query, Rf, S, I, O>
 where
-    S: ScoreSource + TopKSourceProfile + 'index,
-    C: RQEIterator<'index> + ProfilePrint + 'index,
+    S: ScoreSource + TopKSourceProfile,
+    I: ProfilePrint,
     O: ScoreOrdering,
 {
     fn print_profile(&self, map: &mut MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
@@ -1364,7 +1379,7 @@ where
     }
 }
 
-impl<'index, S: ScoreSource + 'index, O: ScoreOrdering + 'index>
+impl<'index, S: ScoreSource + TopKSourceProfile + 'index, O: ScoreOrdering + 'index>
     rqe_iterators::interop::ProfileChildren<'index>
     for TopKIterator<'index, S, rqe_iterators::c2rust::CRQEIterator, O>
 {
@@ -1408,6 +1423,8 @@ mod tests {
     /// its record borrows its offsets from [`INDEX_OFFSETS`] instead of owning a
     /// copy, so `carries_no_index_borrow` rejects it.
     struct IndexBorrowingSource;
+
+    impl crate::TopKSourceProfile for IndexBorrowingSource {}
 
     impl ScoreSource for IndexBorrowingSource {
         fn release_index_handles(&mut self) {
@@ -1476,6 +1493,8 @@ mod tests {
     struct HandleTrackingSource {
         released: std::rc::Rc<std::cell::Cell<bool>>,
     }
+
+    impl crate::TopKSourceProfile for HandleTrackingSource {}
 
     impl ScoreSource for HandleTrackingSource {
         type Batch = OneDocBatch;

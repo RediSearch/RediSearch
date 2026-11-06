@@ -78,12 +78,12 @@ pub struct RawInvIndIterator<'query, Rf: Ref, R, E = NoOpChecker, RA = R> {
     /// is immutable for the iterator's lifetime.
     flags: IndexFlags,
 
-    /// Cached count of unique documents in the underlying index, snapshotted at
-    /// construction time from `reader.unique_docs()`. Kept here so introspection
-    /// (e.g. `FT.PROFILE` estimate printing) can read the estimate regardless of
-    /// `Rf` — the live reader's `unique_docs()` is only callable in the
-    /// [`Active`] instantiation, but the snapshot is a stable estimate that both
-    /// modes can report.
+    /// Count of unique documents in the underlying index, as last read from the
+    /// live reader: at construction and again at every
+    /// [`suspend`](RQEIteratorBoxed::suspend), while the read lock is still held. The
+    /// live reader is only callable in the [`Active`] instantiation, so this is
+    /// what the suspended form reports, and refreshing it on suspend keeps the
+    /// estimate from jumping back to its construction-time value across an unlock.
     num_docs: u64,
 
     /// The implementation of the [`read`](RQEIterator::read) method.
@@ -175,11 +175,21 @@ impl<'query, Rf: Ref, R, E, RA> RawInvIndIterator<'query, Rf, R, E, RA> {
 
     /// Read the cached unique-document count regardless of mode.
     ///
-    /// Snapshotted at construction from `reader.unique_docs()`. Feeds
-    /// [`RQESuspendedIterator::num_estimated`] on the suspended side, where the
-    /// live reader is unavailable.
+    /// Feeds [`RQESuspendedIterator::num_estimated`] on the suspended side, where
+    /// the live reader is unavailable.
     pub(crate) const fn num_docs_field(&self) -> u64 {
         self.num_docs
+    }
+
+    /// Returns the current query term bytes regardless of mode, if available.
+    ///
+    /// The term is stored in the iterator's result and is set during
+    /// construction; it is query-pipeline data, so it stays readable while the
+    /// iterator is suspended and `FT.PROFILE` can print it at the unlock site.
+    /// Returns [`None`] if the result is not a term result or the term has no
+    /// string representation.
+    pub fn query_term_bytes(&self) -> Option<&[u8]> {
+        self.result.as_term()?.query_term()?.as_bytes()
     }
 }
 
@@ -188,6 +198,15 @@ where
     R: IndexReader<'index>,
     E: ExpirationChecker,
 {
+    /// Refresh the cached unique-document count from the live reader, so the
+    /// suspended form reports the estimate the active one last did.
+    ///
+    /// Every iterator built on this one calls it from its own `suspend` before
+    /// weakening the reader.
+    pub(crate) fn refresh_num_docs(&mut self) {
+        self.num_docs = self.reader.unique_docs();
+    }
+
     /// Creates a new inverted index iterator with the given expiration checker.
     pub fn new(reader: R, result: RSIndexResult<'static>, expiration_checker: E) -> Self {
         // no need to manually skip duplicates if there is none in the II.
@@ -222,15 +241,6 @@ where
             read_impl,
             skip_to_impl,
         }
-    }
-
-    /// Returns the current query term bytes, if available.
-    ///
-    /// The term is stored in the iterator's result and is set during
-    /// construction. Returns [`None`] if the result is not a term result
-    /// or the term has no string representation.
-    pub fn query_term_bytes(&self) -> Option<&[u8]> {
-        self.result.as_term()?.query_term()?.as_bytes()
     }
 
     /// Default read implementation, without any additional filtering.
@@ -728,7 +738,8 @@ where
     // active reader), so `read_impl`/`skip_to_impl` keep an identical type.
     type Suspended = RawInvIndIterator<'index, Suspended, R::Suspended, E, R>;
 
-    fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
+    fn suspend(mut self: Box<Self>) -> Box<Self::Suspended> {
+        self.refresh_num_docs();
         // Reuse the same allocation so external pointers into the iterator
         // interior (composite aggregate results) stay valid across the cycle.
         let active: *mut Self = Box::into_raw(self);
@@ -827,7 +838,21 @@ where
 
     fn num_estimated(&self) -> usize {
         // The live reader's `unique_docs()` is unavailable once weakened, so
-        // return the snapshot cached at construction (see `num_docs`).
+        // return the count cached at suspend (see `num_docs`).
         self.num_docs_field() as usize
+    }
+}
+
+// `RawInvIndIterator` is always wrapped by a typed iterator (`Numeric`, `Term`,
+// `Tag`, `Missing`, `Wildcard`) that prints the real `FT.PROFILE` type; this
+// impl exists only to satisfy the `RQEIterator: ProfilePrint` supertrait and is
+// not reached in practice.
+impl<Rf: Ref, R, E, RA> crate::profile_print::ProfilePrint for RawInvIndIterator<'_, Rf, R, E, RA> {
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"INVERTED INDEX", map);
     }
 }

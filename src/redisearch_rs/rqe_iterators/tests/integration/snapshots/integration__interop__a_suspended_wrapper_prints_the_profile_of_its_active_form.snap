@@ -1,0 +1,5 @@
+---
+source: rqe_iterators/tests/integration/interop.rs
+expression: suspended
+---
+{"Type": "MOCK"}
