@@ -24,8 +24,15 @@
 #include "redisearch.h"
 #include "result_processor.h"
 #include "debug_commands.h"
+#include "indexes.h"
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
+// Set once at load, read by GC jobs without synchronisation: no job runs before it is set.
+static bool gcShutdownWithoutGIL_g = false;
+// Set by GC_ThreadPoolDestroy, polled by GC jobs waiting in GC_LockGIL.
+static bool gcShuttingDown_g = false;
+// How long GC_LockGIL sleeps between attempts.
+#define GC_LOCK_GIL_POLL_US 100
 // GCSchedFlags bits seeded into every GCContext created from here on, so one created while a
 // consistency window is already open starts paused; live ones are paused and resumed by
 // walking IndexSpec->gc. Guarded by the GIL.
@@ -175,6 +182,13 @@ static void taskCallback(void* data) {
     SyncPoint_Wait(SYNC_POINT_GC_BEFORE_REARM_POST);
 #endif
 
+    if (GC_ShuttingDown()) {
+      // The event loop never runs the re-arm again, so this run owns `gc`: every spec was
+      // unlinked before the pool join began, and RUN_PENDING kept the drop from claiming it.
+      gc->callbacks.onTerm(gc->gcCtx);
+      rm_free(gc);
+      return;
+    }
     RedisModule_EventLoopAddOneShot(rearmOneShotCb, gc);
   } else {
     // The index was freed. RUN_PENDING is still set for this run, so no timer is armed and no
@@ -363,16 +377,50 @@ void GC_ThreadPoolStart() {
   }
 }
 
+void GC_EnableShutdownWithoutGIL(void) {
+  gcShutdownWithoutGIL_g = true;
+}
+
+bool GC_ShuttingDown(void) {
+  return RS_AtomicBoolLoadRelaxed(&gcShuttingDown_g);
+}
+
+bool GC_LockGIL(RedisModuleCtx* ctx) {
+  if (!gcShutdownWithoutGIL_g) {
+    RedisModule_ThreadSafeContextLock(ctx);
+    return true;
+  }
+  // A blocking lock could only be released by the main thread unlocking, which the join in
+  // GC_ThreadPoolDestroy cannot do -- and it holds the GIL throughout, so no attempt below
+  // succeeds once the flag is set.
+  while (!GC_ShuttingDown()) {
+    if (RedisModule_ThreadSafeContextTryLock(ctx) == REDISMODULE_OK) {
+      return true;
+    }
+    usleep(GC_LOCK_GIL_POLL_US);
+  }
+  return false;
+}
+
 void GC_ThreadPoolDestroy() {
   if (gcThreadpool_g != NULL) {
     if (redisearch_thpool_paused(gcThreadpool_g)) {
       gcNewContextSchedFlags_g &= ~GC_SCHED_PAUSED;
       redisearch_thpool_resume_threads(gcThreadpool_g);
     }
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    redisearch_thpool_destroy(gcThreadpool_g);
+    if (gcShutdownWithoutGIL_g) {
+      // taskCallback frees its GC context on this flag, which is only its own once no spec can
+      // reach it.
+      RS_LOG_ASSERT(specDict_g == NULL, "GC pool destroyed while indexes are still registered");
+      RS_AtomicBoolStoreRelaxed(&gcShuttingDown_g, true);
+      redisearch_thpool_destroy(gcThreadpool_g);
+    } else {
+      // Lets a job blocked on the GIL finish, so the join can return.
+      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+      redisearch_thpool_destroy(gcThreadpool_g);
+      RedisModule_ThreadSafeContextLock(RSDummyContext);
+    }
     gcThreadpool_g = NULL;
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }
 

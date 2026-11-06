@@ -13,6 +13,7 @@
 #include <features.h>  // IWYU pragma: keep
 #endif
 #include <stdbool.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "redismodule.h"
@@ -131,6 +132,10 @@ int RediSearch_Init(RedisModuleCtx *ctx) {
   Indexes_Init(ctx);
 
   GC_ThreadPoolStart();
+  // Full cleanup runs from the shutdown event, which SHUTDOWN fires from inside the command.
+  if (getenv("RS_GLOBAL_DTORS")) {
+    GC_EnableShutdownWithoutGIL();
+  }
 
   CleanPool_ThreadPoolStart();
   DO_LOG("notice", "Initialized thread pools!");

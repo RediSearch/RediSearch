@@ -170,7 +170,19 @@ static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
 }
 
 void GC_ThreadPoolStart();
+// Joins the GC pool and frees it. Without GC_EnableShutdownWithoutGIL it releases the GIL for
+// the join, which Redis allows only outside a command.
 void GC_ThreadPoolDestroy();
+// Lets GC_ThreadPoolDestroy run where the main thread cannot release the GIL: a shutdown event
+// fired from inside the SHUTDOWN command. From here on GC jobs take the GIL through GC_LockGIL by
+// polling, so the join can release them with a flag instead. For full cleanup (RS_GLOBAL_DTORS)
+// only, and called before any GC job runs.
+void GC_EnableShutdownWithoutGIL(void);
+// Takes the GIL for a GC job. Returns false, without it, only once GC_ThreadPoolDestroy has begun
+// under GC_EnableShutdownWithoutGIL; the job must then give up the cycle.
+bool GC_LockGIL(RedisModuleCtx* ctx);
+// True once GC_ThreadPoolDestroy has begun under GC_EnableShutdownWithoutGIL.
+bool GC_ShuttingDown(void);
 // Stop the GC pool from pulling new jobs. Returns immediately; use GC_ThreadPoolWaitForPause
 // to wait out the ones already running.
 void GC_ThreadPoolPause(void);
