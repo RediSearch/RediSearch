@@ -16,6 +16,7 @@
 #include <time.h>
 
 #include "fork_cycle.h"
+#include "gc.h"
 #include "index_gc_ffi.h"
 #include "time_sample.h"
 #include "module.h"
@@ -95,10 +96,11 @@ static long long forkBudgetLeftMs(const GCForcedRun *forced) {
 // it too, so forking on the strength of an earlier check could start a cycle for a caller that
 // has already been answered.
 //
-// The GIL must be held on entry and is held on return; it is released only while waiting, both
-// because the child being waited on needs the main thread and because its exit is what makes an
-// earlier isOutOfMemory() answer stale -- hence the guard inside the loop.
-static pid_t forkGCChild(RedisModuleCtx *ctx, GCForcedRun *forced) {
+// The GIL must be held on entry and is held on return unless `*holdsGIL` comes back false, which
+// only GC_LockGIL failing at shutdown does. It is released only while waiting, both because the
+// child being waited on needs the main thread and because its exit is what makes an earlier
+// isOutOfMemory() answer stale -- hence the guard inside the loop.
+static pid_t forkGCChild(RedisModuleCtx *ctx, GCForcedRun *forced, bool *holdsGIL) {
   while (true) {
     long long budget_left = forced ? forkBudgetLeftMs(forced) : -1;
     if (budget_left == 0) {
@@ -139,7 +141,11 @@ static pid_t forkGCChild(RedisModuleCtx *ctx, GCForcedRun *forced) {
 #endif
 
     nanosleep(&delay, NULL);
-    RedisModule_ThreadSafeContextLock(ctx);
+    if (!GC_LockGIL(ctx)) {
+      *holdsGIL = false;
+      forced->outcome = GC_FORCED_RUN_NO_FORK;
+      return -1;
+    }
   }
 }
 
@@ -172,15 +178,23 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
 #endif
 
   // We need to acquire the GIL to use the fork api
-  RedisModule_ThreadSafeContextLock(ctx);
-
-  cpid = forkGCChild(ctx, forced);
+  bool holdsGIL = GC_LockGIL(ctx);
+  if (holdsGIL) {
+    cpid = forkGCChild(ctx, forced, &holdsGIL);
+  } else {
+    cpid = -1;
+    if (forced) {
+      forced->outcome = GC_FORCED_RUN_NO_FORK;
+    }
+  }
 
   if (cpid == -1) {
     gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRetryInterval;
     IndexSpecRef_Release(early_check);
 
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    if (holdsGIL) {
+      RedisModule_ThreadSafeContextUnlock(ctx);
+    }
 
     close(gc->pipe_read_fd);
     close(gc->pipe_write_fd);
@@ -230,9 +244,13 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
     // KillForkChild must be called when holding the GIL
     // otherwise it might cause a pipe leak and eventually run
     // out of file descriptor
-    RedisModule_ThreadSafeContextLock(ctx);
-    int kill_rv = RedisModule_KillForkChild(cpid);
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    int kill_rv = REDISMODULE_ERR;
+    if (GC_LockGIL(ctx)) {
+      kill_rv = RedisModule_KillForkChild(cpid);
+      RedisModule_ThreadSafeContextUnlock(ctx);
+    }
+    // Without the GIL we are at shutdown, where Redis has already terminated its module fork
+    // child, leaving only the reap.
     if (kill_rv != REDISMODULE_OK) {
       reap_child_blocking(ctx, cpid, RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec);
     }
