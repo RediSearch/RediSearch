@@ -53,6 +53,45 @@ impl Deref for TrieTerm {
     }
 }
 
+/// A [`TrieTerm`] borrowed from a buffer a trie walk reuses, so visiting a term
+/// allocates nothing until the caller keeps it with [`Self::to_term`].
+#[derive(Clone, Copy, Debug)]
+pub struct TrieTermRef<'a> {
+    bytes: &'a [u8],
+}
+
+impl<'a> TrieTermRef<'a> {
+    /// Borrow `bytes` as a term without validating them.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure `bytes` satisfies the
+    /// [validity invariants](TrieTerm#validity-invariants).
+    pub(crate) const unsafe fn from_bytes_unchecked(bytes: &'a [u8]) -> Self {
+        Self { bytes }
+    }
+
+    /// Return the term's byte representation.
+    pub const fn as_bytes(&self) -> &'a [u8] {
+        self.bytes
+    }
+
+    /// Copy the term into an owned [`TrieTerm`].
+    pub fn to_term(&self) -> TrieTerm {
+        // SAFETY: `self` upholds the validity invariants, and a copy of its bytes
+        // is the same byte sequence.
+        unsafe { TrieTerm::from_bytes_unchecked(self.bytes.into()) }
+    }
+}
+
+impl Deref for TrieTermRef<'_> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.bytes
+    }
+}
+
 /// A lowercased wildcard pattern, in both encodings the wildcard walks need.
 ///
 /// The lowercasing is the *caller's* job and is not checked here. A pattern

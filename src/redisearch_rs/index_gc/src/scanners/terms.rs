@@ -13,6 +13,7 @@
 use std::{
     borrow::Cow,
     io::{self, Read, Write},
+    ops::ControlFlow,
 };
 
 use c_trie::TrieTerm;
@@ -80,6 +81,64 @@ pub fn collect_terms(
     }
 
     serialize(writer, None::<TermEntry<&[u8]>>)
+}
+
+/// Run the GC scan of `term`'s inverted index.
+///
+/// Returns `None` when the term has no inverted index, the scan found nothing
+/// to collect, or the scan failed; a failed scan is retried on the next cycle.
+pub fn scan_term(spec: &IndexSpecReadGuard, term: &[u8]) -> Option<GcScanDelta> {
+    let ii = spec.keys_dict().fetch(term)?;
+    ii.scan_gc(|id| spec.doc_exists(id)).ok().flatten()
+}
+
+/// Where a [`scan_terms_after`] walk resumes: the last term it visited.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct TermsCursor {
+    last: Vec<ffi::rune>,
+    /// The term being visited: `last` bounds the walk while it runs, so the walk
+    /// writes here and the two swap once it ends, each keeping its capacity.
+    next: Vec<ffi::rune>,
+    /// Scratch for the visited term's bytes, kept so the walk reuses one buffer.
+    key: Vec<u8>,
+}
+
+/// Scan terms in lexicographic order, starting strictly after `cursor`, until
+/// `should_stop` returns `true` after a term or no term is left.
+///
+/// Appends each delta, with its term, to `found`, and moves `cursor` past every
+/// term visited, so a later call resumes after them even if the trie changed
+/// in between. Returns whether `should_stop` ended the walk, in which case
+/// terms may remain; a call after the last term returns `false`.
+pub fn scan_terms_after(
+    spec: &IndexSpecReadGuard,
+    cursor: &mut TermsCursor,
+    mut should_stop: impl FnMut() -> bool,
+    found: &mut Vec<(TrieTerm, GcScanDelta)>,
+) -> bool {
+    let mut stopped = false;
+    let mut visited = false;
+    let TermsCursor { last, next, key } = cursor;
+    spec.terms().visit_after(last, key, |runes, term| {
+        visited = true;
+        next.clear();
+        next.extend_from_slice(runes);
+        // Most terms are clean, so only a dirty one gets its own copy of the key.
+        if let Some(delta) = scan_term(spec, &term) {
+            found.push((term.to_term(), delta));
+        }
+
+        if should_stop() {
+            stopped = true;
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    });
+    if visited {
+        std::mem::swap(last, next);
+    }
+    stopped
 }
 
 /// Decode one terms message from `reader`.
