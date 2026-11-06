@@ -31,7 +31,9 @@ use crate::{
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
-use super::{InvIndIterator, core::RawInvIndIterator, core::ResumeStatus};
+use super::{
+    InvIndIterator, core::RawInvIndIterator, core::ResumeStatus, core::max_visible_doc_id,
+};
 
 /// An iterator over documents that are missing a specific field, parameterised
 /// over a [`Ref`] mode. See [`Missing`] for the [`Active`] instantiation that
@@ -155,6 +157,9 @@ where
     /// `field_index` is the index of the field in `spec.fields` whose missing
     /// documents inverted index this iterator reads from.
     ///
+    /// The iterator ends at `context`'s
+    /// [`maxVisibleDocId`](ffi::RedisSearchCtx::maxVisibleDocId); see [`InvIndIterator::new`].
+    ///
     /// # Safety
     ///
     /// 1. `context` must point to a valid [`RedisSearchCtx`].
@@ -207,7 +212,13 @@ where
         };
 
         Self {
-            it: InvIndIterator::new(reader, result, expiration_checker),
+            it: InvIndIterator::new(
+                reader,
+                result,
+                expiration_checker,
+                // SAFETY: pre-condition 1 guarantees `context` is valid.
+                max_visible_doc_id(unsafe { context.as_ref() }),
+            ),
             field_index,
             field_name,
         }

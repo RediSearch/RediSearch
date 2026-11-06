@@ -13,6 +13,7 @@ use criterion::{BenchmarkGroup, Criterion, measurement::Measurement};
 use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
 use index_result::RSIndexResult;
 use inverted_index::IndexReader;
+use rqe_core::DocId;
 use rqe_iterators::{FieldExpirationChecker, RQEIterator, SkipToOutcome, inverted_index::Numeric};
 use rqe_iterators_test_utils::TestContext;
 
@@ -204,7 +205,7 @@ impl NumericBencher {
                 };
 
                 // SAFETY: nothing writes to the index while the iterator lives.
-                let mut it = unsafe { Numeric::new(reader, checker, None, None, None) };
+                let mut it = unsafe { Numeric::new(reader, checker, None, None, None, DocId::MAX) };
 
                 while let Ok(Some(current)) = it.read() {
                     black_box(current);
@@ -239,7 +240,7 @@ impl NumericBencher {
                 };
 
                 // SAFETY: nothing writes to the index while the iterator lives.
-                let mut it = unsafe { Numeric::new(reader, checker, None, None, None) };
+                let mut it = unsafe { Numeric::new(reader, checker, None, None, None, DocId::MAX) };
 
                 while let Ok(Some(outcome)) = it.skip_to(it.last_doc_id() + SKIP_TO_STEP) {
                     match outcome {
