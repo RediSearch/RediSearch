@@ -45,8 +45,6 @@ if not CODE_COVERAGE and SANITIZER == '' and SHORT_READ_FULL_TEST:
     RDBS.extend(RDBS_COMPATIBILITY)
     RDBS_EXPECTED_INDICES.append(ExpectedIndex(1, 'idx', [1000]))
 
-LOCAL_RDBS_DIR = None # '/tmp'
-
 def rand_name(k):
     # rand alphabetic string with between 2 to k chars
     return ''.join([chr(random.randint(ord('a'), ord('z'))) for _ in range(0, random.randint(2, max(2, k)))])
@@ -93,8 +91,6 @@ def create_indices(env, rdbFileName, idxNameStem, isHash, isJson, num_geometry_k
     zipFilePath = dbCopyFilePath + '.zip'
     with zipfile.ZipFile(zipFilePath, 'w') as db_zip:
         db_zip.write(dbFilePath, dbFileName)
-    if LOCAL_RDBS_DIR:
-        shutil.copyfile(zipFilePath, os.path.join(LOCAL_RDBS_DIR, os.path.basename(zipFilePath)))
 
 def get_identifier(name, isHash):
     return '$.' + name if not isHash else name
