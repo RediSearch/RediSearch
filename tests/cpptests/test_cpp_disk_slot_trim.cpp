@@ -12,6 +12,8 @@
 #include "geometry/geometry_api.h"
 #include "slot_cleanup.h"
 #include "slot_ranges.h"
+#include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <exception>
 #include <functional>
@@ -26,6 +28,7 @@ extern "C" {
 #include "disk_indexer.h"
 #include "doc_id_meta.h"
 #include "forward_index.h"
+#include "indexer.h"
 #include "search_disk.h"
 #include "vector_index.h"
 #include "geometry_index.h"
@@ -48,20 +51,21 @@ struct TrimState {
   std::function<void(size_t)> beforeBatch;
   std::function<void()> beforeBackendClose;
   RedisModuleCmdFunc forceGC = nullptr;
-  RedisModuleEventCallback persistenceEvent = nullptr, sstEvent = nullptr;
+  RedisModuleEventCallback persistenceEvent = nullptr, sstEvent = nullptr, cronEvent = nullptr;
   size_t windowsOpened = 0, windowsClosed = 0, flushes = 0;
   bool lastReopenGate = false;
 } state;
 
-class PersistenceEventHooks {
+class ServerEventHooks {
   decltype(RedisModule_SubscribeToServerEvent) subscribe = RedisModule_SubscribeToServerEvent;
   decltype(RedisModule_GetContextFlags) flags = RedisModule_GetContextFlags;
 
  public:
-  PersistenceEventHooks() {
+  ServerEventHooks() {
     RedisModule_GetContextFlags = [](RedisModuleCtx *) { return REDISMODULE_CTX_FLAGS_SST_RDB; };
     RedisModule_SubscribeToServerEvent = [](RedisModuleCtx *, RedisModuleEvent event,
                                             RedisModuleEventCallback callback) {
+      if (event.id == RedisModuleEvent_CronLoop.id) state.cronEvent = callback;
       if (event.id == RedisModuleEvent_Persistence.id) state.persistenceEvent = callback;
       if (event.id == RedisModuleEvent_SSTReplication.id) state.sstEvent = callback;
       return REDISMODULE_OK;
@@ -70,7 +74,7 @@ class PersistenceEventHooks {
     RedisModule_SubscribeToServerEvent = subscribe;
   }
 
-  ~PersistenceEventHooks() {
+  ~ServerEventHooks() {
     if (state.persistenceEvent) {
       state.persistenceEvent(RSDummyContext, RedisModuleEvent_Persistence,
                              REDISMODULE_SUBEVENT_PERSISTENCE_FAILED, nullptr);
@@ -94,7 +98,7 @@ class DiskSlotTrimTest : public ::testing::Test {
   RedisSearchDiskAPI api{};
   RedisSearchDiskAPI *savedDisk = nullptr;
   RedisSearchDisk *savedDb = nullptr;
-  bool savedFlex = false;
+  bool savedFlex = false, savedLoading = false;
   StrongRef ref{};
   IndexSpec *spec = nullptr;
   IndexSpecSlotTrimJob *job = nullptr;
@@ -104,11 +108,14 @@ class DiskSlotTrimTest : public ::testing::Test {
   void SetUp() override {
     state = {};
 #ifdef ENABLE_ASSERT
+    SlotCleanup_FailNextDiskEnqueues(0);
 #endif
     SlotCleanup_StartDiskJobs();
     savedDisk = disk;
     savedDb = disk_db;
     savedFlex = isFlex;
+    savedLoading = g_isLoading;
+    g_isLoading = false;
     savedEnableGC = RSGlobalConfig.gcConfigParams.enableGC;
     RSGlobalConfig.gcConfigParams.enableGC = false;
     const char *args[] = {"SCHEMA",
@@ -225,6 +232,7 @@ class DiskSlotTrimTest : public ::testing::Test {
     if (cleanPoolStarted) CleanPool_Wait();
     SlotCleanup_StopDiskJobs();
 #ifdef ENABLE_ASSERT
+    SlotCleanup_FailNextDiskEnqueues(0);
 #endif
     if (job) IndexSpec_FreeDiskSlotTrim(job);
     SlotCleanup_StartDiskJobs();
@@ -237,6 +245,7 @@ class DiskSlotTrimTest : public ::testing::Test {
     disk = savedDisk;
     disk_db = savedDb;
     isFlex = savedFlex;
+    g_isLoading = savedLoading;
     if (ref.rm) Indexes_RemoveSpecFromGlobals(ref, false);
     RSGlobalConfig.gcConfigParams.enableGC = savedEnableGC;
   }
@@ -1063,6 +1072,179 @@ TEST_F(DiskSlotTrimTest, ShutdownWaitsForTheCurrentBatchAndPreventsAnother) {
   EXPECT_EQ(state.applyCalls, 1u);
 }
 
+TEST_F(DiskSlotTrimTest, AutomaticCleanupRequeuesBehindOtherCleanPoolWork) {
+  startCleanPool();
+  state.batchCount = 2;
+  state.maxDocId = 8;
+  spec->stats.scoring.numDocuments = 8;
+  spec->stats.scoring.totalDocsLen = 70;
+  bool observed = false;
+  struct Observer {
+    IndexSpec *spec;
+    bool *observed;
+  } observer{spec, &observed};
+  state.beforeBatch = [&](size_t batch) {
+    if (batch != 0) return;
+    EXPECT_EQ(CleanPool_AddWork(
+                  [](void *arg) {
+                    auto *observer = static_cast<Observer *>(arg);
+                    EXPECT_EQ(state.batchesApplied, 1u);
+                    EXPECT_EQ(observer->spec->stats.scoring.numDocuments, 5u);
+                    *observer->observed = true;
+                  },
+                  &observer),
+              0);
+  };
+  auto *slots = static_cast<RedisModuleSlotRangeArray *>(rm_malloc(SlotRangeArray_SizeOf(1)));
+  slots->num_ranges = 1;
+  slots->ranges[0] = {0, 100};
+  Indexes_DeleteSlots(slots);
+  rm_free(slots);
+  CleanPool_Wait();
+  EXPECT_TRUE(observed);
+  EXPECT_EQ(state.registrations, 1u);
+  EXPECT_EQ(state.applyCalls, 2u);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  EXPECT_FALSE(pendingTrim());
+}
+
+#ifdef ENABLE_ASSERT
+TEST_F(DiskSlotTrimTest, RegisteredCronWaitsForInitializationAndLoadingBeforeRetrying) {
+  ServerEventHooks hooks;
+  ASSERT_NE(state.cronEvent, nullptr);
+  startCleanPool();
+  SlotCleanup_FailNextDiskEnqueues(1);
+  scheduleAutomaticTrim();
+  CleanPool_Wait();
+  ASSERT_TRUE(state.logicalPending);
+  ASSERT_EQ(state.applyCalls, 0u);
+
+  auto *initializedDb = disk_db;
+  disk_db = nullptr;
+  state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
+  CleanPool_Wait();
+  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_TRUE(pendingTrim());
+
+  disk_db = initializedDb;
+  g_isLoading = true;
+  state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
+  CleanPool_Wait();
+  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_TRUE(state.logicalPending);
+
+  g_isLoading = false;
+  state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
+  CleanPool_Wait();
+  EXPECT_EQ(state.registrations, 1u);
+  EXPECT_EQ(state.applyCalls, 1u);
+  EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_FALSE(state.logicalPending);
+  EXPECT_FALSE(pendingTrim());
+}
+
+TEST_F(DiskSlotTrimTest, RejectedInitialEnqueueRetainsIntentUntilCronRetry) {
+  startCleanPool();
+  const auto caller = std::this_thread::get_id();
+  state.beforeBatch = [caller](size_t batch) {
+    EXPECT_NE(std::this_thread::get_id(), caller);
+    EXPECT_EQ(batch, 0u);
+  };
+  SlotCleanup_FailNextDiskEnqueues(1);
+  scheduleAutomaticTrim();
+  CleanPool_Wait();
+
+  EXPECT_EQ(state.registrations, 1u);
+  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_EQ(state.batchApplyCalls, 0u);
+  EXPECT_EQ(state.batchesApplied, 0u);
+  EXPECT_TRUE(state.logicalPending);
+  EXPECT_TRUE(pendingTrim());
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 40u);
+  EXPECT_EQ(pendingDeletes(), 0u);
+
+  SlotCleanup_RetryDiskJobs();
+  CleanPool_Wait();
+  EXPECT_EQ(state.registrations, 1u);
+  EXPECT_EQ(state.applyCalls, 1u);
+  EXPECT_EQ(state.batchApplyCalls, 1u);
+  EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_FALSE(state.logicalPending);
+  EXPECT_FALSE(pendingTrim());
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
+  EXPECT_EQ(pendingDeletes(), 3u);
+
+  SlotCleanup_RetryDiskJobs();
+  CleanPool_Wait();
+  EXPECT_EQ(state.applyCalls, 1u);
+  EXPECT_EQ(pendingDeletes(), 3u);
+}
+
+TEST_F(DiskSlotTrimTest, RejectedRequeueRetainsAppliedProgressUntilCronRetry) {
+  startCleanPool();
+  state.batchCount = 2;
+  state.maxDocId = 8;
+  spec->stats.scoring.numDocuments = 8;
+  spec->stats.scoring.totalDocsLen = 70;
+  const auto caller = std::this_thread::get_id();
+  state.beforeBatch = [caller](size_t batch) {
+    EXPECT_NE(std::this_thread::get_id(), caller);
+    if (batch == 0) SlotCleanup_FailNextDiskEnqueues(1);
+  };
+  scheduleAutomaticTrim();
+  CleanPool_Wait();
+
+  EXPECT_EQ(state.registrations, 1u);
+  EXPECT_EQ(state.applyCalls, 1u);
+  EXPECT_EQ(state.batchApplyCalls, 1u);
+  EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_TRUE(state.logicalPending);
+  EXPECT_TRUE(pendingTrim());
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 49u);
+  EXPECT_EQ(pendingDeletes(), 3u);
+
+  SlotCleanup_RetryDiskJobs();
+  CleanPool_Wait();
+  EXPECT_EQ(state.registrations, 1u);
+  EXPECT_EQ(state.applyCalls, 2u);
+  EXPECT_EQ(state.batchApplyCalls, 2u);
+  EXPECT_EQ(state.batchesApplied, 2u);
+  EXPECT_FALSE(state.logicalPending);
+  EXPECT_FALSE(pendingTrim());
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 28u);
+  EXPECT_EQ(pendingDeletes(), 6u);
+
+  SlotCleanup_RetryDiskJobs();
+  CleanPool_Wait();
+  EXPECT_EQ(state.applyCalls, 2u);
+  EXPECT_EQ(pendingDeletes(), 6u);
+}
+#endif
+
+TEST_F(DiskSlotTrimTest, StorageFailureWaitsForCronBeforeRetrying) {
+  startCleanPool();
+  state.readAccepted = false;
+  auto *slots = static_cast<RedisModuleSlotRangeArray *>(rm_malloc(SlotRangeArray_SizeOf(1)));
+  slots->num_ranges = 1;
+  slots->ranges[0] = {0, 100};
+  Indexes_DeleteSlots(slots);
+  rm_free(slots);
+  CleanPool_Wait();
+  EXPECT_EQ(state.applyCalls, 1u);
+  EXPECT_TRUE(pendingTrim());
+  EXPECT_TRUE(state.logicalPending);
+  state.readAccepted = true;
+  SlotCleanup_RetryDiskJobs();
+  CleanPool_Wait();
+  EXPECT_EQ(state.applyCalls, 2u);
+  EXPECT_FALSE(pendingTrim());
+  EXPECT_FALSE(state.logicalPending);
+}
+
 TEST_F(DiskSlotTrimTest, PausedWorkerDoesNotBeginAStorageScan) {
   SlotCleanup_PauseDiskJobs();
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
@@ -1070,6 +1252,177 @@ TEST_F(DiskSlotTrimTest, PausedWorkerDoesNotBeginAStorageScan) {
   EXPECT_TRUE(pendingTrim());
   SlotCleanup_ResumeDiskJobs();
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
+}
+
+TEST_F(DiskSlotTrimTest, CheckpointPauseDoesNotWaitForScanOrAllowItsBatchToApply) {
+  std::mutex mutex;
+  std::condition_variable progress;
+  bool entered = false, release = false;
+  state.beforeBatch = [&](size_t) {
+    std::unique_lock<std::mutex> guard(mutex);
+    entered = true;
+    progress.notify_all();
+    progress.wait(guard, [&] { return release; });
+  };
+  const SearchDiskSlotRange range{0, 100};
+  job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
+  ASSERT_NE(job, nullptr);
+  IndexSpecDiskSlotTrimResult result;
+  std::thread worker([&] { result = IndexSpec_RunDiskSlotTrim(job); });
+  {
+    std::unique_lock<std::mutex> guard(mutex);
+    EXPECT_TRUE(progress.wait_for(guard, std::chrono::seconds(10), [&] { return entered; }));
+  }
+  SlotCleanup_PauseDiskJobs();
+  {
+    std::lock_guard<std::mutex> guard(mutex);
+    release = true;
+    progress.notify_all();
+  }
+  worker.join();
+  EXPECT_EQ(result, INDEX_DISK_TRIM_RETRY);
+  EXPECT_EQ(state.batchApplyCalls, 0u);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
+  EXPECT_TRUE(pendingTrim());
+  EXPECT_TRUE(state.logicalPending);
+  state.beforeBatch = nullptr;
+  SlotCleanup_ResumeDiskJobs();
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
+  EXPECT_EQ(state.batchesApplied, 1u);
+}
+
+TEST_F(DiskSlotTrimTest, ResumeUsesBackendIntentAfterAWorkerHandleIsReleased) {
+  startCleanPool();
+  const SearchDiskSlotRange range{0, 100};
+  job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
+  ASSERT_NE(job, nullptr);
+  IndexSpec_FreeDiskSlotTrim(job);
+  job = nullptr;
+  IndexSpec_ResumeDiskSlotTrims(spec);
+  CleanPool_Wait();
+  EXPECT_EQ(state.registrations, 1u);
+  EXPECT_EQ(state.applyCalls, 1u);
+  EXPECT_FALSE(pendingTrim());
+}
+
+TEST_F(DiskSlotTrimTest, RestoreReinstallsTheSavedCutoffAndResumesWithoutRegistration) {
+  startCleanPool();
+  state.logicalPending = true;
+  state.maxDocId = 17;
+  state.ranges = {{7, 9}};
+  state.beforeBatch = [&](size_t) {
+    EXPECT_TRUE(pendingTrim(17, 7));
+    EXPECT_FALSE(pendingTrim(18, 7));
+    EXPECT_FALSE(pendingTrim(1, 10));
+  };
+  IndexSpec_ResumeDiskSlotTrims(spec);
+  CleanPool_Wait();
+  EXPECT_EQ(state.registrations, 0u);
+  EXPECT_EQ(state.applyCalls, 1u);
+  EXPECT_FALSE(state.logicalPending);
+  EXPECT_FALSE(pendingTrim(17, 7));
+}
+
+TEST_F(DiskSlotTrimTest, SuccessfulHotRestartKeepsCleanupPausedAfterSaveEnds) {
+  mockConsistencyWindows();
+  ServerEventHooks hooks;
+  ASSERT_NE(state.persistenceEvent, nullptr);
+  state.persistenceEvent(RSDummyContext, RedisModuleEvent_Persistence,
+                         REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START, nullptr);
+  EXPECT_EQ(state.windowsOpened, 1u);
+  EXPECT_EQ(state.flushes, 1u);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
+  EXPECT_EQ(state.applyCalls, 0u);
+
+  state.persistenceEvent(RSDummyContext, RedisModuleEvent_Persistence,
+                         REDISMODULE_SUBEVENT_PERSISTENCE_ENDED, nullptr);
+  EXPECT_EQ(state.windowsClosed, 1u);
+  EXPECT_FALSE(state.lastReopenGate);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
+  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_TRUE(state.logicalPending);
+  EXPECT_TRUE(pendingTrim());
+}
+
+TEST_F(DiskSlotTrimTest, FailedHotRestartSaveResumesCleanup) {
+  mockConsistencyWindows();
+  ServerEventHooks hooks;
+  ASSERT_NE(state.persistenceEvent, nullptr);
+  state.persistenceEvent(RSDummyContext, RedisModuleEvent_Persistence,
+                         REDISMODULE_SUBEVENT_PERSISTENCE_SYNC_RDB_START, nullptr);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
+  EXPECT_EQ(state.applyCalls, 0u);
+  state.persistenceEvent(RSDummyContext, RedisModuleEvent_Persistence,
+                         REDISMODULE_SUBEVENT_PERSISTENCE_FAILED, nullptr);
+  EXPECT_EQ(state.windowsClosed, 1u);
+  EXPECT_TRUE(state.lastReopenGate);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
+  EXPECT_EQ(state.applyCalls, 1u);
+  EXPECT_FALSE(pendingTrim());
+}
+
+TEST_F(DiskSlotTrimTest, SuccessfulSstResumesAutomaticCleanupThroughCron) {
+  mockConsistencyWindows();
+  ServerEventHooks hooks;
+  ASSERT_NE(state.sstEvent, nullptr);
+  ASSERT_NE(state.cronEvent, nullptr);
+  startCleanPool();
+
+  state.sstEvent(RSDummyContext, RedisModuleEvent_SSTReplication,
+                 REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT, nullptr);
+  scheduleAutomaticTrim();
+  CleanPool_Wait();
+  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_TRUE(state.logicalPending);
+  EXPECT_TRUE(pendingTrim());
+
+  for (const auto event :
+       {REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT, REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK}) {
+    state.sstEvent(RSDummyContext, RedisModuleEvent_SSTReplication, event, nullptr);
+    state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
+    CleanPool_Wait();
+    EXPECT_EQ(state.applyCalls, 0u);
+    EXPECT_EQ(state.batchApplyCalls, 0u);
+    EXPECT_TRUE(state.logicalPending);
+    EXPECT_TRUE(pendingTrim());
+  }
+  EXPECT_EQ(state.windowsOpened, 1u);
+  EXPECT_EQ(state.windowsClosed, 0u);
+
+  state.sstEvent(RSDummyContext, RedisModuleEvent_SSTReplication,
+                 REDISMODULE_SUBEVENT_SST_REPL_POST_FORK, nullptr);
+  EXPECT_EQ(state.windowsClosed, 1u);
+  EXPECT_TRUE(state.lastReopenGate);
+  state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
+  CleanPool_Wait();
+  EXPECT_EQ(state.registrations, 1u);
+  EXPECT_EQ(state.applyCalls, 1u);
+  EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_FALSE(state.logicalPending);
+  EXPECT_FALSE(pendingTrim());
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 19u);
+}
+
+TEST_F(DiskSlotTrimTest, SstCheckpointKeepsCleanupPausedUntilAbort) {
+  mockConsistencyWindows();
+  ServerEventHooks hooks;
+  ASSERT_NE(state.sstEvent, nullptr);
+  state.sstEvent(RSDummyContext, RedisModuleEvent_SSTReplication,
+                 REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT, nullptr);
+  EXPECT_EQ(state.windowsOpened, 1u);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
+  state.sstEvent(RSDummyContext, RedisModuleEvent_SSTReplication,
+                 REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT, nullptr);
+  EXPECT_EQ(state.windowsClosed, 0u);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
+  EXPECT_EQ(state.applyCalls, 0u);
+  state.sstEvent(RSDummyContext, RedisModuleEvent_SSTReplication,
+                 REDISMODULE_SUBEVENT_SST_REPL_ABORT, nullptr);
+  EXPECT_EQ(state.windowsClosed, 1u);
+  EXPECT_TRUE(state.lastReopenGate);
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
+  EXPECT_EQ(state.applyCalls, 1u);
 }
 
 TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDrop) {
@@ -1201,4 +1554,99 @@ TEST_F(DiskSlotTrimTest, ReleasingAWorkerHandlePreservesBackendProgress) {
   EXPECT_EQ(IndexSpec_RunDiskSlotTrim(job), INDEX_DISK_TRIM_FINISHED);
   EXPECT_FALSE(state.logicalPending);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 0u);
+}
+
+TEST_F(DiskSlotTrimTest, DuplicateEventsAndResumeScheduleOnlyOneWorker) {
+  startCleanPool();
+  SlotCleanup_PauseDiskJobs();
+  scheduleAutomaticTrim();
+  scheduleAutomaticTrim();
+  IndexSpec_ResumeDiskSlotTrims(spec);
+  CleanPool_Wait();
+  EXPECT_EQ(state.registrations, 2u);
+  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_TRUE(pendingTrim());
+  SlotCleanup_ResumeDiskJobs();
+  SlotCleanup_RetryDiskJobs();
+  CleanPool_Wait();
+  EXPECT_EQ(state.applyCalls, 1u);
+  EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  EXPECT_FALSE(pendingTrim());
+  SlotCleanup_RetryDiskJobs();
+  CleanPool_Wait();
+  EXPECT_EQ(state.applyCalls, 1u);
+}
+
+TEST_F(DiskSlotTrimTest, RegistrationAfterFinalApplySurvivesThePreviousWorkersReturn) {
+  startCleanPool();
+  static decltype(api.slotMigration.runTrimBatch) run;
+  static std::function<void()> afterRun;
+  run = api.slotMigration.runTrimBatch;
+  std::promise<void> applied, release;
+  auto ready = applied.get_future();
+  auto released = release.get_future();
+  std::atomic_bool first{true};
+  afterRun = [&] {
+    if (!first.exchange(false)) return;
+    applied.set_value();
+    released.wait();
+  };
+  api.slotMigration.runTrimBatch =
+      [](RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges, size_t count,
+         t_docId cutoff, size_t budget, SearchDiskSlotTrimCallback callback, void *ctx) {
+        auto result = run(index, ranges, count, cutoff, budget, callback, ctx);
+        afterRun();
+        return result;
+      };
+  scheduleAutomaticTrim();
+  EXPECT_EQ(ready.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+
+  SlotCleanup_PauseDiskJobs();
+  state.batchesApplied = 0;
+  state.emptyBatch = true;
+  scheduleAutomaticTrim();
+  SlotCleanup_ResumeDiskJobs();
+  release.set_value();
+  CleanPool_Wait();
+  afterRun = {};
+  EXPECT_EQ(state.registrations, 2u);
+  EXPECT_EQ(state.applyCalls, 2u);
+  EXPECT_FALSE(state.logicalPending);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+}
+
+TEST_F(DiskSlotTrimTest, SchedulerKeepsDifferentRangesAndCutoffsIndependent) {
+  startCleanPool();
+  SlotCleanup_PauseDiskJobs();
+  static std::mutex mutex;
+  static std::vector<std::vector<t_docId>> seen;
+  seen.clear();
+  api.slotMigration.runTrimBatch =
+      [](RedisSearchDiskIndexSpec *, const SearchDiskSlotRange *ranges, size_t count,
+         t_docId cutoff, size_t, SearchDiskSlotTrimCallback, void *) {
+        std::vector<t_docId> identity{cutoff};
+        for (size_t i = 0; i < count; ++i) {
+          identity.push_back(ranges[i].start);
+          identity.push_back(ranges[i].end);
+        }
+        std::lock_guard guard(mutex);
+        seen.push_back(std::move(identity));
+        return SEARCH_DISK_TRIM_RETRY;
+      };
+  scheduleAutomaticTrim();
+  auto *slots = static_cast<RedisModuleSlotRangeArray *>(rm_malloc(SlotRangeArray_SizeOf(1)));
+  slots->num_ranges = 1;
+  slots->ranges[0] = {7, 9};
+  Indexes_DeleteSlots(slots);
+  rm_free(slots);
+  state.maxDocId = 6;
+  scheduleAutomaticTrim();
+  CleanPool_Wait();
+  SlotCleanup_ResumeDiskJobs();
+  SlotCleanup_RetryDiskJobs();
+  CleanPool_Wait();
+  std::sort(seen.begin(), seen.end());
+  const std::vector<std::vector<t_docId>> expected{{5, 0, 100}, {5, 7, 9}, {6, 0, 100}};
+  EXPECT_EQ(seen, expected);
 }
