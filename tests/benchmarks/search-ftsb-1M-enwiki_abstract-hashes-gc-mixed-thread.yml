@@ -20,7 +20,7 @@ dbconfig:
       redisearch:
         GC_POLICY: THREAD
         FORK_GC_RUN_INTERVAL: 1
-        FORK_GC_CLEAN_THRESHOLD: 0
+        FORK_GC_CLEAN_THRESHOLD: 1
   - init_commands:
       - '"FT.CREATE" "benchIndex" "ON" "HASH" "PREFIX" "1" "doc:" "INDEXALL" "ENABLE" "SCHEMA" "title" "text" "SORTABLE" "url" "text" "SORTABLE" "abstract" "text" "SORTABLE"'
   - tool: ftsb_redisearch
