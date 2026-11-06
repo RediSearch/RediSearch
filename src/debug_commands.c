@@ -1377,9 +1377,14 @@ DEBUG_COMMAND(GCForceBGInvoke) {
   // Nobody is waiting on this one, so it gets the default budget rather than a TIMEOUT.
   GCForcedRun forced = GCForcedRun_New(GC_FORCED_RUN_DEFAULT_WAIT_MS,
                                        GC_FORCED_RUN_RETRY_INTERVAL_MS);
-  GCContext_ForceBGInvoke(sp->gc, forced);
-  RedisModule_ReplyWithSimpleString(ctx, "OK");
-  return REDISMODULE_OK;
+  switch (GCContext_ForceBGInvoke(sp->gc, forced)) {
+    case GC_FORCED_RUN_BUSY:
+      return RedisModule_ReplyWithError(ctx, "GC_BUSY another GC run of this index is in progress");
+    case GC_FORCED_RUN_FAILED:
+      return RedisModule_ReplyWithError(ctx, "GC_FAILED the run could not be queued");
+    default:
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
 }
 
 DEBUG_COMMAND(GCStopFutureRuns) {

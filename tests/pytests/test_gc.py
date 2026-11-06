@@ -867,7 +867,7 @@ def testGCStopScheduleDuringRun():
 @skip(cluster=True)
 def testForcedGCFailsWhileARunOfTheIndexIsInFlight():
     """A forced run never overlaps another run of its index: while one is in flight it fails
-    at once instead of waiting, and works again once that run has finished."""
+    at once instead of waiting (a background one included, rather than being dropped), and works again once that run has finished."""
     env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 1 FORK_GC_CLEAN_THRESHOLD 0')
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
@@ -875,6 +875,7 @@ def testForcedGCFailsWhileARunOfTheIndexIsInFlight():
     armParkedGCRun(env)
     before = gcCycles(env, 'idx')
     env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').error().contains(GC_RUN_IN_PROGRESS)
+    env.expect(debug_cmd(), 'GC_FORCEBGINVOKE', 'idx').error().contains(GC_RUN_IN_PROGRESS)
 
     env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
     waitForGCCycles(env, 'idx', before)

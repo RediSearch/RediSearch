@@ -354,28 +354,30 @@ void GCContext_GetStats(GCContext* gc, InfoGCStats* out) {
 // Main thread only. A forced run holds RUN_PENDING like a scheduled one, so the two never
 // overlap on one index however many GC threads there are. These are debug commands, so one that
 // finds a run in flight does not wait for it: it fails, and the caller retries.
-void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc,
-                                 GCForcedRun forced) {
+static GCForcedRunOutcome GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc,
+                                                      GCForcedRun forced) {
   GCDebugTask *task = GCDebugTaskCreate(gc, bc, forced);
   if (RS_AtomicUintFetchOrRelaxed(&gc->schedFlags, GC_SCHED_RUN_PENDING) & GC_SCHED_RUN_PENDING) {
     task->forced.outcome = GC_FORCED_RUN_BUSY;
     GCDebugTask_Finish(task);
-    return;
+    return GC_FORCED_RUN_BUSY;
   }
   if (redisearch_thpool_add_work(gcThreadpool_g, debugTaskCallback, task, THPOOL_PRIORITY_HIGH) != 0) {
     // No job will clear the bit, which would leave every later run of this index busy.
     RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_RUN_PENDING);
     task->forced.outcome = GC_FORCED_RUN_FAILED;
     GCDebugTask_Finish(task);
+    return GC_FORCED_RUN_FAILED;
   }
+  return GC_FORCED_RUN_OK;
 }
 
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc, GCForcedRun forced) {
   GCContext_CommonForceInvoke(gc, bc, forced);
 }
 
-void GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced) {
-  GCContext_CommonForceInvoke(gc, NULL, forced);
+GCForcedRunOutcome GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced) {
+  return GCContext_CommonForceInvoke(gc, NULL, forced);
 }
 
 static void GCContext_UnblockClient(void* data) {
