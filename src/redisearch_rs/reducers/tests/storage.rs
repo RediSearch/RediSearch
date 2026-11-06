@@ -17,7 +17,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use reducers::collect::storage::{
-    DEFAULT_LIMIT, ProjectedRow, RankedStorage, Storage, UnrankedStorage,
+    DEFAULT_LIMIT, INITIAL_CAPACITY_CAP, ProjectedRow, RankedStorage, Storage, UnrankedStorage,
 };
 use rlookup::{RLookupKey, RLookupKeyFlags, RLookupRow};
 use value::SharedValue;
@@ -493,4 +493,62 @@ fn distinct_heap_duplicates_do_not_consume_capacity() {
     let drained: Vec<_> = d.drain().collect();
     // Both identities survive; v=1 kept rank 9, v=2 kept rank 4 → DESC order.
     assert_eq!(drained_nums(&key, &drained), vec![1.0, 2.0]);
+}
+
+/// The up-front capacity of each storage variant.
+fn capacity(storage: &Storage<()>) -> usize {
+    match storage {
+        Storage::Unranked(UnrankedStorage::Plain { buf, .. }) => buf.capacity(),
+        Storage::Unranked(UnrankedStorage::Distinct { set, .. }) => set.capacity(),
+        Storage::Ranked(RankedStorage::Plain { heap, .. }) => heap.capacity(),
+        Storage::Ranked(RankedStorage::Distinct { pq, .. }) => pq.capacity(),
+    }
+}
+
+/// Every `(sortby, distinct)` combination [`Storage::new`] can build.
+const VARIANTS: [(bool, bool); 4] = [(false, false), (false, true), (true, false), (true, true)];
+
+#[test]
+fn huge_limit_does_not_presize_any_variant() {
+    // Independent of `INITIAL_CAPACITY_CAP` on purpose: storage is built per group, so a
+    // presize of thousands of rows multiplies into gigabytes over many groups.
+    const PER_GROUP_PRESIZE_BUDGET: usize = 64;
+    let limit = Some((u64::MAX, u64::MAX));
+    for (sortby, distinct) in VARIANTS {
+        let s = Storage::new(sortby, distinct, limit, SORT_ASC);
+        assert!(
+            capacity(&s) <= PER_GROUP_PRESIZE_BUDGET,
+            "sortby={sortby} distinct={distinct}: capacity {}",
+            capacity(&s)
+        );
+    }
+}
+
+#[test]
+fn storage_grows_past_initial_capacity() {
+    let key = make_key();
+    let n = INITIAL_CAPACITY_CAP * 4;
+    let expected: Vec<f64> = (0..n).map(|i| i as f64).collect();
+    for (sortby, distinct) in VARIANTS {
+        let mut s = Storage::new(sortby, distinct, Some((0, n as u64)), SORT_ASC);
+        let drained: Vec<_> = if sortby {
+            let h = as_ranked(&mut s);
+            for &v in expected.iter().rev() {
+                let vals = sort_vals(v);
+                h.consider(refs(&vals), (), || projected(&key, v));
+            }
+            h.drain().collect()
+        } else {
+            let a = as_unranked(&mut s);
+            for &v in &expected {
+                a.push(|| projected(&key, v));
+            }
+            a.drain().collect()
+        };
+        assert_eq!(
+            drained_nums(&key, &drained),
+            expected,
+            "sortby={sortby} distinct={distinct}"
+        );
+    }
 }
