@@ -145,7 +145,8 @@ void GCContext_OnUpdate(GCContext* gc);
 // keeps no ownership. With a blocked client, the outcome reaches its reply as unblock privdata,
 // freed by GCForcedRunOutcomeFree.
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc, GCForcedRun forced);
-void GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced);
+// OK once the run is queued; BUSY or FAILED when it never will be.
+GCForcedRunOutcome GCContext_ForceBGInvoke(GCContext* gc, GCForcedRun forced);
 // free_privdata for the blocked client above; matches RedisModule_BlockClient's signature.
 void GCForcedRunOutcomeFree(RedisModuleCtx* ctx, void* privdata);
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);

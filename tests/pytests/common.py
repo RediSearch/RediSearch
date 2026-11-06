@@ -794,7 +794,7 @@ def forceInvokeGC(env, idx='idx', timeout=None):
 
 def forceBGInvokeGC(env, idx='idx'):
     waitForRdbSaveToFinish(env)
-    env.cmd(debug_cmd(), 'GC_FORCEBGINVOKE', idx)
+    _retryWhileGCBusy(env, debug_cmd(), 'GC_FORCEBGINVOKE', idx)
 
 def no_msan(f):
     @wraps(f)
