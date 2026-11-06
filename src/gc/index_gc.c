@@ -14,6 +14,7 @@
 #include <time.h>
 
 #include "fork_cycle.h"
+#include "thread_cycle.h"
 #include "time_sample.h"
 #include "module.h"
 #include "info/global_stats.h"
@@ -28,6 +29,19 @@
 #include "search_ctx.h"
 #include "spec.h"
 #include "util/references.h"
+
+// GC_POLICY is load-time, so a GC runs the same policy for its whole life.
+static bool threadPolicyEnabled(void) {
+  return RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread;
+}
+
+void IndexGC_TakeDeferredDeletes(IndexGC *gc, IndexSpec *sp) {
+  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(sp);
+  if (deferred) {
+    gc->deletedOrUpdatedDocsFromLastRun += deferred;
+    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
+  }
+}
 
 bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook) {
   // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
@@ -46,20 +60,18 @@ bool IndexGC_RunCycle(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook)
     return false;
   }
 
-  // Taken before the fork: a deletion deferred after this point is counted next cycle, never reset
-  // away uncounted.
-  const size_t deferred = IndexSpec_TakeGCDeferredDeletes(StrongRef_Get(early_check));
-  if (deferred) {
-    gc->deletedOrUpdatedDocsFromLastRun += deferred;
-    IndexsGlobalStats_IncreaseLogicallyDeleted(deferred);
-  }
+  IndexGC_TakeDeferredDeletes(gc, StrongRef_Get(early_check));
 
   if (!forced && gc->deletedOrUpdatedDocsFromLastRun < RSGlobalConfig.gcConfigParams.gcSettings.forkGcCleanThreshold) {
     IndexSpecRef_Release(early_check);
     return true;
   }
 
-  return ForkCycle_Run(gc, forced, hook, early_check);
+  if (threadPolicyEnabled()) {
+    return ThreadCycle_Run(gc, forced, early_check);
+  } else {
+    return ForkCycle_Run(gc, forced, hook, early_check);
+  }
 }
 
 static bool periodicCb(void *privdata, GCForcedRun *forced) {

@@ -19,6 +19,19 @@ extern "C" {
 #endif // __cplusplus
 
 /**
+ * Call `cb` with `ctx` once for every ID in the set, in increasing order. Called
+ * under the spec read lock, so no ID is recorded or pruned meanwhile.
+ *
+ * # Safety
+ *
+ * 1. `docs` came from [`DeletedDocs_New`] and is not freed, and nothing changes
+ *    it during the call.
+ * 2. `cb` is a non-null function that may be called with `ctx` any number of
+ *    times during the call.
+ */
+void DeletedDocs_ForEach(const struct DeletedDocs *docs, void (*cb)(void *ctx, t_docId id), void *ctx);
+
+/**
  * Free a set made by [`DeletedDocs_New`]. A null `docs` is a no-op.
  *
  * # Safety
@@ -27,6 +40,24 @@ extern "C" {
  * 2. No other reference to the set is live, and it is not used after this call.
  */
 void DeletedDocs_Free(struct DeletedDocs *docs);
+
+/**
+ * How many IDs the set holds.
+ *
+ * # Safety
+ *
+ * As for [`DeletedDocs_ForEach`].
+ */
+uint64_t DeletedDocs_Len(const struct DeletedDocs *docs);
+
+/**
+ * An estimate of the bytes the set holds; see [`DeletedDocs::memory_usage`].
+ *
+ * # Safety
+ *
+ * As for [`DeletedDocs_ForEach`].
+ */
+size_t DeletedDocs_MemoryUsage(const struct DeletedDocs *docs);
 
 /**
  * A new, empty set. Free with [`DeletedDocs_Free`].

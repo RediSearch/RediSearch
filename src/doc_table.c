@@ -479,6 +479,11 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
   rm_free(md);
 }
 
+void DocTable_StopTrackingDeleted(DocTable *t) {
+  DeletedDocs_Free(t->deletedDocs);
+  t->deletedDocs = NULL;
+}
+
 void DocTable_Free(DocTable *t) {
   DeletedDocs_Free(t->deletedDocs);
   for (int i = 0; i < t->cap; ++i) {
@@ -774,4 +779,8 @@ t_docId DocTable_GetIdByKey(const DocTable *t, const char *key, size_t len) {
 
 size_t DocTable_KeyMapMemoryUsage(const DocTable *t) {
   return DocKeyMap_MemoryUsage(t->keyMap);
+}
+
+size_t DocTable_DeletedDocsMemoryUsage(const DocTable *t) {
+  return t->deletedDocs ? DeletedDocs_MemoryUsage(t->deletedDocs) : 0;
 }

@@ -7,14 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! C ABI entrypoint for the in-process GC driver.
+//! C ABI entrypoint for the THREAD GC policy's cycle.
 
 use index_gc::{GcError, stats::GcCounters, thread::run_cycle};
 use index_spec::IndexSpecWeakRef;
 use tracing::Level;
 use tracing_log_error::log_error;
 
-/// How an in-process GC cycle ended.
+/// How a THREAD GC cycle ended.
 #[cheadergen::config(export)]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +34,9 @@ pub enum ThreadGCResult {
 /// spec's read/write lock, a bounded number of keys per hold.
 ///
 /// Returns how the cycle ended; see [`ThreadGCResult`]. Stats of the chunks applied
-/// before an early end are kept.
+/// before an early end are kept. `pruned` is set to the number of deleted IDs
+/// the cycle collected and pruned from the doc table's set, 0 unless it returns
+/// [`ThreadGCResult::Done`].
 ///
 /// # Safety
 ///
@@ -42,9 +44,17 @@ pub enum ThreadGCResult {
 ///    for the duration of this call. The main thread may update its deletion
 ///    counter and read its stats meanwhile, so this call borrows no part of it.
 /// 2. The calling thread must not hold any spec lock.
+/// 3. `pruned` must point to a writable `u64`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ThreadGC_runScanners(gc: *mut ffi::IndexGC) -> ThreadGCResult {
+pub unsafe extern "C" fn ThreadGC_runScanners(
+    gc: *mut ffi::IndexGC,
+    pruned: *mut u64,
+) -> ThreadGCResult {
     debug_assert!(!gc.is_null(), "ThreadGC_runScanners needs a GC");
+    debug_assert!(
+        !pruned.is_null(),
+        "ThreadGC_runScanners needs somewhere to report"
+    );
     // SAFETY: (1) `gc` is valid, and the field is read in place, without a reference
     // to the struct.
     let index = unsafe { (*gc).index };
@@ -58,6 +68,9 @@ pub unsafe extern "C" fn ThreadGC_runScanners(gc: *mut ffi::IndexGC) -> ThreadGC
     // them only under the spec's write lock.
     let mut stats = unsafe { GcCounters::new(counters) };
 
+    // SAFETY: caller guarantees (3).
+    unsafe { pruned.write(0) };
+
     match run_cycle(&mut spec, &mut stats, clean_numeric_empty_nodes) {
         Ok(report) => {
             tracing::debug!(
@@ -65,8 +78,12 @@ pub unsafe extern "C" fn ThreadGC_runScanners(gc: *mut ffi::IndexGC) -> ThreadGC
                 write_locks = report.write_locks,
                 max_read_hold_us = report.max_read_hold.as_micros() as u64,
                 max_write_hold_us = report.max_write_hold.as_micros() as u64,
+                retained = report.retained,
+                pruned = report.pruned,
                 "thread GC cycle done"
             );
+            // SAFETY: caller guarantees (3).
+            unsafe { pruned.write(report.pruned) };
             ThreadGCResult::Done
         }
         Err((scanner, GcError::SpecDeleted)) => {

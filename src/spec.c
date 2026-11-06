@@ -428,6 +428,7 @@ static size_t indexSpecTotalMemUsage(IndexSpec *sp, size_t tags_overhead, size_t
   }
 
   res += sp->docs.memsize;
+  res += DocTable_DeletedDocsMemoryUsage(&sp->docs);
   res += DocTable_KeyMapMemoryUsage(&sp->docs);
   res += sp->docs.sortablesSize;
   res += text_overhead ? text_overhead :  IndexSpec_collect_text_overhead(sp);
@@ -2616,6 +2617,9 @@ void IndexSpec_StartGC(StrongRef global, IndexSpec *sp, GCPolicy gcPolicy) {
     const char* name = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
     RedisModule_Log(RSDummyContext, "verbose", "Starting GC for %s", name);
     RedisModule_Log(RSDummyContext, "debug", "Starting GC %p for %s", sp->gc, name);
+  } else {
+    // No cycle will ever prune what it records.
+    DocTable_StopTrackingDeleted(&sp->docs);
   }
 }
 
@@ -3064,6 +3068,10 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
     sp->stats.invertedSize;
   size_t doc_table_size = isDisk ? SearchDisk_GetDocTableTotalMemory(sp->diskSpec) :
     sp->docs.memsize;
+  if (!isDisk && !skip_unsafe_ops) {
+    // A crash can interrupt a change to the deleted set; inspecting it would reenter Rust.
+    doc_table_size += DocTable_DeletedDocsMemoryUsage(&sp->docs);
+  }
 
   RedisModule_InfoBeginDictField(ctx, "index_properties");
   RedisModule_InfoAddFieldULongLong(ctx, "max_doc_id", sp->docs.maxDocId);

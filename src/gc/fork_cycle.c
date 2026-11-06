@@ -188,10 +188,9 @@ bool ForkCycle_Run(IndexGC *gc, GCForcedRun *forced, const IndexGCHook *hook, St
     return true;
   }
 
-  // Now that we hold the GIL, we can cache this value knowing it won't change by the main thread
-  // upon deleting a document (this is the actual number of documents to be cleaned by the fork).
-  size_t num_docs_to_clean = gc->deletedOrUpdatedDocsFromLastRun;
-  gc->deletedOrUpdatedDocsFromLastRun = 0;
+  // Under the GIL the main thread deletes nothing until the fork, so this is the number of documents
+  // the child cleans. Updates can still be counted from the reindexing pool, hence one exchange.
+  size_t num_docs_to_clean = atomic_exchange(&gc->deletedOrUpdatedDocsFromLastRun, 0);
 
   gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.gcSettings.forkGcRunIntervalSec;
 
