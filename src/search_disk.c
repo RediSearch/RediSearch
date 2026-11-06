@@ -8,6 +8,7 @@
 */
 
 #include "search_disk.h"
+#include "slot_cleanup.h"
 
 #include <stdatomic.h>
 #include <stdint.h>
@@ -215,6 +216,7 @@ bool SearchDisk_Initialize(RedisModuleCtx *ctx) {
     SearchDisk_Close(ctx);
     return false;
   }
+  SlotCleanup_StartDiskJobs();
   return true;
 }
 
@@ -239,6 +241,7 @@ void SearchDisk_StopMetrics(void) {
 
 void SearchDisk_Close(RedisModuleCtx *ctx) {
   if (disk && disk_db) {
+    SlotCleanup_StopDiskJobs();
     SearchDisk_StopMetrics();
     disk->basic.close(ctx, disk_db);
     disk_db = NULL;
@@ -576,8 +579,8 @@ size_t SearchDisk_GetDeletedIds(RedisSearchDiskIndexSpec *handle, t_docId *buffe
 }
 
 char *SearchDisk_DebugDiskStats(RedisSearchDiskIndexSpec *handle, bool withStatistics) {
-    RS_ASSERT(disk && disk_db && handle);
-    return disk->metrics.debugDiskStats(disk_db, handle, withStatistics, &sdsnewlen);
+  RS_ASSERT(disk && disk_db && handle);
+  return disk->metrics.debugDiskStats(disk_db, handle, withStatistics, &sdsnewlen);
 }
 
 char *SearchDisk_DebugDumpNumericBucketMap(RedisSearchDiskIndexSpec *handle, t_fieldIndex fieldIndex) {
@@ -843,4 +846,16 @@ void SearchDisk_UpdateMemoryLimit(size_t memoryLimitBytes) {
   if (!SearchDisk_ApplyResourceState(SearchDisk_RegisteredIndexCount())) {
     RedisModule_Log(RSDummyContext, "warning", "Failed to apply updated disk memory limit");
   }
+}
+
+bool SearchDisk_RegisterSlotTrim(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
+                                 size_t numRanges, t_docId *maxDocId) {
+  RS_ASSERT(disk && disk->slotMigration.registerTrim);
+  return disk->slotMigration.registerTrim(index, ranges, numRanges, maxDocId);
+}
+
+void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
+                                       SearchDiskPendingSlotTrimCallback callback, void *ctx) {
+  RS_ASSERT(disk && disk->slotMigration.forEachPendingTrim);
+  disk->slotMigration.forEachPendingTrim(index, callback, ctx);
 }

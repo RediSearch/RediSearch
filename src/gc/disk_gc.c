@@ -84,6 +84,9 @@ static bool periodicCb(void *privdata, GCForcedRun *forced) {
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
+    if (forced && forced->compactAll) {
+      forced->outcome = GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE;
+    }
     return false;
   }
 

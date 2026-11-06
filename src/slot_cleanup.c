@@ -5,13 +5,15 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #include "slot_cleanup.h"
 
 #include "indexes.h"
 #include "rmalloc.h"
 #include "search_disk.h"
 #include "slot_ranges.h"
+
+#include <stdatomic.h>
 
 typedef struct {
   WeakRef spec_ref;
@@ -123,9 +125,63 @@ static void scheduleSlotCleanup(IndexSpec *spec, void *slots) {
   if (CleanPool_AddWork(SlotCleanup_Run, ctx) != 0) {
     // Run it here rather than leave the docs hidden but never deleted. Later chunks still move to
     // the pool once it accepts work again.
-    RedisModule_Log(RSDummyContext, "warning", "Could not queue slot cleanup, running it on the main thread");
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Could not queue slot cleanup, running it on the main thread");
     SlotCleanup_Run(ctx);
   }
+}
+
+struct IndexSpecSlotTrimJob {
+  WeakRef specRef;
+  SearchDiskSlotRange *ranges;
+  size_t numRanges;
+  t_docId maxDocId;
+};
+
+static atomic_bool diskJobsStopped = false;
+
+void SlotCleanup_StartDiskJobs(void) {
+  atomic_store(&diskJobsStopped, false);
+}
+
+static IndexSpecSlotTrimJob *newDiskJob(StrongRef ref, const SearchDiskSlotRange *ranges,
+                                        size_t numRanges, t_docId maxDocId) {
+  IndexSpecSlotTrimJob *job = rm_calloc(1, sizeof(*job));
+  job->specRef = StrongRef_Demote(ref);
+  job->ranges = rm_malloc(sizeof(*ranges) * numRanges);
+  memcpy(job->ranges, ranges, sizeof(*ranges) * numRanges);
+  job->numRanges = numRanges;
+  job->maxDocId = maxDocId;
+  return job;
+}
+
+IndexSpecSlotTrimJob *IndexSpec_RegisterDiskSlotTrim(StrongRef specRef,
+                                                     const SearchDiskSlotRange *ranges,
+                                                     size_t numRanges) {
+  IndexSpec *spec = StrongRef_Get(specRef);
+  if (!spec || !spec->diskSpec || atomic_load(&diskJobsStopped)) return NULL;
+  t_docId maxDocId = 0;
+  IndexSpec_LockWrite(spec);
+  bool registered = SearchDisk_RegisterSlotTrim(spec->diskSpec, ranges, numRanges, &maxDocId);
+  RS_LOG_ASSERT_ALWAYS(registered, "valid slot cleanup registration must succeed");
+  IndexSpec_Unlock(spec);
+  return newDiskJob(specRef, ranges, numRanges, maxDocId);
+}
+
+typedef struct {
+  IndexSpec *spec;
+  IndexSpecSlotTrimJob *job;
+} DiskSlotTrimContext;
+
+void IndexSpec_FreeDiskSlotTrim(IndexSpecSlotTrimJob *job) {
+  if (!job) return;
+  WeakRef_Release(job->specRef);
+  rm_free(job->ranges);
+  rm_free(job);
+}
+
+void SlotCleanup_StopDiskJobs(void) {
+  atomic_store(&diskJobsStopped, true);
 }
 
 void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots) {
