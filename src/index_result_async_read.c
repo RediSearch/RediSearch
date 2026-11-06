@@ -82,7 +82,7 @@ static void IndexResultAsyncRead_Drain(IndexResultAsyncReadState *state) {
   IndexResultAsyncRead_DiscardReadyResults(state);
   size_t pending;
   do {
-    pending = IndexResultAsyncRead_Poll(state, ASYNC_DRAIN_POLL_TIMEOUT_MS, &expiration, NULL);
+    pending = IndexResultAsyncRead_Poll(state, ASYNC_DRAIN_POLL_TIMEOUT_MS, &expiration);
     IndexResultAsyncRead_DiscardReadyResults(state);
   } while (pending > 0);
 }
@@ -169,12 +169,10 @@ uint16_t IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
   return added;
 }
 
-static size_t IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *state) {
-  size_t deleted = 0;
+static void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *state) {
   RS_ASSERT(array_len(state->failedReads) <= state->poolSize);
   for (uint16_t i = 0; i < array_len(state->failedReads); i++) {
     const AsyncReadFailure *failure = &state->failedReads[i];
-    deleted += failure->reason == DISK_READ_DELETED;
     IndexResultNode *node = (IndexResultNode *)failure->user_data;
 
     // Remove node from pendingResults list
@@ -188,11 +186,10 @@ static size_t IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState 
     // Free the node itself
     rm_free(node);
   }
-  return deleted;
 }
 
 size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t timeout_ms,
-                                 const t_expirationTimePoint *expiration_point, size_t *deleted_count) {
+                                 const t_expirationTimePoint *expiration_point) {
   // Poll writes directly to the arrays (capacity is poolSize)
   const size_t pendingCount = SearchDisk_PollAsyncReads(
       state->asyncPool, timeout_ms, state->readyResults, state->failedReads, expiration_point);
@@ -201,8 +198,7 @@ size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t time
   state->readyResultsIndex = 0;
 
   // Release failed requests, including metadata excluded by deletion.
-  const size_t deleted = IndexResultAsyncRead_CleanupFailedReads(state);
-  if (deleted_count) *deleted_count = deleted;
+  IndexResultAsyncRead_CleanupFailedReads(state);
 
   return pendingCount;
 }
