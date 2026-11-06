@@ -362,7 +362,12 @@ void GCContext_CommonForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc,
     GCDebugTask_Finish(task);
     return;
   }
-  redisearch_thpool_add_work(gcThreadpool_g, debugTaskCallback, task, THPOOL_PRIORITY_HIGH);
+  if (redisearch_thpool_add_work(gcThreadpool_g, debugTaskCallback, task, THPOOL_PRIORITY_HIGH) != 0) {
+    // No job will clear the bit, which would leave every later run of this index busy.
+    RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_RUN_PENDING);
+    task->forced.outcome = GC_FORCED_RUN_FAILED;
+    GCDebugTask_Finish(task);
+  }
 }
 
 void GCContext_ForceInvoke(GCContext* gc, RedisModuleBlockedClient* bc, GCForcedRun forced) {
