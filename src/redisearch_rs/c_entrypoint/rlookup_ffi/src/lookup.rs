@@ -484,11 +484,11 @@ pub extern "C" fn RLookup_New() -> OpaqueRLookup {
 ///    the caller must transfer an owned reference to it (see above).
 /// 3. For as long as the lookup holds the cache, the [`ffi::IndexSpecCache`]
 ///    being pointed to, and everything reachable through it, MUST NOT get
-///    mutated: its `fields` pointer MUST point to a valid array of `nfields`
+///    mutated: its `fields` pointer MUST point to a [valid] array of `nfields`
 ///    `FieldSpec`s (or be null with `nfields == 0`), every pointer nested in
-///    those entries (e.g. `fieldName`) MUST stay valid with string fields
+///    those entries (e.g. `fieldName`) MUST stay [valid] with string fields
 ///    NUL-terminated, and each special document-field name (`lang_field`,
-///    `score_field`, `payload_field`) MUST be null or a valid, NUL-terminated
+///    `score_field`, `payload_field`) MUST be null or a [valid], NUL-terminated
 ///    string.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -589,7 +589,7 @@ pub unsafe extern "C" fn RLookup_Cleanup(lookup: *mut OpaqueRLookup) {
 ///     1. The entire memory range of this `CStr` must be contained within a single allocation!
 ///     2. `key` must be non-null even for a zero-length cstr.
 /// 7. The nul terminator must be within `isize::MAX` from `key`
-/// 8. `open_key`, if non-null, must be a valid, already-open `redis_module::RedisModuleKey` handle for
+/// 8. `open_key`, if non-null, must be a [valid], already-open `redis_module::RedisModuleKey` handle for
 ///    `key` that outlives this call. It is borrowed, not closed here. Pass null to open by name.
 /// 9. `status` must be a [valid], non-null pointer to an `ffi::QueryError` that is properly initialized.
 ///
@@ -1026,7 +1026,7 @@ pub unsafe extern "C" fn RLookup_LoadDocumentIndividual(
 /// # Safety
 ///
 /// 1. `lookup` must be a [valid], non-null pointer to an `RLookup`.
-/// 2. The returned iterator must only be used as long as the `lookup` remains valid.
+/// 2. The returned iterator must only be used as long as the `lookup` remains [valid].
 /// 3. `lookup` must not be mutated until the returned iterator is exhausted.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety

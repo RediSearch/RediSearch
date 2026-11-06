@@ -41,7 +41,7 @@ pub extern "C" fn CountReducer_Create() -> *mut ffi::Reducer {
 /// # Safety
 ///
 /// 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
-///    remains valid, and is not mutated, for the lifetime of the returned reducer.
+///    remains [valid], and is not mutated, for the lifetime of the returned reducer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -65,7 +65,7 @@ pub unsafe extern "C" fn SumReducer_Create(
 /// # Safety
 ///
 /// 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
-///    remains valid, and is not mutated, for the lifetime of the returned reducer.
+///    remains [valid], and is not mutated, for the lifetime of the returned reducer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -85,7 +85,7 @@ pub unsafe extern "C" fn MinMaxReducer_Create(
 /// # Safety
 ///
 /// 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
-///    remains valid, and is not mutated, for the lifetime of the returned reducer.
+///    remains [valid], and is not mutated, for the lifetime of the returned reducer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
@@ -102,7 +102,7 @@ pub unsafe extern "C" fn StdDevReducer_Create(srckey: *const ffi::RLookupKey) ->
 /// # Safety
 ///
 /// 1. `retkey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey], and
-///    `sortkey` either null or such a pointer. Both must remain valid, and not be
+///    `sortkey` either null or such a pointer. Both must remain [valid], and not be
 ///    mutated, for the lifetime of the returned reducer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
@@ -134,7 +134,7 @@ pub unsafe extern "C" fn FirstValueReducer_Create(
 /// # Safety
 ///
 /// 1. `srckey` must be a [valid] pointer to an [`RLookupKey`][ffi::RLookupKey] that
-///    remains valid, and is not mutated, for the lifetime of the returned reducer.
+///    remains [valid], and is not mutated, for the lifetime of the returned reducer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]

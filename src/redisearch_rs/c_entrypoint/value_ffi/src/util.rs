@@ -26,7 +26,9 @@ use value::{SharedValue, Value};
 ///
 /// # Safety
 ///
-/// 1. If non-null, `value` must point to a valid [`Value`].
+/// 1. If non-null, `value` must point to a [valid] [`Value`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 pub const unsafe fn try_value<'a>(value: *const RSValue) -> Option<&'a Value> {
     // SAFETY: ensured by caller (1.)
     unsafe { value.cast::<Value>().as_ref() }
@@ -40,7 +42,9 @@ pub const unsafe fn try_value<'a>(value: *const RSValue) -> Option<&'a Value> {
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RSValue`].
+/// 1. `value` must point to a [valid] [`RSValue`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 pub(crate) const unsafe fn expect_value<'a>(value: *const RSValue) -> &'a Value {
     // SAFETY: ensured by caller (1.)
     let value = unsafe { try_value(value) };
@@ -63,7 +67,9 @@ pub(crate) const unsafe fn expect_value<'a>(value: *const RSValue) -> &'a Value 
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RSValue`].
+/// 1. `value` must point to a [valid] [`RSValue`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 pub(crate) unsafe fn expect_shared_value(value: *const RSValue) -> ManuallyDrop<SharedValue> {
     if cfg!(debug_assertions) && value.is_null() {
         panic!("value must not be null");
@@ -82,8 +88,10 @@ pub(crate) unsafe fn expect_shared_value(value: *const RSValue) -> ManuallyDrop<
 ///
 /// # Safety
 ///
-/// 1. `value` must be a valid pointer obtained from [`into_rs_value`] and must
+/// 1. `value` must be a [valid] pointer obtained from [`into_rs_value`] and must
 ///    not be used again after this call.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 pub const unsafe fn into_shared_value(value: *mut RSValue) -> SharedValue {
     // SAFETY: ensured by caller (1.)
     unsafe { SharedValue::from_raw(value.cast_const().cast()) }
@@ -97,8 +105,10 @@ pub const unsafe fn into_shared_value(value: *mut RSValue) -> SharedValue {
 ///
 /// # Safety
 ///
-/// 1. `value` must point to a valid [`RSValue`] and must remain live for as
+/// 1. `value` must point to a [valid] [`RSValue`] and must remain live for as
 ///    long as the returned borrow is used.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 pub const unsafe fn as_shared_value(value: *const RSValue) -> ManuallyDrop<SharedValue> {
     // SAFETY: ensured by caller (1.)
     let shared_value = unsafe { SharedValue::from_raw(value.cast()) };

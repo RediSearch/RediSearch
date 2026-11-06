@@ -45,8 +45,10 @@ struct VarintVectorWriter *NewVarintVectorWriter(size_t cap);
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * 1. `b` must point to a valid `BufferReader` instance and cannot be NULL.
+ * 1. `b` must point to a [valid] `BufferReader` instance and cannot be NULL.
  * 2. The caller must have exclusive access to the buffer reader.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint32_t ReadVarint(BufferReader *b);
 
@@ -59,8 +61,10 @@ uint32_t ReadVarint(BufferReader *b);
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * 1. `b` must point to a valid `BufferReader` instance and cannot be NULL.
+ * 1. `b` must point to a [valid] `BufferReader` instance and cannot be NULL.
  * 2. The caller must have exclusive access to the buffer reader.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 t_fieldMask ReadVarintFieldMask(BufferReader *b);
 
@@ -72,8 +76,10 @@ t_fieldMask ReadVarintFieldMask(BufferReader *b);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
+ * 1. `writer` must point to a [valid] [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
  * 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void VVW_Free(struct VarintVectorWriter *writer);
 
@@ -84,7 +90,9 @@ void VVW_Free(struct VarintVectorWriter *writer);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`]
+ * 1. `writer` must point to a [valid] [`VectorWriter`] obtained from [`NewVarintVectorWriter`]
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 const uint8_t *VVW_GetByteData(const struct VarintVectorWriter *writer);
 
@@ -95,7 +103,9 @@ const uint8_t *VVW_GetByteData(const struct VarintVectorWriter *writer);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`]
+ * 1. `writer` must point to a [valid] [`VectorWriter`] obtained from [`NewVarintVectorWriter`]
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t VVW_GetByteLength(const struct VarintVectorWriter *writer);
 
@@ -106,7 +116,9 @@ size_t VVW_GetByteLength(const struct VarintVectorWriter *writer);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`]
+ * 1. `writer` must point to a [valid] [`VectorWriter`] obtained from [`NewVarintVectorWriter`]
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t VVW_GetCount(const struct VarintVectorWriter *writer);
 
@@ -118,8 +130,10 @@ size_t VVW_GetCount(const struct VarintVectorWriter *writer);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
+ * 1. `writer` must point to a [valid] [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
  * 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void VVW_Reset(struct VarintVectorWriter *writer);
 
@@ -131,9 +145,11 @@ void VVW_Reset(struct VarintVectorWriter *writer);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
+ * 1. `writer` must point to a [valid] [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
  * 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
  * 3. `len` cannot be NULL and the caller must have exclusive access to it.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 uint8_t *VVW_TakeByteData(struct VarintVectorWriter *writer, size_t *len);
 
@@ -143,8 +159,10 @@ uint8_t *VVW_TakeByteData(struct VarintVectorWriter *writer, size_t *len);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
+ * 1. `writer` must point to a [valid] [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
  * 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t VVW_Truncate(struct VarintVectorWriter *writer);
 
@@ -158,8 +176,10 @@ size_t VVW_Truncate(struct VarintVectorWriter *writer);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * 1. `writer` must point to a valid [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
+ * 1. `writer` must point to a [valid] [`VectorWriter`] obtained from [`NewVarintVectorWriter`] and cannot be NULL.
  * 2. The caller must have exclusive access to the [`VectorWriter`] pointed to by `writer`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t VVW_Write(struct VarintVectorWriter *writer, uint32_t value);
 
@@ -175,8 +195,10 @@ size_t VVW_Write(struct VarintVectorWriter *writer, uint32_t value);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * 1. `writer` must point to a valid `BufferWriter` instance and cannot be NULL.
+ * 1. `writer` must point to a [valid] `BufferWriter` instance and cannot be NULL.
  * 2. The caller must have exclusive access to the buffer writer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t WriteVarint(uint32_t value, BufferWriter *writer);
 
@@ -192,8 +214,10 @@ size_t WriteVarint(uint32_t value, BufferWriter *writer);
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
- * 1. `writer` must point to a valid `BufferWriter` instance and cannot be NULL.
+ * 1. `writer` must point to a [valid] `BufferWriter` instance and cannot be NULL.
  * 2. The caller must have exclusive access to the buffer writer.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *writer);
 

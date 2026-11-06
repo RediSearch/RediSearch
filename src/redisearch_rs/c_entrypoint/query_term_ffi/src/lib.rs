@@ -23,12 +23,14 @@ use query_term::RSQueryTerm;
 ///
 /// # Safety
 ///
-/// - `tok` must point to a valid `RSToken` and cannot be NULL.
+/// - `tok` must point to a [valid] `RSToken` and cannot be NULL.
 /// - `tok->str` may be NULL, in which case the resulting term will have a
 ///   NULL `str` field.
-/// - If not NULL, `tok->str` must be a valid byte slice of `tok->len` bytes.
+/// - If not NULL, `tok->str` must be a [valid] byte slice of `tok->len` bytes.
 /// - The returned pointer is a [`Box`] allocation whose ownership must be
 ///   handed to a Rust consumer (e.g. an iterator), which drops it.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewQueryTerm(tok: *const ffi::RSToken, id: c_int) -> *mut RSQueryTerm {
     debug_assert!(!tok.is_null(), "tok cannot be NULL");
@@ -53,8 +55,10 @@ pub unsafe extern "C" fn NewQueryTerm(tok: *const ffi::RSToken, id: c_int) -> *m
 ///
 /// # Safety
 ///
-/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// `term` must be a [valid], non-null pointer to an [`RSQueryTerm`] previously
 /// allocated by [`NewQueryTerm`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryTerm_GetIDF(term: *const RSQueryTerm) -> f64 {
     debug_assert!(!term.is_null(), "term cannot be NULL");
@@ -66,8 +70,10 @@ pub unsafe extern "C" fn QueryTerm_GetIDF(term: *const RSQueryTerm) -> f64 {
 ///
 /// # Safety
 ///
-/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// `term` must be a [valid], non-null pointer to an [`RSQueryTerm`] previously
 /// allocated by [`NewQueryTerm`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryTerm_GetBM25_IDF(term: *const RSQueryTerm) -> f64 {
     debug_assert!(!term.is_null(), "term cannot be NULL");
@@ -81,8 +87,10 @@ pub unsafe extern "C" fn QueryTerm_GetBM25_IDF(term: *const RSQueryTerm) -> f64 
 ///
 /// # Safety
 ///
-/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// `term` must be a [valid], non-null pointer to an [`RSQueryTerm`] previously
 /// allocated by [`NewQueryTerm`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryTerm_SetIDFs(term: *mut RSQueryTerm, idf: f64, bm25_idf: f64) {
     debug_assert!(!term.is_null(), "term cannot be NULL");
@@ -98,8 +106,10 @@ pub unsafe extern "C" fn QueryTerm_SetIDFs(term: *mut RSQueryTerm, idf: f64, bm2
 ///
 /// # Safety
 ///
-/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// `term` must be a [valid], non-null pointer to an [`RSQueryTerm`] previously
 /// allocated by [`NewQueryTerm`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryTerm_GetID(term: *const RSQueryTerm) -> c_int {
     debug_assert!(!term.is_null(), "term cannot be NULL");
@@ -111,8 +121,10 @@ pub unsafe extern "C" fn QueryTerm_GetID(term: *const RSQueryTerm) -> c_int {
 ///
 /// # Safety
 ///
-/// `term` must be a valid, non-null pointer to an [`RSQueryTerm`] previously
+/// `term` must be a [valid], non-null pointer to an [`RSQueryTerm`] previously
 /// allocated by [`NewQueryTerm`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryTerm_GetLen(term: *const RSQueryTerm) -> usize {
     debug_assert!(!term.is_null(), "term cannot be NULL");
@@ -126,8 +138,10 @@ pub unsafe extern "C" fn QueryTerm_GetLen(term: *const RSQueryTerm) -> usize {
 ///
 /// # Safety
 ///
-/// - `term` must be valid and non-null
-/// - `out_len` must be a valid pointer to write the length to
+/// - `term` must be [valid] and non-null
+/// - `out_len` must be a [valid] pointer to write the length to
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn QueryTerm_GetStrAndLen(
     term: *const RSQueryTerm,

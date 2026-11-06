@@ -45,13 +45,15 @@ extern "C" {
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::IndexGC`], with no other reference to it
+ * 1. `gc` must point to a [valid] [`ffi::IndexGC`], with no other reference to it
  *    alive for the duration of this call.
- * 2. `spec` must be a non-null pointer to a valid [`ffi::IndexSpec`].
+ * 2. `spec` must be a non-null pointer to a [valid] [`ffi::IndexSpec`].
  * 3. This function should only be called when it has exclusive access to the [`ffi::IndexSpec`].
  * 4. This function must only be called in a forked GC child, where the spec's
  *    document table never changes again: the scanners answer existence checks
  *    from a [`DocExistence::snapshot`] of it.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void ForkGC_childScanIndexes(IndexGC *gc, IndexSpec *spec);
 
@@ -72,8 +74,10 @@ void ForkGC_freeBuffer(void *buf, size_t len);
  *
  * # Safety
  *
- * 1. `gc` must point to a valid [`ffi::IndexGC`], with no other reference to it
+ * 1. `gc` must point to a [valid] [`ffi::IndexGC`], with no other reference to it
  *    alive for the duration of this call.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 enum ForkGCError ForkGC_parentHandleFromChild(IndexGC *gc);
 
@@ -93,10 +97,12 @@ enum ForkGCError ForkGC_parentHandleFromChild(IndexGC *gc);
  *
  * # Safety
  *
- * 1. `fgc` must point to a valid `ForkPipe` whose `pipe_read_fd` is an
+ * 1. `fgc` must point to a [valid] `ForkPipe` whose `pipe_read_fd` is an
  *    open, readable file descriptor.
  * 2. `buf` and `len` must point to writable `void*` and `size_t`
  *    locations respectively.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int ForkGC_recvBuffer(IndexGC *fgc, void * *buf, size_t *len);
 
@@ -109,9 +115,11 @@ int ForkGC_recvBuffer(IndexGC *fgc, void * *buf, size_t *len);
  *
  * # Safety
  *
- * 1. `fgc` must point to a valid `ForkPipe` whose `pipe_read_fd` is an open,
+ * 1. `fgc` must point to a [valid] `ForkPipe` whose `pipe_read_fd` is an open,
  *    readable file descriptor.
  * 2. `buf` must point to a writable region of at least `len` bytes.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 int ForkGC_recvFixed(IndexGC *fgc, void *buf, size_t len);
 
@@ -124,11 +132,13 @@ int ForkGC_recvFixed(IndexGC *fgc, void *buf, size_t len);
  *
  * # Safety
  *
- * 1. `fgc` must point to a valid `ForkPipe` whose `pipe_write_fd` is an open,
+ * 1. `fgc` must point to a [valid] `ForkPipe` whose `pipe_write_fd` is an open,
  *    writable file descriptor.
  * 2. If `len > 0`, `buff` must point to a readable region of at least
  *    `len` bytes. When `len == 0`, `buff` is unused and may be anything
  *    (including NULL).
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void ForkGC_sendBuffer(IndexGC *fgc, const void *buff, size_t len);
 
@@ -140,10 +150,12 @@ void ForkGC_sendBuffer(IndexGC *fgc, const void *buff, size_t len);
  *
  * # Safety
  *
- * 1. `fgc` must point to a valid `ForkPipe` whose `pipe_write_fd` is an open,
+ * 1. `fgc` must point to a [valid] `ForkPipe` whose `pipe_write_fd` is an open,
  *    writable file descriptor.
  * 2. `buff` must point to a readable region of at least `len` bytes.
  * 3. `len` must be greater than zero.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void ForkGC_sendFixed(IndexGC *fgc, const void *buff, size_t len);
 
@@ -156,8 +168,10 @@ void ForkGC_sendFixed(IndexGC *fgc, const void *buff, size_t len);
  *
  * # Safety
  *
- * 1. `fgc` must point to a valid `ForkPipe` whose `pipe_write_fd` is an open,
+ * 1. `fgc` must point to a [valid] `ForkPipe` whose `pipe_write_fd` is an open,
  *    writable file descriptor.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 void ForkGC_sendTerminator(IndexGC *fgc);
 
@@ -171,11 +185,13 @@ void ForkGC_sendTerminator(IndexGC *fgc);
  *
  * # Safety
  *
- * 1. `fgc` must point to a valid `ForkPipe` whose `pipe_read_fd` is an open,
+ * 1. `fgc` must point to a [valid] `ForkPipe` whose `pipe_read_fd` is an open,
  *    readable file descriptor.
  * 2. `field_name` and `field_name_len` must point to writable `char*` and
  *    `size_t` locations respectively.
  * 3. `id_ptr` must point to a writable `uint64_t` location.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 enum ForkGCError recvFieldHeader(IndexGC *fgc, char * *field_name, size_t *field_name_len, uint64_t *id_ptr);
 

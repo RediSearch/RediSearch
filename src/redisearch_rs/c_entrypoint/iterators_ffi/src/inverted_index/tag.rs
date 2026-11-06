@@ -120,13 +120,15 @@ impl CTagIndexLookup {
     ///
     /// # Safety
     ///
-    /// 1. `tag_index` must point to a valid TagIndex and remain valid for
+    /// 1. `tag_index` must point to a [valid] TagIndex and remain [valid] for
     ///    the lifetime of this lookup (and of any iterator holding it).
-    /// 2. `tag_index.values`, when non-null, must be a valid
+    /// 2. `tag_index.values`, when non-null, must be a [valid]
     ///    [`TrieMapOpaque`](trie_rs::TrieMapOpaque) pointer.
     /// 3. The entries in `tag_index.values` must point to opaque
     ///    [`InvertedIndex`](inverted_index::opaque::InvertedIndex)es whose
     ///    encoding variant matches the `E` this lookup is used with.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub const unsafe fn new(tag_index: NonNull<ffi::TagIndex>) -> Self {
         Self(tag_index)
     }
@@ -177,17 +179,19 @@ where
 ///
 /// The following invariants must be upheld when calling this function:
 ///
-/// 1. `idx` must be a valid pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
+/// 1. `idx` must be a [valid] pointer to a [`DocIdsOnly`] or [`RawDocIdsOnly`]
 ///    [`InvertedIndex`](ffi::InvertedIndex) and cannot be NULL.
-/// 2. `idx` must remain valid between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
+/// 2. `idx` must remain [valid] between [`revalidate()`](rqe_iterators::RQEIterator::revalidate) calls, since the revalidation
 ///    mechanism detects when the index has been replaced via [`TagIndex`](ffi::TagIndex) `TrieMap` lookup.
-/// 3. `tag_idx` must be a valid pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
-/// 4. `tag_idx` and `tag_idx.values` must remain valid for the lifetime of the returned
+/// 3. `tag_idx` must be a [valid] pointer to a [`TagIndex`](ffi::TagIndex) and cannot be NULL.
+/// 4. `tag_idx` and `tag_idx.values` must remain [valid] for the lifetime of the returned
 ///    iterator.
-/// 5. `sctx` must be a valid pointer to a [`RedisSearchCtx`](ffi::RedisSearchCtx) and cannot be NULL.
-/// 6. `sctx` and `sctx.spec` must remain valid for the lifetime of the returned iterator.
-/// 7. `term` must be a valid pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
+/// 5. `sctx` must be a [valid] pointer to a [`RedisSearchCtx`](ffi::RedisSearchCtx) and cannot be NULL.
+/// 6. `sctx` and `sctx.spec` must remain [valid] for the lifetime of the returned iterator.
+/// 7. `term` must be a [valid] pointer to a heap-allocated [`RSQueryTerm`] (e.g. created by
 ///    `NewQueryTerm`) and cannot be NULL. Ownership is transferred to the iterator.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NewInvIndIterator_TagQuery(
     idx: *const ffi::InvertedIndex,

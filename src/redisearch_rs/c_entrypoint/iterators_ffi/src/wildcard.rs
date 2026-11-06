@@ -26,7 +26,9 @@ pub extern "C" fn NewWildcardIterator_NonOptimized(
 ///
 /// # Safety
 ///
-/// `it`, when non-null, must point to a valid [`QueryIterator`].
+/// `it`, when non-null, must point to a [valid] [`QueryIterator`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub const unsafe extern "C" fn IsWildcardIterator(it: *const QueryIterator) -> bool {
     // SAFETY: Caller guarantees `it`, when non-null, points to a valid `QueryIterator`.

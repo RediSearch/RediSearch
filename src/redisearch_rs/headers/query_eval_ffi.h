@@ -53,27 +53,29 @@ extern "C" {
  *
  * # Safety
  *
- * 1. `qast` must be a non-null pointer to a valid [`QueryAST`] whose `root` is
- *    a valid [`RSQueryNode`](ffi::RSQueryNode); it (and its
- *    `metricRequests`/`config` fields) must stay valid and exclusively borrowed
+ * 1. `qast` must be a non-null pointer to a [valid] [`QueryAST`] whose `root` is
+ *    a [valid] [`RSQueryNode`](ffi::RSQueryNode); it and its `metricRequests`
+ *    field must stay [valid], and it (`config` included) exclusively borrowed,
  *    for the duration of the call. The root's subtree must also satisfy
  *    invariants (4), (5), and (6) of [`QueryNodeMut::new`], since evaluation
  *    rewrites tokens in place and reads deferred INKEYS arguments.
- * 2. `opts` must be a non-null pointer to a valid [`RSSearchOptions`].
- * 3. `sctx` must be a non-null pointer to a valid [`RedisSearchCtx`] whose
- *    `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec). `sctx` and the
- *    request timeout reached through `sctx.limits` must stay valid at stable
+ * 2. `opts` must be a non-null pointer to a [valid] [`RSSearchOptions`].
+ * 3. `sctx` must be a non-null pointer to a [valid] [`RedisSearchCtx`] whose
+ *    `spec` is a [valid], non-null [`IndexSpec`](ffi::IndexSpec). `sctx` and the
+ *    request timeout reached through `sctx.limits` must stay [valid] at stable
  *    addresses for the lifetime of the returned tree. Timeout source
  *    changes and deadline writes may occur only between iterator probes;
  *    only the blocked-client marker and the memory stop flag may change concurrently.
  *    The caller must hold the spec read lock throughout deferred INKEYS
  *    evaluation, as required by [`QueryEvalContext::new`]. Until the document
  *    key map is ready, the caller must also hold the GIL for metadata lookup.
- * 4. `status` must be a non-null pointer to a valid [`QueryError`].
+ * 4. `status` must be a non-null pointer to a [valid] [`QueryError`].
  *
  * Together these are exactly the invariants documented on
  * [`QueryEvalContext::new`] for the assembled context, which remains valid for
  * the lifetime of the returned tree.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 struct QueryIteratorTree *QAST_Iterate(QueryAST *qast, const RSSearchOptions *opts, RedisSearchCtx *sctx, uint32_t reqflags, QueryError *status);
 
@@ -100,9 +102,11 @@ void QueryIteratorTree_Free(struct QueryIteratorTree *tree);
  *    released yet.
  * 2. `query_slots` must be NULL, or a [`SlotRangeArray`] allocated with the
  *    Redis allocator and not owned by anything else.
- * 3. `sctx` must be a valid [`RedisSearchCtx`] with a non-NULL `timeout` and
- *    whose `spec` is a valid, non-null [`IndexSpec`](ffi::IndexSpec), and
+ * 3. `sctx` must be a [valid] [`RedisSearchCtx`] with a non-NULL `timeout` and
+ *    whose `spec` is a [valid], non-null [`IndexSpec`](ffi::IndexSpec), and
  *    must outlive the returned processor.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 ResultProcessor *QueryIteratorTree_IntoResultProcessor(struct QueryIteratorTree *tree, const struct RedisModuleSlotRangeArray *query_slots, uint32_t key_space_version, RedisSearchCtx *sctx, bool is_profiled);
 

@@ -21,8 +21,10 @@ extern "C" {
  *
  * # Safety
  *
- * 1. When `len` is non-zero, `s` must point to a valid region of memory of length `len`. An
- *    empty value needs no valid pointer — `len == 0` returns without reading `s`.
+ * 1. When `len` is non-zero, `s` must point to a [valid] region of memory of length `len`. An
+ *    empty value needs no [valid] pointer — `len == 0` returns without reading `s`.
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 bool StringUtils_IsValidUtf8(const char *s, size_t len);
 

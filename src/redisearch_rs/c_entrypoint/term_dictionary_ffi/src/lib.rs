@@ -135,13 +135,15 @@ impl From<DecrResultImpl> for TermDictionaryDecrResult {
 ///
 /// # Safety
 ///
-/// When `len > 0`, `ptr` must point to `len` bytes that stay valid and
+/// When `len > 0`, `ptr` must point to `len` bytes that stay [valid] and
 /// unmodified for the chosen lifetime `'a`.
 ///
 /// # Panics
 ///
 /// Panics if the bytes are not valid UTF-8; `what` names the argument in
 /// the message.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 unsafe fn term_arg<'a>(ptr: *const c_char, len: usize, what: &'static str) -> &'a str {
     let bytes = if len == 0 {
         &[]
@@ -221,13 +223,15 @@ pub extern "C" fn NewTermDictionary() -> *mut TermDictionary {
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - No other access to `t` may occur concurrently with this call —
 ///   neither another mutator nor a read-only call such as
 ///   [`TermDictionary_Len`], and no iterator obtained from `t` may be
 ///   alive.
 /// - `t` must not be used after this call.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_Free(t: *mut TermDictionary) {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -242,8 +246,10 @@ pub unsafe extern "C" fn TermDictionary_Free(t: *mut TermDictionary) {
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_Len(t: *const TermDictionary) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -261,8 +267,10 @@ pub unsafe extern "C" fn TermDictionary_Len(t: *const TermDictionary) -> usize {
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_MemUsage(t: *const TermDictionary) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -280,9 +288,9 @@ pub unsafe extern "C" fn TermDictionary_MemUsage(t: *const TermDictionary) -> us
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
-/// - `term` must point to a valid byte sequence of length `len`.
+/// - `term` must point to a [valid] byte sequence of length `len`.
 /// - No other access to `t` may occur concurrently with this call —
 ///   neither another mutator nor a read-only call such as
 ///   [`TermDictionary_Len`], and no iterator obtained from `t` may be
@@ -291,6 +299,8 @@ pub unsafe extern "C" fn TermDictionary_MemUsage(t: *const TermDictionary) -> us
 /// # Panics
 ///
 /// Panics if `term` is not valid UTF-8.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_AddTerm(
     t: *mut TermDictionary,
@@ -318,9 +328,9 @@ pub unsafe extern "C" fn TermDictionary_AddTerm(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
-/// - `term` must point to a valid byte sequence of length `len`.
+/// - `term` must point to a [valid] byte sequence of length `len`.
 /// - No other access to `t` may occur concurrently with this call —
 ///   neither another mutator nor a read-only call such as
 ///   [`TermDictionary_Len`], and no iterator obtained from `t` may be
@@ -329,6 +339,8 @@ pub unsafe extern "C" fn TermDictionary_AddTerm(
 /// # Panics
 ///
 /// Panics if `term` is not valid UTF-8.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_ReplaceTerm(
     t: *mut TermDictionary,
@@ -355,9 +367,9 @@ pub unsafe extern "C" fn TermDictionary_ReplaceTerm(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
-/// - `term` must point to a valid byte sequence of length `len`.
+/// - `term` must point to a [valid] byte sequence of length `len`.
 /// - No other access to `t` may occur concurrently with this call —
 ///   neither another mutator nor a read-only call such as
 ///   [`TermDictionary_Len`], and no iterator obtained from `t` may be
@@ -366,6 +378,8 @@ pub unsafe extern "C" fn TermDictionary_ReplaceTerm(
 /// # Panics
 ///
 /// Panics if `term` is not valid UTF-8.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_Remove(
     t: *mut TermDictionary,
@@ -390,9 +404,9 @@ pub unsafe extern "C" fn TermDictionary_Remove(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
-/// - `term` must point to a valid byte sequence of length `len`.
+/// - `term` must point to a [valid] byte sequence of length `len`.
 /// - `out_score` and `out_num_docs` must each be NULL or point to a
 ///   writable location.
 /// - The out-pointers must not overlap each other or the
@@ -402,6 +416,8 @@ pub unsafe extern "C" fn TermDictionary_Remove(
 /// # Panics
 ///
 /// Panics if `term` is not valid UTF-8.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_Get(
     t: *const TermDictionary,
@@ -442,9 +458,9 @@ pub unsafe extern "C" fn TermDictionary_Get(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
-/// - `term` must point to a valid byte sequence of length `len`.
+/// - `term` must point to a [valid] byte sequence of length `len`.
 /// - No other access to `t` may occur concurrently with this call —
 ///   neither another mutator nor a read-only call such as
 ///   [`TermDictionary_Len`], and no iterator obtained from `t` may be
@@ -453,6 +469,8 @@ pub unsafe extern "C" fn TermDictionary_Get(
 /// # Panics
 ///
 /// Panics if `term` is not valid UTF-8.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_DecrementNumDocs(
     t: *mut TermDictionary,
@@ -479,9 +497,11 @@ pub unsafe extern "C" fn TermDictionary_DecrementNumDocs(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
 /// - `t` must not be modified or freed while the iterator lives.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_Iterate<'td>(
     t: *const TermDictionary,
@@ -502,14 +522,16 @@ pub unsafe extern "C" fn TermDictionary_Iterate<'td>(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
-/// - `str` must point to a valid byte sequence of length `len`.
+/// - `str` must point to a [valid] byte sequence of length `len`.
 /// - `t` must not be modified or freed while the iterator lives.
 ///
 /// # Panics
 ///
 /// Panics if the prefix is not valid UTF-8.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_IteratePrefix<'td>(
     t: *const TermDictionary,
@@ -535,14 +557,16 @@ pub unsafe extern "C" fn TermDictionary_IteratePrefix<'td>(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
-/// - `str` must point to a valid byte sequence of length `len`.
+/// - `str` must point to a [valid] byte sequence of length `len`.
 /// - `t` must not be modified or freed while the iterator lives.
 ///
 /// # Panics
 ///
 /// Panics if the suffix is not valid UTF-8.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_IterateSuffix<'td>(
     t: *const TermDictionary,
@@ -568,17 +592,19 @@ pub unsafe extern "C" fn TermDictionary_IterateSuffix<'td>(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
-/// - `str` must point to a valid byte sequence of length `len`.
+/// - `str` must point to a [valid] byte sequence of length `len`.
 /// - `t` must not be modified or freed while the iterator lives.
-/// - The substring bytes `(str, len)` must stay valid and unmodified
+/// - The substring bytes `(str, len)` must stay [valid] and unmodified
 ///   while the iterator lives — the iterator matches candidates against
 ///   them on every advance.
 ///
 /// # Panics
 ///
 /// Panics if the substring is not valid UTF-8.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_IterateContains<'td>(
     t: *const TermDictionary,
@@ -609,14 +635,16 @@ pub unsafe extern "C" fn TermDictionary_IterateContains<'td>(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
-/// - `str` must point to a valid byte sequence of length `len`.
+/// - `str` must point to a [valid] byte sequence of length `len`.
 /// - `t` must not be modified or freed while the iterator lives.
 ///
 /// # Panics
 ///
 /// Panics if the pattern is not valid UTF-8.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_IterateWildcard<'td>(
     t: *const TermDictionary,
@@ -643,14 +671,16 @@ pub unsafe extern "C" fn TermDictionary_IterateWildcard<'td>(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`TermDictionary`] obtained from
+/// - `t` must point to a [valid] [`TermDictionary`] obtained from
 ///   [`NewTermDictionary`] and cannot be NULL.
-/// - `str` must point to a valid byte sequence of length `len`.
+/// - `str` must point to a [valid] byte sequence of length `len`.
 /// - `t` must not be modified or freed while the iterator lives.
 ///
 /// # Panics
 ///
 /// Panics if the pattern is not valid UTF-8.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionary_IterateFuzzy<'td>(
     t: *const TermDictionary,
@@ -680,9 +710,9 @@ pub unsafe extern "C" fn TermDictionary_IterateFuzzy<'td>(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `it` must point to a valid [`TermDictionaryIterator`] obtained from
+/// - `it` must point to a [valid] [`TermDictionaryIterator`] obtained from
 ///   one of the `TermDictionary_Iterate*` functions and cannot be NULL.
-/// - `term` and `len` must be valid, non-NULL pointers to writable
+/// - `term` and `len` must be [valid], non-NULL pointers to writable
 ///   locations; `score` and `num_docs` must each be NULL or point to a
 ///   writable location.
 /// - The out-pointers must not overlap each other, the
@@ -691,6 +721,8 @@ pub unsafe extern "C" fn TermDictionary_IterateFuzzy<'td>(
 ///   exclusive access to the iterator.
 /// - The [`TermDictionary`] the iterator was obtained from must still be
 ///   alive and unmodified since the iterator was created.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionaryIterator_Next(
     it: *mut TermDictionaryIterator,
@@ -733,9 +765,11 @@ pub unsafe extern "C" fn TermDictionaryIterator_Next(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `it` must point to a valid [`TermDictionaryIterator`] obtained from
+/// - `it` must point to a [valid] [`TermDictionaryIterator`] obtained from
 ///   one of the `TermDictionary_Iterate*` functions and cannot be NULL.
 /// - `it` must not be used after this call.
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TermDictionaryIterator_Free(it: *mut TermDictionaryIterator) {
     debug_assert!(!it.is_null(), "it cannot be NULL");
