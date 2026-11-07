@@ -27,6 +27,7 @@
 #endif
 
 #include "spec.h"
+#include "gc/gc.h"
 #include "indexes.h"
 #include "indexes_scan.h"
 #include "document.h"
@@ -1224,7 +1225,9 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
       uint64_t docId;
       if (DocIdMeta_Get(ctx, to_key, spec->specId, &docId) == REDISMODULE_OK) {
         if (SearchDisk_IsEnabled()) {
-          SearchDisk_ReplaceKey(spec->diskSpec, docId, to_str, to_len);
+          if (SearchDisk_ReplaceKey(spec->diskSpec, docId, to_str, to_len) && spec->gc) {
+            GCContext_OnWrite(spec->gc);
+          }
         } else {
           DocTable_SetKeyById(&spec->docs, (t_docId)docId, to_str, to_len);
         }
