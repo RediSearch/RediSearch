@@ -177,7 +177,7 @@ fn with_child_delegates_ok() {
     // for any child iterator that leaves the parent in a valid state.
     let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
     let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue);
-    let child: Box<dyn RQEIterator<'_>> = Box::new(rqe_iterators::Empty::default());
+    let child: Box<dyn RQEIterator<'_>> = Box::new(rqe_iterators::Empty);
     let mut it = ContractChecker::new_unordered(TopKIterator::new(
         source,
         child,
@@ -613,6 +613,30 @@ fn resume_propagates_a_child_error() {
 
     assert!(matches!(
         it.suspend().resume(&guard),
+        Err(RQEIteratorError::TimedOut)
+    ));
+}
+
+#[test]
+fn child_timeout_precedes_nonresumable_source_abort() {
+    let mock_ctx = rqe_iterators_test_utils::MockContext::new(0, 0);
+    let guard = mock_ctx.spec_read();
+    let make_iterator = || {
+        Box::new(TopKIterator::new(
+            source_over(&[1, 2]),
+            SteerableChild::new([1, 2], ChildOutcome::Failed),
+            NonZeroUsize::new(2).unwrap(),
+            Ascending,
+        ))
+    };
+
+    // Before collection, this source would abort at either lock-release boundary.
+    assert!(matches!(
+        make_iterator().revalidate(&guard),
+        Err(RQEIteratorError::TimedOut)
+    ));
+    assert!(matches!(
+        make_iterator().suspend().resume(&guard),
         Err(RQEIteratorError::TimedOut)
     ));
 }
