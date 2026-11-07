@@ -658,7 +658,7 @@ bool SearchDisk_IsEnabledForValidation() {
 }
 
 bool SearchDisk_SupportsMultiValue(FieldType types) {
-  return types == INDEXFLD_T_FULLTEXT;
+  return types == INDEXFLD_T_FULLTEXT || types == INDEXFLD_T_TAG;
 }
 
 // Vector API wrappers
