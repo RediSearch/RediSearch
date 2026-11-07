@@ -24,6 +24,7 @@ extern "C" {
 #include "util/dict.h"
 }
 
+#include <iterator>
 #include <set>
 #include <random>
 #include <unordered_set>
@@ -125,8 +126,10 @@ protected:
 
 
 /**
- * Validates that the GC keeps the spec's inverted index size statistic in step with the bytes
- * it reports as collected from the numeric tree.
+ * Runs the fork GC over a numeric index with deleted documents and checks that it reports
+ * collected bytes. Whether the reported bytes match what the tree actually freed is checked by
+ * `applied_byte_stats_match_the_tree_size_change` in `index_gc/tests/numeric.rs`: the spec's
+ * inverted size is updated from the same reported numbers, so it cannot tell here.
  */
 TEST_F(IndexGCTestNumeric, testNumeric) {
 
@@ -161,7 +164,6 @@ TEST_F(IndexGCTestNumeric, testNumeric) {
   runGC();
 
   ASSERT_GT(fgc->stats.totalCollected, 0);
-  ASSERT_EQ(total_mem - fgc->stats.totalCollected, (get_spec(ism))->stats.invertedSize);
 }
 
 /** Mark one of the entries in the last block as deleted while the child is running.
@@ -656,11 +658,16 @@ TEST_F(IndexGCTestTag, testPipeErrorDuringApply) {
   closer.join();
 }
 
-// Checks the spec's block accounting when the parent writes while the fork GC child runs. Each
-// batch uses a new value, and there are few enough values that the root leaf never splits, so
-// every block stays in one range. The root range's cardinality is covered by the Rust tests in
+// Checks the spec's block accounting when the parent writes while the fork GC child runs. The
+// root range's cardinality is covered by the Rust tests in
 // `numeric_range_tree/tests/integration/gc.rs`.
 TEST_F(IndexGCTestNumeric, testNumericBlocksSinceFork) {
+  // The expected block counts assume every document lands in the root range, so the distinct
+  // values must stay below the root's split cardinality
+  // (`NumericRangeTree::MINIMUM_RANGE_CARDINALITY`).
+  constexpr double values[] = {3.1416, 1.4142, 2.718, 1.618};
+  constexpr size_t root_split_cardinality = 16;
+  static_assert(std::size(values) < root_split_cardinality, "the root range must not split");
   const auto startValue = totalSpecBlocks();
   constexpr size_t docs_per_block = 100;
   size_t cur_id = 1;
@@ -674,7 +681,7 @@ TEST_F(IndexGCTestNumeric, testNumericBlocksSinceFork) {
   // Add a block worth of documents with the same value
   expected_total_blocks++;
   for (size_t i = 0; i < docs_per_block; i++) {
-    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(3.1416).c_str());
+    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(values[0]).c_str());
   }
 
   EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
@@ -683,7 +690,7 @@ TEST_F(IndexGCTestNumeric, testNumericBlocksSinceFork) {
   runGC([&]() {
     expected_total_blocks++;
     for (size_t i = 0; i < docs_per_block / 2; i++)
-      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(1.4142).c_str());
+      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(values[1]).c_str());
   });
 
   EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
@@ -696,11 +703,11 @@ TEST_F(IndexGCTestNumeric, testNumericBlocksSinceFork) {
     ASSERT_TRUE(RS::deleteDocument(ctx, ism, numToDocStr(i).c_str())) << "Failed to delete doc " << i;
   runGC([&]() {
     for (size_t i = 0; i < docs_per_block / 2; i++)
-      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(2.718).c_str());
+      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(values[2]).c_str());
     EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks) << "Number of blocks should not change";
     expected_total_blocks++;
     for (size_t i = 0; i < docs_per_block / 2; i++)
-      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(1.618).c_str());
+      this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(values[3]).c_str());
     EXPECT_EQ(totalSpecBlocks() - startValue, expected_total_blocks);
   });
 

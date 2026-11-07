@@ -138,6 +138,53 @@ def testRangeParentsConfig(env):
     env.expect(config_cmd(), 'set', '_NUMERIC_RANGES_PARENTS', '0').equal('OK')
 
 @skip(cluster=True)
+def testForkGCPartialCleanKeepsSpecInvertedSizeInStepWithTree(env):
+    """A fork GC that deletes only some entries rewrites the blocks it touches,
+    so it reports both collected and allocated bytes. Checks, through a real
+    fork, that the spec's `inverted_sz_mb` moves by exactly as much as the
+    tree's own size counter (`NUMIDX_SUMMARY` `MemoryUsage`), which catches
+    either number being dropped on its way to the spec. That the counter
+    matches the ranges' real size is checked in `index_gc/tests/numeric.rs`
+    (`applied_byte_stats_match_the_tree_size_change`)."""
+    restore = {name: env.cmd(config_cmd(), 'GET', name)[0][1]
+               for name in ('FORK_GC_RUN_INTERVAL', 'FORK_GC_CLEAN_THRESHOLD')}
+    try:
+        # Only the forced run below may collect, so the "before" sizes are pre-GC.
+        env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).ok()
+        env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+
+        conn = getConnectionByEnv(env)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+        num_docs = 2000
+        for i in range(num_docs):
+            conn.execute_command('HSET', f'doc{i}', 'n', i)
+        # Deleting every other doc leaves survivors in every block and every leaf.
+        for i in range(1, num_docs, 2):
+            conn.execute_command('DEL', f'doc{i}')
+
+        def sizes():
+            spec_bytes = round(float(index_info(env, 'idx')['inverted_sz_mb']) * 1024 * 1024)
+            return spec_bytes, numeric_tree_summary(env, 'idx', 'n')
+
+        spec_before, tree_before = sizes()
+        forceInvokeGC(env, 'idx')
+        spec_after, tree_after = sizes()
+
+        env.assertEqual(tree_after['numEntries'], num_docs // 2, message=tree_after)
+        # `MemoryUsage` also counts tree nodes; they only change if a leaf empties
+        # and gets trimmed, so the tree's delta is purely its inverted indexes.
+        env.assertEqual(tree_after['emptyLeaves'], 0, message=tree_after)
+        env.assertEqual(tree_after['numRanges'], tree_before['numRanges'], message=tree_after)
+        tree_shrink = tree_before['MemoryUsage'] - tree_after['MemoryUsage']
+        env.assertGreater(tree_shrink, 0, message=(tree_before, tree_after))
+        env.assertEqual(spec_before - spec_after, tree_shrink,
+                        message=(spec_before, spec_after, tree_before, tree_after))
+    finally:
+        for name, value in restore.items():
+            env.expect(config_cmd(), 'SET', name, value).ok()
+
+
+@skip(cluster=True)
 def testEmptyNumericLeakIncrease(env):
     # test numeric field which updates with increasing value
 

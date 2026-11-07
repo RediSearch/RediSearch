@@ -16,12 +16,15 @@
 //!
 //! # Tree ownership
 //!
-//! This crate does not create trees. C obtains them from
-//! `openNumericOrGeoIndex` (in `iterators_ffi`), which allocates each
-//! [`NumericRangeTree`] as a [`Box`] and stores it on the field spec.
+//! This crate does not create trees. `rqe_iterators::open_numeric_or_geo_index`
+//! allocates each [`NumericRangeTree`] as a [`Box`] and stores it on the field
+//! spec; C reaches it through `openNumericOrGeoIndex` in `iterators_ffi`.
 //! [`NumericRangeTree_Free`] relies on that allocation.
 
-#![allow(non_camel_case_types, non_snake_case)]
+#![expect(
+    non_snake_case,
+    reason = "exported C symbols and their parameters keep the names C code uses"
+)]
 
 pub mod debug;
 
@@ -48,9 +51,8 @@ pub use numeric_range_tree::NumericRangeTree;
 ///
 /// # Safety
 ///
-/// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
-/// - The caller must have unique access to `t`.
+/// 1. `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+/// 2. The caller must have unique access to `t`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _NumericRangeTree_Add(
     t: *mut NumericRangeTree,
@@ -61,10 +63,10 @@ pub unsafe extern "C" fn _NumericRangeTree_Add(
     maxDepthRange: usize,
 ) -> AddResult {
     debug_assert!(!t.is_null(), "t cannot be NULL");
-
-    // SAFETY: Caller ensures `t` is valid, non-null and uniquely accessed
-    // per function safety docs.
-    let tree = unsafe { &mut *t };
+    // SAFETY: 1, 2.
+    let tree = unsafe { t.as_mut() };
+    // SAFETY: 1: `t` is non-null, so `as_mut` returned `Some`.
+    let tree = unsafe { tree.unwrap_unchecked() };
 
     tree.add(
         doc_id,
@@ -79,20 +81,17 @@ pub unsafe extern "C" fn _NumericRangeTree_Add(
 ///
 /// # Safety
 ///
-/// The following invariants must be upheld when calling this function:
-/// - `t` must be NULL (in which case this is a no-op), or point to a
-///   [`NumericRangeTree`] allocated as described in the
-///   [crate-level ownership notes](crate#tree-ownership).
-/// - After calling this function, `t` must not be used again, and nothing
-///   may still borrow from the tree.
+/// 1. `t` must be NULL (in which case this is a no-op), or a tree obtained
+///    from `openNumericOrGeoIndex`, which allocates it as a [`Box`].
+/// 2. After calling this function, `t` must not be used again, and nothing
+///    may still borrow from the tree.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_Free(t: *mut NumericRangeTree) {
     if t.is_null() {
         return;
     }
 
-    // SAFETY: Caller ensures `t` came from `Box::into_raw` and is not used
-    // again, per function safety docs.
+    // SAFETY: 1 (`t` is non-null here, so it came from `Box::into_raw`), 2.
     // Reconstructing the Box will free the memory when it's dropped.
     unsafe {
         let _ = Box::from_raw(t);
@@ -106,19 +105,18 @@ pub unsafe extern "C" fn NumericRangeTree_Free(t: *mut NumericRangeTree) {
 ///
 /// # Safety
 ///
-/// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
-/// - The caller must have unique access to `t`: nothing may borrow from the
-///   tree while this function runs.
+/// 1. `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+/// 2. The caller must have unique access to `t`: nothing may borrow from the
+///    tree while this function runs.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_TrimEmptyLeaves(
     t: *mut NumericRangeTree,
 ) -> TrimEmptyLeavesResult {
     debug_assert!(!t.is_null(), "t cannot be NULL");
-
-    // SAFETY: Caller ensures `t` is valid, non-null and uniquely accessed
-    // per function safety docs.
-    let tree = unsafe { &mut *t };
+    // SAFETY: 1, 2.
+    let tree = unsafe { t.as_mut() };
+    // SAFETY: 1: `t` is non-null, so `as_mut` returned `Some`.
+    let tree = unsafe { tree.unwrap_unchecked() };
 
     tree.trim_empty_leaves()
 }

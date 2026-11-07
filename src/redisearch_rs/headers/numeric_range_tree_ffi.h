@@ -34,8 +34,8 @@ size_t NumericRangeTree_BaseSize(void);
  *
  * # Safety
  *
- * - `ctx` must be a valid Redis module context.
- * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+ * 1. `ctx` must be a valid Redis module context.
+ * 2. `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
  */
 void NumericRangeTree_DebugDumpIndex(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool with_headers);
 
@@ -48,8 +48,8 @@ void NumericRangeTree_DebugDumpIndex(struct RedisModuleCtx *ctx, const struct Nu
  *
  * # Safety
  *
- * - `ctx` must be a valid Redis module context.
- * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+ * 1. `ctx` must be a valid Redis module context.
+ * 2. `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
  */
 void NumericRangeTree_DebugDumpTree(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t, bool minimal);
 
@@ -61,8 +61,8 @@ void NumericRangeTree_DebugDumpTree(struct RedisModuleCtx *ctx, const struct Num
  *
  * # Safety
  *
- * - `ctx` must be a valid Redis module context.
- * - `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
+ * 1. `ctx` must be a valid Redis module context.
+ * 2. `t` must be either NULL or a valid pointer to a [`NumericRangeTree`].
  */
 void NumericRangeTree_DebugSummary(struct RedisModuleCtx *ctx, const struct NumericRangeTree *t);
 
@@ -71,12 +71,10 @@ void NumericRangeTree_DebugSummary(struct RedisModuleCtx *ctx, const struct Nume
  *
  * # Safety
  *
- * The following invariants must be upheld when calling this function:
- * - `t` must be NULL (in which case this is a no-op), or point to a
- *   [`NumericRangeTree`] allocated as described in the
- *   [crate-level ownership notes](crate#tree-ownership).
- * - After calling this function, `t` must not be used again, and nothing
- *   may still borrow from the tree.
+ * 1. `t` must be NULL (in which case this is a no-op), or a tree obtained
+ *    from `openNumericOrGeoIndex`, which allocates it as a [`Box`].
+ * 2. After calling this function, `t` must not be used again, and nothing
+ *    may still borrow from the tree.
  */
 void NumericRangeTree_Free(struct NumericRangeTree *t);
 
@@ -88,10 +86,9 @@ void NumericRangeTree_Free(struct NumericRangeTree *t);
  *
  * # Safety
  *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
- * - The caller must have unique access to `t`: nothing may borrow from the
- *   tree while this function runs.
+ * 1. `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * 2. The caller must have unique access to `t`: nothing may borrow from the
+ *    tree while this function runs.
  */
 struct TrimEmptyLeavesResult NumericRangeTree_TrimEmptyLeaves(struct NumericRangeTree *t);
 
@@ -105,9 +102,8 @@ struct TrimEmptyLeavesResult NumericRangeTree_TrimEmptyLeaves(struct NumericRang
  *
  * # Safety
  *
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
- * - The caller must have unique access to `t`.
+ * 1. `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+ * 2. The caller must have unique access to `t`.
  */
 struct AddResult _NumericRangeTree_Add(struct NumericRangeTree *t, t_docId doc_id, double value, bool has_field_expiration, int isMulti, size_t maxDepthRange);
 
