@@ -35,6 +35,7 @@ tests/deps/RedisJSON
 compile_commands.json
 .claude/worktrees/
 .amp/portals/*
+.amp/rust-port/
 # Marker file created by the parent repo's modules-update orchestration
 # (modules/common.mk) to indicate the upstream source is ready to build.
 # Not tracked by redisearch upstream.
