@@ -1609,19 +1609,10 @@ dependencies = [
 name = "numeric_range_tree_ffi"
 version = "0.0.1"
 dependencies = [
- "ffi",
- "generational_slab",
- "hyperloglog",
- "index_result",
- "inverted_index",
- "inverted_index_ffi",
  "numeric_range_tree",
  "redis-module",
  "redis_mock",
- "rmp-serde",
  "rqe_core",
- "serde",
- "tracing",
  "workspace_hack",
 ]
 

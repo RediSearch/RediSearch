@@ -344,6 +344,39 @@ fn hll_cardinality_is_recomputed_correctly_when_last_block_fully_emptied(
     );
 }
 
+#[rstest]
+fn hll_cardinality_drops_when_a_whole_block_is_deleted_without_parent_writes(
+    #[values(false, true)] compress_floats: bool,
+) {
+    // One value per block, so the distinct values map one-to-one onto blocks.
+    let n = ENTRIES_PER_BLOCK * 3;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for i in 1..=n {
+        let value = match (i - 1) / ENTRIES_PER_BLOCK {
+            0 => 1.0,
+            1 => 2.0,
+            _ => 3.0,
+        };
+        tree.add(i, value, false, false, 0);
+    }
+    assert!(tree.root().is_leaf());
+    assert_eq!(tree.root().range().unwrap().cardinality(), 3);
+
+    // Delete the middle block entirely.
+    let delta = tree
+        .node(tree.root_index())
+        .scan_gc(&|doc_id| !(ENTRIES_PER_BLOCK + 1..=ENTRIES_PER_BLOCK * 2).contains(&doc_id))
+        .expect("should have GC work");
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
+
+    assert!(!result.index_gc_info.ignored_last_block);
+    let cardinality = tree.root().range().unwrap().cardinality();
+    assert_eq!(
+        cardinality, 2,
+        "only 1.0 and 3.0 should survive the deleted block, got {cardinality}"
+    );
+}
+
 // ============================================================================
 // GC repopulation and intensive delete tests
 // ============================================================================

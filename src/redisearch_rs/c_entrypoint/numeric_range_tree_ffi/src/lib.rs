@@ -12,84 +12,32 @@
 //! This crate provides C-callable functions to interact with the Rust
 //! [`numeric_range_tree`] implementation.
 //!
-//! # Module Organization
+//! The `FT.DEBUG` introspection replies live in [`debug`].
 //!
-//! - [`iterator`]: Tree iteration (depth-first traversal)
-//! - [`tree`]: Tree-level accessors and mutations
-//! - [`node`]: Node accessors (range, children, etc.)
-//! - [`range`]: NumericRange accessors and HLL functions
-//! - [`inverted_index`]: InvertedIndexNumeric accessors and reader
+//! # Tree ownership
+//!
+//! This crate does not create trees. C obtains them from
+//! `openNumericOrGeoIndex` (in `iterators_ffi`), which allocates each
+//! [`NumericRangeTree`] as a [`Box`] and stores it on the field spec.
+//! [`NumericRangeTree_Free`] relies on that allocation.
 
 #![allow(non_camel_case_types, non_snake_case)]
 
 pub mod debug;
-pub mod iterator;
-pub mod node;
-pub mod range;
-pub mod tree;
 
-// Re-export all public FFI functions from submodules
 pub use debug::*;
-pub use iterator::*;
-pub use node::*;
 use numeric_range_tree::AddResult;
-use numeric_range_tree::RangeWindow;
 use numeric_range_tree::TrimEmptyLeavesResult;
-pub use range::*;
-pub use tree::*;
 
-use ::inverted_index::NumericFilter;
 use rqe_core::DocId;
 use std::ffi::c_int;
-
-// Re-export IndexReader type from inverted_index_ffi for C code to use.
-pub use inverted_index_ffi::IndexReader;
-
-// Re-export the Numeric encoder types for use in the FFI.
-pub use ::inverted_index::numeric::{Numeric, NumericFloatCompression};
-
-// Re-export NumericIndex from numeric_range_tree as InvertedIndexNumeric for FFI.
-// This provides the opaque type that C code uses to access numeric index entries.
-pub use numeric_range_tree::NumericIndex as InvertedIndexNumeric;
 
 // Re-export core types directly — they are opaque to C code (accessed via pointers).
 pub use numeric_range_tree::NumericRangeTree;
 
-/// Type alias for the tree iterator, providing a C-friendly name.
-///
-/// The iterator holds references to nodes in the tree. The tree must not be
-/// freed or mutated while this iterator exists.
-pub type NumericRangeTreeIterator<'a> = numeric_range_tree::ReversePreOrderDfsIterator<'a>;
-
-/// Result of [`NumericRangeTree_Find`] - an array of range pointers.
-///
-/// The caller is responsible for freeing this result using
-/// [`NumericRangeTreeFindResult_Free`]. The ranges themselves are owned by
-/// the tree and must not be freed individually.
-#[repr(C)]
-pub struct NumericRangeTreeFindResult {
-    /// Pointer to array of range pointers.
-    pub ranges: *const *const numeric_range_tree::NumericRange,
-    /// Number of ranges in the array.
-    pub len: usize,
-}
-
 // ============================================================================
 // Core lifecycle functions
 // ============================================================================
-
-/// Create a new [`NumericRangeTree`].
-///
-/// Returns an opaque pointer to the newly created tree.
-/// To free the tree, use [`NumericRangeTree_Free`].
-///
-/// If `compress_floats` is true, the tree will use float compression which
-/// attempts to store f64 values as f32 when precision loss is acceptable (< 0.01).
-/// This corresponds to the `RSGlobalConfig.numericCompress` setting.
-#[unsafe(no_mangle)]
-pub extern "C" fn NewNumericRangeTree(compress_floats: bool) -> *mut NumericRangeTree {
-    Box::into_raw(Box::new(NumericRangeTree::new(compress_floats)))
-}
 
 /// Add a (docId, value) pair to the tree.
 ///
@@ -101,8 +49,8 @@ pub extern "C" fn NewNumericRangeTree(compress_floats: bool) -> *mut NumericRang
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`NumericRangeTree`] obtained from
-///   [`NewNumericRangeTree`] and cannot be NULL.
+/// - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+/// - The caller must have unique access to `t`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _NumericRangeTree_Add(
     t: *mut NumericRangeTree,
@@ -114,8 +62,8 @@ pub unsafe extern "C" fn _NumericRangeTree_Add(
 ) -> AddResult {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
-    // SAFETY: Caller is to ensure that `t` is a valid, non-null pointer
-    // to a NumericRangeTree obtained from NewNumericRangeTree.
+    // SAFETY: Caller ensures `t` is valid, non-null and uniquely accessed
+    // per function safety docs.
     let tree = unsafe { &mut *t };
 
     tree.add(
@@ -132,103 +80,23 @@ pub unsafe extern "C" fn _NumericRangeTree_Add(
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`NumericRangeTree`] obtained from
-///   [`NewNumericRangeTree`], or be NULL (in which case this is a no-op).
-/// - After calling this function, `t` must not be used again.
-/// - Any iterators obtained from this tree must be freed before calling this.
+/// - `t` must be NULL (in which case this is a no-op), or point to a
+///   [`NumericRangeTree`] allocated as described in the
+///   [crate-level ownership notes](crate#tree-ownership).
+/// - After calling this function, `t` must not be used again, and nothing
+///   may still borrow from the tree.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_Free(t: *mut NumericRangeTree) {
     if t.is_null() {
         return;
     }
 
-    // SAFETY: Caller is to ensure that `t` is a valid pointer to a
-    // NumericRangeTree obtained from NewNumericRangeTree.
+    // SAFETY: Caller ensures `t` came from `Box::into_raw` and is not used
+    // again, per function safety docs.
     // Reconstructing the Box will free the memory when it's dropped.
     unsafe {
         let _ = Box::from_raw(t);
     };
-}
-
-/// Get the total memory usage of the tree in bytes.
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`NumericRangeTree`] obtained from
-///   [`NewNumericRangeTree`] and cannot be NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericRangeTree_MemUsage(t: *const NumericRangeTree) -> usize {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
-
-    // SAFETY: Caller is to ensure that `t` is a valid, non-null pointer
-    // to a NumericRangeTree obtained from NewNumericRangeTree.
-    let tree = unsafe { &*t };
-    tree.mem_usage()
-}
-
-/// Find all numeric ranges that match the given filter.
-///
-/// Returns a [`NumericRangeTreeFindResult`] containing pointers to the matching
-/// ranges. The ranges are owned by the tree and must not be freed individually.
-/// The result itself must be freed using [`NumericRangeTreeFindResult_Free`].
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`NumericRangeTree`] obtained from
-///   [`NewNumericRangeTree`] and cannot be NULL.
-/// - `nf` must point to a valid [`NumericFilter`] and cannot be NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericRangeTree_Find(
-    t: *const NumericRangeTree,
-    nf: *const NumericFilter,
-) -> NumericRangeTreeFindResult {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
-    debug_assert!(!nf.is_null(), "nf cannot be NULL");
-
-    // SAFETY: Caller ensures `t` is a valid, non-null pointer.
-    let tree = unsafe { &*t };
-    // SAFETY: Caller ensures `nf` is a valid, non-null pointer.
-    let filter = unsafe { &*nf };
-
-    let ranges = tree.find_windowed(filter, RangeWindow::from_filter(filter));
-
-    // Convert Vec<&NumericRange> to a boxed slice of pointers.
-    let range_ptrs: Box<[*const numeric_range_tree::NumericRange]> = ranges
-        .into_iter()
-        .map(|r| r as *const numeric_range_tree::NumericRange)
-        .collect();
-
-    let len = range_ptrs.len();
-    let ptr = Box::into_raw(range_ptrs) as *const *const numeric_range_tree::NumericRange;
-
-    NumericRangeTreeFindResult { ranges: ptr, len }
-}
-
-/// Free a [`NumericRangeTreeFindResult`].
-///
-/// This frees the array allocation but NOT the ranges themselves (they are
-/// owned by the tree).
-///
-/// # Safety
-///
-/// - `result` must have been obtained from [`NumericRangeTree_Find`].
-/// - After calling this function, the result must not be used again.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn NumericRangeTreeFindResult_Free(result: NumericRangeTreeFindResult) {
-    if result.ranges.is_null() {
-        return;
-    }
-
-    // SAFETY: The pointer came from `Box::into_raw` in `NumericRangeTree_Find`.
-    unsafe {
-        let slice_ptr = std::ptr::slice_from_raw_parts_mut(
-            result.ranges as *mut *const numeric_range_tree::NumericRange,
-            result.len,
-        );
-        let _ = Box::from_raw(slice_ptr);
-    }
 }
 
 /// Trim empty leaves from the tree (garbage collection).
@@ -239,17 +107,17 @@ pub unsafe extern "C" fn NumericRangeTreeFindResult_Free(result: NumericRangeTre
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid [`NumericRangeTree`] obtained from
-///   [`NewNumericRangeTree`] and cannot be NULL.
-/// - No iterators should be active on this tree while calling this function.
+/// - `t` must point to a valid [`NumericRangeTree`] and cannot be NULL.
+/// - The caller must have unique access to `t`: nothing may borrow from the
+///   tree while this function runs.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn NumericRangeTree_TrimEmptyLeaves(
     t: *mut NumericRangeTree,
 ) -> TrimEmptyLeavesResult {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
-    // SAFETY: Caller is to ensure that `t` is a valid, non-null pointer
-    // to a NumericRangeTree obtained from NewNumericRangeTree.
+    // SAFETY: Caller ensures `t` is valid, non-null and uniquely accessed
+    // per function safety docs.
     let tree = unsafe { &mut *t };
 
     tree.trim_empty_leaves()

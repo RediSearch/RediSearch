@@ -90,9 +90,3 @@ RefManager *createSpec(RedisModuleCtx *ctx, const std::vector<const char*>& pref
 void freeSpec(RefManager *ism) {
     Indexes_RemoveSpecFromGlobals({ism}, false);
 }
-
-NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {
-  const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, field, strlen(field));
-
-  return openNumericOrGeoIndex(spec, const_cast<FieldSpec *>(fs), DONT_CREATE_INDEX);
-}
