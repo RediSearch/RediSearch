@@ -14,10 +14,14 @@ use std::ops::Deref;
 /// # Validity invariants
 ///
 /// Validity is about whether the legacy C trie functions can safely consume the
-/// bytes. The bytes must encode a non-empty key, the decoder must not read beyond
-/// the initialized byte sequence or stop at an interior zero codepoint, and the
-/// decoded key must fit the primary trie. This permits invalid UTF-8 encodings
-/// that the trie accepts.
+/// bytes, which must:
+///
+/// 1. encode a non-empty key;
+/// 2. decode without reading beyond the byte sequence or stopping at an
+///    interior zero codepoint;
+/// 3. decode to a key that fits the primary trie.
+///
+/// This permits invalid UTF-8 encodings that the trie accepts.
 #[derive(Clone, Debug)]
 pub struct TrieTerm {
     bytes: Box<[u8]>,
@@ -28,7 +32,7 @@ impl TrieTerm {
     ///
     /// # Safety
     ///
-    /// The caller must ensure `bytes` satisfies the
+    /// The caller must ensure `bytes` satisfies each of the numbered
     /// [validity invariants](Self#validity-invariants).
     pub const unsafe fn from_bytes_unchecked(bytes: Box<[u8]>) -> Self {
         Self { bytes }
@@ -65,7 +69,7 @@ impl<'a> TrieTermRef<'a> {
     ///
     /// # Safety
     ///
-    /// The caller must ensure `bytes` satisfies the
+    /// The caller must ensure `bytes` satisfies each of the numbered
     /// [validity invariants](TrieTerm#validity-invariants).
     pub(crate) const unsafe fn from_bytes_unchecked(bytes: &'a [u8]) -> Self {
         Self { bytes }
@@ -78,8 +82,8 @@ impl<'a> TrieTermRef<'a> {
 
     /// Copy the term into an owned [`TrieTerm`].
     pub fn to_term(&self) -> TrieTerm {
-        // SAFETY: `self` upholds the validity invariants, and a copy of its bytes
-        // is the same byte sequence.
+        // SAFETY: 1-3. `self` upholds every validity invariant, and a copy of its
+        // bytes is the same byte sequence.
         unsafe { TrieTerm::from_bytes_unchecked(self.bytes.into()) }
     }
 }

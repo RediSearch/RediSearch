@@ -149,8 +149,10 @@ pub fn receive_terms(reader: &mut impl Read) -> Result<Option<TermEntry<TrieTerm
     if entry.term.is_empty() {
         return Err(GcError::codec("decoding terms entry", "empty term"));
     }
-    // SAFETY: the term is non-empty, and collect_terms obtains its bytes from
-    // the trie iterator, preserving the trie's remaining validity invariants.
+    // SAFETY:
+    // 1. Checked non-empty just above.
+    // 2-3. `collect_terms` takes its bytes from the trie iterator, which encodes
+    //      a key the trie stored.
     let term = unsafe { TrieTerm::from_bytes_unchecked(entry.term) };
     Ok(Some(TermEntry {
         term,
