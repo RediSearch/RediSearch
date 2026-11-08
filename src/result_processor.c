@@ -3236,33 +3236,6 @@ static ResultProcessor *RPTimeoutAfterCount_New(size_t count, RedisSearchCtx *sc
 
 typedef struct {
   ResultProcessor base;
-  RedisSearchCtx *sctx;
-  uint32_t counter;
-} RPMemoryCheckpoint;
-
-static int RPMemoryCheckpoint_Next(ResultProcessor *base, SearchResult *r) {
-  RPMemoryCheckpoint *self = (RPMemoryCheckpoint *)base;
-  if (QueryMemory_Checkpoint(self->sctx->limits, &self->counter)) {
-    return RS_RESULT_STOPPED;
-  }
-  return base->upstream->Next(base->upstream, r);
-}
-
-static void RPMemoryCheckpoint_Free(ResultProcessor *base) {
-  rm_free(base);
-}
-
-void PipelineAddMemoryCheckpoint(QueryProcessingCtx *qctx, RedisSearchCtx *sctx) {
-  RPMemoryCheckpoint *rp = rm_calloc(1, sizeof(*rp));
-  rp->sctx = sctx;
-  rp->base.type = RP_MEMORY_CHECKPOINT;
-  rp->base.Next = RPMemoryCheckpoint_Next;
-  rp->base.Free = RPMemoryCheckpoint_Free;
-  addResultProcessor(qctx, &rp->base);
-}
-
-typedef struct {
-  ResultProcessor base;
 } RPCrash;
 
 static void RPCrash_Free(ResultProcessor *base) {
