@@ -257,9 +257,16 @@ static inline __attribute__((always_inline)) int refillQueueUsingIterator(RPQuer
  * Returns true if DMD is valid, false if it should be skipped.
  */
 static bool validateDmdSlot(const RPQueryIterator *self, const RSDocumentMetadata *dmd) {
-  // Defensive check: if keyPtr is NULL (allocation failure in disk API), skip this document
   if (!dmd->keyPtr) {
-    return false;
+    // RAM-served disk metadata carries no key. Read it only when a slot check actually needs it.
+    const bool needsKey = (isTrimming && RedisModule_ShardingGetKeySlot) ||
+        (self->querySlots && (__atomic_load_n(&key_space_version, __ATOMIC_RELAXED) != self->keySpaceVersion));
+    if (!needsKey) {
+      return true;
+    }
+    if (!self->sctx->spec->diskSpec || !SearchDisk_EnsureDmdKey(self->sctx->spec->diskSpec, self->sctx, dmd)) {
+      return false;
+    }
   }
 
   // Check trimming (sharding migration)
@@ -1124,7 +1131,8 @@ typedef struct {
 static bool isDocumentStillValid(const RPLoader *self, SearchResult *r) {
   if (self->sctx->spec->diskSpec) {
     // The Document_Deleted and Document_FailedToOpen flags are not used on disk and are not updated after we take the GIL, so we check the disk directly.
-    if (SearchDisk_DocIdDeleted(self->sctx->spec->diskSpec, SearchResult_GetDocumentMetadata(r)->id)) {
+    if (SearchDisk_DocIdDeleted(self->sctx->spec->diskSpec, SearchResult_GetDocumentMetadata(r)->id) ||
+        !SearchDisk_EnsureDmdKey(self->sctx->spec->diskSpec, self->sctx, SearchResult_GetDocumentMetadata(r))) {
       SearchResult_SetFlags(r, SearchResult_GetFlags(r) | Result_ExpiredDoc);
       return false;
     }
@@ -1596,6 +1604,7 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk,
 typedef struct {
   ResultProcessor base;
   const RLookupKey *out;
+  RedisSearchCtx *sctx;
 } RPKeyNameLoader;
 
 static inline void RPKeyNameLoader_Free(ResultProcessor *self) {
@@ -1603,19 +1612,29 @@ static inline void RPKeyNameLoader_Free(ResultProcessor *self) {
 }
 
 static int RPKeyNameLoader_Next(ResultProcessor *base, SearchResult *res) {
-  int rc = base->upstream->Next(base->upstream, res);
-  if (RS_RESULT_OK == rc) {
-    RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
-    size_t keyLen = sdslen(SearchResult_GetDocumentMetadata(res)->keyPtr); // keyPtr is an sds
+  RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
+  int rc;
+  while (RS_RESULT_OK == (rc = base->upstream->Next(base->upstream, res))) {
+    const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(res);
+    if (!dmd->keyPtr && nl->sctx->spec->diskSpec &&
+        !SearchDisk_EnsureDmdKey(nl->sctx->spec->diskSpec, nl->sctx, dmd)) {
+      // The row vanished between the index read and here: drop it, as the loader does.
+      base->parent->totalResults--;
+      SearchResult_Clear(res);
+      continue;
+    }
+    size_t keyLen = sdslen(dmd->keyPtr); // keyPtr is an sds
     RS_ASSERT(keyLen <= UINT32_MAX);
-    RLookup_WriteOwnKey(nl->out, SearchResult_GetRowDataMut(res), RSValue_NewCopiedString(SearchResult_GetDocumentMetadata(res)->keyPtr, keyLen));
+    RLookup_WriteOwnKey(nl->out, SearchResult_GetRowDataMut(res), RSValue_NewCopiedString(dmd->keyPtr, keyLen));
+    break;
   }
   return rc;
 }
 
-static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
+static ResultProcessor *RPKeyNameLoader_New(RedisSearchCtx *sctx, const RLookupKey *key) {
   RPKeyNameLoader *rp = rm_calloc(1, sizeof(*rp));
   rp->out = key;
+  rp->sctx = sctx;
 
   ResultProcessor *base = &rp->base;
   base->Free = RPKeyNameLoader_Free;
@@ -1633,7 +1652,7 @@ ResultProcessor *RPLoader_New(RedisSearchCtx *sctx, uint32_t reqflags, RLookup *
     if (nkeys == 1 && !strcmp(RLookupKey_GetPath(keys[0]), UNDERSCORE_KEY)) {
       // Return a thin RP that doesn't actually loads anything or access to the key space
       // Returning without turning on the `QEXEC_S_HAS_LOAD` flag
-      return RPKeyNameLoader_New(keys[0]);
+      return RPKeyNameLoader_New(sctx, keys[0]);
     }
   }
   *outStateflags |= QEXEC_S_HAS_LOAD;
@@ -2644,6 +2663,9 @@ static inline bool RPHybridMerger_Error(const RPHybridMerger *self) {
   SearchResult_SetRowData(r, translated);
 
   const RSDocumentMetadata *dmd = SearchResult_GetDocumentMetadata(r);
+  if (dmd && !dmd->keyPtr && self->sctx->spec && self->sctx->spec->diskSpec) {
+    SearchDisk_EnsureDmdKey(self->sctx->spec->diskSpec, self->sctx, dmd);
+  }
   const char *keyPtr = dmd ? dmd->keyPtr : NULL;
   // Coordinator case - no dmd - use docKey in rlookup
   const bool fallbackToLookup = !keyPtr && self->docKey;

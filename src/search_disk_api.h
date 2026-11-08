@@ -927,6 +927,18 @@ typedef struct DocTableDiskAPI {
    * @return true if the document was found and updated, false if not found or on error
    */
   bool (*replaceKey)(RedisSearchDiskIndexSpec* handle, t_docId docId, const char* newKey, size_t newKeyLen);
+
+  /**
+   * @brief Reads only the key of a document's doc-table row (PoC for MOD-21018).
+   *
+   * Used when the index processor served the row's metadata from RAM, so the key is
+   * read only for rows that actually reach a consumer that needs it.
+   *
+   * @param allocate_key Copying allocator for the returned key (e.g. sdsnewlen)
+   * @param snapshot Optional snapshot, as for getDocumentMetadata
+   * @return The allocated key, or NULL when the row is absent or on error
+   */
+  char* (*getDocumentKey)(RedisSearchDiskIndexSpec* handle, t_docId docId, AllocateKeyCallback allocate_key, RedisSearchDiskSnapshot *snapshot);
 } DocTableDiskAPI;
 
 typedef struct VectorDiskAPI {

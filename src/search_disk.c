@@ -544,12 +544,28 @@ t_docId SearchDisk_PutDocument(RedisSearchDiskIndexSpec *handle, SearchDiskWrite
     return disk->docTable.putDocument(handle, batch, key, keyLen, score, flags, maxTermFreq, docLen, oldLen, documentTtl, oldDocId);
 }
 
+// A NULL key means the disk layer served the metadata from RAM and left the key to be read lazily
+// (SearchDisk_EnsureDmdKey); keep keyPtr NULL rather than allocating an empty sds.
+static char *allocateKey(const void *key_data, size_t key_len) {
+    return key_data ? sdsnewlen(key_data, key_len) : NULL;
+}
+
 bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, t_docId docId, RSDocumentMetadata *dmd, struct timespec *current_time) {
     RS_ASSERT(disk && handle);
     RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
     // TODO: disk DMDs leave `slot` unset, since disk mode supports neither ASM nor SFLUSH. Whoever
     // adds them must decide how to provide it (stored on disk, or computed from the key).
-    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time, snapshot);
+    return disk->docTable.getDocumentMetadata(handle, docId, dmd, &allocateKey, current_time, snapshot);
+}
+
+bool SearchDisk_EnsureDmdKey(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, const RSDocumentMetadata *dmd) {
+    if (dmd->keyPtr) {
+        return true;
+    }
+    RS_ASSERT(disk && handle);
+    RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
+    ((RSDocumentMetadata *)dmd)->keyPtr = disk->docTable.getDocumentKey(handle, dmd->id, &allocateKey, snapshot);
+    return dmd->keyPtr != NULL;
 }
 
 bool SearchDisk_DocIdDeleted(RedisSearchDiskIndexSpec *handle, t_docId docId) {
@@ -604,7 +620,7 @@ static RSDocumentMetadata* allocateDMD(const void* key_data, size_t key_len) {
     if (dmd) {
         dmd->sortVector = RSSortingVector_Empty();
         dmd->ref_count = 1;
-        dmd->keyPtr = sdsnewlen(key_data, key_len);
+        dmd->keyPtr = allocateKey(key_data, key_len);
     }
     return dmd;
 }

@@ -556,6 +556,14 @@ char *SearchDisk_DebugDiskStats(RedisSearchDiskIndexSpec *handle, bool withStati
  */
 bool SearchDisk_ReplaceKey(RedisSearchDiskIndexSpec *handle, t_docId docId, const char *newKey, size_t newKeyLen);
 
+/**
+ * Fills `dmd->keyPtr` from the doc table when the metadata was served from RAM without its key
+ * (PoC for MOD-21018). Returns true when the key is present afterwards; false means the row is
+ * gone (deleted meanwhile) and the result must be dropped. Disk DMDs are per-result heap objects
+ * owned by the query, so the in-place fill is safe despite the const pointer.
+ */
+bool SearchDisk_EnsureDmdKey(RedisSearchDiskIndexSpec *handle, const RedisSearchCtx *sctx, const RSDocumentMetadata *dmd);
+
 // Async Read Pool API
 
 /**
