@@ -138,6 +138,7 @@ typedef struct GCContext {
   // read-modify-write; separate relaxed accesses would not be ordered.
   RS_Atomic(unsigned) schedFlags;
   GCCallbacks callbacks;
+  bool diskGC;  // a disk index's context, whatever GC_POLICY says
 } GCContext;
 
 GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy);

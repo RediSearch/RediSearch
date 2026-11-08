@@ -62,6 +62,7 @@ GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
       break;
     case GCPolicy_Disk:
       ret->gcCtx = DiskGC_Create(spec_ref, &ret->callbacks);
+      ret->diskGC = true;
       break;
     default:
       RS_LOG_ASSERT(false, "Invalid GC policy");
@@ -81,12 +82,13 @@ static bool GCContext_IsSchedulingPaused(GCContext* gc) {
   return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_PAUSED) != 0;
 }
 
-static long long getNextPeriod(struct timespec interval) {
+static long long getNextPeriod(const GCContext* gc, struct timespec interval) {
   long long ms = interval.tv_sec * 1000 + interval.tv_nsec / 1000000;  // convert to millisecond
 
-  // Spread forks of shards sharing a host, whose copy-on-write and fork stalls stack up. Thread
-  // cycles fork nothing, and the pool already bounds how many run at once.
-  if (RSGlobalConfig.gcConfigParams.gcPolicy != GCPolicy_Thread && interval.tv_sec > 0) {
+  // Spread forks and disk compactions of indexes and shards that would otherwise start together.
+  // In-memory thread cycles fork nothing, and the pool already bounds how many run at once.
+  bool inMemoryThread = !gc->diskGC && RSGlobalConfig.gcConfigParams.gcPolicy == GCPolicy_Thread;
+  if (!inMemoryThread && interval.tv_sec > 0) {
     ms += (rand() % interval.tv_sec) * 1000;
   }
 
@@ -97,7 +99,7 @@ static RedisModuleTimerID scheduleNextIn(GCContext* gc, long long intervalMs) {
   if (RS_IsMock) return 0;
 
   IncrementGCTimerArm();
-  return RedisModule_CreateTimer(RSDummyContext, getNextPeriod(intervalMs), timerCallback, gc);
+  return RedisModule_CreateTimer(RSDummyContext, getNextPeriod(gc, interval), timerCallback, gc);
 }
 
 // Main thread only -- arming off it is unsafe even under the GIL (MOD-17309). Callable blindly;
