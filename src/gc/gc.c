@@ -81,9 +81,16 @@ static bool GCContext_IsSchedulingPaused(GCContext* gc) {
   return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_PAUSED) != 0;
 }
 
-static long long getNextPeriod(long long intervalMs) {
-  // add randomness to avoid congestion by multiple GCs from different shards
-  return intervalMs > 0 ? intervalMs + rand() % intervalMs : intervalMs;
+static long long getNextPeriod(struct timespec interval) {
+  long long ms = interval.tv_sec * 1000 + interval.tv_nsec / 1000000;  // convert to millisecond
+
+  // Spread forks of shards sharing a host, whose copy-on-write and fork stalls stack up. Thread
+  // cycles fork nothing, and the pool already bounds how many run at once.
+  if (RSGlobalConfig.gcConfigParams.gcPolicy != GCPolicy_Thread && interval.tv_sec > 0) {
+    ms += (rand() % interval.tv_sec) * 1000;
+  }
+
+  return ms;
 }
 
 static RedisModuleTimerID scheduleNextIn(GCContext* gc, long long intervalMs) {

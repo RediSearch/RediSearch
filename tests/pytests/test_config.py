@@ -1799,7 +1799,7 @@ configOnlyNumericConfigs = [
     ('search-min-maintenance-workers', 1, 0, MAX_WORKER_THREADS, 'MIN_MAINTENANCE_WORKERS'),
     ('search-gc-threads', 1, 1, 64, '_GC_THREADS'),
     ('search-gc-clean-ratio-ppm', 1000, 0, 1_000_000, 'GC_CLEAN_RATIO_PPM'),
-    ('search-thread-gc-run-interval', 5, 1, LLONG_MAX // 2000, 'THREAD_GC_RUN_INTERVAL'),
+    ('search-thread-gc-run-interval', 7, 1, LLONG_MAX // 2000, 'THREAD_GC_RUN_INTERVAL'),
     ('search-thread-gc-clean-threshold', 100, 0, LLONG_MAX, 'THREAD_GC_CLEAN_THRESHOLD'),
 ]
 
@@ -2639,7 +2639,7 @@ def testForkGcSettingsDoNotTuneTheThreadPolicy():
     # default gets THREAD's defaults, while a server that keeps GC_POLICY FORK keeps its tuning.
     env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 3600 FORK_GC_CLEAN_THRESHOLD 100000', freshEnv=True)
     env.expect('CONFIG', 'GET', 'search-thread-gc-run-interval').equal(
-        ['search-thread-gc-run-interval', '5'])
+        ['search-thread-gc-run-interval', '7'])
     env.expect('CONFIG', 'GET', 'search-thread-gc-clean-threshold').equal(
         ['search-thread-gc-clean-threshold', '100'])
     env.expect('CONFIG', 'GET', 'search-fork-gc-run-interval').equal(

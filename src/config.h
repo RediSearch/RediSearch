@@ -399,7 +399,7 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 // A THREAD cycle needs no fork, so it can run more often.
-#define DEFAULT_THREAD_GC_RUN_INTERVAL 5
+#define DEFAULT_THREAD_GC_RUN_INTERVAL 7
 #define DEFAULT_THREAD_GC_CLEAN_THRESHOLD 100
 // The GC timer is armed in milliseconds with up to as much again of jitter.
 #define MAX_THREAD_GC_RUN_INTERVAL (LLONG_MAX / 2000)
