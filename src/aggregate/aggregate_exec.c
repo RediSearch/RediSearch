@@ -259,8 +259,15 @@ static void serializeLegacyResult(AREQ *req, RedisModule_Reply *reply, const Sea
   }
 
   if (options & QEXEC_F_IS_SEARCH) {
-    size_t n;
-    const char *s = DMD_KeyPtrLen(dmd, &n);
+    size_t n = 0;
+    const char *s = "";
+    // RAM-served disk metadata reaches the reply without its key: read it now, only for the
+    // rows actually returned. A row whose doc vanished meanwhile keeps an empty key (PoC).
+    RedisSearchCtx *sctx = AREQ_SearchCtx(req);
+    if (dmd->keyPtr || (sctx->spec && sctx->spec->diskSpec &&
+                        SearchDisk_EnsureDmdKey(sctx->spec->diskSpec, sctx, dmd))) {
+      s = DMD_KeyPtrLen(dmd, &n);
+    }
     if (has_map) {
       RedisModule_ReplyKV_StringBuffer(reply, "id", s, n);
     } else {
