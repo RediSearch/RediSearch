@@ -628,3 +628,66 @@ mod load_field {
         })
     }
 }
+
+#[test]
+#[cfg_attr(miri, ignore)] // can't call FFI function RedisModule_CreateString under miri
+fn load_all_on_a_wide_lookup_reuses_keys_across_documents() {
+    redis_mock::init_redis_module_mock();
+
+    // Wide enough for the lookup to index its key names, with a query key among them.
+    let fields: Vec<_> = (0..200)
+        .map(|i| {
+            (
+                CString::new(format!("field{i}")).unwrap(),
+                CString::new(format!("value{i}")).unwrap(),
+            )
+        })
+        .collect();
+
+    with_ctx(KeyType::Hash, &fields, |ctx| {
+        let format = HashDocumentFormat::new(ctx, false);
+        let key_name_bytes = CString::new("doc:1").unwrap();
+        let key_name = make_redis_string(&key_name_bytes);
+
+        let mut rlookup = RLookup::new();
+        let query_dst = rlookup
+            .get_key_write(fields[7].0.clone(), RLookupKeyFlags::empty())
+            .unwrap()
+            .dstidx;
+
+        // The first document creates the keys, the second one resolves them by name.
+        let mut dsts = Vec::new();
+        for _ in 0..2 {
+            let mut row = RLookupRow::new();
+            format.load_all(&mut rlookup, &mut row, &key_name).unwrap();
+            dsts = fields
+                .iter()
+                .map(|(name, _)| {
+                    rlookup
+                        .find_key_by_name(name)
+                        .unwrap()
+                        .current()
+                        .unwrap()
+                        .dstidx
+                })
+                .collect();
+            for (i, (_, value)) in fields.iter().enumerate() {
+                let loaded = row
+                    .dyn_values()
+                    .get(usize::from(dsts[i]))
+                    .and_then(Option::as_ref)
+                    .and_then(|v| v.as_str_bytes());
+                if usize::from(dsts[i]) == usize::from(query_dst) {
+                    assert_eq!(loaded, None, "a QuerySrc key is not loaded");
+                } else {
+                    assert_eq!(loaded, Some(value.as_bytes()));
+                }
+            }
+        }
+        // One key per field, no duplicates created by the second load.
+        assert_eq!(
+            dsts.iter().collect::<std::collections::HashSet<_>>().len(),
+            fields.len()
+        );
+    })
+}

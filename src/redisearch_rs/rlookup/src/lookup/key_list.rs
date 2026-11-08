@@ -213,6 +213,20 @@ impl<'a> KeyList<'a> {
         store.find_slot(name)
     }
 
+    /// Builds the name index of a wide key store, so that by-name reads stop scanning every key.
+    ///
+    /// By-name writes promote the store themselves; this is for readers, such as the document
+    /// loader, that resolve one name per document field and would otherwise scan the keys
+    /// once each.
+    pub(crate) fn index_names_if_wide(&mut self) {
+        if let Some(store) = self.store.as_mut()
+            && store.by_name.is_none()
+            && store.live.len() >= NAME_INDEX_MIN_KEYS
+        {
+            store.enable_name_index();
+        }
+    }
+
     pub(crate) fn push_slot(&mut self, mut key: RLookupKey<'a>) -> u16 {
         let store = self.store.get_or_insert_with(|| Box::new(KeyStore::new()));
         let slot = u16::try_from(store.live.len()).expect("RLookup key count exceeds u16::MAX");
@@ -629,6 +643,36 @@ mod tests {
                 .len(),
             NAME_INDEX_MIN_KEYS + 1
         );
+    }
+
+    #[test]
+    fn index_names_if_wide_promotes_only_wide_stores() {
+        let names: Vec<_> = (0..NAME_INDEX_MIN_KEYS)
+            .map(|index| CString::new(format!("key{index}")).unwrap())
+            .collect();
+        let mut keys = KeyList::new();
+        keys.index_names_if_wide();
+        assert!(keys.store.is_none());
+
+        for name in &names[..NAME_INDEX_MIN_KEYS - 1] {
+            keys.push(RLookupKey::new(name.as_c_str(), RLookupKeyFlags::empty()));
+        }
+        keys.index_names_if_wide();
+        assert!(keys.store.as_ref().unwrap().by_name.is_none());
+
+        keys.push(RLookupKey::new(
+            names[NAME_INDEX_MIN_KEYS - 1].as_c_str(),
+            RLookupKeyFlags::empty(),
+        ));
+        keys.index_names_if_wide();
+        assert!(keys.store.as_ref().unwrap().by_name.is_some());
+        // A second call keeps the existing index.
+        keys.index_names_if_wide();
+
+        for (slot, name) in names.iter().enumerate() {
+            assert_eq!(keys.find_slot(name), Some(u16::try_from(slot).unwrap()));
+        }
+        assert_eq!(keys.find_slot(c"missing"), None);
     }
 
     // First-wins resolution must survive index promotion: duplicates that
