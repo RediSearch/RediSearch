@@ -3,11 +3,9 @@
 import collections
 import random
 import re
-import subprocess
 import tempfile
 import zipfile
 from itertools import chain
-import tempfile
 
 import gevent.queue
 import gevent.server
@@ -22,11 +20,11 @@ SHORT_READ_BYTES_DELTA = int(os.getenv('SHORT_READ_BYTES_DELTA', '1'))
 SHORT_READ_FULL_TEST = int(os.getenv('SHORT_READ_FULL_TEST', '0'))
 
 RDBS_SHORT_READS = [
-    'short-reads/redisearch_2.2.0.rdb.zip',
-    'short-reads/rejson_2.0.0.rdb.zip',
-    'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb.zip',
-    'short-reads/redisearch_2.8.0.rdb.zip',
-    'short-reads/redisearch_2.8.4.rdb.zip',
+    'short-reads/redisearch_2.2.0.rdb',
+    'short-reads/rejson_2.0.0.rdb',
+    'short-reads/redisearch_2.2.0_rejson_2.0.0.rdb',
+    'short-reads/redisearch_2.8.0.rdb',
+    'short-reads/redisearch_2.8.4.rdb',
 ]
 RDBS_COMPATIBILITY = [
     'redisearch_2.0.9.rdb',
@@ -46,42 +44,6 @@ RDBS.extend(RDBS_SHORT_READS)
 if not CODE_COVERAGE and SANITIZER == '' and SHORT_READ_FULL_TEST:
     RDBS.extend(RDBS_COMPATIBILITY)
     RDBS_EXPECTED_INDICES.append(ExpectedIndex(1, 'idx', [1000]))
-
-LOCAL_RDBS_DIR = None # '/tmp'
-
-def unzip(zip_path, to_dir):
-    if not zipfile.is_zipfile(zip_path):
-        return False
-    with zipfile.ZipFile(zip_path, 'r') as db_zip:
-        for info in db_zip.infolist():
-            if not os.path.exists(db_zip.extract(info, to_dir)):
-                return False
-    return True
-
-
-def downloadFiles(target_dir, rdbs_start_idx, rdbs_end_idx):
-    for f in RDBS[rdbs_start_idx:rdbs_end_idx]:
-        path = os.path.join(target_dir, f)
-        path_dir = os.path.dirname(path)
-        if not os.path.exists(path_dir):
-            os.makedirs(path_dir)
-        if LOCAL_RDBS_DIR:
-            local_path = os.path.join(LOCAL_RDBS_DIR, os.path.basename(f))
-            if os.path.exists(local_path):
-                shutil.copyfile(local_path, path)
-                unzip(path, path_dir)
-        if not os.path.exists(path):
-            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
-            dpath = os.path.abspath(path)
-            _, ext = os.path.splitext(dpath)
-            if ext == '.zip':
-                if not unzip(path, path_dir):
-                    return False
-            else:
-                if not os.path.exists(path) or os.path.getsize(path) == 0:
-                    return False
-    return True
-
 
 def rand_name(k):
     # rand alphabetic string with between 2 to k chars
@@ -129,8 +91,6 @@ def create_indices(env, rdbFileName, idxNameStem, isHash, isJson, num_geometry_k
     zipFilePath = dbCopyFilePath + '.zip'
     with zipfile.ZipFile(zipFilePath, 'w') as db_zip:
         db_zip.write(dbFilePath, dbFileName)
-    if LOCAL_RDBS_DIR:
-        shutil.copyfile(zipFilePath, os.path.join(LOCAL_RDBS_DIR, os.path.basename(zipFilePath)))
 
 def get_identifier(name, isHash):
     return '$.' + name if not isHash else name
@@ -535,7 +495,7 @@ def ShortReadSearch(env, rdbs_start_idx, rdbs_end_idx):
     env.assertNotEqual(seed, None, message='random seed ' + seed)
     random.seed(seed)
 
-    download_and_send_short_reads(env, rdbs_start_idx, rdbs_end_idx, 'testShortReadSearch')
+    send_bundled_short_reads(env, rdbs_start_idx, rdbs_end_idx)
 
 
 def sendShortReads(env, rdb_file, expected_index):
@@ -649,18 +609,11 @@ def runShortRead(env, data, total_len, expected_index):
         # Exit (avoid read-only exception with flush on replica)
         env.assertCmdOk('replicaof', 'no', 'one')
 
-def download_and_send_short_reads(env, rdbs_start_idx, rdbs_end_idx, test_name):
-    with tempfile.TemporaryDirectory(prefix="short-read_") as temp_dir:
-        if not downloadFiles(temp_dir, rdbs_start_idx, rdbs_end_idx):
-            env.assertTrue(False, "downloadFiles failed")
-
-        for f, expected_index in zip(RDBS[rdbs_start_idx:rdbs_end_idx], RDBS_EXPECTED_INDICES[rdbs_start_idx:rdbs_end_idx]):
-            name, ext = os.path.splitext(f)
-            if ext == '.zip':
-                f = name
-            fullfilePath = os.path.join(temp_dir, f)
-            env.assertNotEqual(fullfilePath, None, message=test_name)
-            sendShortReads(env, fullfilePath, expected_index)
+def send_bundled_short_reads(env, rdbs_start_idx, rdbs_end_idx):
+    for f, expected_index in zip(RDBS[rdbs_start_idx:rdbs_end_idx], RDBS_EXPECTED_INDICES[rdbs_start_idx:rdbs_end_idx]):
+        if not getRDBFile(env, f):
+            return
+        sendShortReads(env, os.path.join(REDISEARCH_CACHE_DIR, f), expected_index)
 
 @skip(cluster=True, macos=True, arch='aarch64')
 def test_short_read_with_MT_part1():
@@ -681,4 +634,4 @@ def short_read_with_MT(rdbs_start_idx, rdbs_end_idx):
     env.assertNotEqual(seed, None, message='random seed ' + seed)
     random.seed(seed)
 
-    download_and_send_short_reads(env, rdbs_start_idx, rdbs_end_idx, 'test_short_read_with_MT')
+    send_bundled_short_reads(env, rdbs_start_idx, rdbs_end_idx)

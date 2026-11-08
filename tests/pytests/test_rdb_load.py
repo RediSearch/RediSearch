@@ -13,7 +13,7 @@ def test_rdb_load_no_deadlock():
     This test starts a clean Redis server, then triggers RDB loading from the client side
     while some subprocesses keep sending INFO commands.
     """
-    # Download the RDB file using downloadFile function
+    # Bundled RDB fixture (see tests/pytests/test_rdbs/)
     rdb_filename = 'redisearch_2.6.9_with_vecsim.rdb'
 
     # Create a clean Redis environment
@@ -25,8 +25,8 @@ def test_rdb_load_no_deadlock():
     # Verify server is running
     test_env.expect('PING').equal(True)
 
-    # Download the RDB file
-    if not downloadFile(test_env, rdb_filename):
+    # Verify the bundled RDB fixture is available
+    if not getRDBFile(test_env, rdb_filename):
         return
 
     # Configure indexer to yield more frequently during loading to increase chance of deadlock
@@ -38,7 +38,7 @@ def test_rdb_load_no_deadlock():
     dbDir = test_env.cmd('config', 'get', 'dir')[1]
     rdbFilePath = os.path.join(dbDir, dbFileName)
 
-    # Get the downloaded RDB file path
+    # Path to the bundled RDB fixture
     filePath = os.path.join(REDISEARCH_CACHE_DIR, rdb_filename)
 
     # Create symlink to the downloaded RDB file
