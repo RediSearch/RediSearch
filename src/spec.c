@@ -254,8 +254,7 @@ void IndexSpec_RebuildFieldNameTable(IndexSpec *sp) {
 #define FIELD_PATH_TABLE_MIN_FIELDS 64
 
 const FieldPathTable *IndexSpec_GetFieldPathTable(IndexSpec *sp) {
-  if (!RSGlobalConfig.loadByDocumentFields || sp->diskSpec ||
-      sp->numFields <= FIELD_PATH_TABLE_MIN_FIELDS) {
+  if (!RSGlobalConfig.loadByDocumentFields || sp->numFields <= FIELD_PATH_TABLE_MIN_FIELDS) {
     return NULL;
   }
   if (!sp->fieldPaths) {
