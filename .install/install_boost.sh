@@ -10,7 +10,22 @@ if [[ -d ${BOOST_DIR} ]]; then
     exit 0
 fi
 
-wget https://github.com/boostorg/boost/releases/download/boost-${VERSION}/boost-${VERSION}.tar.gz -O ${BOOST_NAME}.tar.gz
+BOOST_URL="https://github.com/boostorg/boost/releases/download/boost-${VERSION}/boost-${VERSION}.tar.gz"
+# Retry the download so a transient GitHub outage (e.g. a stalled release
+# download that just hangs on "Trying <ip>:443") is retried instead of
+# failing the job on the first blip. The retry loop is in shell rather than
+# via wget flags because the wget 1.14 on Amazon Linux 2 and CentOS 7 has no
+# --retry-on-http-error, so --tries alone does not retry an HTTP 5xx.
+# `-T 60` (network timeout) abandons a stalled connection rather than hanging.
+for attempt in 1 2 3 4 5; do
+    wget -T 60 "${BOOST_URL}" -O ${BOOST_NAME}.tar.gz && break
+    if [ "$attempt" -eq 5 ]; then
+        echo "Boost download failed after $attempt attempts" >&2
+        exit 1
+    fi
+    echo "Boost download failed (attempt $attempt), retrying in 10s..." >&2
+    sleep 10
+done
 
 tar -xzf ${BOOST_NAME}.tar.gz
 cd boost-${VERSION}
