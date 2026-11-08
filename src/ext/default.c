@@ -702,8 +702,8 @@ int DefaultExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
       }
     } else {
       t_fieldMask fm = (*ctx->currentNode)->opts.fieldMask;
-      for (size_t ii = 0; ii < ctx->handle->spec->numFields; ++ii) {
-        const FieldSpec *fs = ctx->handle->spec->fields + ii;
+      for (size_t ii = 0; ii < ctx->handle->spec->textFields.count; ++ii) {
+        const FieldSpec *fs = ctx->handle->spec->fields + ctx->handle->spec->textFields.indexes[ii];
         if (!FieldSpec_IsIndexableTextInMask(fs, fm)) {
           continue;
         }

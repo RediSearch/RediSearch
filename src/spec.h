@@ -375,6 +375,16 @@ typedef struct {
   arrayof(t_fieldIndex) fields;
 } IndexSpecMissing;
 
+/**
+ * Positions in `IndexSpec.fields` of the fields of one kind, in schema order, so that loops over
+ * the VECTOR, GEOSHAPE or TEXT fields do not walk the whole schema. Each list holds every field
+ * that has the type bit; callers keep applying their own finer test to the entries.
+ */
+typedef struct FieldIndexList {
+  t_fieldIndex *indexes;
+  uint16_t count;
+} FieldIndexList;
+
 typedef struct IndexSpec {
   const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
@@ -388,6 +398,11 @@ typedef struct IndexSpec {
   // Document path -> fields, built on first use by IndexSpec_GetFieldPathTable and dropped
   // whenever `fields` changes. Only used under the GIL, as `fields` is only mutated there.
   struct FieldPathTable *fieldPaths;
+  // Fields by type. Rebuilt by IndexSpec_RebuildFieldTypeLists once a schema change has set the
+  // types of its fields.
+  FieldIndexList vectorFields;
+  FieldIndexList geometryFields;
+  FieldIndexList textFields;
 
   IndexFlags flags;               // Flags
   IndexStats stats;               // Statistics of memory used and quantities
@@ -722,6 +737,9 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
  * change to the set of fields that bypasses IndexSpec_CreateField (RDB load, schema rollback).
  */
 void IndexSpec_RebuildFieldNameTable(IndexSpec *sp);
+
+/** Rebuilds the per-type field lists from `sp->fields`. */
+void IndexSpec_RebuildFieldTypeLists(IndexSpec *sp);
 
 /**
  * The spec's path table for loading a document by its own fields, or NULL if the schema is

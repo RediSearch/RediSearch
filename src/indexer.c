@@ -184,8 +184,8 @@ static bool checkVectorChanged(const RSAddDocumentCtx *aCtx, const FieldSpec *fs
  */
 static void VectorIndex_RemoveOrKeepId(const IndexSpec *spec, t_docId oldDocId,
                                       const RSAddDocumentCtx *aCtx) {
-  for (int i = 0; i < spec->numFields; ++i) {
-    FieldSpec *fs = &spec->fields[i];
+  for (int i = 0; i < spec->vectorFields.count; ++i) {
+    FieldSpec *fs = &spec->fields[spec->vectorFields.indexes[i]];
     if (fs->types != INDEXFLD_T_VECTOR) continue;
     // ctx is NULL because we don't create the index here
     VecSimIndex *vecsim = openVectorIndex(NULL, fs, DONT_CREATE_INDEX);
@@ -226,8 +226,8 @@ static bool checkGeometryUnchanged(const RSAddDocumentCtx *aCtx, const FieldSpec
  */
 static void GeometryIndex_RemoveOrKeepId(const IndexSpec *spec, t_docId oldDocId,
                                          const RSAddDocumentCtx *aCtx) {
-  for (int i = 0; i < spec->numFields; ++i) {
-    FieldSpec *fs = &spec->fields[i];
+  for (int i = 0; i < spec->geometryFields.count; ++i) {
+    FieldSpec *fs = &spec->fields[spec->geometryFields.indexes[i]];
     if (!(fs->types & INDEXFLD_T_GEOMETRY)) continue;
     GeometryIndex *idx = OpenGeometryIndex(fs, DONT_CREATE_INDEX);
     if (!idx) {

@@ -222,6 +222,28 @@ const FieldSpec *FieldNameTable_Find(const FieldNameTable *table, const FieldSpe
   }
 }
 
+static void fieldIndexListRebuild(FieldIndexList *list, const FieldSpec *fields, size_t n,
+                                  FieldType type) {
+  rm_free(list->indexes);
+  list->indexes = NULL;
+  list->count = 0;
+  for (size_t i = 0; i < n; i++) {
+    if (FIELD_IS(&fields[i], type)) list->count++;
+  }
+  if (!list->count) return;
+  list->indexes = rm_malloc(list->count * sizeof(*list->indexes));
+  size_t at = 0;
+  for (size_t i = 0; i < n; i++) {
+    if (FIELD_IS(&fields[i], type)) list->indexes[at++] = (t_fieldIndex)i;
+  }
+}
+
+void IndexSpec_RebuildFieldTypeLists(IndexSpec *sp) {
+  fieldIndexListRebuild(&sp->vectorFields, sp->fields, sp->numFields, INDEXFLD_T_VECTOR);
+  fieldIndexListRebuild(&sp->geometryFields, sp->fields, sp->numFields, INDEXFLD_T_GEOMETRY);
+  fieldIndexListRebuild(&sp->textFields, sp->fields, sp->numFields, INDEXFLD_T_FULLTEXT);
+}
+
 void IndexSpec_RebuildFieldNameTable(IndexSpec *sp) {
   FieldNameTable_Rebuild(&sp->fieldNames, sp->fields, sp->numFields);
   FieldPathTable_Free(sp->fieldPaths);
@@ -276,8 +298,8 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
     return 1;
   }
 
-  for (size_t ii = 0; ii < sp->numFields; ++ii) {
-    const FieldSpec *fs = sp->fields + ii;
+  for (size_t ii = 0; ii < sp->textFields.count; ++ii) {
+    const FieldSpec *fs = sp->fields + sp->textFields.indexes[ii];
     if (FieldSpec_IsIndexableTextInMask(fs, fm) && FieldSpec_IsPhonetics(fs)) {
       return 1;
     }
@@ -287,8 +309,8 @@ int IndexSpec_CheckPhoneticEnabled(const IndexSpec *sp, t_fieldMask fm) {
 
 // Assuming the spec is properly locked before calling this function.
 int IndexSpec_CheckAllowSlopAndInorder(const IndexSpec *spec, t_fieldMask fm, QueryError *status) {
-  for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    const FieldSpec *fs = spec->fields + ii;
+  for (size_t ii = 0; ii < spec->textFields.count; ++ii) {
+    const FieldSpec *fs = spec->fields + spec->textFields.indexes[ii];
     if (FieldSpec_IsIndexableTextInMask(fs, fm) && FieldSpec_IsUndefinedOrder(fs)) {
       QueryError_SetWithUserDataFmt(
           status, QUERY_ERROR_CODE_BAD_ORDER_OPTION,
@@ -312,9 +334,10 @@ const FieldSpec *IndexSpec_GetFieldBySortingIndex(const IndexSpec *sp, uint16_t 
 
 // Assuming the spec is properly locked before calling this function.
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
-  for (int i = 0; i < sp->numFields; i++) {
-    if (FieldSpec_IsIndexableText(&sp->fields[i]) && FIELD_BIT(&sp->fields[i]) == id) {
-      return HiddenString_GetUnsafe(sp->fields[i].fieldName, NULL);
+  for (int i = 0; i < sp->textFields.count; i++) {
+    const FieldSpec *fs = &sp->fields[sp->textFields.indexes[i]];
+    if (FieldSpec_IsIndexableText(fs) && FIELD_BIT(fs) == id) {
+      return HiddenString_GetUnsafe(fs->fieldName, NULL);
     }
   }
   return NULL;
@@ -322,9 +345,10 @@ const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id) {
 
 // Get the field spec by the field mask.
 const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
-  for (int i = 0; i < sp->numFields; i++) {
-    if (FieldSpec_IsIndexableText(&sp->fields[i]) && FIELD_BIT(&sp->fields[i]) == id) {
-      return &sp->fields[i];
+  for (int i = 0; i < sp->textFields.count; i++) {
+    const FieldSpec *fs = &sp->fields[sp->textFields.indexes[i]];
+    if (FieldSpec_IsIndexableText(fs) && FIELD_BIT(fs) == id) {
+      return fs;
     }
   }
   return NULL;
@@ -333,9 +357,10 @@ const FieldSpec *IndexSpec_GetFieldByBit(const IndexSpec *sp, t_fieldMask id) {
 // Get the field specs that match a field mask.
 arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask mask) {
   arrayof(FieldSpec *) res = array_new(FieldSpec *, 2);
-  for (int i = 0; i < sp->numFields; i++) {
-    if (FieldSpec_IsIndexableTextInMask(sp->fields + i, mask)) {
-      array_append(res, sp->fields + i);
+  for (int i = 0; i < sp->textFields.count; i++) {
+    FieldSpec *fs = sp->fields + sp->textFields.indexes[i];
+    if (FieldSpec_IsIndexableTextInMask(fs, mask)) {
+      array_append(res, fs);
     }
   }
   return res;
@@ -1763,6 +1788,8 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     IndexSpec_EnsureSuffixForField(sp, fs);
   }
 
+  IndexSpec_RebuildFieldTypeLists(sp);
+
   // If we successfully modified the schema, we need to update the spec cache
   IndexSpecCache_Decref(sp->spcache);
   sp->spcache = IndexSpec_BuildSpecCache(sp);
@@ -1785,6 +1812,7 @@ reset:
 
   sp->numFields = prevNumFields;
   IndexSpec_RebuildFieldNameTable(sp);
+  IndexSpec_RebuildFieldTypeLists(sp);
   sp->numSortableFields = prevSortLen;
   array_set_len(sp->fieldIdToIndex, prevFieldIdToIndexLen);
   if (sp->suffix && sp->suffix != prevSuffix) {
@@ -2192,6 +2220,9 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   }
   FieldNameTable_Free(&spec->fieldNames);
   FieldPathTable_Free(spec->fieldPaths);
+  rm_free(spec->vectorFields.indexes);
+  rm_free(spec->geometryFields.indexes);
+  rm_free(spec->textFields.indexes);
 
   // Close the disk index right after the fields are cleaned up, while the rest
   // of the spec's state and locks are still fully alive. Background jobs
@@ -2590,6 +2621,9 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->fields = rm_calloc(numFields, sizeof(FieldSpec));
   sp->fieldNames = (FieldNameTable){0};
   sp->fieldPaths = NULL;
+  sp->vectorFields = (FieldIndexList){0};
+  sp->geometryFields = (FieldIndexList){0};
+  sp->textFields = (FieldIndexList){0};
   sp->specName = name;
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
   // Assign a unique specId from the global counter. This ensures that even if
@@ -3507,6 +3541,7 @@ IndexSpec *IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, bool useSst, QueryE
     IndexSpec_EnsureSuffixForField(sp, fs);
   }
   IndexSpec_RebuildFieldNameTable(sp);
+  IndexSpec_RebuildFieldTypeLists(sp);
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 
@@ -3730,6 +3765,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     IndexSpec_TrackIndexMissingField(sp, fs);
   }
   IndexSpec_RebuildFieldNameTable(sp);
+  IndexSpec_RebuildFieldTypeLists(sp);
   // After loading all the fields, we can build the spec cache
   sp->spcache = IndexSpec_BuildSpecCache(sp);
 

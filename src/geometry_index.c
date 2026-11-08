@@ -34,9 +34,9 @@ GeometryIndex *OpenGeometryIndex(FieldSpec *fs, bool create_if_missing) {
 }
 
 void GeometryIndex_RemoveId(IndexSpec *spec, t_docId id) {
-  for (int i = 0; i < spec->numFields; ++i) {
-    if (spec->fields[i].types & INDEXFLD_T_GEOMETRY) {
-      FieldSpec *fs = spec->fields + i;
+  for (int i = 0; i < spec->geometryFields.count; ++i) {
+    if (spec->fields[spec->geometryFields.indexes[i]].types & INDEXFLD_T_GEOMETRY) {
+      FieldSpec *fs = spec->fields + spec->geometryFields.indexes[i];
       GeometryIndex *idx = OpenGeometryIndex(fs, CREATE_INDEX);
       if (idx) {
         const GeometryApi *api = GeometryApi_Get(idx);

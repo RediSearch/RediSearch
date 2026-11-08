@@ -853,8 +853,8 @@ static bool updateHashVectorFields(IndexSpec *spec, RedisModuleCtx *ctx, RedisMo
 
   IndexSpec_IncrActiveWrites(spec);
   success = true;
-  for (int i = 0; i < spec->numFields && success; ++i) {
-    FieldSpec *fs = &spec->fields[i];
+  for (int i = 0; i < spec->vectorFields.count && success; ++i) {
+    FieldSpec *fs = &spec->fields[spec->vectorFields.indexes[i]];
     if (!FIELD_IS(fs, INDEXFLD_T_VECTOR) ||
         !FieldSpec_IsInChangeSet(fs, changedFields, numChangedFields)) {
       continue;
