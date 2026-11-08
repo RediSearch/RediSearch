@@ -10,6 +10,10 @@ pressure on the n-th checkpoint call of the process. The fake pressure works on 
 tests do not depend on the server exporting the memory API."""
 
 from common import *
+from test_info_modules import (
+    COORD_WARN_ERR_SECTION, OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC,
+    info_modules_to_dict,
+)
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
 SHARD_OOM_WARNING = "One or more shards failed to execute the query due to insufficient memory"
@@ -77,6 +81,11 @@ def create_index(env):
         conn.execute_command('HSET', f'doc{i}', 'n', i, 't', f'hello{i}')
 
 
+def coord_oom_counters(env):
+    section = info_modules_to_dict(env)[COORD_WARN_ERR_SECTION]
+    return int(section[OOM_ERROR_COORD_METRIC]), int(section[OOM_WARNING_COORD_METRIC])
+
+
 def expect_empty_with_oom_warning(env, res):
     env.assertEqual(res['results'], [], message=res)
     env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
@@ -111,6 +120,21 @@ def test_build_checkpoint_stop_in_resp2(env):
     create_index(env)
     env.assertEqual(run_at_call(env, 1, *SEARCH), [0])
     env.assertEqual(run_at_call(env, 1, *AGGREGATE), [0])
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_build_checkpoint_stop_bumps_the_oom_counters(env):
+    """A query stopped for OOM at build counts like the entry guard's OOM: ON_OOM RETURN bumps the
+    OOM warning counter and ON_OOM FAIL the OOM error counter, each once."""
+    create_index(env)
+    errors, warnings = coord_oom_counters(env)
+    expect_empty_with_oom_warning(env, run_at_call(env, 1, *AGGREGATE))
+    env.assertEqual(coord_oom_counters(env), (errors, warnings + 1))
+
+    with oom_policy(env, 'fail'):
+        expect_oom_error_at_call(env, 1, *AGGREGATE)
+    env.assertEqual(coord_oom_counters(env), (errors + 1, warnings + 1))
 
 
 @skip(cluster=True)
