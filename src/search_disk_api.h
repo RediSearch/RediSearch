@@ -67,8 +67,6 @@ typedef const void* RedisSearchDiskSnapshot;
 // `SearchDisk_CommitWriteBatch`, `SearchDisk_AbortWriteBatch`, etc.).
 typedef struct SearchDiskWriteBatchHandle SearchDiskWriteBatchHandle;
 
-typedef struct SearchDiskSlotTrimBatch SearchDiskSlotTrimBatch;
-
 // Inclusive Redis Cluster slot interval.
 typedef struct SearchDiskSlotRange {
   uint16_t start;
@@ -81,12 +79,12 @@ typedef enum {
   SEARCH_DISK_TRIM_FINISHED,
 } SearchDiskSlotTrimResult;
 
-// Borrowed batch. Under the spec write lock, applyTrimBatch must succeed before
-// updating memory indexes and accounting. Remove the pending filter only after
-// accounting an exhausted batch. False rejects the batch without advancing it.
+// Commit the staged write batch under the spec write lock and checkpoint gate,
+// then finish memory-index updates and accounting before returning success.
+// Reject before commit by aborting the batch; never free it inside the callback.
 typedef bool (*SearchDiskSlotTrimCallback)(void *ctx, const t_docId *ids, size_t numIds,
                                            uint64_t totalDocLen,
-                                           const SearchDiskSlotTrimBatch *batch, bool exhausted);
+                                           SearchDiskWriteBatchHandle *batch, bool exhausted);
 
 // RAM-only enumeration. The ranges are borrowed for the duration of the callback.
 typedef void (*SearchDiskPendingSlotTrimCallback)(void *ctx, const SearchDiskSlotRange *ranges,
@@ -806,23 +804,21 @@ typedef struct SlotMigrationAPI {
   // jobs after restore so Search can schedule unfinished cleanup. The backend restores visibility.
   void (*forEachPendingTrim)(RedisSearchDiskIndexSpec *index,
                              SearchDiskPendingSlotTrimCallback callback, void *ctx);
-  // Serialize complete read/apply turns per index on the cleanup worker.
+  // Serialize complete read/commit turns per index on the cleanup worker.
+  // The caller owns an open, empty batch for this index through the entire call.
+  // Stages deletions and commit hooks before invoking the callback.
   // Worker only, without GIL/spec lock. Scan at most maxScanned membership records,
   // counting skipped IDs too. Resume after the last applied batch even if GC has
   // reclaimed its records. Invoke callback at most once, including an empty batch
-  // to commit progress or completion. No progress mutation outside the callback.
+  // to commit progress or completion. Only successful commit publishes deletion markers and progress.
   // FINISHED requires successful application of the final exhausted batch.
   // RETRY denotes a stale scan, storage failure or declined callback; caller-contract
   // violations are fatal. maxScanned must be positive and the ranges/cutoff job must be pending.
   SearchDiskSlotTrimResult (*runTrimBatch)(RedisSearchDiskIndexSpec *index,
+                                           SearchDiskWriteBatchHandle *batch,
                                            const SearchDiskSlotRange *ranges, size_t numRanges,
                                            t_docId maxDocId, size_t maxScanned,
                                            SearchDiskSlotTrimCallback callback, void *ctx);
-  // Callback only, under the spec write lock and checkpoint mutation gate.
-  // Validate, commit one document-table write batch, then publish deleted IDs
-  // and cursor progress. A failed write leaves RAM state and progress unchanged.
-  // Search completes VecSim and statistics updates before releasing the lock.
-  bool (*applyTrimBatch)(RedisSearchDiskIndexSpec *index, const SearchDiskSlotTrimBatch *batch);
 } SlotMigrationAPI;
 
 typedef struct DocTableDiskAPI {

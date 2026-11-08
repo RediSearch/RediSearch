@@ -204,17 +204,18 @@ typedef struct {
 } DiskSlotTrimContext;
 
 static bool trimMemoryIndexes(void *ctx, const t_docId *ids, size_t numIds, uint64_t totalDocLen,
-                              const SearchDiskSlotTrimBatch *batch, bool exhausted) {
+                              SearchDiskWriteBatchHandle *batch, bool exhausted) {
   DiskSlotTrimContext *trim = ctx;
   IndexSpec *spec = trim->spec;
   pthread_mutex_lock(&diskApplyLock);
   if (diskJobsPaused) {
+    SearchDisk_AbortWriteBatch(batch);
     pthread_mutex_unlock(&diskApplyLock);
     return false;
   }
   IndexSpec_IncrActiveWrites(spec);
   IndexSpec_LockWrite(spec);
-  bool applied = SearchDisk_ApplySlotTrimBatch(spec->diskSpec, batch);
+  bool applied = SearchDisk_CommitWriteBatch(batch);
   if (applied) {
     RS_LOG_ASSERT_ALWAYS(spec->stats.scoring.numDocuments >= numIds,
                          "slot cleanup exceeds the document count");
@@ -253,12 +254,19 @@ IndexSpecDiskSlotTrimResult IndexSpec_RunDiskSlotTrim(IndexSpecSlotTrimJob *job)
     result = INDEX_DISK_TRIM_RETRY;
   } else if (spec && spec->diskSpec) {
     DiskSlotTrimContext context = {.spec = spec, .job = job};
-    SearchDiskSlotTrimResult status =
-        SearchDisk_RunSlotTrimBatch(spec->diskSpec, job->ranges, job->numRanges, job->maxDocId,
-                                    SLOT_CLEANUP_CHUNK_DOC_LIMIT, trimMemoryIndexes, &context);
-    result = status == SEARCH_DISK_TRIM_FINISHED ? INDEX_DISK_TRIM_FINISHED
-             : status == SEARCH_DISK_TRIM_MORE   ? INDEX_DISK_TRIM_MORE
-                                                 : INDEX_DISK_TRIM_RETRY;
+    SearchDiskWriteBatchHandle *batch = SearchDisk_CreateWriteBatch(spec->diskSpec);
+    if (batch) {
+      SearchDiskSlotTrimResult status =
+          SearchDisk_RunSlotTrimBatch(spec->diskSpec, batch, job->ranges, job->numRanges,
+                                      job->maxDocId, SLOT_CLEANUP_CHUNK_DOC_LIMIT,
+                                      trimMemoryIndexes, &context);
+      result = status == SEARCH_DISK_TRIM_FINISHED ? INDEX_DISK_TRIM_FINISHED
+               : status == SEARCH_DISK_TRIM_MORE   ? INDEX_DISK_TRIM_MORE
+                                                   : INDEX_DISK_TRIM_RETRY;
+      SearchDisk_FreeWriteBatch(batch);
+    } else {
+      result = INDEX_DISK_TRIM_RETRY;
+    }
   }
   if (running.rm) StrongRef_Release(running);
   pthread_rwlock_unlock(&diskJobRunLock);

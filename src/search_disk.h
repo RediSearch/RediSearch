@@ -1063,10 +1063,9 @@ bool SearchDisk_RegisterSlotTrim(RedisSearchDiskIndexSpec *index, const SearchDi
 void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
                                        SearchDiskPendingSlotTrimCallback callback, void *ctx);
 SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(
-    RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges, size_t numRanges,
-    t_docId maxDocId, size_t maxScanned, SearchDiskSlotTrimCallback callback, void *ctx);
-bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
-                                   const SearchDiskSlotTrimBatch *batch);
+    RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+    const SearchDiskSlotRange *ranges, size_t numRanges, t_docId maxDocId,
+    size_t maxScanned, SearchDiskSlotTrimCallback callback, void *ctx);
 #ifdef __cplusplus
 }
 #endif
