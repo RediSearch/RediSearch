@@ -8,6 +8,7 @@
 */
 
 #include "op_block_client.h"
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -3713,7 +3714,7 @@ DEBUG_COMMAND(VecSimMockTimeout) {
  * Fake memory pressure for the query memory checkpoints (QueryMemory_Checkpoint), process-wide,
  * so tests can stop queries for OOM on a Redis without a real memory limit or memory API.
  *   RATIO <ratio>         - every checkpoint memory read, and the query entry guard, see <ratio>
- *                           instead of the real used-memory ratio. A negative ratio restores it.
+ *                           instead of the real used-memory ratio. Must be >= 0; RESET restores the real one.
  *   AT_CALL <n>           - the n-th checkpoint call from now (1-based) reports pressure; 0 disarms.
  *   READ_INTERVAL <n>     - checkpoints read memory every n calls; 0 restores the default.
  *   RESET                 - undo all of the above.
@@ -3759,7 +3760,7 @@ DEBUG_COMMAND(MemoryPressure) {
   }
   if (!strcasecmp("RATIO", op)) {
     double ratio;
-    if (RedisModule_StringToDouble(argv[3], &ratio) != REDISMODULE_OK) {
+    if (RedisModule_StringToDouble(argv[3], &ratio) != REDISMODULE_OK || signbit(ratio)) {
       return RedisModule_ReplyWithError(ctx, "Invalid ratio");
     }
     QueryMemory_SetForcedRatio((float)ratio);
