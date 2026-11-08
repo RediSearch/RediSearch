@@ -204,6 +204,12 @@ impl<'a> RLookup<'a> {
         self.keys.find_by_name(name)
     }
 
+    /// Indexes the keys by name if the lookup is wide, for callers about to resolve many names
+    /// with [`Self::find_key_by_name`] and [`Self::get_key_load`].
+    pub(crate) fn index_key_names_if_wide(&mut self) {
+        self.keys.index_names_if_wide();
+    }
+
     /// Resolve a writable key by name, lazily indexing wide lookups before the search.
     pub(crate) fn get_or_create_key_by_name(&mut self, name: &[u8]) -> &RLookupKey<'a> {
         let slot = if let Some(slot) = self.keys.find_slot_for_write(name) {

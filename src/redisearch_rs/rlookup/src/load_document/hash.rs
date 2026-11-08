@@ -232,6 +232,9 @@ impl<'n> DocumentFormat for HashDocumentFormat<'n> {
             .open_hash_key(key_name)
             .map_err(|_| LoadAllError::OpenKeyFailed)?;
 
+        // One by-name lookup per document field: scanning the keys each time is quadratic.
+        rlookup.index_key_names_if_wide();
+
         let scan_cursor = ScanKeyCursor::new(key);
 
         scan_cursor.for_each(|_key, field, value| {
