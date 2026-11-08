@@ -684,11 +684,7 @@ mod tests {
         heap.push(2, 5.0);
         heap.push(3, 3.0);
 
-        let mut drained: Vec<ScoredResult> = heap
-            .drain_unsorted()
-            .into_iter()
-            .map(|r| r.scored)
-            .collect();
+        let mut drained: Vec<ScoredResult> = heap.drain_unsorted().map(|r| r.scored).collect();
         assert_eq!(drained.len(), 3);
         assert!(heap.is_empty(), "drain_unsorted must leave the heap empty");
 

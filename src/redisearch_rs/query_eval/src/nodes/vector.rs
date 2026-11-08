@@ -256,7 +256,7 @@ fn bind_metric_request(
             let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
             // SAFETY: as above, and `handle` is a valid handle that lives as
             // long as the AST.
-            unsafe { vector_score_source::interop::set_key_handle(it, handle.as_ptr()) };
+            unsafe { vector_score_source::interop::set_key_handle(it, Some(handle)) };
         }
         IteratorType::MetricSortedById
         | IteratorType::MetricSortedByScore

@@ -126,7 +126,7 @@ fn freeing_the_iterator_invalidates_the_handle_it_was_given() {
 
     // SAFETY: `it` is a live vector top-k iterator held exclusively, and
     // `handle` outlives it — the iterator is freed just below.
-    unsafe { interop::set_key_handle(it.as_non_null(), &raw mut handle) };
+    unsafe { interop::set_key_handle(it.as_non_null(), NonNull::new(&raw mut handle)) };
     assert!(handle.is_valid, "wiring a handle must not clear it");
 
     // Released here rather than left to drop: the invalidation is only
@@ -155,18 +155,18 @@ fn replacing_and_detaching_handles_invalidates_previous_handles() {
 
     // SAFETY: `it` is a live vector top-k iterator held exclusively, and both
     // handles outlive it and remain writable until they are detached below.
-    unsafe { interop::set_key_handle(it.as_non_null(), &raw mut first) };
+    unsafe { interop::set_key_handle(it.as_non_null(), NonNull::new(&raw mut first)) };
     // SAFETY: the same handle remains attached and exclusively writable.
-    unsafe { interop::set_key_handle(it.as_non_null(), &raw mut first) };
+    unsafe { interop::set_key_handle(it.as_non_null(), NonNull::new(&raw mut first)) };
     assert!(first.is_valid, "reattaching the same handle preserves it");
 
     // SAFETY: both handles remain alive and exclusively writable.
-    unsafe { interop::set_key_handle(it.as_non_null(), &raw mut second) };
+    unsafe { interop::set_key_handle(it.as_non_null(), NonNull::new(&raw mut second)) };
     assert!(!first.is_valid, "replacement invalidates the old handle");
     assert!(second.is_valid, "replacement preserves the new handle");
 
     // SAFETY: the attached handle remains alive and exclusively writable.
-    unsafe { interop::set_key_handle(it.as_non_null(), std::ptr::null_mut()) };
+    unsafe { interop::set_key_handle(it.as_non_null(), None) };
     assert!(!second.is_valid, "detachment invalidates the handle");
     it.free();
 }
