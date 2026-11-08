@@ -17,6 +17,7 @@ use std::{
     io::{self, Read, Write},
     mem,
     os::fd::AsRawFd,
+    ptr::NonNull,
     time::Duration,
 };
 
@@ -45,7 +46,7 @@ fn make_fork_pipe() -> (ffi::IndexGC, io::PipeReader, io::PipeWriter) {
 fn roundtrip_through_fork_pipe() {
     let (mut raw, _pipe_reader, _pipe_writer) = make_fork_pipe();
     // SAFETY: raw is a valid ffi::IndexGC for the duration of the test.
-    let fgc = unsafe { ForkPipe::from_ptr_mut(&mut raw) };
+    let fgc = unsafe { ForkPipe::from_ptr_mut(NonNull::from(&mut raw)) };
 
     fgc.writer().write_all(b"hello").unwrap();
 
@@ -58,7 +59,7 @@ fn roundtrip_through_fork_pipe() {
 fn times_out_when_no_data_available() {
     let (mut raw, _pipe_reader, _pipe_writer) = make_fork_pipe();
     // SAFETY: raw is a valid ffi::IndexGC for the duration of the test.
-    let fgc = unsafe { ForkPipe::from_ptr_mut(&mut raw) };
+    let fgc = unsafe { ForkPipe::from_ptr_mut(NonNull::from(&mut raw)) };
 
     let mut buf = [0u8; 5];
     let err = fgc
@@ -78,7 +79,7 @@ fn read_ahead_fetches_many_messages_in_one_read() {
     const MESSAGES: u32 = 100;
     let (mut raw, pipe_reader, _pipe_writer) = make_fork_pipe();
     // SAFETY: raw is a valid ffi::IndexGC for the duration of the test.
-    let fgc = unsafe { ForkPipe::from_ptr_mut(&mut raw) };
+    let fgc = unsafe { ForkPipe::from_ptr_mut(NonNull::from(&mut raw)) };
     for i in 0..MESSAGES {
         serialize(&mut fgc.writer(), i).unwrap();
     }
@@ -101,7 +102,7 @@ fn read_ahead_fetches_many_messages_in_one_read() {
 fn read_ahead_is_uninstalled_when_the_closure_unwinds() {
     let (mut raw, _pipe_reader, _pipe_writer) = make_fork_pipe();
     // SAFETY: raw is a valid ffi::IndexGC for the duration of the test.
-    let fgc = unsafe { ForkPipe::from_ptr_mut(&mut raw) };
+    let fgc = unsafe { ForkPipe::from_ptr_mut(NonNull::from(&mut raw)) };
 
     let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         fgc.with_read_ahead(|_| panic!("the closure unwinds"))
@@ -117,7 +118,7 @@ fn read_ahead_is_uninstalled_when_the_closure_unwinds() {
 fn a_nested_read_ahead_reuses_the_outer_buffer() {
     let (mut raw, _pipe_reader, _pipe_writer) = make_fork_pipe();
     // SAFETY: raw is a valid ffi::IndexGC for the duration of the test.
-    let fgc = unsafe { ForkPipe::from_ptr_mut(&mut raw) };
+    let fgc = unsafe { ForkPipe::from_ptr_mut(NonNull::from(&mut raw)) };
     serialize(&mut fgc.writer(), 1u32).unwrap();
     serialize(&mut fgc.writer(), 2u32).unwrap();
 
@@ -147,7 +148,7 @@ fn read_ahead_decodes_messages_larger_than_its_buffer() {
         serialize(&mut pipe_writer, 2u8).unwrap();
     });
     // SAFETY: raw is a valid ffi::IndexGC for the duration of the test.
-    let fgc = unsafe { ForkPipe::from_ptr_mut(&mut raw) };
+    let fgc = unsafe { ForkPipe::from_ptr_mut(NonNull::from(&mut raw)) };
 
     fgc.with_read_ahead(|fgc| {
         assert_eq!(deserialize::<u8>(&mut fgc.reader(), "before").unwrap(), 1);
@@ -164,7 +165,7 @@ fn read_ahead_decodes_messages_larger_than_its_buffer() {
 fn read_ahead_reports_end_of_stream_after_the_buffered_bytes() {
     let (mut raw, _pipe_reader, pipe_writer) = make_fork_pipe();
     // SAFETY: raw is a valid ffi::IndexGC for the duration of the test.
-    let fgc = unsafe { ForkPipe::from_ptr_mut(&mut raw) };
+    let fgc = unsafe { ForkPipe::from_ptr_mut(NonNull::from(&mut raw)) };
     let mut pipe_writer = pipe_writer;
     pipe_writer.write_all(b"tail").unwrap();
     // The ForkPipe borrows this fd; dropping its owner closes the write end.
