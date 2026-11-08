@@ -42,6 +42,10 @@ fn index(count: u64) -> Box<OpaqueInvertedIndex> {
 }
 
 /// Builds an `IndexSpec` with a `missing.indexes` with the provided entries.
+///
+/// The spec's document table is empty, so every doc id in those entries counts
+/// as deleted and a scan collects it, unless a test reports it live with
+/// [`all_live`].
 fn make_spec(
     entries: impl IntoIterator<Item = (&'static [u8], Box<OpaqueInvertedIndex>)>,
 ) -> (ffi::IndexSpec, OwnedDict<MissingFieldDictType>) {

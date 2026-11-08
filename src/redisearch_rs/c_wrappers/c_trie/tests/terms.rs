@@ -974,13 +974,13 @@ fn delete_of_a_multibyte_term_round_trips() {
     });
 }
 
-/// Collect what [`TermsTrie::visit_after`] visits after `after`.
-fn visited_after(trie: &TermsTrie, after: &str) -> Vec<String> {
+/// Collect the keys [`TermsTrie::visit_after`] visits after `term`.
+fn visited_after(trie: &TermsTrie, term: &str) -> Vec<String> {
     let mut visited = Vec::new();
-    trie.visit_after(&to_runes(after), &mut Vec::new(), |runes, term| {
+    trie.visit_after(&to_runes(term), &mut Vec::new(), |runes, encoded| {
         let text = runes_to_string(runes);
         assert_eq!(
-            term.as_bytes(),
+            encoded.as_bytes(),
             text.as_bytes(),
             "the term is its key's encoding"
         );
