@@ -71,7 +71,7 @@ uint32_t QueryMemory_GetRatioReadInterval(void);
 /**
  * Replaces the memory read of every checkpoint and of the query entry guard
  * (QueryMemoryGuard) with `ratio`, whether or not the server has the memory
- * API. A negative ratio restores the real read.
+ * API. Callers pass a non-negative ratio; QueryMemory_ResetFakePressure restores the real read.
  */
 void QueryMemory_SetForcedRatio(float ratio);
 /** Returns the forced ratio, or a negative value when the real read is used. */
