@@ -139,13 +139,14 @@ jobs:
           # Bullseye is EOL; pin metadata and packages together before live mirrors remove them.
           # The minimal image has no CA certificates; bootstrap over HTTP with APT signatures.
           # Only snapshot expiry checks are disabled; switch to HTTPS once certificates exist.
+          # snapshot.debian.org intermittently fails downloads with 503/504, which APT does not retry.
           bullseye_setup = (
               "printf '%s\\n'"
               " 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260901T000000Z/ bullseye main'"
               " 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260901T000000Z/ bullseye-security main'"
               " 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260901T000000Z/ bullseye-updates main'"
               " > /etc/apt/sources.list"
-              " && apt update && apt install -y git ca-certificates"
+              " && n=0; until apt update && apt install -y git ca-certificates; do n=$((n+1)); [ $n -lt 5 ] || exit 1; sleep $((n*15)); done"
               " && sed -i 's|http://snapshot.debian.org/|https://snapshot.debian.org/|g' /etc/apt/sources.list"
           )
 
