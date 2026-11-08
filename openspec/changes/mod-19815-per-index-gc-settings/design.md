@@ -200,13 +200,14 @@ Existing defects that T1 fixes, because per-index settings make them worse:
 - The largest count is sampled, not tracked on every document add. `ForkGC` keeps a
   peak value. Each queue-time copy raises it to the live count at that moment, then
   uses it as `base`. The run that resets the counter sets the peak to the live count at
-  the reset, which it reads under the GIL it already holds there, from the index it
-  already references. That count is what the fork sees, so a queue-time sample taken
-  before deletes the fork collects never carries into the new window. Forced runs reset
-  the counter at the same point, so they set the peak the same way and need no
-  queue-time sample. A fork that fails resets neither. The peak starts at the live count
-  when the GC context is created. Every timer fire queues a run, including cycles the
-  threshold then skips, so the peak is sampled once per interval.
+  the reset, which it reads from the index it already references, under the spec read
+  lock taken inside the GIL it already holds there. That count is what the fork sees,
+  so a queue-time sample taken before deletes the fork collects never carries into the
+  new window. Forced runs reset the counter at the same point, so they set the peak the
+  same way and need no queue-time sample. A fork that fails resets neither. The peak
+  starts at the live count when the GC context is created. Every timer fire queues a
+  run, including cycles the threshold then skips, so the peak is sampled once per
+  interval.
 - Limitation: growth and deletes between two samples aren't seen. 100 documents, then
   100 added and 100 deleted within one interval, still reads as 100%, so the
   percentage can fork early. It can't fork late, and a fork resets the window.

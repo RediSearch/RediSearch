@@ -117,8 +117,9 @@ settings without a version bump.
       `min(N, max(1, ceil(p × base / 100)))`, computed on the main thread in the
       queue-time copy; read the live count under the spec read lock; `base` is a peak in
       `ForkGC` that each queue-time copy raises to the live count, that the run
-      resetting the counter, forced or scheduled, sets to the live count at the reset,
-      and that starts at the live count when the GC context is created
+      resetting the counter, forced or scheduled, sets to the live count at the reset
+      (also under the spec read lock), and that starts at the live count when the GC
+      context is created
 - [ ] 5.4 `clean_threshold_percent` in FT.INFO `gc_settings`; combined threshold and
       `base` in the `FT.DEBUG` hook
 - [ ] 5.5 C++ unit tests: updates, deletes, growth, growth then deletes across samples,
