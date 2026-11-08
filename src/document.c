@@ -50,6 +50,31 @@
 #include "varint_ffi.h"
 #include "vector_index.h"
 
+// A document of an index with more sortable fields than this may keep its sorting values in the
+// sparse layout, see newSortingVector.
+#define SPARSE_SORTING_VECTOR_MIN_SORTABLES 1024
+// ... if fewer than this percentage of the sortable fields can have a value. The dense layout is
+// the smaller one up to half of the fields, but a sparse lookup is a binary search where a dense
+// one is an index, so only clearly sparse documents are worth it.
+#define SPARSE_SORTING_VECTOR_MAX_FILL_PERCENT 10
+
+/**
+ * Creates the sorting vector of a document that has `docFields` fields, none of which is yet
+ * stored. Its slots are one per sortable field (dense) unless search-sparse-sorting-vector is on,
+ * the index is not a disk index, the schema has more than SPARSE_SORTING_VECTOR_MIN_SORTABLES
+ * sortable fields, and the document cannot fill SPARSE_SORTING_VECTOR_MAX_FILL_PERCENT of them: it
+ * then holds just the values it has.
+ */
+static RSSortingVector newSortingVector(const IndexSpec *sp, size_t docFields) {
+  // A disk index keeps no sorting vector on its document metadata, so there is nothing to shrink.
+  if (RSGlobalConfig.sparseSortingVector && !sp->diskSpec &&
+      sp->numSortableFields > SPARSE_SORTING_VECTOR_MIN_SORTABLES &&
+      docFields * 100 < (size_t)sp->numSortableFields * SPARSE_SORTING_VECTOR_MAX_FILL_PERCENT) {
+    return RSSortingVector_NewSparse(docFields);
+  }
+  return RSSortingVector_New(sp->numSortableFields);
+}
+
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
 extern RedisModuleCtx *RSDummyContext;
@@ -154,7 +179,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
   }
 
   if ((aCtx->stateFlags & ACTX_F_SORTABLES) && RSSortingVector_Length(&aCtx->sv) == 0) {
-    aCtx->sv = RSSortingVector_New(sp->numSortableFields);
+    aCtx->sv = newSortingVector(sp, doc->numFields);
   }
 
   if ((aCtx->options & DOCUMENT_ADD_NOSAVE) == 0 && numTextIndexable &&
@@ -1123,6 +1148,8 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
 
   RSDocumentMetadata *md = NULL;
   Document *doc = aCtx->doc;
+  size_t sortablesBefore = 0;
+  bool sortablesTracked = false;
   t_docId docId = IndexSpec_GetDocIdByKeyR(sctx->spec, sctx->redisCtx, doc->docKey);
   if (docId == 0) {
     BAIL("Couldn't load old document");
@@ -1142,7 +1169,12 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   if (aCtx->stateFlags & ACTX_F_SORTABLES) {
     FieldSpecDedupeSet dedupes;
     FieldSpecDedupeSet_Init(&dedupes, sctx->spec->numFields);
-    // Update sortables if needed
+    sortablesTracked = true;
+    if (RSSortingVector_Length(&md->sortVector)) {
+      sortablesBefore = RSSortingVector_GetMemorySize(&md->sortVector);
+    }
+    // Update sortables if needed. A sparse vector may be reallocated by this; rows that hold the
+    // document read it through md->sortVector (see RLookupRow_SetSortingVector), never a copy.
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
       const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->docFieldName);
@@ -1158,7 +1190,10 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       if (idx < 0) continue;
 
       if (!RSSortingVector_Length(&md->sortVector)) {
-        md->sortVector = RSSortingVector_New(sctx->spec->numSortableFields);
+        md->sortVector = newSortingVector(sctx->spec, doc->numFields);
+        if (RSSortingVector_IsSparse(&md->sortVector)) {
+          md->flags |= Document_HasSparseSortVector;
+        }
       }
 
       RS_LOG_ASSERT((fs->options & FieldSpec_Dynamic) == 0, "Dynamic field cannot use PARTIAL");
@@ -1195,6 +1230,13 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   }
 
 done:
+  // A sparse vector changes size with every value it gains, and the doc table accounts for it.
+  // A dense one is allocated at its full size and, as ever, not tracked through partial updates.
+  if (sortablesTracked && RSSortingVector_Length(&md->sortVector) &&
+      RSSortingVector_IsSparse(&md->sortVector)) {
+    sctx->spec->docs.sortablesSize += RSSortingVector_GetMemorySize(&md->sortVector);
+    sctx->spec->docs.sortablesSize -= sortablesBefore;
+  }
   DMD_Return(md);
   if (aCtx->donecb) {
     aCtx->donecb(aCtx, sctx->redisCtx, aCtx->donecbData);

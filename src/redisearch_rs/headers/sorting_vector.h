@@ -40,5 +40,15 @@ typedef struct ThinVec_SharedValue__u64 {
  * ```
  *
  * An empty vector points to a static sentinel header (not null), so no allocation is needed.
+ *
+ * # Dense and sparse layouts
+ *
+ * A vector made by [`RSSortingVector::new`] is dense: one slot per sortable field of the schema,
+ * holding the null sentinel where the document has no value. A vector made by
+ * [`RSSortingVector::new_sparse`] only holds the fields the document has; see the `sparse`
+ * module. Both are read by sort index through [`RSSortingVector::get_by_index`] and written
+ * through the `try_insert_*` methods, which handle both. The slice accessors ([`Self::as_slice`],
+ * [`Self::iter`], the `Index` impls) expose the stored slots as they are, so they are only
+ * meaningful for a dense vector.
  */
 typedef struct ThinVec_SharedValue__u64 RSSortingVector;

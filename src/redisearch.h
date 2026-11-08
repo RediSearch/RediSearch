@@ -88,6 +88,8 @@ typedef enum {
              // loading. May be used UN-ATOMICALLY
   Document_HasPayloadSlot =
       0x40,  // RAM allocation includes the trailing pointer, even without a payload.
+  Document_HasSparseSortVector =
+      0x80,  // sortVector uses the sparse layout: look it up with RSSortingVector_GetByIndex
 } RSDocumentFlags;
 
 #define hasPayload(x) (x & Document_HasPayload)

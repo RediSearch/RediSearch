@@ -401,6 +401,73 @@ fn get_item_static_out_of_bounds() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn get_item_from_a_sparse_sorting_vector() {
+    let mut sv = RSSortingVector::new_sparse(3);
+    sv.try_insert_string(5, b"five".to_vec()).unwrap();
+    sv.try_insert_num(2000, 2000.0).unwrap();
+    sv.try_insert_null(9).unwrap();
+
+    let mut row = RLookupRow::new();
+    row.set_sorting_vector(Some(&sv));
+    // A sparse vector has no slot per sort index to expose as a slice.
+    assert!(row.sorting_vector().is_empty());
+
+    let svsrc = |svidx| {
+        let mut flags = RLookupKeyFlags::empty();
+        flags.insert(RLookupKeyFlag::SvSrc);
+        create_test_key(0, svidx, flags)
+    };
+    assert_eq!(
+        row.get(&svsrc(5)).and_then(|v| v.as_str_bytes()),
+        Some("five".as_bytes())
+    );
+    assert_eq!(row.get(&svsrc(2000)).and_then(|v| v.as_num()), Some(2000.0));
+    // Stored null, absent, and beyond any stored index all read as no value.
+    for absent in [9, 0, 6, 1999, 2001, 40000] {
+        assert!(row.get(&svsrc(absent)).is_none(), "{absent}");
+    }
+}
+
+/// A row can outlive the moment its document's sparse vector is grown by a partial update, as it
+/// does in a cursor. The row must then read the vector as it is, not a copy of its old buffer, which
+/// the growth frees (a use after free under the address sanitizer).
+#[test]
+#[cfg_attr(
+    miri,
+    ignore = "extern static `RedisModule_Alloc` is not supported by Miri"
+)]
+fn row_sees_a_sparse_sorting_vector_that_grows_after_it_was_attached() {
+    let mut sv = RSSortingVector::new_sparse(1);
+    sv.try_insert_num(5, 5.0).unwrap();
+
+    let owner: *mut RSSortingVector = &raw mut sv;
+    let mut row = RLookupRow::new();
+    // The C side hands the row a pointer into the document metadata that owns the vector, which
+    // the partial update keeps writing through.
+    // SAFETY: `sv` outlives `row`; the writes below are the point of the test.
+    row.set_sorting_vector(Some(unsafe { &*owner }));
+
+    let svsrc = |svidx| {
+        let mut flags = RLookupKeyFlags::empty();
+        flags.insert(RLookupKeyFlag::SvSrc);
+        create_test_key(0, svidx, flags)
+    };
+    for idx in 6_u16..200 {
+        // SAFETY: as above.
+        unsafe { (*owner).try_insert_num(idx.into(), f64::from(idx)) }.unwrap();
+        assert_eq!(
+            row.get(&svsrc(idx)).and_then(|v| v.as_num()),
+            Some(f64::from(idx))
+        );
+    }
+    assert_eq!(row.get(&svsrc(5)).and_then(|v| v.as_num()), Some(5.0));
+}
+
+#[test]
 fn get_item_no_sorting_vector() {
     // Test case 6: No sorting vector available
     let row: RLookupRow<'_> = RLookupRow::new(); // No sorting vector set

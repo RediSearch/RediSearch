@@ -412,19 +412,24 @@ pub unsafe extern "C" fn RLookupRow_GetSortingVector(
     }
 }
 
-/// Sets the sorting vector for the row.
+/// Sets the sorting vector for the row. `sparse` says whether the vector uses the sparse layout,
+/// which the caller knows from the document's metadata, so the vector itself is not read here.
 ///
 /// # Safety
 ///
 /// 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
 /// 2. `sv` must be either null or a [valid] pointer to an [`sorting_vector::RSSortingVector`].
 ///    The pointed-to vector must remain valid for the lifetime of the row.
+/// 3. `sparse` must be whether `sv` uses the sparse layout.
+/// 4. If `sparse`, `sv` must be where the vector's owner keeps it, not a copy: the row reads it
+///    through that pointer, so a vector that grows meanwhile is read as it is then.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn RLookupRow_SetSortingVector(
     row: *mut OpaqueRLookupRow,
     sv: *const sorting_vector::RSSortingVector,
+    sparse: bool,
 ) {
     // Safety: ensured by caller (1.)
     let row = unsafe { RLookupRow::from_opaque_mut_ptr(row) }.expect("`row` must not be null");
@@ -432,7 +437,12 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
     // Safety: ensured by caller (2.)
     let sv_ref = unsafe { sv.as_ref() };
 
-    row.set_sorting_vector(sv_ref);
+    debug_assert!(
+        sv_ref.is_none_or(|sv| sv.is_sparse() == sparse),
+        "`sparse` must match the layout of `sv`"
+    );
+
+    row.set_sorting_vector_with_layout(sv_ref, sparse);
 }
 
 /// Compares two search results by the given sort keys, returning a negative, zero, or positive
@@ -470,11 +480,22 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
 
     let row1 = h1.row_data();
     let row2 = h2.row_data();
-    let pairs = keys
-        .iter()
-        .map(|&k| (row1.get(k).map(|v| &**v), row2.get(k).map(|v| &**v)));
-
-    let ord = cmp_fields(pairs, ascend_map, qerr);
+    // The layout is tested once per comparison, so that the loop over the keys of the usual, dense,
+    // rows is the one it has always been.
+    let ord = if row1.is_sparse() || row2.is_sparse() {
+        let pairs = keys
+            .iter()
+            .map(|&k| (row1.get(k).map(|v| &**v), row2.get(k).map(|v| &**v)));
+        cmp_fields(pairs, ascend_map, qerr)
+    } else {
+        let pairs = keys.iter().map(|&k| {
+            (
+                row1.get_dense(k).map(|v| &**v),
+                row2.get_dense(k).map(|v| &**v),
+            )
+        });
+        cmp_fields(pairs, ascend_map, qerr)
+    };
 
     match ord {
         Ordering::Less => -1,

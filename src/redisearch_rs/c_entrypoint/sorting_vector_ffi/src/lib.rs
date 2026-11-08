@@ -16,7 +16,7 @@ use std::ffi::{CStr, c_char};
 use std::slice;
 use value::SharedValue;
 use value_ffi::RSValue;
-use value_ffi::util::into_shared_value;
+use value_ffi::util::{as_rs_value, into_shared_value};
 
 // Verify that the ThinVec<SharedValue, u32> heap header has no padding before data,
 // so the C inline helpers can use a fixed offset of `sizeof(Header<u64>)` = 16 bytes.
@@ -218,6 +218,53 @@ pub extern "C" fn RSSortingVector_New(len: size_t) -> RSSortingVector {
     );
 
     RSSortingVector::new(len)
+}
+
+/// Creates a new sparse `RSSortingVector` with room for `entries` values, returned by value.
+///
+/// A sparse vector only holds the values that are put into it, so unlike [`RSSortingVector_New`]
+/// its size does not depend on the number of sortable fields of the schema. The `Put` functions
+/// add an entry for any index below [`RS_SORTABLES_MAX`] and do not panic.
+#[unsafe(no_mangle)]
+pub extern "C" fn RSSortingVector_NewSparse(entries: size_t) -> RSSortingVector {
+    RSSortingVector::new_sparse(entries)
+}
+
+/// Whether the vector uses the sparse layout, in which `RSSortingVector_Length` and
+/// `RSSortingVector_Get` do not address values by sort index. Use [`RSSortingVector_GetByIndex`]
+/// to read either layout.
+///
+/// # Safety
+///
+/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSSortingVector_IsSparse(vec: *const RSSortingVector) -> bool {
+    // Safety: The caller must ensure that the pointer is valid (1.)
+    let vec = unsafe { vec.as_ref().expect("vec must not be null") };
+
+    vec.is_sparse()
+}
+
+/// The value of sort index `idx`, or null if the vector holds none. A dense vector yields its slot,
+/// which is the null sentinel value (not a null pointer) where the document has no value.
+///
+/// # Safety
+///
+/// 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`].
+///
+/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn RSSortingVector_GetByIndex(
+    vec: *const RSSortingVector,
+    idx: size_t,
+) -> *const RSValue {
+    // Safety: The caller must ensure that the pointer is valid (1.)
+    let vec = unsafe { vec.as_ref().expect("vec must not be null") };
+
+    vec.get_by_index(idx)
+        .map_or(std::ptr::null(), as_rs_value)
 }
 
 /// Deallocates the inner values buffer of an [`RSSortingVector`] and zeros the struct.

@@ -98,6 +98,16 @@ typedef struct RLookupIterator {
  * ```
  *
  * An empty vector points to a static sentinel header (not null), so no allocation is needed.
+ *
+ * # Dense and sparse layouts
+ *
+ * A vector made by [`RSSortingVector::new`] is dense: one slot per sortable field of the schema,
+ * holding the null sentinel where the document has no value. A vector made by
+ * [`RSSortingVector::new_sparse`] only holds the fields the document has; see the `sparse`
+ * module. Both are read by sort index through [`RSSortingVector::get_by_index`] and written
+ * through the `try_insert_*` methods, which handle both. The slice accessors ([`Self::as_slice`],
+ * [`Self::iter`], the `Index` impls) expose the stored slots as they are, so they are only
+ * meaningful for a dense vector.
  */
 typedef struct ThinVec_SharedValue__u64 RSSortingVector;
 
@@ -234,17 +244,21 @@ struct RLookupRow RLookupRow_New(void);
 void RLookupRow_Reset(struct RLookupRow *row);
 
 /**
- * Sets the sorting vector for the row.
+ * Sets the sorting vector for the row. `sparse` says whether the vector uses the sparse layout,
+ * which the caller knows from the document's metadata, so the vector itself is not read here.
  *
  * # Safety
  *
  * 1. `row` must be a [valid], non-null pointer to an [`RLookupRow`].
  * 2. `sv` must be either null or a [valid] pointer to an [`sorting_vector::RSSortingVector`].
  *    The pointed-to vector must remain valid for the lifetime of the row.
+ * 3. `sparse` must be whether `sv` uses the sparse layout.
+ * 4. If `sparse`, `sv` must be where the vector's owner keeps it, not a copy: the row reads it
+ *    through that pointer, so a vector that grows meanwhile is read as it is then.
  *
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
-void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *sv);
+void RLookupRow_SetSortingVector(struct RLookupRow *row, const RSSortingVector *sv, bool sparse);
 
 /**
  * Wipes a RLookupRow by decrementing all values and resetting the row.

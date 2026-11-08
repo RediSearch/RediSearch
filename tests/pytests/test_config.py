@@ -1723,6 +1723,7 @@ configOnlyBooleanConfigs = [
     ('search-_info-on-zero-indexes', 'no'),
     ('search-internal-resp-schema', 'no'),
     ('search-load-by-document-fields', 'no'),
+    ('search-sparse-sorting-vector', 'no'),
 ]
 
 @skip(redis_less_than='7.9.227')

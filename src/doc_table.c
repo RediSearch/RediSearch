@@ -297,6 +297,9 @@ int DocTable_SetSortingVector(DocTable *t, RSDocumentMetadata *dmd, RSSortingVec
   /* Set the new vector and the flags accordingly */
   dmd->sortVector = v;
   dmd->flags |= Document_HasSortVector;
+  if (RSSortingVector_IsSparse(&v)) {
+    dmd->flags |= Document_HasSparseSortVector;
+  }
   t->sortablesSize += RSSortingVector_GetMemorySize(&dmd->sortVector);
 
   return 1;
@@ -465,7 +468,7 @@ void DMD_Free(const RSDocumentMetadata *cmd) {
   }
   if (RSSortingVector_Length(&md->sortVector)) {
     RSSortingVector_ClearAndDeAlloc(&md->sortVector);
-    md->flags &= ~Document_HasSortVector;
+    md->flags &= ~(Document_HasSortVector | Document_HasSparseSortVector);
   }
   if (md->byteOffsets) {
     RSByteOffsets_Free(md->byteOffsets);

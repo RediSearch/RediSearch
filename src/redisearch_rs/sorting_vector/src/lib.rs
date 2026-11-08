@@ -19,6 +19,7 @@ use value::SharedValue;
 use value::shared::SHARED_VALUE_CONTENT_SIZE;
 
 mod legacy_rdb;
+mod sparse;
 
 /// The maximum length of an [`RSSortingVector`] created from C or loaded from a
 /// legacy RDB (see [`RSSortingVector::load_legacy_rdb`]).
@@ -62,6 +63,16 @@ impl std::error::Error for IndexOutOfBounds {}
 /// ```
 ///
 /// An empty vector points to a static sentinel header (not null), so no allocation is needed.
+///
+/// # Dense and sparse layouts
+///
+/// A vector made by [`RSSortingVector::new`] is dense: one slot per sortable field of the schema,
+/// holding the null sentinel where the document has no value. A vector made by
+/// [`RSSortingVector::new_sparse`] only holds the fields the document has; see the `sparse`
+/// module. Both are read by sort index through [`RSSortingVector::get_by_index`] and written
+/// through the `try_insert_*` methods, which handle both. The slice accessors ([`Self::as_slice`],
+/// [`Self::iter`], the `Index` impls) expose the stored slots as they are, so they are only
+/// meaningful for a dense vector.
 #[repr(transparent)]
 pub struct RSSortingVector {
     inner: ThinVec<SharedValue>,
@@ -118,22 +129,12 @@ impl RSSortingVector {
 
     /// Set a number (double) at the given index
     pub fn try_insert_num(&mut self, idx: usize, num: f64) -> Result<(), IndexOutOfBounds> {
-        let spot = self
-            .as_mut_slice()
-            .get_mut(idx)
-            .ok_or(IndexOutOfBounds(()))?;
-        *spot = SharedValue::new_num(num);
-        Ok(())
+        self.set_at(idx, SharedValue::new_num(num))
     }
 
     /// Set a string at the given index.
     pub fn try_insert_string(&mut self, idx: usize, str: Vec<u8>) -> Result<(), IndexOutOfBounds> {
-        let spot = self
-            .as_mut_slice()
-            .get_mut(idx)
-            .ok_or(IndexOutOfBounds(()))?;
-        *spot = SharedValue::new_string(str);
-        Ok(())
+        self.set_at(idx, SharedValue::new_string(str))
     }
 
     /// Set a string at the given index, the string is normalized before being set.
@@ -155,22 +156,12 @@ impl RSSortingVector {
         idx: usize,
         value: SharedValue,
     ) -> Result<(), IndexOutOfBounds> {
-        let spot = self
-            .as_mut_slice()
-            .get_mut(idx)
-            .ok_or(IndexOutOfBounds(()))?;
-        *spot = value;
-        Ok(())
+        self.set_at(idx, value)
     }
 
     /// Set a null value at the given index
     pub fn try_insert_null(&mut self, idx: usize) -> Result<(), IndexOutOfBounds> {
-        let spot = self
-            .as_mut_slice()
-            .get_mut(idx)
-            .ok_or(IndexOutOfBounds(()))?;
-        *spot = SharedValue::null_static();
-        Ok(())
+        self.set_at(idx, SharedValue::null_static())
     }
 
     /// Get the len of the sorting vector.
@@ -201,6 +192,9 @@ impl RSSortingVector {
     /// The implementation by-passes references in the middle of the chain, so it only counts the size of the final value,
     /// as in C.
     pub fn get_memory_size(&self) -> usize {
+        if self.is_sparse() {
+            return self.sparse_memory_size();
+        }
         let values = self.as_slice();
         let mut sz = std::mem::size_of_val(values);
 
@@ -249,7 +243,9 @@ impl<'a> RSSortingVectorRef<'a> {
 
     /// Creates a borrowed reference from an [`RSSortingVector`].
     ///
-    /// The lifetime `'a` on the reference guarantees the data outlives this view.
+    /// The lifetime `'a` on the reference guarantees the data outlives this view. The view keeps the
+    /// vector's buffer as it is now, so it is only for a vector that is not resized while the view
+    /// exists, which a dense one is not; read a sparse vector through the vector itself.
     #[inline]
     pub const fn from_ref(sv: &'a RSSortingVector) -> Self {
         // SAFETY: We bitwise-copy the ThinVec pointer. ManuallyDrop prevents the

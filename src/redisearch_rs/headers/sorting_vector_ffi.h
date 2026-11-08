@@ -52,6 +52,18 @@ void RSSortingVector_ClearAndDeAlloc(RSSortingVector *vec);
 RSSortingVector RSSortingVector_Empty(void);
 
 /**
+ * The value of sort index `idx`, or null if the vector holds none. A dense vector yields its slot,
+ * which is the null sentinel value (not a null pointer) where the document has no value.
+ *
+ * # Safety
+ *
+ * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+const struct RSValue *RSSortingVector_GetByIndex(const RSSortingVector *vec, size_t idx);
+
+/**
  * Returns the memory size of the sorting vector.
  *
  * # Safety
@@ -61,6 +73,19 @@ RSSortingVector RSSortingVector_Empty(void);
  * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
  */
 size_t RSSortingVector_GetMemorySize(const RSSortingVector *vec);
+
+/**
+ * Whether the vector uses the sparse layout, in which `RSSortingVector_Length` and
+ * `RSSortingVector_Get` do not address values by sort index. Use [`RSSortingVector_GetByIndex`]
+ * to read either layout.
+ *
+ * # Safety
+ *
+ * 1. `vec` must be a [valid], non-null pointer to an [`RSSortingVector`].
+ *
+ * [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+ */
+bool RSSortingVector_IsSparse(const RSSortingVector *vec);
 
 /**
  * Loads a sorting vector stored in a pre-2.0 doc-table RDB payload; see
@@ -86,6 +111,15 @@ RSSortingVector RSSortingVector_LegacyRdbLoad(struct RedisModuleIO *rdb);
  * Panics if `len` is greater than [`RS_SORTABLES_MAX`].
  */
 RSSortingVector RSSortingVector_New(size_t len);
+
+/**
+ * Creates a new sparse `RSSortingVector` with room for `entries` values, returned by value.
+ *
+ * A sparse vector only holds the values that are put into it, so unlike [`RSSortingVector_New`]
+ * its size does not depend on the number of sortable fields of the schema. The `Put` functions
+ * add an entry for any index below [`RS_SORTABLES_MAX`] and do not panic.
+ */
+RSSortingVector RSSortingVector_NewSparse(size_t entries);
 
 /**
  * Puts a null at the given index in the sorting vector.  If a out of bounds occurs it returns silently.

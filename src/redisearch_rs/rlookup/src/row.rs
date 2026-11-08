@@ -9,9 +9,21 @@
 
 use crate::{RLookup, RLookupKey, RLookupKeyFlag, lookup::TRANSIENT_FLAGS};
 use sorting_vector::{RSSortingVector, RSSortingVectorRef};
-use std::{borrow::Cow, ffi::CStr, fmt};
+use std::{borrow::Cow, ffi::CStr, fmt, mem::ManuallyDrop};
 use thin_vec::ThinVec;
 use value::SharedValue;
+
+/// Where a row reads its sorting values from, which [`RLookupRow::sorting_sparse`] tells apart.
+///
+/// A dense vector is never resized, so the row keeps a bitwise copy of its buffer pointer. A sparse
+/// vector grows when a partial update adds a value, which may move its buffer while the row, held
+/// by a cursor or across the safe loader, still exists. The row therefore keeps a pointer to the
+/// vector itself, which lives in the document metadata the row's result keeps alive, and reads
+/// the buffer from it on every lookup.
+union SortingSource<'a> {
+    dense: ManuallyDrop<RSSortingVectorRef<'a>>,
+    sparse: *const RSSortingVector,
+}
 
 /// Row data for a lookup key. This abstracts the question of if the data comes from a borrowed sorting vector slice
 /// or from dynamic values stored in the row during processing.
@@ -24,7 +36,13 @@ use value::SharedValue;
 #[cheadergen::config(export, opaque)]
 pub struct RLookupRow<'a> {
     /// A reference to the sorting vector.
-    sorting_vector: RSSortingVectorRef<'a>,
+    sorting_vector: SortingSource<'a>,
+
+    /// Whether [`Self::sorting_vector`] holds a sparse vector, in which case its `sparse` member
+    /// is the active one and points at a vector that is valid for `'a`; otherwise `dense` is.
+    /// Kept beside the reference so that a lookup in the common, dense, layout does not have to
+    /// inspect the vector to know.
+    sorting_sparse: bool,
 
     /// Dynamic values obtained from prior processing
     dyn_values: ThinVec<Option<SharedValue>>,
@@ -56,7 +74,10 @@ impl<'a> RLookupRow<'a> {
     #[inline]
     pub const fn new() -> Self {
         Self {
-            sorting_vector: RSSortingVectorRef::empty(),
+            sorting_vector: SortingSource {
+                dense: ManuallyDrop::new(RSSortingVectorRef::empty()),
+            },
+            sorting_sparse: false,
             dyn_values: ThinVec::new(),
             num_dyn_values: 0,
         }
@@ -89,24 +110,95 @@ impl<'a> RLookupRow<'a> {
         self.dyn_values.resize(capacity, None);
     }
 
-    /// Readonly access to the sorting vector values as a slice.
+    /// The dense sorting vector the row reads; only for a row whose layout is dense.
+    #[inline]
+    fn dense_sorting_vector(&self) -> &RSSortingVectorRef<'a> {
+        debug_assert!(!self.sorting_sparse);
+        // SAFETY: `dense` is the active member when `sorting_sparse` is false, see its docs.
+        unsafe { &self.sorting_vector.dense }
+    }
+
+    /// The sparse sorting vector the row reads, which the owner of the vector may have grown
+    /// since the row was given it; only for a row whose layout is sparse.
+    #[inline]
+    fn sparse_sorting_vector(&self) -> Option<&RSSortingVector> {
+        debug_assert!(self.sorting_sparse);
+        // SAFETY: `sparse` is the active member when `sorting_sparse` is true.
+        let vector = unsafe { self.sorting_vector.sparse };
+        // SAFETY: it points at a vector that outlives the row, see its docs.
+        unsafe { vector.as_ref() }
+    }
+
+    /// Readonly access to the sorting vector values as a slice, one per sort index.
+    ///
+    /// Empty if the row has no sorting vector or its sorting vector is sparse; use
+    /// [`Self::sorting_value`] to read by sort index whatever the layout.
     #[inline]
     pub fn sorting_vector(&self) -> &'a [SharedValue] {
-        self.sorting_vector.as_slice()
+        if self.sorting_sparse {
+            &[]
+        } else {
+            self.dense_sorting_vector().as_slice()
+        }
+    }
+
+    /// The value the row's sorting vector holds for sort index `idx`, if it holds one.
+    ///
+    /// For a dense sorting vector that is the slot, which holds the null sentinel where the
+    /// document has no value.
+    #[inline]
+    pub fn sorting_value(&self, idx: usize) -> Option<&SharedValue> {
+        if self.sorting_sparse {
+            self.sparse_sorting_vector()?.get_by_index(idx)
+        } else {
+            self.dense_sorting_vector().as_slice().get(idx)
+        }
+    }
+
+    /// Whether the row's sorting vector uses the sparse layout.
+    #[inline]
+    pub const fn is_sparse(&self) -> bool {
+        self.sorting_sparse
     }
 
     /// Borrow a sorting vector for the row.
-    pub const fn set_sorting_vector(&mut self, sv: Option<&'a RSSortingVector>) {
+    pub fn set_sorting_vector(&mut self, sv: Option<&'a RSSortingVector>) {
+        self.set_sorting_vector_with_layout(sv, sv.is_some_and(RSSortingVector::is_sparse));
+    }
+
+    /// Borrow a sorting vector for the row whose layout the caller already knows, so that
+    /// attaching it does not touch the vector: it may be one a query never reads.
+    ///
+    /// `sparse` must be whether `sv` uses the sparse layout. A sparse vector is read through `sv`
+    /// for as long as the row lives, so `sv` must be the vector where its owner keeps it, not a
+    /// copy, and its owner may add values to it meanwhile.
+    pub const fn set_sorting_vector_with_layout(
+        &mut self,
+        sv: Option<&'a RSSortingVector>,
+        sparse: bool,
+    ) {
         // We use [`RSSortingVectorRef`], a pointer-sized borrowed view, to avoid
         // dereferencing the `ThinVec` header here. This is a performance optimization
         // for hot paths where this function is called frequently and the sorting vector
         // being set may not need to be dereferenced later on.
         match sv {
+            Some(sv) if sparse => {
+                self.sorting_vector = SortingSource {
+                    sparse: std::ptr::from_ref(sv),
+                };
+                self.sorting_sparse = true;
+            }
             Some(sv) => {
-                self.sorting_vector = RSSortingVectorRef::from_ref(sv);
+                self.sorting_vector = SortingSource {
+                    dense: ManuallyDrop::new(RSSortingVectorRef::from_ref(sv)),
+                };
+                self.sorting_sparse = false;
             }
             None => {
-                self.sorting_vector = RSSortingVectorRef::empty();
+                self.sorting_vector = SortingSource {
+                    dense: ManuallyDrop::new(RSSortingVectorRef::empty()),
+                };
+                self.sorting_sparse = false;
             }
         }
     }
@@ -131,16 +223,49 @@ impl<'a> RLookupRow<'a> {
 
         // If not found in dynamic values, check the sorting vector if the SvSrc flag is set
         if key.flags.contains(RLookupKeyFlag::SvSrc) {
-            // Sorting vector slots that were never written hold the null sentinel.
-            // Filter it out so callers see `None` for absent fields, mirroring the C
-            // guard in `RLookupRow_Get`:
-            //   `if (ret != NULL && ret == RSValue_NullStatic()) ret = NULL;`
-            self.sorting_vector()
-                .get(key.svidx as usize)
-                .filter(|v| !v.is_null_static())
+            if self.sorting_sparse {
+                return self.sparse_sorting_value(key.svidx as usize);
+            }
+            self.dense_sorting_value(key)
         } else {
             None
         }
+    }
+
+    /// [`Self::get`] for a row known to hold no sparse sorting vector: no test of the layout. For
+    /// loops that look up many keys in a row, which can test [`Self::is_sparse`] once.
+    #[inline]
+    pub fn get_dense(&self, key: &RLookupKey) -> Option<&SharedValue> {
+        debug_assert!(!self.sorting_sparse);
+        if let Some(Some(val)) = self.dyn_values().get(key.dstidx as usize) {
+            return Some(val);
+        }
+        if key.flags.contains(RLookupKeyFlag::SvSrc) {
+            self.dense_sorting_value(key)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn dense_sorting_value(&self, key: &RLookupKey) -> Option<&SharedValue> {
+        // Sorting vector slots that were never written hold the null sentinel.
+        // Filter it out so callers see `None` for absent fields, mirroring the C
+        // guard in `RLookupRow_Get`:
+        //   `if (ret != NULL && ret == RSValue_NullStatic()) ret = NULL;`
+        self.dense_sorting_vector()
+            .as_slice()
+            .get(key.svidx as usize)
+            .filter(|v| !v.is_null_static())
+    }
+
+    /// The sparse counterpart of [`Self::dense_sorting_value`], kept out of line so that the dense
+    /// lookup stays as small as it was.
+    #[inline(never)]
+    fn sparse_sorting_value(&self, idx: usize) -> Option<&SharedValue> {
+        self.sparse_sorting_vector()?
+            .get_by_index(idx)
+            .filter(|v| !v.is_null_static())
     }
 
     /// Write a value to the lookup table in [`RLookupRow::dyn_values`]. Key must already be registered, and not
@@ -218,7 +343,10 @@ impl<'a> RLookupRow<'a> {
             }
         }
         self.num_dyn_values = 0;
-        self.sorting_vector = RSSortingVectorRef::empty();
+        self.sorting_vector = SortingSource {
+            dense: ManuallyDrop::new(RSSortingVectorRef::empty()),
+        };
+        self.sorting_sparse = false;
     }
 
     /// Resets the row, clearing the dynamic values. This effectively wipes the row and deallocates the memory used for dynamic values.

@@ -1770,6 +1770,9 @@ static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, Redis
   if (dmd->flags & Document_HasOffsetVector) {
     strcat(buf, "HasOffsetVector,");
   }
+  if (dmd->flags & Document_HasSparseSortVector) {
+    strcat(buf, "HasSparseSortVector,");
+  }
   RedisModule_Reply_CString(reply, name);
   RedisModule_Reply_CString(reply, buf);
 }
@@ -1777,9 +1780,13 @@ static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, Redis
 static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
                             RedisSearchCtx *sctx, bool obfuscate, RedisModule_Reply *reply) {
   const RSSortingVector *sv = &dmd->sortVector;
+  // A sparse vector has no slot per sort index: look up every sort index of the schema instead.
+  const bool sparse = RSSortingVector_IsSparse(sv);
+  const size_t numSlots = sparse ? sctx->spec->numSortableFields : RSSortingVector_Length(sv);
   RedisModule_ReplyKV_Array(reply, name);
-  for (size_t ii = 0; ii < RSSortingVector_Length(sv); ++ii) {
-    if (!RSSortingVector_Get(sv, ii)) {
+  for (size_t ii = 0; ii < numSlots; ++ii) {
+    const RSValue *value = sparse ? RSSortingVector_GetByIndex(sv, ii) : RSSortingVector_Get(sv, ii);
+    if (!value) {
       continue;
     }
     RedisModule_Reply_Array(reply);
@@ -1803,7 +1810,7 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
       }
 
       RedisModule_Reply_CString(reply, "value");
-      RedisModule_Reply_RSValue(reply, RSSortingVector_Get(sv, ii), 0);
+      RedisModule_Reply_RSValue(reply, value, 0);
     RedisModule_Reply_ArrayEnd(reply);
   }
   RedisModule_Reply_ArrayEnd(reply);
@@ -1860,6 +1867,9 @@ DEBUG_COMMAND(DocInfo) {
     RedisModule_ReplyKV_LongLong(reply, "max_freq", dmd->maxTermFreq);
     RedisModule_ReplyKV_LongLong(reply, "refcount", dmd->ref_count - 1); // TODO: should include the refcount of the command call?
     if (RSSortingVector_Length(&dmd->sortVector)) {
+      if (RSSortingVector_IsSparse(&dmd->sortVector)) {
+        RedisModule_ReplyKV_SimpleString(reply, "sortables_layout", "sparse");
+      }
       replySortVector("sortables", dmd, sctx, obfuscate, reply);
     }
   RedisModule_Reply_MapEnd(reply);

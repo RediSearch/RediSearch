@@ -225,6 +225,9 @@ typedef struct {
   // Load a document by walking its own fields, resolving each through the schema's path table,
   // instead of probing every schema field. Only affects wide schemas.
   bool loadByDocumentFields;
+  // Documents of an index with many sortable fields that fill few of them keep their sorting
+  // values in the sparse layout. See newSortingVector in document.c.
+  bool sparseSortingVector;
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
   // Set how much time after OOM is detected we should wait to enable the resource manager to
@@ -517,6 +520,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .infoNoFields = false,                                                     \
     .optimizePartialUpdate = DEFAULT_OPTIMIZE_PARTIAL_UPDATE,                  \
     .loadByDocumentFields = false,                                             \
+    .sparseSortingVector = false,                                              \
     .hideUserDataFromLog = false,                                              \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \

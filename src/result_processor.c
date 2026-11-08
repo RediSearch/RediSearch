@@ -297,7 +297,8 @@ static void setSearchResult(ResultProcessor *base, SearchResult *res, RSIndexRes
   SearchResult_SetBorrowedIndexResult(res, indexResult);
   SearchResult_SetScore(res, 0);
   SearchResult_SetDocumentMetadata(res, dmd);
-  RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), &dmd->sortVector);
+  RLookupRow_SetSortingVector(SearchResult_GetRowDataMut(res), &dmd->sortVector,
+                              dmd->flags & Document_HasSparseSortVector);
 }
 
 /**
