@@ -24,6 +24,8 @@
 extern "C" {
 #include "indexes.h"
 #include "disk_indexer.h"
+#include "indexer.h"
+#include "vector_compare/vector_compare.h"
 #include "doc_id_meta.h"
 #include "forward_index.h"
 #include "search_disk.h"
@@ -244,10 +246,10 @@ class DiskSlotTrimTest : public ::testing::Test {
       if (state.gcRuns == 1) {
         auto *sp = reinterpret_cast<IndexSpec *>(index);
         if (sp->gc) GCContext_OnWrite(sp->gc);
-        return DISK_GC_RUN_RETRY_REQUIRED;
+        return;
       }
       stats->num_cleaned_docs = 4;
-      return DISK_GC_RUN_OK;
+      return;
     };
   }
 
@@ -353,7 +355,7 @@ TEST_F(DiskSlotTrimTest, AccountingWaitsForWriteLockedDeletionNotification) {
   api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
     stats->num_cleaned_docs = 1;
     backendReached->set_value();
-    return DISK_GC_RUN_OK;
+    return;
   };
   afterStorageDelete = [&] {
     EXPECT_TRUE(IndexSpec_IsLocked(spec));
@@ -388,7 +390,7 @@ TEST_F(DiskSlotTrimTest, IndexDropRetiresOutstandingDeletesAfterPartialCollectio
   EXPECT_EQ(collector()->updatesFromLastRun.load(), 1u);
   api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
     stats->num_cleaned_docs = 1;
-    return DISK_GC_RUN_OK;
+    return;
   };
   GCForcedRun forced = GCForcedRun_New(1000, 10);
   ASSERT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
@@ -417,7 +419,7 @@ TEST_F(DiskSlotTrimTest, UnchargedStorageIdsDoNotConsumeOtherIndexesGlobalContri
   IndexsGlobalStats_IncreaseLogicallyDeleted(4);
   api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *stats) {
     stats->num_cleaned_docs = 3;
-    return DISK_GC_RUN_OK;
+    return;
   };
   GCForcedRun forced = GCForcedRun_New(1000, 10);
   EXPECT_TRUE(gc.callbacks.periodicCallback(gc.gcCtx, &forced));
@@ -899,7 +901,7 @@ TEST_F(DiskSlotTrimTest, CompactAllRepliesForSuccessCancellationPauseAndIndexDro
   RedisModule_ReplyWithError = RedisModule_ReplyWithSimpleString;
   api.index.runGC = [](RedisSearchDiskIndexSpec *, DiskGCRunStats *) {
     ++gcCalls;
-    return DISK_GC_RUN_OK;
+    return;
   };
   api.index.compactNonGcStorage = [](RedisSearchDiskIndexSpec *) {
     ++compactions;
@@ -967,4 +969,66 @@ TEST_F(DiskSlotTrimTest, ReleasingAWorkerHandlePreservesBackendProgress) {
   EXPECT_EQ(IndexSpec_RunDiskSlotTrim(job), INDEX_DISK_TRIM_FINISHED);
   EXPECT_FALSE(state.logicalPending);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 0u);
+}
+
+TEST_F(DiskSlotTrimTest, BackendClearedReplacementIdUsesFreshDocumentAccountingAndVectorInsert) {
+  spec->diskSpec = nullptr;
+  auto *vectors = openVectorIndex(RSDummyContext, &spec->fields[0], true);
+  ASSERT_NE(vectors, nullptr);
+  spec->diskSpec = reinterpret_cast<RedisSearchDiskIndexSpec *>(spec);
+  const float vector[] = {1, 2};
+  Document doc{};
+  Document_Init(&doc, RedisModule_CreateString(nullptr, "trimmed:replacement", 19), 1,
+                RS_LANG_ENGLISH, DocumentType_Hash);
+  doc.flags = DOCUMENT_F_OWNSTRINGS;
+  Document_AddFieldC(&doc, "v", reinterpret_cast<const char *>(vector), sizeof(vector),
+                     INDEXFLD_T_VECTOR);
+  auto *key = RedisModule_OpenKey(RSDummyContext, doc.docKey, REDISMODULE_WRITE);
+  auto *value =
+      RedisModule_CreateString(nullptr, reinterpret_cast<const char *>(vector), sizeof(vector));
+  RedisModule_HashSet(key, REDISMODULE_HASH_CFIELDS, "v", value, nullptr);
+  RedisModule_FreeString(nullptr, value);
+  RedisModule_CloseKey(key);
+  ASSERT_EQ(DocIdMeta_Set(RSDummyContext, doc.docKey, spec->specId, 42), REDISMODULE_OK);
+  QueryError error = QueryError_Default();
+  auto *ctx = NewAddDocumentCtx(spec, &doc, &error);
+  ASSERT_NE(ctx, nullptr);
+  ctx->stateFlags |= ACTX_F_NOFREEDOC;
+  ctx->fdatas[0].vector = reinterpret_cast<const char *>(vector);
+  ctx->fdatas[0].numVec = 1;
+  ctx->fdatas[0].vecLen = sizeof(vector);
+  ctx->fwIdx->totalFreq = 7;
+  RedisSearchCtx search{};
+  search.redisCtx = RSDummyContext;
+  search.spec = spec;
+  api.docTable.putDocument = [](RedisSearchDiskIndexSpec *, SearchDiskWriteBatchHandle *,
+                                const char *, size_t, float, uint32_t, uint32_t, uint32_t,
+                                uint32_t *oldLen, t_expirationTimePoint, t_docId *oldId) {
+    EXPECT_EQ(*oldId, 42u);
+    *oldId = 0;
+    *oldLen = 0;
+    return t_docId{43};
+  };
+  api.index.commitWriteBatch = [](SearchDiskWriteBatchHandle *) { return true; };
+  const auto deleted = collector()->deletesFromLastRun.load();
+  const auto updates = collector()->updatesFromLastRun.load();
+  const auto writes = collector()->writesFromLastRun.load();
+  DiskIndexer_StageDocument(ctx, &search);
+  ASSERT_EQ(ctx->oldDocId, 0u);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
+  EXPECT_EQ(VecSimIndex_IndexSize(vectors), 0u);
+  DiskIndexer_IndexDocument(ctx, &search);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 6u);
+  EXPECT_EQ(spec->stats.scoring.totalDocsLen, 47u);
+  EXPECT_EQ(collector()->deletesFromLastRun.load(), deleted);
+  EXPECT_EQ(collector()->updatesFromLastRun.load(), updates);
+  EXPECT_EQ(collector()->writesFromLastRun.load(), writes + 1);
+  EXPECT_EQ(VecSimIndex_IndexSize(vectors), 1u);
+  EXPECT_TRUE(VectorIndex_HoldsVectors(vectors, 43, reinterpret_cast<const char *>(vector), 1));
+  EXPECT_FALSE(VectorIndex_HoldsVectors(vectors, 42, reinterpret_cast<const char *>(vector), 1));
+  uint64_t mapped = 0;
+  ASSERT_EQ(DocIdMeta_Get(RSDummyContext, doc.docKey, spec->specId, &mapped), REDISMODULE_OK);
+  EXPECT_EQ(mapped, 43u);
+  AddDocumentCtx_Free(ctx);
+  Document_Free(&doc);
 }
