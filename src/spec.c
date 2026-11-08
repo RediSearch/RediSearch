@@ -2071,8 +2071,22 @@ int CleanPool_AddWork(void (*work)(void *), void *arg) {
   return redisearch_thpool_add_work(cleanPool, work, arg, THPOOL_PRIORITY_HIGH);
 }
 
+void CleanPool_Pause(void) {
+  if (cleanPool) redisearch_thpool_pause_threads(cleanPool);
+}
+
+void CleanPool_Resume(void) {
+  if (cleanPool && redisearch_thpool_paused(cleanPool)) {
+    redisearch_thpool_resume_threads(cleanPool);
+  }
+}
+
+bool CleanPool_IsPaused(void) {
+  return cleanPool && redisearch_thpool_paused(cleanPool);
+}
+
 void CleanPool_Wait() {
-  redisearch_thpool_wait(cleanPool);
+  if (cleanPool) redisearch_thpool_wait(cleanPool);
 }
 
 size_t CleanInProgressOrPending() {
