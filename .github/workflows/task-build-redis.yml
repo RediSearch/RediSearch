@@ -22,7 +22,7 @@ on:
       redis-ref:
         description: 'Redis git ref to build (e.g. "7.2.3", "unstable", or a commit sha)'
         type: string
-        default: '559d143b4e0409c452f7d229ba420954b6b647a2'
+        default: ''
       san:
         type: string
       coverage:
@@ -158,6 +158,7 @@ jobs:
           sanitizer-setup: 'true'
           build-redis: 'true'
           redis-ref: ${{ inputs.redis-ref }}
+          redis-ref-variable: ${{ vars.REDIS_REF }}
           coverage: ${{ inputs.coverage }}
           redis-cache-platform-id: ${{ inputs.container || inputs.env }}
 

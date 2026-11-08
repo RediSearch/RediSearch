@@ -115,7 +115,11 @@ inputs:
     required: false
     default: "false"
   redis-ref:
-    description: "Redis git ref forwarded to build-redis."
+    description: "Redis git ref override forwarded to build-redis. Empty uses REDIS_REF or .github/redis-ref."
+    required: false
+    default: ""
+  redis-ref-variable:
+    description: "Caller-provided vars.REDIS_REF override."
     required: false
     default: ""
   coverage:
@@ -247,11 +251,17 @@ runs:
         fi
         echo "ASAN_SYMBOLIZER_PATH=/usr/lib/llvm-$CLANG_VERSION/bin/llvm-symbolizer" >> $GITHUB_ENV
 
+    - name: Resolve Redis ref
+      id: resolve-redis-ref
+      uses: ./.github/actions/resolve-redis-ref
+      with:
+        redis-ref: ${{ inputs.redis-ref }}
+        redis-ref-variable: ${{ inputs.redis-ref-variable }}
     - name: Build Redis (cached)
       if: ${{ inputs.build-redis == 'true' }}
       uses: ./.github/actions/build-redis
       with:
-        ref: ${{ inputs.redis-ref }}
+        ref: ${{ steps.resolve-redis-ref.outputs.ref }}
         san: ${{ inputs.san }}
         coverage: ${{ inputs.coverage }}
         cache_platform_id: ${{ inputs.redis-cache-platform-id }}
