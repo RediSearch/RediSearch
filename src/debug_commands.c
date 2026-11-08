@@ -3714,10 +3714,10 @@ DEBUG_COMMAND(VecSimMockTimeout) {
  * Fake memory pressure for the query memory checkpoints (QueryMemory_Checkpoint), process-wide,
  * so tests can stop queries for OOM on a Redis without a real memory limit or memory API.
  *   RATIO <ratio>         - every checkpoint memory read, and the query entry guard, see <ratio>
- *                           instead of the real used-memory ratio. Must be >= 0; RESET restores the real one.
- *   AT_CALL <n>           - the n-th checkpoint call from now (1-based) reports pressure; 0 disarms.
- *   READ_INTERVAL <n>     - checkpoints read memory every n calls; 0 restores the default.
- *   RESET                 - undo all of the above.
+ *                           instead of the real used-memory ratio. Must be >= 0.
+ *   AT_CALL <n>           - the n-th checkpoint call from now (1-based, n >= 1) reports pressure.
+ *   READ_INTERVAL <n>     - checkpoints read memory every n calls, n >= 1.
+ *   RESET                 - undo all of the above; the only way back to the defaults.
  *   STATUS                - [ratio, <r>, at_call, <n>, checkpoint_calls, <n>, read_interval, <n>,
  *                            raw_ratio, <the server's real ratio, or null without the memory API>]
  * ON_OOM IGNORE still disables the checkpoints and the entry guard.
@@ -3767,7 +3767,7 @@ DEBUG_COMMAND(MemoryPressure) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
   long long n;
-  if (RedisModule_StringToLongLong(argv[3], &n) != REDISMODULE_OK || n < 0) {
+  if (RedisModule_StringToLongLong(argv[3], &n) != REDISMODULE_OK || n < 1) {
     return RedisModule_ReplyWithError(ctx, "Invalid count");
   }
   if (!strcasecmp("AT_CALL", op)) {

@@ -75,7 +75,8 @@ int QueryMemory_CheckBeforeExecution(QueryRequestLimits *timeout, RSOomPolicy oo
 
 /**
  * Debug and test override of QUERY_MEMORY_RATIO_READ_INTERVAL for every
- * checkpoint, so tests can read memory on every call. 0 restores the default.
+ * checkpoint, so tests can read memory on every call. `interval` must be at least 1;
+ * QueryMemory_ResetFakePressure restores the default.
  */
 void QueryMemoryDebug_SetRatioReadInterval(uint32_t interval);
 uint32_t QueryMemory_GetRatioReadInterval(void);
@@ -99,8 +100,8 @@ float QueryMemory_GetForcedRatio(void);
  * across all checkpoints and queries, skipping calls that return on an
  * already requested memory stop)
  * report memory pressure, regardless of the ratio and the read interval.
- * Every other call behaves normally. 0 disarms it. Either way the call count
- * restarts from 0.
+ * Every other call behaves normally. `n` must be at least 1; the call count
+ * restarts from 0. QueryMemory_ResetFakePressure disarms it.
  */
 void QueryMemory_SetPressureAtCall(uint64_t n);
 uint64_t QueryMemory_GetPressureAtCall(void);
