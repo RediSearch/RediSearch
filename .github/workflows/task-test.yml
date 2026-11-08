@@ -340,7 +340,9 @@ jobs:
           workspaces: "src/redisearch_rs -> ../../bin/redisearch_rs"
       - name: Setup Rust test dependencies
         if: needs.build-image.outputs.succeeded != 'true' # Only run if NOT using custom container
-        run: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
+        uses: ./.github/actions/retry-command
+        with:
+          command: .install/test_deps/install_rust_deps.sh ${{ steps.mode.outputs.mode }}
 
       - name: Setup Python test dependencies
         env:
