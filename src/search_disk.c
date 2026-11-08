@@ -861,15 +861,10 @@ void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
 }
 
 SearchDiskSlotTrimResult SearchDisk_RunSlotTrimBatch(
-    RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges, size_t numRanges,
-    t_docId maxDocId, size_t maxScanned, SearchDiskSlotTrimCallback callback, void *ctx) {
+    RedisSearchDiskIndexSpec *index, SearchDiskWriteBatchHandle *batch,
+    const SearchDiskSlotRange *ranges, size_t numRanges, t_docId maxDocId,
+    size_t maxScanned, SearchDiskSlotTrimCallback callback, void *ctx) {
   RS_ASSERT(disk && disk->slotMigration.runTrimBatch);
-  return disk->slotMigration.runTrimBatch(index, ranges, numRanges, maxDocId, maxScanned, callback,
+  return disk->slotMigration.runTrimBatch(index, batch, ranges, numRanges, maxDocId, maxScanned, callback,
                                           ctx);
-}
-
-bool SearchDisk_ApplySlotTrimBatch(RedisSearchDiskIndexSpec *index,
-                                   const SearchDiskSlotTrimBatch *batch) {
-  RS_ASSERT(disk && disk->slotMigration.applyTrimBatch);
-  return disk->slotMigration.applyTrimBatch(index, batch);
 }

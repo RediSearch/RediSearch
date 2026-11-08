@@ -39,7 +39,8 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand);
 
 namespace {
 struct TrimState {
-  bool registerAccepted = true, readAccepted = true;
+  bool registerAccepted = true, readAccepted = true, createAccepted = true;
+  size_t batchesCreated = 0, batchesFreed = 0, batchesAborted = 0;
   bool logicalPending = false, emptyBatch = false;
   t_docId maxDocId = 5;
   size_t registrations = 0, applyCalls = 0, gcRuns = 0, nonGcCompactions = 0;
@@ -52,6 +53,11 @@ struct TrimState {
   size_t windowsOpened = 0, windowsClosed = 0, flushes = 0;
   bool lastReopenGate = false;
 } state;
+
+struct WriteBatchState {
+  IndexSpec *spec;
+  bool open = true, staged = false;
+};
 
 class PersistenceEventHooks {
   decltype(RedisModule_SubscribeToServerEvent) subscribe = RedisModule_SubscribeToServerEvent;
@@ -166,6 +172,7 @@ class DiskSlotTrimTest : public ::testing::Test {
           }
         };
     api.slotMigration.runTrimBatch = [](RedisSearchDiskIndexSpec *index,
+                                        SearchDiskWriteBatchHandle *writeBatch,
                                         const SearchDiskSlotRange *ranges, size_t numRanges,
                                         t_docId maxDocId, size_t maxScanned,
                                         SearchDiskSlotTrimCallback callback, void *ctx) {
@@ -178,21 +185,31 @@ class DiskSlotTrimTest : public ::testing::Test {
       EXPECT_GE(maxScanned, 3u);
       ++state.applyCalls;
       if (!state.readAccepted) return SEARCH_DISK_TRIM_RETRY;
+      auto *staged = reinterpret_cast<WriteBatchState *>(writeBatch);
+      EXPECT_EQ(staged->spec, reinterpret_cast<IndexSpec *>(index));
+      EXPECT_TRUE(staged->open);
+      staged->staged = true;
       const size_t batch = state.batchesApplied;
       if (state.beforeBatch) state.beforeBatch(batch);
       const t_docId ids[] = {batch * 3 + 1, batch * 3 + 2, batch * 3 + 3};
       const bool exhausted = batch + 1 == state.batchCount;
       const auto count = state.emptyBatch ? 0u : 3u;
       if (!callback(ctx, ids, count, state.emptyBatch ? 0 : 21,
-                    reinterpret_cast<SearchDiskSlotTrimBatch *>(&state), exhausted)) {
+                    writeBatch, exhausted)) {
         return SEARCH_DISK_TRIM_RETRY;
       }
       EXPECT_EQ(state.batchesApplied, batch + 1);
       return exhausted ? SEARCH_DISK_TRIM_FINISHED : SEARCH_DISK_TRIM_MORE;
     };
-    api.slotMigration.applyTrimBatch = [](RedisSearchDiskIndexSpec *index,
-                                          const SearchDiskSlotTrimBatch *) {
-      auto *spec = reinterpret_cast<IndexSpec *>(index);
+    api.index.createWriteBatch = [](RedisSearchDiskIndexSpec *index) -> SearchDiskWriteBatchHandle * {
+      if (!state.createAccepted) return nullptr;
+      ++state.batchesCreated;
+      return reinterpret_cast<SearchDiskWriteBatchHandle *>(
+          new WriteBatchState{reinterpret_cast<IndexSpec *>(index)});
+    };
+    api.index.commitWriteBatch = [](SearchDiskWriteBatchHandle *handle) {
+      auto *batch = reinterpret_cast<WriteBatchState *>(handle);
+      auto *spec = batch->spec;
       int lockResult = -1;
       std::thread probe([&] {
         lockResult = pthread_rwlock_trywrlock(&spec->rwlock);
@@ -200,11 +217,24 @@ class DiskSlotTrimTest : public ::testing::Test {
       });
       probe.join();
       EXPECT_NE(lockResult, 0) << "batch apply requires the spec write lock";
+      if (!batch->open) return false;
+      batch->open = false;
+      EXPECT_TRUE(batch->staged);
       ++state.batchApplyCalls;
       if (state.batchesApplied == state.failBatch) return false;
       ++state.batchesApplied;
       if (state.batchesApplied == state.batchCount) state.logicalPending = false;
       return true;
+    };
+    api.index.abortWriteBatch = [](SearchDiskWriteBatchHandle *handle) {
+      auto *batch = reinterpret_cast<WriteBatchState *>(handle);
+      EXPECT_TRUE(batch->open);
+      batch->open = false;
+      ++state.batchesAborted;
+    };
+    api.index.freeWriteBatch = [](SearchDiskWriteBatchHandle *handle) {
+      ++state.batchesFreed;
+      delete reinterpret_cast<WriteBatchState *>(handle);
     };
     api.index.isBackgroundWorkPaused = [](RedisSearchDiskIndexSpec *) { return false; };
     api.index.runGC = [](RedisSearchDiskIndexSpec *index, DiskGCRunStats *stats) {
@@ -223,6 +253,7 @@ class DiskSlotTrimTest : public ::testing::Test {
 
   void TearDown() override {
     if (cleanPoolStarted) CleanPool_Wait();
+    EXPECT_EQ(state.batchesCreated, state.batchesFreed);
     SlotCleanup_StopDiskJobs();
 #ifdef ENABLE_ASSERT
 #endif
@@ -461,6 +492,18 @@ TEST_F(DiskSlotTrimTest, StaleBatchRetriesBeforeCheckingScoringBounds) {
   EXPECT_TRUE(pendingTrim());
 }
 
+TEST_F(DiskSlotTrimTest, BatchAllocationFailureLeavesTheJobRetryable) {
+  state.createAccepted = false;
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
+  EXPECT_EQ(state.applyCalls, 0u);
+  EXPECT_EQ(state.batchesCreated, 0u);
+  EXPECT_TRUE(state.logicalPending);
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
+  state.createAccepted = true;
+  EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
+  EXPECT_EQ(state.batchesApplied, 1u);
+}
+
 TEST_F(DiskSlotTrimTest, ReadFailureRetainsTheFilterAndCursorForRetry) {
   state.readAccepted = false;
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
@@ -468,6 +511,8 @@ TEST_F(DiskSlotTrimTest, ReadFailureRetainsTheFilterAndCursorForRetry) {
   EXPECT_EQ(spec->stats.scoring.totalDocsLen, 40u);
   EXPECT_EQ(state.batchesApplied, 0u);
   EXPECT_EQ(state.batchApplyCalls, 0u);
+  EXPECT_EQ(state.batchesCreated, 1u);
+  EXPECT_EQ(state.batchesFreed, 1u);
   EXPECT_TRUE(pendingTrim());
   state.readAccepted = true;
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
@@ -491,6 +536,8 @@ TEST_F(DiskSlotTrimTest, FinalApplyFailureDoesNotCompleteCleanupOrDoubleAccountO
   EXPECT_EQ(pendingDeletes(), 3u);
   EXPECT_EQ(state.applyCalls, 3u);
   EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_EQ(state.batchesCreated, 3u);
+  EXPECT_EQ(state.batchesFreed, 3u);
 }
 
 TEST_F(DiskSlotTrimTest, EmptyFinalBatchStillCompletesTheLogicalJob) {
@@ -498,6 +545,8 @@ TEST_F(DiskSlotTrimTest, EmptyFinalBatchStillCompletesTheLogicalJob) {
   EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
   EXPECT_EQ(state.batchApplyCalls, 1u);
   EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_EQ(state.batchesCreated, 1u);
+  EXPECT_EQ(state.batchesFreed, 1u);
   EXPECT_FALSE(state.logicalPending);
   EXPECT_FALSE(pendingTrim());
   EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
