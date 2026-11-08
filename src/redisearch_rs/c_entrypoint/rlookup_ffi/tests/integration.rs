@@ -26,7 +26,14 @@ fn no_sort_keys_with_a_null_array_falls_through_to_the_doc_id_tiebreak() {
     // SAFETY: (1) `nkeys` is 0, so `keys` may be NULL. (2) `h1` and `h2` are
     // live `SearchResult`s. (3) `qerr` is NULL.
     let rc = unsafe {
-        SearchResult_CmpByFields(std::ptr::null(), 0, &h1, &h2, u64::MAX, std::ptr::null_mut())
+        SearchResult_CmpByFields(
+            std::ptr::null(),
+            0,
+            &h1,
+            &h2,
+            u64::MAX,
+            std::ptr::null_mut(),
+        )
     };
     assert_eq!(rc, -1);
 }
