@@ -145,11 +145,6 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
   RedisModule_FreeServerInfo(ctx, info);
 }
 
-// Below this many fields a linear scan beats hashing the name.
-#ifndef FIELD_NAME_LINEAR_MAX
-#define FIELD_NAME_LINEAR_MAX 8
-#endif
-
 // Hashes only up to the first NUL so that it agrees with HiddenString_CompareC, which uses strncmp.
 static inline uint64_t fieldNameHash(const char *name, size_t len) {
   return RS_dictGenHashFunction(name, strnlen(name, len));
@@ -193,6 +188,7 @@ void FieldNameTable_Rebuild(FieldNameTable *table, const FieldSpec *fields, size
 }
 
 void FieldNameTable_Add(FieldNameTable *table, const FieldSpec *fields, size_t index) {
+  RS_ASSERT(index < UINT16_MAX && fields[index].fieldName);
   if (table->cap && 2u * (index + 1) <= table->cap) {
     fieldNameTableInsert(table, fields, index);
   } else {

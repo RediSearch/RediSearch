@@ -148,6 +148,9 @@ impl IndexSpecCache {
     /// 4. Each of its special document-field names (`lang_field`,
     ///    `score_field`, `payload_field`) MUST be null or point to a valid,
     ///    NUL-terminated string.
+    /// 5. Its `fieldNames` table MUST be empty (null `slots`, zero `cap`) or
+    ///    built over exactly the `fields` array, as `IndexSpec_BuildSpecCache`
+    ///    does: [`IndexSpecCache::find_field`] trusts it.
     pub unsafe fn from_raw(ptr: NonNull<ffi::IndexSpecCache>) -> Self {
         debug_assert!(ptr.is_aligned());
 

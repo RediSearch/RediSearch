@@ -29,6 +29,7 @@
 #include <pthread.h>
 #include "info/index_error.h"
 #include "obfuscation/hidden.h"
+#include "rmutil/rm_assert.h"
 #include "search_disk_api.h"
 #include "rs_wall_clock.h"
 
@@ -227,6 +228,9 @@ extern bool isFlex;
  * Positions rather than pointers, so the table survives the array being reallocated.
  * A zero capacity means the owner's array is small enough to scan linearly.
  */
+// A schema of at most this many fields is scanned linearly; the table is not built for it.
+#define FIELD_NAME_LINEAR_MAX 8
+
 typedef struct FieldNameTable {
   t_fieldIndex *slots;
   uint32_t cap;
@@ -243,8 +247,8 @@ void FieldNameTable_Free(FieldNameTable *table);
 
 /**
  * Per-document set of field indexes already seen, used to reject a document that
- * names the same schema field twice. A bitset of SPEC_MAX_FIELDS bits (512 B)
- * is cheap to zero on the stack for every document, unlike a per-field array.
+ * names the same schema field twice. A bitset of SPEC_MAX_FIELDS bits is cheap to
+ * zero on the stack for every document.
  */
 typedef struct {
   uint64_t words[SPEC_MAX_FIELDS / 64];
@@ -253,6 +257,7 @@ static_assert(SPEC_MAX_FIELDS % 64 == 0, "FieldSpecDedupeSet packs 64 fields per
 
 /** Marks `index` as seen and returns whether it already was. */
 static inline bool FieldSpecDedupeSet_TestAndSet(FieldSpecDedupeSet *set, uint16_t index) {
+  RS_ASSERT(index < SPEC_MAX_FIELDS);
   uint64_t *word = &set->words[index / 64];
   const uint64_t bit = UINT64_C(1) << (index % 64);
   const bool seen = (*word & bit) != 0;
