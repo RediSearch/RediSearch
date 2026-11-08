@@ -41,6 +41,22 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand);
 }
 
 namespace {
+std::mutex completionMutex;
+std::vector<std::pair<RedisModuleEventLoopOneShotFunc, void *>> completions;
+
+void drainCleanup() {
+  for (;;) {
+    CleanPool_Wait();
+    std::vector<std::pair<RedisModuleEventLoopOneShotFunc, void *>> ready;
+    {
+      std::lock_guard<std::mutex> lock(completionMutex);
+      ready.swap(completions);
+    }
+    if (ready.empty()) return;
+    for (auto [callback, arg] : ready) callback(arg);
+  }
+}
+
 struct TrimState {
   bool registerAccepted = true, readAccepted = true, createAccepted = true;
   size_t batchesCreated = 0, batchesFreed = 0, batchesAborted = 0;
@@ -91,6 +107,7 @@ class ServerEventHooks {
 };
 
 IndexSpecDiskSlotTrimResult runSingleTrim(IndexSpec *spec) {
+  if (CleanPool_IsPaused()) return INDEX_DISK_TRIM_RETRY;
   const SearchDiskSlotRange range{0, 100};
   auto *job = IndexSpec_RegisterDiskSlotTrim(spec->own_ref, &range, 1);
   if (!job) return INDEX_DISK_TRIM_RETRY;
@@ -101,6 +118,7 @@ IndexSpecDiskSlotTrimResult runSingleTrim(IndexSpec *spec) {
 
 class DiskSlotTrimTest : public ::testing::Test {
  protected:
+  decltype(RedisModule_EventLoopAddOneShot) savedOneShot = nullptr;
   RedisSearchDiskAPI api{};
   RedisSearchDiskAPI *savedDisk = nullptr;
   RedisSearchDisk *savedDb = nullptr;
@@ -112,6 +130,13 @@ class DiskSlotTrimTest : public ::testing::Test {
   bool savedEnableGC = false, cleanPoolStarted = false;
 
   void SetUp() override {
+    savedOneShot = RedisModule_EventLoopAddOneShot;
+    RedisModule_EventLoopAddOneShot = [](RedisModuleEventLoopOneShotFunc callback, void *arg) {
+      std::lock_guard<std::mutex> lock(completionMutex);
+      completions.emplace_back(callback, arg);
+      return REDISMODULE_OK;
+    };
+    CleanPool_ThreadPoolStart();
     state = {};
 #ifdef ENABLE_ASSERT
     SlotCleanup_FailNextDiskEnqueues(0);
@@ -259,9 +284,12 @@ class DiskSlotTrimTest : public ::testing::Test {
   }
 
   void TearDown() override {
-    if (cleanPoolStarted) CleanPool_Wait();
+    SlotCleanup_ResumeDiskJobs();
+    drainCleanup();
     EXPECT_EQ(state.batchesCreated, state.batchesFreed);
     SlotCleanup_StopDiskJobs();
+    drainCleanup();
+    RedisModule_EventLoopAddOneShot = savedOneShot;
 #ifdef ENABLE_ASSERT
     SlotCleanup_FailNextDiskEnqueues(0);
 #endif
@@ -286,7 +314,7 @@ class DiskSlotTrimTest : public ::testing::Test {
       const SearchDiskSlotRange range{0, 100};
       job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
     }
-    return job ? IndexSpec_RunDiskSlotTrim(job) : INDEX_DISK_TRIM_RETRY;
+    return job && !CleanPool_IsPaused() ? IndexSpec_RunDiskSlotTrim(job) : INDEX_DISK_TRIM_RETRY;
   }
   void mockConsistencyWindows() {
     spec->gc = nullptr;
@@ -1090,7 +1118,18 @@ TEST_F(DiskSlotTrimTest, ShutdownWaitsForTheCurrentBatchAndPreventsAnother) {
   job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
   ASSERT_NE(job, nullptr);
   IndexSpecDiskSlotTrimResult result;
-  std::thread worker([&] { result = IndexSpec_RunDiskSlotTrim(job); });
+  startCleanPool();
+  struct Work {
+    IndexSpecSlotTrimJob *job;
+    IndexSpecDiskSlotTrimResult *result;
+  } work{job, &result};
+  ASSERT_EQ(CleanPool_AddWork(
+                [](void *arg) {
+                  auto *work = static_cast<Work *>(arg);
+                  *work->result = IndexSpec_RunDiskSlotTrim(work->job);
+                },
+                &work),
+            0);
   {
     std::unique_lock<std::mutex> guard(mutex);
     EXPECT_TRUE(progress.wait_for(guard, std::chrono::seconds(10), [&] { return entered; }));
@@ -1113,7 +1152,7 @@ TEST_F(DiskSlotTrimTest, ShutdownWaitsForTheCurrentBatchAndPreventsAnother) {
     release = true;
     progress.notify_all();
   }
-  worker.join();
+  CleanPool_Wait();
   stopper.join();
   EXPECT_EQ(result, INDEX_DISK_TRIM_MORE);
   EXPECT_TRUE(stopped);
@@ -1149,7 +1188,7 @@ TEST_F(DiskSlotTrimTest, AutomaticCleanupRequeuesBehindOtherCleanPoolWork) {
   slots->ranges[0] = {0, 100};
   Indexes_DeleteSlots(slots);
   rm_free(slots);
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_TRUE(observed);
   EXPECT_EQ(state.registrations, 1u);
   EXPECT_EQ(state.applyCalls, 2u);
@@ -1164,27 +1203,27 @@ TEST_F(DiskSlotTrimTest, RegisteredCronWaitsForInitializationAndLoadingBeforeRet
   startCleanPool();
   SlotCleanup_FailNextDiskEnqueues(1);
   scheduleAutomaticTrim();
-  CleanPool_Wait();
+  drainCleanup();
   ASSERT_TRUE(state.logicalPending);
   ASSERT_EQ(state.applyCalls, 0u);
 
   auto *initializedDb = disk_db;
   disk_db = nullptr;
   state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.applyCalls, 0u);
   EXPECT_TRUE(pendingTrim());
 
   disk_db = initializedDb;
   g_isLoading = true;
   state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.applyCalls, 0u);
   EXPECT_TRUE(state.logicalPending);
 
   g_isLoading = false;
   state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.registrations, 1u);
   EXPECT_EQ(state.applyCalls, 1u);
   EXPECT_EQ(state.batchesApplied, 1u);
@@ -1201,7 +1240,7 @@ TEST_F(DiskSlotTrimTest, RejectedInitialEnqueueRetainsIntentUntilCronRetry) {
   };
   SlotCleanup_FailNextDiskEnqueues(1);
   scheduleAutomaticTrim();
-  CleanPool_Wait();
+  drainCleanup();
 
   EXPECT_EQ(state.registrations, 1u);
   EXPECT_EQ(state.applyCalls, 0u);
@@ -1214,7 +1253,7 @@ TEST_F(DiskSlotTrimTest, RejectedInitialEnqueueRetainsIntentUntilCronRetry) {
   EXPECT_EQ(pendingDeletes(), 0u);
 
   SlotCleanup_RetryDiskJobs();
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.registrations, 1u);
   EXPECT_EQ(state.applyCalls, 1u);
   EXPECT_EQ(state.batchApplyCalls, 1u);
@@ -1226,7 +1265,7 @@ TEST_F(DiskSlotTrimTest, RejectedInitialEnqueueRetainsIntentUntilCronRetry) {
   EXPECT_EQ(pendingDeletes(), 3u);
 
   SlotCleanup_RetryDiskJobs();
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.applyCalls, 1u);
   EXPECT_EQ(pendingDeletes(), 3u);
 }
@@ -1243,7 +1282,7 @@ TEST_F(DiskSlotTrimTest, RejectedRequeueRetainsAppliedProgressUntilCronRetry) {
     if (batch == 0) SlotCleanup_FailNextDiskEnqueues(1);
   };
   scheduleAutomaticTrim();
-  CleanPool_Wait();
+  drainCleanup();
 
   EXPECT_EQ(state.registrations, 1u);
   EXPECT_EQ(state.applyCalls, 1u);
@@ -1256,7 +1295,7 @@ TEST_F(DiskSlotTrimTest, RejectedRequeueRetainsAppliedProgressUntilCronRetry) {
   EXPECT_EQ(pendingDeletes(), 3u);
 
   SlotCleanup_RetryDiskJobs();
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.registrations, 1u);
   EXPECT_EQ(state.applyCalls, 2u);
   EXPECT_EQ(state.batchApplyCalls, 2u);
@@ -1268,7 +1307,7 @@ TEST_F(DiskSlotTrimTest, RejectedRequeueRetainsAppliedProgressUntilCronRetry) {
   EXPECT_EQ(pendingDeletes(), 6u);
 
   SlotCleanup_RetryDiskJobs();
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.applyCalls, 2u);
   EXPECT_EQ(pendingDeletes(), 6u);
 }
@@ -1282,64 +1321,58 @@ TEST_F(DiskSlotTrimTest, StorageFailureWaitsForCronBeforeRetrying) {
   slots->ranges[0] = {0, 100};
   Indexes_DeleteSlots(slots);
   rm_free(slots);
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.applyCalls, 1u);
   EXPECT_TRUE(pendingTrim());
   EXPECT_TRUE(state.logicalPending);
   state.readAccepted = true;
   SlotCleanup_RetryDiskJobs();
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.applyCalls, 2u);
   EXPECT_FALSE(pendingTrim());
   EXPECT_FALSE(state.logicalPending);
 }
 
-TEST_F(DiskSlotTrimTest, PausedWorkerDoesNotBeginAStorageScan) {
+TEST_F(DiskSlotTrimTest, PausedPoolDoesNotBeginAStorageScan) {
+  startCleanPool();
   SlotCleanup_PauseDiskJobs();
-  EXPECT_EQ(trim(), INDEX_DISK_TRIM_RETRY);
+  scheduleAutomaticTrim();
+  SlotCleanup_RetryDiskJobs();
   EXPECT_EQ(state.applyCalls, 0u);
   EXPECT_TRUE(pendingTrim());
   SlotCleanup_ResumeDiskJobs();
-  EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
+  SlotCleanup_RetryDiskJobs();
+  drainCleanup();
+  EXPECT_EQ(state.batchesApplied, 1u);
 }
 
-TEST_F(DiskSlotTrimTest, CheckpointPauseDoesNotWaitForScanOrAllowItsBatchToApply) {
-  std::mutex mutex;
-  std::condition_variable progress;
-  bool entered = false, release = false;
+TEST_F(DiskSlotTrimTest, CheckpointPauseWaitsForCurrentBatchAndLeavesQueuedWorkPaused) {
+  startCleanPool();
+  std::promise<void> entered, release;
+  auto enteredFuture = entered.get_future();
+  auto released = release.get_future();
   state.beforeBatch = [&](size_t) {
-    std::unique_lock<std::mutex> guard(mutex);
-    entered = true;
-    progress.notify_all();
-    progress.wait(guard, [&] { return release; });
+    entered.set_value();
+    released.wait();
   };
-  const SearchDiskSlotRange range{0, 100};
-  job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
-  ASSERT_NE(job, nullptr);
-  IndexSpecDiskSlotTrimResult result;
-  std::thread worker([&] { result = IndexSpec_RunDiskSlotTrim(job); });
-  {
-    std::unique_lock<std::mutex> guard(mutex);
-    EXPECT_TRUE(progress.wait_for(guard, std::chrono::seconds(10), [&] { return entered; }));
-  }
-  SlotCleanup_PauseDiskJobs();
-  {
-    std::lock_guard<std::mutex> guard(mutex);
-    release = true;
-    progress.notify_all();
-  }
-  worker.join();
-  EXPECT_EQ(result, INDEX_DISK_TRIM_RETRY);
-  EXPECT_EQ(state.batchApplyCalls, 0u);
-  EXPECT_EQ(state.batchesAborted, 1u);
-  EXPECT_EQ(state.batchesFreed, 1u);
-  EXPECT_EQ(spec->stats.scoring.numDocuments, 5u);
-  EXPECT_TRUE(pendingTrim());
-  EXPECT_TRUE(state.logicalPending);
-  state.beforeBatch = nullptr;
-  SlotCleanup_ResumeDiskJobs();
-  EXPECT_EQ(trim(), INDEX_DISK_TRIM_FINISHED);
+  scheduleAutomaticTrim();
+  ASSERT_EQ(enteredFuture.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+  std::atomic_bool queuedRan{false};
+  ASSERT_EQ(CleanPool_AddWork([](void *arg) { static_cast<std::atomic_bool *>(arg)->store(true); },
+                              &queuedRan),
+            0);
+  auto pause = std::async(std::launch::async, [] { SlotCleanup_PauseDiskJobs(); });
+  EXPECT_EQ(pause.wait_for(std::chrono::milliseconds(100)), std::future_status::timeout);
+  release.set_value();
+  ASSERT_EQ(pause.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+  pause.get();
   EXPECT_EQ(state.batchesApplied, 1u);
+  EXPECT_FALSE(state.logicalPending);
+  EXPECT_FALSE(queuedRan.load());
+  EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
+  SlotCleanup_ResumeDiskJobs();
+  drainCleanup();
+  EXPECT_TRUE(queuedRan.load());
 }
 
 TEST_F(DiskSlotTrimTest, ResumeUsesBackendIntentAfterAWorkerHandleIsReleased) {
@@ -1350,7 +1383,7 @@ TEST_F(DiskSlotTrimTest, ResumeUsesBackendIntentAfterAWorkerHandleIsReleased) {
   IndexSpec_FreeDiskSlotTrim(job);
   job = nullptr;
   IndexSpec_ResumeDiskSlotTrims(spec);
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.registrations, 1u);
   EXPECT_EQ(state.applyCalls, 1u);
   EXPECT_FALSE(pendingTrim());
@@ -1367,7 +1400,7 @@ TEST_F(DiskSlotTrimTest, RestoreReinstallsTheSavedCutoffAndResumesWithoutRegistr
     EXPECT_FALSE(pendingTrim(1, 10));
   };
   IndexSpec_ResumeDiskSlotTrims(spec);
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.registrations, 0u);
   EXPECT_EQ(state.applyCalls, 1u);
   EXPECT_FALSE(state.logicalPending);
@@ -1422,7 +1455,7 @@ TEST_F(DiskSlotTrimTest, SuccessfulSstResumesAutomaticCleanupThroughCron) {
   state.sstEvent(RSDummyContext, RedisModuleEvent_SSTReplication,
                  REDISMODULE_SUBEVENT_SST_REPL_PRE_CHECKPOINT, nullptr);
   scheduleAutomaticTrim();
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.applyCalls, 0u);
   EXPECT_TRUE(state.logicalPending);
   EXPECT_TRUE(pendingTrim());
@@ -1431,7 +1464,7 @@ TEST_F(DiskSlotTrimTest, SuccessfulSstResumesAutomaticCleanupThroughCron) {
        {REDISMODULE_SUBEVENT_SST_REPL_POST_CHECKPOINT, REDISMODULE_SUBEVENT_SST_REPL_PRE_FORK}) {
     state.sstEvent(RSDummyContext, RedisModuleEvent_SSTReplication, event, nullptr);
     state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
-    CleanPool_Wait();
+    drainCleanup();
     EXPECT_EQ(state.applyCalls, 0u);
     EXPECT_EQ(state.batchApplyCalls, 0u);
     EXPECT_TRUE(state.logicalPending);
@@ -1445,7 +1478,7 @@ TEST_F(DiskSlotTrimTest, SuccessfulSstResumesAutomaticCleanupThroughCron) {
   EXPECT_EQ(state.windowsClosed, 1u);
   EXPECT_TRUE(state.lastReopenGate);
   state.cronEvent(RSDummyContext, RedisModuleEvent_CronLoop, 0, nullptr);
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.registrations, 1u);
   EXPECT_EQ(state.applyCalls, 1u);
   EXPECT_EQ(state.batchesApplied, 1u);
@@ -1613,19 +1646,19 @@ TEST_F(DiskSlotTrimTest, DuplicateEventsAndResumeScheduleOnlyOneWorker) {
   scheduleAutomaticTrim();
   scheduleAutomaticTrim();
   IndexSpec_ResumeDiskSlotTrims(spec);
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.registrations, 2u);
   EXPECT_EQ(state.applyCalls, 0u);
   EXPECT_TRUE(pendingTrim());
   SlotCleanup_ResumeDiskJobs();
   SlotCleanup_RetryDiskJobs();
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.applyCalls, 1u);
   EXPECT_EQ(state.batchesApplied, 1u);
   EXPECT_EQ(spec->stats.scoring.numDocuments, 2u);
   EXPECT_FALSE(pendingTrim());
   SlotCleanup_RetryDiskJobs();
-  CleanPool_Wait();
+  drainCleanup();
   EXPECT_EQ(state.applyCalls, 1u);
 }
 
@@ -1654,13 +1687,11 @@ TEST_F(DiskSlotTrimTest, RegistrationAfterFinalApplySurvivesThePreviousWorkersRe
   scheduleAutomaticTrim();
   EXPECT_EQ(ready.wait_for(std::chrono::seconds(10)), std::future_status::ready);
 
-  SlotCleanup_PauseDiskJobs();
   state.batchesApplied = 0;
   state.emptyBatch = true;
   scheduleAutomaticTrim();
-  SlotCleanup_ResumeDiskJobs();
   release.set_value();
-  CleanPool_Wait();
+  drainCleanup();
   afterRun = {};
   EXPECT_EQ(state.registrations, 2u);
   EXPECT_EQ(state.applyCalls, 2u);
@@ -1695,11 +1726,51 @@ TEST_F(DiskSlotTrimTest, SchedulerKeepsDifferentRangesAndCutoffsIndependent) {
   rm_free(slots);
   state.maxDocId = 6;
   scheduleAutomaticTrim();
-  CleanPool_Wait();
+  drainCleanup();
   SlotCleanup_ResumeDiskJobs();
   SlotCleanup_RetryDiskJobs();
-  CleanPool_Wait();
+  drainCleanup();
   std::sort(seen.begin(), seen.end());
   const std::vector<std::vector<t_docId>> expected{{5, 0, 100}, {5, 7, 9}, {6, 0, 100}};
   EXPECT_EQ(seen, expected);
+}
+
+TEST_F(DiskSlotTrimTest, PendingCompletionAfterShutdownDoesNotAccessStorage) {
+  startCleanPool();
+  scheduleAutomaticTrim();
+  CleanPool_Wait();
+  // Leave the completion on the event loop while storage is closed.
+  SlotCleanup_StopDiskJobs();
+  const auto calls = state.applyCalls;
+  spec->diskSpec = nullptr;
+  drainCleanup();
+  SlotCleanup_RetryDiskJobs();
+  EXPECT_EQ(state.applyCalls, calls);
+}
+
+TEST_F(DiskSlotTrimTest, DiskShutdownDoesNotWaitOnRamCleanupJobs) {
+  startCleanPool();
+  std::promise<void> entered, release;
+  auto started = entered.get_future();
+  auto released = release.get_future();
+  struct Work {
+    std::promise<void> *entered;
+    std::future<void> *release;
+  } work{&entered, &released};
+  ASSERT_EQ(CleanPool_AddWork(
+                [](void *arg) {
+                  auto *work = static_cast<Work *>(arg);
+                  work->entered->set_value();
+                  work->release->wait();
+                },
+                &work),
+            0);
+  ASSERT_EQ(started.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+  isFlex = false;
+  auto stop = std::async(std::launch::async, [] { SlotCleanup_StopDiskJobs(); });
+  EXPECT_EQ(stop.wait_for(std::chrono::seconds(1)), std::future_status::ready);
+  release.set_value();
+  stop.get();
+  isFlex = true;
+  drainCleanup();
 }

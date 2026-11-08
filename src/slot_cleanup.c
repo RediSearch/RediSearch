@@ -13,7 +13,6 @@
 #include "search_disk.h"
 #include "slot_ranges.h"
 
-#include <pthread.h>
 #include <stdatomic.h>
 
 typedef struct {
@@ -141,31 +140,21 @@ struct IndexSpecSlotTrimJob {
   struct IndexSpecSlotTrimJob *next;
 };
 
-// Shutdown drains complete worker turns before closing disk handles.
-static pthread_rwlock_t diskJobRunLock = PTHREAD_RWLOCK_INITIALIZER;
 static atomic_bool diskJobsStopped = false;
-static pthread_mutex_t diskApplyLock = PTHREAD_MUTEX_INITIALIZER;
-static bool diskJobsPaused;
-static pthread_mutex_t diskJobListLock = PTHREAD_MUTEX_INITIALIZER;
+// Main-thread owned. A queued job remains alive until its completion callback runs.
 static IndexSpecSlotTrimJob *diskJobs;
 
 void SlotCleanup_StartDiskJobs(void) {
-  pthread_mutex_lock(&diskApplyLock);
-  diskJobsPaused = false;
-  pthread_mutex_unlock(&diskApplyLock);
+  CleanPool_Resume();
   atomic_store(&diskJobsStopped, false);
 }
 
 void SlotCleanup_PauseDiskJobs(void) {
-  pthread_mutex_lock(&diskApplyLock);
-  diskJobsPaused = true;
-  pthread_mutex_unlock(&diskApplyLock);
+  CleanPool_Pause();
 }
 
 void SlotCleanup_ResumeDiskJobs(void) {
-  pthread_mutex_lock(&diskApplyLock);
-  diskJobsPaused = false;
-  pthread_mutex_unlock(&diskApplyLock);
+  CleanPool_Resume();
 }
 
 static IndexSpecSlotTrimJob *newDiskJob(StrongRef ref, const SearchDiskSlotRange *ranges,
@@ -198,21 +187,9 @@ static void unlinkDiskJob(IndexSpecSlotTrimJob *job) {
   if (*link) *link = job->next;
 }
 
-typedef struct {
-  IndexSpec *spec;
-  IndexSpecSlotTrimJob *job;
-} DiskSlotTrimContext;
-
 static bool trimMemoryIndexes(void *ctx, const t_docId *ids, size_t numIds, uint64_t totalDocLen,
                               SearchDiskWriteBatchHandle *batch, bool exhausted) {
-  DiskSlotTrimContext *trim = ctx;
-  IndexSpec *spec = trim->spec;
-  pthread_mutex_lock(&diskApplyLock);
-  if (diskJobsPaused) {
-    SearchDisk_AbortWriteBatch(batch);
-    pthread_mutex_unlock(&diskApplyLock);
-    return false;
-  }
+  IndexSpec *spec = ctx;
   IndexSpec_IncrActiveWrites(spec);
   IndexSpec_LockWrite(spec);
   bool applied = SearchDisk_CommitWriteBatch(batch);
@@ -225,41 +202,25 @@ static bool trimMemoryIndexes(void *ctx, const t_docId *ids, size_t numIds, uint
     spec->stats.scoring.numDocuments -= numIds;
     spec->stats.scoring.totalDocsLen -= totalDocLen;
     IndexSpec_DeferGCDeletes(spec, numIds);
-    if (exhausted) {
-      // A later registration of these ranges must not match this completed worker.
-      pthread_mutex_lock(&diskJobListLock);
-      unlinkDiskJob(trim->job);
-      pthread_mutex_unlock(&diskJobListLock);
-    }
   }
   IndexSpec_Unlock(spec);
   IndexSpec_DecrActiveWrites(spec);
-  pthread_mutex_unlock(&diskApplyLock);
   return applied;
 }
 
 IndexSpecDiskSlotTrimResult IndexSpec_RunDiskSlotTrim(IndexSpecSlotTrimJob *job) {
-  pthread_rwlock_rdlock(&diskJobRunLock);
   if (atomic_load(&diskJobsStopped)) {
-    pthread_rwlock_unlock(&diskJobRunLock);
     return INDEX_DISK_TRIM_CANCELLED;
   }
   StrongRef running = WeakRef_Promote(job->specRef);
   IndexSpec *spec = StrongRef_Get(running);
   IndexSpecDiskSlotTrimResult result = INDEX_DISK_TRIM_CANCELLED;
-  pthread_mutex_lock(&diskApplyLock);
-  bool paused = diskJobsPaused;
-  pthread_mutex_unlock(&diskApplyLock);
-  if (spec && spec->diskSpec && paused) {
-    result = INDEX_DISK_TRIM_RETRY;
-  } else if (spec && spec->diskSpec) {
-    DiskSlotTrimContext context = {.spec = spec, .job = job};
+  if (spec && spec->diskSpec) {
     SearchDiskWriteBatchHandle *batch = SearchDisk_CreateWriteBatch(spec->diskSpec);
     if (batch) {
-      SearchDiskSlotTrimResult status =
-          SearchDisk_RunSlotTrimBatch(spec->diskSpec, batch, job->ranges, job->numRanges,
-                                      job->maxDocId, SLOT_CLEANUP_CHUNK_DOC_LIMIT,
-                                      trimMemoryIndexes, &context);
+      SearchDiskSlotTrimResult status = SearchDisk_RunSlotTrimBatch(
+          spec->diskSpec, batch, job->ranges, job->numRanges, job->maxDocId,
+          SLOT_CLEANUP_CHUNK_DOC_LIMIT, trimMemoryIndexes, spec);
       result = status == SEARCH_DISK_TRIM_FINISHED ? INDEX_DISK_TRIM_FINISHED
                : status == SEARCH_DISK_TRIM_MORE   ? INDEX_DISK_TRIM_MORE
                                                    : INDEX_DISK_TRIM_RETRY;
@@ -269,7 +230,6 @@ IndexSpecDiskSlotTrimResult IndexSpec_RunDiskSlotTrim(IndexSpecSlotTrimJob *job)
     }
   }
   if (running.rm) StrongRef_Release(running);
-  pthread_rwlock_unlock(&diskJobRunLock);
   return result;
 }
 
@@ -300,34 +260,49 @@ static int submitDiskJob(IndexSpecSlotTrimJob *job) {
   return CleanPool_AddWork(DiskSlotCleanup_Run, job);
 }
 
-// The list lock protects scheduler ownership only, never backend reads or spec locks.
 static bool queueDiskJob(IndexSpecSlotTrimJob *job) {
-  if (job->queued || atomic_load(&diskJobsStopped)) return false;
+  if (job->queued || CleanPool_IsPaused() || atomic_load(&diskJobsStopped)) return false;
   job->queued = true;
   if (submitDiskJob(job) == 0) return true;
   job->queued = false;
   return false;
 }
 
-static void DiskSlotCleanup_Run(void *arg) {
-  IndexSpecSlotTrimJob *job = arg;
-  IndexSpecDiskSlotTrimResult result = IndexSpec_RunDiskSlotTrim(job);
-  pthread_mutex_lock(&diskJobListLock);
+typedef struct {
+  IndexSpecSlotTrimJob *job;
+  IndexSpecDiskSlotTrimResult result;
+} DiskSlotTrimCompletion;
+
+static void diskSlotCleanupComplete(void *arg) {
+  DiskSlotTrimCompletion *completion = arg;
+  IndexSpecSlotTrimJob *job = completion->job;
+  IndexSpecDiskSlotTrimResult result = completion->result;
+  rm_free(completion);
   job->queued = false;
   if (result == INDEX_DISK_TRIM_FINISHED || result == INDEX_DISK_TRIM_CANCELLED ||
       atomic_load(&diskJobsStopped)) {
-    if (result != INDEX_DISK_TRIM_FINISHED) unlinkDiskJob(job);
-    pthread_mutex_unlock(&diskJobListLock);
+    StrongRef ref = WeakRef_Promote(job->specRef);
+    unlinkDiskJob(job);
     IndexSpec_FreeDiskSlotTrim(job);
+    // Registration may have reused this identity after final apply but before completion.
+    IndexSpec *spec = StrongRef_Get(ref);
+    if (spec && !atomic_load(&diskJobsStopped)) IndexSpec_ResumeDiskSlotTrims(spec);
+    if (ref.rm) StrongRef_Release(ref);
     return;
   }
   if (result == INDEX_DISK_TRIM_MORE) queueDiskJob(job);
-  // Retry failures on a later cron tick rather than spin on persistent storage errors.
-  pthread_mutex_unlock(&diskJobListLock);
+  // Storage failures wait for cron instead of spinning.
+}
+
+static void DiskSlotCleanup_Run(void *arg) {
+  DiskSlotTrimCompletion *completion = rm_new(DiskSlotTrimCompletion);
+  completion->job = arg;
+  completion->result = IndexSpec_RunDiskSlotTrim(arg);
+  int rc = RedisModule_EventLoopAddOneShot(diskSlotCleanupComplete, completion);
+  RS_ASSERT_ALWAYS(rc == REDISMODULE_OK);
 }
 
 static void scheduleDiskJob(IndexSpecSlotTrimJob *job) {
-  pthread_mutex_lock(&diskJobListLock);
   for (IndexSpecSlotTrimJob *existing = diskJobs; existing; existing = existing->next) {
     if (existing->specRef.rm != job->specRef.rm || existing->maxDocId != job->maxDocId ||
         existing->numRanges != job->numRanges) continue;
@@ -335,7 +310,6 @@ static void scheduleDiskJob(IndexSpecSlotTrimJob *job) {
     while (i < job->numRanges && existing->ranges[i].start == job->ranges[i].start &&
            existing->ranges[i].end == job->ranges[i].end) ++i;
     if (i == job->numRanges) {
-      pthread_mutex_unlock(&diskJobListLock);
       IndexSpec_FreeDiskSlotTrim(job);
       return;
     }
@@ -343,24 +317,21 @@ static void scheduleDiskJob(IndexSpecSlotTrimJob *job) {
   job->next = diskJobs;
   diskJobs = job;
   queueDiskJob(job);
-  pthread_mutex_unlock(&diskJobListLock);
 }
 
 void SlotCleanup_RetryDiskJobs(void) {
-  pthread_mutex_lock(&diskApplyLock);
-  bool paused = diskJobsPaused;
-  pthread_mutex_unlock(&diskApplyLock);
+  bool paused = CleanPool_IsPaused();
   if (paused || atomic_load(&diskJobsStopped)) return;
-  pthread_mutex_lock(&diskJobListLock);
   for (IndexSpecSlotTrimJob *job = diskJobs; job; job = job->next) queueDiskJob(job);
-  pthread_mutex_unlock(&diskJobListLock);
 }
 
 void SlotCleanup_StopDiskJobs(void) {
   atomic_store(&diskJobsStopped, true);
-  pthread_rwlock_wrlock(&diskJobRunLock);
-  pthread_rwlock_unlock(&diskJobRunLock);
-  pthread_mutex_lock(&diskJobListLock);
+  // Queued jobs cancel without storage access; active batches finish before close.
+  if (SearchDisk_IsEnabled()) {
+    CleanPool_Resume();
+    CleanPool_Wait();
+  }
   IndexSpecSlotTrimJob **link = &diskJobs;
   while (*link) {
     IndexSpecSlotTrimJob *job = *link;
@@ -371,7 +342,6 @@ void SlotCleanup_StopDiskJobs(void) {
       IndexSpec_FreeDiskSlotTrim(job);
     }
   }
-  pthread_mutex_unlock(&diskJobListLock);
 }
 
 static void resumeDiskTrim(void *ctx, const SearchDiskSlotRange *ranges, size_t numRanges,
