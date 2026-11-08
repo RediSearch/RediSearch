@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "field_path_table.h"
 
 #include <math.h>
 #include <limits.h>
@@ -223,6 +224,22 @@ const FieldSpec *FieldNameTable_Find(const FieldNameTable *table, const FieldSpe
 
 void IndexSpec_RebuildFieldNameTable(IndexSpec *sp) {
   FieldNameTable_Rebuild(&sp->fieldNames, sp->fields, sp->numFields);
+  FieldPathTable_Free(sp->fieldPaths);
+  sp->fieldPaths = NULL;
+}
+
+// Below this many fields, probing every schema field is cheaper than scanning the document.
+#define FIELD_PATH_TABLE_MIN_FIELDS 64
+
+const FieldPathTable *IndexSpec_GetFieldPathTable(IndexSpec *sp) {
+  if (!RSGlobalConfig.loadByDocumentFields || sp->diskSpec ||
+      sp->numFields <= FIELD_PATH_TABLE_MIN_FIELDS) {
+    return NULL;
+  }
+  if (!sp->fieldPaths) {
+    sp->fieldPaths = FieldPathTable_New(sp->fields, sp->numFields, sp->rule->type);
+  }
+  return sp->fieldPaths;
 }
 
 /*
@@ -2174,6 +2191,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     rm_free(spec->fields);
   }
   FieldNameTable_Free(&spec->fieldNames);
+  FieldPathTable_Free(spec->fieldPaths);
 
   // Close the disk index right after the fields are cleaned up, while the rest
   // of the spec's state and locks are still fully alive. Background jobs
@@ -2571,6 +2589,7 @@ static void initializeIndexSpec(IndexSpec *sp, const HiddenString *name, IndexFl
   sp->numFields = numFields;
   sp->fields = rm_calloc(numFields, sizeof(FieldSpec));
   sp->fieldNames = (FieldNameTable){0};
+  sp->fieldPaths = NULL;
   sp->specName = name;
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
   // Assign a unique specId from the global counter. This ensures that even if
@@ -2651,6 +2670,8 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
       break;
   }
   FieldNameTable_Add(&sp->fieldNames, sp->fields, fs->index);
+  FieldPathTable_Free(sp->fieldPaths);
+  sp->fieldPaths = NULL;
   return fs;
 }
 

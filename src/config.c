@@ -2718,6 +2718,15 @@ int RegisterModuleConfig_Local(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(
+      ctx, "search-load-by-document-fields", 0,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.loadByDocumentFields)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
       ctx, "search-monitor-expiration", 1,
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_monitor_expiration, NULL,

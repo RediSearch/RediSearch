@@ -27,6 +27,7 @@
 #endif
 
 #include "spec.h"
+#include "field_path_table.h"
 #include "indexes.h"
 #include "indexes_scan.h"
 #include "document.h"
@@ -628,6 +629,11 @@ typedef enum {
   IndexUpdate_Full = 1 << 3,
 } IndexUpdateAction;
 
+static bool isRelabelableVectorField(const FieldSpec *fs) {
+  return RSGlobalConfig.optimizePartialUpdate && FIELD_IS(fs, INDEXFLD_T_VECTOR) &&
+         !FieldSpec_IndexesMissing(fs);
+}
+
 // FILTER expressions may depend on fields outside the schema. Unknown changes and disk
 // bookkeeping likewise cannot establish that the existing index entries can be retained.
 static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ctx,
@@ -651,15 +657,24 @@ static IndexUpdateAction getHashUpdateAction(IndexSpec *spec, RedisModuleCtx *ct
     // A single Hash path can be mapped to more than one schema field (`v AS vv VECTOR ...,
     // v AS txt TEXT` is an explicitly supported configuration). One non-vector mapping forces
     // a full reindex immediately, regardless of how many other mappings are vector fields.
-    for (size_t j = 0; j < spec->numFields; ++j) {
-      if (!FieldSpec_PathEquals(&spec->fields[j], field, length)) {
-        continue;
+    const FieldPathTable *paths = IndexSpec_GetFieldPathTable(spec);
+    if (paths) {
+      for (t_fieldIndex pos = FieldPathTable_Find(paths, field, length); pos;
+           pos = FieldPathTable_Next(paths, pos)) {
+        isSchemaVectorField = true;
+        if (!isRelabelableVectorField(&spec->fields[pos - 1])) {
+          return IndexUpdate_Full;
+        }
       }
-      isSchemaVectorField = true;
-      if (!RSGlobalConfig.optimizePartialUpdate ||
-          !FIELD_IS(&spec->fields[j], INDEXFLD_T_VECTOR) ||
-          FieldSpec_IndexesMissing(&spec->fields[j])) {
-        return IndexUpdate_Full;
+    } else {
+      for (size_t j = 0; j < spec->numFields; ++j) {
+        if (!FieldSpec_PathEquals(&spec->fields[j], field, length)) {
+          continue;
+        }
+        isSchemaVectorField = true;
+        if (!isRelabelableVectorField(&spec->fields[j])) {
+          return IndexUpdate_Full;
+        }
       }
     }
     // LANGUAGE_FIELD can name a path that is *also* a vector schema field: language affects
