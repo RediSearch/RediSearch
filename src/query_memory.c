@@ -22,8 +22,7 @@ static _Atomic(uint64_t) pressureAtCall = 0;
 static _Atomic(uint64_t) checkpointCalls = 0;
 
 void QueryMemoryDebug_SetRatioReadInterval(uint32_t interval) {
-  atomic_store_explicit(&ratioReadInterval, interval ? interval : QUERY_MEMORY_RATIO_READ_INTERVAL,
-                        memory_order_relaxed);
+  atomic_store_explicit(&ratioReadInterval, interval, memory_order_relaxed);
 }
 
 uint32_t QueryMemory_GetRatioReadInterval(void) {
@@ -31,8 +30,7 @@ uint32_t QueryMemory_GetRatioReadInterval(void) {
 }
 
 void QueryMemory_SetForcedRatio(float ratio) {
-  // signbit, so that -0 restores the real read too.
-  atomic_store_explicit(&forcedRatio, signbit(ratio) ? -1 : ratio, memory_order_relaxed);
+  atomic_store_explicit(&forcedRatio, ratio, memory_order_relaxed);
 }
 
 float QueryMemory_GetForcedRatio(void) {
@@ -55,8 +53,9 @@ uint64_t QueryMemory_GetCheckpointCalls(void) {
 
 void QueryMemory_ResetFakePressure(void) {
   QueryMemory_SetForcedRatio(-1);
-  QueryMemory_SetPressureAtCall(0);
-  QueryMemoryDebug_SetRatioReadInterval(0);
+  atomic_store_explicit(&pressureAtCall, 0, memory_order_relaxed);
+  atomic_store_explicit(&checkpointCalls, 0, memory_order_relaxed);
+  QueryMemoryDebug_SetRatioReadInterval(QUERY_MEMORY_RATIO_READ_INTERVAL);
 }
 
 // Counts the call only while positional pressure is armed, so production pays one relaxed load.
