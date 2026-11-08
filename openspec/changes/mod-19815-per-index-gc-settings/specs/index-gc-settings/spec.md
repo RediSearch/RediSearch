@@ -8,35 +8,41 @@ the clean threshold is the effective `CLEAN_THRESHOLD` alone.
 ## ADDED Requirements
 
 ### Requirement: FT.ALTER sets per-index GC overrides
-`FT.ALTER <index> GC [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count|DEFAULT>]
-[CLEAN_THRESHOLD_PERCENT <percent|DEFAULT>]` SHALL set or clear the index's GC run
-interval, clean threshold and (T5) clean threshold percentage. It SHALL take at least one
-setting, each at most once, in any order. It SHALL change no schema and trigger no
-reindex.
+`FT.ALTER <index> GC SET [RUN_INTERVAL <seconds|DEFAULT>]
+[CLEAN_THRESHOLD <count|DEFAULT>] [CLEAN_THRESHOLD_PERCENT <percent|DEFAULT>]` SHALL set or clear the index's GC run
+interval, clean threshold and (T5) clean threshold percentage. `SET` SHALL be required.
+It SHALL take at least one setting, each at most once, in any order. It SHALL change no
+schema and trigger no reindex. `FT.ALTER` SHALL keep its declared arity of at least six
+words.
 
 #### Scenario: Set both settings
-- **WHEN** the user executes `FT.ALTER idx GC RUN_INTERVAL 100 CLEAN_THRESHOLD 500`
+- **WHEN** the user executes `FT.ALTER idx GC SET RUN_INTERVAL 100 CLEAN_THRESHOLD 500`
 - **THEN** the reply SHALL be `OK`
 - **AND** `idx` SHALL use a run interval of 100 seconds and a clean threshold of 500
 
 #### Scenario: Setting one keeps the other
 - **WHEN** `idx` has overrides `RUN_INTERVAL 100` and `CLEAN_THRESHOLD 500`
-- **AND** the user executes `FT.ALTER idx GC CLEAN_THRESHOLD 50`
+- **AND** the user executes `FT.ALTER idx GC SET CLEAN_THRESHOLD 50`
 - **THEN** `idx` SHALL keep the run interval override of 100
 
 #### Scenario: Invalid command changes nothing
-- **WHEN** the user executes `FT.ALTER idx GC RUN_INTERVAL 100 CLEAN_THRESHOLD -1`
+- **WHEN** the user executes `FT.ALTER idx GC SET RUN_INTERVAL 100 CLEAN_THRESHOLD -1`
 - **THEN** the command SHALL return an error
 - **AND** neither setting of `idx` SHALL change
 
+#### Scenario: Shortest form
+- **WHEN** the user executes `FT.ALTER idx GC SET RUN_INTERVAL 10`, directly or through
+  the Redis Software proxy
+- **THEN** the reply SHALL be `OK`
+
 #### Scenario: Rejected forms
-- **WHEN** the user executes `FT.ALTER idx GC` with no setting, repeats a setting, gives
-  an unknown setting, omits a value, or gives `RUN_INTERVAL 0`
-- **THEN** the command SHALL return an error (the arity error when fewer than two words
-  follow `GC`)
+- **WHEN** the user executes `FT.ALTER idx GC SET` with no setting, omits `SET`, repeats
+  a setting, gives an unknown setting, omits a value, or gives `RUN_INTERVAL 0`
+- **THEN** the command SHALL return an error (the arity error when the command has fewer
+  than six words, an error naming `SET` when another word follows `GC`)
 
 #### Scenario: SKIPINITIALSCAN is not accepted with GC
-- **WHEN** the user executes `FT.ALTER idx SKIPINITIALSCAN GC RUN_INTERVAL 100`
+- **WHEN** the user executes `FT.ALTER idx SKIPINITIALSCAN GC SET RUN_INTERVAL 100`
 - **THEN** the command SHALL return an error
 
 #### Scenario: Unknown action
@@ -45,7 +51,7 @@ reindex.
 
 #### Scenario: Alias argument
 - **WHEN** `alias` points to `idx`
-- **AND** the user executes `FT.ALTER alias GC RUN_INTERVAL 100`
+- **AND** the user executes `FT.ALTER alias GC SET RUN_INTERVAL 100`
 - **THEN** `idx` SHALL get the override
 - **AND** an index that `alias` points to later SHALL NOT get it
 
@@ -62,7 +68,7 @@ global setting (`search-fork-gc-run-interval`, `search-fork-gc-clean-threshold`,
 
 #### Scenario: DEFAULT clears an override
 - **WHEN** `idx` has `RUN_INTERVAL 100`
-- **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL DEFAULT`
+- **AND** the user executes `FT.ALTER idx GC SET RUN_INTERVAL DEFAULT`
 - **THEN** `idx` SHALL use the global run interval and follow later changes to it
 
 ### Requirement: Value ranges match the global settings
@@ -74,13 +80,13 @@ clean threshold of 0 every scheduled cycle forks.
 
 #### Scenario: Very large interval
 - **WHEN** the run-interval timer of `idx` is waiting
-- **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL 9223372036854775807`
+- **AND** the user executes `FT.ALTER idx GC SET RUN_INTERVAL 9223372036854775807`
 - **THEN** the reply SHALL be `OK`
 - **AND** the GC timer of `idx` SHALL be armed for the longest supported delay, with no
   arithmetic overflow
 
 #### Scenario: Percentage out of range (T5)
-- **WHEN** the user executes `FT.ALTER idx GC CLEAN_THRESHOLD_PERCENT 101`, or gives a
+- **WHEN** the user executes `FT.ALTER idx GC SET CLEAN_THRESHOLD_PERCENT 101`, or gives a
   negative or fractional percentage
 - **THEN** the command SHALL return an error
 
@@ -147,7 +153,7 @@ A global `CONFIG SET` SHALL NOT change any waiting timer.
 
 #### Scenario: Lowering a long interval
 - **WHEN** the GC timer of `idx` was armed 50 seconds ago with a run interval of 1000
-- **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL 10`
+- **AND** the user executes `FT.ALTER idx GC SET RUN_INTERVAL 10`
 - **THEN** the timer of `idx` SHALL restart, with more than 9 seconds and less than 20
   seconds left
 
@@ -161,25 +167,25 @@ A global `CONFIG SET` SHALL NOT change any waiting timer.
 - **WHEN** `idx` has no run interval override and its run-interval timer was armed with
   a global interval of 1000
 - **AND** the user executes `CONFIG SET search-fork-gc-run-interval 10`
-- **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL 10`
+- **AND** the user executes `FT.ALTER idx GC SET RUN_INTERVAL 10`
 - **THEN** the timer of `idx` SHALL restart, with less than 20 seconds left
 
 #### Scenario: Repeating the command does not postpone GC
 - **WHEN** `idx` has `RUN_INTERVAL 100` and its run-interval timer, armed with 100, is
   waiting
-- **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL 100` again
+- **AND** the user executes `FT.ALTER idx GC SET RUN_INTERVAL 100` again
 - **THEN** the timer of `idx` SHALL NOT restart
 
 #### Scenario: DEFAULT with an override equal to the global value
 - **WHEN** `idx` has a run interval override equal to the global run interval and its
   run-interval timer, armed with that value, is waiting
-- **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL DEFAULT`
+- **AND** the user executes `FT.ALTER idx GC SET RUN_INTERVAL DEFAULT`
 - **THEN** the timer of `idx` SHALL NOT restart
 
 #### Scenario: DEFAULT with a different override
 - **WHEN** `idx` has a run interval override that differs from the global run interval
   and its run-interval timer, armed with the override, is waiting
-- **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL DEFAULT`
+- **AND** the user executes `FT.ALTER idx GC SET RUN_INTERVAL DEFAULT`
 - **THEN** the timer of `idx` SHALL restart from the command with the global run
   interval
 
@@ -214,7 +220,7 @@ overrides. On a cluster, `FT.ALTER ... GC` on the coordinator SHALL apply to eve
 
 #### Scenario: Node without GC
 - **WHEN** the node was started with `search-no-gc`
-- **AND** the user executes `FT.ALTER idx GC RUN_INTERVAL 100`
+- **AND** the user executes `FT.ALTER idx GC SET RUN_INTERVAL 100`
 - **THEN** the reply SHALL be `OK`
 - **AND** FT.INFO SHALL report the override
 
@@ -241,7 +247,7 @@ overrides. On a cluster, `FT.ALTER ... GC` on the coordinator SHALL apply to eve
 
 #### Scenario: TEMPORARY index
 - **WHEN** `tmp` was created with `TEMPORARY`
-- **AND** the user executes `FT.ALTER tmp GC RUN_INTERVAL 100`
+- **AND** the user executes `FT.ALTER tmp GC SET RUN_INTERVAL 100`
 - **THEN** the command SHALL return an error
 
 #### Scenario: FT.INFO of a TEMPORARY index

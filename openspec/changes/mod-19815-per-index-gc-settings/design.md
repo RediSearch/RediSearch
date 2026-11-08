@@ -143,8 +143,8 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   repeated commands from postponing GC. It also covers a `CONFIG SET` that changed an
   inheriting index's effective interval after its timer was armed: with a timer armed
   for 1000 s, `CONFIG SET search-fork-gc-run-interval 10` followed by
-  `FT.ALTER idx GC RUN_INTERVAL 10` restarts the timer, although the effective value is
-  10 both before and after the command.
+  `FT.ALTER idx GC SET RUN_INTERVAL 10` restarts the timer, although the effective value
+  is 10 both before and after the command.
 - Global `CONFIG SET` keeps today's behavior: it changes no waiting timer, and inheriting
   indexes use the new value at their next arm.
 - Disk GC shares this code, so it gets the same arming, jitter and cap with the global
@@ -220,8 +220,14 @@ Existing defects that T1 fixes, because per-index settings make them worse:
 ## Command (T3)
 
 - `AlterIndexInternalCommand` branches on `GC` before the `SCHEMA`-specific code,
-  including the `_FT._ALTERIFNX` field probe. The current `argc < 5` arity check stays,
-  so a bare `GC`, or `GC` with one setting and no value, gets the arity error.
+  including the `_FT._ALTERIFNX` field probe. The word after `GC` must be `SET`; any
+  other word gets an error that names `SET`.
+- `FT.ALTER` keeps its declared arity of `-6`. `SET` makes the shortest command,
+  `FT.ALTER idx GC SET RUN_INTERVAL 10`, six words long, so a shorter form gets the arity
+  error from Redis before the handler runs. The handler's own `argc < 5` check stays.
+  The Redis Software proxy checks the same arity and hard-codes `-6` for `FT.ALTER`.
+  Proxies already deployed can't change, and the module runs on them, so the minimum
+  can't go below six words.
 - The index name resolves aliases, as every `FT.ALTER` does today. `FT.ALTER <alias> GC`
   changes the index the alias points to at that moment.
 - `SKIPINITIALSCAN` followed by `GC` is an error. `SKIPINITIALSCAN` only applies to
@@ -240,8 +246,10 @@ Existing defects that T1 fixes, because per-index settings make them worse:
 - The error for an unknown action becomes one that names both `SCHEMA` and `GC`. No
   pytest matches on the old text.
 - `commands.json`: `FT.ALTER` gets a `oneof` between a `SCHEMA` branch
-  (`[SKIPINITIALSCAN] SCHEMA ADD ...`) and a `GC` branch, so the published syntax
-  doesn't allow `SKIPINITIALSCAN GC`. The summary, today "Adds a new field to the
+  (`[SKIPINITIALSCAN] SCHEMA ADD ...`) and a `GC SET` branch, so the published syntax
+  doesn't allow `SKIPINITIALSCAN GC`. The generator takes the shortest branch, which
+  with optional settings is below six words, so `FT.ALTER` is pinned at `-6` in
+  `COMMAND_ARITY_OVERRIDES` in `srcutil/gen_command_info.py`. The summary, today "Adds a new field to the
   index", covers both actions, and the complexity says `O(N)` applies to `SCHEMA ADD`
   and `GC` is `O(1)`. `src/command_info/command_info.c` is regenerated with
   `srcutil/gen_command_info.py`, and `COMMAND DOCS` is checked.
@@ -328,6 +336,8 @@ Existing behavior that per-index settings do not depend on, left as it is:
 | Keep the original arm time and jitter, run at once if the new deadline passed | Needs stored state per index, deadline math, and a run-now path that repeats `timerCallback`. The restart is simpler, and repeats still can't postpone GC. Cost: a lowered long interval runs one to two new intervals after the command instead of at once. |
 | Leave the waiting timer alone | A lowered long interval first waits out the old one. |
 | Also restart timers on `CONFIG SET` | Changes existing behavior and walks every index. Not needed. |
+| `GC` with no verb (`FT.ALTER idx GC RUN_INTERVAL 10`) | Five words, below `FT.ALTER`'s arity of `-6`. The Redis Software proxy enforces that arity and hard-codes it, and proxies already deployed can't change. |
+| `SET` and `RESET` verbs instead of `DEFAULT` | `GC RESET RUN_INTERVAL` is five words, so it hits the same limit. `DEFAULT` also lets one command set one setting and clear another. |
 | A fixed RDB layout per setting | Every new GC setting would need another version bump. |
 | GC options in `FT.CREATE` now | Not needed to keep the API change small. Can be added later as parsing into the same stored fields. `FT.ALTER` right after `FT.CREATE` covers rebuild and alias swap, since the new index has no deletes yet. |
 | A per-index `POLICY` now (`FORK`, `NONE`) | Commits to a policy that changes per index at runtime before MOD-20523 decides that; the thread GC creates its deleted-ID set only when the whole node runs THREAD. `NONE` also stops tiered vector GC, which runs inside the cycle. Postponed; it can be added later as one more setting with no version bump. |
@@ -351,8 +361,9 @@ The spec delta describes the recommended answer to each.
    `FT._LIST WITHCLUSTERSTATE` won't flag a shard that missed the change in a partial
    fan-out. The comment above `IndexSpec_RdbSave` asks for schema-defining members to
    be mirrored in the fingerprint; a line next to the new block says it is not one.
-3. **Enterprise.** To confirm with RS/DMC: the proxy forwards the `GC` arguments to
-   shards unchanged, and Active-Active needs nothing extra.
+3. **Enterprise.** The proxy needs no change: it already sends `FT.ALTER` to every
+   shard, and the six-word minimum passes its arity check (see Command). To confirm
+   with RS/DMC: Active-Active needs nothing beyond what `FT.ALTER ... SCHEMA ADD` gets.
 
 ## Testing strategy
 

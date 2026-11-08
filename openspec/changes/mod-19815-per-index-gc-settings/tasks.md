@@ -12,7 +12,7 @@ settings without a version bump.
 
 - [ ] 0.1 Product sign-off on the user-facing behavior (Confluence §3)
 - [ ] 0.2 Dev sign-off on this design and the open questions in `design.md`
-- [ ] 0.3 Confirm Enterprise proxy and Active-Active behavior with RS/DMC
+- [ ] 0.3 Confirm Active-Active behavior with RS/DMC; the proxy needs no change
 - [x] 0.4 Sync MOD-19815, T0–T5 and the Confluence page with the review decisions
 - [ ] 0.5 Product sign-off on T5 (decision 13)
 - [ ] 0.6 Note on MOD-20523 that per-index `POLICY` is postponed, with the RDB and
@@ -73,7 +73,7 @@ settings without a version bump.
 
 ## 3. `FT.ALTER ... GC` ([MOD-20263](https://redislabs.atlassian.net/browse/MOD-20263))
 
-- [ ] 3.1 Parse and validate `GC` in `AlterIndexInternalCommand`, all-or-nothing
+- [ ] 3.1 Parse and validate `GC SET` in `AlterIndexInternalCommand`, all-or-nothing
 - [ ] 3.2 Reject TEMPORARY indexes and `SKIPINITIALSCAN GC`; store on indexes without a
       `GCContext`
 - [ ] 3.3 Call `GCContext_OnIntervalChanged` when the command sets or clears
@@ -81,18 +81,19 @@ settings without a version bump.
       armed one. If MOD-20523 has landed, call `GCContext_RunIfWaitedFor` after a
       threshold change
 - [ ] 3.4 Replicate through `_FT._ALTERIFNX`; new unknown-action error text
-- [ ] 3.5 `commands.json`: `oneof` between `[SKIPINITIALSCAN] SCHEMA ADD` and `GC`, a
-      summary covering both actions, and per-action complexity; regenerate
+- [ ] 3.5 `commands.json`: `oneof` between `[SKIPINITIALSCAN] SCHEMA ADD` and `GC SET`,
+      a summary covering both actions, and per-action complexity; pin `FT.ALTER` at
+      arity `-6` in `COMMAND_ARITY_OVERRIDES`; regenerate
       `src/command_info/command_info.c` with `srcutil/gen_command_info.py` and check
       `COMMAND DOCS`
 - [ ] 3.6 `FT.DEBUG` hook that reports the time left and the type of an index's GC timer
-- [ ] 3.7 Flow tests: two indexes making progress with different settings, syntax, arity
-      and validation, aliases, ACL, unknown index, inheritance and `DEFAULT`,
-      `CONFIG SET` leaving timers alone, `CONFIG SET` followed by `FT.ALTER` with the new
-      value restarting the timer, threshold 0, timer restart timing, repeated commands
-      and the `DEFAULT` cases leaving or restarting the timer, updates while GC is
-      queued, running, retrying or stopped, drop and recreate, TEMPORARY, `search-no-gc`
-      master and replica, cluster fan-out
+- [ ] 3.7 Flow tests: two indexes making progress with different settings, syntax, the
+      six-word form, a missing `SET`, arity and validation, aliases, ACL, unknown index,
+      inheritance and `DEFAULT`, `CONFIG SET` leaving timers alone, `CONFIG SET` followed
+      by `FT.ALTER` with the new value restarting the timer, threshold 0, timer restart
+      timing, repeated commands and the `DEFAULT` cases leaving or restarting the timer,
+      updates while GC is queued, running, retrying or stopped, drop and recreate,
+      TEMPORARY, `search-no-gc` master and replica, cluster fan-out
 - [ ] 3.8 Recovery flow tests: `DEBUG RELOAD`, full sync, failover, AOF,
       `BGREWRITEAOF`, slot migration of an index the target doesn't have
 

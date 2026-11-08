@@ -1,4 +1,4 @@
-# Per-index fork GC settings (`FT.ALTER <index> GC`)
+# Per-index fork GC settings (`FT.ALTER <index> GC SET`)
 
 ## Why
 
@@ -23,11 +23,14 @@ and a clean threshold, plus a clean threshold percentage if Product signs off on
 (decision 13, [MOD-20691](https://redislabs.atlassian.net/browse/MOD-20691)):
 
 ```
-FT.ALTER <index> GC [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count|DEFAULT>]
-                    [CLEAN_THRESHOLD_PERCENT <percent|DEFAULT>]
+FT.ALTER <index> GC SET [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count|DEFAULT>]
+                        [CLEAN_THRESHOLD_PERCENT <percent|DEFAULT>]
 ```
 
 - At least one setting, each at most once, in any order. Setting one keeps the others.
+- `SET` is required, so the shortest command, `FT.ALTER idx GC SET RUN_INTERVAL 10`, has
+  six words, the same minimum as `FT.ALTER ... SCHEMA ADD`. `FT.ALTER` keeps its
+  declared arity, so the Redis Software proxy, which checks it, needs no change.
 - An index without an override uses the global value and follows later `CONFIG SET`
   changes. `DEFAULT` removes the override. Global values are never copied into an index.
 - Ranges match the global settings: `RUN_INTERVAL` 1 to 2^63−1 seconds,
