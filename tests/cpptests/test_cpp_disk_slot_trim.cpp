@@ -87,6 +87,7 @@ class PersistenceEventHooks {
 };
 
 IndexSpecDiskSlotTrimResult runSingleTrim(IndexSpec *spec) {
+  if (CleanPool_IsPaused()) return INDEX_DISK_TRIM_RETRY;
   const SearchDiskSlotRange range{0, 100};
   auto *job = IndexSpec_RegisterDiskSlotTrim(spec->own_ref, &range, 1);
   if (!job) return INDEX_DISK_TRIM_RETRY;
@@ -108,6 +109,7 @@ class DiskSlotTrimTest : public ::testing::Test {
   bool savedEnableGC = false, cleanPoolStarted = false;
 
   void SetUp() override {
+    CleanPool_ThreadPoolStart();
     state = {};
 #ifdef ENABLE_ASSERT
 #endif
@@ -277,7 +279,7 @@ class DiskSlotTrimTest : public ::testing::Test {
       const SearchDiskSlotRange range{0, 100};
       job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
     }
-    return job ? IndexSpec_RunDiskSlotTrim(job) : INDEX_DISK_TRIM_RETRY;
+    return job && !CleanPool_IsPaused() ? IndexSpec_RunDiskSlotTrim(job) : INDEX_DISK_TRIM_RETRY;
   }
   void mockConsistencyWindows() {
     spec->gc = nullptr;
@@ -1081,7 +1083,18 @@ TEST_F(DiskSlotTrimTest, ShutdownWaitsForTheCurrentBatchAndPreventsAnother) {
   job = IndexSpec_RegisterDiskSlotTrim(ref, &range, 1);
   ASSERT_NE(job, nullptr);
   IndexSpecDiskSlotTrimResult result;
-  std::thread worker([&] { result = IndexSpec_RunDiskSlotTrim(job); });
+  startCleanPool();
+  struct Work {
+    IndexSpecSlotTrimJob *job;
+    IndexSpecDiskSlotTrimResult *result;
+  } work{job, &result};
+  ASSERT_EQ(CleanPool_AddWork(
+                [](void *arg) {
+                  auto *work = static_cast<Work *>(arg);
+                  *work->result = IndexSpec_RunDiskSlotTrim(work->job);
+                },
+                &work),
+            0);
   {
     std::unique_lock<std::mutex> guard(mutex);
     EXPECT_TRUE(progress.wait_for(guard, std::chrono::seconds(10), [&] { return entered; }));
@@ -1104,7 +1117,7 @@ TEST_F(DiskSlotTrimTest, ShutdownWaitsForTheCurrentBatchAndPreventsAnother) {
     release = true;
     progress.notify_all();
   }
-  worker.join();
+  CleanPool_Wait();
   stopper.join();
   EXPECT_EQ(result, INDEX_DISK_TRIM_MORE);
   EXPECT_TRUE(stopped);
