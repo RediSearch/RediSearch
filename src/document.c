@@ -96,8 +96,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
   size_t numTextIndexable = 0;
 
-  // size: uint16_t * SPEC_MAX_FIELDS (8 KiB on the stack)
-  FieldSpecDedupeArray dedupe = {0};
+  FieldSpecDedupeSet dedupe = {{0}};
   int hasTextFields = 0;
   int hasOtherFields = 0;
 
@@ -112,12 +111,10 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     }
 
     aCtx->fspecs[i] = *fs;
-    if (dedupe[fs->index]) {
+    if (FieldSpecDedupeSet_TestAndSet(&dedupe, fs->index)) {
       QueryError_SetWithUserDataFmt(&aCtx->status, QUERY_ERROR_CODE_DUP_FIELD, "Tried to insert field twice", ": '%s'", HiddenString_GetUnsafe(fs->fieldName, NULL));
       return -1;
     }
-
-    dedupe[fs->index] = 1;
 
     if (FieldSpec_IsSortable(fs)) {
       // mark sortable fields to be updated in the state flags
@@ -1142,7 +1139,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   }
 
   if (aCtx->stateFlags & ACTX_F_SORTABLES) {
-    FieldSpecDedupeArray dedupes = {0};
+    FieldSpecDedupeSet dedupes = {{0}};
     // Update sortables if needed
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
@@ -1151,11 +1148,9 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
         continue;
       }
 
-      if (dedupes[fs->index]) {
+      if (FieldSpecDedupeSet_TestAndSet(&dedupes, fs->index)) {
         BAIL(DUP_FIELD_ERRSTR);
       }
-
-      dedupes[fs->index] = 1;
 
       int idx = fs->sortIdx;
       if (idx < 0) continue;

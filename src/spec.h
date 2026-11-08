@@ -222,11 +222,43 @@ extern bool isTrimming; // TODO: remove this when redis deprecates sharding trim
 extern bool isFlex;
 
 /**
- * This "ID" type is independent of the field mask, and is used to distinguish
- * between one field and another field. For now, the ID is the position in
- * the array of fields - a detail we'll try to hide.
+ * Open-addressed table mapping a field name to its position in a `FieldSpec` array.
+ * Slots hold position + 1 (0 marks an empty slot) and capacity is zero or a power of two.
+ * Positions rather than pointers, so the table survives the array being reallocated.
+ * A zero capacity means the owner's array is small enough to scan linearly.
  */
-typedef uint16_t FieldSpecDedupeArray[SPEC_MAX_FIELDS];
+typedef struct FieldNameTable {
+  t_fieldIndex *slots;
+  uint32_t cap;
+} FieldNameTable;
+
+/** Rebuilds `table` over `fields[0, n)`; the earliest field wins for a duplicated name. */
+void FieldNameTable_Rebuild(FieldNameTable *table, const FieldSpec *fields, size_t n);
+/** Adds `fields[index]`, whose position must be the last one, rebuilding if the table is full. */
+void FieldNameTable_Add(FieldNameTable *table, const FieldSpec *fields, size_t index);
+/** Finds the field named `name` (exact, case sensitive), or NULL. */
+const FieldSpec *FieldNameTable_Find(const FieldNameTable *table, const FieldSpec *fields, size_t n,
+                                     const char *name, size_t len);
+void FieldNameTable_Free(FieldNameTable *table);
+
+/**
+ * Per-document set of field indexes already seen, used to reject a document that
+ * names the same schema field twice. A bitset of SPEC_MAX_FIELDS bits (512 B)
+ * is cheap to zero on the stack for every document, unlike a per-field array.
+ */
+typedef struct {
+  uint64_t words[SPEC_MAX_FIELDS / 64];
+} FieldSpecDedupeSet;
+static_assert(SPEC_MAX_FIELDS % 64 == 0, "FieldSpecDedupeSet packs 64 fields per word");
+
+/** Marks `index` as seen and returns whether it already was. */
+static inline bool FieldSpecDedupeSet_TestAndSet(FieldSpecDedupeSet *set, uint16_t index) {
+  uint64_t *word = &set->words[index / 64];
+  const uint64_t bit = UINT64_C(1) << (index % 64);
+  const bool seen = (*word & bit) != 0;
+  *word |= bit;
+  return seen;
+}
 
 #define INDEX_DEFAULT_FLAGS \
   Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_StoreByteOffsets
@@ -336,6 +368,9 @@ typedef struct IndexSpec {
   FieldSpec *fields;              // Fields in the index schema
   uint16_t numFields;             // Number of fields
   uint16_t numSortableFields;     // Number of sortable fields
+  // By-name index over `fields`. Kept in sync by IndexSpec_CreateField and
+  // IndexSpec_RebuildFieldNameTable.
+  FieldNameTable fieldNames;
 
   IndexFlags flags;               // Flags
   IndexStats stats;               // Statistics of memory used and quantities
@@ -493,6 +528,8 @@ static inline bool IndexSpec_HasIndexMissing(const IndexSpec *sp) {
 typedef struct IndexSpecCache {
   FieldSpec *fields;
   size_t nfields;
+  // Built with the cache so by-name lookups from the query side stay O(1) on wide schemas.
+  FieldNameTable fieldNames;
   size_t refcount;
   // Owned copies of the schema rule's special document-field names (each may
   // be NULL). Key creation marks keys with these names as hidden, so reply
@@ -520,6 +557,9 @@ IndexSpecCache *IndexSpec_GetSpecCache(const IndexSpec *spec);
  * Can handle NULL
  */
 void IndexSpecCache_Decref(IndexSpecCache *cache);
+
+/** By-name lookup in a cache snapshot, with the semantics of IndexSpec_GetFieldWithLength. */
+const FieldSpec *IndexSpecCache_FindField(const IndexSpecCache *cache, const char *name, size_t len);
 
 /**
  * Replace the spec's cache with a freshly built one, releasing the spec's
@@ -659,6 +699,12 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
 StrongRef IndexSpec_ParseC(RedisModuleCtx *ctx, const char *name, const char **argv, int argc, QueryError *status);
 
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
+
+/**
+ * Rebuilds the by-name lookup table from `sp->fields[0, numFields)`. Must be called after any
+ * change to the set of fields that bypasses IndexSpec_CreateField (RDB load, schema rollback).
+ */
+void IndexSpec_RebuildFieldNameTable(IndexSpec *sp);
 
 // Delete a document from the index by its key name.
 // In disk mode, looks up the docId via the key's metadata, removes the
