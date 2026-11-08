@@ -744,7 +744,9 @@ void RLookup_WriteOwnKey(const RLookupKey *key, struct RLookupRow *row, struct R
  *
  * # Safety
  *
- * 1. `keys` must point to an array of at least `nkeys` [valid], non-null `RLookupKey` pointers.
+ * 1. If `nkeys > 0`, `keys` must point to an array of at least `nkeys` [valid], non-null
+ *    `RLookupKey` pointers. When `nkeys == 0`, `keys` is unused and may be anything (including
+ *    NULL).
  * 2. `h1` and `h2` must be [valid], non-null pointers to a `SearchResult`.
  * 3. `qerr`, when non-null, must be a [valid], writable pointer to a `QueryError`.
  *

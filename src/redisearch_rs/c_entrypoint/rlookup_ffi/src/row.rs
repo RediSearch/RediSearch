@@ -444,7 +444,9 @@ pub unsafe extern "C" fn RLookupRow_SetSortingVector(
 ///
 /// # Safety
 ///
-/// 1. `keys` must point to an array of at least `nkeys` [valid], non-null `RLookupKey` pointers.
+/// 1. If `nkeys > 0`, `keys` must point to an array of at least `nkeys` [valid], non-null
+///    `RLookupKey` pointers. When `nkeys == 0`, `keys` is unused and may be anything (including
+///    NULL).
 /// 2. `h1` and `h2` must be [valid], non-null pointers to a `SearchResult`.
 /// 3. `qerr`, when non-null, must be a [valid], writable pointer to a `QueryError`.
 ///
@@ -459,10 +461,14 @@ pub unsafe extern "C" fn SearchResult_CmpByFields(
     qerr: *mut QueryError,
 ) -> c_int {
     let nkeys = nkeys.min(SORTASCMAP_MAXFIELDS);
-    // SAFETY: caller (1.) guarantees `keys` points to `nkeys` valid, non-null
-    // `RLookupKey` pointers; `*const RLookupKey` and `&RLookupKey` share the
-    // same layout, and the non-null invariant makes the reference niche sound.
-    let keys: &[&RLookupKey] = unsafe { slice::from_raw_parts(keys.cast::<&RLookupKey>(), nkeys) };
+    let keys: &[&RLookupKey] = if nkeys > 0 {
+        // SAFETY: caller (1.) guarantees `keys` points to `nkeys` valid, non-null
+        // `RLookupKey` pointers; `*const RLookupKey` and `&RLookupKey` share the
+        // same layout, and the non-null invariant makes the reference niche sound.
+        unsafe { slice::from_raw_parts(keys.cast::<&RLookupKey>(), nkeys) }
+    } else {
+        &[]
+    };
     // SAFETY: ensured by caller (2.)
     let h1 = unsafe { &*h1 };
     // SAFETY: ensured by caller (2.)
