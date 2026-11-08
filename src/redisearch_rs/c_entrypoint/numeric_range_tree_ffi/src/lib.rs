@@ -63,10 +63,9 @@ pub unsafe extern "C" fn _NumericRangeTree_Add(
     maxDepthRange: usize,
 ) -> AddResult {
     debug_assert!(!t.is_null(), "t cannot be NULL");
+
     // SAFETY: 1, 2.
-    let tree = unsafe { t.as_mut() };
-    // SAFETY: 1: `t` is non-null, so `as_mut` returned `Some`.
-    let tree = unsafe { tree.unwrap_unchecked() };
+    let tree = unsafe { &mut *t };
 
     tree.add(
         doc_id,
@@ -113,10 +112,9 @@ pub unsafe extern "C" fn NumericRangeTree_TrimEmptyLeaves(
     t: *mut NumericRangeTree,
 ) -> TrimEmptyLeavesResult {
     debug_assert!(!t.is_null(), "t cannot be NULL");
+
     // SAFETY: 1, 2.
-    let tree = unsafe { t.as_mut() };
-    // SAFETY: 1: `t` is non-null, so `as_mut` returned `Some`.
-    let tree = unsafe { tree.unwrap_unchecked() };
+    let tree = unsafe { &mut *t };
 
     tree.trim_empty_leaves()
 }
