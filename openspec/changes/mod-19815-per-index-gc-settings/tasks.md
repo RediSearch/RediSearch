@@ -48,9 +48,10 @@ settings without a version bump.
 
 - [ ] 2.1 Add the two optional values to `IndexSpec`, the effective-value helpers, and
       the `ForkGC` field that holds the queue-time threshold copy
-- [ ] 2.2 Route every read of the scheduling interval and the clean threshold through the
-      helpers; the other fork-GC settings, including the `reap_child_blocking` timeout,
-      stay global
+- [ ] 2.2 Route every fork-GC read of the scheduling interval and the clean threshold
+      through the helpers; disk GC keeps its cached `intervalSec` and its own reads, and
+      the other fork-GC settings, including the `reap_child_blocking` timeout, stay
+      global
 - [ ] 2.3 New GC callback, called in `GCContext_QueueRun` after it claims
       `GC_SCHED_RUN_PENDING` and before `add_work`, that copies the effective threshold
       into `ForkGC` and leaves the copy as it is when the index is gone; `FGC_RunCycle`
@@ -116,13 +117,16 @@ settings without a version bump.
       `min(N, max(1, ceil(p × base / 100)))`, computed on the main thread in the
       queue-time copy; read the live count under the spec read lock; `base` is a peak in
       `ForkGC` that each queue-time copy raises to the live count, that the run
-      resetting the counter sets to its own queue-time sample, and that starts at the
-      live count when the GC context is created
+      resetting the counter, forced or scheduled, sets to the live count at the reset,
+      and that starts at the live count when the GC context is created
 - [ ] 5.4 `clean_threshold_percent` in FT.INFO `gc_settings`; combined threshold and
       `base` in the `FT.DEBUG` hook
 - [ ] 5.5 C++ unit tests: updates, deletes, growth, growth then deletes across samples,
-      deletes before the first fork, empty index, `p = 0` with `N` above 1,
-      `CLEAN_THRESHOLD 0`, overflow limits
+      deletes before the first fork, deletes between the queue-time copy and the fork
+      (the new window starts at the count the fork saw), a forced fork setting the peak,
+      a failed fork leaving it, empty index, `p = 0` with `N` above 1,
+      `CLEAN_THRESHOLD 0`, overflow limits; RDB round trip with the percentage set and
+      cleared with `DEFAULT`, and a stored percentage above 100 failing the load
 - [ ] 5.6 Flow tests: the two-index example, global inheritance, `DEFAULT`, range errors,
       FT.INFO in RESP2 and RESP3
 

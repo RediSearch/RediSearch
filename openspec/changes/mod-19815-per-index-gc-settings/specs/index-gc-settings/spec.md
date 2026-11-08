@@ -46,7 +46,7 @@ words.
 - **THEN** the command SHALL return an error
 
 #### Scenario: Unknown action
-- **WHEN** the user executes `FT.ALTER idx FOO a b`
+- **WHEN** the user executes `FT.ALTER idx FOO a b c`
 - **THEN** the error SHALL name both `SCHEMA` and `GC`
 
 #### Scenario: Alias argument
@@ -96,8 +96,8 @@ percentage, a scheduled cycle SHALL fork once the index's deletes and updates si
 last cycle reach the combined threshold. When `p` is 0 the combined threshold SHALL be
 `N`. Otherwise it SHALL be `min(N, max(1, ceil(p × base / 100)))`, where `base` is the
 largest live-document count of the index sampled since the count was last reset. The
-live count SHALL be sampled at least each time a scheduled run is queued. Both counts
-SHALL be the index's own.
+live count SHALL be sampled when the count is reset, by a forced or a scheduled cycle,
+and at least each time a scheduled run is queued. Both counts SHALL be the index's own.
 
 #### Scenario: Each index reaches a different threshold
 - **WHEN** the global clean threshold is 90 and the global percentage is 60
@@ -119,6 +119,19 @@ SHALL be the index's own.
   threshold
 - **AND** 100 documents were deleted after that, leaving 100
 - **THEN** the next scheduled cycle SHALL NOT fork, because 100 is 50% of 200
+
+#### Scenario: Deletes collected by the fork that resets the count
+- **WHEN** `idx` has 1000 live documents when a scheduled run is queued, and has
+  `CLEAN_THRESHOLD_PERCENT 60` with a clean threshold of 1000
+- **AND** 900 documents are deleted before that run forks, leaving 100
+- **AND** after the fork, 60 more documents are deleted
+- **THEN** the next scheduled cycle SHALL fork, because 60 reaches 60% of 100
+
+#### Scenario: Forced cycle resets the window
+- **WHEN** `idx` has `CLEAN_THRESHOLD_PERCENT 60` with a clean threshold of 1000
+- **AND** a forced cycle forks while `idx` has 100 live documents
+- **AND** after it, 60 documents are deleted
+- **THEN** the next scheduled cycle SHALL fork, because 60 reaches 60% of 100
 
 #### Scenario: Zero percent with a larger clean threshold
 - **WHEN** `idx` has `CLEAN_THRESHOLD_PERCENT 0` and a clean threshold of 100
@@ -211,7 +224,19 @@ Overrides SHALL be saved in the RDB, replicated, and written to the AOF. An inde
 on a shard by slot migration SHALL arrive with its overrides. Every node SHALL store an
 override, including nodes started with
 `search-no-gc`, where it SHALL have no effect. Dropping an index SHALL drop its
-overrides. On a cluster, `FT.ALTER ... GC` on the coordinator SHALL apply to every shard.
+overrides. On a cluster, the coordinator SHALL send `FT.ALTER ... GC` to every shard
+and SHALL return `OK` only when every shard applies it. A shard that rejects it, for
+example under `deny-oom` or on a version without the command, SHALL leave the other
+shards' changes in place, and the coordinator SHALL return an error. Running the same
+command again SHALL bring every shard to the same overrides.
+
+#### Scenario: A shard rejects the command
+- **WHEN** one shard of a cluster rejects `FT.ALTER idx GC SET RUN_INTERVAL 100` and the
+  others apply it
+- **THEN** the coordinator SHALL return an error
+- **AND** the shards that applied it SHALL keep `RUN_INTERVAL 100`
+- **AND** once the rejecting shard accepts writes again, running the same command SHALL
+  give every shard `RUN_INTERVAL 100`
 
 #### Scenario: Survives restart
 - **WHEN** `idx` has `CLEAN_THRESHOLD 0`

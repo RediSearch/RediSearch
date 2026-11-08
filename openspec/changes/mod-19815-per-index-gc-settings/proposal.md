@@ -51,7 +51,9 @@ FT.ALTER <index> GC SET [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count
   applies to runs queued after the change; a run already queued or running keeps the
   values it started with.
 - Overrides are saved in the RDB, replicated, and written to the AOF. On a cluster,
-  `FT.ALTER` on the coordinator applies to every shard.
+  `FT.ALTER` on the coordinator is sent to every shard. If a shard rejects it, the
+  other shards keep the change, the command returns an error, and running it again
+  brings the shards back in line.
 - Given an alias, the command changes the index the alias points to at that moment.
 - `FT.INFO` gains a `gc_settings` section with the configured and effective value of
   each setting. Later GC settings are added to it as new keys.
@@ -59,8 +61,13 @@ FT.ALTER <index> GC SET [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count
   and stored on nodes started with `search-no-gc`, where it has no effect.
 - The index encoding version changes. Overrides are saved as a list of tagged entries,
   so later GC settings need no further version bump.
-- The error for an unknown `FT.ALTER` action names both `SCHEMA` and `GC`. No other
-  existing behavior changes.
+- The error for an unknown `FT.ALTER` action names both `SCHEMA` and `GC`.
+- The scheduler rework (T1) also changes indexes without overrides: an idle index picks
+  up a changed global run interval within one old period instead of keeping the old
+  one; a cycle that the threshold skips after a failed fork returns to the run interval
+  instead of the retry interval; very large intervals saturate and are capped instead
+  of overflowing; and a `CONFIG SET` made between the GC thread's read of the interval
+  and the timer re-arm takes effect at that arm instead of being lost.
 
 ### Non-goals
 

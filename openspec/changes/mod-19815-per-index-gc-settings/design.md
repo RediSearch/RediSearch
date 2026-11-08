@@ -199,11 +199,14 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   100 documents, then 100 added and 100 deleted, reads as 50% of 200.
 - The largest count is sampled, not tracked on every document add. `ForkGC` keeps a
   peak value. Each queue-time copy raises it to the live count at that moment, then
-  uses it as `base`. The run that resets the counter sets the peak to its own
-  queue-time live count, where it resets the counter today. The peak starts at the
-  live count when the GC context is created. Both writes hold the GIL, so the GC thread
-  reads no live count. Every timer fire queues a run, including cycles the threshold
-  then skips, so the peak is sampled once per interval.
+  uses it as `base`. The run that resets the counter sets the peak to the live count at
+  the reset, which it reads under the GIL it already holds there, from the index it
+  already references. That count is what the fork sees, so a queue-time sample taken
+  before deletes the fork collects never carries into the new window. Forced runs reset
+  the counter at the same point, so they set the peak the same way and need no
+  queue-time sample. A fork that fails resets neither. The peak starts at the live count
+  when the GC context is created. Every timer fire queues a run, including cycles the
+  threshold then skips, so the peak is sampled once per interval.
 - Limitation: growth and deletes between two samples aren't seen. 100 documents, then
   100 added and 100 deleted within one interval, still reads as 100%, so the
   percentage can fork early. It can't fork late, and a fork resets the window.
@@ -344,7 +347,7 @@ Existing behavior that per-index settings do not depend on, left as it is:
 | Percentage only when both thresholds are met (AND) | Only helps large indexes fork less, which the per-index `CLEAN_THRESHOLD` already does. OR lets one global setting fit small and large indexes. |
 | Percentage of live documents only | Overstates deletes: 50 deletes in 100 documents would read as 100%. |
 | `base` as the larger of the live count now and at the last reset | Loses growth that is deleted again: 100 documents, then 100 added and 100 deleted, reads as 100% instead of 50%. |
-| Track the exact peak on every document add | Adds work to every document add, and the reset after a fork would need the lock the adds hold. Sampling once per interval only misses changes within one interval. |
+| Track the exact peak on every document add | Adds work to every document add. Sampling at each reset and once per interval only misses changes within one interval. |
 | Percentage of `num_records` | Counts inverted-index entries, live and dead, not garbage documents. |
 | Fractional percentages | Module numeric configs are integers, and the percentage only matters below `CLEAN_THRESHOLD`, where whole percents are fine. |
 
