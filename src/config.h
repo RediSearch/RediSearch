@@ -215,6 +215,10 @@ typedef struct {
   uint8_t indexingMemoryLimit;
   // Enable to execute unstable features
   bool enableUnstableFeatures;
+  // FT.INFO accepts the NOFIELDS argument. Read once when the commands are registered, because it
+  // changes their arity, so it can only be set at load time. Set it the same on every node of a
+  // cluster: a coordinator with it on and shards with it off silently gets the full replies.
+  bool infoNoFields;
   // When enabled (default), using new relabel API instead of deleting and
   // re-adding to index.
   bool optimizePartialUpdate;
@@ -510,6 +514,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .prioritizeIntersectUnionChildren = false,                                 \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
+    .infoNoFields = false,                                                     \
     .optimizePartialUpdate = DEFAULT_OPTIMIZE_PARTIAL_UPDATE,                  \
     .loadByDocumentFields = false,                                             \
     .hideUserDataFromLog = false,                                              \

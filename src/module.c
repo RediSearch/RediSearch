@@ -4259,10 +4259,45 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 
+// The command info of FT.INFO. command_info.c is generated from commands.json, which describes
+// the command as it is by default: one argument. With search-info-nofields it also takes NOFIELDS,
+// which only this function can say, as the setting is not known until the module loads.
+static int SetFtInfoInfoWithOptions(RedisModuleCommand *cmd) {
+  if (!RSGlobalConfig.infoNoFields) {
+    return SetFtInfoInfo(cmd);
+  }
+  const RedisModuleCommandInfo info = {
+    .version = REDISMODULE_COMMAND_INFO_VERSION,
+    .summary = "Returns information and statistics on the index",
+    .complexity = "O(1)",
+    .args = (RedisModuleCommandArg[]){
+      {
+        .name = "index",
+        .summary = "Specifies the name of the index. The index must be created using `FT.CREATE`.",
+        .type = REDISMODULE_ARG_TYPE_STRING,
+      },
+      {
+        .name = INFO_NO_FIELDS_ARG_NAME,
+        .token = INFO_NO_FIELDS_ARG,
+        .summary = "Omits the per-field sections (`attributes` and `field statistics`) from the reply.",
+        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+        .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+      },
+      {0}
+    },
+    .arity = -2,
+    .since = "1.0.0",
+    .tips = "dont_cache",
+  };
+  return RedisModule_SetCommandInfo(cmd, &info);
+}
+
 int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc != 2) {
-    // FT.INFO {index}
+  // FT.INFO {index}, or with search-info-nofields FT.INFO {index} [NOFIELDS]
+  if (RSGlobalConfig.infoNoFields ? (argc < 2 || argc > 3) : argc != 2) {
     return RedisModule_WrongArity(ctx);
+  } else if (argc == 3 && strcasecmp(RedisModule_StringPtrLen(argv[2], NULL), INFO_NO_FIELDS_ARG)) {
+    return RedisModule_ReplyWithError(ctx, INFO_UNKNOWN_ARG_ERR);
   } else if (!SearchCluster_Ready()) {
     // Check that the cluster state is valid
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
@@ -5071,7 +5106,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   SearchCommand readCommands[] = {
     // read commands
-    DEFINE_COMMAND("FT.INFO",       SafeCmd(InfoCommandHandler),       "readonly", SetFtInfoInfo,               SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
+    DEFINE_COMMAND("FT.INFO",       SafeCmd(InfoCommandHandler),       "readonly", SetFtInfoInfoWithOptions,    SET_COMMAND_INFO,      "",     true, noKeyArgs, false),
     DEFINE_COMMAND(RS_INDEX_LIST_CMD_PUBLIC, SafeCmd(IndexListCommandHandler), "readonly", SetFt_ListInfo,       SET_COMMAND_INFO,      "slow admin", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.SEARCH",     SafeCmd(DistSearchCommand),        "readonly", SetFtSearchInfo,             SET_COMMAND_INFO,      "read", true, noKeyArgs, false),
     DEFINE_COMMAND("FT.AGGREGATE",  SafeCmd(DistAggregateCommand),     "readonly", SetFtAggregateInfo,          SET_COMMAND_INFO,      "read", true, noKeyArgs, false),

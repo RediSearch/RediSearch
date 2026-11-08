@@ -373,6 +373,15 @@ def min_maintenance_workers_conf(workers):
         f.write(f'search-min-maintenance-workers {workers}\n')
     return path
 
+@functools.lru_cache(maxsize=None)
+def redis_config_file(*lines):
+    """Path of a config file holding `lines`, for Env(redisConfigFile=...): the way to give a
+    server a setting that can only be set when the module loads."""
+    fd, path = tempfile.mkstemp(prefix='redis-config-', suffix='.conf')
+    with os.fdopen(fd, 'w') as f:
+        f.write('\n'.join(lines) + '\n')
+    return path
+
 def set_workers(env, workers):
     """Set the worker thread count and verify that the change took effect. The pool never shrinks
     below search-min-maintenance-workers."""

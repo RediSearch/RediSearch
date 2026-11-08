@@ -131,7 +131,16 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, const IndexSpec *sp
   RedisModule_Reply_MapEnd(reply); // index_definition
 }
 
-void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool obfuscate, bool withTimes) {
+static size_t geometryIndexSize(const FieldSpec *fs) {
+  // Cast is safe: OpenGeometryIndex only mutates fs when create_if_missing is true.
+  const GeometryIndex *idx = OpenGeometryIndex((FieldSpec *)fs, DONT_CREATE_INDEX);
+  return idx ? GeometryApi_Get(idx)->report(idx) : 0;
+}
+
+// With `noFields` the per-field sections ("attributes" and "field statistics") are left out;
+// every other value, including the totals that are summed over the fields, is unchanged.
+void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool obfuscate,
+                            bool withTimes, bool noFields) {
   const bool has_map = RedisModule_IsRESP3(reply);
 
   RedisModule_Reply_Map(reply); // top
@@ -149,11 +158,16 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   renderIndexOptions(reply, sp);
   renderIndexDefinitions(reply, sp, obfuscate);
 
-  RedisModule_ReplyKV_Array(reply, "attributes"); // >attributes
   size_t geom_idx_sz = 0;
+  if (noFields) {
+    for (int i = 0; i < sp->geometryFields.count; i++) {
+      geom_idx_sz += geometryIndexSize(&sp->fields[sp->geometryFields.indexes[i]]);
+    }
+  } else {
+    RedisModule_ReplyKV_Array(reply, "attributes"); // >attributes
+  }
 
-
-  for (int i = 0; i < sp->numFields; i++) {
+  for (int i = 0; !noFields && i < sp->numFields; i++) {
     RedisModule_Reply_MapOrArray(reply); // >>field: RESP2 appends the flags as bare strings
 
     const FieldSpec *fs = &sp->fields[i];
@@ -197,12 +211,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
     if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
       REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
-      // Cast is safe: OpenGeometryIndex only mutates fs when create_if_missing is true.
-      const GeometryIndex *idx = OpenGeometryIndex((FieldSpec *)fs, DONT_CREATE_INDEX);
-      if (idx) {
-        const GeometryApi *api = GeometryApi_Get(idx);
-        geom_idx_sz += api->report(idx);
-      }
+      geom_idx_sz += geometryIndexSize(fs);
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
@@ -288,7 +297,9 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
     RedisModule_Reply_MapOrArrayEnd(reply); // >>field
   }
 
-  RedisModule_Reply_ArrayEnd(reply); // >attributes
+  if (!noFields) {
+    RedisModule_Reply_ArrayEnd(reply); // >attributes
+  }
 
   REPLY_KVINT("num_docs", sp->stats.scoring.numDocuments);
   t_docId maxDocId = sp->diskSpec ? SearchDisk_GetMaxDocId(sp->diskSpec) : sp->docs.maxDocId;
@@ -388,23 +399,46 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
   IndexError_Reply(&sp->stats.indexError, reply, withTimes, obfuscate, INDEX_ERROR_WITH_OOM_STATUS);
 
-  REPLY_KVARRAY("field statistics"); // Field statistics
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec *fs = &sp->fields[i];
-    FieldSpecInfo info = FieldSpec_GetInfo(sp, fs, obfuscate);
-    FieldSpecInfo_Reply(&info, reply, withTimes, obfuscate);
-    FieldSpecInfo_Clear(&info);
+  if (!noFields) {
+    REPLY_KVARRAY("field statistics"); // Field statistics
+    for (int i = 0; i < sp->numFields; i++) {
+      FieldSpec *fs = &sp->fields[i];
+      FieldSpecInfo info = FieldSpec_GetInfo(sp, fs, obfuscate);
+      FieldSpecInfo_Reply(&info, reply, withTimes, obfuscate);
+      FieldSpecInfo_Clear(&info);
+    }
+    REPLY_ARRAY_END; // >Field statistics
   }
-  REPLY_ARRAY_END; // >Field statistics
 
   RedisModule_Reply_MapEnd(reply); // top
 }
 
 /* FT.INFO {index}
  *  Provide info and stats about an index
+ *  With search-info-nofields: FT.INFO {index} [NOFIELDS], where NOFIELDS omits the per-field
+ *  sections, which grow with the schema, and any other argument is an error, as on the coordinator.
+ *  The coordinator also passes _WITH_INDEX_ERROR_TIME, in either order. Without the config the
+ *  arguments are read as they always were.
  */
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) return RedisModule_WrongArity(ctx);
+
+  bool with_times = false;
+  bool no_fields = false;
+  if (RSGlobalConfig.infoNoFields) {
+    for (int i = 2; i < argc; i++) {
+      const char *arg = RedisModule_StringPtrLen(argv[i], NULL);
+      if (!strcmp(arg, WITH_INDEX_ERROR_TIME)) {
+        with_times = true;
+      } else if (!strcasecmp(arg, INFO_NO_FIELDS_ARG)) {
+        no_fields = true;
+      } else {
+        return RedisModule_ReplyWithError(ctx, INFO_UNKNOWN_ARG_ERR);
+      }
+    }
+  } else {
+    with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));
+  }
 
   StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
@@ -413,10 +447,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: %s", QueryError_Strerror(QUERY_ERROR_CODE_NO_INDEX), idx);
   }
   CurrentThread_SetIndexSpec(sp->own_ref);
-  const bool with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisModule_Reply _reply = RedisModule_NewReply(ctx);
-  fillReplyWithIndexInfo(&sctx, &_reply, false, with_times);
+  fillReplyWithIndexInfo(&sctx, &_reply, false, with_times, no_fields);
   RedisModule_EndReply(&_reply);
   CurrentThread_ClearIndexSpec();
   return REDISMODULE_OK;
@@ -443,7 +476,7 @@ int IndexObfuscatedInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     if (sp && (everything || !strcasecmp(sp->obfuscatedName, nameOrAll))) {
       CurrentThread_SetIndexSpec(sp->own_ref);
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-      fillReplyWithIndexInfo(&sctx, &_reply, true, true);
+      fillReplyWithIndexInfo(&sctx, &_reply, true, true, false);
       CurrentThread_ClearIndexSpec();
       found = true;
     } else if (found) {

@@ -14,6 +14,10 @@
 #include <time.h>
 
 #define WITH_INDEX_ERROR_TIME "_WITH_INDEX_ERROR_TIME"
+// FT.INFO option that omits the per-field sections ("attributes" and "field statistics").
+#define INFO_NO_FIELDS_ARG "NOFIELDS"
+#define INFO_NO_FIELDS_ARG_NAME "nofields"
+#define INFO_UNKNOWN_ARG_ERR "Unknown FT.INFO argument"
 
 #define INDEX_ERROR_WITH_OOM_STATUS true
 #define INDEX_ERROR_WITHOUT_OOM_STATUS !INDEX_ERROR_WITH_OOM_STATUS
