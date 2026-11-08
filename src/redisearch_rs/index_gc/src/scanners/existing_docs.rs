@@ -13,6 +13,7 @@ use std::io::{self, Write};
 
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::GcScanDelta;
+use rqe_core::DocId;
 
 use crate::fork::wire::{deserialize, serialize};
 use crate::{DocExistence, ForkPipe, GcApplyStats, GcError, HandleOutcome};
@@ -35,10 +36,8 @@ pub fn collect_existing_docs(
     spec: &IndexSpecReadGuard,
     docs: &DocExistence,
 ) -> io::Result<()> {
-    if let Some(ii) = spec.existing_docs()
-        && let Ok(Some(deltas)) = ii.scan_gc(|id| docs.contains(id))
-    {
-        serialize(writer, Some(deltas))?;
+    if let Some(delta) = scan(spec, |id| docs.contains(id)) {
+        serialize(writer, Some(delta))?;
     }
 
     serialize(writer, None::<GcScanDelta>)
@@ -49,8 +48,12 @@ pub fn collect_existing_docs(
 /// Returns `None` when the spec has no such index, the scan found nothing to
 /// collect, or the scan failed; a failed scan is retried on the next cycle.
 pub fn scan_existing_docs(spec: &IndexSpecReadGuard) -> Option<GcScanDelta> {
-    let ii = spec.existing_docs()?;
-    ii.scan_gc(|id| spec.doc_exists(id)).ok().flatten()
+    scan(spec, |id| spec.doc_exists(id))
+}
+
+/// [`scan_existing_docs`], with `exists` saying which documents remain.
+fn scan(spec: &IndexSpecReadGuard, exists: impl Fn(DocId) -> bool) -> Option<GcScanDelta> {
+    spec.existing_docs()?.scan_gc(exists).ok().flatten()
 }
 
 /// Apply a pre-decoded GC delta to the spec's `existingDocs` inverted index.

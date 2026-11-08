@@ -20,7 +20,7 @@ use field_spec::{FieldSpec, FieldSpecType};
 use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::{GcScanDelta, opaque::InvertedIndex};
 use lending_iterator::LendingIterator;
-use rqe_core::DocId;
+use rqe_core::{DocId, FieldIndex};
 use serde::{Deserialize, Serialize};
 use trie_rs::{
     TrieMapOpaque,
@@ -197,7 +197,7 @@ fn scan_tag<T>(
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct TagsCursor {
     /// Position of the field in the spec's field array, which only grows.
-    field_index: usize,
+    field_index: FieldIndex,
     /// The last tag value visited in that field; `None` before the first.
     after: Option<Vec<u8>>,
     /// The buffer the next value visited is copied into, swapped with
@@ -220,52 +220,71 @@ pub fn scan_tags_after(
     mut should_stop: impl FnMut() -> bool,
     found: &mut Vec<TagEntry>,
 ) -> bool {
-    let fields = spec.field_specs();
-    while let Some(fs) = fields.get(cursor.field_index) {
-        if fs.types().contains(FieldSpecType::Tag)
-            && let Some(tag_index) = fetch_tag_index(fs)
+    let fields = spec.field_specs().iter().enumerate();
+    for (position, fs) in fields.skip(usize::from(cursor.field_index)) {
+        let field_index = FieldIndex::try_from(position)
+            .expect("a spec has fewer fields than a field index can count");
+        if let Some(tag_index) = fetch_tag_index(fs)
+            && scan_field_tags_after(
+                spec,
+                field_index,
+                tag_index,
+                cursor,
+                &mut should_stop,
+                found,
+            )
         {
-            let field_index = ffi::t_fieldIndex::try_from(cursor.field_index)
-                .expect("a spec has fewer fields than a field index can count");
-            // SAFETY: an in-memory C tag index owns its values map, created by
-            // `NewTrieMap` as a boxed `TrieMapOpaque`, and the read lock keeps it
-            // alive and unmodified for this borrow.
-            let values = unsafe { &*tag_index.values.cast::<TrieMapOpaque>() };
-            let after = cursor.after.take();
-            let mut visited = mem::take(&mut cursor.spare);
-            let mut stopped = false;
-            let filter = RangeFilter {
-                min: after.as_deref().map(|value| RangeBoundary {
-                    value,
-                    is_included: false,
-                }),
-                max: None,
-            };
-            let mut iterator = RangeLendingIter::from(values.0.range_iter(filter));
-            while let Some((tag, &value)) = iterator.next() {
-                if let Some(entry) =
-                    scan_tag(field_index, tag_index, tag, value, |id| spec.doc_exists(id))
-                {
-                    found.push(entry.into_owned());
-                }
-                visited.clear();
-                visited.extend_from_slice(tag);
-                if should_stop() {
-                    stopped = true;
-                    break;
-                }
-            }
-            drop(iterator);
-            if stopped {
-                cursor.after = Some(visited);
-                cursor.spare = after.unwrap_or_default();
-                return true;
-            }
-            cursor.spare = visited;
+            return true;
         }
-        cursor.field_index += 1;
+        cursor.field_index = field_index
+            .checked_add(1)
+            .expect("a spec has fewer fields than a field index can count");
         cursor.after = None;
     }
+    false
+}
+
+/// The part of [`scan_tags_after`] that walks one field's tag index, from
+/// `cursor`'s last value on. Returns whether `should_stop` ended the walk, with
+/// `cursor` left on the last value visited.
+fn scan_field_tags_after(
+    spec: &IndexSpecReadGuard,
+    field_index: FieldIndex,
+    tag_index: &ffi::TagIndex,
+    cursor: &mut TagsCursor,
+    should_stop: &mut impl FnMut() -> bool,
+    found: &mut Vec<TagEntry>,
+) -> bool {
+    // SAFETY: an in-memory C tag index owns its values map, created by
+    // `NewTrieMap` as a boxed `TrieMapOpaque`, and the read lock keeps it
+    // alive and unmodified for this borrow.
+    let values = unsafe { &*tag_index.values.cast::<TrieMapOpaque>() };
+    let after = cursor.after.take();
+    let mut visited = mem::take(&mut cursor.spare);
+    let filter = RangeFilter {
+        min: after.as_deref().map(|value| RangeBoundary {
+            value,
+            is_included: false,
+        }),
+        max: None,
+    };
+    let mut iterator = RangeLendingIter::from(values.0.range_iter(filter));
+    while let Some((tag, &value)) = iterator.next() {
+        if let Some(entry) = scan_tag(field_index, tag_index, tag, value, |id| spec.doc_exists(id))
+        {
+            found.push(entry.into_owned());
+        }
+        visited.clear();
+        visited.extend_from_slice(tag);
+        if should_stop() {
+            drop(iterator);
+            cursor.after = Some(visited);
+            cursor.spare = after.unwrap_or_default();
+            return true;
+        }
+    }
+    drop(iterator);
+    cursor.spare = visited;
     false
 }
 
