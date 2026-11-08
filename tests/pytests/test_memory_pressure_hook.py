@@ -37,11 +37,6 @@ def test_memory_pressure_status_and_reset(env):
     env.assertEqual(status(env), ['ratio', 1.5, 'at_call', 3, 'checkpoint_calls', 0,
                                   'read_interval', 1])
 
-    # A zero interval restores its default alone.
-    env.assertEqual(memory_pressure(env, 'READ_INTERVAL', '0'), 'OK')
-    env.assertEqual(status(env), ['ratio', 1.5, 'at_call', 3, 'checkpoint_calls', 0,
-                                  'read_interval', 256])
-
     env.assertEqual(memory_pressure(env, 'RESET'), 'OK')
     env.assertEqual(status(env), DEFAULT_STATUS)
 
@@ -57,6 +52,9 @@ def test_memory_pressure_rejects_bad_arguments(env):
     env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 'high').error().contains('Invalid ratio')
     env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', '-1').error().contains('Invalid ratio')
     env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', '-0').error().contains('Invalid ratio')
+    env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', '0').error().contains('Invalid count')
+    env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'READ_INTERVAL', '0').error().contains(
+        'Invalid count')
     env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', '-1').error().contains('Invalid count')
     env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'READ_INTERVAL', '4294967296').error().contains(
         'Invalid count')
