@@ -39,6 +39,9 @@ import hashlib
 import faker
 import redis.client
 
+# Mirrors SPEC_MAX_FIELDS in src/spec.h.
+SPEC_MAX_FIELDS = 32767
+
 TEST_RDBS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_rdbs')
 # Other checkouts must not replace a fixture before Redis opens it.
 REDISEARCH_CACHE_DIR = os.path.join(

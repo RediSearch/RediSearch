@@ -25,7 +25,7 @@ mod legacy_rdb;
 ///
 /// Must be at least the C `SPEC_MAX_FIELDS`: a document can get a sorting vector as long as the
 /// number of sortable fields in the schema, which `SPEC_MAX_FIELDS` bounds.
-pub const RS_SORTABLES_MAX: usize = 4096;
+pub const RS_SORTABLES_MAX: usize = 32767;
 
 /// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.
 ///

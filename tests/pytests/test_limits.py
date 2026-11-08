@@ -197,9 +197,8 @@ def testMaxSynonymGroupIdsLimitAtomic(env):
 
 
 def testMaxFieldsLimit(env):
-    """Test that creating an index with more than SPEC_MAX_FIELDS (4096) fields
+    """Test that creating an index with more than SPEC_MAX_FIELDS fields
     fails"""
-    SPEC_MAX_FIELDS = 4096
 
     # Verify that creating an index with exactly SPEC_MAX_FIELDS works
     fields = []
@@ -215,6 +214,27 @@ def testMaxFieldsLimit(env):
     # Expect an error due to exceeding the field limit
     err_message = f'Schema is limited to {SPEC_MAX_FIELDS} fields'
     env.expect(*cmd_overflow).error().contains(err_message)
+
+
+def testAlterAtFieldLimitBoundary(env):
+    """FT.ALTER may fill the schema exactly to SPEC_MAX_FIELDS and no further,
+    in one command or across several."""
+    n_initial = SPEC_MAX_FIELDS - 3
+    schema = [x for i in range(n_initial) for x in (f'f{i}', 'NUMERIC', 'SORTABLE')]
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', *schema).ok()
+    overflow = f'Schema is limited to {SPEC_MAX_FIELDS} fields'
+
+    # Four new fields do not fit; the failed ALTER leaves the schema as it was.
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD',
+               *[x for i in range(4) for x in (f'a{i}', 'TAG')]).error().contains(overflow)
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'a0', 'TAG').ok()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'a1', 'NUMERIC', 'SORTABLE', 'a2', 'TAG').ok()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'a3', 'TAG').error().contains(overflow)
+
+    getConnectionByEnv(env).execute_command('HSET', 'doc:1', 'a1', '5', 'a2', 'x')
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', '@a1:[5 5]', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@a2:{x}', 'NOCONTENT').equal([1, 'doc:1'])
 
 
 def testMaxStopwordsLimit(env):
@@ -248,7 +268,7 @@ def testMaxStopwordsLimit(env):
 def testMaxSortableFieldsWithSparseDoc(env):
     """More than 1024 SORTABLE fields: a sparse document must not abort the
     server (the Rust sorting-vector ceiling must follow SPEC_MAX_FIELDS)."""
-    n_fields = 4096
+    n_fields = SPEC_MAX_FIELDS
     schema = []
     for i in range(n_fields):
         schema.extend([f'n{i}', 'NUMERIC', 'SORTABLE'])
@@ -267,8 +287,9 @@ def testMaxSortableFieldsWithSparseDoc(env):
 def testWideSchemaFieldLookupAcrossReloadAndAlter(env):
     """Field lookup by name on a schema large enough for the by-name table:
     indexing, duplicate detection, RDB reload and FT.ALTER up to the limit."""
-    SPEC_MAX_FIELDS = 4096
     n_initial = SPEC_MAX_FIELDS - 6
+    # The last field that is NUMERIC rather than an aliased TAG (see schema_for).
+    last_num = max(i for i in range(n_initial) if i % 7)
     conn = getConnectionByEnv(env)
 
     def schema_for(i):
@@ -295,13 +316,13 @@ def testWideSchemaFieldLookupAcrossReloadAndAlter(env):
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', f'f{n_initial - 1}', 'TAG').error() \
         .contains('Duplicate field in schema')
 
-    first = list(range(0, n_initial, 3))
+    first = sorted(set(range(0, n_initial, 3)) | {last_num})
     conn.execute_command('HSET', 'doc:a', *doc_args(first))
-    conn.execute_command('HSET', 'doc:b', *doc_args([n_initial - 1, 1, 7]))
+    conn.execute_command('HSET', 'doc:b', *doc_args([last_num, 1, 7]))
     waitForIndex(env, 'idx')
 
     def check_lookups():
-        res = env.cmd('FT.SEARCH', 'idx', f'@f{n_initial - 1}:[{n_initial - 1} {n_initial - 1}]',
+        res = env.cmd('FT.SEARCH', 'idx', f'@f{last_num}:[{last_num} {last_num}]',
                       'NOCONTENT')
         env.assertEqual(sorted(res[1:]), ['doc:a', 'doc:b'])
         env.expect('FT.SEARCH', 'idx', '@f3000:[3000 3000]', 'NOCONTENT').equal([1, 'doc:a'])

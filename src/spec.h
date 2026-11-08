@@ -120,9 +120,10 @@ struct IndexesScanner;
 #define INDEX_SPEC_KEY_FMT INDEX_SPEC_KEY_PREFIX "%s"
 
 // Total schema fields. The sorting-vector ceiling `RS_SORTABLES_MAX` (sorting_vector crate) must
-// stay >= this value, and 4096 must stay within the uint16_t / int16_t field and sort indexes.
-#define SPEC_MAX_FIELDS 4096
-static_assert(SPEC_MAX_FIELDS < UINT16_MAX && SPEC_MAX_FIELDS <= INT16_MAX,
+// stay >= this value. The largest value that keeps `FieldSpec.sortIdx` an int16_t is INT16_MAX:
+// the highest sort index, SPEC_MAX_FIELDS - 1, is then INT16_MAX - 1.
+#define SPEC_MAX_FIELDS 32767
+static_assert(SPEC_MAX_FIELDS < UINT16_MAX && SPEC_MAX_FIELDS - 1 <= INT16_MAX,
               "SPEC_MAX_FIELDS must fit FieldIndex (uint16_t) and FieldSpec.sortIdx (int16_t)");
 #define SPEC_MAX_FIELD_ID (sizeof(t_fieldMask) * 8)
 #define MAX_SYNONYM_TERMS 1000000     // reasonable limit for synonym map terms
@@ -247,17 +248,25 @@ void FieldNameTable_Free(FieldNameTable *table);
 
 /**
  * Per-document set of field indexes already seen, used to reject a document that
- * names the same schema field twice. A bitset of SPEC_MAX_FIELDS bits is cheap to
- * zero on the stack for every document.
+ * names the same schema field twice. A bitset of one bit per schema field, kept on the
+ * stack: FieldSpecDedupeSet_Init clears only the words that cover the schema's fields, so
+ * a small schema pays for a few words however large SPEC_MAX_FIELDS is.
  */
 typedef struct {
-  uint64_t words[SPEC_MAX_FIELDS / 64];
+  uint16_t numFields;
+  uint64_t words[(SPEC_MAX_FIELDS + 63) / 64];
 } FieldSpecDedupeSet;
-static_assert(SPEC_MAX_FIELDS % 64 == 0, "FieldSpecDedupeSet packs 64 fields per word");
+
+/** Empties `set` for a schema of `numFields` fields; its indexes must be below that. */
+static inline void FieldSpecDedupeSet_Init(FieldSpecDedupeSet *set, size_t numFields) {
+  RS_ASSERT(numFields <= SPEC_MAX_FIELDS);
+  set->numFields = (uint16_t)numFields;
+  memset(set->words, 0, ((numFields + 63) / 64) * sizeof(set->words[0]));
+}
 
 /** Marks `index` as seen and returns whether it already was. */
 static inline bool FieldSpecDedupeSet_TestAndSet(FieldSpecDedupeSet *set, uint16_t index) {
-  RS_ASSERT(index < SPEC_MAX_FIELDS);
+  RS_ASSERT(index < set->numFields);
   uint64_t *word = &set->words[index / 64];
   const uint64_t bit = UINT64_C(1) << (index % 64);
   const bool seen = (*word & bit) != 0;

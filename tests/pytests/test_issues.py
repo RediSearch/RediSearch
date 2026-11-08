@@ -168,9 +168,9 @@ def test_MOD_7454(env: Env):
 def test_MOD_865(env):
   conn = getConnectionByEnv(env)
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
-  for i in range(4097):
+  for i in range(SPEC_MAX_FIELDS + 1):
     args_list.extend([i, 'NUMERIC', 'SORTABLE'])
-  env.expect(*args_list).error().contains('Schema is limited to 4096 fields')
+  env.expect(*args_list).error().contains(f'Schema is limited to {SPEC_MAX_FIELDS} fields')
   env.expect('FT.DROPINDEX', 'idx')
 
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
@@ -194,7 +194,7 @@ def test_MOD_6411(env):
   args_list = ['FT.CREATE', 'idx', 'SCHEMA']
   for i in range(100000):
     args_list.extend([f'field{i}', 'NUMERIC', 'SORTABLE'])
-  env.expect(*args_list).error().contains('Schema is limited to 4096 fields')
+  env.expect(*args_list).error().contains(f'Schema is limited to {SPEC_MAX_FIELDS} fields')
   env.expect('FT.DROPINDEX', 'idx')
 
 def test_issue1826(env):

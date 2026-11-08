@@ -11,7 +11,6 @@ from common import *
 # Limits exercised here, mirrored from C constants so a future bump fails loudly:
 #   COLLECT FIELDS count : SPEC_MAX_FIELDS + 1  (src/aggregate/reducers/collect.c)
 #   COLLECT SORTBY keys  : SORTASCMAP_MAXFIELDS (src/result_processor.h)
-SPEC_MAX_FIELDS = 4096
 COLLECT_MAX_FIELD_ARGS = SPEC_MAX_FIELDS + 1
 COLLECT_MAX_SORT_KEYS = 8
 
@@ -65,7 +64,7 @@ def _create_sortby_index(env):
 # COLLECT FIELDS count limit
 # ---------------------------------------------------------------------------
 def test_collect_fields_at_spec_max_fields():
-    """COLLECT FIELDS listing all SPEC_MAX_FIELDS (4096) schema fields runs
+    """COLLECT FIELDS listing all SPEC_MAX_FIELDS schema fields runs
     end-to-end."""
     env = Env(protocol=3)
     _create_wide_index(env, SPEC_MAX_FIELDS)
@@ -98,13 +97,16 @@ def test_collect_fields_at_spec_max_fields():
 
 
 def test_collect_fields_sparse_docs():
-    """One doc per schema field, each setting only that single field."""
+    """Docs that each set a single schema field, collected through all
+    SPEC_MAX_FIELDS field names."""
     env = Env(protocol=3)
     _create_wide_index(env, SPEC_MAX_FIELDS)
 
-    # Create SPEC_MAX_FIELDS docs, each with a single field set.
+    # One doc for every 8th field keeps the doc count, and with it the cost of
+    # loading every doc against a schema this wide, in check.
+    set_fields = range(0, SPEC_MAX_FIELDS, 8)
     conn = getConnectionByEnv(env)
-    for i in range(SPEC_MAX_FIELDS):
+    for i in set_fields:
         conn.execute_command('HSET', f'doc:{i}', f'f{i}', _field_value(i))
 
     names = [f'@f{i}' for i in range(SPEC_MAX_FIELDS)]
@@ -119,9 +121,9 @@ def test_collect_fields_sparse_docs():
 
     env.assertEqual(len(res['results']), 1)
     collected = res['results'][0]['extra_attributes']['rows']
-    env.assertEqual(len(collected), SPEC_MAX_FIELDS)
+    env.assertEqual(len(collected), len(set_fields))
     expected = sorted(
-        ({f'f{i}': _field_value(i)} for i in range(SPEC_MAX_FIELDS)),
+        ({f'f{i}': _field_value(i)} for i in set_fields),
         key=lambda d: next(iter(d)))
     got = sorted(collected, key=lambda d: next(iter(d)))
     env.assertEqual(got, expected)

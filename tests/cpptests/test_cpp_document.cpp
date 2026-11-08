@@ -13,6 +13,8 @@
 #include "document.h"
 #include "indexes.h"
 #include "llapi_test_helpers.h"
+#include "spec.h"
+#include "sorting_vector_ffi.h"
 
 class DocumentTest : public ::testing::Test {
  protected:
@@ -120,3 +122,29 @@ TEST_F(DocumentTest, testLoadSchema) {
 }
 
 #endif // HAVE_RM_SCANCURSOR_CREATE
+
+// RSSortingVector_New aborts above RS_SORTABLES_MAX, which must cover every sortable field a
+// schema can hold.
+TEST(SortingVectorLimitTest, coversSchemaFieldLimit) {
+  RSSortingVector sv = RSSortingVector_New(SPEC_MAX_FIELDS);
+  ASSERT_EQ(RSSortingVector_Length(&sv), (size_t)SPEC_MAX_FIELDS);
+  RSSortingVector_ClearAndDeAlloc(&sv);
+}
+
+// Only the words that cover the schema's fields are cleared, so whatever the rest of the set holds
+// must not matter.
+TEST(FieldSpecDedupeSetTest, onlyClearsTheWordsOfTheSchema) {
+  FieldSpecDedupeSet set;
+  memset(&set, 0xFF, sizeof(set));
+  FieldSpecDedupeSet_Init(&set, 70);
+  for (uint16_t i = 0; i < 70; i++) {
+    ASSERT_FALSE(FieldSpecDedupeSet_TestAndSet(&set, i)) << i;
+  }
+  for (uint16_t i = 0; i < 70; i++) {
+    ASSERT_TRUE(FieldSpecDedupeSet_TestAndSet(&set, i)) << i;
+  }
+
+  FieldSpecDedupeSet_Init(&set, SPEC_MAX_FIELDS);
+  ASSERT_FALSE(FieldSpecDedupeSet_TestAndSet(&set, SPEC_MAX_FIELDS - 1));
+  ASSERT_TRUE(FieldSpecDedupeSet_TestAndSet(&set, SPEC_MAX_FIELDS - 1));
+}
