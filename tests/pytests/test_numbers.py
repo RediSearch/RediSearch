@@ -185,6 +185,46 @@ def testForkGCPartialCleanKeepsSpecInvertedSizeInStepWithTree(env):
 
 
 @skip(cluster=True)
+def testGCCleanNumericTrimsEmptyLeaves(env):
+    """`FT.DEBUG GC_CLEAN_NUMERIC` trims the leaves a fork GC left empty. The GC's
+    own trimming is turned off, so the empty leaves are still there when the
+    debug command runs."""
+    restore = {name: env.cmd(config_cmd(), 'GET', name)[0][1]
+               for name in ('FORK_GC_RUN_INTERVAL', 'FORK_GC_CLEAN_THRESHOLD',
+                            '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES')}
+    try:
+        env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 3600).ok()
+        env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).ok()
+        env.expect(config_cmd(), 'SET', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'false').ok()
+
+        conn = getConnectionByEnv(env)
+        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+        num_docs = 2000
+        for i in range(num_docs):
+            conn.execute_command('HSET', f'doc{i}', 'n', i)
+        # Distinct values split the tree into many leaves by value, so deleting
+        # the lower half of the values empties the leaves that hold them.
+        for i in range(num_docs // 2):
+            conn.execute_command('DEL', f'doc{i}')
+        forceInvokeGC(env, 'idx')
+
+        before = numeric_tree_summary(env, 'idx', 'n')
+        env.assertGreater(before['emptyLeaves'], 0, message=before)
+
+        env.expect(debug_cmd(), 'GC_CLEAN_NUMERIC', 'idx', 'n').ok()
+
+        after = numeric_tree_summary(env, 'idx', 'n')
+        env.assertEqual(after['emptyLeaves'], 0, message=after)
+        env.assertLess(after['numRanges'], before['numRanges'], message=(before, after))
+        env.assertEqual(after['numEntries'], num_docs // 2, message=after)
+        res = env.cmd('FT.SEARCH', 'idx', '@n:[-inf +inf]', 'NOCONTENT', 'LIMIT', 0, 0)
+        env.assertEqual(res, [num_docs // 2])
+    finally:
+        for name, value in restore.items():
+            env.expect(config_cmd(), 'SET', name, value).ok()
+
+
+@skip(cluster=True)
 def testEmptyNumericLeakIncrease(env):
     # test numeric field which updates with increasing value
 
