@@ -132,6 +132,7 @@ impl Drop for TestSpec {
 
 /// A single decoded field from the wire: header + node entries.
 struct DecodedField {
+    index: u16,
     name: Vec<u8>,
     unique_id: u32,
     entries: Vec<NumericNodeDelta>,
@@ -149,6 +150,7 @@ fn read_field(cursor: &mut Cursor<&Vec<u8>>) -> Option<DecodedField> {
     match deserialize::<Option<NumericField<Box<[u8]>>>>(&mut *cursor, "test message").unwrap() {
         None => None,
         Some(NumericField {
+            field_index,
             field_name,
             unique_id,
         }) => {
@@ -159,6 +161,7 @@ fn read_field(cursor: &mut Cursor<&Vec<u8>>) -> Option<DecodedField> {
                 entries.push(node);
             }
             Some(DecodedField {
+                index: field_index,
                 name: field_name.into_vec(),
                 unique_id,
                 entries,
@@ -201,6 +204,7 @@ fn encode_field(field: DecodedField) -> Vec<u8> {
     serialize(
         &mut buf,
         Some(NumericField {
+            field_index: field.index,
             field_name: &field.name,
             unique_id: field.unique_id,
         }),
@@ -340,6 +344,7 @@ fn handle_numeric_with_rejects_a_wrongly_shaped_node_record() {
     serialize(
         &mut buf,
         Some(NumericField {
+            field_index: 0,
             field_name: b"price",
             unique_id: 0,
         }),
@@ -367,6 +372,7 @@ fn handle_numeric_with_preserves_deserialization_error() {
     serialize(
         &mut buf,
         Some(NumericField {
+            field_index: 0,
             field_name: b"price",
             unique_id: 0,
         }),
@@ -424,6 +430,87 @@ fn handle_numeric_with_applies_field_stream_and_compacts() {
         test.lock_attempts, 3,
         "the global terminator does not acquire the spec"
     );
+}
+
+/// The header carries each field's position in the spec, skipping fields that are not scanned.
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn headers_carry_the_position_of_the_field_in_the_spec() {
+    let test = TestSpec::create(vec![
+        (c"tag", FieldSpecType::Tag.into(), None),
+        (
+            c"price",
+            FieldSpecType::Numeric.into(),
+            Some(build_two_leaf_tree_with_gc_work()),
+        ),
+        (c"title", FieldSpecType::Fulltext.into(), None),
+        (
+            c"location",
+            FieldSpecType::Geo.into(),
+            Some(build_two_leaf_tree_with_gc_work()),
+        ),
+    ]);
+    let fields = decode_fields(&collect_stream(&test));
+
+    let positions: Vec<_> = fields.iter().map(|f| (f.index, f.name.clone())).collect();
+    assert_eq!(
+        positions,
+        [(1, b"price".to_vec()), (3, b"location".to_vec())]
+    );
+}
+
+/// A header whose position does not hold the named field is resolved by name, as before the
+/// position was sent.
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn handle_numeric_with_falls_back_to_the_name_when_the_position_is_wrong() {
+    for wrong_index in [0, 1, 7] {
+        let mut test = TestSpec::create(vec![
+            (c"other", FieldSpecType::Numeric.into(), None),
+            (
+                c"price",
+                FieldSpecType::Numeric.into(),
+                Some(build_two_leaf_tree_with_gc_work()),
+            ),
+        ]);
+        let mut field = decode_fields(&collect_stream(&test)).pop().unwrap();
+        assert_eq!(field.index, 1);
+        field.index = wrong_index;
+        let mut cursor = Cursor::new(encode_field(field));
+
+        let mut stats = GcApplyStats::default();
+        let outcome = handle_numeric_with(&mut cursor, &mut test, &mut stats, true).unwrap();
+
+        assert_eq!(outcome, HandleOutcome::Collected);
+        assert_eq!(test.trees[0].num_leaves(), 1, "position {wrong_index}");
+    }
+}
+
+/// A header naming no field of the spec is rejected whatever its position.
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn handle_numeric_with_rejects_a_field_the_spec_does_not_have() {
+    let mut test = TestSpec::create(vec![(
+        c"price",
+        FieldSpecType::Numeric.into(),
+        Some(build_two_leaf_tree_with_gc_work()),
+    )]);
+    let mut field = decode_fields(&collect_stream(&test)).pop().unwrap();
+    field.name = b"gone".to_vec();
+    let mut stats = GcApplyStats::default();
+
+    let error = handle_numeric_with(
+        &mut Cursor::new(encode_field(field)),
+        &mut test,
+        &mut stats,
+        false,
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        GcError::ApplyError("no field in the spec matches the scanned field name")
+    ));
 }
 
 /// Statistics from already-applied nodes survive a later failed weak-reference
@@ -607,6 +694,7 @@ fn handle_numeric_with_preserves_progress_on_truncated_stream() {
     serialize(
         &mut buf,
         Some(NumericField {
+            field_index: field.index,
             field_name: &field.name,
             unique_id: field.unique_id,
         }),
