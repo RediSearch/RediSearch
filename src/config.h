@@ -439,15 +439,15 @@ long long getRedisConfigNumeric(RedisModuleCtx *ctx, const char *confName, long 
 #define DEFAULT_MIN_TRIM_DELAY 2000  // 2 seconds in milliseconds
 #define DEFAULT_MAX_TRIM_DELAY 5000  // 5 seconds in milliseconds
 #define DEFAULT_TRIMMING_STATE_CHECK_DELAY 100 // 0.1 seconds in milliseconds (We check the trimming state every 0.1 seconds, between MIN_TRIM_DELAY and MAX_TRIM_DELAY)
-#define DEFAULT_DISK_MAX_MEMORY_PERCENTAGE 60
+#define DEFAULT_DISK_MAX_MEMORY_PERCENTAGE 70
 #define DISK_MAX_MEMORY_PERCENTAGE_MIN 1
 #define DISK_MAX_MEMORY_PERCENTAGE_MAX 100
-#define DEFAULT_DISK_MIN_MEMORY_BUDGET_PERCENTAGE 20
+#define DEFAULT_DISK_MIN_MEMORY_BUDGET_PERCENTAGE 60
 #define DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MIN 1
 #define DISK_MIN_MEMORY_BUDGET_PERCENTAGE_MAX 100
 #define DEFAULT_DISK_WBM_BUDGET_PER_INDEX_MB 3
 #define DISK_WBM_BUDGET_PER_INDEX_MAX_MB (SIZE_MAX / (1024 * 1024))
-#define DEFAULT_DISK_MAX_OPEN_FILES 200
+#define DEFAULT_DISK_MAX_OPEN_FILES 10000
 // Smallest accepted positive cap. Admission reserves the cap per index, but SpeedB keeps more open: its table cache
 // (cap - 10 readers) is split into 64 shards that each round up to whole readers, so caps 20-74 keep up to 64 SSTs open
 // and caps 75-138 up to 128, plus fixed files and a directory handle per column family. 138 is the top of a rounding
