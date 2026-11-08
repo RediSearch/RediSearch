@@ -20,7 +20,7 @@ use std::{
     io::{Read, Write},
 };
 
-use index_gc::{ForkPipe, Frame, fork::io_result_ext::IoResultExt};
+use index_gc::{Frame, fork::io_result_ext::IoResultExt};
 use nul_terminated_bytes::NulTerminatedBytes;
 
 use tracing::Level;
@@ -28,6 +28,8 @@ use tracing_log_error::log_error;
 
 mod fork;
 mod util;
+
+use util::borrow_fork_pipe;
 
 /// Status code returned by Fork GC parent-side pipe-receive operations.
 #[cheadergen::config(export)]
@@ -69,7 +71,7 @@ pub unsafe extern "C" fn ForkGC_sendFixed(fgc: *mut ffi::IndexGC, buff: *const c
     debug_assert!(len > 0, "buffer length cannot be 0");
 
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkPipe::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_pipe(fgc) };
     // SAFETY: caller guarantees (2).
     let slice = unsafe { std::slice::from_raw_parts(buff.cast::<u8>(), len) };
 
@@ -98,7 +100,7 @@ pub unsafe extern "C" fn ForkGC_sendBuffer(
     len: usize,
 ) {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkPipe::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_pipe(fgc) };
 
     let slice = if len > 0 {
         // SAFETY: caller guarantees (2).
@@ -127,7 +129,7 @@ pub unsafe extern "C" fn ForkGC_sendBuffer(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ForkGC_sendTerminator(fgc: *mut ffi::IndexGC) {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkPipe::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_pipe(fgc) };
 
     Frame::Terminator.encode(&mut fgc.writer()).unwrap_or_exit();
 }
@@ -152,7 +154,7 @@ pub unsafe extern "C" fn ForkGC_recvFixed(
     len: usize,
 ) -> c_int {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkPipe::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_pipe(fgc) };
     // SAFETY: caller guarantees (2).
     let slice = unsafe { std::slice::from_raw_parts_mut(buf.cast::<u8>(), len) };
 
@@ -194,7 +196,7 @@ pub unsafe extern "C" fn ForkGC_recvBuffer(
     len: *mut usize,
 ) -> c_int {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkPipe::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_pipe(fgc) };
 
     let frame = match Frame::decode_nul_terminated(&mut fgc.reader()) {
         Ok(frame) => frame,
@@ -239,7 +241,7 @@ pub unsafe extern "C" fn recvFieldHeader(
     id_ptr: *mut u64,
 ) -> ForkGCError {
     // SAFETY: caller guarantees (1).
-    let fgc = unsafe { ForkPipe::from_ptr_mut(fgc) };
+    let fgc = unsafe { borrow_fork_pipe(fgc) };
     let mut reader = fgc.reader();
 
     let frame = match Frame::decode_nul_terminated(&mut reader) {

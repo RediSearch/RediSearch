@@ -16,9 +16,7 @@ pub mod first_value;
 pub mod min_max;
 pub mod random_sample;
 mod reducer;
-mod reducer_options;
 pub mod std_dev;
 pub mod sum;
 
 pub use reducer::Reducer;
-pub use reducer_options::ReducerOptions;

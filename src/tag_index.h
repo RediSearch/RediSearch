@@ -151,22 +151,6 @@ int TagIndex_DeleteTagValue(TagIndex *idx, const char *tagVal, size_t tagValLen)
  */
 void TagIndex_DeleteTagSuffix(TagIndex *idx, const char *tagVal, size_t tagValLen);
 
-// must match `tm_iter_mode` defined in triemap_ffi.h
-typedef enum tag_iter_mode {
-  TAG_PREFIX_MODE = 0,
-  TAG_CONTAINS_MODE = 1,
-  TAG_SUFFIX_MODE = 2,
-  TAG_WILDCARD_MODE = 3,
-} tag_iter_mode;
-
-/**
- * Iterate over the values that match the given predicate.
- *
- * See [`TrieMap_IterateWithFilter`] for more details.
- */
-TrieMapIterator *TagIndex_IterateValuesWithFilter(TagIndex *idx, const char *tagVal,
-                                                 size_t tagValLen, tag_iter_mode mode);
-
 /* Return an iterator over the TagIndex suffix or null */
 TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx);
 
