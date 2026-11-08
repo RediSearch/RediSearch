@@ -130,7 +130,7 @@ impl Drop for MapBuilder<'_> {
             // SAFETY: ctx is validated at Replier construction
             unsafe {
                 RedisModule_ReplySetMapLength.expect("RedisModule_ReplySetMapLength")(
-                    self.replier.ctx,
+                    self.replier.ctx.as_ptr(),
                     i64::from(self.len),
                 );
             }

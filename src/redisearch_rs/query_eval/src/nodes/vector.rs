@@ -72,7 +72,8 @@ pub(crate) fn eval<'index>(
         std::ptr::null_mut()
     } else {
         // A child that yields nothing leaves the hybrid query with nothing to
-        // filter, so the whole node yields nothing.
+        // filter, so the whole node yields nothing. The offset requirement is
+        // not inherited; see `OffsetRequirement`.
         eval_node(ctx, node.child_mut(0), config)?.into_c_iterator()
     };
 
@@ -249,7 +250,7 @@ fn bind_metric_request(
             let handle = unsafe { ctx.bind_metric_request_key(id, own_key) };
             // SAFETY: as above, and `handle` is a valid handle that lives as
             // long as the AST.
-            unsafe { vector_score_source::interop::set_key_handle(it, handle) };
+            unsafe { vector_score_source::interop::set_key_handle(it, NonNull::new(handle)) };
         }
         IteratorType::MetricSortedById
         | IteratorType::MetricSortedByScore
