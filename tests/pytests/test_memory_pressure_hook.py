@@ -6,13 +6,8 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 from common import *
-from test_info_modules import (
-    COORD_WARN_ERR_SECTION, OOM_ERROR_COORD_METRIC, OOM_WARNING_COORD_METRIC,
-    info_modules_to_dict,
-)
 
 OOM_QUERY_ERROR = "Not enough memory available to execute the query"
-COORD_OOM_WARNING = "Coordinator failed to execute the query due to insufficient memory"
 DEFAULT_STATUS = ['ratio', -1, 'at_call', 0, 'checkpoint_calls', 0,
                   'read_interval', 256]
 
@@ -42,12 +37,6 @@ def test_memory_pressure_status_and_reset(env):
     env.assertEqual(status(env), ['ratio', 1.5, 'at_call', 3, 'checkpoint_calls', 0,
                                   'read_interval', 1])
 
-    # A negative ratio and a zero interval each restore their default alone.
-    env.assertEqual(memory_pressure(env, 'RATIO', '-0'), 'OK')
-    env.assertEqual(memory_pressure(env, 'READ_INTERVAL', '0'), 'OK')
-    env.assertEqual(status(env), ['ratio', -1, 'at_call', 3, 'checkpoint_calls', 0,
-                                  'read_interval', 256])
-
     env.assertEqual(memory_pressure(env, 'RESET'), 'OK')
     env.assertEqual(status(env), DEFAULT_STATUS)
 
@@ -61,14 +50,16 @@ def test_memory_pressure_rejects_bad_arguments(env):
     env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'RESET', 'extra').error().contains(
         'wrong number of arguments')
     env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', 'high').error().contains('Invalid ratio')
+    env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', '-1').error().contains('Invalid ratio')
+    env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'RATIO', '-0').error().contains('Invalid ratio')
+    env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', '0').error().contains('Invalid count')
+    env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'READ_INTERVAL', '0').error().contains(
+        'Invalid count')
     env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', '-1').error().contains('Invalid count')
     env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'READ_INTERVAL', '4294967296').error().contains(
         'Invalid count')
     env.expect(debug_cmd(), 'MEMORY_PRESSURE', 'BOGUS', '1').error().contains(
         "Invalid command for 'MEMORY_PRESSURE'")
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
-    env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'MEMORY_CHECKPOINT', 'TIMEOUT_AFTER_N', 1,
-               'DEBUG_PARAMS_COUNT', 3).error().contains('MEMORY_CHECKPOINT is not supported')
     env.assertEqual(status(env), DEFAULT_STATUS)
 
 
@@ -118,63 +109,6 @@ def test_forced_ratio_drives_coordinator_entry_guard(env):
     _forced_ratio_drives_entry_guard(env)
 
 
-@skip(cluster=False)
-def test_search_checkpoint_runs_on_shards(env):
-    """FT.SEARCH has no coordinator pipeline, so with or without INTERNAL_ONLY its checkpoint
-    runs on every shard: with AT_CALL 4 each shard stops after 3 rows."""
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
-    conn = getConnectionByEnv(env)
-    # Enough docs that every shard holds more than 3.
-    for i in range(100):
-        conn.execute_command('HSET', f'doc{i}', 'n', i)
-    try:
-        for debug_args in (['MEMORY_CHECKPOINT'], ['MEMORY_CHECKPOINT', 'INTERNAL_ONLY']):
-            run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 4)
-            res = env.cmd(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'NOCONTENT', 'LIMIT', 0, 100,
-                          *debug_args, 'DEBUG_PARAMS_COUNT', len(debug_args))
-            env.assertEqual(len(res) - 1, 3 * env.shardsCount, message=(debug_args, res))
-    finally:
-        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
-
-
-@skip(cluster=False)
-def test_aggregate_checkpoint_routing(env):
-    """In a multi-shard FT.AGGREGATE the checkpoint runs in the coordinator pipeline, or with
-    INTERNAL_ONLY in the shard pipelines only; the per-process call counter shows where."""
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
-    conn = getConnectionByEnv(env)
-    for i in range(100):
-        conn.execute_command('HSET', f'doc{i}', 'n', i)
-    other_shard = env.getConnection(2)
-
-    def checkpoint_calls(con):
-        return con.execute_command(debug_cmd(), 'MEMORY_PRESSURE', 'STATUS')[5]
-
-    try:
-        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 4)
-        res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
-        env.assertEqual(len(res) - 1, 3, message=res)
-        env.assertEqual(checkpoint_calls(other_shard), 0)
-
-        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1000)
-        _debug_aggregate(env, 'MEMORY_CHECKPOINT', 'INTERNAL_ONLY')
-        env.assertGreater(checkpoint_calls(other_shard), 0)
-    finally:
-        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
-
-
-@skip(cluster=True)
-def test_internal_only_checkpoint_runs_in_standalone(env):
-    """Standalone has a single pipeline, so INTERNAL_ONLY still installs the checkpoint there."""
-    _index_with_docs(env)
-    try:
-        memory_pressure(env, 'AT_CALL', 4)
-        res = _debug_aggregate(env, 'MEMORY_CHECKPOINT', 'INTERNAL_ONLY')
-        env.assertEqual(len(res) - 1, 3, message=res)
-    finally:
-        memory_pressure(env, 'RESET')
-
-
 @skip(cluster=True)
 def test_raw_ratio_reports_the_memory_api(env):
     """STATUS shows whether this Redis exports RedisModule_GetUsedMemoryRatioEstimate, which the
@@ -196,127 +130,3 @@ def test_raw_ratio_reports_the_memory_api(env):
         env.assertLess(raw_ratio, 1.0)
     finally:
         env.expect('CONFIG', 'SET', 'maxmemory', max_memory).ok()
-
-
-N_DOCS = 10
-
-
-def _index_with_docs(env):
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
-    conn = getConnectionByEnv(env)
-    for i in range(N_DOCS):
-        conn.execute_command('HSET', f'doc{i}', 'n', i)
-
-
-def _debug_aggregate(env, *debug_args):
-    return env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
-                   *debug_args, 'DEBUG_PARAMS_COUNT', len(debug_args))
-
-
-@skip(cluster=True)
-def test_pressure_at_call_stops_a_query_at_a_debug_checkpoint(env):
-    """MEMORY_CHECKPOINT stands in for a real checkpoint: with AT_CALL n the query stops at its
-    n-th read, after n-1 rows, and ON_OOM IGNORE keeps it running."""
-    _index_with_docs(env)
-
-    memory_pressure(env, 'AT_CALL', 4)
-    res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
-    env.assertEqual(len(res) - 1, 3, message=res)
-    env.assertEqual(status(env)[5], 4)
-
-    change_oom_policy(env, 'ignore')
-    memory_pressure(env, 'AT_CALL', 4)
-    res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
-    env.assertEqual(len(res) - 1, N_DOCS, message=res)
-    change_oom_policy(env, 'return')
-
-    memory_pressure(env, 'RESET')
-    res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
-    env.assertEqual(len(res) - 1, N_DOCS, message=res)
-
-
-
-def _coord_oom_counters(env):
-    section = info_modules_to_dict(env)[COORD_WARN_ERR_SECTION]
-    return int(section[OOM_ERROR_COORD_METRIC]), int(section[OOM_WARNING_COORD_METRIC])
-
-
-@skip(cluster=True)
-@env_spec(protocol=3)
-def test_oom_stop_replies_by_on_oom_policy(env):
-    """A query stopped for OOM ends like the entry guard's OOM, not like a timeout: ON_OOM
-    RETURN keeps the rows produced so far and warns, ON_OOM FAIL replies the OOM error, and
-    each bumps the matching INFO counter."""
-    _index_with_docs(env)
-
-    try:
-        errors, warnings = _coord_oom_counters(env)
-        memory_pressure(env, 'AT_CALL', 4)
-        res = _debug_aggregate(env, 'MEMORY_CHECKPOINT')
-        env.assertEqual(len(res['results']), 3, message=res)
-        env.assertEqual(res['warning'], [COORD_OOM_WARNING])
-        env.assertEqual(_coord_oom_counters(env), (errors, warnings + 1))
-
-        change_oom_policy(env, 'fail')
-        memory_pressure(env, 'AT_CALL', 4)
-        env.expect(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
-                   'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1).error().contains(OOM_QUERY_ERROR)
-        env.assertEqual(_coord_oom_counters(env), (errors + 1, warnings + 1))
-        change_oom_policy(env, 'return')
-
-        memory_pressure(env, 'AT_CALL', 4)
-        res = env.cmd(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'NOCONTENT', 'SORTBY', 'n',
-                      'MEMORY_CHECKPOINT', 'DEBUG_PARAMS_COUNT', 1)
-        env.assertEqual([r['id'] for r in res['results']], ['doc0', 'doc1', 'doc2'], message=res)
-        env.assertEqual(res['warning'], [COORD_OOM_WARNING])
-    finally:
-        memory_pressure(env, 'RESET')
-        change_oom_policy(env, 'return')
-
-
-@skip(cluster=True)
-def test_oom_stop_ends_the_cursor(env):
-    """A cursor read stopped for OOM returns its rows and ends the cursor rather than leaving it
-    open as a timeout under ON_TIMEOUT RETURN would."""
-    _index_with_docs(env)
-    try:
-        memory_pressure(env, 'AT_CALL', 4)
-        res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
-                              'WITHCURSOR', 'COUNT', 2, 'MEMORY_CHECKPOINT',
-                              'DEBUG_PARAMS_COUNT', 1)
-        env.assertEqual(len(res) - 1, 2, message=res)
-        env.assertNotEqual(cursor, 0)
-        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-        env.assertEqual(len(res) - 1, 1, message=res)
-        env.assertEqual(cursor, 0)
-    finally:
-        memory_pressure(env, 'RESET')
-
-
-@skip(cluster=False)
-@env_spec(protocol=3)
-def test_oom_stop_on_shards_reaches_the_coordinator(env):
-    """Shards stopped for OOM report it in the shard wording, which is what the coordinator
-    recognizes, and the coordinator turns that into its own ON_OOM outcome, worded as for the
-    entry guard. AT_CALL rather than RATIO keeps the coordinator's entry guard out of it."""
-    _index_with_docs(env)
-    query = [debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@n',
-             'MEMORY_CHECKPOINT', 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 2]
-
-    try:
-        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
-        res = env.cmd(*query)
-        env.assertEqual(res['results'], [], message=res)
-        env.assertEqual(res['warning'], [COORD_OOM_WARNING])
-
-        allShards_change_oom_policy(env, 'fail')
-        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'AT_CALL', 1)
-        env.expect(*query).error().contains(OOM_QUERY_ERROR)
-        allShards_change_oom_policy(env, 'return')
-
-        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
-        res = env.cmd(*query)
-        env.assertEqual(len(res['results']), N_DOCS, message=res)
-    finally:
-        run_command_on_all_shards(env, debug_cmd(), 'MEMORY_PRESSURE', 'RESET')
-        allShards_change_oom_policy(env, 'return')

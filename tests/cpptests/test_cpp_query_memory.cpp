@@ -227,11 +227,11 @@ TEST_F(QueryMemoryTest, ForcedRatioReplacesTheMemoryRead) {
   EXPECT_TRUE(QueryRequestLimits_IsMemoryStopped(&timeout_));
 }
 
-TEST_F(QueryMemoryTest, NegativeForcedRatioRestoresTheRealRead) {
-  QueryMemoryDebug_SetRatioReadInterval(1);
+TEST_F(QueryMemoryTest, ResetRestoresTheRealRead) {
   uint32_t counter = 0;
   QueryMemory_SetForcedRatio(3.0f);
-  QueryMemory_SetForcedRatio(-1);
+  QueryMemory_ResetFakePressure();
+  QueryMemoryDebug_SetRatioReadInterval(1);
   EXPECT_LT(QueryMemory_GetForcedRatio(), 0);
   EXPECT_FALSE(QueryMemory_Checkpoint(&timeout_, &counter));
   EXPECT_EQ(fakeRatioReads.load(), 1u);
