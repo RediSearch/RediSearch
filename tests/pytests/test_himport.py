@@ -7,7 +7,7 @@
 
 from contextlib import contextmanager
 
-from common import skip, to_dict, waitForIndex
+from common import config_cmd, run_command_on_all_shards, skip, to_dict, waitForIndex
 
 
 @contextmanager
@@ -236,3 +236,78 @@ def test_hash_template_conversion_on_rdb_load(env):
                             'books', 12, extra)
     finally:
         env.cmd('CONFIG SET', *[arg for item in config.items() for arg in item])
+
+
+# Fields not in the schema reach a reply only through the load-all path, which reads the hash
+# with RedisModule_ScanKey. A plain listpack stores integer-looking strings as integers, field
+# names included, and ScanKey rebuilds those from a long long, while a template keeps its field
+# names as strings. So the set mixes integers, their edges, strings that merely look numeric,
+# and an integer-looking field name.
+SCAN_VALUES = {
+    'title': 'scan', 'price': '12', 'neg': '-5', 'zero': '0', '123': 'int-named',
+    'int_max': '9223372036854775807', 'int_min': '-9223372036854775808',
+    'over_max': '9223372036854775808', 'lead_zero': '007', 'plus': '+1', 'float': '1.5',
+    'empty': '', 'nul': 'a\x00b', 'utf8': 'שלום',
+}
+
+
+def load_all_cases(env):
+    config = env.cmd('CONFIG GET', 'hash-max-listpack-value', 'hash-max-listpack-entries')
+    value_limit = int(config['hash-max-listpack-value'])
+    entries_limit = int(config['hash-max-listpack-entries'])
+    return [
+        ('lp', SCAN_VALUES, 'listpack', 'template-listpack'),
+        ('big', {**SCAN_VALUES, 'big': 'x' * (value_limit + 1)}, 'hashtable', 'template-array'),
+        ('wide', {**SCAN_VALUES, **{f'f{i}': str(i) for i in range(entries_limit)}},
+         'hashtable', 'template-array'),
+    ]
+
+
+@skip(redis_less_than='8.10.0', missing_redis_command='HIMPORT')
+def test_hash_template_load_all_fields(env):
+    """Loading every field of a template hash returns what a plain hash with the same data does."""
+    create_index(env)
+    conn = env.getClusterConnectionIfNeeded()
+    saved_config = env.cmd('CONFIG GET', 'hash-min-template-entries', 'hash-max-template-entries')
+    saved_workers = env.cmd(config_cmd(), 'GET', 'WORKERS')[0][1]
+    cases = load_all_cases(env)
+    try:
+        # The wide case has more fields than any non-zero bound a server might be started with.
+        run_command_on_all_shards(env, 'CONFIG', 'SET', 'hash-max-template-entries', 0)
+        for label, fields, plain_encoding, template_encoding in cases:
+            fields = {**fields, 'category': label}
+            plain, template = f'doc:plain:{label}', f'doc:tmpl:{label}'
+            run_command_on_all_shards(env, 'CONFIG', 'SET', 'hash-min-template-entries', 0)
+            conn.execute_command('HSET', plain, *[x for kv in fields.items() for x in kv])
+            run_command_on_all_shards(env, 'CONFIG', 'SET', 'hash-min-template-entries', 1)
+            conn.execute_command('HSET', template, *[x for kv in fields.items() for x in kv])
+            env.assertEqual(conn.execute_command('OBJECT', 'ENCODING', plain), plain_encoding)
+            env.assertEqual(conn.execute_command('OBJECT', 'ENCODING', template),
+                            template_encoding)
+            env.assertEqual(to_dict(conn.execute_command('HGETALL', template)), fields)
+
+        for workers in (0, 2):
+            run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', workers)
+            for label, fields, _, _ in cases:
+                expected = {**fields, 'category': label}
+                query = f'@category:{{{label}}}'
+                msg = f'{label} workers={workers}'
+
+                res = env.cmd('FT.SEARCH', 'idx', query, 'LIMIT', 0, 10)
+                env.assertEqual(res[0], 2, message=f'{msg} {res}')
+                docs = dict(zip(res[1::2], map(to_dict, res[2::2])))
+                env.assertEqual(sorted(docs), [f'doc:plain:{label}', f'doc:tmpl:{label}'],
+                                message=f'{msg} {res}')
+                for key, doc in docs.items():
+                    env.assertEqual(doc, expected, message=f'{msg} FT.SEARCH {key}')
+
+                res = env.cmd('FT.AGGREGATE', 'idx', query, 'LOAD', '*',
+                              'APPLY', '@price * 2', 'AS', 'doubled')
+                env.assertEqual(len(res) - 1, 2, message=f'{msg} {res}')
+                for row in res[1:]:
+                    env.assertEqual(to_dict(row), {**expected, 'doubled': '24'},
+                                    message=f'{msg} FT.AGGREGATE')
+    finally:
+        run_command_on_all_shards(env, 'CONFIG', 'SET',
+                                  *[arg for item in saved_config.items() for arg in item])
+        run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', saved_workers)
