@@ -517,9 +517,12 @@ TEST_F(CollectParserTest, SortByExceedsMaxTokens) {
 TEST_F(CollectParserTest, FieldsExceedsMax) {
   std::vector<const char *> args;
   args.push_back("FIELDS");
-  args.push_back("1026");
-  std::vector<std::string> field_strs(1026);
-  for (int i = 0; i < 1026; i++) {
+  // One more than the largest accepted FIELDS count.
+  const int count = SPEC_MAX_FIELDS + 2;
+  const std::string count_str = std::to_string(count);
+  args.push_back(count_str.c_str());
+  std::vector<std::string> field_strs(count);
+  for (int i = 0; i < count; i++) {
     field_strs[i] = "@f" + std::to_string(i);
     args.push_back(field_strs[i].c_str());
   }

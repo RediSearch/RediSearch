@@ -196,9 +196,9 @@ def testMaxSynonymGroupIdsLimitAtomic(env):
 
 
 def testMaxFieldsLimit(env):
-    """Test that creating an index with more than SPEC_MAX_FIELDS (1024) fields
+    """Test that creating an index with more than SPEC_MAX_FIELDS (4096) fields
     fails"""
-    SPEC_MAX_FIELDS = 1024
+    SPEC_MAX_FIELDS = 4096
 
     # Verify that creating an index with exactly SPEC_MAX_FIELDS works
     fields = []
@@ -242,3 +242,192 @@ def testMaxStopwordsLimit(env):
     idx_info = env.cmd('FT.INFO', 'idx')
     idx_stopwords = idx_info[idx_info.index('stopwords_list') + 1]
     env.assertEqual(len(idx_stopwords), MAX_STOPWORDLIST_SIZE)
+
+
+def testMaxSortableFieldsWithSparseDoc(env):
+    """More than 1024 SORTABLE fields: a sparse document must not abort the
+    server (the Rust sorting-vector ceiling must follow SPEC_MAX_FIELDS)."""
+    n_fields = 4096
+    schema = []
+    for i in range(n_fields):
+        schema.extend([f'n{i}', 'NUMERIC', 'SORTABLE'])
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', *schema).ok()
+
+    conn = getConnectionByEnv(env)
+    last = n_fields - 1
+    conn.execute_command('HSET', 'doc:1', f'n{last}', '7')
+    conn.execute_command('HSET', 'doc:2', f'n{last}', '3')
+    waitForIndex(env, 'idx')
+
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', f'n{last}', 'ASC', 'NOCONTENT')
+    env.assertEqual(res[1:], ['doc:2', 'doc:1'])
+
+
+def testWideSchemaFieldLookupAcrossReloadAndAlter(env):
+    """Field lookup by name on a schema large enough for the by-name table:
+    indexing, duplicate detection, RDB reload and FT.ALTER up to the limit."""
+    SPEC_MAX_FIELDS = 4096
+    n_initial = SPEC_MAX_FIELDS - 6
+    conn = getConnectionByEnv(env)
+
+    def schema_for(i):
+        # Every 7th field is aliased so lookups must match the alias, not the path.
+        name = f'f{i}'
+        head = [f'hp{i}', 'AS', name] if i % 7 == 0 else [name]
+        kind = ['TAG'] if i % 7 == 0 else ['NUMERIC', 'SORTABLE']
+        return head + kind
+
+    def doc_args(indices):
+        args = []
+        for i in indices:
+            args.extend([f'hp{i}' if i % 7 == 0 else f'f{i}',
+                         f't{i}' if i % 7 == 0 else str(i)])
+        return args
+
+    schema = []
+    for i in range(n_initial):
+        schema.extend(schema_for(i))
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', *schema).ok()
+    # A name that is already in the schema is rejected wherever it sits.
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f0', 'TAG').error() \
+        .contains('Duplicate field in schema')
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', f'f{n_initial - 1}', 'TAG').error() \
+        .contains('Duplicate field in schema')
+
+    first = list(range(0, n_initial, 3))
+    conn.execute_command('HSET', 'doc:a', *doc_args(first))
+    conn.execute_command('HSET', 'doc:b', *doc_args([n_initial - 1, 1, 7]))
+    waitForIndex(env, 'idx')
+
+    def check_lookups():
+        res = env.cmd('FT.SEARCH', 'idx', f'@f{n_initial - 1}:[{n_initial - 1} {n_initial - 1}]',
+                      'NOCONTENT')
+        env.assertEqual(sorted(res[1:]), ['doc:a', 'doc:b'])
+        env.expect('FT.SEARCH', 'idx', '@f3000:[3000 3000]', 'NOCONTENT').equal([1, 'doc:a'])
+        env.expect('FT.SEARCH', 'idx', '@f7:{t7}', 'NOCONTENT').equal([1, 'doc:b'])
+        env.expect('FT.SEARCH', 'idx', '@f21:{t21}', 'NOCONTENT').equal([1, 'doc:a'])
+        # The path name of an aliased field is not a schema field name.
+        env.expect('FT.SEARCH', 'idx', '@hp7:{t7}').error()
+        res = env.cmd('FT.SEARCH', 'idx', '@f1:[1 1]', 'NOCONTENT', 'SORTBY', 'f3000', 'ASC')
+        env.assertEqual(res[1:], ['doc:b'])
+        res = env.cmd('FT.AGGREGATE', 'idx', '@f3000:[3000 3000]', 'LOAD', 1, '@f3000')
+        env.assertEqual(res[0], 1)
+        res = env.cmd('FT.AGGREGATE', 'idx', '@f3000:[3000 3000]', 'LOAD', '*')
+        row = dict(zip(res[1][::2], res[1][1::2]))
+        env.assertEqual(row['f3000'], '3000')
+
+    check_lookups()
+
+    if not env.isCluster():
+        env.cmd('DEBUG', 'RELOAD')
+        waitForIndex(env, 'idx')
+        check_lookups()
+        # Names loaded from the RDB take part in duplicate detection.
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f0', 'TAG').error() \
+            .contains('Duplicate field in schema')
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'f7', 'TAG').error() \
+            .contains('Duplicate field in schema')
+
+    # A failed ALTER leaves the schema, and so its by-name lookups, untouched.
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'newa', 'NUMERIC', 'newa', 'TAG').error()
+    env.expect('FT.SEARCH', 'idx', '@newa:[0 1]').error()
+    # The rolled-back name is free again, and only the retry defines it.
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'newa', 'TAG').ok()
+    conn.execute_command('HSET', 'doc:newa', 'newa', 'tagval')
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', '@newa:{tagval}', 'NOCONTENT').equal([1, 'doc:newa'])
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'newa', 'TAG').error() \
+        .contains('Duplicate field in schema')
+
+    added = [f'n{k}' for k in range(5)]
+    alter = []
+    for name in added:
+        alter.extend([name, 'NUMERIC', 'SORTABLE'])
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', *alter).ok()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'one_too_many', 'TAG').error() \
+        .contains(f'Schema is limited to {SPEC_MAX_FIELDS} fields')
+
+    conn.execute_command('HSET', 'doc:c', 'n4', '5', 'f3000', '3000')
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', '@n4:[5 5]', 'NOCONTENT').equal([1, 'doc:c'])
+    check_lookups_after = env.cmd('FT.SEARCH', 'idx', '@f3000:[3000 3000]', 'NOCONTENT')
+    env.assertEqual(sorted(check_lookups_after[1:]), ['doc:a', 'doc:c'])
+
+    if not env.isCluster():
+        env.cmd('DEBUG', 'RELOAD')
+        waitForIndex(env, 'idx')
+        env.expect('FT.SEARCH', 'idx', '@n4:[5 5]', 'NOCONTENT').equal([1, 'doc:c'])
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'n0', 'TAG').error() \
+            .contains(f'Schema is limited to {SPEC_MAX_FIELDS} fields')
+
+
+def testFieldNameLookupAroundTableThresholds(env):
+    """Schemas just below and above the sizes where the by-name table is built
+    or grows: lookups, duplicate detection, case sensitivity and ALTER."""
+    for n in (8, 9, 32, 33, 64, 65):
+        env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+                   *[x for i in range(n) for x in (f'f{i}', 'TAG')]).ok()
+        for name in ('f0', f'f{n // 2}', f'f{n - 1}'):
+            env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', name, 'TAG').error() \
+                .contains('Duplicate field in schema')
+        # Names differing only in case are distinct fields.
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'F0', 'TAG').ok()
+        env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'F0', 'TAG').error() \
+            .contains('Duplicate field in schema')
+        env.cmd('HSET', f'doc:{n}', f'f{n - 1}', 'last', 'F0', 'upper')
+        waitForIndex(env, 'idx')
+        env.expect('FT.SEARCH', 'idx', f'@f{n - 1}:{{last}}', 'NOCONTENT').equal([1, f'doc:{n}'])
+        env.expect('FT.SEARCH', 'idx', '@F0:{upper}', 'NOCONTENT').equal([1, f'doc:{n}'])
+        env.expect('FT.SEARCH', 'idx', '@f0:{upper}', 'NOCONTENT').equal([0])
+        env.cmd('FT.DROPINDEX', 'idx')
+        env.cmd('FLUSHALL')
+
+    # A duplicate inside one FT.CREATE is caught past the linear-scan size too.
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               *[x for i in range(20) for x in (f'f{i}', 'TAG')], 'f3', 'TAG').error() \
+        .contains('Duplicate field in schema')
+
+
+def testFailedAlterShrinksNameTable(env):
+    """A failed FT.ALTER that crossed a table-size boundary restores lookups for
+    the original fields and leaves the added names free."""
+    n = 32
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               *[x for i in range(n) for x in (f'f{i}', 'TAG')]).ok()
+    # Fields 33 and 34 grow the table before the duplicate aborts the batch.
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'x1', 'TAG', 'x2', 'TAG', 'x1', 'TAG').error() \
+        .contains('Duplicate field in schema')
+    env.expect('FT.SEARCH', 'idx', '@x1:{a}').error()
+    env.expect('FT.SEARCH', 'idx', '@x2:{a}').error()
+    for i in (0, 15, n - 1):
+        env.expect('FT.SEARCH', 'idx', f'@f{i}:{{a}}', 'NOCONTENT').equal([0])
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'x1', 'TAG').ok()
+    env.cmd('HSET', 'doc:1', 'x1', 'a', f'f{n - 1}', 'b')
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', '@x1:{a}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', f'@f{n - 1}:{{b}}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'x2', 'TAG').ok()
+
+
+@skip(no_json=True)
+def testJsonAliasLookupOnWideSchema(env):
+    """On a JSON schema past the linear-scan size, fields resolve by alias
+    (the field name) and not by JSON path, for queries and LOAD."""
+    n = 40
+    schema = [x for i in range(n) for x in (f'$.n{i}', 'AS', f'n{i}', 'NUMERIC', 'SORTABLE')]
+    schema += ['$.p.q', 'AS', 'alias', 'TAG']
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', *schema).ok()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'alias', 'TAG').error() \
+        .contains('Duplicate field in schema')
+    env.expect('JSON.SET', 'doc:1', '$', '{"n3": 3, "n39": 39, "p": {"q": "x"}}').ok()
+    waitForIndex(env, 'idx')
+    env.expect('FT.SEARCH', 'idx', '@alias:{x}', 'NOCONTENT').equal([1, 'doc:1'])
+    env.expect('FT.SEARCH', 'idx', '@n39:[39 39]', 'NOCONTENT').equal([1, 'doc:1'])
+    res = env.cmd('FT.AGGREGATE', 'idx', '@alias:{x}', 'LOAD', 3, '@alias', '@n3', '@n39')
+    env.assertEqual(res[0], 1)
+    row = dict(zip(res[1][::2], res[1][1::2]))
+    env.assertEqual(row, {'alias': 'x', 'n3': '3', 'n39': '39'})
+    res = env.cmd('FT.AGGREGATE', 'idx', '@alias:{x}', 'LOAD', '*')
+    row = dict(zip(res[1][::2], res[1][1::2]))
+    env.assertEqual(row.get('n39'), '39')
+    env.assertEqual(row.get('alias'), 'x')
