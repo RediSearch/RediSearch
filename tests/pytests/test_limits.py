@@ -6,6 +6,7 @@
 # GNU Affero General Public License v3 (AGPLv3).
 
 from common import *
+import json
 
 
 def testDebugSetMaxIndexes(env):
@@ -427,7 +428,7 @@ def testJsonAliasLookupOnWideSchema(env):
     env.assertEqual(res[0], 1)
     row = dict(zip(res[1][::2], res[1][1::2]))
     env.assertEqual(row, {'alias': 'x', 'n3': '3', 'n39': '39'})
+    # LOAD * on a JSON index returns the whole document under `$`.
     res = env.cmd('FT.AGGREGATE', 'idx', '@alias:{x}', 'LOAD', '*')
     row = dict(zip(res[1][::2], res[1][1::2]))
-    env.assertEqual(row.get('n39'), '39')
-    env.assertEqual(row.get('alias'), 'x')
+    env.assertEqual(json.loads(row['$']), {'n3': 3, 'n39': 39, 'p': {'q': 'x'}})
