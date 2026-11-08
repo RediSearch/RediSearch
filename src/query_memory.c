@@ -29,8 +29,7 @@ uint32_t QueryMemory_GetRatioReadInterval(void) {
 }
 
 void QueryMemory_SetForcedRatio(float ratio) {
-  // signbit, so that -0 restores the real read too.
-  atomic_store_explicit(&forcedRatio, signbit(ratio) ? -1 : ratio, memory_order_relaxed);
+  atomic_store_explicit(&forcedRatio, ratio, memory_order_relaxed);
 }
 
 float QueryMemory_GetForcedRatio(void) {
