@@ -80,20 +80,26 @@ static bool GCContext_IsSchedulingPaused(GCContext* gc) {
   return (RS_AtomicUintLoadRelaxed(&gc->schedFlags) & GC_SCHED_PAUSED) != 0;
 }
 
-static long long getNextPeriod(struct timespec interval) {
-  long long ms = interval.tv_sec * 1000 + interval.tv_nsec / 1000000;  // convert to millisecond
-
-  // add randomness to avoid congestion by multiple GCs from different shards
-  ms += (rand() % interval.tv_sec) * 1000;
-
-  return ms;
+long long GC_TimerDelayMs(size_t intervalSec, unsigned long draw) {
+  const size_t maxSec = GC_MAX_TIMER_DELAY_MS / 1000;
+  if (intervalSec >= maxSec) {
+    return GC_MAX_TIMER_DELAY_MS;
+  }
+  // Randomness avoids congestion by GCs from different shards. Below the cap, both terms are
+  // under maxSec, so neither the sum nor the conversion can overflow.
+  const size_t jitterSec = intervalSec ? draw % intervalSec : 0;
+  const size_t totalSec = intervalSec + jitterSec;
+  return totalSec >= maxSec ? GC_MAX_TIMER_DELAY_MS : (long long)totalSec * 1000;
 }
 
+// Every interval callback reports whole seconds, so tv_nsec is not read.
 static RedisModuleTimerID scheduleNextIn(GCContext* gc, struct timespec interval) {
   if (RS_IsMock) return 0;
 
   IncrementGCTimerArm();
-  return RedisModule_CreateTimer(RSDummyContext, getNextPeriod(interval), timerCallback, gc);
+  return RedisModule_CreateTimer(RSDummyContext,
+                                 GC_TimerDelayMs((size_t)interval.tv_sec, (unsigned long)rand()),
+                                 timerCallback, gc);
 }
 
 // Main thread only -- arming off it is unsafe even under the GIL (MOD-17309). Callable blindly;
