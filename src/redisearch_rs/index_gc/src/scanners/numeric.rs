@@ -24,12 +24,13 @@ use numeric_range_tree::{NodeGcDelta, NodeIndex, NumericRangeTree};
 use crate::fork::wire::{deserialize, serialize};
 use crate::spec_access::SpecWriteAccess;
 use crate::{ForkPipe, GcApplyStats, GcError, HandleOutcome};
+use rqe_core::FieldIndex;
 
 /// A numeric or geo field scanned by the child process.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NumericField {
     /// Position of the field in the spec's field list.
-    pub field_index: ffi::t_fieldIndex,
+    pub field_index: FieldIndex,
     /// [`NumericRangeTree::unique_id`] at scan time.
     pub unique_id: u32,
 }
@@ -80,7 +81,7 @@ impl NumericTreeId {
     /// the tree's unique id differs from `unique_id`.
     fn resolve(
         guard: &mut IndexSpecWriteGuard<'_>,
-        field_index: ffi::t_fieldIndex,
+        field_index: FieldIndex,
         unique_id: u32,
     ) -> Result<Self, GcError> {
         let field_index = usize::from(field_index);
@@ -281,7 +282,7 @@ pub fn collect_numeric(
         })
         .filter_map(|(i, fs)| fs.tree().map(|tree| (i, tree)))
     {
-        let field_index = ffi::t_fieldIndex::try_from(field_index)
+        let field_index = FieldIndex::try_from(field_index)
             .expect("a spec has fewer fields than a field index can count");
         serialize(
             writer,
@@ -339,7 +340,7 @@ pub(crate) fn apply_numeric_node(
 fn apply_node_stream(
     reader: &mut impl Read,
     spec: &mut impl SpecWriteAccess,
-    field_index: ffi::t_fieldIndex,
+    field_index: FieldIndex,
     unique_id: u32,
     stats: &mut GcApplyStats,
 ) -> Result<Option<NumericTreeId>, GcError> {

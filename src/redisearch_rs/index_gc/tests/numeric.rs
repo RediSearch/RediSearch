@@ -28,6 +28,7 @@ use numeric_range_tree::{NodeIndex, NumericRangeTree};
 // Link both Rust-provided and C-provided symbols
 extern crate redisearch_rs;
 use index_gc::fork::wire::{deserialize, serialize};
+use rqe_core::FieldIndex;
 // Provide Redis allocator shims so the C dict functions can allocate memory.
 redis_mock::mock_or_stub_missing_redis_c_symbols!();
 
@@ -133,7 +134,7 @@ impl Drop for TestSpec {
 
 /// A single decoded field from the wire: header + node entries.
 struct DecodedField {
-    field_index: ffi::t_fieldIndex,
+    field_index: FieldIndex,
     unique_id: u32,
     entries: Vec<NumericNodeDelta>,
 }

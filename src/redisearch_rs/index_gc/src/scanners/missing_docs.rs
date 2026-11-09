@@ -17,12 +17,13 @@ use inverted_index::{DocLiveness, GcScanDelta, GcSnapshotScope, opaque::Inverted
 use serde::{Deserialize, Serialize};
 
 use crate::fork::wire::{deserialize, serialize};
+use rqe_core::FieldIndex;
 /// One missing-field inverted index's GC work, as it travels the pipe.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MissingDocsEntry {
     /// Position of the field, in the spec's field list, whose missing-docs
     /// inverted index was scanned.
-    pub field_index: ffi::t_fieldIndex,
+    pub field_index: FieldIndex,
     /// Unique id of the inverted index scanned, so the delta is not applied to a
     /// replacement created for the same field after the scan.
     pub unique_id: u32,
@@ -73,22 +74,21 @@ pub fn collect_missing_docs(
 
 fn missing_index<'a>(
     spec: &'a IndexSpecReadGuard<'_>,
-    field_index: ffi::t_fieldIndex,
+    field_index: FieldIndex,
 ) -> Option<&'a InvertedIndex> {
     let fs = spec.field_specs().get(usize::from(field_index))?;
     spec.missing_field_dict().fetch(fs.field_name())
 }
 
 /// Position of every field that has a missing-docs inverted index, in field order.
-pub fn missing_field_indexes(spec: &IndexSpecReadGuard) -> Vec<ffi::t_fieldIndex> {
+pub fn missing_field_indexes(spec: &IndexSpecReadGuard) -> Vec<FieldIndex> {
     let dict = spec.missing_field_dict();
     spec.field_specs()
         .iter()
         .enumerate()
         .filter(|(_, fs)| dict.fetch(fs.field_name()).is_some())
         .map(|(i, _)| {
-            ffi::t_fieldIndex::try_from(i)
-                .expect("a spec has fewer fields than a field index can count")
+            FieldIndex::try_from(i).expect("a spec has fewer fields than a field index can count")
         })
         .collect()
 }
@@ -100,7 +100,7 @@ pub fn missing_field_indexes(spec: &IndexSpecReadGuard) -> Vec<ffi::t_fieldIndex
 /// collect, or the scan failed; a failed scan is retried on the next cycle.
 pub fn scan_missing_field(
     spec: &IndexSpecReadGuard,
-    field_index: ffi::t_fieldIndex,
+    field_index: FieldIndex,
     live: impl DocLiveness + Copy,
 ) -> Option<(u32, GcScanDelta)> {
     let ii = missing_index(spec, field_index)?;
@@ -111,7 +111,7 @@ pub fn scan_missing_field(
 /// `field_index` has to decode; see [`InvertedIndex::gc_snapshot`].
 pub fn snapshot_missing_field(
     spec: &IndexSpecReadGuard,
-    field_index: ffi::t_fieldIndex,
+    field_index: FieldIndex,
     live: &impl DocLiveness,
 ) -> Option<InvertedIndex> {
     missing_index(spec, field_index)?.gc_snapshot(live, GcSnapshotScope::DirtyBlocks)
@@ -124,7 +124,7 @@ pub fn receive_missing_docs(reader: &mut impl Read) -> Result<Option<MissingDocs
 
 /// [`apply_missing_docs_with`] without a liveness source: a grown last block is left for the next cycle.
 pub fn apply_missing_docs(
-    field_index: ffi::t_fieldIndex,
+    field_index: FieldIndex,
     unique_id: u32,
     delta: GcScanDelta,
     guard: &mut IndexSpecWriteGuard<'_>,
@@ -146,7 +146,7 @@ pub fn apply_missing_docs(
 /// the write lock instead of being denied; it must be the source the scan used, see
 /// [`InvertedIndex::gc_snapshot`](inverted_index::InvertedIndex::gc_snapshot).
 pub fn apply_missing_docs_with(
-    field_index: ffi::t_fieldIndex,
+    field_index: FieldIndex,
     unique_id: u32,
     delta: GcScanDelta,
     live: Option<&dyn DocLiveness>,

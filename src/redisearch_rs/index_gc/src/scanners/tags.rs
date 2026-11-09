@@ -111,7 +111,7 @@ pub struct TagEntry<T = Box<[u8]>> {
 /// has to decode, taken under the lock so the scan itself needs none.
 pub struct TagSnapshot {
     /// Position of the TAG field, as [`TagEntry::field_index`].
-    pub field_index: ffi::t_fieldIndex,
+    pub field_index: FieldIndex,
     /// Unique id of the field's tag index, as [`TagEntry::tag_index_unique_id`].
     pub tag_index_unique_id: u32,
     /// The tag value, as [`TagEntry::tag`].
@@ -213,7 +213,7 @@ fn scan_tag<T>(
 /// Copy what a GC scan of `tag`'s posting list has to decode, as [`scan_tag`]
 /// would scan it; `None` when `live` finds no gone document in it.
 fn snapshot_tag(
-    field_index: ffi::t_fieldIndex,
+    field_index: FieldIndex,
     tag_index: &ffi::TagIndex,
     tag: &[u8],
     value: *mut c_void,
