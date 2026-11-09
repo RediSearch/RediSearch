@@ -17,6 +17,7 @@
 #include <sys/param.h>
 
 #include "aggregate/aggregate.h"
+#include "coord/rpnet.h"
 #include "types_ffi.h"
 #include "value_ffi.h"
 #include "result_processor.h"
@@ -351,18 +352,23 @@ static bool RP_UpstreamHold(const ResultProcessor *rp) {
   return limits && QueryRequestLimits_IsMemoryStopped(limits);
 }
 
-/*
- * Memory checkpoint of a buffering processor's fill: true when the fill must end now. Under a
- * RETURN stop policy the fill goes on instead: the stop ends the row source
- * (RP_EndRowSourceOnStop), so upstream reads nothing new, and the fill ends on upstream's
- * RS_RESULT_STOPPED and keeps the rows buffering stages upstream already held.
- */
-static bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
+bool RP_FillShouldStop(ResultProcessor *rp, uint32_t *counter) {
   if (!rp->parent->limits || !QueryMemory_Checkpoint(rp->parent->limits, counter)) {
     return false;
   }
   RP_EndRowSourceOnStop(rp->parent);
   return RP_StopPolicy(rp) != TimeoutPolicy_Return;
+}
+
+bool RP_FillShouldCut(ResultProcessor *rp, uint32_t *counter) {
+  const bool heldUpstream = RP_UpstreamHold(rp);
+  if (RP_FillShouldStop(rp, counter)) {
+    return true;
+  }
+  // The checkpoint's stop under RETURN is on a stage that holds no rows upstream of it unless
+  // one was already stopped, so a fresh stop here is this processor's own.
+  const QueryRequestLimits *timeout = rp->parent->limits;
+  return !heldUpstream && timeout && QueryRequestLimits_IsMemoryStopped(timeout);
 }
 
 typedef enum {
@@ -3369,6 +3375,7 @@ typedef struct {
   RPStatus last_rc;                // Last return code from upstream
   uint32_t depleted_results;       // Total number of results depleted
   rs_wall_clock_ns_t depletionTime; // Time spent depleting upstream results
+  uint32_t memoryCheckCalls;        // QueryMemory_Checkpoint counter for the buffer
 } RPDepleter;
 
 /**
@@ -3385,7 +3392,14 @@ static void RPDepleter_Deplete(RPDepleter *self) {
   rs_wall_clock_init(&start);
 
   // Deplete all results from upstream
+  bool ownStop = false;
   while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
+    // A row read after this stage's own stop was cut: an upstream stage that holds rows (a safe
+    // loader) keeps replaying them, and only a read that finds EOF means nothing was lost.
+    if (ownStop) {
+      rc = RS_RESULT_STOPPED;
+      break;
+    }
     // Buffered SearchResults outlive the source iterator's `it->current`
     // slot; preserve or drop the borrowed RSIndexResult before buffering.
     SearchResult_BufferIndexResult(&self->base, r);
@@ -3393,6 +3407,27 @@ static void RPDepleter_Deplete(RPDepleter *self) {
     r = rm_calloc(1, sizeof(*r));
     *r = SearchResult_New();
     self->depleted_results++;
+    const bool heldUpstream = RP_UpstreamHold(&self->base);
+    if (RP_FillShouldStop(&self->base, &self->memoryCheckCalls)) {
+      rc = RS_RESULT_STOPPED;
+      break;
+    }
+    ownStop = !heldUpstream && RP_UpstreamHold(&self->base);
+  }
+  if (rc == RS_RESULT_STOPPED) {
+    RP_HoldStop(&self->base);
+    // The coordinator preloads the shard-summed WITHCOUNT total and RPNet never touches it, so a
+    // downstream FILTER would decrement it only for the rows held here. Rebase on the held rows,
+    // as standalone does by counting rows as they stream. An ordinary deadline keeps the exact
+    // total the WITHCOUNT barrier supplied. A memory stop is sticky, so rows upstream of it are
+    // never read later: with no rows held the total is rebased to zero.
+    ResultProcessor *root = self->base.parent->rootProc;
+    // A blocked-client timeout owns the reply and keeps the exact total, as in RP_StopPolicy.
+    if (RP_UpstreamHold(&self->base) &&
+        !QueryRequestLimits_IsBlockedClientTimedOut(self->base.parent->limits) && root &&
+        root->type == RP_NETWORK && ((RPNet *)root)->withCount) {
+      self->base.parent->totalResults = self->depleted_results;
+    }
   }
 
   // Record depletion time
@@ -3436,11 +3471,10 @@ static int RPDepleter_Next_Accumulate(ResultProcessor *base, SearchResult *r) {
   // Call the sync depletion function directly
   RPDepleter_Deplete(self);
 
-  // Only TimeoutPolicy_Return yields buffered results on timeout; FAIL and
+  // Only a RETURN stop policy yields buffered results on a stop; FAIL and
   // RETURN-STRICT propagate TIMEDOUT immediately since the buffer will be
   // discarded by the serializer anyway.
-  if (self->last_rc == RS_RESULT_STOPPED &&
-      base->parent->timeoutPolicy != TimeoutPolicy_Return) {
+  if (self->last_rc == RS_RESULT_STOPPED && RP_StopPolicy(base) != TimeoutPolicy_Return) {
     self->last_rc = RS_RESULT_EOF;
     return RS_RESULT_STOPPED;
   }

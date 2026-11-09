@@ -672,6 +672,155 @@ def test_safe_loader_stop_on_the_last_buffered_row_ends_the_cursor(env):
 
 @skip(cluster=True)
 @env_spec(protocol=3)
+def test_withcount_depleter_stop_keeps_the_depleted_rows(env):
+    """FT.AGGREGATE WITHCOUNT without SORTBY or GROUPBY depletes every match up front, whatever
+    LIMIT says. Stopped while depleting it replies the rows depleted so far with the OOM warning,
+    under every timeout policy; ON_OOM FAIL replies the OOM error."""
+    create_index(env)
+    query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n')
+    k = 4
+    for policy in timeout_policies(env):
+        res = run_at_call(env, BUILD_CHECKPOINTS + k, *query)
+        env.assertEqual(sorted(r['extra_attributes']['n'] for r in res['results']),
+                        [str(i) for i in range(k)], message=(policy, res))
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, res))
+        # The count is of the rows read before the stop.
+        env.assertEqual(res['total_results'], k, message=(policy, res))
+        with oom_policy(env, 'fail'):
+            expect_oom_error_at_call(env, BUILD_CHECKPOINTS + k, *query)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_withcount_depleter_stop_past_the_limit_warns(env):
+    """Depleted rows beyond LIMIT let the pager end the reply before the stop is read; the reply
+    still carries the OOM warning and counts the rows read."""
+    create_index(env)
+    query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'LIMIT', 0, 2)
+    k = 4
+    for policy in timeout_policies(env):
+        res = run_at_call(env, BUILD_CHECKPOINTS + k, *query)
+        env.assertEqual(len(res['results']), 2, message=(policy, res))
+        env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(policy, res))
+        env.assertEqual(res['total_results'], k, message=(policy, res))
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_withcount_depleter_stop_over_cursor_reads(env):
+    """Depleted rows read over several cursor reads keep coming, and the read that ends them
+    carries the OOM warning and closes the cursor."""
+    create_index(env)
+    k = 4
+    memory_pressure(env, 'AT_CALL', BUILD_CHECKPOINTS + k)
+    try:
+        res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n',
+                              'WITHCURSOR', 'COUNT', 3)
+    finally:
+        memory_pressure(env, 'RESET')
+    rows = [r['extra_attributes']['n'] for r in res['results']]
+    env.assertEqual(res['warning'], [], message=res)
+    env.assertNotEqual(cursor, 0)
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+    rows += [r['extra_attributes']['n'] for r in res['results']]
+    env.assertEqual(sorted(rows), [str(i) for i in range(k)], message=res)
+    env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=res)
+    env.assertEqual(cursor, 0)
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_coordinator_withcount_depleter_stop_rebases_the_total(env):
+    """The coordinator preloads the shard-summed WITHCOUNT total. Under an OOM stop the total
+    counts the rows read minus what FILTER removed, so it never drops below the rows returned.
+    Only the depleter's own stop rebases it on the rows it holds. Pressure is armed on the
+    coordinator process only and swept over every checkpoint call of one run, so the test does
+    not depend on which call is the depleter's: every stopped reply is bounded, and at least one
+    (the depleter's, holding fewer rows than FILTER_BOUND) counts exactly the rows it returns."""
+    create_index(env)
+    FILTER_BOUND = 5
+    query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'LIMIT', 0, N_DOCS,
+             'FILTER', f'@n < {FILTER_BOUND}')
+    # Calls are counted only while a position is armed; an unreachable one measures the run.
+    memory_pressure(env, 'AT_CALL', 2**62)
+    try:
+        env.cmd(*query)
+        calls = checkpoint_calls(env)
+    finally:
+        memory_pressure(env, 'RESET')
+    env.assertGreater(calls, BUILD_CHECKPOINTS, message=calls)
+
+    stopped = 0
+    rebased = 0
+    for n in range(BUILD_CHECKPOINTS + 1, calls + 1):
+        res = run_at_call(env, n, *query)
+        if res['warning'] == [COORD_OOM_WARNING] and res['results']:
+            stopped += 1
+            env.assertLessEqual(len(res['results']), res['total_results'], message=(n, res))
+            env.assertLessEqual(res['total_results'], N_DOCS, message=(n, res))
+            # Equality with all FILTER_BOUND rows is reachable without the rebase (all rows
+            # were already read), so only a partial depletion proves it.
+            rebased += (res['total_results'] == len(res['results'])
+                        and len(res['results']) < FILTER_BOUND)
+    env.assertGreater(stopped, 0)
+    env.assertGreater(rebased, 0)
+
+
+@skip(cluster=False)
+@env_spec(protocol=3)
+def test_coordinator_withcount_stop_before_any_row_reports_zero_total(env):
+    """An OOM-cut reply that holds no rows reports a zero total. FILTER drops every row upstream
+    of the depleter, so each cut leaves it holding nothing."""
+    create_index(env)
+    query = ('FT.AGGREGATE', 'idx', '*', 'WITHCOUNT', 'LOAD', 1, '@n', 'FILTER', '@n < 0',
+             'LIMIT', 0, N_DOCS)
+    # Calls are counted only while a position is armed; an unreachable one measures the run.
+    memory_pressure(env, 'AT_CALL', 2**62)
+    try:
+        env.cmd(*query)
+        calls = checkpoint_calls(env)
+    finally:
+        memory_pressure(env, 'RESET')
+    env.assertGreater(calls, BUILD_CHECKPOINTS, message=calls)
+
+    empty = 0
+    for n in range(BUILD_CHECKPOINTS + 1, calls + 1):
+        res = run_at_call(env, n, *query)
+        if res['warning'] == [COORD_OOM_WARNING] and not res['results']:
+            empty += 1
+            env.assertEqual(res['total_results'], 0, message=(n, res))
+    env.assertGreater(empty, 0)
+
+
+APPLY = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'APPLY', 'upper(@t)', 'AS', 'u')
+FILTER = ('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t', 'FILTER', 'startswith(@t, "hello")')
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
+def test_expression_stop_ends_the_stream(env):
+    """APPLY and FILTER keep their string results for the whole query, so they check memory per
+    row. Stopped while rows still stream from the index, the stream ends with the rows already
+    produced and the OOM warning; ON_OOM FAIL replies the OOM error. With workers the safe loader
+    has read every row before the first row reaches the expression; the expression cuts the rows
+    it has not evaluated instead of draining them, so the reply is the same as without workers."""
+    create_index(env)
+    k = 4
+    for workers in worker_counts(env):
+        # With workers the safe loader buffers and loads every row first.
+        at_call = BUILD_CHECKPOINTS + (2 * N_DOCS if workers else 0) + k
+        for query in (APPLY, FILTER):
+            res = run_at_call(env, at_call, *query)
+            env.assertEqual(len(res['results']), k - 1, message=(workers, query, res))
+            env.assertEqual(res['warning'], [COORD_OOM_WARNING], message=(workers, query, res))
+            with oom_policy(env, 'fail'):
+                expect_oom_error_at_call(env, at_call, *query)
+            with oom_policy(env, 'ignore'):
+                env.assertEqual(len(run_at_call(env, at_call, *query)['results']), N_DOCS)
+
+
+@skip(cluster=True)
+@env_spec(protocol=3)
 def test_safe_loader_stop_on_a_cursor_created_without_workers(env):
     """A LOAD cursor created with WORKERS 0 holds a plain loader, which the first read after workers
     are enabled swaps for a safe loader. That loader starts with fresh stop state and counters, so
