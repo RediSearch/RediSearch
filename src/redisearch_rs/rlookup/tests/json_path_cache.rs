@@ -236,7 +236,8 @@ fn compiled_path_lookup_is_unavailable_in_legacy_builds() {
         let path = unsafe { redis_json_api::JsonPath::parse(c"$.name", ctx, &api) }.unwrap();
         let key = key_name();
         // SAFETY: the mock context and key remain valid throughout this closure.
-        let root = unsafe { api.open_key(ctx, &key) }.unwrap();
+        let root = unsafe { api.open_key_with_flags(ctx, &key, redis_json_api::KeyFlags::empty()) }
+            .unwrap();
         // SAFETY: the parsed path remains alive until after the iterator is dropped.
         let iter = unsafe { root.get_with_path(&path) };
         assert_eq!(iter.is_none(), LEGACY_API);
