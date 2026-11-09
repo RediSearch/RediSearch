@@ -1058,7 +1058,7 @@ def testGCTeardownWhenAForcedRunFindsTheIndexDroppedUnderAnArmedTimer():
     is dropped, frees the GC context once its promote fails. The timer must not survive that:
     the forced run disarms it when it is queued, so nothing fires on the freed context later."""
     # Long enough that the new index's first timer cannot fire before the forced run is queued.
-    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 2 FORK_GC_CLEAN_THRESHOLD 0')
+    env = Env(redisConfigFile=thread_gc_conf(run_interval=2, clean_threshold=0))
     skipIfNoEnableAssert(env)
     env.expect('FT.CREATE', 'keep', 'PREFIX', 1, 'keep:', 'SCHEMA', 't', 'TEXT').ok()
     # Only the forced run below may reach the sync point.
