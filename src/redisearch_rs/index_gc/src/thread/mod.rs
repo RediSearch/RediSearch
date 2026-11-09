@@ -69,6 +69,7 @@ use crate::{
     spec_access::SpecWriteAccess,
     stats::GcStatsSink,
 };
+use rqe_core::FieldIndex;
 
 /// Keys one read-lock hold visits before the driver releases the lock.
 ///
@@ -415,7 +416,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
 
     fn missing_docs(&mut self) -> Result<(), GcError> {
         // One entry per INDEXMISSING field, so the list is short.
-        let keys: Vec<ffi::t_fieldIndex> = self.read(missing_field_indexes)?;
+        let keys: Vec<FieldIndex> = self.read(missing_field_indexes)?;
         if keys.is_empty() {
             return Ok(());
         }
@@ -423,11 +424,11 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
         self.run(
             "missing docs",
             &mut Buffers::new(),
-            keyed(&keys, |guard, &field_index: &ffi::t_fieldIndex| {
+            keyed(&keys, |guard, &field_index: &FieldIndex| {
                 snapshot_missing_field(guard, field_index, &live)
                     .map(|snapshot| (field_index, snapshot))
             }),
-            |(field_index, snapshot): (ffi::t_fieldIndex, InvertedIndex)| {
+            |(field_index, snapshot): (FieldIndex, InvertedIndex)| {
                 let tail = snapshot.last_block_doc_id_range();
                 let unique_id = u32::from(snapshot.unique_id());
                 Ok(snapshot
