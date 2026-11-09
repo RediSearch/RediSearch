@@ -10,6 +10,7 @@
 
 #include <math.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <string.h>
 #include <sys/param.h>
 
@@ -41,21 +42,34 @@ static const RSValue *sortKeyValue(const RSIndexResult *res, int16_t sortIdx) {
   return value == RSValue_NullStatic() ? NULL : value;
 }
 
+/* Whether a pooled result stands for a document without a value for the sortby field. */
+static inline bool lacksSortValue(const OptimizerIterator *it, const RSIndexResult *res) {
+  return it->missingSortValue[res - it->resArr];
+}
+
 /* Orders results the way the pipeline's sorter ranks them (`SearchResult_CmpByFields`), returning a
  * positive value when `v1` ranks after `v2`: by the numeric key's indexed value, then by each later
  * sort key, a missing value ranking last in either direction, then by document id in the last
  * key's direction. The heap keeps only `limit` results, so it has to agree with the sorter on which
  * of the results tied on the numeric key those are. */
 static int cmpBySortKeys(const void *v1, const void *v2, const void *udata) {
-  const QOptimizer *opt = udata;
+  const OptimizerIterator *it = udata;
+  const QOptimizer *opt = it->optim;
   const RSIndexResult *res1 = v1;
   const RSIndexResult *res2 = v2;
 
-  double num1 = IndexResult_NumValue(res1);
-  double num2 = IndexResult_NumValue(res2);
-  if (num1 != num2) {
-    int rc = num1 > num2 ? 1 : -1;
-    return opt->asc ? rc : -rc;
+  bool missing1 = lacksSortValue(it, res1);
+  bool missing2 = lacksSortValue(it, res2);
+  if (missing1 != missing2) {
+    return missing1 ? 1 : -1;
+  }
+  if (!missing1) {
+    double num1 = IndexResult_NumValue(res1);
+    double num2 = IndexResult_NumValue(res2);
+    if (num1 != num2) {
+      int rc = num1 > num2 ? 1 : -1;
+      return opt->asc ? rc : -rc;
+    }
   }
 
   for (size_t i = 0; i < opt->numTieBreakKeys; i++) {
@@ -84,10 +98,12 @@ static inline double getSuccessRatio(const OptimizerIterator *optIt) {
   return resultsCollectedSinceLast / optIt->lastLimitEstimate;
 }
 
-/* Whether a numeric window limited to `limit` documents spans everything left of the range; a
- * limit of 0 does not limit the window at all. */
-static inline bool windowSpansRest(size_t limit, size_t numDocs) {
-  return limit == 0 || limit >= numDocs;
+/* Whether a numeric window limited to `limit` postings spans everything left of the range: a limit
+ * of 0 does not limit the window at all, and SIZE_MAX is what a rewind asks for to get the rest.
+ * Comparing with the index's document count instead would not do, since postings of deleted
+ * documents stay in the range until garbage collection. */
+static inline bool windowSpansRest(size_t limit) {
+  return limit == 0 || limit == SIZE_MAX;
 }
 
 /* Whether the walk has covered the whole sortby range: the window just drained spanned everything
@@ -153,7 +169,7 @@ static void OPT_Rewind(QueryIterator *self) {
 
   // very low success, or enough windows already: get all remaining results
   if (successRatio < 0.01 || optIt->numIterations >= 3) {
-    nf->limit = optIt->numDocs;
+    nf->limit = SIZE_MAX;
   } else {
     // Size the next window to hold the missing results at the rate the drained
     // window actually hit at. observedEstimate restates that rate as the
@@ -164,7 +180,7 @@ static void OPT_Rewind(QueryIterator *self) {
       QOptimizer_EstimateLimit(optIt->numDocs, observedEstimate, resultsMissing);
   }
 
-  optIt->windowSpansRest = windowSpansRest(nf->limit, optIt->numDocs);
+  optIt->windowSpansRest = windowSpansRest(nf->limit);
 
   // create new numeric filter
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = optIt->numericFieldIndex}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
@@ -182,9 +198,12 @@ void OptimizerIterator_Free(QueryIterator *self) {
 
   if(it->flags & OPTIM_OWN_NF) {
     NumericFilter_Free(it->optim->nf);
+    it->optim->nf = NULL;
   }
 
-  it->child->Free(it->child);
+  if (it->child) {
+    it->child->Free(it->child);
+  }
 
   if (it->numericIter) {
     it->numericIter->Free(it->numericIter);
@@ -192,6 +211,8 @@ void OptimizerIterator_Free(QueryIterator *self) {
 
   // we always use the array as RSResultData_Numeric. no need for IndexResult_Free
   rm_free(it->resArr);
+  rm_free(it->missingSortValue);
+  IndexResult_Free(it->missingTemplate);
   heap_free(it->heap);
 
   rm_free(it);
@@ -205,6 +226,98 @@ IteratorStatus OPT_ReadYield(QueryIterator *self) {
     return ITERATOR_OK;
   }
   return ITERATOR_EOF;
+}
+
+/* Whether a document already holds a heap slot. Slots before `pooledResult` are taken while the
+ * heap fills; once it is full, every slot but the spare `pooledResult` is. */
+static bool heapHoldsDoc(const OptimizerIterator *it, t_docId docId) {
+  size_t taken = heap_count(it->heap) < heap_size(it->heap) ? (size_t)heap_count(it->heap)
+                                                            : (size_t)heap_size(it->heap) + 1;
+  for (size_t i = 0; i < taken; i++) {
+    const RSIndexResult *res = &it->resArr[i];
+    if (res != it->pooledResult && res->docId == docId) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Offer the result in `pooledResult`, whose `dmd` is borrowed, to the heap. A document holding
+ * several values for the sortby field can be reached again by a later window, which covers other
+ * values of it, so such a document is only collected once. */
+static void offerToHeap(OptimizerIterator *it) {
+  if (it->optim->sortFieldMayHoldManyValues && heapHoldsDoc(it, it->pooledResult->docId)) {
+    DMD_Return(it->pooledResult->dmd);
+    return;
+  }
+
+  // heap is not full. insert
+  if (heap_count(it->heap) < heap_size(it->heap)) {
+    heap_offer(&it->heap, it->pooledResult);
+    it->pooledResult++;
+
+    // heap is full. try to replace
+  } else {
+    RSIndexResult *tempRes = heap_peek(it->heap);
+    if (it->cmp(tempRes, it->pooledResult, it) > 0) {
+      heap_replace(it->heap, it->pooledResult);
+      it->pooledResult = tempRes;
+    }
+    DMD_Return(it->pooledResult->dmd);
+  }
+}
+
+/* Fill the heap's remaining slots with the child's matches that have no value for the sortby field,
+ * which the sorter ranks after every match that has one. The walk never reaches them, since it only
+ * visits documents in the field's numeric index; a document whose value has expired counts as
+ * having none, as it does for the sorter. */
+static void collectMatchesWithoutSortValue(OptimizerIterator *it) {
+  QOptimizer *opt = it->optim;
+  QueryIterator *child = it->child;
+  child->Rewind(child);
+
+  NumericFilter *wholeField =
+      NewNumericFilter(-INFINITY, INFINITY, 1, 1, opt->asc, it->numericFieldIndex, NULL);
+  FieldFilterContext filterCtx = {
+      .field = {.index_tag = FieldMaskOrIndex_Index, .index = it->numericFieldIndex},
+      .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
+  QueryIterator *valued =
+      NewNumericFilterIterator(opt->sctx, wholeField, INDEXFLD_T_NUMERIC, it->config, &filterCtx);
+  bool valuedExhausted = valued == NULL;
+
+  // Every match is offered, not only enough to fill the heap: among themselves these rank by the
+  // later sort keys and the document id, so a later match can still displace an earlier one.
+  while (child->Read(child) == ITERATOR_OK) {
+    t_docId docId = child->lastDocId;
+    bool hasValue = false;
+    if (!valuedExhausted) {
+      if (valued->lastDocId < docId) {
+        IteratorStatus rc = valued->SkipTo(valued, docId);
+        valuedExhausted = rc != ITERATOR_OK && rc != ITERATOR_NOTFOUND;
+        hasValue = rc == ITERATOR_OK;
+      } else {
+        hasValue = valued->lastDocId == docId;
+      }
+    }
+    if (hasValue) {
+      continue;
+    }
+
+    const RSDocumentMetadata *dmd = DocTable_Borrow(&opt->sctx->spec->docs, docId);
+    if (!dmd) {
+      continue;
+    }
+    *it->pooledResult = *it->missingTemplate;
+    it->pooledResult->docId = docId;
+    it->pooledResult->dmd = dmd;
+    it->missingSortValue[it->pooledResult - it->resArr] = true;
+    offerToHeap(it);
+  }
+
+  if (valued) {
+    valued->Free(valued);
+  }
+  NumericFilter_Free(wholeField);
 }
 
 IteratorStatus OPT_Read(QueryIterator *self) {
@@ -259,21 +372,8 @@ IteratorStatus OPT_Read(QueryIterator *self) {
           continue;
         }
         it->pooledResult->dmd = dmd;
-
-        // heap is not full. insert
-        if (heap_count(it->heap) < heap_size(it->heap)) {
-          heap_offer(&it->heap, it->pooledResult);
-          it->pooledResult++;
-
-        // heap is full. try to replace
-        } else {
-          RSIndexResult *tempRes = heap_peek(it->heap);
-          if (it->cmp(tempRes, it->pooledResult, opt) > 0) {
-            heap_replace(it->heap, it->pooledResult);
-            it->pooledResult = tempRes;
-          }
-          DMD_Return(it->pooledResult->dmd);
-        }
+        it->missingSortValue[it->pooledResult - it->resArr] = false;
+        offerToHeap(it);
       }
     }
 
@@ -290,6 +390,10 @@ IteratorStatus OPT_Read(QueryIterator *self) {
         it->numIterations++;
         continue;
       }
+    }
+
+    if (heap_count(it->heap) < heap_size(it->heap)) {
+      collectMatchesWithoutSortValue(it);
     }
 
     it->base.Read = OPT_ReadYield;
@@ -325,8 +429,10 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   oi->cmp = cmpBySortKeys;
   oi->resArr = rm_malloc(resArr_alloc_size);
   oi->pooledResult = oi->resArr;
+  oi->missingSortValue = rm_calloc(qOpt->limit + 1, sizeof(*oi->missingSortValue));
+  oi->missingTemplate = NewNumericResult();
   oi->heap = rm_malloc(heap_sizeof(qOpt->limit));
-  heap_init(oi->heap, oi->cmp, qOpt, qOpt->limit);
+  heap_init(oi->heap, oi->cmp, oi, qOpt->limit);
 
   oi->numDocs = qOpt->sctx->spec->docs.size;
   oi->childEstimate = root->NumEstimated(root);
@@ -344,7 +450,7 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   }
   oi->lastLimitEstimate = qOpt->nf->limit =
     QOptimizer_EstimateLimit(oi->numDocs, oi->childEstimate, qOpt->limit);
-  oi->windowSpansRest = windowSpansRest(qOpt->nf->limit, oi->numDocs);
+  oi->windowSpansRest = windowSpansRest(qOpt->nf->limit);
 
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   oi->numericFieldIndex = field->index;
@@ -353,6 +459,15 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   RS_ASSERT(!qOpt->sctx->spec->diskSpec);
   oi->numericIter = NewNumericFilterIterator(qOpt->sctx, qOpt->nf, INDEXFLD_T_NUMERIC, config, &filterCtx);
   if (!oi->numericIter) {
+    // The sortby field has no numeric index, so no document has a value for it. A range lifted out
+    // of the query on that field matches nothing; otherwise the query alone decides the matches,
+    // which all tie on the field, so it runs unoptimized.
+    bool liftedRange = !(oi->flags & OPTIM_OWN_NF);
+    if (!liftedRange) {
+      oi->child = NULL;
+      OptimizerIterator_Free(&oi->base);
+      return root;
+    }
     OptimizerIterator_Free(&oi->base);
     return NewEmptyIterator();
   }

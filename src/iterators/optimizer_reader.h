@@ -32,6 +32,8 @@ typedef struct {
   size_t childEstimate;         // results estimate on child
   int lastLimitEstimate;        // last estimation for filter
   bool windowSpansRest;         // the latest numeric window spans everything left of the range
+  bool *missingSortValue;       // per pooled result: the document has no value for the sortby field
+  RSIndexResult *missingTemplate;  // the result pooled for a document without a sortby value
 
   // child iterator with old root and numeric iterator for sortby field
   QueryIterator *child;

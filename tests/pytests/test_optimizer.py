@@ -973,6 +973,94 @@ def testOptimizerIgnoresUnionWithUnboundedBranch(env):
                             message=f'{query}, MAX {limit}')
 
 
+@skip(cluster=True)
+def testDeletedDocsBeforeGcFillRequestedLimit(env):
+    """Postings of deleted documents do not make the walk look exhausted.
+
+    Until garbage collection runs, the numeric index still lists deleted documents, so a window
+    sized by the index's live-document count covers fewer postings than remain, and treating it as
+    spanning the rest of the range would end the walk with the survivors unvisited.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+    env.cmd(debug_cmd(), 'GC_STOP_SCHEDULE', 'idx')
+
+    num_docs = 10000
+    load_sparse_matches(conn, num_docs, lambda i: True)
+    survivors = num_docs // 100
+    for i in range(num_docs - survivors):
+        conn.execute_command('del', i)
+
+    limit = 10
+    expected = [str(i) for i in range(num_docs - survivors, num_docs - survivors + limit)]
+    env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0, limit,
+               'NOCONTENT', 'WITHOUTCOUNT').equal([limit] + expected)
+
+    env.cmd(debug_cmd(), 'GC_CONTINUE_SCHEDULE', 'idx')
+
+
+@skip(cluster=True)
+def testStepBeforeSortbyKeepsOptimizerOff(env):
+    """A step before SORTBY that drops rows or changes their sort values keeps the optimizer off.
+
+    The optimizer prunes documents while collecting them, before any step runs, so a FILTER would
+    act on the rows it kept: here the heap keeps (0, 1), the filter then drops it, and (0, 2), the
+    right answer, is already gone.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 's', 'NUMERIC', 'SORTABLE')
+    conn.execute_command('HSET', 'a', 'n', 0, 's', 1)
+    conn.execute_command('HSET', 'b', 'n', 0, 's', 2)
+
+    for steps in [['FILTER', '@s > 1'], ['APPLY', '@s * -1', 'AS', 'n']]:
+        for sortby in [['SORTBY', 2, '@n', 'ASC'], ['SORTBY', 4, '@n', 'ASC', '@s', 'ASC']]:
+            query = ['FT.AGGREGATE', 'idx', '*']
+            tail = [*steps, *sortby, 'MAX', 1, 'LOAD', 1, '@__key']
+            env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT', *tail)[1:],
+                            env.cmd(*query, 'WITHCOUNT', *tail)[1:],
+                            message=f'{steps} then {sortby}')
+
+
+@skip(cluster=True)
+def testMatchesWithoutSortValueRankLast(env):
+    """Matches without a value for the numeric sort key rank after every match with one.
+
+    The walk only visits documents in the field's numeric index, so once it is exhausted with the
+    page short, the rest of the page comes from matches without a value, ordered by the later keys
+    as the sorter orders them.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 's', 'TAG', 'SORTABLE')
+    for i in range(20):
+        fields = ['s', f'v{i % 3}']
+        if i % 4 == 0:
+            fields += ['n', i]
+        conn.execute_command('HSET', f'd{i}', *fields)
+
+    for sortby in [[('n', 'ASC')], [('n', 'DESC')], [('n', 'ASC'), ('s', 'DESC')],
+                   [('n', 'DESC'), ('s', 'ASC')]]:
+        for limit in [3, 7, 20]:
+            env.assertEqual(aggregate_sorted_keys(env, '*', sortby, limit, optimized=True),
+                            aggregate_sorted_keys(env, '*', sortby, limit, optimized=False),
+                            message=f'{sortby}, MAX {limit}')
+
+
+@skip(cluster=True)
+def testSortFieldWithoutAnyValueKeepsMatches(env):
+    """A sort field no document has a value for has no numeric index to walk, and every match ties
+    on it, so the query runs unoptimized rather than coming back empty."""
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 's', 'TAG', 'SORTABLE')
+    for i in range(5):
+        conn.execute_command('HSET', f'd{i}', 's', f'v{i}')
+
+    for sortby in [[('n', 'ASC')], [('n', 'ASC'), ('s', 'DESC')]]:
+        optimized = aggregate_sorted_keys(env, '*', sortby, 3, optimized=True)
+        env.assertEqual(len(optimized), 3, message=f'{sortby}')
+        env.assertEqual(optimized, aggregate_sorted_keys(env, '*', sortby, 3, optimized=False),
+                        message=f'{sortby}')
+
+
 @skip()  # TODO: solve flakiness (MOD-5257)
 def testCoordinator(env):
     # separate test which only has queries with sortby since otherwise the coordinator has random results

@@ -13,6 +13,7 @@
 
 #include "iterators/optimizer_reader.h"
 #include "iterators_ffi.h"
+#include "json.h"
 #include "query_eval_ffi.h"
 #include "aggregate/aggregate_plan.h"
 #include "field.h"
@@ -71,6 +72,41 @@ static bool resolveTieBreakKeys(QOptimizer *opt, const IndexSpec *spec,
   return true;
 }
 
+/* Whether a step before the arrange step can drop rows or change their sort values. The optimizer
+ * prunes documents while collecting them, before any later step runs, so such a step would act on
+ * the rows the optimizer kept rather than on every match. Only LOAD leaves rows as they are. */
+static bool stepsBeforeCanReshapeRows(const AGGPlan *pln, const PLN_ArrangeStep *arng) {
+  DLLIST_FOREACH(nn, &pln->steps) {
+    const PLN_BaseStep *stp = DLLIST_ITEM(nn, PLN_BaseStep, llnodePln);
+    if (stp == &arng->base) {
+      return false;
+    }
+    if (stp->type != PLN_T_ROOT && stp->type != PLN_T_LOAD) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/* Whether the field's JSON path can yield several values per document. */
+static bool fieldMayHoldManyValues(const IndexSpec *spec, const FieldSpec *field) {
+  if (!isSpecJson(spec) || !field->fieldPath) {
+    return false;
+  }
+  RedisModuleString *err = NULL;
+  JSONPath path = japi ? pathParse(field->fieldPath, &err) : NULL;
+  if (err) {
+    RedisModule_FreeString(RSDummyContext, err);
+  }
+  if (!path) {
+    // A path that cannot be parsed cannot be shown to be single, so assume the worst.
+    return true;
+  }
+  bool isSingle = japi->pathIsSingle(path);
+  japi->pathFree(path);
+  return !isSingle;
+}
+
 void QOptimizer_Parse(AREQ *req) {
   QOptimizer *opt = req->optimizer;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
@@ -87,11 +123,13 @@ void QOptimizer_Parse(AREQ *req) {
       const char *name = arng->sortKeys[0];
       const FieldSpec *field = IndexSpec_GetFieldWithLength(sctx->spec, name, strlen(name));
       if (field && field->types == INDEXFLD_T_NUMERIC &&
+          !stepsBeforeCanReshapeRows(AREQ_AGGPlan(req), arng) &&
           resolveTieBreakKeys(opt, sctx->spec, arng)) {
         opt->field = field;
         opt->fieldName = name;
         opt->asc = arng->sortAscMap & 0x01;
         opt->sortAscMap = arng->sortAscMap;
+        opt->sortFieldMayHoldManyValues = fieldMayHoldManyValues(sctx->spec, field);
       } else {
         // sortby a non-numeric field first, or by a later key the heap cannot read, no optimization
         opt->type = Q_OPT_NONE;
@@ -301,7 +339,9 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
 
   // No range on the sort field could be lifted out of the tree, but the query may still confine
   // the field to one, such as a keyset cursor's `@n:[(c +inf] | (@n:[c c] ...)`.
-  if (isSortby && !opt->nf) {
+  // On a field with several values per document the predicates constrain any of them, not the
+  // value the document sorts by, so they bound nothing the walk could start from.
+  if (isSortby && !opt->nf && !opt->sortFieldMayHoldManyValues) {
     opt->hasImpliedBounds = impliedSortFieldBounds(root, targetFieldIndex, &opt->impliedBounds);
   }
 

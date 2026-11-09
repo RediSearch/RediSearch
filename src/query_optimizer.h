@@ -93,6 +93,11 @@ typedef struct QOptimizer {
     bool hasImpliedBounds;
     SortFieldBounds impliedBounds;
 
+    // Whether a document can hold several values for the sortby field (a JSON path such as
+    // `$.n[*]`). A query predicate then constrains any of them, not the one the document sorts by,
+    // and the field's numeric index lists such a document once per value.
+    bool sortFieldMayHoldManyValues;
+
     QueryIterator *numIter;
     QueryIterator *root;
 
