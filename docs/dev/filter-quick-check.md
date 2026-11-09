@@ -2,8 +2,8 @@
 
 This internal API supplies a conservative, random-access predicate check for a future
 VecSim consumer. It does not add a command option, change VecSim, install a query callback,
-or maintain signatures in the live index. There is consequently no query acceleration in
-this PR. The deliverable is the signature representation, bounded predicate evaluator,
+or maintain summaries in the live index. There is consequently no query acceleration in
+this PR. The deliverable is the term and numeric summaries, bounded predicate evaluator,
 callback/batch interfaces, and tests of their correctness contract.
 
 ## Motivation and model
@@ -35,8 +35,8 @@ indexer/query evaluator; this API does not reimplement their normalization. A ra
 not accepted. Compile a necessary-condition expression after parameter resolution and
 query expansion. For example, expanded TEXT alternatives are an OR, not an AND.
 
-The expression API supports positive term membership, AND, and OR. Negation and every
-unsupported predicate must be UNKNOWN. This includes ranges, phrases' positional
+The expression API supports positive term membership, numeric ranges, AND, and OR. Negation and every
+unsupported predicate must be UNKNOWN. This includes geo predicates, phrases' positional
 requirements, and prefix/fuzzy/wildcard tests unless the caller has an equivalent,
 fully resolved positive-term expression. For phrases, a caller may use the required
 terms as necessary conditions, but must retain the exact positional check.
@@ -45,7 +45,43 @@ AND can reject if any child rejects. OR can reject only if every child rejects: 
 omit an unsupported alternative. An empty AND returns MAYBE and an empty OR returns NO.
 Compile budgets bound recursion to 32 levels and the program to 256 instructions. On
 budget exhaustion the entire program becomes UNKNOWN, rather than dropping alternatives.
-The compiled program owns its masks; it retains neither token nor expression pointers.
+The compiled program owns its masks and numeric bounds; it retains neither token nor expression pointers.
+
+## Numeric summaries
+
+Numeric predicates use `FilterQuickCheckNumericRange`: a resolved schema field index,
+double bounds, and flags for inclusive/exclusive endpoints. Equality is a closed range
+with equal endpoints. Infinities are supported; NaN or reversed query bounds become
+UNKNOWN. These predicates must come from NUMERIC fields, not GEO encodings or raw strings.
+
+`FilterQuickCheckNumericSummary` summarizes every indexed numeric value of one field in
+one document version. Initialize a rebuild with `FilterQuickCheckNumericSummary_Init`
+and feed the actual indexed doubles through `FilterQuickCheckNumericSummary_Add` before
+publishing it. Do not round the bounds inward. Its states distinguish:
+
+- UNKNOWN: a zero-initialized, invalidated or unavailable summary; retain the candidate.
+- EMPTY: a complete field with no indexed numeric values; a positive range cannot match.
+- BOUNDS: minimum and maximum of all values, including every element of a numeric array.
+
+A disjoint range returns NO; overlap returns MAYBE. For a scalar, equal min/max accurately
+describe membership, but the API still requires exact verification. For an array such as
+`[10, 100]`, a query `[40, 60]` overlaps the summary despite matching neither value. Separate
+AND predicates may match different elements: do not intersect their query ranges into a
+single constraint without proving that the exact predicate requires the same element.
+NaN input or malformed bounds poison a builder to UNKNOWN until explicit reinitialization.
+
+Set `FilterQuickCheckContext.numericLookup` and `numericLookupContext` to a provider that
+copies a summary for `(docId, fieldIndex)`. It follows the same residency and generation
+contract as the term provider. Uncovered fields and absent summaries must return false or
+UNKNOWN, never EMPTY. Both providers must observe the same pinned document/schema version.
+No numeric summaries are embedded in the term bitmap or allocated per candidate.
+
+The providers are optional independently. A missing term summary must not prevent a
+numeric AND branch from rejecting, and vice versa; an unknown OR branch retains the
+candidate. Numeric-only plans do not fetch term signatures. Numeric summaries are fetched
+once per numeric leaf, including repeated predicates on a field. The standalone
+`FilterQuickCheck_Evaluate` is signature-only and treats numeric leaves as MAYBE; use
+`FilterQuickCheck_MayMatch` or `FilterQuickCheck_CheckBatch` for numeric and mixed plans.
 
 ## Consumer shape
 
@@ -82,6 +118,22 @@ The lookup callback copies one signature and returns false if it cannot safely s
 one. Missing, incomplete, invalidated, or unloaded summaries return MAYBE. A complete
 empty document signature is different: it can disprove positive term membership.
 
+For example, a numeric-only consumer can replace the predicate and context above with:
+
+```c
+FilterQuickCheckPredicate predicate = {
+    .type = FilterQuickCheck_NUMERIC,
+    .numeric = {.fieldIndex = priceFieldIndex, .min = 10, .max = 20,
+                .minInclusive = true, .maxInclusive = false},
+};
+FilterQuickCheck *check = FilterQuickCheck_Compile(&predicate);
+FilterQuickCheckContext context = {
+    .check = check,
+    .numericLookup = lookupCompleteResidentNumericSummary,
+    .numericLookupContext = pinnedDocumentSummaryStore,
+};
+```
+
 ## Ownership, updates, and ROF
 
 The future provider owns signature storage and its memory accounting. It must publish
@@ -89,16 +141,21 @@ only complete summaries, pin the schema/document generation observed by the quer
 make any concurrent lookup safe. An obsolete signature missing a newly added term can
 create a false negative, so it must be invalidated before the new document is visible.
 Do not clear individual bits for deletion; rebuild a complete replacement signature.
+Rebuild numeric min/max on removal or replacement of values too. Numeric publication,
+invalidation and reload coverage remain the future provider's responsibility.
 
 There is no stored matching-ID set, persistence change, or mandatory per-document
 allocation here. For ROF, the provider may use resident summaries and return unavailable
 on a cache miss. A future implementation must not make the quick callback perform
 blocking document reads. A reload without rebuilt summaries must also return unavailable.
 
-The representation consumes 32 bytes per covered document before storage overhead
+The term representation consumes 32 bytes per covered document before storage overhead
 (320 MB for 10 million documents). More terms increase saturation; signature size,
 cache layout, selectivity, and maintenance cost need workload measurements before
 choosing a production representation. No speedup or false-positive-rate claim is made.
+Each covered numeric field additionally needs two doubles and a state (typically 24 bytes
+for the API summary on a 64-bit platform), plus provider storage overhead. This PR neither
+chooses how many fields to cover nor changes persisted formats or existing query behavior.
 
 ## Follow-up integration requirements
 

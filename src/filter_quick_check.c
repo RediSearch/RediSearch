@@ -11,6 +11,7 @@
 #include "fnv_ffi.h"
 #include "rmalloc.h"
 
+#include <math.h>
 #include <string.h>
 
 /* Both compile recursion and per-candidate work are bounded independently of query size. */
@@ -20,13 +21,68 @@
 typedef struct {
   FilterQuickCheckPredicateType type;
   size_t arity;
-  FilterQuickCheckSignature mask;
+  union {
+    FilterQuickCheckSignature mask;
+    FilterQuickCheckNumericRange numeric;
+  };
 } QuickCheckInstruction;
 
 struct FilterQuickCheck {
   size_t len;
+  bool needsSignature;
   QuickCheckInstruction instructions[];
 };
+
+static bool validNumericBounds(const FilterQuickCheckNumericSummary* summary) {
+  return summary->state == FilterQuickCheckNumeric_BOUNDS && !isnan(summary->min) &&
+         !isnan(summary->max) && summary->min <= summary->max;
+}
+
+void FilterQuickCheckNumericSummary_Init(FilterQuickCheckNumericSummary* summary) {
+  if (summary) {
+    *summary = (FilterQuickCheckNumericSummary){.state = FilterQuickCheckNumeric_EMPTY};
+  }
+}
+
+void FilterQuickCheckNumericSummary_Add(FilterQuickCheckNumericSummary* summary, double value) {
+  if (!summary) {
+    return;
+  }
+  if (isnan(value) ||
+      (summary->state != FilterQuickCheckNumeric_EMPTY && !validNumericBounds(summary))) {
+    summary->state = FilterQuickCheckNumeric_UNKNOWN;
+  } else if (summary->state == FilterQuickCheckNumeric_EMPTY) {
+    *summary = (FilterQuickCheckNumericSummary){
+        .state = FilterQuickCheckNumeric_BOUNDS, .min = value, .max = value};
+  } else {
+    if (value < summary->min) {
+      summary->min = value;
+    }
+    if (value > summary->max) {
+      summary->max = value;
+    }
+  }
+}
+
+static bool numericMayMatch(const FilterQuickCheckNumericRange* range,
+                            const FilterQuickCheckContext* context, uint64_t docId) {
+  FilterQuickCheckNumericSummary summary = {0};
+  if (!context || !context->numericLookup ||
+      !context->numericLookup(context->numericLookupContext, docId, range->fieldIndex, &summary)) {
+    return true;
+  }
+  if (summary.state == FilterQuickCheckNumeric_EMPTY) {
+    return false;
+  }
+  if (!validNumericBounds(&summary)) {
+    return true;
+  }
+  if (range->min == range->max && (!range->minInclusive || !range->maxInclusive)) {
+    return false;
+  }
+  return (summary.max > range->min || (range->minInclusive && summary.max == range->min)) &&
+         (summary.min < range->max || (range->maxInclusive && summary.min == range->max));
+}
 
 static bool validTerm(const FilterQuickCheckTerm* term) {
   return term && term->value &&
@@ -73,6 +129,13 @@ static bool compile(const FilterQuickCheckPredicate* predicate, QuickCheckInstru
           FilterQuickCheckSignature_Add(&instruction.mask, &predicate->term);
         }
         break;
+      case FilterQuickCheck_NUMERIC:
+        if (!isnan(predicate->numeric.min) && !isnan(predicate->numeric.max) &&
+            predicate->numeric.min <= predicate->numeric.max) {
+          instruction.type = FilterQuickCheck_NUMERIC;
+          instruction.numeric = predicate->numeric;
+        }
+        break;
       case FilterQuickCheck_AND:
       case FilterQuickCheck_OR:
         if (predicate->operands.len > QUICK_CHECK_MAX_NODES ||
@@ -112,6 +175,10 @@ FilterQuickCheck* FilterQuickCheck_Compile(const FilterQuickCheckPredicate* pred
     return NULL;
   }
   check->len = len;
+  check->needsSignature = false;
+  for (size_t i = 0; i < len; ++i) {
+    check->needsSignature |= program[i].type == FilterQuickCheck_TERM;
+  }
   memcpy(check->instructions, program, len * sizeof(program[0]));
   return check;
 }
@@ -120,9 +187,10 @@ void FilterQuickCheck_Free(FilterQuickCheck* check) {
   rm_free(check);
 }
 
-FilterQuickCheckResult FilterQuickCheck_Evaluate(const FilterQuickCheck* check,
-                                                 const FilterQuickCheckSignature* signature) {
-  if (!check || !signature) {
+static FilterQuickCheckResult evaluate(const FilterQuickCheck* check,
+                                       const FilterQuickCheckSignature* signature,
+                                       const FilterQuickCheckContext* context, uint64_t docId) {
+  if (!check) {
     return FilterQuickCheck_MAYBE;
   }
   bool stack[QUICK_CHECK_MAX_NODES];
@@ -132,12 +200,18 @@ FilterQuickCheckResult FilterQuickCheck_Evaluate(const FilterQuickCheck* check,
     bool maybe = true;
     switch (instruction->type) {
       case FilterQuickCheck_TERM:
+        if (!signature) {
+          break;
+        }
         for (size_t w = 0; w < 4; ++w) {
           if ((signature->words[w] & instruction->mask.words[w]) != instruction->mask.words[w]) {
             maybe = false;
             break;
           }
         }
+        break;
+      case FilterQuickCheck_NUMERIC:
+        maybe = numericMayMatch(&instruction->numeric, context, docId);
         break;
       case FilterQuickCheck_AND:
       case FilterQuickCheck_OR:
@@ -155,9 +229,14 @@ FilterQuickCheckResult FilterQuickCheck_Evaluate(const FilterQuickCheck* check,
   return stack[0] ? FilterQuickCheck_MAYBE : FilterQuickCheck_NO;
 }
 
+FilterQuickCheckResult FilterQuickCheck_Evaluate(const FilterQuickCheck* check,
+                                                 const FilterQuickCheckSignature* signature) {
+  return signature ? evaluate(check, signature, NULL, 0) : FilterQuickCheck_MAYBE;
+}
+
 static FilterQuickCheckResult checkDocument(const FilterQuickCheckContext* context,
                                             uint64_t docId) {
-  if (!context || !context->check || !context->lookup) {
+  if (!context || !context->check) {
     return FilterQuickCheck_MAYBE;
   }
   if (context->check->len == 1 &&
@@ -165,10 +244,12 @@ static FilterQuickCheckResult checkDocument(const FilterQuickCheckContext* conte
     return FilterQuickCheck_MAYBE;
   }
   FilterQuickCheckSignature signature;
-  if (!context->lookup(context->lookupContext, docId, &signature)) {
-    return FilterQuickCheck_MAYBE;
+  const FilterQuickCheckSignature* available = NULL;
+  if (context->check->needsSignature && context->lookup &&
+      context->lookup(context->lookupContext, docId, &signature)) {
+    available = &signature;
   }
-  return FilterQuickCheck_Evaluate(context->check, &signature);
+  return evaluate(context->check, available, context, docId);
 }
 
 int FilterQuickCheck_MayMatch(void* context, size_t label) {

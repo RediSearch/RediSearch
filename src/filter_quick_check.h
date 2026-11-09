@@ -51,21 +51,54 @@ void FilterQuickCheckSignature_Add(FilterQuickCheckSignature* signature,
                                    const FilterQuickCheckTerm* term);
 
 typedef enum {
+  FilterQuickCheckNumeric_UNKNOWN,
+  FilterQuickCheckNumeric_EMPTY,
+  FilterQuickCheckNumeric_BOUNDS,
+} FilterQuickCheckNumericState;
+
+/* One field of one complete document version, covering every indexed numeric value.
+ * A zero-initialized summary is UNKNOWN, not proof that the field has no values.
+ * BOUNDS may enclose gaps in multivalued fields; overlap still requires exact verification. */
+typedef struct {
+  FilterQuickCheckNumericState state;
+  double min;
+  double max;
+} FilterQuickCheckNumericSummary;
+
+/* Start a complete rebuild; publish only after adding every indexed value of the field.
+ * NaN or invalid builder state makes the summary UNKNOWN until explicitly reinitialized. */
+void FilterQuickCheckNumericSummary_Init(FilterQuickCheckNumericSummary* summary);
+void FilterQuickCheckNumericSummary_Add(FilterQuickCheckNumericSummary* summary, double value);
+
+/* Resolved NUMERIC bounds in the same double representation used by the exact filter.
+ * Infinities and inclusive/exclusive endpoints are supported. NaN or reversed bounds
+ * compile to UNKNOWN. Do not use numeric encodings of GEO fields as numeric predicates. */
+typedef struct {
+  uint16_t fieldIndex;
+  double min;
+  double max;
+  bool minInclusive;
+  bool maxInclusive;
+} FilterQuickCheckNumericRange;
+
+typedef enum {
   FilterQuickCheck_UNKNOWN,
   FilterQuickCheck_TERM,
   FilterQuickCheck_AND,
   FilterQuickCheck_OR,
   /* Negation is deliberately unsupported; even an apparently present term may be a collision. */
   FilterQuickCheck_NOT,
+  FilterQuickCheck_NUMERIC,
 } FilterQuickCheckPredicateType;
 
 /* A caller builds this necessary-condition expression from its resolved query. Unsupported
- * predicates (ranges, wildcard expansions, optional clauses, etc.) must be UNKNOWN. An AND
+ * predicates (geo, wildcard expansions, optional clauses, etc.) must be UNKNOWN. An AND
  * may retain supported necessary conditions; an OR must retain every alternative. */
 typedef struct FilterQuickCheckPredicate {
   FilterQuickCheckPredicateType type;
   union {
     FilterQuickCheckTerm term;
+    FilterQuickCheckNumericRange numeric;
     struct {
       const struct FilterQuickCheckPredicate* children;
       size_t len;
@@ -82,7 +115,8 @@ typedef struct FilterQuickCheck FilterQuickCheck;
 FilterQuickCheck* FilterQuickCheck_Compile(const FilterQuickCheckPredicate* predicate);
 void FilterQuickCheck_Free(FilterQuickCheck* check);
 
-/* Allocation-free, read-only, independent of iterator position. NULL arguments return MAYBE. */
+/* Term-signature evaluation only: numeric leaves are MAYBE. Use the context callbacks for
+ * numeric checks. Allocation-free and read-only; NULL arguments return MAYBE. */
 FilterQuickCheckResult FilterQuickCheck_Evaluate(const FilterQuickCheck* check,
                                                  const FilterQuickCheckSignature* signature);
 
@@ -94,12 +128,22 @@ FilterQuickCheckResult FilterQuickCheck_Evaluate(const FilterQuickCheck* check,
 typedef bool (*FilterQuickCheckLookup)(void* context, uint64_t docId,
                                        FilterQuickCheckSignature* out);
 
-/* All three objects must outlive every callback. Concurrent use additionally requires a
- * thread-safe lookup/context. No global callback registration or hidden ownership. */
+/* Same generation, residency and synchronization contract as FilterQuickCheckLookup.
+ * EMPTY certifies that this field has no indexed numeric values; false/UNKNOWN means
+ * unavailable, including an uncovered field. All lookups must observe the same pinned
+ * document/schema generation, including repeated predicates on the same field. */
+typedef bool (*FilterQuickCheckNumericLookup)(void* context, uint64_t docId, uint16_t fieldIndex,
+                                              FilterQuickCheckNumericSummary* out);
+
+/* The check and lookup state must outlive every callback. Concurrent use requires thread-safe
+ * lookups. Either provider may be NULL independently; its leaves then evaluate as MAYBE.
+ * No global callback registration or hidden ownership. Zero-initialize unused members. */
 typedef struct {
   const FilterQuickCheck* check;
   FilterQuickCheckLookup lookup;
   void* lookupContext;
+  FilterQuickCheckNumericLookup numericLookup;
+  void* numericLookupContext;
 } FilterQuickCheckContext;
 
 /* VecSim-facing callback shape: 0 means reject, 1 means retain for exact verification.

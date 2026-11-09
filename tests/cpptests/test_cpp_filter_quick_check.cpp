@@ -10,9 +10,12 @@
 #include "gtest/gtest.h"
 
 #include <array>
+#include <cmath>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -23,12 +26,18 @@ Check compile(const FilterQuickCheckPredicate& predicate) {
   return Check(FilterQuickCheck_Compile(&predicate), FilterQuickCheck_Free);
 }
 
-FilterQuickCheckPredicate term(const char* value, uint16_t field = 1,
+FilterQuickCheckPredicate term(std::string_view value, uint16_t field = 1,
                                FilterQuickCheckTermKind kind = FilterQuickCheck_TAG) {
   FilterQuickCheckPredicate result = {};
   result.type = FilterQuickCheck_TERM;
-  result.term = {kind, field, value, strlen(value)};
+  result.term = {kind, field, value.data(), value.size()};
   return result;
+}
+
+template <size_t N>
+FilterQuickCheckPredicate term(const char (&value)[N], uint16_t field = 1,
+                               FilterQuickCheckTermKind kind = FilterQuickCheck_TAG) {
+  return term(std::string_view(value, N - 1), field, kind);
 }
 
 FilterQuickCheckPredicate compound(FilterQuickCheckPredicateType type,
@@ -59,6 +68,45 @@ struct Provider {
       return false;
     }
     *out = found->second;
+    return true;
+  }
+};
+
+FilterQuickCheckPredicate numeric(double min, double max, bool minInclusive = true,
+                                  bool maxInclusive = true, uint16_t field = 2) {
+  FilterQuickCheckPredicate result = {};
+  result.type = FilterQuickCheck_NUMERIC;
+  result.numeric = {field, min, max, minInclusive, maxInclusive};
+  return result;
+}
+
+FilterQuickCheckNumericSummary numericSummary(std::initializer_list<double> values) {
+  FilterQuickCheckNumericSummary result;
+  FilterQuickCheckNumericSummary_Init(&result);
+  for (double value : values) {
+    FilterQuickCheckNumericSummary_Add(&result, value);
+  }
+  return result;
+}
+
+struct NumericProvider {
+  std::unordered_map<uint64_t, std::unordered_map<uint16_t, FilterQuickCheckNumericSummary>>
+      documents;
+  std::vector<std::pair<uint64_t, uint16_t>> requests;
+
+  static bool lookup(void* opaque, uint64_t id, uint16_t field,
+                     FilterQuickCheckNumericSummary* out) {
+    auto& self = *static_cast<NumericProvider*>(opaque);
+    self.requests.emplace_back(id, field);
+    auto doc = self.documents.find(id);
+    if (doc == self.documents.end()) {
+      return false;
+    }
+    auto summary = doc->second.find(field);
+    if (summary == doc->second.end()) {
+      return false;
+    }
+    *out = summary->second;
     return true;
   }
 };
@@ -138,8 +186,8 @@ TEST(FilterQuickCheckTest, respectsNestedBooleanExpressionsForAllDocumentSubsets
     std::string a = "a" + std::to_string(seed);
     std::string b = "b" + std::to_string(seed);
     std::string c = "c" + std::to_string(seed);
-    std::array<FilterQuickCheckPredicate, 3> atoms = {term(a.c_str(), 1), term(b.c_str(), 2),
-                                                      term(c.c_str(), 3, FilterQuickCheck_TEXT)};
+    std::array<FilterQuickCheckPredicate, 3> atoms = {term(a, 1), term(b, 2),
+                                                      term(c, 3, FilterQuickCheck_TEXT)};
     std::array<FilterQuickCheckPredicate, 2> children = {
         compound(FilterQuickCheck_OR, atoms.data(), 2), atoms[2]};
     auto check = compile(compound(FilterQuickCheck_AND, children.data(), children.size()));
@@ -189,7 +237,7 @@ TEST(FilterQuickCheckTest, invalidAndMissingInputsCannotReject) {
   auto malformed = compile(compound(FilterQuickCheck_AND, nullptr, 1));
   EXPECT_EQ(FilterQuickCheck_Evaluate(malformed.get(), &empty), FilterQuickCheck_MAYBE);
   EXPECT_EQ(FilterQuickCheck_MayMatch(nullptr, 1), 1);
-  FilterQuickCheckContext missingLookup = {valid.get(), nullptr, nullptr};
+  FilterQuickCheckContext missingLookup = {valid.get(), nullptr, nullptr, nullptr, nullptr};
   EXPECT_EQ(FilterQuickCheck_MayMatch(&missingLookup, 1), 1);
 }
 
@@ -215,7 +263,7 @@ TEST(FilterQuickCheckTest, callbackAndBatchesAllowRandomAccessAndMissingSummarie
   Provider provider;
   provider.documents[10] = signature({predicate});
   provider.documents[3] = {};
-  FilterQuickCheckContext context = {check.get(), Provider::lookup, &provider};
+  FilterQuickCheckContext context = {check.get(), Provider::lookup, &provider, nullptr, nullptr};
   const std::array<uint64_t, 5> ids = {10, 3, 999, 3, 10};
   std::array<FilterQuickCheckResult, ids.size()> results;
   FilterQuickCheck_CheckBatch(&context, ids.data(), ids.size(), results.data());
@@ -239,7 +287,7 @@ TEST(FilterQuickCheckTest, unsupportedPlanDoesNotFetchDocumentSummaries) {
   FilterQuickCheckPredicate unknown = {};
   auto check = compile(unknown);
   Provider provider;
-  FilterQuickCheckContext context = {check.get(), Provider::lookup, &provider};
+  FilterQuickCheckContext context = {check.get(), Provider::lookup, &provider, nullptr, nullptr};
   EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 42), 1);
   EXPECT_TRUE(provider.requests.empty());
 }
@@ -253,7 +301,7 @@ TEST(FilterQuickCheckTest, exactRecheckRemovesFalsePositivesWithoutLosingMatches
   // Model a collision/saturated signature for a nonmatching document.
   memset(&provider.documents[3], 0xff, sizeof(FilterQuickCheckSignature));
   // Document 4 matches but has no resident summary; it must reach the exact filter.
-  FilterQuickCheckContext context = {check.get(), Provider::lookup, &provider};
+  FilterQuickCheckContext context = {check.get(), Provider::lookup, &provider, nullptr, nullptr};
   std::vector<uint64_t> verified, rechecked;
   for (uint64_t id : {4, 3, 2, 1}) {
     if (FilterQuickCheck_MayMatch(&context, id)) {
@@ -265,4 +313,216 @@ TEST(FilterQuickCheckTest, exactRecheckRemovesFalsePositivesWithoutLosingMatches
   }
   EXPECT_EQ(rechecked, (std::vector<uint64_t>{4, 3, 1}));
   EXPECT_EQ(verified, (std::vector<uint64_t>{4, 1}));
+}
+
+TEST(FilterQuickCheckTest, numericBuilderRequiresInitializationAndPoisonsInvalidInput) {
+  FilterQuickCheckNumericSummary summary = {};
+  FilterQuickCheckNumericSummary_Add(&summary, 5);
+  EXPECT_EQ(summary.state, FilterQuickCheckNumeric_UNKNOWN);
+  FilterQuickCheckNumericSummary_Init(&summary);
+  EXPECT_EQ(summary.state, FilterQuickCheckNumeric_EMPTY);
+  for (double value : {5.0, -2.0, 9.0, 5.0}) {
+    FilterQuickCheckNumericSummary_Add(&summary, value);
+  }
+  EXPECT_EQ(summary.state, FilterQuickCheckNumeric_BOUNDS);
+  EXPECT_EQ(summary.min, -2);
+  EXPECT_EQ(summary.max, 9);
+  FilterQuickCheckNumericSummary_Add(&summary, std::numeric_limits<double>::quiet_NaN());
+  FilterQuickCheckNumericSummary_Add(&summary, 7);
+  EXPECT_EQ(summary.state, FilterQuickCheckNumeric_UNKNOWN);
+  FilterQuickCheckNumericSummary_Init(&summary);
+  FilterQuickCheckNumericSummary_Add(&summary, 7);
+  EXPECT_EQ(summary.min, 7);
+  EXPECT_EQ(summary.max, 7);
+  summary.min = 8;
+  FilterQuickCheckNumericSummary_Add(&summary, 10);
+  EXPECT_EQ(summary.state, FilterQuickCheckNumeric_UNKNOWN);
+  FilterQuickCheckNumericSummary_Init(nullptr);
+  FilterQuickCheckNumericSummary_Add(nullptr, 1);
+}
+
+TEST(FilterQuickCheckTest, numericScalarChecksRespectEndpointsInfinityAndSignedZero) {
+  const double inf = std::numeric_limits<double>::infinity();
+  const std::array<double, 7> values = {-inf, -1, -0.0, 0.0, 1, 2, inf};
+  NumericProvider provider;
+  FilterQuickCheckContext context = {nullptr, nullptr, nullptr, NumericProvider::lookup, &provider};
+  for (double min : values) {
+    for (double max : values) {
+      if (min > max) {
+        continue;
+      }
+      for (unsigned inclusive = 0; inclusive < 4; ++inclusive) {
+        auto predicate = numeric(min, max, inclusive & 1, inclusive & 2);
+        auto check = compile(predicate);
+        context.check = check.get();
+        for (double value : values) {
+          provider.documents[1][2] = numericSummary({value});
+          bool exact = (predicate.numeric.minInclusive ? value >= min : value > min) &&
+                       (predicate.numeric.maxInclusive ? value <= max : value < max);
+          EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), exact)
+              << "value=" << value << " min=" << min << " max=" << max
+              << " inclusive=" << inclusive;
+        }
+        provider.documents[1][2] = numericSummary({});
+        EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 0);
+      }
+    }
+  }
+}
+
+TEST(FilterQuickCheckTest, numericMultivalueBoundsNeverRejectAnExactMatch) {
+  const double inf = std::numeric_limits<double>::infinity();
+  const std::array<double, 6> values = {-inf, -10, -0.0, 0.0, 10, inf};
+  const std::array<double, 7> endpoints = {-inf, -11, -1, 0, 1, 11, inf};
+  NumericProvider provider;
+  FilterQuickCheckContext context = {nullptr, nullptr, nullptr, NumericProvider::lookup, &provider};
+  for (double min : endpoints) {
+    for (double max : endpoints) {
+      if (min > max) {
+        continue;
+      }
+      for (unsigned inclusive = 0; inclusive < 4; ++inclusive) {
+        auto predicate = numeric(min, max, inclusive & 1, inclusive & 2);
+        auto check = compile(predicate);
+        context.check = check.get();
+        for (unsigned subset = 0; subset < (1U << values.size()); ++subset) {
+          auto summary = numericSummary({});
+          bool exact = false;
+          for (size_t j = 0; j < values.size(); ++j) {
+            if (subset & (1U << j)) {
+              FilterQuickCheckNumericSummary_Add(&summary, values[j]);
+              exact |= (predicate.numeric.minInclusive ? values[j] >= min : values[j] > min) &&
+                       (predicate.numeric.maxInclusive ? values[j] <= max : values[j] < max);
+            }
+          }
+          provider.documents[1][2] = summary;
+          const bool maybe = FilterQuickCheck_MayMatch(&context, 1);
+          EXPECT_FALSE(exact && !maybe) << "subset=" << subset << " min=" << min << " max=" << max
+                                        << " inclusive=" << inclusive;
+          if (!subset) {
+            EXPECT_FALSE(maybe);
+          }
+        }
+      }
+    }
+  }
+}
+
+TEST(FilterQuickCheckTest, numericGapsAndIndependentArrayPredicatesRequireExactRechecks) {
+  NumericProvider provider;
+  provider.documents[1][2] = numericSummary({10, 100});
+  auto gap = compile(numeric(40, 60));
+  FilterQuickCheckContext context = {gap.get(), nullptr, nullptr, NumericProvider::lookup,
+                                     &provider};
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+  // Different array elements can satisfy different conjuncts on the same field.
+  std::array<FilterQuickCheckPredicate, 2> children = {numeric(10, 10), numeric(100, 100)};
+  auto both = compile(compound(FilterQuickCheck_AND, children.data(), children.size()));
+  context.check = both.get();
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+}
+
+TEST(FilterQuickCheckTest, numericUnknownEmptyInvalidAndUncoveredFieldsAreDistinct) {
+  NumericProvider provider;
+  auto check = compile(numeric(20, 30));
+  FilterQuickCheckContext context = {check.get(), nullptr, nullptr, NumericProvider::lookup,
+                                     &provider};
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+  provider.documents[1][3] = numericSummary({});
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+  auto& summary = provider.documents[1][2];
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+  summary = numericSummary({});
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 0);
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  for (auto malformed : {FilterQuickCheckNumericSummary{FilterQuickCheckNumeric_BOUNDS, 30, 20},
+                         FilterQuickCheckNumericSummary{FilterQuickCheckNumeric_BOUNDS, nan, 20},
+                         FilterQuickCheckNumericSummary{FilterQuickCheckNumeric_BOUNDS, 20, nan}}) {
+    summary = malformed;
+    EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+  }
+  summary = numericSummary({0});
+  for (const auto& invalid : {numeric(nan, 1), numeric(0, nan), numeric(2, 1)}) {
+    auto invalidCheck = compile(invalid);
+    context.check = invalidCheck.get();
+    provider.requests.clear();
+    EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+    EXPECT_TRUE(provider.requests.empty());
+  }
+}
+
+TEST(FilterQuickCheckTest, numericAndTermProvidersFailOpenIndependently) {
+  Provider terms;
+  NumericProvider numbers;
+  terms.documents[1] = {};
+  numbers.documents[1][2] = numericSummary({100});
+  std::array<FilterQuickCheckPredicate, 2> children = {term("book"), numeric(10, 20)};
+  auto both = compile(compound(FilterQuickCheck_AND, children.data(), children.size()));
+  auto either = compile(compound(FilterQuickCheck_OR, children.data(), children.size()));
+  FilterQuickCheckContext context = {both.get(), Provider::lookup, &terms, NumericProvider::lookup,
+                                     &numbers};
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 0);
+  context.lookup = nullptr;
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 0);
+  context.check = either.get();
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+  context.lookup = Provider::lookup;
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 0);
+  context.numericLookup = nullptr;
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+  context.check = both.get();
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 0);
+  context.numericLookup = NumericProvider::lookup;
+  terms.documents.erase(1);
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 0);
+  terms.documents[1] = {};
+  numbers.documents.erase(1);
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 0);
+  terms.documents.erase(1);
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+}
+
+TEST(FilterQuickCheckTest, numericOnlySkipsSignatureLookupAndSupportsBatchReplacement) {
+  Provider terms;
+  NumericProvider numbers;
+  auto predicate = numeric(10, 20);
+  auto check = compile(predicate);
+  predicate.numeric = {3, 100, 200, true, true};
+  numbers.documents[5][2] = numericSummary({15});
+  numbers.documents[2][2] = numericSummary({30});
+  FilterQuickCheckContext context = {check.get(), Provider::lookup, &terms, NumericProvider::lookup,
+                                     &numbers};
+  const std::array<uint64_t, 5> ids = {5, 2, 999, 2, 5};
+  std::array<FilterQuickCheckResult, ids.size()> results;
+  FilterQuickCheck_CheckBatch(&context, ids.data(), ids.size(), results.data());
+  EXPECT_EQ(results, (std::array<FilterQuickCheckResult, 5>{
+                         FilterQuickCheck_MAYBE, FilterQuickCheck_NO, FilterQuickCheck_MAYBE,
+                         FilterQuickCheck_NO, FilterQuickCheck_MAYBE}));
+  EXPECT_TRUE(terms.requests.empty());
+  EXPECT_EQ(numbers.requests,
+            (std::vector<std::pair<uint64_t, uint16_t>>{{5, 2}, {2, 2}, {999, 2}, {2, 2}, {5, 2}}));
+  numbers.documents.erase(2);
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 2), 1);
+  numbers.documents[2][2] = numericSummary({12});
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 2), 1);
+}
+
+TEST(FilterQuickCheckTest, signatureOnlyEvaluationAndNegatedNumericLeavesStayConservative) {
+  auto range = numeric(10, 20);
+  auto check = compile(range);
+  FilterQuickCheckSignature empty = {};
+  EXPECT_EQ(FilterQuickCheck_Evaluate(check.get(), &empty), FilterQuickCheck_MAYBE);
+  FilterQuickCheckContext absent = {check.get(), nullptr, nullptr, nullptr, nullptr};
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&absent, 1), 1);
+  NumericProvider provider;
+  provider.documents[1][2] = numericSummary({30});
+  auto negated = compile(compound(FilterQuickCheck_NOT, &range, 1));
+  FilterQuickCheckContext context = {negated.get(), nullptr, nullptr, NumericProvider::lookup,
+                                     &provider};
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+  EXPECT_TRUE(provider.requests.empty());
+  auto termCheck = compile(term("book"));
+  context.check = termCheck.get();
+  EXPECT_EQ(FilterQuickCheck_MayMatch(&context, 1), 1);
+  EXPECT_TRUE(provider.requests.empty());
 }
