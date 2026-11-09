@@ -344,6 +344,113 @@ fn hll_cardinality_is_recomputed_correctly_when_last_block_fully_emptied(
     );
 }
 
+#[rstest]
+fn hll_cardinality_counts_a_new_value_written_after_the_fork(
+    #[values(false, true)] compress_floats: bool,
+) {
+    // A single full block, so the parent's post-fork writes open a new block
+    // and leave the fork-time last block untouched. Uses the real scan, since
+    // the cardinality check needs real HLL registers.
+    let n = ENTRIES_PER_BLOCK;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for i in 1..=n {
+        tree.add(i, 1.0, false, false, 0);
+    }
+    assert!(tree.root().is_leaf());
+
+    let delta = tree
+        .node(tree.root_index())
+        .scan_gc(&|doc_id| doc_id % 2 == 0)
+        .expect("should have GC work");
+
+    for i in n + 1..=n + ENTRIES_PER_BLOCK / 2 {
+        tree.add(i, 2.0, false, false, 0);
+    }
+
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
+
+    assert!(!result.index_gc_info.ignored_last_block);
+    let cardinality = tree.root().range().unwrap().cardinality();
+    assert_eq!(
+        cardinality, 2,
+        "the post-fork block's 2.0 must be folded in next to 1.0, got {cardinality}"
+    );
+}
+
+#[rstest]
+fn hll_cardinality_with_ignored_last_block_and_a_new_block_after_the_fork(
+    #[values(false, true)] compress_floats: bool,
+) {
+    // Block 0 (full): value 1.0. Block 1 (half-full): value 2.0.
+    let half = ENTRIES_PER_BLOCK / 2;
+    let n = ENTRIES_PER_BLOCK + half;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for i in 1..=n {
+        let value = if i <= ENTRIES_PER_BLOCK { 1.0 } else { 2.0 };
+        tree.add(i, value, false, false, 0);
+    }
+    assert!(tree.root().is_leaf());
+
+    // Delete entries from both blocks, so the delta covers the last block. Uses
+    // the real scan, since the cardinality check needs real HLL registers.
+    let delta = tree
+        .node(tree.root_index())
+        .scan_gc(&|doc_id| doc_id % 2 == 0)
+        .expect("should have GC work");
+
+    // Post-fork writes: fill block 1 with 3.0 (changing it, so its delta is
+    // ignored), then spill one 4.0 entry into a new block.
+    for i in n + 1..=n + half {
+        tree.add(i, 3.0, false, false, 0);
+    }
+    tree.add(n + half + 1, 4.0, false, false, 0);
+
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
+
+    assert!(result.index_gc_info.ignored_last_block);
+    let cardinality = tree.root().range().unwrap().cardinality();
+    assert_eq!(
+        cardinality, 4,
+        "1.0 survives in block 0, block 1 keeps 2.0 and 3.0, and the new block adds 4.0, \
+         got {cardinality}"
+    );
+}
+
+#[rstest]
+fn hll_cardinality_drops_when_a_whole_block_is_deleted_without_parent_writes(
+    #[values(false, true)] compress_floats: bool,
+) {
+    // Blocks 0 and 2 hold 1.0 and 4.0; the middle block holds two values of its
+    // own, 2.0 then 3.0, so deleting it must drop both.
+    let n = ENTRIES_PER_BLOCK * 3;
+    let mut tree = NumericRangeTree::new(compress_floats);
+    for i in 1..=n {
+        let value = match (i - 1) / ENTRIES_PER_BLOCK {
+            0 => 1.0,
+            1 if i <= ENTRIES_PER_BLOCK + ENTRIES_PER_BLOCK / 2 => 2.0,
+            1 => 3.0,
+            _ => 4.0,
+        };
+        tree.add(i, value, false, false, 0);
+    }
+    assert!(tree.root().is_leaf());
+    assert_eq!(tree.root().range().unwrap().cardinality(), 4);
+
+    // Delete the middle block entirely.
+    let delta = tree
+        .node(tree.root_index())
+        .scan_gc(&|doc_id| !(ENTRIES_PER_BLOCK + 1..=ENTRIES_PER_BLOCK * 2).contains(&doc_id))
+        .expect("should have GC work");
+    let result = tree.apply_gc_to_node(tree.root_index(), delta).unwrap();
+
+    assert!(!result.index_gc_info.ignored_last_block);
+    let cardinality = tree.root().range().unwrap().cardinality();
+    assert_eq!(
+        cardinality, 2,
+        "only 1.0 and 4.0 should survive the deleted block, got {cardinality}"
+    );
+}
+
 // ============================================================================
 // GC repopulation and intensive delete tests
 // ============================================================================
