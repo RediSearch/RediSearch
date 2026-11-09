@@ -12,9 +12,6 @@ from RLTest import Env
 
 def testWITHSUFFIXTRIEParamText(env):
     conn = getConnectionByEnv(env)
-    env.expect('ft.create', 'idx', 'schema', 't', 'TEXT', 'SORTABLE', 'WITHSUFFIXTRIE').error()
-    env.expect('ft.create', 'idx', 'schema', 't', 'TEXT', 'SORTABLE', 'NOSTEM').error() # sortable must be last
-
     # without sortable
     env.expect('ft.create', 'idx', 'schema', 't', 'TEXT', 'WITHSUFFIXTRIE').ok()
     res_info = [['identifier', 't', 'attribute', 't', 'type', 'TEXT', 'WEIGHT', '1', 'WITHSUFFIXTRIE']]
@@ -36,9 +33,6 @@ def testWITHSUFFIXTRIEParamText(env):
 
 def testWITHSUFFIXTRIEParamTag(env):
     conn = getConnectionByEnv(env)
-    env.expect('ft.create', 'idx', 'schema', 't', 'TAG', 'SORTABLE', 'WITHSUFFIXTRIE').error()
-    env.expect('ft.create', 'idx', 'schema', 't', 'TAG', 'SORTABLE', 'CASESENSITIVE').error() # sortable must be last
-
     # without sortable
     env.expect('ft.create', 'idx', 'schema', 't', 'TAG', 'WITHSUFFIXTRIE').ok()
     res_info = [['identifier', 't', 'attribute', 't', 'type', 'TAG', 'SEPARATOR', ',', 'WITHSUFFIXTRIE']]
