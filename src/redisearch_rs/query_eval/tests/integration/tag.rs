@@ -2408,9 +2408,8 @@ fn eval_tag_wildcard_suffix_trie_expansion_stops_at_the_deadline() {
 
 #[test]
 fn eval_tag_lex_range_walk_stops_at_the_deadline() {
-    // The cap counts readers opened, not values visited, so it cannot bound a
-    // walk on its own: a value whose reader does not open leaves the count
-    // where it was. The deadline is what ends such a walk.
+    // A range is not bound by the expansion cap, so the deadline is what ends a
+    // long walk.
     let mut fixture = TagFixture::new(TagOptions {
         values: generated(TIMEOUT_VALUES, 100),
         children: vec![Child::LexRange {
@@ -2425,6 +2424,69 @@ fn eval_tag_lex_range_walk_stops_at_the_deadline() {
     let ids = drain_doc_ids(&mut it);
     assert!(!ids.is_empty());
     assert!((ids.len() as u32) < TIMEOUT_VALUES);
+}
+
+/// How many documents the single value of the drain-limit tests holds: several
+/// times the postings read between two of the drain's limit probes.
+const BULK_DOCS: DocId = 5000;
+
+/// One value carrying [`BULK_DOCS`] documents, so the trie walk visits a single
+/// value and only the drain's own probes can stop the collection.
+fn bulk_value() -> Vec<Indexed> {
+    vec![(b"bulk".to_vec(), (1..=BULK_DOCS).collect())]
+}
+
+#[test]
+fn eval_tag_lex_range_drain_stops_at_the_deadline() {
+    let mut fixture = TagFixture::new(TagOptions {
+        values: bulk_value(),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        timeout: Timeout::Expired,
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("the drain starts before it times out");
+    let ids = drain_doc_ids(&mut it);
+    assert!(!ids.is_empty());
+    assert!((ids.len() as DocId) < BULK_DOCS);
+}
+
+#[test]
+fn eval_tag_lex_range_drain_stops_when_the_blocked_client_is_cancelled() {
+    let mut fixture = TagFixture::new(TagOptions {
+        values: bulk_value(),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        timeout: Timeout::BlockedClientCancelled,
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("the drain starts before it is cancelled");
+    let ids = drain_doc_ids(&mut it);
+    assert!(!ids.is_empty());
+    assert!((ids.len() as DocId) < BULK_DOCS);
+}
+
+#[test]
+fn eval_tag_lex_range_drain_ignores_the_deadline_when_checks_are_skipped() {
+    let mut fixture = TagFixture::new(TagOptions {
+        values: bulk_value(),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        timeout: Timeout::ExpiredButSkipped,
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("every document is in range");
+    assert_eq!(drain_doc_ids(&mut it).len() as DocId, BULK_DOCS);
 }
 
 #[test]

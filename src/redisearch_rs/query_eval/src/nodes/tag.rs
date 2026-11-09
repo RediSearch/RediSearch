@@ -11,7 +11,7 @@
 
 use std::{
     ffi::{CStr, c_void},
-    ops::Bound,
+    ops::{Bound, ControlFlow},
     ptr::NonNull,
     time::Instant,
 };
@@ -27,7 +27,7 @@ use query_flags::QEFlag;
 use query_types::QueryNodeType;
 use rqe_core::{DocId, FieldIndex};
 use rqe_iterators::{
-    ExpirationChecker as _, FieldExpirationChecker, RQEIterator as _,
+    FieldExpirationChecker, RQEIterator as _,
     c2rust::CRQEIterator,
     lex_range::LexRange,
     union_opaque::{build_union, build_union_with_q_str},
@@ -405,9 +405,20 @@ fn eval_lex_range<'index>(
         .frequency(1)
         .weight(effective_weight)
         .build();
+    let sctx = NonNull::new(ctx.sctx_ptr() as *mut ffi::RedisSearchCtx)
+        .expect("a query evaluation context always has a search context");
+    let filter = FieldFilterContext {
+        field: FieldMaskOrIndex::Index(field.index),
+        predicate: FieldExpirationPredicate::Default,
+    };
+    // SAFETY: the search context and its spec outlive the query iterator this
+    // checker is moved into. The reader flags only choose between narrow and
+    // wide field masks, which a field-index filter never reads.
+    let expiration = unsafe { FieldExpirationChecker::new(sctx, filter, 0) };
     Some(Evaluated::RustLeaf(Box::new(LexRange::new(
         doc_ids,
         result,
+        expiration,
         clause_bound,
         values_walked,
     ))))
@@ -446,6 +457,33 @@ fn range_boundary(bound: &Bound<Vec<u8>>) -> Option<RangeBoundary<'_>> {
 /// cadence `trie_rs` uses between its own clock probes.
 const CANCELLATION_CHECK_GRANULARITY: u32 = 100;
 
+/// Postings read between two request-limit probes while draining one value.
+const POSTINGS_CHECK_GRANULARITY: u32 = 1024;
+
+/// The request's limits as a range's drain observes them.
+///
+/// The trie walk probes between values, but a single value can hold any number
+/// of documents, so draining one probes on its own cadence too.
+struct DrainLimits {
+    deadline: Option<Instant>,
+    until_check: u32,
+}
+
+impl DrainLimits {
+    /// Whether the request has run out of time or been cancelled, probed once
+    /// every [`POSTINGS_CHECK_GRANULARITY`] calls.
+    fn exceeded(&mut self, ctx: &QueryEvalContext) -> bool {
+        self.until_check -= 1;
+        if self.until_check > 0 {
+            return false;
+        }
+        self.until_check = POSTINGS_CHECK_GRANULARITY;
+        self.deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+            || blocked_client_cancelled(ctx)
+    }
+}
+
 /// Collect the documents of every value the range covers.
 ///
 /// A range over a unique field covers one value per document, so a union of
@@ -460,13 +498,16 @@ fn collect_range_doc_ids(
     filter: RangeFilter<'_>,
     field_index: ffi::t_fieldIndex,
 ) -> (Vec<DocId>, usize) {
+    let deadline = clock_deadline(ctx)
+        .and_then(duration_from_redis_timespec)
+        .map(|remaining| Instant::now() + remaining);
     let values = index.values().range_iter(filter);
     let mut values = RangeLendingIter::from(values);
-    values.set_timeout(
-        clock_deadline(ctx)
-            .and_then(duration_from_redis_timespec)
-            .map(|remaining| Instant::now() + remaining),
-    );
+    values.set_timeout(deadline);
+    let mut limits = DrainLimits {
+        deadline,
+        until_check: POSTINGS_CHECK_GRANULARITY,
+    };
 
     let mut doc_ids = Vec::new();
     let mut until_cancellation_check = CANCELLATION_CHECK_GRANULARITY;
@@ -484,36 +525,46 @@ fn collect_range_doc_ids(
                 break;
             }
         }
+        // A drain that hits the request's limits ends the whole collection; the
+        // pipeline's own deadline check reports it, and the documents collected
+        // so far stand.
         if in_memory {
-            drain_postings(ctx, *postings, field_index, &mut doc_ids);
+            if drain_postings(ctx, *postings, &mut limits, &mut doc_ids).is_break() {
+                break;
+            }
             continue;
         }
         let Some(mut reader) = open_reader_child(ctx, index, value, field_index) else {
             continue;
         };
-        // A read error is the reader's deadline, which the pipeline's own
-        // deadline check reports; the documents drained so far stand.
+        // A read error is the reader's deadline.
         while let Ok(Some(result)) = reader.read() {
             doc_ids.push(result.doc_id);
+            if limits.exceeded(ctx) {
+                return (doc_ids, values_walked);
+            }
         }
     }
     (doc_ids, values_walked)
 }
 
-/// Append the documents of one in-memory tag value's postings, skipping those
-/// whose field has expired, as the value's reader would.
+/// Append the documents of one in-memory tag value's postings, breaking once
+/// the request's limits are exceeded.
+///
+/// Field expiration is not checked here but when the documents are read, which
+/// can be in a later cursor batch than this collection.
 fn drain_postings(
     ctx: &QueryEvalContext,
     postings: *mut c_void,
-    field_index: ffi::t_fieldIndex,
+    limits: &mut DrainLimits,
     doc_ids: &mut Vec<DocId>,
-) {
+) -> ControlFlow<()> {
     // SAFETY: in memory, a tag index's values trie maps each value to its
     // `InvertedIndex`, which the query's spec read lock keeps alive and unchanged.
     let postings = unsafe { &*postings.cast::<InvertedIndex>() };
     match postings {
-        InvertedIndex::DocIdsOnly(ii) => drain_reader(ctx, ii.reader(), field_index, doc_ids),
-        InvertedIndex::RawDocIdsOnly(ii) => drain_reader(ctx, ii.reader(), field_index, doc_ids),
+        InvertedIndex::DocIdsOnly(ii) => drain_reader(ctx, ii.reader(), limits, doc_ids),
+        InvertedIndex::RawDocIdsOnly(ii) => drain_reader(ctx, ii.reader(), limits, doc_ids),
         _ => unreachable!("tag values are indexed with doc-ids-only encodings"),
     }
 }
@@ -521,26 +572,17 @@ fn drain_postings(
 fn drain_reader<'index>(
     ctx: &QueryEvalContext,
     mut reader: impl IndexReader<'index>,
-    field_index: ffi::t_fieldIndex,
+    limits: &mut DrainLimits,
     doc_ids: &mut Vec<DocId>,
-) {
-    let sctx = NonNull::new(ctx.sctx_ptr() as *mut ffi::RedisSearchCtx)
-        .expect("a query evaluation context always has a search context");
-    let filter = FieldFilterContext {
-        field: FieldMaskOrIndex::Index(field_index),
-        predicate: FieldExpirationPredicate::Default,
-    };
-    // SAFETY: the search context and its spec outlive the evaluation, and so
-    // this checker, which does not escape it.
-    let checker = unsafe { FieldExpirationChecker::new(sctx, filter, reader.flags()) };
-    let check_expiration = checker.has_expiration();
+) -> ControlFlow<()> {
     let mut result = RSIndexResult::build_virt().build();
     while let Ok(true) = reader.next_record(&mut result) {
-        if check_expiration && checker.is_expired_trusting_inline_bit(&result) {
-            continue;
-        }
         doc_ids.push(result.doc_id);
+        if limits.exceeded(ctx) {
+            return ControlFlow::Break(());
+        }
     }
+    ControlFlow::Continue(())
 }
 
 /// Evaluate a `@tag:{w'pattern'}` child as a union of every value matching the pattern.

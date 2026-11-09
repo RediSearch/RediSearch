@@ -494,6 +494,38 @@ def testRangeReadsTheFieldItNames(env):
     env.assertEqual(search(env, '@t1:>{a}'), ['doc1'])
 
 
+# The cursor's batches are per shard, so which document a batch boundary falls
+# after only holds on one.
+@skip(cluster=True)
+def testFieldExpiringBetweenCursorBatchesIsNotReturned(env):
+    """A range checks field expiration as it reads, not only as it collects.
+
+    A range collects its documents when the query is evaluated, but a cursor
+    reads them batch by batch, and a field can expire in between. The document
+    itself stays live, so nothing after the range would filter it.
+    """
+    enable_unstable_features(env)
+    conn = create_index(env, 't', 'TAG', 'n', 'NUMERIC')
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    for i in range(1, 5):
+        conn.execute_command('HSET', f'doc{i}', 't', f'v{i}', 'n', i)
+    # The TTL is set before the query rather than between batches: setting it
+    # reindexes the document, which would retire the collected id instead of
+    # expiring its field.
+    conn.execute_command('HPEXPIRE', 'doc3', '500', 'FIELDS', '1', 't')
+
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:>{a}', 'LOAD', '1', '@__key',
+                          'WITHCURSOR', 'COUNT', '1', 'DIALECT', '2')
+    keys = [row[1] for row in res[1:]]
+    env.assertEqual(len(keys), 1, message='a later batch must hold doc3')
+    time.sleep(0.7)
+    while cursor:
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        keys += [row[1] for row in res[1:]]
+
+    env.assertEqual(sorted(keys), ['doc1', 'doc2', 'doc4'])
+
+
 def testSortOrderAndIndexOrderCanDiffer(env):
     """Keyset pagination needs SORTBY and the range to agree, and they only do
     when the field text is already an indexed tag value.

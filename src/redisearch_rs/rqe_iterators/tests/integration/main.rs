@@ -43,6 +43,7 @@ mod id_list;
 mod interop;
 mod intersection;
 mod inverted_index;
+mod lex_range;
 mod maybe_empty;
 mod metric;
 mod min_heap;

@@ -16,31 +16,43 @@ use index_spec::IndexSpecReadGuard;
 use rqe_core::DocId;
 
 use crate::{
-    IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus, SkipToOutcome,
+    ExpirationChecker, IteratorType, RQEIterator, RQEIteratorError, RQEValidateStatus,
+    SkipToOutcome,
     id_list::IdListSorted,
     profile_print::{ProfilePrint, ProfilePrintCtx},
 };
 
 /// An [`IdListSorted`] over the documents of every value a lex range covers.
 ///
-/// Iteration is the ID list's. What this adds is the profile: the range prints
-/// under its own name and bound, as the per-value union it replaces did, so two
-/// range clauses on one field can still be told apart, and it reports how many
-/// values the walk visited, which is the walk's own progress rather than the
-/// pipeline's.
-pub struct LexRange<'index> {
+/// The documents are collected when the query is evaluated, but whether their
+/// field has expired is checked as each is read, as a tag value's reader does:
+/// a cursor can read a later batch at a later time.
+///
+/// The profile prints the range under its own name and bound, as the per-value
+/// union it replaces did, so two range clauses on one field can still be told
+/// apart, and reports how many values the walk visited, which is the walk's own
+/// progress rather than the pipeline's.
+pub struct LexRange<'index, C> {
     ids: IdListSorted<'index>,
+    expiration: C,
+    /// Whether any document in the index can have an expiring field, decided at
+    /// construction as an inverted-index iterator decides it.
+    check_expiration: bool,
+    /// The last document returned. Tracked here rather than read off the ID
+    /// list, which is positioned on an expired document it skipped over too.
+    last_doc_id: DocId,
     /// `LEXRANGE`, or `LEXRANGE - <bound>` when the clause carries one.
     profile_name: CString,
     values_walked: usize,
 }
 
-impl<'index> LexRange<'index> {
+impl<'index, C: ExpirationChecker> LexRange<'index, C> {
     /// Wrap the sorted, deduplicated `ids` a range collected after walking
     /// `values_walked` values, labelled with the clause's `bound`, if any.
     pub fn new(
         ids: Vec<DocId>,
         result: RSIndexResult<'index>,
+        expiration: C,
         bound: Option<&CStr>,
         values_walked: usize,
     ) -> Self {
@@ -50,6 +62,9 @@ impl<'index> LexRange<'index> {
         };
         Self {
             ids: IdListSorted::with_result(ids, result),
+            check_expiration: expiration.has_expiration(),
+            expiration,
+            last_doc_id: 0,
             profile_name: CString::new(profile_name)
                 .expect("a bound is a C string, so it carries no interior NUL"),
             values_walked,
@@ -57,23 +72,59 @@ impl<'index> LexRange<'index> {
     }
 }
 
-impl<'index> RQEIterator<'index> for LexRange<'index> {
+impl<'index, C: ExpirationChecker> LexRange<'index, C> {
+    /// Whether the document the ID list is positioned on has an expired field.
+    fn current_expired(&mut self) -> bool {
+        let current = self
+            .ids
+            .current()
+            .expect("checked only right after a read or skip that found a document");
+        self.expiration.is_expired(current)
+    }
+}
+
+impl<'index, C: ExpirationChecker> RQEIterator<'index> for LexRange<'index, C> {
     #[inline(always)]
     fn current(&mut self) -> Option<&mut RSIndexResult<'index>> {
         self.ids.current()
     }
 
-    #[inline(always)]
     fn read(&mut self) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
-        self.ids.read()
+        loop {
+            if self.ids.read()?.is_none() {
+                return Ok(None);
+            }
+            if !self.check_expiration || !self.current_expired() {
+                self.last_doc_id = self.ids.last_doc_id();
+                return Ok(self.ids.current());
+            }
+        }
     }
 
-    #[inline(always)]
     fn skip_to(
         &mut self,
         doc_id: DocId,
     ) -> Result<Option<SkipToOutcome<'_, 'index>>, RQEIteratorError> {
-        self.ids.skip_to(doc_id)
+        let found = match self.ids.skip_to(doc_id)? {
+            None => return Ok(None),
+            Some(outcome) => matches!(outcome, SkipToOutcome::Found(_)),
+        };
+        if !self.check_expiration || !self.current_expired() {
+            self.last_doc_id = self.ids.last_doc_id();
+            let current = self.ids.current().expect("the skip found a document");
+            return Ok(Some(if found {
+                SkipToOutcome::Found(current)
+            } else {
+                SkipToOutcome::NotFound(current)
+            }));
+        }
+        // The skip landed on an expired document, so the next valid one, if
+        // any, is past the requested id.
+        if self.read()?.is_none() {
+            return Ok(None);
+        }
+        let current = self.ids.current().expect("the read found a document");
+        Ok(Some(SkipToOutcome::NotFound(current)))
     }
 
     #[inline(always)]
@@ -86,6 +137,7 @@ impl<'index> RQEIterator<'index> for LexRange<'index> {
 
     #[inline(always)]
     fn rewind(&mut self) {
+        self.last_doc_id = 0;
         self.ids.rewind()
     }
 
@@ -96,7 +148,7 @@ impl<'index> RQEIterator<'index> for LexRange<'index> {
 
     #[inline(always)]
     fn last_doc_id(&self) -> DocId {
-        self.ids.last_doc_id()
+        self.last_doc_id
     }
 
     #[inline(always)]
@@ -115,7 +167,7 @@ impl<'index> RQEIterator<'index> for LexRange<'index> {
     }
 }
 
-impl ProfilePrint for LexRange<'_> {
+impl<C> ProfilePrint for LexRange<'_, C> {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         ctx.print_leaf(&self.profile_name, map);
         map.kv_long_long(c"Values walked", self.values_walked as i64);
