@@ -31,8 +31,7 @@ typedef struct {
   size_t numIterations;         // number iterations
   size_t childEstimate;         // results estimate on child
   int lastLimitEstimate;        // last estimation for filter
-
-  size_t offset;
+  bool windowSpansRest;         // the latest numeric window spans everything left of the range
 
   // child iterator with old root and numeric iterator for sortby field
   QueryIterator *child;

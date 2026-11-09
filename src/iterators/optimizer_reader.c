@@ -77,10 +77,24 @@ static int cmpBySortKeys(const void *v1, const void *v2, const void *udata) {
 }
 
 static inline double getSuccessRatio(const OptimizerIterator *optIt) {
+  if (optIt->lastLimitEstimate <= 0) {
+    return 0;
+  }
   double resultsCollectedSinceLast = heap_count(optIt->heap) - optIt->heapOldSize;
   return resultsCollectedSinceLast / optIt->lastLimitEstimate;
 }
 
+/* Whether a numeric window limited to `limit` documents spans everything left of the range; a
+ * limit of 0 does not limit the window at all. */
+static inline bool windowSpansRest(size_t limit, size_t numDocs) {
+  return limit == 0 || limit >= numDocs;
+}
+
+/* Whether the walk has covered the whole sortby range: the window just drained spanned everything
+ * left of it, or held nothing because the walk is already past its end. */
+static inline bool walkExhausted(OptimizerIterator *it) {
+  return it->windowSpansRest || it->numericIter->NumEstimated(it->numericIter) == 0;
+}
 
 static size_t OPT_NumEstimated(const QueryIterator *self) {
   const OptimizerIterator *opt = (const OptimizerIterator *)self;
@@ -137,8 +151,8 @@ static void OPT_Rewind(QueryIterator *self) {
 
   double successRatio = getSuccessRatio(optIt);
 
-  // very low success, lets get all remaining results
-  if (successRatio < 0.01 || optIt->numIterations == 3) {
+  // very low success, or enough windows already: get all remaining results
+  if (successRatio < 0.01 || optIt->numIterations >= 3) {
     nf->limit = optIt->numDocs;
   } else {
     // Size the next window to hold the missing results at the rate the drained
@@ -149,6 +163,8 @@ static void OPT_Rewind(QueryIterator *self) {
     optIt->lastLimitEstimate = nf->limit =
       QOptimizer_EstimateLimit(optIt->numDocs, observedEstimate, resultsMissing);
   }
+
+  optIt->windowSpansRest = windowSpansRest(nf->limit, optIt->numDocs);
 
   // create new numeric filter
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = optIt->numericFieldIndex}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
@@ -261,22 +277,18 @@ IteratorStatus OPT_Read(QueryIterator *self) {
       }
     }
 
-    // Not enough result, try to rewind
-    if (heap_size(it->heap) > heap_count(it->heap) && it->offset < it->childEstimate) {
-      if (getSuccessRatio(it) < 1) {
-        OPT_Rewind(&it->base);
-        childRes = numericRes = NULL;
-        // rewind was successful, continue iteration
-        if (it->numericIter != NULL) {
-          numeric = it->numericIter;
-          it->hitCounter = 0;
-          it->numIterations++;
-          continue;
-        }
-      } else {
-        RedisModule_Log(RSDummyContext, "verbose", "Not enough results collected, but success ratio is %f", getSuccessRatio(it));
-        RedisModule_Log(RSDummyContext, "debug", "Heap size: %d, heap count: %d, offset: %zu, childEstimate: %zu",
-                                        heap_size(it->heap), heap_count(it->heap), it->offset, it->childEstimate);
+    // Not enough results: widen the window and walk on until the walk covers the whole range.
+    // The child's matches can all lie past the windows walked so far, whatever the child's
+    // estimate or the hit rate so far suggest, so stopping any earlier returns an incomplete page.
+    if (heap_size(it->heap) > heap_count(it->heap) && !walkExhausted(it)) {
+      OPT_Rewind(&it->base);
+      childRes = numericRes = NULL;
+      // rewind was successful, continue iteration
+      if (it->numericIter != NULL) {
+        numeric = it->numericIter;
+        it->hitCounter = 0;
+        it->numIterations++;
+        continue;
       }
     }
 
@@ -327,6 +339,7 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   }
   oi->lastLimitEstimate = qOpt->nf->limit =
     QOptimizer_EstimateLimit(oi->numDocs, oi->childEstimate, qOpt->limit);
+  oi->windowSpansRest = windowSpansRest(qOpt->nf->limit, oi->numDocs);
 
   FieldFilterContext filterCtx = {.field = {.index_tag = FieldMaskOrIndex_Index, .index = field->index}, .predicate = FIELD_EXPIRATION_PREDICATE_DEFAULT};
   oi->numericFieldIndex = field->index;
@@ -339,7 +352,6 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
     return NewEmptyIterator();
   }
 
-  oi->offset = oi->numericIter->NumEstimated(oi->numericIter);
   oi->config = config;
 
   QueryIterator *ri = &oi->base;

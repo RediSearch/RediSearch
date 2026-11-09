@@ -681,19 +681,12 @@ def testRewindWidensWindow(env):
 
 
 @skip(cluster=True)
-def testRetryGuardUnderfillsSparseChild(env):
-    """Characterization test: a sparse child whose matches all sit past the first
-    numeric window comes back short of LIMIT.
+def testSparseChildFillsRequestedLimit(env):
+    """A sparse child whose matches all sit past the first numeric window still fills LIMIT.
 
-    The optimizer only widens its window while the first window's document
-    estimate is below the child's estimate. The first window is sized to hold
-    `limit` matches at the child's selectivity, so for a child sparser than
-    about sqrt(limit / num_docs) it already exceeds the child's estimate, and
-    the retry never runs: the heap is drained as the first window left it.
-
-    This pins that under-fill, not the correct answer (the unoptimized query's).
-    A top-k implementation that keeps widening returns the full LIMIT, so this
-    test is expected to flip to the complete answer when one replaces it.
+    The first window is sized to hold `limit` matches at the child's selectivity, which says
+    nothing about where in the sort order the matches lie. The optimizer has to keep widening the
+    window until the heap is full or the walk has covered the whole range.
     """
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
@@ -707,8 +700,24 @@ def testRetryGuardUnderfillsSparseChild(env):
     query = ['ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0, limit, 'NOCONTENT']
     top_matches = [str(i) for i in range(first_match, first_match + limit)]
     env.assertEqual(env.cmd(*query, 'WITHCOUNT'), [num_matches] + top_matches)
-    # Characterization: under-filled; flips to [limit] + top_matches once fixed.
-    env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT'), [0])
+    env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT'), [limit] + top_matches)
+
+
+@skip(cluster=True)
+def testSparseChildAtFarEndFillsRequestedLimit(env):
+    """A DESC walk starts at the top values, so matches clustered at the bottom are its far end."""
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 't', 'TEXT')
+
+    num_docs = 10000
+    num_matches = num_docs // 100
+    load_sparse_matches(conn, num_docs, lambda i: i < num_matches)
+
+    limit = 10
+    query = ['ft.search', 'idx', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0, limit, 'NOCONTENT']
+    top_matches = [str(i) for i in range(num_matches - 1, num_matches - 1 - limit, -1)]
+    env.assertEqual(env.cmd(*query, 'WITHCOUNT'), [num_matches] + top_matches)
+    env.assertEqual(env.cmd(*query, 'WITHOUTCOUNT'), [limit] + top_matches)
 
 
 @skip(cluster=True)
