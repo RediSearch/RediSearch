@@ -267,6 +267,7 @@ impl<'a> JsonValueRef<'a> {
     }
 
     /// Returns an iterator over values matched by a compiled [`JsonPath`].
+    /// Returns `None` in legacy API builds.
     ///
     /// # Safety
     ///
@@ -275,6 +276,9 @@ impl<'a> JsonValueRef<'a> {
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn get_with_path(&self, path: &JsonPath) -> Option<ResultsIter<'_>> {
+        if ffi::REDISJSON_LEGACY_API != 0 {
+            return None;
+        }
         let get_with_path = vtable_fn!(self.api, getWithPath);
 
         // SAFETY: `self.ptr` and `path` are live RedisJSON handles by construction.

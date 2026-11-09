@@ -2564,7 +2564,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
       fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_HASH_SEP;
       break;
     case DocumentType_Json:
-      fs->compiledPath = japi->pathParseNoErrorMsg(HiddenString_GetUnsafe(fs->fieldPath, NULL));
+      fs->compiledPath = JSON_CompilePath(HiddenString_GetUnsafe(fs->fieldPath, NULL));
       fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP;
       break;
     case DocumentType_Unsupported:
@@ -3341,7 +3341,7 @@ void IndexSpec_RdbLoadDiscard(StrongRef spec_ref) {
 static void compileLoadedJsonPaths(IndexSpec *sp) {
   for (size_t i = 0; i < sp->numFields; ++i) {
     FieldSpec *fs = &sp->fields[i];
-    fs->compiledPath = japi->pathParseNoErrorMsg(HiddenString_GetUnsafe(fs->fieldPath, NULL));
+    fs->compiledPath = JSON_CompilePath(HiddenString_GetUnsafe(fs->fieldPath, NULL));
   }
 }
 

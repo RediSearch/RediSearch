@@ -1464,6 +1464,14 @@ else
   echo "SKIP_BUILD=1 set; skipping CMake configure + make. Expecting $BINDIR to already be populated."
 fi
 
+# Direct Cargo test/archive commands must use the same API mode as the C bundle,
+# including SKIP_BUILD runs that restore a previously configured build directory.
+legacy_json_api=$(sed -n 's/^REDISJSON_LEGACY_API:BOOL=//p' "$BINDIR/CMakeCache.txt" 2>/dev/null || true)
+case "$(printf '%s' "$legacy_json_api" | tr '[:lower:]' '[:upper:]')" in
+  ''|0|OFF|NO|FALSE|N|IGNORE|NOTFOUND|*-NOTFOUND) export REDISJSON_LEGACY_API=0 ;;
+  *) export REDISJSON_LEGACY_API=1 ;;
+esac
+
 # Run tests if requested
 run_tests
 
