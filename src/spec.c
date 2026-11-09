@@ -54,6 +54,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "util/hash/hash.h"
 #include "util/misc.h"
+#include "util/module_timer.h"
 #include "notifications.h"
 #include "info/field_spec_info.h"
 #include "rs_wall_clock.h"
@@ -313,19 +314,31 @@ void IndexSpec_LegacyFree(void *spec) {
   // index pointer in the legacySpecDict so we will free it when needed
 }
 
+static uint64_t monotonicNowMs(void) {
+  return rs_wall_clock_convert_ns_to_ms(rs_wall_clock_now_ns());
+}
+
 static void IndexSpec_TimedOutProc(RedisModuleCtx *ctx, WeakRef w_ref) {
   // we need to delete the spec from the specDict_g, as far as the user see it,
   // this spec was deleted and its memory will be freed in a background thread.
 
   // attempt to promote the weak ref to a strong ref
   StrongRef spec_ref = WeakRef_Promote(w_ref);
-  WeakRef_Release(w_ref);
-
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // the spec was already deleted, nothing to do here
+    WeakRef_Release(w_ref);
     return;
   }
+  const long long delay = RS_TimerDelayToDeadlineMs(sp->timeoutDeadlineMs, monotonicNowMs());
+  if (delay > 0) {
+    // Fired early for a timeout past RS_MAX_TIMER_DELAY_MS; the new timer takes over w_ref.
+    sp->timerId = RedisModule_CreateTimer(RSDummyContext, delay,
+                                          (RedisModuleTimerProc)IndexSpec_TimedOutProc, w_ref.rm);
+    StrongRef_Release(spec_ref);
+    return;
+  }
+  WeakRef_Release(w_ref);
   const char* name = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
   RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "Freeing index %s by timer", name);
 
@@ -354,8 +367,14 @@ void IndexSpec_SetTimeoutTimer(IndexSpec *sp, WeakRef spec_ref) {
       WeakRef_Release(old_timer_ref);
     }
   }
-  sp->timerId = RedisModule_CreateTimer(RSDummyContext, sp->timeout,
-                                        (RedisModuleTimerProc)IndexSpec_TimedOutProc, spec_ref.rm);
+  const uint64_t now = monotonicNowMs();
+  // A negative timeout expires at once, as it always has. The parser bounds the timeout, but an
+  // RDB written before it did may hold any value, so the sum saturates.
+  const uint64_t timeout = sp->timeout > 0 ? (uint64_t)sp->timeout : 0;
+  sp->timeoutDeadlineMs = timeout > UINT64_MAX - now ? UINT64_MAX : now + timeout;
+  sp->timerId =
+      RedisModule_CreateTimer(RSDummyContext, RS_TimerDelayToDeadlineMs(sp->timeoutDeadlineMs, now),
+                              (RedisModuleTimerProc)IndexSpec_TimedOutProc, spec_ref.rm);
   sp->isTimerSet = true;
 }
 
@@ -1854,6 +1873,11 @@ int IndexSpec_ParseOptions(ArgsCursor *ac, bool flex, IndexSpecOptions *options,
   }
 
   if (options->timeout != -1) {
+    if (options->timeout > LLONG_MAX / 1000 || options->timeout < LLONG_MIN / 1000) {
+      // Its value in ms must fit a long long.
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL, SPEC_TEMPORARY_STR " value out of range");
+      return REDISMODULE_ERR;
+    }
     options->flags |= Index_Temporary;
   }
   options->timeout *= 1000;  // convert to ms

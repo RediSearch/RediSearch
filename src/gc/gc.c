@@ -81,15 +81,15 @@ static bool GCContext_IsSchedulingPaused(GCContext* gc) {
 }
 
 long long GC_TimerDelayMs(size_t intervalSec, unsigned long draw) {
-  const size_t maxSec = GC_MAX_TIMER_DELAY_MS / 1000;
+  const size_t maxSec = RS_MAX_TIMER_DELAY_MS / 1000;
   if (intervalSec >= maxSec) {
-    return GC_MAX_TIMER_DELAY_MS;
+    return RS_MAX_TIMER_DELAY_MS;
   }
   // Randomness avoids congestion by GCs from different shards. Below the cap, both terms are
   // under maxSec, so neither the sum nor the conversion can overflow.
   const size_t jitterSec = intervalSec ? draw % intervalSec : 0;
   const size_t totalSec = intervalSec + jitterSec;
-  return totalSec >= maxSec ? GC_MAX_TIMER_DELAY_MS : (long long)totalSec * 1000;
+  return totalSec >= maxSec ? RS_MAX_TIMER_DELAY_MS : (long long)totalSec * 1000;
 }
 
 // Every interval callback reports whole seconds, so tv_nsec is not read.

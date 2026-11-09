@@ -1139,7 +1139,10 @@ def testLongGCIntervalKeepsTheEventLoopIdle(env):
     """Redis truncates the ms until the next module timer to an `int` (MOD-21060). A GC timer
     armed past INT_MAX ms, left as the earliest module timer once another one fires, made the
     event loop wake on every pass -- 100% CPU on an idle server. Every delay this interval can
-    draw used to land in that band, so without the cap the test fails deterministically."""
+    draw truncates negative, but the loop only spins on a host up for longer than that negative
+    value in ms (up to 24.86 days), since ae's clock counts from boot; on a younger host the
+    timer stalls instead. So this catches a regression on long-lived hosts only, and
+    GCTimerDelayTest in the C++ tests is the guard everywhere."""
     interval = env.cmd(config_cmd(), 'GET', 'FORK_GC_RUN_INTERVAL')[0][1]
     env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', 2147484).ok()
     try:
