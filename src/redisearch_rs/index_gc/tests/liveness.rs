@@ -170,6 +170,55 @@ fn a_table_past_the_bitmap_cap_collects_its_live_ids() {
     assert!(!(&set).any_gone(FAR - 10, FAR - 10));
 }
 
+/// `insert_gone_in` adds exactly the gone IDs inside the range, from bits, from a
+/// set, and from a table's live IDs.
+#[test]
+#[cfg_attr(miri, ignore = "walks the doc table through C")]
+fn insert_gone_in_adds_the_gone_ids_inside_the_range() {
+    let gone_ids = [3, 64, 65, 130, 1 << 20];
+    let ranges = [
+        0..=2,
+        0..=3,
+        3..=3,
+        4..=63,
+        60..=130,
+        66..=129,
+        131..=(1 << 20) - 1,
+        0..=DocId::MAX,
+        (1 << 20) + 1..=DocId::MAX,
+    ];
+    for cap in [MAX_BITMAP_BYTES, 0] {
+        let set = GoneIds::from_set_with_cap(gone_ids.into_iter().collect(), cap);
+        for range in ranges.clone() {
+            let mut into = roaring::RoaringTreemap::new();
+            set.insert_gone_in(range.clone(), &mut into);
+            let expected: Vec<DocId> = gone_ids
+                .into_iter()
+                .filter(|id| range.contains(id))
+                .collect();
+            assert_eq!(
+                into.iter().collect::<Vec<_>>(),
+                expected,
+                "cap {cap}, range {range:?}"
+            );
+        }
+    }
+
+    const FAR: DocId = 1 << 40;
+    let table = TestTable::new(8, [(5, false), (7, true), (FAR, false)]);
+    let set = GoneIds::of_table(&table.guard());
+    assert!(matches!(set, GoneIds::Live(_)));
+    let mut into = roaring::RoaringTreemap::new();
+    set.insert_gone_in(4..=9, &mut into);
+    assert_eq!(into.iter().collect::<Vec<_>>(), [4, 6, 7, 8, 9]);
+    into.clear();
+    set.insert_gone_in(FAR..=DocId::MAX, &mut into);
+    assert!(
+        into.is_empty(),
+        "the maximum is live and nothing above it is gone"
+    );
+}
+
 /// A table past the bitmap cap with widely separated 64-bit IDs and few live ones
 /// is answered from its live IDs, without a set of its gone ones, which would
 /// span the largest ID.

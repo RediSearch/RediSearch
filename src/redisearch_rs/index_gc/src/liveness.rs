@@ -9,6 +9,8 @@
 
 //! The set of gone documents a GC cycle scans against, for both policies.
 
+use std::ops::RangeInclusive;
+
 use index_spec::IndexSpecReadGuard;
 use inverted_index::DocLiveness;
 use roaring::{RoaringBitmap, RoaringTreemap};
@@ -208,6 +210,57 @@ impl GoneIds {
                     }
                 }
                 gone
+            }
+        }
+    }
+}
+
+impl GoneIds {
+    /// Add the gone IDs in `range` to `into`, at a cost set by how many there are
+    /// rather than by the width of `range`, except for a [`GoneIds::Live`], which
+    /// only a forked child builds and adds the range less its live IDs.
+    pub fn insert_gone_in(&self, range: RangeInclusive<DocId>, into: &mut RoaringTreemap) {
+        let (first, last) = range.into_inner();
+        if first > last {
+            return;
+        }
+        match self {
+            Self::Set(gone) => {
+                let mut ids = gone.iter();
+                ids.advance_to(first);
+                into.extend(ids.take_while(|&id| id <= last));
+            }
+            Self::Bits(bits) => {
+                if bits.gone_below && first < bits.first {
+                    into.insert_range(first..=last.min(bits.first - 1));
+                }
+                let Some(hi) = last.checked_sub(bits.first) else {
+                    return;
+                };
+                let lo = first.saturating_sub(bits.first);
+                let Some(last_word) = (bits.words.len() as DocId).checked_sub(1) else {
+                    return;
+                };
+                for w in lo / 64..=(hi / 64).min(last_word) {
+                    let mut set = bits.words[w as usize];
+                    while set != 0 {
+                        let bit = w * 64 + DocId::from(set.trailing_zeros());
+                        if (lo..=hi).contains(&bit) {
+                            into.insert(bits.first + bit);
+                        }
+                        set &= set - 1;
+                    }
+                }
+            }
+            Self::Live(live) => {
+                let last = last.min(live.max);
+                if first > last {
+                    return;
+                }
+                let mut gone = RoaringTreemap::new();
+                gone.insert_range(first..=last);
+                gone -= &live.ids;
+                *into |= gone;
             }
         }
     }
