@@ -11,7 +11,6 @@
 
 use std::{
     ffi::{c_char, c_void},
-    marker::PhantomData,
     ops::Deref,
     ptr,
     ptr::NonNull,
@@ -27,31 +26,20 @@ use schema_rule::SchemaRule;
 
 use crate::{IndexSpec, IndexSpecStrongRef};
 
-/// A guard that holds the IndexSpec write lock and releases it on drop.
+/// The write-locked accessors of an [`IndexSpec`].
 ///
-/// This guard implements the RAII pattern: the lock is acquired when the guard
-/// is created and released when the guard is dropped, ensuring the lock is always
-/// released even on early returns or panics.
+/// The guard neither takes nor releases the lock: an [`IndexSpecWriteLock`]
+/// does, and hands this guard out through [`IndexSpecWriteLock::guard`].
 ///
 /// # Invariants
 ///
-/// The pointer passed to [`IndexSpecWriteGuard::new`] must be a valid `IndexSpec*`
-/// that remains valid for the lifetime of this guard.
+/// The spec is valid and write-locked for the lifetime of this guard.
 pub struct IndexSpecWriteGuard<'lock>(&'lock mut ffi::IndexSpec);
 
 impl<'lock> IndexSpecWriteGuard<'lock> {
-    /// Creates a new guard, acquiring the write lock.
-    ///
-    /// Returns `None` if the pointer is null.
-    pub(crate) fn new(index_spec: &'lock mut ffi::IndexSpec) -> Self {
-        // Safety: (1.) due to creation with `IndexSpec::from_raw`, and caller must ensure proper synchronization when mutating.
-        unsafe { ffi::IndexSpec_AcquireWriteLock(index_spec) };
-        Self(index_spec)
-    }
-
     /// Decrements the document count for a term.
     pub fn decrement_trie_term_count(&mut self, term: &[u8], decr: u64) -> bool {
-        // SAFETY: We hold the write lock (enforced by Self::new),
+        // SAFETY: We hold the write lock (a guard invariant),
         // and the C side handles non-null-terminated strings with length.
         unsafe {
             ffi::IndexSpec_DecrementTrieTermCount(
@@ -239,13 +227,6 @@ impl Deref for IndexSpecWriteGuard<'_> {
         // SAFETY: `IndexSpec` is transparent over `ffi::IndexSpec`, and the guard's
         // borrow keeps the spec valid for the returned shared borrow.
         unsafe { IndexSpec::from_raw(self.0) }
-    }
-}
-
-impl Drop for IndexSpecWriteGuard<'_> {
-    fn drop(&mut self) {
-        // SAFETY: We acquired the lock in new(), so we must release it.
-        unsafe { ffi::IndexSpec_ReleaseWriteLock(self.0) };
     }
 }
 
@@ -455,18 +436,30 @@ impl Drop for IndexSpecReadGuard<'_> {
 /// [`Drop`] unlocks it through that pointer; [`guard`](Self::guard) hands out
 /// the read-locked accessors, borrowed from this lock.
 ///
-/// The lock borrows the strong reference rather than holding one of its own, so
-/// it works on a spec invalidated since its promotion. A lock that is forgotten
-/// rather than dropped stays taken, after its spec is freed too.
-pub struct IndexSpecReadLock<'spec> {
-    pub(crate) spec: NonNull<ffi::IndexSpec>,
-    pub(crate) _strong_ref: PhantomData<&'spec IndexSpecStrongRef>,
+/// The lock owns the strong reference it was taken from and releases it after
+/// unlocking, so a lock forgotten rather than dropped leaks its spec instead of
+/// letting it be freed while locked.
+pub struct IndexSpecReadLock {
+    spec: NonNull<ffi::IndexSpec>,
+    _owner: IndexSpecStrongRef,
 }
 
-impl IndexSpecReadLock<'_> {
+impl IndexSpecReadLock {
+    /// Read-lock the spec `owner` refers to.
+    pub(crate) fn new(owner: IndexSpecStrongRef) -> Self {
+        let spec = owner.as_non_null();
+        // SAFETY: `owner` keeps the spec alive. `IndexSpec_LockRead` checks itself
+        // that this thread holds no other spec lock.
+        unsafe { ffi::IndexSpec_LockRead(spec.as_ptr()) };
+        Self {
+            spec,
+            _owner: owner,
+        }
+    }
+
     /// The read-locked accessors, for as long as this lock is borrowed.
     pub const fn guard(&self) -> std::mem::ManuallyDrop<IndexSpecReadGuard<'_>> {
-        // SAFETY: the strong reference this lock borrows keeps the spec alive and
+        // SAFETY: the strong reference this lock owns keeps the spec alive and
         // initialized for `'_`.
         let spec = unsafe { self.spec.as_ref() };
         // SAFETY: (1) `spec` is valid for `'_`, (2) the read lock is held for `'_`
@@ -477,10 +470,53 @@ impl IndexSpecReadLock<'_> {
     }
 }
 
-impl Drop for IndexSpecReadLock<'_> {
+impl Drop for IndexSpecReadLock {
     fn drop(&mut self) {
-        // SAFETY: `IndexSpecStrongRef::read` took this read lock on this thread,
-        // and the borrow of the strong reference keeps the spec alive until here.
+        // SAFETY: `new` took this read lock on this thread, and the owned strong
+        // reference, released only after this, keeps the spec alive.
         unsafe { ffi::IndexSpec_Unlock(self.spec.as_ptr()) };
+    }
+}
+
+/// The write lock of an [`IndexSpec`], taken by [`IndexSpecStrongRef::write`]
+/// and released when this value is dropped.
+///
+/// Like [`IndexSpecReadLock`], it owns the strong reference it was taken from,
+/// so a forgotten lock leaks its spec instead of letting it be freed while locked.
+pub struct IndexSpecWriteLock {
+    spec: NonNull<ffi::IndexSpec>,
+    _owner: IndexSpecStrongRef,
+}
+
+impl IndexSpecWriteLock {
+    /// Write-lock the spec `owner` refers to.
+    pub(crate) fn new(owner: IndexSpecStrongRef) -> Self {
+        let spec = owner.as_non_null();
+        // SAFETY: `owner` keeps the spec alive. `IndexSpec_AcquireWriteLock` checks
+        // itself that this thread holds no other spec lock.
+        unsafe { ffi::IndexSpec_AcquireWriteLock(spec.as_ptr()) };
+        Self {
+            spec,
+            _owner: owner,
+        }
+    }
+
+    /// The write-locked accessors, for as long as this lock is borrowed.
+    pub const fn guard(&mut self) -> std::mem::ManuallyDrop<IndexSpecWriteGuard<'_>> {
+        // SAFETY: the strong reference this lock owns keeps the spec alive and
+        // initialized for `'_`, and the exclusive borrow of the lock makes this the
+        // only reference to it.
+        let spec = unsafe { self.spec.as_mut() };
+        // SAFETY: `spec` is valid, and write-locked until this lock is dropped,
+        // which `'_` ends before.
+        unsafe { IndexSpecWriteGuard::from_locked_mut(spec) }
+    }
+}
+
+impl Drop for IndexSpecWriteLock {
+    fn drop(&mut self) {
+        // SAFETY: `new` took this write lock on this thread, and the owned strong
+        // reference, released only after this, keeps the spec alive.
+        unsafe { ffi::IndexSpec_ReleaseWriteLock(self.spec.as_ptr()) };
     }
 }

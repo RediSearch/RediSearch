@@ -14,10 +14,11 @@ redis_mock::mock_or_stub_missing_redis_c_symbols!();
 use std::{
     ffi::{CStr, CString, c_void},
     mem, ptr,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use dict::{KeysDictType, OwnedDict};
-use index_spec::{IndexSpec, IndexSpecWeakRef};
+use index_spec::{IndexSpec, IndexSpecStrongRef, IndexSpecWeakRef};
 use pretty_assertions::assert_eq;
 
 #[test]
@@ -141,7 +142,6 @@ fn the_read_lock_excludes_writers_until_dropped() {
     assert_eq!(paused(), 0);
     assert!(writer_gets_in(), "dropping the lock lets a writer in");
 
-    drop(spec_ref);
     // SAFETY: both references were created above and are released once, and the
     // spec's names were allocated above and are freed once.
     unsafe {
@@ -185,7 +185,6 @@ fn an_invalidated_spec_can_still_be_read_locked() {
         assert_eq!(lock.guard().as_ptr(), &raw const spec);
     }
 
-    drop(spec_ref);
     // SAFETY: both references were created above and are released once, the lock
     // was initialized above and is released, and the spec's names were allocated
     // above and are freed once.
@@ -196,4 +195,61 @@ fn an_invalidated_spec_can_still_be_read_locked() {
         ffi::HiddenString_Free(spec.specName, true);
         drop(CString::from_raw(spec.obfuscatedName));
     }
+}
+
+static FREES: AtomicUsize = AtomicUsize::new(0);
+
+/// Counts frees and leaves the storage to the test.
+unsafe extern "C" fn count_free(_: *mut c_void) {
+    FREES.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Promotes a reference to a fresh spec, hands it to `forget_lock`, then
+/// releases the spec's own reference and checks the spec was not freed.
+///
+/// The spec, its names, its dict and its weak reference are leaked: the forgotten lock
+/// holds the spec's rwlock and a strong reference until the process exits.
+fn check_a_forgotten_lock_keeps_its_spec(forget_lock: impl FnOnce(IndexSpecStrongRef)) {
+    redis_mock::init_redis_module_mock();
+    let keys_dict = Box::leak(Box::new(OwnedDict::<KeysDictType>::create()));
+    // SAFETY: zero is valid for every field this test leaves unset.
+    let spec = Box::leak(Box::new(unsafe { mem::zeroed::<ffi::IndexSpec>() }));
+    // SAFETY: the static name is copied, because the spec takes ownership.
+    spec.specName = unsafe { ffi::NewHiddenString(c"idx".as_ptr(), 3, true) };
+    spec.obfuscatedName = CString::new("Index@test").unwrap().into_raw();
+    spec.keysDict = keys_dict.as_mut_ptr();
+    let rwlock = (&raw mut spec.rwlock).cast::<libc::pthread_rwlock_t>();
+    // SAFETY: `rwlock` points at the spec's own, not yet used, lock storage.
+    assert_eq!(unsafe { libc::pthread_rwlock_init(rwlock, ptr::null()) }, 0);
+    // SAFETY: the spec is leaked, so it outlives every reference, and
+    // `count_free` leaves its storage.
+    let strong = unsafe { StrongRef_New(ptr::from_mut(spec).cast(), Some(count_free)) };
+    // SAFETY: `strong` is the live reference created above.
+    let weak = unsafe { StrongRef_Demote(strong) };
+    // SAFETY: `weak` is a valid weak reference, never released.
+    let spec_ref = unsafe { IndexSpecWeakRef::from_raw(weak) }
+        .promote()
+        .expect("the spec is alive");
+
+    forget_lock(spec_ref);
+    // SAFETY: `strong` was created above and is released once.
+    unsafe { StrongRef_Release(strong) };
+
+    assert_eq!(
+        FREES.load(Ordering::Relaxed),
+        0,
+        "the forgotten lock still holds a reference to the spec"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "takes the C spec lock")]
+fn a_forgotten_read_lock_keeps_its_spec_alive() {
+    check_a_forgotten_lock_keeps_its_spec(|spec_ref| mem::forget(spec_ref.read()));
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "takes the C spec lock")]
+fn a_forgotten_write_lock_keeps_its_spec_alive() {
+    check_a_forgotten_lock_keeps_its_spec(|spec_ref| mem::forget(spec_ref.write()));
 }

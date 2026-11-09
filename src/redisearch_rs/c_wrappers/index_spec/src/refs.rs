@@ -9,11 +9,11 @@
 
 //! Weak and strong references to a spec, through the C reference manager.
 
-use std::{marker::PhantomData, ptr::NonNull};
+use std::ptr::NonNull;
 
-use crate::{IndexSpec, IndexSpecReadLock, IndexSpecWriteGuard};
+use crate::{IndexSpecReadLock, IndexSpecWriteLock};
 
-/// A weak reference to an [`IndexSpec`].
+/// A weak reference to an [`IndexSpec`](crate::IndexSpec).
 ///
 /// Just a copy of the underlying [`ffi::WeakRef`] handle — does not borrow any
 /// owner and can be freely copied. Does not prevent the spec from being deleted.
@@ -46,7 +46,7 @@ impl IndexSpecWeakRef {
     }
 }
 
-/// A promoted strong reference to an [`IndexSpec`].
+/// A promoted strong reference to an [`IndexSpec`](crate::IndexSpec).
 ///
 /// Obtained via [`IndexSpecWeakRef::promote`]. Keeps the spec alive for the
 /// duration of this value and releases the strong reference on drop.
@@ -63,27 +63,31 @@ impl IndexSpecStrongRef {
     /// incremental rehashing of the keys dict, which is what makes lookups
     /// through the returned guard safe while other readers run.
     ///
+    /// The lock takes this reference and releases it after unlocking.
+    ///
     /// # Aborts
     ///
     /// Aborts the process, through a C assertion rather than a panic, if this
     /// thread already holds a lock on any spec: the C lock bookkeeping is per
     /// thread and does not nest.
-    pub fn read(&self) -> IndexSpecReadLock<'_> {
-        // SAFETY: the strong reference keeps the spec alive, and the pointer is
-        // non-null (checked in promote). `IndexSpec_LockRead` checks itself that
-        // this thread holds no other spec lock.
-        unsafe { ffi::IndexSpec_LockRead(self.spec.as_ptr()) };
-        IndexSpecReadLock {
-            spec: self.spec,
-            _strong_ref: PhantomData,
-        }
+    pub fn read(self) -> IndexSpecReadLock {
+        IndexSpecReadLock::new(self)
     }
 
-    /// Acquire the write lock for this `IndexSpec`.
-    pub fn write(&mut self) -> IndexSpecWriteGuard<'_> {
-        // SAFETY: We hold a strong reference so the spec is alive, and the
-        // pointer is non-null (checked in promote).
-        unsafe { IndexSpec::from_raw_mut(self.spec.as_ptr()) }.write()
+    /// Acquire the write lock for this `IndexSpec`, required before modifying it.
+    ///
+    /// The lock takes this reference and releases it after unlocking.
+    ///
+    /// # Aborts
+    ///
+    /// As [`read`](Self::read) does, if this thread already holds a spec lock.
+    pub fn write(self) -> IndexSpecWriteLock {
+        IndexSpecWriteLock::new(self)
+    }
+
+    /// The spec this reference keeps alive.
+    pub(crate) const fn as_non_null(&self) -> NonNull<ffi::IndexSpec> {
+        self.spec
     }
 }
 

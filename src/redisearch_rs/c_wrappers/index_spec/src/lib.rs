@@ -12,7 +12,7 @@
 mod lock;
 mod refs;
 
-pub use lock::{IndexSpecReadGuard, IndexSpecReadLock, IndexSpecWriteGuard};
+pub use lock::{IndexSpecReadGuard, IndexSpecReadLock, IndexSpecWriteGuard, IndexSpecWriteLock};
 pub use refs::{IndexSpecStrongRef, IndexSpecWeakRef};
 
 use std::{ffi::CStr, slice};
@@ -80,11 +80,5 @@ impl IndexSpec {
             // whose backing buffer remains immutable for its full lifetime.
             unsafe { HiddenString::from_raw(self.0.specName) }.secret_value()
         }
-    }
-
-    /// Acquire the write lock for this `IndexSpec`. This is required before performing any
-    /// modifications to the index spec, such as applying deltas from compaction.
-    pub fn write(&mut self) -> IndexSpecWriteGuard<'_> {
-        IndexSpecWriteGuard::new(&mut self.0)
     }
 }
