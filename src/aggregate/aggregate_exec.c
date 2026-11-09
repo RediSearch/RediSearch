@@ -545,9 +545,10 @@ static void finishSendChunk(AREQ *req, bool cursor_done) {
 static bool shouldReplyWithRows(const AREQ *req, int rc) {
   if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS) return false;
   if (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) return true;
-  // Partial rows after a timeout: RETURN keeps them unless ON_OOM FAIL, RETURN_STRICT keeps them, FAIL discards them.
+  // Partial rows after a timeout: RETURN and RETURN_STRICT keep them, FAIL discards them.
   switch (req->base.timeout.config.timeoutPolicy) {
-    case TimeoutPolicy_Return: return req->base.reqConfig.oomPolicy != OomPolicy_Fail;
+    case TimeoutPolicy_Return:
+      return rc == RS_RESULT_TIMEDOUT || req->base.reqConfig.oomPolicy != OomPolicy_Fail;
     case TimeoutPolicy_ReturnStrict: return true;
     case TimeoutPolicy_Fail: return false;
   }
