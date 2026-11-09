@@ -17,6 +17,7 @@
 #include "util/dllist.h"
 #include "util/references.h"
 #include "util/rs_atomic.h"
+#include "util/module_timer.h"
 #include <time.h>
 #include <limits.h>
 
@@ -110,13 +111,6 @@ static inline GCForcedRun GCForcedRun_New(long long forkWaitMs, long long retryI
   return forced;
 }
 
-// Redis runs every module timer behind one event-loop timer whose handler (`moduleTimerHandler`,
-// an `aeTimeProc`) returns the ms until the earliest pending module timer as an `int`. A longer
-// delay truncates there: a negative result makes that handler run on every loop pass, and -1
-// (`AE_NOMORE`) deletes it, so no module timer fires until one is armed sooner than every other
-// pending one. MOD-21060.
-#define GC_MAX_TIMER_DELAY_MS ((long long)INT_MAX)
-
 typedef struct GCCallbacks {
   // Returns true if the GC should be rescheduled, false if the GC should be stopped.
   // `forced` is non-NULL only for a demanded collection, which must really happen: it skips
@@ -180,7 +174,7 @@ void GCContext_FinishDrop(GCContext* gc);
 bool GCContext_IsEnabled(const GCContext* gc);
 // The delay of a timer armed for `intervalMs`: the interval plus a jitter of
 // `draw % intervalMs`, so it runs from the interval to almost twice it, or 0 for an interval
-// that is not positive. Saturates, and never exceeds GC_MAX_TIMER_DELAY_MS. `draw` is a random
+// that is not positive. Saturates, and never exceeds RS_MAX_TIMER_DELAY_MS. `draw` is a random
 // value; a parameter so tests can pin it.
 long long GC_TimerDelayMs(long long intervalMs, unsigned long draw);
 // Suspend/resume scheduling for a disk consistency window, leaving `enabled` untouched so a

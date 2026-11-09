@@ -950,7 +950,7 @@ TEST(GCTimerDelayTest, testJitterRange) {
 }
 
 TEST(GCTimerDelayTest, testSaturatesAtTheCap) {
-  const long long cap = GC_MAX_TIMER_DELAY_MS;
+  const long long cap = RS_MAX_TIMER_DELAY_MS;
   // The largest interval the config converts to, with the largest draw.
   EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(SIZE_MAX), ULONG_MAX), cap);
   EXPECT_EQ(GC_TimerDelayMs(LLONG_MAX, ULONG_MAX), cap);
@@ -964,13 +964,24 @@ TEST(GCTimerDelayTest, testSaturatesAtTheCap) {
 
 // Redis truncates a module timer's remaining delay to `int` (MOD-21060), so the cap must fit one.
 TEST(GCTimerDelayTest, testFitsTheEventLoopInt) {
-  static_assert(GC_MAX_TIMER_DELAY_MS <= INT_MAX);
+  static_assert(RS_MAX_TIMER_DELAY_MS <= INT_MAX);
   // Intervals that made Redis spin before the cap: the delay of 2147484s always landed in
   // (2^31, 2^32) ms, and that of 30 days could also pass 2^32 ms.
-  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(2147484), 0), GC_MAX_TIMER_DELAY_MS);
-  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(2592000), 2591999999UL), GC_MAX_TIMER_DELAY_MS);
+  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(2147484), 0), RS_MAX_TIMER_DELAY_MS);
+  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(2592000), 2591999999UL), RS_MAX_TIMER_DELAY_MS);
   // 1073742s (about 12.4 days) is the shortest whole-second interval whose jitter can pass the cap.
   EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(1073741), 1073740999), 2147481999LL);
   EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(1073742), 0), 1073742000LL);
-  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(1073742), 1073741999), GC_MAX_TIMER_DELAY_MS);
+  EXPECT_EQ(GC_TimerDelayMs(GC_IntervalSecToMs(1073742), 1073741999), RS_MAX_TIMER_DELAY_MS);
+}
+
+TEST(ModuleTimerTest, testDelayToDeadline) {
+  const uint64_t now = 1000;
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(0, now), 0);  // past
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(now, now), 0);
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(now + 1, now), 1);
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(now + RS_MAX_TIMER_DELAY_MS, now), RS_MAX_TIMER_DELAY_MS);
+  // Further out, the timer fires at the cap and re-arms for what is left.
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(now + RS_MAX_TIMER_DELAY_MS + 1, now), RS_MAX_TIMER_DELAY_MS);
+  EXPECT_EQ(RS_TimerDelayToDeadlineMs(UINT64_MAX, now), RS_MAX_TIMER_DELAY_MS);
 }

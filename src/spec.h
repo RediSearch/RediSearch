@@ -345,6 +345,9 @@ typedef struct IndexSpec {
   struct IndexSpecCache *spcache;
   // For index expiration
   long long timeout;
+  // Monotonic ms at which the index expires. Kept apart from the timer, which may fire first: see
+  // RS_TimerDelayToDeadlineMs.
+  uint64_t timeoutDeadlineMs;
   RedisModuleTimerID timerId;
   bool isTimerSet;
 
@@ -840,6 +843,8 @@ bool CheckRdbSstPersistence(RedisModuleCtx *ctx, const char *prefix);
 
 // Temporary-index timeout timer management for a single spec.
 void IndexSpec_SetTimeoutTimer(IndexSpec *sp, WeakRef spec_ref);
+// The ms left until a TEMPORARY index expires, which its timer may not cover in one step.
+uint64_t IndexSpec_TimeoutRemainingMs(const IndexSpec *sp);
 void IndexSpec_ResetTimeoutTimer(IndexSpec *sp);
 
 // Open a disk index from its pending SST/RDB state and materialize its

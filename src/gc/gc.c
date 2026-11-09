@@ -85,13 +85,13 @@ long long GC_TimerDelayMs(long long intervalMs, unsigned long draw) {
   if (intervalMs <= 0) {
     return 0;
   }
-  if (intervalMs >= GC_MAX_TIMER_DELAY_MS) {
-    return GC_MAX_TIMER_DELAY_MS;
+  if (intervalMs >= RS_MAX_TIMER_DELAY_MS) {
+    return RS_MAX_TIMER_DELAY_MS;
   }
   // Randomness avoids congestion by GCs from different shards. Below the cap, both terms are
   // under INT_MAX, so the sum cannot overflow.
   const long long delayMs = intervalMs + (long long)(draw % (unsigned long)intervalMs);
-  return delayMs < GC_MAX_TIMER_DELAY_MS ? delayMs : GC_MAX_TIMER_DELAY_MS;
+  return delayMs < RS_MAX_TIMER_DELAY_MS ? delayMs : RS_MAX_TIMER_DELAY_MS;
 }
 
 static RedisModuleTimerID scheduleNextIn(GCContext* gc, long long intervalMs) {
