@@ -30,9 +30,9 @@ void ReplyWithTimeoutError(RedisModule_Reply *reply);
  * with the memory stop requested, into the outcome `oomPolicy` asks
  * for, and returns any other rc unchanged:
  *
- * - OomPolicy_Fail: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` (unless it already
- *   holds an error) and RS_RESULT_ERROR. Only buffering stages can still reply
- *   with an error, which is why startPipelineCommon buffers under FAIL.
+ * - OomPolicy_Fail: QUERY_ERROR_CODE_OUT_OF_MEMORY in `err` and RS_RESULT_ERROR.
+ *   Only buffering stages can still reply with an error, which is why
+ *   startPipelineCommon buffers under FAIL.
  * - Otherwise: the query OOM warning in `err` and RS_RESULT_EOF, so the rows
  *   produced so far are the final, partial result instead of a timeout.
  */
