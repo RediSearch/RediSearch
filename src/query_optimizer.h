@@ -73,6 +73,12 @@ typedef struct QOptimizer {
     NumericFilter *nf;          // filter with required parameters
     bool asc;                   // ASC/DESC order of sortby
 
+    // The sort keys after the numeric one, which the optimizer's heap breaks ties on the way the
+    // pipeline's sorter does. Each is a SORTABLE schema field, read from the sorting vector.
+    int16_t tieBreakSortIdx[SORTASCMAP_MAXFIELDS - 1];
+    size_t numTieBreakKeys;
+    uint64_t sortAscMap;        // ASC/DESC order of every sort key, as the arrange step holds it
+
     QueryIterator *numIter;
     QueryIterator *root;
 

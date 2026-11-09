@@ -53,6 +53,24 @@ static bool planHasSortKeys(const AGGPlan *pln) {
   return false;
 }
 
+/* Resolve the sort keys after the first to the sorting-vector slots the optimizer's heap reads
+ * them from. The heap only keeps `limit` results, so among results tied on the numeric key it must
+ * keep the ones the sorter would rank first; it can only do so for keys in the sorting vector. */
+static bool resolveTieBreakKeys(QOptimizer *opt, const IndexSpec *spec,
+                                const PLN_ArrangeStep *arng) {
+  size_t numKeys = array_len(arng->sortKeys);
+  for (size_t i = 1; i < numKeys; i++) {
+    const char *name = arng->sortKeys[i];
+    const FieldSpec *field = IndexSpec_GetFieldWithLength(spec, name, strlen(name));
+    if (!field || !FieldSpec_IsSortable(field)) {
+      return false;
+    }
+    opt->tieBreakSortIdx[i - 1] = field->sortIdx;
+  }
+  opt->numTieBreakKeys = numKeys - 1;
+  return true;
+}
+
 void QOptimizer_Parse(AREQ *req) {
   QOptimizer *opt = req->optimizer;
   RedisSearchCtx *sctx = AREQ_SearchCtx(req);
@@ -68,12 +86,14 @@ void QOptimizer_Parse(AREQ *req) {
     if (array_len(arng->sortKeys)) {
       const char *name = arng->sortKeys[0];
       const FieldSpec *field = IndexSpec_GetFieldWithLength(sctx->spec, name, strlen(name));
-      if (array_len(arng->sortKeys) == 1 && field && field->types == INDEXFLD_T_NUMERIC) {
+      if (field && field->types == INDEXFLD_T_NUMERIC &&
+          resolveTieBreakKeys(opt, sctx->spec, arng)) {
         opt->field = field;
         opt->fieldName = name;
         opt->asc = arng->sortAscMap & 0x01;
+        opt->sortAscMap = arng->sortAscMap;
       } else {
-        // sortby other fields, or more than one sort key, no optimization
+        // sortby a non-numeric field first, or by a later key the heap cannot read, no optimization
         opt->type = Q_OPT_NONE;
       }
     }

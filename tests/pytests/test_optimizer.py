@@ -99,15 +99,18 @@ def testOptimizer(env):
     numeric_info = conn.execute_command(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'n')
     env.debugPrint(str(numeric_info), force=True)
     params = ['NOCONTENT', 'WITHOUTCOUNT']
+    # Every value of `n` is shared by many documents, so a page often ends inside a tie, which the
+    # optimizer breaks the way the sorter does: by document id, in the last sort key's direction.
+    # A DESC page therefore keeps the highest ids among the documents it ties on.
 
     ### (1) range and filter with sort ###
     # Search only minimal number of ranges
     env.expect('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '110'])
     env.expect('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '110'])
-    env.expect('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '120', '20'])
+    env.expect('ft.search', 'idx', 'foo @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19920', '19820'])
     env.expect('ft.search', 'idx_sortable', 'foo @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '110'])
     env.expect('ft.search', 'idx_sortable', 'foo @n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '110'])
-    env.expect('ft.search', 'idx_sortable', 'foo @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '120', '20'])
+    env.expect('ft.search', 'idx_sortable', 'foo @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19920', '19820'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
@@ -150,10 +153,10 @@ def testOptimizer(env):
     # Search only minimal number of ranges
     env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '110'])
     env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '110'])
-    env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '120', '20'])
+    env.expect('ft.search', 'idx', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19920', '19820'])
     env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '10', '110'])
     env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '10', '110'])
-    env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '120', '20'])
+    env.expect('ft.search', 'idx_sortable', '@tag:{foo} @n:[10 20]', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19920', '19820'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
@@ -235,10 +238,10 @@ def testOptimizer(env):
     # Search only minimal number of ranges
     env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '100'])
     env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '100'])
-    env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
+    env.expect('ft.search', 'idx', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19998', '19898'])
     env.expect('ft.search', 'idx_sortable', 'foo', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '100'])
     env.expect('ft.search', 'idx_sortable', 'foo', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '100'])
-    env.expect('ft.search', 'idx_sortable', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
+    env.expect('ft.search', 'idx_sortable', 'foo', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19998', '19898'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Hybrid', 'Child iterator',
@@ -281,10 +284,10 @@ def testOptimizer(env):
     # Search only minimal number of ranges
     env.expect('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '100'])
     env.expect('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '100'])
-    env.expect('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
+    env.expect('ft.search', 'idx', '@tag:{foo}', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19998', '19898'])
     env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '100'])
     env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '100'])
-    env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '198', '98'])
+    env.expect('ft.search', 'idx_sortable', '@tag:{foo}', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19998', '19898'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
@@ -323,10 +326,10 @@ def testOptimizer(env):
     # Search only minimal number of ranges
     env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '1'])
     env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '1'])
-    env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '99', '98'])
+    env.expect('ft.search', 'idx', '*', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19999', '19998'])
     env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'limit', 0 , 2, *params).equal([2, '0', '1'])
     env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'ASC', 'limit', 0 , 2, *params).equal([2, '0', '1'])
-    env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '99', '98'])
+    env.expect('ft.search', 'idx_sortable', '*', 'SORTBY', 'n', 'DESC', 'limit', 0 , 2, *params).equal([2, '19999', '19998'])
 
     profiler =  {'Iterators profile':
                     ['Type', 'OPTIMIZER', 'Number of reading operations', 10, 'Optimizer mode', 'Query partial range', 'Child iterator',
@@ -825,6 +828,86 @@ def testNotOptimizedQueries(env):
     env.assertNotContains('OPTIMIZER',
                           profile_iterator_types(env, query, params + ['WITHOUTCOUNT']))
     compare_optimized_to_not_nocontent(env, query, params, 'sortby text field')
+
+
+def aggregate_sorted_keys(env, query, sortby, limit, optimized):
+    """The keys `FT.AGGREGATE` returns for `query` sorted by `sortby`, a list of (field, order)."""
+    sort_args = ['SORTBY', len(sortby) * 2] + [x for field, order in sortby for x in (f'@{field}', order)]
+    res = env.cmd('FT.AGGREGATE', 'idx', query, 'WITHOUTCOUNT' if optimized else 'WITHCOUNT',
+                  *sort_args, 'MAX', limit, 'LOAD', 1, '@__key')
+    return [row[row.index('__key') + 1] for row in res[1:]]
+
+
+def aggregate_profile(env, query, sortby, optimized):
+    sort_args = ['SORTBY', len(sortby) * 2] + [x for field, order in sortby for x in (f'@{field}', order)]
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', query,
+                  'WITHOUTCOUNT' if optimized else 'WITHCOUNT', *sort_args, 'MAX', 5)
+    return to_dict(res[1][1][0])['Iterators profile']
+
+
+def aggregate_uses_optimizer(env, query, sortby):
+    """Whether the optimizer took effect: an `OPTIMIZER` iterator, or, when the query is a lone range
+    on the sort field, a numeric union it trimmed to fewer reads."""
+    optimized = aggregate_profile(env, query, sortby, optimized=True)
+    if 'OPTIMIZER' in str(optimized):
+        return True
+    plain = aggregate_profile(env, query, sortby, optimized=False)
+    reads = lambda profile: to_dict(profile)['Number of reading operations']
+    return to_dict(optimized)['Type'] == 'UNION' and reads(optimized) < reads(plain)
+
+
+@skip(cluster=True)
+def testOptimizerMultipleSortKeys(env):
+    """A numeric first sort key is optimized whatever sortable keys follow it.
+
+    The optimizer's heap keeps only `MAX` results, so among results tied on the numeric key it has
+    to keep the ones the sorter ranks first: by each later key, a missing value last, then by
+    document id in the last key's direction. Every `n` here is shared by five documents, assigned
+    out of document-id order, and `s` and `m` tie and go missing too, so the cut-off at `MAX` falls
+    inside ties on every key.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 's', 'TAG', 'SORTABLE',
+            'm', 'NUMERIC', 'SORTABLE', 't', 'TAG')
+    for i in range(500):
+        fields = ['n', (i * 37) % 500 // 5, 't', 'a' if i % 3 else 'b']
+        if i % 11:
+            fields += ['s', f'v{i % 4}']
+        if i % 13:
+            fields += ['m', i % 3]
+        conn.execute_command('HSET', f'd{i}', *fields)
+
+    sorts = [
+        [('n', 'ASC'), ('s', 'ASC')], [('n', 'ASC'), ('s', 'DESC')],
+        [('n', 'DESC'), ('s', 'ASC')], [('n', 'DESC'), ('s', 'DESC')],
+        [('n', 'ASC'), ('m', 'DESC'), ('s', 'ASC')], [('n', 'DESC'), ('m', 'ASC'), ('s', 'DESC')],
+    ]
+    for sortby in sorts:
+        for query in ['*', '@n:[(20 +inf]', '@t:{a}']:
+            msg = f'{query} sorted by {sortby}'
+            env.assertTrue(aggregate_uses_optimizer(env, query, sortby), message=msg)
+            for limit in [1, 3, 7]:
+                env.assertEqual(aggregate_sorted_keys(env, query, sortby, limit, optimized=True),
+                                aggregate_sorted_keys(env, query, sortby, limit, optimized=False),
+                                message=f'{msg}, MAX {limit}')
+
+
+@skip(cluster=True)
+def testOptimizerSkipsUnsortableTieBreakKey(env):
+    """A later sort key outside the sorting vector keeps the optimizer off.
+
+    The heap reads tie-break keys from the sorting vector, so it cannot rank results tied on the
+    numeric key by a key that is not there, and the query runs unoptimized instead.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 's', 'TAG')
+    for i in range(100):
+        conn.execute_command('HSET', f'd{i}', 'n', i // 5, 's', f'v{i % 4}')
+
+    sortby = [('n', 'ASC'), ('s', 'DESC')]
+    env.assertFalse(aggregate_uses_optimizer(env, '*', sortby))
+    env.assertEqual(aggregate_sorted_keys(env, '*', sortby, 3, optimized=True),
+                    aggregate_sorted_keys(env, '*', sortby, 3, optimized=False))
 
 
 @skip()  # TODO: solve flakiness (MOD-5257)

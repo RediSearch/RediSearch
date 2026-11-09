@@ -26,24 +26,54 @@
 #include "redismodule.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+#include "sorting_vector_ffi.h"
 #include "spec.h"
+#include "value_ffi.h"
 
-int cmpAsc(const void *v1, const void *v2, const void *udata) {
-  RSIndexResult *res1 = (RSIndexResult *)v1;
-  RSIndexResult *res2 = (RSIndexResult *)v2;
-
-  if (IndexResult_NumValue(res1) > IndexResult_NumValue(res2)) return 1;
-  if (IndexResult_NumValue(res1) < IndexResult_NumValue(res2)) return -1;
-  return res1->docId < res2->docId ? -1 : 1;
+/* A sort key's value in a result's sorting vector, or NULL when the document has none, which is
+ * how the sorter's row lookup reads it. */
+static const RSValue *sortKeyValue(const RSIndexResult *res, int16_t sortIdx) {
+  const RSSortingVector *sv = &res->dmd->sortVector;
+  if (sortIdx < 0 || (size_t)sortIdx >= RSSortingVector_Length(sv)) {
+    return NULL;
+  }
+  const RSValue *value = RSSortingVector_Get(sv, sortIdx);
+  return value == RSValue_NullStatic() ? NULL : value;
 }
 
-int cmpDesc(const void *v1, const void *v2, const void *udata) {
-  RSIndexResult *res1 = (RSIndexResult *)v1;
-  RSIndexResult *res2 = (RSIndexResult *)v2;
+/* Orders results the way the pipeline's sorter ranks them (`SearchResult_CmpByFields`), returning a
+ * positive value when `v1` ranks after `v2`: by the numeric key's indexed value, then by each later
+ * sort key, a missing value ranking last in either direction, then by document id in the last
+ * key's direction. The heap keeps only `limit` results, so it has to agree with the sorter on which
+ * of the results tied on the numeric key those are. */
+static int cmpBySortKeys(const void *v1, const void *v2, const void *udata) {
+  const QOptimizer *opt = udata;
+  const RSIndexResult *res1 = v1;
+  const RSIndexResult *res2 = v2;
 
-  if (IndexResult_NumValue(res1) > IndexResult_NumValue(res2)) return -1;
-  if (IndexResult_NumValue(res1) < IndexResult_NumValue(res2)) return 1;
-  return res1->docId < res2->docId ? -1 : 1;
+  double num1 = IndexResult_NumValue(res1);
+  double num2 = IndexResult_NumValue(res2);
+  if (num1 != num2) {
+    int rc = num1 > num2 ? 1 : -1;
+    return opt->asc ? rc : -rc;
+  }
+
+  for (size_t i = 0; i < opt->numTieBreakKeys; i++) {
+    const RSValue *value1 = sortKeyValue(res1, opt->tieBreakSortIdx[i]);
+    const RSValue *value2 = sortKeyValue(res2, opt->tieBreakSortIdx[i]);
+    if (!value1 || !value2) {
+      if (value1 == value2) continue;
+      return value1 ? -1 : 1;
+    }
+    int rc = RSValue_Cmp(value1, value2, NULL);
+    if (rc) {
+      return (opt->sortAscMap & (1ULL << (i + 1))) ? rc : -rc;
+    }
+  }
+
+  bool lastAscending = opt->sortAscMap & (1ULL << opt->numTieBreakKeys);
+  int rc = res1->docId < res2->docId ? -1 : 1;
+  return lastAscending ? rc : -rc;
 }
 
 static inline double getSuccessRatio(const OptimizerIterator *optIt) {
@@ -222,7 +252,7 @@ IteratorStatus OPT_Read(QueryIterator *self) {
         // heap is full. try to replace
         } else {
           RSIndexResult *tempRes = heap_peek(it->heap);
-          if (it->cmp(tempRes, it->pooledResult, NULL) > 0) {
+          if (it->cmp(tempRes, it->pooledResult, opt) > 0) {
             heap_replace(it->heap, it->pooledResult);
             it->pooledResult = tempRes;
           }
@@ -280,11 +310,11 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   oi->child = root;
   oi->optim = qOpt;
 
-  oi->cmp = qOpt->asc ? cmpAsc : cmpDesc;
+  oi->cmp = cmpBySortKeys;
   oi->resArr = rm_malloc(resArr_alloc_size);
   oi->pooledResult = oi->resArr;
   oi->heap = rm_malloc(heap_sizeof(qOpt->limit));
-  heap_init(oi->heap, oi->cmp, NULL, qOpt->limit);
+  heap_init(oi->heap, oi->cmp, qOpt, qOpt->limit);
 
   oi->numDocs = qOpt->sctx->spec->docs.size;
   oi->childEstimate = root->NumEstimated(root);
