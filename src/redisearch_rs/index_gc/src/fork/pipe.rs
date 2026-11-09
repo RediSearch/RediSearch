@@ -12,6 +12,7 @@ use std::{
     marker::PhantomData,
     mem::ManuallyDrop,
     os::fd::FromRawFd,
+    ptr::NonNull,
     time::Duration,
 };
 
@@ -57,11 +58,11 @@ impl ForkPipe {
     /// 1. `ptr` must point to a valid, initialised [`ffi::IndexGC`].
     /// 2. For the chosen lifetime `'a`, no other reference to the same
     ///    struct may exist.
-    pub unsafe fn from_ptr_mut<'a>(ptr: *mut ffi::IndexGC) -> &'a mut Self {
-        // SAFETY: `#[repr(transparent)]` guarantees `*mut ffi::IndexGC` and
-        // `*mut ForkPipe` have identical layout. Validity and aliasing are
-        // the caller's responsibility per (1) and (2).
-        unsafe { &mut *ptr.cast::<ForkPipe>() }
+    pub const unsafe fn from_ptr_mut<'a>(ptr: NonNull<ffi::IndexGC>) -> &'a mut Self {
+        // SAFETY: `#[repr(transparent)]` guarantees `ffi::IndexGC` and
+        // `ForkPipe` have identical layout. Validity and aliasing are the
+        // caller's responsibility per (1) and (2).
+        unsafe { ptr.cast::<ForkPipe>().as_mut() }
     }
 
     /// Return a writable handle to the GC pipe.

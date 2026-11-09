@@ -11,11 +11,11 @@ from common import *
 
 SCORE_FIELD = "__score"
 
-# Test data with deterministic vectors
+# Nonzero vectors keep this fixture valid for both L2 and COSINE.
 test_data = {
     'doc:1': {
         'description': "red shoes",
-        'embedding': np.array([0.0, 0.0]).astype(np.float32).tobytes()
+        'embedding': np.array([-1.0, 0.0]).astype(np.float32).tobytes()
     },
     'doc:2': {
         'description': "red running shoes",

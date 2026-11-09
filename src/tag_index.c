@@ -375,11 +375,6 @@ void TagIndex_DeleteTagSuffix(TagIndex *idx, const char *tagVal, size_t tagValLe
   deleteSuffixTrieMap(idx->suffix, tagVal, tagValLen);
 }
 
-TrieMapIterator *TagIndex_IterateValuesWithFilter(TagIndex *idx, const char *tagVal,
-                                                 size_t tagValLen, tag_iter_mode mode) {
-  return TrieMap_IterateWithFilter(idx->values, tagVal, tagValLen, (tm_iter_mode)mode);
-}
-
 TrieMapIterator *TagIndex_IterateSuffix(const TagIndex *idx) {
   return idx->suffix ? TrieMap_Iterate(idx->suffix) : NULL;
 }
