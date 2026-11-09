@@ -56,9 +56,7 @@ int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryE
     return rc;
   }
   if (oomPolicy == OomPolicy_Fail) {
-    if (QueryError_IsOk(err)) {
-      QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
-    }
+    QueryError_SetCode(err, QUERY_ERROR_CODE_OUT_OF_MEMORY);
     return RS_RESULT_ERROR;
   }
   QueryError_SetQueryOOMWarning(err);
@@ -67,6 +65,7 @@ int ApplyOomStop(const QueryRequestLimits *limits, RSOomPolicy oomPolicy, QueryE
   if (QueryRequestLimits_IsTimedOutExact(limits)) {
     return RS_RESULT_STOPPED;
   }
+  // Not STOPPED: that replies as a timeout, and a cursor would read again into the same stop.
   return RS_RESULT_EOF;
 }
 
