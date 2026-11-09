@@ -241,3 +241,44 @@ def testGeoParseTrailingWhitespace(env):
   conn.execute_command('HSET', 'ws2', 'g', '1.23, 4.56 ')
 
   assertInfoField(env, 'idx', 'hash_indexing_failures', 0)
+
+def testGeoUnitsIgnoreCase(env):
+  """Unit names match regardless of ASCII case, in the query syntax, PARAMS and GEOFILTER."""
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  conn.execute_command('HSET', 'doc', 'g', '1.23,4.56')
+
+  for unit in ['KM', 'M', 'Ft', 'mI']:
+    env.expect('FT.SEARCH', 'idx', f'@g:[1.23 4.56 1 {unit}]', 'NOCONTENT').equal([1, 'doc'])
+    env.expect('FT.SEARCH', 'idx', '@g:[1.23 4.56 1 $unit]', 'NOCONTENT',
+               'PARAMS', 2, 'unit', unit, 'DIALECT', 2).equal([1, 'doc'])
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 1.23, 4.56, 1, unit,
+               'NOCONTENT').equal([1, 'doc'])
+
+def testGeoRadiusUnitsConvertToMeters(env):
+  """A point 1112.263 m away is within a radius 0.1% longer in every unit, not one 0.1% shorter."""
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  conn.execute_command('HSET', 'doc', 'g', '0,0.01')
+
+  meters = 1112.263
+  for unit, unit_meters in [('m', 1), ('km', 1000), ('ft', 0.3048), ('mi', 1609.34)]:
+    radius = meters / unit_meters
+    env.expect('FT.SEARCH', 'idx', f'@g:[0 0 {radius * 1.001} {unit}]', 'NOCONTENT').equal([1, 'doc'])
+    env.expect('FT.SEARCH', 'idx', f'@g:[0 0 {radius * 0.999} {unit}]', 'NOCONTENT').equal([0])
+
+def testGeoNaNParamsMatchNothing(env):
+  """NaN coordinates or a NaN radius pass validation, so the query matches nothing."""
+  conn = getConnectionByEnv(env)
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  conn.execute_command('HSET', 'doc', 'g', '1.23,4.56')
+
+  for lon, lat, radius in [('nan', '4.56', '10'), ('1.23', 'nan', '10'), ('1.23', '4.56', 'nan')]:
+    env.expect('FT.SEARCH', 'idx', '@g:[$lon $lat $radius km]', 'NOCONTENT',
+               'PARAMS', 6, 'lon', lon, 'lat', lat, 'radius', radius, 'DIALECT', 2).equal([0])
+
+def testGeoFilterErrorPrecedence(env):
+  """A bad unit is reported before bad coordinates, and those before a bad radius."""
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
+  env.expect('FT.SEARCH', 'idx', '@g:[181 91 -1 fake]').error().contains('Invalid GeoFilter unit')
+  env.expect('FT.SEARCH', 'idx', '@g:[181 91 -1 km]').error().contains('Invalid GeoFilter lat/lon')
