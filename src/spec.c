@@ -3276,6 +3276,11 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
 // A new top-level schema-defining member saved here must be mirrored in
 // schemaFingerprint.
 void IndexSpec_RdbSave(RedisModuleIO *rdb, IndexSpec *sp, int contextFlags) {
+  // With disk enabled every saved spec must have its disk index: the SST
+  // block below is skipped without one, while IndexSpec_RdbLoad expects it
+  // whenever disk is enabled, so the replica would fail to parse the stream.
+  RS_ASSERT(!SearchDisk_IsEnabled() || sp->diskSpec);
+
   // When saving disk-backed state from the main process, acquire the spec
   // read lock before serializing any field state. FieldSpec_RdbSave
   // serializes the in-memory VecSimIndex of disk-backed vector fields (gated
