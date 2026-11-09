@@ -58,6 +58,31 @@ export function nonTest(text: string): string {
   }
   return gate < 0 ? kept + text.slice(from) : kept;
 }
+/**
+ * The text inside the block each match of `header`, a global pattern ending at its `{`, opens.
+ * Literals and comments are skipped, so their braces do not count.
+ */
+export function bodies(text: string, header: RegExp): string[] {
+  const found: string[] = [];
+  for (const m of text.matchAll(header)) {
+    const start = m.index + m[0].length;
+    let depth = 1;
+    for (let i = start; i < text.length; i++) {
+      LITERAL.lastIndex = i;
+      if (LITERAL.test(text)) {
+        i = LITERAL.lastIndex - 1;
+        continue;
+      }
+      if (text[i] === '{') depth++;
+      else if (text[i] === '}' && --depth === 0) {
+        found.push(text.slice(start, i));
+        break;
+      }
+    }
+  }
+  return found;
+}
+
 export const matches = (text: string, pattern: RegExp) => text.match(pattern)?.length ?? 0;
 
 /**

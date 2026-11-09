@@ -9938,6 +9938,31 @@ function nonTest(text) {
     }
     return gate < 0 ? kept + text.slice(from) : kept;
 }
+/**
+ * The text inside the block each match of `header`, a global pattern ending at its `{`, opens.
+ * Literals and comments are skipped, so their braces do not count.
+ */
+function bodies(text, header) {
+    const found = [];
+    for (const m of text.matchAll(header)) {
+        const start = m.index + m[0].length;
+        let depth = 1;
+        for (let i = start; i < text.length; i++) {
+            LITERAL.lastIndex = i;
+            if (LITERAL.test(text)) {
+                i = LITERAL.lastIndex - 1;
+                continue;
+            }
+            if (text[i] === '{')
+                depth++;
+            else if (text[i] === '}' && --depth === 0) {
+                found.push(text.slice(start, i));
+                break;
+            }
+        }
+    }
+    return found;
+}
 const matches = (text, pattern) => text.match(pattern)?.length ?? 0;
 /**
  * Whether a test is named for the artifact it belongs to rather than the behavior it asserts,
@@ -10688,6 +10713,14 @@ function receive(state, findings) {
             insert(state, finding);
             continue;
         }
+        // The same comment again on a PR it was answered on is new feedback, such as a regression.
+        const again = finding.replies?.find((r) => existing.closed && existing.answered?.includes(r.pr));
+        if (again) {
+            const key = `${finding.key}:${again.thread ?? again.comment}`;
+            if (!Object.values(state.findings).some((f) => f.key === key))
+                insert(state, { ...finding, key });
+            continue;
+        }
         if (!existing.closed)
             existing.links = [...new Set([...existing.links, ...finding.links])];
         for (const reply of finding.replies ?? [])
@@ -10770,7 +10803,7 @@ function report(state) {
     const tally = (key, keys) => keys.map((k) => `${findings.filter((f) => key(f) === k).length} ${k}`).join(', ');
     const stages = STAGES.map((s) => {
         const claims = Object.values(state.evidence).filter((e) => e.stage === s).length;
-        const at = job.admitted[s]?.candidate.slice(0, 10);
+        const at = isAdmitted(job, s) ? job.admitted[s].candidate.slice(0, 10) : undefined;
         return `\`${s}\` assessed ${claims} times${at ? `, admitted at ${at}` : ''}`;
     });
     const confirmed = findings.filter((f) => f.source === 'review' && f.blocking).length;
@@ -11012,9 +11045,16 @@ async function definesRust(git, candidate, path) {
     const defs = await files(`(fn|struct|enum|trait|type|const|static|mod) ${item}`);
     if (!owner)
         return defs.length > 0;
-    // A method lives in a file that implements its type, or in its module.
-    const owners = new Set(await files(`impl[^{]* ${owner}|mod ${owner}`));
-    return defs.some((f) => owners.has(f));
+    // A method lives in an impl block of its type; a function in its module's file or block.
+    const header = new RegExp(`^\\s*(impl\\b[^{;]*\\b${owner}\\b[^{;]*|(pub(\\([^)]*\\))?\\s+)?mod\\s+${owner}\\s*)\\{`, 'gm');
+    const defined = new RegExp(`\\b(fn|const|type|struct|enum)\\s+${item}\\b`);
+    for (const hit of defs) {
+        if (hit.endsWith(`/${owner}.rs`) || hit.endsWith(`/${owner}/mod.rs`))
+            return true;
+        if (bodies(await git(['show', hit]), header).some((b) => defined.test(b)))
+            return true;
+    }
+    return false;
 }
 /**
  * C ABI exports without a production caller: those the stage adds, and those whose caller it
@@ -16157,6 +16197,7 @@ function plugin (amp) {
                     delete r.comment;
                     if (r.thread)
                         await gh.resolve(r.thread);
+                    f.answered = [...new Set([...(f.answered ?? []), r.pr])];
                     f.replies = f.replies.filter((other) => other !== r);
                 }
                 catch (error) {

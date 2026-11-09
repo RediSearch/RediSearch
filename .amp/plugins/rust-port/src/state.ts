@@ -105,6 +105,8 @@ export interface Finding {
   links: string[];
   /** The GitHub comments to answer and threads to resolve; each is dropped once done. */
   replies?: { pr: number; comment?: number; thread?: string }[];
+  /** The PRs a reply was posted on. */
+  answered?: number[];
   closed?: {
     /** `superseded`: the same failure was reported again on a newer revision. */
     resolution: 'fixed' | 'no-change' | 'passed' | 'superseded';
@@ -229,6 +231,16 @@ export function receive(state: State, findings: NewFinding[]): void {
       insert(state, finding);
       continue;
     }
+    // The same comment again on a PR it was answered on is new feedback, such as a regression.
+    const again = finding.replies?.find(
+      (r) => existing.closed && existing.answered?.includes(r.pr),
+    );
+    if (again) {
+      const key = `${finding.key}:${again.thread ?? again.comment}`;
+      if (!Object.values(state.findings).some((f) => f.key === key))
+        insert(state, { ...finding, key });
+      continue;
+    }
     if (!existing.closed) existing.links = [...new Set([...existing.links, ...finding.links])];
     for (const reply of finding.replies ?? [])
       if (!existing.replies?.some((r) => r.comment === reply.comment))
@@ -320,7 +332,7 @@ export function report(state: State): string {
     keys.map((k) => `${findings.filter((f) => key(f) === k).length} ${k}`).join(', ');
   const stages = STAGES.map((s) => {
     const claims = Object.values(state.evidence).filter((e) => e.stage === s).length;
-    const at = job.admitted[s]?.candidate.slice(0, 10);
+    const at = isAdmitted(job, s) ? job.admitted[s]!.candidate.slice(0, 10) : undefined;
     return `\`${s}\` assessed ${claims} times${at ? `, admitted at ${at}` : ''}`;
   });
   const confirmed = findings.filter((f) => f.source === 'review' && f.blocking).length;

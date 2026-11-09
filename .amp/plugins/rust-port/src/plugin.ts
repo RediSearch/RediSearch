@@ -198,6 +198,7 @@ export default function (amp: PluginAPI) {
           if (r.comment) state.job.posted.push((await gh.reply(r.pr, r.comment, reply)).data.id);
           delete r.comment;
           if (r.thread) await gh.resolve(r.thread);
+          f.answered = [...new Set([...(f.answered ?? []), r.pr])];
           f.replies = f.replies!.filter((other) => other !== r);
         } catch (error) {
           debug(`answering ${f.id} on PR #${r.pr} failed: ${error}`);
