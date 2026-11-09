@@ -4,10 +4,10 @@
   "type": "module",
   "scripts": {
     "build": "rollup -c",
-    "test": "node --test 'test/**/*.test.ts'",
+    "test": "node --test '*/test/*.test.ts'",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
-    "check": "prettier --check . && tsc --noEmit && node --test 'test/**/*.test.ts'"
+    "check": "prettier --check . && tsc --noEmit && node --test '*/test/*.test.ts'"
   },
   "dependencies": {
     "@octokit/rest": "22.0.1",

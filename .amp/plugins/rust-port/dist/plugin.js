@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
-import { writeFile, readFile, readdir, stat, mkdir, appendFile, rename } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, appendFile, readdir, stat } from 'node:fs/promises';
 import path, { join, normalize, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { stripVTControlCharacters, debuglog, inspect as inspect$1, promisify, callbackify, aborted } from 'node:util';
 import { ChildProcess, execFile, spawnSync, spawn } from 'node:child_process';
 import process$2, { platform, hrtime, execPath, execArgv } from 'node:process';
+import { stripVTControlCharacters, debuglog, inspect, promisify, callbackify, aborted } from 'node:util';
 import { StringDecoder } from 'node:string_decoder';
 import tty from 'node:tty';
 import { setTimeout, scheduler, setImmediate } from 'node:timers/promises';
@@ -1124,7 +1124,7 @@ const getPrintedLine = verboseObject => {
 // Serialize any type to a line string, for logging.
 // Tabs are escaped by `escapeLines()`, like any other control character.
 const serializeVerboseMessage = message => {
-	const messageString = typeof message === 'string' ? message : inspect$1(message);
+	const messageString = typeof message === 'string' ? message : inspect(message);
 	return escapeLines(messageString);
 };
 
@@ -1970,7 +1970,7 @@ const serializeInvalidMessage = message => {
 	try {
 		return String(message);
 	} catch {
-		return inspect$1(message);
+		return inspect(message);
 	}
 };
 
@@ -4237,7 +4237,7 @@ const getOriginalMessage = (originalError, cwd) => {
 
 const serializeIpcMessage = ipcMessage => typeof ipcMessage === 'string'
 	? ipcMessage
-	: inspect$1(ipcMessage);
+	: inspect(ipcMessage);
 
 // With the `lines` option, empty lines are kept. Only objects are omitted.
 const serializeMessagePart = messagePart => Array.isArray(messagePart)
@@ -9897,302 +9897,47 @@ getIpcExport();
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
-const TEST_GATE = '#[cfg(test)]';
-// Strings, char literals and comments are skipped whole, so a gate or brace in them does not count.
-const LITERAL = /b?r(#*)"[\s\S]*?"\1|"(\\.|[^"\\])*"|'(\\.|[^'\\])'|\/\/[^\n]*|\/\*[\s\S]*?\*\//y;
-/** What `path` breaks of `rules` that it did not already break at `before`. */
-function violations(rules, path, before, after) {
-    return rules
-        .filter((r) => r.applies(path) && r.count(after) > (before === undefined ? 0 : r.count(before)))
-        .map((r) => `${path} ${r.message}`);
-}
 /**
- * The code outside `#[cfg(test)]` items. Each gated item ends at its first top-level `;` or at the
- * `}` closing its first `{`; production code may follow it.
+ * Running a stage's checks: each command in its own process group, its output in a log, and a
+ * problem when it exits non-zero or its profile judge rejects its log.
  */
-function nonTest(text) {
-    let kept = '';
-    let from = 0;
-    let gate = -1;
-    let depth = 0;
-    for (let i = 0; i < text.length; i++) {
-        LITERAL.lastIndex = i;
-        if (LITERAL.test(text)) {
-            i = LITERAL.lastIndex - 1;
-            continue;
-        }
-        if (gate < 0) {
-            if (!text.startsWith(TEST_GATE, i))
-                continue;
-            kept += text.slice(from, i);
-            gate = i;
-            depth = 0;
-            i += TEST_GATE.length - 1;
-        }
-        else if (text[i] === '{')
-            depth++;
-        else if ((text[i] === '}' && --depth === 0) || (text[i] === ';' && depth === 0)) {
-            gate = -1;
-            from = i + 1;
-        }
-    }
-    return gate < 0 ? kept + text.slice(from) : kept;
-}
-/**
- * The text inside the block each match of `header`, a global pattern ending at its `{`, opens.
- * Literals and comments are skipped, so their braces do not count.
- */
-function bodies(text, header) {
-    const found = [];
-    for (const m of text.matchAll(header)) {
-        const start = m.index + m[0].length;
-        let depth = 1;
-        for (let i = start; i < text.length; i++) {
-            LITERAL.lastIndex = i;
-            if (LITERAL.test(text)) {
-                i = LITERAL.lastIndex - 1;
-                continue;
-            }
-            if (text[i] === '{')
-                depth++;
-            else if (text[i] === '}' && --depth === 0) {
-                found.push(text.slice(start, i));
-                break;
-            }
-        }
-    }
-    return found;
-}
-const matches = (text, pattern) => text.match(pattern)?.length ?? 0;
-/**
- * Whether a test is named for the artifact it belongs to rather than the behavior it asserts,
- * judged by whole words, so `testGeoFilterABI` counts and `capabilities` does not.
- */
-function namedForArtifact(name) {
-    const words = name
-        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
-        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
-        .toLowerCase()
-        .split('_');
-    return words.some((w) => ['contract', 'boundary', 'abi', 'compat'].includes(w));
-}
-/** Tests named for an artifact: Rust test functions, Python flow tests and C++ tests. */
-function artifactTests(text) {
-    const names = [
-        ...text.matchAll(/#\[(\w+::)*(test|rstest)\b[^\]]*\]\s*(#\[[^\]]*\]\s*)*(async\s+)?fn\s+(\w+)/g),
-    ].map((m) => m[5]);
-    for (const m of text.matchAll(/\bdef\s+(test\w*)\s*\(/g))
-        names.push(m[1]);
-    for (const m of text.matchAll(/\bTEST(_F)?\s*\(\s*\w+\s*,\s*(\w+)\s*\)/g))
-        names.push(m[2]);
-    return names.filter(namedForArtifact).length;
-}
-/** `debug_assert!`s outside the named assertion helpers that are meant to wrap them. */
-function bareAsserts(text) {
-    let helper = false;
-    let count = 0;
-    for (const line of text.split('\n')) {
-        const fn = line.match(/\bfn\s+(\w+)/)?.[1];
-        if (fn)
-            helper = /^(debug_)?assert_/.test(fn);
-        if (/\bdebug_assert(_eq|_ne)?!\s*\(/.test(line) && !helper)
-            count++;
-    }
-    return count;
-}
-/** `# Safety` sections whose pre-conditions are not a numbered list. */
-function unnumbered(text) {
-    const sections = text.split(/^\s*\/\/\/\s*# Safety\s*$/m).slice(1);
-    return sections.filter((rest) => {
-        const docs = rest.split('\n').filter(Boolean);
-        const body = docs.slice(0, docs.findIndex((l) => !l.trim().startsWith('///')));
-        return !body.some((l) => /^\s*\/\/\/\s*\d+\./.test(l));
-    }).length;
-}
-
-/*
- * Copyright (c) 2006-Present, Redis Ltd.
- * All rights reserved.
- *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
- * GNU Affero General Public License v3 (AGPLv3).
- */
-/** The Cargo workspace the Rust lives in. */
-const WORKSPACE = 'src/redisearch_rs/';
-/** C headers cbindgen generates from the FFI crates. */
-const HEADERS = `${WORKSPACE}headers/`;
-const FFI = `${WORKSPACE}c_entrypoint/`;
-const isTest = (path) => /(^|\/)(tests|benches)\//.test(path);
-const isGenerated = (path) => path.startsWith(HEADERS) || path.endsWith('Cargo.lock');
-const rust = (path) => path.startsWith(WORKSPACE) && path.endsWith('.rs');
-/** Rust outside the FFI crates and the C bindings: what a port's pure crate is. */
-const isPure = (path) => rust(path) && !/^src\/redisearch_rs\/(c_entrypoint|ffi|c_wrappers|redis_mock)\//.test(path);
-const production = (path) => rust(path) && !isTest(path);
-const ffi = (path) => production(path) && path.startsWith(FFI);
-/** Rule files: a reviewer finding that cites one blocks. */
-const isRule = (path) => /^(\.claude\/)?\.?skills\//.test(path) || /(^|\/)(CLAUDE|AGENTS)\.md$/.test(path);
-const RULE_FILES = '`.skills/`, CLAUDE.md or AGENTS.md';
-/** What the Idiomatic Rust reviewer goes through rule by rule. */
-const GUIDES = 'the generated-code smells and the house rules in .skills/rust-review row by row, and ' +
-    '.skills/rust-tests-guidelines and .skills/rust-docs-guidelines';
-// Miri runs in every stage, because nothing tells reliably whether a change reaches `unsafe` code.
-// cargo mutants skips `unsafe extern` functions, so only a swap that adds other Rust needs it.
-// CI's lint job also checks formatting, which `make lint` does not.
-const LINT = [
-    'make lint',
-    'make fmt CHECK=1',
-    'cargo hakari generate --diff',
-    'cargo hakari manage-deps --dry-run',
-];
-/** The checks each stage's plan must have, by kind, and what each must run. */
-const CHECKS = {
-    rust: {
-        test: [],
-        miri: ['miri'],
-        mutants: ['cargo mutants'],
-        lint: LINT,
-        bench: ['cargo bench'],
-    },
-    swap: { test: [], miri: ['miri'], lint: LINT },
-};
-/** What a reproduction may run: a `*` stands for a word. */
-const RUNNERS = ['cargo test', 'cargo nextest run', './build.sh RUN_*'];
-const RELEASE_NOTES = /^- \[([ x])\] This PR (requires|does not require) release notes/gim;
-/** What the PR template's release-notes check, which `pr-validation` does not include, rejects. */
-function bodyErrors(body) {
-    const boxes = [...body.matchAll(RELEASE_NOTES)];
-    const kinds = new Set(boxes.map((b) => b[2].toLowerCase()));
-    const ticked = boxes.filter((b) => b[1].toLowerCase() === 'x').length;
-    return kinds.size === 2 && ticked === 1
-        ? []
-        : ['needs both release-notes boxes of the PR template, exactly one of them ticked'];
-}
-/** The check that aggregates the others: the only CI result that decides. */
-const CI_GATE = 'pr-validation';
-/** Checks that never block, even before the gate reports. */
-const ADVISORY = /sonar|codecov/i;
-/** Lints a new crate enables for itself until the workspace does (.skills/port-c-module). */
-const CRATE_LINTS = [
-    'clippy::unwrap_used',
-    'clippy::dbg_macro',
-    'clippy::todo',
-    'clippy::unimplemented',
-    'clippy::print_stdout',
-    'clippy::panic',
-    'clippy::unnecessary_safety_comment',
-    'clippy::ptr_as_ptr',
-    'clippy::borrow_as_ptr',
-    'clippy::ref_as_ptr',
-    'clippy::indexing_slicing',
-];
-/** The house rules maintainers raise on every port (.skills/rust-review § 3k). */
-const RULES = [
-    {
-        applies: production,
-        count: (text) => matches(nonTest(text), /\.unwrap\(\)/g),
-        message: 'adds `unwrap()` outside tests; use `expect("<the invariant it relies on>")`',
-    },
-    {
-        applies: ffi,
-        count: (text) => matches(text, /unsafe\s*\{\s*(&\s*(mut\s+)?\*|\(\s*\*)/g),
-        message: 'dereferences a raw pointer with `*`; use `as_ref()`, `as_mut()` or `write()`',
-    },
-    {
-        applies: ffi,
-        count: (text) => bareAsserts(nonTest(text)),
-        message: 'adds a bare `debug_assert!`; check FFI pre-conditions with a named assertion helper',
-    },
-    {
-        applies: production,
-        count: (text) => unnumbered(nonTest(text)),
-        message: 'adds a `# Safety` section whose pre-conditions are not numbered',
-    },
-    {
-        applies: production,
-        count: (text) => matches(text, /RedisModule_(Alloc|Calloc|Realloc)\b/g),
-        message: 'calls the Redis allocator directly; allocate with `Box`, the global allocator',
-    },
-    {
-        applies: production,
-        count: (text) => matches(text, /Result<[^;{]*,\s*&'static str\s*>/g),
-        message: "returns a `&'static str` error; use an error enum deriving `thiserror::Error`",
-    },
-    {
-        applies: (path) => rust(path) && path !== `${FFI}redisearch_rs/src/lib.rs`,
-        count: (text) => matches(text, /#\[global_allocator\]/g),
-        message: 'adds an allocator; Miri already catches leaks and double frees',
-    },
-    {
-        applies: (path) => rust(path) || /^tests\/(pytests|cpptests|ctests)\//.test(path),
-        count: artifactTests,
-        message: 'adds a test named for its artifact (contract, ABI, boundary); name the behavior',
-    },
-    {
-        applies: (path) => isPure(path) && !isTest(path),
-        count: (text) => matches(text, /\bextern\s+"C"|#\[(unsafe\()?no_mangle\b/g),
-        message: 'adds C ABI items to a pure crate; they belong in its `c_entrypoint/*_ffi` crate',
-    },
-    {
-        // Declarations only: tests may still define stubs for C symbols they do not exercise.
-        applies: (path) => isPure(path) && isTest(path),
-        count: (text) => matches(text, /\bextern\s+"C"\s*\{/g),
-        message: "declares C functions in a pure crate's tests; test the C boundary in the FFI crate",
-    },
-    {
-        // An existing crate rolls the lints out on its own, but none may drop one.
-        applies: (path) => /^src\/redisearch_rs\/(.+\/)?[^/]+\/src\/lib\.rs$/.test(path),
-        count: (text) => CRATE_LINTS.filter((lint) => !text.includes(lint)).length,
-        message: `lacks lints of the crate lint block: ${CRATE_LINTS.join(', ')}`,
-    },
-];
-
-/*
- * Copyright (c) 2006-Present, Redis Ltd.
- * All rights reserved.
- *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
- * GNU Affero General Public License v3 (AGPLv3).
- */
-const env = { GIT_EDITOR: 'true', GIT_TERMINAL_PROMPT: '0', NO_COLOR: '1' };
-/** How much slower than C, in percent, Rust may be in any benchmark. */
-const SLOWDOWN_PERCENT = 5;
-const ESTIMATES = /^(.+)[\\/](?:c|rust)[\\/]new[\\/]estimates\.json$/;
-async function git(cwd, args, input = '') {
-    return (await execa('git', args, { cwd, env, input })).stdout;
-}
+const ENV = { GIT_EDITOR: 'true', GIT_TERMINAL_PROMPT: '0', NO_COLOR: '1' };
+const readLog = async (path) => stripVTControlCharacters(await readFile(path, 'utf8').catch(() => ''));
 /**
  * Runs checks one at a time, because builds share the cargo lock, and stops at the first failure,
  * which already rejects the candidate. Each result carries its `problem`, if it has one.
  */
-async function runChecks(cwd, dir, checks, signal, debug, vars = {}) {
+async function runChecks(run, checks) {
     const results = [];
     for (const [index, check] of checks.entries()) {
-        const log = join(dir, `check-${index}-${check.kind}.log`);
+        const log = join(run.dir, `check-${index}-${check.kind}.log`);
         const started = Date.now();
-        const exitCode = signal.aborted ? null : await run(cwd, check.command, log, signal, vars);
+        const exitCode = run.signal.aborted ? null : await execute(run, check.command, log);
         const result = { ...check, exitCode, started, ms: Date.now() - started, log };
         result.problem =
             exitCode === null
                 ? 'timed out'
                 : exitCode !== 0
                     ? `exited ${exitCode}`
-                    : await judge(result, cwd);
-        debug(`check \`${check.command}\` ${result.problem ?? 'passed'} in ${result.ms}ms: ${log}`);
+                    : await run.judges[check.kind]?.({
+                        check: result,
+                        log: await readLog(log),
+                        root: run.root,
+                    });
+        run.debug(`check \`${check.command}\` ${result.problem ?? 'passed'} in ${result.ms}ms: ${log}`);
         results.push(result);
         if (result.problem)
             break;
     }
     return results;
 }
-async function run(cwd, command, log, signal, vars) {
+async function execute(run, command, log) {
     // Both streams append to one log, so their output interleaves as it happened.
     await writeFile(log, '');
     // A process group of its own, so aborting also kills the redis-servers and compilers it starts.
     const child = execa('bash', ['-o', 'pipefail', '-c', command], {
-        cwd,
-        env: { ...env, ...vars },
+        cwd: run.root,
+        env: { ...ENV, ...run.vars },
         detached: true,
         reject: false,
         stdin: 'ignore',
@@ -10205,108 +9950,24 @@ async function run(cwd, command, log, signal, vars) {
         }
         catch { }
     };
-    signal.addEventListener('abort', kill, { once: true });
+    run.signal.addEventListener('abort', kill, { once: true });
     // An abort before the listener existed would otherwise leave the check running.
-    if (signal.aborted)
+    if (run.signal.aborted)
         kill();
     const { exitCode } = await child;
-    signal.removeEventListener('abort', kill);
-    return signal.aborted ? null : (exitCode ?? null);
+    run.signal.removeEventListener('abort', kill);
+    return run.signal.aborted ? null : (exitCode ?? null);
 }
 /**
  * Whether checks' logs show the test `name` ran: a line naming it, module path included, that
  * does not report it ignored or skipped. Another check may still skip it, say under Miri.
  */
-function ran(logs, name) {
+function testRan(logs, name) {
     const named = new RegExp(`(?<!\\w)${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`);
     return logs
         .split('\n')
         .some((line) => named.test(line) && !/\b(ignored|skip(ped)?)\b/i.test(line));
 }
-/** Why a check that exited 0 still failed, judged from its log or its output files. */
-async function judge(check, root) {
-    if (check.kind === 'bench')
-        return judgeBenchmarks(await criterion(root), check.started);
-    const log = stripVTControlCharacters(await readFile(check.log, 'utf8').catch(() => ''));
-    if (check.kind === 'miri')
-        return judgeMiri(log);
-    if (check.kind === 'mutants')
-        return judgeMutants(log);
-}
-/**
- * Fails a Miri run that ran nothing, such as `true # miri`, or had a test nextest marked slow:
- * CI's runners are slower and time it out.
- */
-function judgeMiri(log) {
-    if (!Number(log.match(/Summary \[[^\]]*\] (\d+) tests? run/)?.[1]))
-        return 'ran no tests under Miri: nextest reported no summary of tests run';
-    const slow = new Set([...log.matchAll(/ SLOW \[[^\]]*\] \([^)]*\) (.+)$/gm)].map((m) => m[1].trim()));
-    if (slow.size)
-        return (`has tests nextest marked slow, which CI's slower runners time out: ${[...slow].join(', ')}. ` +
-            'Shrink their inputs; never raise the timeout.');
-}
-/** Fails a mutation run that found nothing to mutate, because it then covers nothing. */
-function judgeMutants(log) {
-    if (!/Found [1-9]\d* mutants? to test/.test(log))
-        return ('found no mutants in the stage diff, so it shows no test coverage. Point `-p` and ' +
-            '`--in-diff` at the Rust the stage adds; a swap that changes only `unsafe extern` exports, ' +
-            'which cargo mutants skips, needs no mutants check.');
-}
-/**
- * Where Criterion may write: `criterion` in the Cargo target directory. Cargo run from the
- * repository root and from the workspace disagree on it, so both are asked, one after the other
- * because Cargo commands contend for the workspace lock.
- */
-async function criterion(root) {
-    const manifest = join(root, WORKSPACE, 'Cargo.toml');
-    const args = ['metadata', '--format-version', '1', '--no-deps', '--manifest-path', manifest];
-    const targets = [];
-    for (const cwd of [root, join(root, WORKSPACE)]) {
-        const { stdout } = await execa('cargo', args, { cwd });
-        targets.push(join(JSON.parse(stdout).target_directory, 'criterion'));
-    }
-    return [...new Set(targets)];
-}
-/** The median Criterion estimated in `file`, unless it was written before `since`. */
-async function median(file, since) {
-    const written = await stat(file).catch(() => undefined);
-    if (!written || written.mtimeMs < since)
-        return;
-    const estimate = await readFile(file, 'utf8')
-        .then((text) => JSON.parse(text).median.point_estimate)
-        .catch(() => NaN);
-    return estimate > 0 ? estimate : NaN;
-}
-/**
- * Judges each Criterion group measured since `since` by the ratio of its `rust` and `c` medians.
- * A group with neither side fresh is an earlier run's, left in the shared target directory.
- */
-async function judgeBenchmarks(dirs, since, slowdownPercent = SLOWDOWN_PERCENT) {
-    const ratios = [];
-    const halves = [];
-    for (const dir of dirs) {
-        const files = await readdir(dir, { recursive: true }).catch(() => []);
-        const names = new Set(files.map((f) => f.match(ESTIMATES)?.[1]).filter((n) => n !== undefined));
-        for (const name of names) {
-            const [c, rust] = await Promise.all(['c', 'rust'].map((impl) => median(join(dir, name, impl, 'new', 'estimates.json'), since)));
-            if (c !== undefined && rust !== undefined)
-                ratios.push({ name, ratio: rust / c });
-            else if (c !== undefined || rust !== undefined)
-                halves.push(name);
-        }
-    }
-    if (halves.length)
-        return `measured only one of \`c\` and \`rust\` for: ${halves.sort().join(', ')}`;
-    if (!ratios.length)
-        return `measured no Criterion group with \`c\` and \`rust\` functions in ${dirs.join(' or ')}`;
-    const unreadable = ratios.filter((r) => Number.isNaN(r.ratio)).map((r) => r.name);
-    if (unreadable.length)
-        return `left unreadable Criterion estimates for: ${unreadable.join(', ')}`;
-    const limit = 1 + slowdownPercent / 100;
-    const slow = ratios.filter((r) => r.ratio > limit).map((r) => `${r.name} ${r.ratio.toFixed(2)}x`);
-    if (slow.length)
-        return `is slower than C beyond ${limit.toFixed(2)}x: ${slow.join(', ')}`;
-}
 
 /*
  * Copyright (c) 2006-Present, Redis Ltd.
@@ -10316,979 +9977,41 @@ async function judgeBenchmarks(dirs, since, slowdownPercent = SLOWDOWN_PERCENT) 
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
-/** A port lands as two stacked PRs: the Rust, then the swap that deletes the C. */
-const STAGES = ['rust', 'swap'];
-const POLICY = '.amp/plugins/rust-port/policy.md';
-/** The start of a GitHub remote URL, before the repository: HTTPS, SSH or scp-style. */
-const GITHUB = /^(https:\/\/([^@/]+@)?github\.com\/|ssh:\/\/([^@/]+@)?github\.com\/|[^@/:]+@github\.com:)/i;
-/** The tests the plan cites up to `stage`: a stage's candidate must contain them and run them. */
-const cited = (plan, stage) => [...plan.contract.flatMap((c) => c.tests), ...plan.divergences.map((d) => d.test)].filter((t) => STAGES.indexOf(t.stage) <= STAGES.indexOf(stage));
-const blank = (text) => typeof text !== 'string' || !text.trim();
-function testErrors(t, what) {
-    if (blank(t?.path) || blank(t?.name) || !STAGES.includes(t?.stage))
-        return [`${what} needs a test: { path, name, stage }, stage one of ${STAGES.join(', ')}`];
-    if (namedForArtifact(t.name))
-        return [`${what} names ${t.name} for its artifact; name it for the behavior it asserts`];
-    return [];
+/** The {@link Vcs} on a git checkout. */
+async function git(cwd, args, input = '') {
+    return (await execa('git', args, { cwd, env: ENV, input })).stdout;
 }
-function validate(plan) {
-    const errors = ['remote', 'baseBranch', 'branchPrefix', 'structure', 'interfaces']
-        .filter((field) => blank(plan?.[field]))
-        .map((field) => `${field} is required`);
-    if (!/^[\w.-]+\/[\w.-]+$/.test(plan?.repository))
-        errors.push('repository must be owner/name');
-    if (!plan.module?.some((p) => p?.endsWith?.('.c')) || !plan.module.some((p) => p.endsWith('.h')))
-        errors.push('module needs the C files being ported: sources and headers');
-    if (!plan.contract?.length)
-        errors.push('contract needs at least one item');
-    for (const [i, c] of (plan.contract ?? []).entries()) {
-        if (blank(c?.behavior))
-            errors.push(`contract[${i}] needs a behavior`);
-        if (!c?.tests?.length)
-            errors.push(`contract[${i}] needs the tests that pin it`);
-        for (const t of c?.tests ?? [])
-            errors.push(...testErrors(t, `contract[${i}]`));
-    }
-    if (!Array.isArray(plan.divergences))
-        errors.push('divergences is required, even if empty');
-    for (const [i, d] of (plan.divergences ?? []).entries()) {
-        if ([d?.behavior, d?.c, d?.rust, d?.why].some(blank))
-            errors.push(`divergences[${i}] needs behavior, c, rust and why`);
-        errors.push(...testErrors(d?.test, `divergences[${i}]`));
-    }
-    if (!plan.symbols?.length)
-        errors.push('symbols needs every function the headers declare');
-    for (const [i, s] of (plan.symbols ?? []).entries())
-        if ([s?.c, s?.rust].some(blank))
-            errors.push(`symbols[${i}] needs c and rust`);
-    for (const stage of STAGES) {
-        const s = plan.stages?.[stage];
-        if (blank(s?.deliverable))
-            errors.push(`${stage} needs a deliverable`);
-        if (!s?.paths?.length || s.paths.some(blank))
-            errors.push(`${stage} needs the paths it may change`);
-        if (blank(s?.title) || blank(s?.body))
-            errors.push(`${stage} needs a PR title and body`);
-        else
-            errors.push(...bodyErrors(s.body).map((e) => `${stage} body ${e}`));
-        const filter = benchFilter(s?.checks?.find((c) => c.kind === 'bench')?.command ?? '');
-        if (filter)
-            errors.push(`${stage} bench check filters the benchmarks (${filter}); run them all`);
-        // A check passes only if every command in it does.
-        for (const c of s?.checks ?? [])
-            if (/\|\||;|(^|[^&])&(?!&)/.test(c?.command ?? ''))
-                errors.push(`${stage} ${c.kind} check chains commands with something other than \`&&\``);
-        for (const [kind, runs] of Object.entries(CHECKS[stage])) {
-            const command = s?.checks?.find((c) => c.kind === kind)?.command ?? '';
-            if (blank(command) || runs.some((r) => !command.includes(r)))
-                errors.push(`${stage} needs a ${kind} check${runs.map((r) => ` running \`${r}\``).join(' and')}`);
-        }
-    }
-    return errors;
-}
-/**
- * What in a `cargo bench` command selects only some benchmarks: a bench target, or a filter
- * passed to Criterion. Benchmarks a run skips leave stale results the judge ignores.
- */
-function benchFilter(command) {
-    const args = command
-        .match(/cargo bench\b([^;&|]*)/)?.[1]
-        .trim()
-        .split(/\s+/) ?? [];
-    const valued = ['-p', '--package', '--manifest-path', '--features', '-F', '--profile'];
-    for (let i = 0; i < args.length; i++) {
-        if (args[i] === '--' || args[i] === '--bench' || args[i].startsWith('--bench='))
-            return args[i];
-        if (valued.includes(args[i]) || args[i] === '--target-dir')
-            i++;
-        else if (args[i] && !args[i].startsWith('-'))
-            return args[i];
-    }
-}
-/**
- * Functions a C header declares: a name with a return type before it, either type words or a
- * macro call on the same line such as `arrayof(char**)`. Column-zero macro calls such as
- * `KHASH_MAP_INIT_INT64(...)` have none, and comments, typedefs and static functions are skipped.
- */
-function declarations(header) {
-    // Comments become blank space, keeping lines, so prose in them never reads as a prototype.
-    // `extern` is dropped, so a variable typed by a macro call, `extern arrayof(int*) x;`, does
-    // not read as a function named for its macro.
-    const code = header
-        .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '))
-        .replace(/\/\/[^\n]*/g, '')
-        .replace(/^extern\s+/gm, '');
-    const pattern = /^(?!typedef\b|static\b|#|\/\/|\/?\*|\s)(?:\w+\([^()]*\)(?:[ \t]*|[ \t]*\n[ \t]+)|(?:[\w*]+[\s*]+)+)(\w+)\s*\(/gm;
-    return [...code.matchAll(pattern)].map((m) => m[1]);
-}
-/**
- * What the plan gets wrong about the repository and its tools: a remote that is not the
- * repository, where the PRs open from its branches; stage branches git refuses,
- * missing tools, headers not on the base branch, functions the symbols leave out or invent, and
- * paths spanning several crates.
- */
-async function inspect(plan, root, git) {
-    const problems = [];
-    const url = await git(['remote', 'get-url', plan.remote]).catch(() => '');
-    const path = url.replace(GITHUB, '');
-    if (path === url ||
-        !new RegExp(`^${plan.repository.replace(/\./g, '\\.')}(\\.git)?/?$`, 'i').test(path))
-        problems.push(`remote ${plan.remote} is not github.com/${plan.repository}, where the PRs open`);
-    for (const stage of STAGES) {
-        const branch = `${plan.branchPrefix}-${stage}`;
-        await git(['check-ref-format', '--branch', branch]).catch(() => problems.push(`${branch} is not a valid branch name`));
-    }
-    for (const tool of ['mutants', 'nextest'])
-        await execa('cargo', [tool, '--version'], { cwd: root }).catch(() => problems.push(`cargo ${tool} is missing: cargo install --locked cargo-${tool}`));
-    await criterion(root).catch((error) => problems.push(`cargo metadata fails, so benchmarks cannot be read: ${error.shortMessage}`));
-    await git(['fetch', plan.remote, plan.baseBranch]);
-    const declared = new Set();
-    for (const path of plan.module.filter((p) => p.endsWith('.h'))) {
-        const header = await git(['show', `FETCH_HEAD:${path}`]).catch(() => undefined);
-        if (header === undefined)
-            problems.push(`${path} is not on ${plan.baseBranch}`);
-        else
-            for (const name of declarations(header))
-                declared.add(name);
-    }
-    const mapped = new Set(plan.symbols.map((s) => s.c));
-    const unmapped = [...declared].filter((name) => !mapped.has(name));
-    const unknown = [...mapped].filter((name) => !declared.has(name));
-    if (unmapped.length)
-        problems.push(`symbols leaves out ${unmapped.join(', ')}`);
-    if (unknown.length)
-        problems.push(`symbols names undeclared ${unknown.join(', ')}`);
-    const files = (await git(['ls-tree', '-r', '--name-only', 'FETCH_HEAD'])).split('\n');
-    for (const stage of STAGES)
-        problems.push(...crates(plan.stages[stage].paths, files));
-    return problems;
-}
-/** Paths holding several crates: a stage names each crate it changes, so spreading shows. */
-function crates(paths, files) {
-    return paths.flatMap((path) => {
-        const dir = path.replace(/\/*$/, '/');
-        const count = files.filter((f) => f.startsWith(dir) && f.endsWith('/Cargo.toml')).length;
-        return count > 1 ? [`${path} holds ${count} crates; list each one the stage changes`] : [];
-    });
-}
-const testName = (t) => `\`${t.path}::${t.name}\``;
-const contract = (plan) => plan.contract.map((c) => `- ${c.behavior} Tests: ${c.tests.map(testName).join(', ')}`);
-function divergences(plan) {
-    if (!plan.divergences.length)
-        return 'None: the Rust behaves like the C everywhere.';
-    return plan.divergences
-        .map((d) => `- **${d.behavior}.** C: ${d.c} Rust: ${d.rust} Why: ${d.why} Test: ${testName(d.test)}`)
-        .join('\n');
-}
-/**
- * The stage's PR. Every PR lists the divergences, so whoever reviews it can reject one, then, folded
- * away, the plan it was admitted under, so an amendment that widens a stage or weakens its checks
- * shows, and the `record` of the run.
- */
-function pr(plan, stage, record) {
-    const { title, body } = plan.stages[stage];
+function gitVcs(root) {
+    const sh = (args, input) => git(root, args, input);
+    const dirty = async () => !!(await sh(['status', '--porcelain']));
     return {
-        title,
-        body: `${body}
-
-#### Behavior changes from C
-
-${divergences(plan)}
-
-<details><summary>How this port ran</summary>
-
-${describe(plan, false)}
-
-${record}
-</details>
-`,
-    };
-}
-/** The plan as reviewers read it; a PR shows the divergences on their own. */
-function describe(plan, withDivergences = true) {
-    const stages = STAGES.map((s) => {
-        const { paths, checks } = plan.stages[s];
-        return `- \`${s}\` may change ${paths.map((p) => `\`${p}\``).join(', ')} and must pass ${checks.map((c) => `\`${c.command}\``).join(', ')}.`;
-    });
-    return `### Contract
-
-${contract(plan).join('\n')}
-${withDivergences ? `\n### Divergences from C\n\n${divergences(plan)}\n` : ''}
-### Stages
-
-${stages.join('\n')}
-
-### What replaces each C function
-
-${plan.symbols.map((s) => `- \`${s.c}\`: \`${s.rust}\``).join('\n')}
-
-### Structure, dependencies and handoffs
-
-${plan.structure}
-
-### Interfaces later stages rely on
-
-${plan.interfaces}`;
-}
-
-/*
- * Copyright (c) 2006-Present, Redis Ltd.
- * All rights reserved.
- *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
- * GNU Affero General Public License v3 (AGPLv3).
- */
-/**
- * Why each reference does not hold in the workspace at `root`: a missing file, a line past its
- * end, a test it does not define, or an unknown finding. Empty when every reference holds.
- */
-async function verify(root, refs, findings = {}) {
-    if (!Array.isArray(refs))
-        return ['evidence must be a list of references'];
-    const problems = [];
-    for (const ref of refs) {
-        if (typeof ref !== 'object' || ref === null) {
-            problems.push(`${JSON.stringify(ref)} is not a reference`);
-            continue;
-        }
-        if ('finding' in ref) {
-            if (!findings[ref.finding])
-                problems.push(`there is no finding ${ref.finding}`);
-            continue;
-        }
-        const path = typeof ref?.path === 'string' ? normalize(ref.path) : '';
-        if (!path || isAbsolute(path) || path.startsWith('..')) {
-            problems.push(`${JSON.stringify(ref)} needs a path inside the workspace`);
-            continue;
-        }
-        if (ref.line !== undefined && typeof ref.line !== 'number') {
-            problems.push(`${path}: line must be a number`);
-            continue;
-        }
-        if (ref.test !== undefined && typeof ref.test !== 'string') {
-            problems.push(`${path}: test must be a name`);
-            continue;
-        }
-        const text = await readFile(join(root, path), 'utf8').catch(() => undefined);
-        if (text === undefined)
-            problems.push(`${path} does not exist`);
-        else if (ref.line && !(ref.line >= 1 && ref.line <= text.split('\n').length))
-            problems.push(`${path} has no line ${ref.line}`);
-        else if (ref.test && !defines(text, ref.test))
-            problems.push(`${path} defines no ${ref.test}`);
-    }
-    return problems;
-}
-/** Whether `text` defines the test `name`: its last path segment, as a whole word. */
-function defines(text, name) {
-    const word = name.split(/::|\./).at(-1).replace(/[^\w]/g, '');
-    return !!word && new RegExp(`\\b${word}\\b`).test(text);
-}
-/**
- * A finding's location as `path:line`, whether it names the line, a range starting
- * there, or a symbol defined on it. A location that resolves to neither is returned as given.
- */
-async function anchor(root, location) {
-    const at = location.indexOf(':');
-    const [path, spot] = at < 0 ? [location, ''] : [location.slice(0, at), location.slice(at + 1)];
-    const line = /^\d+/.exec(spot)?.[0];
-    if (line)
-        return `${path}:${line}`;
-    const file = normalize(path);
-    if (isAbsolute(file) || file.startsWith('..'))
-        return location;
-    const text = await readFile(join(root, file), 'utf8').catch(() => '');
-    const name = spot.split(/::|\./).at(-1).replace(/[^\w]/g, '');
-    const lines = text.split('\n');
-    const kinds = 'fn|struct|enum|union|trait|type|const|static|def|class';
-    const definition = new RegExp(`\\b(${kinds})\\s+${name}\\b`);
-    const c = new RegExp(`^\\S.*\\b${name}\\s*\\(`);
-    let found = name ? lines.findIndex((l) => definition.test(l)) : -1;
-    if (found < 0 && name)
-        found = lines.findIndex((l) => c.test(l));
-    return found < 0 ? location : `${path}:${found + 1}`;
-}
-
-/*
- * Copyright (c) 2006-Present, Redis Ltd.
- * All rights reserved.
- *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
- * GNU Affero General Public License v3 (AGPLv3).
- */
-/** Assessments a job may run before an operator grants more. */
-const BUDGET = 30;
-const TARGETS = ['plugin', 'policy', 'skills', 'checks', 'reviewers'];
-/** Each retro list and the text fields its items need, besides their evidence. */
-const RETRO = {
-    mistakes: ['what', 'cost', 'prevention'],
-    cuts: ['what', 'lines'],
-    improvements: ['problem', 'proposal', 'target'],
-};
-/** A short digest of `parts`, independent of the order of keys in any object among them. */
-function hash(...parts) {
-    const sorted = (_, value) => value && typeof value === 'object' && !Array.isArray(value)
-        ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
-        : value;
-    return createHash('sha256').update(JSON.stringify(parts, sorted)).digest('hex').slice(0, 16);
-}
-function newState(owner, plan) {
-    const job = {
-        ...{ owner, plan, planHash: hash(plan), started: new Date().toISOString() },
-        ...{ admitted: {}, prs: {}, used: 0, grants: [], created: 0, delivered: 0, posted: [] },
-    };
-    return { job, evidence: {}, findings: {} };
-}
-const budget = (job) => job.grants.reduce((sum, g) => sum + g.amount, BUDGET);
-/** Why the job may not go on without a human, if it may not. */
-function stopped(job) {
-    if (job.blocked)
-        return `blocked: ${job.blocked}`;
-    if (job.used >= budget(job))
-        return `the assessment budget (${budget(job)}) is used up`;
-}
-/** Changes whenever a turn moved the job: an assessment, a finding raised or closed, an admission. */
-function progress(state) {
-    const closed = Object.values(state.findings).filter((f) => f.closed).length;
-    const { used, created, admitted, retro, planHash } = state.job;
-    return hash(used, created, closed, admitted, !!retro, planHash);
-}
-const previous = (stage) => STAGES[STAGES.indexOf(stage) - 1];
-/** A stage stays admitted while the plan and the admitted stage it was built on are unchanged. */
-function isAdmitted(job, stage) {
-    const admission = job.admitted[stage];
-    const prev = previous(stage);
-    if (admission?.plan !== job.planHash)
-        return false;
-    return !prev || (isAdmitted(job, prev) && admission.base === job.admitted[prev].candidate);
-}
-const passed = (evidence) => evidence.checks.every((c) => !c.problem);
-/** The stage's reviewed evidence under the current plan, oldest first. */
-const reviewed = (state, stage) => Object.values(state.evidence).filter((e) => e.stage === stage && e.plan === state.job.planHash && e.reviewers.length);
-/**
- * The replies due on review threads: a no-change answer at once, a fix once its stage's PR moved
- * past the revision the finding was raised on, quoting the head that carries it.
- */
-function due(state) {
-    return Object.values(state.findings).flatMap((finding) => {
-        const { closed, replies, stage, revision } = finding;
-        if (!closed || !replies?.length)
-            return [];
-        if (closed.resolution !== 'fixed')
-            return [{ finding, reply: closed.reason }];
-        const head = state.job.prs[stage]?.head;
-        return head && head !== revision
-            ? [{ finding, reply: `Fixed in ${head.slice(0, 10)}: ${closed.reason}` }]
-            : [];
-    });
-}
-function outstanding(state) {
-    return Object.values(state.findings)
-        .filter((f) => !f.closed)
-        .sort((a, b) => STAGES.indexOf(a.stage) - STAGES.indexOf(b.stage) || seq(a) - seq(b));
-}
-/** CI runs only after publication, so its findings cannot hold back the admission that publishes. */
-const holds = (f, stage) => f.stage === stage && f.blocking && f.source !== 'ci';
-/** Every stage admitted, nothing outstanding and every reply posted: the retrospective is next. */
-function done(state) {
-    return (STAGES.every((s) => isAdmitted(state.job, s)) &&
-        !outstanding(state).length &&
-        !Object.values(state.findings).some((f) => f.closed && f.replies?.length));
-}
-const seq = (f) => Number(f.id.slice(1));
-function insert(state, finding) {
-    const id = `F${++state.job.created}`;
-    state.findings[id] = { id, ...finding };
-}
-/**
- * Adds findings whose key is new. A duplicate merges into the existing finding: an open one gains
- * its links, and either gains its replies, so a comment on two stacked PRs is answered on both.
- */
-function receive(state, findings) {
-    for (const finding of findings) {
-        const existing = Object.values(state.findings).find((f) => f.key === finding.key);
-        if (!existing) {
-            insert(state, finding);
-            continue;
-        }
-        // The same comment again on a PR it was answered on is new feedback, such as a regression.
-        const again = finding.replies?.find((r) => existing.closed && existing.answered?.includes(r.pr));
-        if (again) {
-            const key = `${finding.key}:${again.thread ?? again.comment}`;
-            if (!Object.values(state.findings).some((f) => f.key === key))
-                insert(state, { ...finding, key });
-            continue;
-        }
-        if (!existing.closed)
-            existing.links = [...new Set([...existing.links, ...finding.links])];
-        for (const reply of finding.replies ?? [])
-            if (!existing.replies?.some((r) => r.comment === reply.comment))
-                existing.replies = [...(existing.replies ?? []), reply];
-    }
-}
-/**
- * Replaces the open findings of one stage and source with the current failures. A failure reported
- * again on another revision, or with other details, supersedes the open one with a new finding,
- * so the worker hears of it.
- */
-function reconcile(state, stage, source, failures) {
-    const open = outstanding(state).filter((f) => f.stage === stage && f.source === source);
-    for (const finding of open)
-        if (!failures.some((f) => f.key === finding.key))
-            finding.closed = { resolution: 'passed' };
-    for (const failure of failures) {
-        const existing = open.find((f) => f.key === failure.key);
-        if (existing?.revision === failure.revision && existing.body === failure.body)
-            continue;
-        if (existing)
-            existing.closed = { resolution: 'superseded' };
-        insert(state, failure);
-    }
-}
-/** Closes a finding the worker may close. On a review thread the reason becomes the reply. */
-function close(state, id, resolution, reason, evidence) {
-    const finding = state.findings[id];
-    if (!finding || finding.closed)
-        throw new Error(`${id} is not an outstanding finding`);
-    if (finding.source === 'check' || finding.source === 'ci')
-        throw new Error(`${id} closes itself once it passes`);
-    if (!evidence.length)
-        throw new Error('Cite evidence: the files, lines or tests that show it');
-    if (resolution === 'no-change' && !reason?.trim())
-        throw new Error('A no-change resolution needs the reason it does not apply');
-    if (finding.replies?.length &&
-        !(reason?.trim() && reason.length <= 280 && !reason.includes('\n')))
-        throw new Error(`${id} is a review thread: give a one-line reason of at most 280 characters`);
-    finding.closed = { resolution, reason, evidence };
-    return finding;
-}
-/** Outstanding findings the worker has not been shown yet; marks them shown. */
-function undelivered(state) {
-    const fresh = outstanding(state).filter((f) => seq(f) > state.job.delivered);
-    state.job.delivered = state.job.created;
-    return fresh;
-}
-/** The findings as a numbered to-do list, then how to close them with `closeTool`. */
-function render(findings, closeTool) {
-    if (!findings.length)
-        return '';
-    const indent = (text) => text.replace(/^/gm, '   ');
-    const items = findings.map((f, i) => [
-        `${i + 1}. ${f.id} · ${f.stage} · ${f.title}${f.blocking ? '' : ' · suggestion'}`,
-        indent(f.body),
-        indent(f.links.join(' ')),
-    ]
-        .filter((line) => line.trim())
-        .join('\n'));
-    const any = (test) => findings.some(test);
-    const how = [
-        any((f) => f.source === 'review' || f.source === 'comment') &&
-            `Close reviewer findings and comments with ${closeTool}: fixed, or no-change with the reason, citing the files, lines or tests that show it.`,
-        any((f) => f.repro) &&
-            "Every later claim re-runs a reproduced finding's test; commit it only if it is a regression test that belongs in the suite.",
-        any((f) => f.replies?.length) &&
-            'For a PR comment the reason is posted as the reply: one line of at most 280 characters.',
-        any((f) => f.source === 'check' || f.source === 'ci') &&
-            'Failed checks and CI close themselves once they pass.',
-        any((f) => !f.blocking) && 'Suggestions do not hold admission but need closing.',
-    ];
-    return [...items, how.filter(Boolean).join(' ')].join('\n\n');
-}
-/** The run as a human reviewing its PRs reads it: its cost, its findings and its retrospective. */
-function report(state) {
-    const { job } = state;
-    const findings = Object.values(state.findings);
-    const tally = (key, keys) => keys.map((k) => `${findings.filter((f) => key(f) === k).length} ${k}`).join(', ');
-    const stages = STAGES.map((s) => {
-        const claims = Object.values(state.evidence).filter((e) => e.stage === s).length;
-        const at = isAdmitted(job, s) ? job.admitted[s].candidate.slice(0, 10) : undefined;
-        return `\`${s}\` assessed ${claims} times${at ? `, admitted at ${at}` : ''}`;
-    });
-    const confirmed = findings.filter((f) => f.source === 'review' && f.blocking).length;
-    const reviewed = findings.filter((f) => f.source === 'review').length;
-    const lines = [
-        '### Run',
-        '',
-        `- Started ${job.started}; ${job.used} of ${budget(job)} assessments used, ${job.grants.length} grants, ${(job.former?.length ?? 0) + 1} worker threads.`,
-        `- ${stages.join('; ')}.`,
-        `- ${findings.length} findings: ${tally((f) => f.source, ['review', 'comment', 'check', 'ci'])}. ` +
-            `${confirmed} of ${reviewed} reviewer findings confirmed or citing a rule.`,
-        `- Closed: ${tally((f) => f.closed?.resolution, ['fixed', 'no-change', 'passed', 'superseded'])}.`,
-    ];
-    const { retro } = job;
-    if (retro)
-        lines.push('', '### Retrospective', '', ...retro.mistakes.map((m) => `- Mistake: ${m.what} Cost: ${m.cost} Prevention: ${m.prevention}`), ...retro.cuts.map((c) => `- Cut: ${c.what} (${c.lines} lines)`), ...retro.improvements.map((i) => `- Improve ${i.target}: ${i.problem} Proposal: ${i.proposal}`));
-    return lines.join('\n');
-}
-/** Every list has an item, every item its fields and evidence, every improvement a target. */
-function validateRetro(retro) {
-    const errors = [];
-    for (const [list, fields] of Object.entries(RETRO)) {
-        const items = Array.isArray(retro?.[list]) ? retro[list] : [];
-        if (!items.length)
-            errors.push(`${list} needs at least one item`);
-        for (const [i, item] of items.entries()) {
-            for (const field of fields)
-                if (typeof item?.[field] !== 'string' || !item[field].trim())
-                    errors.push(`${list}[${i}] needs ${field}`);
-            if (!item?.evidence?.length)
-                errors.push(`${list}[${i}] needs evidence`);
-        }
-    }
-    for (const [i, item] of (retro?.improvements ?? []).entries())
-        if (!TARGETS.includes(item?.target))
-            errors.push(`improvements[${i}].target must be one of ${TARGETS.join(', ')}`);
-    return errors;
-}
-
-/*
- * Copyright (c) 2006-Present, Redis Ltd.
- * All rights reserved.
- *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
- * GNU Affero General Public License v3 (AGPLv3).
- */
-/**
- * The files a unified diff changes, with the lines it adds and removes in each. A file starts at
- * its `---`/`+++` pair; hunk line counts are ignored, because a model's are often wrong. In git's
- * own output the pair follows an `index` line, so hunk content that looks like one is not one.
- */
-function parseDiff(diff) {
-    const files = [];
-    const lines = diff.split('\n');
-    const fromGit = lines.some((line) => line.startsWith('diff --git '));
-    let file;
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const header = !fromGit || lines[i - 1]?.startsWith('index ');
-        if (header && line.startsWith('--- ') && lines[i + 1]?.startsWith('+++ ')) {
-            const [from, to] = [line, lines[++i]].map((l) => l.slice(4).split('\t')[0].trim());
-            const path = to === '/dev/null' ? from : to;
-            file = { path: path.replace(/^[ab]\//, ''), added: [], removed: [] };
-            files.push(file);
-        }
-        else if (file && line[0] === '+')
-            file.added.push(line.slice(1));
-        else if (file && line[0] === '-')
-            file.removed.push(line.slice(1));
-    }
-    return files;
-}
-function measure(files) {
-    const size = { lines: 0, code: 0, files: 0 };
-    const code = (text = '') => nonTest(text)
-        .split('\n')
-        .filter((line) => line.trim()).length;
-    for (const { path, added, removed, texts } of files) {
-        if (path.endsWith('.md') || path.endsWith('.gitignore'))
-            continue;
-        size.lines += added.length;
-        size.files++;
-        if (isTest(path) || isGenerated(path))
-            continue;
-        size.code +=
-            texts && path.endsWith('.rs')
-                ? code(texts[1]) - code(texts[0])
-                : added.length - removed.length;
-    }
-    return size;
-}
-/**
- * Pushback by lines added, which grows with them; nothing up to 250. The classes end where the PR
- * size label's do, and XL blocks. Deletions do not count: the classes counter bloat.
- */
-function sizeClass(lines) {
-    if (lines <= 250)
-        return;
-    if (lines <= 500)
-        return {
-            label: 'M',
-            note: 'Every line costs a reviewer attention; before claiming again, delete what the port does not need.',
-        };
-    if (lines <= 1000)
-        return {
-            label: 'L',
-            note: 'Reviewers will push back on a stage this big. Stop adding: cut first, and question every file the stage touches.',
-        };
-    return {
-        label: 'XL',
-        note: 'Too large to review: the stage cannot be admitted until it adds at most 1000 lines.',
-    };
-}
-/** Files changed only in blank lines; other whitespace may matter, in a string or in Python. */
-function cosmetic(files) {
-    return files
-        .filter((f) => {
-        const lines = [...f.added, ...f.removed];
-        return lines.length && lines.every((line) => !line.trim());
-    })
-        .map((f) => f.path);
-}
-/** The files that lie outside every one of `paths`, each a file or a directory. */
-function outside(files, paths) {
-    const dirs = paths.map((p) => p.replace(/\/*$/, '/'));
-    return files.filter((f) => !paths.includes(f) && !dirs.some((d) => f.startsWith(d)));
-}
-/**
- * Why the candidate cannot be the stage, and its size: everything that rejects a claim before
- * anything runs, so a rejection costs no assessment.
- */
-async function gates(git, root, state, stage, base, candidate) {
-    const { plan } = state.job;
-    // Without rename detection a moved file names both its paths, so neither escapes the scope.
-    const diff = (...args) => git(['diff', '--no-renames', ...args, base, candidate]);
-    const { paths } = plan.stages[stage];
-    const stray = outside((await diff('--name-only')).split('\n').filter((f) => f && !isGenerated(f)), paths);
-    if (stray.length)
-        return {
-            problems: [`it changes ${stray.join(', ')}, outside ${paths.join(', ')}; revert or amend`],
-            size: { lines: 0, code: 0, files: 0 },
-        };
-    const show = (rev, path) => git(['show', `${rev}:${path}`]).catch(() => undefined);
-    const files = parseDiff(await diff('--no-ext-diff'));
-    for (const f of files)
-        f.texts = [await show(base, f.path), await show(candidate, f.path)];
-    const size = measure(files);
-    const problems = cosmetic(files.filter((f) => !isGenerated(f.path))).map((path) => `${path} changes only blank lines; restore it`);
-    const tooBig = sizeClass(size.lines);
-    if (tooBig?.label === 'XL')
-        problems.push(`it adds ${size.lines} lines: ${tooBig.note}`);
-    // Once reviewed, a stage's code may not grow: a fix pays for itself in deleted code.
-    const floor = Math.min(...reviewed(state, stage).map((e) => e.size.code));
-    if (size.code > floor)
-        problems.push(`it adds ${size.code} net lines of code (tests aside), its reviewed version ${floor}: ` +
-            'a fix must delete as much code as it adds');
-    for (const { path, texts } of files) {
-        const [before, after] = texts;
-        if (after !== undefined)
-            problems.push(...violations(RULES, path, before, after));
-    }
-    problems.push(...crates(paths, (await git(['ls-tree', '-r', '--name-only', candidate])).split('\n')));
-    const tests = cited(plan, stage).map((t) => ({ path: t.path, test: t.name }));
-    problems.push(...(await verify(root, tests)), ...(await unfixed(git, state, stage, candidate)));
-    if (stage === 'swap')
-        problems.push(...(await swapped(git, plan, candidate, files)));
-    return { problems, size };
-}
-/**
- * The stage's findings closed as fixed whose fix the candidate lacks: it changes none of the files
- * the fix cites since the revision the finding was raised on.
- */
-async function unfixed(git, state, stage, candidate) {
-    const problems = [];
-    for (const f of Object.values(state.findings)) {
-        if (f.stage !== stage || f.closed?.resolution !== 'fixed')
-            continue;
-        const paths = (f.closed.evidence ?? []).map((r) => r.path);
-        // A revision this checkout never had cannot be compared, and is not held against it.
-        const changed = await git(['diff', '--name-only', f.revision, candidate, '--', ...paths]).catch(() => '?');
-        if (!changed)
-            problems.push(`${f.id} was closed as fixed, but nothing it cites changed since ${f.revision.slice(0, 10)}`);
-    }
-    return problems;
-}
-/**
- * What the swap leaves undone: a Rust replacement or generated export missing, a module file
- * left, an export no production code calls, or Rust outside the FFI crate without a mutants check.
- * A C definition left elsewhere fails to link against the Rust export of its name.
- */
-async function swapped(git, plan, candidate, files) {
-    const problems = [];
-    const found = (args) => git(args).then(() => true, () => false);
-    const grep = (flags, pattern, ...paths) => found(['grep', flags, pattern, candidate, '--', ...paths]);
-    // Exports are not mutation candidates, but other Rust the swap adds is.
-    const pure = files.map((f) => f.path).filter((f) => isPure(f) && !isTest(f));
-    if (pure.length && !plan.stages.swap.checks.some((c) => c.kind === 'mutants'))
-        problems.push(`swap changes Rust outside its FFI crate (${pure.join(', ')}): add a mutants check`);
-    for (const s of plan.symbols) {
-        if (!(await definesRust(git, candidate, s.rust)))
-            problems.push(`${s.rust}, which replaces ${s.c}, is not defined`);
-        if (!(await grep('-qw', s.c, HEADERS)))
-            problems.push(`no generated header exports ${s.c}`);
-    }
-    for (const path of plan.module)
-        if (await found(['cat-file', '-e', `${candidate}:${path}`]))
-            problems.push(`${path} still exists; the swap deletes the module, headers included`);
-    for (const name of await orphans(git, files, candidate))
-        problems.push(`${name} is exported, but no production code calls it: delete it, and point any test ` +
-            'that calls it at the Rust API');
-    return problems;
-}
-/**
- * Whether the crate a Rust path starts with defines each item after it, so `geo::RadiusFilter::new`
- * needs `fn new` in a file of the `geo` crate that implements `RadiusFilter`, not any `fn new`.
- */
-async function definesRust(git, candidate, path) {
-    const [crate, ...items] = path.split('::');
-    const manifests = await git([
-        'grep',
-        '-l',
-        `^name = "${crate}"`,
-        candidate,
-        '--',
-        `${WORKSPACE}**Cargo.toml`,
-    ]).catch(() => '');
-    const manifest = manifests.split('\n')[0]?.split(':').at(-1);
-    if (!manifest || !items.length)
-        return false;
-    const dir = manifest.replace(/Cargo\.toml$/, '');
-    const files = async (pattern) => (await git(['grep', '-lwE', pattern, candidate, '--', dir]).catch(() => ''))
-        .split('\n')
-        .filter(Boolean);
-    for (const item of items.slice(0, -1))
-        if (!(await files(`(struct|enum|trait|type|mod) ${item}`)).length)
-            return false;
-    const [owner, item] = [items.at(-2), items.at(-1)];
-    const defs = await files(`(fn|struct|enum|trait|type|const|static|mod) ${item}`);
-    if (!owner)
-        return defs.length > 0;
-    // A method lives in an impl block of its type; a function in its module's file or block.
-    const header = new RegExp(`^\\s*(impl\\b[^{;]*\\b${owner}\\b[^{;]*|(pub(\\([^)]*\\))?\\s+)?mod\\s+${owner}\\s*)\\{`, 'gm');
-    const defined = new RegExp(`\\b(fn|const|type|struct|enum)\\s+${item}\\b`);
-    for (const hit of defs) {
-        if (hit.endsWith(`/${owner}.rs`) || hit.endsWith(`/${owner}/mod.rs`))
+        async currentRevision() {
+            if (await dirty())
+                throw new Error('The working tree is dirty');
+            return sh(['rev-parse', 'HEAD']);
+        },
+        resolveRevision: (revision) => sh(['rev-parse', '--verify', `${revision}^{commit}`]),
+        async fetchBranch(remote, branch) {
+            await sh(['fetch', remote, branch]);
+            return sh(['rev-parse', 'FETCH_HEAD']);
+        },
+        mergeBase: (a, b) => sh(['merge-base', a, b]),
+        diff: (from, to, o) => sh([
+            ...['diff', '--no-ext-diff', o?.renames ? '--find-renames' : '--no-renames', from, to],
+            ...(o?.paths ? ['--', ...o.paths] : []),
+        ]),
+        readFileAt: (revision, path) => sh(['show', `${revision}:${path}`]).catch(() => undefined),
+        listFiles: async (revision) => (await sh(['ls-tree', '-r', '--name-only', revision])).split('\n').filter(Boolean),
+        // Hunk line counts written by a model are often off; --recount ignores them.
+        applyPatch: (patch, o) => sh(['apply', '--recount', ...(o?.reverse ? ['-R'] : [])], patch).then(() => true, () => false),
+        async discardChanges() {
+            if (!(await dirty()))
+                return false;
+            await sh(['restore', '--source=HEAD', '--staged', '--worktree', '--', '.']);
+            await sh(['clean', '-fd']);
             return true;
-        if (bodies(await git(['show', hit]), header).some((b) => defined.test(b)))
-            return true;
-    }
-    return false;
-}
-/**
- * C ABI exports without a production caller: those the stage adds, and those whose caller it
- * deleted, that no C or Rust code outside tests, generated headers and comments mentions. An
- * export only tests call keeps C ABI alive for nothing; its tests belong on the Rust API.
- */
-async function orphans(git, files, candidate) {
-    const grep = (...args) => git(['grep', ...args]).catch(() => '');
-    const touched = new Set(files.flatMap((f) => f.removed.join('\n').match(/\w+/g) ?? []));
-    for (const f of files)
-        for (const m of f.added.join('\n').matchAll(/#\[unsafe\(no_mangle\)\][^{;]*?\bfn\s+(\w+)/g))
-            touched.add(m[1]);
-    const exports = await grep('-h', '-A4', '#\\[unsafe(no_mangle)\\]', candidate, '--', '*.rs');
-    const names = new Set([...exports.matchAll(/\bfn\s+(\w+)/g)].map((m) => m[1]).filter((n) => touched.has(n)));
-    const sources = ['*.c', '*.h', '*.cpp', '*.cc', '*.hpp', '*.rs', `:!${HEADERS}`];
-    const skip = [':!tests', ':!**/tests/**', ':!**/benches/**'];
-    const result = [];
-    for (const name of names) {
-        const word = new RegExp(`\\b${name}\\b`);
-        const call = (line) => word.test(line) && !/^(\/\/|\/?\*)/.test(line.trim()) && !/\bfn\s/.test(line);
-        let used = false;
-        for (const hit of (await grep('-lw', name, candidate, '--', ...sources, ...skip)).split('\n')) {
-            const path = hit.slice(candidate.length + 1);
-            if (!path || used)
-                continue;
-            // A Rust file's own `#[cfg(test)]` items are tests too.
-            const text = await git(['show', `${candidate}:${path}`]);
-            used = (path.endsWith('.rs') ? nonTest(text) : text).split('\n').some(call);
-        }
-        if (!used)
-            result.push(name);
-    }
-    return result;
-}
-
-/*
- * Copyright (c) 2006-Present, Redis Ltd.
- * All rights reserved.
- *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
- * GNU Affero General Public License v3 (AGPLv3).
- */
-/** Confirming reviewer proposals by trying them: running their failing test, or their deletion. */
-/** The runners a reproduction may use, as the reviewers read them. */
-const RUNS = RUNNERS.map((r) => `\`${r}\``).join(', ');
-/** Deletions tried per assessment; each runs the stage's test checks. */
-const MAX_DELETIONS = 3;
-/**
- * Whether a reproduction command only runs tests: one of {@link RUNNERS}, whose arguments select
- * packages and tests, with no shell syntax and no option such as `--config` or `-Z` that makes
- * Cargo run something else. Reviewer output is model text that read untrusted code.
- */
-function runnable(command) {
-    const pattern = (r) => new RegExp(`^${r.replace(/[.]/g, '\\.').replace('*', '\\w+')}(?=\\s|$)`);
-    const runner = RUNNERS.map((r) => command.match(pattern(r))?.[0]).find(Boolean);
-    if (!runner)
-        return false;
-    const args = command.slice(runner.length).trim().split(/\s+/).filter(Boolean);
-    const name = /^[\w:./-]+$/;
-    // A script takes its options as variables.
-    if (!runner.startsWith('cargo '))
-        return args.every((a) => /^[A-Z_]+=[\w:./-]+$/.test(a));
-    const valued = ['-p', '--package', '--test', '--features', '-F', '--manifest-path'];
-    const flags = ['--lib', '--tests', '--exact', '--nocapture', '--no-fail-fast', '--release', '--'];
-    for (let i = 0; i < args.length; i++)
-        if (valued.includes(args[i])
-            ? !name.test(args[++i] ?? '')
-            : !flags.includes(args[i]) && (args[i].startsWith('-') || !name.test(args[i])))
-            return false;
-    return true;
-}
-/** The finding a checked proposal becomes; `verdict` says what the plugin confirmed. */
-function toFinding(r, p, o) {
-    return {
-        // Identical findings from several reviewers share a key, so they merge into one.
-        key: `review:${hash(o.stage, o.candidate, p.location, p.scenario, p.correction)}`,
-        source: 'review',
-        stage: o.stage,
-        revision: o.candidate,
-        blocking: o.blocking,
-        title: `${r.label} · ${p.location}`,
-        body: [`Problem: ${p.scenario}`, `Fix: ${p.correction}`, `Evidence: ${o.verdict}`, o.proof]
-            .filter(Boolean)
-            .join('\n'),
-        repro: o.repro,
-        links: o.link ? [o.link] : [],
+        },
     };
-}
-/** Applies a patch, runs `checks` with it, and takes it out again; a string if it does not apply. */
-async function trial(run, patch, checks) {
-    const text = patch.endsWith('\n') ? patch : `${patch}\n`;
-    // Hunk line counts written by a model are often off; --recount ignores them.
-    const applied = await git(run.root, ['apply', '--recount'], text).then(() => true, () => false);
-    if (!applied)
-        return 'its patch does not apply';
-    try {
-        return await runChecks(run.root, run.dir, checks, run.signal, run.debug, run.vars);
-    }
-    finally {
-        await git(run.root, ['apply', '--recount', '-R'], text);
-    }
-}
-/** Runs a reproduction's command, with its test patched in unless the candidate already has it. */
-async function reproduction(run, repro, kind) {
-    const check = [{ kind, command: repro.command }];
-    // Present only verbatim: a weakened test of the same name must not stand in for it.
-    const added = parseDiff(repro.patch).find((f) => f.path === repro.path)?.added ?? [];
-    const text = await readFile(join(run.root, repro.path), 'utf8').catch(() => undefined);
-    const present = text !== undefined && added.length > 0 && added.every((l) => text.includes(l));
-    return present
-        ? (await runChecks(run.root, run.dir, check, run.signal, run.debug, run.vars))[0]
-        : trial(run, repro.patch, check).then((r) => (typeof r === 'string' ? r : r[0]));
-}
-/**
- * Confirms a finding by its failing test: one test runner (see {@link runnable}) whose command
- * passes without the test and fails with it, naming it. Anything else may be the patch failing to
- * compile or an unrelated test.
- */
-async function reproduce(run, repro, n) {
-    const files = parseDiff(repro.patch).map((f) => f.path);
-    if (!files.includes(repro.path) ||
-        files.some((f) => !isTest(f) || /(^|\/)(Cargo\.toml|build\.rs)$/.test(f)))
-        return {
-            confirmed: false,
-            outcome: `its patch must add ${repro.path} and touch only test sources`,
-        };
-    if (!runnable(repro.command))
-        return { confirmed: false, outcome: `its command must be one of ${RUNS}` };
-    const [before] = await runChecks(run.root, run.dir, [{ kind: `repro-${n}-before`, command: repro.command }], run.signal, run.debug, run.vars);
-    if (before.exitCode !== 0)
-        return { confirmed: false, outcome: `its command fails without the test (${before.log})` };
-    const after = await reproduction(run, repro, `repro-${n}`);
-    if (typeof after === 'string')
-        return { confirmed: false, outcome: after };
-    if (after.exitCode === null)
-        return { confirmed: false, outcome: 'its command timed out' };
-    if (after.exitCode === 0)
-        return { confirmed: false, outcome: 'its test passes' };
-    if (!(await readFile(after.log, 'utf8').catch(() => '')).includes(repro.test))
-        return {
-            confirmed: false,
-            outcome: `its command fails, but its log never names ${repro.test}`,
-        };
-    return {
-        confirmed: true,
-        outcome: `reproduced: \`${repro.command}\` exits ${after.exitCode} (${after.log})`,
-        proof: `Reproduction (${repro.command}):\n${repro.patch}`,
-    };
-}
-/**
- * Whether a deletion removes or disables tests, which proves nothing: a test file, an added
- * `#[ignore]` or `#[cfg]`, or a line of a Rust source that appears only inside its `#[cfg(test)]`
- * items. `read` gives the candidate's text of a file.
- */
-async function deletesTests(patch, read) {
-    for (const f of parseDiff(patch)) {
-        if (isTest(f.path) || f.added.some((line) => /#\[(ignore|cfg)\b/.test(line)))
-            return true;
-        if (!f.path.endsWith('.rs'))
-            continue;
-        const text = await read(f.path).catch(() => '');
-        const production = nonTest(text);
-        if (f.removed.some((line) => line.trim() && text.includes(line) && !production.includes(line)))
-            return true;
-    }
-    return false;
-}
-/** Confirms that code is not needed: every test check passes without it. */
-async function remove(run, patch, tests, n) {
-    const net = parseDiff(patch).reduce((sum, f) => sum + f.removed.length - f.added.length, 0);
-    if (net <= 0 || (await deletesTests(patch, (path) => readFile(join(run.root, path), 'utf8'))))
-        return { confirmed: false, outcome: 'its patch must remove more than it adds, outside tests' };
-    const results = await trial(run, patch, tests.map((c) => ({ ...c, kind: `${c.kind}-deletion-${n}` })));
-    if (typeof results === 'string')
-        return { confirmed: false, outcome: results };
-    const failed = results.find((r) => r.problem);
-    if (failed)
-        return { confirmed: false, outcome: `\`${failed.command}\` fails without it` };
-    return {
-        confirmed: true,
-        outcome: `every test check passes without it (−${net} lines)`,
-        proof: `Deletion:\n${patch}`,
-    };
-}
-/**
- * Turns proposals into findings. Those whose references do not hold are dropped; the rest block
- * only if their test fails, their deletion keeps the tests passing, or they cite a rule. Proposals
- * resolving to one line are one finding, and a confirmed one replaces a suggestion there.
- */
-async function confirm(run, reviews, o) {
-    const findings = [];
-    const kept = new Map();
-    let n = 0;
-    let deletions = 0;
-    for (const r of reviews)
-        for (const p of r.proposals) {
-            const problems = !(typeof p.location === 'string' && p.location && p.scenario)
-                ? ['it has no location or scenario']
-                : p.refs.length
-                    ? await verify(run.root, p.refs)
-                    : ['it cites nothing'];
-            if (problems.length) {
-                run.debug(`${r.label}: dropped ${p.location}: ${problems.join('; ')}`);
-                continue;
-            }
-            const id = await anchor(run.root, p.location);
-            const earlier = kept.get(id);
-            if (earlier !== undefined && findings[earlier].blocking)
-                continue;
-            let result;
-            if (p.repro)
-                result = await reproduce(run, p.repro, ++n);
-            else if (p.deletion && deletions++ < MAX_DELETIONS)
-                result = await remove(run, p.deletion.patch, o.tests, ++n);
-            const rule = p.refs.find((ref) => isRule(ref.path));
-            const blocking = !!result?.confirmed || !!rule;
-            const verdict = result?.confirmed
-                ? result.outcome
-                : rule
-                    ? `breaks the rule at ${rule.path}${rule.line ? `:${rule.line}` : ''}`
-                    : `unconfirmed${result ? `, ${result.outcome}` : ''}`;
-            const finding = toFinding(r, p, {
-                ...{ stage: o.stage, candidate: o.candidate, blocking, verdict },
-                proof: result?.confirmed ? result.proof : undefined,
-                repro: result?.confirmed ? p.repro : undefined,
-                link: r.thread && o.threadURL(r.thread),
-            });
-            if (earlier === undefined)
-                kept.set(id, findings.push(finding) - 1);
-            else if (blocking)
-                findings[earlier] = finding;
-        }
-    return findings;
 }
 
 function getUserAgent() {
@@ -15683,6 +14406,247 @@ const Octokit = Octokit$1.plugin(requestLog, legacyRestEndpointMethods, paginate
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
+/**
+ * The job and everything it remembers: the plan, the evidence of each assessment, and the
+ * findings, which are everything left to do. Functions here only read and change that state.
+ */
+/** Assessments a job may run before an operator grants more. */
+const BUDGET = 30;
+const TARGETS = ['plugin', 'policy', 'skills', 'checks', 'reviewers'];
+/** Each retro list and the text fields its items need, besides their evidence. */
+const RETRO = {
+    mistakes: ['what', 'cost', 'prevention'],
+    cuts: ['what', 'lines'],
+    improvements: ['problem', 'proposal', 'target'],
+};
+/** A short digest of `parts`, independent of the order of keys in any object among them. */
+function hash(...parts) {
+    const sorted = (_, value) => value && typeof value === 'object' && !Array.isArray(value)
+        ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+        : value;
+    return createHash('sha256').update(JSON.stringify(parts, sorted)).digest('hex').slice(0, 16);
+}
+function newState(owner, plan) {
+    const job = {
+        ...{ owner, plan, planHash: hash(plan), started: new Date().toISOString() },
+        ...{ admitted: {}, prs: {}, used: 0, grants: [], created: 0, delivered: 0, posted: [] },
+    };
+    return { job, evidence: {}, findings: {} };
+}
+const budget = (job) => job.grants.reduce((sum, g) => sum + g.amount, BUDGET);
+/** Why the job may not go on without a human, if it may not. */
+function stopReason(job) {
+    if (job.blocked)
+        return `blocked: ${job.blocked}`;
+    if (job.used >= budget(job))
+        return `the assessment budget (${budget(job)}) is used up`;
+}
+/** Changes whenever a turn moved the job: an assessment, a finding raised or closed, an admission. */
+function progressMark(state) {
+    const closed = Object.values(state.findings).filter((f) => f.closed).length;
+    const { used, created, admitted, retro, planHash } = state.job;
+    return hash(used, created, closed, admitted, !!retro, planHash);
+}
+/** The plan's stages, in the profile's order, which the engine keeps them in. */
+const stageOrder = (job) => Object.keys(job.plan.stages);
+const previousStage = (job, stage) => stageOrder(job)[stageOrder(job).indexOf(stage) - 1];
+/** A stage stays admitted while the plan and the admitted stage it was built on are unchanged. */
+function isAdmitted(job, stage) {
+    const admission = job.admitted[stage];
+    const prev = previousStage(job, stage);
+    if (admission?.plan !== job.planHash)
+        return false;
+    return !prev || (isAdmitted(job, prev) && admission.base === job.admitted[prev].candidate);
+}
+const passed = (evidence) => evidence.checks.every((c) => !c.problem);
+/** The stage's reviewed evidence under the current plan, oldest first. */
+const reviewedEvidence = (state, stage) => Object.values(state.evidence).filter((e) => e.stage === stage && e.plan === state.job.planHash && e.reviewers.length);
+/**
+ * The replies due on review threads: a no-change answer at once, a fix once its stage's PR moved
+ * past the revision the finding was raised on, quoting the head that carries it.
+ */
+function repliesDue(state) {
+    return Object.values(state.findings).flatMap((finding) => {
+        const { closed, replies, stage, revision } = finding;
+        if (!closed || !replies?.length)
+            return [];
+        if (closed.resolution !== 'fixed')
+            return [{ finding, reply: closed.reason }];
+        const head = state.job.prs[stage]?.head;
+        return head && head !== revision
+            ? [{ finding, reply: `Fixed in ${head.slice(0, 10)}: ${closed.reason}` }]
+            : [];
+    });
+}
+function outstanding(state) {
+    const stages = stageOrder(state.job);
+    return Object.values(state.findings)
+        .filter((f) => !f.closed)
+        .sort((a, b) => stages.indexOf(a.stage) - stages.indexOf(b.stage) || seq(a) - seq(b));
+}
+/** CI runs only after publication, so its findings cannot hold back the admission that publishes. */
+const blocksAdmission = (f, stage) => f.stage === stage && f.blocking && f.source !== 'ci';
+/** Every stage admitted, nothing outstanding and every reply posted: the retrospective is next. */
+function done(state) {
+    return (stageOrder(state.job).every((s) => isAdmitted(state.job, s)) &&
+        !outstanding(state).length &&
+        !Object.values(state.findings).some((f) => f.closed && f.replies?.length));
+}
+const seq = (f) => Number(f.id.slice(1));
+function insert(state, finding) {
+    const id = `F${++state.job.created}`;
+    state.findings[id] = { id, ...finding };
+}
+/**
+ * Adds findings whose key is new. A duplicate merges into the existing finding: an open one gains
+ * its links, and either gains its replies, so a comment on two stacked PRs is answered on both.
+ */
+function addFindings(state, findings) {
+    for (const finding of findings) {
+        const existing = Object.values(state.findings).find((f) => f.key === finding.key);
+        if (!existing) {
+            insert(state, finding);
+            continue;
+        }
+        // The same comment again on a PR it was answered on is new feedback, such as a regression.
+        const again = finding.replies?.find((r) => existing.closed && existing.answered?.includes(r.pr));
+        if (again) {
+            const key = `${finding.key}:${again.thread ?? again.comment}`;
+            if (!Object.values(state.findings).some((f) => f.key === key))
+                insert(state, { ...finding, key });
+            continue;
+        }
+        if (!existing.closed)
+            existing.links = [...new Set([...existing.links, ...finding.links])];
+        for (const reply of finding.replies ?? [])
+            if (!existing.replies?.some((r) => r.comment === reply.comment))
+                existing.replies = [...(existing.replies ?? []), reply];
+    }
+}
+/**
+ * Replaces the open findings of one stage and source with the current failures. A failure reported
+ * again on another revision, or with other details, supersedes the open one with a new finding,
+ * so the worker hears of it.
+ */
+function replaceFindings(state, stage, source, failures) {
+    const open = Object.values(state.findings).filter((f) => !f.closed && f.stage === stage && f.source === source);
+    for (const finding of open)
+        if (!failures.some((f) => f.key === finding.key))
+            finding.closed = { resolution: 'passed' };
+    for (const failure of failures) {
+        const existing = open.find((f) => f.key === failure.key);
+        if (existing?.revision === failure.revision && existing.body === failure.body)
+            continue;
+        if (existing)
+            existing.closed = { resolution: 'superseded' };
+        insert(state, failure);
+    }
+}
+/** Closes a finding the worker may close. On a review thread the reason becomes the reply. */
+function closeFinding(state, id, resolution, reason, evidence) {
+    const finding = state.findings[id];
+    if (!finding || finding.closed)
+        throw new Error(`${id} is not an outstanding finding`);
+    if (finding.source === 'check' || finding.source === 'ci')
+        throw new Error(`${id} closes itself once it passes`);
+    if (!evidence.length)
+        throw new Error('Cite evidence: the files, lines or tests that show it');
+    if (resolution === 'no-change' && !reason?.trim())
+        throw new Error('A no-change resolution needs the reason it does not apply');
+    if (finding.replies?.length &&
+        !(reason?.trim() && reason.length <= 280 && !reason.includes('\n')))
+        throw new Error(`${id} is a review thread: give a one-line reason of at most 280 characters`);
+    finding.closed = { resolution, reason, evidence };
+    return finding;
+}
+/** Outstanding findings the worker has not been shown yet; marks them shown. */
+function takeNewFindings(state) {
+    const fresh = outstanding(state).filter((f) => seq(f) > state.job.delivered);
+    state.job.delivered = state.job.created;
+    return fresh;
+}
+/** The findings as a numbered to-do list, then how to close them with `closeTool`. */
+function formatFindings(findings, closeTool) {
+    if (!findings.length)
+        return '';
+    const indent = (text) => text.replace(/^/gm, '   ');
+    const items = findings.map((f, i) => [
+        `${i + 1}. ${f.id} · ${f.stage} · ${f.title}${f.blocking ? '' : ' · suggestion'}`,
+        indent(f.body),
+        indent(f.links.join(' ')),
+    ]
+        .filter((line) => line.trim())
+        .join('\n'));
+    const any = (test) => findings.some(test);
+    const how = [
+        any((f) => f.source === 'review' || f.source === 'comment') &&
+            `Close reviewer findings and comments with ${closeTool}: fixed, or no-change with the reason, citing the files, lines or tests that show it.`,
+        any((f) => f.repro) &&
+            "Every later claim re-runs a reproduced finding's test; commit it only if it is a regression test that belongs in the suite.",
+        any((f) => f.replies?.length) &&
+            'For a PR comment the reason is posted as the reply: one line of at most 280 characters.',
+        any((f) => f.source === 'check' || f.source === 'ci') &&
+            'Failed checks and CI close themselves once they pass.',
+        any((f) => !f.blocking) && 'Suggestions do not hold admission but need closing.',
+    ];
+    return [...items, how.filter(Boolean).join(' ')].join('\n\n');
+}
+/** The run as a human reviewing its PRs reads it: its cost, its findings and its retrospective. */
+function runReport(state) {
+    const { job } = state;
+    const findings = Object.values(state.findings);
+    const tally = (key, keys) => keys.map((k) => `${findings.filter((f) => key(f) === k).length} ${k}`).join(', ');
+    const assessed = stageOrder(job).map((s) => {
+        const claims = Object.values(state.evidence).filter((e) => e.stage === s).length;
+        const at = isAdmitted(job, s) ? job.admitted[s].candidate.slice(0, 10) : undefined;
+        return `\`${s}\` assessed ${claims} times${at ? `, admitted at ${at}` : ''}`;
+    });
+    const confirmed = findings.filter((f) => f.source === 'review' && f.blocking).length;
+    const reviewed = findings.filter((f) => f.source === 'review').length;
+    const lines = [
+        '### Run',
+        '',
+        `- Started ${job.started}; ${job.used} of ${budget(job)} assessments used, ${job.grants.length} grants, ${(job.former?.length ?? 0) + 1} worker threads.`,
+        `- ${assessed.join('; ')}.`,
+        `- ${findings.length} findings: ${tally((f) => f.source, ['review', 'comment', 'check', 'ci'])}. ` +
+            `${confirmed} of ${reviewed} reviewer findings confirmed or citing a rule.`,
+        `- Closed: ${tally((f) => f.closed?.resolution, ['fixed', 'no-change', 'passed', 'superseded'])}.`,
+    ];
+    const { retro } = job;
+    if (retro)
+        lines.push('', '### Retrospective', '', ...retro.mistakes.map((m) => `- Mistake: ${m.what} Cost: ${m.cost} Prevention: ${m.prevention}`), ...retro.cuts.map((c) => `- Cut: ${c.what} (${c.lines} lines)`), ...retro.improvements.map((i) => `- Improve ${i.target}: ${i.problem} Proposal: ${i.proposal}`));
+    return lines.join('\n');
+}
+/** Every list has an item, every item its fields and evidence, every improvement a target. */
+function validateRetro(retro) {
+    const errors = [];
+    for (const [list, fields] of Object.entries(RETRO)) {
+        const items = Array.isArray(retro?.[list]) ? retro[list] : [];
+        if (!items.length)
+            errors.push(`${list} needs at least one item`);
+        for (const [i, item] of items.entries()) {
+            for (const field of fields)
+                if (typeof item?.[field] !== 'string' || !item[field].trim())
+                    errors.push(`${list}[${i}] needs ${field}`);
+            if (!item?.evidence?.length)
+                errors.push(`${list}[${i}] needs evidence`);
+        }
+    }
+    for (const [i, item] of (retro?.improvements ?? []).entries())
+        if (!TARGETS.includes(item?.target))
+            errors.push(`improvements[${i}].target must be one of ${TARGETS.join(', ')}`);
+    return errors;
+}
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+/** The {@link Forge} on GitHub: stage PRs pushed from the checkout, their review threads and CI. */
 // STALE is a check GitHub gave up on: it never passed.
 const FAILED = [
     'FAILURE',
@@ -15693,6 +14657,8 @@ const FAILED = [
     'STARTUP_FAILURE',
     'STALE',
 ];
+/** The start of a GitHub remote URL, before the repository: HTTPS, SSH or scp-style. */
+const REMOTE = /^(https:\/\/([^@/]+@)?github\.com\/|ssh:\/\/([^@/]+@)?github\.com\/|[^@/:]+@github\.com:)/i;
 const FEEDBACK = `query($owner: String!, $name: String!, $number: Int!, $after: String) {
   repository(owner: $owner, name: $name) { pullRequest(number: $number) {
     state headRefOid url
@@ -15712,7 +14678,7 @@ const RESOLVE = `mutation($id: ID!) {
   resolveReviewThread(input: { threadId: $id }) { clientMutationId }
 }`;
 /** Bots wrap their comments in HTML comments and collapsed sections the worker never needs. */
-function trim(body, max = 1500) {
+function trimComment(body, max = 1500) {
     const text = body
         .replace(/<!--[\s\S]*?-->/g, '')
         .replace(/<details>[\s\S]*?<\/details>/g, '')
@@ -15721,7 +14687,7 @@ function trim(body, max = 1500) {
     return text.length > max ? `${text.slice(0, max)}… (full text at the link)` : text;
 }
 /** Amp configures git's credential helper in Orbs, so this needs nothing beyond git itself. */
-async function token(cwd) {
+async function githubToken(cwd) {
     const env = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
     if (env)
         return env;
@@ -15735,7 +14701,7 @@ async function token(cwd) {
  * The review comments and the CI verdict of a stage PR, from the {@link FEEDBACK} query; nothing
  * once it merged. `posted` are the comments the plugin wrote; `head` is the revision it published.
  */
-function readFeedback(data, stage, number, posted = [], head) {
+function readFeedback(ci, data, stage, number, posted = [], head) {
     const pr = data.repository.pullRequest;
     // The plugin posts with the operator's token, so only the IDs it recorded tell its replies apart.
     const ours = (comment) => posted.includes(comment.databaseId);
@@ -15745,27 +14711,27 @@ function readFeedback(data, stage, number, posted = [], head) {
     });
     // A PR closed unmerged, or one whose head moved past what the job published, no longer carries
     // the assessed candidate, so its CI says nothing about it. Its comments are still heard.
-    const ci = (title, body) => finding('ci', `ci:${stage}`, title, body, pr.url);
+    const failed = (title, body) => finding('ci', `ci:${stage}`, title, body, pr.url);
     const stale = pr.state === 'CLOSED'
-        ? ci(`PR #${number} was closed without merging`, 'Reopen it or publish the stage again.')
+        ? failed(`PR #${number} was closed without merging`, 'Reopen it or publish the stage again.')
         : head && pr.headRefOid !== head
-            ? ci(`PR #${number} head is ${pr.headRefOid.slice(0, 10)}, not the published ${head.slice(0, 10)}`, 'Something else pushed to its branch; claim the stage again.')
+            ? failed(`PR #${number} head is ${pr.headRefOid.slice(0, 10)}, not the published ${head.slice(0, 10)}`, 'Something else pushed to its branch; claim the stage again.')
             : undefined;
-    const comments = [];
+    const findings = [];
     const keys = new Set();
     for (const t of pr.reviewThreads.nodes) {
         const thread = t.comments.nodes;
         const last = thread.at(-1);
         if (t.isResolved || !last || ours(last))
             continue;
-        const body = thread.map((c) => `${c.author?.login}: ${trim(c.body)}`).join('\n');
+        const body = thread.map((c) => `${c.author?.login}: ${trimComment(c.body)}`).join('\n');
         // Keyed by content, not ID: a stacked PR repeats its ancestors' comments, on other lines. Two
         // threads on one PR with the same text are still two.
         let key = `comment:${hash(t.path, thread.filter((c) => !ours(c)).map((c) => c.body))}`;
         if (keys.has(key))
             key = `${key}:${t.id}`;
         keys.add(key);
-        comments.push({
+        findings.push({
             ...finding('comment', key, `review comment on PR #${number} · ${t.path}:${t.line}`, body, last.url),
             // GitHub takes replies only to a thread's first comment.
             replies: [{ pr: number, comment: t.root.nodes[0].databaseId, thread: t.id }],
@@ -15780,9 +14746,9 @@ function readFeedback(data, stage, number, posted = [], head) {
         ['comment', pr.comments.nodes],
     ])
         for (const c of nodes.filter(human))
-            comments.push(finding('comment', `${kind}:${c.databaseId}:${hash(c.body)}`, `${kind} by ${c.author?.login} on PR #${number}`, trim(c.body), c.url));
+            findings.push(finding('comment', `${kind}:${c.databaseId}:${hash(c.body)}`, `${kind} by ${c.author?.login} on PR #${number}`, trimComment(c.body), c.url));
     if (stale)
-        return { comments, pending: false, failures: [stale] };
+        return { findings: [...findings, stale], pending: false };
     // The gate reports after the slowest check, so until then a failed check is reported at once
     // under the gate; once it reports, only an explicit success passes.
     const runs = (pr.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []).map((c) => ({
@@ -15790,23 +14756,37 @@ function readFeedback(data, stage, number, posted = [], head) {
         result: c.conclusion ?? c.state,
         url: c.detailsUrl ?? c.targetUrl,
     }));
-    const gate = runs.find((r) => r.name === CI_GATE);
+    const gate = runs.find((r) => r.name === ci.gate);
     const pending = !gate || gate.result == null || ['PENDING', 'EXPECTED'].includes(gate.result);
-    const failed = runs.filter((r) => r !== gate && FAILED.includes(r.result) && !ADVISORY.test(r.name));
-    const failing = pending ? failed.length > 0 : gate.result !== 'SUCCESS';
-    const list = failed.map((r) => `- ${r.name}: ${r.url}`).join('\n') || 'No failed check is listed.';
-    const failures = failing
-        ? [
-            finding('ci', `ci:${stage}`, `CI ${CI_GATE} failed on PR #${number}`, `${list}\nRead the run log to find which stage the fix belongs in.`, gate?.url ?? failed[0]?.url ?? pr.url),
-        ]
-        : [];
-    return { comments, pending, failures };
+    const failures = runs.filter((r) => r !== gate && FAILED.includes(r.result) && !ci.advisory.test(r.name));
+    const failing = pending ? failures.length > 0 : gate.result !== 'SUCCESS';
+    const list = failures.map((r) => `- ${r.name}: ${r.url}`).join('\n') || 'No failed check is listed.';
+    if (failing)
+        findings.push(finding('ci', `ci:${stage}`, `CI ${ci.gate} failed on PR #${number}`, `${list}\nRead the run log to find which stage the fix belongs in.`, gate?.url ?? failures[0]?.url ?? pr.url));
+    return { findings, pending };
 }
-async function github(cwd, repository) {
+/** The stage PRs of `repository` on GitHub, pushed from the checkout at `root`. */
+function github(o) {
+    const { root, repository, ci } = o;
     const [owner, repo] = repository.split('/');
-    const octokit = new Octokit({ auth: await token(cwd) });
+    // Made on first use, so inspecting a plan needs no credentials.
+    let client;
+    const api = () => (client ??= githubToken(root).then((auth) => new Octokit({ auth })));
+    const sh = (args) => git(root, args);
     return {
-        async feedback(stage, number, posted, head) {
+        async checkRemote({ remote, branches }) {
+            const problems = [];
+            const url = await sh(['remote', 'get-url', remote]).catch(() => '');
+            const path = url.replace(REMOTE, '');
+            if (path === url ||
+                !new RegExp(`^${repository.replace(/\./g, '\\.')}(\\.git)?/?$`, 'i').test(path))
+                problems.push(`remote ${remote} is not github.com/${repository}, where the PRs open`);
+            for (const branch of branches)
+                await sh(['check-ref-format', '--branch', branch]).catch(() => problems.push(`${branch} is not a valid branch name`));
+            return problems;
+        },
+        async fetchFeedback({ stage, number, posted, head }) {
+            const octokit = await api();
             const query = (after) => octokit.graphql(FEEDBACK, { owner, name: repo, number, after });
             const data = await query();
             // Only review threads are paged in full: they are where unresolved feedback lives.
@@ -15815,13 +14795,11 @@ async function github(cwd, repository) {
                 page = (await query(page.pageInfo.endCursor)).repository.pullRequest.reviewThreads;
                 threads.nodes.push(...page.nodes);
             }
-            return readFeedback(data, stage, number, posted, head);
+            return readFeedback(ci, data, stage, number, posted, head);
         },
-        /**
-         * Pushes `candidate` to `branch` and opens the PR from it into `base`, or updates it. An
-         * existing PR keeps its base: GitHub refuses to change it within a stack.
-         */
+        /** An existing PR keeps its base: GitHub refuses to change it within a stack. */
         async publish(o) {
+            const octokit = await api();
             const fetched = o.existing
                 ? (await octokit.rest.pulls.get({ owner, repo, pull_number: o.existing.number })).data
                 : undefined;
@@ -15835,13 +14813,13 @@ async function github(cwd, repository) {
             // creation then failed, needs only the unfinished metadata update.
             const pushed = current
                 ? current.head.sha
-                : (await git(cwd, ['ls-remote', o.remote, `refs/heads/${o.branch}`])).split('\t')[0];
+                : (await sh(['ls-remote', o.remote, `refs/heads/${o.branch}`])).split('\t')[0];
             if (pushed !== o.candidate) {
                 const expected = pushed ? o.existing?.head : '';
                 if (expected === undefined)
                     throw new Error(`${o.branch} has commits this job did not push: choose another branchPrefix or delete it`);
                 const lease = `--force-with-lease=${o.branch}:${expected}`;
-                await git(cwd, ['push', lease, o.remote, `${o.candidate}:refs/heads/${o.branch}`]);
+                await sh(['push', lease, o.remote, `${o.candidate}:refs/heads/${o.branch}`]);
             }
             const fields = { owner, repo, title: o.title, body: o.body };
             // A PR created before the plugin could record it, say by a run that died, is adopted.
@@ -15857,17 +14835,356 @@ async function github(cwd, repository) {
                 : await octokit.rest.pulls.create({ ...fields, base: o.base, head: o.branch });
             return { number: pr.number, url: pr.html_url, head: o.candidate };
         },
-        reply: (pr, comment, body) => octokit.rest.pulls.createReplyForReviewComment({
+        replyToComment: async (pr, comment, body) => (await (await api()).rest.pulls.createReplyForReviewComment({
             owner,
             repo,
             pull_number: pr,
             comment_id: comment,
             body,
-        }),
-        resolve: (thread) => octokit.graphql(RESOLVE, { id: thread }),
+        })).data.id,
+        resolveThread: async (thread) => void (await (await api()).graphql(RESOLVE, { id: thread })),
     };
 }
 
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+/**
+ * What a change is: the files of a diff, the lines each adds and removes, and the measures the
+ * gates take of them.
+ */
+const GIT_FILE = 'diff --git ';
+/**
+ * The files a unified diff changes, with the lines it adds and removes in each. A file starts at
+ * its `---`/`+++` pair; hunk line counts are ignored, because a model's are often wrong. Where the
+ * diff has `diff --git` lines, a file starts at its own, so one without hunks, binary or empty,
+ * still counts, and a `---`/`+++` pair is a header only before the file's first hunk, so hunk
+ * content that looks like one is not one.
+ */
+function parseDiff(diff) {
+    const files = [];
+    const lines = diff.split('\n');
+    const fromGit = lines.some((line) => line.startsWith(GIT_FILE));
+    const clean = (path) => path.replace(/^[ab]\//, '');
+    let file;
+    let inHeader = false;
+    const start = (path) => {
+        file = { path: clean(path), added: [], removed: [] };
+        files.push(file);
+    };
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (fromGit && line.startsWith(GIT_FILE)) {
+            // Both sides name the same path, `a/<path> b/<path>`, unless the file was renamed, when a
+            // `rename to` or `+++` line below names it.
+            const sides = line.slice(GIT_FILE.length);
+            start(sides.slice(0, (sides.length - 1) / 2));
+            inHeader = true;
+        }
+        else if (fromGit && inHeader && line.startsWith('rename to ')) {
+            file.path = line.slice('rename to '.length);
+        }
+        else if ((!fromGit || inHeader) &&
+            line.startsWith('--- ') &&
+            lines[i + 1]?.startsWith('+++ ')) {
+            const [from, to] = [line, lines[++i]].map((l) => l.slice(4).split('\t')[0].trim());
+            const path = to === '/dev/null' ? from : to;
+            if (fromGit)
+                file.path = clean(path);
+            else
+                start(path);
+        }
+        else if (line.startsWith('@@'))
+            inHeader = false;
+        else if (file && !inHeader && line[0] === '+')
+            file.added.push(line.slice(1));
+        else if (file && !inHeader && line[0] === '-')
+            file.removed.push(line.slice(1));
+    }
+    return files;
+}
+/** Equal for the same change rebased: line numbers and blob IDs aside, whitespace kept. */
+const patchId = (diff) => hash(diff.split('\n').filter((line) => !/^(index |@@)/.test(line)));
+/** Lines added and removed per file, as reviewers skim a change. */
+const diffStat = (files) => files.map((f) => `${f.path} | +${f.added.length} -${f.removed.length}`).join('\n');
+function measureSize(files, profile) {
+    const size = { lines: 0, code: 0, files: 0 };
+    const lines = (text) => text.split('\n').filter((line) => line.trim()).length;
+    for (const { path, added, removed, texts } of files) {
+        if (path.endsWith('.md') || path.endsWith('.gitignore'))
+            continue;
+        size.lines += added.length;
+        size.files++;
+        const kind = profile.classify(path);
+        if (kind === 'test' || kind === 'generated')
+            continue;
+        const [before, after] = (texts ?? []).map((t) => profile.stripTests?.(path, t ?? ''));
+        size.code +=
+            texts && before !== undefined && after !== undefined
+                ? lines(after) - lines(before)
+                : added.length - removed.length;
+    }
+    return size;
+}
+/**
+ * Pushback by lines added, which grows with them; nothing up to 250. The classes end where the PR
+ * size label's do, and XL blocks. Deletions do not count: the classes counter bloat.
+ */
+function sizeClass(lines) {
+    if (lines <= 250)
+        return;
+    if (lines <= 500)
+        return {
+            label: 'M',
+            note: 'Every line costs a reviewer attention; before claiming again, delete what the port does not need.',
+        };
+    if (lines <= 1000)
+        return {
+            label: 'L',
+            note: 'Reviewers will push back on a stage this big. Stop adding: cut first, and question every file the stage touches.',
+        };
+    return {
+        label: 'XL',
+        note: 'Too large to review: the stage cannot be admitted until it adds at most 1000 lines.',
+    };
+}
+/** Files changed only in blank lines; other whitespace may matter, in a string or in Python. */
+function blankOnlyFiles(files) {
+    return files
+        .filter((f) => {
+        const lines = [...f.added, ...f.removed];
+        return lines.length && lines.every((line) => !line.trim());
+    })
+        .map((f) => f.path);
+}
+/** The files that lie outside every one of `paths`, each a file or a directory. */
+function filesOutside(files, paths) {
+    const dirs = paths.map((p) => p.replace(/\/*$/, '/'));
+    return files.filter((f) => !paths.includes(f) && !dirs.some((d) => f.startsWith(d)));
+}
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+/** Checking what the worker and reviewers cite: files, lines and tests that must exist. */
+/**
+ * Why each reference does not hold in the workspace at `root`: a missing file, a line past its
+ * end, a test it does not define, or an unknown finding. Empty when every reference holds.
+ */
+async function checkRefs(root, refs, findings = {}) {
+    if (!Array.isArray(refs))
+        return ['evidence must be a list of references'];
+    const problems = [];
+    for (const ref of refs) {
+        if (typeof ref !== 'object' || ref === null) {
+            problems.push(`${JSON.stringify(ref)} is not a reference`);
+            continue;
+        }
+        if ('finding' in ref) {
+            if (!findings[ref.finding])
+                problems.push(`there is no finding ${ref.finding}`);
+            continue;
+        }
+        const path = typeof ref?.path === 'string' ? normalize(ref.path) : '';
+        if (!path || isAbsolute(path) || path.startsWith('..')) {
+            problems.push(`${JSON.stringify(ref)} needs a path inside the workspace`);
+            continue;
+        }
+        if (ref.line !== undefined && typeof ref.line !== 'number') {
+            problems.push(`${path}: line must be a number`);
+            continue;
+        }
+        if (ref.test !== undefined && typeof ref.test !== 'string') {
+            problems.push(`${path}: test must be a name`);
+            continue;
+        }
+        const text = await readFile(join(root, path), 'utf8').catch(() => undefined);
+        if (text === undefined)
+            problems.push(`${path} does not exist`);
+        else if (ref.line && !(ref.line >= 1 && ref.line <= text.split('\n').length))
+            problems.push(`${path} has no line ${ref.line}`);
+        else if (ref.test && !definesTest(text, ref.test))
+            problems.push(`${path} defines no ${ref.test}`);
+    }
+    return problems;
+}
+/** Whether `text` defines the test `name`: its last path segment, as a whole word. */
+function definesTest(text, name) {
+    const word = name.split(/::|\./).at(-1).replace(/[^\w]/g, '');
+    return !!word && new RegExp(`\\b${word}\\b`).test(text);
+}
+/**
+ * A finding's location as `path:line`, whether it names the line, a range starting
+ * there, or a symbol defined on it. A location that resolves to neither is returned as given.
+ */
+async function resolveLocation(root, location) {
+    const at = location.indexOf(':');
+    const [path, spot] = at < 0 ? [location, ''] : [location.slice(0, at), location.slice(at + 1)];
+    const line = /^\d+/.exec(spot)?.[0];
+    if (line)
+        return `${path}:${line}`;
+    const file = normalize(path);
+    if (isAbsolute(file) || file.startsWith('..'))
+        return location;
+    const text = await readFile(join(root, file), 'utf8').catch(() => '');
+    const name = spot.split(/::|\./).at(-1).replace(/[^\w]/g, '');
+    const lines = text.split('\n');
+    const kinds = 'fn|struct|enum|union|trait|type|const|static|def|class';
+    const definition = new RegExp(`\\b(${kinds})\\s+${name}\\b`);
+    const c = new RegExp(`^\\S.*\\b${name}\\s*\\(`);
+    let found = name ? lines.findIndex((l) => definition.test(l)) : -1;
+    if (found < 0 && name)
+        found = lines.findIndex((l) => c.test(l));
+    return found < 0 ? location : `${path}:${found + 1}`;
+}
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+const blank = (text) => typeof text !== 'string' || !text.trim();
+const sides = (languages) => [languages.from, languages.to].map((l) => l.toLowerCase());
+/** The tests the plan cites up to `stage`: a stage's candidate must contain them and run them. */
+function citedTests(plan, stage) {
+    const stages = Object.keys(plan.stages);
+    return [...plan.contract.flatMap((c) => c.tests), ...plan.divergences.map((d) => d.test)].filter((t) => stages.indexOf(t.stage) <= stages.indexOf(stage));
+}
+function testErrors(t, what, stages) {
+    return blank(t?.path) || blank(t?.name) || !stages.includes(t?.stage ?? '')
+        ? [`${what} needs a test: { path, name, stage }, stage one of ${stages.join(', ')}`]
+        : [];
+}
+/** What is malformed in the parts of a plan every project has. */
+function validatePlan(plan, profile) {
+    const stages = profile.stages.map((s) => s.name);
+    const errors = ['remote', 'baseBranch', 'branchPrefix', 'structure', 'interfaces']
+        .filter((field) => blank(plan?.[field]))
+        .map((field) => `${field} is required`);
+    if (!/^[\w.-]+\/[\w.-]+$/.test(plan?.repository))
+        errors.push('repository must be owner/name');
+    if (!plan.contract?.length)
+        errors.push('contract needs at least one item');
+    for (const [i, c] of (plan.contract ?? []).entries()) {
+        if (blank(c?.behavior))
+            errors.push(`contract[${i}] needs a behavior`);
+        if (!c?.tests?.length)
+            errors.push(`contract[${i}] needs the tests that pin it`);
+        for (const t of c?.tests ?? [])
+            errors.push(...testErrors(t, `contract[${i}]`, stages));
+    }
+    if (!Array.isArray(plan.divergences))
+        errors.push('divergences is required, even if empty');
+    const [from, to] = sides(profile.languages);
+    for (const [i, d] of (plan.divergences ?? []).entries()) {
+        if ([d?.behavior, d?.[from], d?.[to], d?.why].some(blank))
+            errors.push(`divergences[${i}] needs behavior, ${from}, ${to} and why`);
+        errors.push(...testErrors(d?.test, `divergences[${i}]`, stages));
+    }
+    for (const { name, checks } of profile.stages) {
+        const s = plan.stages?.[name];
+        if (blank(s?.deliverable))
+            errors.push(`${name} needs a deliverable`);
+        if (!s?.paths?.length || s.paths.some(blank))
+            errors.push(`${name} needs the paths it may change`);
+        if (blank(s?.title) || blank(s?.body))
+            errors.push(`${name} needs a PR title and body`);
+        // A check passes only if every command in it does.
+        for (const c of s?.checks ?? [])
+            if (/\|\||;|(^|[^&])&(?!&)/.test(c?.command ?? ''))
+                errors.push(`${name} ${c.kind} check chains commands with something other than \`&&\``);
+        for (const [kind, runs] of Object.entries(checks)) {
+            const command = s?.checks?.find((c) => c.kind === kind)?.command ?? '';
+            if (blank(command) || runs.some((r) => !command.includes(r)))
+                errors.push(`${name} needs a ${kind} check${runs.map((r) => ` running \`${r}\``).join(' and')}`);
+        }
+    }
+    return errors;
+}
+const testName = (t) => `\`${t.path}::${t.name}\``;
+function describeDivergences(plan, languages) {
+    const { from, to } = languages;
+    if (!plan.divergences.length)
+        return `None: the ${to} behaves like the ${from} everywhere.`;
+    const [f, t] = sides(languages);
+    return plan.divergences
+        .map((d) => `- **${d.behavior}.** ${from}: ${d[f]} ${to}: ${d[t]} Why: ${d.why} Test: ${testName(d.test)}`)
+        .join('\n');
+}
+/**
+ * The stage's PR. Every PR lists the divergences, so whoever reviews it can reject one, then, folded
+ * away, the plan it was admitted under, so an amendment that widens a stage or weakens its checks
+ * shows, and the `record` of the run.
+ */
+function pullRequest(plan, profile, stage, record) {
+    const { title, body } = plan.stages[stage];
+    return {
+        title,
+        body: `${body}
+
+#### Behavior changes from ${profile.languages.from}
+
+${describeDivergences(plan, profile.languages)}
+
+<details><summary>How this port ran</summary>
+
+${describePlan(plan, profile, false)}
+
+${record}
+</details>
+`,
+    };
+}
+/** The plan as reviewers read it; a PR shows the divergences on their own. */
+function describePlan(plan, profile, withDivergences = true) {
+    const stages = profile.stages.map(({ name }) => {
+        const { paths, checks } = plan.stages[name];
+        return `- \`${name}\` may change ${paths.map((p) => `\`${p}\``).join(', ')} and must pass ${checks.map((c) => `\`${c.command}\``).join(', ')}.`;
+    });
+    const contract = plan.contract.map((c) => `- ${c.behavior} Tests: ${c.tests.map(testName).join(', ')}`);
+    const extra = profile.describePlan?.(plan);
+    return `### Contract
+
+${contract.join('\n')}
+${withDivergences ? `\n### Divergences from ${profile.languages.from}\n\n${describeDivergences(plan, profile.languages)}\n` : ''}
+### Stages
+
+${stages.join('\n')}
+${extra ? `\n${extra}\n` : ''}
+### Structure, dependencies and handoffs
+
+${plan.structure}
+
+### Interfaces later stages rely on
+
+${plan.interfaces}`;
+}
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+/**
+ * Reviewer threads: what they are told, how a stage's reviewers run, and the proposals they reply
+ * with, which {@link confirmProposals} then tries.
+ */
 const ROLE = `You are an independent, read-only reviewer.
 
 Please review these changes carefully. They were written by my intern, who is a bad programmer
@@ -15879,7 +15196,9 @@ The plugin runs the checks and judges their results; do not review check logs or
 Read the diff and the code it touches; follow callers and other modules only as far as a finding
 needs, with Grep before Read, so your context holds the change rather than the codebase.
 You cannot run commands; the plugin runs your reproductions for you.`;
-const FORMAT = `
+/** The runners a reproduction may use, as the reviewers and the worker read them. */
+const runnerList = (profile) => profile.testRunners.map((r) => `\`${r}\``).join(', ');
+const replyFormat = (profile) => `
 Reply with only a JSON object:
 {"findings": [{"location": "file:line or symbol",
   "scenario": "the input or state, and the wrong result it produces",
@@ -15888,13 +15207,1594 @@ Reply with only a JSON object:
   "repro": {"path": "test file", "test": "test name", "command": "runs that test from the root",
     "patch": "unified diff, as git apply takes it, adding the failing test"},
   "deletion": {"patch": "unified diff removing code the stage does not need"}}]}
-\`refs\` cites where the defect is and, for a broken rule, the rule's line in ${RULE_FILES};
+\`refs\` cites where the defect is and, for a broken rule, the rule's line in ${profile.ruleFiles};
 cite deleted code by its line in the diff file. A finding whose refs do not hold is discarded. A
 finding blocks only when the plugin confirms it: its repro patch, touching tests only, applies and
-its command (one of ${RUNS}) then fails; its deletion patch, touching no test, removes more than
+its command (one of ${runnerList(profile)}) then fails; its deletion patch, touching no test, removes more than
 it adds and every test check still passes; or it cites a rule. Anything else is a suggestion. Report each problem once; return
 {"findings": []} when there is nothing to report.`;
-const REVIEWERS = [
+/** How findings, logs and thread labels name a reviewer, e.g. `swap / Correctness`. */
+const reviewerLabel = (stage, reviewer) => `${stage} / ${reviewer.name}`;
+/** What the stage's reviewers read first. */
+function reviewBrief(reviewer, o) {
+    const { deliverable, paths, checks } = o.plan.stages[o.stage];
+    const stages = o.profile.stages.map((s) => s.name);
+    const number = stages.indexOf(o.stage) + 1;
+    const big = sizeClass(o.lines);
+    return `# ${reviewerLabel(o.stage, reviewer)} review, stage ${number} of ${stages.length}
+
+## This stage must deliver
+
+${deliverable}
+
+It may change only ${paths.map((p) => `\`${p}\``).join(', ')}, and adds ${o.lines} lines.${big ? ` ${big.note}` : ''}
+Later stages: ${stages
+        .slice(number)
+        .map((s) => `\`${s}\`: ${o.plan.stages[s].deliverable}`)
+        .join(' ') || 'none'}
+
+## Candidate
+
+Revision \`${o.candidate}\` is checked out; read files from the working tree. Base \`${o.base}\`.
+The full diff is in \`${o.diff}\`.
+
+\`\`\`
+${o.stat}
+\`\`\`
+
+These checks passed: ${checks.map((c) => `\`${c.command}\``).join(', ')}.
+
+Repository rules are in ${o.profile.ruleFiles}.
+
+## The plan
+
+${describePlan(o.plan, o.profile)}
+`;
+}
+/**
+ * What a reviewer is asked once the author answered it: the change since, not the stage again, so
+ * findings do not trickle in round after round. `delta` is absent after a rebase.
+ */
+function followUpBrief(o) {
+    const [previous, candidate] = [o.previous, o.candidate].map((c) => c.slice(0, 10));
+    const change = o.delta
+        ? `What changed since: \`${o.delta}\`. The whole stage diff: \`${o.diff}\`.`
+        : `It was rebased, so compare its whole diff, \`${o.diff}\`, with the version you reviewed.`;
+    return `# Re-review: ${candidate}
+
+The author answered your review of ${previous} and claims ${candidate}. ${change}
+
+Review the change, not the whole stage again:
+- Check that each fix does what it says; raise it again only if it does not, and say why.
+- Raise a new finding only on lines the change touches, unless it crashes, is undefined behavior,
+  breaks memory safety or loses data: raise those wherever they are.
+- If a fix draws a new problem in the same hunk, raise it once as a design decision, naming the
+  trade-off, rather than a third variation of the same concern.
+
+Reply in the same JSON format. An empty list is a good outcome.
+`;
+}
+/** The proposals in a reviewer's reply; throws if it holds no readable verdict. */
+function parseProposals(text) {
+    const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
+    // Malformed proposals are kept for the plugin to drop and log, so one does not fail the rest.
+    return JSON.parse(json).findings.map((f) => {
+        const { path, test, patch, command } = f.repro ?? {};
+        const given = (v) => typeof v === 'string' && v !== '';
+        const repro = [path, test, patch, command].every(given) ? f.repro : undefined;
+        const deletion = given(f.deletion?.patch) ? f.deletion : undefined;
+        return { ...f, refs: Array.isArray(f.refs) ? f.refs : [], repro, deletion };
+    });
+}
+/**
+ * Runs a read-only reviewer thread, or resumes its earlier one, and parses what it proposes. A
+ * failed thread is retried once with a fresh one, unless the review was cancelled.
+ */
+async function runReviewer(host, o) {
+    if (o.resume) {
+        const resumed = await tryReviewer(host, o, o.resume);
+        if (!resumed.error || o.signal.aborted)
+            return resumed;
+    }
+    const first = await tryReviewer(host, o);
+    return first.error && !o.signal.aborted ? tryReviewer(host, o) : first;
+}
+async function tryReviewer(host, o, resume) {
+    const name = reviewerLabel(o.stage, o.reviewer);
+    let thread = resume?.thread;
+    try {
+        const slug = o.reviewer.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+        thread ??= await host.startThread({ parent: o.owner, labels: [o.stage, slug], role: o.role });
+        const text = await host.ask(thread, resume?.message ?? o.brief, o);
+        return { label: name, thread, proposals: parseProposals(text) };
+    }
+    catch (error) {
+        return { label: name, thread, error: String(error), proposals: [] };
+    }
+}
+/**
+ * The stage's reviews: fresh threads on the first review under the plan, then the same threads
+ * asked about the change since `prior`. A reviewer that fails twice throws, because that says
+ * nothing about the candidate.
+ */
+async function reviewStage(host, o) {
+    const { prior, stage, signal, timeoutMs, profile } = o;
+    const message = prior && followUpBrief({ ...o, previous: prior.candidate });
+    const reviews = await Promise.all(profile.reviewers.map(async (reviewer) => {
+        const thread = prior?.reviewers.find((r) => r.reviewer === reviewerLabel(stage, reviewer))?.thread;
+        const r = await runReviewer(host, {
+            ...{ reviewer, stage, owner: o.owner, signal, timeoutMs, brief: reviewBrief(reviewer, o) },
+            role: `${ROLE}\n\n${reviewer.instructions}\n${replyFormat(profile)}`,
+            resume: thread && message ? { thread, message } : undefined,
+        });
+        o.debug(`${r.label} reviewer ${r.thread ?? ''} ${r.error ? `failed: ${r.error}` : `${r.proposals.length} proposals`}`);
+        return r;
+    }));
+    const failed = reviews.filter((r) => r.error);
+    if (failed.length && !signal.aborted)
+        throw new Error(`${failed.map((r) => `${r.label} reviewer failed (${r.error})`).join('; ')}. Nothing was charged; claim again.`);
+    return reviews;
+}
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+/**
+ * Confirming reviewer proposals by trying them: a proposal blocks only when its failing test
+ * fails, its deletion keeps every test passing, or it cites a repository rule.
+ */
+/** Deletions tried per assessment; each runs the stage's test checks. */
+const MAX_DELETIONS = 3;
+/** The finding a checked proposal becomes; `verdict` says what the plugin confirmed. */
+function toFinding(r, p, o) {
+    return {
+        // Identical findings from several reviewers share a key, so they merge into one.
+        key: `review:${hash(o.stage, o.candidate, p.location, p.scenario, p.correction)}`,
+        source: 'review',
+        stage: o.stage,
+        revision: o.candidate,
+        blocking: o.blocking,
+        title: `${r.label} · ${p.location}`,
+        body: [`Problem: ${p.scenario}`, `Fix: ${p.correction}`, `Evidence: ${o.verdict}`, o.proof]
+            .filter(Boolean)
+            .join('\n'),
+        repro: o.repro,
+        links: o.link ? [o.link] : [],
+    };
+}
+/** Applies a patch, runs `checks` with it, and takes it out again; a string if it does not apply. */
+async function withPatch(run, patch, checks) {
+    const text = patch.endsWith('\n') ? patch : `${patch}\n`;
+    if (!(await run.vcs.applyPatch(text)))
+        return 'its patch does not apply';
+    try {
+        return await runChecks(run, checks);
+    }
+    finally {
+        if (!(await run.vcs.applyPatch(text, { reverse: true })))
+            throw new Error('A reviewer patch could not be taken out again');
+    }
+}
+/** Runs a reproduction's command, with its test patched in unless the candidate already has it. */
+async function runReproduction(run, repro, kind) {
+    const check = [{ kind, command: repro.command }];
+    // Present only verbatim: a weakened test of the same name must not stand in for it.
+    const added = parseDiff(repro.patch).find((f) => f.path === repro.path)?.added ?? [];
+    const text = await readFile(join(run.root, repro.path), 'utf8').catch(() => undefined);
+    const present = text !== undefined && added.length > 0 && added.every((l) => text.includes(l));
+    return present
+        ? (await runChecks(run, check))[0]
+        : withPatch(run, repro.patch, check).then((r) => (typeof r === 'string' ? r : r[0]));
+}
+/**
+ * Confirms a finding by its failing test: one test runner whose command passes without the test
+ * and fails with it, naming it. Anything else may be the patch failing to compile or an unrelated
+ * test.
+ */
+async function confirmReproduction(run, rules, repro, n) {
+    const files = parseDiff(repro.patch).map((f) => f.path);
+    if (!files.includes(repro.path) || files.some((f) => rules.classify(f) !== 'test'))
+        return {
+            confirmed: false,
+            outcome: `its patch must add ${repro.path} and touch only test sources`,
+        };
+    if (!rules.isTestCommand(repro.command))
+        return { confirmed: false, outcome: `its command must be one of ${runnerList(rules)}` };
+    const [before] = await runChecks(run, [{ kind: `repro-${n}-before`, command: repro.command }]);
+    if (before.exitCode !== 0)
+        return { confirmed: false, outcome: `its command fails without the test (${before.log})` };
+    const after = await runReproduction(run, repro, `repro-${n}`);
+    if (typeof after === 'string')
+        return { confirmed: false, outcome: after };
+    if (after.exitCode === null)
+        return { confirmed: false, outcome: 'its command timed out' };
+    if (after.exitCode === 0)
+        return { confirmed: false, outcome: 'its test passes' };
+    if (!(await readLog(after.log)).includes(repro.test))
+        return {
+            confirmed: false,
+            outcome: `its command fails, but its log never names ${repro.test}`,
+        };
+    return {
+        confirmed: true,
+        outcome: `reproduced: \`${repro.command}\` exits ${after.exitCode} (${after.log})`,
+        proof: `Reproduction (${repro.command}):\n${repro.patch}`,
+    };
+}
+/**
+ * Whether a deletion removes or disables tests, which proves nothing: a test file, an added line
+ * that switches a test off, or a line of a source that appears only inside its tests. `read`
+ * gives the candidate's text of a file.
+ */
+async function deletesTests(rules, patch, read) {
+    for (const f of parseDiff(patch)) {
+        if (rules.classify(f.path) === 'test' ||
+            f.added.some((line) => rules.disabledTestPattern.test(line)))
+            return true;
+        const text = await read(f.path).catch(() => '');
+        const production = rules.stripTests?.(f.path, text);
+        if (production === undefined)
+            continue;
+        if (f.removed.some((line) => line.trim() && text.includes(line) && !production.includes(line)))
+            return true;
+    }
+    return false;
+}
+/** Confirms that code is not needed: every test check passes without it. */
+async function confirmDeletion(run, rules, patch, tests, n) {
+    const net = parseDiff(patch).reduce((sum, f) => sum + f.removed.length - f.added.length, 0);
+    const read = (path) => readFile(join(run.root, path), 'utf8');
+    if (net <= 0 || (await deletesTests(rules, patch, read)))
+        return { confirmed: false, outcome: 'its patch must remove more than it adds, outside tests' };
+    const results = await withPatch(run, patch, tests.map((c) => ({ ...c, kind: `${c.kind}-deletion-${n}` })));
+    if (typeof results === 'string')
+        return { confirmed: false, outcome: results };
+    const failed = results.find((r) => r.problem);
+    if (failed)
+        return { confirmed: false, outcome: `\`${failed.command}\` fails without it` };
+    return {
+        confirmed: true,
+        outcome: `every test check passes without it (−${net} lines)`,
+        proof: `Deletion:\n${patch}`,
+    };
+}
+/**
+ * Turns proposals into findings. Those whose references do not hold are dropped; the rest block
+ * only if their test fails, their deletion keeps the tests passing, or they cite a rule. Proposals
+ * resolving to one line are one finding, and a confirmed one replaces a suggestion there.
+ */
+async function confirmProposals(run, rules, reviews, o) {
+    const findings = [];
+    const kept = new Map();
+    let n = 0;
+    let deletions = 0;
+    for (const r of reviews)
+        for (const p of r.proposals) {
+            const problems = !(typeof p.location === 'string' && p.location && p.scenario)
+                ? ['it has no location or scenario']
+                : p.refs.length
+                    ? await checkRefs(run.root, p.refs)
+                    : ['it cites nothing'];
+            if (problems.length) {
+                run.debug(`${r.label}: dropped ${p.location}: ${problems.join('; ')}`);
+                continue;
+            }
+            const id = await resolveLocation(run.root, p.location);
+            const earlier = kept.get(id);
+            if (earlier !== undefined && findings[earlier].blocking)
+                continue;
+            let result;
+            if (p.repro)
+                result = await confirmReproduction(run, rules, p.repro, ++n);
+            else if (p.deletion && deletions++ < MAX_DELETIONS)
+                result = await confirmDeletion(run, rules, p.deletion.patch, o.tests, ++n);
+            const rule = p.refs.find((ref) => rules.classify(ref.path) === 'rule');
+            const blocking = !!result?.confirmed || !!rule;
+            const verdict = result?.confirmed
+                ? result.outcome
+                : rule
+                    ? `breaks the rule at ${rule.path}${rule.line ? `:${rule.line}` : ''}`
+                    : `unconfirmed${result ? `, ${result.outcome}` : ''}`;
+            const finding = toFinding(r, p, {
+                ...{ stage: o.stage, candidate: o.candidate, blocking, verdict },
+                proof: result?.confirmed ? result.proof : undefined,
+                repro: result?.confirmed ? p.repro : undefined,
+                link: r.thread && o.link(r.thread),
+            });
+            if (earlier === undefined)
+                kept.set(id, findings.push(finding) - 1);
+            else if (blocking)
+                findings[earlier] = finding;
+        }
+    return findings;
+}
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+/** What rejects a claim before anything runs, so a rejection costs no assessment. */
+/** What `path` breaks of `rules` that it did not already break at `before`. */
+function ruleViolations(rules, path, before, after) {
+    return rules
+        .filter((r) => r.applies(path) && r.count(after) > (before === undefined ? 0 : r.count(before)))
+        .map((r) => `${path} ${r.message}`);
+}
+/**
+ * Why the candidate cannot be the stage, and its size: everything that rejects a claim before
+ * anything runs, so a rejection costs no assessment.
+ */
+async function checkClaim(o) {
+    const { root, vcs, profile, state, stage, base, candidate } = o;
+    const { plan } = state.job;
+    const generated = (path) => profile.classify(path) === 'generated';
+    const files = parseDiff(await vcs.diff(base, candidate));
+    const { paths } = plan.stages[stage];
+    // Without rename detection a moved file names both its paths, so neither escapes the scope.
+    const stray = filesOutside(files.map((f) => f.path).filter((f) => !generated(f)), paths);
+    if (stray.length)
+        return {
+            problems: [`it changes ${stray.join(', ')}, outside ${paths.join(', ')}; revert or amend`],
+            size: { lines: 0, code: 0, files: 0 },
+        };
+    for (const f of files)
+        f.texts = [await vcs.readFileAt(base, f.path), await vcs.readFileAt(candidate, f.path)];
+    const size = measureSize(files, profile);
+    const problems = blankOnlyFiles(files.filter((f) => !generated(f.path))).map((path) => `${path} changes only blank lines; restore it`);
+    const tooBig = sizeClass(size.lines);
+    if (tooBig?.label === 'XL')
+        problems.push(`it adds ${size.lines} lines: ${tooBig.note}`);
+    // Once reviewed, a stage's code may not grow: a fix pays for itself in deleted code.
+    const floor = Math.min(...reviewedEvidence(state, stage).map((e) => e.size.code));
+    if (size.code > floor)
+        problems.push(`it adds ${size.code} net lines of code (tests aside), its reviewed version ${floor}: ` +
+            'a fix must delete as much code as it adds');
+    for (const { path, texts } of files) {
+        const [before, after] = texts;
+        if (after !== undefined)
+            problems.push(...ruleViolations(profile.rules, path, before, after));
+    }
+    const tests = citedTests(plan, stage).map((t) => ({ path: t.path, test: t.name }));
+    problems.push(...(await checkRefs(root, tests)), ...(await missingFixes(vcs, state, stage, candidate)));
+    problems.push(...((await profile.checkClaim?.({ root, vcs, plan, stage, base, candidate, files })) ?? []));
+    return { problems, size };
+}
+/**
+ * The stage's findings closed as fixed whose fix the candidate lacks: it changes none of the files
+ * the fix cites since the revision the finding was raised on.
+ */
+async function missingFixes(vcs, state, stage, candidate) {
+    const problems = [];
+    for (const f of Object.values(state.findings)) {
+        if (f.stage !== stage || f.closed?.resolution !== 'fixed')
+            continue;
+        const paths = (f.closed.evidence ?? []).map((r) => r.path);
+        // A revision this checkout never had cannot be compared, and is not held against it.
+        const changed = await vcs.diff(f.revision, candidate, { paths }).catch(() => '?');
+        if (!changed)
+            problems.push(`${f.id} was closed as fixed, but nothing it cites changed since ${f.revision.slice(0, 10)}`);
+    }
+    return problems;
+}
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+/**
+ * The job's directory: `state.json`, which every change reaches through one queue, and
+ * `debug.log`, which records each step.
+ */
+function stateFile(o) {
+    const file = join(o.dir, 'state.json');
+    /** Goes to the host's log and to `debug.log`, which is easier to follow. */
+    function debug(message) {
+        o.log(message);
+        mkdir(o.dir, { recursive: true })
+            .then(() => appendFile(join(o.dir, 'debug.log'), `${new Date().toISOString()} ${message}\n`))
+            .catch(() => { });
+    }
+    async function load() {
+        const text = await readFile(file, 'utf8').catch((error) => {
+            if (error.code === 'ENOENT')
+                return undefined;
+            throw error;
+        });
+        if (text === undefined)
+            return;
+        const state = JSON.parse(text);
+        if (typeof state?.job?.planHash !== 'string')
+            throw new Error(`${file} was not written by this version; move it aside to start a job`);
+        o.prepare(state);
+        return state;
+    }
+    async function save(state) {
+        // Written aside and renamed, so a crash never leaves a half-written state.
+        await mkdir(o.dir, { recursive: true });
+        await writeFile(`${file}.tmp`, JSON.stringify(state, null, 2));
+        await rename(`${file}.tmp`, file);
+        o.saved?.(state);
+    }
+    // Every state transition goes through this queue. Hooks check ownership before queueing, so
+    // other threads never wait behind an assessment.
+    let tail = Promise.resolve();
+    function enqueue(name, fn) {
+        const run = tail.then(async () => {
+            const start = Date.now();
+            try {
+                const result = await fn();
+                debug(`${name}: done in ${Date.now() - start}ms`);
+                return result;
+            }
+            catch (error) {
+                debug(`${name}: failed in ${Date.now() - start}ms: ${error}`);
+                throw error;
+            }
+        });
+        tail = run.catch(() => { });
+        return run;
+    }
+    return {
+        debug,
+        load,
+        save,
+        enqueue,
+        /** Hooks must not fail the turn, so an unreadable state means no job. */
+        loadQuietly: () => load().catch((error) => {
+            debug(`ignoring the state: ${error}`);
+            return undefined;
+        }),
+        /** Runs `fn` in the queue on the job `thread` owns, and saves it after. */
+        withOwnedJob(name, thread, fn) {
+            return enqueue(name, async () => {
+                const state = await load();
+                if (state?.job.owner !== thread)
+                    throw new Error(`This thread does not own a ${o.name} job`);
+                const result = await fn(state);
+                await save(state);
+                return result;
+            });
+        },
+    };
+}
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+/**
+ * The engine runs one job: a module ported as stacked PRs, one per stage of the profile.
+ *
+ * The worker drives it through the operations: it records a plan, then claims each stage with a
+ * committed revision. A claim passes the gates, which cost nothing, then pays for an assessment
+ * (checks, then reviewers) unless passing evidence for the same revision exists. A stage nothing
+ * holds back is admitted: its PR is published, and the worker that started on it hands the job to
+ * a fresh worker for the next stage. Everything left to do is a finding; forge feedback becomes
+ * findings at the start of every turn. After each turn the engine decides whether the worker
+ * continues on its own. Once every stage is admitted and nothing is outstanding, a retrospective
+ * finishes the job.
+ *
+ * The sections below follow that story: operations, turns, claiming, publishing and handing on,
+ * feedback, and the messages the worker reads.
+ */
+/** How long one assessment's checks and reviewers may take. */
+const ASSESSMENT_MINUTES = 90;
+const REF_SCHEMA = {
+    type: 'object',
+    properties: { path: { type: 'string' }, line: { type: 'number' }, test: { type: 'string' } },
+};
+const EVIDENCE_SCHEMA = {
+    type: 'array',
+    items: { ...REF_SCHEMA, properties: { ...REF_SCHEMA.properties, finding: { type: 'string' } } },
+};
+const RETRO_SCHEMA = Object.fromEntries(Object.entries(RETRO).map(([list, fields]) => [
+    list,
+    {
+        type: 'array',
+        items: {
+            type: 'object',
+            properties: {
+                ...Object.fromEntries(fields.map((f) => [
+                    f,
+                    f === 'target' ? { type: 'string', enum: TARGETS } : { type: 'string' },
+                ])),
+                evidence: EVIDENCE_SCHEMA,
+            },
+            required: [...fields, 'evidence'],
+        },
+    },
+]));
+function engine(o) {
+    const { root, profile, host, vcs } = o;
+    const stages = profile.stages.map((s) => s.name);
+    const { toolName: tool } = host;
+    const prefix = `[${profile.name}]`;
+    const quoted = o.policy.map((p) => `\`${p}\``);
+    const policy = quoted.length > 1 ? `${quoted.slice(0, -1).join(', ')} and ${quoted.at(-1)}` : quoted[0];
+    const follow = `Follow ${policy}`;
+    // The job's stage order is the profile's: every plan is recorded in it, and a state written
+    // before that rule is brought into it when loaded.
+    const inStageOrder = (plan) => {
+        plan.stages = Object.fromEntries(stages.map((s) => [s, plan.stages[s]]));
+    };
+    const { debug, load, loadQuietly, save, enqueue, withOwnedJob } = stateFile({
+        ...{ dir: o.dir, name: profile.name, log: o.log },
+        prepare: (state) => inStageOrder(state.job.plan),
+        saved: (state) => o.saved?.(summary(state)),
+    });
+    // ## The worker's operations
+    //
+    // Every operation but `plan` acts on the job the calling thread owns, in the queue.
+    const operations = [
+        {
+            name: 'plan',
+            description: `Record or amend the plan ${policy} describe. Amending invalidates every admission and keeps the budget.`,
+            schema: { type: 'object', properties: { plan: { type: 'object' } }, required: ['plan'] },
+            run: (input, thread) => enqueue(tool('plan'), async () => {
+                const plan = input.plan;
+                const errors = validatePlan(plan, profile);
+                if (!errors.length) {
+                    inStageOrder(plan);
+                    const branches = stages.map((s) => `${plan.branchPrefix}-${s}`);
+                    const forge = o.forge(plan.repository);
+                    errors.push(...(await forge.checkRemote({ remote: plan.remote, branches })));
+                    const base = await vcs.fetchBranch(plan.remote, plan.baseBranch);
+                    errors.push(...((await profile.checkPlan?.(plan, { root, vcs, base })) ?? []));
+                }
+                if (errors.length)
+                    throw new Error(errors.join('\n'));
+                const state = (await load()) ?? newState(thread, plan);
+                if (state.job.owner !== thread)
+                    throw new Error('Another thread owns the job');
+                const where = (p) => [p.repository, p.remote, p.baseBranch, p.branchPrefix];
+                if (Object.keys(state.job.prs).length &&
+                    hash(where(state.job.plan)) !== hash(where(plan)))
+                    throw new Error('The stage PRs are open: repository, remote, baseBranch and branchPrefix are fixed');
+                state.job.plan = plan;
+                state.job.planHash = hash(plan);
+                await save(state);
+                return `${follow}. ${summary(state)}`;
+            }),
+        },
+        {
+            name: 'claim',
+            description: `Claim that a committed, checked-out revision completes a stage. Blocks while checks and ${profile.reviewers.length} reviewers run, opens or updates the stage PR on admission, and returns new findings.`,
+            schema: {
+                type: 'object',
+                properties: {
+                    stage: { type: 'string', enum: stages },
+                    revision: {
+                        type: 'string',
+                        description: 'The checked-out commit; the tree must be clean',
+                    },
+                },
+                required: ['stage', 'revision'],
+            },
+            run: ({ stage, revision }, thread, signal) => withOwnedJob(`${tool('claim')} ${stage} ${revision}`, thread, (state) => claim(state, String(stage), String(revision), signal)),
+        },
+        {
+            name: 'blocked',
+            description: 'Report a blocker only a human can resolve, such as missing access or a plan that cannot work. Stops automatic continuation; your next claim clears it.',
+            schema: { type: 'object', properties: { reason: { type: 'string' } }, required: ['reason'] },
+            run: (input, thread) => withOwnedJob(tool('blocked'), thread, async (state) => {
+                state.job.blocked = String(input.reason);
+                return 'Reported. Summarize where the work stands and end your turn.';
+            }),
+        },
+        {
+            name: 'close',
+            description: 'Close a reviewer finding or review comment: fixed, or no-change with the reason it does not apply, citing the files, lines or tests that show it. Failed checks and CI close themselves.',
+            schema: {
+                type: 'object',
+                properties: {
+                    id: { type: 'string' },
+                    resolution: { type: 'string', enum: ['fixed', 'no-change'] },
+                    reason: {
+                        type: 'string',
+                        description: 'Required for no-change and review threads, where it is the reply: one plain line of at most 280 characters.',
+                    },
+                    evidence: { type: 'array', items: { ...REF_SCHEMA, required: ['path'] } },
+                },
+                required: ['id', 'resolution', 'evidence'],
+            },
+            run: (input, thread) => withOwnedJob(`${tool('close')} ${input.id} ${input.resolution}`, thread, async (state) => {
+                const { id, resolution, reason, evidence } = input;
+                const problems = await checkRefs(root, evidence);
+                if (problems.length)
+                    throw new Error(`The evidence does not hold:\n- ${problems.join('\n- ')}`);
+                const finding = closeFinding(state, id, resolution, reason, evidence);
+                // The admitted candidate does not contain the fix, so the stage must be claimed again.
+                if (resolution === 'fixed')
+                    delete state.job.admitted[finding.stage];
+                // A no-change answer goes out now; a fix is answered when it is published.
+                if (resolution === 'no-change')
+                    await postReplies(state);
+                return `Closed ${id}. ${outstanding(state).length} outstanding.`;
+            }),
+        },
+        {
+            name: 'retro',
+            description: `Once every stage is admitted, nothing is outstanding and CI is green, record the postmortem ${policy} describe, each item citing evidence. It finishes the job.`,
+            schema: { type: 'object', properties: RETRO_SCHEMA, required: Object.keys(RETRO) },
+            run: (input, thread) => withOwnedJob(tool('retro'), thread, async (state) => {
+                const pending = await collectFeedback(state);
+                if (!done(state))
+                    throw new Error('Not done: admit every stage and close every finding');
+                if (pending)
+                    throw new Error('CI is still running; end your turn until it finishes');
+                const retro = input;
+                const errors = validateRetro(retro);
+                if (!errors.length)
+                    for (const list of Object.keys(RETRO))
+                        for (const [i, item] of retro[list].entries())
+                            for (const problem of await checkRefs(root, item.evidence, state.findings))
+                                errors.push(`${list}[${i}]: ${problem}`);
+                if (errors.length)
+                    throw new Error(errors.join('\n'));
+                // The PRs carry the run's record, which now ends in the retrospective. A failed update
+                // throws, and a failed call saves nothing, so the job stays unfinished until both show it.
+                state.job.retro = retro;
+                for (const stage of stages)
+                    await publish(state, stage, state.job.admitted[stage].candidate);
+                return 'Recorded. The job is finished; end your turn.';
+            }),
+        },
+        {
+            name: 'findings',
+            description: 'List every outstanding finding.',
+            schema: { type: 'object', properties: {} },
+            // Queued, so a new worker asking while its predecessor's claim saves sees itself the owner.
+            run: (_, thread) => withOwnedJob(tool('findings'), thread, async (state) => {
+                const listed = formatFindings(outstanding(state), tool('close'));
+                return `${summary(state)}\n\n${listed || 'No outstanding findings.'}`;
+            }),
+        },
+    ];
+    // ## Turns
+    //
+    // A turn of the owner starts with what arrived since the last one. A finished turn continues on
+    // its own only while the worker can act without a human.
+    /** What a turn of `thread` starts with: the new findings for the worker, a warning for a former one. */
+    async function startTurn(thread) {
+        const peeked = await loadQuietly();
+        // A former worker still wakes for its subscriptions and its user, but must not touch the
+        // checkout its successor works in.
+        if (peeked?.job.former?.includes(thread))
+            return `${prefix} This thread handed the job to ${host.threadUrl(peeked.job.owner)}, which works in this checkout now. Change no files, make no commits and call no ${tool('*')} tools: answer what you were asked, then end your turn.`;
+        if (peeked?.job.owner !== thread)
+            return;
+        return enqueue('start', async () => {
+            const state = (await load());
+            await collectFeedback(state).catch((e) => debug(`forge feedback collection failed: ${e}`));
+            const content = newFindingsMessage(state, `${prefix} ${follow}. ${summary(state)}`);
+            await save(state);
+            return content;
+        });
+    }
+    /**
+     * Whether the worker continues after a finished turn, and with what: only while it is not
+     * blocked, has budget left, and the last continued turn moved the job. A finished job waiting
+     * for CI is not continued either: its forge subscription wakes the worker when CI reports.
+     */
+    async function endTurn(thread) {
+        if ((await loadQuietly())?.job.owner !== thread)
+            return;
+        return enqueue('end', async () => {
+            const state = (await load());
+            const { job } = state;
+            if (job.retro)
+                return;
+            // An unreachable forge counts as pending, so the worker sleeps rather than spins.
+            if (done(state) && (await collectFeedback(state).catch(() => true)))
+                return void (await save(state));
+            const now = progressMark(state);
+            const reason = stopReason(job) ??
+                (job.continued === now ? 'the last continued turn made no progress' : '');
+            if (reason) {
+                debug(`stopped: ${reason}`);
+                return { stop: reason };
+            }
+            job.continued = now;
+            await save(state);
+            return {
+                continue: done(state)
+                    ? `Every stage is admitted, nothing is outstanding and CI is green. Write the retrospective with ${tool('retro')} as ${policy} describe: a self-critical postmortem about the next iteration, not a recap.`
+                    : `Continue the ${profile.name} job.`,
+            };
+        });
+    }
+    // ## Claiming a stage
+    //
+    // A claim names a committed, checked-out revision. Gates reject it for free; otherwise it is
+    // assessed, unless passing evidence for it exists, and admitted if nothing holds it back.
+    async function claim(state, stage, revision, signal) {
+        const { job } = state;
+        delete job.blocked;
+        const candidate = await vcs.resolveRevision(revision);
+        if ((await vcs.currentRevision()) !== candidate)
+            throw new Error(`Check out ${candidate} before claiming it`);
+        const base = await stageBase(state, stage, candidate);
+        const { problems, size } = await checkClaim({
+            root,
+            vcs,
+            profile,
+            state,
+            stage,
+            base,
+            candidate,
+        });
+        if (problems.length)
+            throw new Error(`${stage} at ${candidate} cannot be admitted:\n- ${problems.join('\n- ')}`);
+        // Evidence is bound to stage, candidate, base and plan; changing any misses.
+        const key = `${stage}:${candidate}:${base}:${job.planHash}`;
+        if (state.evidence[key] && passed(state.evidence[key]))
+            debug('reusing passing evidence');
+        else {
+            const reason = stopReason(job);
+            if (reason)
+                throw new Error(`Stopped: ${reason}. Report where the work stands and end your turn.`);
+            const { evidence, findings } = await assess(state, stage, candidate, base, size, signal).finally(discardCheckChanges);
+            if ((await vcs.currentRevision().catch(() => '')) !== candidate)
+                throw new Error('The checkout changed during assessment; its evidence was discarded');
+            job.used++;
+            // Only failed evidence is assessed again; keeping it lets the run record count every attempt.
+            if (state.evidence[key])
+                state.evidence[`${key}#${job.used}`] = state.evidence[key];
+            state.evidence[key] = evidence;
+            replaceFindings(state, stage, 'check', await checkFailures(evidence));
+            addFindings(state, findings);
+            // Saved before the forge is asked, so a forge failure cannot lose the evidence.
+            await save(state);
+        }
+        await collectFeedback(state);
+        const holding = outstanding(state).filter((f) => blocksAdmission(f, stage));
+        const admitted = passed(state.evidence[key]) && !holding.length;
+        debug(`${stage} ${admitted ? 'admitted' : 'not admitted'}, held by [${holding.map((f) => f.id)}]`);
+        let handedTo = '';
+        if (admitted) {
+            // Recorded first, so the PR's run record shows it; a failed publication throws, and a
+            // failed call saves nothing.
+            job.admitted[stage] = { candidate, base, plan: job.planHash };
+            await publish(state, stage, candidate);
+            const next = stages[stages.indexOf(stage) + 1];
+            // Only the worker of this stage hands on; a later one re-admitting it keeps the job.
+            if (next && stages.indexOf(stage) === (job.former?.length ?? 0))
+                handedTo = await handOff(state, stage, next, candidate);
+        }
+        const big = sizeClass(size.lines);
+        const result = newFindingsMessage(state, `${admitted ? `Stage ${stage} admitted at ${candidate}. ${job.prs[stage]?.url ?? ''}` : `Stage ${stage} at ${candidate} was not admitted.`} ` +
+            `It adds ${size.lines} lines in ${size.files} files, ${size.code} net lines of code.` +
+            (big ? ` ${big.label}: ${big.note}` : ''));
+        return handedTo
+            ? `${result}\n\nThe job continues in a fresh thread, ${handedTo}, which owns this checkout now. Change nothing more and end your turn.`
+            : result;
+    }
+    /** The base the stage's diff starts from: the base branch, or the admitted stage before it. */
+    async function stageBase(state, stage, candidate) {
+        const { plan, admitted } = state.job;
+        const prev = previousStage(state.job, stage);
+        if (!prev)
+            return vcs.mergeBase(candidate, await vcs.fetchBranch(plan.remote, plan.baseBranch));
+        if (!isAdmitted(state.job, prev))
+            throw new Error(`Get ${prev} admitted before ${stage}`);
+        const base = admitted[prev].candidate;
+        if ((await vcs.mergeBase(base, candidate).catch(() => '')) !== base)
+            throw new Error(`${candidate} does not descend from the admitted ${prev} revision ${base}`);
+        return base;
+    }
+    /**
+     * Runs the stage's checks, re-runs the reproductions of its fixed findings, and, if all pass,
+     * the reviewers: fresh ones on the first review under the plan, then the same threads asked
+     * about the change since. A rebase that leaves the patch unchanged keeps its reviews. A reviewer
+     * that fails twice, or a cancelled claim, throws and records nothing, because that says nothing
+     * about the candidate.
+     */
+    async function assess(state, stage, candidate, base, size, signal) {
+        const { job } = state;
+        const dir = join(o.dir, 'runs', `${job.used + 1}-${stage}`);
+        await mkdir(dir, { recursive: true });
+        // Reviewers read renames as such; the gates, which must see every path, do not.
+        const text = await vcs.diff(base, candidate, { renames: true });
+        const diff = join(dir, 'diff.patch');
+        await writeFile(diff, text);
+        const patch = patchId(text);
+        const timeoutMs = ASSESSMENT_MINUTES * 60_000;
+        const cancel = AbortSignal.any([signal, o.disposed]);
+        const stop = AbortSignal.any([cancel, AbortSignal.timeout(timeoutMs)]);
+        const env = {
+            ...{ root, dir, vcs, signal: stop, judges: profile.judges, debug },
+            vars: { CLAIM_BASE: base, CLAIM_CANDIDATE: candidate },
+        };
+        const planned = job.plan.stages[stage].checks;
+        const checks = await runChecks(env, planned);
+        cancel.throwIfAborted();
+        const fail = (command, problem, exitCode = 0) => checks.push({
+            kind: 'tests',
+            command,
+            exitCode,
+            started: Date.now(),
+            ms: 0,
+            log: '',
+            problem,
+        });
+        // A failed check already rejects the candidate, and the checks after it ran none of their
+        // tests, so neither the cited tests nor the fixes' reproductions are looked at.
+        const rejected = checks.some((c) => c.problem);
+        if (!rejected) {
+            const logs = (await Promise.all(checks.map((c) => readLog(c.log)))).join('\n');
+            const unrun = citedTests(job.plan, stage).filter((t) => !testRan(logs, t.name));
+            if (unrun.length)
+                fail('the tests the plan cites', `never ran ${unrun.map((t) => `${t.path}::${t.name}`).join(', ')}`);
+        }
+        // A fix stands only while its reproduction passes: a later candidate can bring the failure back.
+        let n = 0;
+        for (const f of rejected ? [] : Object.values(state.findings)) {
+            if (f.stage !== stage || f.closed?.resolution !== 'fixed' || !f.repro)
+                continue;
+            const result = await runReproduction(env, f.repro, `fix-${++n}`);
+            const exitCode = typeof result === 'string' ? 1 : result.exitCode;
+            if (exitCode !== 0)
+                fail(f.repro.command, `does not fix ${f.id}: its reproduction still fails`, exitCode);
+        }
+        const earlier = reviewedEvidence(state, stage);
+        const failing = checks.some((c) => c.problem);
+        const same = failing ? undefined : earlier.find((e) => e.patch === patch);
+        const prior = earlier.at(-1);
+        let reviews = [];
+        if (same)
+            debug(`reusing the reviews of ${same.candidate}, whose patch is the same`);
+        else if (!failing) {
+            // After a rebase the change since is not a diff of the two candidates.
+            const delta = prior?.base === base ? join(dir, 'delta.patch') : undefined;
+            if (delta)
+                await writeFile(delta, await vcs.diff(prior.candidate, candidate, { renames: true }));
+            reviews = await reviewStage(host, {
+                ...{
+                    plan: job.plan,
+                    profile,
+                    stage,
+                    owner: job.owner,
+                    candidate,
+                    base,
+                    diff,
+                    delta,
+                    prior,
+                },
+                ...{ stat: diffStat(parseDiff(text)), lines: size.lines },
+                ...{ signal: stop, timeoutMs, debug },
+            });
+        }
+        cancel.throwIfAborted();
+        const evidence = {
+            ...{ stage, candidate, base, plan: job.planHash, patch, checks, size },
+            reviewers: same?.reviewers ?? reviews.map(({ label, thread }) => ({ reviewer: label, thread })),
+        };
+        const findings = await confirmProposals(env, profile, reviews, {
+            ...{ stage, candidate, tests: planned.filter((c) => c.kind === 'test') },
+            link: host.threadUrl,
+        });
+        // Timed-out trials would weaken findings to suggestions, so a timeout discards the assessment.
+        stop.throwIfAborted();
+        return { evidence, findings };
+    }
+    /** Failed checks, as findings that only a later passing assessment closes. */
+    async function checkFailures(evidence) {
+        const { stage, candidate } = evidence;
+        return Promise.all(evidence.checks
+            .filter((c) => c.problem)
+            .map(async (c) => {
+            const tail = (await readLog(c.log)).trimEnd().split('\n').slice(-20).join('\n');
+            return {
+                ...{ key: `check:${stage}:${c.command}`, source: 'check', stage },
+                ...{ revision: candidate, blocking: true, title: `${c.kind} check ${c.problem}` },
+                body: [`\`${c.command}\``, c.log && `Log: ${c.log}`, tail].filter(Boolean).join('\n'),
+                links: [],
+            };
+        }));
+    }
+    /**
+     * Puts back what an assessment changed or created, such as the sources `cargo mutants
+     * --in-place` mutates when killed; the claim started from a clean tree. Ignored files stay.
+     */
+    async function discardCheckChanges() {
+        if (!(await vcs.discardChanges()))
+            return;
+        debug('restored the files the assessment changed or created');
+        throw new Error('The checks changed files, now restored; the evidence was discarded');
+    }
+    // ## Publishing and handing on
+    /** Opens or updates the stage's PR, stacked on the stage before it, and answers what it fixed. */
+    async function publish(state, stage, candidate) {
+        const { job } = state;
+        const branch = (s) => `${job.plan.branchPrefix}-${s}`;
+        const prev = previousStage(job, stage);
+        job.prs[stage] = await o.forge(job.plan.repository).publish({
+            ...pullRequest(job.plan, profile, stage, runReport(state)),
+            ...{ remote: job.plan.remote, branch: branch(stage), candidate, existing: job.prs[stage] },
+            base: prev ? branch(prev) : job.plan.baseBranch,
+        });
+        await postReplies(state);
+    }
+    /**
+     * Hands the job to a fresh worker thread for `next`. Every request re-reads a thread's whole
+     * history, and the plugin holds all a stage needs, so the next stage starts without the earlier
+     * one's.
+     */
+    async function handOff(state, stage, next, candidate) {
+        const { job } = state;
+        const from = job.owner;
+        const { deliverable, paths, checks } = job.plan.stages[next];
+        const prs = stages.flatMap((s) => job.prs[s]?.url ?? []);
+        const briefing = `${prefix} You take over a ${profile.name} job at stage \`${next}\` from ${host.threadUrl(from)}, which got \`${stage}\` admitted at ${candidate}; the checkout is at that revision. ${follow} and read the skills they name. The plugin holds the plan, the evidence and every finding, so you need nothing from earlier threads.
+
+First subscribe to the CI and comments of ${prs.join(' and ')}.
+
+## Stage \`${next}\`
+
+${deliverable}
+
+It may change ${paths.map((p) => `\`${p}\``).join(', ')}, and must pass ${checks.map((c) => `\`${c.command}\``).join(', ')}.
+
+## Outstanding findings
+
+${formatFindings(outstanding(state), tool('close')) || 'None.'}
+
+## The plan
+
+${describePlan(job.plan, profile)}`;
+        // Ownership moves only once the new thread has its briefing. Its first tool calls queue behind
+        // this claim, by when it owns the job; if anything fails, the current worker carries on.
+        try {
+            const child = await host.startThread({ parent: from, labels: [next] });
+            await host.sendMessage(child, briefing);
+            job.former = [...(job.former ?? []), from];
+            job.owner = child;
+            debug(`handed the job to ${child} for ${next}`);
+            return host.threadUrl(child);
+        }
+        catch (error) {
+            debug(`handing the job on failed, so ${from} keeps it: ${error}`);
+            return '';
+        }
+    }
+    // ## Forge feedback
+    //
+    // Comments and CI on the stage PRs become findings; closed comment findings are answered.
+    /** Takes in the feedback on every PR and answers what is due; returns whether CI is pending. */
+    async function collectFeedback(state) {
+        const { job } = state;
+        const forge = o.forge(job.plan.repository);
+        let pending = false;
+        for (const stage of stages) {
+            const pr = job.prs[stage];
+            if (!pr)
+                continue;
+            const feedback = await forge.fetchFeedback({
+                ...{ stage, number: pr.number, posted: job.posted, head: pr.head },
+            });
+            const ci = feedback.findings.filter((f) => f.source === 'ci');
+            const comments = feedback.findings.filter((f) => f.source !== 'ci');
+            debug(`PR #${pr.number}: ${comments.length} comments, CI ${feedback.pending ? 'pending' : 'reported'}`);
+            pending ||= feedback.pending;
+            addFindings(state, comments);
+            // CI still running on a new head has not passed yet, so its finding stays open.
+            const running = feedback.pending
+                ? outstanding(state).filter((f) => f.stage === stage && f.source === 'ci')
+                : [];
+            replaceFindings(state, stage, 'ci', [...ci, ...running]);
+        }
+        await postReplies(state);
+        return pending;
+    }
+    /**
+     * Posts the {@link repliesDue} and resolves their threads, once on each PR a comment was posted
+     * on. One that fails stays due, so the next collection retries it.
+     */
+    async function postReplies(state) {
+        const replies = repliesDue(state);
+        if (!replies.length)
+            return;
+        const forge = o.forge(state.job.plan.repository);
+        for (const { finding: f, reply } of replies)
+            for (const r of [...f.replies])
+                try {
+                    if (r.comment)
+                        state.job.posted.push(await forge.replyToComment(r.pr, r.comment, reply));
+                    delete r.comment;
+                    if (r.thread)
+                        await forge.resolveThread(r.thread);
+                    f.answered = [...new Set([...(f.answered ?? []), r.pr])];
+                    f.replies = f.replies.filter((other) => other !== r);
+                }
+                catch (error) {
+                    debug(`answering ${f.id} on PR #${r.pr} failed: ${error}`);
+                }
+    }
+    // ## What the worker reads
+    function summary(state) {
+        const { job } = state;
+        const reason = stopReason(job);
+        const listed = stages.map((s) => `${s} ${isAdmitted(job, s) ? 'admitted' : 'pending'} ${job.prs[s]?.url ?? ''}`.trim());
+        return `${reason ? `stopped: ${reason}. ` : ''}${listed.join('; ')}. ${job.used}/${budget(job)} assessments.`;
+    }
+    /** The new findings as a numbered list, after a one-line headline. */
+    function newFindingsMessage(state, headline) {
+        const fresh = takeNewFindings(state);
+        const total = outstanding(state).length;
+        debug(`delivering [${fresh.map((f) => f.id)}], ${total} outstanding`);
+        const findings = `Findings: ${fresh.length} new, ${total} outstanding (${tool('findings')} lists all).`;
+        return [`${headline} ${findings}`, formatFindings(fresh, tool('close'))]
+            .filter(Boolean)
+            .join('\n\n');
+    }
+    return {
+        operations,
+        debug,
+        startTurn,
+        endTurn,
+        async summary() {
+            const state = await load();
+            return state && summary(state);
+        },
+        /** Grants an operator's further assessments; false when there is no job. */
+        grant: (amount, by) => enqueue(`grant ${amount}`, async () => {
+            const state = await load();
+            if (!state)
+                return false;
+            state.job.grants.push({ amount, at: new Date().toISOString(), by });
+            await save(state);
+            return true;
+        }),
+    };
+}
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+/**
+ * What checks in a Cargo workspace need: judges of Miri, cargo-mutants and Criterion, and the
+ * checks of commands and paths a plan names.
+ */
+const ESTIMATES = /^(.+)[\\/](?:c|rust)[\\/]new[\\/]estimates\.json$/;
+/**
+ * Fails a Miri run that ran nothing, such as `true # miri`, or had a test nextest marked slow:
+ * CI's runners are slower and time it out.
+ */
+function judgeMiri(log) {
+    if (!Number(log.match(/Summary \[[^\]]*\] (\d+) tests? run/)?.[1]))
+        return 'ran no tests under Miri: nextest reported no summary of tests run';
+    const slow = new Set([...log.matchAll(/ SLOW \[[^\]]*\] \([^)]*\) (.+)$/gm)].map((m) => m[1].trim()));
+    if (slow.size)
+        return (`has tests nextest marked slow, which CI's slower runners time out: ${[...slow].join(', ')}. ` +
+            'Shrink their inputs; never raise the timeout.');
+}
+/** Fails a mutation run that found nothing to mutate, because it then covers nothing. */
+function judgeMutants(log) {
+    if (!/Found [1-9]\d* mutants? to test/.test(log))
+        return ('found no mutants in the stage diff, so it shows no test coverage. Point `-p` and ' +
+            '`--in-diff` at the Rust the stage adds; a swap that changes only `unsafe extern` exports, ' +
+            'which cargo mutants skips, needs no mutants check.');
+}
+/**
+ * Where Criterion may write: `criterion` in the Cargo target directory of the workspace at
+ * `workspace` under `root`. Cargo run from the repository root and from the workspace disagree on
+ * it, so both are asked, one after the other because Cargo commands contend for the workspace lock.
+ */
+async function criterionDirs(root, workspace) {
+    const manifest = join(root, workspace, 'Cargo.toml');
+    const args = ['metadata', '--format-version', '1', '--no-deps', '--manifest-path', manifest];
+    const targets = [];
+    for (const cwd of [root, join(root, workspace)]) {
+        const { stdout } = await execa('cargo', args, { cwd });
+        targets.push(join(JSON.parse(stdout).target_directory, 'criterion'));
+    }
+    return [...new Set(targets)];
+}
+/** The median Criterion estimated in `file`, unless it was written before `since`. */
+async function median(file, since) {
+    const written = await stat(file).catch(() => undefined);
+    if (!written || written.mtimeMs < since)
+        return;
+    const estimate = await readFile(file, 'utf8')
+        .then((text) => JSON.parse(text).median.point_estimate)
+        .catch(() => NaN);
+    return estimate > 0 ? estimate : NaN;
+}
+/**
+ * Judges each Criterion group measured since `since` by the ratio of its `rust` and `c` medians,
+ * which may exceed 1 by at most `slowdownPercent`. A group with neither side fresh is an earlier
+ * run's, left in the shared target directory.
+ */
+async function judgeBenchmarks(dirs, since, slowdownPercent) {
+    const ratios = [];
+    const halves = [];
+    for (const dir of dirs) {
+        const files = await readdir(dir, { recursive: true }).catch(() => []);
+        const names = new Set(files.map((f) => f.match(ESTIMATES)?.[1]).filter((n) => n !== undefined));
+        for (const name of names) {
+            const [c, rust] = await Promise.all(['c', 'rust'].map((impl) => median(join(dir, name, impl, 'new', 'estimates.json'), since)));
+            if (c !== undefined && rust !== undefined)
+                ratios.push({ name, ratio: rust / c });
+            else if (c !== undefined || rust !== undefined)
+                halves.push(name);
+        }
+    }
+    if (halves.length)
+        return `measured only one of \`c\` and \`rust\` for: ${halves.sort().join(', ')}`;
+    if (!ratios.length)
+        return `measured no Criterion group with \`c\` and \`rust\` functions in ${dirs.join(' or ')}`;
+    const unreadable = ratios.filter((r) => Number.isNaN(r.ratio)).map((r) => r.name);
+    if (unreadable.length)
+        return `left unreadable Criterion estimates for: ${unreadable.join(', ')}`;
+    const limit = 1 + slowdownPercent / 100;
+    const slow = ratios.filter((r) => r.ratio > limit).map((r) => `${r.name} ${r.ratio.toFixed(2)}x`);
+    if (slow.length)
+        return `is slower than C beyond ${limit.toFixed(2)}x: ${slow.join(', ')}`;
+}
+/**
+ * The judges of Miri, mutation and benchmark checks in the workspace at `workspace`, where Rust may
+ * be at most `slowdownPercent` slower than C.
+ */
+const cargoJudges = (workspace, slowdownPercent) => ({
+    miri: ({ log }) => judgeMiri(log),
+    mutants: ({ log }) => judgeMutants(log),
+    bench: async ({ check, root }) => judgeBenchmarks(await criterionDirs(root, workspace), check.started, slowdownPercent),
+});
+/** What is missing to run and judge the checks: Cargo subcommands, and Cargo's metadata. */
+async function missingCargoTools(root, workspace) {
+    const problems = [];
+    for (const tool of ['mutants', 'nextest'])
+        await execa('cargo', [tool, '--version'], { cwd: root }).catch(() => problems.push(`cargo ${tool} is missing: cargo install --locked cargo-${tool}`));
+    await criterionDirs(root, workspace).catch((error) => problems.push(`cargo metadata fails, so benchmarks cannot be read: ${error.shortMessage}`));
+    return problems;
+}
+/**
+ * What in a `cargo bench` command selects only some benchmarks: a bench target, or a filter
+ * passed to Criterion. Benchmarks a run skips leave stale results the judge ignores.
+ */
+function benchFilter(command) {
+    const args = command
+        .match(/cargo bench\b([^;&|]*)/)?.[1]
+        .trim()
+        .split(/\s+/) ?? [];
+    const valued = ['-p', '--package', '--manifest-path', '--features', '-F', '--profile'];
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--' || args[i] === '--bench' || args[i].startsWith('--bench='))
+            return args[i];
+        if (valued.includes(args[i]) || args[i] === '--target-dir')
+            i++;
+        else if (args[i] && !args[i].startsWith('-'))
+            return args[i];
+    }
+}
+/** Paths holding several crates: a stage names each crate it changes, so spreading shows. */
+function multiCratePaths(paths, files) {
+    return paths.flatMap((path) => {
+        const dir = path.replace(/\/*$/, '/');
+        const count = files.filter((f) => f.startsWith(dir) && f.endsWith('/Cargo.toml')).length;
+        return count > 1 ? [`${path} holds ${count} crates; list each one the stage changes`] : [];
+    });
+}
+/**
+ * Whether a reproduction command only runs tests: one of `runners`, a `*` standing for a word,
+ * whose arguments select packages and tests, with no shell syntax and no option such as
+ * `--config` or `-Z` that makes Cargo run something else. Reviewer output is model text that read
+ * untrusted code.
+ */
+function isTestCommand(runners, command) {
+    const pattern = (r) => new RegExp(`^${r.replace(/[.]/g, '\\.').replace('*', '\\w+')}(?=\\s|$)`);
+    const runner = runners.map((r) => command.match(pattern(r))?.[0]).find(Boolean);
+    if (!runner)
+        return false;
+    const args = command.slice(runner.length).trim().split(/\s+/).filter(Boolean);
+    const name = /^[\w:./-]+$/;
+    // A script takes its options as variables.
+    if (!runner.startsWith('cargo '))
+        return args.every((a) => /^[A-Z_]+=[\w:./-]+$/.test(a));
+    const valued = ['-p', '--package', '--test', '--features', '-F', '--manifest-path'];
+    const flags = ['--lib', '--tests', '--exact', '--nocapture', '--no-fail-fast', '--release', '--'];
+    for (let i = 0; i < args.length; i++)
+        if (valued.includes(args[i])
+            ? !name.test(args[++i] ?? '')
+            : !flags.includes(args[i]) && (args[i].startsWith('-') || !name.test(args[i])))
+            return false;
+    return true;
+}
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+const TEST_GATE = '#[cfg(test)]';
+// Strings, char literals and comments are skipped whole, so a gate or brace in them does not count.
+const LITERAL = /b?r(#*)"[\s\S]*?"\1|"(\\.|[^"\\])*"|'(\\.|[^'\\])'|\/\/[^\n]*|\/\*[\s\S]*?\*\//y;
+/**
+ * The code outside `#[cfg(test)]` items. Each gated item ends at its first top-level `;` or at the
+ * `}` closing its first `{`; production code may follow it.
+ */
+function withoutTests(text) {
+    let kept = '';
+    let from = 0;
+    let gate = -1;
+    let depth = 0;
+    for (let i = 0; i < text.length; i++) {
+        LITERAL.lastIndex = i;
+        if (LITERAL.test(text)) {
+            i = LITERAL.lastIndex - 1;
+            continue;
+        }
+        if (gate < 0) {
+            if (!text.startsWith(TEST_GATE, i))
+                continue;
+            kept += text.slice(from, i);
+            gate = i;
+            depth = 0;
+            i += TEST_GATE.length - 1;
+        }
+        else if (text[i] === '{')
+            depth++;
+        else if ((text[i] === '}' && --depth === 0) || (text[i] === ';' && depth === 0)) {
+            gate = -1;
+            from = i + 1;
+        }
+    }
+    return gate < 0 ? kept + text.slice(from) : kept;
+}
+/**
+ * The text inside the block each match of `header`, a global pattern ending at its `{`, opens.
+ * Literals and comments are skipped, so their braces do not count.
+ */
+function blockBodies(text, header) {
+    const found = [];
+    for (const m of text.matchAll(header)) {
+        const start = m.index + m[0].length;
+        let depth = 1;
+        for (let i = start; i < text.length; i++) {
+            LITERAL.lastIndex = i;
+            if (LITERAL.test(text)) {
+                i = LITERAL.lastIndex - 1;
+                continue;
+            }
+            if (text[i] === '{')
+                depth++;
+            else if (text[i] === '}' && --depth === 0) {
+                found.push(text.slice(start, i));
+                break;
+            }
+        }
+    }
+    return found;
+}
+const countMatches = (text, pattern) => text.match(pattern)?.length ?? 0;
+/**
+ * Whether a test is named for the artifact it belongs to rather than the behavior it asserts,
+ * judged by whole words, so `testGeoFilterABI` counts and `capabilities` does not.
+ */
+function namedForArtifact(name) {
+    const words = name
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+        .toLowerCase()
+        .split('_');
+    return words.some((w) => ['contract', 'boundary', 'abi', 'compat'].includes(w));
+}
+/** Tests named for an artifact: Rust test functions, Python flow tests and C++ tests. */
+function artifactNamedTests(text) {
+    const names = [
+        ...text.matchAll(/#\[(\w+::)*(test|rstest)\b[^\]]*\]\s*(#\[[^\]]*\]\s*)*(async\s+)?fn\s+(\w+)/g),
+    ].map((m) => m[5]);
+    for (const m of text.matchAll(/\bdef\s+(test\w*)\s*\(/g))
+        names.push(m[1]);
+    for (const m of text.matchAll(/\bTEST(_F)?\s*\(\s*\w+\s*,\s*(\w+)\s*\)/g))
+        names.push(m[2]);
+    return names.filter(namedForArtifact).length;
+}
+/** `debug_assert!`s outside the named assertion helpers that are meant to wrap them. */
+function bareAsserts(text) {
+    let helper = false;
+    let count = 0;
+    for (const line of text.split('\n')) {
+        const fn = line.match(/\bfn\s+(\w+)/)?.[1];
+        if (fn)
+            helper = /^(debug_)?assert_/.test(fn);
+        if (/\bdebug_assert(_eq|_ne)?!\s*\(/.test(line) && !helper)
+            count++;
+    }
+    return count;
+}
+/** `# Safety` sections whose pre-conditions are not a numbered list. */
+function unnumberedSafetySections(text) {
+    const sections = text.split(/^\s*\/\/\/\s*# Safety\s*$/m).slice(1);
+    return sections.filter((rest) => {
+        const docs = rest.split('\n').filter(Boolean);
+        const body = docs.slice(0, docs.findIndex((l) => !l.trim().startsWith('///')));
+        return !body.some((l) => /^\s*\/\/\/\s*\d+\./.test(l));
+    }).length;
+}
+/** The house rules of any Rust a port adds, as far as a pattern catches them. */
+function rustHouseRules(layout) {
+    const rust = (path) => path.startsWith(layout.workspace) && path.endsWith('.rs');
+    const production = (path) => rust(path) && !layout.isTest(path);
+    const ffi = (path) => production(path) && path.startsWith(layout.ffi);
+    return [
+        {
+            applies: production,
+            count: (text) => countMatches(withoutTests(text), /\.unwrap\(\)/g),
+            message: 'adds `unwrap()` outside tests; use `expect("<the invariant it relies on>")`',
+        },
+        {
+            applies: ffi,
+            count: (text) => countMatches(text, /unsafe\s*\{\s*(&\s*(mut\s+)?\*|\(\s*\*)/g),
+            message: 'dereferences a raw pointer with `*`; use `as_ref()`, `as_mut()` or `write()`',
+        },
+        {
+            applies: ffi,
+            count: (text) => bareAsserts(withoutTests(text)),
+            message: 'adds a bare `debug_assert!`; check FFI pre-conditions with a named assertion helper',
+        },
+        {
+            applies: production,
+            count: (text) => unnumberedSafetySections(withoutTests(text)),
+            message: 'adds a `# Safety` section whose pre-conditions are not numbered',
+        },
+        {
+            applies: production,
+            count: (text) => countMatches(text, /Result<[^;{]*,\s*&'static str\s*>/g),
+            message: "returns a `&'static str` error; use an error enum deriving `thiserror::Error`",
+        },
+        {
+            applies: (path) => layout.isPure(path) && !layout.isTest(path),
+            count: (text) => countMatches(text, /\bextern\s+"C"|#\[(unsafe\()?no_mangle\b/g),
+            message: 'adds C ABI items to a pure crate; they belong in its FFI crate',
+        },
+        {
+            // Declarations only: tests may still define stubs for C symbols they do not exercise.
+            applies: (path) => layout.isPure(path) && layout.isTest(path),
+            count: (text) => countMatches(text, /\bextern\s+"C"\s*\{/g),
+            message: "declares C functions in a pure crate's tests; test the C boundary in the FFI crate",
+        },
+    ];
+}
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ */
+/** What a port of a C module to Rust adds: plan fields, the swap's completeness, its reviewers. */
+const SOURCES = /\.(c|h|cpp|cc|hpp|rs)$/;
+/**
+ * Functions a C header declares: a name with a return type before it, either type words or a
+ * macro call on the same line such as `arrayof(char**)`. Column-zero macro calls such as
+ * `KHASH_MAP_INIT_INT64(...)` have none, and comments, typedefs and static functions are skipped.
+ */
+function headerFunctions(header) {
+    // Comments become blank space, keeping lines, so prose in them never reads as a prototype.
+    // `extern` is dropped, so a variable typed by a macro call, `extern arrayof(int*) x;`, does
+    // not read as a function named for its macro.
+    const code = header
+        .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '))
+        .replace(/\/\/[^\n]*/g, '')
+        .replace(/^extern\s+/gm, '');
+    const pattern = /^(?!typedef\b|static\b|#|\/\/|\/?\*|\s)(?:\w+\([^()]*\)(?:[ \t]*|[ \t]*\n[ \t]+)|(?:[\w*]+[\s*]+)+)(\w+)\s*\(/gm;
+    return [...code.matchAll(pattern)].map((m) => m[1]);
+}
+/**
+ * What a port's plan gets wrong: a module without sources and headers, symbols missing or
+ * invented against the headers on the base branch, tests named for their artifact, filtered
+ * benchmarks, missing Cargo tools, and paths spanning several crates.
+ */
+async function checkPortPlan(plan, stages, o) {
+    const errors = [];
+    if (!plan.module?.some((p) => p?.endsWith?.('.c')) || !plan.module.some((p) => p.endsWith('.h')))
+        errors.push('module needs the C files being ported: sources and headers');
+    if (!plan.symbols?.length)
+        errors.push('symbols needs every function the headers declare');
+    for (const [i, s] of (plan.symbols ?? []).entries())
+        if (![s?.c, s?.rust].every((v) => typeof v === 'string' && v.trim()))
+            errors.push(`symbols[${i}] needs c and rust`);
+    for (const t of citedTests(plan, stages.at(-1).name))
+        if (namedForArtifact(t.name))
+            errors.push(`${t.path}::${t.name} is named for its artifact; name it for the behavior it asserts`);
+    for (const { name } of stages) {
+        const filter = benchFilter(plan.stages[name].checks.find((c) => c.kind === 'bench')?.command ?? '');
+        if (filter)
+            errors.push(`${name} bench check filters the benchmarks (${filter}); run them all`);
+    }
+    if (errors.length)
+        return errors;
+    errors.push(...(await missingCargoTools(o.root, o.workspace)));
+    const declared = new Set();
+    for (const path of plan.module.filter((p) => p.endsWith('.h'))) {
+        const header = await o.vcs.readFileAt(o.base, path);
+        if (header === undefined)
+            errors.push(`${path} is not on ${plan.baseBranch}`);
+        else
+            for (const name of headerFunctions(header))
+                declared.add(name);
+    }
+    const mapped = new Set(plan.symbols.map((s) => s.c));
+    const unmapped = [...declared].filter((name) => !mapped.has(name));
+    const unknown = [...mapped].filter((name) => !declared.has(name));
+    if (unmapped.length)
+        errors.push(`symbols leaves out ${unmapped.join(', ')}`);
+    if (unknown.length)
+        errors.push(`symbols names undeclared ${unknown.join(', ')}`);
+    const files = await o.vcs.listFiles(o.base);
+    for (const { name } of stages)
+        errors.push(...multiCratePaths(plan.stages[name].paths, files));
+    return errors;
+}
+/** The plan's symbols as reviewers and PRs read them. */
+const describePortPlan = (plan, swap) => `### What replaces each C function
+
+The C being ported, ${plan.module.map((p) => `\`${p}\``).join(', ')}, is in the working tree until \`${swap}\` deletes it.
+
+${plan.symbols.map((s) => `- \`${s.c}\`: \`${s.rust}\``).join('\n')}`;
+/**
+ * What the swap leaves undone: a Rust replacement or generated export missing, a module file
+ * left, an export no production code calls, or Rust outside the FFI crate without a mutants check.
+ * A C definition left elsewhere fails to link against the Rust export of its name. The candidate
+ * is the clean checkout at `root`.
+ */
+async function checkSwap(layout, o) {
+    const problems = [];
+    const tracked = await o.vcs.listFiles(o.candidate);
+    const read = fileReader(o.root);
+    // Exports are not mutation candidates, but other Rust the swap adds is.
+    const pure = o.files.map((f) => f.path).filter((f) => layout.isPure(f) && !layout.isTest(f));
+    if (pure.length && !o.plan.stages[o.stage].checks.some((c) => c.kind === 'mutants'))
+        problems.push(`${o.stage} changes Rust outside its FFI crate (${pure.join(', ')}): add a mutants check`);
+    const headers = tracked.filter((f) => f.startsWith(layout.headers));
+    for (const s of o.plan.symbols) {
+        if (!(await definesRust(layout, tracked, read, s.rust)))
+            problems.push(`${s.rust}, which replaces ${s.c}, is not defined`);
+        if (!(await anyFileMatches(headers, read, wholeWord(s.c))))
+            problems.push(`no generated header exports ${s.c}`);
+    }
+    for (const path of o.plan.module)
+        if (tracked.includes(path))
+            problems.push(`${path} still exists; the swap deletes the module, headers included`);
+    for (const name of await orphanedExports(layout, o.files, tracked, read))
+        problems.push(`${name} is exported, but no production code calls it: delete it, and point any test ` +
+            'that calls it at the Rust API');
+    return problems;
+}
+/** Reads files of the checkout at `root` once each. */
+function fileReader(root) {
+    const texts = new Map();
+    return (path) => {
+        if (!texts.has(path))
+            texts.set(path, readFile(join(root, path), 'utf8').catch(() => ''));
+        return texts.get(path);
+    };
+}
+const wholeWord = (pattern) => new RegExp(`(?<!\\w)(?:${pattern})(?!\\w)`);
+async function anyFileMatches(paths, read, pattern) {
+    for (const path of paths)
+        if (pattern.test(await read(path)))
+            return true;
+    return false;
+}
+/**
+ * Whether the crate a Rust path starts with defines each item after it, so `geo::RadiusFilter::new`
+ * needs `fn new` in a file of the `geo` crate that implements `RadiusFilter`, not any `fn new`.
+ */
+async function definesRust(layout, tracked, read, path) {
+    const [crate, ...items] = path.split('::');
+    const named = new RegExp(`^name = "${crate}"`, 'm');
+    let manifest;
+    for (const f of tracked)
+        if (f.startsWith(layout.workspace) && f.endsWith('Cargo.toml') && named.test(await read(f))) {
+            manifest = f;
+            break;
+        }
+    if (!manifest || !items.length)
+        return false;
+    const dir = manifest.replace(/Cargo\.toml$/, '');
+    const inCrate = tracked.filter((f) => f.startsWith(dir));
+    const files = async (pattern) => {
+        const hits = [];
+        for (const f of inCrate)
+            if (wholeWord(pattern).test(await read(f)))
+                hits.push(f);
+        return hits;
+    };
+    for (const item of items.slice(0, -1))
+        if (!(await files(`(struct|enum|trait|type|mod) ${item}`)).length)
+            return false;
+    const [owner, item] = [items.at(-2), items.at(-1)];
+    const defs = await files(`(fn|struct|enum|trait|type|const|static|mod) ${item}`);
+    if (!owner)
+        return defs.length > 0;
+    // A method lives in an impl block of its type; a function in its module's file or block.
+    const header = new RegExp(`^\\s*(impl\\b[^{;]*\\b${owner}\\b[^{;]*|(pub(\\([^)]*\\))?\\s+)?mod\\s+${owner}\\s*)\\{`, 'gm');
+    const defined = new RegExp(`\\b(fn|const|type|struct|enum)\\s+${item}\\b`);
+    for (const hit of defs) {
+        if (hit.endsWith(`/${owner}.rs`) || hit.endsWith(`/${owner}/mod.rs`))
+            return true;
+        if (blockBodies(await read(hit), header).some((b) => defined.test(b)))
+            return true;
+    }
+    return false;
+}
+/**
+ * C ABI exports without a production caller: those the stage adds, and those whose caller it
+ * deleted, that no C or Rust code outside tests, generated headers and comments mentions. An
+ * export only tests call keeps C ABI alive for nothing; its tests belong on the Rust API.
+ */
+async function orphanedExports(layout, files, tracked, read) {
+    const touched = new Set(files.flatMap((f) => f.removed.join('\n').match(/\w+/g) ?? []));
+    for (const f of files)
+        for (const m of f.added.join('\n').matchAll(/#\[unsafe\(no_mangle\)\][^{;]*?\bfn\s+(\w+)/g))
+            touched.add(m[1]);
+    const exported = new Set();
+    for (const path of tracked.filter((f) => f.endsWith('.rs'))) {
+        const lines = (await read(path)).split('\n');
+        for (const [i, line] of lines.entries())
+            if (line.includes('#[unsafe(no_mangle)]'))
+                for (const m of lines
+                    .slice(i, i + 5)
+                    .join('\n')
+                    .matchAll(/\bfn\s+(\w+)/g))
+                    if (touched.has(m[1]))
+                        exported.add(m[1]);
+    }
+    const callers = tracked.filter((f) => SOURCES.test(f) && !f.startsWith(layout.headers) && !layout.isTest(f));
+    const result = [];
+    for (const name of exported) {
+        const named = wholeWord(name);
+        const call = (line) => named.test(line) && !/^(\/\/|\/?\*)/.test(line.trim()) && !/\bfn\s/.test(line);
+        let used = false;
+        for (const path of callers) {
+            const text = await read(path);
+            if (!named.test(text))
+                continue;
+            // A Rust file's own `#[cfg(test)]` items are tests too.
+            if ((path.endsWith('.rs') ? withoutTests(text) : text).split('\n').some(call)) {
+                used = true;
+                break;
+            }
+        }
+        if (!used)
+            result.push(name);
+    }
+    return result;
+}
+/**
+ * The reviewers of a C-to-Rust port: correctness against the plan, and idiomatic Rust checked
+ * against `guides` rule by rule, citing `ruleFiles`.
+ */
+const portReviewers = (guides, ruleFiles) => [
     {
         name: 'Correctness',
         instructions: `Review correctness against the plan: its contract, its divergences from C, what
@@ -15920,761 +16820,256 @@ outlive what it points to), and ownership (who frees it, with which allocator, e
         instructions: `Review only the Rust: idiomatic, small, readable code, documentation and tests.
 Make two passes. First bugs and bloat, which matter most: look hardest for code the stage does
 not need, and give each such finding a deletion patch. Then design and house style: go through
-${GUIDES}, checking the diff against each rule rather than waiting for one to stand out. Cite the
-line of the rule a finding breaks, in ${RULE_FILES}. Matters of taste cite no rule.
+${guides}, checking the diff against each rule rather than waiting for one to stand out. Cite the
+line of the rule a finding breaks, in ${ruleFiles}. Matters of taste cite no rule.
 A property test must state an invariant the implementation does not spell out, such as a round
 trip, an ordering, or agreement with a simpler model. One that restates the implementation's
 expression proves nothing: give it a deletion patch.`,
     },
 ];
-/** What the stage's reviewers read first. */
-function brief(reviewer, o) {
-    const { deliverable, paths, checks } = o.plan.stages[o.stage];
-    const number = STAGES.indexOf(o.stage) + 1;
-    const big = sizeClass(o.lines);
-    return `# ${label(o.stage, reviewer)} review, stage ${number} of ${STAGES.length}
 
-## This stage must deliver
-
-${deliverable}
-
-It may change only ${paths.map((p) => `\`${p}\``).join(', ')}, and adds ${o.lines} lines.${big ? ` ${big.note}` : ''}
-Later stages: ${STAGES.slice(number)
-        .map((s) => `\`${s}\`: ${o.plan.stages[s].deliverable}`)
-        .join(' ') || 'none'}
-
-## Candidate
-
-Revision \`${o.candidate}\` is checked out; read files from the working tree. Base \`${o.base}\`.
-The full diff is in \`${o.diff}\`.
-
-\`\`\`
-${o.stat}
-\`\`\`
-
-These checks passed: ${checks.map((c) => `\`${c.command}\``).join(', ')}.
-
-The C being ported, ${o.plan.module.map((p) => `\`${p}\``).join(', ')}, is in the working tree
-until \`swap\` deletes it. Repository rules are in ${RULE_FILES}.
-
-## The plan
-
-${describe(o.plan)}
-`;
-}
-/**
- * What a reviewer is asked once the author answered it: the change since, not the stage again, so
- * findings do not trickle in round after round. `delta` is absent after a rebase.
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
-function followUp(o) {
-    const [previous, candidate] = [o.previous, o.candidate].map((c) => c.slice(0, 10));
-    const change = o.delta
-        ? `What changed since: \`${o.delta}\`. The whole stage diff: \`${o.diff}\`.`
-        : `It was rebased, so compare its whole diff, \`${o.diff}\`, with the version you reviewed.`;
-    return `# Re-review: ${candidate}
-
-The author answered your review of ${previous} and claims ${candidate}. ${change}
-
-Review the change, not the whole stage again:
-- Check that each fix does what it says; raise it again only if it does not, and say why.
-- Raise a new finding only on lines the change touches, unless it crashes, is undefined behavior,
-  breaks memory safety or loses data: raise those wherever they are.
-- If a fix draws a new problem in the same hunk, raise it once as a design decision, naming the
-  trade-off, rather than a third variation of the same concern.
-
-Reply in the same JSON format. An empty list is a good outcome.
-`;
+/** The Cargo workspace the Rust lives in. */
+const WORKSPACE = 'src/redisearch_rs/';
+const RULE_FILES = '`.skills/`, CLAUDE.md or AGENTS.md';
+/** What the Idiomatic Rust reviewer goes through rule by rule. */
+const GUIDES = 'the generated-code smells and the house rules in .skills/rust-review row by row, and ' +
+    '.skills/rust-tests-guidelines and .skills/rust-docs-guidelines';
+/** How much slower than C, in percent, Rust may be in any benchmark. */
+const SLOWDOWN_PERCENT = 5;
+const RELEASE_NOTES = /^- \[([ x])\] This PR (requires|does not require) release notes/gim;
+// Miri runs in every stage, because nothing tells reliably whether a change reaches `unsafe` code.
+// cargo mutants skips `unsafe extern` functions, so only a swap that adds other Rust needs it.
+// CI's lint job also checks formatting, which `make lint` does not.
+const LINT = [
+    'make lint',
+    'make fmt CHECK=1',
+    'cargo hakari generate --diff',
+    'cargo hakari manage-deps --dry-run',
+];
+/** Lints a new crate enables for itself until the workspace does (.skills/port-c-module). */
+const CRATE_LINTS = [
+    'clippy::unwrap_used',
+    'clippy::dbg_macro',
+    'clippy::todo',
+    'clippy::unimplemented',
+    'clippy::print_stdout',
+    'clippy::panic',
+    'clippy::unnecessary_safety_comment',
+    'clippy::ptr_as_ptr',
+    'clippy::borrow_as_ptr',
+    'clippy::ref_as_ptr',
+    'clippy::indexing_slicing',
+];
+const isTest = (path) => /(^|\/)(tests|benches)\//.test(path);
+const rust = (path) => path.startsWith(WORKSPACE) && path.endsWith('.rs');
+const layout = {
+    ...{ workspace: WORKSPACE, headers: `${WORKSPACE}headers/`, ffi: `${WORKSPACE}c_entrypoint/` },
+    isTest,
+    isPure: (path) => rust(path) && !/^src\/redisearch_rs\/(c_entrypoint|ffi|c_wrappers|redis_mock)\//.test(path),
+};
+/** The check that aggregates the others, and the checks that never block. */
+const ci = { gate: 'pr-validation', advisory: /sonar|codecov/i };
+/** What the PR template's release-notes check, which `pr-validation` does not include, rejects. */
+function releaseNoteErrors(body) {
+    const boxes = [...body.matchAll(RELEASE_NOTES)];
+    const kinds = new Set(boxes.map((b) => b[2].toLowerCase()));
+    const ticked = boxes.filter((b) => b[1].toLowerCase() === 'x').length;
+    return kinds.size === 2 && ticked === 1
+        ? []
+        : ['needs both release-notes boxes of the PR template, exactly one of them ticked'];
 }
-/** How findings, logs and thread labels name a reviewer, e.g. `swap / Correctness`. */
-const label = (stage, reviewer) => `${stage} / ${reviewer.name}`;
-/**
- * Runs a read-only reviewer thread, or resumes its earlier one, and parses what it proposes. A
- * failed thread is retried once with a fresh one, unless the review was cancelled.
+/** The house rules maintainers raise on every port (.skills/rust-review § 3k). */
+const RULES = [
+    ...rustHouseRules(layout),
+    {
+        applies: (path) => rust(path) && !isTest(path),
+        count: (text) => countMatches(text, /RedisModule_(Alloc|Calloc|Realloc)\b/g),
+        message: 'calls the Redis allocator directly; allocate with `Box`, the global allocator',
+    },
+    {
+        applies: (path) => rust(path) && path !== `${layout.ffi}redisearch_rs/src/lib.rs`,
+        count: (text) => countMatches(text, /#\[global_allocator\]/g),
+        message: 'adds an allocator; Miri already catches leaks and double frees',
+    },
+    {
+        applies: (path) => rust(path) || /^tests\/(pytests|cpptests|ctests)\//.test(path),
+        count: artifactNamedTests,
+        message: 'adds a test named for its artifact (contract, ABI, boundary); name the behavior',
+    },
+    {
+        // An existing crate rolls the lints out on its own, but none may drop one.
+        applies: (path) => /^src\/redisearch_rs\/(.+\/)?[^/]+\/src\/lib\.rs$/.test(path),
+        count: (text) => CRATE_LINTS.filter((lint) => !text.includes(lint)).length,
+        message: `lacks lints of the crate lint block: ${CRATE_LINTS.join(', ')}`,
+    },
+];
+const RUNNERS = ['cargo test', 'cargo nextest run', './build.sh RUN_*'];
+/** A port lands as two stacked PRs: the Rust, then the swap that deletes the C. */
+const profile = {
+    name: 'rust-port',
+    stages: [
+        {
+            name: 'rust',
+            checks: {
+                test: [],
+                miri: ['miri'],
+                mutants: ['cargo mutants'],
+                lint: LINT,
+                bench: ['cargo bench'],
+            },
+        },
+        { name: 'swap', checks: { test: [], miri: ['miri'], lint: LINT } },
+    ],
+    languages: { from: 'C', to: 'Rust' },
+    classify: (path) => /(^|\/)(Cargo\.toml|build\.rs)$/.test(path)
+        ? 'build'
+        : /^(\.claude\/)?\.?skills\//.test(path) || /(^|\/)(CLAUDE|AGENTS)\.md$/.test(path)
+            ? 'rule'
+            : path.startsWith(layout.headers) || path.endsWith('Cargo.lock')
+                ? 'generated'
+                : isTest(path)
+                    ? 'test'
+                    : 'source',
+    stripTests: (path, text) => (path.endsWith('.rs') ? withoutTests(text) : undefined),
+    disabledTestPattern: /#\[(ignore|cfg)\b/,
+    rules: RULES,
+    ruleFiles: RULE_FILES,
+    testRunners: RUNNERS,
+    isTestCommand: (command) => isTestCommand(RUNNERS, command),
+    judges: cargoJudges(WORKSPACE, SLOWDOWN_PERCENT),
+    reviewers: portReviewers(GUIDES, RULE_FILES),
+    checkPlan: async (plan, o) => [
+        ...Object.entries(plan.stages).flatMap(([s, { body }]) => releaseNoteErrors(body).map((e) => `${s} body ${e}`)),
+        ...(await checkPortPlan(plan, profile.stages, { ...o, workspace: WORKSPACE })),
+    ],
+    checkClaim: async (o) => [
+        ...multiCratePaths(o.plan.stages[o.stage].paths, await o.vcs.listFiles(o.candidate)),
+        ...(o.stage === 'swap' ? await checkSwap(layout, o) : []),
+    ],
+    describePlan: (plan) => describePortPlan(plan, 'swap'),
+};
+
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
-async function review(amp, o) {
-    if (o.resume) {
-        const resumed = await attempt(amp, o, o.resume);
-        if (!resumed.error || o.signal.aborted)
-            return resumed;
-    }
-    const first = await attempt(amp, o);
-    return first.error && !o.signal.aborted ? attempt(amp, o) : first;
+/** Where the plugin lives in the workspace, and the policy documents of each layer, in order. */
+const PLUGIN = '.amp/plugins/rust-port/';
+const POLICY = ['core', 'amp', 'redisearch'].map((layer) => `${PLUGIN}${layer}/policy.md`);
+const isThread = (id) => id.startsWith('T-');
+function threadID(id) {
+    if (!isThread(id))
+        throw new Error(`${id} is not an Amp thread`);
+    return id;
 }
-/**
- * The stage's reviews: fresh threads on the first review under the plan, then the same threads
- * asked about the change since `prior`. A reviewer that fails twice throws, because that says
- * nothing about the candidate.
- */
-async function reviewStage(amp, o) {
-    const { prior, stage, signal, timeoutMs } = o;
-    const message = prior && followUp({ ...o, previous: prior.candidate });
-    const reviews = await Promise.all(REVIEWERS.map(async (reviewer) => {
-        const thread = prior?.reviewers.find((r) => r.reviewer === label(stage, reviewer))?.thread;
-        const r = await review(amp, {
-            ...{ reviewer, stage, owner: o.owner, signal, timeoutMs, brief: brief(reviewer, o) },
-            resume: thread && message ? { thread, message } : undefined,
-        });
-        o.debug(`${r.label} reviewer ${r.thread ?? ''} ${r.error ? `failed: ${r.error}` : `${r.proposals.length} proposals`}`);
-        return r;
-    }));
-    const failed = reviews.filter((r) => r.error);
-    if (failed.length && !signal.aborted)
-        throw new Error(`${failed.map((r) => `${r.label} reviewer failed (${r.error})`).join('; ')}. Nothing was charged; claim again.`);
-    return reviews;
+/** Workers and reviewers as Amp threads, labelled `name`, with tools named `port_<operation>`. */
+function ampHost(amp, name) {
+    return {
+        threadUrl: (thread) => new URL(`/threads/${thread}`, amp.system.ampURL).toString(),
+        toolName: (operation) => `port_${operation}`,
+        async startThread({ parent, labels, role }) {
+            const agent = role
+                ? amp.createAgent({
+                    extends: 'high',
+                    instructions: role,
+                    tools: { include: ['Read', 'Grep', 'glob'], exclude: ['tool_search', 'code_exec'] },
+                })
+                : await amp.threads.get(threadID(parent)).agent();
+            const child = await agent.createThread({ parentThreadID: threadID(parent) });
+            // Amp generates thread titles itself; labels are what a plugin can set to name the reviewer.
+            await child.addLabels([name, ...labels]).catch(() => { });
+            return child.id;
+        },
+        async sendMessage(thread, message) {
+            await amp.threads
+                .get(threadID(thread))
+                .appendUserMessage({ type: 'user-message', content: message });
+        },
+        async ask(thread, message, { signal, timeoutMs }) {
+            const child = amp.threads.get(threadID(thread));
+            const cancel = () => void child.cancel().catch(() => { });
+            signal.addEventListener('abort', cancel, { once: true });
+            // An abort while the thread was being created or looked up fired before the listener.
+            if (signal.aborted)
+                cancel();
+            const response = child.waitForResponse({ timeoutMs });
+            response.catch(() => { }); // Observed below; this keeps an early failure from going unhandled.
+            await child.appendUserMessage({ type: 'user-message', content: message });
+            const reply = await response.finally(() => signal.removeEventListener('abort', cancel));
+            return reply.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
+        },
+    };
 }
-async function attempt(amp, o, resume) {
-    const name = label(o.stage, o.reviewer);
-    let thread = resume?.thread;
-    try {
-        const child = resume ? amp.threads.get(resume.thread) : await create(amp, o);
-        thread = child.id;
-        const cancel = () => void child.cancel().catch(() => { });
-        o.signal.addEventListener('abort', cancel, { once: true });
-        // An abort while the thread was being created or looked up fired before the listener.
-        if (o.signal.aborted)
-            cancel();
-        const response = child.waitForResponse({ timeoutMs: o.timeoutMs });
-        response.catch(() => { }); // Observed below; this keeps an early failure from going unhandled.
-        await child.appendUserMessage({ type: 'user-message', content: resume?.message ?? o.brief });
-        const message = await response.finally(() => o.signal.removeEventListener('abort', cancel));
-        const text = message.content.map((b) => (b.type === 'text' ? b.text : '')).join('\n');
-        const json = text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1);
-        // Malformed proposals are kept for the plugin to drop and log, so one does not fail the rest.
-        const proposals = JSON.parse(json).findings.map((f) => {
-            const { path, test, patch, command } = f.repro ?? {};
-            const text = (v) => typeof v === 'string' && v !== '';
-            const repro = [path, test, patch, command].every(text) ? f.repro : undefined;
-            const deletion = text(f.deletion?.patch) ? f.deletion : undefined;
-            return { ...f, refs: Array.isArray(f.refs) ? f.refs : [], repro, deletion };
-        });
-        return { label: name, thread, proposals };
-    }
-    catch (error) {
-        return { label: name, thread, error: String(error), proposals: [] };
-    }
-}
-async function create(amp, o) {
-    const agent = amp.createAgent({
-        extends: 'high',
-        instructions: `${ROLE}\n\n${o.reviewer.instructions}\n${FORMAT}`,
-        tools: { include: ['Read', 'Grep', 'glob'], exclude: ['tool_search', 'code_exec'] },
-    });
-    const child = await agent.createThread({ parentThreadID: o.owner });
-    // Amp generates thread titles itself; labels are what a plugin can set to name the reviewer.
-    const slug = o.reviewer.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    await child.addLabels(['rust-port', o.stage, slug]).catch(() => { });
-    return child;
-}
-
-/** How long one assessment's checks and reviewers may take. */
-const ASSESSMENT_MINUTES = 90;
-const tool = (name) => `port_${name}`;
 function plugin (amp) {
     if (!amp.system.workspaceRoot)
         return;
     const root = amp.helpers.filePathFromURI(amp.system.workspaceRoot);
-    const dir = join(root, '.amp', 'rust-port');
-    const file = join(dir, 'state.json');
     const disposed = new AbortController();
     amp.onDispose(() => disposed.abort());
     // Experimental in Amp, so optional: the job's state at a glance, next to the prompt.
     const statusItem = amp.experimental?.createStatusItem();
-    const sh = (args, input) => git(root, args, input);
-    const link = (thread) => new URL(`/threads/${thread}`, amp.system.ampURL).toString();
-    /** Goes to Amp's log and to `debug.log` in the state directory, which is easier to follow. */
-    function debug(message) {
-        amp.logger.log(message);
-        mkdir(dir, { recursive: true })
-            .then(() => appendFile(join(dir, 'debug.log'), `${new Date().toISOString()} ${message}\n`))
-            .catch(() => { });
-    }
+    const threads = ampHost(amp, profile.name);
+    const port = engine({
+        ...{ root, dir: join(root, '.amp', profile.name), profile, host: threads, vcs: gitVcs(root) },
+        forge: (repository) => github({ root, repository, ci }),
+        policy: POLICY,
+        log: (message) => amp.logger.log(message),
+        saved: (summary) => statusItem?.update({ text: `${profile.name}: ${summary}` }),
+        disposed: disposed.signal,
+    });
     // Names the running build, so a fix can be confirmed loaded before a retry.
     readFile(fileURLToPath(import.meta.url))
-        .then((code) => debug(`plugin loaded: ${createHash('sha1').update(code).digest('hex').slice(0, 10)}`))
+        .then((code) => port.debug(`plugin loaded: ${createHash('sha1').update(code).digest('hex').slice(0, 10)}`))
         .catch(() => { });
-    async function load() {
-        const text = await readFile(file, 'utf8').catch((error) => {
-            if (error.code === 'ENOENT')
-                return undefined;
-            throw error;
+    for (const operation of port.operations)
+        amp.registerTool({
+            name: threads.toolName(operation.name),
+            description: operation.description,
+            inputSchema: operation.schema,
+            execute: (input, ctx) => operation.run(input, ctx.thread.id, ctx.signal),
         });
-        if (text === undefined)
-            return;
-        const state = JSON.parse(text);
-        if (typeof state?.job?.planHash !== 'string')
-            throw new Error(`${file} was not written by this version; move it aside to start a job`);
-        return state;
-    }
-    /** Hooks must not fail the turn, so an unreadable state means the thread owns no job. */
-    const owns = (thread) => load().then((state) => state?.job.owner === thread, (error) => (debug(`ignoring ${thread}: ${error}`), false));
-    async function save(state) {
-        // Written aside and renamed, so a crash never leaves a half-written state.
-        await mkdir(dir, { recursive: true });
-        await writeFile(`${file}.tmp`, JSON.stringify(state, null, 2));
-        await rename(`${file}.tmp`, file);
-        statusItem?.update({ text: `rust-port: ${summary(state)}` });
-    }
-    // Every state transition goes through this queue. Hooks check ownership before queueing, so
-    // other threads never wait behind an assessment.
-    let tail = Promise.resolve();
-    function serial(name, fn) {
-        const run = tail.then(async () => {
-            const start = Date.now();
-            try {
-                const result = await fn();
-                debug(`${name}: done in ${Date.now() - start}ms`);
-                return result;
-            }
-            catch (error) {
-                debug(`${name}: failed in ${Date.now() - start}ms: ${error}`);
-                throw error;
-            }
-        });
-        tail = run.catch(() => { });
-        return run;
-    }
-    /** Runs `fn` in the queue on the job `thread` owns, and saves it after. */
-    function update(name, thread, fn) {
-        return serial(name, async () => {
-            const state = await load();
-            if (state?.job.owner !== thread)
-                throw new Error('This thread does not own a rust-port job');
-            const result = await fn(state);
-            await save(state);
-            return result;
-        });
-    }
-    function summary(state) {
-        const { job } = state;
-        const reason = stopped(job);
-        const stages = STAGES.map((s) => `${s} ${isAdmitted(job, s) ? 'admitted' : 'pending'} ${job.prs[s]?.url ?? ''}`.trim());
-        return `${reason ? `stopped: ${reason}. ` : ''}${stages.join('; ')}. ${job.used}/${budget(job)} assessments.`;
-    }
-    /** The new findings as a numbered list, after a one-line headline. */
-    function digest(state, headline) {
-        const fresh = undelivered(state);
-        const total = outstanding(state).length;
-        debug(`delivering [${fresh.map((f) => f.id)}], ${total} outstanding`);
-        const findings = `Findings: ${fresh.length} new, ${total} outstanding (${tool('findings')} lists all).`;
-        return [`${headline} ${findings}`, render(fresh, tool('close'))].filter(Boolean).join('\n\n');
-    }
-    /** Takes in GitHub feedback on every PR, answers what is due; returns whether CI is pending. */
-    async function collect(state) {
-        const { job } = state;
-        const gh = await github(root, job.plan.repository);
-        let pending = false;
-        for (const stage of STAGES) {
-            const pr = job.prs[stage];
-            const feedback = pr && (await gh.feedback(stage, pr.number, job.posted, pr.head));
-            if (!feedback)
-                continue;
-            debug(`PR #${pr.number}: ${feedback.comments.length} comments, CI ${feedback.pending ? 'pending' : 'reported'}`);
-            pending ||= feedback.pending;
-            receive(state, feedback.comments);
-            // CI still running on a new head has not passed yet, so its finding stays open.
-            const running = feedback.pending
-                ? outstanding(state).filter((f) => f.stage === stage && f.source === 'ci')
-                : [];
-            reconcile(state, stage, 'ci', [...feedback.failures, ...running]);
-        }
-        await settle(state);
-        return pending;
-    }
-    /**
-     * Posts the replies {@link due} and resolves their threads, once on each PR a comment was posted
-     * on. One that fails stays due, so the next collection retries it.
-     */
-    async function settle(state) {
-        const replies = due(state);
-        if (!replies.length)
-            return;
-        const gh = await github(root, state.job.plan.repository);
-        for (const { finding: f, reply } of replies)
-            for (const r of [...f.replies])
-                try {
-                    if (r.comment)
-                        state.job.posted.push((await gh.reply(r.pr, r.comment, reply)).data.id);
-                    delete r.comment;
-                    if (r.thread)
-                        await gh.resolve(r.thread);
-                    f.answered = [...new Set([...(f.answered ?? []), r.pr])];
-                    f.replies = f.replies.filter((other) => other !== r);
-                }
-                catch (error) {
-                    debug(`answering ${f.id} on PR #${r.pr} failed: ${error}`);
-                }
-    }
-    async function head() {
-        if (await sh(['status', '--porcelain']))
-            throw new Error('The working tree is dirty');
-        return sh(['rev-parse', 'HEAD']);
-    }
-    /** The base the stage's diff starts from: the base branch, or the admitted stage before it. */
-    async function baseOf(state, stage, candidate) {
-        const { plan, admitted } = state.job;
-        const prev = previous(stage);
-        if (!prev) {
-            await sh(['fetch', plan.remote, plan.baseBranch]);
-            return sh(['merge-base', candidate, 'FETCH_HEAD']);
-        }
-        if (!isAdmitted(state.job, prev))
-            throw new Error(`Get ${prev} admitted before ${stage}`);
-        const base = admitted[prev].candidate;
-        await sh(['merge-base', '--is-ancestor', base, candidate]).catch(() => {
-            throw new Error(`${candidate} does not descend from the admitted ${prev} revision ${base}`);
-        });
-        return base;
-    }
-    /**
-     * Runs the stage's checks, re-runs the reproductions of its fixed findings, and, if all pass,
-     * the reviewers: fresh ones on the first review under the plan, then the same threads asked
-     * about the change since. A rebase that leaves the patch unchanged keeps its reviews. A reviewer
-     * that fails twice, or a cancelled claim, throws and records nothing, because that says nothing
-     * about the candidate.
-     */
-    async function assess(state, stage, candidate, base, size, signal) {
-        const { job } = state;
-        const run = join(dir, 'runs', `${job.used + 1}-${stage}`);
-        await mkdir(run, { recursive: true });
-        const text = await sh(['diff', base, candidate]);
-        const diff = join(run, 'diff.patch');
-        await writeFile(diff, text);
-        // Verbatim, so whitespace inside a string or Python indentation makes a new patch.
-        const patch = (await sh(['patch-id', '--verbatim'], text)).split(' ')[0];
-        const timeoutMs = ASSESSMENT_MINUTES * 60_000;
-        const cancel = AbortSignal.any([signal, disposed.signal]);
-        const stop = AbortSignal.any([cancel, AbortSignal.timeout(timeoutMs)]);
-        const trials = {
-            ...{ root, dir: run, signal: stop, debug },
-            vars: { CLAIM_BASE: base, CLAIM_CANDIDATE: candidate },
-        };
-        const planned = job.plan.stages[stage].checks;
-        const checks = await runChecks(root, run, planned, stop, debug, trials.vars);
-        cancel.throwIfAborted();
-        const extra = (command, problem, exitCode = 0) => checks.push({
-            kind: 'tests',
-            command,
-            exitCode,
-            started: Date.now(),
-            ms: 0,
-            log: '',
-            problem,
-        });
-        // A failed check already rejects the candidate, and the checks after it ran none of their
-        // tests, so neither the cited tests nor the fixes' reproductions are looked at.
-        const rejected = checks.some((c) => c.problem);
-        if (!rejected) {
-            const logs = (await Promise.all(checks.map((c) => readFile(c.log, 'utf8').catch(() => '')))).join('\n');
-            const unrun = cited(job.plan, stage).filter((t) => !ran(logs, t.name));
-            if (unrun.length)
-                extra('the tests the plan cites', `never ran ${unrun.map((t) => `${t.path}::${t.name}`).join(', ')}`);
-        }
-        // A fix stands only while its reproduction passes: a later candidate can bring the failure back.
-        let n = 0;
-        for (const f of rejected ? [] : Object.values(state.findings)) {
-            if (f.stage !== stage || f.closed?.resolution !== 'fixed' || !f.repro)
-                continue;
-            const result = await reproduction(trials, f.repro, `fix-${++n}`);
-            const exitCode = typeof result === 'string' ? 1 : result.exitCode;
-            if (exitCode !== 0)
-                extra(f.repro.command, `does not fix ${f.id}: its reproduction still fails`, exitCode);
-        }
-        const earlier = reviewed(state, stage);
-        const failing = checks.some((c) => c.problem);
-        const same = failing ? undefined : earlier.find((e) => e.patch === patch);
-        const prior = earlier.at(-1);
-        let reviews = [];
-        if (same)
-            debug(`reusing the reviews of ${same.candidate}, whose patch is the same`);
-        else if (!failing) {
-            // After a rebase the change since is not a diff of the two candidates.
-            const delta = prior?.base === base ? join(run, 'delta.patch') : undefined;
-            if (delta)
-                await writeFile(delta, await sh(['diff', prior.candidate, candidate]));
-            reviews = await reviewStage(amp, {
-                ...{ plan: job.plan, stage, owner: job.owner, candidate, base, diff, delta, prior },
-                ...{ stat: await sh(['diff', '--stat', base, candidate]), lines: size.lines },
-                ...{ signal: stop, timeoutMs, debug },
-            });
-        }
-        cancel.throwIfAborted();
-        const evidence = {
-            ...{ stage, candidate, base, plan: job.planHash, patch, checks, size },
-            reviewers: same?.reviewers ?? reviews.map(({ label, thread }) => ({ reviewer: label, thread })),
-        };
-        const findings = await confirm(trials, reviews, {
-            ...{ stage, candidate, tests: planned.filter((c) => c.kind === 'test') },
-            threadURL: link,
-        });
-        // Timed-out trials would weaken findings to suggestions, so a timeout discards the assessment.
-        stop.throwIfAborted();
-        return { evidence, findings };
-    }
-    /** Failed checks, as findings that only a later passing assessment closes. */
-    async function failures(evidence) {
-        const { stage, candidate } = evidence;
-        return Promise.all(evidence.checks
-            .filter((c) => c.problem)
-            .map(async (c) => {
-            const log = stripVTControlCharacters(await readFile(c.log, 'utf8').catch(() => ''));
-            const tail = log.trimEnd().split('\n').slice(-20).join('\n');
-            return {
-                ...{
-                    key: `check:${stage}:${c.command}`,
-                    source: 'check',
-                    stage,
-                    revision: candidate,
-                },
-                ...{ blocking: true, title: `${c.kind} check ${c.problem}`, links: [] },
-                body: [`\`${c.command}\``, c.log && `Log: ${c.log}`, tail].filter(Boolean).join('\n'),
-            };
-        }));
-    }
-    /** Opens or updates the stage's PR, stacked on the stage before it, and answers what it fixed. */
-    async function publish(state, stage, candidate) {
-        const { job } = state;
-        const branch = (s) => `${job.plan.branchPrefix}-${s}`;
-        const prev = previous(stage);
-        const gh = await github(root, job.plan.repository);
-        job.prs[stage] = await gh.publish({
-            ...pr(job.plan, stage, report(state)),
-            ...{ remote: job.plan.remote, branch: branch(stage), candidate, existing: job.prs[stage] },
-            base: prev ? branch(prev) : job.plan.baseBranch,
-        });
-        await settle(state);
-    }
-    /**
-     * Puts back what an assessment changed or created, such as the sources `cargo mutants
-     * --in-place` mutates when killed; the claim started from a clean tree. Ignored files stay.
-     */
-    async function restore() {
-        if (!(await sh(['status', '--porcelain'])))
-            return;
-        debug('restoring the files the assessment changed or created');
-        await sh(['restore', '--source=HEAD', '--staged', '--worktree', '--', '.']);
-        await sh(['clean', '-fd']);
-        throw new Error('The checks changed files, now restored; the evidence was discarded');
-    }
-    async function claim(state, stage, revision, signal) {
-        const { job } = state;
-        delete job.blocked;
-        const candidate = await sh(['rev-parse', '--verify', `${revision}^{commit}`]);
-        if ((await head()) !== candidate)
-            throw new Error(`Check out ${candidate} before claiming it`);
-        const base = await baseOf(state, stage, candidate);
-        const { problems, size } = await gates(sh, root, state, stage, base, candidate);
-        if (problems.length)
-            throw new Error(`${stage} at ${candidate} cannot be admitted:\n- ${problems.join('\n- ')}`);
-        // Evidence is bound to stage, candidate, base and plan; changing any misses.
-        const key = `${stage}:${candidate}:${base}:${job.planHash}`;
-        if (state.evidence[key] && passed(state.evidence[key]))
-            debug('reusing passing evidence');
-        else {
-            const reason = stopped(job);
-            if (reason)
-                throw new Error(`Stopped: ${reason}. Report where the work stands and end your turn.`);
-            const { evidence, findings } = await assess(state, stage, candidate, base, size, signal).finally(restore);
-            if ((await head().catch(() => '')) !== candidate)
-                throw new Error('The checkout changed during assessment; its evidence was discarded');
-            job.used++;
-            // Only failed evidence is assessed again; keeping it lets the run record count every attempt.
-            if (state.evidence[key])
-                state.evidence[`${key}#${job.used}`] = state.evidence[key];
-            state.evidence[key] = evidence;
-            reconcile(state, stage, 'check', await failures(evidence));
-            receive(state, findings);
-            // Saved before GitHub is asked, so a GitHub failure cannot lose the evidence.
-            await save(state);
-        }
-        await collect(state);
-        const holding = outstanding(state).filter((f) => holds(f, stage));
-        const admitted = passed(state.evidence[key]) && !holding.length;
-        debug(`${stage} ${admitted ? 'admitted' : 'not admitted'}, held by [${holding.map((f) => f.id)}]`);
-        let handedTo = '';
-        if (admitted) {
-            // Recorded first, so the PR's run record shows it; a failed publication throws, and a
-            // failed call saves nothing.
-            job.admitted[stage] = { candidate, base, plan: job.planHash };
-            await publish(state, stage, candidate);
-            const next = STAGES[STAGES.indexOf(stage) + 1];
-            // Only the worker of this stage hands on; a later one re-admitting it keeps the job.
-            if (next && STAGES.indexOf(stage) === (job.former?.length ?? 0))
-                handedTo = await handOff(state, stage, next, candidate);
-        }
-        const big = sizeClass(size.lines);
-        const result = digest(state, `${admitted ? `Stage ${stage} admitted at ${candidate}. ${job.prs[stage]?.url ?? ''}` : `Stage ${stage} at ${candidate} was not admitted.`} ` +
-            `It adds ${size.lines} lines in ${size.files} files, ${size.code} net lines of code.` +
-            (big ? ` ${big.label}: ${big.note}` : ''));
-        return handedTo
-            ? `${result}\n\nThe job continues in a fresh thread, ${handedTo}, which owns this checkout now. Change nothing more and end your turn.`
-            : result;
-    }
-    /**
-     * Hands the job to a fresh worker thread for `next`. Every request re-reads a thread's whole
-     * history, and the plugin holds all a stage needs, so the next stage starts without the earlier
-     * one's.
-     */
-    async function handOff(state, stage, next, candidate) {
-        const { job } = state;
-        const previous = job.owner;
-        const { deliverable, paths, checks } = job.plan.stages[next];
-        const prs = STAGES.flatMap((s) => job.prs[s]?.url ?? []);
-        const content = `[rust-port] You take over a rust-port job at stage \`${next}\` from ${link(previous)}, which got \`${stage}\` admitted at ${candidate}; the checkout is at that revision. Follow ${POLICY} and read the skills it names. The plugin holds the plan, the evidence and every finding, so you need nothing from earlier threads.
-
-First subscribe to the CI and comments of ${prs.join(' and ')} with \`create_github_subscription\`.
-
-## Stage \`${next}\`
-
-${deliverable}
-
-It may change ${paths.map((p) => `\`${p}\``).join(', ')}, and must pass ${checks.map((c) => `\`${c.command}\``).join(', ')}.
-
-## Outstanding findings
-
-${render(outstanding(state), tool('close')) || 'None.'}
-
-## The plan
-
-${describe(job.plan)}`;
-        // Ownership moves only once the new thread has its briefing. Its first tool calls queue behind
-        // this claim, by when it owns the job; if anything fails, the current worker carries on.
-        try {
-            const agent = await amp.threads.get(previous).agent();
-            const child = await agent.createThread({ parentThreadID: previous });
-            await child.addLabels(['rust-port', next]).catch(() => { });
-            await child.appendUserMessage({ type: 'user-message', content });
-            job.former = [...(job.former ?? []), previous];
-            job.owner = child.id;
-            debug(`handed the job to ${child.id} for ${next}`);
-            return link(child.id);
-        }
-        catch (error) {
-            debug(`handing the job on failed, so ${previous} keeps it: ${error}`);
-            return '';
-        }
-    }
-    amp.registerTool({
-        name: tool('plan'),
-        description: `Record or amend the plan ${POLICY} describes. Amending invalidates every admission and keeps the budget.`,
-        inputSchema: { type: 'object', properties: { plan: { type: 'object' } }, required: ['plan'] },
-        execute: (input, ctx) => serial(tool('plan'), async () => {
-            const plan = input.plan;
-            const errors = validate(plan);
-            if (!errors.length)
-                errors.push(...(await inspect(plan, root, sh)));
-            if (errors.length)
-                throw new Error(errors.join('\n'));
-            const existing = await load();
-            const state = existing ?? newState(ctx.thread.id, plan);
-            if (state.job.owner !== ctx.thread.id)
-                throw new Error('Another thread owns the job');
-            const where = (p) => [p.repository, p.remote, p.baseBranch, p.branchPrefix];
-            if (Object.keys(state.job.prs).length && hash(where(state.job.plan)) !== hash(where(plan)))
-                throw new Error('The stage PRs are open: repository, remote, baseBranch and branchPrefix are fixed');
-            state.job.plan = plan;
-            state.job.planHash = hash(plan);
-            await save(state);
-            return `Follow ${POLICY}. ${summary(state)}`;
-        }),
-    });
-    amp.registerTool({
-        name: tool('claim'),
-        description: `Claim that a committed, checked-out revision completes a stage. Blocks while checks and ${REVIEWERS.length} reviewers run, opens or updates the stage PR on admission, and returns new findings.`,
-        inputSchema: {
-            type: 'object',
-            properties: {
-                stage: { type: 'string', enum: [...STAGES] },
-                revision: { type: 'string', description: 'The checked-out commit; the tree must be clean' },
-            },
-            required: ['stage', 'revision'],
-        },
-        execute: ({ stage, revision }, ctx) => update(`${tool('claim')} ${stage} ${revision}`, ctx.thread.id, (state) => claim(state, stage, String(revision), ctx.signal)),
-    });
-    amp.registerTool({
-        name: tool('blocked'),
-        description: 'Report a blocker only a human can resolve, such as missing access or a plan that cannot work. Stops automatic continuation; your next claim clears it.',
-        inputSchema: {
-            type: 'object',
-            properties: { reason: { type: 'string' } },
-            required: ['reason'],
-        },
-        execute: (input, ctx) => update(tool('blocked'), ctx.thread.id, async (state) => {
-            state.job.blocked = String(input.reason);
-            return 'Reported. Summarize where the work stands and end your turn.';
-        }),
-    });
-    const ref = {
-        type: 'object',
-        properties: { path: { type: 'string' }, line: { type: 'number' }, test: { type: 'string' } },
-    };
-    amp.registerTool({
-        name: tool('close'),
-        description: 'Close a reviewer finding or review comment: fixed, or no-change with the reason it does not apply, citing the files, lines or tests that show it. Failed checks and CI close themselves.',
-        inputSchema: {
-            type: 'object',
-            properties: {
-                id: { type: 'string' },
-                resolution: { type: 'string', enum: ['fixed', 'no-change'] },
-                reason: {
-                    type: 'string',
-                    description: 'Required for no-change and review threads, where it is the reply: one plain line of at most 280 characters.',
-                },
-                evidence: { type: 'array', items: { ...ref, required: ['path'] } },
-            },
-            required: ['id', 'resolution', 'evidence'],
-        },
-        execute: (input, ctx) => update(`${tool('close')} ${input.id} ${input.resolution}`, ctx.thread.id, async (state) => {
-            const { id, resolution, reason, evidence } = input;
-            const problems = await verify(root, evidence);
-            if (problems.length)
-                throw new Error(`The evidence does not hold:\n- ${problems.join('\n- ')}`);
-            const finding = close(state, id, resolution, reason, evidence);
-            // The admitted candidate does not contain the fix, so the stage must be claimed again.
-            if (resolution === 'fixed')
-                delete state.job.admitted[finding.stage];
-            // A no-change answer goes out now; a fix is answered when it is published.
-            if (resolution === 'no-change')
-                await settle(state);
-            return `Closed ${id}. ${outstanding(state).length} outstanding.`;
-        }),
-    });
-    const evidence = {
-        type: 'array',
-        items: { ...ref, properties: { ...ref.properties, finding: { type: 'string' } } },
-    };
-    const field = (f) => [
-        f,
-        f === 'target' ? { type: 'string', enum: TARGETS } : { type: 'string' },
-    ];
-    const lists = Object.entries(RETRO).map(([list, fields]) => [
-        list,
-        {
-            type: 'array',
-            items: {
-                type: 'object',
-                properties: { ...Object.fromEntries(fields.map(field)), evidence },
-                required: [...fields, 'evidence'],
-            },
-        },
-    ]);
-    amp.registerTool({
-        name: tool('retro'),
-        description: `Once every stage is admitted, nothing is outstanding and CI is green, record the postmortem ${POLICY} describes, each item citing evidence. It finishes the job.`,
-        inputSchema: {
-            type: 'object',
-            properties: Object.fromEntries(lists),
-            required: Object.keys(RETRO),
-        },
-        execute: (input, ctx) => update(tool('retro'), ctx.thread.id, async (state) => {
-            const pending = await collect(state);
-            if (!done(state))
-                throw new Error('Not done: admit every stage and close every finding');
-            if (pending)
-                throw new Error('CI is still running; end your turn until it finishes');
-            const retro = input;
-            const errors = validateRetro(retro);
-            if (!errors.length)
-                for (const list of Object.keys(RETRO))
-                    for (const [i, item] of retro[list].entries())
-                        for (const problem of await verify(root, item.evidence, state.findings))
-                            errors.push(`${list}[${i}]: ${problem}`);
-            if (errors.length)
-                throw new Error(errors.join('\n'));
-            // The PRs carry the run's record, which now ends in the retrospective. A failed update
-            // throws, and a failed call saves nothing, so the job stays unfinished until both show it.
-            state.job.retro = retro;
-            for (const stage of STAGES)
-                await publish(state, stage, state.job.admitted[stage].candidate);
-            return 'Recorded. The job is finished; end your turn.';
-        }),
-    });
-    amp.registerTool({
-        name: tool('findings'),
-        description: 'List every outstanding finding.',
-        inputSchema: { type: 'object', properties: {} },
-        // Queued, so a new worker asking while its predecessor's claim saves sees itself the owner.
-        execute: (_, ctx) => serial(tool('findings'), async () => {
-            const state = await load();
-            if (state?.job.owner !== ctx.thread.id)
-                throw new Error('This thread does not own a rust-port job');
-            return `${summary(state)}\n\n${render(outstanding(state), tool('close')) || 'No outstanding findings.'}`;
-        }),
-    });
     amp.registerCommand('grant', {
         title: 'Grant assessments',
-        category: 'rust-port',
+        category: profile.name,
         description: 'Operator-only budget grant',
     }, async (ctx) => {
-        const state = await load();
-        if (!state)
-            return ctx.ui.notify('No rust-port job in this checkout');
+        const summary = await port.summary();
+        if (!summary)
+            return ctx.ui.notify(`No ${profile.name} job in this checkout`);
         const amount = Number(await ctx.ui.input({
             title: 'Grant how many more assessments?',
-            helpText: summary(state),
+            helpText: summary,
             requireHuman: true,
         }));
-        if (!(amount > 0))
-            return;
-        await serial(`grant ${amount}`, async () => {
-            const fresh = (await load());
-            fresh.job.grants.push({
-                amount,
-                at: new Date().toISOString(),
-                by: amp.system.user?.email ?? 'unknown',
-            });
-            await save(fresh);
-        });
+        if (amount > 0)
+            await port.grant(amount, amp.system.user?.email ?? 'unknown');
     });
     amp.on('agent.start', async (event) => {
-        const former = await load().then((state) => state?.job.former?.includes(event.thread.id) && state.job.owner, () => undefined);
-        // A former worker still wakes for its subscriptions and its user, but must not touch the
-        // checkout its successor works in.
-        if (former)
-            return {
-                message: {
-                    content: `[rust-port] This thread handed the job to ${link(former)}, which works in this checkout now. Change no files, make no commits and call no ${tool('*')} tools: answer what you were asked, then end your turn.`,
-                    display: true,
-                },
-            };
-        if (!(await owns(event.thread.id)))
-            return {};
-        return serial('agent.start', async () => {
-            const state = (await load());
-            await collect(state).catch((e) => debug(`GitHub feedback collection failed: ${e}`));
-            const content = digest(state, `[rust-port] Follow ${POLICY}. ${summary(state)}`);
-            await save(state);
-            return { message: { content, display: true } };
-        });
+        const content = await port.startTurn(event.thread.id);
+        return content ? { message: { content, display: true } } : {};
     });
-    // Continues only while the worker can act without a human: not blocked, budget left, and the
-    // last continued turn moved the job. A finished job waiting for CI is not continued either: its
-    // GitHub subscription wakes the worker when CI reports.
     amp.on('agent.end', async (event) => {
-        if (event.status !== 'done' || !(await owns(event.thread.id)))
+        if (event.status !== 'done')
             return;
-        return serial('agent.end', async () => {
-            const state = (await load());
-            const { job } = state;
-            if (job.retro)
-                return;
-            // An unreachable GitHub counts as pending, so the worker sleeps rather than spins.
-            if (done(state) && (await collect(state).catch(() => true)))
-                return void (await save(state));
-            const now = progress(state);
-            const reason = stopped(job) ?? (job.continued === now ? 'the last continued turn made no progress' : '');
-            if (reason) {
-                debug(`stopped: ${reason}`);
-                return void amp.ui.notify(`rust-port stopped: ${reason}`).catch(() => { });
-            }
-            job.continued = now;
-            await save(state);
-            const userMessage = done(state)
-                ? `Every stage is admitted, nothing is outstanding and CI is green. Write the retrospective with ${tool('retro')} as ${POLICY} describes: a self-critical postmortem about the next iteration, not a recap.`
-                : 'Continue the rust-port job.';
-            // The progress check is the bound; Amp's default cap of 5 would stop a healthy job.
-            return { action: 'continue', userMessage, maxContinuations: 1000 };
-        });
+        const next = await port.endTurn(event.thread.id);
+        if (next && 'stop' in next)
+            return void amp.ui.notify(`${profile.name} stopped: ${next.stop}`).catch(() => { });
+        // The progress check is the bound; Amp's default cap of 5 would stop a healthy job.
+        if (next)
+            return { action: 'continue', userMessage: next.continue, maxContinuations: 1000 };
     });
 }
 
-export { plugin as default };
+export { ampHost, plugin as default };
