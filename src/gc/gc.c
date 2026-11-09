@@ -24,6 +24,7 @@
 #include "redisearch.h"
 #include "result_processor.h"
 #include "debug_commands.h"
+#include "util/full_cleanup.h"
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
 // GCSchedFlags bits seeded into every GCContext created from here on, so one created while a
@@ -363,17 +364,21 @@ void GC_ThreadPoolStart() {
   }
 }
 
-void GC_ThreadPoolDestroy() {
-  if (gcThreadpool_g != NULL) {
-    if (redisearch_thpool_paused(gcThreadpool_g)) {
-      gcNewContextSchedFlags_g &= ~GC_SCHED_PAUSED;
-      redisearch_thpool_resume_threads(gcThreadpool_g);
-    }
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    redisearch_thpool_destroy(gcThreadpool_g);
-    gcThreadpool_g = NULL;
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
+bool GC_ThreadPoolDestroy() {
+  RS_ASSERT(FullCleanup_InProgress());
+  if (gcThreadpool_g == NULL) {
+    return true;
   }
+  if (redisearch_thpool_paused(gcThreadpool_g)) {
+    gcNewContextSchedFlags_g &= ~GC_SCHED_PAUSED;
+    redisearch_thpool_resume_threads(gcThreadpool_g);
+  }
+  if (!FullCleanup_WaitForPool(gcThreadpool_g, "GC pool")) {
+    return false;
+  }
+  redisearch_thpool_destroy(gcThreadpool_g);
+  gcThreadpool_g = NULL;
+  return true;
 }
 
 void GC_ThreadPoolPause(void) {

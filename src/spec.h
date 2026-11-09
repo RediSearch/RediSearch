@@ -922,7 +922,8 @@ char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 //---------------------------------------------------------------------------------------------
 
 void CleanPool_ThreadPoolStart();
-void CleanPool_ThreadPoolDestroy();
+// Full cleanup only: as GC_ThreadPoolDestroy, for the clean pool.
+bool CleanPool_ThreadPoolDestroy();
 // Queue high-priority background work, ahead of queued low-priority jobs. Returns 0 on success.
 int CleanPool_AddWork(void (*work)(void *), void *arg);
 // Block until every queued clean-pool job has finished.

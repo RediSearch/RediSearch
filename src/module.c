@@ -34,6 +34,7 @@
 #include "indexes.h"
 #include "indexes_scan.h"
 #include "util/workers.h"
+#include "util/full_cleanup.h"
 #include "util/references.h"
 #include "config.h"
 #include "aggregate/aggregate.h"
@@ -1928,6 +1929,7 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
     return;
   }
   invoked = 1;
+  FullCleanup_Begin();
 
   SearchDisk_StopMetrics();
 
@@ -1941,8 +1943,9 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   // a reference to the spec bat this time).
   // A paused pool (a debug state) would never drain, and destroying it waits for its jobs.
   if (workerThreadPool_isPaused()) workersThreadPool_resume();
-  workersThreadPool_Drain(RSDummyContext, 0);
-  workersThreadPool_Destroy();
+  // Every pool is attempted even after one is left running, so none is still working while the
+  // process exits; what is left running may reach any global freed past the check below.
+  bool poolsJoined = workersThreadPool_Destroy();
 
   if (legacySpecDict) {
     dictRelease(legacySpecDict);
@@ -1951,13 +1954,21 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   LegacySchemaRulesArgs_Free(RSDummyContext);
 
   // free thread pools
-  GC_ThreadPoolDestroy();
-  // Destroy the disk GC lock now that the GC pool is gone (no GC thread can take it).
-  DiskGC_Cleanup();
+  if (GC_ThreadPoolDestroy()) {
+    // Destroy the disk GC lock now that the GC pool is gone (no GC thread can take it).
+    DiskGC_Cleanup();
+  } else {
+    poolsJoined = false;
+  }
   // Reindex backfills may release the last spec reference into the cleanup pool.
-  ReindexPool_ThreadPoolDestroy();
-  CleanPool_ThreadPoolDestroy();
-  ConcurrentSearch_ThreadPoolDestroy();
+  if (!ReindexPool_ThreadPoolDestroy()) poolsJoined = false;
+  if (!CleanPool_ThreadPoolDestroy()) poolsJoined = false;
+  if (!ConcurrentSearch_ThreadPoolDestroy()) poolsJoined = false;
+  if (!poolsJoined) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Full cleanup: stopping early, background threads still run");
+    return;
+  }
   // Index destructors and background work may still need the disk context until pools drain.
   SearchDisk_Close(ctx);
 
@@ -1966,7 +1977,11 @@ void RediSearch_CleanupModule(RedisModuleCtx *ctx) {
   // can link in after this point, so the unlink-only unwind leaves the
   // registry permanently empty for MainThread_DestroyBlockedQueries below.
   BlockedQueries_UnwindCycles();
-  MR_FreeCluster();
+  if (!MR_FreeCluster()) {
+    RedisModule_Log(RSDummyContext, "warning",
+                    "Full cleanup: stopping early, IO threads still run");
+    return;
+  }
 
   MainThread_DestroyBlockedQueries();
 

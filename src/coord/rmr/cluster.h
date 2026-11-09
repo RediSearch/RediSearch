@@ -44,6 +44,11 @@ int MRCluster_SendCommand(IORuntimeCtx *ioRuntime, MRCommand *cmd, redisCallback
 MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, size_t num_io_threads);
 
 void MRCluster_Free(MRCluster *cl);
+// The two halves of MRCluster_Free: stop every IO thread's loop, then join the threads and free
+// the cluster. MRCluster_IOStopped tells when the join can no longer block.
+void MRCluster_FireShutdown(MRCluster *cl);
+bool MRCluster_IOStopped(MRCluster *cl);
+void MRCluster_FreeAfterShutdown(MRCluster *cl);
 
 size_t MRCluster_AssignRoundRobinIORuntimeIdx(MRCluster *cl);
 

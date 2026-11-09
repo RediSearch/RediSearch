@@ -47,7 +47,7 @@ class MyEnvironment : public ::testing::Environment {
 
   virtual void TearDown() {
     RMCK_Shutdown();
-    // Module shutdown holds the Redis lock; pool drains release it temporarily.
+    // Module shutdown holds the Redis lock throughout, as under Redis.
     RedisModule_ThreadSafeContextLock(nullptr);
     RediSearch_CleanupModule(NULL);
     RedisModule_ThreadSafeContextUnlock(nullptr);

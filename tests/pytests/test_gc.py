@@ -1132,3 +1132,41 @@ def testForcedGCReportsWhenItCannotFork():
 
     env.assertContains('GC DID NOT RUN', forced.get('error', ''),
                        message=f'expected an error, got {forced}')
+
+
+@skip(cluster=True)
+def testShutdownCommandLeavesBusyGCPoolRunning():
+    """Full cleanup (RS_GLOBAL_DTORS) runs from the shutdown event, and SHUTDOWN fires that event
+    from inside the command, where Redis does not let the main thread release the GIL for a pool
+    join. A GC cycle that needs the GIL then can never finish, so cleanup must leave the pool
+    running and let the server exit, instead of asserting or hanging on the join."""
+    if not os.getenv('RS_GLOBAL_DTORS'):
+        raise SkipTest('the shutdown event runs full cleanup only under RS_GLOBAL_DTORS')
+    env = Env(freshEnv=True)
+    skipIfNoEnableAssert(env)
+    indexWithCollectableDocs(env)
+    log_path = os.path.join(env.cmd('CONFIG', 'GET', 'dir')[1],
+                            env.cmd('CONFIG', 'GET', 'logfile')[1])
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    # Nothing can SIGNAL once SHUTDOWN holds the main thread; the auto-release sends the cycle on
+    # to the GIL it cannot get.
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_BEFORE_FORK, 2000).ok()
+
+    thread, _ = parkedForcedGC(env)
+    try:
+        env.cmd('SHUTDOWN', 'NOSAVE')
+    except redis.exceptions.ConnectionError:
+        pass  # the server closes the connection as it exits
+    returncode = env.envRunner.masterProcess.wait(timeout=60)
+    thread.join(timeout=60)
+
+    with open(log_path, encoding='utf-8', errors='replace') as f:
+        log = f.read()
+    env.assertNotContains('ASSERTION FAILED', log)
+    env.assertContains('Full cleanup: GC pool still busy', log)
+    env.assertContains('End releasing RediSearch resources', log)
+    env.assertGreaterEqual(returncode, 0, message='the server was killed by a signal')
+
+    # RLTest's teardown counts a server it did not stop as a dirty exit.
+    env.stop()
+    env.start()

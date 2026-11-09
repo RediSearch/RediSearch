@@ -51,8 +51,9 @@ void workersThreadPool_Drain(RedisModuleCtx *ctx, size_t threshold);
 // Terminate threads, allows threads to exit gracefully (without deallocating).
 void workersThreadPool_Terminate(void);
 
-// Destroys thread pool, can be called on uninitialized threadpool.
-void workersThreadPool_Destroy(void);
+// Full cleanup only: as GC_ThreadPoolDestroy, for the workers pool. Can be called on an
+// uninitialized pool.
+bool workersThreadPool_Destroy(void);
 
 /// Configure the thread pool for operation start according to module configuration.
 /// @warning Should only be called from the main thread

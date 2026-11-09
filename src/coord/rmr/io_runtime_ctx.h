@@ -46,6 +46,8 @@ typedef struct {
   // Thread creation / joining synchronization. Avoid race condition of joining a thread that was not created.
   bool loop_th_created;
   bool loop_th_creation_failed;
+  // Set by the loop thread as its last step, so a join after it cannot block (atomic access).
+  bool loop_th_exited;
   uv_mutex_t loop_th_created_mutex;
   uv_cond_t loop_th_created_cond;
 } UVRuntime;
@@ -75,6 +77,8 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t conn_pool_size, struct MRClusterTopolog
 void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);
+// True when no loop thread is running: it was never started, failed to start, or has exited.
+bool IORuntimeCtx_LoopStopped(IORuntimeCtx *io_runtime_ctx);
 
 //TODO: Have it return int status (return error if thread not created)
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);

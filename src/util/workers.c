@@ -12,6 +12,7 @@
 #include "config.h"
 #include "logging.h"
 #include "rmutil/rm_assert.h"
+#include "full_cleanup.h"
 #include "VecSim/vec_sim.h"
 
 #include <sys/param.h>
@@ -236,13 +237,21 @@ void workersThreadPool_Terminate(void) {
   redisearch_thpool_terminate_threads(_workers_thpool);
 }
 
-void workersThreadPool_Destroy(void) {
+bool workersThreadPool_Destroy(void) {
+  RS_ASSERT(FullCleanup_InProgress());
   if (shrinkTimerArmed) {
     RedisModule_StopTimer(RSDummyContext, shrinkTimer, NULL);
     shrinkTimerArmed = false;
   }
+  if (!_workers_thpool) {
+    return true;
+  }
+  if (!FullCleanup_WaitForPool(_workers_thpool, "workers pool")) {
+    return false;
+  }
   redisearch_thpool_destroy(_workers_thpool);
   _workers_thpool = NULL;
+  return true;
 }
 
 void workersThreadPool_OnEventStart() {

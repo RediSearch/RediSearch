@@ -9,6 +9,8 @@
 #ifndef RS_CONCERRNT_CTX_
 #define RS_CONCERRNT_CTX_
 
+#include <stdbool.h>
+
 #include "thpool/thpool.h"
 
 #ifdef __cplusplus
@@ -18,7 +20,9 @@ extern "C" {
 /* Coordinator thread-pool management. */
 
 /* Destroy the coordinator thread pool. */
-void ConcurrentSearch_ThreadPoolDestroy(void);
+// Joins the coordinator pool and frees it. During full cleanup it waits for the pool to go idle
+// first (FullCleanup_WaitForPool), and returns false, leaving it running, if it does not.
+bool ConcurrentSearch_ThreadPoolDestroy(void);
 
 /* Create the coordinator thread pool. */
 void ConcurrentSearch_CreatePool(int numThreads);

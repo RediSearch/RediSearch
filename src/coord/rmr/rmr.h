@@ -105,7 +105,9 @@ void MR_Debug_ClearPendingTopo();
 long long MR_Debug_GetPendingRequests();
 #endif
 
-void MR_FreeCluster();
+// Full cleanup only: stops the IO threads and frees the cluster once they have exited. Returns
+// false, leaving them running, if they have not by the deadline (FullCleanup_WaitUntilIdle).
+bool MR_FreeCluster();
 
 /* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx);

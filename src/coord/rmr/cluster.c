@@ -105,16 +105,33 @@ int MRCluster_FanoutCommand(IORuntimeCtx *ioRuntime,
   return ret;
 }
 
-void MRCluster_Free(MRCluster *cl) {
-  if (cl) {
-    // First, fire the shutdown event for all runtimes
-    if (cl->io_runtimes_pool) {
-      for (size_t i = 0; i < cl->num_io_threads; i++) {
-        IORuntimeCtx_FireShutdown(cl->io_runtimes_pool[i]);
+void MRCluster_FireShutdown(MRCluster *cl) {
+  if (cl && cl->io_runtimes_pool) {
+    for (size_t i = 0; i < cl->num_io_threads; i++) {
+      IORuntimeCtx_FireShutdown(cl->io_runtimes_pool[i]);
+    }
+  }
+}
+
+bool MRCluster_IOStopped(MRCluster *cl) {
+  if (cl && cl->io_runtimes_pool) {
+    for (size_t i = 0; i < cl->num_io_threads; i++) {
+      if (!IORuntimeCtx_LoopStopped(cl->io_runtimes_pool[i])) {
+        return false;
       }
     }
+  }
+  return true;
+}
 
-    // Then free the RuntimeCtx, it will join the threads
+void MRCluster_Free(MRCluster *cl) {
+  MRCluster_FireShutdown(cl);
+  MRCluster_FreeAfterShutdown(cl);
+}
+
+void MRCluster_FreeAfterShutdown(MRCluster *cl) {
+  if (cl) {
+    // Freeing the RuntimeCtx joins its thread
     if (cl->io_runtimes_pool) {
       for (size_t i = 0; i < cl->num_io_threads; i++) {
         IORuntimeCtx_Free(cl->io_runtimes_pool[i]);

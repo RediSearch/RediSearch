@@ -9,6 +9,8 @@
 #ifndef __INDEXES_SCAN_H__
 #define __INDEXES_SCAN_H__
 
+#include <stdbool.h>
+
 #include "redismodule.h"
 #include "util/references.h"
 // The IndexesScanner type, its lifecycle, and the OOM helpers are shared with the
@@ -45,7 +47,9 @@ void Indexes_UpgradeLegacyIndexes();
 void IndexSpec_ActivateKeyMap(IndexSpec *spec);
 
 // Expose reindexpool for debug
-void ReindexPool_ThreadPoolDestroy();
+// Joins the reindex pool and frees it. During full cleanup it waits for the pool to go idle
+// instead (FullCleanup_WaitForPool), and returns false, leaving it running, if it does not.
+bool ReindexPool_ThreadPoolDestroy();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

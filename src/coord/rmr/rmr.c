@@ -23,6 +23,7 @@
 #include "reply_macros.h"
 #include "redismodule.h"
 #include "module.h"
+#include "util/full_cleanup.h"
 #include "cluster.h"
 #include "chan.h"
 #include "rq.h"
@@ -1101,13 +1102,21 @@ long long MR_Debug_GetPendingRequests() {
 }
 #endif
 
-void MR_FreeCluster() {
-  if (!cluster_g) return;
-  RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-  MRCluster_Free(cluster_g);
+static bool clusterIOStopped(void *cluster) {
+  return MRCluster_IOStopped(cluster);
+}
+
+bool MR_FreeCluster() {
+  RS_ASSERT(FullCleanup_InProgress());
+  if (!cluster_g) return true;
+  MRCluster_FireShutdown(cluster_g);
+  if (!FullCleanup_WaitUntilIdle(clusterIOStopped, cluster_g, "coordinator IO threads")) {
+    return false;
+  }
+  MRCluster_FreeAfterShutdown(cluster_g);
   cluster_g = NULL;
   MR_FreeLocalNodeId();
-  RedisModule_ThreadSafeContextLock(RSDummyContext);
+  return true;
 }
 
 sds MRCommand_SafeToString(const MRCommand *cmd) {

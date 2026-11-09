@@ -33,6 +33,7 @@
 #include "util/likely.h"
 #include "rmutil/util.h"
 #include "rmutil/rm_assert.h"
+#include "util/full_cleanup.h"
 #include "trie/trie.h"
 #include "rmalloc.h"
 #include "config.h"
@@ -2074,13 +2075,17 @@ void CleanPool_ThreadPoolStart() {
   }
 }
 
-void CleanPool_ThreadPoolDestroy() {
-  if (cleanPool) {
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-    redisearch_thpool_destroy(cleanPool);
-    cleanPool = NULL;
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
+bool CleanPool_ThreadPoolDestroy() {
+  RS_ASSERT(FullCleanup_InProgress());
+  if (!cleanPool) {
+    return true;
   }
+  if (!FullCleanup_WaitForPool(cleanPool, "clean pool")) {
+    return false;
+  }
+  redisearch_thpool_destroy(cleanPool);
+  cleanPool = NULL;
+  return true;
 }
 
 uint16_t getPendingIndexDrop() {

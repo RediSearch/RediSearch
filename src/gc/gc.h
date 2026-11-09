@@ -170,7 +170,9 @@ static inline void InfoGCStats_Add(InfoGCStats* dst, const InfoGCStats* src) {
 }
 
 void GC_ThreadPoolStart();
-void GC_ThreadPoolDestroy();
+// Full cleanup only: joins the GC pool and frees it once it is idle (FullCleanup_WaitForPool).
+// Returns false, leaving it running, if it is still busy at the deadline.
+bool GC_ThreadPoolDestroy();
 // Stop the GC pool from pulling new jobs. Returns immediately; use GC_ThreadPoolWaitForPause
 // to wait out the ones already running.
 void GC_ThreadPoolPause(void);

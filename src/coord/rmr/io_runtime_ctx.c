@@ -208,6 +208,7 @@ static void sideThread(void *arg) {
   // Run the loop one more time to process close callbacks
   uv_run(&io_runtime_ctx->uv_runtime.loop, UV_RUN_ONCE);
   uv_loop_close(&io_runtime_ctx->uv_runtime.loop);
+  __atomic_store_n(&io_runtime_ctx->uv_runtime.loop_th_exited, true, __ATOMIC_RELEASE);
 }
 
 uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx) {
@@ -257,6 +258,7 @@ static void UV_Init(IORuntimeCtx *io_runtime_ctx) {
   io_runtime_ctx->uv_runtime.io_runtime_started_or_starting = false;
   io_runtime_ctx->uv_runtime.topology_needs_handshake = false;
   io_runtime_ctx->uv_runtime.loop_th_created = false;
+  io_runtime_ctx->uv_runtime.loop_th_exited = false;
   io_runtime_ctx->uv_runtime.loop_th_creation_failed = false;
   uv_loop_init(&io_runtime_ctx->uv_runtime.loop);
   uv_mutex_init(&io_runtime_ctx->uv_runtime.loop_th_created_mutex);
@@ -310,6 +312,20 @@ void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
     // Stop the timers of all the connections before shutting down the loop
     uv_async_send(&io_runtime_ctx->uv_runtime.shutdownAsync);
   }
+}
+
+bool IORuntimeCtx_LoopStopped(IORuntimeCtx *io_runtime_ctx) {
+  if (!CheckIoRuntimeStarted(io_runtime_ctx)) {
+    return true;
+  }
+  uv_mutex_lock(&io_runtime_ctx->uv_runtime.loop_th_created_mutex);
+  bool created = io_runtime_ctx->uv_runtime.loop_th_created;
+  bool failed = io_runtime_ctx->uv_runtime.loop_th_creation_failed;
+  uv_mutex_unlock(&io_runtime_ctx->uv_runtime.loop_th_created_mutex);
+  if (failed) {
+    return true;
+  }
+  return created && __atomic_load_n(&io_runtime_ctx->uv_runtime.loop_th_exited, __ATOMIC_ACQUIRE);
 }
 
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {

@@ -29,6 +29,7 @@
 #include "document.h"
 #include "util/logging.h"
 #include "rmutil/rm_assert.h"
+#include "util/full_cleanup.h"
 #include "trie/trie.h"
 #include "rmalloc.h"
 #include "config.h"
@@ -518,17 +519,27 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange a
   redisearch_thpool_add_work(reindexPool, reindexTask, scanner, THPOOL_PRIORITY_HIGH);
 }
 
-void ReindexPool_ThreadPoolDestroy() {
-  if (reindexPool != NULL) {
+bool ReindexPool_ThreadPoolDestroy() {
+  if (reindexPool == NULL) {
+    return true;
+  }
 #ifdef ENABLE_ASSERT
-    // A shutdown regression test pins the final spec reference until this drain.
-    SyncPoint_Signal("KeyMapBuildComplete");
+  // A shutdown regression test pins the final spec reference until this drain.
+  SyncPoint_Signal("KeyMapBuildComplete");
 #endif
+  if (FullCleanup_InProgress()) {
+    if (!FullCleanup_WaitForPool(reindexPool, "reindex pool")) {
+      return false;
+    }
+    redisearch_thpool_destroy(reindexPool);
+  } else {
+    // Lets a scan blocked on the GIL finish, so the join can return.
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     redisearch_thpool_destroy(reindexPool);
-    reindexPool = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
+  reindexPool = NULL;
+  return true;
 }
 
 // Assumes that the spec is in a safe state to set a scanner on it (write lock or main thread)

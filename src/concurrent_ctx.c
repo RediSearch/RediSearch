@@ -10,6 +10,7 @@
 
 #include "thpool/thpool.h"
 #include "rmutil/rm_assert.h"
+#include "util/full_cleanup.h"
 #include "module.h"
 #include "util/logging.h"
 #include "coord/config.h"
@@ -22,12 +23,16 @@ void ConcurrentSearch_CreatePool(int numThreads) {
                                              LogCallback, "coord");
 }
 
-void ConcurrentSearch_ThreadPoolDestroy(void) {
+bool ConcurrentSearch_ThreadPoolDestroy(void) {
   if (!coordinatorPool) {
-    return;
+    return true;
+  }
+  if (FullCleanup_InProgress() && !FullCleanup_WaitForPool(coordinatorPool, "coordinator pool")) {
+    return false;
   }
   redisearch_thpool_destroy(coordinatorPool);
   coordinatorPool = NULL;
+  return true;
 }
 
 void ConcurrentSearch_ThreadPoolRun(void (*func)(void *), void *arg) {
