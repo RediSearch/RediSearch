@@ -45,6 +45,7 @@ pub mod id_list_lazy;
 pub mod interop;
 pub mod intersection;
 pub mod inverted_index;
+pub mod lex_range;
 pub mod maybe_empty;
 pub mod metric;
 pub mod metric_lazy;

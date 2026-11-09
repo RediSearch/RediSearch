@@ -18,13 +18,18 @@ use std::{
 
 use c_trie::QueryRequestLimitsHandle;
 use fat_array::{FatArray, FatArrayRef};
+use field::{FieldExpirationPredicate, FieldFilterContext, FieldMaskOrIndex};
+use index_result::RSIndexResult;
+use inverted_index::{IndexReader, opaque::InvertedIndex};
 use lending_iterator::LendingIterator as _;
 use query::{QueryNode, WildcardMode};
 use query_flags::QEFlag;
 use query_types::QueryNodeType;
-use rqe_core::FieldIndex;
+use rqe_core::{DocId, FieldIndex};
 use rqe_iterators::{
+    ExpirationChecker as _, FieldExpirationChecker, RQEIterator as _,
     c2rust::CRQEIterator,
+    lex_range::LexRange,
     union_opaque::{build_union, build_union_with_q_str},
     utils::duration_from_redis_timespec,
 };
@@ -208,16 +213,9 @@ fn eval_child<'index>(
         QueryNodeType::Phrase => {
             eval_phrase(ctx, index, child, effective_weight, field, case_sensitive)
         }
-        QueryNodeType::LexRange => eval_lex_range(
-            ctx,
-            index,
-            child,
-            effective_weight,
-            field,
-            case_sensitive,
-            max_prefix_expansions,
-            config,
-        ),
+        QueryNodeType::LexRange => {
+            eval_lex_range(ctx, index, child, effective_weight, field, case_sensitive)
+        }
         _ => unreachable!(
             "tag child grammar admits only token, prefix, wildcard, phrase and lex range nodes"
         ),
@@ -358,9 +356,8 @@ fn eval_prefix<'index>(
     Some(Evaluated::RustCompound(iter))
 }
 
-/// Evaluate a `@tag:>{bound}` child, and its `>=`, `<` and `<=` spellings, as a
-/// union of every indexed value inside the range.
-#[expect(clippy::too_many_arguments)]
+/// Evaluate a `@tag:>{bound}` child, and its `>=`, `<` and `<=` spellings, as
+/// the sorted set of documents carrying any indexed value inside the range.
 fn eval_lex_range<'index>(
     ctx: &'index mut QueryEvalContext,
     index: TagIndexRef,
@@ -368,8 +365,6 @@ fn eval_lex_range<'index>(
     effective_weight: f64,
     field: &ffi::FieldSpec,
     case_sensitive: bool,
-    max_prefix_expansions: usize,
-    config: Config,
 ) -> Option<Evaluated<'index>> {
     let QueryNode::LexRange { begin, end } = child.as_enum() else {
         unreachable!("lex range evaluation requires a lex range node")
@@ -392,7 +387,7 @@ fn eval_lex_range<'index>(
     let begin = normalize_bound(begin, case_sensitive);
     let end = normalize_bound(end, case_sensitive);
 
-    let children = collect_range_readers(
+    let (mut doc_ids, values_walked) = collect_range_doc_ids(
         ctx,
         index,
         RangeFilter {
@@ -400,31 +395,22 @@ fn eval_lex_range<'index>(
             max: range_boundary(&end),
         },
         field.index,
-        max_prefix_expansions,
     );
-    let iter = match clause_bound {
-        // SAFETY: the bound is owned by the AST node and, unlike a token, is
-        // never rewritten during evaluation, so it outlives the query iterator
-        // that retains it for profiling.
-        Some(q_str) => unsafe {
-            build_union_with_q_str(
-                children,
-                true,
-                config.min_union_iter_heap,
-                QueryNodeType::LexRange,
-                q_str,
-                effective_weight,
-            )
-        },
-        None => build_union(
-            children,
-            true,
-            config.min_union_iter_heap,
-            QueryNodeType::LexRange,
-            effective_weight,
-        ),
-    };
-    Some(Evaluated::RustCompound(iter))
+    // A multi-valued document is reached once per value it carries.
+    doc_ids.sort_unstable();
+    doc_ids.dedup();
+    // Each document matches with the unit frequency a tag value's reader gives
+    // it, so that frequency-based scorers such as DISMAX still credit the match.
+    let result = RSIndexResult::build_virt()
+        .frequency(1)
+        .weight(effective_weight)
+        .build();
+    Some(Evaluated::RustLeaf(Box::new(LexRange::new(
+        doc_ids,
+        result,
+        clause_bound,
+        values_walked,
+    ))))
 }
 
 /// Normalize one bound the way tag indexing normalized the values it is compared
@@ -460,19 +446,20 @@ fn range_boundary(bound: &Bound<Vec<u8>>) -> Option<RangeBoundary<'_>> {
 /// cadence `trie_rs` uses between its own clock probes.
 const CANCELLATION_CHECK_GRANULARITY: u32 = 100;
 
-/// Open one reader per value the range covers, up to the expansion cap.
+/// Collect the documents of every value the range covers.
 ///
-/// The cap counts readers opened, not values visited, and a value whose reader
-/// cannot be opened leaves it where it was, so the walk carries the request
-/// deadline as the pattern walk in [`collect_filtered_readers`] does, and
-/// observes a blocked-client cancellation, which carries no deadline.
-fn collect_range_readers(
+/// A range over a unique field covers one value per document, so a union of
+/// per-value readers would cost an iterator per document and is what the
+/// expansion cap exists to bound. Nothing here outlives its value, so the range
+/// is not subject to that cap: the walk carries the request deadline as the
+/// pattern walk in [`collect_filtered_readers`] does, and observes a
+/// blocked-client cancellation, which carries no deadline.
+fn collect_range_doc_ids(
     ctx: &mut QueryEvalContext,
     index: TagIndexRef,
     filter: RangeFilter<'_>,
     field_index: ffi::t_fieldIndex,
-    max_prefix_expansions: usize,
-) -> Vec<CRQEIterator> {
+) -> (Vec<DocId>, usize) {
     let values = index.values().range_iter(filter);
     let mut values = RangeLendingIter::from(values);
     values.set_timeout(
@@ -481,15 +468,12 @@ fn collect_range_readers(
             .map(|remaining| Instant::now() + remaining),
     );
 
-    let mut children = Vec::new();
+    let mut doc_ids = Vec::new();
     let mut until_cancellation_check = CANCELLATION_CHECK_GRANULARITY;
-    while let Some((value, _)) = values.next() {
-        if children.len() == max_prefix_expansions {
-            ctx.status()
-                .warnings_mut()
-                .set_reached_max_prefix_expansions();
-            break;
-        }
+    let in_memory = !index.has_disk_spec();
+    let mut values_walked = 0;
+    while let Some((value, postings)) = values.next() {
+        values_walked += 1;
         // The deadline installed above covers a clock cycle. A blocked-client
         // cycle carries no deadline, so without this the walk would not observe
         // that the client has already timed out.
@@ -500,9 +484,63 @@ fn collect_range_readers(
                 break;
             }
         }
-        children.extend(open_reader_child(ctx, index, value, field_index));
+        if in_memory {
+            drain_postings(ctx, *postings, field_index, &mut doc_ids);
+            continue;
+        }
+        let Some(mut reader) = open_reader_child(ctx, index, value, field_index) else {
+            continue;
+        };
+        // A read error is the reader's deadline, which the pipeline's own
+        // deadline check reports; the documents drained so far stand.
+        while let Ok(Some(result)) = reader.read() {
+            doc_ids.push(result.doc_id);
+        }
     }
-    children
+    (doc_ids, values_walked)
+}
+
+/// Append the documents of one in-memory tag value's postings, skipping those
+/// whose field has expired, as the value's reader would.
+fn drain_postings(
+    ctx: &QueryEvalContext,
+    postings: *mut c_void,
+    field_index: ffi::t_fieldIndex,
+    doc_ids: &mut Vec<DocId>,
+) {
+    // SAFETY: in memory, a tag index's values trie maps each value to its
+    // `InvertedIndex`, which the query's spec read lock keeps alive and unchanged.
+    let postings = unsafe { &*postings.cast::<InvertedIndex>() };
+    match postings {
+        InvertedIndex::DocIdsOnly(ii) => drain_reader(ctx, ii.reader(), field_index, doc_ids),
+        InvertedIndex::RawDocIdsOnly(ii) => drain_reader(ctx, ii.reader(), field_index, doc_ids),
+        _ => unreachable!("tag values are indexed with doc-ids-only encodings"),
+    }
+}
+
+fn drain_reader<'index>(
+    ctx: &QueryEvalContext,
+    mut reader: impl IndexReader<'index>,
+    field_index: ffi::t_fieldIndex,
+    doc_ids: &mut Vec<DocId>,
+) {
+    let sctx = NonNull::new(ctx.sctx_ptr() as *mut ffi::RedisSearchCtx)
+        .expect("a query evaluation context always has a search context");
+    let filter = FieldFilterContext {
+        field: FieldMaskOrIndex::Index(field_index),
+        predicate: FieldExpirationPredicate::Default,
+    };
+    // SAFETY: the search context and its spec outlive the evaluation, and so
+    // this checker, which does not escape it.
+    let checker = unsafe { FieldExpirationChecker::new(sctx, filter, reader.flags()) };
+    let check_expiration = checker.has_expiration();
+    let mut result = RSIndexResult::build_virt().build();
+    while let Ok(true) = reader.next_record(&mut result) {
+        if check_expiration && checker.is_expired_trusting_inline_bit(&result) {
+            continue;
+        }
+        doc_ids.push(result.doc_id);
+    }
 }
 
 /// Evaluate a `@tag:{w'pattern'}` child as a union of every value matching the pattern.
@@ -795,6 +833,13 @@ impl TagIndexRef {
         // up), so this shared borrow aliases no mutation.
         let TrieMapOpaque(values) = unsafe { &*values.cast::<TrieMapOpaque>() };
         values
+    }
+
+    /// Whether the index is disk-backed, so its values trie holds no postings.
+    fn has_disk_spec(self) -> bool {
+        // SAFETY: the index is live by the type invariant. Reading the field
+        // through the raw pointer creates no reference to the C struct.
+        !unsafe { (*self.as_ptr()).diskSpec }.is_null()
     }
 
     /// Whether the index keeps a suffix trie.

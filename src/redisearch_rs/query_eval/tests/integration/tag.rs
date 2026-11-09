@@ -874,10 +874,10 @@ fn eval_tag_lex_range_unescapes_the_bound() {
     assert_eq!(drain_doc_ids(&mut it), vec![1, 2]);
 }
 
-/// The cap bounds how many readers one range opens, and the truncation is
-/// reported rather than silently dropping values.
+/// A range drains each value's reader as it goes rather than holding one open
+/// per value, so the expansion cap, which bounds open readers, does not apply.
 #[test]
-fn eval_tag_lex_range_stops_at_the_expansion_cap() {
+fn eval_tag_lex_range_ignores_the_expansion_cap() {
     let mut fixture = TagFixture::new(TagOptions {
         max_prefix_expansions: Some(2),
         children: vec![Child::LexRange {
@@ -886,13 +886,12 @@ fn eval_tag_lex_range_stops_at_the_expansion_cap() {
         }],
         ..TagOptions::default()
     });
-    let mut it = fixture.eval().expect("the first two values are admitted");
-    // `apple` (docs 1, 2) and `apricot` (docs 2, 3) are the two lowest values.
-    assert_eq!(drain_doc_ids(&mut it), vec![1, 2, 3]);
+    let mut it = fixture.eval().expect("every value is in range");
+    assert_eq!(drain_doc_ids(&mut it), vec![1, 2, 3, 4, 5]);
     drop(it);
     assert!(
-        fixture.reached_max_prefix_expansions(),
-        "a capped range must say so"
+        !fixture.reached_max_prefix_expansions(),
+        "nothing was truncated, so nothing is reported"
     );
 }
 
@@ -2517,4 +2516,27 @@ fn eval_tag_reader_filters_an_expired_field() {
         .mark_index_expired(vec![1], FieldMaskOrIndex::Index(field_index));
     let mut it = fixture.eval().expect("apple is indexed");
     assert_eq!(drain_doc_ids(&mut it), vec![2]);
+}
+
+#[test]
+fn eval_tag_lex_range_filters_an_expired_field() {
+    // A range reads each value's postings directly rather than through the
+    // value's reader, so it must apply the reader's expiration check itself.
+    // Doc 1 is expired and must be filtered from every value it carries.
+    let values = values(&[(TAG_APPLE, &[1, 2]), (TAG_BANANA, &[1, 3])]);
+    let mut fixture = TagFixture::new(TagOptions {
+        values,
+        field_expiration_docs: &[1, 2, 3],
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let field_index = fixture.field_index();
+    fixture
+        ._context
+        .mark_index_expired(vec![1], FieldMaskOrIndex::Index(field_index));
+    let mut it = fixture.eval().expect("every value is in range");
+    assert_eq!(drain_doc_ids(&mut it), vec![2, 3]);
 }
