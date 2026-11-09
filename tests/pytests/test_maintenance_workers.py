@@ -461,6 +461,22 @@ def test_shutdown_with_reindex_paused_mid_scan():
 
 
 @skip(cluster=True)
+def test_terminate_bg_pool_lets_running_scan_finish():
+    """Draining the reindex pool from a command, unlike a shutdown, must not cancel its scans."""
+    env = Env(moduleArgs='WORKERS 0', enableDebugCommand=True)
+    n = 500
+    for i in range(n):
+        env.cmd('HSET', f'doc{i}', 't', 'hello')
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    waitForIndexStatus(env, 'NEW')
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    env.expect(bgScanCommand(), 'TERMINATE_BG_POOL').ok()
+    env.expect('FT.SEARCH', 'idx', 'hello', 'LIMIT', 0, 0).equal([n])
+
+
+@skip(cluster=True)
 def test_svs_deferred_at_workers_0():
     """Tiered SVS indexes also buffer writes and build the graph on the maintenance worker."""
     env = Env(moduleArgs='WORKERS 0', enableDebugCommand=True)

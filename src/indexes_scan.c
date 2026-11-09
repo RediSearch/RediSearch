@@ -548,16 +548,34 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref, AddedFieldsRange a
   redisearch_thpool_add_work(reindexPool, reindexTask, scanner, THPOOL_PRIORITY_HIGH);
 }
 
-void ReindexPool_ThreadPoolDestroy() {
+// `cancel` is shutdown: the main thread has no client to Unlock with, so the jobs are cancelled
+// through the gate. Otherwise a command runs this, drops the GIL for real and lets the scans
+// finish.
+static void reindexPoolDestroy(bool cancel) {
   if (reindexPool != NULL) {
 #ifdef ENABLE_ASSERT
     // A shutdown regression test pins the final spec reference until this drain.
     SyncPoint_Signal("KeyMapBuildComplete");
 #endif
-    GilGate_BeginJoin(&reindexGilGate_g);
+    if (cancel) {
+      GilGate_BeginJoin(&reindexGilGate_g);
+    } else {
+      RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    }
     redisearch_thpool_destroy(reindexPool);
     reindexPool = NULL;
+    if (!cancel) {
+      RedisModule_ThreadSafeContextLock(RSDummyContext);
+    }
   }
+}
+
+void ReindexPool_ThreadPoolDestroy() {
+  reindexPoolDestroy(true);
+}
+
+void ReindexPool_ThreadPoolDrain() {
+  reindexPoolDestroy(false);
 }
 
 // Assumes that the spec is in a safe state to set a scanner on it (write lock or main thread)
