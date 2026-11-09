@@ -21,6 +21,10 @@ int RS_VecSimCheckTimeout(QueryRequestLimits *timeout) {
   return vecsimTimeoutCallback(timeout);
 }
 
+int RS_VecSimShouldStop(void *timeout) {
+  return RS_VecSimCheckMemory(timeout);
+}
+
 int RS_VecSimCheckMemory(QueryRequestLimits *timeout) {
   // One call per VecSim search, so it reads every time; and it shares no request counter, so it
   // is safe on any thread.

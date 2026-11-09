@@ -26,6 +26,13 @@ int RS_VecSimCheckTimeout(QueryRequestLimits *timeout);
 // search, which costs more than the read.
 int RS_VecSimCheckMemory(QueryRequestLimits *timeout);
 
+// VecSim's stop callback (VecSim_SetStopCallbackFunction, which owns the cadence), called with the
+// query's QueryRequestLimits: the memory checkpoint inside a single VecSim search. Same check as
+// RS_VecSimCheckMemory, so it also reports any stop already requested for the query. A nonzero
+// return ends the search as VecSim_QueryReply_Stopped; the request's memory stop tells an OOM stop from a
+// timeout. Holds no state, so SVS can call it from several threads.
+int RS_VecSimShouldStop(void *timeout);
+
 // The memory checkpoint of a per-document loop (the adhoc-BF scan), where a read per call would
 // cost more than the work between calls. Like RS_VecSimCheckMemory, but reads memory only every
 // QUERY_MEMORY_RATIO_READ_INTERVAL-th call counted by `counter`; every call still observes an

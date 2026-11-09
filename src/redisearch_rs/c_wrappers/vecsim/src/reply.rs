@@ -12,7 +12,7 @@
 use std::ptr::NonNull;
 
 use ffi::{
-    VecSimQueryReply, VecSimQueryReply_Code_VecSim_QueryReply_TimedOut, VecSimQueryReply_Free,
+    VecSimQueryReply, VecSimQueryReply_Code_VecSim_QueryReply_Stopped, VecSimQueryReply_Free,
     VecSimQueryReply_GetCode, VecSimQueryReply_GetIterator, VecSimQueryReply_Iterator,
     VecSimQueryReply_IteratorFree, VecSimQueryReply_IteratorNext, VecSimQueryReply_Len,
     VecSimQueryResult, VecSimQueryResult_GetId, VecSimQueryResult_GetScore,
@@ -53,10 +53,10 @@ impl QueryReply {
     }
 
     /// Convert a raw reply pointer into a [`Result`], translating the VecSim
-    /// reply code into [`QueryError::TimedOut`] when applicable.
+    /// reply code into [`QueryError::Stopped`] when applicable.
     ///
     /// The caller never has to free: a null `raw` yields `Ok(None)`, and a
-    /// timed-out reply is freed before returning [`QueryError::TimedOut`].
+    /// stopped reply is freed before returning [`QueryError::Stopped`].
     ///
     /// `order` must be the sort order requested from the VecSim query call that
     /// produced `raw`.
@@ -78,9 +78,9 @@ impl QueryReply {
         let reply = unsafe { Self::from_raw(reply, order) };
         // SAFETY: `reply.inner` upholds its invariant.
         let code = unsafe { VecSimQueryReply_GetCode(reply.inner.as_ptr()) };
-        if code == VecSimQueryReply_Code_VecSim_QueryReply_TimedOut {
+        if code == VecSimQueryReply_Code_VecSim_QueryReply_Stopped {
             drop(reply);
-            return Err(QueryError::TimedOut);
+            return Err(QueryError::Stopped);
         }
         Ok(Some(reply))
     }
