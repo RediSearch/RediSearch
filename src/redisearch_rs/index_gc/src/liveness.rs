@@ -27,6 +27,9 @@ const CONTAINER_WORDS: usize = (1 << 16) / 64;
 /// [`MAX_BITMAP_BYTES`] is kept as bits, where a check is one load; a wider one as
 /// a roaring set, a few dependent searches per check but sized by its contents.
 ///
+/// A forked child's table too wide for the C bitmap is kept as its live IDs
+/// instead, since its gone IDs can number as many as its largest ID.
+///
 /// An ID above the window is live: in a forked child the table holds nothing newer,
 /// and an in-process cycle leaves documents deleted after it began for the next one.
 #[derive(Debug)]
@@ -35,6 +38,16 @@ pub enum GoneIds {
     Bits(Bits),
     /// Every gone ID.
     Set(RoaringTreemap),
+    /// Every live ID up to the table's maximum, above which every ID is live.
+    Live(Live),
+}
+
+/// The live IDs of a [`GoneIds::Live`].
+#[derive(Debug)]
+pub struct Live {
+    ids: RoaringTreemap,
+    /// The table's largest ID; every ID at or below it that `ids` lacks is gone.
+    max: DocId,
 }
 
 /// The window of a [`GoneIds::Bits`].
@@ -88,14 +101,14 @@ impl GoneIds {
         // The C fill is the fastest walk of the table; past its own size cap the
         // walk collects the live IDs instead.
         let Some(live) = spec.live_doc_bitmap() else {
-            let mut live = RoaringTreemap::new();
+            let mut ids = RoaringTreemap::new();
             spec.for_each_live_doc(|id| {
-                live.insert(id);
+                ids.insert(id);
             });
-            let mut gone = RoaringTreemap::new();
-            gone.insert_range(0..=max_doc_id);
-            gone -= live;
-            return Self::Set(gone);
+            return Self::Live(Live {
+                ids,
+                max: max_doc_id,
+            });
         };
         Self::from_live_words(&live, max_doc_id, max_bitmap_bytes)
     }
@@ -168,10 +181,18 @@ impl GoneIds {
 
     /// Every gone ID, for an in-process cycle to prune what it collected.
     ///
-    /// A forked child's dead prefix comes back as the range it is.
+    /// A forked child's dead prefix comes back as the range it is. A
+    /// [`GoneIds::Live`], which only a forked child builds, costs a range up to its
+    /// table's maximum.
     pub fn into_set(self) -> RoaringTreemap {
         match self {
             Self::Set(gone) => gone,
+            Self::Live(live) => {
+                let mut gone = RoaringTreemap::new();
+                gone.insert_range(..=live.max);
+                gone -= live.ids;
+                gone
+            }
             Self::Bits(bits) => {
                 let mut gone = RoaringTreemap::new();
                 if bits.gone_below {
@@ -240,12 +261,27 @@ impl Bits {
     }
 }
 
+impl Live {
+    fn exists(&self, id: DocId) -> bool {
+        id > self.max || contains(&self.ids, id)
+    }
+
+    fn any_gone(&self, first: DocId, last: DocId) -> bool {
+        let last = last.min(self.max);
+        if first > last {
+            return false;
+        }
+        self.ids.range_cardinality(first..=last) < last - first + 1
+    }
+}
+
 impl DocLiveness for &GoneIds {
     #[inline]
     fn exists(&self, id: DocId) -> bool {
         match self {
             GoneIds::Bits(bits) => !bits.gone(id),
             GoneIds::Set(gone) => !contains(gone, id),
+            GoneIds::Live(live) => live.exists(id),
         }
     }
 
@@ -253,11 +289,12 @@ impl DocLiveness for &GoneIds {
         match self {
             GoneIds::Bits(bits) => bits.any_gone(first, last),
             GoneIds::Set(gone) => any_in(gone, first, last),
+            GoneIds::Live(live) => live.any_gone(first, last),
         }
     }
 }
 
-/// Whether `ids` holds `id`, for a [`GoneIds::Set`]. Kept out of line so that the
+/// Whether `ids` holds `id`, for a [`GoneIds::Set`] or [`GoneIds::Live`]. Kept out of line so that the
 /// [`DocLiveness::exists`] of [`GoneIds`], with only the bitmap check inline, stays
 /// small enough to inline into the scanners' loops.
 #[inline(never)]

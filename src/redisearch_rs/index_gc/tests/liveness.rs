@@ -160,7 +160,7 @@ fn a_table_past_the_bitmap_cap_collects_its_live_ids() {
     assert!(guard.live_doc_bitmap().is_none());
 
     let set = GoneIds::of_table(&guard);
-    assert!(matches!(set, GoneIds::Set(_)));
+    assert!(matches!(set, GoneIds::Live(_)));
     let near = [0, 1, 6, 7, 11, 12, 13];
     let far = [FAR - 11, FAR - 10, FAR - 1, FAR];
     for id in near.into_iter().chain(far) {
@@ -168,6 +168,47 @@ fn a_table_past_the_bitmap_cap_collects_its_live_ids() {
     }
     assert!((&set).any_gone(11, 11));
     assert!(!(&set).any_gone(FAR - 10, FAR - 10));
+}
+
+/// A table past the bitmap cap with widely separated 64-bit IDs and few live ones
+/// is answered from its live IDs, without a set of its gone ones, which would
+/// span the largest ID.
+#[test]
+#[cfg_attr(miri, ignore = "walks the doc table through C")]
+fn a_sparse_table_with_widely_separated_ids_is_kept_as_its_live_ids() {
+    const FAR: DocId = 1 << 40;
+    const FARTHER: DocId = 1 << 50;
+    let table = TestTable::new(
+        8,
+        [(5, false), (FAR, true), (FAR + 1, false), (FARTHER, false)],
+    );
+    let guard = table.guard();
+    assert!(guard.live_doc_bitmap().is_none());
+
+    let set = GoneIds::of_table(&guard);
+    assert!(matches!(set, GoneIds::Live(_)));
+    for id in [
+        0,
+        4,
+        5,
+        6,
+        FAR - 1,
+        FAR,
+        FAR + 1,
+        FAR + 2,
+        FARTHER - 1,
+        FARTHER,
+    ] {
+        assert_eq!((&set).exists(id), guard.doc_exists(id), "doc id {id}");
+    }
+    assert!(
+        (&set).exists(FARTHER + 1),
+        "an ID above the maximum is live"
+    );
+    assert!((&set).any_gone(FAR, FAR));
+    assert!((&set).any_gone(6, FAR - 1));
+    assert!(!(&set).any_gone(FAR + 1, FAR + 1));
+    assert!(!(&set).any_gone(FARTHER, DocId::MAX));
 }
 
 #[test]
