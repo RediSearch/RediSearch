@@ -944,18 +944,42 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t size;
   TermData **terms_data = SynonymMap_DumpAllTerms(sp->smap, &size);
 
-  RedisModule_ReplyWithMap(ctx, size);
+  RedisModule_ReplyWithMap(ctx, REDISMODULE_POSTPONED_LEN);
+  long long count = 0;
+  uint32_t memoryCheckCounter = 0;
 
   for (int i = 0; i < size; ++i) {
     TermData *t_data = terms_data[i];
+    ++count;
     RedisModule_ReplyWithStringBuffer(ctx, t_data->term, strlen(t_data->term));
-    RedisModule_ReplyWithArray(ctx, array_len(t_data->groupIds));
+    // One checkpoint per group ID (at least one per term), so a term in thousands of groups
+    // advances the read interval. The first runs before the array opens so a stop there replies
+    // the error in place of the term's groups, as in TagIndex_SerializeValues; later ones run
+    // between ID writes, so reply growth within the term is seen, and the error closes the array.
+    if (QueryMemory_Checkpoint(NULL, &memoryCheckCounter)) {
+      RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+      break;
+    }
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
+    size_t written = 0;
+    bool stop = false;
     for (size_t j = 0; j < array_len(t_data->groupIds); ++j) {
+      if (j > 0 && QueryMemory_Checkpoint(NULL, &memoryCheckCounter)) {
+        RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+        ++written;
+        stop = true;
+        break;
+      }
       // do not return the ~
       RedisModule_ReplyWithStringBuffer(ctx, t_data->groupIds[j] + 1,
                                         strlen(t_data->groupIds[j] + 1));
+      ++written;
     }
+    RedisModule_ReplySetArrayLength(ctx, written);
+    if (stop) break;
   }
+
+  RedisModule_ReplySetMapLength(ctx, count);
 
   IndexSpec_Unlock(sctx.spec);
   CurrentThread_ClearIndexSpec();
@@ -1994,6 +2018,8 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   MRReply *err = NULL;
+  // The error a shard that stopped for memory put in place of its next value.
+  const MRReply *valueErr = NULL;
 
   TrieMap *dict = NewTrieMap();
   int nArrs = 0;
@@ -2003,8 +2029,13 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
     || MRReply_Type(replies[i]) == MR_REPLY_SET)) {
       nArrs++;
       for (size_t j = 0; j < MRReply_Length(replies[i]); j++) {
+        const MRReply *value = MRReply_ArrayElement(replies[i], j);
+        if (MRReply_Type(value) == MR_REPLY_ERROR) {
+          valueErr = value;
+          continue;
+        }
         size_t sl = 0;
-        const char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
+        const char *s = MRReply_String(value, &sl);
         if (s && sl) {
           TrieMap_Add(dict, s, sl, NULL, NULL);
         }
@@ -2022,10 +2053,13 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
   // if there are no values - either reply with an empty set or an error
   if (TrieMap_NUniqueKeys(dict) == 0) {
 
-    if (nArrs > 0) {
+    if (nArrs > 0 && !valueErr) {
       // the sets were empty - return an empty set
       RedisModule_Reply_Set(reply);
       RedisModule_Reply_SetEnd(reply);
+    } else if (valueErr) {
+      // Every shard that had values stopped before its first one: not an empty field.
+      RedisModule_ReplyWithError(ctx, MRReply_String(valueErr, NULL));
     } else {
       RedisModule_ReplyWithError(ctx, err ? MRReply_String(err, NULL) : "Could not perform query");
     }
@@ -2039,6 +2073,10 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       RedisModule_Reply_StringBuffer(reply, s, sl);
     }
     TrieMapIterator_Free(it);
+    // A shard stopped for memory: end the merged values with its error, as a single shard does.
+    if (valueErr) {
+      RedisModule_Reply_Error(reply, MRReply_String(valueErr, NULL));
+    }
   RedisModule_Reply_SetEnd(reply);
 
 cleanup:
