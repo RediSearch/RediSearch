@@ -69,17 +69,23 @@ FT.ALTER <index> GC SET [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count
   of overflowing; and a `CONFIG SET` made between the GC thread's read of the interval
   and the timer re-arm takes effect at that arm instead of being lost.
 
+### Later phase
+
+Designed here (`design.md`, Phase 2) and shipped after tasks 0–5:
+
+- Disk (Flex) indexes, task 6 ([MOD-21052](https://redislabs.atlassian.net/browse/MOD-21052)).
+  `FT.ALTER <index> GC SET` works on Flex with the same syntax, ranges, inheritance and
+  FT.INFO; `SCHEMA ADD` stays rejected there. Disk GC compacts in-process instead of
+  forking, and its threshold counts writes as well as deletes and updates, as the global
+  setting does on disk today.
+- GC options in `FT.CREATE`, task 7
+  ([MOD-21053](https://redislabs.atlassian.net/browse/MOD-21053)): the same `GC SET`
+  clause before `SCHEMA`, for RAM and Flex indexes. Until then, running `FT.ALTER` right
+  after `FT.CREATE` covers the rebuild and alias-swap pattern, because the new index has
+  no deletes yet.
+
 ### Non-goals
 
-- Disk (Flex) indexes. `FT.ALTER` is not available on Flex today: shards and the
-  coordinator reject it with "FT.ALTER is not supported in Redis Flex". Disk GC also has
-  its own scheduling and threshold code, which needs its own changes. Without `FT.ALTER`
-  on Flex, `FT.CREATE` options alone would reach only new indexes, which means a
-  rebuild. Follow-up under the disk MS4 epic.
-- GC options in `FT.CREATE`. Leaving them out keeps the API change small. Adding them
-  later only needs parsing into the same stored fields, since the overrides are part of
-  the index's saved record. For the rebuild and alias-swap pattern, running `FT.ALTER`
-  right after `FT.CREATE` is enough, because the new index has no deletes yet.
 - A per-index GC policy (`POLICY`). Postponed until the thread-based GC in MOD-20523
   decides whether a policy can change per index at runtime. It can be added later as one
   more setting.

@@ -6,7 +6,8 @@ in parallel. 2 needs 0, for the fingerprint decision. Whichever of 1 and 2 merge
 connects the arm-time interval read to the effective-value helper (2.2). 3 needs 1 and
 2; 4 needs 3. 5 needs 3 and 4, and Product sign-off (0.5). It can be dropped or shipped
 in a later release without changing 1–4, because the RDB block (2.4) already takes new
-settings without a version bump.
+settings without a version bump. Phase 2: 6 needs 1–4 (and 5 for the percentage on
+disk); 7 needs 2 and 3.
 
 ## 0. Spec review ([MOD-20259](https://redislabs.atlassian.net/browse/MOD-20259))
 
@@ -138,9 +139,34 @@ settings without a version bump.
 - [ ] 5.6 Flow tests: the two-index example, global inheritance, `DEFAULT`, range errors,
       FT.INFO in RESP2 and RESP3
 
-## 6. Docs (DOC ticket, created after sign-off)
+## 6. Flex: `FT.ALTER ... GC` on disk indexes, phase 2 ([MOD-21052](https://redislabs.atlassian.net/browse/MOD-21052))
 
-- [ ] 6.1 Syntax, inheritance, aliases, when changes apply, jitter, FT.INFO and per-node
+- [ ] 6.1 Remove `DiskDisabledCmd` from `FT.ALTER`, `_FT._ALTERIFNX` and the
+      coordinator's `FT.ALTER`; on Flex reject every action except `GC` in the handler
+      and on the coordinator before fan-out
+- [ ] 6.2 `disk_gc.c`: drop the cached `intervalSec`; `getInterval` returns the
+      effective-value helper
+- [ ] 6.3 Set the queue-time copy callback for disk GC; `periodicCb` checks only the copy
+- [ ] 6.4 If 5 has shipped and the disk team agrees: the percentage with disk's change
+      count and a `DiskGC` peak of the document count
+- [ ] 6.5 Unit tests for the disk callbacks; the existing disk GC tests pass
+- [ ] 6.6 Flex flow tests: the command and the `SCHEMA ADD` rejection on shards and the
+      coordinator, inheritance and `DEFAULT`, timer restart, threshold counting writes,
+      FT.INFO, RDB round trip with and without `REDISMODULE_CTX_FLAGS_SST_RDB`,
+      replication
+
+## 7. GC options in `FT.CREATE`, phase 2 ([MOD-21053](https://redislabs.atlassian.net/browse/MOD-21053))
+
+- [ ] 7.1 Parse `GC SET <settings>` before `SCHEMA` with the `FT.ALTER` parser, into
+      the same stored fields; reject `DEFAULT`
+- [ ] 7.2 `commands.json`: add the clause to `FT.CREATE`; regenerate
+      `src/command_info/command_info.c` and check `COMMAND DOCS`
+- [ ] 7.3 Flow tests: each setting and both, validation and `DEFAULT` rejection, FT.INFO,
+      replication, RDB reload, cluster fan-out, Flex
+
+## 8. Docs (DOC ticket, created after sign-off)
+
+- [ ] 8.1 Syntax, inheritance, aliases, when changes apply, jitter, FT.INFO and per-node
       `effective` values, upgrades, the fork-slot warning for threshold 0 with short
       intervals, `deny-oom` and partial apply in a cluster, the coordinator's FT.INFO
       showing the first shard, how the percentage combines with `CLEAN_THRESHOLD`

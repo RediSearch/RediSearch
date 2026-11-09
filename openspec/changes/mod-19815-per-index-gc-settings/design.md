@@ -84,7 +84,7 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   coordinator), so its indexes never have overrides. Disk GC has its own scheduling and
   threshold code in `disk_gc.c`: it keeps its own `intervalSec`, refreshed only after a
   run (defect 1 above), and its threshold counts writes as well as deletes and updates.
-  Per-index settings for disk are a follow-up under the disk MS4 epic.
+  Per-index settings for disk are task 6 (see Phase 2).
 - Overrides are stored whether or not the node has a `GCContext`.
 - No atomics, and no index lock for the overrides. They are written only on the main
   thread, under the GIL. The interval is read only on the main thread, when T1 computes
@@ -155,7 +155,7 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   indexes use the new value at their next arm.
 - Disk GC shares this code, so it gets the same arming, jitter and cap with the global
   interval. Its cycle logic is unchanged, including where it refreshes its own
-  `intervalSec`, so defect 1 stays there until the disk follow-up. The existing disk GC
+  `intervalSec`, so defect 1 stays there until task 6 (Phase 2). The existing disk GC
   tests must keep passing.
 
 ## Threshold check (T2)
@@ -283,7 +283,7 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   reject the command while the others apply it, with no rollback, as with any
   `FT.ALTER` today. Re-running fixes it.
 - The command stays `DiskDisabledCmd`, so Flex nodes reject it as they reject every
-  `FT.ALTER` today.
+  `FT.ALTER` today, until task 6 (Phase 2).
 
 ## FT.INFO (T4)
 
@@ -360,7 +360,7 @@ Existing behavior that per-index settings do not depend on, left as it is:
 | `GC` with no verb (`FT.ALTER idx GC RUN_INTERVAL 10`) | Five words, below `FT.ALTER`'s arity of `-6`. The Redis Software proxy enforces that arity and hard-codes it, and proxies already deployed can't change. |
 | `SET` and `RESET` verbs instead of `DEFAULT` | `GC RESET RUN_INTERVAL` is five words, so it hits the same limit. `DEFAULT` also lets one command set one setting and clear another. |
 | A fixed RDB layout per setting | Every new GC setting would need another version bump. |
-| GC options in `FT.CREATE` now | Not needed to keep the API change small. Can be added later as parsing into the same stored fields. `FT.ALTER` right after `FT.CREATE` covers rebuild and alias swap, since the new index has no deletes yet. |
+| GC options in `FT.CREATE` in phase 1 | Not needed to keep the first API change small. Task 7 adds them as parsing into the same stored fields (Phase 2). Until then, `FT.ALTER` right after `FT.CREATE` covers rebuild and alias swap, since the new index has no deletes yet. |
 | A per-index `POLICY` now (`FORK`, `NONE`) | Commits to a policy that changes per index at runtime before MOD-20523 decides that; the thread GC creates its deleted-ID set only when the whole node runs THREAD. `NONE` also stops tiered vector GC, which runs inside the cycle. Postponed; it can be added later as one more setting with no version bump. |
 | Percentage only when both thresholds are met (AND) | Only helps large indexes fork less, which the per-index `CLEAN_THRESHOLD` already does. OR lets one global setting fit small and large indexes. |
 | Percentage of live documents only | Overstates deletes: 50 deletes in 100 documents would read as 100%. |
@@ -423,3 +423,49 @@ The spec delta describes the recommended answer to each.
 - Recovery flow tests: `DEBUG RELOAD`, full sync, failover, AOF and `BGREWRITEAOF`, slot
   migration of an index the target doesn't have yet.
 - Disk GC: the existing tests pass unchanged after T1.
+
+## Phase 2: Flex and FT.CREATE (tasks 6 and 7)
+
+Designed with the rest so nothing is missed, and shipped after tasks 0–5. A per-index
+`POLICY` (after MOD-20523) and the self-service guardrail on the Confluence page stay
+unscheduled.
+
+### Flex: `FT.ALTER ... GC` on disk indexes (task 6)
+
+- Users see the same syntax, ranges, inheritance, `DEFAULT` and FT.INFO as on RAM
+  indexes. `SCHEMA ADD` stays rejected on Flex.
+- Disk GC compacts in-process on the shard's single GC thread instead of forking, so
+  the fork-slot warning doesn't apply; an index that compacts often delays GC for the
+  other indexes on the shard. Its threshold counts writes, deletes and updates, as the
+  global setting does on disk today, and threshold 0 compacts every interval even when
+  nothing changed.
+- Command: remove `DiskDisabledCmd` from `FT.ALTER`, `_FT._ALTERIFNX` and the
+  coordinator's `FT.ALTER`. On Flex, the handler rejects every action except `GC`, and
+  the coordinator rejects before fan-out, with "FT.ALTER SCHEMA ADD is not supported in
+  Redis Flex".
+- Interval: `disk_gc.c` drops its cached `intervalSec`, and `getInterval` returns the
+  effective-value helper, read on the main thread when the timer is armed (T1). This
+  fixes defect 1 for disk.
+- Threshold: disk GC sets the queue-time copy callback, and `periodicCb` checks only
+  that copy, which removes its unsynchronized read of the global on the GC thread.
+- `GCContext_OnIntervalChanged` already does nothing while `GC_SCHED_PAUSED`; resuming
+  arms with the effective interval.
+- Persistence: none. The override block is written for every index after the disk
+  block, so Flex indexes already carry it. Tests cover loading with and without
+  `REDISMODULE_CTX_FLAGS_SST_RDB`.
+- Percentage (if T5 ships): the same formula, with disk's change count (writes
+  included) as the numerator and a `DiskGC` peak of the document count, read under the
+  spec read lock. Open for the disk team; if a share of changes isn't a useful
+  compaction trigger, disk ignores the percentage.
+- Tests: the existing disk GC tests, unit tests for the disk callbacks, and Flex flow
+  tests for the command and the `SCHEMA ADD` rejection on shards and the coordinator,
+  inheritance, timer restart, threshold counting, FT.INFO, RDB round trip and
+  replication.
+
+### GC options in `FT.CREATE` (task 7)
+
+- `FT.CREATE <index> ... [GC SET <settings>] SCHEMA ...`, parsed by the same code as
+  `FT.ALTER ... GC SET` into the same stored fields. `DEFAULT` is rejected at create
+  time, since there is nothing to clear.
+- RDB, replication and FT.INFO are unchanged. It works on RAM and Flex indexes.
+- `commands.json` gains the clause; regenerate `src/command_info/command_info.c`.
