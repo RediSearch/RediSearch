@@ -389,7 +389,9 @@ fn into_child_iterator(evaluated: Option<Evaluated<'_>>) -> CRQEIterator {
 /// Whether a term disk reader must carry term offsets: required when the node
 /// forces slop/in-order matching ([`slop_forces_offsets`]), when an enclosing
 /// phrase does so on its behalf ([`OffsetRequirement::Required`]), or when the
-/// effective scorer needs positions.
+/// effective scorer needs positions. Never required on an index created with
+/// `NOOFFSETS` (no [`ffi::IndexFlags_Index_StoreTermOffsets`]), which stores
+/// none to read.
 /// Used only on the disk path.
 fn expansion_needs_offsets(
     ctx: &mut QueryEvalContext,
@@ -397,6 +399,9 @@ fn expansion_needs_offsets(
     config: Config,
     offsets: OffsetRequirement,
 ) -> bool {
+    if ctx.spec().flags & ffi::IndexFlags_Index_StoreTermOffsets == 0 {
+        return false;
+    }
     // The query's own scorer wins; a query that sets none falls back to the
     // configured default, while a custom (non built-in) scorer conservatively
     // needs offsets since we can't resolve what it does.
