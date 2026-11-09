@@ -47,7 +47,8 @@ settings without a version bump.
 ## 2. Storage, queue-time threshold copy, RDB ([MOD-20261](https://redislabs.atlassian.net/browse/MOD-20261))
 
 - [ ] 2.1 Add the two optional values to `IndexSpec`, the effective-value helpers, and
-      the `ForkGC` field that holds the queue-time threshold copy
+      the `ForkGC` field that holds the queue-time threshold copy; the interval helper
+      returns the global value when the index is gone
 - [ ] 2.2 Route every fork-GC read of the scheduling interval and the clean threshold
       through the helpers; disk GC keeps its cached `intervalSec` and its own reads, and
       the other fork-GC settings, including the `reap_child_blocking` timeout, stay
@@ -62,7 +63,8 @@ settings without a version bump.
 - [ ] 2.6 C++ unit tests: `FGC_RunCycle` with a per-index threshold, including 0, and an
       unset value following a changed global; the queue-time copy, including a dropped
       index with an armed timer, `GCContext_FinishDrop`, and `QueueRun` returning early
-      while a run holds the context; RDB round trip with no override, one, and both,
+      while a run holds the context; the interval helper returning the global value for
+      an unlinked index; RDB round trip with no override, one, and both,
       plus threshold 0; overrides on a spec without a GC context; version-29 load; a
       block with an unknown setting id; a known id with an out-of-range value
       (`RUN_INTERVAL` 0, above 2^63−1) failing the load; the unset state on every
@@ -93,7 +95,9 @@ settings without a version bump.
       inheritance and `DEFAULT`, `CONFIG SET` leaving timers alone, `CONFIG SET` followed
       by `FT.ALTER` with the new value restarting the timer, threshold 0, timer restart
       timing, repeated commands and the `DEFAULT` cases leaving or restarting the timer,
-      updates while GC is queued, running, retrying or stopped, drop and recreate,
+      updates while GC is queued, running, retrying or stopped, drop and recreate, a
+      drop with a `RUN_INTERVAL` override overtaking a pending re-arm still tearing down
+      (as `testGCTeardownWhenDropOvertakesPendingRearm_MOD_17309` does without one),
       TEMPORARY, `search-no-gc` master and replica, cluster fan-out
 - [ ] 3.8 Recovery flow tests: `DEBUG RELOAD`, full sync, failover, AOF,
       `BGREWRITEAOF`, slot migration of an index the target doesn't have
@@ -112,20 +116,23 @@ settings without a version bump.
 - [ ] 5.1 Global module config `search-fork-gc-clean-threshold-percent`, 0 to 100,
       default 0
 - [ ] 5.2 Per-index `CLEAN_THRESHOLD_PERCENT` override: parser, storage, RDB setting id,
-      effective-value helper
+      effective-value helper; add it to the `GC SET` branch in `commands.json`,
+      regenerate `src/command_info/command_info.c` and check `COMMAND DOCS`
 - [ ] 5.3 Combined threshold: `N` when `p = 0`, otherwise
       `min(N, max(1, ceil(p × base / 100)))`, computed on the main thread in the
       queue-time copy; read the live count under the spec read lock; `base` is a peak in
       `ForkGC` that each queue-time copy raises to the live count, that the run
-      resetting the counter, forced or scheduled, sets to the live count at the reset
-      (also under the spec read lock), and that starts at the live count when the GC
-      context is created
+      resetting the counter, forced or scheduled, sets to the live count plus the
+      still-deferred slot-cleanup deletes at the reset (also under the spec read lock),
+      and that starts at the live count when the GC context is created; move
+      `IndexSpec_DeferGCDeletes` inside the write lock in `SlotCleanup_ApplyDeletes`
 - [ ] 5.4 `clean_threshold_percent` in FT.INFO `gc_settings`; combined threshold and
       `base` in the `FT.DEBUG` hook
 - [ ] 5.5 C++ unit tests: updates, deletes, growth, growth then deletes across samples,
       deletes before the first fork, deletes between the queue-time copy and the fork
-      (the new window starts at the count the fork saw), a forced fork setting the peak,
-      a failed fork leaving it, empty index, `p = 0` with `N` above 1,
+      (the new window starts at the count the fork saw), slot-cleanup deletes between
+      taking the deferred count and the reset (the base includes them), a forced fork
+      setting the peak, a failed fork leaving it, empty index, `p = 0` with `N` above 1,
       `CLEAN_THRESHOLD 0`, overflow limits; RDB round trip with the percentage set and
       cleared with `DEFAULT`, and a stored percentage above 100 failing the load
 - [ ] 5.6 Flow tests: the two-index example, global inheritance, `DEFAULT`, range errors,

@@ -54,6 +54,12 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   it. The other fork-GC settings stay global and are read as today: the retry interval,
   `forkGCCleanNumericEmptyNodes`, `forkGcSleepBeforeExit`, and the run interval that
   `reap_child_blocking` takes as its timeout (see Out of scope).
+- The helpers reach the index through `ForkGC`'s weak reference. When the promote fails
+  because the index was unlinked, the interval helper returns the global value: it never
+  declines to arm. A drop that overtakes a finished run while its re-arm one-shot is
+  still pending relies on the timer that one-shot arms to find the drop and free the
+  context (`GCContext_BeginDrop`); not arming would leak the context and its logically
+  deleted count.
 - The settings are not specific to fork GC. They describe when an index's RAM garbage
   is collected, whatever the policy. The thread-based GC in
   [MOD-20523](https://redislabs.atlassian.net/browse/MOD-20523) shares the fork path's
@@ -200,10 +206,21 @@ Existing defects that T1 fixes, because per-index settings make them worse:
 - The largest count is sampled, not tracked on every document add. `ForkGC` keeps a
   peak value. Each queue-time copy raises it to the live count at that moment, then
   uses it as `base`. The run that resets the counter sets the peak to the live count at
-  the reset, which it reads from the index it already references, under the spec read
-  lock taken inside the GIL it already holds there. That count is what the fork sees,
-  so a queue-time sample taken before deletes the fork collects never carries into the
-  new window. Forced runs reset the counter at the same point, so they set the peak the
+  the reset plus the slot-cleanup deletes still deferred at that moment
+  (`gcDeferredDeletes`, read without taking it). It reads both from the index it already
+  references, under the spec read lock taken inside the GIL it already holds there. A
+  queue-time sample taken before deletes the fork collects therefore never carries into
+  the new window.
+- The deferred deletes are added back because the reset is not one cutoff for every
+  delete. A main-thread delete holds the GIL, so it lands wholly before or after the
+  reset. Slot cleanup deletes without the GIL, and a delete after the run took the
+  deferred count is counted in the next window although the live count already
+  excludes it. Without the add-back, 100 live documents with 40 deleted by slot cleanup
+  before the reset would give a base of 60 and a count of 40, so a 60% threshold would
+  fork at 40% of the population. With it, the base is 100. The pair is consistent only
+  if slot cleanup reports its deletes inside the write lock it deletes under, so T5
+  moves `IndexSpec_DeferGCDeletes` inside that lock in `SlotCleanup_ApplyDeletes`.
+- Forced runs reset the counter at the same point, so they set the peak the
   same way and need no queue-time sample. A fork that fails resets neither. The peak
   starts at the live count when the GC context is created. Every timer fire queues a
   run, including cycles the threshold then skips, so the peak is sampled once per
@@ -377,11 +394,13 @@ The spec delta describes the recommended answer to each.
   alone, a scheduled cycle skipped by the threshold after a failed fork arming with the
   run interval, the queue-time threshold copy (including a dropped index with an armed
   timer, `GCContext_FinishDrop`, and `QueueRun` returning early while a run holds the
-  context), RDB round trip at version 30 and load of version 29, a block with an
+  context), the interval helper returning the global value for an unlinked index, RDB
+  round trip at version 30 and load of version 29, a block with an
   unknown setting id loading with that setting skipped, and a known id with an
   out-of-range value (`RUN_INTERVAL` 0, a value above 2^63−1) failing the load.
 - C++ unit tests for T5: the combined threshold for updates, deletes, growth, growth
-  then deletes across samples, deletes before the first fork, an empty index, `p = 0`
+  then deletes across samples, deletes before the first fork, slot-cleanup deletes
+  between taking the deferred count and the reset, an empty index, `p = 0`
   with `N` above 1, `CLEAN_THRESHOLD 0`, and values near the overflow limit.
 - Flow tests for T5: the two-index example in the spec delta, inheritance of the global
   percentage, `DEFAULT`, range errors, FT.INFO in RESP2 and RESP3.
