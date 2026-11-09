@@ -275,23 +275,6 @@ def assert_all_indexes_collected(env):
         env.assertEqual(len(postings), 25, message=f'idx{n}: {postings}')
 
 
-def force_gc_from_parallel_clients(env):
-    errors = []
-
-    def force(n):
-        try:
-            getConnectionByEnv(env).execute_command(debug_cmd(), 'GC_FORCEINVOKE', f'idx{n}')
-        except Exception as e:  # noqa: BLE001 - any error fails the test below
-            errors.append(e)
-
-    clients = [threading.Thread(target=force, args=(n,)) for n in range(N_INDEXES)]
-    for client in clients:
-        client.start()
-    for client in clients:
-        client.join()
-    env.assertEqual(errors, [])
-
-
 @skip(cluster=True)
 def testThreadGCWaitForJobsCoversEveryGCThread():
     """GC_WAIT_FOR_JOBS with nothing queued still waits for a cycle running on another GC thread.
@@ -308,11 +291,20 @@ def testThreadGCWaitForJobsCoversEveryGCThread():
         'Timeout waiting for a scheduled GC run to park')
 
     replies = []
+    waiter_conn = getConnectionByEnv(env)
+    waiter_conn.execute_command('CLIENT', 'SETNAME', 'gc-waiter')
     waiter = threading.Thread(target=lambda: replies.append(
-        getConnectionByEnv(env).execute_command(debug_cmd(), 'GC_WAIT_FOR_JOBS')))
+        waiter_conn.execute_command(debug_cmd(), 'GC_WAIT_FOR_JOBS')))
     waiter.start()
-    # Long enough for an idle GC pool to have answered many times over.
-    waiter.join(timeout=1)
+
+    def waiter_blocked():
+        clients = env.cmd('CLIENT', 'LIST').splitlines()
+        mine = [c for c in clients if ' name=gc-waiter ' in f' {c} ']
+        return bool(mine) and 'b' in mine[0].split(' flags=')[1].split(' ')[0], {'clients': mine}
+
+    # The command reached the server and is blocked, so a reply now could only mean it stopped
+    # waiting, rather than that it had not been sent yet.
+    wait_for_condition(waiter_blocked, 'GC_WAIT_FOR_JOBS never blocked')
     env.assertEqual(replies, [], message='GC_WAIT_FOR_JOBS returned while a GC cycle was parked')
 
     env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
@@ -337,14 +329,30 @@ def testThreadGCWaitForJobsWithBackgroundRuns():
 
 @skip(cluster=True)
 def testThreadGCCleansSeveralIndexesConcurrently():
-    """Several GC threads clean several indexes at once, without forking."""
+    """Several GC threads clean several indexes at once, without forking. Every cycle parks
+    before its pass, so two of them parked together are two in progress at once, and of
+    different indexes, since one index never runs two."""
     env = thread_gc_env()
+    skipIfNoEnableAssert(env)
     env.expect('CONFIG', 'SET', 'search-gc-threads', GC_THREADS).ok()
     create_indexes_with_garbage(env)
+    # Only the forced runs below reach the sync point: no scheduled run holds an index busy.
+    for n in range(N_INDEXES):
+        env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', f'idx{n}').ok()
+    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
 
     forks_before = total_forks(env)
-    force_gc_from_parallel_clients(env)
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_TASK_START, 30000).ok()
+    waitForRdbSaveToFinish(env)
+    for n in range(N_INDEXES):
+        env.expect(debug_cmd(), 'GC_FORCEBGINVOKE', f'idx{n}').ok()
+    hits = lambda: env.cmd(debug_cmd(), 'SYNC_POINT', 'HIT_COUNT', SYNC_POINT_GC_TASK_START)
+    wait_for_condition(lambda: (hits() >= 2, {'parked': hits()}),
+                       'GC cycles of different indexes never ran at once')
 
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
     env.assertEqual(total_forks(env), forks_before)
     assert_all_indexes_collected(env)
 
