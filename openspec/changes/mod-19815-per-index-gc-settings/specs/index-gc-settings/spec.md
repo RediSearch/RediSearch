@@ -13,7 +13,9 @@ the clean threshold is the effective `CLEAN_THRESHOLD` alone.
 interval, clean threshold and (T5) clean threshold percentage. `SET` SHALL be required.
 It SHALL take at least one setting, each at most once, in any order. It SHALL change no
 schema and trigger no reindex. `FT.ALTER` SHALL keep its declared arity of at least six
-words.
+words. This requirement covers RAM indexes. On a Flex (disk) node, `FT.ALTER ... GC`
+SHALL return an error and change nothing, as every `FT.ALTER` does there today; task 6
+replaces this with the Flex behavior.
 
 #### Scenario: Set both settings
 - **WHEN** the user executes `FT.ALTER idx GC SET RUN_INTERVAL 100 CLEAN_THRESHOLD 500`
@@ -54,6 +56,13 @@ words.
 - **AND** the user executes `FT.ALTER alias GC SET RUN_INTERVAL 100`
 - **THEN** `idx` SHALL get the override
 - **AND** an index that `alias` points to later SHALL NOT get it
+
+#### Scenario: Flex node
+- **WHEN** the node runs Redis Flex
+- **AND** the user executes `FT.ALTER idx GC SET RUN_INTERVAL 100`, on a shard or through
+  the coordinator
+- **THEN** the command SHALL return an error
+- **AND** `idx` SHALL have no override
 
 ### Requirement: Indexes inherit global GC settings unless overridden
 An index without an override for a setting SHALL use the current value of the matching
@@ -286,7 +295,8 @@ SHALL be a map with `configured` (the override, or null when inherited) and `eff
 (the value in use), both integers. A null `configured` SHALL be a RESP3 null and a RESP2
 nil bulk string. The section SHALL be present for every index except TEMPORARY indexes,
 in RESP2 and RESP3, standalone and through the coordinator, which SHALL report the first
-shard's section.
+shard's section. On a disk index, `gc_settings` SHALL NOT include
+`clean_threshold_percent`, because disk GC ignores the percentage.
 
 #### Scenario: Inherited setting
 - **WHEN** `idx` has no run interval override and the global run interval is 30
@@ -295,3 +305,8 @@ shard's section.
 #### Scenario: Overridden setting
 - **WHEN** `idx` has `CLEAN_THRESHOLD 0`
 - **THEN** FT.INFO SHALL report `clean_threshold` with `configured` 0 and `effective` 0
+
+#### Scenario: Disk index (T5)
+- **WHEN** the node runs Redis Flex and the global clean threshold percentage is 10
+- **THEN** FT.INFO of a disk index SHALL have no `clean_threshold_percent` in
+  `gc_settings`

@@ -57,8 +57,9 @@ FT.ALTER <index> GC SET [RUN_INTERVAL <seconds|DEFAULT>] [CLEAN_THRESHOLD <count
 - Given an alias, the command changes the index the alias points to at that moment.
 - `FT.INFO` gains a `gc_settings` section with the configured and effective value of
   each setting. Later GC settings are added to it as new keys.
-- `FT.ALTER ... GC` is rejected on TEMPORARY indexes, which have no GC. It is accepted
-  and stored on nodes started with `search-no-gc`, where it has no effect.
+- `FT.ALTER ... GC` is rejected on TEMPORARY indexes, which have no GC, and on Flex
+  nodes, as every `FT.ALTER` is there today, until task 6. It is accepted and stored on
+  nodes started with `search-no-gc`, where it has no effect.
 - The index encoding version changes. Overrides are saved as a list of tagged entries,
   so later GC settings need no further version bump.
 - The error for an unknown `FT.ALTER` action names both `SCHEMA` and `GC`.
@@ -80,9 +81,9 @@ Designed here (`design.md`, Phase 2) and shipped after tasks 0–5:
   setting does on disk today.
 - GC options in `FT.CREATE`, task 7
   ([MOD-21053](https://redislabs.atlassian.net/browse/MOD-21053)): the same `GC SET`
-  clause before `SCHEMA`, for RAM and Flex indexes. Until then, running `FT.ALTER` right
-  after `FT.CREATE` covers the rebuild and alias-swap pattern, because the new index has
-  no deletes yet.
+  clause before `SCHEMA`, for RAM indexes, and for Flex indexes once task 6 has shipped.
+  Until task 7, running `FT.ALTER` right after `FT.CREATE` covers the rebuild and
+  alias-swap pattern, because the new index has no deletes yet.
 
 ### Non-goals
 

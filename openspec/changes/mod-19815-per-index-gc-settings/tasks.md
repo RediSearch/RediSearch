@@ -7,7 +7,7 @@ connects the arm-time interval read to the effective-value helper (2.2). 3 needs
 2; 4 needs 3. 5 needs 3 and 4, and Product sign-off (0.5). It can be dropped or shipped
 in a later release without changing 1–4, because the RDB block (2.4) already takes new
 settings without a version bump. Phase 2: 6 needs 1–4 (and 5 for the percentage on
-disk); 7 needs 2 and 3.
+disk); 7 needs 2 and 3, and its Flex path needs 6.
 
 ## 0. Spec review ([MOD-20259](https://redislabs.atlassian.net/browse/MOD-20259))
 
@@ -126,7 +126,9 @@ disk); 7 needs 2 and 3.
       resetting the counter, forced or scheduled, sets to the live count plus the
       still-deferred slot-cleanup deletes at the reset (also under the spec read lock),
       and that starts at the live count when the GC context is created; move
-      `IndexSpec_DeferGCDeletes` inside the write lock in `SlotCleanup_ApplyDeletes`
+      `IndexSpec_DeferGCDeletes` inside the write lock in `SlotCleanup_ApplyDeletes`;
+      if MOD-20523 has landed, keep the same peak in the thread policy's GC state and
+      set it at the thread cycle's counter reset
 - [ ] 5.4 `clean_threshold_percent` in FT.INFO `gc_settings`; combined threshold and
       `base` in the `FT.DEBUG` hook
 - [ ] 5.5 C++ unit tests: updates, deletes, growth, growth then deletes across samples,
@@ -134,35 +136,40 @@ disk); 7 needs 2 and 3.
       (the new window starts at the count the fork saw), slot-cleanup deletes between
       taking the deferred count and the reset (the base includes them), a forced fork
       setting the peak, a failed fork leaving it, empty index, `p = 0` with `N` above 1,
-      `CLEAN_THRESHOLD 0`, overflow limits; RDB round trip with the percentage set and
-      cleared with `DEFAULT`, and a stored percentage above 100 failing the load
+      `CLEAN_THRESHOLD 0`, overflow limits, and the same cases under the thread policy
+      if MOD-20523 has landed; RDB round trip with the percentage set and cleared with
+      `DEFAULT`, and a stored percentage above 100 failing the load
 - [ ] 5.6 Flow tests: the two-index example, global inheritance, `DEFAULT`, range errors,
-      FT.INFO in RESP2 and RESP3
+      FT.INFO in RESP2 and RESP3, and no `clean_threshold_percent` on a disk index
 
 ## 6. Flex: `FT.ALTER ... GC` on disk indexes, phase 2 ([MOD-21052](https://redislabs.atlassian.net/browse/MOD-21052))
 
-- [ ] 6.1 Remove `DiskDisabledCmd` from `FT.ALTER`, `_FT._ALTERIFNX` and the
-      coordinator's `FT.ALTER`; on Flex reject every action except `GC` in the handler
-      and on the coordinator before fan-out
+- [ ] 6.1 Remove `DiskDisabledCmd` from `FT.ALTER` and `_FT._ALTERIFNX`, on the shards
+      and on the coordinator; on Flex reject every action except `GC` in the handler
+      and, for both commands, on the coordinator before fan-out
 - [ ] 6.2 `disk_gc.c`: drop the cached `intervalSec`; `getInterval` returns the
       effective-value helper
 - [ ] 6.3 Set the queue-time copy callback for disk GC; `periodicCb` checks only the copy
 - [ ] 6.4 If 5 has shipped and the disk team agrees: the percentage with disk's change
-      count and a `DiskGC` peak of the document count
+      count and a `DiskGC` peak of the document count, and `clean_threshold_percent` in
+      a disk index's FT.INFO
 - [ ] 6.5 Unit tests for the disk callbacks; the existing disk GC tests pass
 - [ ] 6.6 Flex flow tests: the command and the `SCHEMA ADD` rejection on shards and the
       coordinator, inheritance and `DEFAULT`, timer restart, threshold counting writes,
       FT.INFO, RDB round trip with and without `REDISMODULE_CTX_FLAGS_SST_RDB`,
-      replication
+      replication through `_FT._ALTERIFNX` on shards and the coordinator
+- [ ] 6.7 Update the delta spec: replace the Flex rejection of `FT.ALTER ... GC` with
+      the Flex behavior
 
 ## 7. GC options in `FT.CREATE`, phase 2 ([MOD-21053](https://redislabs.atlassian.net/browse/MOD-21053))
 
 - [ ] 7.1 Parse `GC SET <settings>` before `SCHEMA` with the `FT.ALTER` parser, into
-      the same stored fields; reject `DEFAULT`
+      the same stored fields; reject `DEFAULT`; on Flex, reject the clause until 6 has
+      shipped
 - [ ] 7.2 `commands.json`: add the clause to `FT.CREATE`; regenerate
       `src/command_info/command_info.c` and check `COMMAND DOCS`
 - [ ] 7.3 Flow tests: each setting and both, validation and `DEFAULT` rejection, FT.INFO,
-      replication, RDB reload, cluster fan-out, Flex
+      replication, RDB reload, cluster fan-out, Flex (rejected before 6, accepted after)
 
 ## 8. Docs (DOC ticket, created after sign-off)
 

@@ -79,6 +79,11 @@ Existing defects that T1 fixes, because per-index settings make them worse:
     or the run waits for the next delete or tick. `GCContext_OnIntervalChanged` keeps
     `GC_SCHED_WAIT_FOR_WORK` and updates any deadline the thread stack stores when a
     timer is armed.
+  - The percentage (T5) needs its peak under the thread policy too. Whichever of T5 and
+    MOD-20523 lands second keeps the peak in the thread policy's GC state (`IndexGC` in
+    [#12035](https://github.com/RediSearch/RediSearch/pull/12035)), raises it in that policy's queue-time copy, and sets it at the thread
+    cycle's counter reset the same way as the fork path (see Percentage threshold), with
+    the T5 unit cases repeated under the thread policy.
 - Disk GC keeps reading the globals it reads today and ignores the new percentage
   setting. `FT.ALTER` is disabled on disk nodes (`DiskDisabledCmd`, on shards and the
   coordinator), so its indexes never have overrides. Disk GC has its own scheduling and
@@ -208,13 +213,13 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   at their share, and an index that grew uses its new size even if it shrank again:
   100 documents, then 100 added and 100 deleted, reads as 50% of 200.
 - The largest count is sampled, not tracked on every document add. `ForkGC` keeps a
-  peak value. Each queue-time copy raises it to the live count at that moment, then
-  uses it as `base`. The run that resets the counter sets the peak to the live count at
-  the reset plus the slot-cleanup deletes still deferred at that moment
-  (`gcDeferredDeletes`, read without taking it). It reads both from the index it already
-  references, under the spec read lock taken inside the GIL it already holds there. A
-  queue-time sample taken before deletes the fork collects therefore never carries into
-  the new window.
+  peak value (the thread policy keeps its own; see Data model). Each queue-time copy
+  raises it to the live count at that moment, then uses it as `base`. The run that
+  resets the counter sets the peak to the live count at the reset plus the
+  slot-cleanup deletes still deferred at that moment (`gcDeferredDeletes`, read without
+  taking it). It reads both from the index it already references, under the spec read
+  lock taken inside the GIL it already holds there. A queue-time sample taken before
+  deletes the fork collects therefore never carries into the new window.
 - The deferred deletes are added back because the reset is not one cutoff for every
   delete. A main-thread delete holds the GIL, so it lands wholly before or after the
   reset. Slot cleanup deletes without the GIL, and a delete after the run took the
@@ -299,7 +304,9 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   string. A later setting, such as `policy`, is one more key, so clients that read the
   map by key are unaffected.
 - Present for every index except TEMPORARY indexes, whether or not the node runs GC.
-  FT.INFO of a TEMPORARY index is unchanged.
+  FT.INFO of a TEMPORARY index is unchanged. On a disk index `effective` is the global
+  value disk GC reads, and `clean_threshold_percent` (T5) is left out, because disk GC
+  ignores the percentage; task 6 adds it if disk adopts the percentage.
 - It can't go in `index_options` (a flat list of flags) or `gc_stats` (missing without a
   `GCContext`, and summed by the coordinator).
 - The coordinator drops top-level keys it doesn't know, so T4 adds `gc_settings` to its
@@ -405,7 +412,8 @@ The spec delta describes the recommended answer to each.
 - C++ unit tests for T5: the combined threshold for updates, deletes, growth, growth
   then deletes across samples, deletes before the first fork, slot-cleanup deletes
   between taking the deferred count and the reset, an empty index, `p = 0`
-  with `N` above 1, `CLEAN_THRESHOLD 0`, and values near the overflow limit.
+  with `N` above 1, `CLEAN_THRESHOLD 0`, and values near the overflow limit; the same
+  cases under the thread policy if MOD-20523 has landed.
 - Flow tests for T5: the two-index example in the spec delta, inheritance of the global
   percentage, `DEFAULT`, range errors, FT.INFO in RESP2 and RESP3.
 - Flow tests for T1: an idle index below the threshold picks up a new global interval
@@ -443,10 +451,10 @@ unscheduled.
   other indexes on the shard. Its threshold counts writes, deletes and updates, as the
   global setting does on disk today, and threshold 0 compacts every interval even when
   nothing changed.
-- Command: remove `DiskDisabledCmd` from `FT.ALTER`, `_FT._ALTERIFNX` and the
-  coordinator's `FT.ALTER`. On Flex, the handler rejects every action except `GC`, and
-  the coordinator rejects before fan-out, with "FT.ALTER SCHEMA ADD is not supported in
-  Redis Flex".
+- Command: remove `DiskDisabledCmd` from `FT.ALTER` and `_FT._ALTERIFNX`, both on the
+  shards and on the coordinator. On Flex, the handler rejects every action except `GC`,
+  and the coordinator rejects before fan-out in both commands, with "FT.ALTER SCHEMA
+  ADD is not supported in Redis Flex".
 - Interval: `disk_gc.c` drops its cached `intervalSec`, and `getInterval` returns the
   effective-value helper, read on the main thread when the timer is armed (T1). This
   fixes defect 1 for disk.
@@ -471,5 +479,7 @@ unscheduled.
 - `FT.CREATE <index> ... [GC SET <settings>] SCHEMA ...`, parsed by the same code as
   `FT.ALTER ... GC SET` into the same stored fields. `DEFAULT` is rejected at create
   time, since there is nothing to clear.
-- RDB, replication and FT.INFO are unchanged. It works on RAM and Flex indexes.
+- RDB, replication and FT.INFO are unchanged. It works on RAM indexes, and on Flex once
+  task 6 routes disk GC through the helpers. Until then Flex rejects the clause, so it
+  never stores settings that disk GC ignores.
 - `commands.json` gains the clause; regenerate `src/command_info/command_info.c`.
