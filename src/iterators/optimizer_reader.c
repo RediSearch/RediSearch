@@ -29,7 +29,10 @@
 #include "rmutil/rm_assert.h"
 #include "sorting_vector_ffi.h"
 #include "spec.h"
+#include "util/khash.h"
 #include "value_ffi.h"
+
+KHASH_SET_INIT_INT64(optimizer_doc_ids)
 
 /* A sort key's value in a result's sorting vector, or NULL when the document has none, which is
  * how the sorter's row lookup reads it. */
@@ -213,6 +216,9 @@ void OptimizerIterator_Free(QueryIterator *self) {
   rm_free(it->resArr);
   rm_free(it->missingSortValue);
   IndexResult_Free(it->missingTemplate);
+  if (it->heldDocs) {
+    kh_destroy(optimizer_doc_ids, it->heldDocs);
+  }
   heap_free(it->heap);
 
   rm_free(it);
@@ -228,39 +234,35 @@ IteratorStatus OPT_ReadYield(QueryIterator *self) {
   return ITERATOR_EOF;
 }
 
-/* Whether a document already holds a heap slot. Slots before `pooledResult` are taken while the
- * heap fills; once it is full, every slot but the spare `pooledResult` is. */
-static bool heapHoldsDoc(const OptimizerIterator *it, t_docId docId) {
-  size_t taken = heap_count(it->heap) < heap_size(it->heap) ? (size_t)heap_count(it->heap)
-                                                            : (size_t)heap_size(it->heap) + 1;
-  for (size_t i = 0; i < taken; i++) {
-    const RSIndexResult *res = &it->resArr[i];
-    if (res != it->pooledResult && res->docId == docId) {
-      return true;
-    }
-  }
-  return false;
-}
-
 /* Offer the result in `pooledResult`, whose `dmd` is borrowed, to the heap. A document holding
  * several values for the sortby field can be reached again by a later window, which covers other
  * values of it, so such a document is only collected once. */
 static void offerToHeap(OptimizerIterator *it) {
-  if (it->optim->sortFieldMayHoldManyValues && heapHoldsDoc(it, it->pooledResult->docId)) {
+  t_docId docId = it->pooledResult->docId;
+  if (it->heldDocs && kh_get(optimizer_doc_ids, it->heldDocs, docId) != kh_end(it->heldDocs)) {
     DMD_Return(it->pooledResult->dmd);
     return;
   }
 
+  int absent;
   // heap is not full. insert
   if (heap_count(it->heap) < heap_size(it->heap)) {
     heap_offer(&it->heap, it->pooledResult);
     it->pooledResult++;
+    if (it->heldDocs) {
+      kh_put(optimizer_doc_ids, it->heldDocs, docId, &absent);
+    }
 
     // heap is full. try to replace
   } else {
     RSIndexResult *tempRes = heap_peek(it->heap);
     if (it->cmp(tempRes, it->pooledResult, it) > 0) {
       heap_replace(it->heap, it->pooledResult);
+      if (it->heldDocs) {
+        kh_del(optimizer_doc_ids, it->heldDocs,
+               kh_get(optimizer_doc_ids, it->heldDocs, tempRes->docId));
+        kh_put(optimizer_doc_ids, it->heldDocs, docId, &absent);
+      }
       it->pooledResult = tempRes;
     }
     DMD_Return(it->pooledResult->dmd);
@@ -392,7 +394,10 @@ IteratorStatus OPT_Read(QueryIterator *self) {
       }
     }
 
-    if (heap_count(it->heap) < heap_size(it->heap)) {
+    // Only a walk over the whole field can leave matches without a value unvisited: a range lifted
+    // out of the query, or one a union implies, requires a value of every match.
+    bool walkedWholeField = (it->flags & OPTIM_OWN_NF) && !opt->hasImpliedBounds;
+    if (walkedWholeField && heap_count(it->heap) < heap_size(it->heap)) {
       collectMatchesWithoutSortValue(it);
     }
 
@@ -431,6 +436,9 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   oi->pooledResult = oi->resArr;
   oi->missingSortValue = rm_calloc(qOpt->limit + 1, sizeof(*oi->missingSortValue));
   oi->missingTemplate = NewNumericResult();
+  if (qOpt->sortFieldMayHoldManyValues) {
+    oi->heldDocs = kh_init(optimizer_doc_ids);
+  }
   oi->heap = rm_malloc(heap_sizeof(qOpt->limit));
   heap_init(oi->heap, oi->cmp, oi, qOpt->limit);
 

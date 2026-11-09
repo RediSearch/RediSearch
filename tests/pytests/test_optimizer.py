@@ -1061,6 +1061,24 @@ def testSortFieldWithoutAnyValueKeepsMatches(env):
                         message=f'{sortby}')
 
 
+@skip(cluster=True)
+def testRangeOnSortFieldExcludesMatchesWithoutValue(env):
+    """A range on the sort field requires a value, even once the optimizer lifts it out of the query
+    to walk it, so a page short of LIMIT is not filled with matches lacking one.
+
+    The same holds for a union that bounds the walk, every branch of which constrains the field.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 't', 'TEXT')
+    conn.execute_command('HSET', 'a', 'n', 1, 't', 'foo')
+    conn.execute_command('HSET', 'b', 't', 'foo')
+
+    for query in ['foo @n:[0 2]', '@n:[0 0] | @n:[1 1]']:
+        search = ['ft.search', 'idx', query, 'SORTBY', 'n', 'LIMIT', 0, 10, 'NOCONTENT', 'DIALECT', 2]
+        env.assertEqual(env.cmd(*search, 'WITHOUTCOUNT')[1:], ['a'], message=query)
+        env.assertEqual(env.cmd(*search)[1:], ['a'], message=query)
+
+
 @skip()  # TODO: solve flakiness (MOD-5257)
 def testCoordinator(env):
     # separate test which only has queries with sortby since otherwise the coordinator has random results
