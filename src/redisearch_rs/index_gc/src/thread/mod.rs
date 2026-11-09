@@ -157,6 +157,8 @@ struct Driver<'a, 'd, S, G> {
     /// comes back nor gains entries the cycle could miss.
     deleted: &'d GoneIds,
     /// Deleted IDs this cycle could not collect every entry of; they stay in the set.
+    /// Only IDs of [`Self::deleted`] go in, so its size is bounded by that set's
+    /// rather than by the width of the doc ID ranges retained.
     retained: RoaringTreemap,
 }
 
@@ -272,7 +274,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
                     Err((error, span)) => {
                         tracing::warn!(scanner, %error, "thread GC: an index copy would not decode");
                         if let Some(span) = span {
-                            self.retained.insert_range(span);
+                            self.deleted.insert_gone_in(span, &mut self.retained);
                         }
                     }
                 }
@@ -280,6 +282,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
             if !pending.is_empty() && (!more || pending.len() >= DELTAS_PER_APPLY) {
                 had_work = true;
                 let mut retained = std::mem::take(&mut self.retained);
+                let deleted = self.deleted;
                 let result = self.write(|guard, stats| {
                     for (entry, tail) in pending.drain(..) {
                         match apply(entry, guard) {
@@ -287,7 +290,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
                                 if entry_stats.blocks_denied > 0
                                     && let Some(tail) = tail
                                 {
-                                    retained.insert_range(tail);
+                                    deleted.insert_gone_in(tail, &mut retained);
                                 }
                                 stats.record(entry_stats);
                             }
@@ -373,7 +376,7 @@ impl<S: SpecLockAccess, G: GcStatsSink> Driver<'_, '_, S, G> {
             // A leaf split since the nodes were listed copied its entries, deleted ones
             // included, into leaves this cycle never scanned; their IDs stay in the set.
             for range in self.read(|guard| ranges_of_nodes_added_since(guard, tree, &mut listed))? {
-                self.retained.insert_range(range);
+                self.deleted.insert_gone_in(range, &mut self.retained);
             }
 
             if clean_numeric_empty_nodes && had_work {

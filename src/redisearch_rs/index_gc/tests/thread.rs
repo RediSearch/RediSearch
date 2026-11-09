@@ -583,6 +583,34 @@ fn ids_copied_by_a_leaf_split_mid_cycle_stay_in_the_set() {
     assert!(spec.deleted_docs().is_empty());
 }
 
+/// A leaf split whose new leaves span widely separated 64-bit IDs keeps only the
+/// deleted IDs among them, not the whole span, which would cost memory in
+/// proportion to its width.
+#[test]
+fn a_split_spanning_far_apart_ids_keeps_only_their_deleted_ids() {
+    const FAR: u64 = 1 << 40;
+    let (tree, next_doc) = tree_at_split_edge(1);
+    let mut spec = TestSpec::create([], vec![(c"price", tree)]);
+    *spec.deleted_docs() = DeletedDocs::from_ids(1..next_doc);
+    spec.add_numeric_before_write = Some((0, FAR, 1));
+    let live = |id: u64| id == FAR;
+    let mut recorder = Recorder::default();
+
+    run_cycle(&mut spec, &mut recorder, false).unwrap();
+
+    assert!(spec.trees[0].num_leaves() > 1, "the writer split the leaf");
+    assert_eq!(
+        spec.deleted_docs().len(),
+        next_doc - 1,
+        "every deleted ID the copies may hold is kept"
+    );
+
+    run_cycle(&mut spec, &mut recorder, false).unwrap();
+
+    assert!(scan_all_node_deltas(&spec.trees[0], &live).is_empty());
+    assert!(spec.deleted_docs().is_empty());
+}
+
 /// A numeric leaf whose last block grew between its scan and its apply is rescanned
 /// with the live deleted set, like a term's: the gone docs leave the block and the
 /// set, and the doc the writer appended stays.
