@@ -1171,6 +1171,10 @@ void RMCK_ThreadSafeContextUnlock(RedisModuleCtx *) {
   RMCK_GlobalLock.unlock();
 }
 
+int RMCK_ThreadSafeContextTryLock(RedisModuleCtx *) {
+  return RMCK_GlobalLock.try_lock() ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
 static RedisModuleCallReply *RMCK_CallSet(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
                                            va_list ap) {
   if (fmt[0] != 's' || fmt[1] != 's') {
@@ -1926,6 +1930,7 @@ static void registerApis() {
   REGISTER_API(FreeThreadSafeContext);
   REGISTER_API(ThreadSafeContextLock);
   REGISTER_API(ThreadSafeContextUnlock);
+  REGISTER_API(ThreadSafeContextTryLock);
   REGISTER_API(StringCompare);
   REGISTER_API(AutoMemory);
   REGISTER_API(ExportSharedAPI);
