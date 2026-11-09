@@ -1994,30 +1994,35 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   MRReply *err = NULL;
+  char *s = NULL;
+  tm_len_t sl = 0;
+  void *p = NULL;
+  TrieMapIterator *it = NULL;
 
   TrieMap *dict = NewTrieMap();
   int nArrs = 0;
+  uint32_t memoryCheckCalls = 0;
   // Add all the set elements into the dedup dict
   for (int i = 0; i < count; i++) {
     if (replies[i] && (MRReply_Type(replies[i]) == MR_REPLY_ARRAY
     || MRReply_Type(replies[i]) == MR_REPLY_SET)) {
       nArrs++;
       for (size_t j = 0; j < MRReply_Length(replies[i]); j++) {
-        size_t sl = 0;
-        const char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
-        if (s && sl) {
-          TrieMap_Add(dict, s, sl, NULL, NULL);
+        // No warning channel for a partial set: a stop fails it.
+        if (QueryMemory_Checkpoint(NULL, &memoryCheckCalls)) {
+          RedisModule_ReplyWithError(ctx, QueryError_Strerror(QUERY_ERROR_CODE_OUT_OF_MEMORY));
+          goto cleanup;
+        }
+        size_t len = 0;
+        const char *str = MRReply_String(MRReply_ArrayElement(replies[i], j), &len);
+        if (str && len) {
+          TrieMap_Add(dict, str, len, NULL, NULL);
         }
       }
     } else if (MRReply_Type(replies[i]) == MR_REPLY_ERROR && err == NULL) {
       err = replies[i];
     }
   }
-
-  char *s = NULL;
-  tm_len_t sl = 0;
-  void *p = NULL;
-  TrieMapIterator *it = NULL;
 
   // if there are no values - either reply with an empty set or an error
   if (TrieMap_NUniqueKeys(dict) == 0) {
