@@ -27,7 +27,7 @@ use inverted_index::{
     ResumableReader, SuspendableReader,
 };
 use numeric_range_tree::{
-    NodeIndex, NumericIndex, NumericIndexReader, NumericRangeTree, RangeWindow,
+    NodeIndex, NumericIndex, NumericIndexReader, NumericRange, NumericRangeTree, RangeWindow,
     RawNumericIndexReader,
 };
 use query_types::QueryNodeType;
@@ -56,6 +56,61 @@ pub struct RawNumeric<'query, Rf: Ref, R, E = NoOpChecker, RA = R> {
     range_min: f64,
     /// Maximum numeric range, only used in debug print.
     range_max: f64,
+    /// Construction-time selectivity from [`numeric_match_fraction`], retained while suspended.
+    match_fraction: f64,
+}
+
+/// Estimate matching documents from uniform value density and independent values per document.
+///
+/// [`NumericRange::cardinality`] supplies point-query selectivity, while
+/// [`NumericRange::num_entries`] and [`NumericRange::num_docs`] translate value selectivity
+/// into the probability that at least one value in a document matches. Missing statistics
+/// and unbounded distributions retain the full range estimate.
+fn numeric_match_fraction(
+    filter: &NumericFilter,
+    range_min: f64,
+    range_max: f64,
+    range: Option<&NumericRange>,
+    has_duplicates: bool,
+) -> f64 {
+    if filter.min.is_nan() || filter.max.is_nan() {
+        return 1.0;
+    }
+    let overlap_min = range_min.max(filter.min);
+    let overlap_max = range_max.min(filter.max);
+    if overlap_min > overlap_max
+        || (overlap_min == overlap_max && !filter.value_in_range(overlap_min))
+    {
+        return 0.0;
+    }
+    if filter.value_in_range(range_min) && filter.value_in_range(range_max) {
+        return 1.0;
+    }
+
+    let value_fraction = if overlap_min == overlap_max {
+        let Some(cardinality) = range.map(NumericRange::cardinality).filter(|n| *n != 0) else {
+            return 1.0;
+        };
+        1.0 / cardinality as f64
+    } else if range_min.is_finite() && range_max.is_finite() {
+        // Scaling avoids overflowing the span when finite bounds straddle zero.
+        let scale = range_min.abs().max(range_max.abs());
+        let span = range_max / scale - range_min / scale;
+        ((overlap_max / scale - overlap_min / scale) / span).clamp(0.0, 1.0)
+    } else {
+        return 1.0;
+    };
+
+    let Some(range) = range else {
+        return if has_duplicates { 1.0 } else { value_fraction };
+    };
+    let docs = range.num_docs();
+    if docs == 0 || range.num_entries() <= docs as usize {
+        return value_fraction;
+    }
+    let values_per_doc = range.num_entries() as f64 / f64::from(docs);
+    // The complement is more stable than subtracting a power close to one.
+    -(values_per_doc * (-value_fraction).ln_1p()).exp_m1()
 }
 
 /// Alias for an [`Active`] [`RawNumeric`] — the only instantiation with an
@@ -222,6 +277,7 @@ where
             range_tree_info,
             range_min,
             range_max,
+            match_fraction: 1.0,
         }
     }
 
@@ -251,7 +307,7 @@ where
         // `RawInvIndIterator`, layout-identical across modes by invariant 1 on
         // [`RawInvIndIterator`]: `reader` weakens `R -> R::Suspended` while the
         // frozen `RA = R` slot keeps the dispatch pointers unchanged. The
-        // remaining fields (`range_tree_info`, `range_min`, `range_max`) carry no
+        // remaining fields (`range_tree_info`, `range_min`, `range_max`, `match_fraction`) carry no
         // `Rf`, so they survive the cast unchanged. `Box::from_raw` reuses the
         // same heap allocation.
         unsafe { Box::from_raw(raw as *mut RawNumeric<'index, Suspended, R::Suspended, E, R>) }
@@ -303,7 +359,7 @@ where
         let raw = Box::into_raw(self);
         // SAFETY: `RawNumeric` is `#[repr(C)]` over the inner `RawInvIndIterator`
         // (layout-identical across modes by invariant 1 on `RawInvIndIterator`)
-        // plus the `Rf`-free `range_tree_info`/`range_min`/`range_max` fields.
+        // plus the `Rf`-free `range_tree_info`/`range_min`/`range_max`/`match_fraction` fields.
         // `resume_in_place` left the inner iterator as a valid active iterator, so
         // the whole `RawNumeric` is now a valid `Numeric<'a, RS::Resumed<'a>, E>`.
         let active = unsafe { Box::from_raw(raw as *mut Numeric<'a, RS::Resumed<'a>, E>) };
@@ -320,6 +376,10 @@ where
 
     fn num_estimated(&self) -> usize {
         self.it.num_estimated()
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        (self.it.num_estimated() as f64 * self.match_fraction).min(total_docs as f64)
     }
 }
 impl<'index, R, E> RQEIterator<'index> for Numeric<'index, R, E>
@@ -353,6 +413,10 @@ where
     #[inline(always)]
     fn num_estimated(&self) -> usize {
         self.it.num_estimated()
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        (self.it.num_estimated() as f64 * self.match_fraction).min(total_docs as f64)
     }
 
     #[inline(always)]
@@ -644,13 +708,14 @@ impl<'index> NumericIteratorVariant<'index> {
                 let source = unsafe { RangeSource::new(tree, node) };
                 // SAFETY: 1. `reader` reads the range `node` holds.
                 unsafe {
-                    Self::new(
+                    Self::new_with_range_statistics(
                         reader,
                         reader_filter,
                         expiration_checker,
                         Some(source),
                         min_val,
                         max_val,
+                        Some(range),
                     )
                 }
             })
@@ -666,7 +731,7 @@ impl<'index> NumericIteratorVariant<'index> {
     ///
     /// # Safety
     ///
-    /// The requirements of [`Numeric::new`] on `range_source` and `reader`.
+    /// 1. The requirements of [`Numeric::new`] on `range_source` and `reader`.
     pub unsafe fn new(
         reader: NumericIndexReader<'index>,
         filter: Option<&'index NumericFilter>,
@@ -675,9 +740,35 @@ impl<'index> NumericIteratorVariant<'index> {
         range_min: f64,
         range_max: f64,
     ) -> Self {
+        // SAFETY: 1, forwarded from this function's contract.
+        unsafe {
+            Self::new_with_range_statistics(
+                reader,
+                filter,
+                expiration_checker,
+                range_source,
+                range_min,
+                range_max,
+                None,
+            )
+        }
+    }
+
+    /// # Safety
+    ///
+    /// 1. The requirements of [`Numeric::new`] on `range_source` and `reader`.
+    unsafe fn new_with_range_statistics(
+        reader: NumericIndexReader<'index>,
+        filter: Option<&'index NumericFilter>,
+        expiration_checker: FieldExpirationChecker,
+        range_source: Option<RangeSource>,
+        range_min: f64,
+        range_max: f64,
+        range: Option<&NumericRange>,
+    ) -> Self {
         match filter {
             None => {
-                // SAFETY: forwarded from this function's contract.
+                // SAFETY: 1, forwarded from this function's contract.
                 let iter = unsafe {
                     Numeric::new(
                         reader,
@@ -690,9 +781,11 @@ impl<'index> NumericIteratorVariant<'index> {
                 Self::Unfiltered(iter)
             }
             Some(f) if f.is_numeric_filter() => {
-                // SAFETY: forwarded from this function's contract; the filtering
+                let match_fraction =
+                    numeric_match_fraction(f, range_min, range_max, range, reader.has_duplicates());
+                // SAFETY: 1, forwarded from this function's contract; the filtering
                 // readers read the same range as `reader`.
-                let iter = unsafe {
+                let mut iter = unsafe {
                     Numeric::new(
                         FilterNumericReader::new(*f, reader),
                         expiration_checker,
@@ -701,10 +794,11 @@ impl<'index> NumericIteratorVariant<'index> {
                         Some(range_max),
                     )
                 };
+                iter.match_fraction = match_fraction;
                 Self::Filtered(iter)
             }
             Some(f) => {
-                // SAFETY: forwarded from this function's contract; the filtering
+                // SAFETY: 1, forwarded from this function's contract; the filtering
                 // readers read the same range as `reader`.
                 let iter = unsafe {
                     Numeric::new(
@@ -767,6 +861,14 @@ impl<'index> RQEIterator<'index> for NumericIteratorVariant<'index> {
             Self::Unfiltered(iter) => iter.num_estimated(),
             Self::Filtered(iter) => iter.num_estimated(),
             Self::Geo(iter) => iter.num_estimated(),
+        }
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        match self {
+            Self::Unfiltered(iter) => iter.estimated_matches(total_docs),
+            Self::Filtered(iter) => iter.estimated_matches(total_docs),
+            Self::Geo(iter) => iter.estimated_matches(total_docs),
         }
     }
 
@@ -1107,6 +1209,14 @@ impl<'query> RQESuspendedIterator<'query> for NumericIteratorVariantSuspended<'q
                 RQESuspendedIterator::num_estimated(it)
             }
             NumericIteratorVariantSuspended::Geo(it) => RQESuspendedIterator::num_estimated(it),
+        }
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        match self {
+            Self::Unfiltered(iter) => RQESuspendedIterator::estimated_matches(iter, total_docs),
+            Self::Filtered(iter) => RQESuspendedIterator::estimated_matches(iter, total_docs),
+            Self::Geo(iter) => RQESuspendedIterator::estimated_matches(iter, total_docs),
         }
     }
 }

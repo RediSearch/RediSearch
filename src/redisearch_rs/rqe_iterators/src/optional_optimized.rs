@@ -444,6 +444,10 @@ where
         self.wcii.num_estimated()
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        self.wcii.estimated_matches(total_docs)
+    }
+
     #[inline(always)]
     fn last_doc_id(&self) -> DocId {
         self.last_doc_id
@@ -778,6 +782,10 @@ where
     fn num_estimated(&self) -> usize {
         // Mirrors the active `num_estimated`, which delegates to the wildcard base.
         self.wcii.num_estimated()
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        self.wcii.estimated_matches(total_docs)
     }
 }
 

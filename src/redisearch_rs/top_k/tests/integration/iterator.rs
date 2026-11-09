@@ -418,6 +418,9 @@ fn num_estimated_capped_at_k() {
     ));
 
     assert_eq!(it.num_estimated(), 3);
+    assert_eq!(it.estimated_matches(100), 3.0);
+    assert_eq!(it.estimated_matches(2), 2.0);
+    assert_eq!(it.estimated_matches(0), 0.0);
 }
 
 /// A filtered query yields the intersection, so a selective child bounds the
@@ -436,6 +439,77 @@ fn num_estimated_capped_by_child() {
     );
 
     assert_eq!(it.num_estimated(), 1);
+}
+
+#[test]
+fn match_prediction_uses_the_child_prediction_before_capping_at_k() {
+    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue)
+        .with_num_estimated(100);
+    let child = rqe_iterators::Intersection::new(
+        vec![
+            IdList::<true>::new((1..=20).collect::<Vec<_>>()),
+            IdList::<true>::new((1..=10).collect::<Vec<_>>()),
+        ],
+        1.0,
+        false,
+    );
+    let it = TopKIterator::new(source, child, NonZeroUsize::new(5).unwrap(), Ascending);
+    assert_eq!(it.num_estimated(), 5);
+    assert_eq!(it.estimated_matches(100), 2.0);
+}
+
+#[test]
+fn match_prediction_survives_suspension_with_a_selective_child() {
+    use rqe_iterators::{RQEIteratorBoxed, RQESuspendedIterator, ResumeOutcome};
+    use rqe_iterators_test_utils::MockContext;
+
+    let context = MockContext::new(100, 100);
+    let source = MockScoreSource::new(vec![vec![(1, 1.0)]], vec![], |_, _| BatchStrategy::Continue)
+        .with_num_estimated(100)
+        .collectable_after_lock_release();
+    let child = rqe_iterators::Intersection::new(
+        vec![
+            IdList::<true>::new((1..=20).collect::<Vec<_>>()),
+            IdList::<true>::new((1..=10).collect::<Vec<_>>()),
+        ],
+        1.0,
+        false,
+    );
+    let active = Box::new(TopKIterator::new(
+        source,
+        child,
+        NonZeroUsize::new(5).unwrap(),
+        Ascending,
+    ));
+    let cases = [
+        ("selective child", 100, 2.0),
+        ("population cap", 3, 3.0),
+        ("empty population", 0, 0.0),
+    ];
+    assert_eq!(active.num_estimated(), 5);
+    for (name, population, expected) in cases {
+        assert_eq!(active.estimated_matches(population), expected, "{name}");
+    }
+
+    let suspended = active.suspend();
+    assert_eq!(RQESuspendedIterator::num_estimated(&*suspended), 5);
+    for (name, population, expected) in cases {
+        assert_eq!(
+            RQESuspendedIterator::estimated_matches(&*suspended, population),
+            expected,
+            "{name}"
+        );
+    }
+
+    let guard = context.spec_read();
+    let resumed = match suspended.resume(&guard).unwrap() {
+        ResumeOutcome::Ok(active) => active,
+        ResumeOutcome::Moved(_) | ResumeOutcome::Aborted => panic!("unchanged child and source"),
+    };
+    assert_eq!(resumed.num_estimated(), 5);
+    for (name, population, expected) in cases {
+        assert_eq!(resumed.estimated_matches(population), expected, "{name}");
+    }
 }
 
 // ── Unfiltered path ───────────────────────────────────────────────────────────

@@ -16,6 +16,14 @@ bench = false
 name = "iterators"
 harness = false
 
+[[bench]]
+name = "cardinality"
+harness = false
+
+[[bench]]
+name = "numeric_filter"
+harness = false
+
 [build-dependencies]
 bindgen.workspace = true
 build_utils = { path = "../build_utils" }

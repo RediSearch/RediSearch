@@ -316,6 +316,10 @@ where
         self.num_estimated
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        self.sum_estimated_matches(total_docs, |child| child.estimated_matches(total_docs))
+    }
+
     #[inline(always)]
     fn last_doc_id(&self) -> DocId {
         self.result.doc_id
@@ -403,5 +407,25 @@ where
 
     fn num_estimated(&self) -> usize {
         self.num_estimated
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        self.sum_estimated_matches(total_docs, |child| child.estimated_matches(total_docs))
+    }
+}
+
+impl<Rf: Ref, I> RawUnionTrimmed<'_, Rf, I> {
+    pub(crate) fn sum_estimated_matches(
+        &self,
+        total_docs: usize,
+        mut estimate: impl FnMut(&I) -> f64,
+    ) -> f64 {
+        crate::union::estimate_sum(
+            total_docs,
+            self.num_estimated,
+            self.children[self.trim_start..self.trim_end]
+                .iter()
+                .map(&mut estimate),
+        )
     }
 }

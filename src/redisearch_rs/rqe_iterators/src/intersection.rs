@@ -675,6 +675,19 @@ where
         self.num_expected
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        if total_docs == 0 || self.children.is_empty() {
+            return 0.0;
+        }
+        let population = total_docs as f64;
+        self.children
+            .iter()
+            .fold(population, |estimate, child| {
+                estimate * (child.estimated_matches(total_docs).clamp(0.0, population) / population)
+            })
+            .min(self.num_expected.min(total_docs) as f64)
+    }
+
     #[inline(always)]
     fn last_doc_id(&self) -> DocId {
         self.last_doc_id
@@ -989,6 +1002,19 @@ where
 
     fn num_estimated(&self) -> usize {
         self.num_expected
+    }
+
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        if total_docs == 0 || self.children.is_empty() {
+            return 0.0;
+        }
+        let population = total_docs as f64;
+        self.children
+            .iter()
+            .fold(population, |estimate, child| {
+                estimate * (child.estimated_matches(total_docs).clamp(0.0, population) / population)
+            })
+            .min(self.num_expected.min(total_docs) as f64)
     }
 }
 

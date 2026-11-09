@@ -84,6 +84,10 @@ impl<'index> rqe_iterators::RQEIterator<'index> for TagIterator<'index> {
         tag_it_dispatch!(self, num_estimated)
     }
 
+    fn estimated_matches(&self, total_docs: usize) -> f64 {
+        tag_it_dispatch!(self, estimated_matches, total_docs)
+    }
+
     #[inline(always)]
     fn last_doc_id(&self) -> DocId {
         tag_it_dispatch!(self, last_doc_id)
