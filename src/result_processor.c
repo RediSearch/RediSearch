@@ -345,6 +345,12 @@ static void RP_HoldStop(const ResultProcessor *rp) {
   }
 }
 
+// Whether an upstream stage holds rows past a memory stop. The stop lasts the whole request.
+static bool RP_UpstreamHold(const ResultProcessor *rp) {
+  const QueryRequestLimits *limits = rp->parent->limits;
+  return limits && QueryRequestLimits_IsMemoryStopped(limits);
+}
+
 /*
  * Memory checkpoint of a buffering processor's fill: true when the fill must end now. Under a
  * RETURN stop policy the fill goes on instead: the stop ends the row source
@@ -1370,6 +1376,10 @@ typedef struct RPSafeLoader {
   // aggregate-results sync. When set, the loader performs the GIL deadlock-
   // avoidance handshake around the GIL (see aggregate.h).
   QueryRequest *request;
+
+  // QueryMemory_Checkpoint counters for the buffer and for the values loaded under the GIL.
+  uint32_t bufferMemoryCheckCalls;
+  uint32_t loadMemoryCheckCalls;
 } RPSafeLoader;
 
 /************************* Safe Loader private functions *************************/
@@ -1464,10 +1474,31 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 
 static void rpSafeLoader_Load(RPSafeLoader *self) {
   SearchResult *curr_res;
+  // The pipeline's timeout state, NULL where it runs without memory checkpoints (hybrid).
+  QueryRequestLimits *timeout = self->base_loader.base.parent->limits;
+  // A stop requested while buffering already chose to load the whole buffer (RETURN), and an
+  // upstream hold ends the stream when that stage drains, so only memory found short while loading,
+  // with nothing held upstream, cuts the load.
+  const bool checkMemory = timeout && !RP_UpstreamHold(&self->base_loader.base);
+  bool stopped = false;
 
   // iterate the buffer.
   // TODO: implement `GetNextResult` that gets the current block to save calculation time.
   while ((curr_res = GetNextResult(self))) {
+    // A timeout never cuts the load: its callback waits for this worker.
+    if (!stopped && checkMemory && QueryMemory_Checkpoint(timeout, &self->loadMemoryCheckCalls)) {
+      // The loaded prefix is yielded; the yield phase then ends on the stop.
+      stopped = true;
+      self->last_buffered_rc = RS_RESULT_STOPPED;
+      RP_HoldStop(&self->base_loader.base);
+    }
+    if (stopped) {
+      // An empty slot, which the yield phase skips. Not counted in skippedResults: the row still
+      // matched the query.
+      SearchResult_Destroy(curr_res);
+      *curr_res = SearchResult_New();
+      continue;
+    }
     rpLoader_loadDocument(&self->base_loader, curr_res);
     if (!loaderResultIsEmittable(curr_res)) {
       // The document was deleted/re-indexed between buffering and load (the safe loader
@@ -1511,6 +1542,10 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   uint32_t bufferLimit = rp->parent->resultLimit;
   SearchResult resToBuffer = SearchResult_New();
   SearchResult *currBlock = NULL;
+  QueryRequestLimits *timeout = rp->parent->limits;
+  // Whether this loader's own checkpoint raised the stop, as opposed to an upstream stage that
+  // holds its rows past a stop and yields them over several reads.
+  bool ownStop = false;
   // Get the next result and save it in the buffer
   while (rp->parent->resultLimit && ((result_status = rp->upstream->Next(rp->upstream, &resToBuffer)) == RS_RESULT_OK)) {
     // Decrease the result limit after getting a result from the upstream
@@ -1523,17 +1558,30 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
     resToBuffer = SearchResult_New();
+    const bool heldUpstream = RP_UpstreamHold(rp);
+    const bool fillStopped = RP_FillShouldStop(rp, &self->bufferMemoryCheckCalls);
+    ownStop |= !heldUpstream && timeout && QueryRequestLimits_IsMemoryStopped(timeout);
+    if (fillStopped) {
+      result_status = RS_RESULT_STOPPED;
+      break;
+    }
   }
   rp->parent->resultLimit = bufferLimit; // Restore the result limit
+  // A stop requested by this loader's checkpoint under a RETURN stop policy still ends the query
+  // after this buffer. A stop held upstream ends it when that stage runs out of rows.
+  if (result_status == RS_RESULT_OK && ownStop) {
+    result_status = RS_RESULT_STOPPED;
+  }
 
   // If we exit the loop because we got an error, or we have zero result, return without locking Redis.
   if ((result_status != RS_RESULT_EOF && result_status != RS_RESULT_OK &&
-      !(result_status == RS_RESULT_STOPPED && rp->parent->timeoutPolicy == TimeoutPolicy_Return)) ||
+       !(result_status == RS_RESULT_STOPPED && RP_StopPolicy(rp) == TimeoutPolicy_Return)) ||
       IsBufferEmpty(self)) {
     return result_status;
   }
   // save the last buffered result code to return when we done yielding the buffered results.
   self->last_buffered_rc = result_status;
+  RP_HoldStop(rp);
 
   // Now we have the data of all documents that pass the query filters,
   // let's lock Redis to provide safe access to Redis keyspace
@@ -1756,6 +1804,8 @@ static ResultProcessor *RPSafeLoader_New_FromPlainLoader(RPLoader *loader) {
 
   sl->last_buffered_rc = RS_RESULT_OK;
   sl->request = NULL;
+  sl->bufferMemoryCheckCalls = 0;
+  sl->loadMemoryCheckCalls = 0;
 
   sl->base_loader.base.Next = rpSafeLoaderNext_Accumulate;
   sl->base_loader.base.Free = rpSafeLoaderFree;
