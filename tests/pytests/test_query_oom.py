@@ -432,12 +432,10 @@ def _timeout_return_keeps_rows_under_oom_fail(env):
 
 
 @skip(cluster=True)
-@env_spec(protocol=3)
-def test_timeout_return_keeps_rows_under_oom_fail_resp3(env):
-    _timeout_return_keeps_rows_under_oom_fail(env)
+def test_timeout_return_keeps_rows_under_oom_fail_resp3():
+    _timeout_return_keeps_rows_under_oom_fail(Env(protocol=3))
 
 
 @skip(cluster=True)
-@env_spec(protocol=2)
-def test_timeout_return_keeps_rows_under_oom_fail_resp2(env):
-    _timeout_return_keeps_rows_under_oom_fail(env)
+def test_timeout_return_keeps_rows_under_oom_fail_resp2():
+    _timeout_return_keeps_rows_under_oom_fail(Env(protocol=2))
