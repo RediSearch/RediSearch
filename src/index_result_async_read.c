@@ -29,7 +29,7 @@ void IndexResultAsyncRead_Init(IndexResultAsyncReadState *state, uint16_t poolSi
   state->queueSize = queueSize;
   state->iteratorResultCount = 0;
   state->readyResults = NULL;
-  state->failedUserData = NULL;
+  state->failedReads = NULL;
   state->asyncPool = NULL;
   state->readyResultsIndex = 0;
   state->lastReturnedIndexResult = NULL;
@@ -43,7 +43,7 @@ void IndexResultAsyncRead_SetupAsyncPool(IndexResultAsyncReadState *state,
 
   // Allocate async I/O buffers with capacity for poll results (len=0 initially)
   state->readyResults = array_new(AsyncReadResult, state->poolSize);
-  state->failedUserData = array_new(uint64_t, state->poolSize);
+  state->failedReads = array_new(AsyncReadFailure, state->poolSize);
 }
 
 // Timeout (ms) for each blocking poll while draining in-flight reads at teardown.
@@ -128,9 +128,9 @@ void IndexResultAsyncRead_Free(IndexResultAsyncReadState *state) {
     state->readyResults = NULL;
   }
 
-  if (state->failedUserData) {
-    array_free(state->failedUserData);
-    state->failedUserData = NULL;
+  if (state->failedReads) {
+    array_free(state->failedReads);
+    state->failedReads = NULL;
   }
 
   // Free the last returned deep-copied IndexResult if any
@@ -170,9 +170,10 @@ uint16_t IndexResultAsyncRead_RefillPool(IndexResultAsyncReadState *state) {
 }
 
 static void IndexResultAsyncRead_CleanupFailedReads(IndexResultAsyncReadState *state) {
-  RS_ASSERT(array_len(state->failedUserData) <= state->poolSize);
-  for (uint16_t i = 0; i < array_len(state->failedUserData); i++) {
-    IndexResultNode *node = (IndexResultNode *)state->failedUserData[i];
+  RS_ASSERT(array_len(state->failedReads) <= state->poolSize);
+  for (uint16_t i = 0; i < array_len(state->failedReads); i++) {
+    const AsyncReadFailure *failure = &state->failedReads[i];
+    IndexResultNode *node = (IndexResultNode *)failure->user_data;
 
     // Remove node from pendingResults list
     dllist_delete(&node->node);
@@ -191,12 +192,12 @@ size_t IndexResultAsyncRead_Poll(IndexResultAsyncReadState *state, uint32_t time
                                  const t_expirationTimePoint *expiration_point) {
   // Poll writes directly to the arrays (capacity is poolSize)
   const size_t pendingCount = SearchDisk_PollAsyncReads(
-      state->asyncPool, timeout_ms, state->readyResults, state->failedUserData, expiration_point);
+      state->asyncPool, timeout_ms, state->readyResults, state->failedReads, expiration_point);
 
   // Reset index to start consuming from the beginning of readyResults
   state->readyResultsIndex = 0;
 
-  // Clean up nodes for failed reads (not found/error)
+  // Release failed requests, including metadata excluded by deletion.
   IndexResultAsyncRead_CleanupFailedReads(state);
 
   return pendingCount;

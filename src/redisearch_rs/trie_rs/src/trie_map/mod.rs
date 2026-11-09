@@ -23,10 +23,11 @@ use crate::trie_map::{
     node::Node,
     utils::strip_prefix,
 };
+use lending_iterator::LendingIterator;
 use rqe_wildcard::WildcardPattern;
 use std::fmt;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 /// A trie data structure that maps keys of type `&[u8]` to values.
 pub struct TrieMap<Data> {
     /// The root node of the trie.
@@ -92,7 +93,12 @@ impl<Data> TrieMap<Data> {
         } else {
             // The node we need to remove is deeper in the trie.
             let data = root.remove_descendant(suffix, &mut self.memory_usage);
-            root.merge_child_if_possible(&mut self.memory_usage);
+            if root.data().is_none() && root.n_children() == 0 {
+                self.memory_usage -= root.mem_usage();
+                self.root = None;
+            } else {
+                root.merge_child_if_possible(&mut self.memory_usage);
+            }
             data
         };
         if data.is_some() {
@@ -143,8 +149,8 @@ impl<Data> TrieMap<Data> {
         match &mut self.root {
             None => {
                 let data = wrapped_f(None);
-                let root = Node::new_leaf(key, Some(data));
-                self.memory_usage += root.mem_usage();
+                let (root, memory_usage) = Node::new_path(key, Some(data));
+                self.memory_usage += memory_usage;
                 self.root = Some(root);
             }
             Some(root) => root.insert_or_replace_with(key, wrapped_f, &mut self.memory_usage),
@@ -334,6 +340,25 @@ impl<Data> TrieMap<Data> {
         }
     }
 }
+
+impl<Data: PartialEq> PartialEq for TrieMap<Data> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.n_unique_keys != other.n_unique_keys {
+            return false;
+        }
+        let mut left = self.lending_iter();
+        let mut right = other.lending_iter();
+        loop {
+            match (left.next(), right.next()) {
+                (None, None) => return true,
+                (Some(left), Some(right)) if left == right => {}
+                _ => return false,
+            }
+        }
+    }
+}
+
+impl<Data: Eq> Eq for TrieMap<Data> {}
 
 impl<Data> Default for TrieMap<Data> {
     fn default() -> Self {

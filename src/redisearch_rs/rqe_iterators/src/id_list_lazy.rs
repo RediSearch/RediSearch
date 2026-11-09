@@ -13,6 +13,7 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use ref_mode::{Active, Ref, Suspended};
 use rqe_core::DocId;
+use std::ptr::NonNull;
 
 use crate::{
     IdList, IteratorType, RQEIterator, RQEIteratorBoxed, RQEIteratorError, RQESuspendedIterator,
@@ -186,7 +187,7 @@ impl<'index, const SORTED: bool> RQEIteratorBoxed<'index> for IdListLazy<'index,
     type Suspended = SuspendedIdListLazy<'index, SORTED>;
 
     fn suspend(self: Box<Self>) -> Box<Self::Suspended> {
-        let active = Box::into_raw(self);
+        let active = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
 
         // Suspend the wrapped id list in place, leaving the outer
         // allocation (and the `Rf`-independent `producer`) untouched.
@@ -194,7 +195,10 @@ impl<'index, const SORTED: bool> RQEIteratorBoxed<'index> for IdListLazy<'index,
         // SAFETY: `&raw mut` forms a field pointer without creating a reference,
         // preserving `active`'s provenance over the whole allocation for the outer
         // cast below.
-        let inner_slot = unsafe { &raw mut (*active).inner };
+        let inner_slot = unsafe { &raw mut (*active.as_ptr()).inner };
+        // SAFETY: `inner_slot` is a field pointer derived from the non-null `active`, so it is
+        // non-null too.
+        let inner_slot = unsafe { NonNull::new_unchecked(inner_slot) };
         // SAFETY: `suspend_in_place`'s contract is met — `inner_slot` is initialized and
         // unaliased (this function owns `self`). Suspending is a safe widening conversion.
         unsafe { IdList::<'index, SORTED>::suspend_in_place(inner_slot) };
@@ -202,7 +206,13 @@ impl<'index, const SORTED: bool> RQEIteratorBoxed<'index> for IdListLazy<'index,
         // SAFETY: `IdListLazy` and `SuspendedIdListLazy` are both `#[repr(C)]` with identical
         // field layout. `Box::from_raw` reuses the same heap allocation as `Box::into_raw`,
         // so the address is unchanged.
-        unsafe { Box::from_raw(active.cast::<SuspendedIdListLazy<'index, SORTED>>()) }
+        unsafe {
+            Box::from_raw(
+                active
+                    .cast::<SuspendedIdListLazy<'index, SORTED>>()
+                    .as_ptr(),
+            )
+        }
     }
 }
 
@@ -221,7 +231,7 @@ impl<'query, const SORTED: bool> RQESuspendedIterator<'query>
     where
         'query: 'index,
     {
-        let suspended = Box::into_raw(self);
+        let suspended = NonNull::new(Box::into_raw(self)).expect("Box pointers are non-null");
 
         // Promote the wrapped id list's `result` field in place, leaving the outer
         // allocation (and the `Rf`-independent `producer`) untouched.
@@ -229,7 +239,10 @@ impl<'query, const SORTED: bool> RQESuspendedIterator<'query>
         // SAFETY: `&raw mut` forms a field pointer without creating a reference,
         // preserving `suspended`'s provenance over the whole allocation for the
         // outer cast below.
-        let inner_slot = unsafe { &raw mut (*suspended).inner };
+        let inner_slot = unsafe { &raw mut (*suspended.as_ptr()).inner };
+        // SAFETY: `inner_slot` is a field pointer derived from the non-null `suspended`, so it is
+        // non-null too.
+        let inner_slot = unsafe { NonNull::new_unchecked(inner_slot) };
         // SAFETY: `resume_in_place`'s contract is met — `inner_slot` is initialized and
         // unaliased (this function owns `self`). We reclaim the outer allocation via `suspended`
         // in either branch, so the inner pointer it returns is not needed.
@@ -239,8 +252,9 @@ impl<'query, const SORTED: bool> RQESuspendedIterator<'query>
                 // the active type for `'index`; the remaining fields carry no `Rf`. `Box::from_raw`
                 // reuses the same heap allocation as `suspend`'s `Box::into_raw`, so the address
                 // is unchanged.
-                let active =
-                    unsafe { Box::from_raw(suspended.cast::<IdListLazy<'index, SORTED>>()) };
+                let active = unsafe {
+                    Box::from_raw(suspended.cast::<IdListLazy<'index, SORTED>>().as_ptr())
+                };
                 Ok(ResumeOutcome::Ok(active))
             }
             Err(_) => {
@@ -249,7 +263,7 @@ impl<'query, const SORTED: bool> RQESuspendedIterator<'query>
                 // `SuspendedIdListLazy`.
                 // SAFETY: `suspended` came from `Box::into_raw` above and was not mutated; reclaim
                 // ownership so it is dropped.
-                drop(unsafe { Box::from_raw(suspended) });
+                drop(unsafe { Box::from_raw(suspended.as_ptr()) });
                 Ok(ResumeOutcome::Aborted)
             }
         }

@@ -774,6 +774,67 @@ fn all_live<'a>(guard: &'a IndexSpecReadGuard<'a>) -> DocExistence<'a> {
     )
 }
 
+/// Sum of the inverted index sizes of every range in `tree`, read from the ranges
+/// themselves rather than from the tree's memoized counter.
+fn actual_inverted_size(tree: &NumericRangeTree) -> usize {
+    tree.iter()
+        .filter_map(|node| node.range())
+        .map(|range| range.memory_usage())
+        .sum()
+}
+
+/// [`GcApplyStats::apply`] moves the spec's `invertedSize` by
+/// `bytes_allocated - bytes_collected`, so that difference must equal how much
+/// the tree's inverted indexes actually changed. Half the docs survive, so
+/// blocks are rewritten and `bytes_allocated` takes part.
+#[test]
+#[cfg_attr(miri, ignore = "calls C functions DocTable_Exists / NewHiddenString")]
+fn applied_byte_stats_match_the_tree_size_change() {
+    const NUM_DOCS: u64 = SPLIT_TRIGGER * 4;
+    let mut test = TestSpec::create(vec![(
+        c"price",
+        FieldSpecType::Numeric.into(),
+        Some(build_tree(NUM_DOCS, false, 0)),
+    )]);
+    let size_before = actual_inverted_size(&test.trees[0]);
+    let entries_before = test.trees[0].num_entries();
+
+    let mut buf = Vec::new();
+    {
+        let guard = test.read_guard();
+        // Even doc ids survive, odd ones are deleted.
+        let words = NUM_DOCS as usize / 64 + 1;
+        let even_docs_live = DocExistence::with_bitmap(
+            &guard,
+            vec![0x5555_5555_5555_5555; words].into_boxed_slice(),
+            (words * 64 - 1) as u64,
+        );
+        collect_numeric(&mut buf, &guard, &even_docs_live).unwrap();
+    }
+
+    let mut cursor = Cursor::new(&buf);
+    let mut stats = GcApplyStats::default();
+    let outcome = handle_numeric_with(&mut cursor, &mut test, &mut stats, true).unwrap();
+    assert_eq!(outcome, HandleOutcome::Collected);
+
+    let size_after = actual_inverted_size(&test.trees[0]);
+    assert!(
+        stats.bytes_allocated > 0,
+        "rewritten blocks should allocate, or this test cannot tell bytes_allocated apart"
+    );
+    assert_eq!(
+        size_before + stats.bytes_allocated,
+        size_after + stats.bytes_collected,
+        "reported bytes must match the change in the ranges' inverted index sizes \
+         (before {size_before}, after {size_after}, {stats:?})"
+    );
+    assert_eq!(
+        stats.records_removed,
+        entries_before - test.trees[0].num_entries(),
+        "records_removed must match the change in the tree's entries"
+    );
+}
+
 /// The scanner must answer existence from `docs`: the fixture's document table
 /// is empty, so a scanner that looked docs up itself would collect them all.
 #[test]

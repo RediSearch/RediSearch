@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ptr::NonNull;
+
 use ffi::QueryIterator;
 use index_result::RSIndexResult;
 use rqe_core::DocId;
@@ -47,7 +49,7 @@ unsafe fn new_id_list_iterator<const SORTED: bool>(
     num: u64,
     weight: f64,
 ) -> *mut QueryIterator {
-    let ids_list = if !ids.is_null() {
+    let ids_list = if let Some(ids) = NonNull::new(ids) {
         // SAFETY: Safe thanks to 1
         unsafe { OwnedSlice::from_c(ids, num as usize) }
     } else {
@@ -63,4 +65,5 @@ unsafe fn new_id_list_iterator<const SORTED: bool>(
         ids_list,
         RSIndexResult::build_virt().weight(weight).build(),
     ))
+    .as_ptr()
 }
