@@ -35,6 +35,13 @@ TEST_F(CursorsTest, BasicAPI) {
   ASSERT_FALSE(cur->delete_mark);
   ASSERT_FALSE(is_Idle(cur));
   auto id = cur->id;
+  ASSERT_NE(id, 0);
+  ASSERT_EQ(id % 2, 0);
+
+  Cursor *coord = Cursors_Reserve(&g_CursorsListCoord, dummy, 1000, NULL);
+  ASSERT_NE(coord, nullptr);
+  ASSERT_EQ(coord->id % 2, 1);
+  Cursor_Free(coord);
 
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already in use";
 

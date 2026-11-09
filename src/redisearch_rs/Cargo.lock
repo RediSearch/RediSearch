@@ -518,6 +518,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "cursor"
+version = "0.0.1"
+dependencies = [
+ "fnv",
+ "proptest",
+ "workspace_hack",
+]
+
+[[package]]
+name = "cursor_bencher"
+version = "0.0.1"
+dependencies = [
+ "build_utils",
+ "criterion",
+ "cursor",
+ "ffi",
+ "libc",
+ "redis_mock",
+ "redisearch_rs",
+ "workspace_hack",
+]
+
+[[package]]
 name = "decorum"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -10,6 +10,7 @@
 #include "gtest/gtest.h"
 #include "common.h"
 #include "concurrent_ctx.h"
+#include "cursor.h"
 
 extern "C" {
 #include "info/info_redis/info_redis.h"
@@ -213,6 +214,33 @@ TEST_F(InfoSectionsTest, CrashReportOmitsKeyMapMemory) {
   IndexSpec_AddToInfo(reinterpret_cast<RedisModuleInfoCtx *>(&info), spec, false, true, false);
   EXPECT_EQ(info.fields.count("key_table_size"), 0u);
   EXPECT_EQ(info.fields.count("doc_table_size"), 1u);
+}
+
+TEST_F(InfoSectionsTest, CursorStatsReportLockedDuringReentry) {
+  RedisModule_InfoBeginDictField = [](RedisModuleInfoCtx *, const char *name) {
+    EXPECT_STREQ(name, "cursor_stats");
+    Restore<decltype(RedisModule_InfoBeginDictField)> restore{RedisModule_InfoBeginDictField};
+    RedisModule_InfoBeginDictField = InfoCapture::beginDict;
+    InfoCapture nested;
+    nested.selected = true;
+    Cursors_RenderStatsForInfo(&g_CursorsList, &g_CursorsListCoord, nullptr,
+                               reinterpret_cast<RedisModuleInfoCtx *>(&nested));
+    EXPECT_EQ(nested.fields.at("status"), "locked");
+    return REDISMODULE_OK;
+  };
+  InfoCapture info;
+  info.selected = true;
+  Cursors_RenderStatsForInfo(&g_CursorsList, &g_CursorsListCoord, spec,
+                             reinterpret_cast<RedisModuleInfoCtx *>(&info));
+  EXPECT_EQ(info.fields.count("status"), 0u);
+  EXPECT_EQ(info.fields.at("global_total"), "0");
+  // A second successful call proves the outer call released both locks.
+  RedisModule_InfoBeginDictField = InfoCapture::beginDict;
+  info.fields.clear();
+  Cursors_RenderStatsForInfo(&g_CursorsList, &g_CursorsListCoord, spec,
+                             reinterpret_cast<RedisModuleInfoCtx *>(&info));
+  EXPECT_EQ(info.fields.count("status"), 0u);
+  EXPECT_EQ(info.fields.at("global_idle"), "0");
 }
 
 TEST_F(InfoSectionsTest, NormalIndexInfoIncludesKeyMapMemory) {
