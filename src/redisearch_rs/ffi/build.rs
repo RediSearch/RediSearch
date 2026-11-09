@@ -218,12 +218,7 @@ const HEADERS: &[HeaderAllowlist] = &[
         path: "src/json.h",
         fns: &["JSON_GetJsonFromHandle"],
         types: &[],
-        vars: &[
-            "REDISJSON_LEGACY_API",
-            "RedisJSONAPI_MIN_API_VER",
-            "japi",
-            "japi_ver",
-        ],
+        vars: &["RedisJSONAPI_MIN_API_VER", "japi", "japi_ver"],
     },
     HeaderAllowlist {
         path: "src/numeric_filter.h",

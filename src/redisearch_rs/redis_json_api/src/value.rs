@@ -276,7 +276,7 @@ impl<'a> JsonValueRef<'a> {
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn get_with_path(&self, path: &JsonPath) -> Option<ResultsIter<'_>> {
-        if ffi::REDISJSON_LEGACY_API != 0 {
+        if crate::LEGACY_API {
             return None;
         }
         let get_with_path = vtable_fn!(self.api, getWithPath);

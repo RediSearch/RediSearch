@@ -131,12 +131,12 @@ static VTABLE: ffi::RedisJSONAPI = ffi::RedisJSONAPI {
     freeJson: Some(free_json),
     getArray: None,
     getJsonFromHandle: Some(get_json_from_handle),
-    getWithPath: if ffi::REDISJSON_LEGACY_API != 0 {
+    getWithPath: if crate::LEGACY_API {
         None
     } else {
         Some(get_with_path)
     },
-    pathParseNoErrorMsg: if ffi::REDISJSON_LEGACY_API != 0 {
+    pathParseNoErrorMsg: if crate::LEGACY_API {
         None
     } else {
         Some(path_parse_no_error_msg)

@@ -40,7 +40,7 @@ impl JsonPath {
     ///
     /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
     pub unsafe fn parse_no_error_msg(path: &CStr, api: &RedisJsonApi) -> Option<Self> {
-        if ffi::REDISJSON_LEGACY_API != 0 {
+        if crate::LEGACY_API {
             return None;
         }
         let path_parse = vtable_fn!(api, pathParseNoErrorMsg);

@@ -67,7 +67,7 @@ impl JsonPathCache {
             .map(|path| match path {
                 Some(path) if path == UNDERSCORE_KEY => CachedJsonPath::DocumentKey,
                 Some(path) if path.to_bytes().starts_with(b"$") => {
-                    if ffi::REDISJSON_LEGACY_API != 0 {
+                    if redis_json_api::LEGACY_API {
                         return CachedJsonPath::StringPath(path.to_owned());
                     }
                     // SAFETY: the caller keeps the path bytes alive throughout the cache's lifetime.
