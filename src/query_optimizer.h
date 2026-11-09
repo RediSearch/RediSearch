@@ -59,6 +59,14 @@ typedef enum {
   SCORER_TYPE_DOC = 2,
 } ScorerType;
 
+/* A range of the sort field, with each end open or closed. */
+typedef struct SortFieldBounds {
+    double min;
+    double max;
+    bool minInclusive;
+    bool maxInclusive;
+} SortFieldBounds;
+
 typedef struct QOptimizer {
     Q_Optimize_Type type;       // type of optimization
 
@@ -78,6 +86,12 @@ typedef struct QOptimizer {
     int16_t tieBreakSortIdx[SORTASCMAP_MAXFIELDS - 1];
     size_t numTieBreakKeys;
     uint64_t sortAscMap;        // ASC/DESC order of every sort key, as the arrange step holds it
+
+    // The range of the sort field every matching document lies in, when no range on the field
+    // could be lifted out of the query but the query still confines the field to one. The
+    // optimizer walks this range rather than the whole field.
+    bool hasImpliedBounds;
+    SortFieldBounds impliedBounds;
 
     QueryIterator *numIter;
     QueryIterator *root;

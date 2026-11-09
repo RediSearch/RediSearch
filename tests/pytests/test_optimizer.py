@@ -919,6 +919,60 @@ def testOptimizerSkipsUnsortableTieBreakKey(env):
                     aggregate_sorted_keys(env, '*', sortby, 3, optimized=False))
 
 
+def keyset_after(cursor_n, cursor_m, n_order, m_order):
+    """The documents after (cursor_n, cursor_m) in a sort by `n` then `m`: a keyset cursor."""
+    after_n = f'@n:[({cursor_n} +inf]' if n_order == 'ASC' else f'@n:[-inf ({cursor_n}]'
+    after_m = f'@m:[({cursor_m} +inf]' if m_order == 'ASC' else f'@m:[-inf ({cursor_m}]'
+    return f'( {after_n} ) | ( @n:[{cursor_n} {cursor_n}] {after_m} )'
+
+
+@skip(cluster=True)
+def testOptimizerWalksRangeImpliedByUnion(env):
+    """A union whose every branch confines the sort field bounds the optimizer's walk.
+
+    No single range can be lifted out of a keyset cursor's `n > c | (n = c m > x)`, but every
+    match lies in `n >= c`, the hull of its branches, so the walk can start there instead of at
+    the first value, while the union stays in the tree as the exact filter.
+    """
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 'm', 'NUMERIC', 'SORTABLE')
+    # Document order follows `n`, so a walk from the first value meets nothing past the cursor
+    # until it has covered everything before it.
+    for i in range(5000):
+        conn.execute_command('HSET', f'd{i:05d}', 'n', i // 2, 'm', i % 2)
+
+    for n_order, m_order in [('ASC', 'ASC'), ('ASC', 'DESC'), ('DESC', 'ASC'), ('DESC', 'DESC')]:
+        for cursor in [100, 1250, 2400]:
+            query = keyset_after(cursor, 0 if m_order == 'ASC' else 1, n_order, m_order)
+            sortby = [('n', n_order), ('m', m_order)]
+            for limit in [1, 3, 10]:
+                env.assertEqual(aggregate_sorted_keys(env, query, sortby, limit, optimized=True),
+                                aggregate_sorted_keys(env, query, sortby, limit, optimized=False),
+                                message=f'{query} sorted by {sortby}, MAX {limit}')
+
+    # A cursor near the first value: the unbounded walk reads nearly every document before
+    # reaching it, the bounded one starts there.
+    optimized = aggregate_profile(env, keyset_after(100, 0, 'ASC', 'ASC'), [('n', 'ASC'), ('m', 'ASC')],
+                                  optimized=True)
+    union = to_dict(to_dict(optimized)['Child iterator'])
+    env.assertLess(union['Number of reading operations'], 2500, message=optimized)
+
+
+@skip(cluster=True)
+def testOptimizerIgnoresUnionWithUnboundedBranch(env):
+    """A union branch that leaves the sort field unconfined leaves the walk unbounded."""
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE', 't', 'TAG')
+    for i in range(500):
+        conn.execute_command('HSET', f'd{i}', 'n', (i * 37) % 500 // 5, 't', 'a' if i % 3 else 'b')
+
+    for query in ['@n:[0 10] | @t:{b}', '@n:[(20 +inf] | -@n:[0 5]']:
+        for limit in [1, 7]:
+            env.assertEqual(aggregate_sorted_keys(env, query, [('n', 'ASC')], limit, optimized=True),
+                            aggregate_sorted_keys(env, query, [('n', 'ASC')], limit, optimized=False),
+                            message=f'{query}, MAX {limit}')
+
+
 @skip()  # TODO: solve flakiness (MOD-5257)
 def testCoordinator(env):
     # separate test which only has queries with sortby since otherwise the coordinator has random results

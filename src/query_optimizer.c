@@ -189,6 +189,69 @@ static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex
   return ret;
 }
 
+/* Whether every document matching `node` has its sort field inside some range, and if so, which.
+ * The node stays in the tree as the exact filter; the range only bounds the optimizer's walk, so
+ * it may be wider than the matches but never narrower. A range on the field bounds itself, an
+ * intersection is bounded by any range it contains on the field, and a union by the hull of its
+ * branches when each of them is bounded. A union with an unbounded branch, and every other node,
+ * bounds nothing. */
+static bool impliedSortFieldBounds(const QueryNode *node, t_fieldIndex fieldIndex,
+                                   SortFieldBounds *bounds) {
+  switch (node->type) {
+    case QN_NUMERIC: {
+      const NumericFilter *nf = node->nn.nf;
+      if (nf->fieldIndex != fieldIndex) {
+        return false;
+      }
+      *bounds = (SortFieldBounds){.min = nf->min,
+                                  .max = nf->max,
+                                  .minInclusive = nf->minInclusive,
+                                  .maxInclusive = nf->maxInclusive};
+      return true;
+    }
+
+    case QN_PHRASE:  // INTERSECT
+      for (int i = 0; i < QueryNode_NumChildren(node); ++i) {
+        if (impliedSortFieldBounds(node->children[i], fieldIndex, bounds)) {
+          return true;
+        }
+      }
+      return false;
+
+    case QN_UNION: {
+      if (QueryNode_NumChildren(node) == 0) {
+        return false;
+      }
+      for (int i = 0; i < QueryNode_NumChildren(node); ++i) {
+        SortFieldBounds branch;
+        if (!impliedSortFieldBounds(node->children[i], fieldIndex, &branch)) {
+          return false;
+        }
+        if (i == 0) {
+          *bounds = branch;
+          continue;
+        }
+        if (branch.min < bounds->min) {
+          bounds->min = branch.min;
+          bounds->minInclusive = branch.minInclusive;
+        } else if (branch.min == bounds->min) {
+          bounds->minInclusive |= branch.minInclusive;
+        }
+        if (branch.max > bounds->max) {
+          bounds->max = branch.max;
+          bounds->maxInclusive = branch.maxInclusive;
+        } else if (branch.max == bounds->max) {
+          bounds->maxInclusive |= branch.maxInclusive;
+        }
+      }
+      return true;
+    }
+
+    default:
+      return false;
+  }
+}
+
 size_t QOptimizer_EstimateLimit(size_t numDocs, size_t estimate, size_t limit) {
   if (numDocs == 0 || estimate == 0) {
     return 0;
@@ -234,6 +297,12 @@ void QOptimizer_QueryNodes(QueryNode *root, QOptimizer *opt) {
       }
       return;
     }
+  }
+
+  // No range on the sort field could be lifted out of the tree, but the query may still confine
+  // the field to one, such as a keyset cursor's `@n:[(c +inf] | (@n:[c c] ...)`.
+  if (isSortby && !opt->nf) {
+    opt->hasImpliedBounds = impliedSortFieldBounds(root, targetFieldIndex, &opt->impliedBounds);
   }
 
   // there is no sorting field and scorer is required - we must check all results

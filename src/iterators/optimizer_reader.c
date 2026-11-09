@@ -332,9 +332,14 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   oi->childEstimate = root->NumEstimated(root);
 
   const FieldSpec *field = IndexSpec_GetFieldWithLength(qOpt->sctx->spec, qOpt->fieldName, strlen(qOpt->fieldName));
-  // if there is no numeric range query but sortby, create a Numeric Filter
+  // if there is no numeric range query but sortby, create a Numeric Filter, over the range the
+  // query confines the sortby field to if it does
   if (!qOpt->nf) {
-    qOpt->nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc, field->index, NULL);
+    const SortFieldBounds *bounds = &qOpt->impliedBounds;
+    qOpt->nf = qOpt->hasImpliedBounds
+                   ? NewNumericFilter(bounds->min, bounds->max, bounds->minInclusive,
+                                      bounds->maxInclusive, qOpt->asc, field->index, NULL)
+                   : NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc, field->index, NULL);
     oi->flags |= OPTIM_OWN_NF;
   }
   oi->lastLimitEstimate = qOpt->nf->limit =
