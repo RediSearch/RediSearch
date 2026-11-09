@@ -552,9 +552,8 @@ bool SearchDisk_GetDocumentMetadata(RedisSearchDiskIndexSpec *handle, const Redi
     RedisSearchDiskSnapshot *snapshot = sctx ? sctx->diskSnapshot : NULL;
     // TODO: disk DMDs leave `slot` unset, since disk mode supports neither ASM nor SFLUSH. Whoever
     // adds them must decide how to provide it (stored on disk, or computed from the key).
-    DiskReadFailureReason ignored;
+    DiskReadFailureReason ignored = DISK_READ_ERROR;
     if (!failure_reason) failure_reason = &ignored;
-    *failure_reason = DISK_READ_ERROR;
     return disk->docTable.getDocumentMetadata(handle, docId, dmd, &sdsnewlen, current_time, snapshot, failure_reason);
 }
 
