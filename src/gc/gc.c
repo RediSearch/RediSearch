@@ -94,8 +94,8 @@ static RedisModuleTimerID scheduleNextIn(GCContext* gc, long long intervalMs) {
 }
 
 // Main thread only -- arming off it is unsafe even under the GIL (MOD-17309). Callable blindly;
-// the no-timer-while-a-run-is-pending invariant comes from QueueRun declining and timerCallback
-// zeroing timerID, not from the RunPending check here. A spec paused for a consistency window
+// the no-timer-while-a-run-is-pending invariant comes from QueueRun declining, timerCallback
+// zeroing timerID and a forced run disarming it, not from the RunPending check here. A spec paused for a consistency window
 // arms nothing; the window's resume re-arms it.
 static bool GCContext_ArmTimerIn(GCContext* gc, long long intervalMs) {
   if (!gc->enabled || gc->timerID || GCContext_RunPending(gc) ||
@@ -362,9 +362,15 @@ static GCForcedRunOutcome GCContext_CommonForceInvoke(GCContext* gc, RedisModule
     GCDebugTask_Finish(task);
     return GC_FORCED_RUN_BUSY;
   }
+  // A scheduled run starts from its timer, which is gone by then; a forced one can find it still
+  // armed. Disarm it, as no timer may outlive a pending run: a run that finds the index dropped
+  // frees this context, and the timer would then fire on it. The run's tail re-arms.
+  GCContext_DisarmTimer(gc);
   if (redisearch_thpool_add_work(gcThreadpool_g, debugTaskCallback, task, THPOOL_PRIORITY_HIGH) != 0) {
-    // No job will clear the bit, which would leave every later run of this index busy.
+    // No job will clear the bit, which would leave every later run of this index busy, and none
+    // will re-arm the timer disarmed above.
     RS_AtomicUintFetchAndRelaxed(&gc->schedFlags, ~(unsigned)GC_SCHED_RUN_PENDING);
+    GCContext_ArmTimer(gc);
     task->forced.outcome = GC_FORCED_RUN_FAILED;
     GCDebugTask_Finish(task);
     return GC_FORCED_RUN_FAILED;

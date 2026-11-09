@@ -1049,6 +1049,47 @@ def testGCTeardownWhenDropOvertakesPendingRearm_MOD_17309():
         lambda: (logicallyDeletedDocs(env) == 0, {'not_collected': logicallyDeletedDocs(env)}),
         'a drop that overtook the pending re-arm never tore the context down', timeout=30)
     env.expect('FT._LIST').equal(['keep'])
+
+
+@skip(cluster=True)
+def testGCTeardownWhenAForcedRunFindsTheIndexDroppedUnderAnArmedTimer():
+    """A forced run queued while the periodic timer is armed, and released only after its index
+    is dropped, frees the GC context once its promote fails. The timer must not survive that:
+    the forced run disarms it when it is queued, so nothing fires on the freed context later."""
+    # Long enough that the new index's first timer cannot fire before the forced run is queued.
+    env = Env(moduleArgs='FORK_GC_RUN_INTERVAL 2 FORK_GC_CLEAN_THRESHOLD 0')
+    skipIfNoEnableAssert(env)
+    env.expect('FT.CREATE', 'keep', 'PREFIX', 1, 'keep:', 'SCHEMA', 't', 'TEXT').ok()
+    # Only the forced run below may reach the sync point.
+    env.expect(debug_cmd(), 'GC_STOP_SCHEDULE', 'keep').ok()
+    env.cmd(debug_cmd(), 'GC_WAIT_FOR_JOBS')
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'CLEAR')
+    env.expect(debug_cmd(), 'SYNC_POINT', 'ARM', SYNC_POINT_GC_TASK_START, 10000).ok()
+
+    # Creating the index arms its timer; the forced run is queued with that timer armed, and
+    # parks before its promote.
+    env.expect('FT.CREATE', 'idx', 'PREFIX', 1, 'doc:', 'SCHEMA', 't', 'TEXT').ok()
+    env.cmd('HSET', 'doc:1', 't', 'hello')
+    env.expect('DEL', 'doc:1').equal(1)
+    env.expect(debug_cmd(), 'GC_FORCEBGINVOKE', 'idx').ok()
+    waitForSyncPoint(env, SYNC_POINT_GC_TASK_START, 'the forced run never parked')
+    env.assertEqual(logicallyDeletedDocs(env), 1)
+
+    env.expect('FT.DROPINDEX', 'idx').ok()
+    env.cmd(debug_cmd(), 'SYNC_POINT', 'SIGNAL', SYNC_POINT_GC_TASK_START)
+    wait_for_condition(
+        lambda: (logicallyDeletedDocs(env) == 0, {'not_collected': logicallyDeletedDocs(env)}),
+        'the forced run never tore down its dropped index', timeout=30)
+
+    # Two cycles of an index created after the timer was armed: evidence that timer's period has
+    # passed, so had it survived it would have fired on the freed context by now.
+    env.expect('FT.CREATE', 'ctl', 'PREFIX', 1, 'ctl:', 'SCHEMA', 't', 'TEXT').ok()
+    waitForGCCycles(env, 'ctl', gcCycles(env, 'ctl'), 2)
+    env.expect('PING').equal(True)
+    env.assertEqual(logicallyDeletedDocs(env), 0, message='the context was torn down twice')
+    env.expect('FT._LIST').apply(sorted).equal(['ctl', 'keep'])
+
+
 def waitForSyncPoint(env, name, message, timeout=30):
     wait_for_condition(
         lambda: (env.cmd(debug_cmd(), 'SYNC_POINT', 'IS_WAITING', name) == 1, {}),
