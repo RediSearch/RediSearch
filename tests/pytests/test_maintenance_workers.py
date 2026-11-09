@@ -425,6 +425,41 @@ def test_shutdown_with_pending_repairs_releasing_resources():
     env.expect('PING').true()
 
 
+def _shutdown_during_paused_reindex(pause_cmd, pause_arg, status):
+    """With RS_GLOBAL_DTORS, shutting down while a background scan is parked must stop the scan
+    without hanging the join or touching Redis once the shutdown has begun."""
+    prev = os.environ.get('RS_GLOBAL_DTORS')
+    os.environ['RS_GLOBAL_DTORS'] = '1'
+    try:
+        env = Env(moduleArgs='WORKERS 0', enableDebugCommand=True)
+    finally:
+        if prev is None:
+            os.environ.pop('RS_GLOBAL_DTORS')
+        else:
+            os.environ['RS_GLOBAL_DTORS'] = prev
+    skipOnExistingEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    for i in range(100):
+        env.cmd('HSET', f'doc{i}', 't', 'hello')
+    env.expect(bgScanCommand(), pause_cmd, pause_arg).ok()
+    env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', 'extra', 'TAG').ok()
+    waitForIndexStatus(env, status)
+    env.stop()
+    env.assertTrue(env.checkExitCode())
+    env.start()
+    env.expect('PING').true()
+
+
+@skip(cluster=True)
+def test_shutdown_with_reindex_paused_before_scan():
+    _shutdown_during_paused_reindex('SET_PAUSE_BEFORE_SCAN', 'true', 'NEW')
+
+
+@skip(cluster=True)
+def test_shutdown_with_reindex_paused_mid_scan():
+    _shutdown_during_paused_reindex('SET_PAUSE_ON_SCANNED_DOCS', 50, 'PAUSED')
+
+
 @skip(cluster=True)
 def test_svs_deferred_at_workers_0():
     """Tiered SVS indexes also buffer writes and build the graph on the maintenance worker."""

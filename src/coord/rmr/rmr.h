@@ -109,8 +109,9 @@ long long MR_Debug_GetPendingRequests();
 void MR_FreeCluster();
 
 // GIL for the coordinator's IO threads, so MR_FreeCluster can join them while holding it. Use
-// instead of RedisModule_ThreadSafeContextLock/Unlock on those threads.
-void MR_LockGIL(RedisModuleCtx *ctx);
+// instead of RedisModule_ThreadSafeContextLock/Unlock on those threads. False means the cluster is
+// being freed: the GIL is not held, and the caller must make no Redis call and give up.
+bool MR_LockGIL(RedisModuleCtx *ctx);
 void MR_UnlockGIL(RedisModuleCtx *ctx);
 
 /* Get the user stored private data from the context */

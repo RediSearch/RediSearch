@@ -27,7 +27,9 @@
 #include <sys/wait.h>
 #include <climits>
 #include <cassert>
+#include <atomic>
 #include <mutex>
+#include <thread>
 
 #define __ignore__(X) \
     do { \
@@ -37,6 +39,9 @@
     } while(0)
 
 static std::mutex RMCK_GlobalLock;
+// Owner of RMCK_GlobalLock. Real Redis crashes on an Unlock without a matching Lock on the same
+// thread (newer Enterprise builds read the current client in it), so the mock does too.
+static std::atomic<std::thread::id> RMCK_GlobalLockOwner{};
 
 // KeyMeta mock storage
 static std::map<std::string, std::map<RedisModuleKeyMetaClassId, uint64_t>> keyMetaStorage;
@@ -1165,14 +1170,24 @@ void RMCK_AutoMemory(RedisModuleCtx *ctx) {
 
 void RMCK_ThreadSafeContextLock(RedisModuleCtx *) {
   RMCK_GlobalLock.lock();
+  RMCK_GlobalLockOwner = std::this_thread::get_id();
 }
 
 void RMCK_ThreadSafeContextUnlock(RedisModuleCtx *) {
+  if (RMCK_GlobalLockOwner != std::this_thread::get_id()) {
+    fprintf(stderr, "redismock: ThreadSafeContextUnlock without a matching Lock on this thread\n");
+    abort();
+  }
+  RMCK_GlobalLockOwner = std::thread::id{};
   RMCK_GlobalLock.unlock();
 }
 
 int RMCK_ThreadSafeContextTryLock(RedisModuleCtx *) {
-  return RMCK_GlobalLock.try_lock() ? REDISMODULE_OK : REDISMODULE_ERR;
+  if (!RMCK_GlobalLock.try_lock()) {
+    return REDISMODULE_ERR;
+  }
+  RMCK_GlobalLockOwner = std::this_thread::get_id();
+  return REDISMODULE_OK;
 }
 
 static RedisModuleCallReply *RMCK_CallSet(RedisModuleCtx *ctx, const char *cmd, const char *fmt,

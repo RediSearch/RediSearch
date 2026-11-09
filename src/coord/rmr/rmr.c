@@ -1111,8 +1111,8 @@ void MR_FreeCluster() {
   MR_FreeLocalNodeId();
 }
 
-void MR_LockGIL(RedisModuleCtx *ctx) {
-  GilGate_Lock(&clusterGilGate, ctx);
+bool MR_LockGIL(RedisModuleCtx *ctx) {
+  return GilGate_Lock(&clusterGilGate, ctx);
 }
 
 void MR_UnlockGIL(RedisModuleCtx *ctx) {
