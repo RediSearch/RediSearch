@@ -33,6 +33,7 @@
 #include "rules.h"
 #include "search_ctx.h"
 #include "spec.h"
+#include "field_path_table.h"
 #include "ttl_table.h"
 #include "ttl_table_rs.h"
 #include "util/arr/arr.h"
@@ -166,6 +167,98 @@ void Document_LoadHashFieldExpiration(RedisModuleKey *k, const FieldSpec *field,
   FieldExpirations_Push(out, fx);
 }
 
+// Appends schema field `ii` to `doc` if the hash holds a value for it. `scanned` is a copy of the
+// value the hash scan already produced, which `doc` then owns, or NULL to read it from the key.
+static void loadHashSchemaField(Document *doc, RedisSearchCtx *sctx, RedisModuleKey *k, size_t ii,
+                                bool hasExpireTimeOnFields, RedisModuleString *scanned) {
+  FieldSpec *field = &sctx->spec->fields[ii];
+  RedisModuleString *v = scanned;
+  if (!v) {
+    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, HiddenString_GetUnsafe(field->fieldPath, NULL), &v, NULL);
+    if (v == NULL) {
+      return;
+    }
+  }
+
+  if (hasExpireTimeOnFields) {
+    Document_LoadHashFieldExpiration(k, field, ii, &doc->fieldExpirations);
+  }
+
+  size_t oix = doc->numFields++;
+  doc->fields[oix].docFieldName = HiddenString_Duplicate(field->fieldName);
+  if (scanned) {
+    doc->fields[oix].text = scanned;
+  } else {
+    // on crdt the return value might be the underline value, we must copy it!!!
+    doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
+    RedisModule_FreeString(sctx->redisCtx, v);
+  }
+  doc->fields[oix].unionType = FLD_VAR_T_RMS;
+}
+
+typedef struct {
+  t_fieldIndex index;
+  RedisModuleString *value;  // copy of the scanned value, handed to the document; or NULL to read it from the key
+} HashCandidate;
+
+typedef struct {
+  const FieldPathTable *paths;
+  FieldSpecDedupeSet seen;
+  HashCandidate *candidates;
+  bool keepValues;
+  RedisModuleCtx *ctx;
+} HashScanState;
+
+static void hashScanCallback(RedisModuleKey *key, RedisModuleString *field,
+                             RedisModuleString *value, void *privdata) {
+  HashScanState *st = privdata;
+  size_t len;
+  const char *name = RedisModule_StringPtrLen(field, &len);
+  for (t_fieldIndex pos = FieldPathTable_Find(st->paths, name, len); pos;
+       pos = FieldPathTable_Next(st->paths, pos)) {
+    // A scan can report a field twice if the hash rehashes meanwhile.
+    if (FieldSpecDedupeSet_TestAndSet(&st->seen, pos - 1)) {
+      continue;
+    }
+    HashCandidate c = {.index = pos - 1,
+                       .value = st->keepValues ? RedisModule_CreateStringFromString(st->ctx, value)
+                                               : NULL};
+    array_append(st->candidates, c);
+  }
+}
+
+static int compareCandidates(const void *a, const void *b) {
+  return (int)((const HashCandidate *)a)->index - (int)((const HashCandidate *)b)->index;
+}
+
+// Same result as probing every schema field with HashGet, in time proportional to the document.
+static void loadHashFieldsByDocument(Document *doc, RedisSearchCtx *sctx, RedisModuleKey *k,
+                                     const FieldPathTable *paths, bool hasExpireTimeOnFields) {
+  HashScanState st = {
+      .paths = paths,
+      .candidates = array_new(HashCandidate, 16),
+      // A scan reports expired-but-unreaped fields that HashGet skips, so with any field
+      // expiration the values are read from the key, whether or not expiration is monitored.
+      .keepValues = RedisModule_HashFieldMinExpire(k) == REDISMODULE_NO_EXPIRE,
+      .ctx = sctx->redisCtx,
+  };
+  FieldSpecDedupeSet_Init(&st.seen, sctx->spec->numFields);
+  RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
+  while (RedisModule_ScanKey(k, cursor, hashScanCallback, &st)) {
+  }
+  RedisModule_ScanCursorDestroy(cursor);
+
+  // Fields go to the document in schema order, as the per-field probe produced them.
+  const size_t n = array_len(st.candidates);
+  qsort(st.candidates, n, sizeof(*st.candidates), compareCandidates);
+  doc->fields = rm_calloc(n ? n : 1, sizeof(*doc->fields));
+  for (size_t i = 0; i < n; ++i) {
+    loadHashSchemaField(doc, sctx, k, st.candidates[i].index, hasExpireTimeOnFields,
+                        st.candidates[i].value);
+  }
+  array_free(st.candidates);
+}
+
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, RedisModuleKey *openKey,
                                  QueryError *status) {
   // must happen before opening the key, in case the call will cause a lazy expiration
@@ -183,6 +276,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, RedisModul
   RedisModuleString *payload_rms = NULL;
   const char *keyname = NULL;
   bool hasExpireTimeOnFields = false;
+  const FieldPathTable *paths = NULL;
 
   // This is possible if the key has expired for example in previous redis API calls in this notification flow.
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
@@ -208,25 +302,14 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, RedisModul
 
   hasExpireTimeOnFields = spec->monitorFieldExpiration && RedisModule_HashFieldMinExpire(k) != REDISMODULE_NO_EXPIRE;
   // Load indexed fields from the document
-  doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
-  for (size_t ii = 0; ii < spec->numFields; ++ii) {
-    FieldSpec *field = &spec->fields[ii];
-    RedisModuleString *v = NULL;
-    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, HiddenString_GetUnsafe(field->fieldPath, NULL), &v, NULL);
-    if (v == NULL) {
-      continue;
+  paths = IndexSpec_GetFieldPathTable(spec);
+  if (paths) {
+    loadHashFieldsByDocument(doc, sctx, k, paths, hasExpireTimeOnFields);
+  } else {
+    doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
+    for (size_t ii = 0; ii < spec->numFields; ++ii) {
+      loadHashSchemaField(doc, sctx, k, ii, hasExpireTimeOnFields, NULL);
     }
-
-    if (hasExpireTimeOnFields) {
-      Document_LoadHashFieldExpiration(k, field, ii, &doc->fieldExpirations);
-    }
-
-    size_t oix = doc->numFields++;
-    doc->fields[oix].docFieldName = HiddenString_Duplicate(field->fieldName);
-    // on crdt the return value might be the underline value, we must copy it!!!
-    doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
-    doc->fields[oix].unionType = FLD_VAR_T_RMS;
-    RedisModule_FreeString(sctx->redisCtx, v);
   }
 
   if (spec->monitorDocumentExpiration) {

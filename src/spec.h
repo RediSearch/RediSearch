@@ -392,6 +392,9 @@ typedef struct IndexSpec {
   // By-name index over `fields`. Kept in sync by IndexSpec_CreateField and
   // IndexSpec_RebuildFieldNameTable.
   FieldNameTable fieldNames;
+  // Document path -> fields, built on first use by IndexSpec_GetFieldPathTable and dropped
+  // whenever `fields` changes. Only used under the GIL, as `fields` is only mutated there.
+  struct FieldPathTable *fieldPaths;
 
   IndexFlags flags;               // Flags
   IndexStats stats;               // Statistics of memory used and quantities
@@ -726,6 +729,12 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
  * change to the set of fields that bypasses IndexSpec_CreateField (RDB load, schema rollback).
  */
 void IndexSpec_RebuildFieldNameTable(IndexSpec *sp);
+
+/**
+ * The spec's path table for loading a document by its own fields, or NULL if the schema is
+ * too small for it to pay off or not a Hash index. Callers must hold the GIL.
+ */
+const struct FieldPathTable *IndexSpec_GetFieldPathTable(IndexSpec *sp);
 
 // Delete a document from the index by its key name.
 // In disk mode, looks up the docId via the key's metadata, removes the

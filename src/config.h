@@ -218,6 +218,9 @@ typedef struct {
   // When enabled (default), using new relabel API instead of deleting and
   // re-adding to index.
   bool optimizePartialUpdate;
+  // Load a document by walking its own fields, resolving each through the schema's path table,
+  // instead of probing every schema field. Only affects wide schemas.
+  bool loadByDocumentFields;
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
   // Set how much time after OOM is detected we should wait to enable the resource manager to
@@ -508,6 +511,7 @@ static_assert(DISK_ASYNC_READ_POOL_SIZE_MAX * DISK_ASYNC_READ_QUEUE_FACTOR_MAX <
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
     .optimizePartialUpdate = DEFAULT_OPTIMIZE_PARTIAL_UPDATE,                  \
+    .loadByDocumentFields = false,                                             \
     .hideUserDataFromLog = false,                                              \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
