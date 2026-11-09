@@ -19,9 +19,6 @@ use rqe_core::DocId;
 /// The most bytes a [`GoneIds::Bitset`] spends; a wider window keeps its set.
 pub const MAX_BITMAP_BYTES: usize = 16 << 20;
 
-/// The live IDs a forked child sorts at a time while walking its table.
-const LIVE_ID_BATCH: usize = 1 << 16;
-
 /// How many times the size of a forked child's live IDs their complement may take
 /// and still be kept instead, for its faster checks.
 const DEAD_SET_SIZE_FACTOR: usize = 2;
@@ -136,23 +133,10 @@ impl GoneIds {
     /// Like [`GoneIds::of_table`], with bits only for a window of at most
     /// `max_bitmap_bytes`.
     pub fn of_table_with_cap(spec: &IndexSpecReadGuard, max_bitmap_bytes: usize) -> Self {
-        // The walk visits IDs in bucket order. Sorting them a batch at a time and
-        // merging each batch as a set is much cheaper than inserting them one by one
-        // out of order, at the cost of one bounded buffer.
         let mut live = RoaringTreemap::new();
-        let mut batch = Vec::with_capacity(LIVE_ID_BATCH);
-        let merge = |batch: &mut Vec<DocId>, live: &mut RoaringTreemap| {
-            batch.sort_unstable();
-            *live |= RoaringTreemap::from_sorted_iter(batch.drain(..))
-                .expect("a sorted batch is sorted");
-        };
         spec.for_each_live_doc(|id| {
-            batch.push(id);
-            if batch.len() == LIVE_ID_BATCH {
-                merge(&mut batch, &mut live);
-            }
+            live.insert(id);
         });
-        merge(&mut batch, &mut live);
         Self::from_live_set(live, spec.doc_table().maxDocId, max_bitmap_bytes)
     }
 
