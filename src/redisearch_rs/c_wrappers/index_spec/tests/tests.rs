@@ -252,6 +252,11 @@ fn check_a_forgotten_lock_keeps_its_spec(forget_lock: impl FnOnce(IndexSpecStron
         ffi::HiddenString_Free(spec.specName, true);
         drop(CString::from_raw(spec.obfuscatedName));
     }
+    // The allocator may hand this address to a later spec in the process.
+    FREED
+        .lock()
+        .unwrap()
+        .retain(|&freed| freed != spec_ptr as usize);
 }
 
 #[test]
