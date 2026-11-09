@@ -39,6 +39,10 @@ on:
         description: "Run Rust unit tests. Disabled by C/C++-only sanitizer lanes."
         type: boolean
         default: true
+      redisjson-legacy-api:
+        description: 'Build and test using RedisJSON API V8 string-path lookup.'
+        type: boolean
+        default: false
       unit-test-filter:
         description: 'Optional C/C++ unit-test filter forwarded as TEST.'
         type: string
@@ -165,6 +169,8 @@ jobs:
 
     env:
       IS_FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+      # Keep the mode through every make invocation, including test-time reconfiguration.
+      CMAKE_ARGS: ${{ inputs.redisjson-legacy-api && '-DREDISJSON_LEGACY_API=ON' || '' }}
       # LTO is disabled on coverage and sanitizer tasks
       LTO: ${{ needs.get-config.outputs.enable_lto == '1' && inputs.san == '' && !inputs.coverage && 1 || 0 }}
 
@@ -287,6 +293,12 @@ jobs:
           REDIS_VER: ${{ inputs.redis-ref }}
           ENABLE_ASSERT: 1
         run: make build TESTS=1
+      - name: Verify legacy RedisJSON configuration
+        if: inputs.redisjson-legacy-api
+        run: |
+          mapfile -t caches < <(find bin -mindepth 3 -maxdepth 3 -name CMakeCache.txt)
+          test "${#caches[@]}" -eq 1
+          grep -Fx 'REDISJSON_LEGACY_API:BOOL=ON' "${caches[0]}"
       - name: Validate glibc version
         if: runner.os == 'Linux' && inputs.platform != 'ubuntu:focal'
         uses: ./.github/actions/validate-glibc-version
