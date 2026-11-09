@@ -40,6 +40,11 @@ rules:
       # can trigger triage on an already-failed PR — `pull_request` would not have
       # access to the run. Checks out with persist-credentials: false, no `ref:`.
       - event-pr-validation-triage.yml
+      # workflow_run: the only event that fires after "Pull Request Flow" finishes,
+      # which is when its failed jobs can be re-run. No checkout at all; the
+      # shared action it calls only reads the run's jobs and annotations through
+      # the API.
+      - event-rerun-action-download-failures.yml
       # pull_request_target: closed is what makes "backport on merge" possible;
       # `pull_request` does not fire for merges from forks. Cherry-picks commits
       # onto the release branch without executing them.

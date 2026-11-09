@@ -128,7 +128,7 @@ fn freeing_the_iterator_invalidates_the_handle_it_was_given() {
 
     // SAFETY: `it` is a live vector top-k iterator held exclusively, and
     // `handle` outlives it — the iterator is freed just below.
-    unsafe { interop::set_key_handle(it.as_non_null(), &raw mut handle) };
+    unsafe { interop::set_key_handle(it.as_non_null(), NonNull::new(&raw mut handle)) };
     assert!(handle.is_valid, "wiring a handle must not clear it");
 
     // Released here rather than left to drop: the invalidation is only
