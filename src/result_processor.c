@@ -1480,7 +1480,7 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
 
 static void rpSafeLoader_Load(RPSafeLoader *self) {
   SearchResult *curr_res;
-  // The pipeline's timeout state, NULL where it runs without memory checkpoints (hybrid).
+  // The pipeline's timeout state, NULL for a pipeline built without a request.
   QueryRequestLimits *timeout = self->base_loader.base.parent->limits;
   // A stop requested while buffering already chose to load the whole buffer (RETURN), and an
   // upstream hold ends the stream when that stage drains, so only memory found short while loading,
@@ -3518,6 +3518,13 @@ void RPDepleter_StartDepletion(ResultProcessor *base) {
 rs_wall_clock_ns_t RPDepleter_GetDepletionTime(const ResultProcessor *base) {
   const RPDepleter *self = (const RPDepleter *)base;
   return self->depletionTime;
+}
+
+bool RPDepleter_EndedOnTimeout(const ResultProcessor *depleter) {
+  RS_ASSERT(depleter->type == RP_DEPLETER || depleter->type == RP_SAFE_DEPLETER);
+  const RPStatus rc = depleter->type == RP_DEPLETER ? ((const RPDepleter *)depleter)->last_rc
+                                                   : ((const RPSafeDepleter *)depleter)->last_rc;
+  return rc == RS_RESULT_STOPPED;
 }
 
 int RPDepleter_DepleteAll(arrayof(ResultProcessor*) depleters) {

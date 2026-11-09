@@ -240,6 +240,9 @@ void HybridRequest_Free(HybridRequest *req);
 
 QueryError *HybridRequest_GetFatalError(HybridRequest *req);
 
+/** Whether a tail error is soft: ignored by HybridRequest_GetFatalError and only warned about. */
+bool HybridRequest_IsSoftTailError(const QueryError *err);
+
 int HybridRequest_GetError(HybridRequest *req, QueryError *status);
 
 void HybridRequest_ClearErrors(HybridRequest *req);
