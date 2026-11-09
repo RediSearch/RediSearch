@@ -91,7 +91,9 @@ pub trait GcStatsSink {
 
 impl GcStatsSink for ForkPipe {
     fn record(&mut self, stats: &GcApplyStats) {
-        // SAFETY: the pipe's stats are valid for as long as it is borrowed here.
+        // SAFETY: 1. the pipe's stats are valid for as long as it is borrowed here.
+        // 2. the fork parent records each delta's stats under the write lock it
+        //    applied the delta under.
         unsafe { GcCounters::new(self.stats_ptr()) }.record(stats);
     }
 }
@@ -104,11 +106,12 @@ pub struct GcCounters(NonNull<ffi::IndexGCStats>);
 impl GcCounters {
     /// # Safety
     ///
-    /// `stats` points to a GC context's counters, valid for as long as the result
-    /// lives, and [`record`](GcStatsSink::record) is called only under the spec's
-    /// write lock, which serializes it with `FT.INFO`.
+    /// 1. `stats` points to a GC context's counters, valid for as long as the result
+    ///    lives.
+    /// 2. [`record`](GcStatsSink::record) is called only under the spec's write
+    ///    lock, which serializes it with `FT.INFO`.
     pub const unsafe fn new(stats: *mut ffi::IndexGCStats) -> Self {
-        // SAFETY: the caller guarantees `stats` is valid, so not null.
+        // SAFETY: 1. guarantees `stats` is valid, so not null.
         Self(unsafe { NonNull::new_unchecked(stats) })
     }
 }

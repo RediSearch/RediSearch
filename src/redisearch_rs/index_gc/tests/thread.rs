@@ -747,7 +747,8 @@ fn gc_counters_fold_a_delta_into_the_stats() {
     use index_gc::stats::GcCounters;
     // SAFETY: zero is a valid value for every counter.
     let mut stats: ffi::IndexGCStats = unsafe { mem::zeroed() };
-    // SAFETY: `stats` outlives the counters, and only they touch it meanwhile.
+    // SAFETY: 1. `stats` outlives the counters, and 2. only they touch it meanwhile,
+    // so no lock is needed to serialize them.
     let mut counters = unsafe { GcCounters::new(&raw mut stats) };
     for _ in 0..2 {
         counters.record(&GcApplyStats {
