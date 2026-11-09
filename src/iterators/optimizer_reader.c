@@ -54,8 +54,24 @@ static inline double getSuccessRatio(const OptimizerIterator *optIt) {
 
 static size_t OPT_NumEstimated(const QueryIterator *self) {
   const OptimizerIterator *opt = (const OptimizerIterator *)self;
-  return MIN(opt->child->NumEstimated(opt->child) ,
-              opt->numericIter->NumEstimated(opt->numericIter));
+  size_t estimate = opt->child->NumEstimated(opt->child);
+  // `OPT_Rewind` leaves no numeric iterator once the filter has no range left.
+  if (opt->numericIter) {
+    estimate = MIN(estimate, opt->numericIter->NumEstimated(opt->numericIter));
+  }
+  return estimate;
+}
+
+// Suspend the optimizer iterator. Cascades the suspend signal to both children
+// so they can drop any lock-dependent state before the spec read lock is released.
+static void OPT_Suspend(QueryIterator *self) {
+  OptimizerIterator *opt = (OptimizerIterator *)self;
+  if (opt->child) {
+    opt->child->Suspend(opt->child);
+  }
+  if (opt->numericIter) {
+    opt->numericIter->Suspend(opt->numericIter);
+  }
 }
 
 // TODO: handle MOVED better
@@ -69,6 +85,9 @@ static ValidateStatus OPT_Validate(QueryIterator *self, struct IndexSpec *spec) 
   }
   if (childStatus != VALIDATE_OK) {
     return VALIDATE_ABORTED;
+  }
+  if (!opt->numericIter) {
+    return VALIDATE_OK;
   }
   ValidateStatus numericStatus = opt->numericIter->Revalidate(opt->numericIter, spec);
   if (numericStatus == VALIDATE_TIMEOUT) {
@@ -320,6 +339,7 @@ QueryIterator *NewOptimizerIterator(QOptimizer *qOpt, QueryIterator *root, Itera
   ri->Free = OptimizerIterator_Free;
   ri->Rewind = OPT_Rewind;
   ri->Revalidate = OPT_Validate;
+  ri->Suspend = OPT_Suspend;
   ri->SkipTo = NULL;            // The iterator is always on top and and Read() is called
   ri->Read = OPT_Read;
   ri->ProfileChildren = OPT_ProfileChildren;

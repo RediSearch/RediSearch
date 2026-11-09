@@ -135,6 +135,14 @@ impl<I> OptionalChild<I> {
 /// [`RQEIterator`] impl today.
 pub type Optional<'index, I> = RawOptional<'index, Active<'index>, I>;
 
+impl<'query, Rf: Ref, I> RawOptional<'query, Rf, I> {
+    /// Get a shared reference to the _child_ iterator
+    /// wrapped by this [`Optional`] iterator. Mode-independent.
+    pub const fn child(&self) -> Option<&I> {
+        self.child.as_ref()
+    }
+}
+
 // Compile-time proof of invariant 1 on `RawOptional`: for a representative
 // concrete child, the `Active` and `Suspended` instantiations are
 // layout-identical. The `result: RawIndexResult<Rf>` field's own cross-`Rf`
@@ -182,12 +190,6 @@ where
             child: OptionalChild::Present(child),
             past_end: false,
         }
-    }
-
-    /// Get a shared reference to the _child_ iterator
-    /// wrapped by this [`Optional`] iterator.
-    pub const fn child(&self) -> Option<&I> {
-        self.child.as_ref()
     }
 
     /// Whether this iterator owes no further result, recording it if the
@@ -575,9 +577,9 @@ impl<'index> crate::interop::ProfileChildren<'index>
     }
 }
 
-impl<'index, I> ProfilePrint for Optional<'index, I>
+impl<'query, Rf: Ref, I> ProfilePrint for RawOptional<'query, Rf, I>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         ctx.print_single_child(c"OPTIONAL", self.child(), map);

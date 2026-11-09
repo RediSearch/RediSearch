@@ -112,6 +112,11 @@ extern "C" {
  *
  * Unlike the constructor, this method does **not** re-sort the child list after insertion.
  *
+ * # Panics
+ *
+ * Panics if the intersection is no longer active: children are added while the query plan is
+ * built, before the first `Suspend`.
+ *
  * # Safety
  *
  * 1. `header` must be a valid non-null pointer created via [`NewIntersectionIterator()`].
@@ -517,6 +522,11 @@ void RQEIterators_SetMockRevalidateTimeout(bool enabled);
 /**
  * Trims a union iterator for the LIMIT optimizer, then switches to unsorted
  * sequential read mode.
+ *
+ * # Panics
+ *
+ * Panics if the union is no longer active: trimming happens while the query plan is built,
+ * before the first `Suspend`.
  *
  * # Safety
  *

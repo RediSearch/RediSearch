@@ -198,6 +198,8 @@ impl MockScoreSource {
     }
 }
 
+impl crate::TopKSourceProfile for MockScoreSource {}
+
 impl ScoreSource for MockScoreSource {
     type Batch = MockScoreBatch;
 

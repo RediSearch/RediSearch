@@ -175,6 +175,34 @@ const _: () = {
 };
 
 // Methods used in both modes.
+impl<'query, Rf: Ref, I, const QUICK_EXIT: bool> RawUnionFlat<'query, Rf, I, QUICK_EXIT> {
+    /// Returns the total number of children (including exhausted ones).
+    /// Mode-independent.
+    pub const fn num_children_total(&self) -> usize {
+        self.children.len()
+    }
+
+    /// Returns the number of currently active (non-exhausted) children.
+    /// Mode-independent.
+    pub const fn num_children_active(&self) -> usize {
+        self.num_active
+    }
+
+    /// Returns a shared reference to the child originally at insertion index `idx`.
+    /// Mode-independent.
+    ///
+    /// Returns `None` if the child was permanently removed (e.g. aborted during
+    /// revalidation). Scans the children to find the one whose `original_index`
+    /// matches, so this is O(n) — intended for profile display, not hot-path
+    /// iteration.
+    pub fn child_at(&self, idx: usize) -> Option<&I> {
+        self.children
+            .iter()
+            .find(|c| c.original_index == idx)
+            .map(|c| &c.inner)
+    }
+}
+
 impl<'index, I, const QUICK_EXIT: bool> UnionFlat<'index, I, QUICK_EXIT>
 where
     I: RQEIterator<'index>,
@@ -211,29 +239,6 @@ where
             is_eof: false,
             result: RSIndexResult::build_union(num_children).build(),
         }
-    }
-
-    /// Returns the total number of children (including exhausted ones).
-    pub const fn num_children_total(&self) -> usize {
-        self.children.len()
-    }
-
-    /// Returns the number of currently active (non-exhausted) children.
-    pub const fn num_children_active(&self) -> usize {
-        self.num_active
-    }
-
-    /// Returns a shared reference to the child originally at insertion index `idx`.
-    ///
-    /// Returns `None` if the child was permanently removed (e.g. aborted during
-    /// revalidation). Scans the children to find the one whose `original_index`
-    /// matches, so this is O(n) — intended for profile display, not hot-path
-    /// iteration.
-    pub fn child_at(&self, idx: usize) -> Option<&I> {
-        self.children
-            .iter()
-            .find(|c| c.original_index == idx)
-            .map(|c| &c.inner)
     }
 
     /// Returns a mutable iterator over all children (including exhausted ones).
@@ -1291,5 +1296,20 @@ impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
             is_eof: self.is_eof,
             result: self.result,
         }
+    }
+}
+
+// Union variants are always wrapped by `UnionOpaque`, which prints the real
+// `UNION` profile (including children); this impl exists only to satisfy the
+// `RQEIterator: ProfilePrint` supertrait and is not reached in practice.
+impl<Rf: Ref, I, const QUICK_EXIT: bool> crate::profile_print::ProfilePrint
+    for RawUnionFlat<'_, Rf, I, QUICK_EXIT>
+{
+    fn print_profile(
+        &self,
+        map: &mut redis_reply::MapBuilder<'_>,
+        ctx: &mut crate::profile_print::ProfilePrintCtx<'_>,
+    ) {
+        ctx.print_leaf(c"UNION", map);
     }
 }

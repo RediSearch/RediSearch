@@ -30,6 +30,24 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::utils::{Mock, MockData, MockRevalidateResult, drain_doc_ids};
 
+/// Drive the C lock-release protocol on `it`: `Suspend` before the lock is dropped, then
+/// `Revalidate` once it is re-acquired.
+///
+/// # Safety
+///
+/// `it` is a live iterator built by an [`RQEIteratorWrapper`] constructor, and `spec` is the spec
+/// it is revalidated against.
+unsafe fn suspend_then_revalidate(
+    it: *mut QueryIterator,
+    spec: *mut ffi::IndexSpec,
+) -> ValidateStatus {
+    // SAFETY: guaranteed by the caller; every wrapper constructor populates both callbacks.
+    unsafe {
+        ((*it).Suspend.expect("Suspend must be populated"))(it);
+        ((*it).Revalidate.expect("Revalidate must be populated"))(it, spec)
+    }
+}
+
 /// Call the C `Revalidate` callback on a Rust iterator lowered to the C ABI, then free it.
 fn revalidate_through_c_abi(outcome: MockRevalidateResult) -> ValidateStatus {
     let ctx = MockContext::new(100, 10);
@@ -39,11 +57,7 @@ fn revalidate_through_c_abi(outcome: MockRevalidateResult) -> ValidateStatus {
     let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(mock);
     // SAFETY: `sctx` is a valid `RedisSearchCtx` owned by the mock context, and its `spec` is the
     // spec the iterator is revalidated against. `boxed_new` populates every callback.
-    let status = unsafe {
-        let spec = (*ctx.sctx().as_ptr()).spec;
-        let revalidate = (*it).Revalidate.expect("Revalidate must be populated");
-        revalidate(it, spec)
-    };
+    let status = unsafe { suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec) };
     // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
     unsafe { ((*it).Free.expect("Free must be populated"))(it) };
 
@@ -603,10 +617,7 @@ fn a_child_timeout_reaches_c_as_a_timeout_through_a_composite() {
     let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new_compound(intersection);
 
     // SAFETY: as in `revalidate_through_c_abi`.
-    let status = unsafe {
-        let spec = (*ctx.sctx().as_ptr()).spec;
-        ((*it).Revalidate.expect("Revalidate must be populated"))(it, spec)
-    };
+    let status = unsafe { suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec) };
     // SAFETY: `it` is the owning pointer returned by `boxed_new_compound` and is not used after.
     unsafe { ((*it).Free.expect("Free must be populated"))(it) };
 
@@ -629,10 +640,7 @@ fn the_debug_switch_reports_a_timeout_without_consulting_the_iterator() {
 
     rqe_iterators::interop::set_mock_revalidate_timeout(true);
     // SAFETY: as in `revalidate_through_c_abi`.
-    let status = unsafe {
-        let spec = (*ctx.sctx().as_ptr()).spec;
-        ((*it).Revalidate.expect("Revalidate must be populated"))(it, spec)
-    };
+    let status = unsafe { suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec) };
     rqe_iterators::interop::set_mock_revalidate_timeout(false);
     // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
     unsafe { ((*it).Free.expect("Free must be populated"))(it) };
@@ -644,4 +652,173 @@ fn the_debug_switch_reports_a_timeout_without_consulting_the_iterator() {
         "the switch stands in for an expired deadline, so it must short-circuit rather than let \
          the iterator revalidate and then discard the outcome",
     );
+}
+
+/// Print the profile of a Rust iterator through its C `PrintProfile` callback and capture the
+/// single reply it writes.
+///
+/// # Safety
+///
+/// `it` is a live iterator built by an [`RQEIteratorWrapper`] constructor.
+#[cfg(not(miri))]
+unsafe fn print_profile_through_c_abi(it: *mut QueryIterator) -> redis_mock::reply::ReplyValue {
+    redis_mock::init_redis_module_mock();
+    // SAFETY: the mock replaces every `RedisModule_Reply*` function with one that records the reply
+    // without dereferencing the context, so a dangling non-null context is never read.
+    let mut replier = unsafe {
+        redis_reply::Replier::new(std::ptr::dangling_mut::<redis_reply::RedisModuleCtx>())
+    };
+    let mut replies = redis_mock::reply::capture_replies(|| {
+        let mut ctx = rqe_iterators::profile_print::ProfilePrintCtx::new(false, false);
+        let mut map = replier.map();
+        let it = std::ptr::NonNull::new(it).expect("the wrapper is non-null");
+        // SAFETY: guaranteed by the caller; every wrapper constructor populates `PrintProfile`.
+        unsafe { rqe_iterators::c2rust::call_print_profile(it, &mut map, &mut ctx) };
+    });
+    assert_eq!(replies.len(), 1, "a profile is a single map reply");
+    replies.pop().unwrap()
+}
+
+/// The profile is printed after the query has released its read lock, so by then the iterator
+/// tree is suspended. Printing it must not require resuming it, and must report the same profile
+/// as the active iterator did.
+#[cfg(not(miri))]
+#[test]
+fn a_suspended_wrapper_prints_the_profile_of_its_active_form() {
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(Mock::new([1, 2, 3]));
+
+    // SAFETY: `it` was just built by `boxed_new`.
+    let active = unsafe { print_profile_through_c_abi(it) };
+    // SAFETY: as above; `boxed_new` populates `Suspend`.
+    unsafe { ((*it).Suspend.expect("Suspend must be populated"))(it) };
+    // SAFETY: as above.
+    let suspended = unsafe { print_profile_through_c_abi(it) };
+    // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
+    unsafe { ((*it).Free.expect("Free must be populated"))(it) };
+
+    assert_eq!(suspended, active);
+    insta::assert_debug_snapshot!(suspended);
+}
+
+/// Pipelines may stack several unlock sites that each suspend the root iterator before releasing
+/// the read lock, so a `Suspend` on an already suspended wrapper must leave it untouched.
+#[test]
+fn a_second_suspend_is_a_no_op() {
+    let ctx = MockContext::new(100, 10);
+    let mock = Mock::new([1, 2, 3]);
+    let data = mock.data();
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(mock);
+
+    // SAFETY: `it` was just built by `boxed_new`, which populates every callback, and `sctx`
+    // carries the spec it is revalidated against.
+    unsafe {
+        ((*it).Suspend.expect("Suspend must be populated"))(it);
+        assert_eq!(
+            suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec),
+            ValidateStatus_VALIDATE_OK
+        );
+    }
+    assert_eq!(
+        data.revalidate_count(),
+        1,
+        "two suspends and one revalidate make a single cycle"
+    );
+    // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
+    unsafe { ((*it).Free.expect("Free must be populated"))(it) };
+}
+
+/// Not every lock re-acquisition is preceded by a `Suspend`, and a freshly built iterator was never
+/// suspended at all, so a `Revalidate` on an active wrapper has to run the whole cycle rather than
+/// trust borrows that may have gone stale while the lock was released.
+#[test]
+fn revalidating_an_active_wrapper_runs_a_full_cycle() {
+    let ctx = MockContext::new(100, 10);
+    let mock = Mock::new([1, 2, 3]);
+    let data = mock.data();
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(mock);
+
+    // SAFETY: as in `a_second_suspend_is_a_no_op`.
+    let status = unsafe {
+        ((*it).Revalidate.expect("Revalidate must be populated"))(it, (*ctx.sctx().as_ptr()).spec)
+    };
+
+    assert_eq!(status, ValidateStatus_VALIDATE_OK);
+    assert_eq!(
+        data.revalidate_count(),
+        1,
+        "the iterator must have been resumed"
+    );
+    // SAFETY: `it` is the owning pointer returned by `boxed_new` and is not used afterwards.
+    unsafe { ((*it).Free.expect("Free must be populated"))(it) };
+}
+
+/// Number of times [`count_suspend_calls`] was invoked.
+static SUSPEND_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+/// Stand-in `Suspend` callback: records that it was called.
+extern "C" fn count_suspend_calls(_it: *mut QueryIterator) {
+    SUSPEND_CALLS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A C iterator may hold lock-dependent state of its own, and a Rust iterator lowered to the C ABI
+/// only changes state through its `Suspend` callback, so suspending the handle has to reach it.
+#[test]
+fn suspending_a_c_iterator_forwards_to_its_suspend_callback() {
+    let it = Box::new(CRQEIterator::from_rust_leaf(Mock::new([1, 2, 3])));
+    // SAFETY: `it` owns the header and no reference into it is live across this call.
+    unsafe {
+        rqe_iterators::interop::patch_vtable(it.as_raw().as_ptr(), |h| {
+            h.Suspend = Some(count_suspend_calls)
+        })
+    };
+
+    let suspended = it.suspend();
+
+    assert_eq!(SUSPEND_CALLS.load(Ordering::Relaxed), 1);
+    drop(suspended);
+}
+
+/// `FT.PROFILE` asks for the estimate after the query has released its read lock, by which time
+/// the iterator tree is suspended, so the callback has to answer in that state too.
+#[test]
+fn a_suspended_wrapper_still_reports_its_estimate() {
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(Mock::new([1, 2, 3]));
+
+    // SAFETY: `it` was just built by `boxed_new`, which populates every callback.
+    unsafe {
+        let num_estimated = (*it).NumEstimated.expect("NumEstimated must be populated");
+        let active = num_estimated(it);
+        ((*it).Suspend.expect("Suspend must be populated"))(it);
+        assert_eq!(num_estimated(it), active);
+        ((*it).Free.expect("Free must be populated"))(it);
+    }
+}
+
+/// An exhausted iterator publishes no result, and C tells it apart from one sitting on a document
+/// by `current` being NULL with `atEOF` set. Revalidate re-derives the header from the resumed
+/// iterator, so that has to survive the cycle, along with the last position.
+#[test]
+fn an_exhausted_wrapper_stays_exhausted_across_a_cycle() {
+    let ctx = MockContext::new(100, 10);
+    let it: *mut QueryIterator = RQEIteratorWrapper::boxed_new(Mock::new([1, 2]));
+
+    // SAFETY: `it` was just built by `boxed_new`, which populates every callback, and `sctx`
+    // carries the spec it is revalidated against.
+    unsafe {
+        let read = (*it).Read.expect("Read must be populated");
+        while read(it) == ffi::IteratorStatus_ITERATOR_OK {}
+        assert!((*it).current.is_null() && (*it).atEOF);
+
+        assert_eq!(
+            suspend_then_revalidate(it, (*ctx.sctx().as_ptr()).spec),
+            ValidateStatus_VALIDATE_OK
+        );
+        assert!(
+            (*it).current.is_null(),
+            "an exhausted iterator publishes no result"
+        );
+        assert!((*it).atEOF);
+        assert_eq!((*it).lastDocId, 2, "the last position survives the cycle");
+        ((*it).Free.expect("Free must be populated"))(it);
+    }
 }

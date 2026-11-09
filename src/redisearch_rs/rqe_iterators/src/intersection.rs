@@ -146,6 +146,18 @@ enum AgreeResult {
     Eof,
 }
 
+impl<'query, Rf: Ref, I> RawIntersection<'query, Rf, I> {
+    /// Returns the number of child iterators. Mode-independent.
+    pub const fn num_children(&self) -> usize {
+        self.children.len()
+    }
+
+    /// Returns a shared reference to the child at `idx`. Mode-independent.
+    pub fn child_at(&self, idx: usize) -> &I {
+        &self.children[idx]
+    }
+}
+
 impl<'index, I> Intersection<'index, I>
 where
     I: RQEIterator<'index>,
@@ -265,16 +277,6 @@ where
             self.num_expected = est;
         }
         self.children.push(child);
-    }
-
-    /// Returns the number of child iterators.
-    pub const fn num_children(&self) -> usize {
-        self.children.len()
-    }
-
-    /// Returns a shared reference to the child at `idx`.
-    pub fn child_at(&self, idx: usize) -> &I {
-        &self.children[idx]
     }
 
     /// Returns a mutable iterator over all child iterators.
@@ -1011,9 +1013,9 @@ impl<'index> crate::interop::ProfileChildren<'index>
     }
 }
 
-impl<'index, I> ProfilePrint for Intersection<'index, I>
+impl<'query, Rf: Ref, I> ProfilePrint for RawIntersection<'query, Rf, I>
 where
-    I: RQEIterator<'index> + ProfilePrint,
+    I: ProfilePrint,
 {
     fn print_profile(&self, map: &mut redis_reply::MapBuilder<'_>, ctx: &mut ProfilePrintCtx<'_>) {
         map.kv_simple_string(c"Type", c"INTERSECT");
