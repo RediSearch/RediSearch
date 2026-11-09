@@ -34,6 +34,7 @@ use index_spec::{IndexSpecReadGuard, IndexSpecWriteGuard};
 use inverted_index::reader::IndexReader;
 use inverted_index::{DocId, opaque::InvertedIndex};
 use lending_iterator::LendingIterator;
+use rqe_core::FieldIndex;
 use trie_rs::TrieMapOpaque;
 
 // Link both Rust-provided and C-provided symbols
@@ -881,7 +882,7 @@ fn failed_writes_are_propagated() {
 }
 
 /// What identifies an entry, for comparing two scans.
-fn entry_key(entry: &TagEntry) -> (ffi::t_fieldIndex, u32, Vec<u8>, u32) {
+fn entry_key(entry: &TagEntry) -> (FieldIndex, u32, Vec<u8>, u32) {
     (
         entry.field_index,
         entry.tag_index_unique_id,

@@ -93,7 +93,7 @@ fn fetch_tag_index_mut(fs: &mut FieldSpec) -> Option<&mut ffi::TagIndex> {
 pub struct TagEntry<T = Box<[u8]>> {
     /// Position of the TAG field in the spec's fields. Fields are only ever
     /// appended, so a position names one field for the spec's lifetime.
-    pub field_index: ffi::t_fieldIndex,
+    pub field_index: FieldIndex,
     /// Unique id of the field's tag index. Ids come from a wrapping counter, so
     /// this only tells a replaced index apart from the scanned one at
     /// [`Self::field_index`], not one field from another.
@@ -138,7 +138,7 @@ pub fn collect_tags(
         .enumerate()
         .filter_map(|(i, fs)| fetch_tag_index(fs).map(|tag_index| (i, tag_index)))
     {
-        let field_index = ffi::t_fieldIndex::try_from(field_index)
+        let field_index = FieldIndex::try_from(field_index)
             .expect("a spec has fewer fields than a field index can count");
 
         debug_assert!(!tag_index.values.is_null());
@@ -175,7 +175,7 @@ fn posting_list(_tag_index: &ffi::TagIndex, value: *mut c_void) -> Option<&Inver
 /// Returns `None` when there is nothing to collect or the scan failed; a failed
 /// scan is retried on the next cycle.
 fn scan_tag<T>(
-    field_index: ffi::t_fieldIndex,
+    field_index: FieldIndex,
     tag_index: &ffi::TagIndex,
     tag: T,
     value: *mut c_void,
