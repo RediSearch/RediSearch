@@ -20,3 +20,8 @@ slow-timeout = { period = "5s", terminate-after = 12 }
 leak-timeout = "500ms"
 fail-fast = false
 retries = 1
+
+[[profile.default-miri.overrides]]
+filter = 'package(trie_rs) & test(long_key)'
+# These regressions must cross the node-label limit, even under interpretation.
+slow-timeout = { period = "10s", terminate-after = 12 }
