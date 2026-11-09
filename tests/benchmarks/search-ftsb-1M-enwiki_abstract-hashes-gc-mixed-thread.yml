@@ -34,7 +34,7 @@ dbconfig:
 clientconfig:
   benchmark_type: "mixed"
   tool: memtier_benchmark
-  arguments: '--key-prefix doc: --key-minimum 1 --key-maximum 1000000 --data-size 32 --command "HSET __key__ title __data__" --command-ratio 20 --command "FT.SEARCH benchIndex Abraham LIMIT 0 10" --command-ratio 80 --hide-histogram --test-time 300 -c 8 -t 2'
+  arguments: '--key-prefix doc: --key-minimum 1 --key-maximum 1000000 --data-size 32 --command "HSET __key__ title __data__" --command-ratio 1 --command "FT.SEARCH benchIndex Abraham LIMIT 0 10" --command-ratio 4 --distinct-client-seed --hide-histogram --test-time 300 -c 8 -t 2'
   resources:
     requests:
       cpus: "2"
