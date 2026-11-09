@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "spec.h"
+#include "util/gil_gate.h"
 
 #include <math.h>
 #include <limits.h>
@@ -109,6 +110,7 @@ size_t memoryLimit = -1;
 size_t used_memory = 0;
 
 static redisearch_thpool_t *cleanPool = NULL;
+static GilGate cleanPoolGilGate;
 
 extern DebugCTX globalDebugCtx;
 
@@ -2070,16 +2072,16 @@ void IndexSpec_RefreshSpecCache(IndexSpec *sp) {
 
 void CleanPool_ThreadPoolStart() {
   if (!cleanPool) {
+    GilGate_Reset(&cleanPoolGilGate);
     cleanPool = redisearch_thpool_create(1, DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD, LogCallback, "cleanPool");
   }
 }
 
 void CleanPool_ThreadPoolDestroy() {
   if (cleanPool) {
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    GilGate_BeginJoin(&cleanPoolGilGate);
     redisearch_thpool_destroy(cleanPool);
     cleanPool = NULL;
-    RedisModule_ThreadSafeContextLock(RSDummyContext);
   }
 }
 
@@ -2212,7 +2214,7 @@ static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t
   }
 
   if (lockGil) {
-    RedisModule_ThreadSafeContextLock(ctx);
+    GilGate_Lock(&cleanPoolGilGate, ctx);
   }
   for (size_t i = 0; i < len; ++i) {
     RedisModuleString *keyName = RedisModule_CreateString(ctx, keys[i], sdslen(keys[i]));
@@ -2220,7 +2222,7 @@ static void IndexSpec_PruneDocIdMetaBatch(RedisModuleCtx *ctx, sds *keys, size_t
     RedisModule_FreeString(ctx, keyName);
   }
   if (lockGil) {
-    RedisModule_ThreadSafeContextUnlock(ctx);
+    GilGate_Unlock(&cleanPoolGilGate, ctx);
   }
 
   for (size_t i = 0; i < len; ++i) {
