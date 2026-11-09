@@ -198,13 +198,6 @@ void DocTable_ClearPayload(DocTable *t, RSDocumentMetadata *dmd);
 // deletes them through the regular delete path.
 bool DocTable_Exists(const DocTable *t, t_docId docId);
 
-/* Number of 64-bit words in a bitmap of `t`'s docIds, or 0 when `t`'s maxDocId makes the bitmap
- * too large to allocate. */
-size_t DocTable_LiveBitmapWords(const DocTable *t);
-
-/* Set bit `docId` of `live` for every docId DocTable_Exists reports, up to `words * 64`. */
-void DocTable_FillLiveBitmap(const DocTable *t, uint64_t *live, size_t words);
-
 typedef void (*DocTable_LiveIdCallback)(void *ctx, t_docId docId);
 
 /* Call `cb` once for every docId DocTable_Exists reports, in no particular order. */

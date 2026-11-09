@@ -293,23 +293,6 @@ impl<'lock> IndexSpecReadGuard<'lock> {
         unsafe { ffi::DocTable_Exists(&self.0.docs, id) }
     }
 
-    /// Snapshot which documents exist, as a bitmap indexed by document id, or [`None`] when
-    /// the table's maximum document id makes the bitmap too large to allocate.
-    ///
-    /// Within the table's current maximum document id, bit `id` agrees with
-    /// [`doc_exists`](Self::doc_exists) until the table next changes.
-    pub fn live_doc_bitmap(&self) -> Option<Box<[u64]>> {
-        // SAFETY: docs is a valid DocTable for a properly initialised IndexSpec.
-        let words = unsafe { ffi::DocTable_LiveBitmapWords(&self.0.docs) };
-        if words == 0 {
-            return None;
-        }
-        let mut live = vec![0; words].into_boxed_slice();
-        // SAFETY: docs is a valid DocTable as above, and `live` holds `words` writable words.
-        unsafe { ffi::DocTable_FillLiveBitmap(&self.0.docs, live.as_mut_ptr(), words) };
-        Some(live)
-    }
-
     /// Call `f` once with the id of every document [`doc_exists`](Self::doc_exists)
     /// reports, in no particular order.
     pub fn for_each_live_doc<F: FnMut(rqe_core::DocId)>(&self, mut f: F) {
