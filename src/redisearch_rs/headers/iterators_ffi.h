@@ -148,15 +148,6 @@ void GeoFilter_FreeNumericFilters(NumericFilter * *filters);
 QueryIterator *IntoProfiled(QueryIterator *iter);
 
 /**
- * Returns `true` if `it` is a wildcard iterator (either optimized or non-optimized).
- *
- * # Safety
- *
- * `it`, when non-null, must point to a valid [`QueryIterator`].
- */
-bool IsWildcardIterator(const QueryIterator *it);
-
-/**
  * Creates a new empty iterator.
  */
 QueryIterator *NewEmptyIterator(void);

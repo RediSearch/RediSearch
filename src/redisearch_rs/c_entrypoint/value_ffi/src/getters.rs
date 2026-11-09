@@ -61,29 +61,6 @@ pub unsafe extern "C" fn RSValue_Trio_GetLeft(value: *const RSValue) -> *const R
     }
 }
 
-/// Borrows an immutable reference to the middle value of a trio.
-///
-/// # Panic
-///
-/// Panics if the value is not a [`Value::Trio`].
-///
-/// # Safety
-///
-/// 1. `value` must be a [valid], non-null pointer to an [`RSValue`].
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSValue_Trio_GetMiddle(value: *const RSValue) -> *const RSValue {
-    // Safety: ensured by caller (1.)
-    let value = unsafe { expect_value(value) };
-
-    if let Value::Trio(trio) = value {
-        as_rs_value(trio.middle())
-    } else {
-        panic!("Expected a trio value")
-    }
-}
-
 /// Borrows an immutable reference to the right value of a trio.
 ///
 /// # Panic

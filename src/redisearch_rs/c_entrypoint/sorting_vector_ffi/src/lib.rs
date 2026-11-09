@@ -184,27 +184,6 @@ pub unsafe extern "C" fn RSSortingVector_PutRSVal(
     });
 }
 
-/// Puts a null at the given index in the sorting vector.  If a out of bounds occurs it returns silently.
-///
-/// # Panics
-///
-/// Panics if the `idx` is out of bounds for the vector.
-///
-/// # Safety
-///
-/// 1. The pointer must be a [valid] pointer to an [`RSSortingVector`] created by [`RSSortingVector_New`] or equivalent.
-///
-/// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn RSSortingVector_PutNull(vec: *mut RSSortingVector, idx: libc::size_t) {
-    // Safety: The caller must ensure that the pointer is valid (1.)
-    let vec = unsafe { vec.as_mut() }.expect("vec must not be null");
-
-    vec.try_insert_null(idx).unwrap_or_else(|_| {
-        panic!("Index out of bounds: {} >= {}", idx, vec.len());
-    });
-}
-
 /// Creates a new `RSSortingVector` with the given length, returned by value.
 ///
 /// # Panics

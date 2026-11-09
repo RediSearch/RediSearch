@@ -19,8 +19,8 @@ use std::{
 /// Creates a new [`RemoteCollectReducer`] from pre-parsed configuration and
 /// returns a pointer to its base [`ffi::Reducer`] with the vtable fully wired.
 ///
-/// The caller is responsible for eventually calling [`collectRemoteFree`] on
-/// the returned pointer.
+/// The caller is responsible for eventually freeing the returned reducer
+/// through its `Free` callback.
 ///
 /// # Safety
 ///
@@ -81,11 +81,11 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
     ));
 
     cr.reducer_mut()
-        .set_new_instance(collectRemoteNewInstance)
-        .set_add_with_doc_id(collectRemoteAddWithDocId)
-        .set_finalize(collectRemoteFinalize)
-        .set_free_instance(collectRemoteFreeInstance)
-        .set_free(collectRemoteFree);
+        .set_new_instance(collect_remote_new_instance)
+        .set_add_with_doc_id(collect_remote_add_with_doc_id)
+        .set_finalize(collect_remote_finalize)
+        .set_free_instance(collect_remote_free_instance)
+        .set_free(collect_remote_free);
 
     Box::into_raw(cr).cast()
 }
@@ -97,8 +97,7 @@ pub unsafe extern "C" fn CollectReducer_CreateRemote(
 /// 1. `r` must point to a [valid] `ShardCollectReducer` masquerading as a `ffi::Reducer`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectRemoteNewInstance(r: *mut ffi::Reducer) -> *mut c_void {
+pub unsafe extern "C" fn collect_remote_new_instance(r: *mut ffi::Reducer) -> *mut c_void {
     // SAFETY: ensured by caller (1.)
     let r = unsafe { r.cast::<RemoteCollectReducer>().as_mut().unwrap() };
 
@@ -112,8 +111,7 @@ pub unsafe extern "C" fn collectRemoteNewInstance(r: *mut ffi::Reducer) -> *mut 
 /// 1. `ctx` must point to a [valid] `ShardCollectCtx` masquerading as a void pointer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectRemoteFreeInstance(_r: *mut ffi::Reducer, ctx: *mut c_void) {
+pub unsafe extern "C" fn collect_remote_free_instance(_r: *mut ffi::Reducer, ctx: *mut c_void) {
     // SAFETY: ensured by caller (1.)
     unsafe { ptr::drop_in_place(ctx.cast::<RemoteCollectCtx>()) }
 }
@@ -128,8 +126,7 @@ pub unsafe extern "C" fn collectRemoteFreeInstance(_r: *mut ffi::Reducer, ctx: *
 /// 3. `srcrow` must point to a [valid] `ffi::RLookupRow`.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectRemoteAddWithDocId(
+pub unsafe extern "C" fn collect_remote_add_with_doc_id(
     r: *mut ffi::Reducer,
     ctx: *mut c_void,
     srcrow: *const ffi::RLookupRow,
@@ -155,8 +152,7 @@ pub unsafe extern "C" fn collectRemoteAddWithDocId(
 /// 2. `ctx` must point to a [valid] `ShardCollectCtx` masquerading as a void pointer.
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectRemoteFinalize(
+pub unsafe extern "C" fn collect_remote_finalize(
     r: *mut ffi::Reducer,
     ctx: *mut c_void,
 ) -> *mut ffi::RSValue {
@@ -177,8 +173,7 @@ pub unsafe extern "C" fn collectRemoteFinalize(
 ///    originally created by [`CollectReducer_CreateRemote`].
 ///
 /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn collectRemoteFree(r: *mut ffi::Reducer) {
+pub unsafe extern "C" fn collect_remote_free(r: *mut ffi::Reducer) {
     // SAFETY: ensured by caller (1.)
     drop(unsafe { Box::from_raw(r.cast::<RemoteCollectReducer>()) });
 }

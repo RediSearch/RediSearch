@@ -31,8 +31,6 @@ fn test_map() {
 
         let map = RSValue_NewMapFromBuilder(map);
 
-        assert_eq!(RSValue_Map_Len(map), 2);
-
         let mut key: *mut RSValue = std::ptr::null_mut();
         let mut value: *mut RSValue = std::ptr::null_mut();
 
