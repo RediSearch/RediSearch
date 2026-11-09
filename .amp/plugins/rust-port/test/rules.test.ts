@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CRATE_LINTS, RULES } from '../src/redisearch.ts';
-import { namedForArtifact, nonTest, violations } from '../src/rules.ts';
+import { bodies, namedForArtifact, nonTest, violations } from '../src/rules.ts';
 
 const FFI = 'src/redisearch_rs/c_entrypoint/geo_ffi/src/lib.rs';
 const PURE = 'src/redisearch_rs/geo/src/filter.rs';
@@ -133,4 +133,12 @@ test('a test gate in a comment or string does not hide the production code after
 const NOTE: &str = "#[cfg(test)]";
 pub fn new() -> u8 { y.unwrap() }`;
   assert.equal(nonTest(text), text);
+});
+
+test('a block body ends at its own closing brace, whatever literals inside it hold', () => {
+  const text = `impl Other {\n    fn new() {}\n}\nimpl RadiusFilter {\n    const OPEN: &str = "}";\n    fn reaches() {}\n}\n`;
+  assert.deepEqual(
+    bodies(text, /^impl\b[^{;]*\bRadiusFilter\b[^{;]*\{/gm).map((b) => b.trim()),
+    ['const OPEN: &str = "}";\n    fn reaches() {}'],
+  );
 });

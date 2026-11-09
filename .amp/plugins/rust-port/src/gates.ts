@@ -9,7 +9,7 @@
 import { cited, crates, type Plan, type Stage } from './plan.ts';
 import { verify } from './refs.ts';
 import { HEADERS, isGenerated, isPure, isTest, RULES, WORKSPACE } from './redisearch.ts';
-import { nonTest, violations } from './rules.ts';
+import { bodies, nonTest, violations } from './rules.ts';
 import { reviewed, type State } from './state.ts';
 
 type Git = (args: string[]) => Promise<string>;
@@ -252,9 +252,17 @@ async function definesRust(git: Git, candidate: string, path: string): Promise<b
   const [owner, item] = [items.at(-2), items.at(-1)!];
   const defs = await files(`(fn|struct|enum|trait|type|const|static|mod) ${item}`);
   if (!owner) return defs.length > 0;
-  // A method lives in a file that implements its type, or in its module.
-  const owners = new Set(await files(`impl[^{]* ${owner}|mod ${owner}`));
-  return defs.some((f) => owners.has(f));
+  // A method lives in an impl block of its type; a function in its module's file or block.
+  const header = new RegExp(
+    `^\\s*(impl\\b[^{;]*\\b${owner}\\b[^{;]*|(pub(\\([^)]*\\))?\\s+)?mod\\s+${owner}\\s*)\\{`,
+    'gm',
+  );
+  const defined = new RegExp(`\\b(fn|const|type|struct|enum)\\s+${item}\\b`);
+  for (const hit of defs) {
+    if (hit.endsWith(`/${owner}.rs`) || hit.endsWith(`/${owner}/mod.rs`)) return true;
+    if (bodies(await git(['show', hit]), header).some((b) => defined.test(b))) return true;
+  }
+  return false;
 }
 
 /**

@@ -170,6 +170,25 @@ describe('findings', () => {
     ]);
   });
 
+  test('a comment raised again on a PR it was answered on is new feedback', () => {
+    const state = fresh();
+    const comment = (pr: number, thread: string) =>
+      finding({ source: 'comment', replies: [{ pr, comment: 7, thread }] });
+    receive(state, [comment(1, 't1')]);
+    close(state, 'F1', 'fixed', 'Rejects NaN.', cited);
+    state.findings.F1.replies = [];
+    state.findings.F1.answered = [1];
+    receive(state, [comment(2, 't2'), comment(1, 't9')]);
+    assert.deepEqual(
+      outstanding(state).map((f) => f.replies?.[0].thread),
+      ['t9'],
+    );
+    assert.deepEqual(
+      state.findings.F1.replies?.map((r) => r.pr),
+      [2],
+    );
+  });
+
   test('a comment repeated on another stacked PR is one finding answered on both', () => {
     const state = fresh();
     const comment = (pr: number) =>
@@ -294,6 +313,9 @@ test('the run record counts assessments and findings, and ends in the retrospect
   assert.match(report(state), /3 findings: 2 review, 0 comment, 1 check, 0 ci\. 1 of 2 reviewer/);
   assert.match(report(state), /Closed: 1 fixed, 0 no-change/);
   assert.doesNotMatch(report(state), /Retrospective/);
+  // An amendment invalidates the admissions it leaves in place.
+  state.job.planHash = hash('amended');
+  assert.match(report(state), /`swap` assessed 0 times\./);
   const evidence = [{ finding: 'F1' }];
   state.job.retro = {
     mistakes: [
