@@ -12,6 +12,7 @@
 use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
+use query_types::QueryNodeType;
 use rqe_iterators::{
     Intersection, RQEIterator, UnionFullFlat, UnionFullHeap,
     c2rust::CRQEIterator,
@@ -97,7 +98,16 @@ fn benchmark_cardinality(c: &mut Criterion) {
                         .into_iter()
                         .map(CRQEIterator::from_rust_leaf)
                         .collect();
-                    wrap_compound(UnionFullFlat::new(children))
+                    let header = rqe_iterators::union_opaque::build_union(
+                        children,
+                        false,
+                        usize::MAX,
+                        QueryNodeType::Union,
+                        1.0,
+                    );
+                    // SAFETY: (1, 3, 4) build_union initialized a valid owning header
+                    // and its callbacks. (2) This transfers its sole owning pointer.
+                    unsafe { CRQEIterator::new(header) }
                 })
                 .collect(),
             1.0,

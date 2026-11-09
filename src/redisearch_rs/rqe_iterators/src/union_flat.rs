@@ -878,13 +878,7 @@ where
     }
 
     fn estimated_matches(&self, total_docs: usize) -> f64 {
-        crate::union::estimate_union(
-            total_docs,
-            self.num_estimated,
-            self.children
-                .iter()
-                .map(|child| child.estimated_matches(total_docs)),
-        )
+        self.estimate_matches_with(total_docs, |child| child.estimated_matches(total_docs))
     }
 
     #[inline(always)]
@@ -1286,13 +1280,7 @@ where
     }
 
     fn estimated_matches(&self, total_docs: usize) -> f64 {
-        crate::union::estimate_union(
-            total_docs,
-            self.num_estimated,
-            self.children
-                .iter()
-                .map(|child| child.estimated_matches(total_docs)),
-        )
+        self.estimate_matches_with(total_docs, |child| child.estimated_matches(total_docs))
     }
 }
 
@@ -1318,6 +1306,11 @@ impl<'index, const QUICK_EXIT: bool> crate::interop::ProfileChildren<'index>
 }
 
 impl<Rf: Ref, I, const QUICK_EXIT: bool> RawUnionFlat<'_, Rf, I, QUICK_EXIT> {
+    fn estimate_matches_with(&self, total_docs: usize, mut estimate: impl FnMut(&I) -> f64) -> f64 {
+        let estimates = self.children.iter().map(|child| estimate(&child.inner));
+        crate::union::estimate_union(total_docs, self.num_estimated, estimates)
+    }
+
     pub(crate) fn sum_estimated_matches(
         &self,
         total_docs: usize,

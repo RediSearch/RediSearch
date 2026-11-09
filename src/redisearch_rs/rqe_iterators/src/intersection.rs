@@ -71,6 +71,25 @@ pub struct RawIntersection<'query, Rf: Ref, I> {
 /// with an [`RQEIterator`] impl today.
 pub type Intersection<'index, I> = RawIntersection<'index, Active<'index>, I>;
 
+impl<Rf: Ref, I> RawIntersection<'_, Rf, I> {
+    fn estimate_matches_with(
+        &self,
+        total_docs: usize,
+        mut estimate_child: impl FnMut(&I) -> f64,
+    ) -> f64 {
+        if total_docs == 0 || self.children.is_empty() {
+            return 0.0;
+        }
+        let population = total_docs as f64;
+        self.children
+            .iter()
+            .fold(population, |estimate, child| {
+                estimate * (estimate_child(child).clamp(0.0, population) / population)
+            })
+            .min(self.num_expected.min(total_docs) as f64)
+    }
+}
+
 // Compile-time proof of invariant 1 on `RawIntersection`: for a representative
 // concrete child, the `Active` and `Suspended` instantiations are
 // layout-identical. The child elements' own compatibility is their invariant 1
@@ -676,16 +695,7 @@ where
     }
 
     fn estimated_matches(&self, total_docs: usize) -> f64 {
-        if total_docs == 0 || self.children.is_empty() {
-            return 0.0;
-        }
-        let population = total_docs as f64;
-        self.children
-            .iter()
-            .fold(population, |estimate, child| {
-                estimate * (child.estimated_matches(total_docs).clamp(0.0, population) / population)
-            })
-            .min(self.num_expected.min(total_docs) as f64)
+        self.estimate_matches_with(total_docs, |child| child.estimated_matches(total_docs))
     }
 
     #[inline(always)]
@@ -1005,16 +1015,7 @@ where
     }
 
     fn estimated_matches(&self, total_docs: usize) -> f64 {
-        if total_docs == 0 || self.children.is_empty() {
-            return 0.0;
-        }
-        let population = total_docs as f64;
-        self.children
-            .iter()
-            .fold(population, |estimate, child| {
-                estimate * (child.estimated_matches(total_docs).clamp(0.0, population) / population)
-            })
-            .min(self.num_expected.min(total_docs) as f64)
+        self.estimate_matches_with(total_docs, |child| child.estimated_matches(total_docs))
     }
 }
 

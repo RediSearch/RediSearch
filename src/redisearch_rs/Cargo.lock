@@ -2558,6 +2558,7 @@ dependencies = [
  "iterators_ffi",
  "itertools 0.15.0",
  "query_term",
+ "query_types",
  "rand 0.10.1",
  "redis-module",
  "redis_mock",

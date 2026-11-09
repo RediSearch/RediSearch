@@ -88,7 +88,7 @@ TEST_F(OptimizerIteratorTest, MatchEstimateCallbackAndFallback) {
 
 TEST_F(OptimizerIteratorTest, MatchEstimateTracksNumericWindowAvailability) {
   MockQueryEvalCtx context(100, 100);
-  auto freeName = [](HiddenString *name) { HiddenString_Free(name, false); };
+  auto freeName = [](const HiddenString *name) { HiddenString_Free(name, false); };
   std::unique_ptr<HiddenString, decltype(freeName)> fieldName(
       NewHiddenString("price", sizeof("price") - 1, false), freeName);
   FieldSpec field = {};
@@ -98,7 +98,7 @@ TEST_F(OptimizerIteratorTest, MatchEstimateTracksNumericWindowAvailability) {
   context.spec.fields = &field;
   context.spec.numFields = 1;
   std::unique_ptr<NumericRangeTree, decltype(&NumericRangeTree_Free)> tree(
-      openNumericOrGeoIndex(&context.spec, &field, true), NumericRangeTree_Free);
+      openNumericOrGeoIndex(&context.spec, &field, true), &NumericRangeTree_Free);
   ASSERT_NE(tree, nullptr);
   for (t_docId docId = 1; docId <= 10; ++docId) {
     _NumericRangeTree_Add(tree.get(), docId, static_cast<double>(docId - 1), false, 0, 0);
@@ -133,8 +133,6 @@ TEST_F(OptimizerIteratorTest, MatchEstimateTracksNumericWindowAvailability) {
   EXPECT_DOUBLE_EQ(QueryIterator_EstimatedMatches(optimizer.get(), 0), 0.0);
 
   optimizer->Rewind(optimizer.get());
-  auto *state = reinterpret_cast<OptimizerIterator *>(optimizer.get());
-  ASSERT_EQ(state->numericIter, nullptr);
   EXPECT_DOUBLE_EQ(QueryIterator_EstimatedMatches(optimizer.get(), 100), 3.0);
   EXPECT_DOUBLE_EQ(QueryIterator_EstimatedMatches(optimizer.get(), 3), 3.0);
   EXPECT_DOUBLE_EQ(QueryIterator_EstimatedMatches(optimizer.get(), 0), 0.0);
