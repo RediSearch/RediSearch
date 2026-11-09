@@ -164,9 +164,10 @@ static inline __attribute__((always_inline)) bool getDocumentMetadata(
     // Start from checking the deleted-ids (in memory), then perform IO
     const bool deleted = SearchDisk_DocIdDeleted(spec->diskSpec, it->current->docId);
     recordCandidate(self, deleted, isProfiled);
+    DiskReadFailureReason failureReason = DISK_READ_ERROR;
     const bool foundDocument =
         !deleted && SearchDisk_GetDocumentMetadata(spec->diskSpec, sctx, it->current->docId,
-                                                   diskDmd, &sctx->currentTime);
+                                                   diskDmd, &sctx->currentTime, &failureReason);
     if (!foundDocument) {
       DMD_Return(diskDmd);
       return false;
@@ -518,8 +519,8 @@ static inline __attribute__((always_inline)) int rpQueryItNextAsyncDiskImpl(Resu
       // until a completion lands instead of making progress.
       index_poll_timeout_ms = ASYNC_POLL_TIMEOUT_SATURATED_MS;
     }
-    const size_t pendingCount =
-        IndexResultAsyncRead_Poll(&self->async, index_poll_timeout_ms, &sctx->currentTime);
+    const size_t pendingCount = IndexResultAsyncRead_Poll(
+        &self->async, index_poll_timeout_ms, &sctx->currentTime);
 
     // The loop-head check amortizes clock samples across iterations,
     // which is too coarse once an iteration can sleep. Re-check unthrottled after a
