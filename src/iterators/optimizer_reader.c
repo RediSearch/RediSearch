@@ -108,7 +108,7 @@ static inline bool windowSpansRest(size_t limit) {
 
 /* Whether the walk has covered the whole sortby range: the window just drained spanned everything
  * left of it, or held nothing because the walk is already past its end. */
-static inline bool walkExhausted(OptimizerIterator *it) {
+static inline bool walkExhausted(const OptimizerIterator *it) {
   return it->windowSpansRest || it->numericIter->NumEstimated(it->numericIter) == 0;
 }
 

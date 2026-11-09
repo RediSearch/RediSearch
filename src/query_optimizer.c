@@ -227,6 +227,22 @@ static QueryNode *checkQueryTypes(QueryNode *node, t_fieldIndex targetFieldIndex
   return ret;
 }
 
+/* Widen `hull` to also cover `range`. */
+static void widenToInclude(SortFieldBounds *hull, const SortFieldBounds *range) {
+  if (range->min < hull->min) {
+    hull->min = range->min;
+    hull->minInclusive = range->minInclusive;
+  } else if (range->min == hull->min) {
+    hull->minInclusive |= range->minInclusive;
+  }
+  if (range->max > hull->max) {
+    hull->max = range->max;
+    hull->maxInclusive = range->maxInclusive;
+  } else if (range->max == hull->max) {
+    hull->maxInclusive |= range->maxInclusive;
+  }
+}
+
 /* Whether every document matching `node` has its sort field inside some range, and if so, which.
  * The node stays in the tree as the exact filter; the range only bounds the optimizer's walk, so
  * it may be wider than the matches but never narrower. A range on the field bounds itself, an
@@ -257,30 +273,16 @@ static bool impliedSortFieldBounds(const QueryNode *node, t_fieldIndex fieldInde
       return false;
 
     case QN_UNION: {
-      if (QueryNode_NumChildren(node) == 0) {
+      if (QueryNode_NumChildren(node) == 0 ||
+          !impliedSortFieldBounds(node->children[0], fieldIndex, bounds)) {
         return false;
       }
-      for (int i = 0; i < QueryNode_NumChildren(node); ++i) {
+      for (int i = 1; i < QueryNode_NumChildren(node); ++i) {
         SortFieldBounds branch;
         if (!impliedSortFieldBounds(node->children[i], fieldIndex, &branch)) {
           return false;
         }
-        if (i == 0) {
-          *bounds = branch;
-          continue;
-        }
-        if (branch.min < bounds->min) {
-          bounds->min = branch.min;
-          bounds->minInclusive = branch.minInclusive;
-        } else if (branch.min == bounds->min) {
-          bounds->minInclusive |= branch.minInclusive;
-        }
-        if (branch.max > bounds->max) {
-          bounds->max = branch.max;
-          bounds->maxInclusive = branch.maxInclusive;
-        } else if (branch.max == bounds->max) {
-          bounds->maxInclusive |= branch.maxInclusive;
-        }
+        widenToInclude(bounds, &branch);
       }
       return true;
     }
