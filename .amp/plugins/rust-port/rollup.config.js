@@ -4,12 +4,17 @@ import typescript from '@rollup/plugin-typescript';
 import { builtinModules } from 'node:module';
 
 export default {
-  input: 'src/plugin.ts',
+  input: 'amp/plugin.ts',
   output: { file: 'dist/plugin.js', format: 'esm' },
   // The runtime provides Node built-ins; @ampcode/plugin is only imported for types.
   external: (id) => id.startsWith('node:') || builtinModules.includes(id),
   plugins: [
-    typescript({ include: ['src/**/*.ts'], noEmit: false, outDir: 'dist' }),
+    typescript({
+      include: ['core/**/*.ts', 'c-to-rust/**/*.ts', 'redisearch/**/*.ts', 'amp/**/*.ts'],
+      exclude: ['**/test/**'],
+      noEmit: false,
+      outDir: 'dist',
+    }),
     resolve({ exportConditions: ['node'], preferBuiltins: true }),
     commonjs(),
   ],

@@ -12,5 +12,5 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["src", "test"]
+  "include": ["core", "c-to-rust", "redisearch", "amp"]
 }
