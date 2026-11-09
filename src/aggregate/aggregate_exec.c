@@ -448,11 +448,16 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     nelem++;
 
     // Once we get here, we want to return the results we got from the pipeline (with no error)
-    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
+    // Rows buffered before a RETURN timeout must be replied rather than dropped.
+    const bool buffered_2 = results != NULL &&
+                            req->reqConfig.timeoutPolicy == TimeoutPolicy_Return &&
+                            rc == RS_RESULT_TIMEDOUT;
+    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
+        (!buffered_2 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_2;
     }
 
-    // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
+    // Results buffered by startPipelineCommon
     if (results != NULL) {
       nelem += populateReplyWithResults(reply, results, req, &cv);
       results = NULL;
@@ -627,7 +632,12 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // <results>
     RedisModule_ReplyKV_Array(reply, "results"); // >results
 
-    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS || (rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
+    // Rows buffered before a RETURN timeout must be replied rather than dropped.
+    const bool buffered_3 = results != NULL &&
+                            req->reqConfig.timeoutPolicy == TimeoutPolicy_Return &&
+                            rc == RS_RESULT_TIMEDOUT;
+    if (AREQ_RequestFlags(req) & QEXEC_F_NOROWS ||
+        (!buffered_3 && rc != RS_RESULT_OK && rc != RS_RESULT_EOF)) {
       goto done_3;
     }
 
