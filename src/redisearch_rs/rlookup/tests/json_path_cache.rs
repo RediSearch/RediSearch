@@ -215,3 +215,30 @@ fn cached_root_load_preserves_errors_without_writing_a_value() {
         });
     }
 }
+
+#[test]
+#[cfg_attr(miri, ignore)] // Redis module mock initialization crosses the C FFI boundary.
+fn no_error_path_parser_is_unavailable_in_legacy_builds() {
+    redis_mock::init_redis_module_mock();
+    with_json_api(None, |api, _ctx| {
+        // SAFETY: the static path bytes outlive the returned handle.
+        let path = unsafe { redis_json_api::JsonPath::parse_no_error_msg(c"$.name", &api) };
+        assert_eq!(path.is_none(), LEGACY_API);
+    });
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // RedisString creation crosses the C FFI boundary.
+fn compiled_path_lookup_is_unavailable_in_legacy_builds() {
+    redis_mock::init_redis_module_mock();
+    with_json_api(Some(json!({"name": "alice"})), |api, ctx| {
+        // SAFETY: the mock context remains valid throughout this closure.
+        let path = unsafe { redis_json_api::JsonPath::parse(c"$.name", ctx, &api) }.unwrap();
+        let key = key_name();
+        // SAFETY: the mock context and key remain valid throughout this closure.
+        let root = unsafe { api.open_key(ctx, &key) }.unwrap();
+        // SAFETY: the parsed path remains alive until after the iterator is dropped.
+        let iter = unsafe { root.get_with_path(&path) };
+        assert_eq!(iter.is_none(), LEGACY_API);
+    });
+}
