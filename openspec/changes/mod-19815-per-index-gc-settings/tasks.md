@@ -166,7 +166,8 @@ disk); 7 needs 2 and 3.
 
 ## 8. Docs (DOC ticket, created after sign-off)
 
-- [ ] 8.1 Syntax, inheritance, aliases, when changes apply, jitter, FT.INFO and per-node
+- [ ] 8.1 Syntax, inheritance, aliases, when changes apply, jitter, the 24.86-day delay
+      cap, FT.INFO and per-node
       `effective` values, upgrades, the fork-slot warning for threshold 0 with short
       intervals, `deny-oom` and partial apply in a cluster, the coordinator's FT.INFO
       showing the first shard, how the percentage combines with `CLEAN_THRESHOLD`

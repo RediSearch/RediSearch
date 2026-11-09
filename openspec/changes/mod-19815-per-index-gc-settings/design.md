@@ -132,9 +132,13 @@ Existing defects that T1 fixes, because per-index settings make them worse:
   and removes `pendingInterval`.
 - `getNextPeriod` keeps today's jitter range, from the interval to almost twice the
   interval, drawn on each arm.
-- Delays saturate instead of overflowing, and are capped at 2^50 ms (about 35,000
-  years). `RedisModule_CreateTimer` adds the period, in microseconds, to the current
-  time, so a delay near `LLONG_MAX` would still overflow inside Redis. This fixes
+- Delays saturate instead of overflowing, and are capped at `INT_MAX` ms (about 24.86
+  days). Redis serves every module timer from one event, `moduleTimerHandler`, which
+  returns the time to the earliest module timer as an `int`; a longer delay truncates
+  and makes the timer loop spin or stop
+  ([MOD-21060](https://redislabs.atlassian.net/browse/MOD-21060)). The cap also stays
+  clear of the microsecond overflow in `RedisModule_CreateTimer`. An interval of 24.86
+  days or more therefore runs about every 24.86 days, with no jitter. This fixes
   defect 2.
 - `GCContext` records the interval each run-interval timer was armed with, before
   jitter. It keeps no arm time and no jitter.
