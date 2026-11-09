@@ -330,7 +330,7 @@ TEST_F(RangeIndexTest, testNumericTreeMemory) {
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   // Collect deleted docs
   GCContext *gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, NULL);
 
   // check memory
   expected_mem = get_spec(index)->stats.invertedSize;
@@ -370,7 +370,7 @@ TEST_F(RangeIndexTest, testNumericTreeOverhead) {
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   // Collect deleted docs
   GCContext *gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
+  gc->callbacks.periodicCallback(gc->gcCtx, NULL);
 
   overhead = IndexSpec_collect_numeric_overhead(get_spec(index));
   ASSERT_EQ(overhead, sizeof(NumericRangeTree));
