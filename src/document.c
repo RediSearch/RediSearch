@@ -96,7 +96,8 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
   size_t numTextIndexable = 0;
 
-  FieldSpecDedupeSet dedupe = {{0}};
+  FieldSpecDedupeSet dedupe;
+  FieldSpecDedupeSet_Init(&dedupe, sp->numFields);
   int hasTextFields = 0;
   int hasOtherFields = 0;
 
@@ -1139,7 +1140,8 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
   }
 
   if (aCtx->stateFlags & ACTX_F_SORTABLES) {
-    FieldSpecDedupeSet dedupes = {{0}};
+    FieldSpecDedupeSet dedupes;
+    FieldSpecDedupeSet_Init(&dedupes, sctx->spec->numFields);
     // Update sortables if needed
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];

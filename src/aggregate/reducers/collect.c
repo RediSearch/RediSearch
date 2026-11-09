@@ -30,7 +30,7 @@
 
 #define COLLECT_MAX_SORT_KEYS SORTASCMAP_MAXFIELDS
 #define COLLECT_MAX_SORT_TOKENS (COLLECT_MAX_SORT_KEYS * 2)  // each key may have a direction
-#define COLLECT_MAX_FIELD_ARGS  (SPEC_MAX_FIELDS + 1)
+#define COLLECT_MAX_FIELD_ARGS  ((int)IndexSpec_MaxFields() + 1)
 #define SORT_DIR_ASC "ASC"
 #define SORT_DIR_DESC "DESC"
 

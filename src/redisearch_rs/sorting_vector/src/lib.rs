@@ -23,8 +23,8 @@ mod legacy_rdb;
 /// The maximum length of an [`RSSortingVector`] created from C or loaded from a
 /// legacy RDB (see [`RSSortingVector::load_legacy_rdb`]).
 ///
-/// Must be at least the C `SPEC_MAX_FIELDS`: a document can get a sorting vector as long as the
-/// number of sortable fields in the schema, which `SPEC_MAX_FIELDS` bounds.
+/// Must be at least the C `SPEC_MAX_FIELDS_RAM`: a document can get a sorting vector as long as the
+/// number of sortable fields in the schema, which `SPEC_MAX_FIELDS_RAM` bounds.
 pub const RS_SORTABLES_MAX: usize = 4096;
 
 /// IndexOutOfBounds error can be returned by [`RSSortingVector::try_insert_num`] and the other `try_insert_*` methods.

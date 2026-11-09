@@ -518,7 +518,7 @@ TEST_F(CollectParserTest, FieldsExceedsMax) {
   std::vector<const char *> args;
   args.push_back("FIELDS");
   // One more than the largest accepted FIELDS count.
-  const int count = SPEC_MAX_FIELDS + 2;
+  const int count = SPEC_MAX_FIELDS_RAM + 2;
   const std::string count_str = std::to_string(count);
   args.push_back(count_str.c_str());
   std::vector<std::string> field_strs(count);
