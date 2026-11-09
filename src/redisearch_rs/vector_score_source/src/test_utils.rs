@@ -163,6 +163,26 @@ impl TestIndex {
         self.timeout.get()
     }
 
+    /// Add `values` as document `id`, as a write landing while a query is
+    /// suspended does.
+    ///
+    /// # Panics
+    ///
+    /// If `values` does not have the `dim` the index was built with.
+    pub fn add(&self, id: t_docId, values: &[f32]) {
+        assert_eq!(values.len(), self.dim, "vector does not match the index");
+        // SAFETY: `self.index` is a live index (freed only by `Drop`), and
+        // `values` holds `dim` f32 elements matching its type and
+        // dimensionality, valid for the duration of the call.
+        unsafe {
+            VecSimIndex_AddVector(
+                self.index.as_ptr(),
+                values.as_ptr() as *const c_void,
+                id as usize,
+            );
+        }
+    }
+
     /// The index handle, for tests that build iterators through a C entry point.
     pub const fn as_ptr(&self) -> *mut VecSimIndex {
         self.index.as_ptr()
