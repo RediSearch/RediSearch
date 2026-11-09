@@ -199,8 +199,11 @@ bool GC_ThreadPoolWaitForPause(long timeoutMs);
 // GC jobs currently executing. For diagnosing a GC_ThreadPoolWaitForPause timeout; stale the
 // moment it is read anywhere else.
 size_t GC_ThreadPoolJobsInProgress(void);
-// Let the pool pull queued jobs again, undoing GC_ThreadPoolPause.
+// Let the pool pull queued jobs again, undoing GC_ThreadPoolPause, and apply a size change
+// made while it was paused.
 void GC_ThreadPoolResume(void);
+// The GC pool's threads, a requested reduction counted as done; 0 before the pool exists.
+size_t GC_ThreadPoolNumThreads(void);
 // Queue `fn(arg)` on the GC pool. No production caller: tests use it to hold a job in
 // progress across a drain, which no ordinary entry point can do -- a real cycle returns
 // long before GC_ThreadPoolWaitForPause could observe it.

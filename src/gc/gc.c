@@ -435,7 +435,9 @@ void GC_ThreadPoolSetSize(void) {
   const size_t have = redisearch_thpool_get_num_threads(gcThreadpool_g);
   if (want > have) {
     redisearch_thpool_add_threads(gcThreadpool_g, want - have);
-  } else if (want < have) {
+  } else if (want < have && !redisearch_thpool_paused(gcThreadpool_g)) {
+    // A reduction is a job, which a paused queue would not run; GC_ThreadPoolResume reapplies
+    // the size once the consistency window that paused it closes.
     redisearch_thpool_schedule_config_reduce_threads_job(gcThreadpool_g, have - want, false);
   }
 }
@@ -487,6 +489,10 @@ bool GC_ThreadPoolWaitForPause(long timeoutMs) {
   return true;
 }
 
+size_t GC_ThreadPoolNumThreads(void) {
+  return gcThreadpool_g ? redisearch_thpool_get_num_threads(gcThreadpool_g) : 0;
+}
+
 size_t GC_ThreadPoolJobsInProgress(void) {
   return gcThreadpool_g ? redisearch_thpool_num_jobs_in_progress(gcThreadpool_g) : 0;
 }
@@ -495,6 +501,7 @@ void GC_ThreadPoolResume(void) {
   gcNewContextSchedFlags_g &= ~GC_SCHED_PAUSED;
   if (gcThreadpool_g && redisearch_thpool_paused(gcThreadpool_g)) {
     redisearch_thpool_resume_threads(gcThreadpool_g);
+    GC_ThreadPoolSetSize();  // a shrink requested while paused waited for this
   }
 }
 
