@@ -101,7 +101,7 @@ pub struct TestContext {
     pub spec: *mut ffi::IndexSpec,
 
     /// Owns the timeout installed into `sctx` by [`set_search_time`](Self::set_search_time).
-    timeout: Option<Box<ffi::QueryRequestTimeout>>,
+    timeout: Option<Box<ffi::QueryRequestLimits>>,
 
     /// Lazily-allocated [`QueryEvalCtx`](ffi::QueryEvalCtx) (plus the backing
     /// structs its pointer fields require), created on the first
@@ -696,7 +696,7 @@ impl TestContext {
             }
         }
 
-        // Set spec.existingDocs so Wildcard::should_abort() can find the index
+        // Set spec.existingDocs so Wildcard's revalidation can find the index
         // during revalidation (it compares spec.existingDocs with the reader's index).
         unsafe {
             (&mut *spec).existingDocs = ii_ptr.cast();
@@ -1141,20 +1141,33 @@ impl TestContext {
         }
     }
 
+    /// The node holding the range [`Self::numeric_inverted_index`] returns.
+    fn numeric_leaf(&self) -> numeric_range_tree::NodeIndex {
+        self.numeric_range_tree_ref()
+            .indexed_iter()
+            .find_map(|(index, node)| (node.has_range() && node.is_leaf()).then_some(index))
+            .expect("There must be at least one leaf!")
+    }
+
     /// Get the ffi inverted index for this context.
     pub fn numeric_inverted_index(&self) -> &mut NumericIndex {
-        let tree = self.numeric_range_tree_mut();
-        let index = tree
-            .indexed_iter()
-            .find_map(|(index, node)| {
-                if node.has_range() && node.is_leaf() {
-                    Some(index)
-                } else {
-                    None
-                }
-            })
-            .expect("There must be at least one leaf!");
-        tree.node_mut(index).range_mut().unwrap().entries_mut()
+        let index = self.numeric_leaf();
+        self.numeric_range_tree_mut()
+            .node_mut(index)
+            .range_mut()
+            .unwrap()
+            .entries_mut()
+    }
+
+    /// Locates [`Self::numeric_inverted_index`] in the context's tree, for an
+    /// iterator reading it to revalidate against: pair it only with a reader over
+    /// that index.
+    pub fn numeric_range_source(&self) -> rqe_iterators::RangeSource {
+        // SAFETY: the tree is owned by the context's field spec, which outlives
+        // the iterators tests build from it; the pointer is the one the context
+        // keeps, not one derived from a reference to the tree; and tests only
+        // write to the tree while those iterators are parked.
+        unsafe { rqe_iterators::RangeSource::new(self.numeric_range_tree(), self.numeric_leaf()) }
     }
 
     /// Initialize the TTL table if not already initialized.
@@ -1259,10 +1272,10 @@ impl TestContext {
         let request_timeout = self.timeout.get_or_insert_with(|| {
             // SAFETY: all-zero is the valid UNARMED representation. The active kind
             // and clock fields are initialized below before exposure through `sctx`.
-            Box::new(unsafe { std::mem::zeroed::<ffi::QueryRequestTimeout>() })
+            Box::new(unsafe { std::mem::zeroed::<ffi::QueryRequestLimits>() })
         });
 
-        request_timeout.kind = if skip_checks {
+        request_timeout.timeout.kind = if skip_checks {
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_UNARMED
         } else {
             ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_CLOCK_DEADLINE
@@ -1273,10 +1286,35 @@ impl TestContext {
         // timeout remains at a stable address until after `sctx` is freed.
         unsafe {
             if !skip_checks {
-                request_timeout.source.clock.deadline = timeout;
-                request_timeout.source.clock.counter = 0;
+                request_timeout.timeout.source.clock.deadline = timeout;
+                request_timeout.timeout.source.clock.counter = 0;
             }
-            self.sctx.as_mut().timeout = request_timeout.as_mut();
+            self.sctx.as_mut().limits = request_timeout.as_mut();
+        }
+    }
+
+    /// Arm a blocked-client cycle whose cancellation marker is already
+    /// published, which is what `buildPipelineAndExecute` selects for a
+    /// background query under `ON_TIMEOUT FAIL` or `RETURN_STRICT`.
+    ///
+    /// Such a cycle carries no deadline, so a reader of the clock deadline sees
+    /// nothing to enforce and only the marker says the client is gone.
+    pub fn set_blocked_client_cancelled(&mut self) {
+        let request_timeout = self.timeout.get_or_insert_with(|| {
+            // SAFETY: all-zero is the valid UNARMED representation. The active kind
+            // and the marker are initialized below before exposure through `sctx`.
+            Box::new(unsafe { std::mem::zeroed::<ffi::QueryRequestLimits>() })
+        });
+
+        request_timeout.timeout.kind =
+            ffi::QueryRequestTimeoutKind_QUERY_REQUEST_TIMEOUT_BLOCKED_CLIENT;
+
+        // SAFETY: `request_timeout` and `self.sctx` are exclusively owned by this
+        // context, and `kind` selects the union's marker member. The boxed limits
+        // remain at a stable address until after `sctx` is freed.
+        unsafe {
+            request_timeout.timeout.source.blockedClientTimedOut = true;
+            self.sctx.as_mut().limits = request_timeout.as_mut();
         }
     }
 

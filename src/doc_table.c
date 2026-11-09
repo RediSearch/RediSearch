@@ -42,14 +42,6 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
   return ret;
 }
 
-static inline uint32_t DocTable_GetBucket(const DocTable *t, t_docId docId) {
-  return docId < t->maxSize ? docId : docId % t->maxSize;
-}
-
-static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
-  return docId != 0 && docId <= t->maxDocId;
-}
-
 static RSDocumentMetadata *DocTable_GetOwn(const DocTable *t, t_docId docId) {
   if (!DocTable_ValidateDocId(t, docId)) {
     return NULL;
@@ -121,6 +113,42 @@ bool DocTable_Exists(const DocTable *t, t_docId docId) {
     }
   }
   return false;
+}
+
+// Bounds the bitmap's allocation (64 MiB covers 512M docIds).
+#define LIVE_BITMAP_MAX_BYTES (64 << 20)
+
+size_t DocTable_LiveBitmapWords(const DocTable *t) {
+  const size_t words = t->maxDocId / 64 + 1;
+  if (words * sizeof(uint64_t) > LIVE_BITMAP_MAX_BYTES) {
+    return 0;
+  }
+  return words;
+}
+
+// Whether `md`, reached by walking the buckets, is a doc DocTable_Exists reports.
+static inline bool isLiveDmd(const DocTable *t, const RSDocumentMetadata *md) {
+  return md->id && md->id <= t->maxDocId && !(md->flags & Document_Deleted);
+}
+
+void DocTable_FillLiveBitmap(const DocTable *t, uint64_t *live, size_t words) {
+  for (size_t i = 0; i < t->cap; ++i) {
+    for (const RSDocumentMetadata *md = t->buckets[i].root; md != NULL; md = md->nextInChain) {
+      if (isLiveDmd(t, md) && md->id / 64 < words) {
+        live[md->id / 64] |= 1ULL << (md->id % 64);
+      }
+    }
+  }
+}
+
+void DocTable_ForEachLiveId(const DocTable *t, DocTable_LiveIdCallback cb, void *ctx) {
+  for (size_t i = 0; i < t->cap; ++i) {
+    for (const RSDocumentMetadata *md = t->buckets[i].root; md != NULL; md = md->nextInChain) {
+      if (isLiveDmd(t, md)) {
+        cb(ctx, md->id);
+      }
+    }
+  }
 }
 
 DocKeyMapActivation DocTable_StartKeyMap(DocTable *t) {
@@ -671,10 +699,17 @@ t_docId DocTable_GetMaxDocId(const DocTable *t) {
   return t->maxDocId;
 }
 
-PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t, const RedisModuleSlotRangeArray *slots) {
+PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t,
+                                                 const RedisModuleSlotRangeArray *slots) {
+  return DocTable_AddPendingDeletionWithCutoff(t, slots, t->maxDocId);
+}
+
+PendingSlotDeletion *DocTable_AddPendingDeletionWithCutoff(DocTable *t,
+                                                           const RedisModuleSlotRangeArray *slots,
+                                                           t_docId maxDocId) {
   PendingSlotDeletion *pending = rm_malloc(sizeof(*pending));
   pending->slots = SlotRangeArray_Clone(slots);
-  pending->maxDocId = t->maxDocId;
+  pending->maxDocId = maxDocId;
   pending->next = t->pendingSlotDeletions;
   t->pendingSlotDeletions = pending;
   t->memsize += sizeof(*pending) + SlotRangeArray_SizeOf(slots->num_ranges);
@@ -694,8 +729,12 @@ void DocTable_RemovePendingDeletion(DocTable *t, PendingSlotDeletion *pending) {
 }
 
 bool DocTable_IsDocPendingDeletion(const DocTable *t, const RSDocumentMetadata *dmd) {
+  return DocTable_IsDocPendingDeletionForSlot(t, dmd->id, dmd->slot);
+}
+
+bool DocTable_IsDocPendingDeletionForSlot(const DocTable *t, t_docId docId, uint16_t slot) {
   for (const PendingSlotDeletion *p = t->pendingSlotDeletions; p; p = p->next) {
-    if (PendingSlotDeletion_Covers(p, dmd)) {
+    if (PendingSlotDeletion_CoversId(p, docId, slot)) {
       return true;
     }
   }

@@ -140,9 +140,36 @@ size_t DocTable_KeyMapMemoryUsage(const DocTable *t);
 // Initial number of slots in a spec's document table
 #define INITIAL_DOC_TABLE_SIZE 1000
 
+/* The bucket holding `docId`: ids from maxSize on share buckets, chained by `docId % maxSize`. */
+static inline uint32_t DocTable_GetBucket(const DocTable *t, t_docId docId) {
+  return docId < t->maxSize ? docId : docId % t->maxSize;
+}
+
+/* Whether `docId` is an id this table has assigned; says nothing about whether it is still live. */
+static inline int DocTable_ValidateDocId(const DocTable *t, t_docId docId) {
+  return docId != 0 && docId <= t->maxDocId;
+}
+
 /* Get a reference to the metadata for a doc Id from the DocTable.
  * Returns NULL if docId is not inside the table or is hidden by a pending slot deletion */
 const RSDocumentMetadata *DocTable_Borrow(const DocTable *t, t_docId docId);
+
+/* Hint that `docId` will be borrowed soon: starts loading the head of its bucket's chain into
+ * the cache, so the cache miss overlaps with work on earlier docs. Changes no state, and does
+ * nothing for an id outside the table. Caller holds the spec lock, as for DocTable_Borrow. */
+static inline void DocTable_Prefetch(const DocTable *t, t_docId docId) {
+  if (!DocTable_ValidateDocId(t, docId)) {
+    return;
+  }
+  const uint32_t bucketIndex = DocTable_GetBucket(t, docId);
+  if (bucketIndex >= t->cap) {
+    return;
+  }
+  const RSDocumentMetadata *head = t->buckets[bucketIndex].root;
+  if (head) {
+    __builtin_prefetch(head);
+  }
+}
 
 /* Put a new document into the table, assign it an incremental id and store the metadata in the
  * table.
@@ -170,6 +197,18 @@ void DocTable_ClearPayload(DocTable *t, RSDocumentMetadata *dmd);
 // deletions: GC and the indexer must keep treating those docs as present until the cleanup task
 // deletes them through the regular delete path.
 bool DocTable_Exists(const DocTable *t, t_docId docId);
+
+/* Number of 64-bit words in a bitmap of `t`'s docIds, or 0 when `t`'s maxDocId makes the bitmap
+ * too large to allocate. */
+size_t DocTable_LiveBitmapWords(const DocTable *t);
+
+/* Set bit `docId` of `live` for every docId DocTable_Exists reports, up to `words * 64`. */
+void DocTable_FillLiveBitmap(const DocTable *t, uint64_t *live, size_t words);
+
+typedef void (*DocTable_LiveIdCallback)(void *ctx, t_docId docId);
+
+/* Call `cb` once for every docId DocTable_Exists reports, in no particular order. */
+void DocTable_ForEachLiveId(const DocTable *t, DocTable_LiveIdCallback cb, void *ctx);
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
@@ -264,7 +303,14 @@ void DocTable_SetKeyById(DocTable *t, t_docId docId, const char *key, size_t len
 
 // Hide every doc currently in `slots` (id <= the table's current maxDocId) from readers until
 // the returned node is removed. `slots` is copied. Caller holds the spec write lock.
-PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t, const RedisModuleSlotRangeArray *slots);
+PendingSlotDeletion *DocTable_AddPendingDeletion(DocTable *t,
+                                                 const RedisModuleSlotRangeArray *slots);
+
+// Register a storage-owned cutoff, including when restoring an unfinished disk cleanup.
+// `slots` is copied. Caller holds the spec write lock.
+PendingSlotDeletion *DocTable_AddPendingDeletionWithCutoff(DocTable *t,
+                                                           const RedisModuleSlotRangeArray *slots,
+                                                           t_docId maxDocId);
 
 // Unlink and free a node returned by DocTable_AddPendingDeletion. Caller holds the spec write lock.
 void DocTable_RemovePendingDeletion(DocTable *t, PendingSlotDeletion *pending);
@@ -274,9 +320,15 @@ static inline bool DocTable_IsEmpty(const DocTable *t) {
   return t->size <= 1;
 }
 
-// Whether `pending` covers `dmd`: the doc sits in one of its slots and existed when it was added.
-static inline bool PendingSlotDeletion_Covers(const PendingSlotDeletion *pending, const RSDocumentMetadata *dmd) {
-  return dmd->id <= pending->maxDocId && SlotRangeArray_ContainsSlot(pending->slots, dmd->slot);
+// Match a slot and document ID against the cutoff captured at registration.
+static inline bool PendingSlotDeletion_CoversId(const PendingSlotDeletion *pending, t_docId docId,
+                                                uint16_t slot) {
+  return docId <= pending->maxDocId && SlotRangeArray_ContainsSlot(pending->slots, slot);
+}
+
+static inline bool PendingSlotDeletion_Covers(const PendingSlotDeletion *pending,
+                                              const RSDocumentMetadata *dmd) {
+  return PendingSlotDeletion_CoversId(pending, dmd->id, dmd->slot);
 }
 
 static inline bool DocTable_HasPendingDeletions(const DocTable *t) {
@@ -284,6 +336,9 @@ static inline bool DocTable_HasPendingDeletions(const DocTable *t) {
 }
 
 bool DocTable_IsDocPendingDeletion(const DocTable *t, const RSDocumentMetadata *dmd);
+
+// Caller holds the spec lock. Disk callers derive `slot` from the already loaded key.
+bool DocTable_IsDocPendingDeletionForSlot(const DocTable *t, t_docId docId, uint16_t slot);
 
 /* increasing the ref count of the given dmd */
 /*

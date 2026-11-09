@@ -8,6 +8,7 @@
 */
 
 #include "op_block_client.h"
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -31,8 +32,10 @@
 #include "geometry/geometry_api.h"
 #include "geometry_index.h"
 #include "phonetic_manager.h"
-#include "gc.h"
+#include "gc/gc.h"
 #include "module.h"
+#include "query_memory.h"
+#include "util/redis_mem_info.h"
 #include "trie/trie.h"
 #include "triemap_ffi.h"
 #include "util/workers.h"
@@ -1061,6 +1064,10 @@ static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int
     return RedisModule_ReplyWithError(
         ctx, "GC DID NOT RUN: no child process could be created within TIMEOUT");
   }
+  if (outcome && *outcome == GC_FORCED_RUN_COMPACT_ALL_INCOMPLETE) {
+    return RedisModule_ReplyWithError(
+        ctx, "COMPACT_ALL did not complete (background work paused or compaction cancelled)");
+  }
   return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
 
@@ -1085,12 +1092,51 @@ static bool rejectForcedGCWhileBgWorkPaused(RedisModuleCtx *ctx, IndexSpec *sp) 
   return false;
 }
 
-// FT.DEBUG GC_FORCEINVOKE [TIMEOUT]
+// Reads GC_FORCEINVOKE's optional arguments after the index name, in any order: a TIMEOUT and
+// the COMPACT_ALL flag (default off). Replies with an error and returns false when they are
+// invalid.
+static bool parseForcedGCArgs(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                              const IndexSpec *sp, long long *timeout, bool *compactAll) {
+  // Disk GC cycles (SpeedB compaction) take longer than fork GC, so disk
+  // indexes get a higher default timeout.
+  *timeout = sp->diskSpec ? 60000 : 30000;
+  *compactAll = false;
+  bool timeoutSet = false;
+  for (int i = 3; i < argc; i++) {
+    if (!*compactAll && !strcasecmp(RedisModule_StringPtrLen(argv[i], NULL), "COMPACT_ALL")) {
+      *compactAll = true;
+    } else if (!timeoutSet) {
+      if (RedisModule_StringToLongLong(argv[i], timeout) != REDISMODULE_OK || *timeout < 0) {
+        RedisModule_ReplyWithError(ctx, "Invalid TIMEOUT value");
+        return false;
+      }
+      timeoutSet = true;
+    } else {
+      RedisModule_WrongArity(ctx);
+      return false;
+    }
+  }
+  if (*compactAll && !sp->diskSpec) {
+    RedisModule_ReplyWithError(ctx, "COMPACT_ALL requires a disk index");
+    return false;
+  }
+  // The compaction runs on the GC thread; without one it would block the main thread.
+  if (*compactAll && !sp->gc) {
+    RedisModule_ReplyWithError(ctx, "COMPACT_ALL requires the index's GC, which is disabled");
+    return false;
+  }
+  return true;
+}
+
+// FT.DEBUG GC_FORCEINVOKE <index> [TIMEOUT] [COMPACT_ALL]
+// COMPACT_ALL makes the cycle also flush and fully compact the rest of the index's disk storage,
+// so its on-disk state, and the metrics derived from it, settle. Writes still in flight are not
+// waited for: with vector fields, run WORKERS DRAIN first.
 DEBUG_COMMAND(GCForceInvoke) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  if (argc < 3 || argc > 4) {
+  if (argc < 3 || argc > 5) {
     return RedisModule_WrongArity(ctx);
   }
   StrongRef ref = Indexes_LoadIndexSpecUnsafe(RedisModule_StringPtrLen(argv[2], NULL));
@@ -1104,12 +1150,10 @@ DEBUG_COMMAND(GCForceInvoke) {
     return REDISMODULE_OK;
   }
 
-  // Disk GC cycles (SpeedB compaction) take longer than fork GC, so disk
-  // indexes get a higher default timeout.
-  long long timeout = sp->diskSpec ? 60000 : 30000;
-  if (argc == 4 &&
-      (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK || timeout < 0)) {
-    return RedisModule_ReplyWithError(ctx, "Invalid TIMEOUT value");
+  long long timeout;
+  bool compactAll;
+  if (!parseForcedGCArgs(ctx, argv, argc, sp, &timeout, &compactAll)) {
+    return REDISMODULE_OK;
   }
 
   // Indexes normally own a GCContext (`sp->gc`). Routing the forced invoke
@@ -1131,6 +1175,7 @@ DEBUG_COMMAND(GCForceInvoke) {
       forkWaitMs = timeout / 2 > 0 ? timeout / 2 : 1;
     }
     GCForcedRun forced = GCForcedRun_New(forkWaitMs, GC_FORCED_RUN_RETRY_INTERVAL_MS);
+    forced.compactAll = compactAll;
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(
         ctx, GCForceInvokeReply, GCForceInvokeReplyTimeout, GCForcedRunOutcomeFree, timeout);
     GCContext_ForceInvoke(sp->gc, bc, forced);
@@ -3627,7 +3672,7 @@ DEBUG_COMMAND(DumpSchema) {
   return REDISMODULE_OK;
 }
 
-static inline int TimedOut_Always(QueryRequestTimeout *timeout) {
+static inline int TimedOut_Always(QueryRequestLimits *timeout) {
   (void)timeout; // Unused parameter
   return TIMED_OUT;
 }
@@ -3635,7 +3680,7 @@ static inline int TimedOut_Always(QueryRequestTimeout *timeout) {
 // Global timeout callback for VecSim searches.
 // Need the redirection so tests can pass a mock function to test timeout behavior.
 // Defined in vector_top_k.c, called from the Rust vector top-k scan.
-extern int (*vecsimTimeoutCallback)(QueryRequestTimeout *timeout);
+extern int (*vecsimTimeoutCallback)(QueryRequestLimits *timeout);
 
 /**
  * FT.DEBUG VECSIM_MOCK_TIMEOUT <enable|disable>
@@ -3662,6 +3707,80 @@ DEBUG_COMMAND(VecSimMockTimeout) {
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid command for 'VECSIM_MOCK_TIMEOUT'");
   }
+}
+
+/**
+ * FT.DEBUG MEMORY_PRESSURE <subcommand>
+ * Fake memory pressure for the query memory checkpoints (QueryMemory_Checkpoint), process-wide,
+ * so tests can stop queries for OOM on a Redis without a real memory limit or memory API.
+ *   RATIO <ratio>         - every checkpoint memory read, and the query entry guard, see <ratio>
+ *                           instead of the real used-memory ratio. Must be >= 0.
+ *   AT_CALL <n>           - the n-th checkpoint call from now (1-based, n >= 1) reports pressure.
+ *   READ_INTERVAL <n>     - checkpoints read memory every n calls, n >= 1.
+ *   RESET                 - undo all of the above; the only way back to the defaults.
+ *   STATUS                - [ratio, <r>, at_call, <n>, checkpoint_calls, <n>, read_interval, <n>,
+ *                            raw_ratio, <the server's real ratio, or null without the memory API>]
+ * ON_OOM IGNORE still disables the checkpoints and the entry guard.
+ */
+DEBUG_COMMAND(MemoryPressure) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char *op = RedisModule_StringPtrLen(argv[2], NULL);
+  if (!strcasecmp("RESET", op) || !strcasecmp("STATUS", op)) {
+    if (argc != 3) {
+      return RedisModule_WrongArity(ctx);
+    }
+    if (!strcasecmp("RESET", op)) {
+      QueryMemory_ResetFakePressure();
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    }
+    RedisModule_ReplyWithArray(ctx, 10);
+    RedisModule_ReplyWithSimpleString(ctx, "ratio");
+    RedisModule_ReplyWithDouble(ctx, QueryMemory_GetForcedRatio());
+    RedisModule_ReplyWithSimpleString(ctx, "at_call");
+    RedisModule_ReplyWithLongLong(ctx, (long long)QueryMemory_GetPressureAtCall());
+    RedisModule_ReplyWithSimpleString(ctx, "checkpoint_calls");
+    RedisModule_ReplyWithLongLong(ctx, (long long)QueryMemory_GetCheckpointCalls());
+    RedisModule_ReplyWithSimpleString(ctx, "read_interval");
+    RedisModule_ReplyWithLongLong(ctx, QueryMemory_GetRatioReadInterval());
+    RedisModule_ReplyWithSimpleString(ctx, "raw_ratio");
+    if (RedisModule_GetUsedMemoryRatioEstimate) {
+      RedisModule_ReplyWithDouble(ctx, RedisMemory_GetUsedMemoryRatioEstimate());
+    } else {
+      RedisModule_ReplyWithNull(ctx);
+    }
+    return REDISMODULE_OK;
+  }
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  if (!strcasecmp("RATIO", op)) {
+    double ratio;
+    if (RedisModule_StringToDouble(argv[3], &ratio) != REDISMODULE_OK || signbit(ratio)) {
+      return RedisModule_ReplyWithError(ctx, "Invalid ratio");
+    }
+    QueryMemory_SetForcedRatio((float)ratio);
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+  }
+  long long n;
+  if (RedisModule_StringToLongLong(argv[3], &n) != REDISMODULE_OK || n < 1) {
+    return RedisModule_ReplyWithError(ctx, "Invalid count");
+  }
+  if (!strcasecmp("AT_CALL", op)) {
+    QueryMemory_SetPressureAtCall((uint64_t)n);
+  } else if (!strcasecmp("READ_INTERVAL", op)) {
+    if (n > UINT32_MAX) {
+      return RedisModule_ReplyWithError(ctx, "Invalid count");
+    }
+    QueryMemoryDebug_SetRatioReadInterval((uint32_t)n);
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid command for 'MEMORY_PRESSURE'");
+  }
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
 /**
@@ -3988,6 +4107,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"QUERY_CONTROLLER", queryController},
                                {"DUMP_SCHEMA", DumpSchema},
                                {"VECSIM_MOCK_TIMEOUT", VecSimMockTimeout},
+                               {"MEMORY_PRESSURE", MemoryPressure},
                                {"MOCK_REVALIDATE_TIMEOUT", MockRevalidateTimeout},
                                {"GET_MAX_DOC_ID", GetMaxDocId},
                                {"DUMP_DELETED_IDS", DumpDeletedIds},

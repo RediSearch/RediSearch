@@ -94,6 +94,17 @@ QueryIterator *QITR_GetRootFilter(QueryProcessingCtx *it);
 void QITR_PushRP(QueryProcessingCtx *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryProcessingCtx *qitr);
 
+/**
+ * Makes the query's row source (an RP_INDEX root) reply RS_RESULT_STOPPED
+ * instead of reading, for the rest of the request. The row source does not
+ * read the stop on its own (a per-row read costs ~0.4% instructions), so every stage that requests
+ * a memory stop and keeps pulling rows (ON_OOM RETURN) must call this right
+ * after the request. Call it on the pipeline's thread, or before the pipeline
+ * is handed to that thread; stops requested from other threads are not ended
+ * at an RP_INDEX source. No-op for other roots (RPNet reads the stop itself).
+ */
+void RP_EndRowSourceOnStop(QueryProcessingCtx *qctx);
+
 // Result count to report to the client: matches minus the rows a loader dropped
 // (deleted/re-indexed/expired mid-load). Saturates at zero.
 //
@@ -128,8 +139,8 @@ typedef enum {
   RS_RESULT_EOF,
   // Execution paused due to rate limiting (or manual pause from ext. thread??)
   RS_RESULT_PAUSED,
-  // Execution halted because of timeout
-  RS_RESULT_TIMEDOUT,
+  // Ends a read on a timeout or a requested stop; the request says which
+  RS_RESULT_STOPPED,
   // Aborted because of error. The QueryState (parent->status) should have
   // more information.
   RS_RESULT_ERROR,
@@ -173,8 +184,16 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
-/** `sctx` must carry the owning request's non-NULL timeout state. */
-ResultProcessor *RPQueryIterator_New(QueryIterator *itr, const RedisModuleSlotRangeArray *querySlots, uint32_t slotsVersion, RedisSearchCtx *sctx);
+/** `sctx` must carry the owning request's non-NULL timeout state. `denseAscendingScan` says whether
+ * `itr` visits every docId in ascending order, which a profile wrapper hides. */
+ResultProcessor *RPQueryIterator_New(QueryIterator *itr,
+                                     const RedisModuleSlotRangeArray *querySlots,
+                                     uint32_t slotsVersion, RedisSearchCtx *sctx, bool isProfiled,
+                                     bool denseAscendingScan);
+
+/** Read candidate counts from a profiled Index processor. */
+void RPQueryIterator_GetCandidateCounts(ResultProcessor *rp, uint64_t *discarded,
+                                        uint64_t *notDiscarded);
 
 /**
  * Enable async metadata reads when supported and configured; otherwise keep synchronous reads.
@@ -315,7 +334,7 @@ void RPSafeDepleter_StartDepletion(ResultProcessor *base);
 
 /**
 * Resolve a safe depleter as timed out without scheduling its depletion job:
-* Next() yields RS_RESULT_TIMEDOUT and RPSafeDepleter_WaitForCompletion has
+* Next() yields RS_RESULT_STOPPED and RPSafeDepleter_WaitForCompletion has
 * nothing to wait for. The launcher's alternative to
 * RPSafeDepleter_StartDepletion for a query that already timed out.
 */

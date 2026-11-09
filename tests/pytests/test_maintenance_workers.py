@@ -136,8 +136,7 @@ def _resize_paused_pool(env, set_cmd):
 
 def _queue_repairs(env, rng, docs, removed_vectors, n, overwrite=True):
     """With the pool paused, delete `n` docs and, if `overwrite`, overwrite `n` others; returns the
-    paused pool stats. VecSim submits an overwrite's insert only once the old vector's repairs are
-    done, so it is not queued yet: `heldInserts` counts these."""
+    paused pool stats."""
     env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
     keys = list(docs)
     deleted, overwritten = keys[:n], keys[n:2 * n] if overwrite else []
@@ -145,13 +144,12 @@ def _queue_repairs(env, rng, docs, removed_vectors, n, overwrite=True):
     _mutate_in_transaction(env, rng, docs, deleted, overwritten)
     stats = _stats(env)
     env.assertGreater(_pending(stats), 0, message=stats, depth=1)
-    stats['heldInserts'] = len(overwritten) * N_INDEXES
     return stats
 
 
 def _jobs_done_after(queued):
-    """The jobs-done count once the jobs queued at `queued`, and the inserts they hold, have run."""
-    return queued['totalJobsDone'] + _pending(queued) + queued.get('heldInserts', 0)
+    """The jobs-done count once the jobs queued at `queued` have run."""
+    return queued['totalJobsDone'] + _pending(queued)
 
 
 def _assert_ran_exactly_once(env, queued):
@@ -573,12 +571,19 @@ def test_shrink_to_floor_waits_for_queue():
     docs = _load_docs(env, rng)
     # Deletes only: an overwrite's insert is queued after the request (see _queue_repairs).
     queued = _queue_repairs(env, rng, docs, {}, N_DELETED, overwrite=False)
-    at_resize = _resize_paused_pool(env, [config_cmd(), 'SET', 'WORKERS', 0])
+    # Observe the backlog before releasing workers; it may drain before the first poll.
+    pipe = getConnectionByEnv(env).pipeline(transaction=True)
+    pipe.execute_command(config_cmd(), 'SET', 'WORKERS', 0)
+    pipe.execute_command(debug_cmd(), 'WORKERS', 'N_THREADS')
+    pipe.execute_command(debug_cmd(), 'WORKERS', 'STATS')
+    pipe.execute_command(debug_cmd(), 'WORKERS', 'RESUME')
+    _, n_threads, at_resize, _ = pipe.execute()
+    at_resize = to_dict(at_resize)
+    env.assertEqual(n_threads, 4)
     env.assertEqual(_queued(at_resize), _queued(queued))
     samples = _sample_until_floor(env)
     env.assertEqual([s for s in samples if s[2] > 0 and s[0] != 4], [])
     env.assertEqual(samples[-1][2], 0, message=samples[-1])
-    env.assertGreater(len(samples), 1)
     _assert_ran_exactly_once(env, queued)
     _wait_for_pool_size(env, 1)
     _converge(env, len(docs))

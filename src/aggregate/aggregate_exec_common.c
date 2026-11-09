@@ -38,7 +38,7 @@
  }
 
  bool ShouldReplyWithTimeoutError(int rc, RSTimeoutPolicy timeoutPolicy, bool isProfile) {
-   return rc == RS_RESULT_TIMEDOUT
+   return rc == RS_RESULT_STOPPED
           && timeoutPolicy == TimeoutPolicy_Fail
           && !isProfile;
  }
@@ -76,7 +76,7 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {
   // Pause after the Nth result has been extracted (1-based)
   AggregateResultsDebugCtx_SetPause(true);
   while (AggregateResultsDebugCtx_IsPaused()) {
-    if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
+    if (areq && QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits)) {
       AggregateResultsDebugCtx_SetPause(false);
       break;
     }
@@ -102,11 +102,12 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
      // clean the search result
      r = SearchResult_New();
 
-     // Honour a main-thread timeout flag at the row boundary: buffering
-     // stages (safe loader, sorter yield) can keep emitting from internal
-     // buffers without re-touching upstream's per-row timeout check.
-     if (areq && QueryRequestTimeout_IsBlockedClientTimedOut(&areq->base.timeout)) {
-       *rc = RS_RESULT_TIMEDOUT;
+     // Honour a memory stop or a main-thread timeout flag at the row
+     // boundary: buffering stages (safe loader, sorter yield) can keep emitting
+     // from internal buffers without re-touching upstream's per-row timeout check.
+     if (areq && (QueryRequestLimits_IsMemoryStopped(&areq->base.limits) ||
+                  QueryRequestLimits_IsBlockedClientTimedOut(&areq->base.limits))) {
+       *rc = RS_RESULT_STOPPED;
        break;
      }
    }
@@ -119,12 +120,13 @@ static inline void debugCheckAndPauseAfterAggregateResult(AREQ *areq) {}
  }
 
  void startPipelineCommon(CommonPipelineCtx *ctx, ResultProcessor *rp, SearchResult ***results, SearchResult *r, int *rc) {
-   if (ctx->timeout->config.timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
+   if (ctx->limits->timeout.config.timeoutPolicy != TimeoutPolicy_Return || ctx->oomPolicy == OomPolicy_Fail) {
      // Aggregate all results before populating the response
      *results = AggregateResults(rp, ctx->areq, rc);
-     // Check timeout after aggregation
-     if (QueryRequestTimeout_IsTimedOutExact(ctx->timeout)) {
-       *rc = RS_RESULT_TIMEDOUT;
+     // Check timeout after aggregation; a memory stop raised while filling the limit ends it the
+     // same way.
+     if (QueryRequestLimits_ShouldStopExact(ctx->limits)) {
+       *rc = RS_RESULT_STOPPED;
      }
    } else {
      // Send the results received from the pipeline as they come (no need to aggregate)

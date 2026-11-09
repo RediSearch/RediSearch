@@ -259,6 +259,7 @@ arrayof(FieldSpec *) IndexSpec_GetFieldsByMask(const IndexSpec *sp, t_fieldMask 
 // Forward declaration
 static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenString *name,
                                            ArgsCursor *ac_in, QueryError *status);
+static void IndexSpec_BindFieldsStorage(IndexSpec *sp);
 
 /*
 * Parse an index spec from redis command arguments.
@@ -628,11 +629,6 @@ static int parseVectorField_validate_hnsw(VecSimParams *params, QueryError *stat
   if (!VectorIndex_GetBlobSize(hnswParams->dim, hnswParams->type, &blobSize, status)) {
     return 0;
   }
-  if (hnswParams->quantType != VecSimQuant_NONE && SearchDisk_IsEnabledForValidation()) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
-                        "COMPRESSION is not supported for disk-based vector indexes");
-    return 0;
-  }
   const VecSimParams *estimateParams = primaryParams;
   if (hnswParams->quantType == VecSimQuant_SQ8) {
     estimateParams = params;
@@ -891,6 +887,13 @@ static int parseVectorField_hnsw(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Q
   }
   // Disk-mode validation: enforce mandatory parameters
   if (isSpecOnDiskForValidation(sp)) {
+    // Keep this admission gate out of shared parameter validation, which also runs on RDB load.
+    if (hnswParams->quantType == VecSimQuant_SQ8 && !RSGlobalConfig.diskSq8Enabled) {
+      QueryError_SetError(status, QUERY_ERROR_CODE_INVAL,
+                          "Disk COMPRESSION SQ8 is disabled; enable search-disk-sq8-enabled "
+                          "only after all nodes have upgraded");
+      return 0;
+    }
     if (hnswParams->type != VecSimType_FLOAT32 && hnswParams->type != VecSimType_FLOAT16) {
       const char *typeName = VecSimType_ToString(hnswParams->type);
       QueryError_SetWithoutUserDataFmt(status, QUERY_ERROR_CODE_INVAL,
@@ -1135,19 +1138,19 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
   return parseVectorField_validate_svs(params, status);
 }
 
-// Parse the arguments of a TEXT field
-static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+// Parse the TEXT-specific options, stopping at the first argument that is not one
+static int parseTextFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   int rc;
-  fs->types |= INDEXFLD_T_FULLTEXT;
-
-  // this is a text field
-  // init default weight and type
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_NOSTEM_STR)) {
       fs->options |= FieldSpec_NoStemming;
       continue;
 
     } else if (AC_AdvanceIfMatch(ac, SPEC_WEIGHT_STR)) {
+      if (AC_IsAtEnd(ac)) {
+        QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, SPEC_WEIGHT_STR " requires an argument");
+        return 0;
+      }
       double d;
       if ((rc = AC_GetDouble(ac, &d, 0)) != AC_OK) {
         QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Bad arguments", " for weight: %s", AC_Strerror(rc));
@@ -1194,11 +1197,9 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
   return 1;
 }
 
-// Parse the arguments of a TAG field
-static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+// Parse the TAG-specific options, stopping at the first argument that is not one
+static int parseTagFieldOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     int rc = 1;
-    fs->types |= INDEXFLD_T_TAG;
-
     while (!AC_IsAtEnd(ac)) {
       if (AC_AdvanceIfMatch(ac, SPEC_TAG_SEPARATOR_STR)) {
         if (AC_IsAtEnd(ac)) {
@@ -1231,6 +1232,39 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
     }
 
   return rc;
+}
+
+// Parse the options specific to the field's type, stopping at the first argument that is not one
+static int parseFieldTypeOptions(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
+  if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT)) {
+    return parseTextFieldOptions(fs, ac, status);
+  }
+  if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+    return parseTagFieldOptions(fs, ac, status);
+  }
+  // NUMERIC, GEO and GEOSHAPE take INDEXMISSING once; a repeat is not an option of the field
+  if (!FieldSpec_IndexesMissing(fs) && AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
+    fs->options |= FieldSpec_IndexMissing;
+  }
+  return 1;
+}
+
+// Whether the current argument would start a valid field definition (`name [AS alias] type`),
+// judged by the argument after it.
+static bool startsFieldDefinition(const ArgsCursor *ac) {
+  if (AC_NumRemaining(ac) < 2) {
+    return false;
+  }
+  const char *next = AC_StringArg(ac, ac->offset + 1, NULL);
+  static const char *const starts[] = {SPEC_AS_STR,       SPEC_TEXT_STR,   SPEC_TAG_STR,
+                                       SPEC_NUMERIC_STR,  SPEC_GEO_STR,    SPEC_GEOMETRY_STR,
+                                       SPEC_VECTOR_STR};
+  for (size_t i = 0; i < sizeof(starts) / sizeof(*starts); i++) {
+    if (!strcasecmp(next, starts[i])) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Field creation already parsed the path; validation only checks its result.
@@ -1310,20 +1344,8 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
     bool rerank = false;
     result = parseVectorField_hnsw(sp, fs, ac, status, &rerank);
-    // Build disk params if disk mode is enabled
-    if (result && sp->diskSpec) {
-      size_t nameLen;
-      const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
-      fs->vectorOpts.diskCtx = (VecSimDiskContext){
-        .storage = sp->diskSpec,
-        .indexName = rm_strndup(namePtr, nameLen),
-        .indexNameLen = nameLen,
-        // The disk storage layer keys this field's data by the value it finds
-        // here, so it has to stay stable for the life of the index.
-        .userData = fs->index,
-        .rerank = rerank,
-      };
-    }
+    // The rest of diskCtx is filled in when the field's storage is opened.
+    fs->vectorOpts.diskCtx.rerank = rerank;
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
     // Disk mode does not support SVS algorithm
     if (isSpecOnDiskForValidation(sp)) {
@@ -1389,10 +1411,6 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
     }
 
-    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
-    }
-
   return 1;
 }
 
@@ -1405,15 +1423,9 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
   }
 
   if (AC_AdvanceIfMatch(ac, SPEC_TEXT_STR)) {  // text field
-    if (!parseTextField(fs, ac, status)) goto error;
-    if (!FieldSpec_IndexesEmpty(fs)) {
-      sp->flags |= Index_HasNonEmpty;
-    }
+    fs->types |= INDEXFLD_T_FULLTEXT;
   } else if (AC_AdvanceIfMatch(ac, SPEC_TAG_STR)) {  // tag field
-    if (!parseTagField(fs, ac, status)) goto error;
-    if (!FieldSpec_IndexesEmpty(fs)) {
-      sp->flags |= Index_HasNonEmpty;
-    }
+    fs->types |= INDEXFLD_T_TAG;
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_STR)) {  // geometry field
     if (!SearchDisk_MarkUnsupportedFieldIfDiskEnabled(SPEC_GEOMETRY_STR, fs, status)) goto error;
     if (!parseGeometryField(sp, fs, ac, status)) goto error;
@@ -1423,34 +1435,41 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
     return 1;
   } else if (AC_AdvanceIfMatch(ac, SPEC_NUMERIC_STR)) {  // numeric field
     fs->types |= INDEXFLD_T_NUMERIC;
-    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
-    }
   } else if (AC_AdvanceIfMatch(ac, SPEC_GEO_STR)) {  // geo field
     fs->types |= INDEXFLD_T_GEO;
-    if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
-      fs->options |= FieldSpec_IndexMissing;
-    }
   } else {
     QueryError_SetWithUserDataFmt(status, QUERY_ERROR_CODE_PARSE_ARGS, "Invalid field type for field", " `%s`", HiddenString_GetUnsafe(fs->fieldName, NULL));
     goto error;
   }
 
+  if (!parseFieldTypeOptions(fs, ac, status)) goto error;
+  // Type-specific options may also come between or after SORTABLE and NOINDEX. An argument that
+  // can start a field definition (followed by AS or a field type) ends this field instead, so a
+  // field may be named after an option keyword.
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
       FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
-          FIELD_IS(fs, INDEXFLD_T_NUMERIC) ||         // We don't normalize numeric fields. Implicit UNF
-          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {
         fs->options |= FieldSpec_UNF;
       }
-      continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
-      continue;
-    } else {
+    } else if (startsFieldDefinition(ac)) {
       break;
+    } else {
+      size_t offset = ac->offset;
+      if (!parseFieldTypeOptions(fs, ac, status)) goto error;
+      if (ac->offset == offset) break;
     }
+  }
+  // Numeric fields and case-sensitive tags are never normalized, so sorting them is implicitly
+  // UNF. Decided after all options are parsed, since CASESENSITIVE may follow SORTABLE.
+  if (FieldSpec_IsSortable(fs) &&
+      (FIELD_IS(fs, INDEXFLD_T_NUMERIC) || TAG_FIELD_IS(fs, TagField_CaseSensitive))) {
+    fs->options |= FieldSpec_UNF;
+  }
+  if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG) && !FieldSpec_IndexesEmpty(fs)) {
+    sp->flags |= Index_HasNonEmpty;
   }
   // We don't allow both NOINDEX and INDEXMISSING, since the missing values will
   // not contribute and thus this doesn't make sense.
@@ -1876,24 +1895,6 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     goto failure;
   }
 
-  // Store on disk if we're on Flex.
-  // This must be done before IndexSpec_AddFieldsInternal so that sp->diskSpec
-  // is available when parsing vector fields (for populating diskCtx).
-  spec->diskSpec = NULL;
-  if (isSpecOnDisk(spec)) {
-    RS_ASSERT(disk_db);
-    if (!SearchDisk_CanCreateIndex(status)) {
-      goto failure;
-    }
-    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName,
-                                          spec->rule->type, true, spec);
-    if (!spec->diskSpec) {
-      SearchDisk_ReleaseCreateFailure();
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
-      goto failure;
-    }
-  }
-
   if (AC_IsInitialized(acStopwords)) {
     if (spec->stopwords) {
       StopWordList_Unref(spec->stopwords);
@@ -1916,11 +1917,23 @@ static StrongRef IndexSpec_ParseFromArgCursor(RedisModuleCtx *ctx, const HiddenS
     goto failure;
   }
 
-  if (isSpecOnDisk(spec) && IndexSpec_HasIndexMissing(spec) &&
-      !SearchDisk_InitializeMissingStorage(ctx, spec->diskSpec)) {
-    QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
-                        "Could not initialize missing-field storage");
-    goto failure;
+  // Store on disk if we're on Flex.
+  if (isSpecOnDisk(spec)) {
+    RS_ASSERT(disk_db);
+    if (!SearchDisk_CanCreateIndex(status)) {
+      goto failure;
+    }
+    spec->diskSpec = SearchDisk_OpenIndex(ctx, spec->specName, spec->obfuscatedName,
+                                          spec->rule->type, true, spec);
+    if (!spec->diskSpec) {
+      SearchDisk_ReleaseCreateFailure();
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
+      goto failure;
+    }
+  }
+
+  if (spec->diskSpec) {
+    IndexSpec_BindFieldsStorage(spec);
   }
 
   if (spec->rule->filter_exp) {
@@ -3147,54 +3160,51 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp, bool obfuscate,
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+// Point a disk-backed vector field's diskCtx at the open sp->diskSpec.
+static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp, FieldSpec *fs) {
+  // Only HNSW indexes support disk mode (tiered with HNSW primary)
+  VecSimParams *params = &fs->vectorOpts.vecSimParams;
+  RS_ASSERT(params->algo == VecSimAlgo_TIERED);
 
-// Populate diskCtx for all HNSW vector fields in the spec.
-// This must be called after sp->diskSpec is set.
-static void IndexSpec_PopulateVectorDiskParams(IndexSpec *sp) {
-  if (!sp->diskSpec) return;
+  VecSimParams *primaryParams = params->algoParams.tieredParams.primaryIndexParams;
+  RS_ASSERT(primaryParams && primaryParams->algo == VecSimAlgo_HNSWLIB);
 
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec *fs = &sp->fields[i];
-    if (!FIELD_IS(fs, INDEXFLD_T_VECTOR)) continue;
+  size_t nameLen;
+  const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
 
-    // Only HNSW indexes support disk mode (tiered with HNSW primary)
-    VecSimParams *params = &fs->vectorOpts.vecSimParams;
-    RS_ASSERT(params->algo == VecSimAlgo_TIERED);
+  // Free any existing indexName to avoid memory leak
+  if (fs->vectorOpts.diskCtx.indexName) {
+    rm_free((void *)fs->vectorOpts.diskCtx.indexName);
+  }
 
-    VecSimParams *primaryParams = params->algoParams.tieredParams.primaryIndexParams;
-    RS_ASSERT(primaryParams && primaryParams->algo == VecSimAlgo_HNSWLIB);
-
-    size_t nameLen;
-    const char *namePtr = HiddenString_GetUnsafe(fs->fieldName, &nameLen);
-
-    // Free any existing indexName to avoid memory leak
-    if (fs->vectorOpts.diskCtx.indexName) {
-      rm_free((void*)fs->vectorOpts.diskCtx.indexName);
-    }
-
-    // Preserve rerank loaded by FieldSpec_RdbLoad — runtime fields below
-    // are repopulated from the freshly opened disk handle.
-    const bool rerank = fs->vectorOpts.diskCtx.rerank;
-    fs->vectorOpts.diskCtx = (VecSimDiskContext){
+  // Preserve rerank set by parseVectorField or FieldSpec_RdbLoad — runtime
+  // fields below are repopulated from the freshly opened disk handle.
+  const bool rerank = fs->vectorOpts.diskCtx.rerank;
+  fs->vectorOpts.diskCtx = (VecSimDiskContext){
       .storage = sp->diskSpec,
       .indexName = rm_strndup(namePtr, nameLen),
       .indexNameLen = nameLen,
+      // The disk storage layer keys this field's data by the value it finds
+      // here, so it has to stay stable for the life of the index.
       .userData = fs->index,
       .rerank = rerank,
-    };
-  }
+  };
 }
 
-// Initialize spec->tagOpts.tagIndex for every TAG field after the disk index
-// is opened.
-static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
-  if (!sp->diskSpec) return;
-
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldSpec *fs = &sp->fields[i];
-    if (!FIELD_IS(fs, INDEXFLD_T_TAG)) continue;
-    TagIndex_Ensure(fs, sp->diskSpec, FieldSpec_HasSuffixTrie(fs));
+// Point each field's in-memory handle (vector diskCtx, TAG disk index) at the
+// storage the disk layer opened for it. Call after every sp->diskSpec open.
+static void IndexSpec_BindFieldsStorage(IndexSpec *sp) {
+  RS_ASSERT(sp->diskSpec);
+  for (size_t i = 0; i < sp->numFields; ++i) {
+    FieldSpec *fs = sp->fields + i;
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      IndexSpec_PopulateVectorDiskParams(sp, fs);
+    }
+    if (FIELD_IS(fs, INDEXFLD_T_TAG)) {
+      TagIndex_Ensure(fs, sp->diskSpec, FieldSpec_HasSuffixTrie(fs));
+    }
   }
+  IndexSpec_RefreshSpecCache(sp);
 }
 
 // Opens sp->diskSpec from
@@ -3202,8 +3212,9 @@ static void IndexSpec_EnsureTagDiskIndexes(IndexSpec *sp) {
 // and replays the in-memory blob stashed on the matching FieldSpec.
 //
 // Returns true on success (sp->diskSpec is set and ready to register).
-// Returns false if SearchDisk_OpenIndexWithRdbState fails, or if any
-// disk-backed vector field cannot be eagerly created. Note that the
+// Returns false if SearchDisk_OpenIndexWithRdbState fails, if a field's
+// storage cannot be opened, or if any disk-backed vector field cannot be
+// eagerly created. Note that the
 // state (sp->pendingDiskRdbState) is consumed by SearchDisk_OpenIndexWithRdbState
 // on both success and failure — we null the pointer here unconditionally.
 // On the failure path, sp->diskSpec (if already created) is closed by the
@@ -3222,10 +3233,7 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
     return false;
   }
 
-  // Populate diskCtx for every HNSW-disk-backed vector field so we have the
-  // storage context needed for both eager creation (cold fields) and the
-  // bind-storage step on pending indexes (loaded inline from RDB).
-  IndexSpec_PopulateVectorDiskParams(sp);
+  IndexSpec_BindFieldsStorage(sp);
 
   // Materialize each disk-backed VecSimIndex up front so the HNSW graph
   // metadata + SQ8 vectors are available to readers immediately after RDB
@@ -3261,10 +3269,6 @@ bool IndexSpec_SSTRdbOpenAndApply(RedisModuleCtx *ctx, IndexSpec *sp) {
       return false;
     }
   }
-
-  // Make sure TagDiskIndex is created for every TAG field. In regular FT.CREATE the TagIndex is ensured lazily
-  // in the first document insertion
-  IndexSpec_EnsureTagDiskIndexes(sp);
 
   return true;
 }
@@ -3549,17 +3553,10 @@ int IndexSpec_RdbLoadOpenDisk(RedisModuleCtx *ctx, IndexSpec *sp, bool useSst, Q
     sp->diskSpec = SearchDisk_OpenIndex(ctx, sp->specName, sp->obfuscatedName, sp->rule->type,
                                         true, sp);
     if (!sp->diskSpec) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_PARSE_ARGS, "while reading an index");
+      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION, "Could not open disk index");
       return REDISMODULE_ERR;
     }
-    if (IndexSpec_HasIndexMissing(sp) && !SearchDisk_InitializeMissingStorage(ctx, sp->diskSpec)) {
-      QueryError_SetError(status, QUERY_ERROR_CODE_DISK_CREATION,
-                          "Could not initialize missing-field storage during RDB load");
-      SearchDisk_CloseIndexOnMainThread(ctx, sp);
-      return REDISMODULE_ERR;
-    }
-    IndexSpec_PopulateVectorDiskParams(sp);
-    IndexSpec_EnsureTagDiskIndexes(sp);
+    IndexSpec_BindFieldsStorage(sp);
   }
   return REDISMODULE_OK;
 }
@@ -3790,6 +3787,7 @@ static void fingerprintVectorParams(Sha1Context *hash, const VecSimParams *param
       RS_ASSERT(p->primaryIndexParams);
       if (p->primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
         Sha1_UpdateU64(hash, p->specificParams.tieredHnswParams.swapJobThreshold);
+        Sha1_UpdateU64(hash, p->specificParams.tieredHnswParams.QuantNormalizationSetSize);
       } else {
         RS_ASSERT(p->primaryIndexParams->algo == VecSimAlgo_SVS);
         Sha1_UpdateU64(hash, p->specificParams.tieredSVSParams.trainingTriggerThreshold);
@@ -3799,6 +3797,7 @@ static void fingerprintVectorParams(Sha1Context *hash, const VecSimParams *param
     }
     case VecSimAlgo_HNSWLIB: {
       const HNSWParams *p = &params->algoParams.hnswParams;
+      Sha1_UpdateU64(hash, p->quantType);
       Sha1_UpdateU64(hash, p->type);
       Sha1_UpdateU64(hash, p->dim);
       Sha1_UpdateU64(hash, p->metric);

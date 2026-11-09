@@ -102,6 +102,13 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
   if (printProfileClock && rp->upstream && rp->upstream->type == RP_NETWORK) {
     RPNet_ReplyProfileBreakdown(reply, rp->upstream);
   }
+  if (rp->upstream && rp->upstream->type == RP_INDEX) {
+    uint64_t discarded = 0;
+    uint64_t notDiscarded = 0;
+    RPQueryIterator_GetCandidateCounts(rp->upstream, &discarded, &notDiscarded);
+    RedisModule_ReplyKV_LongLong(reply, "Deleted candidates discarded", discarded);
+    RedisModule_ReplyKV_LongLong(reply, "Candidates not discarded", notDiscarded);
+  }
   RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
 }

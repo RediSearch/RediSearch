@@ -152,9 +152,9 @@ enum Child {
     /// A plain `@tag:{value}` term.
     Token(&'static [u8]),
     /// A `@tag:{pat*}` expansion. `prefix`/`suffix` are the anchoring flags the
-    /// parser sets from where the `*`s sit: `suffix` off is `TAG_PREFIX_MODE`
-    /// (`pat*`), `suffix` alone is `TAG_SUFFIX_MODE` (`*pat`), and both is
-    /// `TAG_CONTAINS_MODE` (`*pat*`) -- both off is not a state the parser can
+    /// parser sets from where the `*`s sit: `suffix` off is `TM_PREFIX_MODE`
+    /// (`pat*`), `suffix` alone is `TM_SUFFIX_MODE` (`*pat`), and both is
+    /// `TM_CONTAINS_MODE` (`*pat*`) -- both off is not a state the parser can
     /// produce. On a [`TagField::IndexedWithSuffixTrie`] field the two
     /// `suffix`-anchored modes take the suffix-trie walk instead.
     Prefix {
@@ -166,6 +166,13 @@ enum Child {
     WildcardQuery(&'static [u8]),
     /// A `@tag:{multi word value}` phrase, whose children are always tokens.
     Phrase(&'static [&'static [u8]]),
+    /// A `@tag:>{bound}` range, and its `>=`, `<` and `<=` spellings. Each side
+    /// is `None` when unbounded, otherwise the bound and whether it is included:
+    /// `>` is an excluded `begin`, `<=` an included `end`.
+    LexRange {
+        begin: Option<(&'static [u8], bool)>,
+        end: Option<(&'static [u8], bool)>,
+    },
 }
 
 /// What deadline the search context carries while the node is evaluated.
@@ -185,6 +192,10 @@ enum Timeout {
     /// [`EXPIRED_DEADLINE`] with `skipTimeoutChecks` set, which stops the
     /// evaluator installing it on the trie iterator at all.
     ExpiredButSkipped,
+    /// A blocked-client cycle whose cancellation marker is already published.
+    /// It carries no deadline, so a walk that only reads the clock deadline
+    /// sees nothing to enforce.
+    BlockedClientCancelled,
 }
 
 /// The two request flags tag evaluation reads as "this is a hybrid
@@ -410,7 +421,11 @@ fn index_value_raw(
 ///
 /// Every token comes from [`MockQueryNode::with_redis_token`], as invariant (5)
 /// of [`QueryNodeMut::new`] requires.
-fn build_child(child: &Child, grandchildren: &mut Vec<MockQueryNode>) -> MockQueryNode {
+fn build_child(
+    child: &Child,
+    grandchildren: &mut Vec<MockQueryNode>,
+    bounds: &mut Vec<CString>,
+) -> MockQueryNode {
     match *child {
         Child::Token(value) => MockQueryNode::with_redis_token(TokenNodeType::Token, value),
         Child::Prefix {
@@ -434,6 +449,24 @@ fn build_child(child: &Child, grandchildren: &mut Vec<MockQueryNode>) -> MockQue
                 grandchildren.push(child);
             }
             node.set_children(&ptrs);
+            node
+        }
+        Child::LexRange { begin, end } => {
+            // The node reads each bound as a NUL-terminated string and never
+            // rewrites it, so `bounds` owns them for as long as the node lives.
+            let mut keep = |side: Option<(&'static [u8], bool)>| match side {
+                None => (std::ptr::null_mut(), false),
+                Some((value, included)) => {
+                    let value = CString::new(value).expect("a test bound holds no interior NUL");
+                    let ptr = value.as_ptr().cast_mut();
+                    bounds.push(value);
+                    (ptr, included)
+                }
+            };
+            let (begin_ptr, include_begin) = keep(begin);
+            let (end_ptr, include_end) = keep(end);
+            let mut node = MockQueryNode::new(QueryNodeType::LexRange);
+            node.set_lex_range(begin_ptr, include_begin, end_ptr, include_end);
             node
         }
     }
@@ -531,6 +564,8 @@ struct TagFixture {
     /// The node's children, and the phrase children's own token nodes, kept
     /// alive because the node holds raw pointers to them.
     _children: Vec<MockQueryNode>,
+    /// The lex-range children's bound strings, kept alive for the same reason.
+    _bounds: Vec<CString>,
     /// The field spec the node names, added to `_context`'s spec by [`new`](Self::new).
     /// For every [`TagField`] but [`TagField::NoIndex`] its `tagOpts.tagIndex`
     /// is a `TagIndex` this fixture created; `_context`'s own teardown frees
@@ -559,6 +594,7 @@ impl TagFixture {
             Timeout::NoTimeout => {}
             Timeout::Expired => context.set_search_time(EXPIRED_DEADLINE, false),
             Timeout::ExpiredButSkipped => context.set_search_time(EXPIRED_DEADLINE, true),
+            Timeout::BlockedClientCancelled => context.set_blocked_client_cancelled(),
         }
 
         // Genuinely added to `context`'s spec, not a standalone allocation:
@@ -629,10 +665,11 @@ impl TagFixture {
         }
 
         let mut grandchildren = Vec::new();
+        let mut bounds = Vec::new();
         let mut children: Vec<MockQueryNode> = opts
             .children
             .iter()
-            .map(|child| build_child(child, &mut grandchildren))
+            .map(|child| build_child(child, &mut grandchildren, &mut bounds))
             .collect();
         let child_ptrs: Vec<*mut ffi::RSQueryNode> =
             children.iter().map(MockQueryNode::as_ptr).collect();
@@ -651,6 +688,7 @@ impl TagFixture {
             _context: context,
             node,
             _children: children,
+            _bounds: bounds,
             field_spec,
         }
     }
@@ -709,6 +747,154 @@ impl Drop for TagFixture {
 // ---------------------------------------------------------------------------
 // Index, children and union shape
 // ---------------------------------------------------------------------------
+
+/// `apple`, `apricot`, `banana`, `red apple` is the indexed order, so a bound
+/// of `banana` sits between `apricot` and `banana` itself.
+#[test]
+fn eval_tag_lex_range_excludes_an_excluded_bound() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::LexRange {
+            begin: Some((TAG_APRICOT, false)),
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("banana and red apple are above apricot");
+    // `banana` is docs 3 and 4, `red apple` doc 5.
+    assert_eq!(drain_doc_ids(&mut it), vec![3, 4, 5]);
+}
+
+#[test]
+fn eval_tag_lex_range_includes_an_included_bound() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::LexRange {
+            begin: Some((TAG_APRICOT, true)),
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("apricot and above are in range");
+    assert_eq!(drain_doc_ids(&mut it), vec![2, 3, 4, 5]);
+}
+
+#[test]
+fn eval_tag_lex_range_bounds_the_upper_side() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::LexRange {
+            begin: None,
+            end: Some((TAG_APRICOT, false)),
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("apple is below apricot");
+    assert_eq!(drain_doc_ids(&mut it), vec![1, 2]);
+}
+
+/// Both sides bounded is what two intersected clauses reduce to per child.
+#[test]
+fn eval_tag_lex_range_bounds_both_sides() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::LexRange {
+            begin: Some((TAG_APPLE, false)),
+            end: Some((TAG_BANANA, true)),
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("apricot and banana are in range");
+    assert_eq!(drain_doc_ids(&mut it), vec![2, 3, 4]);
+}
+
+/// An unbounded range covers every value, the empty one included.
+#[test]
+fn eval_tag_lex_range_unbounded_covers_every_value() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("every value is in range");
+    assert_eq!(drain_doc_ids(&mut it), vec![1, 2, 3, 4, 5]);
+}
+
+/// A bound is compared against the values as they were indexed, so on a
+/// case-insensitive field it is folded the same way they were.
+#[test]
+fn eval_tag_lex_range_folds_the_bound_when_the_field_does() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::LexRange {
+            begin: Some((b"APRICOT", true)),
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("APRICOT folds to apricot");
+    assert_eq!(drain_doc_ids(&mut it), vec![2, 3, 4, 5]);
+}
+
+/// With `CASESENSITIVE` the bound keeps its case, and ASCII uppercase sorts
+/// below every lowercase value, so an upper bound of `APRICOT` excludes them
+/// all. The range still builds a union, an empty one, as a prefix that matches
+/// nothing does.
+#[test]
+fn eval_tag_lex_range_keeps_the_bound_case_when_the_field_does() {
+    let mut fixture = TagFixture::new(TagOptions {
+        case_sensitive: true,
+        children: vec![Child::LexRange {
+            begin: None,
+            end: Some((b"APRICOT", true)),
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("an empty range is still a union");
+    assert_eq!(
+        drain_doc_ids(&mut it),
+        Vec::<DocId>::new(),
+        "an uppercase bound sorts below every indexed value"
+    );
+}
+
+/// An escaped separator is part of the bound, as it is part of a tag token.
+#[test]
+fn eval_tag_lex_range_unescapes_the_bound() {
+    let mut fixture = TagFixture::new(TagOptions {
+        values: values(&[(b"red apple", &[1]), (b"zebra", &[2])]),
+        children: vec![Child::LexRange {
+            begin: Some((b"red\\ apple", true)),
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("the bound unescapes to `red apple`, which is indexed");
+    assert_eq!(drain_doc_ids(&mut it), vec![1, 2]);
+}
+
+/// The cap bounds how many readers one range opens, and the truncation is
+/// reported rather than silently dropping values.
+#[test]
+fn eval_tag_lex_range_stops_at_the_expansion_cap() {
+    let mut fixture = TagFixture::new(TagOptions {
+        max_prefix_expansions: Some(2),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("the first two values are admitted");
+    // `apple` (docs 1, 2) and `apricot` (docs 2, 3) are the two lowest values.
+    assert_eq!(drain_doc_ids(&mut it), vec![1, 2, 3]);
+    drop(it);
+    assert!(
+        fixture.reached_max_prefix_expansions(),
+        "a capped range must say so"
+    );
+}
 
 #[test]
 fn eval_tag_without_a_tag_index_yields_nothing() {
@@ -1214,12 +1400,70 @@ fn eval_tag_wildcard_child_matches_by_pattern() {
 }
 
 #[test]
+fn eval_tag_wildcard_child_below_the_minimum_yields_nothing() {
+    // Held to the same minimum as the prefix child `{a*}`. The count runs after
+    // escape removal, so `a\*` is the one-literal `a*`.
+    for pattern in [&b"a*"[..], b"*a*", b"?*a", br"a\*"] {
+        let mut fixture = TagFixture::new(TagOptions {
+            children: vec![Child::WildcardQuery(pattern)],
+            ..TagOptions::default()
+        });
+        fixture.eval_yielding_nothing();
+    }
+}
+
+#[test]
+fn eval_tag_wildcard_child_honours_a_raised_minimum() {
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::WildcardQuery(b"ap*")],
+        min_term_prefix: Some(3),
+        ..TagOptions::default()
+    });
+    fixture.eval_yielding_nothing();
+
+    let mut fixture = TagFixture::new(TagOptions {
+        children: vec![Child::WildcardQuery(b"apr*")],
+        min_term_prefix: Some(3),
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("three literal bytes reach a minimum of three");
+    assert_eq!(drain_doc_ids(&mut it), vec![2, 3]);
+}
+
+#[test]
+fn eval_tag_wildcard_child_without_a_literal_or_a_star_ignores_the_minimum() {
+    let cases: [(&[u8], Vec<DocId>); 3] = [
+        (b"*", vec![1, 2, 3, 4, 5]),
+        (b"?*", vec![1, 2, 3, 4, 5]),
+        (b"appl?", vec![1, 2]),
+    ];
+    for (pattern, expected) in cases {
+        let mut fixture = TagFixture::new(TagOptions {
+            children: vec![Child::WildcardQuery(pattern)],
+            min_term_prefix: Some(10),
+            ..TagOptions::default()
+        });
+        let mut it = fixture
+            .eval()
+            .expect("the minimum does not apply to this pattern");
+        assert_eq!(
+            drain_doc_ids(&mut it),
+            expected,
+            "{}",
+            String::from_utf8_lossy(pattern)
+        );
+    }
+}
+
+#[test]
 fn eval_tag_wildcard_child_skips_a_value_with_no_documents() {
     let mut values = fruit();
     values.push((TAG_NO_DOCS.to_vec(), vec![]));
     let mut fixture = TagFixture::new(TagOptions {
         values,
-        children: vec![Child::WildcardQuery(b"a*")],
+        children: vec![Child::WildcardQuery(b"ap*")],
         ..TagOptions::default()
     });
     let mut it = fixture.eval().expect("apple and apricot still match");
@@ -1927,6 +2171,7 @@ fn eval_tag_wildcard_expansion_stops_at_the_cap() {
         values: values(&[(b"aa", &[7]), (TAG_BANANA, &[3, 4])]),
         children: vec![Child::WildcardQuery(b"*a*")],
         max_prefix_expansions: Some(1),
+        min_term_prefix: Some(1),
         ..TagOptions::default()
     });
     let mut it = fixture.eval().expect("at least one value matches");
@@ -1964,7 +2209,7 @@ fn eval_tag_wildcard_expansion_skips_a_readerless_term_without_spending_the_cap(
     let values = values(&[(TAG_APPLE, &[1, 2]), (TAG_NO_DOCS, &[])]);
     let mut fixture = TagFixture::new(TagOptions {
         values,
-        children: vec![Child::WildcardQuery(b"a*")],
+        children: vec![Child::WildcardQuery(b"ap*")],
         max_prefix_expansions: Some(1),
         ..TagOptions::default()
     });
@@ -2160,6 +2405,74 @@ fn eval_tag_wildcard_suffix_trie_expansion_stops_at_the_deadline() {
     let ids = drain_doc_ids(&mut it);
     assert!(!ids.is_empty());
     assert!((ids.len() as u32) < TIMEOUT_VALUES);
+}
+
+#[test]
+fn eval_tag_lex_range_walk_stops_at_the_deadline() {
+    // The cap counts readers opened, not values visited, so it cannot bound a
+    // walk on its own: a value whose reader does not open leaves the count
+    // where it was. The deadline is what ends such a walk.
+    let mut fixture = TagFixture::new(TagOptions {
+        values: generated(TIMEOUT_VALUES, 100),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        max_prefix_expansions: Some(TIMEOUT_VALUES + 1),
+        timeout: Timeout::Expired,
+        ..TagOptions::default()
+    });
+    let mut it = fixture.eval().expect("the walk starts before it times out");
+    let ids = drain_doc_ids(&mut it);
+    assert!(!ids.is_empty());
+    assert!((ids.len() as u32) < TIMEOUT_VALUES);
+}
+
+#[test]
+fn eval_tag_lex_range_walk_ignores_the_deadline_when_checks_are_skipped() {
+    let mut fixture = TagFixture::new(TagOptions {
+        values: generated(TIMEOUT_VALUES, 100),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        max_prefix_expansions: Some(TIMEOUT_VALUES + 1),
+        timeout: Timeout::ExpiredButSkipped,
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("skipTimeoutChecks disables the deadline");
+    assert_eq!(drain_doc_ids(&mut it).len(), TIMEOUT_VALUES as usize);
+}
+
+#[test]
+fn eval_tag_lex_range_walk_stops_when_the_blocked_client_is_cancelled() {
+    // A background query under `ON_TIMEOUT FAIL` or `RETURN_STRICT` runs a
+    // blocked-client cycle, which publishes a marker instead of a deadline. The
+    // trie iterator has no deadline to enforce in that case, so the walk has to
+    // observe the marker itself or it keeps opening readers -- and keeps the
+    // spec read lock -- after the client is gone.
+    let mut fixture = TagFixture::new(TagOptions {
+        values: generated(TIMEOUT_VALUES, 100),
+        children: vec![Child::LexRange {
+            begin: None,
+            end: None,
+        }],
+        max_prefix_expansions: Some(TIMEOUT_VALUES + 1),
+        timeout: Timeout::BlockedClientCancelled,
+        ..TagOptions::default()
+    });
+    let mut it = fixture
+        .eval()
+        .expect("the walk starts before it observes the marker");
+    let ids = drain_doc_ids(&mut it);
+    assert!(!ids.is_empty());
+    assert!(
+        (ids.len() as u32) < TIMEOUT_VALUES,
+        "the walk opened {} of {TIMEOUT_VALUES} readers",
+        ids.len()
+    );
 }
 
 #[test]

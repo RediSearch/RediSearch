@@ -20,8 +20,6 @@ use crate::scorers::BuiltInScorer;
 /// than read from global state deep inside the dispatcher.
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
-    /// Whether numeric inverted indexes use the compressed on-disk encoding.
-    pub numeric_compress: bool,
     /// Whether an intersection prioritizes its union children when ordering its
     /// sub-iterators for evaluation.
     pub prioritize_intersect_union_children: bool,
@@ -33,7 +31,8 @@ pub struct Config {
     /// as a custom scorer.
     pub default_scorer: Option<BuiltInScorer>,
     /// Minimum pattern length (in bytes) a prefix/suffix/contains query must
-    /// reach before it is expanded; shorter patterns produce no matches.
+    /// reach before it is expanded; shorter patterns produce no matches. The
+    /// wildcard-query evaluator applies it by its own measure.
     pub min_term_prefix: u32,
     /// Maximum number of terms a prefix/suffix/contains query expands to before
     /// the trie walk stops and a warning is recorded.
@@ -57,7 +56,6 @@ impl Default for Config {
         let min_union_iter_heap = min_union_iter_heap as usize;
 
         Self {
-            numeric_compress: false,
             prioritize_intersect_union_children: false,
             default_scorer: None,
             min_term_prefix,
