@@ -689,10 +689,12 @@ def testForceGCBypassesThreshold(env):
     """Test that GC_FORCEINVOKE (force=true) bypasses the clean threshold,
     while the periodic GC (force=false) respects it."""
 
-    # High threshold so periodic GC (force=false) always skips,
-    # short interval so it actually attempts during our sleep window.
+    # High threshold so periodic GC (force=false) always skips, short interval so it attempts
+    # soon. A Search Disk index runs the disk policy, which reads the FORK settings.
     set_thread_gc_config(env, clean_threshold=1000)
     set_thread_gc_config(env, run_interval=1)
+    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1000).equal('OK')
+    env.expect(config_cmd(), 'set', 'FORK_GC_RUN_INTERVAL', 1).equal('OK')
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'title', 'TEXT').ok()
     waitForIndex(env, 'idx')
@@ -708,8 +710,11 @@ def testForceGCBypassesThreshold(env):
     # Save the inverted index state before GC
     debug_rep = env.cmd(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello')
 
-    # Give periodic GC time to attempt (it uses force=false, so threshold blocks it)
-    sleep(3)
+    # Every scheduled pass re-arms its timer from the main-thread one-shot, a skipped one too, so
+    # two such arms mean at least one whole pass ran since the deletions.
+    env.expect(debug_cmd(), 'GC_TIMER_ARMS', 'RESET').ok()
+    arms = lambda: int(env.cmd(debug_cmd(), 'GC_TIMER_ARMS', 'FROM_ONESHOT'))
+    wait_for_condition(lambda: (arms() >= 2, {'arms': arms()}), 'the periodic GC never ran')
 
     # Verify inverted index is unchanged (periodic GC skipped due to threshold)
     env.expect(debug_cmd(), 'DUMP_INVIDX', 'idx', 'hello').equal(debug_rep)
