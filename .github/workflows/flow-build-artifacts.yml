@@ -55,6 +55,8 @@ on:
 jobs:
   get-latest-redis-tag:
     uses: ./.github/workflows/task-get-redis-tag.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
 
   setup:
     needs: [get-latest-redis-tag]
@@ -70,6 +72,14 @@ jobs:
       version-suffix: ${{ steps.beta-version.outputs.VERSION_SUFFIX }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
       - name: Generate Beta Version unique identifier
@@ -118,6 +128,8 @@ jobs:
   generate-matrix:
     permissions: {} # generate-matrix.yml only computes a matrix
     uses: ./.github/workflows/generate-matrix.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
     with:
       platform: ${{ inputs.platform }},!intel
       architecture: ${{ inputs.architecture }}

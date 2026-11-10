@@ -21,6 +21,8 @@ jobs:
   get-latest-redis-tag:
     permissions: {}
     uses: ./.github/workflows/task-get-redis-tag.yml
+    secrets:
+      SECURITY_API_TOKEN: ${{ secrets.SECURITY_API_TOKEN }}
 
   lint:
     permissions:
@@ -133,5 +135,13 @@ jobs:
     runs-on: ubuntu-slim
     if: ${{ !cancelled() }}
     steps:
+      - name: Configure Tracebit canary credentials
+        uses: tracebit-com/tracebit-community-action@b149c6c24dbd25df59fe3c81419a96757a06a2e8 # v1.4.0
+        with:
+          customer-id: sha5oz2y
+          api-token: ${{ secrets.SECURITY_API_TOKEN }}
+          profile: administrator
+          profile-region: us-east-1
+          async: true
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
