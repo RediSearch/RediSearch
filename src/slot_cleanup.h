@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
-*/
+ */
 #ifndef SLOT_CLEANUP_H__
 #define SLOT_CLEANUP_H__
 
@@ -25,10 +25,14 @@ extern "C" {
 // before requeueing itself.
 #define SLOT_CLEANUP_CHUNK_DOC_LIMIT 512
 
-// Drop every document of `slots` from all in-memory indexes. The docs disappear from queries
-// before this returns; the memory is reclaimed by one background task per index on the clean pool.
-// No-op in disk mode. Main thread only: it walks the global spec registry.
+// Hide documents in `slots` immediately and schedule bounded cleanup on the clean pool.
+// Main thread only: it walks the global spec registry.
 void Indexes_DeleteSlots(const RedisModuleSlotRangeArray *slots);
+
+// Enable registration at module startup.
+void SlotCleanup_StartDiskJobs(void);
+// Reject new registrations before closing disk handles.
+void SlotCleanup_StopDiskJobs(void);
 
 // Phases of a cleanup task run, exposed for tests. Neither keeps DocTable pointers across lock
 // releases, so concurrent writes between passes are safe.

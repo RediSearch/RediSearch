@@ -426,7 +426,7 @@ QueryIterator* SearchDisk_NewTagIterator(RedisSearchDiskIndexSpec *index, const 
  *
  * The returned snapshot can be passed to the iterator-creation wrappers so that all
  * iterators created during one query observe the same database state. Must be released
- * by `SearchDisk_FreeSnapshot` after every iterator created from it has been freed.
+ * by `SearchDisk_FreeSnapshot` according to the lifetime contract in `IndexDiskAPI.createSnapshot`.
  *
  * @param index Pointer to the index spec
  * @return Snapshot handle, or NULL on error
@@ -1072,6 +1072,11 @@ unsigned int SearchDisk_DebugCoordinatorReached(int site);
  */
 void SearchDisk_DebugResetCompactionController(void);
 
+// These wrappers follow the thread, locking and persistence contract in SlotMigrationAPI.
+bool SearchDisk_RegisterSlotTrim(RedisSearchDiskIndexSpec *index, const SearchDiskSlotRange *ranges,
+                                 size_t numRanges, t_docId *maxDocId);
+void SearchDisk_ForEachPendingSlotTrim(RedisSearchDiskIndexSpec *index,
+                                       SearchDiskPendingSlotTrimCallback callback, void *ctx);
 #ifdef __cplusplus
 }
 #endif
