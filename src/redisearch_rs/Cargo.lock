@@ -1237,6 +1237,7 @@ dependencies = [
  "inverted_index",
  "itertools 0.15.0",
  "query_term",
+ "rand 0.10.1",
  "redis_mock",
  "rqe_core",
  "workspace_hack",

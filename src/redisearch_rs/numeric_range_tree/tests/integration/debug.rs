@@ -112,7 +112,7 @@ fn test_debug_summary_populated() {
       "RootMaxDepth",
       1,
       "MemoryUsage",
-      1203
+      1219
     ]
     "#);
 }

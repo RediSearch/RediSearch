@@ -24,7 +24,7 @@ use index_result::RSIndexResult;
 use index_spec::IndexSpecReadGuard;
 use inverted_index::{
     FilterGeoReader, FilterNumericReader, IndexReader, NumericFilter, NumericReader, ReseatIndex,
-    ResumableReader, SuspendableReader,
+    ResumableReader, SuspendableReader, block_max_score::BlockScorer,
 };
 use numeric_range_tree::{
     NodeIndex, NumericIndex, NumericIndexReader, NumericRangeTree, RangeWindow,
@@ -383,6 +383,15 @@ where
         }
 
         self.it.revalidate(spec)
+    }
+
+    #[inline(always)]
+    fn read_with_threshold(
+        &mut self,
+        min_score: f64,
+        scorer: &BlockScorer,
+    ) -> Result<Option<&mut RSIndexResult<'index>>, RQEIteratorError> {
+        self.it.read_with_threshold(min_score, scorer)
     }
 
     #[inline(always)]
