@@ -32,8 +32,8 @@ def test_acl_search_commands(env):
         if RS_TEST_ENTERPRISE:
             # FT.CONFIG has no public alias on enterprise (only _FT.CONFIG,
             # already in the base list above). Its write prefix is FT, so
-            # SAFEADD is public there, and the legacy _FT.SAFEADD exists only
-            # on an enterprise cluster.
+            # SAFEADD is registered as FT.SAFEADD; the legacy _FT.SAFEADD it
+            # also registers is internal, so it's in no ACL category.
             commands[commands.index('_FT.SAFEADD')] = 'FT.SAFEADD'
         else:
             commands.append('FT.CONFIG')
