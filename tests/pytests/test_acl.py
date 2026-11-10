@@ -29,7 +29,14 @@ def test_acl_search_commands(env):
         '_FT.CONFIG', '_FT.DEBUG', '_FT.SAFEADD'
     ]
     if not env.isCluster():
-        commands.append('FT.CONFIG')
+        if RS_TEST_ENTERPRISE:
+            # FT.CONFIG has no public alias on enterprise (only _FT.CONFIG,
+            # already in the base list above). Its write prefix is FT, so
+            # SAFEADD is registered as FT.SAFEADD; the legacy _FT.SAFEADD it
+            # also registers is internal, so it's in no ACL category.
+            commands[commands.index('_FT.SAFEADD')] = 'FT.SAFEADD'
+        else:
+            commands.append('FT.CONFIG')
     if env.env != 'enterprise':
         commands.extend(['search.CLUSTERINFO', 'search.CLUSTERREFRESH', 'search.CLUSTERSET'])
 
@@ -169,7 +176,10 @@ def test_internal_commands(env):
     env.expect('_FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').error().contains("unknown command")
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
-    env.expect('_FT.SEARCH', 'idx', '*').error().contains("unknown command")
+    # On enterprise _FT.SEARCH is proxy-filtered rather than internal, so it's
+    # reachable when talking directly to the shard (as this test does).
+    if not RS_TEST_ENTERPRISE:
+        env.expect('_FT.SEARCH', 'idx', '*').error().contains("unknown command")
 
     # Promote the connection to internal
     env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
