@@ -144,18 +144,6 @@ jobs:
                       'name': 'Ubuntu Jammy ARM64'
                   }
               },
-              "ubuntu:focal": {
-                  "x86_64": {
-                      'container': 'ubuntu:focal',
-                      'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Focal x86_64'
-                  },
-                  "aarch64": {
-                      'container': 'ubuntu:focal',
-                      'setup_script': 'apt update && apt install -y git',
-                      'name': 'Ubuntu Focal ARM64'
-                  }
-              },
               "rockylinux:8": {
                   "x86_64": {
                       'container': 'rockylinux:8',
@@ -178,18 +166,6 @@ jobs:
                       'container': 'rockylinux:9',
                       'setup_script': 'dnf update -y && dnf install -y git',
                       'name': 'Rocky Linux 9 ARM64'
-                  }
-              },
-              "amazonlinux:2": {
-                  "x86_64": {
-                      'container': 'amazonlinux:2',
-                      'setup_script': 'yum install -y tar gzip git',
-                      'name': 'Amazon Linux 2 x86_64'
-                  },
-                  "aarch64": {
-                      'container': 'amazonlinux:2',
-                      'setup_script': 'yum install -y tar gzip git',
-                      'name': 'Amazon Linux 2 ARM64'
                   }
               },
               "alpine:3.22": {
@@ -220,42 +196,6 @@ jobs:
                       'name': 'Debian Bookworm ARM64'
                   }
               },
-              "amazonlinux:2023": {
-                  "x86_64": {
-                      'container': 'amazonlinux:2023',
-                      'setup_script': 'dnf install -y tar gzip git',
-                      'name': 'Amazon Linux 2023 x86_64'
-                  },
-                  "aarch64": {
-                      'container': 'amazonlinux:2023',
-                      'setup_script': 'dnf install -y tar gzip git',
-                      'name': 'Amazon Linux 2023 ARM64'
-                  }
-              },
-              "mariner:2": {
-                  "x86_64": {
-                      'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-                      'setup_script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
-                      'name': 'Mariner 2 x86_64'
-                  },
-                  "aarch64": {
-                      'container': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-                      'setup_script': 'tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates',
-                      'name': 'Mariner 2 ARM64'
-                  }
-              },
-              "azurelinux:3": {
-                  "x86_64": {
-                      'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
-                      'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
-                      'name': 'Azure Linux 3 x86_64'
-                  },
-                  "aarch64": {
-                      'container': 'mcr.microsoft.com/azurelinux/base/core:3.0',
-                      'setup_script': 'tdnf install -y --noplugins tar git ca-certificates',
-                      'name': 'Azure Linux 3 ARM64'
-                  }
-              }
           }
 
           if platform in platform_configs:
