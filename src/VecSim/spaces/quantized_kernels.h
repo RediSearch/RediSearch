@@ -22,6 +22,7 @@
 //
 // Stored layout: [codes (data_bytes_count(dim) bytes)] [min_val] [delta] [sum] [sum_squares (L2)]
 // FP32 query layout: [float values (dim)] [y_sum] [y_sum_squares (L2 only)]
+// SQ4 L2 uses only the query body; its two trailing FP32 slots are reserved and zero-initialized.
 //
 // The operand order in these bodies is load-bearing and relies on FP addition not being
 // reassociated; they must not be built with -ffast-math / -Ofast.

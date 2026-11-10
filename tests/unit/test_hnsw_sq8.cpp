@@ -632,7 +632,7 @@ TYPED_TEST(HNSWSQ8Test, LoadRejectsUnsupportedQuantizedSnapshot) {
     }
 
     // Written as raw bytes: an out-of-range value is not a valid VecSimQuantType.
-    save_and_patch(quant_type_offset, static_cast<raw_quant_type_t>(VecSimQuant_SQ8 + 1));
+    save_and_patch(quant_type_offset, std::numeric_limits<raw_quant_type_t>::max());
     expect_rejected();
 
     for (VecSimType unsupported_type :

@@ -39,6 +39,24 @@ using float16 = vecsim_types::float16;
 
 namespace spaces {
 
+// SQ4-FP32: packed storage and unaligned metadata, so no alignment requirement.
+dist_func_t<float> L2_SQ4_FP32_GetDistFunc(size_t dim, unsigned char *alignment,
+                                           const void *arch_opt) {
+    if (alignment) {
+        *alignment = 0;
+    }
+    return SQ4_FP32_L2Sqr;
+}
+
+// SQ4-SQ4: packed storage and unaligned metadata, so no alignment requirement.
+dist_func_t<float> L2_SQ4_SQ4_GetDistFunc(size_t dim, unsigned char *alignment,
+                                          const void *arch_opt) {
+    if (alignment) {
+        *alignment = 0;
+    }
+    return SQ4_SQ4_L2Sqr;
+}
+
 // SQ8-FP32: asymmetric L2 distance between SQ8 storage and FP32 query
 dist_func_t<float> L2_SQ8_FP32_GetDistFunc(size_t dim, unsigned char *alignment,
                                            const void *arch_opt) {

@@ -25,6 +25,7 @@
 #include "VecSim/memory/memory_utils.h"
 #include "VecSim/types/float16.h"
 #include "VecSim/types/sq8.h"
+#include "VecSim/types/sq4.h"
 #include "VecSim/utils/vecsim_stl.h"
 
 class PreprocessorInterface : public VecsimBaseObject {
@@ -143,8 +144,8 @@ private:
 
 /*
  * QuantPreprocessor is a preprocessor that quantizes storage vectors from DataType to a
- * lower precision representation defined by StorageType (SQ8, the current storage type,
- * stores one uint8_t code per coordinate).
+ * lower precision representation (SQ8 stores one uint8_t code per coordinate, SQ4 packs
+ * two 4-bit codes per byte).
  * Query vectors remain as DataType for asymmetric distance computation.
  *
  * The quantized storage blob contains the quantized values along with metadata (min value,
@@ -153,7 +154,7 @@ private:
  * and then scaling the values to fit in the storage type's code range.
  *
  * Storage layout:
- * | quantized_values[dim] | min_val | delta | x_sum | (x_sum_squares for L2 only) |
+ * | quantized_values (packed for SQ4) | min_val | delta | x_sum | (L2 sum_squares) |
  * where, writing x_r[i] = min_val + delta * a[i] for the value a blob actually represents:
  * x_sum        = Σx_r[i]:  sum of the reconstructed values,
  * x_sum_squares = Σx_r[i]²: sum of their squares.
@@ -178,11 +179,13 @@ private:
  * store metric-specific FP32 values from the query body to accelerate asymmetric distance
  * computation:
  * - For IP/Cosine: y_sum = Σy_i (sum of query values)
- * - For L2: y_sum = Σy_i (sum of query values), y_sum_squares = Σy_i² (sum of squared query values)
+ * - For SQ8 L2: y_sum = Σy_i, y_sum_squares = Σy_i²
+ * - For SQ4 L2: two zero-initialized reserved FP32 slots; direct residual kernels need no sums.
  *
  * Query blob layout:
  * - For IP/Cosine: | query_values[dim] | y_sum |
  * - For L2:        | query_values[dim] | y_sum | y_sum_squares |
+ *   SQ4 L2 keeps the same layout, with both trailing slots reserved and zero-initialized.
  *
  * Query metadata is always FP32. The query blob size is:
  * - For IP/Cosine: dim * sizeof(DataType) + 1 * sizeof(float)
@@ -201,6 +204,7 @@ private:
  *   where y_sum = Σy_i is precomputed and stored in the query blob.
  *
  * For L2:
+ *   The identity below explains the metadata; direct residual query kernels do not consume it.
  *   ||x_r - y||² = Σx_r[i]² - 2*Σ(x_r[i] * y_i) + Σy_i²
  *                = x_sum_squares - 2 * IP(x_r, y) + y_sum_squares
  *   where:
@@ -389,7 +393,7 @@ private:
         }
 
         // Metadata uses MetadataType. Use memcpy because the metadata offset (after the
-        // quantized body) is not guaranteed to be sizeof(MetadataType)-aligned.
+        // quantized body, packed for SQ4) is not guaranteed to be sizeof(MetadataType)-aligned.
         void *meta_dst = quantized + StorageType::data_bytes_count(this->dim);
         MetadataType buf[5] = {min_val, delta, sum};
         size_t n = 3;
@@ -512,9 +516,9 @@ public:
     /**
      * Preprocesses the original blob into separate storage and query blobs.
      *
-     * Storage vectors are quantized to StorageType scalar codes (SQ8: one uint8_t per
-     * coordinate), with metadata (min, delta, sum, and sum_squares for L2) appended for
-     * distance reconstruction.
+     * Storage vectors are quantized to scalar codes (SQ8: one uint8_t per coordinate, SQ4: two
+     * 4-bit codes packed per byte), with metadata (min, delta, sum, and
+     * sum_squares for L2) appended for distance reconstruction.
      *
      * Query vectors use QueryType for asymmetric distance computation, with a precomputed
      * sum (for IP/Cosine) or sum of squares (for L2) appended for efficient distance calculation.
@@ -575,12 +579,13 @@ public:
      * the original query values.
      *
      * - For IP/Cosine: y_sum = Σy_i (sum of query values)
-     * - For L2: y_sum = Σy_i (sum of query values), y_sum_squares = Σy_i² (sum of squared query
-     *                                                                      values)
+     * - For SQ8 L2: y_sum = Σy_i, y_sum_squares = Σy_i²
+     * - For SQ4 L2: two zero-initialized reserved FP32 slots; no query reductions are needed.
      *
      * Query blob layout:
      * - For IP/Cosine: | query_values[dim] | y_sum |
      * - For L2:        | query_values[dim] | y_sum | y_sum_squares |
+     *   SQ4 L2 reserves and zero-initializes both trailing slots instead of computing sums.
      *
      * Query blob size:
      * - For IP/Cosine: dim * sizeof(QueryType) + 1 * sizeof(float)
@@ -606,7 +611,14 @@ public:
         // Compute and write FP32 query metadata after the query body. The metadata offset is
         // body_bytes, which is not guaranteed to be 4-byte aligned for FP16 query bodies.
         void *metadata_dst = static_cast<uint8_t *>(blob) + body_bytes;
-        assign_query_metadata(query_values, input, metadata_dst);
+        if constexpr (std::is_same_v<StorageType, vecsim_types::sq4> && Metric == VecSimMetric_L2) {
+            // SQ4 L2 computes residuals directly, so query sums are unused. Keep initialized
+            // padding for SIMD tails that load a final query pair when dim is odd.
+            const MetadataType padding[2] = {};
+            memcpy(metadata_dst, padding, sizeof(padding));
+        } else {
+            assign_query_metadata(query_values, input, metadata_dst);
+        }
 
         query_blob_size = this->query_bytes_count;
     }
@@ -638,8 +650,8 @@ private:
             float value = first_input_value - mean[0];
             float min_val = value;
             float max_val = value;
-            // x_mean_ip only feeds the IP correction term (see DistanceCalculatorWithNorm); the
-            // normalized L2 correction cancels the mean terms exactly, so skip the extra work.
+            // Use the original input for the IP correction: a correction from reconstructed
+            // values would also multiply quantization error by the mean. L2 needs no correction.
             if constexpr (Metric == VecSimMetric_IP)
                 x_mean_ip = first_input_value * mean[0];
 

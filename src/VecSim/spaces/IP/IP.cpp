@@ -11,11 +11,21 @@
 #include "VecSim/types/bfloat16.h"
 #include "VecSim/types/float16.h"
 #include "VecSim/types/sq8.h"
+#include "VecSim/types/sq4.h"
 #include "VecSim/utils/alignment.h"
 
 using bfloat16 = vecsim_types::bfloat16;
 using float16 = vecsim_types::float16;
 using sq8 = vecsim_types::sq8;
+using sq4 = vecsim_types::sq4;
+
+float SQ4_FP32_InnerProduct(const void *pVect1v, const void *pVect2v, size_t dimension) {
+    return 1.0f - spaces::quantized::FP32_InnerProduct_Impl<sq4>(pVect1v, pVect2v, dimension);
+}
+
+float SQ4_SQ4_InnerProduct(const void *pVect1v, const void *pVect2v, size_t dimension) {
+    return 1.0f - spaces::quantized::Stored_InnerProduct_Impl<sq4>(pVect1v, pVect2v, dimension);
+}
 
 /*
  * Optimized asymmetric SQ8-FP32 inner product using algebraic identity:

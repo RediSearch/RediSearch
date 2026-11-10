@@ -9,6 +9,9 @@
 #include "VecSim/types/bfloat16.h"
 #include "VecSim/types/float16.h"
 #include "VecSim/types/sq8.h"
+#include "VecSim/types/sq4.h"
+#include "VecSim/spaces/IP/IP.h"
+#include "VecSim/spaces/L2/L2.h"
 #include "VecSim/spaces/space_includes.h"
 #include "VecSim/spaces/spaces.h"
 #include "VecSim/spaces/IP_space.h"
@@ -142,6 +145,38 @@ GetDistFunc<vecsim_types::sq8, float, vecsim_types::float16>(VecSimMetric metric
         return L2_SQ8_FP16_GetDistFunc(dim, alignment);
     }
     throw std::invalid_argument("Invalid metric");
+}
+
+template <>
+dist_func_t<float> GetDistFunc<vecsim_types::sq4, float>(VecSimMetric metric, size_t dim,
+                                                         unsigned char *alignment) {
+    if (alignment) {
+        *alignment = 0;
+    }
+    switch (metric) {
+    case VecSimMetric_IP:
+        return IP_SQ4_SQ4_GetDistFunc(dim, alignment);
+    case VecSimMetric_L2:
+        return L2_SQ4_SQ4_GetDistFunc(dim, alignment);
+    default:
+        throw std::invalid_argument("SQ4 supports only IP and L2 metrics");
+    }
+}
+
+template <>
+dist_func_t<float> GetDistFunc<vecsim_types::sq4, float, float>(VecSimMetric metric, size_t dim,
+                                                                unsigned char *alignment) {
+    if (alignment) {
+        *alignment = 0;
+    }
+    switch (metric) {
+    case VecSimMetric_IP:
+        return IP_SQ4_FP32_GetDistFunc(dim, alignment);
+    case VecSimMetric_L2:
+        return L2_SQ4_FP32_GetDistFunc(dim, alignment);
+    default:
+        throw std::invalid_argument("SQ4 supports only IP and L2 metrics");
+    }
 }
 
 template <>
