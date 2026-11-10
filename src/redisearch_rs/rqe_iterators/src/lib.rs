@@ -434,12 +434,16 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// have the given weight. The iterator will also filter the results according to the given
     /// field mask. Use this variant for phrase queries, slop constraints, or any query that needs
     /// term positions.
+    ///
+    /// `num_docs` is the term's document count from the terms trie, reported as the iterator's
+    /// estimate; building the iterator reads nothing from disk.
     fn new_term_on_disk_with_offsets<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
         weight: f64,
+        num_docs: usize,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
@@ -449,12 +453,16 @@ pub trait SearchEnterpriseIterators: Send + Sync {
     /// have the given weight. The iterator will also filter the results according to the given
     /// field mask. Use this variant for BM25_STD queries or any query that doesn't need term
     /// positions.
+    ///
+    /// `num_docs` is the term's document count from the terms trie, reported as the iterator's
+    /// estimate; building the iterator reads nothing from disk.
     fn new_term_on_disk_without_offsets<'index>(
         &self,
         index: &'index mut ffi::RedisSearchDiskIndexSpec,
         query_term: Box<RSQueryTerm>,
         field_mask: FieldMask,
         weight: f64,
+        num_docs: usize,
         snapshot: NonNull<ffi::RedisSearchDiskSnapshot>,
     ) -> Result<Box<dyn RQEIteratorPrintable<'index> + 'index>, Box<dyn std::error::Error>>;
 
