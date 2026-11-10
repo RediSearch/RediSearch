@@ -87,7 +87,7 @@ pub use node::{InternalNode, LeafNode, NumericRangeNode};
 pub use range::{Hll, NumericRange, ValueBounds};
 pub use tree::{
     AddResult, CompactIfSparseResult, NodeGcDelta, NumericRangeTree, SingleNodeGcResult,
-    TrimEmptyLeavesResult,
+    TrimEmptyLeavesResult, scan_range_index_gc,
 };
 pub use unique_id::TreeUniqueId;
 pub use window::RangeWindow;

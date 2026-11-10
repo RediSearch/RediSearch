@@ -679,6 +679,7 @@ mod round_trip {
                     registers_without_last_block,
                     bounds_with_last_block: ValueBounds { min: bounds[0], max: bounds[1] },
                     bounds_without_last_block: ValueBounds { min: bounds[2], max: bounds[3] },
+                    scanned_leaf: true,
                 },
             };
 

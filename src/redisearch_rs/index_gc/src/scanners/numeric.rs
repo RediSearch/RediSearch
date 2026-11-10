@@ -174,7 +174,7 @@ pub fn scan_numeric_node(
     let delta = id
         .tree(spec)?
         .try_node(node_idx)?
-        .scan_gc(&|id| spec.doc_exists(id))?;
+        .scan_gc(|doc| spec.doc_exists(doc))?;
     Some(NumericNodeDelta {
         position: node_idx.position(),
         generation: node_idx.generation(),
@@ -219,7 +219,7 @@ pub fn collect_numeric(
         for node_delta in tree
             .indexed_post_order_iter()
             .filter_map(|(node_idx, node)| {
-                node.scan_gc(&|id| docs.contains(id))
+                node.scan_gc(|id| docs.contains(id))
                     .map(|delta| NumericNodeDelta {
                         position: node_idx.position(),
                         generation: node_idx.generation(),
