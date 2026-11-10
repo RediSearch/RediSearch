@@ -49,13 +49,7 @@ std::vector<std::pair<RedisModuleEventLoopOneShotFunc, void *>> completions;
 void drainCleanup() {
   for (;;) {
     CleanPool_Wait();
-    std::vector<std::pair<RedisModuleEventLoopOneShotFunc, void *>> ready;
-    {
-      std::lock_guard<std::mutex> lock(completionMutex);
-      ready.swap(completions);
-    }
-    if (ready.empty()) return;
-    for (auto [callback, arg] : ready) callback(arg);
+    if (!SlotCleanup_ReapDiskJobs()) return;
   }
 }
 
@@ -1737,12 +1731,14 @@ TEST_F(DiskSlotTrimTest, SchedulerKeepsDifferentRangesAndCutoffsIndependent) {
   EXPECT_EQ(seen, expected);
 }
 
-TEST_F(DiskSlotTrimTest, PendingCompletionAfterShutdownDoesNotAccessStorage) {
+TEST_F(DiskSlotTrimTest, ShutdownReleasesFinishedJobsWithoutEventLoopCallbacks) {
   startCleanPool();
   scheduleAutomaticTrim();
   CleanPool_Wait();
-  // Leave the completion on the event loop while storage is closed.
+  // Stop before the main thread reaps the completed worker.
   SlotCleanup_StopDiskJobs();
+  EXPECT_TRUE(completions.empty());
+  EXPECT_FALSE(SlotCleanup_ReapDiskJobs());
   const auto calls = state.applyCalls;
   spec->diskSpec = nullptr;
   drainCleanup();

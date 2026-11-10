@@ -136,12 +136,12 @@ struct IndexSpecSlotTrimJob {
   SearchDiskSlotRange *ranges;
   size_t numRanges;
   t_docId maxDocId;
-  bool queued;
+  atomic_int result;
   struct IndexSpecSlotTrimJob *next;
 };
 
 static atomic_bool diskJobsStopped = false;
-// Main-thread owned. A queued job remains alive until its completion callback runs.
+// Main-thread-owned list; workers only publish results.
 static IndexSpecSlotTrimJob *diskJobs;
 
 void SlotCleanup_StartDiskJobs(void) {
@@ -160,6 +160,7 @@ void SlotCleanup_ResumeDiskJobs(void) {
 static IndexSpecSlotTrimJob *newDiskJob(StrongRef ref, const SearchDiskSlotRange *ranges,
                                         size_t numRanges, t_docId maxDocId) {
   IndexSpecSlotTrimJob *job = rm_calloc(1, sizeof(*job));
+  atomic_init(&job->result, INDEX_DISK_TRIM_RETRY);
   job->specRef = StrongRef_Demote(ref);
   job->ranges = rm_malloc(sizeof(*ranges) * numRanges);
   memcpy(job->ranges, ranges, sizeof(*ranges) * numRanges);
@@ -260,46 +261,47 @@ static int submitDiskJob(IndexSpecSlotTrimJob *job) {
   return CleanPool_AddWork(DiskSlotCleanup_Run, job);
 }
 
+enum { DISK_TRIM_RUNNING = -1 };
+
 static bool queueDiskJob(IndexSpecSlotTrimJob *job) {
-  if (job->queued || CleanPool_IsPaused() || atomic_load(&diskJobsStopped)) return false;
-  job->queued = true;
+  int result = atomic_load(&job->result);
+  if (result == DISK_TRIM_RUNNING || result == INDEX_DISK_TRIM_FINISHED ||
+      result == INDEX_DISK_TRIM_CANCELLED || CleanPool_IsPaused() ||
+      atomic_load(&diskJobsStopped)) return false;
+  atomic_store(&job->result, DISK_TRIM_RUNNING);
   if (submitDiskJob(job) == 0) return true;
-  job->queued = false;
+  atomic_store(&job->result, result);
   return false;
 }
 
-typedef struct {
-  IndexSpecSlotTrimJob *job;
-  IndexSpecDiskSlotTrimResult result;
-} DiskSlotTrimCompletion;
-
-static void diskSlotCleanupComplete(void *arg) {
-  DiskSlotTrimCompletion *completion = arg;
-  IndexSpecSlotTrimJob *job = completion->job;
-  IndexSpecDiskSlotTrimResult result = completion->result;
-  rm_free(completion);
-  job->queued = false;
-  if (result == INDEX_DISK_TRIM_FINISHED || result == INDEX_DISK_TRIM_CANCELLED ||
-      atomic_load(&diskJobsStopped)) {
-    StrongRef ref = WeakRef_Promote(job->specRef);
-    unlinkDiskJob(job);
-    IndexSpec_FreeDiskSlotTrim(job);
-    // Registration may have reused this identity after final apply but before completion.
-    IndexSpec *spec = StrongRef_Get(ref);
-    if (spec && !atomic_load(&diskJobsStopped)) IndexSpec_ResumeDiskSlotTrims(spec);
-    if (ref.rm) StrongRef_Release(ref);
-    return;
+bool SlotCleanup_ReapDiskJobs(void) {
+  bool reaped = false;
+  IndexSpecSlotTrimJob *job = diskJobs;
+  while (job) {
+    IndexSpecSlotTrimJob *next = job->next;
+    int result = atomic_load(&job->result);
+    if (result == INDEX_DISK_TRIM_FINISHED || result == INDEX_DISK_TRIM_CANCELLED) {
+      StrongRef ref = WeakRef_Promote(job->specRef);
+      unlinkDiskJob(job);
+      IndexSpec_FreeDiskSlotTrim(job);
+      reaped = true;
+      // Registration may have reused this identity after final apply but before reaping.
+      IndexSpec *spec = StrongRef_Get(ref);
+      if (spec && !atomic_load(&diskJobsStopped)) IndexSpec_ResumeDiskSlotTrims(spec);
+      if (ref.rm) StrongRef_Release(ref);
+    }
+    job = next;
   }
-  if (result == INDEX_DISK_TRIM_MORE) queueDiskJob(job);
-  // Storage failures wait for cron instead of spinning.
+  return reaped;
 }
 
 static void DiskSlotCleanup_Run(void *arg) {
-  DiskSlotTrimCompletion *completion = rm_new(DiskSlotTrimCompletion);
-  completion->job = arg;
-  completion->result = IndexSpec_RunDiskSlotTrim(arg);
-  int rc = RedisModule_EventLoopAddOneShot(diskSlotCleanupComplete, completion);
-  RS_ASSERT_ALWAYS(rc == REDISMODULE_OK);
+  IndexSpecSlotTrimJob *job = arg;
+  IndexSpecDiskSlotTrimResult result = IndexSpec_RunDiskSlotTrim(job);
+  if (result == INDEX_DISK_TRIM_MORE && !CleanPool_IsPaused() &&
+      !atomic_load(&diskJobsStopped) && submitDiskJob(job) == 0) return;
+  // This is the worker's final access: the main thread may now reap the job.
+  atomic_store(&job->result, result);
 }
 
 static void scheduleDiskJob(IndexSpecSlotTrimJob *job) {
@@ -320,6 +322,7 @@ static void scheduleDiskJob(IndexSpecSlotTrimJob *job) {
 }
 
 void SlotCleanup_RetryDiskJobs(void) {
+  SlotCleanup_ReapDiskJobs();
   bool paused = CleanPool_IsPaused();
   if (paused || atomic_load(&diskJobsStopped)) return;
   for (IndexSpecSlotTrimJob *job = diskJobs; job; job = job->next) queueDiskJob(job);
@@ -332,15 +335,10 @@ void SlotCleanup_StopDiskJobs(void) {
     CleanPool_Resume();
     CleanPool_Wait();
   }
-  IndexSpecSlotTrimJob **link = &diskJobs;
-  while (*link) {
-    IndexSpecSlotTrimJob *job = *link;
-    if (job->queued) {
-      link = &job->next;
-    } else {
-      *link = job->next;
-      IndexSpec_FreeDiskSlotTrim(job);
-    }
+  while (diskJobs) {
+    IndexSpecSlotTrimJob *job = diskJobs;
+    diskJobs = job->next;
+    IndexSpec_FreeDiskSlotTrim(job);
   }
 }
 
