@@ -437,8 +437,14 @@ void GC_ThreadPoolSetSize(void) {
     redisearch_thpool_add_threads(gcThreadpool_g, want - have);
   } else if (want < have && !redisearch_thpool_paused(gcThreadpool_g)) {
     // A reduction is a job, which a paused queue would not run; GC_ThreadPoolResume reapplies
-    // the size once the consistency window that paused it closes.
-    redisearch_thpool_schedule_config_reduce_threads_job(gcThreadpool_g, have - want, false);
+    // the size once the consistency window that paused it closes. One reduction per thread: a
+    // single reduction of several threads makes them wait for each other on a barrier, and a
+    // window pausing the queue between their starts would hold the started ones in progress
+    // until it closes, stalling its drain. A thread exits after the one it runs, so each is
+    // taken by a different thread all the same.
+    for (size_t i = want; i < have; i++) {
+      redisearch_thpool_schedule_config_reduce_threads_job(gcThreadpool_g, 1, false);
+    }
   }
 }
 
@@ -491,6 +497,10 @@ bool GC_ThreadPoolWaitForPause(long timeoutMs) {
 
 size_t GC_ThreadPoolNumThreads(void) {
   return gcThreadpool_g ? redisearch_thpool_get_num_threads(gcThreadpool_g) : 0;
+}
+
+size_t GC_ThreadPoolThreadsAlive(void) {
+  return gcThreadpool_g ? redisearch_thpool_get_stats(gcThreadpool_g).num_threads_alive : 0;
 }
 
 size_t GC_ThreadPoolJobsInProgress(void) {
