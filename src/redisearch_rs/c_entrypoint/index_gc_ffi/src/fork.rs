@@ -11,7 +11,7 @@
 
 use index_gc::liveness::GoneIds;
 use index_gc::{
-    ForkPipe, GcError, HandleOutcome,
+    GcError, HandleOutcome,
     fork::cycle::{collect_scanners, handle_scanners},
 };
 use index_spec::IndexSpecReadGuard;
