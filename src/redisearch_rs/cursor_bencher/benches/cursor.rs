@@ -7,14 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Both arms own cursor-sized allocations without a query or index, use the same
-//! random source and monotonic clock, and lock each operation. Redis timers are
-//! unavailable in the mock; these measure the registry rather than query teardown.
+//! Cursor-sized allocations, monotonic deadlines and per-operation locking,
+//! measuring the registry independently of Redis timers and request teardown.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use cursor::{Collection, Kind, Registry};
-use cursor_bencher as _;
-use std::{hint::black_box, ptr, sync::Mutex};
+use std::{hint::black_box, sync::Mutex};
 
 fn now() -> u64 {
     let mut ts = libc::timespec {
@@ -32,58 +30,9 @@ fn random() -> u32 {
 }
 
 fn benchmarks(c: &mut Criterion) {
-    let c_list = &raw mut ffi::g_CursorsList;
-    // SAFETY: the process-lifetime global is initialized once before any benchmark uses it.
-    unsafe { ffi::CursorList_Init(c_list, false) };
     for count in [16, 1024] {
         for (operation, interval) in [("resume", u32::MAX), ("expire", 0), ("purge", u32::MAX)] {
             let mut group = c.benchmark_group(format!("cursor/{operation}/{count}"));
-            group.bench_function("c", |b| {
-                b.iter(|| {
-                    let cursors: Vec<_> = (0..count)
-                        .map(|_| {
-                            // SAFETY: the initialized global is accessed serially; a null spec is supported.
-                            let cur = unsafe {
-                                ffi::Cursors_Reserve(
-                                    c_list,
-                                    ffi::StrongRef {
-                                        rm: ptr::null_mut(),
-                                    },
-                                    interval,
-                                    ptr::null_mut(),
-                                )
-                            };
-                            // SAFETY: reservation succeeded without a capacity-limited spec; this pointer is exclusively owned.
-                            let id = unsafe { cur.as_ref() }.expect("reservation succeeds").id;
-                            // SAFETY: this newly reserved cursor is executing and owned by this iteration.
-                            unsafe { ffi::Cursor_Pause(cur) };
-                            id
-                        })
-                        .collect();
-                    match operation {
-                        "resume" => {
-                            for id in cursors {
-                                // SAFETY: the global is initialized and the ID belongs to a nonexpired idle cursor.
-                                let cur =
-                                    unsafe { ffi::Cursors_TakeForExecution(c_list, black_box(id)) };
-                                assert!(!cur.is_null());
-                                // SAFETY: successful take transfers execution ownership to this iteration.
-                                unsafe { ffi::Cursor_Free(cur) };
-                            }
-                        }
-                        "expire" => {
-                            // SAFETY: the global is initialized and no other thread accesses it.
-                            black_box(unsafe { ffi::Cursors_CollectIdle(c_list) });
-                        }
-                        _ => {
-                            for id in cursors {
-                                // SAFETY: the global is initialized and the ID belongs to an idle cursor.
-                                black_box(unsafe { ffi::Cursors_Purge(c_list, black_box(id)) });
-                            }
-                        }
-                    }
-                })
-            });
             let rust_list = Mutex::new(Registry::new(Kind::User));
             group.bench_function("rust", |b| {
                 b.iter(|| {
@@ -94,7 +43,7 @@ fn benchmarks(c: &mut Criterion) {
                                     rust_list.lock().expect("benchmark lock is not poisoned");
                                 list.tick(now);
                                 list.reserve(
-                                    Box::new([0u8; size_of::<ffi::Cursor>()]),
+                                    Box::new([0u8; size_of::<cursor_ffi::Cursor>()]),
                                     interval,
                                     random,
                                 )

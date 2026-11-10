@@ -12,6 +12,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifdef ENABLE_ASSERT
 #include "debug_commands.h" // IWYU pragma: keep

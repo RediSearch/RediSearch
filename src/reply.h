@@ -198,10 +198,7 @@ int RedisModule_Reply_RLookupRow(RedisModule_Reply *reply, const struct RLookup 
 // Number of key/value entries RedisModule_Reply_RLookupRow emits for the same arguments.
 size_t RedisModule_Reply_RLookupRowLen(const struct RLookup *lk, const struct RLookupRow *row, uint32_t requiredFlags, uint32_t excludeFlags);
 
-static inline int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long long val) {
-  RedisModule_Reply_SimpleString(reply, key);
-  return RedisModule_Reply_LongLong(reply, val);
-}
+int RedisModule_ReplyKV_LongLong(RedisModule_Reply *reply, const char *key, long long val);
 static inline int RedisModule_ReplyKV_Double(RedisModule_Reply *reply, const char *key, double val) {
   RedisModule_Reply_SimpleString(reply, key);
   return RedisModule_Reply_Double(reply, val);

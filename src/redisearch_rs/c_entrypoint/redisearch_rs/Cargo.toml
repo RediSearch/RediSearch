@@ -32,6 +32,7 @@ walkdir.workspace = true
 
 [dependencies]
 buffer = { workspace = true }
+cursor_ffi = { path = "../cursor_ffi" }
 fnv_ffi = { path = "../fnv_ffi" }
 index_gc_ffi = { path = "../index_gc_ffi" }
 geo_ffi = { path = "../geo_ffi" }

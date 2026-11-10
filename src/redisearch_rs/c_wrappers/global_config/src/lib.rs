@@ -62,6 +62,9 @@ config_accessors! {
     /// (`MAXAGGREGATERESULTS`).
     max_aggregate_results() -> usize = maxAggregateResults;
 
+    /// The independent per-index budget for each cursor list (`INDEX_CURSOR_LIMIT`).
+    index_cursor_limit() -> i64 = indexCursorLimit;
+
     /// Whether numeric indexes store doubles compressed to floats (`_NUMERIC_COMPRESS`).
     numeric_compress() -> bool = numericCompress;
 
