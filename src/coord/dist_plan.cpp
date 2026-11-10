@@ -738,7 +738,13 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us,
   auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(AREQ_AGGPlan(r), NULL, NULL, PLN_T_DISTRIBUTE);
   RS_ASSERT(dstp);
 
+  // A GROUPBY the coordinator runs itself, rather than merging the shards' groups,
+  // asks the shards for every value of a multi-value field (see
+  // RLookup_GetKey_AllValues). The option stays on for RLookupRow_FillUnansweredAllValues.
   RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLOWUNRESOLVED);
+  if (!AGPLN_FindStep(dstp->plan, NULL, NULL, PLN_T_GROUP)) {
+    RLookup_EnableOptions(&dstp->lk, RLOOKUP_OPT_ALLVALUESFROMSHARDS);
+  }
 
   AggregationPipelineParams defaultAggregationParams = {};
   if (!aggregationParams) {

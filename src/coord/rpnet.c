@@ -809,6 +809,7 @@ int rpnetNext(ResultProcessor *self, SearchResult *r) {
       RLookupRow_WriteByNameOwned(nc->lookup, field, len, SearchResult_GetRowDataMut(r), v);
     }
   }
+  RLookupRow_FillUnansweredAllValues(nc->lookup, SearchResult_GetRowDataMut(r));
   if (nc->profileBreakdown) {
     accumulateSince(&nc->breakdown.convertTime, &convertStart);
     nc->breakdown.fields += fields_length / 2;

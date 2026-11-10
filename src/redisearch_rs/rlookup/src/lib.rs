@@ -29,7 +29,7 @@ pub use load_document::{
 };
 pub use lookup::{
     Cursor, CursorMut, Iter, IterMut, RLookup, RLookupKey, RLookupKeyFlag, RLookupKeyFlags,
-    RLookupOption, RLookupOptions, opaque::OpaqueRLookup,
+    RLookupOption, RLookupOptions, is_all_values_request, opaque::OpaqueRLookup,
 };
 pub use metric_request::{KeyHandleSlot, MetricRequest, RLookupKeyHandle};
 pub use row::RLookupRow;

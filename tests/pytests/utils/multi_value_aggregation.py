@@ -29,9 +29,22 @@ def index_docs(env, *docs, sortable=False):
         conn.execute_command('JSON.SET', f'doc:{doc["name"]}', '$', json.dumps(doc))
 
 
+def index_hash_docs(env, *docs):
+    """A fresh HASH index `idx` over `docs`, each stored as doc:<name>, with the
+    same field names as `index_docs`."""
+    env.flush()
+    env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA',
+               'name', 'TAG', 'tags', 'TAG', 'nums', 'NUMERIC').ok()
+    conn = getConnectionByEnv(env)
+    for doc in docs:
+        conn.execute_command('HSET', f'doc:{doc["name"]}', *[x for kv in doc.items() for x in kv])
+
+
 def aggregate(env, args, query='*', dialect=2):
     """The rows of `FT.AGGREGATE idx <query> <args>`, as dicts in a canonical order."""
     reply = env.cmd('FT.AGGREGATE', 'idx', query, *shlex.split(args), 'DIALECT', dialect)
+    if isinstance(reply, dict):  # RESP3
+        return _canonical_dicts([row['extra_attributes'] for row in reply['results']])
     return _canonical(reply[1:])
 
 

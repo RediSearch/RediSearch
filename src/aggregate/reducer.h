@@ -179,8 +179,8 @@ int ReducerOpts_GetValuesKey(const ReducerOptions *options, const RLookupKey **k
 
 /**
  * The all-values key of `name` (see RLookup_GetKey_AllValues), added to `*loadKeys`
- * when new. NULL when `name` resolves as usual, which includes a step that cannot
- * load fields (`loadKeys` is NULL).
+ * when new. NULL when `name` resolves as usual. Without `loadKeys` the key is still
+ * returned: only a coordinator gets one there, and its shards load it.
  */
 const RLookupKey *Aggregate_GetAllValuesKey(RLookup *lookup, const char *name,
                                             const RLookupKey ***loadKeys);
