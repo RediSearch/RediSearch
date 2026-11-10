@@ -65,6 +65,17 @@ static constexpr size_t UINT8_MAX_EXACT_SIMD_DIM =
     std::numeric_limits<int32_t>::max() /
     (std::numeric_limits<uint8_t>::max() * std::numeric_limits<uint8_t>::max());
 
+// The SQ4-SQ4 inner product kernels accumulate the integer code dot sum(q1 * q2), each product at
+// most 15 * 15 = 225, in unsigned 32-bit lanes (vpadalq_u16 / vdotq_u32 / svdot_u32), and NEON
+// reduces those lanes with vaddvq_u32, whose result is also a uint32. The narrowest accumulator is
+// therefore a uint32 holding the whole total, so the kernels are exact while 225 * dim fits
+// UINT32_MAX: 225 * 19,088,743 is 4,294,967,175, and one dimension more wraps. Above it the chooser
+// hands back the scalar kernel, which cannot wrap. The x86 AVX512F_BW_VL_VNNI kernel accumulates
+// with vpdpbusd into signed int32 lanes, but each lane holds only a small share of the total (at
+// most about 268 million at this bound). The lanes are reduced with 32-bit SIMD additions to a
+// uint32 total, so the same whole-total bound keeps that reduction exact.
+static constexpr size_t SQ4_MAX_EXACT_SIMD_DIM = std::numeric_limits<uint32_t>::max() / (15 * 15);
+
 // Native-fp16 accumulation is a throughput optimization and may overflow for sufficiently large
 // values at any dimension. These limits are conservative dispatch guardrails, not an input-range
 // contract or a general overflow guarantee. They retain the native path at ordinary embedding

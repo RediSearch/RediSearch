@@ -26,6 +26,10 @@
 #include "VecSim/spaces/L2/L2_SVE2_SQ8_FP16.h" // SVE2 fast path: FMLALB/FMLALT widening
 #include "VecSim/spaces/IP/IP_SVE_SQ8_SQ8.h"   // SVE2 implementation is identical to SVE
 #include "VecSim/spaces/L2/L2_SVE_SQ8_SQ8.h"   // SVE2 implementation is identical to SVE
+#include "VecSim/spaces/IP/IP_SVE_SQ4_FP32.h"  // SVE2 implementation is identical to SVE
+#include "VecSim/spaces/L2/L2_SVE_SQ4_FP32.h"  // SVE2 implementation is identical to SVE
+#include "VecSim/spaces/IP/IP_SVE_SQ4_SQ4.h"   // SVE2 implementation is identical to SVE
+#include "VecSim/spaces/L2/L2_SVE_SQ4_SQ4.h"   // SVE2 implementation is identical to SVE
 
 namespace spaces {
 
@@ -115,6 +119,34 @@ dist_func_t<float> Choose_SQ8_FP32_Cosine_implementation_SVE2(size_t dim) {
 dist_func_t<float> Choose_SQ8_FP32_L2_implementation_SVE2(size_t dim) {
     dist_func_t<float> ret_dist_func;
     CHOOSE_SVE_IMPLEMENTATION(ret_dist_func, SQ8_FP32_L2SqrSIMD_SVE, dim, svcntw);
+    return ret_dist_func;
+}
+
+dist_func_t<float> Choose_SQ4_FP32_IP_implementation_SVE2(size_t dim) {
+    dist_func_t<float> ret_dist_func;
+    CHOOSE_SVE_IMPLEMENTATION(ret_dist_func, SQ4_FP32_InnerProductSIMD_SVE, dim,
+                              SQ4_FP32_SVE_CoordinatesPerStep);
+    return ret_dist_func;
+}
+
+dist_func_t<float> Choose_SQ4_FP32_L2_implementation_SVE2(size_t dim) {
+    dist_func_t<float> ret_dist_func;
+    CHOOSE_SVE_IMPLEMENTATION(ret_dist_func, SQ4_FP32_L2SqrSIMD_SVE, dim,
+                              SQ4_FP32_SVE_CoordinatesPerStep);
+    return ret_dist_func;
+}
+
+dist_func_t<float> Choose_SQ4_SQ4_IP_implementation_SVE2(size_t dim) {
+    dist_func_t<float> ret_dist_func;
+    CHOOSE_SVE_IMPLEMENTATION(ret_dist_func, SQ4_SQ4_InnerProductSIMD_SVE, dim,
+                              SQ4_SQ4_SVE_CoordinatesPerVector);
+    return ret_dist_func;
+}
+
+dist_func_t<float> Choose_SQ4_SQ4_L2_implementation_SVE2(size_t dim) {
+    dist_func_t<float> ret_dist_func;
+    CHOOSE_SVE_IMPLEMENTATION(ret_dist_func, SQ4_SQ4_L2SqrSIMD_SVE, dim,
+                              SQ4_SQ4_SVE_CoordinatesPerVector);
     return ret_dist_func;
 }
 

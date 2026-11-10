@@ -39,22 +39,101 @@ using bfloat16 = vecsim_types::bfloat16;
 using float16 = vecsim_types::float16;
 
 namespace spaces {
-// SQ4-FP32: packed storage and unaligned metadata, so no alignment requirement.
+// SQ4-FP32: packed storage and unaligned metadata, so no alignment requirement on any tier.
 dist_func_t<float> IP_SQ4_FP32_GetDistFunc(size_t dim, unsigned char *alignment,
                                            const void *arch_opt) {
     if (alignment) {
         *alignment = 0;
     }
-    return SQ4_FP32_InnerProduct;
+    dist_func_t<float> ret_dist_func = SQ4_FP32_InnerProduct;
+    [[maybe_unused]] auto features = getCpuOptimizationFeatures(arch_opt);
+#ifdef CPU_FEATURES_ARCH_AARCH64
+    // The kernels handle any dim: tails read only the codes and the query's floats plus metadata.
+#ifdef OPT_SVE2
+    if (features.sve2) {
+        return Choose_SQ4_FP32_IP_implementation_SVE2(dim);
+    }
+#endif
+#ifdef OPT_SVE
+    if (features.sve) {
+        return Choose_SQ4_FP32_IP_implementation_SVE(dim);
+    }
+#endif
+#ifdef OPT_NEON
+    if (features.asimd) {
+        return Choose_SQ4_FP32_IP_implementation_NEON(dim);
+    }
+#endif
+#endif
+#ifdef CPU_FEATURES_ARCH_X86_64
+    // As SQ8: below eight coordinates scalar is at least as fast.
+    if (dim < 8) {
+        return ret_dist_func;
+    }
+#ifdef OPT_AVX512_F_BW_VL_VNNI
+    if (features.avx512f && features.avx512bw && features.avx512vl && features.avx512vnni) {
+        return Choose_SQ4_FP32_IP_implementation_AVX512F_BW_VL_VNNI(dim);
+    }
+#endif
+#ifdef OPT_AVX2_FMA
+    if (features.avx2 && features.fma3) {
+        return Choose_SQ4_FP32_IP_implementation_AVX2_FMA(dim);
+    }
+#endif
+#endif
+    return ret_dist_func;
 }
 
-// SQ4-SQ4: packed storage and unaligned metadata, so no alignment requirement.
+// SQ4-SQ4: packed storage and unaligned metadata, so no alignment requirement on any tier.
 dist_func_t<float> IP_SQ4_SQ4_GetDistFunc(size_t dim, unsigned char *alignment,
                                           const void *arch_opt) {
     if (alignment) {
         *alignment = 0;
     }
-    return SQ4_SQ4_InnerProduct;
+    dist_func_t<float> ret_dist_func = SQ4_SQ4_InnerProduct;
+    // Above this dimension the SIMD kernels' uint32 code dot could wrap, so hand back the scalar
+    // kernel. Decided here, once per index. See spaces.h for how the bound is derived.
+    if (dim > spaces::SQ4_MAX_EXACT_SIMD_DIM) {
+        return ret_dist_func;
+    }
+    [[maybe_unused]] auto features = getCpuOptimizationFeatures(arch_opt);
+#ifdef CPU_FEATURES_ARCH_AARCH64
+#ifdef OPT_SVE2
+    if (features.sve2) {
+        return Choose_SQ4_SQ4_IP_implementation_SVE2(dim);
+    }
+#endif
+#ifdef OPT_SVE
+    if (features.sve) {
+        return Choose_SQ4_SQ4_IP_implementation_SVE(dim);
+    }
+#endif
+#ifdef OPT_NEON_DOTPROD
+    if (features.asimddp && dim >= 16) {
+        return Choose_SQ4_SQ4_IP_implementation_NEON_DOTPROD(dim);
+    }
+#endif
+#ifdef OPT_NEON
+    if (features.asimd && dim >= 16) {
+        return Choose_SQ4_SQ4_IP_implementation_NEON(dim);
+    }
+#endif
+#endif
+#ifdef CPU_FEATURES_ARCH_X86_64
+#ifdef OPT_AVX512_F_BW_VL_VNNI
+    // The kernel handles any dim, but below one 64-coordinate chunk scalar is at least as fast.
+    if (features.avx512f && features.avx512bw && features.avx512vl && features.avx512vnni &&
+        dim >= 64) {
+        return Choose_SQ4_SQ4_IP_implementation_AVX512F_BW_VL_VNNI(dim);
+    }
+#endif
+#ifdef OPT_AVX2
+    if (features.avx2 && dim >= 64) {
+        return Choose_SQ4_SQ4_IP_implementation_AVX2(dim);
+    }
+#endif
+#endif
+    return ret_dist_func;
 }
 
 // SQ8-FP32: asymmetric distance between SQ8 storage and FP32 query

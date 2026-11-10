@@ -39,7 +39,7 @@ endif()
 # Spaces benchmarks								                                          #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
 
-set(DATA_TYPE fp32 fp64 bf16 fp16 int8 uint8 sq8_fp32 sq8_fp16 sq8_sq8)
+set(DATA_TYPE fp32 fp64 bf16 fp16 int8 uint8 sq8_fp32 sq8_fp16 sq8_sq8 sq4_fp32 sq4_sq4)
 foreach(data_type IN LISTS DATA_TYPE)
 	add_executable(bm_spaces_${data_type} spaces_benchmarks/bm_spaces_${data_type}.cpp)
 	target_link_libraries(bm_spaces_${data_type} VectorSimilarity benchmark::benchmark)

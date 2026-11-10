@@ -45,6 +45,8 @@ on:
           - bm-sq8-compare-fp16
           - bm-sq8-train-fp32
           - bm-sq8-train-fp16
+          - bm-spaces-sq4-fp32
+          - bm-spaces-sq4-sq4
           - bm-svs-train-fp32
           - bm-svs-train-fp16
           - bm-basics-svs-fp32-single

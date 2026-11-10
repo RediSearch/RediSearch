@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include "VecSim/utils/alignment.h"
+#include "VecSim/spaces/quantized_distance_helpers.h"
 
 // SIMD translation units (functions/*.cpp) must not include this header; they call the exported
 // scalar functions (e.g. SQ8_FP32_L2Sqr) instead.
@@ -101,22 +102,7 @@ static inline float Stored_InnerProduct_Impl(const void *a, const void *b, size_
     // Compute inner product of quantized values: sum(q1[i]*q2[i])
     const float product = StorageType::code_dot(pVect1, pVect2, dim);
 
-    // Metadata follows byte payloads and is not necessarily float-aligned.
-    const auto *params1 = pVect1 + StorageType::data_bytes_count(dim);
-    const float min_val1 = load_unaligned<float>(params1 + StorageType::MIN_VAL * sizeof(float));
-    const float delta1 = load_unaligned<float>(params1 + StorageType::DELTA * sizeof(float));
-    const float sum1 = load_unaligned<float>(params1 + StorageType::SUM * sizeof(float));
-
-    // Get quantization parameters from pVect2
-    const auto *params2 = pVect2 + StorageType::data_bytes_count(dim);
-    const float min_val2 = load_unaligned<float>(params2 + StorageType::MIN_VAL * sizeof(float));
-    const float delta2 = load_unaligned<float>(params2 + StorageType::DELTA * sizeof(float));
-    const float sum2 = load_unaligned<float>(params2 + StorageType::SUM * sizeof(float));
-
-    // Apply the algebraic formula using precomputed sums:
-    // IP = min1*sum2 + min2*sum1 + delta1*delta2*sum(q1[i]*q2[i]) - dim*min1*min2
-    return min_val1 * sum2 + min_val2 * sum1 - static_cast<float>(dim) * min_val1 * min_val2 +
-           delta1 * delta2 * product;
+    return Stored_InnerProduct_FromCodeDot<StorageType>(pVect1, pVect2, dim, product);
 }
 
 /*

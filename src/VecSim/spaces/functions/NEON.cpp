@@ -19,6 +19,10 @@
 #include "VecSim/spaces/IP/IP_NEON_SQ8_FP32.h"
 #include "VecSim/spaces/IP/IP_NEON_SQ8_SQ8.h"
 #include "VecSim/spaces/L2/L2_NEON_SQ8_SQ8.h"
+#include "VecSim/spaces/IP/IP_NEON_SQ4_FP32.h"
+#include "VecSim/spaces/L2/L2_NEON_SQ4_FP32.h"
+#include "VecSim/spaces/IP/IP_NEON_SQ4_SQ4.h"
+#include "VecSim/spaces/L2/L2_NEON_SQ4_SQ4.h"
 
 namespace spaces {
 
@@ -98,6 +102,30 @@ dist_func_t<float> Choose_SQ8_FP32_IP_implementation_NEON(size_t dim) {
 dist_func_t<float> Choose_SQ8_FP32_Cosine_implementation_NEON(size_t dim) {
     dist_func_t<float> ret_dist_func;
     CHOOSE_IMPLEMENTATION(ret_dist_func, dim, 16, SQ8_FP32_CosineSIMD16_NEON);
+    return ret_dist_func;
+}
+
+dist_func_t<float> Choose_SQ4_FP32_IP_implementation_NEON(size_t dim) {
+    dist_func_t<float> ret_dist_func;
+    CHOOSE_IMPLEMENTATION(ret_dist_func, dim, 16, SQ4_FP32_InnerProductSIMD16_NEON);
+    return ret_dist_func;
+}
+
+dist_func_t<float> Choose_SQ4_FP32_L2_implementation_NEON(size_t dim) {
+    dist_func_t<float> ret_dist_func;
+    CHOOSE_IMPLEMENTATION(ret_dist_func, dim, 16, SQ4_FP32_L2SqrSIMD16_NEON);
+    return ret_dist_func;
+}
+
+dist_func_t<float> Choose_SQ4_SQ4_IP_implementation_NEON(size_t dim) {
+    dist_func_t<float> ret_dist_func;
+    CHOOSE_IMPLEMENTATION(ret_dist_func, dim, 16, SQ4_SQ4_InnerProductSIMD16_NEON);
+    return ret_dist_func;
+}
+
+dist_func_t<float> Choose_SQ4_SQ4_L2_implementation_NEON(size_t dim) {
+    dist_func_t<float> ret_dist_func;
+    CHOOSE_IMPLEMENTATION(ret_dist_func, dim, 16, SQ4_SQ4_L2SqrSIMD16_NEON);
     return ret_dist_func;
 }
 
