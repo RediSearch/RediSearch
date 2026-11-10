@@ -270,9 +270,11 @@ def checkMultiTagReturn(env, expected, default_dialect, is_sortable, is_sortable
         expr, 'LOAD', '1', '@val', *dialect_param)
     env.assertEqual(res[1][1].lower(), expected[3][2][1].lower())
 
+    # Groups per value (see test_multi_value_aggregation.py).
     res = conn.execute_command('FT.AGGREGATE', 'idx_flat',
         expr, 'GROUPBY', '1', '@val', *dialect_param)
-    env.assertEqual(res[1][1].lower(), expected[3][2][1].lower())
+    env.assertEqual([res[0], *sorted(res[1:])],
+                    [4, ['val', 'AL'], ['val', 'FL'], ['val', 'GA'], ['val', 'MS']], message=res)
 
     # Array
     env.expect('FT.SEARCH', 'idx_arr', expr,

@@ -497,6 +497,8 @@ typedef struct IndexSpecCache {
   char *lang_field;
   char *score_field;
   char *payload_field;
+  // Whether the index is on JSON documents, so field paths are JSONPaths.
+  bool is_json;
 } IndexSpecCache;
 
 /**

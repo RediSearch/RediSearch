@@ -22,7 +22,7 @@ use crate::{
 use document::DocumentType;
 use enumflags2::{BitFlags, bitflags};
 use key_list::KeyList;
-use redis_json_api::RedisJsonApi;
+use redis_json_api::{JsonPath, RedisJsonApi};
 use redis_module::RedisString;
 use std::{
     borrow::Cow,
@@ -48,6 +48,11 @@ pub enum RLookupOption {
     /// later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
     #[cheadergen(rename = "RLOOKUP_OPT_ALLLOADED")]
     AllLoaded = 0x02,
+
+    /// Lets [`RLookup::get_key_all_values`] hand out all-values keys. Set on
+    /// FT.AGGREGATE's first lookup.
+    #[cheadergen(rename = "RLOOKUP_OPT_ALLVALUES")]
+    AllValues = 0x04,
 }
 
 /// Helper type to represent a set of [`RLookupOption`]s.
@@ -591,6 +596,100 @@ impl<'a> RLookup<'a> {
         Some(slot)
     }
 
+    // ===== The all-values key of a multi-value field =====
+
+    /// The hidden key holding every value of the multi-value field `field_name` as
+    /// an array, and whether this call created it, in which case the caller must
+    /// have it loaded.
+    ///
+    /// GROUPBY reads a multi-value field through this key rather than the field's
+    /// own, so the other steps of a query keep seeing the field as before. The key
+    /// is [`RLookupKeyFlag::AllValues`] and is always loaded from the document,
+    /// never the sorting vector: the sorting vector normalizes a document holding
+    /// one value but not one holding several, so grouping on it would split equal
+    /// values.
+    ///
+    /// `None` when `field_name` should resolve as usual instead:
+    /// - the lookup does not [opt in][RLookupOption::AllValues];
+    /// - it is not a multi-value field: not a field of a JSON index, or one whose
+    ///   path matches at most one value (see [`JsonPath::is_single`]);
+    /// - an earlier step put a value of its own under that name, such as an
+    ///   `APPLY` result or a `LOAD` alias of another field.
+    pub fn get_key_all_values(
+        &mut self,
+        field_name: &CStr,
+        japi: &RedisJsonApi,
+    ) -> Option<(&RLookupKey<'a>, bool)> {
+        let (slot, is_new) = self.get_key_all_values_slot(field_name, japi)?;
+        Some((self.keys.get(slot)?, is_new))
+    }
+
+    /// FFI-facing variant of [`Self::get_key_all_values`] that preserves the
+    /// allocation's raw-pointer provenance.
+    #[doc(hidden)]
+    pub fn get_key_all_values_ptr(
+        &mut self,
+        field_name: &CStr,
+        japi: &RedisJsonApi,
+    ) -> Option<(NonNull<RLookupKey<'a>>, bool)> {
+        let (slot, is_new) = self.get_key_all_values_slot(field_name, japi)?;
+        Some((self.keys.get_ptr(slot)?, is_new))
+    }
+
+    fn get_key_all_values_slot(
+        &mut self,
+        field_name: &CStr,
+        japi: &RedisJsonApi,
+    ) -> Option<(u16, bool)> {
+        if !self.options.contains(RLookupOption::AllValues) {
+            return None;
+        }
+        let cache = self
+            .index_spec_cache
+            .as_ref()
+            .filter(|cache| cache.is_json())?;
+        let fs = cache.find_field(field_name)?;
+        // Safety: the spec cache owns its fields and their name buffers.
+        let path = unsafe { FieldSpec::from_raw(fs) }
+            .field_path()
+            .secret_value();
+        if !is_multi_value(path, japi) {
+            return None;
+        }
+
+        // A key of the same name that is not this field's own holds a value an
+        // earlier step produced, which must be used instead.
+        if let Some(slot) = self.keys.find_slot(field_name) {
+            let key = self.keys.get(slot)?;
+            let is_the_field = key.flags.contains(RLookupKeyFlag::SchemaSrc)
+                && key.path().as_deref() == Some(path);
+            if !is_the_field {
+                return None;
+            }
+        }
+
+        let name = all_values_key_name(field_name);
+        if let Some(slot) = self.keys.find_slot(&name) {
+            let key = self.keys.get(slot)?;
+            return key
+                .flags
+                .contains(RLookupKeyFlag::AllValues)
+                .then_some((slot, false));
+        }
+
+        let mut key = RLookupKey::new(
+            name,
+            RLookupKeyFlag::DocSrc
+                | RLookupKeyFlag::IsLoaded
+                | RLookupKeyFlag::Hidden
+                | RLookupKeyFlag::AllValues,
+        );
+        key.update_from_field_spec(fs);
+        key.flags
+            .remove(RLookupKeyFlag::SvSrc | RLookupKeyFlag::ValAvailable);
+        Some((self.keys.push_slot(key), true))
+    }
+
     /// The row len of the [`RLookup`] is the number of keys in its key list not counting the overridden keys.
     pub fn get_row_len(&self) -> u32 {
         self.keys.row_len()
@@ -719,6 +818,23 @@ fn create_key_from_data<'a>(
 
         RLookupKey::new_with_path(field_name, path, RLookupKeyFlags::empty())
     }
+}
+
+/// Whether `path` is a JSONPath that can match several values.
+fn is_multi_value(path: &CStr, japi: &RedisJsonApi) -> bool {
+    // Safety: `path` outlives the parsed path, which is dropped before returning.
+    unsafe { JsonPath::parse_no_error_msg(path, japi) }.is_some_and(|path| !path.is_single())
+}
+
+/// The name of the [all-values key][RLookup::get_key_all_values] of `field_name`.
+/// The control-character prefix makes a clash with a user-chosen name unlikely;
+/// an alias that does clash is an ordinary key of that name, which
+/// [`RLookup::get_key_all_values`] never hands out.
+fn all_values_key_name(field_name: &CStr) -> Cow<'static, CStr> {
+    let mut name = Vec::with_capacity(field_name.count_bytes() + 1);
+    name.push(0x01);
+    name.extend_from_slice(field_name.to_bytes());
+    Cow::Owned(CString::new(name).expect("a C string has no interior nul"))
 }
 
 pub mod opaque {
